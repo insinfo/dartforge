@@ -123,6 +123,9 @@ fn contratos_arc_cobrem_exportacoes_sem_inventar_contratos_para_outras_externs()
                         | "dartforge_rti_iniciar_tabela"
                         | "dartforge_ffi_endereco_da_closure"
                         | "dartforge_ffi_endereco_do_ponteiro"
+                        | "dartforge_ffi_handles_abrir"
+                        | "dartforge_ffi_handle_novo"
+                        | "dartforge_ffi_handles_fechar"
                 )
         })
         .collect();

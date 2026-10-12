@@ -482,6 +482,50 @@ pub unsafe extern "C" fn dartforge_ffi_callback_ponteiro(ctx: i64, i: i64, ender
     novo_ponteiro(endereco, tipo)
 }
 
+/// A closure do callback sob ARC, com um owner do código.
+///
+/// A closure continua raiz do contexto até o `close()`; o owner é do código
+/// gerado, que o transfere ou chama release exatamente uma vez. Não aloca no
+/// heap, não executa Dart nem deixa exceção pendente.
+///
+/// # Safety
+/// Como [`dartforge_ffi_callback_entrar`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_arc_ffi_callback_closure_owned_v1(ctx: i64) -> i64 {
+    // SAFETY: o contrato acima.
+    let closure = unsafe { dartforge_ffi_callback_closure(ctx) };
+    dartforge_arc_retain(closure);
+    closure
+}
+
+/// O `Pointer<X>` do argumento `i` sob ARC, com um owner do código.
+///
+/// O ajudante Dart `_dartforgePonteiro` roda dentro de um escopo nativo: o
+/// token do retorno da porta Owned fica nele e é copiado para o owner do
+/// chamador antes de fechar. Uma exceção do ajudante fica pendente e o
+/// resultado é null, sem owner. Pode alocar, coletar e executar Dart.
+///
+/// # Safety
+/// Como [`dartforge_ffi_callback_entrar`].
+///
+/// # Panics
+/// Ajudante ausente, registro Owned incompatível ou escopo reentrante não
+/// fechado; aborta no limite C.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_arc_ffi_callback_ponteiro_owned_v1(ctx: i64, i: i64, endereco: i64) -> i64 {
+    let escopo = EscopoUniformeArc(dartforge_arc_escopo_nativo_abrir_v1());
+    // SAFETY: o contrato acima.
+    let ponteiro = unsafe { dartforge_ffi_callback_ponteiro(ctx, i, endereco) };
+    let resultado = if dartforge_exception_pending() != 0 {
+        0
+    } else {
+        dartforge_arc_retain(ponteiro);
+        ponteiro
+    };
+    drop(escopo);
+    resultado
+}
+
 /// A entrada C terminou a chamada: devolve 1 (e o retorno excepcional em
 /// `saida`) se a closure lançou — a exceção é descartada, como na VM.
 /// Solta o contexto se ele foi fechado durante a chamada.
@@ -598,6 +642,32 @@ fn inteiro_do_argumento(v: crate::heap::Valor) -> Option<i64> {
         crate::heap::Valor::Bool(b) => Some(i64::from(b)),
         crate::heap::Valor::Double(_) => None,
         crate::heap::Valor::Ref(r) => HEAP.with(|h| h.borrow().int_de(r)),
+    }
+}
+
+#[cfg(test)]
+mod testes_callback_owned {
+    use super::*;
+
+    #[test]
+    fn closure_do_callback_ganha_um_owner_e_solta_no_release() {
+        let closure = dartforge_arc_objeto_owned_v1(123, 1);
+        let ctx = Box::new(ContextoCallback {
+            modo: MODO_LOCAL, isolado: 0, closure, porta: 0, assinatura: 0,
+            chave: String::new(), excepcional: 0, ativas: 0,
+            fechado: false, trampolim: 0,
+        });
+        let endereco = (&*ctx as *const ContextoCallback) as i64;
+        // SAFETY: o contexto acima vive até o fim do teste.
+        let owner = unsafe { dartforge_arc_ffi_callback_closure_owned_v1(endereco) };
+        assert_eq!(owner, closure);
+        assert_eq!(dartforge_exception_pending(), 0);
+        dartforge_arc_release(closure);
+        dartforge_arc_collect();
+        assert_eq!(dartforge_arc_observar_heap_v1(closure), 3);
+        dartforge_arc_release(owner);
+        dartforge_arc_collect();
+        assert_eq!(dartforge_arc_observar_heap_v1(closure), 0);
     }
 }
 

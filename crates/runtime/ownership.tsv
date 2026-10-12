@@ -12,6 +12,14 @@ dartforge_arc_rti_texto_owned_v1	i64:native	ref:owned	0	1	normal
 dartforge_rti_iniciar_tabela	ptr:native,i64:scalar	void:scalar	0	0	normal
 dartforge_ffi_endereco_da_closure	ref:borrow	i64:scalar	0	1	pending
 dartforge_ffi_endereco_do_ponteiro	ref:borrow	i64:scalar	0	1	pending-dart
+dartforge_ffi_handles_abrir	-	i64:scalar	0	0	normal
+dartforge_ffi_handle_novo	ref:borrow	i64:scalar	1	0	normal
+dartforge_ffi_handles_fechar	i64:scalar	void:scalar	0	1	normal
+dartforge_arc_ffi_handles_fechar_com_objeto_owned_v1	i64:scalar,i64:native	ref:owned	0	1	pending-dart
+dartforge_arc_ffi_objeto_do_handle_owned_v1	i64:native	ref:owned	0	1	pending-dart
+dartforge_arc_ffi_callback_closure_owned_v1	i64:native	ref:owned	0	1	normal
+dartforge_arc_ffi_callback_ponteiro_owned_v1	i64:native,i64:scalar,i64:native	ref:owned	0	1	pending-dart
+dartforge_arc_ffi_ponteiro_de_retorno_owned_v1	i64:native,ref:borrow	ref:owned	0	1	pending-dart
 dartforge_arc_closure_owned_v1	i64:native,ref:borrow,i64:native,i64:scalar	ref:owned	1	1	normal
 dartforge_arc_excecao_owned_v1	-	ref:owned	0	1	normal
 dartforge_arc_global_receber_v1	i64:native,ref:consume	void:scalar	1	1	normal

@@ -245,6 +245,32 @@ pub extern "C" fn dartforge_ffi_ponteiro_de_retorno(endereco: i64, clo: i64) -> 
     }))
 }
 
+/// O `Pointer<X>` que uma chamada nativa devolve, sob ARC, com um owner do
+/// código.
+///
+/// `clo` é emprestada pelo chamador. O ajudante Dart `_dartforgePonteiro`
+/// roda dentro de um escopo nativo: o token do retorno da porta Owned fica
+/// nele e é copiado para o owner do chamador antes de fechar. Uma exceção
+/// do ajudante fica pendente e o resultado é null, sem owner. Pode alocar,
+/// coletar e executar Dart.
+///
+/// # Panics
+/// Ajudante ausente, registro Owned incompatível ou escopo reentrante não
+/// fechado; aborta no limite C.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_ffi_ponteiro_de_retorno_owned_v1(endereco: i64, clo: i64) -> i64 {
+    let escopo = EscopoUniformeArc(dartforge_arc_escopo_nativo_abrir_v1());
+    let ponteiro = dartforge_ffi_ponteiro_de_retorno(endereco, clo);
+    let resultado = if dartforge_exception_pending() != 0 {
+        0
+    } else {
+        dartforge_arc_retain(ponteiro);
+        ponteiro
+    };
+    drop(escopo);
+    resultado
+}
+
 /// Um `Pointer` Dart com o endereço e, se conhecido, o tipo `Pointer<X>`.
 fn novo_ponteiro(endereco: i64, tipo: Option<i64>) -> i64 {
     let Some(f) = ajudante("_dartforgePonteiro") else {
@@ -956,11 +982,71 @@ pub extern "C" fn dartforge_ffi_handle_novo(obj: i64) -> i64 {
 /// O objeto de um `Handle` devolvido pelo C.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_ffi_objeto_do_handle(handle: i64) -> i64 {
-    let vivo = CELULAS_DE_HANDLE.with(|c| c.borrow().iter().rev().any(|&x| x as i64 == handle));
-    if !vivo {
-        lancar_erro_de_argumento("the native code returned a Handle that is not alive in this isolate");
-        return 0;
+    match objeto_vivo_do_handle(handle) {
+        Some(obj) => obj,
+        None => {
+            lancar_handle_invalido();
+            0
+        }
     }
+}
+
+/// O objeto de `handle` se a célula está viva neste isolado; sem efeitos.
+fn objeto_vivo_do_handle(handle: i64) -> Option<i64> {
+    let vivo = CELULAS_DE_HANDLE.with(|c| c.borrow().iter().rev().any(|&x| x as i64 == handle));
     // SAFETY: a célula está viva (registrada neste isolado).
-    unsafe { *(handle as usize as *const i64) }
+    vivo.then(|| unsafe { *(handle as usize as *const i64) })
+}
+
+fn lancar_handle_invalido() {
+    lancar_erro_de_argumento("the native code returned a Handle that is not alive in this isolate");
+}
+
+/// O objeto do `Handle` devolvido por uma chamada nativa, fechando em
+/// seguida o escopo `escopo` dos handles dela — também quando o `Handle` é
+/// inválido, caso em que a `ArgumentError` fica pendente e o resultado é
+/// null. Assim a saída excepcional não deixa células (e raízes) para trás.
+///
+/// Sob tracing, nada coleta entre ler a célula e devolver o objeto.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_ffi_handles_fechar_com_objeto(escopo: i64, handle: i64) -> i64 {
+    let obj = objeto_vivo_do_handle(handle);
+    dartforge_ffi_handles_fechar(escopo);
+    obj.unwrap_or_else(|| {
+        lancar_handle_invalido();
+        0
+    })
+}
+
+/// [`dartforge_ffi_handles_fechar_com_objeto`] sob ARC: o objeto ganha um
+/// owner do código antes de as células do escopo soltarem as suas raízes.
+/// Handle inválido: `ArgumentError` pendente, null e nenhum owner.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_ffi_handles_fechar_com_objeto_owned_v1(escopo: i64, handle: i64) -> i64 {
+    let obj = objeto_vivo_do_handle(handle);
+    if let Some(o) = obj {
+        dartforge_arc_retain(o);
+    }
+    dartforge_ffi_handles_fechar(escopo);
+    obj.unwrap_or_else(|| {
+        lancar_handle_invalido();
+        0
+    })
+}
+
+/// [`dartforge_ffi_objeto_do_handle`] sob ARC, com um owner do código (o
+/// argumento `Handle` de um callback, cuja célula é do escopo de fora).
+/// Handle inválido: `ArgumentError` pendente, null e nenhum owner.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_ffi_objeto_do_handle_owned_v1(handle: i64) -> i64 {
+    match objeto_vivo_do_handle(handle) {
+        Some(obj) => {
+            dartforge_arc_retain(obj);
+            obj
+        }
+        None => {
+            lancar_handle_invalido();
+            0
+        }
+    }
 }

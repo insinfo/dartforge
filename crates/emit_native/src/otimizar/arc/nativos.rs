@@ -21,6 +21,43 @@ pub(super) fn preparar(f: &mut Function) -> Result<(), String> {
             *name = "dartforge_arc_lista_len_v1".into();
             continue;
         }
+        // Callback FFI: a closure do contexto e o `Pointer` do argumento
+        // ganham owner do código, pela porta Owned no caso do ponteiro.
+        let callback = match name.as_str() {
+            "dartforge_ffi_callback_closure" => Some(("dartforge_arc_ffi_callback_closure_owned_v1", 1)),
+            "dartforge_ffi_callback_ponteiro" => Some(("dartforge_arc_ffi_callback_ponteiro_owned_v1", 3)),
+            _ => None,
+        };
+        if let Some((owned, n)) = callback {
+            if *ty != Type::Ref || *ret_ty != Type::Ref || args.len() != n || args.iter().any(|(_, t)| *t != Type::I64) {
+                return Err(format!("callback FFI ARC em {} v{}: ABI I64/Ref incompatível", f.symbol, v.0));
+            }
+            *name = owned.into();
+            continue;
+        }
+        // O objeto de um `Handle`: argumento de callback ou retorno de uma
+        // chamada nativa (lido antes de fechar o escopo das células).
+        let handle = match name.as_str() {
+            "dartforge_ffi_objeto_do_handle" => Some(("dartforge_arc_ffi_objeto_do_handle_owned_v1", 1)),
+            "dartforge_ffi_handles_fechar_com_objeto" => Some(("dartforge_arc_ffi_handles_fechar_com_objeto_owned_v1", 2)),
+            _ => None,
+        };
+        if let Some((owned, n)) = handle {
+            if *ty != Type::Ref || *ret_ty != Type::Ref || args.len() != n || args.iter().any(|(_, t)| *t != Type::I64) {
+                return Err(format!("handle FFI ARC em {} v{}: ABI I64/Ref incompatível", f.symbol, v.0));
+            }
+            *name = owned.into();
+            continue;
+        }
+        // O `Pointer` devolvido por uma chamada nativa: endereço e closure
+        // emprestada, owner do código pela porta Owned do ajudante.
+        if name == "dartforge_ffi_ponteiro_de_retorno" {
+            if *ty != Type::Ref || *ret_ty != Type::Ref || !matches!(args.as_slice(), [(_, Type::I64), (_, Type::Ref)]) {
+                return Err(format!("ponteiro de retorno ARC em {} v{}: ABI I64,Ref/Ref incompatível", f.symbol, v.0));
+            }
+            *name = "dartforge_arc_ffi_ponteiro_de_retorno_owned_v1".into();
+            continue;
+        }
         if name == "dartforge_rti_texto" {
             if *ty != Type::Ref || *ret_ty != Type::Ref || !matches!(args.as_slice(), [(_, Type::I64)]) {
                 return Err(format!("texto RTI ARC em {} v{}: ABI I64/Ref incompatível", f.symbol, v.0));
@@ -267,6 +304,156 @@ mod testes {
                 assert!(r.is_err(), "caso {caso}");
                 assert_eq!(format!("{m:?}"), antes);
                 assert_eq!(planos, ps);
+            }
+        }
+    }
+
+    #[test]
+    fn escopo_de_handles_empresta_argumento_e_le_retorno_com_owner_antes_de_fechar() {
+        for caso in 0..3 {
+            let mut m = Module::new();
+            m.memoria_arc = caso != 2;
+            let handle = if caso == 1 { (Operand::Val(ValueId(0)), Type::Ref) } else { (Operand::Val(ValueId(1)), Type::I64) };
+            let rt = |name: &str, args, ret_ty| Instruction::CallRuntime { name: name.into(), args, ret_ty };
+            let insts = vec![
+                (ValueId(2), rt("dartforge_ffi_handles_abrir", vec![], Type::I64), Type::I64),
+                (ValueId(3), rt("dartforge_ffi_handle_novo", vec![(Operand::Val(ValueId(0)), Type::Ref)], Type::I64), Type::I64),
+                (ValueId(4), rt("dartforge_ffi_handles_fechar_com_objeto", vec![(Operand::Val(ValueId(2)), Type::I64), handle], Type::Ref), Type::Ref),
+                (ValueId(5), rt("dartforge_exception_pending", vec![], Type::I8), Type::I8),
+                (ValueId(6), Instruction::ICmp(ICmpOp::Ne, Operand::Val(ValueId(5)), Operand::Constant(Constant::Int(0))), Type::I1),
+            ];
+            m.functions.push(Function { symbol: "nat".into(), name: "nat".into(), depuracao: None,
+                params: vec![(ValueId(0), "objeto".into(), Type::Ref), (ValueId(1), "devolvido".into(), Type::I64)],
+                return_ty: Type::Ref,
+                blocks: vec![BasicBlock { id: BlockId(0), instructions: insts,
+                        terminator: Terminator::CondBranch { cond: Operand::Val(ValueId(6)), then_block: BlockId(1), else_block: BlockId(2) } },
+                    BasicBlock { id: BlockId(1), instructions: vec![], terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))) },
+                    BasicBlock { id: BlockId(2), instructions: vec![], terminator: Terminator::Return(Some(Operand::Val(ValueId(4)))) }] });
+            m.retornos_ref_dart.insert("nat".into());
+            m.parametros_escalares_dart.insert("nat".into(), [ValueId(1)].into());
+            let mut planos = HashMap::from([("nat".into(), PlanoFuncaoDart::default())]);
+            let antes = format!("{m:?}");
+            let ps = planos.clone();
+            let r = preparar_arc_modulo_dart(&mut m, &mut planos);
+            match caso {
+                0 => {
+                    r.unwrap();
+                    assert_eq!(planos["nat"].classes[&ValueId(3)], Ownership::Trivial);
+                    assert_eq!(planos["nat"].classes[&ValueId(4)], Ownership::Owned);
+                    assert_eq!(planos["nat"].tokens.pendencias[&ValueId(4)], BlockId(1));
+                    let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+                    assert!(ir.contains("call i64 @dartforge_arc_ffi_handles_fechar_com_objeto_owned_v1("));
+                    assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (0, 0));
+                }
+                2 => {
+                    assert_eq!(r.unwrap(), (0, 0));
+                    assert_eq!(format!("{m:?}"), antes);
+                }
+                _ => {
+                    assert!(r.is_err(), "caso {caso}");
+                    assert_eq!(format!("{m:?}"), antes);
+                    assert_eq!(planos, ps);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn ponteiro_de_retorno_ffi_troca_por_entrada_owned_com_closure_emprestada() {
+        for caso in 0..3 {
+            let mut m = Module::new();
+            m.memoria_arc = caso != 2;
+            let clo = if caso == 1 { (Operand::Val(ValueId(1)), Type::I64) } else { (Operand::Val(ValueId(0)), Type::Ref) };
+            let insts = vec![
+                (ValueId(2), Instruction::CallRuntime { name: "dartforge_ffi_ponteiro_de_retorno".into(),
+                    args: vec![(Operand::Val(ValueId(1)), Type::I64), clo], ret_ty: Type::Ref }, Type::Ref),
+                (ValueId(3), Instruction::CallRuntime { name: "dartforge_exception_pending".into(), args: vec![], ret_ty: Type::I8 }, Type::I8),
+                (ValueId(4), Instruction::ICmp(ICmpOp::Ne, Operand::Val(ValueId(3)), Operand::Constant(Constant::Int(0))), Type::I1),
+            ];
+            m.functions.push(Function { symbol: "ent".into(), name: "ent".into(), depuracao: None,
+                params: vec![(ValueId(0), "closure".into(), Type::Ref), (ValueId(1), "endereco".into(), Type::I64)],
+                return_ty: Type::Ref,
+                blocks: vec![BasicBlock { id: BlockId(0), instructions: insts,
+                        terminator: Terminator::CondBranch { cond: Operand::Val(ValueId(4)), then_block: BlockId(1), else_block: BlockId(2) } },
+                    BasicBlock { id: BlockId(1), instructions: vec![], terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))) },
+                    BasicBlock { id: BlockId(2), instructions: vec![], terminator: Terminator::Return(Some(Operand::Val(ValueId(2)))) }] });
+            m.retornos_ref_dart.insert("ent".into());
+            m.parametros_escalares_dart.insert("ent".into(), [ValueId(1)].into());
+            let mut planos = HashMap::from([("ent".into(), PlanoFuncaoDart::default())]);
+            let antes = format!("{m:?}");
+            let ps = planos.clone();
+            let r = preparar_arc_modulo_dart(&mut m, &mut planos);
+            match caso {
+                0 => {
+                    r.unwrap();
+                    assert_eq!(planos["ent"].classes[&ValueId(2)], Ownership::Owned);
+                    assert_eq!(planos["ent"].tokens.pendencias[&ValueId(2)], BlockId(1));
+                    let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+                    assert!(ir.contains("call i64 @dartforge_arc_ffi_ponteiro_de_retorno_owned_v1("));
+                    assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (0, 0));
+                }
+                2 => {
+                    assert_eq!(r.unwrap(), (0, 0));
+                    assert_eq!(format!("{m:?}"), antes);
+                }
+                _ => {
+                    assert!(r.is_err(), "caso {caso}");
+                    assert_eq!(format!("{m:?}"), antes);
+                    assert_eq!(planos, ps);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn callback_ffi_troca_por_entradas_owned_e_confere_pendencia_do_ponteiro() {
+        for caso in 0..4 {
+            let mut m = Module::new();
+            m.memoria_arc = caso != 3;
+            let i64c = |n| (Operand::Constant(Constant::Int(n)), Type::I64);
+            let mut insts = vec![
+                (ValueId(1), Instruction::CallRuntime { name: "dartforge_ffi_callback_closure".into(),
+                    args: vec![(Operand::Val(ValueId(0)), Type::I64)], ret_ty: Type::Ref }, Type::Ref),
+                (ValueId(2), Instruction::CallRuntime { name: "dartforge_ffi_callback_ponteiro".into(),
+                    args: vec![(Operand::Val(ValueId(0)), Type::I64), i64c(0), i64c(0x1000)],
+                    ret_ty: if caso == 2 { Type::I64 } else { Type::Ref } }, if caso == 2 { Type::I64 } else { Type::Ref }),
+                (ValueId(3), Instruction::CallRuntime { name: "dartforge_exception_pending".into(), args: vec![], ret_ty: Type::I8 }, Type::I8),
+                (ValueId(4), Instruction::ICmp(ICmpOp::Ne, Operand::Val(ValueId(3)), Operand::Constant(Constant::Int(0))), Type::I1),
+            ];
+            if caso == 1 { insts.truncate(2); }
+            let terminador = if caso == 1 { Terminator::Return(Some(Operand::Val(ValueId(1)))) } else {
+                Terminator::CondBranch { cond: Operand::Val(ValueId(4)), then_block: BlockId(1), else_block: BlockId(2) } };
+            m.functions.push(Function { symbol: "cb".into(), name: "cb".into(), depuracao: None,
+                params: vec![(ValueId(0), "ctx".into(), Type::I64)], return_ty: Type::Ref,
+                blocks: vec![BasicBlock { id: BlockId(0), instructions: insts, terminator: terminador },
+                    BasicBlock { id: BlockId(1), instructions: vec![], terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))) },
+                    BasicBlock { id: BlockId(2), instructions: vec![], terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) }] });
+            m.retornos_ref_dart.insert("cb".into());
+            m.parametros_escalares_dart.insert("cb".into(), [ValueId(0)].into());
+            let mut planos = HashMap::from([("cb".into(), PlanoFuncaoDart::default())]);
+            let antes = format!("{m:?}");
+            let ps = planos.clone();
+            let r = preparar_arc_modulo_dart(&mut m, &mut planos);
+            match caso {
+                0 => {
+                    r.unwrap();
+                    assert_eq!(planos["cb"].classes[&ValueId(1)], Ownership::Owned);
+                    assert_eq!(planos["cb"].classes[&ValueId(2)], Ownership::Owned);
+                    assert_eq!(planos["cb"].tokens.pendencias[&ValueId(2)], BlockId(1));
+                    let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+                    assert!(ir.contains("call i64 @dartforge_arc_ffi_callback_closure_owned_v1("));
+                    assert!(ir.contains("call i64 @dartforge_arc_ffi_callback_ponteiro_owned_v1("));
+                    assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (0, 0));
+                }
+                3 => {
+                    assert_eq!(r.unwrap(), (0, 0));
+                    assert_eq!(format!("{m:?}"), antes);
+                }
+                _ => {
+                    assert!(r.is_err(), "caso {caso}");
+                    assert_eq!(format!("{m:?}"), antes);
+                    assert_eq!(planos, ps);
+                }
             }
         }
     }

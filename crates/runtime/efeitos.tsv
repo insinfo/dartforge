@@ -17,6 +17,11 @@ dartforge_arc_box_int_owned_v1	1	0	0
 dartforge_arc_box_simd_owned_v1	1	0	0
 dartforge_arc_collect	1	0	0
 dartforge_arc_excecao_owned_v1	1	0	0
+dartforge_arc_ffi_callback_closure_owned_v1	1	0	0
+dartforge_arc_ffi_callback_ponteiro_owned_v1	1	1	1
+dartforge_arc_ffi_handles_fechar_com_objeto_owned_v1	1	1	1
+dartforge_arc_ffi_objeto_do_handle_owned_v1	1	1	1
+dartforge_arc_ffi_ponteiro_de_retorno_owned_v1	1	1	1
 dartforge_arc_global_receber_v1	0	0	0
 dartforge_arc_gravar_ref	0	0	0
 dartforge_arc_gravar_campo_escalar_v1	0	0	0
@@ -85,9 +90,10 @@ dartforge_ffi_copiar_composto	1	1	0
 dartforge_ffi_endereco_da_closure	1	1	0
 dartforge_ffi_endereco_do_composto	1	1	1
 dartforge_ffi_endereco_do_ponteiro	1	1	1
-dartforge_ffi_handle_novo	1	1	0
-dartforge_ffi_handles_abrir	1	1	0
-dartforge_ffi_handles_fechar	1	1	0
+dartforge_ffi_handle_novo	0	0	0
+dartforge_ffi_handles_abrir	0	0	0
+dartforge_ffi_handles_fechar	0	0	0
+dartforge_ffi_handles_fechar_com_objeto	1	1	1
 dartforge_ffi_objeto_do_handle	1	1	1
 dartforge_ffi_ponteiro_de_retorno	1	1	1
 dartforge_ffi_ponteiro_novo	1	1	1

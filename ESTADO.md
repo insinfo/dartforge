@@ -9,18 +9,20 @@ incompletos**.
 ### Ambiente desta máquina
 
 * LLVM 22.1.8 oficial (`LLVM-22.1.8-macOS-ARM64`, recorte igual ao da ação
-  `llvm-unix`) em `/Volumes/SSD Dock/llvm/LLVM-22.1.8-macOS-ARM64`; Dart 3.6.2
-  em `/Volumes/SSD Dock/DartSDKs/3.6.2`; `gh` 2.102.0 em
-  `/Volumes/SSD Dock/tools/gh` (já autenticado). Exportar `DARTFORGE_CLANG`,
+  `llvm-unix`) em `/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64`; Dart
+  3.6.2 em `~/tools/dart/3.6.2/dart-sdk` (o de `/Volumes/ssd_dock/DartSDKs`
+  é o de Windows); `gh` no PATH, já autenticado. Exportar `DARTFORGE_CLANG`,
   `DARTFORGE_LLVM_DIR`, `LLVM_SYS_221_PREFIX`, `DARTFORGE_SDK_LIB` e
-  `SDKROOT="$(xcrun --show-sdk-path)"`: o clang do pacote não acha o SDK
-  sozinho.
-* Sem `llvm-embutido`/JIT, o Rust liga pelo linker da Apple e o emissor usa o
-  clang/`ld64.lld` do pacote. Com JIT, o linker do pacote exige
-  `SDKROOT=…/MacOSX26.5.sdk`: os `.tbd` do SDK 27 trazem `arm64e.x1`, que o
-  LLVM 22 não reconhece. Mesmo assim, o `llvm-sys` não compila a partir de
-  um caminho com espaço (“SSD Dock” vira dois argumentos de `-I`). O JIT
-  local fica pendente de um LLVM num caminho sem espaço.
+  `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk`: o clang
+  do pacote não acha o SDK sozinho. O diagnóstico ARC exige também
+  `DARTFORGE_MEMORIA=arc`; `compile-native --emit-ir` procura `ld64.lld` no
+  PATH (pôr o `bin` do LLVM nele).
+* O volume passou de “SSD Dock” a `ssd_dock`. Os build scripts guardam o
+  caminho antigo por `env!`: depois de mudar o caminho, `touch
+  crates/*/build.rs` (senão “manifest path … does not exist”). Sem o espaço,
+  o `llvm-sys` do JIT local deixa de ter o impedimento anterior (ainda não
+  experimentado). Com JIT, o linker do pacote exige o SDK 26.5: os `.tbd`
+  do SDK 27 trazem `arm64e.x1`, que o LLVM 22 não reconhece.
 * `python3` do sistema é 3.9: `scripts/provar-arc-aot.py` deixou de usar
   `write_text(newline=)`.
 
@@ -75,18 +77,43 @@ em `bench/desempenho/numerico.dart` passou, em ordem, por:
   (`dartforge_ffi_callback_sair` limpa a exceção do callback) e com
   reentrada Dart.
 
-**Próximo erro:** `df.ffi.v_lp$cb`, `dartforge_ffi_callback_closure` sem
-contrato. A closure vem do contexto nativo (não de um parâmetro Ref), e
-`dartforge_ffi_callback_ponteiro` chama `_dartforgePonteiro` em Dart. Ambos
-pedem variantes Owned pelo protocolo de porta/escopo nativo do
-`recvfrom` UDP, não um contrato emprestado.
+* `df.ffi.v_lp$cb` (corpo do callback): o lowering registra, sob ARC, o
+  contexto e os argumentos não-Ref como fatos escalares. A closure do
+  contexto e o `Pointer` do argumento ganham owner por
+  `dartforge_arc_ffi_callback_closure_owned_v1` e
+  `dartforge_arc_ffi_callback_ponteiro_owned_v1` (o ajudante Dart roda num
+  escopo nativo; o token da porta Owned é copiado antes de fechar).
+* `df.ffi.p_$ent`: `dartforge_arc_ffi_ponteiro_de_retorno_owned_v1`, com a
+  closure emprestada e o mesmo protocolo de escopo.
+* `df.ffi.l_HHl$ent` (`Handle`): o escopo de handles agora abre depois das
+  conversões que lançam e fecha antes das do retorno. Corrige um defeito
+  também do tracing: uma exceção entre abrir e fechar (ou qualquer retorno
+  de struct, que nunca fechava) deixava células e raízes para sempre. O
+  `Handle` devolvido é lido e o escopo fechado na mesma chamada
+  (`dartforge_ffi_handles_fechar_com_objeto`; sob ARC, a variante Owned
+  retém antes de soltar as células). `handles_abrir`, `handle_novo` e
+  `handles_fechar` passaram de `1 1 0` para `0 0 0`, conferido por
+  execução com `DARTFORGE_EFEITOS=conferir` (29 pontos instrumentados no
+  IR), normal e sob GC stress, tracing e ARC legado da CLI: saída igual à
+  do `dart run` 3.6.2 (`target/prova-handles/`). Handle inválido: a VM não
+  confere (comportamento indefinido); o DartForge lança `ArgumentError` e
+  fecha o escopo — exercitado 3000 vezes sob GC stress.
+
+O módulo 0 (programa e FFI) passa inteiro. **Próximo erro:** módulo 1,
+`CodeUnits.length`: `df.texto_len` sem contrato. É uma família de
+ajudantes em IR inline sem contrato: `df.texto_*` (7), `df.nucleo_*` (5),
+`df.tipada_*` (6) e `df.identico`. As leituras escalares puras podem ganhar
+contrato emprestado do lado do emissor; `df.texto_alocar` precisa de owner;
+os que devolvem endereço derivado (`nucleo_armazenamento`, `tipada_dados`,
+`tipada_base`) precisam manter o dono vivo enquanto o endereço é usado.
 
 ### Evidências (macOS arm64, logs em `target/`)
 
 | verificação | resultado |
 | --- | --- |
-| emissor, unitários incluindo ignorados | 456 passaram (`arc-sdk-emitter-test.log`) |
-| runtime, todos os alvos incluindo ignorados | 226 + integrações + 77 doctests (`arc-sdk-runtime-test.log`) |
+| emissor, unitários incluindo ignorados | 459 passaram (`ffi-handles-emitter-test.log`) |
+| runtime, todos os alvos incluindo ignorados | 227 + integrações + 77 doctests (`ffi-handles-runtime-test.log`) |
+| `Handle` AOT, tracing/ARC, normal/GC stress, efeitos conferidos | 8 execuções, saída igual ao Dart (`prova-handles/`) |
 | `provar-arc-aot.py arc_porta_nativa_owned --debug` | 24 execuções, `sucesso` (`prova-porta-nativa-owned/evidencia.json`) |
 | `memoria_cli` (nativo, sem JIT), incluindo ignorados | 2 passaram (`memoria-cli.log`) |
 | interpolação/lista/`runtimeType` pela CLI, tracing e ARC, GC stress | saída igual ao `dart run` 3.6.2 |

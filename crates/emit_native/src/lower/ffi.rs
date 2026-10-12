@@ -445,6 +445,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let contexto = Operand::Val(self.add_param("ctx".to_string(), Type::I64));
         let valores: Vec<Operand> =
             a.params.iter().enumerate().map(|(i, t)| Operand::Val(self.add_param(format!("a{i}"), t.tipo_hir()))).collect();
+        // Sob ARC, o contexto e os argumentos chegam da entrada C já em
+        // representação escalar (endereços, handles e números): Trivial.
+        if self.ctx.memoria_arc {
+            let escalares: std::collections::HashSet<ValueId> = self
+                .func
+                .params
+                .iter()
+                .filter(|(_, _, t)| matches!(t, Type::I64 | Type::F64 | Type::I1 | Type::I8))
+                .map(|(v, _, _)| *v)
+                .collect();
+            self.parametros_escalares_dart.entry(self.func.symbol.clone()).or_default().extend(escalares);
+        }
         let clo = self.emit(
             Instruction::CallRuntime {
                 name: "dartforge_ffi_callback_closure".to_string(),
@@ -464,7 +476,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     },
                     Type::Ref,
                 ),
-                (TipoNativo::Prim(TipoC::Ptr), _) => self.emit(
+                // O `Pointer` vem do ajudante Dart, que pode lançar.
+                (TipoNativo::Prim(TipoC::Ptr), _) => self.emit_call_with_check(
                     Instruction::CallRuntime {
                         name: "dartforge_ffi_callback_ponteiro".to_string(),
                         args: vec![(contexto.clone(), Type::I64), (Operand::Constant(Constant::Int(i as i64)), Type::I64), (v, Type::I64)],
@@ -1419,25 +1432,23 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             )
         };
         // `Handle`: as células dos objetos passados vivem num escopo aberto
-        // em volta da chamada (os handles locais da VM).
+        // só em volta da chamada (os handles locais da VM). As conversões
+        // que podem lançar vêm antes de abri-lo, e o retorno é convertido
+        // depois de fechá-lo: nenhuma saída excepcional deixa células para
+        // trás. Criar uma célula não lança, logo a ordem observável das
+        // conversões dos outros argumentos se mantém.
         let com_handles = std::iter::once(&a.ret).chain(a.params.iter()).any(|t| matches!(t, TipoNativo::Prim(TipoC::Handle)));
-        let escopo = com_handles.then(|| {
-            self.emit(
-                Instruction::CallRuntime { name: "dartforge_ffi_handles_abrir".to_string(), args: Vec::new(), ret_ty: Type::I64 },
-                Type::I64,
-            )
-        });
         let mut nativos = Vec::with_capacity(a.params.len());
         for (v, t) in args.iter().cloned().zip(a.params.iter()) {
             let x = match t {
-                TipoNativo::Prim(TipoC::Handle) => endereco(self, "dartforge_ffi_handle_novo", v),
+                TipoNativo::Prim(TipoC::Handle) => self.coagir(v, Type::Ref),
                 TipoNativo::Prim(TipoC::Ptr) => endereco(self, "dartforge_ffi_endereco_do_ponteiro", v),
                 TipoNativo::Composto(_) => endereco(self, "dartforge_ffi_endereco_do_composto", v),
                 TipoNativo::Prim(tc) => self.coagir(v, tc.tipo_hir()),
             };
             nativos.push((x, t.clone()));
         }
-        match (&a.ret, a.classe_ret) {
+        let struct_devolvida = match (&a.ret, a.classe_ret) {
             (TipoNativo::Composto(_), Some(c)) => {
                 let novo = self.emit_call_with_check(
                     Instruction::CallRuntime {
@@ -1448,70 +1459,91 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     Type::Ref,
                 );
                 let destino = endereco(self, "dartforge_ffi_endereco_do_composto", novo.clone());
-                self.emit(
-                    Instruction::ChamadaNativaComposta { alvo, args: nativos, ret: a.ret.clone(), destino: Some(destino), variadica: a.variadica },
-                    Type::Void,
-                );
-                novo
+                Some((novo, destino))
             }
             (TipoNativo::Composto(_), None) => unreachable!("struct devolvida sem classe"),
-            (TipoNativo::Prim(ret), _) => {
-                let ret = *ret;
-                let r = if a.variadica.is_none() && nativos.iter().all(|(_, t)| matches!(t, TipoNativo::Prim(_))) {
-                    let prims = nativos
-                        .into_iter()
-                        .map(|(x, t)| match t {
-                            TipoNativo::Prim(tc) => (x, tc),
-                            TipoNativo::Composto(_) => unreachable!(),
-                        })
-                        .collect();
-                    self.emit(Instruction::ChamadaNativa { alvo, args: prims, ret }, ret.tipo_hir())
-                } else {
-                    self.emit(
-                        Instruction::ChamadaNativaComposta { alvo, args: nativos, ret: a.ret.clone(), destino: None, variadica: a.variadica },
-                        ret.tipo_hir(),
-                    )
-                };
-                let trampolim = closure.is_some();
-                let resultado = match (ret, closure) {
-                    (TipoC::Void, _) => Operand::Constant(Constant::Null),
-                    (TipoC::Handle, _) => self.emit_call_with_check(
-                        Instruction::CallRuntime {
-                            name: "dartforge_ffi_objeto_do_handle".to_string(),
-                            args: vec![(r, Type::I64)],
-                            ret_ty: Type::Ref,
-                        },
-                        Type::Ref,
-                    ),
-                    (TipoC::Ptr, Some(clo)) => self.emit_call_with_check(
-                        Instruction::CallRuntime {
-                            name: "dartforge_ffi_ponteiro_de_retorno".to_string(),
-                            args: vec![(r, Type::I64), (clo, Type::Ref)],
-                            ret_ty: Type::Ref,
-                        },
-                        Type::Ref,
-                    ),
-                    (TipoC::Ptr, None) => self.emit_call_with_check(
-                        Instruction::CallRuntime { name: "dartforge_ffi_ponteiro_novo".to_string(), args: vec![(r, Type::I64)], ret_ty: Type::Ref },
-                        Type::Ref,
-                    ),
-                    // O trampolim devolve `Ref`; um `@Native`, o valor cru
-                    // (quem chama o coage ao retorno Dart, sem caixa).
-                    _ if trampolim => self.coagir(r, Type::Ref),
-                    _ => r,
-                };
-                if let Some(e) = escopo {
-                    self.emit(
-                        Instruction::CallRuntime {
-                            name: "dartforge_ffi_handles_fechar".to_string(),
-                            args: vec![(e, Type::I64)],
-                            ret_ty: Type::Void,
-                        },
-                        Type::Void,
-                    );
-                }
-                resultado
+            _ => None,
+        };
+        let escopo = com_handles.then(|| {
+            self.emit(
+                Instruction::CallRuntime { name: "dartforge_ffi_handles_abrir".to_string(), args: Vec::new(), ret_ty: Type::I64 },
+                Type::I64,
+            )
+        });
+        for (x, t) in &mut nativos {
+            if matches!(t, TipoNativo::Prim(TipoC::Handle)) {
+                let obj = std::mem::replace(x, Operand::Constant(Constant::Null));
+                *x = self.emit(
+                    Instruction::CallRuntime { name: "dartforge_ffi_handle_novo".to_string(), args: vec![(obj, Type::Ref)], ret_ty: Type::I64 },
+                    Type::I64,
+                );
             }
+        }
+        let fechar = |b: &mut Self| {
+            if let Some(e) = escopo.clone() {
+                b.emit(
+                    Instruction::CallRuntime { name: "dartforge_ffi_handles_fechar".to_string(), args: vec![(e, Type::I64)], ret_ty: Type::Void },
+                    Type::Void,
+                );
+            }
+        };
+        if let Some((novo, destino)) = struct_devolvida {
+            self.emit(
+                Instruction::ChamadaNativaComposta { alvo, args: nativos, ret: a.ret.clone(), destino: Some(destino), variadica: a.variadica },
+                Type::Void,
+            );
+            fechar(self);
+            return novo;
+        }
+        let TipoNativo::Prim(ret) = a.ret else { unreachable!("retorno composto tratado acima") };
+        let r = if a.variadica.is_none() && nativos.iter().all(|(_, t)| matches!(t, TipoNativo::Prim(_))) {
+            let prims = nativos
+                .into_iter()
+                .map(|(x, t)| match t {
+                    TipoNativo::Prim(tc) => (x, tc),
+                    TipoNativo::Composto(_) => unreachable!(),
+                })
+                .collect();
+            self.emit(Instruction::ChamadaNativa { alvo, args: prims, ret }, ret.tipo_hir())
+        } else {
+            self.emit(
+                Instruction::ChamadaNativaComposta { alvo, args: nativos, ret: a.ret.clone(), destino: None, variadica: a.variadica },
+                ret.tipo_hir(),
+            )
+        };
+        // O objeto de um `Handle` devolvido é lido antes de o escopo soltar
+        // as células, na mesma chamada que o fecha.
+        if ret == TipoC::Handle {
+            let e = escopo.expect("retorno Handle abre o escopo");
+            return self.emit_call_with_check(
+                Instruction::CallRuntime {
+                    name: "dartforge_ffi_handles_fechar_com_objeto".to_string(),
+                    args: vec![(e, Type::I64), (r, Type::I64)],
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            );
+        }
+        fechar(self);
+        let trampolim = closure.is_some();
+        match (ret, closure) {
+            (TipoC::Void, _) => Operand::Constant(Constant::Null),
+            (TipoC::Ptr, Some(clo)) => self.emit_call_with_check(
+                Instruction::CallRuntime {
+                    name: "dartforge_ffi_ponteiro_de_retorno".to_string(),
+                    args: vec![(r, Type::I64), (clo, Type::Ref)],
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            ),
+            (TipoC::Ptr, None) => self.emit_call_with_check(
+                Instruction::CallRuntime { name: "dartforge_ffi_ponteiro_novo".to_string(), args: vec![(r, Type::I64)], ret_ty: Type::Ref },
+                Type::Ref,
+            ),
+            // O trampolim devolve `Ref`; um `@Native`, o valor cru
+            // (quem chama o coage ao retorno Dart, sem caixa).
+            _ if trampolim => self.coagir(r, Type::Ref),
+            _ => r,
         }
     }
 }

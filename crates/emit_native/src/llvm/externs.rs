@@ -413,6 +413,11 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: CONSERVADOR,
     },
     Extern {
+        // A mesma entrada sob ARC, com owner do código do resultado.
+        decl: "declare i64 @dartforge_arc_ffi_ponteiro_de_retorno_owned_v1(i64, i64)",
+        efeitos: Efeitos { aloca: true, lanca: true, chama_dart: true },
+    },
+    Extern {
         decl: "declare i64 @dartforge_typed_novo(i64, i64, i64)",
         efeitos: CONSERVADOR,
     },
@@ -797,19 +802,32 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare i64 @dartforge_ffi_handles_abrir()",
-        efeitos: CONSERVADOR,
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
         decl: "declare void @dartforge_ffi_handles_fechar(i64)",
-        efeitos: CONSERVADOR,
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
         decl: "declare i64 @dartforge_ffi_handle_novo(i64)",
-        efeitos: CONSERVADOR,
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
         decl: "declare i64 @dartforge_ffi_objeto_do_handle(i64)",
         efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_ffi_handles_fechar_com_objeto(i64, i64)",
+        efeitos: Efeitos { aloca: true, lanca: true, chama_dart: true },
+    },
+    Extern {
+        // As mesmas leituras sob ARC, com owner do código do objeto.
+        decl: "declare i64 @dartforge_arc_ffi_handles_fechar_com_objeto_owned_v1(i64, i64)",
+        efeitos: Efeitos { aloca: true, lanca: true, chama_dart: true },
+    },
+    Extern {
+        decl: "declare i64 @dartforge_arc_ffi_objeto_do_handle_owned_v1(i64)",
+        efeitos: Efeitos { aloca: true, lanca: true, chama_dart: true },
     },
     Extern {
         decl: "declare i64 @dartforge_ffi_composto_copia(i64, i64)",
@@ -842,6 +860,15 @@ pub const EXTERNS: &[Extern] = &[
     Extern {
         decl: "declare i64 @dartforge_ffi_callback_ponteiro(i64, i64, i64)",
         efeitos: CONSERVADOR,
+    },
+    Extern {
+        // As mesmas entradas sob ARC, com owner do código do resultado.
+        decl: "declare i64 @dartforge_arc_ffi_callback_closure_owned_v1(i64) nounwind",
+        efeitos: ALOCA_SEM_LANCAR,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_arc_ffi_callback_ponteiro_owned_v1(i64, i64, i64)",
+        efeitos: Efeitos { aloca: true, lanca: true, chama_dart: true },
     },
     Extern {
         decl: "declare i64 @dartforge_ffi_simbolo_nativo(ptr, i64)",
