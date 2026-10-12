@@ -543,7 +543,7 @@ fn emitir_ir_interno(
     // pequeno, uma chamada no grande.
     let llvm_ir = if podar && !excecoes_por_tabelas && !raizes_por_mapas && !memoria_arc {
         let modo = if grande { sdk_modulo::ContextoEmTls::PorChamada } else { sdk_modulo::ContextoEmTls::EmLinha };
-        sdk_modulo::com_contexto_em_tls(&llvm_ir, modo)
+        sdk_modulo::com_contexto_em_tls(&llvm_ir, modo, "df.ctx.tls.programa")
     } else {
         llvm_ir
     };

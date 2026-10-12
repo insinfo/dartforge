@@ -18,9 +18,11 @@
 //!   vetores, os ajudantes `@df.*` `alwaysinline`): copiados em cada parte
 //!   que os cita, com o que eles citam (fecho transitivo). São imutáveis, e
 //!   duas cópias privadas não se veem;
-//! * `internal global` mutável (só o `@df.area_id`, o índice da área de
-//!   globais do módulo): uma cópia por parte quebraria o estado — passa a
-//!   ter ligação externa na parte 0 e é declarada nas outras;
+//! * `internal global` mutável (o `@df.area_id`, o índice da área de
+//!   globais do módulo, e a variável por thread do contexto,
+//!   `sdk_modulo::com_contexto_em_tls`): uma cópia por parte quebraria o
+//!   estado — passa a ter ligação externa na parte 0 e é declarada nas
+//!   outras (a por thread, `thread_local`);
 //! * `declare`, o cabeçalho (`target`, `source_filename`), atributos e
 //!   metadados: em toda parte; `$x = comdat any`, na parte do item que o usa;
 //!   os comentários (`; df.classe`, `; df.campos`, que a recarga do JIT lê
@@ -240,7 +242,10 @@ fn declaracao(item: &Item) -> String {
             let r = r.trim_start().trim_start_matches('=').trim_start();
             let (palavra, depois) = cabeca_do_global(r);
             let tipo = tipo_no_comeco(depois);
-            format!("@{} = external {palavra} {tipo}\n", item.nome)
+            // A variável por thread (`@df.ctx.tls`, `sdk_modulo::com_contexto_em_tls`)
+            // continua por thread na declaração.
+            let tls = if r[..r.len() - depois.len()].split_whitespace().any(|w| w == "thread_local") { "thread_local " } else { "" };
+            format!("@{} = external {tls}{palavra} {tipo}\n", item.nome)
         }
         Tipo::Funcao => {
             let linha = item.texto.lines().next().unwrap_or("");
@@ -516,6 +521,16 @@ b0:\n\
         // O estado mutável: definido uma vez, com ligação externa.
         assert_eq!(p.iter().filter(|t| t.contains("@df.area_id = global i64 0")).count(), 1);
         assert!(p[0].contains("; df.classe"));
+    }
+
+    /// A variável por thread do contexto (`sdk_modulo::com_contexto_em_tls`)
+    /// é estado: uma definição, e a declaração nas outras partes continua
+    /// `thread_local`.
+    #[test]
+    fn variavel_por_thread_continua_por_thread() {
+        let m = ler("@df.ctx.tls.programa = internal thread_local global ptr null, align 8\n");
+        assert!(m.itens[0].mutavel);
+        assert_eq!(declaracao(&m.itens[0]), "@df.ctx.tls.programa = external thread_local global ptr\n");
     }
 
     #[test]
