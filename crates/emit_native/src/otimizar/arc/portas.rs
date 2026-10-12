@@ -79,9 +79,13 @@ impl PortasArcAot {
 
 // O construtor preparado conserva o endereço nominal e o descritor original.
 // Não registrar palavras arbitrárias ou deduzir Owned da largura do retorno.
-fn conferir_tipadas(
+// As chamadas tipadas acham o corpo pelo registro do runtime, do processo
+// inteiro. `abis_de_fora` traz ABIs registradas por outras imagens; `None`
+// só coleta os corpos, sem conferir as chamadas.
+pub(super) fn conferir_tipadas(
     m: &Module,
     planos: &HashMap<String, PlanoFuncaoDart>,
+    abis_de_fora: Option<&[i64]>,
 ) -> Result<Vec<(String, i64)>, String> {
     let funcoes: HashMap<_, _> = m.functions.iter().map(|f| (&f.symbol, f)).collect();
     let mut tipadas = Vec::new();
@@ -119,12 +123,15 @@ fn conferir_tipadas(
     }
     tipadas.sort();
     tipadas.dedup();
+    let Some(abis_de_fora) = abis_de_fora else { return Ok(tipadas) };
     for f in &m.functions {
         for (_, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
             if let Instruction::ChamadaTipada { args, ret, .. } = inst {
                 let params: Vec<_> = args.iter().map(|(_, t)| *t).collect();
                 let abi = super::objetos::abi_tipada(&params, *ret);
-                if !tipadas.iter().any(|(_, codigo)| Some(*codigo) == abi) {
+                if !tipadas.iter().any(|(_, codigo)| Some(*codigo) == abi)
+                    && !abi.is_some_and(|a| abis_de_fora.contains(&a))
+                {
                     return Err(format!("portas ARC: {} chama ABI tipada sem corpo registrado na imagem", f.symbol));
                 }
             }
@@ -186,10 +193,13 @@ fn conferir_vetores(m: &Module) -> Result<(), String> {
                         })
                     }
                     Instruction::LoadIndexed { base, index } => {
-                        *papel == VetorEntradaDart::Descritor
+                        (*papel == VetorEntradaDart::Descritor
                             && usa(base)
                             && matches!(index, Operand::Constant(Constant::Int(0 | 1)))
-                            && *t == Type::I64
+                            && *t == Type::I64)
+                            // O slot da tupla de tipos, pelo descritor.
+                            || (*papel == VetorEntradaDart::Argumentos
+                                && super::vetores::leitura_da_tupla(f, i, *t, papeis))
                     }
                     Instruction::CallRuntime { name, args, .. } => {
                         super::vetores::leitura_conferida(i, papeis) || (*papel == VetorEntradaDart::Descritor
@@ -204,7 +214,7 @@ fn conferir_vetores(m: &Module) -> Result<(), String> {
                 };
                 if !permitido {
                     return Err(format!(
-                        "portas ARC: vetor {papel:?} {s} v{} sem uso readonly coberto",
+                        "portas ARC: vetor {papel:?} {s} v{} sem uso readonly coberto: {i:?}",
                         v.0
                     ));
                 }
@@ -256,12 +266,25 @@ pub fn certificar_portas_arc_aot(
     m: &mut Module,
     planos: &HashMap<String, PlanoFuncaoDart>,
 ) -> Result<usize, String> {
+    certificar(m, planos, None)
+}
+
+/// [`certificar_portas_arc_aot`]. Com os layouts de um conjunto, quem chama
+/// já provou que a preparação do conjunto inteiro é idempotente
+/// (`modulos::certificar_portas_arc_modulos`), e as gravações conferidas
+/// usam esses layouts.
+pub(super) fn certificar(
+    m: &mut Module,
+    planos: &HashMap<String, PlanoFuncaoDart>,
+    layouts_do_conjunto: Option<&HashMap<u32, Vec<Type>>>,
+) -> Result<usize, String> {
+    let idempotencia = layouts_do_conjunto.is_none();
     if !m.memoria_arc {
         return Ok(0);
     }
     for f in &m.functions {
         for (_, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
-            super::campos::conferir_chamada(f, inst, Some(&m.layouts_campos_arc))?;
+            super::campos::conferir_chamada(f, inst, Some(layouts_do_conjunto.unwrap_or(&m.layouts_campos_arc)))?;
         }
     }
     let getters_rti = super::caches_rti::getters_rti(m, planos);
@@ -309,15 +332,25 @@ pub fn certificar_portas_arc_aot(
                 .values()
                 .any(|s| *s == SaidaPorExcecao::Retoma)
         {
+            let chamadas: Vec<String> = f.blocks.iter().flat_map(|b| &b.instructions)
+                .filter(|(v, _, _)| p.tabelas.invocacoes.contains_key(v))
+                .map(|(v, i, _)| format!("v{} {}", v.0, match i {
+                    Instruction::CallStatic { symbol, .. } => symbol.as_str(),
+                    _ => "?",
+                }))
+                .collect();
             return Err(format!(
-                "portas ARC: {} exige emissão de invokes/tabelas",
+                "portas ARC: {} exige emissão de invokes/tabelas: {chamadas:?}",
                 f.symbol
             ));
         }
         for (_, i, t) in f.blocks.iter().flat_map(|b| &b.instructions) {
             super::tipadas::conferir(f, i, *t)?;
             super::seletores::conferir_vetor_local(f, i, *t, Some(&getters_rti))?;
-            if matches!(i, Instruction::ICmp(_, a, b) if referencia(a) || referencia(b))
+            // Identidade (`==`/`!=` de handles, o teste de null) não converte
+            // a referência; ordem sobre handles seria coerção.
+            if matches!(i, Instruction::ICmp(op, a, b)
+                if (referencia(a) || referencia(b)) && !matches!(op, ICmpOp::Eq | ICmpOp::Ne))
                 || matches!(i, Instruction::StoreGlobal { val, ty, .. } if *ty == Type::Ref || referencia(val))
             {
                 return Err(format!(
@@ -337,8 +370,9 @@ pub fn certificar_portas_arc_aot(
                         arc_owned: false,
                         ..
                     }
-                    | Instruction::ChamadaNativa { .. }
-                    | Instruction::ChamadaNativaComposta { .. }
+                    // As chamadas C (`ChamadaNativa*`) têm ABI escalar
+                    // conferida pela preparação (`contratos::produzir`); a
+                    // reentrada por callback roda no escopo nativo da pilha.
                     | Instruction::GravacaoNativa { .. }
                     | Instruction::GetField { .. }
                     | Instruction::SetField { .. }
@@ -351,6 +385,7 @@ pub fn certificar_portas_arc_aot(
                     ) | Instruction::Phi { .. }
                         | Instruction::ArcCopy { .. }
                         | Instruction::ArcMove { .. }
+                        | Instruction::ArcLoadStrong { .. }
                         | Instruction::CallStatic { .. }
                         | Instruction::CallSeletorRepasse {
                             arc_owned: true,
@@ -364,16 +399,27 @@ pub fn certificar_portas_arc_aot(
                         | Instruction::ChamadaTipada { .. }
                         | Instruction::CallClosure { .. }
                         | Instruction::CallSeletor { .. }
+                        // As fábricas Owned que a preparação contrata
+                        // (`contratos::produzir`): literais, interpolação e
+                        // a caixa SIMD.
+                        | Instruction::AllocList { .. }
+                        | Instruction::AllocRecord { .. }
+                        | Instruction::JuntarTextos { .. }
+                        | Instruction::Box { .. }
                 ))
             {
                 return Err(format!(
-                    "portas ARC: {} contém operação sem ABI auditada",
+                    "portas ARC: {} contém operação sem ABI auditada: {i:?}",
                     f.symbol
                 ));
             }
             if let Instruction::CallRuntime { name, .. } = i
                 && crate::llvm::externs::efeitos_de(name).chama_dart
-                && name != "dartforge_arc_invocar_uniforme_v1"
+                // As ABIs `dartforge_arc_*` que rodam Dart abrem o escopo
+                // nativo por dentro (`em_escopo_nativo`/`owner_em_escopo_nativo`).
+                && !name.starts_with("dartforge_arc_")
+                && !name.starts_with(super::PREFIXO_ESCOPO_NATIVO)
+                && !name.starts_with(super::PREFIXO_OWNED_GENERICO)
             {
                 return Err(format!(
                     "portas ARC: {} tem fronteira runtime não escopada {name}",
@@ -392,11 +438,13 @@ pub fn certificar_portas_arc_aot(
             }
         }
     }
-    let antes = format!("{fs:?}");
-    let planos_antes = ps.clone();
-    let alteracoes = preparar_arc_funcoes_dart(&mut fs, &mut ps)?;
-    if alteracoes != (0, 0) || antes != format!("{fs:?}") || planos_antes != ps {
-        return Err("portas ARC: corpos/planos ainda não preparados ou divergentes".into());
+    if idempotencia {
+        let antes = format!("{fs:?}");
+        let planos_antes = ps.clone();
+        let alteracoes = super::funcoes::preparar_funcoes(&mut fs, &mut ps, m.arc_callees_externos)?;
+        if alteracoes != (0, 0) || antes != format!("{fs:?}") || planos_antes != ps {
+            return Err("portas ARC: corpos/planos ainda não preparados ou divergentes".into());
+        }
     }
     let mut uniformes: Vec<_> = m.retornos_uniformes_arc.iter().cloned().collect();
     uniformes.sort();
@@ -423,7 +471,11 @@ pub fn certificar_portas_arc_aot(
     }
     callbacks.sort();
     callbacks.dedup();
-    let tipadas = conferir_tipadas(m, planos)?;
+    // Num conjunto, ou com callees de outra imagem, o corpo tipado pode vir
+    // de outra imagem (uma closure do programa passada ao SDK, ou o
+    // contrário): o registro do runtime confere o corpo de cada closure
+    // antes da chamada (`dartforge_arc_alvo_tipada_v1`).
+    let tipadas = conferir_tipadas(m, planos, (idempotencia && !m.arc_callees_externos).then_some(&[][..]))?;
     let total = callbacks.len() + uniformes.len() + tipadas.len();
     m.portas_arc_aot = Some(PortasArcAot {
         estado: estado(m),
@@ -796,8 +848,9 @@ mod testes {
                         ret_ty: Type::I64,
                     }
                 } else {
+                    // Ordem sobre handles é coerção; identidade (`==`) não.
                     Instruction::ICmp(
-                        ICmpOp::Eq,
+                        ICmpOp::Slt,
                         Operand::Val(ValueId(0)),
                         Operand::Constant(Constant::Null),
                     )

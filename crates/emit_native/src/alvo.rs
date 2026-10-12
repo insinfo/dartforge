@@ -105,6 +105,19 @@ pub fn memoria_arc() -> Result<bool, String> {
     }
 }
 
+/// A preparação ARC publicada (owners na HIR, `otimizar::arc`), pela
+/// variável `DARTFORGE_ARC_PREPARADO=1`: só com a memória ARC. Ausente, o
+/// ARC segue o regime legado da CLI (sem tokens no código).
+pub fn arc_preparado() -> Result<bool, String> {
+    if !std::env::var("DARTFORGE_ARC_PREPARADO").is_ok_and(|v| v == "1") {
+        return Ok(false);
+    }
+    if !memoria_arc()? {
+        return Err("DARTFORGE_ARC_PREPARADO=1 exige a memória ARC (`--memoria=arc`)".into());
+    }
+    Ok(true)
+}
+
 /// Onde ficam as raízes do coletor no código gerado
 /// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.8), pela variável
 /// `DARTFORGE_RAIZES` (o `--raizes=` de `compile-native` a define):

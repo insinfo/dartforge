@@ -320,6 +320,15 @@ impl Drop for EscopoUniformeArc {
     }
 }
 
+/// `f` dentro de um escopo nativo, sem mudar o resultado: os tokens que
+/// portas Dart devolvem durante `f` morrem no fechamento, mesmo com pânico.
+pub(crate) fn em_escopo_nativo<T>(f: impl FnOnce() -> T) -> T {
+    let escopo = EscopoUniformeArc(dartforge_arc_escopo_nativo_abrir_v1());
+    let r = f();
+    drop(escopo);
+    r
+}
+
 /// Roda `f` (que pode executar Dart e devolve um objeto vivo ao voltar) num
 /// escopo nativo e entrega o resultado com um owner do código. Os tokens dos
 /// retornos Owned das portas Dart ficam no escopo e são soltos ao fechá-lo,

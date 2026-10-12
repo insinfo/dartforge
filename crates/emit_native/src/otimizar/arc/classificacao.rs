@@ -98,8 +98,10 @@ pub fn vivacidade_classificada(
     ids.sort_by_key(|v| v.0);
     for id in ids {
         if !classes.contains_key(&id) {
+            let def = f.blocks.iter().flat_map(|b| &b.instructions).find(|(v, _, _)| *v == id)
+                .map_or_else(|| "parâmetro".to_string(), |(_, i, t)| format!("{i:?}: {t:?}"));
             return Err(format!(
-                "ownership em {}: v{} sem classificação",
+                "ownership em {}: v{} sem classificação ({def})",
                 f.symbol, id.0
             ));
         }

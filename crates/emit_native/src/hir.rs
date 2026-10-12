@@ -1078,6 +1078,11 @@ pub struct Module {
     /// ARC segue o regime legado (chamadas diretas, fábricas sem owner do
     /// código); com ela, a emissão exige o certificado de portas AOT.
     pub arc_preparado: bool,
+    /// A preparação ARC aceita chamadas diretas a funções Dart de outra
+    /// imagem já preparada (o SDK da fonte preparado), com o resumo tirado
+    /// da própria chamada: argumentos pela representação dos operandos,
+    /// falha possível e resultado Ref Owned (a convenção das funções Dart).
+    pub arc_callees_externos: bool,
     /// Caches de IDs nativos RTI declarados pelo lowering, com flag implícita `$ok`.
     /// Todas as escritas e representações exigem conferência antes de produzir contratos.
     pub caches_rti_arc: std::collections::HashSet<String>,

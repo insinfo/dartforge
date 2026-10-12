@@ -255,6 +255,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// `toString()` da forma `k`: `(p0, p1, a: x, b: y)`.
     pub fn lower_to_string_de_forma(&mut self, k: usize) {
+        // Corpo chamado como função Dart (pelo despacho de `toString`): o
+        // retorno Ref é Owned.
+        if self.ctx.memoria_arc {
+            self.retornos_ref_dart.insert(self.func.symbol.clone());
+        }
         let this = Operand::Val(self.add_param("this".to_string(), Type::Ref));
         let (npos, nomes) = self.ctx.formas_de_record[k].clone();
         let mut texto = self.emit(Instruction::Const(Constant::String("(".to_string())), Type::Ref);

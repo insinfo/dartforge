@@ -2,6 +2,50 @@
 
 use super::*;
 
+/// Certifica as portas AOT de cada módulo de um conjunto preparado por
+/// [`preparar_arc_modulos_dart`]. As gravações conferidas levam os layouts
+/// do conjunto (a união que a preparação conferiu, sem conflitos), e cada
+/// módulo é conferido contra essa união. Publica
+/// somente se todos forem certificados; devolve o total de portas.
+///
+/// # Erros
+/// Quantidade de planos incompatível ou falha de qualquer certificação.
+pub fn certificar_portas_arc_modulos(
+    modulos: &mut [Module],
+    planos: &[HashMap<String, PlanoFuncaoDart>],
+) -> Result<usize, String> {
+    if modulos.len() != planos.len() {
+        return Err("módulos ARC: quantidade de planos incompatível".into());
+    }
+    let mut uniao: HashMap<u32, Vec<Type>> = HashMap::new();
+    for m in modulos.iter() {
+        for (cid, layout) in &m.layouts_campos_arc {
+            if uniao.insert(*cid, layout.clone()).is_some_and(|anterior| anterior != *layout) {
+                return Err(format!("módulos ARC: layout conflitante da classe {cid}"));
+            }
+        }
+    }
+    let mut novos = modulos.to_vec();
+    // A idempotência do conjunto inteiro (os callees de outros módulos fazem
+    // parte da prova), uma vez; cada módulo confere o resto sozinho.
+    let mut de_novo = novos.clone();
+    let mut planos_de_novo = planos.to_vec();
+    let alteracoes = preparar_arc_modulos_dart(&mut de_novo, &mut planos_de_novo)?;
+    let iguais = de_novo.iter().zip(&novos).all(|(a, b)| {
+        a.functions.len() == b.functions.len()
+            && a.functions.iter().zip(&b.functions).all(|(x, y)| format!("{x:?}") == format!("{y:?}"))
+    });
+    if alteracoes != (0, 0) || !iguais || planos_de_novo != planos {
+        return Err("portas ARC: conjunto ainda não preparado ou divergente".into());
+    }
+    let mut total = 0;
+    for (m, p) in novos.iter_mut().zip(planos) {
+        total += super::portas::certificar(m, p, Some(&uniao))?;
+    }
+    modulos.clone_from_slice(&novos);
+    Ok(total)
+}
+
 /// Prepara atomicamente um conjunto fechado de módulos Dart com a mesma ABI ARC.
 ///
 /// Chamadas entre módulos usam os corpos desta transação. Nenhum resumo de um

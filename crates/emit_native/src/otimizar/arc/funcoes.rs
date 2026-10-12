@@ -78,7 +78,7 @@ pub fn inserir_arc_funcoes_dart(
     funcoes: &mut [Function],
     planos: &mut HashMap<String, PlanoFuncaoDart>,
 ) -> Result<(usize, usize), String> {
-    inserir(funcoes, planos, false, None, &HashMap::new(), &HashMap::new(), &HashSet::new())
+    inserir(funcoes, planos, false, None, &HashMap::new(), &HashMap::new(), &HashSet::new(), true, false)
 }
 
 /// Prepara invokes ausentes e insere ARC num conjunto fechado de funções Dart.
@@ -135,7 +135,17 @@ pub fn preparar_arc_funcoes_dart(
     funcoes: &mut [Function],
     planos: &mut HashMap<String, PlanoFuncaoDart>,
 ) -> Result<(usize, usize), String> {
-    inserir(funcoes, planos, true, None, &HashMap::new(), &HashMap::new(), &HashSet::new())
+    preparar_funcoes(funcoes, planos, false)
+}
+
+/// [`preparar_arc_funcoes_dart`], aceitando callees de outra imagem
+/// preparada quando `externos` (`Module::arc_callees_externos`).
+pub(super) fn preparar_funcoes(
+    funcoes: &mut [Function],
+    planos: &mut HashMap<String, PlanoFuncaoDart>,
+    externos: bool,
+) -> Result<(usize, usize), String> {
+    inserir(funcoes, planos, true, None, &HashMap::new(), &HashMap::new(), &HashSet::new(), true, externos)
 }
 
 /// Prepara atomicamente os fatos do lowering e o conjunto fechado de um módulo ARC.
@@ -251,6 +261,8 @@ pub(super) fn preparar_com_variantes(
         &variantes,
         &receivers,
         &preservam_campos,
+        trabalho.excecoes_por_tabelas,
+        trabalho.arc_callees_externos,
     )?;
     slots.funcoes = preparadas.clone();
     super::verificar_vidas_slots_ref_cfg(&origem, &slots)?;
@@ -278,6 +290,8 @@ fn inserir(
     variantes: &HashMap<String, Vec<String>>,
     receivers: &HashMap<String, HashMap<ValueId, u32>>,
     preservam_campos: &HashSet<String>,
+    por_tabelas: bool,
+    externos: bool,
 ) -> Result<(usize, usize), String> {
     let mut simbolos = HashSet::new();
     for f in funcoes.iter() {
@@ -319,6 +333,7 @@ fn inserir(
         if preparar_chamadas {
             super::saidas::preparar_lancamentos_ref(f, novos_planos.get_mut(&f.symbol).unwrap())?;
         }
+        super::nativos::escopar(f);
     }
     let mut nao_lancam = super::super::efeitos::nao_lancam(&modulo);
     // Contexto explícito implica conferência de pilha no LLVM. Inclui
@@ -371,14 +386,18 @@ fn inserir(
     }
     if preparar_chamadas {
         for f in &mut modulo.functions {
-            super::invocacoes::preparar(f, novos_planos.get_mut(&f.symbol).unwrap(), &nao_lancam)?;
+            super::invocacoes::preparar(f, novos_planos.get_mut(&f.symbol).unwrap(), &nao_lancam, por_tabelas)?;
         }
     }
-    let resumos: Vec<_> = modulo
+    let mut resumos: Vec<_> = modulo
         .functions
         .iter()
         .map(|f| super::chamadas::resumo_provisorio(f, !nao_lancam.contains(&f.symbol)))
         .collect();
+    // Callees de outra imagem preparada (`Module::arc_callees_externos`).
+    if externos {
+        resumos.extend(super::chamadas::resumos_externos(&modulo.functions, &simbolos)?);
+    }
     let indice = super::chamadas::IndiceFuncoesDart::novo(&resumos)?;
     let mut total = (0, 0);
     for f in &mut modulo.functions {
@@ -1671,7 +1690,10 @@ mod testes {
                 assert!(ir.contains("%x = icmp ne i8 %u, 0"));
             } else {
                 assert!(
-                    matches!(&fs[0].blocks[0].instructions[0].1, Instruction::CallRuntime { name, .. } if name == if ty == Type::I64 { "dartforge_unbox_int" } else { "dartforge_unbox_double" })
+                    // O unboxing pode rodar Dart (TypeError): num escopo nativo.
+                    matches!(&fs[0].blocks[0].instructions[0].1, Instruction::CallRuntime { name, .. }
+                        if name.strip_prefix(super::super::PREFIXO_ESCOPO_NATIVO)
+                            == Some(if ty == Type::I64 { "dartforge_unbox_int" } else { "dartforge_unbox_double" }))
                 );
             }
             let mut owned = f.clone();
@@ -2302,5 +2324,116 @@ mod testes {
         );
         assert_eq!(format!("{funcoes:?}"), antes);
         assert_eq!(format!("{planos:?}"), planos_antes);
+    }
+}
+
+#[cfg(test)]
+mod testes_publicacao {
+    use super::*;
+
+    fn val(n: u32) -> Operand {
+        Operand::Val(ValueId(n))
+    }
+
+    // `chamada` em b0, a guarda de pendência e as duas saídas.
+    fn guardada(symbol: &str, params: Vec<(ValueId, String, Type)>, chamada: Instruction, ty: Type) -> Function {
+        Function {
+            symbol: symbol.into(), name: symbol.into(), depuracao: None, params, return_ty: ty,
+            blocks: vec![
+                BasicBlock { id: BlockId(0), instructions: vec![
+                    (ValueId(1), chamada, ty),
+                    (ValueId(2), Instruction::CallRuntime { name: "dartforge_exception_pending".into(), args: vec![], ret_ty: Type::I8 }, Type::I8),
+                    (ValueId(3), Instruction::ICmp(ICmpOp::Ne, val(2), Operand::Constant(Constant::Int(0))), Type::I1),
+                ], terminator: Terminator::CondBranch { cond: val(3), then_block: BlockId(1), else_block: BlockId(2) } },
+                BasicBlock { id: BlockId(1), instructions: vec![],
+                    terminator: Terminator::Return(Some(super::super::super::operandos::constante_padrao(ty))) },
+                BasicBlock { id: BlockId(2), instructions: vec![], terminator: Terminator::Return(Some(val(1))) },
+            ],
+        }
+    }
+
+    #[test]
+    fn funcao_do_runtime_que_roda_dart_vai_por_thunk_de_escopo() {
+        let mut m = Module::new();
+        m.memoria_arc = true;
+        m.functions.push(guardada("unidade", vec![(ValueId(0), "s".into(), Type::Ref)],
+            Instruction::CallRuntime {
+                name: "dartforge_nativo_DartForge_string_codeUnitAt".into(),
+                args: vec![(val(0), Type::Ref), (Operand::Constant(Constant::Int(0)), Type::I64)],
+                ret_ty: Type::I64,
+            }, Type::I64));
+        let mut planos = HashMap::from([("unidade".into(), PlanoFuncaoDart::default())]);
+        preparar_arc_modulo_dart(&mut m, &mut planos).unwrap();
+        let nome = super::super::PREFIXO_ESCOPO_NATIVO.to_string() + "dartforge_nativo_DartForge_string_codeUnitAt";
+        assert!(matches!(&m.functions[0].blocks[0].instructions[0].1, Instruction::CallRuntime { name, .. } if *name == nome));
+        let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+        assert!(ir.contains(&format!("define internal i64 @{nome}(ptr")) || ir.contains(&format!("define internal i64 @{nome}(i64")), "{ir}");
+        assert!(ir.contains("call i64 @dartforge_arc_escopo_nativo_abrir_v1()"));
+        assert!(ir.contains("call void @dartforge_arc_escopo_nativo_fechar_v1(i64 %e)"));
+        // Idempotente: o thunk não ganha outro prefixo.
+        let antes = format!("{m:?}");
+        assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (0, 0));
+        assert_eq!(format!("{m:?}"), antes);
+    }
+
+    #[test]
+    fn checagem_ganha_guarda_de_pendencia_e_tabelas_ganham_invoke() {
+        for por_tabelas in [false, true] {
+            let mut m = Module::new();
+            m.memoria_arc = true;
+            // Recursiva: a análise a vê como falível.
+            let mut falivel = Function {
+                symbol: "falivel".into(), name: "falivel".into(), depuracao: None, params: vec![],
+                return_ty: Type::Void, blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
+                    terminator: Terminator::Return(None) }],
+            };
+            falivel.blocks[0].instructions.push((ValueId(0), Instruction::CallStatic {
+                symbol: "falivel".into(), args: vec![], ret_ty: Type::Void }, Type::Void));
+            let chamador = Function {
+                symbol: "chamador".into(), name: "chamador".into(), depuracao: None, params: vec![],
+                return_ty: Type::Void, blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
+                    (ValueId(0), Instruction::CallStatic { symbol: "falivel".into(), args: vec![], ret_ty: Type::Void }, Type::Void),
+                ], terminator: Terminator::Return(None) }],
+            };
+            m.functions = vec![chamador, falivel];
+            if por_tabelas {
+                crate::otimizar::excecoes_por_tabelas(&mut m);
+            }
+            let mut planos: HashMap<_, _> = ["chamador", "falivel"].map(|s| (s.to_string(), PlanoFuncaoDart::default())).into();
+            preparar_arc_modulo_dart(&mut m, &mut planos).unwrap();
+            let p = &planos["chamador"];
+            if por_tabelas {
+                assert_eq!(p.tabelas.invocacoes.len(), 1);
+                assert!(p.tokens.pendencias.is_empty());
+            } else {
+                assert!(p.tabelas.invocacoes.is_empty());
+                assert!(p.tokens.pendencias.contains_key(&ValueId(0)));
+                let b0 = &m.functions[0].blocks[0];
+                assert!(matches!(&b0.instructions[1].1, Instruction::CallRuntime { name, .. } if name == "dartforge_exception_pending"));
+                assert!(matches!(b0.terminator, Terminator::CondBranch { .. }));
+            }
+        }
+    }
+
+    #[test]
+    fn callee_de_outra_imagem_so_com_a_opcao_e_resultado_owned() {
+        for externos in [false, true] {
+            let mut m = Module::new();
+            m.memoria_arc = true;
+            m.arc_callees_externos = externos;
+            m.functions.push(guardada("programa", vec![(ValueId(0), "x".into(), Type::Ref)],
+                Instruction::CallStatic { symbol: "df.sdk.externo".into(), args: vec![val(0)], ret_ty: Type::Ref },
+                Type::Ref));
+            m.retornos_ref_dart.insert("programa".into());
+            let mut planos = HashMap::from([("programa".into(), PlanoFuncaoDart::default())]);
+            let resultado = preparar_arc_modulo_dart(&mut m, &mut planos);
+            if !externos {
+                assert!(resultado.unwrap_err().contains("callee Dart sem resumo"));
+                continue;
+            }
+            resultado.unwrap();
+            assert_eq!(planos["programa"].classes[&ValueId(1)], Ownership::Owned);
+            assert!(planos["programa"].tokens.pendencias.contains_key(&ValueId(1)));
+        }
     }
 }

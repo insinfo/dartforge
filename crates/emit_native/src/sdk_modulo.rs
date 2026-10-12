@@ -310,7 +310,8 @@ pub fn emitir_bibliotecas_do_sdk(lib_dir: &Path, producao: bool) -> Result<Vec<B
     let memoria_arc = crate::alvo::memoria_arc()?;
     // O rastro simbólico (§13.14): as posições das funções do SDK e a tabela.
     let rastro_simbolico = crate::alvo::rastro_simbolico()?;
-    let mut saida = Vec::new();
+    let arc_preparado = crate::alvo::arc_preparado()?;
+    let mut modulos = Vec::new();
     for lib in libs {
         let uri = program.library(lib).uri.clone();
         let mut ctx = crate::context::Context::new(&program, &interner, &table, &core, &outline, &corpos)
@@ -333,6 +334,25 @@ pub fn emitir_bibliotecas_do_sdk(lib_dir: &Path, producao: bool) -> Result<Vec<B
         // O otimizador da HIR (`otimizar/`) também no SDK: é onde fica o
         // código de `List`, `Map`, `String`… que os programas mais chamam.
         crate::otimizar::preparar_para_emissao(&mut module, memoria_arc, excecoes_por_tabelas);
+        modulos.push((uri, module));
+    }
+    // A preparação ARC publicada: as bibliotecas juntas (o SDK não chama o
+    // programa diretamente), na ordem fixa de `BIBLIOTECAS_DA_FONTE`.
+    if arc_preparado {
+        let mut hir: Vec<_> = modulos.iter_mut().map(|(_, m)| std::mem::take(m)).collect();
+        let mut planos: Vec<std::collections::HashMap<_, _>> = hir.iter().map(|m| {
+            m.functions.iter().map(|f| (f.symbol.clone(), crate::otimizar::arc::PlanoFuncaoDart::default())).collect()
+        }).collect();
+        crate::otimizar::arc::preparar_arc_modulos_dart(&mut hir, &mut planos)
+            .map_err(|e| format!("preparação ARC do SDK da fonte: {e}"))?;
+        crate::otimizar::arc::certificar_portas_arc_modulos(&mut hir, &planos)
+            .map_err(|e| format!("portas ARC do SDK da fonte: {e}"))?;
+        for ((_, m), h) in modulos.iter_mut().zip(hir) {
+            *m = h;
+        }
+    }
+    let mut saida = Vec::new();
+    for (uri, mut module) in modulos {
         // A DLL do SDK fica carregada o processo inteiro: os literais são
         // objetos estáticos também no JIT (docs/NATIVO-ESPACO-UNIFICADO.md §2.11).
         let ir = crate::llvm::LlvmEmitter::new(&module)
@@ -456,6 +476,11 @@ fn chave_do_sdk(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
     // entrada); o padrão não entra. A versão é a da ABI de memória.
     if std::env::var("DARTFORGE_MEMORIA").is_ok_and(|v| v == "arc") {
         h.update(b"memoria=arc_v1\0");
+    }
+    // A preparação ARC publicada muda os corpos (tokens, cleanup); o
+    // programa preparado só liga com este SDK.
+    if crate::alvo::arc_preparado().unwrap_or(false) {
+        h.update(b"arc=preparado_v1\0");
     }
     // O modo de raízes muda o código (`llvm/mod.rs`); o padrão não entra.
     if std::env::var("DARTFORGE_RAIZES").is_ok_and(|v| v == "mapas") {

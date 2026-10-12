@@ -936,6 +936,12 @@ fn lower_globais_e_resto(ctx: &Context, mut module: Module) -> Module {
         let r = b.chamar_valor_funcao(clo, &[]);
         b.terminate(Terminator::Return(Some(r)));
         b.finalizar(&mut module);
+        // Sob ARC, o runtime a chama como porta Dart (`dart_r1`, o laço de
+        // eventos): um callback com retorno Owned, que o escopo nativo solta.
+        if ctx.memoria_arc {
+            module.retornos_ref_dart.insert(simbolo.clone());
+            module.ajudantes.push((simbolo.clone(), simbolo.clone()));
+        }
         module.chamar_dart = Some(simbolo);
     }
 

@@ -53,6 +53,9 @@ pub const CONTRATOS_DOS_AJUDANTES: &[Contrato] = &[
 /// assert!(contrato("df.tipada_dados").is_err());
 /// ```
 pub fn contrato(nome: &str) -> Result<&'static Contrato, &'static str> {
+    if let Some(base) = nome.strip_prefix(super::PREFIXO_ESCOPO_NATIVO) {
+        return contrato(base);
+    }
     if let Some(base) = nome.strip_prefix(super::PREFIXO_OWNED_GENERICO) {
         // Só as marcas valem aqui; os parâmetros saem dos tipos da chamada
         // (`contrato_chamada_runtime`).
@@ -1119,6 +1122,32 @@ fn produzir(
             }
             contratos.insert(*v, c);
         }
+        // A chamada C com composto por valor: os compostos vão e voltam por
+        // endereço (o destino), escalar como os demais argumentos.
+        if incluir_arc && let Instruction::ChamadaNativaComposta { alvo, args, ret, destino, .. } = inst {
+            let escalar = |op: &Operand| match op {
+                Operand::Val(arg) => tipos.get(arg).is_some_and(|t| *t != Type::Ref && *t != Type::Void),
+                Operand::Constant(Constant::Int(_) | Constant::Double(_) | Constant::Bool(_)) => true,
+                _ => false,
+            };
+            let esperado = match ret {
+                crate::hir::TipoNativo::Prim(tc) => tc.tipo_hir(),
+                _ => Type::Void,
+            };
+            if *ty != esperado || !escalar(alvo) || !args.iter().all(|(op, _)| escalar(op))
+                || destino.as_ref().is_some_and(|d| !escalar(d)) {
+                return Err(format!("v{}: chamada nativa composta sem ABI escalar auditada", v.0));
+            }
+            let c = ContratoChamadaRuntime {
+                efeito: EfeitoTokens::default(), resultado: Ownership::Trivial,
+                retencao_persistente: false, invalida_borrows: true, chama_dart: true,
+            };
+            if classes.get(v).is_some_and(|classe| *classe != c.resultado)
+                || plano.instrucoes.get(v).is_some_and(|e| *e != c.efeito) {
+                return Err(format!("v{}: contrato conflitante de chamada nativa composta", v.0));
+            }
+            contratos.insert(*v, c);
+        }
         if incluir_arc && let Instruction::ChamadaNativa { alvo, args, ret } = inst {
             // Só escalares atravessam a ABI C (a HIR converte Pointer em
             // endereço). Um callback Dart pode reentrar, mas a saída C limpa
@@ -1298,6 +1327,13 @@ pub fn contrato_chamada_runtime(inst: &Instruction) -> Result<ContratoChamadaRun
     let Instruction::CallRuntime { name, args, ret_ty } = inst else {
         return Err("contrato runtime exige CallRuntime".into());
     };
+    if let Some(base) = name.strip_prefix(super::PREFIXO_ESCOPO_NATIVO) {
+        return contrato_chamada_runtime(&Instruction::CallRuntime {
+            name: base.to_string(),
+            args: args.clone(),
+            ret_ty: *ret_ty,
+        });
+    }
     if let Some(base) = name.strip_prefix(super::PREFIXO_OWNED_GENERICO) {
         if *ret_ty != Type::Ref {
             return Err(format!("{name}: thunk Owned exige resultado Ref"));

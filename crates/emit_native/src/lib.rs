@@ -454,6 +454,21 @@ fn emitir_ir_interno(
     // O mesmo pipeline prepara as bibliotecas do SDK e materializa tabelas
     // somente depois das transformações da HIR.
     otimizar::preparar_para_emissao(&mut hir_module, memoria_arc, excecoes_por_tabelas);
+    // A preparação ARC publicada (`DARTFORGE_ARC_PREPARADO=1`): o programa
+    // sozinho, chamando o SDK preparado (`sdk_modulo`, a mesma opção na
+    // chave do cache) pelos resumos das próprias chamadas.
+    if alvo::arc_preparado()? {
+        hir_module.arc_callees_externos = true;
+        let mut planos: std::collections::HashMap<_, _> = hir_module
+            .functions
+            .iter()
+            .map(|f| (f.symbol.clone(), otimizar::arc::PlanoFuncaoDart::default()))
+            .collect();
+        otimizar::arc::preparar_arc_modulo_dart(&mut hir_module, &mut planos)
+            .map_err(|e| format!("preparação ARC do programa: {e}"))?;
+        otimizar::arc::certificar_portas_arc_aot(&mut hir_module, &planos)
+            .map_err(|e| format!("portas ARC do programa: {e}"))?;
+    }
     if options.timings {
         eprintln!("  HIR:       baixar {:?}, otimizar {:?}", t_otimizar.duration_since(t_hir), t_otimizar.elapsed());
     }

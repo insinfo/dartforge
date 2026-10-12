@@ -1014,14 +1014,17 @@ pub extern "C" fn dartforge_ffi_handles_fechar_com_objeto(escopo: i64, handle: i
 /// Handle inválido: `ArgumentError` pendente, null e nenhum owner.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_ffi_handles_fechar_com_objeto_owned_v1(escopo: i64, handle: i64) -> i64 {
-    let obj = objeto_vivo_do_handle(handle);
-    if let Some(o) = obj {
-        dartforge_arc_retain(o);
-    }
-    dartforge_ffi_handles_fechar(escopo);
-    obj.unwrap_or_else(|| {
-        lancar_handle_invalido();
-        0
+    // O owner antes de fechar os handles; o erro roda num escopo nativo.
+    em_escopo_nativo(|| {
+        let obj = objeto_vivo_do_handle(handle);
+        if let Some(o) = obj {
+            dartforge_arc_retain(o);
+        }
+        dartforge_ffi_handles_fechar(escopo);
+        obj.unwrap_or_else(|| {
+            lancar_handle_invalido();
+            0
+        })
     })
 }
 
@@ -1030,7 +1033,7 @@ pub extern "C" fn dartforge_arc_ffi_handles_fechar_com_objeto_owned_v1(escopo: i
 /// Handle inválido: `ArgumentError` pendente, null e nenhum owner.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_ffi_objeto_do_handle_owned_v1(handle: i64) -> i64 {
-    match objeto_vivo_do_handle(handle) {
+    em_escopo_nativo(|| match objeto_vivo_do_handle(handle) {
         Some(obj) => {
             dartforge_arc_retain(obj);
             obj
@@ -1039,5 +1042,5 @@ pub extern "C" fn dartforge_arc_ffi_objeto_do_handle_owned_v1(handle: i64) -> i6
             lancar_handle_invalido();
             0
         }
-    }
+    })
 }

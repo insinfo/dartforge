@@ -14,6 +14,10 @@ use std::collections::{HashMap, HashSet};
 /// `Ref` (`nativos::preparar`, `contratos::contrato_owned_generico`); o
 /// emissor LLVM define o thunk (`llvm/seletores.rs`).
 pub const PREFIXO_OWNED_GENERICO: &str = "df.arc.owned.";
+/// O thunk de escopo nativo: a função do runtime que pode rodar Dart, com o
+/// resultado e o contrato da base, dentro de um escopo nativo (os tokens que
+/// portas Dart devolvem morrem no fechamento), definido pelo emissor.
+pub const PREFIXO_ESCOPO_NATIVO: &str = "df.arc.escopo.";
 pub(crate) use nativos::ERROS_COM_VARIANTE_ARC;
 
 mod classificacao;
@@ -43,7 +47,7 @@ mod classes_cfg;
 mod chamadas;
 mod funcoes;
 mod modulos;
-pub use modulos::preparar_arc_modulos_dart;
+pub use modulos::{certificar_portas_arc_modulos, preparar_arc_modulos_dart};
 mod planos;
 pub use planos::produzir_tabelas_arc_do_modulo;
 pub use planos::preparar_arc_modulo_tabelado;

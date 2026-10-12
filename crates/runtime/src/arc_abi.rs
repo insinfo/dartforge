@@ -1296,7 +1296,9 @@ fn ler_campo_ref_auditado(heap: &Heap, objeto: i64, indice: i64) -> Result<i64, 
     let objeto = heap.objeto(objeto).ok_or("receiver não é objeto vivo")?;
     let indice = usize::try_from(indice).map_err(|_| "índice negativo")?;
     let (bits, referencia) = objeto.get(indice).ok_or("índice fora do objeto")?;
-    if !referencia { return Err("campo é escalar"); }
+    // O campo ainda não gravado nasce zerado e marcado escalar: é o null do
+    // campo Ref sem inicializador (`Object? x;`), sem objeto nem owner.
+    if !referencia && bits != 0 { return Err("campo é escalar"); }
     Ok(bits)
 }
 
@@ -2170,9 +2172,11 @@ mod testes_campo_ref {
             assert_eq!(dartforge_arc_observar_heap_v1(filho), 1);
             HEAP.with(|h| {
                 let h = h.borrow();
-                for (receiver, indice) in [(objeto, 37), (objeto, 38), (objeto, -1), (objeto, 40), (0, 0), (filho, 0)] {
+                for (receiver, indice) in [(objeto, 37), (objeto, -1), (objeto, 40), (0, 0), (filho, 0)] {
                     assert!(ler_campo_ref_auditado(&h, receiver, indice).is_err());
                 }
+                // O campo nunca gravado (zerado, marcado escalar) é null.
+                assert_eq!(ler_campo_ref_auditado(&h, objeto, 38), Ok(0));
                 assert_eq!(h.stats().allocations, stats.allocations);
                 assert_eq!(h.stats().collections, stats.collections);
             });

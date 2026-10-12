@@ -546,9 +546,13 @@ fn analisar_tokens(
                 != (tabelas.invocacoes.contains_key(v) || plano.pendencias.contains_key(v))
                 || (!e.pode_falhar && !e.erro.is_empty())
             {
+                let nome = match inst {
+                    Instruction::CallRuntime { name, .. } | Instruction::CallStatic { symbol: name, .. } => name.as_str(),
+                    _ => "",
+                };
                 return Err(erro_meta(format!(
-                    "v{}: contrato não corresponde às saídas excepcionais",
-                    v.0
+                    "v{}: contrato não corresponde às saídas excepcionais {nome} (pode falhar: {})",
+                    v.0, e.pode_falhar
                 )));
             }
             let mut args = HashSet::new();

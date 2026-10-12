@@ -7,6 +7,7 @@ pub(super) fn preparar(
     f: &mut Function,
     plano: &mut PlanoFuncaoDart,
     nao_lancam: &HashSet<String>,
+    por_tabelas: bool,
 ) -> Result<(), String> {
     // O lowering de checagem já escolheu catch/finally e a continuação.
     // Reconhecer a forma exata conserva esse CFG como pending, sem inventar
@@ -75,6 +76,7 @@ pub(super) fn preparar(
         proximo += 1;
         Ok(BlockId(id))
     };
+    let mut proximo_valor = super::arestas::proximo_valor(f, plano);
     let mut finais = HashMap::new();
     let originais = f.blocks.len();
     for indice in 0..originais {
@@ -92,21 +94,40 @@ pub(super) fn preparar(
             }
             let erro = reservar()?;
             let normal = reservar()?;
-            f.blocks[atual].terminator = Terminator::CondBranch {
-                cond: Operand::Constant(Constant::Bool(false)),
-                then_block: erro,
-                else_block: normal,
-            };
-            plano.tabelas.invocacoes.insert(v, erro);
-            plano.tabelas.pousos.insert(erro);
-            plano.tabelas.saidas.insert(
-                erro,
-                if cfg!(unix) {
-                    SaidaPorExcecao::Retoma
-                } else {
-                    SaidaPorExcecao::Lanca
-                },
-            );
+            if por_tabelas {
+                f.blocks[atual].terminator = Terminator::CondBranch {
+                    cond: Operand::Constant(Constant::Bool(false)),
+                    then_block: erro,
+                    else_block: normal,
+                };
+                plano.tabelas.invocacoes.insert(v, erro);
+                plano.tabelas.pousos.insert(erro);
+                plano.tabelas.saidas.insert(
+                    erro,
+                    if cfg!(unix) {
+                        SaidaPorExcecao::Retoma
+                    } else {
+                        SaidaPorExcecao::Lanca
+                    },
+                );
+            } else {
+                // Exceções por checagem: a guarda que o lowering emitiria
+                // (uma otimização a tirou supondo o callee sem exceção);
+                // a saída devolve o valor padrão com a exceção pendente.
+                let p = ValueId(u32::try_from(proximo_valor).map_err(|_| "IDs SSA esgotados ao preparar guarda Dart")?);
+                let c = ValueId(p.0.checked_add(1).ok_or("IDs SSA esgotados ao preparar guarda Dart")?);
+                proximo_valor = u64::from(c.0) + 1;
+                f.blocks[atual].instructions.extend([
+                    (p, Instruction::CallRuntime { name: "dartforge_exception_pending".into(), args: vec![], ret_ty: Type::I8 }, Type::I8),
+                    (c, Instruction::ICmp(ICmpOp::Ne, Operand::Val(p), Operand::Constant(Constant::Int(0))), Type::I1),
+                ]);
+                f.blocks[atual].terminator = Terminator::CondBranch {
+                    cond: Operand::Val(c),
+                    then_block: erro,
+                    else_block: normal,
+                };
+                plano.tokens.pendencias.insert(v, erro);
+            }
             // O pouso libera os tokens antes de sair dos escopos ativos.
             // Chamadas inalcançáveis não têm pilha executável a fechar.
             let fechar: Vec<_> = pilhas

@@ -45,6 +45,56 @@ pub(super) fn resumo_provisorio(f: &Function, pode_falhar: bool) -> ContratoFunc
     }
 }
 
+/// O resumo de uma função Dart de outra imagem preparada, pela chamada
+/// `CallStatic` de `f`: a representação de cada operando (como o emissor a
+/// declara), o retorno da chamada e falha possível.
+pub(super) fn resumo_externo(f: &Function, simbolo: &str, args: &[Operand], retorno: Type) -> ContratoFuncaoDart {
+    let tipos: HashMap<ValueId, Type> = f.params.iter().map(|(v, _, t)| (*v, *t))
+        .chain(f.blocks.iter().flat_map(|b| &b.instructions).map(|(v, _, t)| (*v, *t)))
+        .collect();
+    let tipo = |o: &Operand| match o {
+        Operand::Val(v) => tipos.get(v).copied().unwrap_or(Type::I64),
+        Operand::Constant(Constant::Int(_) | Constant::Funcao(_)) => Type::I64,
+        Operand::Constant(Constant::Double(_)) => Type::F64,
+        Operand::Constant(Constant::Bool(_)) => Type::I1,
+        Operand::Constant(Constant::Null | Constant::String(_) | Constant::StringWtf8(_)) => Type::Ref,
+    };
+    ContratoFuncaoDart {
+        simbolo: simbolo.to_string(),
+        parametros: args.iter().map(tipo).map(|t| if t == Type::Void { Type::I64 } else { t }).collect(),
+        retorno,
+        pode_falhar: true,
+    }
+}
+
+/// Os resumos externos ([`resumo_externo`]) das chamadas diretas de
+/// `funcoes` a símbolos fora de `locais`; chamadas do mesmo símbolo com
+/// assinaturas diferentes são erro.
+pub(super) fn resumos_externos(funcoes: &[Function], locais: &HashSet<String>) -> Result<Vec<ContratoFuncaoDart>, String> {
+    let mut por_simbolo: HashMap<String, ContratoFuncaoDart> = HashMap::new();
+    for f in funcoes {
+        for (_, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
+            let Instruction::CallStatic { symbol, args, ret_ty } = inst else { continue };
+            if locais.contains(symbol) {
+                continue;
+            }
+            let r = resumo_externo(f, symbol, args, *ret_ty);
+            match por_simbolo.get(symbol) {
+                Some(anterior) if (&anterior.parametros, anterior.retorno) != (&r.parametros, r.retorno) => {
+                    return Err(format!("callee externo com assinaturas divergentes: {symbol}"));
+                }
+                Some(_) => {}
+                None => {
+                    por_simbolo.insert(symbol.clone(), r);
+                }
+            }
+        }
+    }
+    let mut resumos: Vec<_> = por_simbolo.into_values().collect();
+    resumos.sort_by(|a, b| a.simbolo.cmp(&b.simbolo));
+    Ok(resumos)
+}
+
 // O conjunto reutiliza este índice em todos os corpos. Reconstruí-lo por
 // função tornaria a preparação quadrática no número de funções do SDK.
 pub(super) struct IndiceFuncoesDart<'a> {

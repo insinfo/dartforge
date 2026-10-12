@@ -391,8 +391,36 @@ impl LlvmEmitter<'_> {
         }
     }
 
+    /// Os thunks de escopo nativo (`otimizar::arc::nativos`): a base roda
+    /// num escopo nativo, e o resultado (escalar, emprestado ou nenhum) e a
+    /// pendência ficam como a base os deixou.
+    fn emitir_thunks_escopo(&mut self) {
+        let thunks = std::mem::take(&mut self.thunks_escopo);
+        for (nome, (base, tipos, ret)) in thunks {
+            let params: Vec<String> = tipos.iter().enumerate().map(|(i, t)| format!("{} %a{i}", t.llvm_ir())).collect();
+            let params = params.join(", ");
+            let r = ret.llvm_ir();
+            let (chamada, retorno) = if ret == Type::Void {
+                (format!("call void @{base}({params})"), "ret void".to_string())
+            } else {
+                (format!("%r = call {r} @{base}({params})"), format!("ret {r} %r"))
+            };
+            let _ = write!(
+                self.out,
+                "define internal {r} @{nome}({params}) {{\n\
+                 entrada:\n\
+                 \x20 %e = call i64 @dartforge_arc_escopo_nativo_abrir_v1()\n\
+                 \x20 {chamada}\n\
+                 \x20 call void @dartforge_arc_escopo_nativo_fechar_v1(i64 %e)\n\
+                 \x20 {retorno}\n\
+                 }}\n"
+            );
+        }
+    }
+
     pub(super) fn emitir_declaracoes_externas(&mut self) {
         self.emitir_thunks_owned();
+        self.emitir_thunks_escopo();
         self.emitir_nomes_do_rastro();
         // `DARTFORGE_EFEITOS=conferir`: os nomes das externs conferidas.
         for (k, s) in std::mem::take(&mut self.externs_conferidas).iter().enumerate() {

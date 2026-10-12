@@ -207,15 +207,60 @@ ainda **não publicada** na CLI: nenhum binário AOT roda com ela, e as
 entradas novas (`env_escalar`, trampolins, captura por endereço) só têm
 testes unitários e de preparação.
 
-**Próximo passo:** publicar a preparação conjunta na CLI (`arc_preparado`
-com o SDK da fonte) e provar programas AOT com ela; depois §§27–34 e o gate
-ARC >= A0.
+### Publicação na CLI (`DARTFORGE_ARC_PREPARADO=1`)
+
+Opção explícita, só com `--memoria=arc`; o padrão (tracing) e o ARC legado
+não mudam. Com ela:
+* SDK: `emitir_bibliotecas_do_sdk` baixa as 15 bibliotecas, prepara-as
+  juntas (`preparar_arc_modulos_dart`) e certifica as portas do conjunto
+  (`certificar_portas_arc_modulos`: idempotência do conjunto inteiro uma
+  vez, layouts da união, ABIs tipadas pelo registro do runtime). A opção
+  entra na chave do cache (`arc=preparado_v1`).
+* Programa: preparado sozinho com `Module::arc_callees_externos` — cada
+  callee do SDK ganha o resumo da própria chamada (`resumos_externos`:
+  tipos dos operandos, falha possível, Ref Owned); certificado como imagem.
+* Escopo nativo: funções do runtime que rodam Dart, com contrato, vão por
+  thunks `df.arc.escopo.<base>` (abrir, chamar, fechar); as ABIs
+  `dartforge_arc_*` escopam por dentro (`em_escopo_nativo`, também nos
+  handles FFI). A entrada abre um escopo raiz para a preparação do isolado
+  e outro para `main` e o laço de eventos (os tokens de portas chamadas
+  pelo runtime fora de escopos internos só morrem no fim: correto, mas
+  acumula; isolados de `Isolate.spawn` ainda sem escopo).
+* No modelo de checagem, chamadas falíveis sem guarda (a otimização tirou
+  a guarda de um callee que a análise conjunta vê como falível, p.ex.
+  getters de constante com `lista_de_tabela_g`) ganham a guarda de
+  pendência, em vez de `invoke`.
+* A certificação aceita comparação de identidade de handles, as fábricas
+  contratadas (`AllocList`, `AllocRecord`, `JuntarTextos`, caixa SIMD),
+  `ArcLoadStrong` e as chamadas C de ABI escalar.
+* `dartforge_chamar_dart0` (o laço de eventos) é callback Owned; `toString`
+  de formas de record com convenção Owned; leitura Ref de campo zerado e
+  ainda não gravado dá null (`ler_campo_ref_v1`); o thunk Owned das
+  fábricas tipadas usa a variante `_t`, que registra a tabela da classe
+  (sem ela, a visão tipada caía num laço de `noSuchMethod`); cargas e
+  gravações de campo FFI conferem a pendência (valem para todos os modos).
+* Contratos: `rti_registro_nomeado` (`1 0 0`), `equal` (`0 0 0`, pura),
+  `ffi_endereco_do_composto`, compostos FFI pelo thunk Owned, chamada C
+  com composto por valor.
+
+Os quatro programas de prova (`prova-lote5`, `-ajudantes`, `-efeitos`,
+`-handles`) rodam com programa e SDK preparados, com e sem
+`DARTFORGE_EFEITOS=conferir`, com `DARTFORGE_ARC_CONFERIR=1`, normal e GC
+stress: 16 execuções iguais ao `dart run` 3.6.2 (`p6-*`).
+
+**Próximo passo:** escopos por iteração do laço de eventos e nos isolados
+de `Isolate.spawn`; rastro simbólico (`dartforge_rastro_entrar` sem
+contrato) e o modelo por tabelas com a preparação; provar o corpus nativo
+com a opção; depois §§27–34 e o gate ARC >= A0.
 
 ### Evidências (macOS arm64, logs em `target/`)
 
 | verificação | resultado |
 | --- | --- |
-| emissor, unitários incluindo ignorados | 475 + 110 doctests (`lote5-emit-*.log`) |
+| emissor, unitários incluindo ignorados | 478 + 110 doctests (`lote6-emit-*.log`) |
+| quatro programas de prova com programa e SDK preparados (`DARTFORGE_ARC_PREPARADO=1`), com/sem `conferir`, `DARTFORGE_ARC_CONFERIR=1`, normal/GC stress | 16 execuções, saída igual ao Dart (`p6-*`) |
+| os mesmos em tracing e ARC legado, com `conferir`, normal/GC stress | 16 execuções, saída igual ao Dart (`r6-*`) |
+| provas AOT do CI (`provar-arc-aot.py`, 8 exemplos) | todas `sucesso` (`prova6-*.log`) |
 | runtime, todos os alvos incluindo ignorados | 227 + integrações + 83 doctests (`lote5-runtime.log`) |
 | `%` variável, setter `=>`, `late`, enums, `sync*`/`async`, captura escalar e por endereço, records, SIMD, `try`/`finally`, com e sem `DARTFORGE_EFEITOS=conferir`, tracing/ARC, normal/GC stress | 8 execuções, saída igual ao Dart (`prova-lote5/`) |
 | programas anteriores (`ajudantes`, `efeitos`, `handles`) refeitos com conferir, tracing/ARC, normal/GC stress | 12 execuções, saída igual ao Dart (`r5-*`) |

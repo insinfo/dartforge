@@ -6,6 +6,29 @@ use super::*;
 
 pub(super) const LER_ARGUMENTO: &str = "dartforge_arc_argumento_owned_v1";
 
+/// A palavra da tupla de tipos da chamada uniforme genérica: o slot logo
+/// depois dos posicionais e nomeados, `args[desc[0] + desc[1]]`
+/// (`tupla_do_slot`), um ID do universo RTI lido como `I64`.
+pub(super) fn leitura_da_tupla(
+    f: &Function,
+    inst: &Instruction,
+    ty: Type,
+    papeis: &HashMap<ValueId, VetorEntradaDart>,
+) -> bool {
+    let Instruction::LoadIndexed { base: Operand::Val(base), index: Operand::Val(i) } = inst else {
+        return false;
+    };
+    if ty != Type::I64 || papeis.get(base) != Some(&VetorEntradaDart::Argumentos) {
+        return false;
+    }
+    let def = |x: &ValueId| f.blocks.iter().flat_map(|b| &b.instructions).find(|(v, _, _)| v == x).map(|(_, i, _)| i);
+    // `desc[k]` lido do descritor declarado.
+    let leitura_do_descritor = |o: &Operand, k: i64| matches!(o, Operand::Val(x)
+        if matches!(def(x), Some(Instruction::LoadIndexed { base: Operand::Val(d), index: Operand::Constant(Constant::Int(n)) })
+            if *n == k && papeis.get(d) == Some(&VetorEntradaDart::Descritor)));
+    matches!(def(i), Some(Instruction::Add(a, b)) if leitura_do_descritor(a, 0) && leitura_do_descritor(b, 1))
+}
+
 pub(super) fn leitura_conferida(inst: &Instruction, papeis: &HashMap<ValueId, VetorEntradaDart>) -> bool {
     matches!(inst, Instruction::CallRuntime { name, args, ret_ty: Type::Ref }
         if name == LER_ARGUMENTO && matches!(args.as_slice(),
@@ -97,23 +120,12 @@ pub(super) fn produzir(
             }
             marcar(&mut plano.classes, v)?;
         }
-        let defs: HashMap<ValueId, &Instruction> =
-            f.blocks.iter().flat_map(|b| &b.instructions).map(|(v, i, _)| (*v, i)).collect();
-        // `desc[k]` lido do descritor declarado.
-        let leitura_do_descritor = |o: &Operand, k: i64| matches!(o, Operand::Val(x)
-            if matches!(defs.get(x), Some(Instruction::LoadIndexed { base: Operand::Val(d), index: Operand::Constant(Constant::Int(n)) })
-                if *n == k && papeis.get(d) == Some(&VetorEntradaDart::Descritor)));
         for (v, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
-            // A palavra da tupla de tipos da chamada uniforme genérica: o
-            // slot logo depois dos posicionais e nomeados, `desc[0] + desc[1]`
-            // (`tupla_do_slot`), um ID do universo RTI.
-            if let Instruction::LoadIndexed { base: Operand::Val(base), index: Operand::Val(i) } = inst
+            if let Instruction::LoadIndexed { base: Operand::Val(base), index: Operand::Val(_) } = inst
                 && *ty == Type::I64
                 && papeis.get(base) == Some(&VetorEntradaDart::Argumentos)
             {
-                let tupla = matches!(defs.get(i), Some(Instruction::Add(a, b))
-                    if leitura_do_descritor(a, 0) && leitura_do_descritor(b, 1));
-                if !tupla {
+                if !leitura_da_tupla(f, inst, *ty, papeis) {
                     return Err(format!("vetores ABI: {simbolo} v{} lê palavra escalar fora do slot da tupla", v.0));
                 }
                 marcar(&mut plano.classes, *v)?;

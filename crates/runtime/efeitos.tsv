@@ -74,7 +74,7 @@ dartforge_efeitos_depois	0	0	0
 dartforge_efeitos_nivel	0	0	0
 dartforge_efeitos_restaurar	0	0	0
 dartforge_encaminhar_nsm	1	1	1
-dartforge_equal	1	1	0
+dartforge_equal	0	0	0
 dartforge_estouro_de_pilha	1	1	1
 dartforge_exception_capturavel	0	0	0
 dartforge_exception_clear	0	0	0
@@ -754,7 +754,7 @@ dartforge_rti_e	0	0	0
 dartforge_rti_iniciar_tabela	0	0	0
 dartforge_rti_objeto_tipo	1	1	0
 dartforge_rti_receita	0	0	0
-dartforge_rti_registro_nomeado	1	1	0
+dartforge_rti_registro_nomeado	1	0	0
 dartforge_rti_regra	1	1	0
 dartforge_rti_subtipo	1	1	0
 dartforge_rti_texto	1	1	0

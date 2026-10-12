@@ -180,6 +180,23 @@ pub(super) fn preparar(f: &mut Function) -> Result<(), String> {
     Ok(())
 }
 
+/// Cada chamada a uma função do runtime que pode rodar Dart, com contrato
+/// próprio, passa a rodar num escopo nativo (`PREFIXO_ESCOPO_NATIVO`). Roda
+/// depois das preparações que criam chamadas (`caixas`, `campos`…). As ABIs
+/// `dartforge_arc_*` já escopam por dentro (`em_escopo_nativo`).
+pub(super) fn escopar(f: &mut Function) {
+    for (_, inst, _) in f.blocks.iter_mut().flat_map(|b| &mut b.instructions) {
+        if let Instruction::CallRuntime { name, .. } = inst
+            && !name.starts_with("dartforge_arc_")
+            && !name.starts_with("df.")
+            && crate::llvm::externs::efeitos_de(name).chama_dart
+            && super::contrato(name).is_ok()
+        {
+            *name = format!("{}{name}", super::PREFIXO_ESCOPO_NATIVO);
+        }
+    }
+}
+
 /// Os construtores de erro do runtime com variante Owned (o nome sem o
 /// prefixo `dartforge_`; `lower/erros_do_runtime.rs` os emite).
 pub(crate) const ERROS_COM_VARIANTE_ARC: &[&str] = &[
@@ -200,6 +217,9 @@ fn owned_generico(nome: &str) -> bool {
             "dartforge_collection_mark_unmodifiable"
                 | "dartforge_constante_canonica"
                 | "dartforge_encaminhar_nsm"
+                | "dartforge_ffi_composto"
+                | "dartforge_ffi_composto_copia"
+                | "dartforge_ffi_composto_novo"
                 | "dartforge_lista_de_tabela"
                 | "dartforge_lista_de_tabela_g"
                 | "dartforge_rastro_texto"

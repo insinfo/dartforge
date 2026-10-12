@@ -103,6 +103,9 @@ pub struct LlvmEmitter<'a> {
     /// Os thunks Owned genéricos chamados (`df.arc.owned.<base>`): a base e a
     /// assinatura (`seletores::emitir_thunks_owned`).
     thunks_owned: std::collections::BTreeMap<String, (String, Vec<Type>)>,
+    /// Os thunks de escopo nativo (`df.arc.escopo.<base>`): base, argumentos
+    /// e retorno.
+    thunks_escopo: std::collections::BTreeMap<String, (String, Vec<Type>, Type)>,
     /// Símbolos definidos em `comdat` (`seletores::ligacao_de`).
     comdats: Vec<String>,
     /// `DARTFORGE_RASTRO=1` na compilação: cada função conta a entrada e a
@@ -262,6 +265,7 @@ impl<'a> LlvmEmitter<'a> {
             nomes_de_seletor: Vec::new(),
             externos: std::collections::BTreeMap::new(),
             thunks_owned: std::collections::BTreeMap::new(),
+            thunks_escopo: std::collections::BTreeMap::new(),
             comdats: Vec::new(),
             rastro: std::env::var("DARTFORGE_RASTRO").is_ok_and(|v| v == "1").then_some(0),
             nomes_do_rastro: Vec::new(),
@@ -1467,6 +1471,26 @@ impl<'a> LlvmEmitter<'a> {
                         writeln!(self.out, "  %v{v} = call i64 @{name}_t({}, ptr @{f})", resto.join(", ")).unwrap();
                         let _ = ret_ty;
                     }
+                    // O mesmo pelo thunk Owned genérico (`otimizar::arc::nativos`):
+                    // o thunk da variante `_t`, que registra a tabela.
+                    Instruction::CallRuntime { name, args, ret_ty }
+                        if name.strip_prefix(crate::otimizar::arc::PREFIXO_OWNED_GENERICO).is_some_and(|b|
+                            matches!(b, "dartforge_typed_novo" | "dartforge_view_nova" | "dartforge_typed_externo"))
+                            && matches!(args.first(), Some((Operand::Constant(Constant::Int(c)), _))
+                                if self.module.funcoes_de_tabela.contains_key(&(*c as u32))) =>
+                    {
+                        let Some((Operand::Constant(Constant::Int(c)), _)) = args.first() else { unreachable!() };
+                        let f = self.module.funcoes_de_tabela[&(*c as u32)].clone();
+                        self.anotar_externo(&f, Type::Ptr, &[]);
+                        let base = format!("{}_t", &name[crate::otimizar::arc::PREFIXO_OWNED_GENERICO.len()..]);
+                        let thunk = format!("{}{base}", crate::otimizar::arc::PREFIXO_OWNED_GENERICO);
+                        let mut tipos: Vec<Type> = args.iter().map(|(_, t)| *t).collect();
+                        tipos.push(Type::Ptr);
+                        self.thunks_owned.insert(thunk.clone(), (base, tipos));
+                        let resto: Vec<String> = args.iter().map(|(a, t)| format!("{} {}", t.llvm_ir(), self.coagir(a, *t))).collect();
+                        writeln!(self.out, "  %v{v} = call i64 @{thunk}({}, ptr @{f})", resto.join(", ")).unwrap();
+                        let _ = ret_ty;
+                    }
                     // A exceção pendente: o espelho no contexto da thread.
                     Instruction::CallRuntime { name, .. } if name == "dartforge_exception_pending" && self.tem_ctx => {
                         writeln!(self.out, "  %v{v} = load i8, ptr %ctx, align 8").unwrap();
@@ -1545,6 +1569,13 @@ impl<'a> LlvmEmitter<'a> {
                                 self.anotar_externo(base, Type::Ref, &tipos);
                             }
                             self.thunks_owned.insert(name.clone(), (base.to_string(), tipos));
+                        }
+                        if let Some(base) = name.strip_prefix(crate::otimizar::arc::PREFIXO_ESCOPO_NATIVO) {
+                            let tipos: Vec<Type> = args.iter().map(|(_, t)| *t).collect();
+                            if base.starts_with("dartforge_nativo_") {
+                                self.anotar_externo(base, *ret_ty, &tipos);
+                            }
+                            self.thunks_escopo.insert(name.clone(), (base.to_string(), tipos, *ret_ty));
                         }
                         let mut args_formatted = Vec::new();
                         for (a, ty) in args {
@@ -2628,6 +2659,12 @@ impl<'a> LlvmEmitter<'a> {
             writeln!(self.out, "define void @df.preparar_isolado() {{").unwrap();
             // A memória ARC, ligada antes de todo código Dart do isolado.
             self.iniciar_arc();
+            // Imagem ARC preparada: as portas Dart que o runtime chama aqui
+            // (registros, RTI, embedder) devolvem owners a um escopo nativo.
+            let escopo_raiz = self.module.memoria_arc && self.module.arc_preparado;
+            if escopo_raiz {
+                writeln!(self.out, "  %escopo.prep = call i64 @dartforge_arc_escopo_nativo_abrir_v1()").unwrap();
+            }
             writeln!(self.out, "  call void @dartforge_registrar_cids(ptr @df.cids, i64 {})", ids.len()).unwrap();
             if let Some(v) = &self.module.versao_do_sdk {
                 writeln!(self.out, "  call void @dartforge_registrar_versao_do_sdk(ptr @df.versao_do_sdk, i64 {})", v.len()).unwrap();
@@ -2681,6 +2718,9 @@ impl<'a> LlvmEmitter<'a> {
                 .unwrap();
             }
             writeln!(self.out, "  call void @dartforge_preparar_embedder()").unwrap();
+            if escopo_raiz {
+                writeln!(self.out, "  call void @dartforge_arc_escopo_nativo_fechar_v1(i64 %escopo.prep)").unwrap();
+            }
             writeln!(self.out, "  ret void\n}}\n").unwrap();
             for (i, (chave, _)) in self.module.ffi_trampolins.iter().enumerate() {
                 writeln!(self.out, "@df.ffi.chave.{i} = private unnamed_addr constant [{} x i8] c\"{chave}\"", chave.len()).unwrap();
@@ -2695,9 +2735,17 @@ impl<'a> LlvmEmitter<'a> {
             let chamar = self.module.chamar_dart.as_ref().map_or("null".to_string(), |c| format!("@{c}"));
             writeln!(self.out, "  call void @dartforge_registrar_isolados(ptr @df.preparar_isolado, ptr {chamar})").unwrap();
             writeln!(self.out, "  call void @df.preparar_isolado()").unwrap();
+            // O escopo raiz do isolado principal: o `main` e o laço de
+            // eventos, cujas chamadas do runtime ao Dart devolvem owners.
+            if escopo_raiz {
+                writeln!(self.out, "  %escopo.raiz = call i64 @dartforge_arc_escopo_nativo_abrir_v1()").unwrap();
+            }
             self.chamar_main();
             if let Some(chamar) = &self.module.chamar_dart {
                 writeln!(self.out, "  call void @dartforge_laco_de_eventos(ptr @{chamar})").unwrap();
+            }
+            if escopo_raiz {
+                writeln!(self.out, "  call void @dartforge_arc_escopo_nativo_fechar_v1(i64 %escopo.raiz)").unwrap();
             }
             writeln!(self.out, "  ret void\n}}\n").unwrap();
             // O runtime e o SDK moram na DLL do SDK da fonte: o `main` do

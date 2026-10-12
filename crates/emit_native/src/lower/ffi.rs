@@ -949,7 +949,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         match tipo {
             TipoCampo::Prim(tc) => {
                 let ret = if matches!(tc, TipoC::F32 | TipoC::F64) { Type::F64 } else { Type::I64 };
-                let v = self.emit(
+                // A carga confere a base (`RangeError`/`ArgumentError` pendente).
+                let v = self.emit_call_with_check(
                     Instruction::CallRuntime {
                         name: format!("dartforge_nativo_DartForge_ffi_carregar_{}", tc.sufixo_de_memoria()),
                         args: vec![(base, Type::Ref), (d, Type::I64)],
@@ -1052,7 +1053,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                     _ => (self.coagir(val, Type::I64), Type::I64),
                 };
-                self.emit(
+                // A gravação confere a base, como a carga.
+                self.emit_call_with_check(
                     Instruction::CallRuntime {
                         name: format!("dartforge_nativo_DartForge_ffi_gravar_{}", tc.sufixo_de_memoria()),
                         args: vec![(base, Type::Ref), (d, Type::I64), (v, ty)],

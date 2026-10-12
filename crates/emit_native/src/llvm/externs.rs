@@ -73,7 +73,7 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare i8 @dartforge_equal(i64, i64)",
-        efeitos: CONSERVADOR,
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
         decl: "declare void @dartforge_register_class_name(i64, ptr, i64)",
@@ -972,7 +972,7 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare void @dartforge_rti_registro_nomeado(i64, i64, i64)",
-        efeitos: CONSERVADOR,
+        efeitos: Efeitos { aloca: true, lanca: false, chama_dart: false },
     },
     Extern {
         decl: "declare i8 @dartforge_rti_e(i64, i64)",
@@ -1078,6 +1078,10 @@ pub fn efeitos_de(nome: &str) -> Efeitos {
     // O thunk Owned genérico tem os efeitos da base, mais o retain.
     if let Some(base) = nome.strip_prefix(crate::otimizar::arc::PREFIXO_OWNED_GENERICO) {
         return Efeitos { aloca: true, ..efeitos_de(base) };
+    }
+    // O thunk de escopo tem os efeitos da base (o escopo não aloca).
+    if let Some(base) = nome.strip_prefix(crate::otimizar::arc::PREFIXO_ESCOPO_NATIVO) {
+        return efeitos_de(base);
     }
     // Os ajudantes `@df.*` de cada pacote do espaço unificado chamados por
     // `CallRuntime` (docs/NATIVO-ESPACO-UNIFICADO.md §3.5).
