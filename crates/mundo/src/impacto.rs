@@ -808,7 +808,7 @@ fn alvo_estatico(m: &Motor<'_>, ctx: &Contexto, alvo: ExprId) -> Option<Alvo> {
 }
 
 /// `alvo.nome` com alvo estático.
-fn membro_estatico(m: &mut Motor<'_>, ctx: &Contexto, alvo: Alvo, nome: dartforge_intern::SymbolId) {
+fn membro_estatico(m: &mut Motor<'_>, ctx: &Contexto, alvo: Alvo, nome: dartforge_intern::SymbolId, tearoff: bool) {
     let e = m.e;
     let p = e.program;
     let texto = e.interner.resolve(nome);
@@ -825,9 +825,9 @@ fn membro_estatico(m: &mut Motor<'_>, ctx: &Contexto, alvo: Alvo, nome: dartforg
             for f in fs {
                 m.usar_funcao(f);
             }
-            // Chamada ou tearoff (`C.nome` sem chamada): o tearoff estático
-            // custa poucos bytes, então vale para os dois.
-            m.criar(c, texto, true);
+            // Chamada (`C.nome(..)`) ou tearoff (`C.nome` sem chamada): só o
+            // tearoff cita o `_#nome#tearOff` estático.
+            m.criar(c, texto, tearoff);
         }
         Alvo::Extensao(x) => m.usar_estatico_de_extensao(x, nome),
         Alvo::Prefixo(pre) => {
@@ -954,8 +954,10 @@ fn expr(m: &mut Motor<'_>, ctx: &Contexto, id: ExprId) {
                 let s = e.interner.resolve(name.sym);
                 m.novo_seletor_com_receptor(s, receptor);
             }
+            let chamada = m.alvo_de_chamada == Some(id);
+            m.alvo_de_chamada = None;
             if let Some(a) = alvo_estatico(m, ctx, *target) {
-                membro_estatico(m, ctx, a, name.sym);
+                membro_estatico(m, ctx, a, name.sym, !chamada);
             }
             expr(m, ctx, *target);
         }
@@ -990,7 +992,7 @@ fn expr(m: &mut Motor<'_>, ctx: &Contexto, id: ExprId) {
                 }
             };
             for c in classes {
-                membro_estatico(m, ctx, Alvo::Classe(c), name.sym);
+                membro_estatico(m, ctx, Alvo::Classe(c), name.sym, true);
             }
         }
         ExprKind::Call { target, arguments } => {
@@ -1076,7 +1078,9 @@ fn expr(m: &mut Motor<'_>, ctx: &Contexto, id: ExprId) {
                     }
                 }
             }
+            m.alvo_de_chamada = Some(*target);
             expr(m, ctx, *target);
+            m.alvo_de_chamada = None;
             argumentos(m, ctx, arguments);
         }
         ExprKind::TypeArguments { target, type_args } => {

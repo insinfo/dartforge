@@ -673,6 +673,10 @@ pub(crate) struct Motor<'a> {
     /// dele é escrita (`foo_=`), não leitura. Consumido (e zerado) pelo braço
     /// `Property`/`Identifier`; o resto do alvo continua sendo leitura.
     pub(crate) alvo_de_escrita: Option<dartforge_frontend::ast::ExprId>,
+    /// O `C.nome` em visita é o alvo de uma chamada (`C.nome(..)`): cria pelo
+    /// construtor sem o *tearoff* estático, que só a referência sem chamada
+    /// cita.
+    pub(crate) alvo_de_chamada: Option<dartforge_frontend::ast::ExprId>,
     /// O SDK entra no ponto fixo como o programa (`Opcoes::incluir_sdk`).
     incluir_sdk: bool,
     /// Classes nativas (`@Native`/`@JsPeerInterface`): viva como tipo é
@@ -726,6 +730,7 @@ impl<'a> Motor<'a> {
             itens: 0,
             extensoes_prontas: false,
             alvo_de_escrita: None,
+            alvo_de_chamada: None,
             incluir_sdk: false,
             nativas: HashSet::new(),
             int_num: None,
