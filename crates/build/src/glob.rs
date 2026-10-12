@@ -1,33 +1,33 @@
-//! A semântica do `package:glob` 2.1.3, que decide `sources`, `generate_for`
-//! e `findAssets` no `build_runner`.
+//! The semantics of `package:glob` 2.1.3, which decides `sources`,
+//! `generate_for` and `findAssets` in `build_runner`.
 //!
-//! Parser: `glob-2.1.3/lib/src/parser.dart`, linha por linha. Casamento: a
-//! regex de `ast.dart` (`^…$`): `*` → `[^/]*`, `**` → `[^]*` (tudo, inclusive
-//! `/`), `?` → `[^/]`, faixas nunca casam `/`, `{a,b}` → alternativa. É um
-//! casador por retrocesso sobre a árvore, sem motor de regex.
+//! Parser: `glob-2.1.3/lib/src/parser.dart`, line by line. Matching: the regex
+//! of `ast.dart` (`^…$`): `*` → `[^/]*`, `**` → `[^]*` (everything, including
+//! `/`), `?` → `[^/]`, ranges never match `/`, `{a,b}` → alternation. It is a
+//! backtracking matcher over the tree, without a regex engine.
 //!
-//! **Maiúsculas**: o `Glob` do Dart usa o contexto de caminho da plataforma
-//! e, no Windows, é insensível a maiúsculas (`glob.dart`, `factory Glob`). O
-//! oráculo roda no Windows; aqui vale o mesmo por `cfg!(windows)`.
+//! **Case**: Dart's `Glob` uses the platform's path context and, on Windows,
+//! is case-insensitive (`glob.dart`, `factory Glob`). The oracle runs on
+//! Windows; the same applies here through `cfg!(windows)`.
 
 #[derive(Debug, Clone, PartialEq)]
-enum No {
+enum Node {
     Literal(Vec<char>),
-    Estrela,
-    DuplaEstrela,
-    Qualquer,
-    Faixa {
-        faixas: Vec<(char, char)>,
-        negada: bool,
+    Star,
+    DoubleStar,
+    Any,
+    Range {
+        ranges: Vec<(char, char)>,
+        negated: bool,
     },
-    Opcoes(Vec<Vec<No>>),
+    Options(Vec<Vec<Node>>),
 }
 
 #[derive(Debug, Clone)]
 pub struct Glob {
     pub padrao: String,
-    nos: Vec<No>,
-    sensivel: bool,
+    nodes: Vec<Node>,
+    case_sensitive: bool,
 }
 
 impl PartialEq for Glob {
@@ -36,311 +36,313 @@ impl PartialEq for Glob {
     }
 }
 
-struct Leitor<'a> {
+struct Reader<'a> {
     c: Vec<char>,
     i: usize,
-    padrao: &'a str,
+    pattern: &'a str,
 }
 
-impl Leitor<'_> {
-    fn fim(&self) -> bool {
+impl Reader<'_> {
+    fn at_end(&self) -> bool {
         self.i >= self.c.len()
     }
-    fn olha(&self, ch: char) -> bool {
+    fn peek(&self, ch: char) -> bool {
         self.c.get(self.i) == Some(&ch)
     }
-    fn toma(&mut self, ch: char) -> bool {
-        if self.olha(ch) {
+    fn take(&mut self, ch: char) -> bool {
+        if self.peek(ch) {
             self.i += 1;
             true
         } else {
             false
         }
     }
-    fn erro(&self, msg: &str) -> String {
+    fn error(&self, msg: &str) -> String {
         format!(
-            "glob inválido '{}': {msg} (posição {})",
-            self.padrao, self.i
+            "invalid glob '{}': {msg} (position {})",
+            self.pattern, self.i
         )
     }
-    fn le(&mut self) -> Result<char, String> {
+    fn read(&mut self) -> Result<char, String> {
         let ch = *self
             .c
             .get(self.i)
-            .ok_or_else(|| self.erro("fim inesperado"))?;
+            .ok_or_else(|| self.error("unexpected end"))?;
         self.i += 1;
         Ok(ch)
     }
 
-    fn sequencia(&mut self, em_opcoes: bool) -> Result<Vec<No>, String> {
-        if self.fim() {
-            return Err(self.erro("expected a glob."));
+    fn sequence(&mut self, in_options: bool) -> Result<Vec<Node>, String> {
+        if self.at_end() {
+            return Err(self.error("expected a glob."));
         }
-        let mut nos = Vec::new();
-        while !self.fim() {
-            if em_opcoes && (self.olha(',') || self.olha('}')) {
+        let mut nodes = Vec::new();
+        while !self.at_end() {
+            if in_options && (self.peek(',') || self.peek('}')) {
                 break;
             }
-            nos.push(self.no(em_opcoes)?);
+            nodes.push(self.node(in_options)?);
         }
-        Ok(nos)
+        Ok(nodes)
     }
 
-    fn no(&mut self, em_opcoes: bool) -> Result<No, String> {
-        if self.toma('*') {
-            return Ok(if self.toma('*') {
-                No::DuplaEstrela
+    fn node(&mut self, in_options: bool) -> Result<Node, String> {
+        if self.take('*') {
+            return Ok(if self.take('*') {
+                Node::DoubleStar
             } else {
-                No::Estrela
+                Node::Star
             });
         }
-        if self.toma('?') {
-            return Ok(No::Qualquer);
+        if self.take('?') {
+            return Ok(Node::Any);
         }
-        if self.toma('[') {
-            return self.faixa();
+        if self.take('[') {
+            return self.range();
         }
-        if self.toma('{') {
-            return self.opcoes();
+        if self.take('{') {
+            return self.options();
         }
-        self.literal(em_opcoes)
+        self.literal(in_options)
     }
 
-    fn faixa(&mut self) -> Result<No, String> {
-        if self.olha(']') {
-            return Err(self.erro("unexpected \"]\"."));
+    fn range(&mut self) -> Result<Node, String> {
+        if self.peek(']') {
+            return Err(self.error("unexpected \"]\"."));
         }
-        let negada = self.toma('!') || self.toma('^');
-        let mut faixas = Vec::new();
-        let ler_char = |l: &mut Self| -> Result<char, String> {
-            let ch = l.le()?;
-            if negada || ch != '/' {
+        let negated = self.take('!') || self.take('^');
+        let mut ranges = Vec::new();
+        let read_char = |l: &mut Self| -> Result<char, String> {
+            let ch = l.read()?;
+            if negated || ch != '/' {
                 Ok(ch)
             } else {
-                Err(l.erro("\"/\" may not be used in a range."))
+                Err(l.error("\"/\" may not be used in a range."))
             }
         };
-        while !self.toma(']') {
-            if self.fim() {
-                return Err(self.erro("expected \"]\"."));
+        while !self.take(']') {
+            if self.at_end() {
+                return Err(self.error("expected \"]\"."));
             }
-            self.toma('\\');
-            let ch = ler_char(self)?;
-            if self.toma('-') {
-                if self.olha(']') {
-                    faixas.push((ch, ch));
-                    faixas.push(('-', '-'));
+            self.take('\\');
+            let ch = read_char(self)?;
+            if self.take('-') {
+                if self.peek(']') {
+                    ranges.push((ch, ch));
+                    ranges.push(('-', '-'));
                     continue;
                 }
-                self.toma('\\');
-                let fim = ler_char(self)?;
-                if fim < ch {
-                    return Err(self.erro("Range out of order."));
+                self.take('\\');
+                let end = read_char(self)?;
+                if end < ch {
+                    return Err(self.error("Range out of order."));
                 }
-                faixas.push((ch, fim));
+                ranges.push((ch, end));
             } else {
-                faixas.push((ch, ch));
+                ranges.push((ch, ch));
             }
         }
-        Ok(No::Faixa { faixas, negada })
+        Ok(Node::Range { ranges, negated })
     }
 
-    fn opcoes(&mut self) -> Result<No, String> {
-        if self.olha('}') {
-            return Err(self.erro("unexpected \"}\"."));
+    fn options(&mut self) -> Result<Node, String> {
+        if self.peek('}') {
+            return Err(self.error("unexpected \"}\"."));
         }
         let mut ops = Vec::new();
         loop {
-            ops.push(self.sequencia(true)?);
-            if !self.toma(',') {
+            ops.push(self.sequence(true)?);
+            if !self.take(',') {
                 break;
             }
         }
         if ops.len() == 1 {
-            return Err(self.erro("expected \",\"."));
+            return Err(self.error("expected \",\"."));
         }
-        if !self.toma('}') {
-            return Err(self.erro("expected \"}\"."));
+        if !self.take('}') {
+            return Err(self.error("expected \"}\"."));
         }
-        Ok(No::Opcoes(ops))
+        Ok(Node::Options(ops))
     }
 
-    fn literal(&mut self, em_opcoes: bool) -> Result<No, String> {
-        let para = |ch: char| {
+    fn literal(&mut self, in_options: bool) -> Result<Node, String> {
+        let stops = |ch: char| {
             matches!(ch, '*' | '{' | '[' | '?' | '\\' | '}' | ']' | '(' | ')')
-                || (em_opcoes && ch == ',')
+                || (in_options && ch == ',')
         };
         let mut t = Vec::new();
         loop {
             while let Some(&ch) = self.c.get(self.i) {
-                if para(ch) {
+                if stops(ch) {
                     break;
                 }
                 t.push(ch);
                 self.i += 1;
             }
-            if self.toma('\\') {
-                t.push(self.le()?);
+            if self.take('\\') {
+                t.push(self.read()?);
                 continue;
             }
             break;
         }
         for ch in [']', '(', ')'] {
-            if self.olha(ch) {
-                return Err(self.erro(&format!("unexpected \"{ch}\"")));
+            if self.peek(ch) {
+                return Err(self.error(&format!("unexpected \"{ch}\"")));
             }
         }
-        if !em_opcoes && self.olha('}') {
-            return Err(self.erro("unexpected \"}\""));
+        if !in_options && self.peek('}') {
+            return Err(self.error("unexpected \"}\""));
         }
-        Ok(No::Literal(t))
+        Ok(Node::Literal(t))
     }
 }
 
-fn igual(a: char, b: char, sensivel: bool) -> bool {
-    a == b || (!sensivel && a.to_lowercase().eq(b.to_lowercase()))
+fn equal(a: char, b: char, case_sensitive: bool) -> bool {
+    a == b || (!case_sensitive && a.to_lowercase().eq(b.to_lowercase()))
 }
 
-fn na_faixa(c: char, faixas: &[(char, char)], sensivel: bool) -> bool {
-    let dentro = |x: char| faixas.iter().any(|&(a, b)| a <= x && x <= b);
-    if dentro(c) {
+fn in_range(c: char, ranges: &[(char, char)], case_sensitive: bool) -> bool {
+    let inside = |x: char| ranges.iter().any(|&(a, b)| a <= x && x <= b);
+    if inside(c) {
         return true;
     }
-    if sensivel {
+    if case_sensitive {
         return false;
     }
-    c.to_lowercase().any(dentro) || c.to_uppercase().any(dentro)
+    c.to_lowercase().any(inside) || c.to_uppercase().any(inside)
 }
 
 impl Glob {
-    pub fn novo(padrao: &str) -> Result<Glob, String> {
-        Self::com_sensibilidade(padrao, !cfg!(windows))
+    pub fn novo(pattern: &str) -> Result<Glob, String> {
+        Self::with_case_sensitivity(pattern, !cfg!(windows))
     }
 
-    pub fn com_sensibilidade(padrao: &str, sensivel: bool) -> Result<Glob, String> {
-        let mut l = Leitor {
-            c: padrao.chars().collect(),
+    pub fn with_case_sensitivity(pattern: &str, case_sensitive: bool) -> Result<Glob, String> {
+        let mut l = Reader {
+            c: pattern.chars().collect(),
             i: 0,
-            padrao,
+            pattern,
         };
-        let nos = l.sequencia(false)?;
+        let nodes = l.sequence(false)?;
         Ok(Glob {
-            padrao: padrao.to_string(),
-            nos,
-            sensivel,
+            padrao: pattern.to_string(),
+            nodes,
+            case_sensitive,
         })
     }
 
-    /// O caminho inteiro (POSIX, relativo ao pacote) casa com o padrão.
-    pub fn casa(&self, caminho: &str) -> bool {
-        let t: Vec<char> = caminho.chars().collect();
-        let mut k = |fim: usize| fim == t.len();
-        casar(&self.nos, 0, &t, 0, self.sensivel, &mut k)
+    /// Whether the whole path (POSIX, relative to the package) matches the
+    /// pattern.
+    pub fn casa(&self, path: &str) -> bool {
+        let t: Vec<char> = path.chars().collect();
+        let mut k = |end: usize| end == t.len();
+        match_nodes(&self.nodes, 0, &t, 0, self.case_sensitive, &mut k)
     }
 
-    /// Algum caminho que começa com `dir/` pode casar? Conservador (pode dizer
-    /// sim a mais): serve para podar a varredura de diretórios.
-    pub fn pode_descer(&self, dir: &str) -> bool {
+    /// Could some path starting with `dir/` match? Conservative (it may say
+    /// yes too often): used to prune directory scanning.
+    pub fn may_descend(&self, dir: &str) -> bool {
         let t: Vec<char> = format!("{dir}/").chars().collect();
-        casar_prefixo(&self.nos, 0, &t, 0, self.sensivel)
+        match_prefix(&self.nodes, 0, &t, 0, self.case_sensitive)
     }
 }
 
-/// Casa `nos[i..]` contra `t[j..]`, chamando `k(pos)` a cada fim possível.
-fn casar(
-    nos: &[No],
+/// Matches `nodes[i..]` against `t[j..]`, calling `k(pos)` at every possible
+/// end.
+fn match_nodes(
+    nodes: &[Node],
     i: usize,
     t: &[char],
     j: usize,
     s: bool,
     k: &mut dyn FnMut(usize) -> bool,
 ) -> bool {
-    let Some(no) = nos.get(i) else { return k(j) };
-    match no {
-        No::Literal(l) => {
-            if t.len() - j < l.len() || !l.iter().zip(&t[j..]).all(|(a, b)| igual(*a, *b, s)) {
+    let Some(node) = nodes.get(i) else { return k(j) };
+    match node {
+        Node::Literal(l) => {
+            if t.len() - j < l.len() || !l.iter().zip(&t[j..]).all(|(a, b)| equal(*a, *b, s)) {
                 return false;
             }
-            casar(nos, i + 1, t, j + l.len(), s, k)
+            match_nodes(nodes, i + 1, t, j + l.len(), s, k)
         }
-        No::Qualquer => j < t.len() && t[j] != '/' && casar(nos, i + 1, t, j + 1, s, k),
-        No::Faixa { faixas, negada } => {
+        Node::Any => j < t.len() && t[j] != '/' && match_nodes(nodes, i + 1, t, j + 1, s, k),
+        Node::Range { ranges, negated } => {
             j < t.len()
                 && t[j] != '/'
-                && (na_faixa(t[j], faixas, s) != *negada)
-                && casar(nos, i + 1, t, j + 1, s, k)
+                && (in_range(t[j], ranges, s) != *negated)
+                && match_nodes(nodes, i + 1, t, j + 1, s, k)
         }
-        No::Estrela => {
-            // Guloso, com retrocesso: o maior trecho sem `/` primeiro.
-            let mut fim = j;
-            while fim < t.len() && t[fim] != '/' {
-                fim += 1;
+        Node::Star => {
+            // Greedy, with backtracking: the longest span without `/` first.
+            let mut end = j;
+            while end < t.len() && t[end] != '/' {
+                end += 1;
             }
-            (j..=fim).rev().any(|e| casar(nos, i + 1, t, e, s, k))
+            (j..=end).rev().any(|e| match_nodes(nodes, i + 1, t, e, s, k))
         }
-        No::DuplaEstrela => (j..=t.len()).rev().any(|e| casar(nos, i + 1, t, e, s, k)),
-        No::Opcoes(ops) => ops.iter().any(|op| {
-            let mut cont = |e: usize| casar(nos, i + 1, t, e, s, k);
-            casar(op, 0, t, j, s, &mut cont)
+        Node::DoubleStar => (j..=t.len()).rev().any(|e| match_nodes(nodes, i + 1, t, e, s, k)),
+        Node::Options(ops) => ops.iter().any(|op| {
+            let mut cont = |e: usize| match_nodes(nodes, i + 1, t, e, s, k);
+            match_nodes(op, 0, t, j, s, &mut cont)
         }),
     }
 }
 
-/// Como `casar`, mas aceita quando o texto acaba antes do padrão (o resto do
-/// padrão ainda poderia casar o que vem depois de `t`).
-fn casar_prefixo(nos: &[No], i: usize, t: &[char], j: usize, s: bool) -> bool {
+/// Like `match_nodes`, but accepts when the text ends before the pattern (the
+/// rest of the pattern could still match what comes after `t`).
+fn match_prefix(nodes: &[Node], i: usize, t: &[char], j: usize, s: bool) -> bool {
     if j == t.len() {
         return true;
     }
-    let Some(no) = nos.get(i) else { return false };
-    match no {
-        No::Literal(l) => {
+    let Some(node) = nodes.get(i) else { return false };
+    match node {
+        Node::Literal(l) => {
             let n = l.len().min(t.len() - j);
             if !l[..n]
                 .iter()
                 .zip(&t[j..j + n])
-                .all(|(a, b)| igual(*a, *b, s))
+                .all(|(a, b)| equal(*a, *b, s))
             {
                 return false;
             }
             if n < l.len() {
                 return true;
             }
-            casar_prefixo(nos, i + 1, t, j + n, s)
+            match_prefix(nodes, i + 1, t, j + n, s)
         }
-        No::Qualquer => t[j] != '/' && casar_prefixo(nos, i + 1, t, j + 1, s),
-        No::Faixa { faixas, negada } => {
+        Node::Any => t[j] != '/' && match_prefix(nodes, i + 1, t, j + 1, s),
+        Node::Range { ranges, negated } => {
             t[j] != '/'
-                && (na_faixa(t[j], faixas, s) != *negada)
-                && casar_prefixo(nos, i + 1, t, j + 1, s)
+                && (in_range(t[j], ranges, s) != *negated)
+                && match_prefix(nodes, i + 1, t, j + 1, s)
         }
-        No::Estrela => {
-            let mut fim = j;
-            while fim < t.len() && t[fim] != '/' {
-                fim += 1;
+        Node::Star => {
+            let mut end = j;
+            while end < t.len() && t[end] != '/' {
+                end += 1;
             }
-            fim == t.len() || (j..=fim).any(|e| casar_prefixo(nos, i + 1, t, e, s))
+            end == t.len() || (j..=end).any(|e| match_prefix(nodes, i + 1, t, e, s))
         }
-        No::DuplaEstrela => true,
-        No::Opcoes(ops) => ops.iter().any(|op| {
-            let mut resto: Vec<No> = op.clone();
-            resto.extend_from_slice(&nos[i + 1..]);
-            casar_prefixo(&resto, 0, t, j, s)
+        Node::DoubleStar => true,
+        Node::Options(ops) => ops.iter().any(|op| {
+            let mut rest: Vec<Node> = op.clone();
+            rest.extend_from_slice(&nodes[i + 1..]);
+            match_prefix(&rest, 0, t, j, s)
         }),
     }
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     fn g(p: &str) -> Glob {
-        Glob::com_sensibilidade(p, true).unwrap()
+        Glob::with_case_sensitivity(p, true).unwrap()
     }
 
-    // Casos do `glob-2.1.3/test/match_test.dart`, na parte relativa.
+    // Cases from `glob-2.1.3/test/match_test.dart`, the relative part.
     #[test]
-    fn literais_e_estrelas() {
+    fn literals_and_stars() {
         assert!(g("foo").casa("foo"));
         assert!(!g("foo").casa("foo/bar"));
         assert!(g("foo*").casa("foobar"));
@@ -352,7 +354,7 @@ mod testes {
         assert!(g("foo/**").casa("foo/bar/baz"));
         assert!(!g("foo/**").casa("foo"));
         assert!(g("**/*.dart").casa("a/b/c.dart"));
-        // `**/` exige a barra: a regex é `^[^]*/[^/]*\.dart$`.
+        // `**/` requires the slash: the regex is `^[^]*/[^/]*\.dart$`.
         assert!(!g("**/*.dart").casa("c.dart"));
         assert!(g("lib/**.dart").casa("lib/a/b.dart"));
         assert!(g("lib/**.dart").casa("lib/b.dart"));
@@ -363,7 +365,7 @@ mod testes {
     }
 
     #[test]
-    fn qualquer_faixas_opcoes() {
+    fn any_ranges_options() {
         assert!(g("fo?").casa("foo"));
         assert!(!g("fo?").casa("fo/"));
         assert!(g("[a-c]x").casa("bx"));
@@ -380,7 +382,7 @@ mod testes {
     }
 
     #[test]
-    fn erros_de_sintaxe() {
+    fn syntax_errors() {
         assert!(Glob::novo("").is_err());
         assert!(Glob::novo("{a}").is_err());
         assert!(Glob::novo("a]").is_err());
@@ -392,21 +394,21 @@ mod testes {
     }
 
     #[test]
-    fn maiusculas_no_windows() {
-        let i = Glob::com_sensibilidade("lib/**.DART", false).unwrap();
+    fn case_on_windows() {
+        let i = Glob::with_case_sensitivity("lib/**.DART", false).unwrap();
         assert!(i.casa("lib/a.dart"));
         assert!(!g("lib/**.DART").casa("lib/a.dart"));
     }
 
     #[test]
-    fn poda_de_diretorios() {
-        assert!(g("lib/**").pode_descer("lib"));
-        assert!(g("lib/**").pode_descer("lib/src"));
-        assert!(!g("lib/**").pode_descer("web"));
-        assert!(!g("README*").pode_descer("doc"));
-        assert!(g("**/*.dart").pode_descer("x"));
-        assert!(g("{lib,web}/*.dart").pode_descer("web"));
-        assert!(!g("{lib,web}/*.dart").pode_descer("web/a"));
-        assert!(!g("$package$").pode_descer(".dart_tool"));
+    fn directory_pruning() {
+        assert!(g("lib/**").may_descend("lib"));
+        assert!(g("lib/**").may_descend("lib/src"));
+        assert!(!g("lib/**").may_descend("web"));
+        assert!(!g("README*").may_descend("doc"));
+        assert!(g("**/*.dart").may_descend("x"));
+        assert!(g("{lib,web}/*.dart").may_descend("web"));
+        assert!(!g("{lib,web}/*.dart").may_descend("web/a"));
+        assert!(!g("$package$").may_descend(".dart_tool"));
     }
 }

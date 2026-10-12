@@ -1,24 +1,25 @@
-//! As dependências do executor de builders que o projeto não resolve
-//! (DF-BUILD-004): o hospedeiro não pode depender de o projeto trazer
-//! `build_runner` ou `build_resolvers`. O lado Dart do executor
-//! (`packages/build_executor`) importa [`DEPENDENCIAS`]; quando o
-//! `package_config.json` do projeto não resolve algum deles, o hospedeiro os
-//! procura no cache do pub (`PUB_CACHE`, ou o padrão da plataforma), com as
-//! restrições do `pubspec.yaml` do executor, e depois as dependências deles
-//! que também faltam, com as restrições de quem as pede — sempre a maior
-//! versão do cache que satisfaz, como o pub escolheria entre as que já tem.
-//! Um pacote que o projeto já resolve fica na versão do projeto.
+//! The builder executor's dependencies that the project does not resolve
+//! (DF-BUILD-004): the host cannot rely on the project bringing
+//! `build_runner` or `build_resolvers`. The Dart side of the executor
+//! (`packages/build_executor`) imports [`DEPENDENCIES`]; when the project's
+//! `package_config.json` does not resolve some of them, the host looks for
+//! them in the pub cache (`PUB_CACHE`, or the platform default), with the
+//! constraints of the executor's `pubspec.yaml`, and then for their
+//! dependencies that are also missing, with the constraints of whoever asks
+//! for them — always the highest cached version that satisfies them, as pub
+//! would choose among the ones it already has. A package the project already
+//! resolves stays at the project's version.
 //!
-//! Não há rede: o que o cache não tem é diagnosticado pelo nome, pela
-//! restrição e por quem o pediu.
+//! There is no network: what the cache does not have is diagnosed by name, by
+//! constraint and by who requested it.
 use serde_json::{Value, json};
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-/// Os pacotes que o lado Dart do executor importa, com as restrições do
-/// `pubspec.yaml` de `packages/build_executor`.
-pub const DEPENDENCIAS: &[(&str, &str)] = &[
+/// The packages the Dart side of the executor imports, with the constraints of
+/// the `pubspec.yaml` of `packages/build_executor`.
+pub const DEPENDENCIES: &[(&str, &str)] = &[
     ("analyzer", ">=6.9.0 <8.0.0"),
     ("build", "^2.4.2"),
     ("build_resolvers", "^2.4.4"),
@@ -27,52 +28,52 @@ pub const DEPENDENCIAS: &[(&str, &str)] = &[
     ("package_config", "^2.1.0"),
 ];
 
-/// Uma versão semântica `maior.menor.patch[-pre][+build]` (o `+build` não
-/// conta na ordem).
+/// A semantic version `major.minor.patch[-pre][+build]` (the `+build` does not
+/// count for ordering).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Versao {
-    pub numeros: [u64; 3],
+pub struct Version {
+    pub numbers: [u64; 3],
     pub pre: Option<String>,
 }
 
-impl Versao {
-    /// Lê `1.2.3`, `1.2.3-dev.1`, `1.2.3+4`.
+impl Version {
+    /// Parses `1.2.3`, `1.2.3-dev.1`, `1.2.3+4`.
     ///
     /// ```
-    /// use dartforge_build::dependencias_executor::Versao;
-    /// assert!(Versao::ler("2.4.2").unwrap() < Versao::ler("2.10.0").unwrap());
-    /// assert!(Versao::ler("3.0.0-dev.1").unwrap() < Versao::ler("3.0.0").unwrap());
+    /// use dartforge_build::dependencias_executor::Version;
+    /// assert!(Version::parse("2.4.2").unwrap() < Version::parse("2.10.0").unwrap());
+    /// assert!(Version::parse("3.0.0-dev.1").unwrap() < Version::parse("3.0.0").unwrap());
     /// ```
-    pub fn ler(texto: &str) -> Option<Versao> {
-        let texto = texto.trim();
-        let sem_build = texto.split('+').next()?;
-        let (nucleo, pre) = match sem_build.split_once('-') {
+    pub fn parse(text: &str) -> Option<Version> {
+        let text = text.trim();
+        let without_build = text.split('+').next()?;
+        let (core, pre) = match without_build.split_once('-') {
             Some((n, p)) => (n, Some(p.to_string())),
-            None => (sem_build, None),
+            None => (without_build, None),
         };
-        let mut partes = nucleo.split('.');
-        let mut numeros = [0u64; 3];
-        for n in &mut numeros {
-            *n = partes.next()?.parse().ok()?;
+        let mut parts = core.split('.');
+        let mut numbers = [0u64; 3];
+        for n in &mut numbers {
+            *n = parts.next()?.parse().ok()?;
         }
-        if partes.next().is_some() {
+        if parts.next().is_some() {
             return None;
         }
-        Some(Versao { numeros, pre })
+        Some(Version { numbers, pre })
     }
 }
 
-impl PartialOrd for Versao {
-    fn partial_cmp(&self, outro: &Versao) -> Option<Ordering> {
-        Some(self.cmp(outro))
+impl PartialOrd for Version {
+    fn partial_cmp(&self, other: &Version) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 
-impl Ord for Versao {
-    fn cmp(&self, outro: &Versao) -> Ordering {
-        self.numeros
-            .cmp(&outro.numeros)
-            .then_with(|| match (&self.pre, &outro.pre) {
+impl Ord for Version {
+    fn cmp(&self, other: &Version) -> Ordering {
+        self.numbers
+            .cmp(&other.numbers)
+            .then_with(|| match (&self.pre, &other.pre) {
                 (None, None) => Ordering::Equal,
                 (None, Some(_)) => Ordering::Greater,
                 (Some(_), None) => Ordering::Less,
@@ -81,48 +82,48 @@ impl Ord for Versao {
     }
 }
 
-/// Uma restrição de versão do pub: `any`, `1.2.3`, `^1.2.3`, e intervalos
-/// com `>=`, `>`, `<=`, `<` separados por espaço.
+/// A pub version constraint: `any`, `1.2.3`, `^1.2.3`, and ranges with `>=`,
+/// `>`, `<=`, `<` separated by spaces.
 ///
 /// ```
-/// use dartforge_build::dependencias_executor::{Versao, satisfaz};
-/// let v = |t| Versao::ler(t).unwrap();
-/// assert!(satisfaz("^2.4.2", &v("2.9.0")) && !satisfaz("^2.4.2", &v("3.0.0")));
-/// assert!(satisfaz("^0.2.1", &v("0.2.9")) && !satisfaz("^0.2.1", &v("0.3.0")));
-/// assert!(satisfaz(">=6.9.0 <8.0.0", &v("7.7.1")));
-/// assert!(!satisfaz("^1.0.0", &v("1.1.0-dev")));
+/// use dartforge_build::dependencias_executor::{Version, satisfies};
+/// let v = |t| Version::parse(t).unwrap();
+/// assert!(satisfies("^2.4.2", &v("2.9.0")) && !satisfies("^2.4.2", &v("3.0.0")));
+/// assert!(satisfies("^0.2.1", &v("0.2.9")) && !satisfies("^0.2.1", &v("0.3.0")));
+/// assert!(satisfies(">=6.9.0 <8.0.0", &v("7.7.1")));
+/// assert!(!satisfies("^1.0.0", &v("1.1.0-dev")));
 /// ```
-pub fn satisfaz(restricao: &str, v: &Versao) -> bool {
-    let restricao = restricao.trim().trim_matches(|c| c == '\'' || c == '"');
-    // Pré-lançamentos só quando a própria restrição cita um.
-    if v.pre.is_some() && !restricao.contains('-') {
+pub fn satisfies(constraint: &str, v: &Version) -> bool {
+    let constraint = constraint.trim().trim_matches(|c| c == '\'' || c == '"');
+    // Pre-releases only when the constraint itself mentions one.
+    if v.pre.is_some() && !constraint.contains('-') {
         return false;
     }
-    if restricao.is_empty() || restricao == "any" {
+    if constraint.is_empty() || constraint == "any" {
         return true;
     }
-    if let Some(base) = restricao.strip_prefix('^') {
-        let Some(b) = Versao::ler(base) else {
+    if let Some(base) = constraint.strip_prefix('^') {
+        let Some(b) = Version::parse(base) else {
             return false;
         };
-        let teto = match b.numeros {
+        let ceiling = match b.numbers {
             [0, 0, p] => [0, 0, p + 1],
             [0, m, _] => [0, m + 1, 0],
             [x, _, _] => [x + 1, 0, 0],
         };
-        return *v >= b && v.numeros < teto;
+        return *v >= b && v.numbers < ceiling;
     }
-    let mut resto = restricao;
-    let mut algum = false;
-    while !resto.trim_start().is_empty() {
-        resto = resto.trim_start();
-        let (op, depois) = [">=", "<=", ">", "<"]
+    let mut rest = constraint;
+    let mut any = false;
+    while !rest.trim_start().is_empty() {
+        rest = rest.trim_start();
+        let (op, after) = [">=", "<=", ">", "<"]
             .iter()
-            .find_map(|op| resto.strip_prefix(op).map(|d| (*op, d)))
-            .unwrap_or(("=", resto));
-        let depois = depois.trim_start();
-        let fim = depois.find(char::is_whitespace).unwrap_or(depois.len());
-        let Some(b) = Versao::ler(&depois[..fim]) else {
+            .find_map(|op| rest.strip_prefix(op).map(|d| (*op, d)))
+            .unwrap_or(("=", rest));
+        let after = after.trim_start();
+        let end = after.find(char::is_whitespace).unwrap_or(after.len());
+        let Some(b) = Version::parse(&after[..end]) else {
             return false;
         };
         let ok = match op {
@@ -135,16 +136,16 @@ pub fn satisfaz(restricao: &str, v: &Versao) -> bool {
         if !ok {
             return false;
         }
-        algum = true;
-        resto = &depois[fim..];
+        any = true;
+        rest = &after[end..];
     }
-    algum
+    any
 }
 
-/// O diretório `hosted/pub.dev` do cache do pub: `PUB_CACHE`, senão
-/// `%LOCALAPPDATA%\Pub\Cache` (Windows) ou `~/.pub-cache`.
-pub fn cache_do_pub() -> Option<PathBuf> {
-    let raiz = std::env::var_os("PUB_CACHE")
+/// The `hosted/pub.dev` directory of the pub cache: `PUB_CACHE`, otherwise
+/// `%LOCALAPPDATA%\Pub\Cache` (Windows) or `~/.pub-cache`.
+pub fn pub_cache_dir() -> Option<PathBuf> {
+    let root = std::env::var_os("PUB_CACHE")
         .map(PathBuf::from)
         .or_else(|| {
             if cfg!(windows) {
@@ -153,29 +154,29 @@ pub fn cache_do_pub() -> Option<PathBuf> {
                 std::env::var_os("HOME").map(|d| PathBuf::from(d).join(".pub-cache"))
             }
         })?;
-    Some(raiz.join("hosted").join("pub.dev"))
+    Some(root.join("hosted").join("pub.dev"))
 }
 
-/// A maior versão de `nome` no cache que satisfaz `restricao`.
-fn melhor_do_cache(cache: &Path, nome: &str, restricao: &str) -> Option<(Versao, PathBuf)> {
-    let prefixo = format!("{nome}-");
+/// The highest version of `name` in the cache that satisfies `constraint`.
+fn best_in_cache(cache: &Path, name: &str, constraint: &str) -> Option<(Version, PathBuf)> {
+    let prefix = format!("{name}-");
     std::fs::read_dir(cache)
         .ok()?
         .flatten()
         .filter_map(|e| {
             let n = e.file_name().to_string_lossy().to_string();
-            let v = Versao::ler(n.strip_prefix(&prefixo)?)?;
-            (satisfaz(restricao, &v) && e.path().join("pubspec.yaml").is_file())
+            let v = Version::parse(n.strip_prefix(&prefix)?)?;
+            (satisfies(constraint, &v) && e.path().join("pubspec.yaml").is_file())
                 .then(|| (v, e.path()))
         })
         .max_by(|a, b| a.0.cmp(&b.0))
 }
 
-/// As `dependencies` de um `pubspec.yaml`: nome → restrição (as de outra
-/// fonte que não o pub.dev ficam com `any`).
-fn dependencias_do_pubspec(texto: &str) -> (Vec<(String, String)>, Option<String>) {
+/// The `dependencies` of a `pubspec.yaml`: name → constraint (those from a
+/// source other than pub.dev get `any`).
+fn pubspec_dependencies(text: &str) -> (Vec<(String, String)>, Option<String>) {
     use yaml_rust2::{Yaml, YamlLoader};
-    let Ok(docs) = YamlLoader::load_from_str(texto) else {
+    let Ok(docs) = YamlLoader::load_from_str(text) else {
         return (Vec::new(), None);
     };
     let Some(doc) = docs.first() else {
@@ -184,23 +185,23 @@ fn dependencias_do_pubspec(texto: &str) -> (Vec<(String, String)>, Option<String
     let mut deps = Vec::new();
     if let Yaml::Hash(h) = &doc["dependencies"] {
         for (k, v) in h {
-            let Some(nome) = k.as_str() else { continue };
+            let Some(name) = k.as_str() else { continue };
             let r = match v {
                 Yaml::String(s) => s.clone(),
                 Yaml::Real(s) => s.clone(),
                 Yaml::Hash(_) => v["version"].as_str().unwrap_or("any").to_string(),
                 _ => "any".to_string(),
             };
-            deps.push((nome.to_string(), r));
+            deps.push((name.to_string(), r));
         }
     }
     let sdk = doc["environment"]["sdk"].as_str().map(str::to_string);
     (deps, sdk)
 }
 
-/// A versão de linguagem de um pacote pela restrição do SDK (a menor versão
-/// aceita, `maior.menor`), como o pub grava no `package_config.json`.
-fn versao_de_linguagem(sdk: Option<&str>) -> String {
+/// A package's language version from its SDK constraint (the lowest accepted
+/// version, `major.minor`), as pub writes it to `package_config.json`.
+fn language_version(sdk: Option<&str>) -> String {
     let base = sdk
         .and_then(|s| {
             let s = s.trim();
@@ -208,32 +209,32 @@ fn versao_de_linguagem(sdk: Option<&str>) -> String {
                 .strip_prefix('^')
                 .or_else(|| s.strip_prefix(">="))
                 .unwrap_or(s);
-            Versao::ler(s.split_whitespace().next()?)
+            Version::parse(s.split_whitespace().next()?)
         })
-        .map_or([2, 12, 0], |v| v.numeros);
+        .map_or([2, 12, 0], |v| v.numbers);
     format!("{}.{}", base[0], base[1])
 }
 
-/// O `package_config.json` do projeto (`original`) completado com os pacotes
-/// do executor que ele não resolve, tirados de `cache` (o `hosted/pub.dev`
-/// do cache do pub). Devolve o JSON e os nomes acrescentados.
+/// The project's `package_config.json` (`original`) completed with the
+/// executor packages it does not resolve, taken from `cache` (the
+/// `hosted/pub.dev` of the pub cache). Returns the JSON and the added names.
 ///
-/// # Erros
+/// # Errors
 ///
-/// O `package_config` não tem `packages`, ou o cache não tem uma versão que
-/// satisfaça algum pacote que falta (a mensagem diz qual, com a restrição e
-/// quem o pediu).
-pub fn completar(original: &Value, cache: &Path) -> Result<(Value, Vec<String>), String> {
+/// The `package_config` has no `packages`, or the cache has no version that
+/// satisfies some missing package (the message says which one, with the
+/// constraint and who requested it).
+pub fn complete(original: &Value, cache: &Path) -> Result<(Value, Vec<String>), String> {
     let mut v = original.clone();
-    let pacotes = v
+    let packages = v
         .get_mut("packages")
         .and_then(Value::as_array_mut)
-        .ok_or("package_config sem 'packages'")?;
-    let presentes: Vec<String> = pacotes
+        .ok_or("package_config without 'packages'")?;
+    let present: Vec<String> = packages
         .iter()
         .filter_map(|p| p["name"].as_str().map(str::to_string))
         .collect();
-    let mut pendentes: Vec<(String, String, String)> = DEPENDENCIAS
+    let mut pending: Vec<(String, String, String)> = DEPENDENCIES
         .iter()
         .map(|(n, r)| {
             (
@@ -243,98 +244,99 @@ pub fn completar(original: &Value, cache: &Path) -> Result<(Value, Vec<String>),
             )
         })
         .collect();
-    let mut escolhidos: BTreeMap<String, (Versao, PathBuf, Option<String>)> = BTreeMap::new();
-    let mut faltam = Vec::new();
-    while let Some((nome, restricao, quem)) = pendentes.pop() {
-        if presentes.contains(&nome) || escolhidos.contains_key(&nome) {
+    let mut chosen: BTreeMap<String, (Version, PathBuf, Option<String>)> = BTreeMap::new();
+    let mut missing = Vec::new();
+    while let Some((name, constraint, requester)) = pending.pop() {
+        if present.contains(&name) || chosen.contains_key(&name) {
             continue;
         }
-        let Some((versao, dir)) = melhor_do_cache(cache, &nome, &restricao) else {
-            faltam.push(format!("{nome} {restricao} (pedido por {quem})"));
+        let Some((version, dir)) = best_in_cache(cache, &name, &constraint) else {
+            missing.push(format!("{name} {constraint} (requested by {requester})"));
             continue;
         };
-        let texto = std::fs::read_to_string(dir.join("pubspec.yaml")).unwrap_or_default();
-        let (deps, sdk) = dependencias_do_pubspec(&texto);
+        let text = std::fs::read_to_string(dir.join("pubspec.yaml")).unwrap_or_default();
+        let (deps, sdk) = pubspec_dependencies(&text);
         for (d, r) in deps {
-            pendentes.push((d, r, nome.clone()));
+            pending.push((d, r, name.clone()));
         }
-        escolhidos.insert(nome, (versao, dir, sdk));
+        chosen.insert(name, (version, dir, sdk));
     }
-    if !faltam.is_empty() {
-        faltam.sort();
+    if !missing.is_empty() {
+        missing.sort();
         return Err(format!(
-            "o executor de builders precisa de pacotes que o projeto não resolve e que o cache do pub \
-             ({}) não tem: {}. Declare-os nas dev_dependencies do projeto e resolva as dependências",
+            "the builder executor needs packages that the project does not resolve and that the pub \
+             cache ({}) does not have: {}. Declare them in the project's dev_dependencies and resolve \
+             the dependencies",
             cache.display(),
-            faltam.join(", ")
+            missing.join(", ")
         ));
     }
-    let mut acrescentados = Vec::new();
-    for (nome, (_, dir, sdk)) in escolhidos {
+    let mut added = Vec::new();
+    for (name, (_, dir, sdk)) in chosen {
         let uri = url::Url::from_directory_path(&dir)
             .map(|u| u.to_string())
             .unwrap_or_default();
-        pacotes.push(json!({
-            "name": nome,
+        packages.push(json!({
+            "name": name,
             "rootUri": uri,
             "packageUri": "lib/",
-            "languageVersion": versao_de_linguagem(sdk.as_deref()),
+            "languageVersion": language_version(sdk.as_deref()),
         }));
-        acrescentados.push(nome);
+        added.push(name);
     }
-    Ok((v, acrescentados))
+    Ok((v, added))
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
-    fn pacote(cache: &Path, nome: &str, versao: &str, deps: &str) {
-        let d = cache.join(format!("{nome}-{versao}"));
+    fn package(cache: &Path, name: &str, version: &str, deps: &str) {
+        let d = cache.join(format!("{name}-{version}"));
         std::fs::create_dir_all(d.join("lib")).unwrap();
         std::fs::write(
             d.join("pubspec.yaml"),
-            format!("name: {nome}\nversion: {versao}\nenvironment:\n  sdk: '>=3.4.0 <4.0.0'\ndependencies:\n{deps}"),
+            format!("name: {name}\nversion: {version}\nenvironment:\n  sdk: '>=3.4.0 <4.0.0'\ndependencies:\n{deps}"),
         )
         .unwrap();
     }
 
     #[test]
-    fn completa_pelo_cache_com_as_dependencias_transitivas() {
+    fn completes_from_cache_with_transitive_dependencies() {
         let dir = tempfile::tempdir().unwrap();
         let cache = dir.path();
-        pacote(
+        package(
             cache,
             "build_resolvers",
             "2.4.4",
             "  analyzer: '>=6.9.0 <8.0.0'\n  build: ^2.0.0\n",
         );
-        pacote(cache, "build_resolvers", "3.0.0", "");
-        pacote(cache, "analyzer", "6.11.0", "");
-        pacote(cache, "analyzer", "7.7.1", "");
-        pacote(cache, "analyzer", "8.0.0", "");
-        pacote(cache, "logging", "1.3.0", "");
-        pacote(cache, "package_config", "2.2.0", "");
+        package(cache, "build_resolvers", "3.0.0", "");
+        package(cache, "analyzer", "6.11.0", "");
+        package(cache, "analyzer", "7.7.1", "");
+        package(cache, "analyzer", "8.0.0", "");
+        package(cache, "logging", "1.3.0", "");
+        package(cache, "package_config", "2.2.0", "");
         let original = json!({"configVersion": 2, "packages": [
             {"name": "build", "rootUri": "file:///b/", "packageUri": "lib/"},
             {"name": "glob", "rootUri": "file:///g/", "packageUri": "lib/"},
         ]});
-        let (v, novos) = completar(&original, cache).unwrap();
+        let (v, new) = complete(&original, cache).unwrap();
         assert_eq!(
-            novos,
+            new,
             vec!["analyzer", "build_resolvers", "logging", "package_config"]
         );
         let ps = v["packages"].as_array().unwrap();
-        let raiz = |n: &str| {
+        let root = |n: &str| {
             ps.iter().find(|p| p["name"] == n).unwrap()["rootUri"]
                 .as_str()
                 .unwrap()
                 .to_string()
         };
-        assert!(raiz("build_resolvers").ends_with("build_resolvers-2.4.4/"));
-        assert!(raiz("analyzer").ends_with("analyzer-7.7.1/"));
-        // O `build` do projeto fica.
-        assert_eq!(raiz("build"), "file:///b/");
+        assert!(root("build_resolvers").ends_with("build_resolvers-2.4.4/"));
+        assert!(root("analyzer").ends_with("analyzer-7.7.1/"));
+        // The project's `build` stays.
+        assert_eq!(root("build"), "file:///b/");
         assert_eq!(
             ps.iter().find(|p| p["name"] == "logging").unwrap()["languageVersion"],
             "3.4"
@@ -342,12 +344,12 @@ mod testes {
     }
 
     #[test]
-    fn diagnostica_o_que_o_cache_nao_tem() {
+    fn diagnoses_what_the_cache_lacks() {
         let dir = tempfile::tempdir().unwrap();
         let original = json!({"configVersion": 2, "packages": []});
-        let e = completar(&original, dir.path()).unwrap_err();
+        let e = complete(&original, dir.path()).unwrap_err();
         assert!(
-            e.contains("build_resolvers ^2.4.4 (pedido por dartforge_build_executor)"),
+            e.contains("build_resolvers ^2.4.4 (requested by dartforge_build_executor)"),
             "{e}"
         );
     }

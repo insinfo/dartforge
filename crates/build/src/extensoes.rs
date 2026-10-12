@@ -1,43 +1,44 @@
-//! `buildExtensions` de um builder: que saídas uma entrada produz.
+//! A builder's `buildExtensions`: which outputs an input produces.
 //!
-//! Reproduz `build-2.4.2/lib/src/generate/expected_outputs.dart`:
-//! * sufixo: `.dart → [.g.dart]` troca o fim do caminho;
-//! * `^caminho`: casamento exato do caminho inteiro, e as saídas são caminhos;
-//! * `{{nome}}`: cada grupo vira `(.+)` numa regex ancorada no fim (e no
-//!   começo, com `^`), com o **primeiro** casamento e grupos gulosos; a saída
-//!   troca o trecho casado pela saída com os grupos substituídos.
+//! Reproduces `build-2.4.2/lib/src/generate/expected_outputs.dart`:
+//! * suffix: `.dart → [.g.dart]` replaces the end of the path;
+//! * `^path`: exact match of the whole path, and the outputs are paths;
+//! * `{{name}}`: each group becomes `(.+)` in a regex anchored at the end (and
+//!   at the start, with `^`), with the **first** match and greedy groups; the
+//!   output replaces the matched span with the output with the groups
+//!   substituted.
 //!
-//! Validações (as mesmas mensagens em essência): saída com grupo sem grupo na
-//! entrada, grupo repetido, saída que não usa todos os grupos exatamente uma
-//! vez, e saída igual à entrada.
+//! Validations (essentially the same messages): an output with a group when
+//! the input has none, a repeated group, an output that does not use every
+//! group exactly once, and an output equal to the input.
 
 #[derive(Debug, Clone, PartialEq)]
-enum Regra {
-    Sufixo {
-        entrada: String,
-        saidas: Vec<String>,
+enum Rule {
+    Suffix {
+        input: String,
+        outputs: Vec<String>,
     },
-    Exata {
-        caminho: String,
-        saidas: Vec<String>,
+    Exact {
+        path: String,
+        outputs: Vec<String>,
     },
-    Captura {
-        ancorada: bool,
-        literais: Vec<String>,
-        nomes: Vec<String>,
-        saidas: Vec<String>,
+    Capture {
+        anchored: bool,
+        literals: Vec<String>,
+        names: Vec<String>,
+        outputs: Vec<String>,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Extensoes {
-    regras: Vec<Regra>,
-    /// A forma declarada, na ordem: entra na identidade da fase.
+    rules: Vec<Rule>,
+    /// The declared form, in order: it goes into the phase's identity.
     pub declaradas: Vec<(String, Vec<String>)>,
 }
 
-/// Grupos `{{nome}}` de um texto: `(início, fim, nome)`.
-fn grupos(s: &str) -> Vec<(usize, usize, String)> {
+/// The `{{name}}` groups of a string: `(start, end, name)`.
+fn groups(s: &str) -> Vec<(usize, usize, String)> {
     let mut v = Vec::new();
     let b = s.as_bytes();
     let mut i = 0;
@@ -60,165 +61,166 @@ fn grupos(s: &str) -> Vec<(usize, usize, String)> {
 
 impl Extensoes {
     pub fn novas(declaradas: &[(String, Vec<String>)], builder: &str) -> Result<Extensoes, String> {
-        let mut regras = Vec::new();
-        for (entrada, saidas) in declaradas {
-            let gs = grupos(entrada);
+        let mut rules = Vec::new();
+        for (input, outputs) in declaradas {
+            let gs = groups(input);
             if !gs.is_empty() {
-                let ancorada = entrada.starts_with('^');
-                let mut pos = usize::from(ancorada);
-                let mut literais = Vec::new();
-                let mut nomes: Vec<String> = Vec::new();
-                for (ini, fim, nome) in &gs {
-                    if nomes.contains(nome) {
+                let anchored = input.starts_with('^');
+                let mut pos = usize::from(anchored);
+                let mut literals = Vec::new();
+                let mut names: Vec<String> = Vec::new();
+                for (start, end, name) in &gs {
+                    if names.contains(name) {
                         return Err(format!(
-                            "o builder `{builder}` declara a entrada \"{entrada}\" com grupos repetidos (`{{{{{nome}}}}}`)"
+                            "builder `{builder}` declares the input \"{input}\" with repeated groups (`{{{{{name}}}}}`)"
                         ));
                     }
-                    nomes.push(nome.clone());
-                    literais.push(entrada[pos..*ini].to_string());
-                    pos = *fim;
+                    names.push(name.clone());
+                    literals.push(input[pos..*start].to_string());
+                    pos = *end;
                 }
-                literais.push(entrada[pos..].to_string());
-                for s in saidas {
-                    let mut restantes = nomes.clone();
-                    for (_, _, n) in grupos(s) {
-                        let Some(i) = restantes.iter().position(|x| *x == n) else {
+                literals.push(input[pos..].to_string());
+                for s in outputs {
+                    let mut remaining = names.clone();
+                    for (_, _, n) in groups(s) {
+                        let Some(i) = remaining.iter().position(|x| *x == n) else {
                             return Err(format!(
-                                "o builder `{builder}` declara a saída \"{s}\" com o grupo \"{n}\", que não existe ou aparece mais de uma vez"
+                                "builder `{builder}` declares the output \"{s}\" with the group \"{n}\", which does not exist or appears more than once"
                             ));
                         };
-                        restantes.remove(i);
+                        remaining.remove(i);
                     }
-                    if !restantes.is_empty() {
+                    if !remaining.is_empty() {
                         return Err(format!(
-                            "o builder `{builder}` declara a entrada \"{entrada}\" com grupo, e a saída \"{s}\" não usa {}",
-                            restantes.join(", ")
+                            "builder `{builder}` declares the input \"{input}\" with a group, and the output \"{s}\" does not use {}",
+                            remaining.join(", ")
                         ));
                     }
                 }
-                regras.push(Regra::Captura {
-                    ancorada,
-                    literais,
-                    nomes,
-                    saidas: saidas.clone(),
+                rules.push(Rule::Capture {
+                    anchored,
+                    literals,
+                    names,
+                    outputs: outputs.clone(),
                 });
                 continue;
             }
-            for s in saidas {
-                if !grupos(s).is_empty() {
+            for s in outputs {
+                if !groups(s).is_empty() {
                     return Err(format!(
-                        "o builder `{builder}` declara a saída \"{s}\" com grupo, e a entrada \"{entrada}\" não tem grupo"
+                        "builder `{builder}` declares the output \"{s}\" with a group, and the input \"{input}\" has no group"
                     ));
                 }
             }
-            if let Some(c) = entrada.strip_prefix('^') {
-                regras.push(Regra::Exata {
-                    caminho: c.to_string(),
-                    saidas: saidas.clone(),
+            if let Some(c) = input.strip_prefix('^') {
+                rules.push(Rule::Exact {
+                    path: c.to_string(),
+                    outputs: outputs.clone(),
                 });
             } else {
-                regras.push(Regra::Sufixo {
-                    entrada: entrada.clone(),
-                    saidas: saidas.clone(),
+                rules.push(Rule::Suffix {
+                    input: input.clone(),
+                    outputs: outputs.clone(),
                 });
             }
         }
         Ok(Extensoes {
-            regras,
+            rules,
             declaradas: declaradas.to_vec(),
         })
     }
 
-    pub fn tem_saida(&self, caminho: &str) -> bool {
-        self.regras.iter().any(|r| match r {
-            Regra::Sufixo { entrada, .. } => caminho.ends_with(entrada.as_str()),
-            Regra::Exata { caminho: c, .. } => c == caminho,
-            Regra::Captura {
-                ancorada, literais, ..
-            } => primeiro_casamento(caminho, *ancorada, literais).is_some(),
+    pub fn has_output(&self, path: &str) -> bool {
+        self.rules.iter().any(|r| match r {
+            Rule::Suffix { input, .. } => path.ends_with(input.as_str()),
+            Rule::Exact { path: c, .. } => c == path,
+            Rule::Capture {
+                anchored, literals, ..
+            } => first_match(path, *anchored, literals).is_some(),
         })
     }
 
-    /// `expectedOutputs(builder, input)`: caminhos (no mesmo pacote), na
-    /// ordem das regras e das saídas. Saída igual à entrada é erro.
-    pub fn saidas(&self, caminho: &str) -> Result<Vec<String>, String> {
+    /// `expectedOutputs(builder, input)`: paths (in the same package), in the
+    /// order of the rules and of the outputs. An output equal to the input is
+    /// an error.
+    pub fn outputs(&self, path: &str) -> Result<Vec<String>, String> {
         let mut v = Vec::new();
-        for r in &self.regras {
+        for r in &self.rules {
             match r {
-                Regra::Sufixo { entrada, saidas } => {
-                    if let Some(base) = caminho.strip_suffix(entrada.as_str()) {
-                        v.extend(saidas.iter().map(|s| format!("{base}{s}")));
+                Rule::Suffix { input, outputs } => {
+                    if let Some(base) = path.strip_suffix(input.as_str()) {
+                        v.extend(outputs.iter().map(|s| format!("{base}{s}")));
                     }
                 }
-                Regra::Exata { caminho: c, saidas } => {
-                    if c == caminho {
-                        v.extend(saidas.iter().cloned());
+                Rule::Exact { path: c, outputs } => {
+                    if c == path {
+                        v.extend(outputs.iter().cloned());
                     }
                 }
-                Regra::Captura {
-                    ancorada,
-                    literais,
-                    nomes,
-                    saidas,
+                Rule::Capture {
+                    anchored,
+                    literals,
+                    names,
+                    outputs,
                 } => {
-                    if let Some((ini, caps)) = primeiro_casamento(caminho, *ancorada, literais) {
-                        for s in saidas {
+                    if let Some((start, caps)) = first_match(path, *anchored, literals) {
+                        for s in outputs {
                             let mut r = String::new();
                             let mut pos = 0;
-                            for (a, b, n) in grupos(s) {
+                            for (a, b, n) in groups(s) {
                                 r.push_str(&s[pos..a]);
-                                let i = nomes.iter().position(|x| *x == n).unwrap_or(0);
+                                let i = names.iter().position(|x| *x == n).unwrap_or(0);
                                 r.push_str(&caps[i]);
                                 pos = b;
                             }
                             r.push_str(&s[pos..]);
-                            v.push(format!("{}{r}", &caminho[..ini]));
+                            v.push(format!("{}{r}", &path[..start]));
                         }
                     }
                 }
             }
         }
-        if v.iter().any(|s| s == caminho) {
+        if v.iter().any(|s| s == path) {
             return Err(format!(
-                "a saída \"{caminho}\" é igual à entrada, o que não é permitido"
+                "the output \"{path}\" is equal to the input, which is not allowed"
             ));
         }
         Ok(v)
     }
 
-    /// Todas as saídas declaradas (para `required_inputs`).
-    pub fn todas_as_saidas(&self) -> impl Iterator<Item = &String> {
+    /// All declared outputs (for `required_inputs`).
+    pub fn all_outputs(&self) -> impl Iterator<Item = &String> {
         self.declaradas.iter().flat_map(|(_, s)| s)
     }
 }
 
-/// Primeiro casamento de `lit0(.+)lit1(.+)…litN$` (com `^` se ancorada):
-/// o início mais à esquerda, grupos gulosos. Devolve o início e os grupos.
-fn primeiro_casamento(
+/// First match of `lit0(.+)lit1(.+)…litN$` (with `^` if anchored): the
+/// leftmost start, greedy groups. Returns the start and the groups.
+fn first_match(
     t: &str,
-    ancorada: bool,
-    literais: &[String],
+    anchored: bool,
+    literals: &[String],
 ) -> Option<(usize, Vec<String>)> {
-    let fronteiras: Vec<usize> = t
+    let boundaries: Vec<usize> = t
         .char_indices()
         .map(|(i, _)| i)
         .chain(std::iter::once(t.len()))
         .collect();
-    let inicios: Vec<usize> = if ancorada {
+    let starts: Vec<usize> = if anchored {
         vec![0]
     } else {
-        fronteiras.clone()
+        boundaries.clone()
     };
-    for ini in inicios {
+    for start in starts {
         let mut caps = Vec::new();
-        if casar(t, &fronteiras, ini, literais, 0, &mut caps) {
-            return Some((ini, caps));
+        if match_from(t, &boundaries, start, literals, 0, &mut caps) {
+            return Some((start, caps));
         }
     }
     None
 }
 
-fn casar(
+fn match_from(
     t: &str,
     fr: &[usize],
     pos: usize,
@@ -234,13 +236,13 @@ fn casar(
     if k + 1 == lits.len() {
         return pos == t.len();
     }
-    // `(.+)` guloso: o maior trecho primeiro, pelo menos um caractere.
-    for &fim in fr.iter().rev() {
-        if fim <= pos {
+    // Greedy `(.+)`: the longest span first, at least one character.
+    for &end in fr.iter().rev() {
+        if end <= pos {
             break;
         }
-        caps.push(t[pos..fim].to_string());
-        if casar(t, fr, fim, lits, k + 1, caps) {
+        caps.push(t[pos..end].to_string());
+        if match_from(t, fr, end, lits, k + 1, caps) {
             return true;
         }
         caps.pop();
@@ -249,64 +251,64 @@ fn casar(
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
-    fn ext(pares: &[(&str, &[&str])]) -> Result<Extensoes, String> {
-        let v: Vec<(String, Vec<String>)> = pares
+    fn ext(pairs: &[(&str, &[&str])]) -> Result<Extensoes, String> {
+        let v: Vec<(String, Vec<String>)> = pairs
             .iter()
             .map(|(a, b)| (a.to_string(), b.iter().map(|s| s.to_string()).collect()))
             .collect();
-        Extensoes::novas(&v, "teste")
+        Extensoes::novas(&v, "test")
     }
 
-    // Casos do `build-2.4.2/test/generate/expected_outputs_test.dart`.
+    // Cases from `build-2.4.2/test/generate/expected_outputs_test.dart`.
     #[test]
-    fn sufixo() {
+    fn suffix() {
         let e = ext(&[(".dart", &[".g.dart", ".json"])]).unwrap();
         assert_eq!(
-            e.saidas("lib/a.dart").unwrap(),
+            e.outputs("lib/a.dart").unwrap(),
             vec!["lib/a.g.dart", "lib/a.json"]
         );
-        assert!(e.saidas("lib/a.txt").unwrap().is_empty());
-        assert!(e.tem_saida("lib/a.dart"));
+        assert!(e.outputs("lib/a.txt").unwrap().is_empty());
+        assert!(e.has_output("lib/a.dart"));
     }
 
     #[test]
-    fn exata() {
-        let e = ext(&[("^pubspec.yaml", &["lib/versao.dart"])]).unwrap();
-        assert_eq!(e.saidas("pubspec.yaml").unwrap(), vec!["lib/versao.dart"]);
-        assert!(e.saidas("x/pubspec.yaml").unwrap().is_empty());
+    fn exact() {
+        let e = ext(&[("^pubspec.yaml", &["lib/version.dart"])]).unwrap();
+        assert_eq!(e.outputs("pubspec.yaml").unwrap(), vec!["lib/version.dart"]);
+        assert!(e.outputs("x/pubspec.yaml").unwrap().is_empty());
     }
 
     #[test]
-    fn captura() {
+    fn capture() {
         let e = ext(&[("{{}}.dart", &["{{}}.g.dart"])]).unwrap();
-        assert_eq!(e.saidas("lib/a.dart").unwrap(), vec!["lib/a.g.dart"]);
+        assert_eq!(e.outputs("lib/a.dart").unwrap(), vec!["lib/a.g.dart"]);
         let e = ext(&[("^lib/{{}}.dart", &["lib/generated/{{}}.dart"])]).unwrap();
         assert_eq!(
-            e.saidas("lib/a/b.dart").unwrap(),
+            e.outputs("lib/a/b.dart").unwrap(),
             vec!["lib/generated/a/b.dart"]
         );
-        assert!(e.saidas("test/a.dart").unwrap().is_empty());
+        assert!(e.outputs("test/a.dart").unwrap().is_empty());
         let e = ext(&[(
             "{{dir}}/models/{{file}}.dart",
             &["{{dir}}/gen/{{file}}.g.dart"],
         )])
         .unwrap();
         assert_eq!(
-            e.saidas("lib/src/models/p.dart").unwrap(),
+            e.outputs("lib/src/models/p.dart").unwrap(),
             vec!["lib/src/gen/p.g.dart"]
         );
     }
 
     #[test]
-    fn validacoes() {
+    fn validations() {
         assert!(ext(&[(".dart", &["{{}}.g.dart"])]).is_err());
         assert!(ext(&[("{{a}}{{a}}.dart", &["{{a}}.g"])]).is_err());
         assert!(ext(&[("{{a}}.dart", &["x.g"])]).is_err());
         assert!(ext(&[("{{a}}.dart", &["{{a}}{{a}}.g"])]).is_err());
         let e = ext(&[("^a", &["a"])]).unwrap();
-        assert!(e.saidas("a").is_err());
+        assert!(e.outputs("a").is_err());
     }
 }

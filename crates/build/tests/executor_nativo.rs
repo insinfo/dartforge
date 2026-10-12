@@ -14,7 +14,7 @@
 //! `DARTFORGE_CORPUS_BUILDERS` troca a raiz do corpus; `DARTFORGE_CASOS`
 //! (nomes separados por vírgula) limita os casos.
 use dartforge_build::consulta::SemBanco;
-use dartforge_build::executor_nativo::{ConfigNativa, ExecutorNativo};
+use dartforge_build::executor_nativo::{NativeConfig, NativeExecutor};
 use dartforge_build::grafo::AssetId;
 use dartforge_build::{Contexto, Demanda, Motor, OpcoesMotor, RelMotor};
 use dartforge_elements::config::PackageConfig;
@@ -111,7 +111,7 @@ fn motor_nativo(dir: &Path) -> Motor {
         .expect("package_config.json (dart pub get)");
     let mut m = Motor::novo(dir, &cfg, OpcoesMotor::default()).expect("motor");
     let sdk = std::env::var_os("DARTFORGE_SDK_LIB").map(PathBuf::from);
-    m.definir_executor_dart(Box::new(ExecutorNativo::novo(ConfigNativa::do_projeto(
+    m.definir_executor_dart(Box::new(NativeExecutor::new(NativeConfig::for_project(
         compilador(),
         sdk,
         dir,

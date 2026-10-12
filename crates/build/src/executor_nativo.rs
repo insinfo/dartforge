@@ -1,30 +1,30 @@
-//! O executor de builders **nativo** (B01, `docs/BUILD-RUST.md` Fase 4): o
-//! mesmo *bootstrap* e o mesmo `package_config.json` do executor pela VM
-//! ([`crate::vm`]), compilados pelo backend nativo do próprio DartForge
-//! (`dartforge compile-native`, o `emit_native`) num executável que fala
-//! `dfexec/1` por stdio e atende o serviço `build.*` com o lado Dart de
-//! `packages/build_executor`. Nenhuma VM Dart, nenhum `dart` e nenhum
-//! `build_runner` entram no caminho: o processo nasce na primeira ação Dart da
-//! sessão e fica quente até [`ExecutorDart::encerrar`], como o da VM.
+//! The **native** builder executor (B01, `docs/BUILD-RUST.md` Phase 4): the
+//! same *bootstrap* and the same `package_config.json` as the VM executor
+//! ([`crate::vm`]), compiled by DartForge's own native backend
+//! (`dartforge compile-native`, `emit_native`) into an executable that speaks
+//! `dfexec/1` over stdio and serves the `build.*` service with the Dart side
+//! of `packages/build_executor`. No Dart VM, no `dart` and no `build_runner`
+//! are on the path: the process is born at the session's first Dart action
+//! and stays warm until [`ExecutorDart::encerrar`], like the VM one.
 //!
-//! O executável fica em cache em `.dart_tool/dartforge/build/` (o mesmo
-//! diretório do bootstrap da VM: os imports relativos do plano valem sem
-//! reescrita), como `executor-<chave>`, pela
-//! chave do script, das fontes do executor, do `package_config.json` e do
-//! compilador (caminho, tamanho e data). Ao lado dele, um *depfile* com cada
-//! arquivo fora do SDK que o programa do bootstrap carrega (o equivalente ao
-//! `--depfile` do `dart compile kernel`): um deles mais novo que o executável,
-//! ou sumido, compila de novo. É também o código dos builders que o motor
-//! registra ([`ExecutorDart::codigo`]).
+//! The executable is cached in `.dart_tool/dartforge/build/` (the same
+//! directory as the VM bootstrap: the plan's relative imports work without
+//! rewriting), as `executor-<key>`, keyed by the script, the executor
+//! sources, the `package_config.json` and the compiler (path, size and
+//! date). Next to it, a *depfile* lists every file outside the SDK that the
+//! bootstrap program loads (the equivalent of `dart compile kernel`'s
+//! `--depfile`): if one of them is newer than the executable, or gone, it is
+//! compiled again. It is also the builders' code that the engine records
+//! ([`ExecutorDart::codigo`]).
 //!
-//! Antes de compilar, o hospedeiro confere que o `package_config.json` do
-//! projeto resolve os pacotes de que o executor precisa
-//! ([`DEPENDENCIAS`]); os que faltam (o projeto não precisa usar
-//! `build_runner` nem `build_resolvers`, DF-BUILD-004) vêm do cache do pub
-//! ([`crate::dependencias_executor`]), e o que o cache não tem é
-//! diagnosticado pelo nome.
+//! Before compiling, the host checks that the project's `package_config.json`
+//! resolves the packages the executor needs ([`DEPENDENCIES`]); the missing
+//! ones (the project does not need to use `build_runner` or
+//! `build_resolvers`, DF-BUILD-004) come from the pub cache
+//! ([`crate::dependencias_executor`]), and what the cache lacks is diagnosed
+//! by name.
 use crate::cliente::ClienteBuild;
-use crate::dependencias_executor::DEPENDENCIAS;
+use crate::dependencias_executor::DEPENDENCIES;
 use crate::executor::{
     Disponibilidade, ErroExecutor, ExecutorDart, ExtensoesDeExecucao, PedidoAcao, PedidoExtensoes,
     ResultadoAcao, ScriptDeBuilders, ServicoBuildStep,
@@ -34,115 +34,118 @@ use dartforge_dfexec::CanalDeProcesso;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
-/// Variável de ambiente do executor nativo: `0` o desliga onde ele seria o
-/// padrão (`dartforge build`); outro valor o liga também nos compiladores.
+/// Environment variable of the native executor: `0` turns it off where it
+/// would be the default (`dartforge build`); any other value also turns it on
+/// in the compilers.
 pub const VARIAVEL: &str = "DARTFORGE_BUILD_NATIVO";
 
-/// Quem compila e onde.
+/// Who compiles, and where.
 #[derive(Debug, Clone)]
-pub struct ConfigNativa {
-    /// O `dartforge` com o backend nativo (a feature `nativo` da CLI).
-    pub compilador: PathBuf,
-    /// O `lib/` do SDK para o `compile-native` (`--sdk`); `None` usa o que
-    /// o compilador descobre.
+pub struct NativeConfig {
+    /// The `dartforge` with the native backend (the CLI's `nativo` feature).
+    pub compiler: PathBuf,
+    /// The SDK's `lib/` for `compile-native` (`--sdk`); `None` uses the one
+    /// the compiler discovers.
     pub sdk_lib: Option<PathBuf>,
-    /// Diretório do pacote raiz: o processo roda nele, como o `build_runner`.
-    pub raiz: PathBuf,
-    /// O `package_config.json` do projeto.
+    /// Directory of the root package: the process runs in it, like
+    /// `build_runner`.
+    pub root: PathBuf,
+    /// The project's `package_config.json`.
     pub package_config: PathBuf,
-    /// Onde gravar bootstrap, pacote do executor e executável.
-    pub trabalho: PathBuf,
+    /// Where to write the bootstrap, the executor package and the executable.
+    pub work_dir: PathBuf,
 }
 
-impl ConfigNativa {
-    /// A configuração padrão de um projeto: `.dart_tool/package_config.json`
-    /// e trabalho em `.dart_tool/dartforge/build` (a mesma profundidade do
-    /// `.dart_tool/build/entrypoint` do oficial, como a VM).
+impl NativeConfig {
+    /// A project's default configuration: `.dart_tool/package_config.json`
+    /// and the work directory in `.dart_tool/dartforge/build` (the same depth
+    /// as the official `.dart_tool/build/entrypoint`, like the VM).
     ///
     /// ```
-    /// use dartforge_build::executor_nativo::ConfigNativa;
+    /// use dartforge_build::executor_nativo::NativeConfig;
     /// use std::path::Path;
-    /// let c = ConfigNativa::do_projeto("dartforge".into(), None, Path::new("/p"));
-    /// assert!(c.trabalho.ends_with(".dart_tool/dartforge/build"));
+    /// let c = NativeConfig::for_project("dartforge".into(), None, Path::new("/p"));
+    /// assert!(c.work_dir.ends_with(".dart_tool/dartforge/build"));
     /// ```
-    pub fn do_projeto(compilador: PathBuf, sdk_lib: Option<PathBuf>, raiz: &Path) -> ConfigNativa {
-        ConfigNativa {
-            compilador,
+    pub fn for_project(compiler: PathBuf, sdk_lib: Option<PathBuf>, root: &Path) -> NativeConfig {
+        NativeConfig {
+            compiler,
             sdk_lib,
-            raiz: raiz.to_path_buf(),
-            package_config: raiz.join(".dart_tool").join("package_config.json"),
-            trabalho: raiz.join(".dart_tool").join("dartforge").join("build"),
+            root: root.to_path_buf(),
+            package_config: root.join(".dart_tool").join("package_config.json"),
+            work_dir: root.join(".dart_tool").join("dartforge").join("build"),
         }
     }
 }
 
-/// Os pacotes de [`DEPENDENCIAS`] que o `package_config.json` não resolve.
+/// The packages of [`DEPENDENCIES`] that `package_config.json` does not
+/// resolve.
 ///
-/// # Erros
+/// # Errors
 ///
-/// O arquivo não pode ser lido ou não é um `package_config`.
-pub fn dependencias_ausentes(package_config: &Path) -> Result<Vec<&'static str>, String> {
-    let texto = std::fs::read_to_string(package_config)
+/// The file cannot be read or is not a `package_config`.
+pub fn missing_dependencies(package_config: &Path) -> Result<Vec<&'static str>, String> {
+    let text = std::fs::read_to_string(package_config)
         .map_err(|e| format!("{}: {e}", package_config.display()))?;
     let v: serde_json::Value =
-        serde_json::from_str(&texto).map_err(|e| format!("{}: {e}", package_config.display()))?;
-    let nomes: Vec<&str> = v["packages"]
+        serde_json::from_str(&text).map_err(|e| format!("{}: {e}", package_config.display()))?;
+    let names: Vec<&str> = v["packages"]
         .as_array()
-        .ok_or_else(|| format!("{}: sem 'packages'", package_config.display()))?
+        .ok_or_else(|| format!("{}: no 'packages'", package_config.display()))?
         .iter()
         .filter_map(|p| p["name"].as_str())
         .collect();
-    Ok(DEPENDENCIAS
+    Ok(DEPENDENCIES
         .iter()
         .map(|(n, _)| *n)
-        .filter(|d| !nomes.contains(d))
+        .filter(|d| !names.contains(d))
         .collect())
 }
 
-/// Data de modificação, se o arquivo existe.
+/// Modification time, if the file exists.
 fn mtime(p: &Path) -> Option<SystemTime> {
     std::fs::metadata(p).and_then(|m| m.modified()).ok()
 }
 
-/// O executável ainda vale? Existe, e nenhum arquivo que o programa do
-/// bootstrap carrega é mais novo que ele (nem sumiu).
-fn executavel_valido(exe: &Path, depfile: &Path) -> bool {
-    let (Some(t), Ok(texto)) = (mtime(exe), std::fs::read_to_string(depfile)) else {
+/// Is the executable still valid? It exists, and no file that the bootstrap
+/// program loads is newer than it (or gone).
+fn executable_is_valid(exe: &Path, depfile: &Path) -> bool {
+    let (Some(t), Ok(text)) = (mtime(exe), std::fs::read_to_string(depfile)) else {
         return false;
     };
-    let deps = deps_do_depfile(&texto);
+    let deps = deps_do_depfile(&text);
     !deps.is_empty() && deps.iter().all(|d| mtime(d).is_some_and(|m| m <= t))
 }
 
-/// Os nomes `libdfsdk_…` (a biblioteca do SDK da fonte) que os bytes de um
-/// executável citam.
-fn bibliotecas_citadas(bytes: &[u8]) -> Vec<String> {
-    let marca = b"libdfsdk_";
+/// The `libdfsdk_…` names (the source SDK library) that an executable's bytes
+/// mention.
+fn referenced_libraries(bytes: &[u8]) -> Vec<String> {
+    let marker = b"libdfsdk_";
     let mut v = Vec::new();
     let mut i = 0;
-    while let Some(p) = bytes[i..].windows(marca.len()).position(|w| w == marca) {
-        let ini = i + p;
-        let fim = bytes[ini..]
+    while let Some(p) = bytes[i..].windows(marker.len()).position(|w| w == marker) {
+        let start = i + p;
+        let end = bytes[start..]
             .iter()
             .position(|b| !(b.is_ascii_alphanumeric() || *b == b'_' || *b == b'.'))
-            .map_or(bytes.len(), |k| ini + k);
-        let nome = String::from_utf8_lossy(&bytes[ini..fim]).to_string();
-        if !v.contains(&nome) {
-            v.push(nome);
+            .map_or(bytes.len(), |k| start + k);
+        let name = String::from_utf8_lossy(&bytes[start..end]).to_string();
+        if !v.contains(&name) {
+            v.push(name);
         }
-        i = fim.max(ini + 1);
+        i = end.max(start + 1);
     }
     v
 }
 
-/// Escreve um depfile do Ninja (`saida: dep…`, espaço escapado com `\`).
-fn depfile(saida: &Path, deps: &[PathBuf]) -> String {
+/// Writes a Ninja depfile (`output: dep…`, with spaces escaped by `\`).
+fn depfile(output: &Path, deps: &[PathBuf]) -> String {
     let esc = |p: &Path| {
         p.to_string_lossy()
             .replace('\\', "\\\\")
             .replace(' ', "\\ ")
     };
-    let mut s = format!("{}:", esc(saida));
+    let mut s = format!("{}:", esc(output));
     for d in deps {
         s.push(' ');
         s.push_str(&esc(d));
@@ -151,10 +154,10 @@ fn depfile(saida: &Path, deps: &[PathBuf]) -> String {
     s
 }
 
-/// Os arquivos fora do SDK que o programa do bootstrap carrega (a mesma
-/// carga do `compile-native`).
-fn arquivos_do_programa(
-    principal: &Path,
+/// The files outside the SDK that the bootstrap program loads (the same
+/// loading as `compile-native`).
+fn program_files(
+    main: &Path,
     pc: &Path,
     sdk_lib: Option<&Path>,
 ) -> Result<Vec<PathBuf>, String> {
@@ -162,16 +165,16 @@ fn arquivos_do_programa(
         .map(Path::to_path_buf)
         .or_else(dartforge_elements::sdk::SdkLayout::discover)
         .ok_or(
-            "SDK do Dart não encontrado: defina DARTFORGE_SDK_LIB (o lib/ do SDK) ou DART_SDK",
+            "Dart SDK not found: set DARTFORGE_SDK_LIB (the SDK's lib/) or DART_SDK",
         )?;
     let sdk = dartforge_elements::sdk::SdkLayout::load(&dir, "vm")?;
-    let mut nomes = dartforge_intern::Interner::new();
-    let (programa, _) =
-        dartforge_elements::load::load_lenient(principal, &sdk, Some(pc), &mut nomes);
-    let mut v: Vec<PathBuf> = programa
+    let mut names = dartforge_intern::Interner::new();
+    let (program, _) =
+        dartforge_elements::load::load_lenient(main, &sdk, Some(pc), &mut names);
+    let mut v: Vec<PathBuf> = program
         .units
         .iter()
-        .filter(|u| !programa.library(u.library).is_sdk)
+        .filter(|u| !program.library(u.library).is_sdk)
         .filter_map(|u| u.path.clone())
         .collect();
     v.push(pc.to_path_buf());
@@ -180,356 +183,361 @@ fn arquivos_do_programa(
     Ok(v)
 }
 
-/// O que o executor nativo mediu (para o relatório e os testes).
+/// What the native executor measured (for the report and the tests).
 #[derive(Debug, Clone, Default)]
-pub struct MedicaoNativa {
-    /// Tempo do `compile-native` (zero quando o executável foi reaproveitado).
-    pub compilacao: Duration,
-    /// Do início do processo ao `build.carregado`.
-    pub inicio: Duration,
-    pub executavel_reaproveitado: bool,
+pub struct NativeMeasurement {
+    /// Time of `compile-native` (zero when the executable was reused).
+    pub compilation: Duration,
+    /// From the start of the process to `build.carregado`.
+    pub startup: Duration,
+    pub executable_reused: bool,
 }
 
-/// O executor nativo: compila (ou reaproveita) o executável na primeira
-/// ação Dart da sessão, cria o processo e o mantém quente.
-pub struct ExecutorNativo {
-    cfg: ConfigNativa,
-    cliente: Option<ClienteBuild<CanalDeProcesso>>,
-    /// Chave do executável que o processo corrente executa.
-    chave: Option<String>,
-    falha: Option<String>,
-    pub medicao: MedicaoNativa,
+/// The native executor: compiles (or reuses) the executable at the session's
+/// first Dart action, creates the process and keeps it warm.
+pub struct NativeExecutor {
+    cfg: NativeConfig,
+    client: Option<ClienteBuild<CanalDeProcesso>>,
+    /// Key of the executable that the current process runs.
+    key: Option<String>,
+    failure: Option<String>,
+    pub measurement: NativeMeasurement,
 }
 
-impl ExecutorNativo {
-    pub fn novo(cfg: ConfigNativa) -> ExecutorNativo {
-        ExecutorNativo {
+impl NativeExecutor {
+    pub fn new(cfg: NativeConfig) -> NativeExecutor {
+        NativeExecutor {
             cfg,
-            cliente: None,
-            chave: None,
-            falha: None,
-            medicao: MedicaoNativa::default(),
+            client: None,
+            key: None,
+            failure: None,
+            measurement: NativeMeasurement::default(),
         }
     }
 
-    /// O executável do bootstrap de `script`, compilado agora ou do cache,
-    /// e a chave dele.
+    /// The executable of `script`'s bootstrap, compiled now or taken from
+    /// the cache, and its key.
     ///
-    /// # Erros
+    /// # Errors
     ///
-    /// Dependências do executor que o projeto não resolve, escrita no
-    /// diretório de trabalho ou a compilação (a mensagem do compilador vai
-    /// no erro).
-    pub fn compilar(&mut self, script: &ScriptDeBuilders) -> Result<(PathBuf, String), String> {
-        let t = &self.cfg.trabalho;
+    /// Executor dependencies that the project does not resolve, writing to
+    /// the work directory, or the compilation (the compiler's message goes
+    /// into the error).
+    pub fn compile(&mut self, script: &ScriptDeBuilders) -> Result<(PathBuf, String), String> {
+        let t = &self.cfg.work_dir;
         std::fs::create_dir_all(t).map_err(|e| format!("{}: {e}", t.display()))?;
-        let do_projeto = self.package_config_completo()?;
+        let project_config = self.complete_package_config()?;
         let Gravados {
-            principal,
+            principal: main,
             package_config: pc,
             mut hasher,
-        } = gravar_bootstrap(t, &do_projeto, script)?;
-        let meta = std::fs::metadata(&self.cfg.compilador)
-            .map_err(|e| format!("{}: {e}", self.cfg.compilador.display()))?;
-        let data = meta
+        } = gravar_bootstrap(t, &project_config, script)?;
+        let meta = std::fs::metadata(&self.cfg.compiler)
+            .map_err(|e| format!("{}: {e}", self.cfg.compiler.display()))?;
+        let date = meta
             .modified()
             .ok()
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map_or(0, |d| d.as_nanos());
         hasher.update(
-            format!("{}|{}|{data}\n", self.cfg.compilador.display(), meta.len()).as_bytes(),
+            format!("{}|{}|{date}\n", self.cfg.compiler.display(), meta.len()).as_bytes(),
         );
         if let Some(s) = &self.cfg.sdk_lib {
             hasher.update(s.to_string_lossy().as_bytes());
         }
-        let chave = hasher.finalize().to_hex()[..16].to_string();
-        let exe = t.join(format!("executor-{chave}{}", std::env::consts::EXE_SUFFIX));
-        let dep = t.join(format!("executor-{chave}.d"));
-        self.medicao = MedicaoNativa::default();
-        if executavel_valido(&exe, &dep) {
-            self.medicao.executavel_reaproveitado = true;
-            return Ok((exe, chave));
+        let key = hasher.finalize().to_hex()[..16].to_string();
+        let exe = t.join(format!("executor-{key}{}", std::env::consts::EXE_SUFFIX));
+        let dep = t.join(format!("executor-{key}.d"));
+        self.measurement = NativeMeasurement::default();
+        if executable_is_valid(&exe, &dep) {
+            self.measurement.executable_reused = true;
+            return Ok((exe, key));
         }
         let t0 = Instant::now();
-        let provisorio = t.join(format!(
-            "executor-{chave}.tmp{}",
+        let temporary = t.join(format!(
+            "executor-{key}.tmp{}",
             std::env::consts::EXE_SUFFIX
         ));
-        let mut cmd = std::process::Command::new(&self.cfg.compilador);
-        // O bootstrap mora no projeto que usa builders: a compilação dele não
-        // passa pelo motor (que compilaria este executor de novo).
+        let mut cmd = std::process::Command::new(&self.cfg.compiler);
+        // The bootstrap lives in the project that uses builders: compiling it
+        // does not go through the engine (which would compile this executor
+        // again).
         cmd.env("DARTFORGE_BUILD_COMPILANDO_EXECUTOR", "1");
-        // Sem o otimizador da HIR (inlining): o executor é um programa enorme
-        // (o `analyzer` inteiro) que roda uma vez por sessão, e o inlining
-        // mais que dobra o IR (1,34 GB contra 0,58 GB no json_serializable) e
-        // a memória da compilação (12 GB, morto pelo OOM). Recompilar os
-        // builders com otimização pesada é o que BUILD-RUST.md §4 descarta.
+        // Without the HIR optimizer (inlining): the executor is a huge program
+        // (the whole `analyzer`) that runs once per session, and inlining
+        // more than doubles the IR (1.34 GB versus 0.58 GB on
+        // json_serializable) and the compilation memory (12 GB, killed by the
+        // OOM killer). Recompiling the builders with heavy optimization is
+        // what BUILD-RUST.md §4 rules out.
         cmd.env("DARTFORGE_OTIMIZAR_HIR", "0");
         cmd.arg("compile-native")
-            .arg(&principal)
+            .arg(&main)
             .arg("-o")
-            .arg(&provisorio)
+            .arg(&temporary)
             .arg("--packages")
             .arg(&pc);
         if let Some(s) = &self.cfg.sdk_lib {
             cmd.arg("--sdk").arg(s);
         }
-        let saida = cmd.output().map_err(|e| {
+        let output = cmd.output().map_err(|e| {
             format!(
-                "não foi possível executar {}: {e}",
-                self.cfg.compilador.display()
+                "could not run {}: {e}",
+                self.cfg.compiler.display()
             )
         })?;
-        if !saida.status.success() || !provisorio.is_file() {
+        if !output.status.success() || !temporary.is_file() {
             return Err(format!(
-                "a compilação nativa do executor de builders falhou:\n{}{}",
-                String::from_utf8_lossy(&saida.stdout),
-                String::from_utf8_lossy(&saida.stderr)
+                "the native compilation of the builder executor failed:\n{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
             ));
         }
-        std::fs::rename(&provisorio, &exe).map_err(|e| format!("{}: {e}", exe.display()))?;
-        let deps = arquivos_do_programa(&principal, &pc, self.cfg.sdk_lib.as_deref())?;
+        std::fs::rename(&temporary, &exe).map_err(|e| format!("{}: {e}", exe.display()))?;
+        let deps = program_files(&main, &pc, self.cfg.sdk_lib.as_deref())?;
         std::fs::write(&dep, depfile(&exe, &deps))
             .map_err(|e| format!("{}: {e}", dep.display()))?;
-        // Executáveis de chaves antigas não servem mais, nem as bibliotecas
-        // do SDK da fonte que o `compile-native` copiou ao lado deles
-        // (`libdfsdk_<hash>`, ~40 MB cada): fica a que o executável novo cita.
-        let citadas = std::fs::read(&exe)
-            .map(|b| bibliotecas_citadas(&b))
+        // Executables with old keys are no longer useful, nor are the source
+        // SDK libraries that `compile-native` copied next to them
+        // (`libdfsdk_<hash>`, ~40 MB each): only the one the new executable
+        // mentions is kept.
+        let referenced = std::fs::read(&exe)
+            .map(|b| referenced_libraries(&b))
             .unwrap_or_default();
         if let Ok(ls) = std::fs::read_dir(t) {
             for e in ls.flatten() {
                 let n = e.file_name().to_string_lossy().to_string();
-                let velho_exe = n.starts_with("executor-") && !n.contains(&chave);
-                let velha_lib =
-                    n.starts_with("libdfsdk_") && !citadas.is_empty() && !citadas.contains(&n);
-                if velho_exe || velha_lib {
+                let old_exe = n.starts_with("executor-") && !n.contains(&key);
+                let old_lib =
+                    n.starts_with("libdfsdk_") && !referenced.is_empty() && !referenced.contains(&n);
+                if old_exe || old_lib {
                     let _ = std::fs::remove_file(e.path());
                 }
             }
         }
-        self.medicao.compilacao = t0.elapsed();
-        Ok((exe, chave))
+        self.measurement.compilation = t0.elapsed();
+        Ok((exe, key))
     }
 
-    /// O `package_config.json` que o executor usa: o do projeto quando ele
-    /// resolve [`DEPENDENCIAS`]; senão uma cópia (com URIs absolutas, em
-    /// `package_config.projeto.json` no diretório de trabalho) completada
-    /// pelo cache do pub (DF-BUILD-004).
+    /// The `package_config.json` the executor uses: the project's own when it
+    /// resolves [`DEPENDENCIES`]; otherwise a copy (with absolute URIs, in
+    /// `package_config.projeto.json` in the work directory) completed from
+    /// the pub cache (DF-BUILD-004).
     ///
-    /// # Erros
+    /// # Errors
     ///
-    /// O arquivo do projeto não pode ser lido, ou falta algum pacote que o
-    /// cache do pub não tem (a mensagem diz quais).
-    pub fn package_config_completo(&self) -> Result<PathBuf, String> {
-        if dependencias_ausentes(&self.cfg.package_config)?.is_empty() {
+    /// The project's file cannot be read, or some package is missing that
+    /// the pub cache does not have (the message says which).
+    pub fn complete_package_config(&self) -> Result<PathBuf, String> {
+        if missing_dependencies(&self.cfg.package_config)?.is_empty() {
             return Ok(self.cfg.package_config.clone());
         }
-        let cache = crate::dependencias_executor::cache_do_pub()
-            .ok_or("o cache do pub não foi encontrado (defina PUB_CACHE)")?;
-        // As URIs relativas do projeto viram absolutas (o arquivo novo mora
-        // em outro diretório); o pacote do executor sai de novo no bootstrap.
-        let absoluto = crate::vm::package_config(&self.cfg.package_config, &self.cfg.trabalho)?;
-        let (v, novos) = crate::dependencias_executor::completar(&absoluto, &cache)?;
+        let cache = crate::dependencias_executor::pub_cache_dir()
+            .ok_or("the pub cache was not found (set PUB_CACHE)")?;
+        // The project's relative URIs become absolute (the new file lives in
+        // another directory); the executor package comes out again in the
+        // bootstrap.
+        let absolute = crate::vm::package_config(&self.cfg.package_config, &self.cfg.work_dir)?;
+        let (v, added) = crate::dependencias_executor::complete(&absolute, &cache)?;
         eprintln!(
-            "executor de builders: {} vêm do cache do pub ({})",
-            novos.join(", "),
+            "builder executor: {} come from the pub cache ({})",
+            added.join(", "),
             cache.display()
         );
-        let destino = self.cfg.trabalho.join("package_config.projeto.json");
+        let destination = self.cfg.work_dir.join("package_config.projeto.json");
         let json = serde_json::to_string_pretty(&v).unwrap_or_default();
-        if std::fs::read_to_string(&destino).ok().as_deref() != Some(json.as_str()) {
-            std::fs::write(&destino, &json).map_err(|e| format!("{}: {e}", destino.display()))?;
+        if std::fs::read_to_string(&destination).ok().as_deref() != Some(json.as_str()) {
+            std::fs::write(&destination, &json)
+                .map_err(|e| format!("{}: {e}", destination.display()))?;
         }
-        Ok(destino)
+        Ok(destination)
     }
 
-    /// Compila (ou reaproveita) e inicia o processo; devolve a chave.
-    fn iniciar(&mut self, script: &ScriptDeBuilders) -> Result<String, String> {
-        let (exe, chave) = self.compilar(script)?;
+    /// Compiles (or reuses) and starts the process; returns the key.
+    fn start(&mut self, script: &ScriptDeBuilders) -> Result<String, String> {
+        let (exe, key) = self.compile(script)?;
         let mut cmd = std::process::Command::new(&exe);
-        // O `--packages` da VM: o `Isolate.resolvePackageUri` do executável
-        // (o `build_resolvers` acha os pacotes por ele) lê este arquivo.
-        cmd.current_dir(&self.cfg.raiz).env(
+        // The VM's `--packages`: the executable's `Isolate.resolvePackageUri`
+        // (`build_resolvers` finds the packages through it) reads this file.
+        cmd.current_dir(&self.cfg.root).env(
             "DARTFORGE_PACKAGE_CONFIG",
-            self.cfg.trabalho.join("package_config.json"),
+            self.cfg.work_dir.join("package_config.json"),
         );
-        // O SDK que o analyzer dos builders lê (o resumo do SDK,
-        // `packages/build_executor`): a raiz do `lib/` com que se compila.
-        // Remontada pelos componentes: o `buildSdkSummary` do analyzer exige
-        // caminho normalizado do sistema (`C:/sdk` no Windows é recusado com
-        // "Path must be normalized", também na VM), e `--sdk`/
-        // `DARTFORGE_SDK_LIB` podem chegar com `/`.
-        if let Some(raiz) = self
+        // The SDK the builders' analyzer reads (the SDK summary,
+        // `packages/build_executor`): the root of the `lib/` used for
+        // compiling. Rebuilt from its components: the analyzer's
+        // `buildSdkSummary` requires a normalized system path (`C:/sdk` on
+        // Windows is rejected with "Path must be normalized", on the VM too),
+        // and `--sdk`/`DARTFORGE_SDK_LIB` may arrive with `/`.
+        if let Some(root) = self
             .cfg
             .sdk_lib
             .clone()
             .or_else(dartforge_elements::sdk::SdkLayout::discover)
             .and_then(|l| l.parent().map(|p| p.components().collect::<PathBuf>()))
         {
-            cmd.env("DARTFORGE_DART_SDK", raiz);
+            cmd.env("DARTFORGE_DART_SDK", root);
         }
-        self.cliente = Some(ClienteBuild::iniciar(cmd)?);
-        Ok(chave)
+        self.client = Some(ClienteBuild::iniciar(cmd)?);
+        Ok(key)
     }
 
-    /// Uma ação (de build ou de pós-processamento) pelo processo.
-    fn acao(
+    /// One action (build or post-processing) through the process.
+    fn action(
         &mut self,
-        pedido: &PedidoAcao,
-        servico: &mut dyn ServicoBuildStep,
-        pos: bool,
+        request: &PedidoAcao,
+        service: &mut dyn ServicoBuildStep,
+        post: bool,
     ) -> Result<ResultadoAcao, ErroExecutor> {
-        let cliente = self
-            .cliente
+        let client = self
+            .client
             .as_mut()
-            .ok_or_else(|| ErroExecutor("build.executar antes de build.carregar".into()))?;
-        let r = if pos {
-            cliente.pos_processar(pedido, servico)
+            .ok_or_else(|| ErroExecutor("build.executar before build.carregar".into()))?;
+        let r = if post {
+            client.pos_processar(request, service)
         } else {
-            cliente.executar(pedido, servico)
+            client.executar(request, service)
         };
         if let Err(e) = &r {
-            // Canal quebrado (processo morreu, protocolo violado): a sessão
-            // não usa mais este processo.
-            self.falha = Some(format!("executor nativo de builders: {}", e.0));
-            self.cliente = None;
-            self.chave = None;
+            // Broken channel (the process died, the protocol was violated):
+            // the session no longer uses this process.
+            self.failure = Some(format!("native builder executor: {}", e.0));
+            self.client = None;
+            self.key = None;
         }
         r
     }
 }
 
-impl ExecutorDart for ExecutorNativo {
+impl ExecutorDart for NativeExecutor {
     fn disponibilidade(&self) -> Disponibilidade {
-        match &self.falha {
+        match &self.failure {
             Some(m) => Disponibilidade::Indisponivel(m.clone()),
             None => Disponibilidade::Disponivel,
         }
     }
 
     fn preparar(&mut self, script: &ScriptDeBuilders) -> Result<(), ErroExecutor> {
-        if let Some(m) = &self.falha {
+        if let Some(m) = &self.failure {
             return Err(ErroExecutor(m.clone()));
         }
-        if self.chave.is_some() {
+        if self.key.is_some() {
             self.encerrar();
         }
         let t0 = Instant::now();
-        let r = self.iniciar(script).and_then(|chave| {
-            let cliente = self.cliente.as_mut().ok_or("executor sem processo")?;
-            cliente.preparar(script).map_err(|e| e.0)?;
-            self.chave = Some(chave);
+        let r = self.start(script).and_then(|key| {
+            let client = self.client.as_mut().ok_or("executor without a process")?;
+            client.preparar(script).map_err(|e| e.0)?;
+            self.key = Some(key);
             Ok(())
         });
-        self.medicao.inicio = t0.elapsed().saturating_sub(self.medicao.compilacao);
+        self.measurement.startup = t0.elapsed().saturating_sub(self.measurement.compilation);
         r.map_err(|m| {
-            self.cliente = None;
-            self.falha = Some(m.clone());
+            self.client = None;
+            self.failure = Some(m.clone());
             ErroExecutor(m)
         })
     }
 
     fn nova_rodada(&mut self) {
-        if let Some(c) = self.cliente.as_mut() {
+        if let Some(c) = self.client.as_mut() {
             c.nova_rodada();
         }
     }
 
     fn extensoes(
         &mut self,
-        pedido: &PedidoExtensoes,
+        request: &PedidoExtensoes,
     ) -> Result<Option<ExtensoesDeExecucao>, ErroExecutor> {
-        match self.cliente.as_mut() {
-            Some(c) => c.extensoes(pedido),
+        match self.client.as_mut() {
+            Some(c) => c.extensoes(request),
             None => Ok(None),
         }
     }
 
     fn executar(
         &mut self,
-        pedido: &PedidoAcao,
-        servico: &mut dyn ServicoBuildStep,
+        request: &PedidoAcao,
+        service: &mut dyn ServicoBuildStep,
     ) -> Result<ResultadoAcao, ErroExecutor> {
-        self.acao(pedido, servico, false)
+        self.action(request, service, false)
     }
 
     fn codigo(&self) -> Option<Vec<PathBuf>> {
-        let chave = self.chave.as_ref()?;
-        let texto =
-            std::fs::read_to_string(self.cfg.trabalho.join(format!("executor-{chave}.d"))).ok()?;
-        let deps = deps_do_depfile(&texto);
+        let key = self.key.as_ref()?;
+        let text =
+            std::fs::read_to_string(self.cfg.work_dir.join(format!("executor-{key}.d"))).ok()?;
+        let deps = deps_do_depfile(&text);
         (!deps.is_empty()).then_some(deps)
     }
 
     fn entradas_pos(
         &mut self,
-        pedido: &PedidoExtensoes,
+        request: &PedidoExtensoes,
     ) -> Result<Option<Vec<String>>, ErroExecutor> {
-        match self.cliente.as_mut() {
-            Some(c) => c.entradas_pos(pedido),
+        match self.client.as_mut() {
+            Some(c) => c.entradas_pos(request),
             None => Ok(None),
         }
     }
 
     fn pos_processar(
         &mut self,
-        pedido: &PedidoAcao,
-        servico: &mut dyn ServicoBuildStep,
+        request: &PedidoAcao,
+        service: &mut dyn ServicoBuildStep,
     ) -> Result<ResultadoAcao, ErroExecutor> {
-        self.acao(pedido, servico, true)
+        self.action(request, service, true)
     }
 
     fn encerrar(&mut self) {
-        if let Some(mut c) = self.cliente.take() {
+        if let Some(mut c) = self.client.take() {
             c.encerrar();
         }
-        self.chave = None;
+        self.key = None;
     }
 }
 
-/// Liga o executor nativo no `motor`, com o `compilador` dado (o próprio
-/// `dartforge` com a feature `nativo`): o processo só nasce na primeira ação
-/// Dart da sessão.
+/// Hooks the native executor into `motor`, with the given `compiler` (the
+/// `dartforge` itself with the `nativo` feature): the process is only born at
+/// the session's first Dart action.
 pub fn ligar(
     motor: &mut crate::Motor,
-    compilador: PathBuf,
+    compiler: PathBuf,
     sdk_lib: Option<PathBuf>,
     package_config: &Path,
 ) {
-    let raiz = motor.grafo_pacotes.dir_raiz.clone();
-    let cfg = ConfigNativa {
+    let root = motor.grafo_pacotes.dir_raiz.clone();
+    let cfg = NativeConfig {
         package_config: package_config.to_path_buf(),
-        ..ConfigNativa::do_projeto(compilador, sdk_lib, &raiz)
+        ..NativeConfig::for_project(compiler, sdk_lib, &root)
     };
-    motor.definir_executor_dart(Box::new(ExecutorNativo::novo(cfg)));
+    motor.definir_executor_dart(Box::new(NativeExecutor::new(cfg)));
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     #[test]
-    fn bibliotecas_do_sdk_citadas_no_executavel() {
+    fn sdk_libraries_referenced_in_the_executable() {
         let b = b"\x00xx libdfsdk_0123abcd.so\x00yy libdfsdk_0123abcd.so\x00libdfsdk_ff.dll\x00";
         assert_eq!(
-            bibliotecas_citadas(b),
+            referenced_libraries(b),
             vec!["libdfsdk_0123abcd.so", "libdfsdk_ff.dll"]
         );
     }
 
     #[test]
-    fn depfile_ida_e_volta_com_espacos() {
+    fn depfile_round_trip_with_spaces() {
         let deps = vec![
             PathBuf::from("/a/b.dart"),
-            PathBuf::from("/c/com espaco.dart"),
+            PathBuf::from("/c/with space.dart"),
         ];
-        let texto = depfile(Path::new("/t/executor"), &deps);
-        assert_eq!(deps_do_depfile(&texto), deps);
+        let text = depfile(Path::new("/t/executor"), &deps);
+        assert_eq!(deps_do_depfile(&text), deps);
     }
 
     #[test]
-    fn dependencias_que_faltam() {
+    fn missing_executor_dependencies() {
         let dir = tempfile::tempdir().unwrap();
         let pc = dir.path().join("package_config.json");
         std::fs::write(
@@ -539,7 +547,7 @@ mod testes {
         )
         .unwrap();
         assert_eq!(
-            dependencias_ausentes(&pc).unwrap(),
+            missing_dependencies(&pc).unwrap(),
             vec!["analyzer", "build_resolvers", "logging", "package_config"]
         );
     }
