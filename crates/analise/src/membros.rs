@@ -36,6 +36,8 @@ struct Ctx<'a> {
     ast: &'a ast::Ast,
     fonte: &'a str,
     saida: Vec<(UnitId, Diagnostic)>,
+    /// A lista de inicializadores em conferência é a do construtor primário.
+    super_no_primario: bool,
 }
 
 fn diag(codigo: Codigo, span: Span, args: &[&str]) -> Diagnostic {
@@ -289,7 +291,7 @@ impl Ctx<'_> {
         for (i, ini) in k.initializers.iter().enumerate() {
             match ini {
                 Initializer::Redirect { span, .. } => {
-                    if redirecionamentos > 0 {
+                    if redirecionamentos > 0 && !self.super_no_primario {
                         self.relatar(c::MULTIPLE_REDIRECTING_CONSTRUCTOR_INVOCATIONS, *span, &[]);
                     }
                     redirecionamentos += 1;
@@ -305,7 +307,9 @@ impl Ctx<'_> {
                             &[],
                         );
                     } else if supers == 1 {
-                        self.relatar(c::MULTIPLE_SUPER_INITIALIZERS, *span, &[]);
+                        // No primário (3.13.4), no `super`.
+                        let sp = if self.super_no_primario { Span { start: span.start, end: span.start + 5 } } else { *span };
+                        self.relatar(c::MULTIPLE_SUPER_INITIALIZERS, sp, &[]);
                     }
                     ultimo_super = Some(i);
                     supers += 1;
@@ -313,7 +317,9 @@ impl Ctx<'_> {
                 _ => {}
             }
         }
-        if redirecionamentos > 0 {
+        // O primário que redireciona é `primary_constructor_cannot_redirect`
+        // (relatado em outro lugar); as regras de redirecionamento não valem.
+        if redirecionamentos > 0 && !self.super_no_primario {
             for ini in k.initializers.iter() {
                 match ini {
                     Initializer::Super { span, .. } if !e_enum => {
@@ -807,6 +813,7 @@ pub fn verificar(
             ast: &unidade.ast,
             fonte: &unidade.source,
             saida: Vec::new(),
+            super_no_primario: false,
         };
         let ast_ = &unidade.ast;
         for &id in &unidade.unit.declarations {
@@ -1029,6 +1036,14 @@ pub fn verificar(
                         }
                     }
                     MemberKind::Constructor(k) => {
+                        // O construtor primário (3.13): a lista de
+                        // inicializadores do corpo `this : …` passa pelas
+                        // mesmas regras, no `super`.
+                        if (k.parte_primaria || primario == Some(m)) && !k.initializers.is_empty() {
+                            cx.super_no_primario = true;
+                            cx.inicializadores(k, container, superclasse.as_deref());
+                            cx.super_no_primario = false;
+                        }
                         if k.parte_primaria
                             || primario == Some(m)
                             || !precedido_de_limite(cx.fonte, membro.span.start)
