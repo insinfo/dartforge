@@ -1,20 +1,21 @@
-//! Gera `crates/diagnostics/src/codigos_g.rs`: a tabela de códigos do
-//! `package:analyzer` 6.11.0 (o analyzer do SDK 3.6.2), lida das fontes na
-//! cache do pub.
+//! Generates `crates/diagnostics/src/codigos_g.rs`: the code table of
+//! `package:analyzer` 6.11.0 (the analyzer of SDK 3.6.2), read from the
+//! sources in the pub cache.
 //!
 //! ```text
 //! cargo run -p dartforge-parity --example gerar_codigos [-- <pub-cache/hosted/pub.dev>]
 //! ```
 //!
-//! Determinístico: a mesma fonte dá o mesmo arquivo, byte a byte. As fontes
-//! são os `.g.dart` gerados do `messages.yaml` do analyzer (e os dois arquivos
-//! escritos à mão, do scanner e dos TODOs), lidos por um tokenizador de Dart
-//! pequeno: `static const <Classe> <NOME> = [const] <Classe>(<args>);`.
+//! Deterministic: the same source gives the same file, byte for byte. The
+//! sources are the `.g.dart` files generated from the analyzer's
+//! `messages.yaml` (plus the two hand-written files, for the scanner and the
+//! TODOs), read by a small Dart tokenizer:
+//! `static const <Class> <NAME> = [const] <Class>(<args>);`.
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-/// Classe do analyzer → módulo Rust, na ordem da tabela.
+/// Analyzer class → Rust module, in table order.
 const CLASSES: &[(&str, &str, &str)] = &[
     ("CompileTimeErrorCode", "compile_time_error", "analyzer-6.11.0/lib/src/error/codes.g.dart"),
     ("StaticWarningCode", "static_warning", "analyzer-6.11.0/lib/src/error/codes.g.dart"),
@@ -26,14 +27,15 @@ const CLASSES: &[(&str, &str, &str)] = &[
     ("TodoCode", "todo", "analyzer-6.11.0/lib/src/dart/error/todo_codes.dart"),
 ];
 
-/// Códigos do analyzer do SDK 3.13.4 que a tabela 6.11 não tem (construtores
-/// primários, atalhos de ponto) e as formas 3.13.4 de códigos que ela tem. Transcritos do
-/// `messages.yaml` da referência (`references/dart-sdk/pkg/_fe_analyzer_shared`
-/// e `pkg/analyzer`) e conferidos, texto e tipo, contra o oráculo 3.13.4
-/// gravado em `corpus/diagnosticos`. Vão no fim da tabela: os índices dos
-/// códigos da 6.11 não mudam.
+/// Codes of the SDK 3.13.4 analyzer that the 6.11 table lacks (primary
+/// constructors, dot shorthands) and the 3.13.4 shapes of codes it has.
+/// Transcribed from the reference `messages.yaml`
+/// (`references/dart-sdk/pkg/_fe_analyzer_shared` and `pkg/analyzer`) and
+/// checked, text and type, against the 3.13.4 oracle recorded in
+/// `corpus/diagnosticos`. They go at the end of the table: the indices of the
+/// 6.11 codes do not change.
 ///
-/// (classe, módulo, constante, nome, unico, mensagem, correção, tipo)
+/// (class, module, constant, name, unique, message, correction, type)
 const SUPLEMENTO_3_13: &[(&str, &str, &str, &str, &str, &str, &str, &str)] = &[
     (
         "CompileTimeErrorCode",
@@ -105,8 +107,8 @@ const SUPLEMENTO_3_13: &[(&str, &str, &str, &str, &str, &str, &str, &str)] = &[
         "Try removing the modifier.",
         "SYNTACTIC_ERROR",
     ),
-    // Atalhos de ponto (3.10), do `ResolverVisitor` do analyzer 3.13.4;
-    // o de contexto que falta não tem correção.
+    // Dot shorthands (3.10), from the `ResolverVisitor` of analyzer 3.13.4;
+    // the missing-context one has no correction.
     (
         "CompileTimeErrorCode",
         "compile_time_error",
@@ -137,8 +139,8 @@ const SUPLEMENTO_3_13: &[(&str, &str, &str, &str, &str, &str, &str, &str)] = &[
         "Try correcting the name to the name of an existing static method or constructor, or defining a static method or constructor named '{0}'.",
         "COMPILE_TIME_ERROR",
     ),
-    // Códigos que só o 3.13.4 tem (docs/ANALYZER-ESPECIFICACAO.md, T2 §1.3 (c)); textos
-    // conferidos no oráculo 3.13.4 gravado em `corpus/diagnosticos`.
+    // Codes only 3.13.4 has (docs/ANALYZER-ESPECIFICACAO.md, T2 §1.3 (c)); texts
+    // checked against the 3.13.4 oracle recorded in `corpus/diagnosticos`.
     (
         "CompileTimeErrorCode",
         "compile_time_error",
@@ -229,9 +231,9 @@ const SUPLEMENTO_3_13: &[(&str, &str, &str, &str, &str, &str, &str, &str)] = &[
         "Try removing the 'new' keyword or changing it to a different name.",
         "SYNTACTIC_ERROR",
     ),
-    // O `const` no cabeçalho sem construtor primário
-    // (`parser_impl.dart:3829-3856` do 3.13.4, com o recurso ligado); textos de
-    // `pkg/_fe_analyzer_shared/messages.yaml` da tag.
+    // `const` in the header without a primary constructor
+    // (`parser_impl.dart:3829-3856` of 3.13.4, with the feature enabled); texts
+    // from the tag's `pkg/_fe_analyzer_shared/messages.yaml`.
     (
         "ParserErrorCode",
         "parser",
@@ -282,9 +284,9 @@ const SUPLEMENTO_3_13: &[(&str, &str, &str, &str, &str, &str, &str, &str)] = &[
         "Try removing the '{1}' keyword to avoid declaring a field, or try using the field, or removing it.",
         "STATIC_WARNING",
     ),
-    // As formas 3.13.4 de códigos que a 6.11 já tem (T2 §1.3 (a) e (b)): os destinos de
-    // `VARIANTES_3_13`. O sufixo `_3_13` só distingue o nome único; o nome relatado é o da coluna
-    // seguinte. Textos do oráculo vivo 3.13.4 (casos `corpus/especificacao/t2/v`).
+    // The 3.13.4 shapes of codes 6.11 already has (T2 §1.3 (a) and (b)): the targets of
+    // `VARIANTES_3_13`. The `_3_13` suffix only distinguishes the unique name; the reported
+    // name is the next column. Texts from the live 3.13.4 oracle (cases `corpus/especificacao/t2/v`).
     (
         "WarningCode",
         "warning",
@@ -375,8 +377,8 @@ const SUPLEMENTO_3_13: &[(&str, &str, &str, &str, &str, &str, &str, &str)] = &[
         "Try adding a default case or cases that match '{2}'.",
         "COMPILE_TIME_ERROR",
     ),
-    // A variante de comando com constantes privadas não foi rodada no oráculo vivo: texto do
-    // `messages.yaml` do main (a de expressão foi, caso c29).
+    // The statement variant with private constants was not run on the live oracle: text from
+    // main's `messages.yaml` (the expression one was, case c29).
     (
         "CompileTimeErrorCode",
         "compile_time_error",
@@ -429,18 +431,18 @@ const SUPLEMENTO_3_13: &[(&str, &str, &str, &str, &str, &str, &str, &str)] = &[
     ),
 ];
 
-/// Como um código da 6.11 sai quando a referência do arquivo é o analyzer
-/// 3.13.4 (docs/ANALYZER-ESPECIFICACAO.md, T2 §3). O emissor passa os
-/// argumentos do molde 3.6 e, depois deles, os que só o 3.13 usa; a terceira
-/// coluna diz quais vão, e em que ordem, para o molde de destino. A quarta é
-/// o número mínimo de argumentos que o diagnóstico tem de trazer para a
-/// linha valer (0: o que os índices pedem); com várias linhas para o mesmo
-/// código, vale a primeira que couber, e se nenhuma couber o diagnóstico sai
-/// como no 3.6. Destino vazio: o 3.13.4 não relata.
+/// How a 6.11 code is reported when the file's reference is analyzer 3.13.4
+/// (docs/ANALYZER-ESPECIFICACAO.md, T2 §3). The emitter passes the arguments
+/// of the 3.6 template and, after them, the ones only 3.13 uses; the third
+/// column says which go, and in what order, to the target template. The
+/// fourth is the minimum number of arguments the diagnostic must carry for
+/// the row to apply (0: what the indices require); with several rows for the
+/// same code, the first that fits applies, and if none fits the diagnostic is
+/// reported as in 3.6. Empty target: 3.13.4 does not report it.
 ///
-/// (de, para, argumentos, mínimo)
+/// (from, to, arguments, minimum)
 const VARIANTES_3_13: &[(&str, &str, &[u8], u8)] = &[
-    // `{1}` da correção: `[recurso, versão 3.6.2, versão 3.13.4]`.
+    // `{1}` of the correction: `[feature, version 3.6.2, version 3.13.4]`.
     ("ParserErrorCode.EXPERIMENT_NOT_ENABLED", "ParserErrorCode.EXPERIMENT_NOT_ENABLED", &[0, 2], 0),
     ("ParserErrorCode.REPRESENTATION_FIELD_MODIFIER", "ParserErrorCode.REPRESENTATION_FIELD_MODIFIER_3_13", &[0], 0),
     ("WarningCode.UNUSED_ELEMENT_PARAMETER", "WarningCode.UNUSED_ELEMENT_PARAMETER_3_13", &[0], 0),
@@ -448,26 +450,26 @@ const VARIANTES_3_13: &[(&str, &str, &[u8], u8)] = &[
     ("CompileTimeErrorCode.ASSIGNMENT_TO_CONST", "CompileTimeErrorCode.ASSIGNMENT_TO_CONST_3_13", &[], 0),
     ("CompileTimeErrorCode.NULLABLE_TYPE_IN_IMPLEMENTS_CLAUSE", "CompileTimeErrorCode.NULLABLE_TYPE_IN_IMPLEMENTS_CLAUSE_3_13", &[], 0),
     ("CompileTimeErrorCode.SUPER_INVOCATION_NOT_LAST", "CompileTimeErrorCode.SUPER_INVOCATION_NOT_LAST_3_13", &[], 0),
-    // `[classe do construtor, superclasse]`.
+    // `[constructor's class, superclass]`.
     ("CompileTimeErrorCode.CONST_CONSTRUCTOR_WITH_NON_CONST_SUPER", "CompileTimeErrorCode.CONST_CONSTRUCTOR_WITH_NON_CONST_SUPER", &[1], 0),
-    // `[tipo, padrão, sugestão]` e, quando o enum é de outra biblioteca e
-    // o que falta são constantes privadas, um quarto argumento qualquer.
+    // `[type, pattern, suggestion]` and, when the enum is from another library
+    // and what is missing are private constants, any fourth argument.
     ("CompileTimeErrorCode.NON_EXHAUSTIVE_SWITCH_EXPRESSION", "CompileTimeErrorCode.NON_EXHAUSTIVE_SWITCH_EXPRESSION_PRIVATE", &[0], 4),
     ("CompileTimeErrorCode.NON_EXHAUSTIVE_SWITCH_EXPRESSION", "CompileTimeErrorCode.NON_EXHAUSTIVE_SWITCH_EXPRESSION_3_13", &[0, 1, 2], 0),
     ("CompileTimeErrorCode.NON_EXHAUSTIVE_SWITCH_STATEMENT", "CompileTimeErrorCode.NON_EXHAUSTIVE_SWITCH_STATEMENT_PRIVATE", &[0], 4),
     ("CompileTimeErrorCode.NON_EXHAUSTIVE_SWITCH_STATEMENT", "CompileTimeErrorCode.NON_EXHAUSTIVE_SWITCH_STATEMENT_3_13", &[0, 1, 2], 0),
-    // `[tipo do alvo, declarados, dados]` e, quando o alvo é um elemento,
-    // `espécie` (`method`, `function`) e nome.
+    // `[target type, declared, given]` and, when the target is an element,
+    // `kind` (`method`, `function`) and name.
     ("CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_METHOD", "CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_ELEMENT", &[3, 4, 1, 2], 0),
     ("CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_METHOD", "CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_FUNCTION_3_13", &[0, 1, 2], 0),
-    // A variante anônima: `[declarados, dados, tipo da função]` (o tipo só no 3.13.4).
+    // The anonymous variant: `[declared, given, function type]` (the type only in 3.13.4).
     ("CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_ANONYMOUS_FUNCTION", "CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_FUNCTION_3_13", &[2, 0, 1], 3),
-    // `[membro, lista 3.6]` e, só quando são exatamente duas, as duas
-    // extensões na exibição do 3.13 (`extension E1 on int`).
+    // `[member, 3.6 list]` and, only when there are exactly two, the two
+    // extensions as 3.13 displays them (`extension E1 on int`).
     ("CompileTimeErrorCode.AMBIGUOUS_EXTENSION_MEMBER_ACCESS", "CompileTimeErrorCode.AMBIGUOUS_EXTENSION_MEMBER_ACCESS_TWO", &[0, 2, 3], 0),
-    // `[classe, caminho 3.6, caminho 3.13]`.
+    // `[class, 3.6 path, 3.13 path]`.
     ("CompileTimeErrorCode.RECURSIVE_INTERFACE_INHERITANCE", "CompileTimeErrorCode.RECURSIVE_INTERFACE_INHERITANCE", &[0, 2], 0),
-    // A variante do verificador: no 3.13.4 só sai a do parser.
+    // The verifier's variant: in 3.13.4 only the parser's is reported.
     ("CompileTimeErrorCode.FIELD_INITIALIZER_OUTSIDE_CONSTRUCTOR", "", &[], 0),
     ("CompileTimeErrorCode.MIXIN_CLASS_DECLARES_CONSTRUCTOR", "CompileTimeErrorCode.MIXIN_CLASS_DECLARES_NON_TRIVIAL_GENERATIVE_CONSTRUCTOR", &[0], 0),
     ("CompileTimeErrorCode.DEFERRED_IMPORT_OF_EXTENSION", "CompileTimeErrorCode.DEFERRED_IMPORT_OF_EXTENSION_3_13", &[], 0),
@@ -478,10 +480,10 @@ enum Tok {
     Id(String),
     Str(String),
     P(char),
-    Seta,
+    Arrow,
 }
 
-fn tokenizar(src: &str) -> Vec<Tok> {
+fn tokenize(src: &str) -> Vec<Tok> {
     let b = src.as_bytes();
     let mut i = 0;
     let mut out = Vec::new();
@@ -494,15 +496,15 @@ fn tokenizar(src: &str) -> Vec<Tok> {
                 i += 1;
             }
         } else if b[i..].starts_with(b"/*") {
-            let mut prof = 0;
+            let mut depth = 0;
             while i < b.len() {
                 if b[i..].starts_with(b"/*") {
-                    prof += 1;
+                    depth += 1;
                     i += 2;
                 } else if b[i..].starts_with(b"*/") {
-                    prof -= 1;
+                    depth -= 1;
                     i += 2;
-                    if prof == 0 {
+                    if depth == 0 {
                         break;
                     }
                 } else {
@@ -510,17 +512,17 @@ fn tokenizar(src: &str) -> Vec<Tok> {
                 }
             }
         } else if c == b'\'' || c == b'"' || (c == b'r' && matches!(b.get(i + 1), Some(b'\'') | Some(b'"'))) {
-            let cru = c == b'r';
-            if cru {
+            let raw = c == b'r';
+            if raw {
                 i += 1;
             }
             let q = b[i];
-            let triplo = b[i..].starts_with(&[q, q, q]);
-            let fim: Vec<u8> = if triplo { vec![q, q, q] } else { vec![q] };
-            i += fim.len();
+            let triple = b[i..].starts_with(&[q, q, q]);
+            let end: Vec<u8> = if triple { vec![q, q, q] } else { vec![q] };
+            i += end.len();
             let mut s = Vec::new();
-            while i < b.len() && !b[i..].starts_with(&fim) {
-                if b[i] == b'\\' && !cru {
+            while i < b.len() && !b[i..].starts_with(&end) {
+                if b[i] == b'\\' && !raw {
                     let e = b[i + 1];
                     match e {
                         b'n' => s.push(b'\n'),
@@ -534,16 +536,16 @@ fn tokenizar(src: &str) -> Vec<Tok> {
                     i += 1;
                 }
             }
-            i += fim.len();
+            i += end.len();
             out.push(Tok::Str(String::from_utf8(s).expect("UTF-8")));
         } else if c.is_ascii_alphanumeric() || c == b'_' || c == b'$' {
-            let ini = i;
+            let start = i;
             while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_' || b[i] == b'$') {
                 i += 1;
             }
-            out.push(Tok::Id(src[ini..i].to_string()));
+            out.push(Tok::Id(src[start..i].to_string()));
         } else if b[i..].starts_with(b"=>") {
-            out.push(Tok::Seta);
+            out.push(Tok::Arrow);
             i += 2;
         } else {
             let ch = src[i..].chars().next().unwrap();
@@ -555,35 +557,35 @@ fn tokenizar(src: &str) -> Vec<Tok> {
 }
 
 #[derive(Debug)]
-struct Entrada {
-    classe: String,
-    constante: String,
-    nome: String,
-    unico: String,
-    mensagem: String,
-    correcao: Option<String>,
-    documentado: bool,
+struct Entry {
+    class: String,
+    constant: String,
+    name: String,
+    unique: String,
+    message: String,
+    correction: Option<String>,
+    documented: bool,
 }
 
-/// Um argumento: nome (se nomeado) e tokens do valor.
-fn argumentos(toks: &[Tok]) -> Vec<(Option<String>, Vec<Tok>)> {
+/// The arguments: name (if named) and the value's tokens.
+fn arguments(toks: &[Tok]) -> Vec<(Option<String>, Vec<Tok>)> {
     let mut args = Vec::new();
-    let mut atual: Vec<Tok> = Vec::new();
-    let mut prof = 0i32;
+    let mut current: Vec<Tok> = Vec::new();
+    let mut depth = 0i32;
     for t in toks {
         match t {
-            Tok::P('(') | Tok::P('[') | Tok::P('{') => prof += 1,
-            Tok::P(')') | Tok::P(']') | Tok::P('}') => prof -= 1,
+            Tok::P('(') | Tok::P('[') | Tok::P('{') => depth += 1,
+            Tok::P(')') | Tok::P(']') | Tok::P('}') => depth -= 1,
             _ => {}
         }
-        if prof == 0 && *t == Tok::P(',') {
-            args.push(std::mem::take(&mut atual));
+        if depth == 0 && *t == Tok::P(',') {
+            args.push(std::mem::take(&mut current));
         } else {
-            atual.push(t.clone());
+            current.push(t.clone());
         }
     }
-    if !atual.is_empty() {
-        args.push(atual);
+    if !current.is_empty() {
+        args.push(current);
     }
     args.into_iter()
         .map(|a| {
@@ -596,60 +598,60 @@ fn argumentos(toks: &[Tok]) -> Vec<(Option<String>, Vec<Tok>)> {
         .collect()
 }
 
-fn texto(v: &[Tok]) -> Option<String> {
+fn text(v: &[Tok]) -> Option<String> {
     let mut s = String::new();
-    let mut algum = false;
+    let mut any = false;
     for t in v {
         match t {
             Tok::Str(x) => {
                 s.push_str(x);
-                algum = true;
+                any = true;
             }
             _ => return None,
         }
     }
-    algum.then_some(s)
+    any.then_some(s)
 }
 
-/// Lê as entradas e o par (tipo, severidade) de cada classe do arquivo.
-fn ler_classe(src: &str, classe: &str) -> (Vec<Entrada>, String, String) {
-    let t = tokenizar(src);
+/// Reads the entries and the (type, severity) pair of a class in the file.
+fn read_class(src: &str, class: &str) -> (Vec<Entry>, String, String) {
+    let t = tokenize(src);
     let mut i = 0;
-    // `class <classe> extends ... {`
-    while i + 1 < t.len() && !(t[i] == Tok::Id("class".into()) && t[i + 1] == Tok::Id(classe.into())) {
+    // `class <class> extends ... {`
+    while i + 1 < t.len() && !(t[i] == Tok::Id("class".into()) && t[i + 1] == Tok::Id(class.into())) {
         i += 1;
     }
-    assert!(i + 1 < t.len(), "classe {classe} não encontrada");
+    assert!(i + 1 < t.len(), "class {class} not found");
     while t[i] != Tok::P('{') {
         i += 1;
     }
     i += 1;
-    let mut prof = 1;
-    let mut entradas = Vec::new();
-    let mut tipo = None;
-    let mut severidade = None;
-    while i < t.len() && prof > 0 {
+    let mut depth = 1;
+    let mut entries = Vec::new();
+    let mut ty = None;
+    let mut severity = None;
+    while i < t.len() && depth > 0 {
         match &t[i] {
-            Tok::P('{') => prof += 1,
-            Tok::P('}') => prof -= 1,
-            Tok::Id(s) if prof == 1 && s == "static" && t.get(i + 1) == Some(&Tok::Id("const".into())) => {
-                // static const <Classe> <NOME> = [const] <Classe>( ... ) ;
-                let Some(Tok::Id(tipo_decl)) = t.get(i + 2) else { panic!("static const sem tipo") };
-                let Some(Tok::Id(constante)) = t.get(i + 3) else { panic!("static const sem nome") };
-                if tipo_decl != classe {
+            Tok::P('{') => depth += 1,
+            Tok::P('}') => depth -= 1,
+            Tok::Id(s) if depth == 1 && s == "static" && t.get(i + 1) == Some(&Tok::Id("const".into())) => {
+                // static const <Class> <NAME> = [const] <Class>( ... ) ;
+                let Some(Tok::Id(decl_type)) = t.get(i + 2) else { panic!("static const without a type") };
+                let Some(Tok::Id(constant)) = t.get(i + 3) else { panic!("static const without a name") };
+                if decl_type != class {
                     i += 1;
                     continue;
                 }
                 let mut j = i + 4;
-                assert_eq!(t[j], Tok::P('='), "{constante}");
+                assert_eq!(t[j], Tok::P('='), "{constant}");
                 j += 1;
                 if t[j] == Tok::Id("const".into()) {
                     j += 1;
                 }
-                assert_eq!(t[j], Tok::Id(classe.into()), "{constante}");
+                assert_eq!(t[j], Tok::Id(class.into()), "{constant}");
                 j += 1;
-                assert_eq!(t[j], Tok::P('('), "{constante}");
-                let ini = j + 1;
+                assert_eq!(t[j], Tok::P('('), "{constant}");
+                let start = j + 1;
                 let mut p = 1;
                 j += 1;
                 while p > 0 {
@@ -660,31 +662,31 @@ fn ler_classe(src: &str, classe: &str) -> (Vec<Entrada>, String, String) {
                     }
                     j += 1;
                 }
-                let args = argumentos(&t[ini..j - 1]);
-                let pos: Vec<String> = args.iter().filter(|a| a.0.is_none()).map(|a| texto(&a.1).expect("string")).collect();
-                let nomeado = |n: &str| args.iter().find(|a| a.0.as_deref() == Some(n)).map(|a| &a.1);
-                let nome = pos[0].clone();
-                let mensagem = if classe == "TodoCode" { "{0}".to_string() } else { pos[1].clone() };
-                let unico_curto = nomeado("uniqueName").and_then(|v| texto(v)).unwrap_or_else(|| nome.clone());
-                entradas.push(Entrada {
-                    classe: classe.to_string(),
-                    constante: constante.clone(),
-                    nome: nome.to_lowercase(),
-                    unico: format!("{classe}.{unico_curto}"),
-                    mensagem,
-                    correcao: nomeado("correctionMessage").and_then(|v| texto(v)),
-                    documentado: nomeado("hasPublishedDocs").is_some_and(|v| v.as_slice() == [Tok::Id("true".into())]),
+                let args = arguments(&t[start..j - 1]);
+                let pos: Vec<String> = args.iter().filter(|a| a.0.is_none()).map(|a| text(&a.1).expect("string")).collect();
+                let named = |n: &str| args.iter().find(|a| a.0.as_deref() == Some(n)).map(|a| &a.1);
+                let name = pos[0].clone();
+                let message = if class == "TodoCode" { "{0}".to_string() } else { pos[1].clone() };
+                let short_unique = named("uniqueName").and_then(|v| text(v)).unwrap_or_else(|| name.clone());
+                entries.push(Entry {
+                    class: class.to_string(),
+                    constant: constant.clone(),
+                    name: name.to_lowercase(),
+                    unique: format!("{class}.{short_unique}"),
+                    message,
+                    correction: named("correctionMessage").and_then(|v| text(v)),
+                    documented: named("hasPublishedDocs").is_some_and(|v| v.as_slice() == [Tok::Id("true".into())]),
                 });
                 i = j;
                 continue;
             }
-            Tok::Id(s) if prof == 1 && (s == "ErrorSeverity" || s == "ErrorType") && t.get(i + 1) == Some(&Tok::Id("get".into())) => {
+            Tok::Id(s) if depth == 1 && (s == "ErrorSeverity" || s == "ErrorType") && t.get(i + 1) == Some(&Tok::Id("get".into())) => {
                 let getter = match &t[i + 2] {
                     Tok::Id(g) => g.clone(),
                     _ => String::new(),
                 };
-                assert_eq!(t[i + 3], Tok::Seta);
-                // `ErrorType.X.severity`, `ErrorSeverity.X` ou `ErrorType.X`.
+                assert_eq!(t[i + 3], Tok::Arrow);
+                // `ErrorType.X.severity`, `ErrorSeverity.X` or `ErrorType.X`.
                 let mut j = i + 4;
                 let mut expr = Vec::new();
                 while t[j] != Tok::P(';') {
@@ -693,15 +695,15 @@ fn ler_classe(src: &str, classe: &str) -> (Vec<Entrada>, String, String) {
                     }
                     j += 1;
                 }
-                let valor = match expr.as_slice() {
+                let value = match expr.as_slice() {
                     [a, x, s] if a == "ErrorType" && s == "severity" => format!("tipo:{x}"),
                     [a, x] if a == "ErrorSeverity" || a == "ErrorType" => x.clone(),
-                    _ => panic!("getter {getter} de {classe} não reconhecido: {expr:?}"),
+                    _ => panic!("getter {getter} of {class} not recognized: {expr:?}"),
                 };
                 if getter == "errorSeverity" {
-                    severidade = Some(valor);
+                    severity = Some(value);
                 } else if getter == "type" {
-                    tipo = Some(valor);
+                    ty = Some(value);
                 }
                 i = j;
                 continue;
@@ -710,10 +712,10 @@ fn ler_classe(src: &str, classe: &str) -> (Vec<Entrada>, String, String) {
         }
         i += 1;
     }
-    (entradas, tipo.expect("getter type"), severidade.expect("getter errorSeverity"))
+    (entries, ty.expect("getter type"), severity.expect("getter errorSeverity"))
 }
 
-fn tipo_rust(t: &str) -> &'static str {
+fn rust_type(t: &str) -> &'static str {
     match t {
         "TODO" => "TipoErro::Todo",
         "HINT" => "TipoErro::Hint",
@@ -726,133 +728,133 @@ fn tipo_rust(t: &str) -> &'static str {
     }
 }
 
-/// `ErrorType.X.severity` (`errors.dart:196-238` do `_fe_analyzer_shared`).
-fn severidade_rust(s: &str) -> &'static str {
+/// `ErrorType.X.severity` (`errors.dart:196-238` of `_fe_analyzer_shared`).
+fn rust_severity(s: &str) -> &'static str {
     match s {
         "ERROR" | "tipo:COMPILE_TIME_ERROR" | "tipo:SYNTACTIC_ERROR" | "tipo:CHECKED_MODE_COMPILE_TIME_ERROR" => {
             "Severidade::Error"
         }
         "WARNING" | "tipo:STATIC_WARNING" => "Severidade::Warning",
         "INFO" | "tipo:HINT" | "tipo:LINT" | "tipo:TODO" => "Severidade::Info",
-        _ => panic!("severidade {s}"),
+        _ => panic!("severity {s}"),
     }
 }
 
 fn main() {
-    let raiz = std::env::args().nth(1).map(PathBuf::from).unwrap_or_else(|| {
+    let root = std::env::args().nth(1).map(PathBuf::from).unwrap_or_else(|| {
         let base = std::env::var_os("PUB_CACHE")
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("LOCALAPPDATA").map(|l| Path::new(&l).join("Pub").join("Cache")))
-            .expect("defina PUB_CACHE");
+            .expect("set PUB_CACHE");
         base.join("hosted").join("pub.dev")
     });
-    let mut todas: Vec<(Entrada, &str, String, String)> = Vec::new();
-    let mut resumo = String::new();
-    for (classe, modulo, arquivo) in CLASSES {
-        let caminho = raiz.join(arquivo);
-        let src = std::fs::read_to_string(&caminho).unwrap_or_else(|e| panic!("{}: {e}", caminho.display()));
-        let (entradas, tipo, sev) = ler_classe(&src, classe);
-        let _ = writeln!(resumo, "{classe}: {}", entradas.len());
-        for e in entradas {
-            todas.push((e, modulo, tipo.clone(), sev.clone()));
+    let mut all: Vec<(Entry, &str, String, String)> = Vec::new();
+    let mut summary = String::new();
+    for (class, module, file) in CLASSES {
+        let file_path = root.join(file);
+        let src = std::fs::read_to_string(&file_path).unwrap_or_else(|e| panic!("{}: {e}", file_path.display()));
+        let (entries, ty, sev) = read_class(&src, class);
+        let _ = writeln!(summary, "{class}: {}", entries.len());
+        for e in entries {
+            all.push((e, module, ty.clone(), sev.clone()));
         }
     }
-    for (classe, modulo, constante, nome, unico, mensagem, correcao, tipo) in SUPLEMENTO_3_13 {
-        let e = Entrada {
-            classe: classe.to_string(),
-            constante: constante.to_string(),
-            nome: nome.to_string(),
-            unico: unico.to_string(),
-            mensagem: mensagem.to_string(),
-            correcao: (!correcao.is_empty()).then(|| correcao.to_string()),
-            documentado: false,
+    for (class, module, constant, name, unique, message, correction, ty) in SUPLEMENTO_3_13 {
+        let e = Entry {
+            class: class.to_string(),
+            constant: constant.to_string(),
+            name: name.to_string(),
+            unique: unique.to_string(),
+            message: message.to_string(),
+            correction: (!correction.is_empty()).then(|| correction.to_string()),
+            documented: false,
         };
-        todas.push((e, modulo, tipo.to_string(), format!("tipo:{tipo}")));
+        all.push((e, module, ty.to_string(), format!("tipo:{ty}")));
     }
-    let _ = writeln!(resumo, "suplemento 3.13.4 (códigos novos e formas novas de códigos da 6.11): {}", SUPLEMENTO_3_13.len());
-    // As variantes: nomes únicos viram índices; a ordenação é estável, e a
-    // ordem das linhas de um mesmo código é a da tabela.
-    let mut variantes: Vec<(usize, Option<usize>, &'static [u8], u8)> = Vec::new();
+    let _ = writeln!(summary, "3.13.4 supplement (new codes and new shapes of 6.11 codes): {}", SUPLEMENTO_3_13.len());
+    // The variants: unique names become indices; the sort is stable, and the
+    // order of the rows of one code is the table's.
+    let mut variants: Vec<(usize, Option<usize>, &'static [u8], u8)> = Vec::new();
     {
-        let indice = |unico: &str| todas.iter().position(|e| e.0.unico == unico).unwrap_or_else(|| panic!("variante: {unico} não está na tabela"));
-        for (de, para, args, exige) in VARIANTES_3_13 {
-            let minimo = args.iter().map(|a| *a + 1).max().unwrap_or(0).max(*exige);
-            variantes.push((indice(*de), (!para.is_empty()).then(|| indice(*para)), *args, minimo));
+        let index = |unique: &str| all.iter().position(|e| e.0.unique == unique).unwrap_or_else(|| panic!("variant: {unique} is not in the table"));
+        for (from_code, to, args, requires) in VARIANTES_3_13 {
+            let minimum = args.iter().map(|a| *a + 1).max().unwrap_or(0).max(*requires);
+            variants.push((index(*from_code), (!to.is_empty()).then(|| index(*to)), *args, minimum));
         }
     }
-    // A forma nova de um código de mesmo nome herda a documentação publicada.
-    for (de, para, ..) in &variantes {
-        if let Some(para) = para
-            && para != de
-            && todas[*para].0.nome == todas[*de].0.nome
+    // The new shape of a code with the same name inherits the published documentation.
+    for (from_code, to, ..) in &variants {
+        if let Some(to) = to
+            && to != from_code
+            && all[*to].0.name == all[*from_code].0.name
         {
-            todas[*para].0.documentado = todas[*de].0.documentado;
+            all[*to].0.documented = all[*from_code].0.documented;
         }
     }
-    variantes.sort_by_key(|v| v.0);
-    let _ = writeln!(resumo, "variantes 3.13.4: {}", variantes.len());
-    let n = todas.len();
+    variants.sort_by_key(|v| v.0);
+    let _ = writeln!(summary, "3.13.4 variants: {}", variants.len());
+    let n = all.len();
     let mut s = String::new();
-    s.push_str("// GERADO por `cargo run -p dartforge-parity --example gerar_codigos`. NÃO EDITE.\n");
-    s.push_str("// Fonte: analyzer-6.11.0 e _fe_analyzer_shared-76.0.0 (SDK Dart 3.6), cache do pub.\n");
-    for l in resumo.lines() {
+    s.push_str("// GENERATED by `cargo run -p dartforge-parity --example gerar_codigos`. DO NOT EDIT.\n");
+    s.push_str("// Source: analyzer-6.11.0 and _fe_analyzer_shared-76.0.0 (Dart SDK 3.6), pub cache.\n");
+    for l in summary.lines() {
         let _ = writeln!(s, "// {l}");
     }
     s.push_str("#![allow(missing_docs)]\n\nuse crate::{Codigo, InfoCodigo, Severidade, TipoErro, Variante313};\n\n");
     let _ = writeln!(s, "pub(crate) static TABELA: [InfoCodigo; {n}] = [");
-    for (e, _, tipo, sev) in &todas {
+    for (e, _, ty, sev) in &all {
         let _ = writeln!(
             s,
             "    InfoCodigo {{ nome: {:?}, unico: {:?}, mensagem: {:?}, correcao: {}, tipo: {}, severidade: {}, documentado: {} }},",
-            e.nome,
-            e.unico,
-            e.mensagem,
-            match &e.correcao {
+            e.name,
+            e.unique,
+            e.message,
+            match &e.correction {
                 Some(c) => format!("Some({c:?})"),
                 None => "None".into(),
             },
-            tipo_rust(tipo),
-            severidade_rust(sev),
-            e.documentado
+            rust_type(ty),
+            rust_severity(sev),
+            e.documented
         );
     }
     s.push_str("];\n\n");
-    let mut por_unico: Vec<(&str, usize)> = todas.iter().enumerate().map(|(i, e)| (e.0.unico.as_str(), i)).collect();
-    por_unico.sort();
-    for w in por_unico.windows(2) {
-        assert_ne!(w[0].0, w[1].0, "uniqueName repetido");
+    let mut by_unique: Vec<(&str, usize)> = all.iter().enumerate().map(|(i, e)| (e.0.unique.as_str(), i)).collect();
+    by_unique.sort();
+    for w in by_unique.windows(2) {
+        assert_ne!(w[0].0, w[1].0, "repeated uniqueName");
     }
     let _ = writeln!(s, "pub(crate) static POR_UNICO: [(&str, u16); {n}] = [");
-    for (u, i) in &por_unico {
+    for (u, i) in &by_unique {
         let _ = writeln!(s, "    ({u:?}, {i}),");
     }
     s.push_str("];\n\n");
-    let _ = writeln!(s, "/// Ordenada por `de`; ver `Codigo::variantes_3_13`.");
-    let _ = writeln!(s, "pub(crate) static VARIANTES_3_13: [Variante313; {}] = [", variantes.len());
-    for (de, para, args, exige) in &variantes {
-        let para = match para {
+    let _ = writeln!(s, "/// Sorted by `de`; see `Codigo::variantes_3_13`.");
+    let _ = writeln!(s, "pub(crate) static VARIANTES_3_13: [Variante313; {}] = [", variants.len());
+    for (from_code, to, args, requires) in &variants {
+        let to = match to {
             Some(p) => format!("Some(Codigo({p}))"),
             None => "None".to_string(),
         };
-        let _ = writeln!(s, "    Variante313 {{ de: Codigo({de}), para: {para}, args: &{args:?}, exige: {exige} }},");
+        let _ = writeln!(s, "    Variante313 {{ de: Codigo({from_code}), para: {to}, args: &{args:?}, exige: {requires} }},");
     }
     s.push_str("];\n\npub mod modulos {\n");
-    for (classe, modulo, _) in CLASSES {
-        let _ = writeln!(s, "    /// `{classe}`.\n    pub mod {modulo} {{\n        use crate::Codigo;");
-        for (i, (e, m, _, _)) in todas.iter().enumerate() {
-            if m == modulo {
-                let _ = writeln!(s, "        pub const {}: Codigo = Codigo({i});", e.constante.to_uppercase());
+    for (class, module, _) in CLASSES {
+        let _ = writeln!(s, "    /// `{class}`.\n    pub mod {module} {{\n        use crate::Codigo;");
+        for (i, (e, m, _, _)) in all.iter().enumerate() {
+            if m == module {
+                let _ = writeln!(s, "        pub const {}: Codigo = Codigo({i});", e.constant.to_uppercase());
             }
         }
         s.push_str("    }\n");
-        let _ = &classe;
+        let _ = &class;
     }
     s.push_str("}\n");
-    let destino = Path::new(env!("CARGO_MANIFEST_DIR")).join("../diagnostics/src/codigos_g.rs");
-    std::fs::write(&destino, s).expect("gravar tabela");
-    print!("{resumo}");
-    println!("total: {n} -> {}", destino.display());
-    for (e, ..) in &todas {
-        debug_assert!(!e.classe.is_empty());
+    let dest = Path::new(env!("CARGO_MANIFEST_DIR")).join("../diagnostics/src/codigos_g.rs");
+    std::fs::write(&dest, s).expect("write table");
+    print!("{summary}");
+    println!("total: {n} -> {}", dest.display());
+    for (e, ..) in &all {
+        debug_assert!(!e.class.is_empty());
     }
 }
