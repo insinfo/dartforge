@@ -338,7 +338,14 @@ das leituras e gravações de campo. O ARC legado estourava a memória no
 `Ref` de lista geral sob ARC criava um token do código que, sem a
 preparação, ninguém soltava. Sem preparação, a leitura agora é emprestada
 (`dartforge_arc_lista_ref_v1`): pico de 331 MB e `json` 2,6–3× o A0 no ARC
-legado (antes 55–123×). `lista_leitura` (15×) espera N13 sob ARC; `chamadas/closures`
+legado (antes 55–123×).
+
+Rodada válida com tudo isso (`target/bench-arcp3/`, 88b6e57e, 3 repetições,
+com agentes compilando ao lado): **ARC/A0 2,748, ARCP/A0 5,225**. Maiores
+custos do ARCP: `chamadas/formas` 23×, `closures` 17×, `lista_leitura` 16×,
+`arvores` 14×, `mapa` 14×, `lista_add` 13×, `ordenar_objetos` 12×,
+`mapa_str_objeto` 12×; `json` 7–10×. No legado: `arvores` 16×,
+`lista_leitura` 16×, `lista_add` 10×. `lista_leitura` (15×) espera N13 sob ARC; `chamadas/closures`
 (17×) e `formas` (23×) passam pela invocação uniforme.
 
 **Próximo passo:** tokens do código fora do hash (contador na tabela ARC),
