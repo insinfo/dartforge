@@ -35,6 +35,102 @@ pub fn nome_dart_de_privado(s: &str) -> Option<&str> {
     (!base.is_empty() && !tag.is_empty() && tag.bytes().all(|c| c.is_ascii_digit() || c.is_ascii_lowercase())).then_some(base)
 }
 
+/// Classes que recebem os ids de uma letra nas receitas rti do modo SDK
+/// ([`ids_de_receita`]): as que mais aparecem em qualquer programa.
+const CLASSES_FREQUENTES: &[(&str, &str)] = &[
+    ("dart:core", "int"),
+    ("dart:core", "String"),
+    ("dart:core", "bool"),
+    ("dart:core", "double"),
+    ("dart:core", "num"),
+    ("dart:core", "Object"),
+    ("dart:core", "Null"),
+    ("dart:core", "List"),
+    ("dart:core", "Map"),
+    ("dart:core", "Iterable"),
+    ("dart:core", "Function"),
+    ("dart:async", "Future"),
+    ("dart:core", "Set"),
+    ("dart:core", "Type"),
+    ("dart:core", "Record"),
+    ("dart:core", "Symbol"),
+    ("dart:core", "Comparable"),
+    ("dart:core", "Iterator"),
+    ("dart:core", "MapEntry"),
+    ("dart:core", "Duration"),
+    ("dart:core", "DateTime"),
+    ("dart:core", "StackTrace"),
+    ("dart:core", "Enum"),
+    ("dart:core", "Pattern"),
+    ("dart:core", "Match"),
+    ("dart:core", "Error"),
+    ("dart:core", "Exception"),
+    ("dart:async", "Stream"),
+    ("dart:async", "StreamSubscription"),
+    ("dart:async", "Completer"),
+    ("dart:async", "FutureOr"),
+    ("dart:_interceptors", "JSArray"),
+    ("dart:_interceptors", "JSString"),
+    ("dart:_interceptors", "JSNumber"),
+    ("dart:_interceptors", "JSInt"),
+    ("dart:_interceptors", "JSBool"),
+    ("dart:_interceptors", "JSObject"),
+    ("dart:_interceptors", "LegacyJavaScriptObject"),
+    ("dart:_interceptors", "JavaScriptObject"),
+    ("dart:_interceptors", "JavaScriptFunction"),
+    ("dart:_interceptors", "NativeError"),
+    ("dart:_js_helper", "TrustedGetRuntimeType"),
+    ("dart:_internal", "EfficientLengthIterable"),
+    ("dart:collection", "LinkedHashMap"),
+    ("dart:collection", "LinkedHashSet"),
+    ("dart:collection", "ListBase"),
+    ("dart:collection", "MapBase"),
+];
+
+/// O id curto de cada classe (índice: `ClassId`) nas receitas rti do modo
+/// SDK (`Ctx::class_recipe`, `docs/JS-PRODUCAO-TAMANHO.md` §9.5): primeiro as
+/// [`CLASSES_FREQUENTES`], depois as outras na ordem do programa, cada uma
+/// com o próximo nome da sequência `a`, `b`, …, `$`, `aa`, `ba`… (a primeira
+/// letra entre 54, as seguintes entre 64). Função só do programa: o
+/// emissor, o verificador e a tabela de nomes chegam ao mesmo id.
+pub fn ids_de_receita(program: &dartforge_elements::model::Program, interner: &dartforge_intern::Interner) -> Vec<String> {
+    use dartforge_elements::model::{ClassId, Element};
+    const PRIMEIRA: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_$";
+    const OUTRAS: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_$0123456789";
+    let nome = |mut n: usize| -> String {
+        let mut s = vec![PRIMEIRA[n % PRIMEIRA.len()]];
+        n /= PRIMEIRA.len();
+        while n > 0 {
+            n -= 1;
+            s.push(OUTRAS[n % OUTRAS.len()]);
+            n /= OUTRAS.len();
+        }
+        String::from_utf8(s).unwrap_or_default()
+    };
+    let mut ordem: Vec<ClassId> = Vec::with_capacity(program.classes.len());
+    let mut visto = vec![false; program.classes.len()];
+    for (uri, n) in CLASSES_FREQUENTES {
+        let Some(lib) = program.libraries.iter().position(|l| l.uri == *uri) else { continue };
+        let Some(sym) = interner.lookup(n) else { continue };
+        if let Some(Element::Class(c)) = program.library(dartforge_elements::model::LibraryId(lib as u32)).declared.get(&sym).and_then(|b| b.getter)
+            && !visto[c.0 as usize]
+        {
+            visto[c.0 as usize] = true;
+            ordem.push(c);
+        }
+    }
+    for (i, v) in visto.iter().enumerate() {
+        if !v {
+            ordem.push(ClassId(i as u32));
+        }
+    }
+    let mut out = vec![String::new(); program.classes.len()];
+    for (k, c) in ordem.into_iter().enumerate() {
+        out[c.0 as usize] = nome(k);
+    }
+    out
+}
+
 /// Rótulo curto da biblioteca nas receitas rti do perfil de produção
 /// (`Ctx::class_recipe` no modo SDK): `$` + o id em base 36. Começa com
 /// `$`, que nenhum identificador de biblioteca do SDK usa.

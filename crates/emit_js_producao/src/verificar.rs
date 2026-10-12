@@ -183,7 +183,7 @@ fn definicoes(modulos: &[(String, String)], idents: &HashSet<&str>) -> Definicoe
 /// Referências a namespaces (`L$x.Nome`, `core.Nome`, `dart.f`) e receitas
 /// `ident|Nome` no texto. O conteúdo de *strings* e comentários não é
 /// referência (só as receitas, que vivem dentro de *strings*).
-fn referencias(texto: &str, idents: &HashSet<&str>, receitas: &HashMap<&str, &str>, unicos: &HashMap<String, &str>, classes: &HashSet<String>, out: &mut HashSet<String>) {
+fn referencias(texto: &str, idents: &HashSet<&str>, receitas: &HashMap<&str, &str>, ids: &HashMap<String, String>, classes: &HashSet<String>, out: &mut HashSet<String>) {
     let b = texto.as_bytes();
     let mut i = 0usize;
     while i < b.len() {
@@ -281,9 +281,14 @@ fn referencias(texto: &str, idents: &HashSet<&str>, receitas: &HashMap<&str, &st
             ini -= 1;
         }
         let fim = ident_em(b, p + 1);
-        // `|Nome`: a classe de nome simples único (`Ctx::class_recipe`).
-        let var = if ini == p { unicos.get(&texto[p + 1..fim]) } else { receitas.get(&texto[ini..p]) };
-        let Some(var) = var else { continue };
+        // `|id`: o id curto da classe no modo SDK (`Ctx::class_recipe`).
+        if ini == p {
+            if let Some(r) = ids.get(&texto[p + 1..fim]) {
+                out.insert(r.clone());
+            }
+            continue;
+        }
+        let Some(var) = receitas.get(&texto[ini..p]) else { continue };
         out.insert(format!("{var}.{}", &texto[p + 1..fim]));
     }
 }
@@ -471,22 +476,19 @@ pub fn conferir(modulos: &[(String, String)], libs: &HashMap<String, LibraryId>,
         }
     }
     let receitas: HashMap<&str, &str> = por_receita.iter().map(|(k, v)| (k.as_str(), *v)).collect();
-    // Classe de nome simples único → variável do namespace (a receita
-    // `|Nome` do modo SDK).
+    // Id curto de receita (`|id`) → `var.Classe`.
     let var_da_lib: HashMap<LibraryId, &str> = libs.iter().map(|(v, l)| (*l, v.as_str())).collect();
-    let mut contagem: HashMap<&str, (u32, LibraryId)> = HashMap::new();
-    for c in &program.classes {
-        let e = contagem.entry(interner.resolve(c.name)).or_insert((0, c.library));
-        e.0 += 1;
-    }
-    let unicos: HashMap<String, &str> = contagem
+    let ids: HashMap<String, String> = dartforge_emit_js::ids_de_receita(program, interner)
         .into_iter()
-        .filter(|(_, (n, _))| *n == 1)
-        .filter_map(|(nome, (_, l))| var_da_lib.get(&l).map(|v| (nome.to_string(), *v)))
+        .enumerate()
+        .filter_map(|(i, id)| {
+            let c = program.class(ClassId(i as u32));
+            var_da_lib.get(&c.library).map(|v| (id, format!("{v}.{}", interner.resolve(c.name))))
+        })
         .collect();
     let mut refs: HashSet<String> = HashSet::new();
     for (_, t) in modulos {
-        referencias(t, &idents, &receitas, &unicos, &defs.classes, &mut refs);
+        referencias(t, &idents, &receitas, &ids, &defs.classes, &mut refs);
     }
     let mut faltas = Faltas::default();
     let mut pendentes: Vec<&String> = refs.iter().filter(|r| !defs.nomes.contains(*r)).collect();

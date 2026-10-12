@@ -138,13 +138,13 @@ pub fn compilar_sdk_proprio(
     op: Opcoes,
     linguagem: &dartforge_elements::sdk::Linguagem,
 ) -> Result<Producao, String> {
-    let ((e, rel, nomes), _) = dartforge_emit_js::compilar_com_opcoes(entrada, sdk_lib, packages, linguagem, None, true, |a| {
+    let ((e, rel, nomes, rti), _) = dartforge_emit_js::compilar_com_opcoes(entrada, sdk_lib, packages, linguagem, None, true, |a| {
         let (e, rel) = proprio::emitir(a, op)?;
         let vazio = std::collections::HashSet::new();
         let nomes = propriedades::calcular(a, rel.as_ref().map_or(&vazio, |r| &r.nomes_js), rel.as_ref().and_then(|r| r.nomeados.as_ref()).map(|n| &n.mapa));
-        Ok((e, rel, nomes))
+        Ok((e, rel, nomes, proprio::nomes_de_receita(a)))
     })?;
-    let mut p = proprio::montar(&e, op, Some(&nomes));
+    let mut p = proprio::montar(&e, op, Some(&nomes), Some(&rti));
     p.mundo = rel;
     Ok(p)
 }

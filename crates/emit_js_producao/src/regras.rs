@@ -89,6 +89,35 @@ const RECURSOS: &str = "addRtiResources(";
 /// arquivo e as marcas de interface correspondentes. Devolve o texto
 /// inalterado se algo não tiver a forma esperada.
 pub fn podar(js: &str) -> String {
+    let Some((citados, achados, listas)) = citacoes(js) else { return js.to_string() };
+    reescrever(js, &citados, achados, listas)
+}
+
+/// As classes (`lib|C`, `|id`) cujo nome uma mensagem pode mostrar: as
+/// citadas fora das chaves das regras e das listas do `addRtiResources`
+/// (como em [`podar`]), mais a primeira de cada lista (a própria classe,
+/// que é o tipo das instâncias dela). Uma classe que só aparece como
+/// supertipo nas regras nunca vira objeto rti, e o `_rtiToString` nunca a
+/// mostra (§9.5 de `docs/JS-PRODUCAO-TAMANHO.md`).
+pub fn mostraveis(js: &str) -> HashSet<String> {
+    let Some((mut citados, _, listas)) = citacoes(js) else {
+        let mut todos = HashSet::new();
+        nomes_de_classe(js, &mut todos);
+        return todos;
+    };
+    for (ini, fim) in listas {
+        if let Some(primeiro) = js[ini + 1..fim - 1].split(", ").next() {
+            nomes_de_classe(primeiro, &mut citados);
+        }
+    }
+    citados
+}
+
+type Achados = Vec<(usize, usize, serde_json::Value)>;
+
+/// Os citados (ver [`podar`]), os JSON das regras e as listas do
+/// `addRtiResources`; `None` se algo não tem a forma esperada.
+fn citacoes(js: &str) -> Option<(HashSet<String>, Achados, Vec<(usize, usize)>)> {
     // Os trechos que não contam como citação: os JSON das regras e as listas
     // do `addRtiResources` (início e fim de cada lista `[...]`).
     let mut listas: Vec<(usize, usize)> = Vec::new();
@@ -106,13 +135,13 @@ pub fn podar(js: &str) -> String {
     for c in CHAMADAS {
         for (p, _) in js.match_indices(c) {
             let ini = p + c.len();
-            let Some((fim, conteudo)) = string_js(js, ini) else { return js.to_string() };
-            let Ok(v) = serde_json::from_str::<serde_json::Value>(&conteudo) else { return js.to_string() };
+            let (fim, conteudo) = string_js(js, ini)?;
+            let v = serde_json::from_str::<serde_json::Value>(&conteudo).ok()?;
             achados.push((ini, fim, v));
         }
     }
     if achados.is_empty() {
-        return js.to_string();
+        return None;
     }
     achados.sort_by_key(|a| a.0);
     // Os citados fora das regras e das listas, e nos valores das regras.
@@ -145,8 +174,12 @@ pub fn podar(js: &str) -> String {
             }
         }
     }
-    // Reescreve cada JSON sem as entradas de supertipo não citadas e cada
-    // lista de marcas sem as interfaces não citadas.
+    Some((citados, achados, listas))
+}
+
+/// Reescreve cada JSON sem as entradas de supertipo não citadas e cada
+/// lista de marcas sem as interfaces não citadas.
+fn reescrever(js: &str, citados: &HashSet<String>, achados: Achados, listas: Vec<(usize, usize)>) -> String {
     let mut trocas: Vec<(usize, usize, String)> = Vec::new();
     for (ini, fim, mut v) in achados {
         if let Some(o) = v.as_object_mut() {

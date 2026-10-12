@@ -326,7 +326,39 @@ pub fn apelidar_receitas(js: &str) -> String {
 }
 
 /// Monta o arquivo único.
-pub fn montar(e: &EmitidoComSdk, op: Opcoes, nomes: Option<&crate::propriedades::Nomes>) -> Producao {
+/// Id curto de receita → nome da classe (`dartforge_emit_js::ids_de_receita`),
+/// para a tabela que o `_rtiToString` consulta (§9.5 de
+/// `docs/JS-PRODUCAO-TAMANHO.md`).
+pub fn nomes_de_receita(a: &dartforge_emit_js::Analise<'_>) -> HashMap<String, String> {
+    dartforge_emit_js::ids_de_receita(a.program, a.interner)
+        .into_iter()
+        .enumerate()
+        .map(|(i, id)| (id, a.interner.resolve(a.program.class(dartforge_elements::model::ClassId(i as u32)).name).to_string()))
+        .collect()
+}
+
+/// O que o `unmangleGlobalNameIfPreservedAnyways` do DDC (`js_names.dart`)
+/// devolve: `null`. No modo SDK com ids curtos, ele lê a tabela `t$N`.
+const DESMANGLE: &str = "unmangleGlobalNameIfPreservedAnyways = function unmangleGlobalNameIfPreservedAnyways(name) {\nreturn null;";
+
+/// Põe no arquivo a tabela `t$N` (id curto → nome da classe) com os ids que
+/// o texto cita e liga o `unmangleGlobalNameIfPreservedAnyways` a ela.
+/// Sem a função no texto (ninguém mostra tipos), nada muda.
+fn tabela_de_nomes(js: &str, rti: &HashMap<String, String>) -> String {
+    let Some(p) = js.find(DESMANGLE) else { return js.to_string() };
+    let mostraveis = crate::regras::mostraveis(js);
+    let citados: std::collections::BTreeMap<&str, &str> =
+        mostraveis.iter().filter_map(|k| Some((k.as_str(), rti.get(k.strip_prefix('|')?)?.as_str()))).collect();
+    let json = serde_json::to_string(&citados).unwrap_or_default();
+    let mut out = String::with_capacity(js.len() + json.len() + 64);
+    out.push_str(&format!("var t$N = JSON.parse({});\n", dartforge_emit_js::js::string_literal(&json)));
+    out.push_str(&js[..p]);
+    out.push_str(&DESMANGLE.replace("return null;", "return t$N[name] ?? null;"));
+    out.push_str(&js[p + DESMANGLE.len()..]);
+    out
+}
+
+pub fn montar(e: &EmitidoComSdk, op: Opcoes, nomes: Option<&crate::propriedades::Nomes>, rti: Option<&HashMap<String, String>>) -> Producao {
     let modulos: Vec<bundle::Modulo> = e
         .emitido
         .modulos
@@ -352,6 +384,11 @@ pub fn montar(e: &EmitidoComSdk, op: Opcoes, nomes: Option<&crate::propriedades:
     // Regras rti só para os supertipos que alguma receita cita
     // (`regras.rs`); `DARTFORGE_JSPROD_REGRAS=0` desliga.
     let js = if std::env::var("DARTFORGE_JSPROD_REGRAS").map_or(true, |v| v != "0") { crate::regras::podar(&js) } else { js };
+    // Depois da poda das regras: a tabela não é citação.
+    let js = match rti {
+        Some(r) if std::env::var("DARTFORGE_JSPROD_RECEITA_CURTA").map_or(true, |v| v != "0") => tabela_de_nomes(&js, r),
+        _ => js,
+    };
     let js = apelidar_receitas(&js);
     let antes_de_compactar = js.len();
     // Identificadores por escopo e espaço (oxc); `DARTFORGE_JSPROD_NOMES=0`

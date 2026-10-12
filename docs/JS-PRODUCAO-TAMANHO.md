@@ -646,3 +646,24 @@ posição de nome são dados, e entram na deduplicação da §3.4 (`"button"`,
 `"label"`, `"NgValueAccessor"`…). Ficam literais as do runtime, as de
 posição de nome, as chaves de `x["…"]` e de `in`. A reserva ignora as
 declarações `t$S…` da deduplicação.
+
+### 9.5 Id curto por classe nas receitas, e a tabela de nomes
+
+A §9.3 virou um passo intermediário: no modo SDK toda classe é `|id`
+(`dartforge_emit_js::ids_de_receita`: as classes mais comuns do SDK primeiro,
+com uma letra, depois as outras na ordem do programa, `a`…`$`, `aa`…). É função
+só do programa, então o emissor, o verificador (que acha a classe pelo id) e a
+montagem chegam ao mesmo id.
+
+O nome que o `_rtiToString` mostra sai de uma tabela `t$N` (`"|id": "Nome"`)
+que `proprio::montar` põe no arquivo, ligada ao
+`unmangleGlobalNameIfPreservedAnyways` do `dart:_js_names` do DDC (que
+devolvia `null`): o `_unminifyOrTag` já consulta essa função antes de tudo.
+Entram na tabela só as classes que uma mensagem pode mostrar
+(`regras::mostraveis`): as citadas fora das chaves das regras e fora das
+listas do `addRtiResources`, mais a primeira de cada lista. Uma classe que só
+aparece como supertipo nas regras nunca vira objeto rti.
+`DARTFORGE_JSPROD_RECEITA_CURTA=0` volta à receita `rótulo|Nome`.
+
+A tabela custa 130 KB no `new_sali` (os nomes das ~6 mil classes
+mostráveis); ainda assim o arquivo caiu 146 KB.
