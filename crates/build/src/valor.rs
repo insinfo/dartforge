@@ -1,8 +1,8 @@
-//! Valores de configuração (`options:` do `build.yaml`) na forma que o Dart
-//! vê: `Map<String, dynamic>` com `String`, `int`, `double`, `bool`, `null`,
-//! listas e mapas, **na ordem de inserção** — é a ordem que o
-//! `build_script_generate.dart` escreve no `build.dart` e a que o
-//! `BuilderOptions.overrideWith` preserva (`{}..addAll(a)..addAll(b)`).
+//! Configuration values (`options:` of `build.yaml`) in the shape Dart sees
+//! them: `Map<String, dynamic>` with `String`, `int`, `double`, `bool`,
+//! `null`, lists and maps, **in insertion order** — the order that
+//! `build_script_generate.dart` writes into `build.dart` and that
+//! `BuilderOptions.overrideWith` preserves (`{}..addAll(a)..addAll(b)`).
 use yaml_rust2::Yaml;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -10,15 +10,15 @@ pub enum Valor {
     Nulo,
     Bool(bool),
     Int(i64),
-    /// Texto do `double.toString()` do Dart (`1.0`, `0.5`, `1e+21`).
+    /// Text of Dart's `double.toString()` (`1.0`, `0.5`, `1e+21`).
     Real(String),
     Texto(String),
     Lista(Vec<Valor>),
     Mapa(Mapa),
 }
 
-/// Mapa com ordem de inserção. Chaves repetidas não existem: `inserir`
-/// substitui no lugar, como `Map.operator[]=` do Dart.
+/// Map with insertion order. Duplicate keys do not exist: `inserir` replaces
+/// in place, like Dart's `Map.operator[]=`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Mapa(pub Vec<(Valor, Valor)>);
 
@@ -27,26 +27,27 @@ impl Mapa {
         self.0.is_empty()
     }
 
-    pub fn obter(&self, chave: &str) -> Option<&Valor> {
+    pub fn obter(&self, key: &str) -> Option<&Valor> {
         self.0
             .iter()
-            .find(|(k, _)| matches!(k, Valor::Texto(t) if t == chave))
+            .find(|(k, _)| matches!(k, Valor::Texto(t) if t == key))
             .map(|(_, v)| v)
     }
 
-    pub fn inserir(&mut self, chave: Valor, valor: Valor) {
-        if let Some(par) = self.0.iter_mut().find(|(k, _)| *k == chave) {
-            par.1 = valor;
+    pub fn inserir(&mut self, key: Valor, value: Valor) {
+        if let Some(pair) = self.0.iter_mut().find(|(k, _)| *k == key) {
+            pair.1 = value;
         } else {
-            self.0.push((chave, valor));
+            self.0.push((key, value));
         }
     }
 
-    /// `BuilderOptions.overrideWith`: as chaves de `outro` vencem, por chave,
-    /// sem fusão de valores; a ordem é a de `self` seguida das novas.
-    pub fn sobrepor(&self, outro: &Mapa) -> Mapa {
+    /// `BuilderOptions.overrideWith`: the keys of `other` win, key by key,
+    /// without merging values; the order is that of `self` followed by the
+    /// new keys.
+    pub fn sobrepor(&self, other: &Mapa) -> Mapa {
         let mut m = self.clone();
-        for (k, v) in &outro.0 {
+        for (k, v) in &other.0 {
             m.inserir(k.clone(), v.clone());
         }
         m
@@ -57,7 +58,7 @@ impl Mapa {
     }
 }
 
-/// `double.toString()` do Dart para os valores que um YAML produz.
+/// Dart's `double.toString()` for the values a YAML document produces.
 pub fn real_dart(v: f64) -> String {
     if v.is_nan() {
         return "NaN".into();
@@ -76,7 +77,7 @@ pub fn real_dart(v: f64) -> String {
     if (1e-6..1e21).contains(&a) {
         return format!("{v}");
     }
-    // Notação exponencial: Dart escreve `1e+21`, `1.5e-7`.
+    // Exponential notation: Dart writes `1e+21`, `1.5e-7`.
     let s = format!("{v:e}");
     match s.split_once('e') {
         Some((m, e)) if !e.starts_with('-') => format!("{m}e+{e}"),
@@ -85,8 +86,8 @@ pub fn real_dart(v: f64) -> String {
 }
 
 impl Valor {
-    /// Converte o que o `yaml-rust2` leu. `Alias`/valor inválido é erro: o
-    /// `package:yaml` do Dart também não os entrega como valor.
+    /// Converts what `yaml-rust2` read. An `Alias`/invalid value is an error:
+    /// Dart's `package:yaml` does not deliver them as values either.
     pub fn de_yaml(y: &Yaml) -> Result<Valor, String> {
         Ok(match y {
             Yaml::Null => Valor::Nulo,
@@ -105,8 +106,8 @@ impl Valor {
                 }
                 Valor::Mapa(m)
             }
-            Yaml::Alias(_) => return Err("alias YAML não suportado".into()),
-            Yaml::BadValue => return Err("valor YAML inválido".into()),
+            Yaml::Alias(_) => return Err("YAML alias not supported".into()),
+            Yaml::BadValue => return Err("invalid YAML value".into()),
         })
     }
 
@@ -117,16 +118,16 @@ impl Valor {
         }
     }
 
-    /// Forma canônica, estável e sem ambiguidade (textos em JSON). É a forma
-    /// comparada com o `build.dart` do oráculo e a que entra no digest das
-    /// opções.
+    /// Canonical form, stable and unambiguous (strings as JSON). It is the
+    /// form compared with the oracle's `build.dart` and the one that goes into
+    /// the digest of the options.
     pub fn texto_canonico(&self) -> String {
         let mut s = String::new();
-        self.escrever(&mut s);
+        self.write_to(&mut s);
         s
     }
 
-    fn escrever(&self, s: &mut String) {
+    fn write_to(&self, s: &mut String) {
         match self {
             Valor::Nulo => s.push_str("null"),
             Valor::Bool(b) => s.push_str(if *b { "true" } else { "false" }),
@@ -139,7 +140,7 @@ impl Valor {
                     if i > 0 {
                         s.push_str(", ");
                     }
-                    v.escrever(s);
+                    v.write_to(s);
                 }
                 s.push(']');
             }
@@ -149,9 +150,9 @@ impl Valor {
                     if i > 0 {
                         s.push_str(", ");
                     }
-                    k.escrever(s);
+                    k.write_to(s);
                     s.push_str(": ");
-                    v.escrever(s);
+                    v.write_to(s);
                 }
                 s.push('}');
             }
@@ -160,11 +161,11 @@ impl Valor {
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     #[test]
-    fn real_como_o_dart() {
+    fn real_like_dart() {
         assert_eq!(real_dart(1.0), "1.0");
         assert_eq!(real_dart(0.5), "0.5");
         assert_eq!(real_dart(1000.0), "1000.0");
@@ -173,7 +174,7 @@ mod testes {
     }
 
     #[test]
-    fn sobrepor_por_chave_na_ordem() {
+    fn override_by_key_in_order() {
         let t = |s: &str| Valor::Texto(s.into());
         let a = Mapa(vec![(t("a"), Valor::Int(1)), (t("b"), Valor::Int(2))]);
         let b = Mapa(vec![(t("b"), Valor::Int(3)), (t("c"), Valor::Int(4))]);

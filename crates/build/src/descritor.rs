@@ -1,42 +1,44 @@
-//! Descritores: o que o motor sabe de cada builder conhecido **em tempo de
-//! execução**, que o `build.yaml` não diz.
+//! Descriptors: what the engine knows about each known builder **at run
+//! time**, which `build.yaml` does not say.
 //!
-//! As extensões que valem são as do objeto `Builder` (`buildExtensions`),
-//! não as do `build.yaml` (que só servem para ordenar builders): o
-//! `templatePlaceholder` do ngdart escreve `.ng_placeholder`, que o
-//! `build.yaml` não declara; o `combining_builder` e o `mockBuilder` aceitam
-//! `build_extensions` nas opções. Sem descritor, valem as do `build.yaml` —
-//! certo por convenção no `source_gen`, e divergência aparece no corpus.
+//! The extensions that count are those of the `Builder` object
+//! (`buildExtensions`), not those of `build.yaml` (which only serve to order
+//! builders): ngdart's `templatePlaceholder` writes `.ng_placeholder`, which
+//! `build.yaml` does not declare; `combining_builder` and `mockBuilder` accept
+//! `build_extensions` in the options. Without a descriptor, the `build.yaml`
+//! ones apply — correct by convention in `source_gen`, and any divergence
+//! shows up in the corpus.
 use crate::valor::{Mapa, Valor};
 
-/// Builders que o DartForge substitui em vez de executar
-/// (`docs/BUILD-MOTOR.md` §6): ficam no plano, não geram ação.
-pub fn substituido(chave: &str) -> Option<&'static str> {
-    let pacote = chave.split(':').next().unwrap_or_default();
-    match pacote {
+/// Builders that DartForge replaces instead of running
+/// (`docs/BUILD-MOTOR.md` §6): they stay in the plan but produce no action.
+pub fn substituido(key: &str) -> Option<&'static str> {
+    let package = key.split(':').next().unwrap_or_default();
+    match package {
         "build_web_compilers" | "build_modules" => Some(
-            "compilação para JavaScript: é o compilador que o DartForge substitui (BUILD-RUST.md §4)",
+            "compilation to JavaScript: this is the compiler DartForge replaces (BUILD-RUST.md §4)",
         ),
-        "build_resolvers" => Some("cache do analyzer: substituído pelo banco semântico"),
-        "build_test" => Some("bootstrap de teste: só em `dartforge test`"),
+        "build_resolvers" => Some("analyzer cache: replaced by the semantic database"),
+        "build_test" => Some("test bootstrap: only in `dartforge test`"),
         _ => None,
     }
 }
 
-/// Versões do pacote oficial que um gerador nativo imita (conferidas contra
-/// o `pubspec.lock`): para cada pacote, as versões aceitas — o gerador só
-/// cobre a fase quando o lock traz uma delas, e escolhe o modo pela que
-/// veio ([`crate::executor::PedidoNativo::versoes`]).
-pub fn imita(chave: &str) -> &'static [(&'static str, &'static [&'static str])] {
-    match chave {
+/// Versions of the official package that a native generator imitates
+/// (checked against `pubspec.lock`): for each package, the accepted versions
+/// — the generator only covers the phase when the lock brings one of them,
+/// and it picks its mode by the one that came
+/// ([`crate::executor::PedidoNativo::versoes`]).
+pub fn imita(key: &str) -> &'static [(&'static str, &'static [&'static str])] {
+    match key {
         "ngdart:ngdart" => &[("ngdart", &["8.0.0-dev.4"])],
-        // O fork com `package:web` (`ngx_compiler` 9.0.0-dev.2): o mesmo
-        // gerador, no dialeto 9 (`docs/NGDART-COMPILADOR-DE-VISOES.md`).
+        // The fork with `package:web` (`ngx_compiler` 9.0.0-dev.2): the same
+        // generator, in dialect 9 (`docs/NGDART-COMPILADOR-DE-VISOES.md`).
         "ngx_dart:ngx_dart" => &[("ngx_dart", &["9.0.0-dev.2"])],
-        // O Sass é o do `dartforge-sass`: o port do dart-sass 1.102.0 e os
-        // modos de compatibilidade com o 1.101.0–1.101.3 (new_sali e
-        // limitless_ui) e com o 1.66.0 (o do ngcomponents 3.0.0-dev.1).
-        // Outra versão do `sass` no lock muda a saída.
+        // Sass is the one from `dartforge-sass`: the port of dart-sass 1.102.0
+        // and the compatibility modes for 1.101.0–1.101.3 (new_sali and
+        // limitless_ui) and for 1.66.0 (the one of ngcomponents 3.0.0-dev.1).
+        // Another `sass` version in the lock changes the output.
         "sass_builder:sass_builder" => &[
             ("sass_builder", &["2.2.1"]),
             ("sass", &["1.102.0", "1.101.0", "1.101.1", "1.101.2", "1.101.3", "1.66.0"]),
@@ -46,28 +48,25 @@ pub fn imita(chave: &str) -> &'static [(&'static str, &'static [&'static str])] 
     }
 }
 
-fn mapa_de_extensoes(
-    v: &Valor,
-    lista_ou_texto: bool,
-) -> Result<Vec<(String, Vec<String>)>, String> {
+fn extensions_map(v: &Valor, list_or_string: bool) -> Result<Vec<(String, Vec<String>)>, String> {
     let Valor::Mapa(m) = v else {
         return Err("build_extensions should be a map from inputs to outputs".into());
     };
     let mut r = Vec::new();
     for (k, s) in &m.0 {
         let Some(k) = k.como_texto() else {
-            return Err("chave de build_extensions não é texto".into());
+            return Err("build_extensions key is not a string".into());
         };
-        let saidas: Vec<String> = match s {
+        let outputs: Vec<String> = match s {
             Valor::Texto(t) => vec![t.clone()],
-            Valor::Lista(l) if lista_ou_texto => l
+            Valor::Lista(l) if list_or_string => l
                 .iter()
                 .map(|x| x.como_texto().map(str::to_string))
                 .collect::<Option<_>>()
-                .ok_or("saída não é texto")?,
-            _ => return Err(format!("valor inválido em build_extensions para `{k}`")),
+                .ok_or("output is not a string")?,
+            _ => return Err(format!("invalid value in build_extensions for `{k}`")),
         };
-        r.push((k.to_string(), saidas));
+        r.push((k.to_string(), outputs));
     }
     if r.is_empty() {
         return Err("Configured build_extensions must not be empty.".into());
@@ -75,28 +74,28 @@ fn mapa_de_extensoes(
     Ok(r)
 }
 
-/// Extensões de execução da fábrica `fabrica` do builder `chave` com as
-/// opções efetivas.
+/// Run-time extensions of the factory `factory` of the builder `key` with the
+/// effective options.
 pub fn extensoes_de_execucao(
-    chave: &str,
-    fabrica: &str,
-    fabricas: &[String],
-    opcoes: &Mapa,
-    declaradas: &[(String, Vec<String>)],
+    key: &str,
+    factory: &str,
+    factories: &[String],
+    options: &Mapa,
+    declared: &[(String, Vec<String>)],
 ) -> Result<Vec<(String, Vec<String>)>, String> {
-    let e = |pares: &[(&str, &[&str])]| -> Vec<(String, Vec<String>)> {
-        pares
+    let e = |pairs: &[(&str, &[&str])]| -> Vec<(String, Vec<String>)> {
+        pairs
             .iter()
             .map(|(a, b)| (a.to_string(), b.iter().map(|s| s.to_string()).collect()))
             .collect()
     };
-    Ok(match (chave, fabrica) {
+    Ok(match (key, factory) {
         // `ngdart-8.0.0-dev.4/lib/src/build.dart:33-76`,
         // `ngcompiler-3.0.0-dev.3` (Placeholder, Compiler.asBuilder,
         // StylesheetCompiler).
         ("ngdart:ngdart" | "ngx_dart:ngx_dart", "templatePlaceholder") => e(&[(".dart", &[".ng_placeholder"])]),
         ("ngdart:ngdart" | "ngx_dart:ngx_dart", "templateCompiler") => {
-            if opcoes.obter("outline-only").is_some() {
+            if options.obter("outline-only").is_some() {
                 e(&[(".dart", &[".outline.template.dart"])])
             } else {
                 e(&[(".dart", &[".template.dart"])])
@@ -109,17 +108,18 @@ pub fn extensoes_de_execucao(
             (".sass", &[".css", ".css.map"]),
         ]),
         // `source_gen-2.0.0/lib/builder.dart` (`validatedBuildExtensionsFrom`).
-        ("source_gen:combining_builder", _) => match opcoes.obter("build_extensions") {
-            Some(v) => mapa_de_extensoes(v, true)?,
+        ("source_gen:combining_builder", _) => match options.obter("build_extensions") {
+            Some(v) => extensions_map(v, true)?,
             None => e(&[(".dart", &[".g.dart"])]),
         },
         // `mockito-5.4.4/lib/src/builder.dart:2281-2303`.
-        ("mockito:mockBuilder", _) => match opcoes.obter("build_extensions") {
-            Some(v) => mapa_de_extensoes(v, false)?,
+        ("mockito:mockBuilder", _) => match options.obter("build_extensions") {
+            Some(v) => extensions_map(v, false)?,
             None => e(&[(".dart", &[".mocks.dart"])]),
         },
-        // `SharedPartBuilder(…, 'json_serializable')` escreve
-        // `.json_serializable.g.part`; o `build.yaml` 6.9.5 declara sem o ponto.
+        // `SharedPartBuilder(…, 'json_serializable')` writes
+        // `.json_serializable.g.part`; the 6.9.5 `build.yaml` declares it
+        // without the dot.
         ("json_serializable:json_serializable", _) => {
             e(&[(".dart", &[".json_serializable.g.part"])])
         }
@@ -145,12 +145,12 @@ pub fn extensoes_de_execucao(
         ("drift_dev:drift_dev", "driftBuilder") => e(&[(".dart", &[".drift.g.part"])]),
         ("drift_dev:not_shared", _) => e(&[(".dart", &[".drift.dart"])]),
         ("drift_dev:modular", _) => e(&[(".dart", &[".drift.dart"]), (".drift", &[".drift.dart"])]),
-        // Sem descritor e com várias fábricas: cada fábrica é um `Builder`
-        // com extensões próprias, que só o executor Dart revela. As saídas
-        // declaradas ficam com a primeira fábrica (limitação declarada).
-        _ if fabricas.len() > 1 && fabricas.first().map(String::as_str) != Some(fabrica) => {
+        // No descriptor and several factories: each factory is a `Builder`
+        // with its own extensions, which only the Dart executor reveals. The
+        // declared outputs go to the first factory (declared limitation).
+        _ if factories.len() > 1 && factories.first().map(String::as_str) != Some(factory) => {
             Vec::new()
         }
-        _ => declaradas.to_vec(),
+        _ => declared.to_vec(),
     })
 }

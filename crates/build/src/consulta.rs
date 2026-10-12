@@ -1,40 +1,41 @@
-//! Consultas: o que uma ação de fato leu. A impressão digital de uma ação é
-//! a lista `(consulta, digest da resposta)`; revalidar é recalcular só esses
-//! digests (`docs/BUILD-MOTOR.md` §4). É a disciplina do `InputTracker`
-//! oficial com dependência **semântica** no lugar do fecho de imports.
+//! Queries: what an action actually read. An action's fingerprint is the
+//! list `(query, digest of the answer)`; revalidating means recomputing only
+//! those digests (`docs/BUILD-MOTOR.md` §4). It is the discipline of the
+//! official `InputTracker`, with a **semantic** dependency in place of the
+//! import closure.
 use std::path::{Path, PathBuf};
 
 pub type Digest = [u8; 32];
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Consulta {
-    /// Bytes de um arquivo (caminho natural; se for saída de outra ação,
-    /// o conteúdo em memória).
+    /// Bytes of a file (natural path; if it is the output of another action,
+    /// the in-memory content).
     Arquivo(PathBuf),
-    /// Existência (`canRead`), também a negativa.
+    /// Existence (`canRead`), including the negative answer.
     Existe(PathBuf),
-    /// Lista ordenada do que casa `padrao` sob `dir`.
+    /// Sorted list of what matches `padrao` under `dir`.
     Glob { dir: PathBuf, padrao: String },
-    /// `BuildStep.findAssets`: candidatos do grafo no pacote da entrada.
-    /// `bool` indica saída gerada, cuja presença vem da memória, não de um
-    /// arquivo de apoio antigo no disco.
+    /// `BuildStep.findAssets`: graph candidates in the input's package.
+    /// The `bool` marks a generated output, whose presence comes from memory,
+    /// not from an old support file on disk.
     GlobAtivos {
         dir: PathBuf,
         padrao: String,
         candidatos: Vec<(String, bool)>,
     },
-    /// API pública de uma biblioteca (mais as anotações).
+    /// Public API of a library (plus the annotations).
     ApiBiblioteca(String),
-    /// Superfície de uma declaração: assinatura, anotações, membros públicos.
+    /// Surface of a declaration: signature, annotations, public members.
     Declaracao { biblioteca: String, nome: String },
-    /// Termo de um índice do motor (ex.: `("ng.seletor", "x-y")`).
+    /// Term of an engine index (e.g. `("ng.seletor", "x-y")`).
     Indice { espaco: &'static str, termo: String },
-    /// Conservador: o texto de todas as unidades da biblioteca.
+    /// Conservative: the text of all the library's units.
     FonteBiblioteca(String),
 }
 
 impl Consulta {
-    /// Caminho de arquivo que, ao mudar, pode mudar a resposta.
+    /// File path that, when it changes, may change the answer.
     pub fn caminho(&self) -> Option<&Path> {
         match self {
             Consulta::Arquivo(p) | Consulta::Existe(p) => Some(p),
@@ -43,7 +44,7 @@ impl Consulta {
         }
     }
 
-    /// Responde ao banco semântico (e não ao disco).
+    /// Answered by the semantic database (not by the disk).
     pub fn semantica(&self) -> bool {
         matches!(
             self,
@@ -55,15 +56,15 @@ impl Consulta {
     }
 }
 
-/// Quem responde às consultas semânticas: a sessão do `dev` (sobre o
-/// `Program` já carregado — o `BuildStep.resolver` sem carga extra) ou,
-/// numa passada única, [`SemBanco`].
+/// Who answers the semantic queries: the `dev` session (over the already
+/// loaded `Program` — `BuildStep.resolver` without extra loading) or, in a
+/// single pass, [`SemBanco`].
 pub trait BancoSemantico: Sync {
     fn digest(&self, c: &Consulta) -> Option<Digest>;
 }
 
-/// Passada única (`compile-js`, `build`): não há revalidação, então as
-/// consultas semânticas não precisam de resposta.
+/// Single pass (`compile-js`, `build`): there is no revalidation, so the
+/// semantic queries need no answer.
 pub struct SemBanco;
 
 impl BancoSemantico for SemBanco {
@@ -72,7 +73,7 @@ impl BancoSemantico for SemBanco {
     }
 }
 
-/// Digest de um arquivo no disco; ausente = `None`.
+/// Digest of a file on disk; missing = `None`.
 pub fn digest_arquivo(p: &Path) -> Option<Digest> {
     std::fs::read(p).ok().map(|b| *blake3::hash(&b).as_bytes())
 }
