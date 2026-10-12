@@ -813,6 +813,8 @@ pub fn minificar_com_propriedades(js: &str, nomes: &crate::propriedades::Nomes) 
     let fonte = if std::env::var("DARTFORGE_JSPROD_DEDUP").map_or(true, |v| v != "0") { deduplicar_strings(&fonte)? } else { fonte };
     // Membros de biblioteca como variáveis (`achatar.rs`); `DARTFORGE_JSPROD_ACHATAR=0` desliga.
     let fonte = if std::env::var("DARTFORGE_JSPROD_ACHATAR").map_or(true, |v| v != "0") { crate::achatar::aplicar(&fonte)?.0 } else { fonte };
+    // Formas compactas (`formas.rs`); `DARTFORGE_JSPROD_FORMAS=0` desliga.
+    let fonte = if std::env::var("DARTFORGE_JSPROD_FORMAS").map_or(true, |v| v != "0") { crate::formas::aplicar(&fonte)? } else { fonte };
     let alocador = Allocator::default();
     let lido = Parser::new(&alocador, &fonte, SourceType::cjs()).parse();
     if let Some(e) = lido.diagnostics.first() {

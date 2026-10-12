@@ -20,6 +20,7 @@ pub mod aliasthis;
 pub mod bundle;
 pub mod cache;
 pub mod filtro;
+pub mod formas;
 pub mod minificar;
 pub mod nomeados;
 pub mod propriedades;

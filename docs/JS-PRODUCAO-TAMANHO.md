@@ -695,3 +695,11 @@ O *tearoff* `dart.bind(o, "m")` lê o método (`o[m]`) e a assinatura
 renomeio, `minificar::reescrever_ligacoes` troca o valor dela pelo nome novo.
 No `new_sali` isso solta os `_handleEvent_N` dos *templates* do ngdart, que
 ficavam por extenso. A deduplicação continua sem tocar nessas *strings*.
+
+### 9.8 Formas compactas: o protótipo do construtor
+
+`(C.nome = function(…) {…}).prototype = C.prototype;`, uma instrução por
+construtor Dart, vira `t$P(C.nome = function(…) {…}, C);`, com
+`t$P = function(f, c) { f.prototype = c.prototype; }` declarada uma vez
+(`formas.rs`, depois do achatamento). A atribuição acontece antes da chamada,
+como antes. `DARTFORGE_JSPROD_FORMAS=0` desliga.
