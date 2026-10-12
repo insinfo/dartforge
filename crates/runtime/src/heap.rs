@@ -1994,6 +1994,13 @@ impl Heap {
         u8::from(vivo) | (u8::from(self.owners_codigo.contains_key(&endereco)) << 1)
     }
 
+    /// `endereco` tem token do código? O bit 1 de [`Self::observar_owner_codigo`],
+    /// sem procurar o bloco nas listas de livres (a conferência de cada
+    /// retorno Owned das portas).
+    pub(crate) fn tem_owner_codigo(&self, endereco: i64) -> bool {
+        self.owners_codigo.contains_key(&endereco)
+    }
+
     /// Cria uma ocorrência do código gerado, sem coleta ou execução Dart.
     /// A localização observacional publicada não cria outro owner.
     pub(crate) fn reter_owner_codigo(&mut self, valor: Ref) {

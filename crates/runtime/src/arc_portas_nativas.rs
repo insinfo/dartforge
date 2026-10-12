@@ -654,9 +654,8 @@ fn arc_validar_retorno_owned(resultado: i64) -> bool {
         return false;
     }
     if smi::e_handle(resultado) {
-        assert_ne!(
-            HEAP.with(|h| h.borrow().observar_owner_codigo(resultado)) & 2,
-            0,
+        assert!(
+            HEAP.with(|h| h.borrow().tem_owner_codigo(resultado)),
             "callback Owned devolveu referência sem token"
         );
     }

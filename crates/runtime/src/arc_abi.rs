@@ -1119,11 +1119,28 @@ fn conferir_layout_fisico(heap: &Heap, objeto: i64, indice: i64, layouts: &[i64]
     let vista = heap.objeto(objeto).ok_or("receiver não é objeto vivo")?;
     let i = usize::try_from(indice).map_err(|_| "índice negativo")?;
     if i >= vista.len() { return Err("índice fora do objeto"); }
-    if layouts.len() % 2 != 0 || !layouts.chunks_exact(2).any(|p|
-        p[0] == vista.class_id && usize::try_from(p[1]).ok() == Some(vista.len())) {
+    let cabe = |campos: i64| usize::try_from(campos).ok() == Some(vista.len());
+    if layouts.len() % 2 != 0 || !(campos_do_layout(layouts, vista.class_id).is_some_and(cabe)
+        || layouts.chunks_exact(2).any(|p| p[0] == vista.class_id && cabe(p[1]))) {
         return Err("classe/tamanho fora dos layouts Ref");
     }
     Ok(())
+}
+
+/// Os campos declarados de `cid` nos pares `(cid, campos)` em ordem de `cid`
+/// (a do produtor, `layouts_do_campo`), por busca binária. Um vetor fora de
+/// ordem só perde o atalho: quem chama confere de novo em sequência.
+fn campos_do_layout(layouts: &[i64], cid: i64) -> Option<i64> {
+    let (mut baixo, mut alto) = (0, layouts.len() / 2);
+    while baixo < alto {
+        let meio = (baixo + alto) / 2;
+        match layouts[2 * meio].cmp(&cid) {
+            std::cmp::Ordering::Less => baixo = meio + 1,
+            std::cmp::Ordering::Greater => alto = meio,
+            std::cmp::Ordering::Equal => return Some(layouts[2 * meio + 1]),
+        }
+    }
+    None
 }
 
 /// Grava bits escalares após conferir classe e tamanho contra layouts declarados.
@@ -2130,6 +2147,18 @@ mod testes_caixa_double_owned {
 #[cfg(test)]
 mod testes_campo_ref {
     use super::*;
+
+    #[test]
+    fn layouts_em_ordem_por_busca_binaria() {
+        let layouts = [3, 2, 7, 4, 40, 1, 900, 6];
+        for (cid, campos) in [(3, 2), (7, 4), (40, 1), (900, 6)] {
+            assert_eq!(campos_do_layout(&layouts, cid), Some(campos));
+        }
+        assert_eq!(campos_do_layout(&layouts, 8), None);
+        assert_eq!(campos_do_layout(&[], 8), None);
+        // Fora de ordem pode não achar; a conferência refaz em sequência.
+        assert_eq!(campos_do_layout(&[900, 6, 3, 2], 900), None);
+    }
 
     #[test]
     fn record_posicional_le_contagem_escalar_e_campos_ref() {

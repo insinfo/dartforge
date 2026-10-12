@@ -303,7 +303,43 @@ preparado, normal/GC stress. Os dois perdem os quadros de quem espera
 (`meio`, `topo`) que a VM mostra: a cadeia async do §13.14 ainda não
 casa no macOS, independente do ARC.
 
-**Próximo passo:** §§27–34 e o gate ARC >= A0.
+### Desempenho no macOS arm64 (`aot --optimize`, 3 repetições alternadas)
+
+`scripts/medir-modos-desempenho.py` ganhou o modo `ARCP` (a preparação
+publicada) e roda fora do Windows. Primeira medida neste Mac
+(`target/bench-arcp/`): ARC/A0 15,5 e ARCP/A0 18,2 na média geométrica,
+contra 2,0 da última medida no Windows (55beeb34). A causa principal era
+483bfe01, que tirou do lowering ARC os endereços derivados das listas:
+`produto_f64` levava 2201 ms no ARCP contra 3 ms no A0, `lista_leitura` 224
+contra 1,3.
+
+Os caminhos rápidos voltaram (62eda051). A preparação
+(`otimizar/arc/derivados.rs`) põe `@df.manter_vivo(lista)` depois de cada
+acesso pelo endereço derivado (dados de tipadas, armazenamento do núcleo):
+a lista fica emprestada e viva até ali. O verificador recusa endereço que
+escapa (para chamada, terminador ou outro uso) e acesso ao armazenamento do
+núcleo com barreira em algum caminho desde a leitura (o crescimento troca o
+armazenamento). As voltas N13 continuam desligadas sob ARC: o ponto seguro
+pode rodar Dart. Com isso (`target/bench-arcp2/`): ARC/A0 8,7, ARCP/A0 9,6;
+tipados, crivo, numérico e `fib` ficam iguais ao A0.
+
+No runtime, a conferência do retorno Owned das portas uniformes procurava o
+bloco nas listas de livres a cada retorno (`observar_owner_codigo`); agora
+só consulta o token. A conferência física de layout busca o par `(cid,
+campos)` por busca binária (o produtor já ordena; fora de ordem cai na
+sequencial). No `json` ARCP: `encode_grande` 9060 → 600 ms, `reviver` 7452
+→ 310, `utf8_bytes` 3607 → 370 (ainda 8–10× o A0).
+
+O que domina agora (perfil do `json` ARCP): os tokens do código num
+`HashMap<Ref, usize>` (`owners_codigo`, inserção e remoção a cada
+retain/release), a tabela ARC, a drenagem dos zeros e a conferência física
+das leituras e gravações de campo. O ARC legado aborta no `json` (saída 255,
+a investigar). `lista_leitura` (15×) espera N13 sob ARC; `chamadas/closures`
+(17×) e `formas` (23×) passam pela invocação uniforme.
+
+**Próximo passo:** tokens do código fora do hash (contador na tabela ARC),
+leituras de campo `final` emprestadas sem retain, o aborto do `json` no ARC
+legado; depois §§27–34 e o gate ARC >= A0.
 
 ### Evidências (macOS arm64, logs em `target/`)
 
