@@ -1,7 +1,7 @@
 //! Confere o compilador contra saídas do dart-sass 1.102.0 gravadas por um
 //! oráculo (o `SassBuilder` reproduzido num programa Dart).
 //!
-//! Uso: `cargo run --release -p dartforge-sass --example conferir --
+//! Uso: `cargo run --release -p dartforge-sass --example check --
 //! <manifesto> <dir do oráculo> [dir de diferenças]` (com `SASS_VERSAO=1.66.0`,
 //! o modo de compatibilidade com o dart-sass 1.66.0).
 //!

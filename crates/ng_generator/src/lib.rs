@@ -16,24 +16,24 @@
 //! O avanço é gradual e medido: o que ainda não sabemos gerar fica de fora e
 //! continua vindo do `build_runner`. A aplicação funciona em todos os passos e
 //! o placar diz exatamente onde estamos.
-pub mod componente;
+pub mod component;
 pub mod css;
 pub mod csslib;
-pub mod dialeto;
-pub mod diretivas;
+pub mod dialect;
+pub mod directives;
 pub mod dom;
-mod entidades;
+mod entities;
 pub mod expr;
 pub mod html;
 pub mod incremental;
-mod injetor;
-pub mod metadados;
+mod injector;
+pub mod metadata;
 pub mod micro;
 pub mod resolucao;
 pub mod sass;
-pub mod seletor;
+pub mod selector;
 pub mod shadow_css;
-pub mod visao;
+pub mod view;
 
 use dartforge_elements::gerado::{Construtor, Geracao};
 use dartforge_frontend::ast;
@@ -41,7 +41,7 @@ use dartforge_intern::Interner;
 pub use incremental::{ConsultaNg, SaidaArquivo, analisar_arquivo, gerar_arquivo};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use visao::{Motivo, Recusa, recusa};
+use view::{Motivo, Recusa, recusa};
 
 /// Cabeçalho que o compilador oficial escreve em todo arquivo gerado.
 pub const CABECALHO: &str = "// **************************************************************************\n// Generator: AngularDart Compiler\n// **************************************************************************\n\n";
@@ -50,12 +50,12 @@ pub const CABECALHO: &str = "// ************************************************
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Achados {
     /// `@Component` lidos por inteiro — é deles que sai a visão.
-    pub componentes: Vec<componente::Componente>,
+    pub componentes: Vec<component::Componente>,
     /// `@Directive`, lidas como o oficial as vê de quem as usa (seletor,
     /// entradas, saídas, construtor).
-    pub diretivas: Vec<componente::Componente>,
+    pub diretivas: Vec<component::Componente>,
     /// `@Pipe`, com o que quem o usa precisa saber dele.
-    pub pipes: Vec<componente::Pipe>,
+    pub pipes: Vec<component::Pipe>,
     /// As variáveis de topo com `@GenerateInjector`, na ordem do fonte.
     pub injetores: Vec<String>,
     /// `@Directive` com `@HostBinding`: cada uma ganha um
@@ -99,7 +99,7 @@ fn hospedeira(
     interner: &Interner,
     classe: &ast::ClassDecl,
 ) -> Option<Hospedeira> {
-    let membros = componente::tipos_dos_membros(arvore, fonte, interner, classe);
+    let membros = component::tipos_dos_membros(arvore, fonte, interner, classe);
     let mut tipos_de_estilo = std::collections::HashMap::new();
     let mut acessores = Vec::new();
     let mut campos = Vec::new();
@@ -136,11 +136,11 @@ fn hospedeira(
                 continue;
             };
             // `class.x`, `attr.x`, propriedade e `style.x`
-            // ([`visao::forma_do_hospedeiro`]); o `style.x` pelo tipo escrito
+            // ([`view::forma_do_hospedeiro`]); o `style.x` pelo tipo escrito
             // do campo (não `final`: o imutável seria escrito uma vez), como
             // no componente.
-            let aceita = |n: &str, membro: &str, campo: bool| match visao::forma_do_hospedeiro(n) {
-                Ok(visao::FormaDoHospedeiro::Estilo { .. }) => {
+            let aceita = |n: &str, membro: &str, campo: bool| match view::forma_do_hospedeiro(n) {
+                Ok(view::FormaDoHospedeiro::Estilo { .. }) => {
                     let tipo = membros
                         .get(membro)
                         .map(|m| m.tipo.trim())
@@ -287,7 +287,7 @@ pub fn achar(
             match nome_da_anotacao(a, interner).as_str() {
                 "Component" => {
                     if let ast::DeclKind::Class(classe) = &decl.kind {
-                        let mut c = componente::ler_componente(arvore, fonte, interner, classe, a);
+                        let mut c = component::ler_componente(arvore, fonte, interner, classe, a);
                         c.link_de_deteccao = decl.metadata.iter().any(|m| {
                             m.name.last().map(|n| interner.resolve(n.sym))
                                 == Some("changeDetectionLink")
@@ -299,7 +299,7 @@ pub fn achar(
                     if let ast::DeclKind::Class(classe) = &decl.kind {
                         achados
                             .diretivas
-                            .push(componente::ler_diretiva(arvore, fonte, interner, classe, a));
+                            .push(component::ler_diretiva(arvore, fonte, interner, classe, a));
                     }
                     // Só `@HostBinding` muda o arquivo da diretiva; o
                     // `@HostListener` vai para quem a usa. Mas o oficial
@@ -324,7 +324,7 @@ pub fn achar(
                     if let ast::DeclKind::Class(classe) = &decl.kind {
                         achados
                             .pipes
-                            .push(componente::ler_pipe(arvore, fonte, interner, classe, a));
+                            .push(component::ler_pipe(arvore, fonte, interner, classe, a));
                     }
                 }
                 "GenerateInjector" => {
@@ -578,21 +578,21 @@ pub fn e_parte(unit: &dartforge_frontend::ast::CompilationUnit) -> bool {
 /// sessão.
 #[derive(Default)]
 pub struct Indice {
-    por_classe: std::collections::HashMap<(String, String), visao::Filho>,
+    por_classe: std::collections::HashMap<(String, String), view::Filho>,
     /// `@Directive` por (URI da biblioteca, classe): o seletor e o que o
     /// emissor precisa para instanciá-la.
-    diretivas: std::collections::HashMap<(String, String), componente::Componente>,
+    diretivas: std::collections::HashMap<(String, String), component::Componente>,
     /// `@Pipe` por (URI da biblioteca, classe).
-    pipes: std::collections::HashMap<(String, String), componente::Pipe>,
+    pipes: std::collections::HashMap<(String, String), component::Pipe>,
     /// Os metadados de cada `@Directive`, lidos do programa
-    /// (`metadados.rs`): é por eles que o emissor instancia a diretiva num
+    /// (`metadata.rs`): é por eles que o emissor instancia a diretiva num
     /// nó. Sem programa, vazio — e toda diretiva casada é recusada.
-    metadados: std::collections::HashMap<(String, String), std::sync::Arc<diretivas::Diretiva>>,
+    metadados: std::collections::HashMap<(String, String), std::sync::Arc<directives::Diretiva>>,
     /// Os `@GenerateInjector` por (URI da biblioteca, variável), lidos do
-    /// programa (`metadados::ler_injetores`), ou o motivo de não se lerem.
+    /// programa (`metadata::ler_injetores`), ou o motivo de não se lerem.
     injetores: std::collections::HashMap<
         (String, String),
-        Result<std::sync::Arc<metadados::Injetor>, String>,
+        Result<std::sync::Arc<metadata::Injetor>, String>,
     >,
     /// As chaves que cada arquivo pôs, para `remover`/`atualizar`.
     por_arquivo: std::collections::HashMap<PathBuf, Vec<(String, String)>>,
@@ -678,10 +678,10 @@ impl Indice {
     /// `directives:` expandida (as diretivas ficam de fora).
     pub fn filhos_de(
         &self,
-        comp: &componente::Componente,
+        comp: &component::Componente,
         fonte: &Path,
         resolvedor: Option<&dyn resolucao::Resolucao>,
-    ) -> Vec<visao::Filho> {
+    ) -> Vec<view::Filho> {
         self.diretivas_de(comp, fonte, resolvedor)
             .0
             .into_iter()
@@ -736,14 +736,14 @@ impl Indice {
             if let Some(r) = programa
                 && let Some(m) = r
                     .classe_por_uri(uri, &comp.classe)
-                    .and_then(|id| crate::metadados::ler(r, id))
+                    .and_then(|id| crate::metadata::ler(r, id))
                 && let Some(f) = self.por_classe.get_mut(&k)
             {
                 // O nó de template escreve os `providers:` do filho como a
                 // hospedeira; o que ainda não sai (dependência de fora do
                 // nó, provedor pedido no próprio nó) é recusado pela visão,
                 // com o motivo.
-                if crate::visao::provedores_escreviveis(&m).is_ok() {
+                if crate::view::provedores_escreviveis(&m).is_ok() {
                     f.pendencias.retain(|p| p.forma != "filho com providers");
                 }
                 // Os parâmetros do construtor pelos metadados (`@Inject`,
@@ -783,7 +783,7 @@ impl Indice {
                     f.entradas = m
                         .entradas
                         .iter()
-                        .map(|e| componente::Entrada {
+                        .map(|e| component::Entrada {
                             nome: e.nome.clone(),
                             campo: e.membro.clone(),
                         })
@@ -810,7 +810,7 @@ impl Indice {
             if let Some(r) = programa
                 && let Some(m) = r
                     .classe_por_uri(uri, &d.classe)
-                    .and_then(|id| crate::metadados::ler(r, id))
+                    .and_then(|id| crate::metadata::ler(r, id))
             {
                 self.metadados.insert(k.clone(), std::sync::Arc::new(m));
             }
@@ -824,7 +824,7 @@ impl Indice {
         if !achados.injetores.is_empty()
             && let Some(r) = programa
         {
-            for (nome, lido) in crate::metadados::ler_injetores(r, uri) {
+            for (nome, lido) in crate::metadata::ler_injetores(r, uri) {
                 let k = (uri.to_string(), nome);
                 self.injetores
                     .insert(k.clone(), lido.map(std::sync::Arc::new));
@@ -854,10 +854,10 @@ impl Indice {
     /// de fora; nome que não se resolve volta como recusa.
     fn pipes_de(
         &self,
-        comp: &componente::Componente,
+        comp: &component::Componente,
         arquivo: &Path,
         resolvedor: Option<&dyn resolucao::Resolucao>,
-    ) -> (Vec<visao::PipeUsado>, Vec<Recusa>) {
+    ) -> (Vec<view::PipeUsado>, Vec<Recusa>) {
         let mut saida = Vec::new();
         let mut fora = Vec::new();
         if comp.pipes_ilegiveis {
@@ -881,7 +881,7 @@ impl Indice {
             match resolvedor.and_then(|r| r.designado(&escopo, &nome)) {
                 Some(resolucao::Designado::Classe { uri }) => {
                     if let Some(p) = self.pipes.get(&(uri.clone(), simples)) {
-                        saida.push(visao::PipeUsado {
+                        saida.push(view::PipeUsado {
                             uri,
                             pipe: p.clone(),
                         });
@@ -907,10 +907,10 @@ impl Indice {
     /// sabe o que casa com cada elemento.
     fn diretivas_de(
         &self,
-        comp: &componente::Componente,
+        comp: &component::Componente,
         arquivo: &Path,
         resolvedor: Option<&dyn resolucao::Resolucao>,
-    ) -> (Vec<visao::Usada>, Vec<Recusa>) {
+    ) -> (Vec<view::Usada>, Vec<Recusa>) {
         let mut saida = Vec::new();
         let mut vistos = std::collections::HashSet::new();
         let mut fora = Vec::new();
@@ -946,7 +946,7 @@ impl Indice {
         nome: &str,
         escopo: &Path,
         resolvedor: Option<&dyn resolucao::Resolucao>,
-        saida: &mut Vec<visao::Usada>,
+        saida: &mut Vec<view::Usada>,
         vistos: &mut std::collections::HashSet<(String, String)>,
         fora: &mut Vec<Recusa>,
         profundidade: u32,
@@ -966,18 +966,18 @@ impl Indice {
                     return;
                 }
                 if let Some(f) = self.por_classe.get(&chave) {
-                    saida.push(visao::Usada {
+                    saida.push(view::Usada {
                         classe: simples,
                         uri,
-                        seletores: seletor::Seletor::analisar(&f.seletor),
+                        seletores: selector::Seletor::analisar(&f.seletor),
                         filho: Some(f.clone()),
                         diretiva: None,
                     });
                 } else if let Some(d) = self.diretivas.get(&chave) {
-                    saida.push(visao::Usada {
+                    saida.push(view::Usada {
                         classe: simples,
                         uri,
-                        seletores: seletor::Seletor::analisar(&d.seletor),
+                        seletores: selector::Seletor::analisar(&d.seletor),
                         filho: None,
                         diretiva: self.metadados.get(&chave).cloned(),
                     });
@@ -999,7 +999,7 @@ impl Indice {
             None => {
                 // Sem resposta do banco semântico: só um componente de nome
                 // único no pacote (o caminho de antes, sem programa).
-                let por_nome: Vec<&visao::Filho> = self
+                let por_nome: Vec<&view::Filho> = self
                     .por_classe
                     .values()
                     .filter(|f| f.classe == simples)
@@ -1008,10 +1008,10 @@ impl Indice {
                     [f] if !nome.contains('.') => {
                         let chave = (f.uri_dart.clone(), f.classe.clone());
                         if vistos.insert(chave) {
-                            saida.push(visao::Usada {
+                            saida.push(view::Usada {
                                 classe: f.classe.clone(),
                                 uri: f.uri_dart.clone(),
-                                seletores: seletor::Seletor::analisar(&f.seletor),
+                                seletores: selector::Seletor::analisar(&f.seletor),
                                 filho: Some((*f).clone()),
                                 diretiva: None,
                             });
@@ -1029,7 +1029,7 @@ impl Indice {
 
 /// Os componentes que o emissor casa pela tag: os de seletor só com nome de
 /// elemento. O resto da lista só serve à guarda de diretivas.
-fn filhos_por_tag(usadas: &[visao::Usada]) -> std::collections::HashMap<String, visao::Filho> {
+fn filhos_por_tag(usadas: &[view::Usada]) -> std::collections::HashMap<String, view::Filho> {
     let mut saida = std::collections::HashMap::new();
     // Seletor composto (`page-header-comp,pg-header`): cada alternativa que
     // é só a tag casa o elemento com essa tag. As outras alternativas ficam
@@ -1053,14 +1053,14 @@ fn filhos_por_tag(usadas: &[visao::Usada]) -> std::collections::HashMap<String, 
 /// resolve no nó dele. Um tipo genérico sem `@Inject` e os embutidos do
 /// elemento anotados ainda não se traduzem.
 fn parametros_dos_metadados(
-    comp: &componente::Componente,
-    meta: &diretivas::Diretiva,
-) -> Result<Vec<visao::Injetado>, String> {
-    use diretivas::Token;
+    comp: &component::Componente,
+    meta: &directives::Diretiva,
+) -> Result<Vec<view::Injetado>, String> {
+    use directives::Token;
     if let Some(f) = meta.fora.first() {
         return Err(format!("metadados do filho incompletos: {f}"));
     }
-    let textuais: Vec<&componente::Parametro> =
+    let textuais: Vec<&component::Parametro> =
         comp.parametros.iter().filter(|p| !p.nomeado).collect();
     if textuais.len() != meta.dependencias.len() {
         return Err("parâmetros do filho sem os metadados".into());
@@ -1068,7 +1068,7 @@ fn parametros_dos_metadados(
     let mut saida = Vec::new();
     for d in &meta.dependencias {
         if let Some(nome) = &d.atributo {
-            saida.push(visao::Injetado::Atributo(nome.clone()));
+            saida.push(view::Injetado::Atributo(nome.clone()));
             continue;
         }
         let anotado = d.opcional || d.proprio || d.hospedeiro || d.pular;
@@ -1081,18 +1081,18 @@ fn parametros_dos_metadados(
             return Err("embutido do elemento anotado no construtor do filho".into());
         }
         saida.push(match &d.token {
-            Token::Elemento => visao::Injetado::Elemento,
-            Token::Detector => visao::Injetado::Detector,
+            Token::Elemento => view::Injetado::Elemento,
+            Token::Detector => view::Injetado::Detector,
             Token::Classe { uri, classe } if embutido_do_ngdart(uri, classe) => {
                 match classe.as_str() {
-                    "ViewContainerRef" | "ComponentLoader" => visao::Injetado::Container,
+                    "ViewContainerRef" | "ComponentLoader" => view::Injetado::Container,
                     _ => return Err("token do ngdart no construtor do filho".into()),
                 }
             }
             Token::Classe { uri, .. } if uri.starts_with("dart:") => {
                 return Err("tipo do SDK no construtor do filho".into());
             }
-            t => visao::Injetado::Servico {
+            t => view::Injetado::Servico {
                 token: t.clone(),
                 opcional: d.opcional,
                 proprio: d.proprio,
@@ -1126,10 +1126,10 @@ fn embutido_do_ngdart(uri: &str, classe: &str) -> bool {
 /// o nó, a visão do filho ou um serviço de fora da visão. O resto (outro
 /// token do ngdart, `@Inject`, `@Self`, genérico, nomeado) ainda não.
 fn injetado(
-    p: &componente::Parametro,
+    p: &component::Parametro,
     caminho: Option<&Path>,
     resolvedor: Option<&dyn resolucao::Resolucao>,
-) -> Result<visao::Injetado, &'static str> {
+) -> Result<view::Injetado, &'static str> {
     let tipo = p
         .tipo
         .as_deref()
@@ -1140,7 +1140,7 @@ fn injetado(
     if p.outra_anotacao {
         return Err("@Inject/@Attribute no construtor do filho");
     }
-    let tipo = visao::tipo_do_token(tipo);
+    let tipo = view::tipo_do_token(tipo);
     let uri = match (caminho, resolvedor) {
         (Some(c), Some(r)) => r.uri_do_tipo(c, tipo),
         _ => None,
@@ -1149,28 +1149,28 @@ fn injetado(
     let simples = tipo.rsplit('.').next().unwrap_or(tipo).to_string();
     // Os embutidos do elemento (o nó, a visão, o `ViewContainer`) com
     // `@Self`/`@Host`/`@SkipSelf`/`@Optional`: ainda sem caso.
-    let embutido = crate::dialeto::no_embutido(&uri, &simples).is_some()
+    let embutido = crate::dialect::no_embutido(&uri, &simples).is_some()
         || embutido_do_ngdart(&uri, &simples);
     if embutido && p.anotado {
         return Err("embutido do elemento anotado no construtor do filho");
     }
-    if crate::dialeto::no_embutido(&uri, &simples).is_some() {
-        return Ok(visao::Injetado::Elemento);
+    if crate::dialect::no_embutido(&uri, &simples).is_some() {
+        return Ok(view::Injetado::Elemento);
     }
     if embutido_do_ngdart(&uri, &simples) {
         return match simples.as_str() {
-            "ChangeDetectorRef" if !p.opcional => Ok(visao::Injetado::Detector),
+            "ChangeDetectorRef" if !p.opcional => Ok(view::Injetado::Detector),
             // O nó ganha um `ViewContainer` (`requiresViewContainer`), que o
             // filho recebe (caso j47).
-            "ViewContainerRef" | "ComponentLoader" => Ok(visao::Injetado::Container),
+            "ViewContainerRef" | "ComponentLoader" => Ok(view::Injetado::Container),
             _ => Err("token do ngdart no construtor do filho"),
         };
     }
     if uri.starts_with("dart:") {
         return Err("tipo do SDK no construtor do filho");
     }
-    Ok(visao::Injetado::Servico {
-        token: diretivas::Token::Classe {
+    Ok(view::Injetado::Servico {
+        token: directives::Token::Classe {
             uri,
             classe: simples,
         },
@@ -1183,9 +1183,9 @@ fn injetado(
 
 /// Põe um componente no índice, com o que o emissor precisa dele.
 fn indexar(
-    por_classe: &mut std::collections::HashMap<(String, String), visao::Filho>,
+    por_classe: &mut std::collections::HashMap<(String, String), view::Filho>,
     uri: &str,
-    comp: &componente::Componente,
+    comp: &component::Componente,
     caminho: Option<&Path>,
     resolvedor: Option<&dyn resolucao::Resolucao>,
 ) {
@@ -1242,13 +1242,13 @@ fn indexar(
                         };
                         let simples = nome.rsplit('.').next().unwrap_or(nome);
                         match uri {
-                            Some(u) if crate::dialeto::no_embutido(&u, simples).is_some() => {
-                                Some(visao::LeituraDaConsulta::Elemento)
+                            Some(u) if crate::dialect::no_embutido(&u, simples).is_some() => {
+                                Some(view::LeituraDaConsulta::Elemento)
                             }
                             Some(u)
                                 if !u.starts_with("package:ngdart/") && !u.starts_with("dart:") =>
                             {
-                                Some(visao::LeituraDaConsulta::Classe(u, simples.to_string()))
+                                Some(view::LeituraDaConsulta::Classe(u, simples.to_string()))
                             }
                             _ => {
                                 pendencias.push(em_filho("filho com @ContentChild(.., read:)"));
@@ -1258,10 +1258,10 @@ fn indexar(
                     }
                 };
                 if q.referencia {
-                    consultas.push(visao::ConsultaDoFilho {
+                    consultas.push(view::ConsultaDoFilho {
                         campo: q.campo.clone(),
                         lista: q.lista,
-                        alvo: visao::AlvoDeConsulta::Referencia(q.alvo.clone()),
+                        alvo: view::AlvoDeConsulta::Referencia(q.alvo.clone()),
                         descendentes: q.descendentes,
                         leitura,
                     });
@@ -1274,10 +1274,10 @@ fn indexar(
                 match uri {
                     Some(u) if !u.starts_with("package:ngdart/") && !u.starts_with("dart:") => {
                         let simples = q.alvo.rsplit('.').next().unwrap_or(&q.alvo);
-                        consultas.push(visao::ConsultaDoFilho {
+                        consultas.push(view::ConsultaDoFilho {
                             campo: q.campo.clone(),
                             lista: q.lista,
-                            alvo: visao::AlvoDeConsulta::Classe(u, simples.to_string()),
+                            alvo: view::AlvoDeConsulta::Classe(u, simples.to_string()),
                             descendentes: q.descendentes,
                             leitura,
                         });
@@ -1303,7 +1303,7 @@ fn indexar(
     }
     por_classe.insert(
         (uri.to_string(), comp.classe.clone()),
-        visao::Filho {
+        view::Filho {
             classe: comp.classe.clone(),
             seletor: comp.seletor.clone(),
             uri_dart: uri.to_string(),
@@ -1365,7 +1365,7 @@ fn uri_de_biblioteca(pacote: &Pacote, caminho: &Path) -> Option<String> {
     let rel = pacote.relativo(caminho);
     let dentro = rel.strip_prefix("lib/")?;
     // Na forma canônica, a do índice (`package:ngx_forms/` → `ngforms`).
-    Some(dialeto::canonica_string(format!(
+    Some(dialect::canonica_string(format!(
         "package:{}/{dentro}",
         pacote.nome
     )))
@@ -1435,7 +1435,7 @@ fn hospedeiras_efetivas(
             estaticos: estaticos.clone(),
         };
         for (nome, membro) in &m.ligacoes_do_hospedeiro {
-            let forma = visao::forma_do_hospedeiro(nome);
+            let forma = view::forma_do_hospedeiro(nome);
             if estaticos.contains(membro) {
                 if let Err(f) = forma {
                     h.recusada.get_or_insert(f);
@@ -1455,11 +1455,11 @@ fn hospedeiras_efetivas(
                         "@HostBinding('{nome}') herdado sem declaração legível"
                     ));
                 }
-                Ok(visao::FormaDoHospedeiro::Estilo { .. }) if final_ == Some(true) => {
+                Ok(view::FormaDoHospedeiro::Estilo { .. }) if final_ == Some(true) => {
                     h.recusada
                         .get_or_insert(format!("@HostBinding('{nome}') em campo final"));
                 }
-                Ok(visao::FormaDoHospedeiro::Estilo { .. }) => {
+                Ok(view::FormaDoHospedeiro::Estilo { .. }) => {
                     // O tipo escrito, pelo programa (que sobe até a classe
                     // que declara o membro), senão o da própria classe.
                     let tipo = resolvedor
@@ -1588,8 +1588,8 @@ pub(crate) fn gerar_interno(
         nomes,
         indice,
     )?;
-    let refs: Vec<&metadados::Injetor> = injetores.iter().map(|i| i.as_ref()).collect();
-    let (imports, corpo) = injetor::emitir(&refs).map_err(|f| recusa(Motivo::Injetor, f))?;
+    let refs: Vec<&metadata::Injetor> = injetores.iter().map(|i| i.as_ref()).collect();
+    let (imports, corpo) = injector::emitir(&refs).map_err(|f| recusa(Motivo::Injetor, f))?;
     let marca = format!("import '{nome_do_arquivo}';\n");
     let depois = texto
         .find(&marca)
@@ -1640,7 +1640,7 @@ fn gerar_visoes(
         }
         let hs: Vec<&Hospedeira> = hospedeiras.iter().collect();
         return Ok((
-            visao::detector_de_diretivas(&hs, nome_do_arquivo),
+            view::detector_de_diretivas(&hs, nome_do_arquivo),
             vec![fonte.to_path_buf()],
             Vec::new(),
         ));
@@ -1654,7 +1654,7 @@ fn gerar_visoes(
     // Vários componentes: a tabela de imports é uma só e os trechos saem na
     // ordem do fonte (caso i24); o import da folha de cada um é alocado
     // quando a lista `styles$X` dele é escrita (caso j44).
-    let mut imp = visao::Importacoes::default();
+    let mut imp = view::Importacoes::default();
     let mut trechos = Vec::new();
     let mut entradas = vec![fonte.to_path_buf()];
     for comp in &achados.componentes {
@@ -1672,10 +1672,10 @@ fn gerar_visoes(
         entradas.extend(html);
     }
     for h in &hospedeiras {
-        trechos.push(visao::classe_ngcd(h, nome_do_arquivo, &mut imp));
+        trechos.push(view::classe_ngcd(h, nome_do_arquivo, &mut imp));
     }
     Ok((
-        visao::montar_arquivo(nome_do_arquivo, &imp, &trechos),
+        view::montar_arquivo(nome_do_arquivo, &imp, &trechos),
         entradas,
         Vec::new(),
     ))
@@ -1687,10 +1687,10 @@ fn local_do_componente<'a>(
     fonte: &'a Path,
     relativo: &'a str,
     nome_do_arquivo: &'a str,
-    comp: &componente::Componente,
+    comp: &component::Componente,
     indice: &Indice,
-) -> visao::Local<'a> {
-    visao::Local {
+) -> view::Local<'a> {
+    view::Local {
         pacote: &pacote.nome,
         relativo,
         arquivo: nome_do_arquivo,
@@ -1711,7 +1711,7 @@ fn local_do_componente<'a>(
 /// que o alimenta.
 fn template_do_componente(
     fonte: &Path,
-    comp: &componente::Componente,
+    comp: &component::Componente,
 ) -> Result<(Vec<html::No>, Option<PathBuf>), Recusa> {
     let ausente = || recusa(Motivo::TemplateAusente, "templateUrl não encontrado");
     Ok(match (&comp.template, &comp.template_url) {
@@ -1750,11 +1750,11 @@ fn trecho_do_componente(
     pacote: &Pacote,
     fonte: &Path,
     nome_do_arquivo: &str,
-    comp: &componente::Componente,
+    comp: &component::Componente,
     resolvedor: Option<&dyn resolucao::Resolucao>,
     nomes: &mut Interner,
     indice: &Indice,
-    imp: &mut visao::Importacoes,
+    imp: &mut view::Importacoes,
 ) -> Result<(String, Option<PathBuf>), Recusa> {
     if let Some(r) = comp.nao_entendidos.first() {
         return Err(r.clone());
@@ -1774,7 +1774,7 @@ fn trecho_do_componente(
         Some(r) => Err(r),
         None => Ok(pipes),
     };
-    let texto = visao::trecho_de_componente(
+    let texto = view::trecho_de_componente(
         comp, &local, &nos, resolvedor, nomes, &filhos, &usadas, &pipes, imp,
     )?;
     // A folha é outra saída ([`gerar_folha`], por `.css`, como o
@@ -1801,7 +1801,7 @@ fn trecho_do_componente(
 /// URI `package:` do arquivo do template — o que o oficial escreve no
 /// comentário `REF` de cada ligação. Só para componentes em `lib/` com
 /// `templateUrl`; com template escrito na anotação a referência é outra.
-fn url_do_template(pacote: &Pacote, fonte: &Path, comp: &componente::Componente) -> Option<String> {
+fn url_do_template(pacote: &Pacote, fonte: &Path, comp: &component::Componente) -> Option<String> {
     // Template na anotação: a referência é o `.dart` (`asset:`), com as
     // posições dele — só quando o literal permite contá-las.
     if comp.template.is_some() {
@@ -1831,7 +1831,7 @@ fn url_do_template(pacote: &Pacote, fonte: &Path, comp: &componente::Componente)
 /// lê: a saída do `sass_builder` nesta build (o motor a passa em
 /// [`Pacote::folhas_geradas`]), o `.css` escrito, ou — fora do motor, sem o
 /// `sass_builder` — o `.scss` ao lado compilado aqui. `None` sem nenhum.
-pub(crate) fn texto_da_folha(pacote: &Pacote, css: &Path) -> Option<Result<String, visao::Motivo>> {
+pub(crate) fn texto_da_folha(pacote: &Pacote, css: &Path) -> Option<Result<String, view::Motivo>> {
     // `buildStep.readAsString` decodifica com `utf8.decode`, que tira o BOM
     // do começo (a saída `compressed` do dart-sass com caractere não-ASCII
     // começa com ele).
@@ -1890,7 +1890,7 @@ pub fn gerar_folha(pacote: &Pacote, css: &Path) -> Vec<(PathBuf, Result<String, 
                 cabeca.push_str(&format!("import '{caminho}' as import{k};\n"));
                 itens.push(format!("import{k}.styles"));
             }
-            itens.push(visao::literal(&conteudo(&estilo)?));
+            itens.push(view::literal(&conteudo(&estilo)?));
             Ok(format!("{cabeca}{}", lista_de_estilos(&itens)))
         })
     };
@@ -2062,7 +2062,7 @@ fn motivos_do_arquivo(
             Some(r) => Err(r),
             None => Ok(pipes),
         };
-        fora.extend(visao::coletar(
+        fora.extend(view::coletar(
             comp, &local, &nos, resolvedor, nomes, &filhos, &usadas, &pipes,
         ));
     }

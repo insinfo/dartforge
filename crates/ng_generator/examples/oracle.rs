@@ -7,7 +7,7 @@
 //! vindo do oficial e a aplicação compila do mesmo jeito.
 //!
 //! ```text
-//! cargo run -p dartforge-ng-generator --example oraculo -- C:/MyDartProjects/new_sali/frontend
+//! cargo run -p dartforge-ng-generator --example oracle -- C:/MyDartProjects/new_sali/frontend
 //! ```
 use dartforge_elements::config::PackageConfig;
 use dartforge_elements::gerado::{Construtor, do_build_runner};

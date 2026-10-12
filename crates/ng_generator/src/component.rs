@@ -5,7 +5,7 @@
 //! literais escritos na própria anotação (`selector: 'x'`, `templateUrl:
 //! 'x.html'`), e os que não são — a lista de `directives`, os `providers` —
 //! ficam guardados como texto da fonte, para as etapas que souberem usá-los.
-use crate::visao::{Motivo, Recusa, recusa};
+use crate::view::{Motivo, Recusa, recusa};
 use dartforge_frontend::ast;
 use dartforge_intern::Interner;
 
@@ -42,7 +42,7 @@ pub struct Componente {
     /// expressões (`_matchExport`) antes dos membros.
     pub exportados: Vec<String>,
     /// `visibility:` escrito: o valor vem dos metadados do programa
-    /// (`metadados.rs`), sem eles não se sabe a hospedeira.
+    /// (`metadata.rs`), sem eles não se sabe a hospedeira.
     pub visibilidade_escrita: bool,
     /// `template: '...'` quando o template está na própria anotação.
     pub template: Option<String>,
@@ -820,11 +820,11 @@ const ARGUMENTOS_CONHECIDOS: &[&str] = &[
     "exports",
     "pipes",
     // Só decide o `injectorGetInternal`; lida dos metadados do programa
-    // (`metadados.rs`), caso j41.
+    // (`metadata.rs`), caso j41.
     "visibility",
     // Provedores privados do elemento do componente: lidos dos metadados do
-    // programa (`metadados.rs`) e escritos na hospedeira; no nó de quem usa
-    // o filho, ainda recusados (`visao.rs`).
+    // programa (`metadata.rs`) e escritos na hospedeira; no nó de quem usa
+    // o filho, ainda recusados (`view.rs`).
     "viewProviders",
 ];
 
@@ -889,7 +889,7 @@ fn o_que_nao_entendemos(
                 // 57 dos 70 `providers:` do new_sali.
                 "providers" if lista_vazia(arvore, a.value) => {}
                 // Os do componente vão para a visão-hospedeira, que os
-                // resolve pelos metadados lidos do programa (`visao.rs`).
+                // resolve pelos metadados lidos do programa (`view.rs`).
                 "providers" if e_componente => {}
                 "providers" => fora.push(recusa(
                     Motivo::Providers,
@@ -1099,7 +1099,7 @@ fn ouvinte(
     let evento = texto_do_argumento(arvore, evento.value)?;
     // Evento que não é do DOM (`document:click`, `keyup.enter`) vai pelo
     // `eventManager` e, com `:`, nem é aceito pelo oficial; ainda não.
-    if !crate::visao::evento_nativo(&evento) {
+    if !crate::view::evento_nativo(&evento) {
         return None;
     }
     let mut argumentos = match lista {

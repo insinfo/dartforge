@@ -6,7 +6,7 @@
 //! `VarDefinition._property`). As subclasses de `UnitTerm` caem todas em
 //! `visit_unit_term`, que é para onde o `Visitor` oficial as manda.
 use super::Excecao;
-use super::arvore::*;
+use super::tree::*;
 
 pub(crate) type R<T> = Result<T, Excecao>;
 

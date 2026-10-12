@@ -5,7 +5,7 @@
 use std::rc::Rc;
 
 use super::Excecao;
-use super::arvore::*;
+use super::tree::*;
 use super::token_kind as tk;
 use super::tokenizer::dart_trim;
 use super::visitor::{R, Visitor};

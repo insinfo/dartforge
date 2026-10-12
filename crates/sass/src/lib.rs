@@ -132,7 +132,7 @@ pub mod importer;
 mod interner;
 mod lexer;
 mod logger;
-mod mapa;
+mod source_map;
 mod options;
 mod parse;
 pub mod sass_builder;
@@ -207,7 +207,7 @@ pub(crate) fn compilar_com_mapa(
     file_name: &str,
     options: &Options,
     mapa: bool,
-) -> Result<(String, Option<mapa::Mapa>)> {
+) -> Result<(String, Option<source_map::Mapa>)> {
     let _versao = options::fixar_versao(options.versao);
     let mut map = CodeMap::new();
     let path = Path::new(file_name);

@@ -12,8 +12,8 @@
 //! não está portado: a opção é falsa por omissão e o gerador não a lê.
 use std::rc::Rc;
 
-use crate::csslib::arvore::*;
-use crate::csslib::impressora::CssPrinter;
+use crate::csslib::tree::*;
+use crate::csslib::printer::CssPrinter;
 use crate::csslib::token_kind as tk;
 use crate::csslib::visitor::{R, Visitor};
 use crate::csslib::{self, Excecao};

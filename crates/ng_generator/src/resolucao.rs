@@ -205,7 +205,7 @@ impl<'a> Resolvedor<'a> {
                 .or_insert(unidade.library);
         }
         // O dialeto da geração é o do programa (`ngdart` 8 ou `ngx_dart` 9).
-        crate::dialeto::fixar(crate::dialeto::do_programa(program));
+        crate::dialect::fixar(crate::dialect::do_programa(program));
         Self {
             program,
             interner,
@@ -234,7 +234,7 @@ impl<'a> Resolvedor<'a> {
                 return None;
             }
             Some((
-                crate::dialeto::canonica(lib.uri.as_str()),
+                crate::dialect::canonica(lib.uri.as_str()),
                 &u.ast,
                 &u.unit,
                 u.source.as_str(),
@@ -249,7 +249,7 @@ impl<'a> Resolvedor<'a> {
     }
 
     /// O programa carregado: é dele que saem os metadados das diretivas
-    /// (`metadados.rs`), como o oficial os tira do `analyzer`.
+    /// (`metadata.rs`), como o oficial os tira do `analyzer`.
     pub fn programa(&self) -> &'a Program {
         self.program
     }
@@ -260,7 +260,7 @@ impl<'a> Resolvedor<'a> {
             .program
             .libraries
             .iter()
-            .position(|l| crate::dialeto::canonica(&l.uri) == uri)?;
+            .position(|l| crate::dialect::canonica(&l.uri) == uri)?;
         let sym = self.interner.lookup(classe)?;
         match self.program.libraries[lib].declared.get(&sym)?.getter? {
             Element::Class(id) => Some(id),
@@ -460,8 +460,8 @@ pub fn caminho_do_import(modulo: &str, importado: &str) -> Option<String> {
         return i.caminho.rsplit('/').next().map(str::to_string);
     }
     // O mesmo pacote nos dois dialetos (`ngx_forms` e o canônico `ngforms`).
-    let mesmo_pacote = crate::dialeto::pacote_canonico(m.pacote)
-        == crate::dialeto::pacote_canonico(i.pacote);
+    let mesmo_pacote = crate::dialect::pacote_canonico(m.pacote)
+        == crate::dialect::pacote_canonico(i.pacote);
     if m.pasta == i.pasta && mesmo_pacote {
         return Some(relativo(m.caminho, i.caminho));
     }
@@ -511,7 +511,7 @@ fn relativo(modulo: &str, importado: &str) -> String {
 impl Resolucao for Resolvedor<'_> {
     fn uri_do_tipo(&self, arquivo: &Path, nome: &str) -> Option<String> {
         self.procurar(arquivo, nome)
-            .map(|u| crate::dialeto::canonica(u).into_owned())
+            .map(|u| crate::dialect::canonica(u).into_owned())
     }
 
     fn tipo_do_membro(
@@ -790,7 +790,7 @@ impl Resolucao for Resolvedor<'_> {
             _ => return None,
         };
         Some((
-            crate::dialeto::canonica_string(self.program.library(dona).uri.clone()),
+            crate::dialect::canonica_string(self.program.library(dona).uri.clone()),
             o_que,
         ))
     }
@@ -842,7 +842,7 @@ impl Resolucao for Resolvedor<'_> {
             Element::Class(id) => {
                 let dona = self.program.class(id).library;
                 Some(Designado::Classe {
-                    uri: crate::dialeto::canonica_string(self.program.library(dona).uri.clone()),
+                    uri: crate::dialect::canonica_string(self.program.library(dona).uri.clone()),
                 })
             }
             Element::Variable(vid) => self.lista_constante(vid),
@@ -1230,7 +1230,7 @@ impl<'a> Resolvedor<'a> {
                 let Some(t) = lista.ty else {
                     // Sem tipo escrito, o que o analyzer infere do
                     // inicializador (`final itemsRole = 'menuitem';`), nas
-                    // formas certas ([`crate::componente::tipo_inferido`]).
+                    // formas certas ([`crate::component::tipo_inferido`]).
                     // Sobrescrevendo um membro de cima, o tipo viria dele
                     // (inferência pela sobrescrita): sem resposta.
                     if self.sobrescreve(v.class?, v.name) {
@@ -1246,7 +1246,7 @@ impl<'a> Resolvedor<'a> {
                     if let Some(t) = self.valores_de_enum(&u.ast, u.path.as_deref(), inicial) {
                         return Some((t, u.path.clone()?));
                     }
-                    let tipo = crate::componente::tipo_inferido(
+                    let tipo = crate::component::tipo_inferido(
                         &u.ast,
                         u.source.as_str(),
                         self.interner,

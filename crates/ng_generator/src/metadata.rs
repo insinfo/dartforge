@@ -20,8 +20,8 @@
 //! (`TypeChecker.fromUrl('package:ngdart/src/meta/...')`), não pelo nome
 //! escrito. O que não se consegue ler vai para `Diretiva::fora`, e quem usa
 //! a diretiva recusa.
-use crate::componente::Ganchos;
-use crate::diretivas::{
+use crate::component::Ganchos;
+use crate::directives::{
     DI_TOKENS, Dependencia, Diretiva, Entrada, Fornece, Ouvinte, Provedor, TipoDeToken, Token,
     ValorConst,
 };
@@ -150,7 +150,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
         let p = self.r.programa();
         let c = p.class(id);
         Classe {
-            uri: crate::dialeto::canonica_string(p.library(c.library).uri.clone()),
+            uri: crate::dialect::canonica_string(p.library(c.library).uri.clone()),
             nome: self.r.interner().resolve(c.name).to_string(),
             id,
         }
@@ -657,7 +657,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
     fn token_de_dependencia(&self, v: &Valor) -> Result<Token, String> {
         match v {
             Valor::Tipo(c)
-                if crate::dialeto::no_embutido(&c.uri, &c.nome).is_some() =>
+                if crate::dialect::no_embutido(&c.uri, &c.nome).is_some() =>
             {
                 Ok(Token::Elemento)
             }
@@ -1024,8 +1024,8 @@ impl<'r, 'a> Leitor<'r, 'a> {
         a: &ast::Annotation,
         lista: bool,
         campo: String,
-    ) -> Result<crate::visao::ConsultaDoFilho, String> {
-        use crate::visao::{AlvoDeConsulta, ConsultaDoFilho, LeituraDaConsulta};
+    ) -> Result<crate::view::ConsultaDoFilho, String> {
+        use crate::view::{AlvoDeConsulta, ConsultaDoFilho, LeituraDaConsulta};
         let args = a.arguments.as_ref().ok_or("@ContentChild sem argumentos")?;
         let primeiro = args
             .args
@@ -1051,7 +1051,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
                 Some("read") => {
                     leitura = Some(match self.valor(dc.unidade, x.value, 0)? {
                         Valor::Tipo(c)
-                            if crate::dialeto::no_embutido(&c.uri, &c.nome).is_some() =>
+                            if crate::dialect::no_embutido(&c.uri, &c.nome).is_some() =>
                         {
                             LeituraDaConsulta::Elemento
                         }
@@ -1298,7 +1298,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
                     .classe_do_tipo(t.2, t.0, t.1)
                     .ok_or("tipo não resolvido no construtor da diretiva")?
                     .ok_or("parâmetro dynamic no construtor da diretiva")?;
-                if crate::dialeto::no_embutido(&c.uri, &c.nome).is_some() {
+                if crate::dialect::no_embutido(&c.uri, &c.nome).is_some() {
                     Token::Elemento
                 } else if c.uri.starts_with("package:ngdart/") && c.nome == "ChangeDetectorRef" {
                     Token::Detector
@@ -1523,7 +1523,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
                         return Err("função que não é de topo".into());
                     }
                     Ok(Valor::Funcao {
-                        uri: crate::dialeto::canonica_string(p.library(fe.library).uri.clone()),
+                        uri: crate::dialect::canonica_string(p.library(fe.library).uri.clone()),
                         nome: self.r.interner().resolve(fe.name).to_string(),
                         id: f,
                     })
@@ -1820,7 +1820,7 @@ pub fn ler_injetores(r: &Resolvedor, uri: &str) -> Vec<(String, Result<Injetor, 
     let Some(i) = p
         .libraries
         .iter()
-        .position(|l| crate::dialeto::canonica(&l.uri) == uri)
+        .position(|l| crate::dialect::canonica(&l.uri) == uri)
     else {
         return Vec::new();
     };
@@ -2425,7 +2425,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
                     && publico(nome)
                 {
                     return Ok(Revivido::Acesso {
-                        uri: crate::dialeto::canonica_string(p.library(lib).uri.clone()),
+                        uri: crate::dialect::canonica_string(p.library(lib).uri.clone()),
                         nome: nome.to_string(),
                     });
                 }

@@ -17,7 +17,7 @@ cada correção aponta a regra do dart-sass que ela reproduz, em comentário no 
   regras, comentários à direita, `isGroupEnd`, indentação de seletores em várias linhas,
   números (`_writeNumber`/`_writeRounded`), strings (escapes, caracteres de uso
   privado), valores crus de propriedades customizadas, `@media`/`@supports`/`@import`.
-* **Mapa de fontes** (`src/mapa.rs`): porte do `SourceMapBuffer` e do `SingleMapping`
+* **Mapa de fontes** (`src/source_map.rs`): porte do `SourceMapBuffer` e do `SingleMapping`
   (`source_maps` 0.10), com os `span`s dos nós CSS e os nós de variáveis
   (`valueSpanForMap`) do avaliador; `sources` reescritas como o `sass_builder` faz.
 * **Cores** (`src/color/`, `src/builtin/functions/color/`): porte do modelo de cor do
@@ -31,7 +31,7 @@ cada correção aponta a regra do dart-sass que ela reproduz, em comentário no 
 
 ## Conferência
 
-`examples/conferir.rs` compila uma lista de `.scss` e compara, byte a byte, o `.css` e o
+`examples/check.rs` compila uma lista de `.scss` e compara, byte a byte, o `.css` e o
 `.css.map` com as saídas de um oráculo — o `SassBuilder` reproduzido num programa Dart com
 o pacote `sass` 1.102.0 (mesmas opções: `compileStringToResult` com o `BuildImporter`,
 `url: inputId.uri`, `sourceMap`, os dois estilos).

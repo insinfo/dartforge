@@ -12,7 +12,7 @@
 //! `sass_builder` as resolve: relativas ao arquivo e `package:` pelo
 //! `.dart_tool/package_config.json` do projeto (ver
 //! [`dartforge_sass::sass_builder`]).
-use crate::visao::Motivo;
+use crate::view::Motivo;
 use dartforge_sass::OutputStyle;
 use dartforge_sass::sass_builder::{self, Ativo, Disco, Pacotes};
 use std::collections::BTreeMap;

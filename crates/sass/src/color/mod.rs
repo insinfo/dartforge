@@ -18,11 +18,11 @@ pub(crate) use name::NAMED_COLORS;
 
 use crate::value::{fuzzy_equals, fuzzy_less_than, fuzzy_less_than_or_equals, Number};
 
-mod matrizes;
+mod matrices;
 mod name;
 pub(crate) mod v166;
 
-use matrizes::*;
+use matrices::*;
 
 /// `% ` do Dart para `double`: o resto euclidiano.
 pub(crate) fn dart_mod(a: f64, b: f64) -> f64 {

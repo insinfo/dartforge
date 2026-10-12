@@ -8,7 +8,7 @@
 //! A saída é a mesma de [`crate::gerar_em`]: as duas passam por
 //! `gerar_interno`.
 use crate::resolucao::{Designado, Resolucao};
-use crate::visao::Recusa;
+use crate::view::Recusa;
 use crate::{Achados, Indice, Pacote};
 use dartforge_intern::Interner;
 use std::cell::RefCell;
@@ -58,7 +58,7 @@ pub fn analisar_arquivo(fonte: &Path, texto: &str, nomes: &mut Interner) -> Acha
 
 /// Gera o `.template.dart` de `fonte` — o mesmo texto que
 /// [`crate::gerar_em`] escreveria para ele —, ou diz por que não. A recusa
-/// traz o [`crate::visao::Motivo`] (`recusa.motivo`) e a sub-forma.
+/// traz o [`crate::view::Motivo`] (`recusa.motivo`) e a sub-forma.
 pub fn gerar_arquivo(
     pacote: &Pacote,
     fonte: &Path,

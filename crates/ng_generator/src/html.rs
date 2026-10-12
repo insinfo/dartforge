@@ -85,7 +85,7 @@ pub struct Elemento {
     pub filhos: Vec<No>,
     /// As ligações `[dirX]="e"` de um `<template dir let-x [dirX]="e">`
     /// escrito à mão, depois de ele ser reescrito como `*dir` (ver
-    /// `template_como_container` em `visao.rs`): o `REF` de cada entrada é o
+    /// `template_como_container` em `view.rs`): o `REF` de cada entrada é o
     /// intervalo da ligação escrita, não o da `estrela` inteira. Vazio no
     /// resto.
     pub ligacoes_do_molde: Vec<Ligacao>,
@@ -604,7 +604,7 @@ fn classificar(
 /// aplicado só ao texto (valor de atributo fica cru): cada casamento de
 /// `&#([0-9]{2,4});|&#x([0-9A-Fa-f]{2,4});|&([a-zA-Z]+);`, da esquerda para
 /// a direita, vira o caractere do código (`String.fromCharCode`) ou o da
-/// tabela [`crate::entidades::ENTIDADES`] — e o nome que não está nela, o
+/// tabela [`crate::entities::ENTIDADES`] — e o nome que não está nela, o
 /// próprio nome. Um código na faixa dos substitutos (`&#xD800;`) seria um
 /// substituto solto na string do Dart, que o arquivo gravado em UTF-8 leva
 /// como U+FFFD.
@@ -675,9 +675,9 @@ fn entidade_em(t: &str, i: usize) -> Option<(usize, String)> {
         .count();
     if n >= 1 && b.get(inicio + n) == Some(&b';') {
         let nome = &t[inicio..inicio + n];
-        let valor = crate::entidades::ENTIDADES
+        let valor = crate::entities::ENTIDADES
             .binary_search_by(|(k, _)| k.cmp(&nome))
-            .map_or(nome, |k| crate::entidades::ENTIDADES[k].1);
+            .map_or(nome, |k| crate::entities::ENTIDADES[k].1);
         return Some((inicio + n + 1, valor.to_string()));
     }
     None

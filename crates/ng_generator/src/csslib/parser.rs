@@ -16,7 +16,7 @@
 //! construção lança (`exprs.expressions[0]` em lista vazia, `value as int?`,
 //! `value as num`).
 use super::Excecao;
-use super::arvore::*;
+use super::tree::*;
 use super::token_kind as tk;
 use super::tokenizer::{Token, Tokenizer, TokenizerState};
 

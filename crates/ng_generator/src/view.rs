@@ -13,7 +13,7 @@
 //! do `build()`, e `package:ngdart/angular.dart` ocupando um número mas
 //! escrito sem prefixo, porque `ComponentFactory` aparece sem qualificar. É só
 //! por isso que a saída pode ser comparada byte a byte com a do oficial.
-use crate::componente::Componente;
+use crate::component::Componente;
 use crate::dom;
 use crate::html::No;
 use crate::resolucao::{Resolucao, asset_de_uri, caminho_do_import};
@@ -48,10 +48,10 @@ impl Importacoes {
 
     /// Um identificador de DOM do compilador (`document`, `HtmlElement`,
     /// `DivElement`…, pelo nome do `dart:html`), qualificado pelo import do
-    /// módulo dele no dialeto da geração ([`crate::dialeto::dom`]):
+    /// módulo dele no dialeto da geração ([`crate::dialect::dom`]):
     /// `import8.DivElement` no 8, `import5.HTMLDivElement` no 9.
     pub fn dom(&mut self, nome: &str) -> String {
-        let (uri, n) = crate::dialeto::dom(nome);
+        let (uri, n) = crate::dialect::dom(nome);
         format!("{}{n}", self.q(uri))
     }
 
@@ -88,7 +88,7 @@ impl Importacoes {
     fn escrever(&self, saida: &mut String) {
         for (i, (_, uri, com_alias)) in self.itens.iter().enumerate() {
             // Por dentro as URIs são as do `ngdart` 8; a saída, no dialeto.
-            let uri = crate::dialeto::escrita(uri);
+            let uri = crate::dialect::escrita(uri);
             if *com_alias {
                 let _ = writeln!(saida, "import '{uri}' as import{i};");
             } else {
@@ -954,9 +954,9 @@ fn formas_contra_o_template(
             {
                 let casa = |e: &crate::html::Elemento| {
                     !filhos.contains_key(&e.nome)
-                        && crate::seletor::casa_algum(
+                        && crate::selector::casa_algum(
                             &u.seletores,
-                            &crate::seletor::Elemento::do_template(e),
+                            &crate::selector::Elemento::do_template(e),
                         )
                 };
                 onde_casa(nos, &casa, filhos, false, &mut lugares);
@@ -1288,7 +1288,7 @@ fn tem_detector(itens: &[ItemDeConsulta]) -> bool {
 /// j14, j16, j17, j34).
 fn consulta_em_embutida(
     nos: &[No],
-    consulta: &crate::componente::Consulta,
+    consulta: &crate::component::Consulta,
     filhos: &std::collections::HashMap<String, Filho>,
     local: &Local,
     resolvedor: Option<&dyn Resolucao>,
@@ -1380,7 +1380,7 @@ struct ConteudoDinamico {
 /// da própria classe vai pela de sempre, [`consulta_em_embutida`]).
 fn consulta_de_token_dinamica(
     nos: &[No],
-    consulta: &crate::componente::Consulta,
+    consulta: &crate::component::Consulta,
     filhos: &std::collections::HashMap<String, Filho>,
     usadas: &[Usada],
     local: &Local,
@@ -1397,11 +1397,11 @@ fn consulta_de_token_dinamica(
     {
         return None;
     }
-    let token = crate::diretivas::Token::Classe {
+    let token = crate::directives::Token::Classe {
         uri: uri.clone(),
         classe: classe.clone(),
     };
-    let fornece = |d: &crate::diretivas::Diretiva| {
+    let fornece = |d: &crate::directives::Diretiva| {
         (d.uri == uri && d.classe == classe) || d.provedores.iter().any(|p| p.token == token)
     };
     let alguem = usadas
@@ -1431,11 +1431,11 @@ fn arvore_de_token(
     filhos: &std::collections::HashMap<String, Filho>,
     usadas: &[Usada],
 ) -> Result<Vec<ItemDeConteudo>, Recusa> {
-    let token = crate::diretivas::Token::Classe {
+    let token = crate::directives::Token::Classe {
         uri: uri.to_string(),
         classe: classe.to_string(),
     };
-    let fornece = |d: &crate::diretivas::Diretiva| {
+    let fornece = |d: &crate::directives::Diretiva| {
         (d.uri == uri && d.classe == classe) || d.provedores.iter().any(|p| p.token == token)
     };
     let mut saida = Vec::new();
@@ -2227,7 +2227,7 @@ fn onde_esta(
 /// [`chave_de_tipo`] do componente de `@ViewChild(Tipo)` (`None` sem
 /// resolução).
 fn chave_da_consulta(
-    consulta: &crate::componente::Consulta,
+    consulta: &crate::component::Consulta,
     local: &Local,
     resolvedor: Option<&dyn Resolucao>,
 ) -> Option<String> {
@@ -2507,7 +2507,7 @@ fn chave_de_tipo(uri: &str, classe: &str) -> String {
 /// A biblioteca que declara o tipo de um `@ViewChild(Tipo)`, no escopo do
 /// componente.
 fn uri_da_consulta(
-    consulta: &crate::componente::Consulta,
+    consulta: &crate::component::Consulta,
     local: &Local,
     resolvedor: Option<&dyn Resolucao>,
 ) -> Option<String> {
@@ -2615,16 +2615,16 @@ fn e_tipo_de_elemento(tipo: &str, local: &Local, resolvedor: Option<&dyn Resoluc
     // No 9 o `Element` é o do `package:web` (`find_components.dart:533`).
     resolvedor
         .and_then(|r| r.uri_do_tipo(local.caminho, tipo))
-        .is_some_and(|uri| crate::dialeto::e_elemento(&uri, simples))
+        .is_some_and(|uri| crate::dialect::e_elemento(&uri, simples))
 }
 
 /// O valor de `[style.x.unidade]` quando a fonte é nula: `null` no 8, `''`
 /// no 9 (o `setProperty` do `package:web` não aceita nulo,
 /// `NX:compiler/view_compiler/update_statement_visitor.dart:145`).
 fn estilo_nulo() -> &'static str {
-    match crate::dialeto::atual() {
-        crate::dialeto::Dialeto::Ngdart => "null",
-        crate::dialeto::Dialeto::Ngx => "''",
+    match crate::dialect::atual() {
+        crate::dialect::Dialeto::Ngdart => "null",
+        crate::dialect::Dialeto::Ngx => "''",
     }
 }
 
@@ -2640,7 +2640,7 @@ fn estilo_sem_unidade(valor: &str, e_texto: bool, pode_ser_nulo: bool) -> String
     } else {
         format!("{valor}.toString()")
     };
-    if crate::dialeto::atual() == crate::dialeto::Dialeto::Ngx && pode_ser_nulo {
+    if crate::dialect::atual() == crate::dialect::Dialeto::Ngx && pode_ser_nulo {
         format!("({v} ?? '')")
     } else {
         v
@@ -2652,11 +2652,11 @@ fn estilo_sem_unidade(valor: &str, e_texto: bool, pode_ser_nulo: bool) -> String
 /// (`NX:compiler/view_compiler/compile_query.dart:473-486`); no 8, como está.
 fn elemento_com_cast(
     valor: String,
-    consulta: &crate::componente::Consulta,
+    consulta: &crate::component::Consulta,
     local: &Local,
     resolvedor: Option<&dyn Resolucao>,
 ) -> String {
-    if crate::dialeto::atual() == crate::dialeto::Dialeto::Ngdart {
+    if crate::dialect::atual() == crate::dialect::Dialeto::Ngdart {
         return valor;
     }
     let tipo = if consulta.lista {
@@ -2687,7 +2687,7 @@ enum ValorDeElemento {
 /// para `read:` de outro token (diretiva, `ViewContainerRef`…), que ainda
 /// não se escreve.
 fn valor_de_elemento(
-    consulta: &crate::componente::Consulta,
+    consulta: &crate::component::Consulta,
     local: &Local,
     resolvedor: Option<&dyn Resolucao>,
 ) -> Option<ValorDeElemento> {
@@ -2701,7 +2701,7 @@ fn valor_de_elemento(
     let uri = resolvedor.and_then(|r| r.uri_do_tipo(local.caminho, t))?;
     match (t, uri.as_str()) {
         ("ElementRef", ELEMENT_REF) => Some(ValorDeElemento::ElementRef),
-        (t, u) if crate::dialeto::no_embutido(u, t.rsplit('.').next().unwrap_or(t)).is_some() => {
+        (t, u) if crate::dialect::no_embutido(u, t.rsplit('.').next().unwrap_or(t)).is_some() => {
             Some(ValorDeElemento::No)
         }
         _ => None,
@@ -2713,16 +2713,16 @@ fn valor_de_elemento(
 /// classe, pela biblioteca que a declara. O nó a cria ansiosa
 /// (`queriedTokens`) e a consulta recebe a instância.
 fn token_de_leitura(
-    consulta: &crate::componente::Consulta,
+    consulta: &crate::component::Consulta,
     local: &Local,
     resolvedor: Option<&dyn Resolucao>,
-) -> Option<crate::diretivas::Token> {
+) -> Option<crate::directives::Token> {
     let t = consulta.leitura.as_deref()?;
     if valor_de_elemento(consulta, local, resolvedor).is_some() {
         return None;
     }
     let uri = resolvedor?.uri_do_tipo(local.caminho, t)?;
-    let token = crate::diretivas::Token::Classe {
+    let token = crate::directives::Token::Classe {
         uri,
         classe: t.to_string(),
     };
@@ -2730,9 +2730,9 @@ fn token_de_leitura(
 }
 
 /// A marca do resultado de `chave` lido pelo provedor `t` do nó.
-fn chave_de_leitura(chave: &str, t: &crate::diretivas::Token) -> String {
+fn chave_de_leitura(chave: &str, t: &crate::directives::Token) -> String {
     match t {
-        crate::diretivas::Token::Classe { uri, classe } => format!("{chave}\u{4}{uri}#{classe}"),
+        crate::directives::Token::Classe { uri, classe } => format!("{chave}\u{4}{uri}#{classe}"),
         outro => format!("{chave}\u{4}{}", outro.nome()),
     }
 }
@@ -2760,7 +2760,7 @@ fn metodo_de_link(link: bool, ancoras: &[String], ligadas: &[String]) -> String 
 /// Num `#ref` do nó, isso liga o `_requiresViewContainer` dele
 /// (`provider_parser.dart:95-104`).
 fn le_container(
-    consulta: &crate::componente::Consulta,
+    consulta: &crate::component::Consulta,
     local: &Local,
     resolvedor: Option<&dyn Resolucao>,
 ) -> bool {
@@ -2794,7 +2794,7 @@ fn e_template_ref(tipo: &str, local: &Local, resolvedor: Option<&dyn Resolucao>)
 #[derive(Debug, Clone)]
 pub struct PipeUsado {
     pub uri: String,
-    pub pipe: crate::componente::Pipe,
+    pub pipe: crate::component::Pipe,
 }
 
 /// A instância de um pipe, campo de uma visão (`_pipe_date_0`): a de um
@@ -3257,11 +3257,11 @@ pub struct Filho {
     /// chama `createAndProject` com uma lista de nós por projeção.
     pub projecoes: Vec<String>,
     /// `@Input`s do filho, na ordem em que o oficial os escreve.
-    pub entradas: Vec<crate::componente::Entrada>,
+    pub entradas: Vec<crate::component::Entrada>,
     /// Ganchos de ciclo de vida do filho: quem o usa os chama
     /// (`bindDirectiveDetectChangesLifecycleCallbacks`,
     /// `bindDirectiveAfterChildrenCallbacks`).
-    pub ganchos: crate::componente::Ganchos,
+    pub ganchos: crate::component::Ganchos,
     /// `onPush`: quem muda uma entrada marca a checagem do filho.
     pub on_push: bool,
     /// `@changeDetectionLink`: numa visão de componente também ligado, o
@@ -3286,9 +3286,9 @@ pub struct Filho {
     /// escreve: injeção no construtor, `@HostBinding`, consulta de conteúdo,
     /// provedores, projeção com seletor. Qualquer uma recusa o uso.
     pub pendencias: Vec<Recusa>,
-    /// Os metadados do componente lidos do programa (`metadados.rs`): os
+    /// Os metadados do componente lidos do programa (`metadata.rs`): os
     /// `providers:` dele entram no nó de quem o usa.
-    pub metadados: Option<std::sync::Arc<crate::diretivas::Diretiva>>,
+    pub metadados: Option<std::sync::Arc<crate::directives::Diretiva>>,
 }
 
 /// Um parâmetro do construtor de um filho, como o oficial o resolve no nó
@@ -3306,7 +3306,7 @@ pub enum Injetado {
     /// `@Optional()`.
     Servico {
         /// A classe, ou o `OpaqueToken`/`MultiToken` do `@Inject(..)`.
-        token: crate::diretivas::Token,
+        token: crate::directives::Token,
         opcional: bool,
         /// `@Self()`, `@Host()`, `@SkipSelf()` (`_getDependency`).
         proprio: bool,
@@ -3370,7 +3370,7 @@ impl Filho {
     }
 
     /// O `@Input` que recebe a ligação `nome`.
-    pub fn entrada(&self, nome: &str) -> Option<&crate::componente::Entrada> {
+    pub fn entrada(&self, nome: &str) -> Option<&crate::component::Entrada> {
         self.entradas.iter().find(|e| e.nome == nome)
     }
 }
@@ -3384,12 +3384,12 @@ pub struct Usada {
     pub classe: String,
     /// URI da biblioteca que declara a classe.
     pub uri: String,
-    pub seletores: Vec<crate::seletor::Seletor>,
+    pub seletores: Vec<crate::selector::Seletor>,
     /// `Some` quando é componente: o que o emissor sabe dele.
     pub filho: Option<Filho>,
-    /// Os metadados lidos do programa (`metadados.rs`), quando é diretiva e
+    /// Os metadados lidos do programa (`metadata.rs`), quando é diretiva e
     /// há programa carregado.
-    pub diretiva: Option<std::sync::Arc<crate::diretivas::Diretiva>>,
+    pub diretiva: Option<std::sync::Arc<crate::directives::Diretiva>>,
 }
 
 impl Usada {
@@ -3418,8 +3418,8 @@ pub struct Local<'a> {
     /// escreve em cada ligação.
     pub url_do_template: Option<String>,
     /// Os metadados do próprio componente lidos do programa
-    /// (`metadados.rs`): os `providers:` dele vão para a visão-hospedeira.
-    pub metadados: Option<std::sync::Arc<crate::diretivas::Diretiva>>,
+    /// (`metadata.rs`): os `providers:` dele vão para a visão-hospedeira.
+    pub metadados: Option<std::sync::Arc<crate::directives::Diretiva>>,
 }
 
 impl Local<'_> {
@@ -3528,7 +3528,7 @@ struct Corpo<'a> {
     /// Os mesmos, em ordem de documento e com repetição: os resultados de
     /// um `@ViewChildren` (`addQueryResult`).
     /// [`Contexto::leituras`].
-    leituras: &'a [(String, crate::diretivas::Token)],
+    leituras: &'a [(String, crate::directives::Token)],
     /// [`Contexto::refs_so_por_provedor`].
     refs_so_por_provedor: &'a std::collections::HashSet<String>,
     /// [`Contexto::moldes_com_container`].
@@ -3603,12 +3603,12 @@ struct Corpo<'a> {
     /// URI `package:` do arquivo do template, para o comentário `REF`.
     url_do_template: Option<String>,
     /// Tipos dos membros do componente, para escolher `interpolateString`.
-    membros: &'a std::collections::HashMap<String, crate::componente::Membro>,
+    membros: &'a std::collections::HashMap<String, crate::component::Membro>,
     exportados: &'a Exportados,
     /// [`Contexto::nomes_genericos`].
     nomes_genericos: &'a [String],
     /// [`Contexto::tokens_de_visao`].
-    tokens_de_visao: &'a [crate::diretivas::Token],
+    tokens_de_visao: &'a [crate::directives::Token],
     /// Métodos da classe, válidos só como alvo de chamada.
     metodos: &'a std::collections::HashMap<String, String>,
     /// Parâmetros posicionais de cada método, para o tear-off de evento.
@@ -3642,7 +3642,7 @@ struct Corpo<'a> {
     /// Os provedores injetáveis dos elementos acima do nó, o mais longe
     /// primeiro: (token, campo, e a visão ancestral que o tem — classe e
     /// quantos `parentView` até ela — ou nada, se é desta).
-    acima: Vec<(crate::diretivas::Token, String, Option<(String, u32)>)>,
+    acima: Vec<(crate::directives::Token, String, Option<(String, u32)>)>,
     /// Os campos de `acima` que são provedores preguiçosos do elemento
     /// dono (campo, classe da visão dele): um nó abaixo que os pede os
     /// transformaria antes do `afterElement` do dono (lacuna L1 da seção 05).
@@ -3795,7 +3795,7 @@ struct Registro {
     acima: Vec<(u32, bool)>,
     /// (token, campo, e a visão do filho quando ele é um componente
     /// `onPush`: o `buildChangeDetectorRef` do provedor).
-    provedores: Vec<(crate::diretivas::Token, String, Option<String>)>,
+    provedores: Vec<(crate::directives::Token, String, Option<String>)>,
     /// O nó como o `build()` o lê (`_el_3` ou `this._el_3`), para o
     /// `read: HtmlElement`.
     elemento: String,
@@ -3843,11 +3843,11 @@ impl Corpo<'_> {
     fn registrar_no_por_posicao(
         &mut self,
         inicio: usize,
-        instancias: &[crate::diretivas::Instancia],
+        instancias: &[crate::directives::Instancia],
     ) {
         for i in instancias {
             for t in std::iter::once(&i.token).chain(&i.apelidos) {
-                if let crate::diretivas::Token::Classe { uri, classe } = t {
+                if let crate::directives::Token::Classe { uri, classe } = t {
                     self.refs
                         .entry(chave_de_no(&chave_de_tipo(uri, classe), inicio))
                         .or_insert_with(|| format!("this.{}", i.leitura));
@@ -4006,18 +4006,18 @@ impl Corpo<'_> {
 
     /// Os provedores acima, do mais próximo ao mais longe, com a leitura
     /// vista desta visão (`getPropertyInView`).
-    fn provedores_acima(&mut self) -> Vec<crate::diretivas::ProvedorAcima> {
+    fn provedores_acima(&mut self) -> Vec<crate::directives::ProvedorAcima> {
         let util = self.imp.alias(UTILITIES);
         self.provedores_acima_com(&util)
     }
 
     /// [`Self::provedores_acima`] com o prefixo do `unsafeCast` dado: uma
     /// resolução prévia (a posição dos campos do nó) não aloca import.
-    fn provedores_acima_com(&self, util: &str) -> Vec<crate::diretivas::ProvedorAcima> {
+    fn provedores_acima_com(&self, util: &str) -> Vec<crate::directives::ProvedorAcima> {
         self.acima
             .iter()
             .rev()
-            .map(|(t, campo, v)| crate::diretivas::ProvedorAcima {
+            .map(|(t, campo, v)| crate::directives::ProvedorAcima {
                 preguicoso: self.preguicosos_acima.contains(&(
                     campo.clone(),
                     match v {
@@ -4947,7 +4947,7 @@ impl Corpo<'_> {
             .parametros
             .iter()
             .any(|p| matches!(p, Injetado::Container))
-            || extras.iter().any(|d| crate::diretivas::pede_container(d));
+            || extras.iter().any(|d| crate::directives::pede_container(d));
         // Os provedores do nó, na ordem do oficial: as diretivas na ordem de
         // `directives:` com o filho no lugar dele (`_matchDirectives`), cada
         // provedor ansioso depois das dependências (`_getOrCreateLocalProvider`)
@@ -4957,13 +4957,13 @@ impl Corpo<'_> {
         let resolvido = match &no_resolvido {
             Some((indice, casadas)) => {
                 let provedores = self.provedores_acima_com(&tardio(UTILITIES));
-                let acima = crate::diretivas::Acima {
+                let acima = crate::directives::Acima {
                     provedores: &provedores,
                     incerto: self.incertos_acima > 0,
                     de_visao: self.tokens_de_visao,
                 };
                 let pedidos = pedidos_ao_no_do_filho(e, casadas, self.filhos, self.usadas)?;
-                let r = crate::diretivas::resolver_no_do_filho(
+                let r = crate::directives::resolver_no_do_filho(
                     casadas,
                     *indice,
                     n,
@@ -4986,7 +4986,7 @@ impl Corpo<'_> {
             Some((r, pos)) => r.instancias[*pos].campo.clone(),
             None => format!(
                 "_{classe}_{n}_{}",
-                crate::dialeto::embutidos_extra() + if container { 8 } else { 5 }
+                crate::dialect::embutidos_extra() + if container { 8 } else { 5 }
             ),
         };
         // As diretivas do nó antes e depois do filho, na ordem das ligações
@@ -5129,7 +5129,7 @@ impl Corpo<'_> {
         self.campos_filho.push(format!(
             "  late final {vd}.{classe}{argumentos} {campo_inst};"
         ));
-        let do_no: Vec<(crate::diretivas::Token, String)> = antes_do_filho
+        let do_no: Vec<(crate::directives::Token, String)> = antes_do_filho
             .iter()
             .flat_map(|i| {
                 std::iter::once(&i.token)
@@ -5145,7 +5145,7 @@ impl Corpo<'_> {
         self.registros.push(Registro {
             acima,
             provedores: vec![(
-                crate::diretivas::Token::Classe {
+                crate::directives::Token::Classe {
                     uri: filho.uri_dart.clone(),
                     classe: filho.classe.clone(),
                 },
@@ -5340,7 +5340,7 @@ impl Corpo<'_> {
             // O filho entra primeiro no `injectorGetInternal`, pelos
             // apelidos dele (`ExistingProvider(X, OFilho)`) e, visível, pela
             // classe.
-            let injetaveis: Vec<(Vec<crate::diretivas::Token>, String)> = r
+            let injetaveis: Vec<(Vec<crate::directives::Token>, String)> = r
                 .instancias
                 .iter()
                 .filter(|i| !i.injetavel_por.is_empty())
@@ -5407,10 +5407,10 @@ impl Corpo<'_> {
         // Conteúdo projetado: os nós são criados soltos e cada um vai para a
         // projeção cujo seletor casa com ele (`findNgContentIndex`: o menor
         // índice que casa, senão o `*`).
-        let seletores: Vec<Option<Vec<crate::seletor::Seletor>>> = filho
+        let seletores: Vec<Option<Vec<crate::selector::Seletor>>> = filho
             .projecoes
             .iter()
-            .map(|s| (s != "*").then(|| crate::seletor::Seletor::analisar(s)))
+            .map(|s| (s != "*").then(|| crate::selector::Seletor::analisar(s)))
             .collect();
         let curinga = filho.projecoes.iter().position(|s| s == "*");
         let mut listas: Vec<Vec<String>> = vec![Vec::new(); filho.projecoes.len()];
@@ -5430,12 +5430,12 @@ impl Corpo<'_> {
                 No::Elemento(x) => {
                     let mut sem_estrela = x.clone();
                     sem_estrela.estrela = None;
-                    let desc = crate::seletor::Elemento::do_template(&sem_estrela);
+                    let desc = crate::selector::Elemento::do_template(&sem_estrela);
                     seletores
                         .iter()
                         .position(|s| {
                             s.as_ref()
-                                .is_some_and(|s| crate::seletor::casa_algum(s, &desc))
+                                .is_some_and(|s| crate::selector::casa_algum(s, &desc))
                         })
                         .or(curinga)
                 }
@@ -5568,22 +5568,22 @@ impl Corpo<'_> {
         el: &str,
         vd: &str,
         campo_vista: &str,
-        do_no: &[(crate::diretivas::Token, String)],
+        do_no: &[(crate::directives::Token, String)],
     ) -> Result<String, Recusa> {
         let em_filho = |f: &str| recusa(Motivo::LigacaoEmFilho, f);
         let classe = &filho.classe;
-        let do_proprio_no = |token: &crate::diretivas::Token| {
+        let do_proprio_no = |token: &crate::directives::Token| {
             do_no.iter().find_map(|(t, c)| (t == token).then_some(c))
         };
         // Os provedores dos elementos acima (`_getDependency` sobe por eles
         // antes do injetor de fora), com o import do `unsafeCast` tardio.
         let provedores_acima = self.provedores_acima_com(&tardio(UTILITIES));
         let de_cima =
-            |token: &crate::diretivas::Token| provedores_acima.iter().find(|p| p.token == *token);
+            |token: &crate::directives::Token| provedores_acima.iter().find(|p| p.token == *token);
         // A classe do componente desta visão: o `@Host()` a acha no injetor
         // (`identifierToken(component.type).equalsTo(dep.token)`).
-        let proprio_componente = |token: &crate::diretivas::Token| match token {
-            crate::diretivas::Token::Classe { uri, classe: tipo } => {
+        let proprio_componente = |token: &crate::directives::Token| match token {
+            crate::directives::Token::Classe { uri, classe: tipo } => {
                 self.classe_qualificada.rsplit('.').next() == Some(tipo.as_str())
                     && asset_de_uri(uri, "", Path::new("")).as_deref() == Some(self.asset.as_str())
             }
@@ -5619,7 +5619,7 @@ impl Corpo<'_> {
             }
             // Embutido do elemento: o oficial o acha no nó, nunca no
             // injetor de fora (ainda sem caso no nó do filho).
-            if crate::diretivas::embutido_do_elemento(token) {
+            if crate::directives::embutido_do_elemento(token) {
                 return Err(em_filho(
                     "filho que injeta embutido do elemento (ViewContainerRef…)",
                 ));
@@ -5706,7 +5706,7 @@ impl Corpo<'_> {
                         _ => {}
                     }
                     let expr = match token {
-                        crate::diretivas::Token::Classe { uri, classe: tipo } => {
+                        crate::directives::Token::Classe { uri, classe: tipo } => {
                             let caminho = asset_de_uri(uri, "", Path::new(""))
                                 .and_then(|alvo| caminho_do_import(&self.asset, &alvo))
                                 .ok_or_else(|| {
@@ -5762,7 +5762,7 @@ impl Corpo<'_> {
     fn consultas_das_diretivas(
         &mut self,
         e: &crate::html::Elemento,
-        diretivas: &[(std::sync::Arc<crate::diretivas::Diretiva>, String)],
+        diretivas: &[(std::sync::Arc<crate::directives::Diretiva>, String)],
         n: u32,
     ) -> Result<(), Recusa> {
         for (d, campo) in diretivas {
@@ -5836,7 +5836,7 @@ impl Corpo<'_> {
                     continue;
                 }
             }
-            let token = crate::diretivas::Token::Classe {
+            let token = crate::directives::Token::Classe {
                 uri: uri.clone(),
                 classe: classe.clone(),
             };
@@ -5867,7 +5867,7 @@ impl Corpo<'_> {
                         // `read:` lê outro token do mesmo nó.
                         Some(LeituraDaConsulta::Elemento) => r.elemento.clone(),
                         Some(LeituraDaConsulta::Classe(u, c)) => {
-                            let lido = crate::diretivas::Token::Classe {
+                            let lido = crate::directives::Token::Classe {
                                 uri: u.clone(),
                                 classe: c.clone(),
                             };
@@ -5931,11 +5931,11 @@ impl Corpo<'_> {
             // O token também casa pelos `providers:` do nó (`ExistingProvider`
             // de uma diretiva, o `FocusableItem` do `FocusItemDirective`):
             // o `_getQueriesFor` olha todos os provedores resolvidos do nó.
-            let token = crate::diretivas::Token::Classe {
+            let token = crate::directives::Token::Classe {
                 uri: uri.to_string(),
                 classe: classe.to_string(),
             };
-            let fornece = |d: &crate::diretivas::Diretiva| {
+            let fornece = |d: &crate::directives::Diretiva| {
                 (d.uri == uri && d.classe == classe)
                     || d.provedores.iter().any(|p| p.token == token)
             };
@@ -5955,7 +5955,7 @@ impl Corpo<'_> {
     /// e `ngOnDestroy` (caso j65).
     fn ganchos_depois_dos_filhos(
         &mut self,
-        diretivas: &[(std::sync::Arc<crate::diretivas::Diretiva>, String)],
+        diretivas: &[(std::sync::Arc<crate::directives::Diretiva>, String)],
     ) {
         for (d, campo) in diretivas {
             let g = &d.ganchos;
@@ -6073,7 +6073,7 @@ impl Corpo<'_> {
         spec: &[(String, String, Option<bool>)],
         campo_inst: &str,
         on_push: Option<&str>,
-        g: &crate::componente::Ganchos,
+        g: &crate::component::Ganchos,
         motivo: Motivo,
     ) -> Result<(), Recusa> {
         let dbg = tardio(CHECK_BINDING);
@@ -6232,15 +6232,15 @@ impl Corpo<'_> {
     fn ouvintes_com_hospedeiro(
         &mut self,
         do_no: &crate::html::Elemento,
-        casadas: &[std::sync::Arc<crate::diretivas::Diretiva>],
-        r: &crate::diretivas::NoResolvido,
+        casadas: &[std::sync::Arc<crate::directives::Diretiva>],
+        r: &crate::directives::NoResolvido,
         alvo: &str,
     ) -> Result<(), Recusa> {
         // Os `@HostListener` na ordem das diretivas em `directives:`
         // (`_collectHostListeners`), agrupados por evento na ordem em
         // que cada um aparece primeiro: dois ouvintes do mesmo evento
         // viram um `_handleEvent_N` que chama os dois.
-        let mut grupos: Vec<(String, Vec<(String, crate::diretivas::Ouvinte)>)> = Vec::new();
+        let mut grupos: Vec<(String, Vec<(String, crate::directives::Ouvinte)>)> = Vec::new();
         for d in casadas {
             let Some((_, campo)) = r
                 .diretivas
@@ -6307,8 +6307,8 @@ impl Corpo<'_> {
         filho: &Filho,
         el: &str,
         diretivas: Option<(
-            &[std::sync::Arc<crate::diretivas::Diretiva>],
-            &crate::diretivas::NoResolvido,
+            &[std::sync::Arc<crate::directives::Diretiva>],
+            &crate::directives::NoResolvido,
         )>,
     ) -> Result<(), Recusa> {
         let mut do_elemento = e.clone();
@@ -6328,7 +6328,7 @@ impl Corpo<'_> {
     /// `classe` de `uri`): no 9, o `T` do `Stream<T>` dela pelo
     /// `fromDartType` (§B4); no 8, nenhum.
     fn tipo_da_saida(&self, uri: &str, classe: &str, membro: &str) -> Result<Option<String>, Recusa> {
-        if crate::dialeto::atual() == crate::dialeto::Dialeto::Ngdart {
+        if crate::dialect::atual() == crate::dialect::Dialeto::Ngdart {
             return Ok(None);
         }
         let falha = || recusa(Motivo::Evento, "@Output sem o tipo do Stream");
@@ -6417,7 +6417,7 @@ impl Corpo<'_> {
         let hospedeiro = match dir.hospedeiro {
             None => None,
             Some(classe) => {
-                let token = crate::diretivas::Token::Classe {
+                let token = crate::directives::Token::Classe {
                     uri: dir.uri.to_string(),
                     classe: classe.to_string(),
                 };
@@ -6477,7 +6477,7 @@ impl Corpo<'_> {
         self.proxima_embutida += 1 + contar_estruturais(&e.filhos);
         let nome_fabrica = format!("viewFactory_{}{indice}", &self.classe_da_visao[4..]);
         // No 9 há o `JSObject` a mais entre os embutidos (§B3).
-        let x = crate::dialeto::embutidos_extra();
+        let x = crate::dialect::embutidos_extra();
         let (k_tr, k_dir) = (8 + x, 9 + x);
         let campo = format!("_{classe_dir}_{n}_{k_dir}");
         // Num `<template>` os provedores embutidos ocupam 0..7 e o
@@ -6679,10 +6679,10 @@ impl Corpo<'_> {
         }
         let mut sem = e.clone();
         sem.estrela = None;
-        let desc = crate::seletor::Elemento::do_template(&sem);
+        let desc = crate::selector::Elemento::do_template(&sem);
         if let Some(u) = self.usadas.iter().find(|u| {
             (u.filho.is_some() || u.diretiva.is_none())
-                && crate::seletor::casa_algum(&u.seletores, &desc)
+                && crate::selector::casa_algum(&u.seletores, &desc)
         }) {
             return Err(recusa(
                 Motivo::DiretivaPorSeletor,
@@ -6769,16 +6769,16 @@ impl Corpo<'_> {
         let (resolvido, k_tr) = if casadas.is_empty() {
             (
                 None,
-                crate::dialeto::embutidos_extra() + if forcar_container { 8 } else { 7 },
+                crate::dialect::embutidos_extra() + if forcar_container { 8 } else { 7 },
             )
         } else {
             let provedores = self.provedores_acima_com(&tardio(UTILITIES));
-            let acima = crate::diretivas::Acima {
+            let acima = crate::directives::Acima {
                 provedores: &provedores,
                 incerto: self.incertos_acima > 0,
                 de_visao: self.tokens_de_visao,
             };
-            let (r, k) = crate::diretivas::resolver_de_molde(
+            let (r, k) = crate::directives::resolver_de_molde(
                 &casadas,
                 n,
                 Some(acima),
@@ -6863,7 +6863,7 @@ impl Corpo<'_> {
                 true,
             )?;
             self.ganchos_depois_dos_filhos(&r.diretivas);
-            let injetaveis: Vec<(Vec<crate::diretivas::Token>, String)> = r
+            let injetaveis: Vec<(Vec<crate::directives::Token>, String)> = r
                 .instancias
                 .iter()
                 .filter(|i| !i.injetavel_por.is_empty())
@@ -7199,7 +7199,7 @@ impl Corpo<'_> {
         micro: &crate::micro::Micro,
         dir: Option<&Estrutural>,
     ) -> Result<(), Recusa> {
-        let mut desc = crate::seletor::Elemento::novo("template");
+        let mut desc = crate::selector::Elemento::novo("template");
         if !micro.propriedades.iter().any(|(p, _)| p == nome) {
             desc.atributo(nome, None);
         }
@@ -7209,7 +7209,7 @@ impl Corpo<'_> {
         let casadas: Vec<&Usada> = self
             .usadas
             .iter()
-            .filter(|u| crate::seletor::casa_algum(&u.seletores, &desc))
+            .filter(|u| crate::selector::casa_algum(&u.seletores, &desc))
             .collect();
         match (dir, casadas.as_slice()) {
             (Some(d), [u]) if u.e_estrutural(d) => Ok(()),
@@ -7238,10 +7238,10 @@ impl Corpo<'_> {
         if self.usadas.is_empty() {
             return Ok(());
         }
-        let desc = crate::seletor::Elemento::do_template(e);
+        let desc = crate::selector::Elemento::do_template(e);
         let filho = self.filhos.get(&e.nome);
         for u in self.usadas {
-            if !crate::seletor::casa_algum(&u.seletores, &desc) {
+            if !crate::selector::casa_algum(&u.seletores, &desc) {
                 continue;
             }
             let e_o_filho = match (&u.filho, filho) {
@@ -7868,19 +7868,19 @@ impl Corpo<'_> {
             None
         } else {
             let provedores = self.provedores_acima();
-            let acima = crate::diretivas::Acima {
+            let acima = crate::directives::Acima {
                 provedores: &provedores,
                 incerto: self.incertos_acima > 0,
                 de_visao: self.tokens_de_visao,
             };
             // O que as consultas com `read:` leem deste nó é ansioso.
-            let consultados: Vec<crate::diretivas::Token> = self
+            let consultados: Vec<crate::directives::Token> = self
                 .leituras
                 .iter()
                 .filter(|(chave, _)| casa_a_chave(e, chave, self.filhos))
                 .map(|(_, t)| t.clone())
                 .collect();
-            match crate::diretivas::resolver_consultado(&casadas, n, Some(acima), &consultados) {
+            match crate::directives::resolver_consultado(&casadas, n, Some(acima), &consultados) {
                 Ok(r) => Some(r),
                 Err(f) => {
                     self.anotar(recusa(Motivo::DiretivaPorSeletor, f))?;
@@ -7968,7 +7968,7 @@ impl Corpo<'_> {
             // No 9 o nó solto leva o tipo dele (`unsafeCast<T>`, para o
             // despacho estático dos *extension types* do `package:web`,
             // `NX:compiler/view_compiler/compile_view.dart:822-834`).
-            let tipo_do_no = if crate::dialeto::atual() == crate::dialeto::Dialeto::Ngx {
+            let tipo_do_no = if crate::dialect::atual() == crate::dialect::Dialeto::Ngx {
                 format!("<{}>", self.imp.dom(dom::tipo_da_tag(&tag)))
             } else {
                 String::new()
@@ -8256,7 +8256,7 @@ impl Corpo<'_> {
                 self.ancoras.push(format!("_appEl_{n}"));
             }
             self.diretivas_do_no(e, r, &alvo, &propriedades, &eventos)?;
-            let injetaveis: Vec<(Vec<crate::diretivas::Token>, String)> = r
+            let injetaveis: Vec<(Vec<crate::directives::Token>, String)> = r
                 .instancias
                 .iter()
                 .filter(|i| !i.injetavel_por.is_empty())
@@ -8360,7 +8360,7 @@ impl Corpo<'_> {
 
     /// Os `@HostListener` de várias diretivas do nó para o mesmo evento: um
     /// `_handleEvent_N` que chama cada um, na ordem.
-    fn handler_de_grupo(&mut self, lista: &[(String, crate::diretivas::Ouvinte)]) -> String {
+    fn handler_de_grupo(&mut self, lista: &[(String, crate::directives::Ouvinte)]) -> String {
         let n = self.metodos_evento.len();
         let corpo: Vec<String> = lista
             .iter()
@@ -8377,7 +8377,7 @@ impl Corpo<'_> {
     /// O handler de um `@HostListener` de diretiva: método sem parâmetro ou
     /// com `$event` é tear-off da instância; com outro argumento, um
     /// `_handleEvent_N` que chama o método.
-    fn handler_de_hospedeiro(&mut self, campo: &str, o: &crate::diretivas::Ouvinte) -> String {
+    fn handler_de_hospedeiro(&mut self, campo: &str, o: &crate::directives::Ouvinte) -> String {
         let m = &o.metodo;
         match o.args.as_str() {
             "" => format!("this.eventHandler0(this.{campo}.{m})"),
@@ -8399,7 +8399,7 @@ impl Corpo<'_> {
     fn diretivas_do_no(
         &mut self,
         e: &crate::html::Elemento,
-        r: &crate::diretivas::NoResolvido,
+        r: &crate::directives::NoResolvido,
         alvo: &str,
         propriedades: &[crate::html::Ligacao],
         eventos: &[crate::html::Ligacao],
@@ -8421,13 +8421,13 @@ impl Corpo<'_> {
     fn criar_instancias(
         &mut self,
         e: &crate::html::Elemento,
-        instancias: &[crate::diretivas::Instancia],
+        instancias: &[crate::directives::Instancia],
         alvo: &str,
         // `ChangeDetectorRef` no nó: a `componentView` do filho, ou a
         // própria visão (`compile_element.dart:199`).
         detector: &str,
     ) -> Result<(), Recusa> {
-        use crate::diretivas::{Argumento, Criacao, Token};
+        use crate::directives::{Argumento, Criacao, Token};
         for inst in instancias {
             // Um `providers:` do filho que não é apelido: escrito como na
             // hospedeira (`ProviderSource.build`). O preguiçoso é campo com
@@ -8593,7 +8593,7 @@ impl Corpo<'_> {
     /// (Só o componente no nó, sem diretiva: nada a registrar.)
     fn registrar_diretivas(
         &mut self,
-        diretivas: &[(std::sync::Arc<crate::diretivas::Diretiva>, String)],
+        diretivas: &[(std::sync::Arc<crate::directives::Diretiva>, String)],
         alvo: &str,
     ) {
         if !diretivas.is_empty() {
@@ -8618,15 +8618,15 @@ impl Corpo<'_> {
     fn ligar_diretivas(
         &mut self,
         e: &crate::html::Elemento,
-        instancias: &[crate::diretivas::Instancia],
-        diretivas: &[(std::sync::Arc<crate::diretivas::Diretiva>, String)],
+        instancias: &[crate::directives::Instancia],
+        diretivas: &[(std::sync::Arc<crate::directives::Diretiva>, String)],
         alvo: &str,
         propriedades: &[crate::html::Ligacao],
         eventos: &[crate::html::Ligacao],
         entradas: bool,
         saidas: bool,
     ) -> Result<(), Recusa> {
-        use crate::diretivas::Criacao;
+        use crate::directives::Criacao;
         // `detectHostChanges` das diretivas com `@HostBinding`, com as
         // ligações de propriedade do nó (`bindDirectiveHostProps`).
         for inst in instancias.iter().filter(|_| entradas) {
@@ -8668,7 +8668,7 @@ impl Corpo<'_> {
             // Só `AfterChanges`, `OnInit` e `DoCheck` chegam aqui (o
             // `OnDestroy` sai no `destroyInternal`): os outros ganchos são
             // recusados pela guarda (`Diretiva::pendencia`).
-            let ganchos = crate::componente::Ganchos {
+            let ganchos = crate::component::Ganchos {
                 after_changes: d.ganchos.after_changes,
                 on_init: d.ganchos.on_init,
                 do_check: d.ganchos.do_check,
@@ -8693,7 +8693,7 @@ impl Corpo<'_> {
     /// (`bindDirectiveOutputs`).
     fn saidas_da_diretiva(
         &mut self,
-        d: &crate::diretivas::Diretiva,
+        d: &crate::directives::Diretiva,
         campo: &str,
         eventos: &[crate::html::Ligacao],
     ) -> Result<(), Recusa> {
@@ -8739,7 +8739,7 @@ impl Corpo<'_> {
 /// visão do componente vem logo antes do `detectChanges` dela, depois dos
 /// ganchos de conteúdo (caso j32).
 fn ciclo_de_vida(
-    g: &crate::componente::Ganchos,
+    g: &crate::component::Ganchos,
     marca: bool,
     hospedeiro: bool,
     aninhadas: bool,
@@ -8901,7 +8901,7 @@ fn tem_elemento_ligado(
 fn elemento_do_filho_ligado(
     e: &crate::html::Elemento,
     filho: &Filho,
-    extras: &[std::sync::Arc<crate::diretivas::Diretiva>],
+    extras: &[std::sync::Arc<crate::directives::Diretiva>],
 ) -> bool {
     e.propriedades
         .iter()
@@ -8920,14 +8920,14 @@ fn elemento_do_filho_ligado(
 fn diretivas_casadas(
     usadas: &[Usada],
     e: &crate::html::Elemento,
-) -> Vec<std::sync::Arc<crate::diretivas::Diretiva>> {
+) -> Vec<std::sync::Arc<crate::directives::Diretiva>> {
     if usadas.is_empty() {
         return Vec::new();
     }
-    let desc = crate::seletor::Elemento::do_template(e);
+    let desc = crate::selector::Elemento::do_template(e);
     usadas
         .iter()
-        .filter(|u| u.filho.is_none() && crate::seletor::casa_algum(&u.seletores, &desc))
+        .filter(|u| u.filho.is_none() && crate::selector::casa_algum(&u.seletores, &desc))
         .filter_map(|u| u.diretiva.clone())
         .collect()
 }
@@ -8938,11 +8938,11 @@ fn diretivas_casadas(
 /// na ordem certa (caso i76; o `PopupRef_0_9` do `paper_tooltip`).
 fn pedidos_ao_no_do_filho(
     e: &crate::html::Elemento,
-    casadas: &[std::sync::Arc<crate::diretivas::Diretiva>],
+    casadas: &[std::sync::Arc<crate::directives::Diretiva>],
     filhos: &std::collections::HashMap<String, Filho>,
     usadas: &[Usada],
-) -> Result<Vec<(crate::diretivas::Token, bool)>, Recusa> {
-    let tokens: Vec<crate::diretivas::Token> = casadas
+) -> Result<Vec<(crate::directives::Token, bool)>, Recusa> {
+    let tokens: Vec<crate::directives::Token> = casadas
         .iter()
         .flat_map(|d| d.provedores.iter().map(|p| p.token.clone()))
         .collect();
@@ -8964,11 +8964,11 @@ fn pedidos_do_conteudo(
     nos: &[No],
     filhos: &std::collections::HashMap<String, Filho>,
     usadas: &[Usada],
-    tokens: &[crate::diretivas::Token],
+    tokens: &[crate::directives::Token],
     ansioso: bool,
-    saida: &mut Vec<(crate::diretivas::Token, bool)>,
+    saida: &mut Vec<(crate::directives::Token, bool)>,
 ) -> Result<(), Recusa> {
-    use crate::diretivas::Token;
+    use crate::directives::Token;
     for n in nos {
         let No::Elemento(e) = n else { continue };
         // O `*` leva o nó para a visão embutida: o pedido que sai de lá
@@ -9098,10 +9098,10 @@ fn pedidos_do_conteudo(
 fn ordem_dos_pedidos_do_no(
     e: &crate::html::Elemento,
     filho: Option<&Filho>,
-    casadas: &[std::sync::Arc<crate::diretivas::Diretiva>],
+    casadas: &[std::sync::Arc<crate::directives::Diretiva>],
     usadas: &[Usada],
-) -> Option<Vec<crate::diretivas::Token>> {
-    use crate::diretivas::Criacao;
+) -> Option<Vec<crate::directives::Token>> {
+    use crate::directives::Criacao;
     let _ = e;
     let r = match filho {
         Some(f) => {
@@ -9111,10 +9111,10 @@ fn ordem_dos_pedidos_do_no(
                 .parametros
                 .iter()
                 .any(|p| matches!(p, Injetado::Container))
-                || casadas.iter().any(|d| crate::diretivas::pede_container(d));
-            crate::diretivas::resolver_no_do_filho(&cas, indice, 0, None, container, &[]).ok()?
+                || casadas.iter().any(|d| crate::directives::pede_container(d));
+            crate::directives::resolver_no_do_filho(&cas, indice, 0, None, container, &[]).ok()?
         }
-        None => crate::diretivas::resolver(casadas, 0, None).ok()?,
+        None => crate::directives::resolver(casadas, 0, None).ok()?,
     };
     // O componente entra na resolução só com as dependências do próprio nó
     // ([`casadas_do_no_do_filho`]); aqui valem todas, na ordem do construtor.
@@ -9140,12 +9140,12 @@ fn ordem_dos_pedidos_do_no(
 }
 
 /// Algum `@Input` das diretivas tem este nome?
-fn consome_entrada(casadas: &[std::sync::Arc<crate::diretivas::Diretiva>], nome: &str) -> bool {
+fn consome_entrada(casadas: &[std::sync::Arc<crate::directives::Diretiva>], nome: &str) -> bool {
     casadas.iter().any(|d| d.entrada(nome).is_some())
 }
 
 /// Algum `@Output` das diretivas tem este nome?
-fn consome_saida(casadas: &[std::sync::Arc<crate::diretivas::Diretiva>], nome: &str) -> bool {
+fn consome_saida(casadas: &[std::sync::Arc<crate::directives::Diretiva>], nome: &str) -> bool {
     casadas.iter().any(|d| d.saida(nome).is_some())
 }
 
@@ -9153,7 +9153,7 @@ fn consome_saida(casadas: &[std::sync::Arc<crate::diretivas::Diretiva>], nome: &
 /// atributo com `{{ }}` —, e vira campo da visão.
 fn liga_no_elemento(
     e: &crate::html::Elemento,
-    casadas: &[std::sync::Arc<crate::diretivas::Diretiva>],
+    casadas: &[std::sync::Arc<crate::directives::Diretiva>],
 ) -> bool {
     e.propriedades
         .iter()
@@ -9177,10 +9177,10 @@ fn sem_valor(a: &crate::html::Ligacao) -> bool {
 /// intervalo de índices que ele serve; vazio se não há nenhum.
 /// Um nó com provedores injetáveis: (primeiro índice, último índice da
 /// subárvore, [(tokens, campo)]).
-type NoInjetor = (u32, u32, Vec<(Vec<crate::diretivas::Token>, String)>);
+type NoInjetor = (u32, u32, Vec<(Vec<crate::directives::Token>, String)>);
 
 fn metodo_injetor(injetores: &[NoInjetor], asset: &str) -> String {
-    use crate::diretivas::Token;
+    use crate::directives::Token;
     if injetores.is_empty() {
         return String::new();
     }
@@ -9192,14 +9192,14 @@ fn metodo_injetor(injetores: &[NoInjetor], asset: &str) -> String {
         },
         Token::Multi { nome, tipo } => Token::Multi {
             nome: nome.clone(),
-            tipo: crate::diretivas::TipoDeToken {
+            tipo: crate::directives::TipoDeToken {
                 uri: import_de(&tipo.uri, asset),
                 ..tipo.clone()
             },
         },
         Token::Opaco { nome, tipo } => Token::Opaco {
             nome: nome.clone(),
-            tipo: crate::diretivas::TipoDeToken {
+            tipo: crate::directives::TipoDeToken {
                 uri: import_de(&tipo.uri, asset),
                 ..tipo.clone()
             },
@@ -9305,8 +9305,8 @@ fn metodo_injetor(injetores: &[NoInjetor], asset: &str) -> String {
 /// deste arquivo e o import tardio: a classe, ou o `const MultiToken<T>('x')`
 /// / `const OpaqueToken<T>('x')`. O `T` de `dart:core` sai sem prefixo; o de
 /// outra biblioteca ganha import próprio (ver [`Importacoes::q_chave`]).
-fn expr_do_token(t: &crate::diretivas::Token) -> String {
-    use crate::diretivas::Token;
+fn expr_do_token(t: &crate::directives::Token) -> String {
+    use crate::directives::Token;
     let (classe_do_token, nome, tipo) = match t {
         Token::Classe { uri, classe } => return format!("{}{classe}", tardio_q(uri)),
         Token::Multi { nome, tipo } => ("MultiToken", nome, tipo),
@@ -9316,7 +9316,7 @@ fn expr_do_token(t: &crate::diretivas::Token) -> String {
     let arg = texto_do_tipo_de_token(tipo);
     format!(
         "const {}{classe_do_token}<{arg}>({})",
-        tardio_q(crate::diretivas::DI_TOKENS),
+        tardio_q(crate::directives::DI_TOKENS),
         literal(nome)
     )
 }
@@ -9325,7 +9325,7 @@ fn expr_do_token(t: &crate::diretivas::Token) -> String {
 /// prefixo (mas com o import alocado), o de outra biblioteca com import
 /// próprio pela URI (`q_chave`), e os argumentos concretos recursivamente
 /// (`List<import29.RelativePosition>`, pelo URI `package:` do tipo).
-fn texto_do_tipo_de_token(tipo: &crate::diretivas::TipoDeToken) -> String {
+fn texto_do_tipo_de_token(tipo: &crate::directives::TipoDeToken) -> String {
     if tipo.e_dinamico() {
         return "dynamic".into();
     }
@@ -9377,7 +9377,7 @@ fn campos_em_ordem<'a>(
     asset: &str,
 ) -> Vec<CampoDaVisao<'a>> {
     let mut saida = Vec::new();
-    let separar = |instancias: &[crate::diretivas::Instancia], saida: &mut Vec<CampoDaVisao>| {
+    let separar = |instancias: &[crate::directives::Instancia], saida: &mut Vec<CampoDaVisao>| {
         let uris = instancias
             .iter()
             .filter(|i| !i.preguicosa)
@@ -9402,7 +9402,7 @@ fn campos_em_ordem<'a>(
                 let campos = if casadas.is_empty() {
                     Vec::new()
                 } else {
-                    crate::diretivas::resolver_de_molde(&casadas, 0, None, false, &|_| {
+                    crate::directives::resolver_de_molde(&casadas, 0, None, false, &|_| {
                         String::new()
                     })
                     .map(|(r, _)| {
@@ -9426,7 +9426,7 @@ fn campos_em_ordem<'a>(
                 .parametros
                 .iter()
                 .any(|p| matches!(p, Injetado::Container))
-                || extras.iter().any(|d| crate::diretivas::pede_container(d));
+                || extras.iter().any(|d| crate::directives::pede_container(d));
             let resolvido = f
                 .metadados
                 .as_ref()
@@ -9434,7 +9434,7 @@ fn campos_em_ordem<'a>(
                 .and_then(|meta| {
                     let (indice, casadas) = casadas_do_no_do_filho(meta, &extras, usadas);
                     let pedidos = pedidos_ao_no_do_filho(e, &casadas, filhos, usadas).ok()?;
-                    let r = crate::diretivas::resolver_no_do_filho(
+                    let r = crate::directives::resolver_no_do_filho(
                         &casadas, indice, 0, None, container, &pedidos,
                     )
                     .ok()?;
@@ -9459,7 +9459,7 @@ fn campos_em_ordem<'a>(
             let casadas = diretivas_casadas(usadas, e);
             if let (false, Ok(r)) = (
                 casadas.is_empty(),
-                crate::diretivas::resolver(&casadas, 0, None),
+                crate::directives::resolver(&casadas, 0, None),
             ) {
                 if r.container {
                     saida.push(CampoDaVisao::Container);
@@ -9480,11 +9480,11 @@ fn campos_em_ordem<'a>(
 /// j61) —, e as diretivas do nó. A ordem é a de `directives:`, com o filho
 /// no lugar dele (`_matchDirectives`); volta com o índice dele.
 fn casadas_do_no_do_filho(
-    meta: &crate::diretivas::Diretiva,
-    extras: &[std::sync::Arc<crate::diretivas::Diretiva>],
+    meta: &crate::directives::Diretiva,
+    extras: &[std::sync::Arc<crate::directives::Diretiva>],
     usadas: &[Usada],
-) -> (usize, Vec<std::sync::Arc<crate::diretivas::Diretiva>>) {
-    let providos: Vec<crate::diretivas::Token> = std::iter::once(meta)
+) -> (usize, Vec<std::sync::Arc<crate::directives::Diretiva>>) {
+    let providos: Vec<crate::directives::Token> = std::iter::once(meta)
         .chain(extras.iter().map(|d| &**d))
         .flat_map(|d| d.provedores.iter().map(|p| p.token.clone()))
         .chain(extras.iter().map(|d| d.token()))
@@ -9510,8 +9510,8 @@ fn casadas_do_no_do_filho(
 
 /// O campo de um provedor do nó, com os imports tardios na ordem em que o
 /// oficial os escreve: o tipo e, no preguiçoso de `providers:`, o valor.
-fn uri_do_campo(i: &crate::diretivas::Instancia, asset: &str) -> String {
-    use crate::diretivas::{Criacao, Token};
+fn uri_do_campo(i: &crate::directives::Instancia, asset: &str) -> String {
+    use crate::directives::{Criacao, Token};
     let uri = match (&i.criacao, &i.token) {
         // O preguiçoso tem o valor no campo; o ansioso, só o tipo (o valor
         // sai no `build()`).
@@ -9574,7 +9574,7 @@ struct EspecEmbutida {
     /// As consultas com resultado mais abaixo ([`Corpo::consultas_em_transito`]).
     consultas_em_transito: Vec<(String, String, u32)>,
     /// Os provedores acima da âncora, vistos da visão nova.
-    acima: Vec<(crate::diretivas::Token, String, Option<(String, u32)>)>,
+    acima: Vec<(crate::directives::Token, String, Option<(String, u32)>)>,
     /// Os campos de `acima` que são provedores preguiçosos do elemento
     /// dono (campo, classe da visão dele): um nó abaixo que os pede os
     /// transformaria antes do `afterElement` do dono (lacuna L1 da seção 05).
@@ -9616,7 +9616,7 @@ struct TipoDeDiretivaResolvido {
 }
 
 struct Contexto<'a> {
-    membros: &'a std::collections::HashMap<String, crate::componente::Membro>,
+    membros: &'a std::collections::HashMap<String, crate::component::Membro>,
     /// Os nomes de `exports:` resolvidos ([`Exportados`]).
     exportados: &'a Exportados,
     /// Os parâmetros de tipo do componente (`T`, `U`), livres nas visões.
@@ -9624,7 +9624,7 @@ struct Contexto<'a> {
     /// Os tokens dos `viewProviders:` do componente
     /// (`ProviderViewContext.viewProviders`): um `@Host()` da visão dele que
     /// pede um deles vai ao injetor em vez de ficar `null`.
-    tokens_de_visao: Vec<crate::diretivas::Token>,
+    tokens_de_visao: Vec<crate::directives::Token>,
     metodos: &'a std::collections::HashMap<String, String>,
     aridades: &'a std::collections::HashMap<String, usize>,
     filhos: &'a std::collections::HashMap<String, Filho>,
@@ -9646,7 +9646,7 @@ struct Contexto<'a> {
     refs_candidatos: std::collections::HashSet<String>,
     /// (chave, token) das consultas com `read:` de um provedor do nó
     /// ([`token_de_leitura`]).
-    leituras: Vec<(String, crate::diretivas::Token)>,
+    leituras: Vec<(String, crate::directives::Token)>,
     /// Os `#ref` que só consultas com `read:` de provedor procuram: o nó
     /// não precisa virar campo.
     refs_so_por_provedor: std::collections::HashSet<String>,
@@ -10504,17 +10504,17 @@ fn alocar_imports_dos_campos(
     }
     // O `dart:html` dos campos de elemento. No 9 cada tipo tem o seu módulo
     // do `package:web`: cada um entra na posição do primeiro campo dele.
-    match crate::dialeto::atual() {
-        crate::dialeto::Dialeto::Ngdart => {
+    match crate::dialect::atual() {
+        crate::dialect::Dialeto::Ngdart => {
             if tem_elemento_ligado(nos, filhos, usadas, refs) {
                 imp.alias("dart:html");
             }
         }
-        crate::dialeto::Dialeto::Ngx => {
+        crate::dialect::Dialeto::Ngx => {
             let mut tipos = Vec::new();
             tipos_dos_elementos_ligados(nos, filhos, usadas, refs, false, &mut tipos);
             for t in tipos {
-                imp.alias(crate::dialeto::dom(t).0);
+                imp.alias(crate::dialect::dom(t).0);
             }
         }
     }
@@ -10873,7 +10873,7 @@ fn tipo_qualificado(
 /// `NX:compiler/view_compiler/update_statement_visitor.dart:254-261`). Os
 /// imports vão como marcas tardias, alocados na ordem do texto.
 fn ouvinte_nativo(nome: &str, handler: &str) -> String {
-    if crate::dialeto::atual() == crate::dialeto::Dialeto::Ngdart {
+    if crate::dialect::atual() == crate::dialect::Dialeto::Ngdart {
         return handler.to_string();
     }
     let js = tardio_q("dart:js_interop");
@@ -10884,7 +10884,7 @@ fn ouvinte_nativo(nome: &str, handler: &str) -> String {
 /// O tipo de um evento nativo no 9, qualificado por marca tardia
 /// (`nativeHtmlEventType`, `NX:compiler/html_events.dart:116-177`).
 fn tipo_do_evento_nativo(nome: &str) -> String {
-    let (uri, n) = crate::dialeto::dom(crate::dialeto::tipo_do_evento_nativo(nome));
+    let (uri, n) = crate::dialect::dom(crate::dialect::tipo_do_evento_nativo(nome));
     format!("{}{n}", tardio_q(uri))
 }
 
@@ -10892,7 +10892,7 @@ fn tipo_do_evento_nativo(nome: &str) -> String {
 /// nativo (`NativeEvent`); evento próprio (`keyup.enter`, `CustomEvent`) e o
 /// 8 não têm (`binding_converter.dart:75,228`).
 fn tipo_de_evento_nativo(nome: &str) -> Option<String> {
-    (crate::dialeto::atual() == crate::dialeto::Dialeto::Ngx && evento_nativo(nome))
+    (crate::dialect::atual() == crate::dialect::Dialeto::Ngx && evento_nativo(nome))
         .then(|| tipo_do_evento_nativo(nome))
 }
 
@@ -11603,7 +11603,7 @@ fn forma_do_hospedeiro_de_componente(nome: &str) -> Result<FormaDoHospedeiro, St
 
 /// Os `@HostBinding` do componente na ordem do mapa `hostProperties` do
 /// oficial. Sem herança, os da própria classe ([`Componente`]); com
-/// herança, os dos metadados lidos do programa (`metadados.rs`: supertipos
+/// herança, os dos metadados lidos do programa (`metadata.rs`: supertipos
 /// primeiro, a chave é o nome e o último vence na posição do primeiro), com
 /// a imutabilidade dos membros herdados perguntada ao resolvedor.
 /// `style.x` precisa do tipo do membro (`isString`, `isNullable`).
@@ -11823,7 +11823,7 @@ fn gerar_componente_com(
     } else {
         None
     };
-    let tokens_do_no: Vec<crate::diretivas::Token> = no_hospedeiro
+    let tokens_do_no: Vec<crate::directives::Token> = no_hospedeiro
         .iter()
         .flat_map(|r| &r.instancias)
         .flat_map(|i| std::iter::once(i.token.clone()).chain(i.apelidos.iter().cloned()))
@@ -12352,7 +12352,7 @@ fn gerar_componente_com(
     // próximo `_handleEvent_N`.
     // Quem herda: os dos supertipos também, pelos metadados (supertipos
     // primeiro; o mesmo evento fica com o último, no lugar do primeiro).
-    let ouvintes_do_hospedeiro: Vec<crate::componente::Ouvinte> = if c.herda {
+    let ouvintes_do_hospedeiro: Vec<crate::component::Ouvinte> = if c.herda {
         match local.metadados.as_deref() {
             Some(m) if m.fora.is_empty() => {
                 if m.ouvintes.iter().any(|o| !evento_nativo(&o.evento)) {
@@ -12363,7 +12363,7 @@ fn gerar_componente_com(
                 }
                 m.ouvintes
                     .iter()
-                    .map(|o| crate::componente::Ouvinte {
+                    .map(|o| crate::component::Ouvinte {
                         evento: o.evento.clone(),
                         handler: format!("{}({})", o.metodo, o.args),
                     })
@@ -12710,7 +12710,7 @@ fn gerar_componente_com(
             .unwrap_or_default(),
     );
     let raiz_hosp = if container { "this._appEl_0" } else { "_el_0" };
-    let locais: Vec<(crate::diretivas::Token, String)> = no_hospedeiro
+    let locais: Vec<(crate::directives::Token, String)> = no_hospedeiro
         .iter()
         .flat_map(|r| &r.instancias)
         .flat_map(|i| {
@@ -12799,7 +12799,7 @@ fn gerar_componente_com(
     let (args, decl) = (&ctx.genericos, &ctx.genericos_decl);
     let seletor = &c.seletor;
     // `_tagNameFromComponentSelector`: o primeiro seletor com elemento.
-    let tag = crate::seletor::Seletor::analisar(seletor)
+    let tag = crate::selector::Seletor::analisar(seletor)
         .into_iter()
         .find_map(|s| s.elemento)
         .unwrap_or_else(|| seletor.trim().to_string());
@@ -12949,8 +12949,8 @@ fn parametros_de_tipo(
 
 /// Os `providers:` de um componente estão na parte que o emissor escreve
 /// (na hospedeira dele ou no nó de quem o usa)? Senão, o motivo.
-pub(crate) fn provedores_escreviveis(meta: &crate::diretivas::Diretiva) -> Result<(), String> {
-    use crate::diretivas::{TipoDeToken, Token};
+pub(crate) fn provedores_escreviveis(meta: &crate::directives::Diretiva) -> Result<(), String> {
+    use crate::directives::{TipoDeToken, Token};
     if let Some(f) = meta.fora.first() {
         return Err(f.clone());
     }
@@ -12972,7 +12972,7 @@ pub(crate) fn provedores_escreviveis(meta: &crate::diretivas::Diretiva) -> Resul
             return Err("token de tipo com argumentos concretos".into());
         }
         let alvo = match &p.fonte {
-            crate::diretivas::Fornece::Existente(t) => Some(t),
+            crate::directives::Fornece::Existente(t) => Some(t),
             _ => None,
         };
         if !token_conhecido(&p.token) || alvo.is_some_and(|t| !token_conhecido(t)) {
@@ -12985,15 +12985,15 @@ pub(crate) fn provedores_escreviveis(meta: &crate::diretivas::Diretiva) -> Resul
 /// Os provedores da visão-hospedeira: o nó 0, com o componente e os
 /// `providers:` dele (`ProviderElementContext` do elemento hospedeiro).
 /// Recusa o que o emissor ainda não escreve.
-fn provedores_da_hospedeira(local: &Local) -> Result<crate::diretivas::NoResolvido, Recusa> {
-    use crate::diretivas::{Criacao, Expr};
+fn provedores_da_hospedeira(local: &Local) -> Result<crate::directives::NoResolvido, Recusa> {
+    use crate::directives::{Criacao, Expr};
     let prov = |f: &str| recusa(Motivo::Providers, format!("providers: {f}"));
     let meta = local
         .metadados
         .clone()
         .ok_or_else(|| prov("sem os metadados do programa"))?;
     provedores_escreviveis(&meta).map_err(|f| prov(&f))?;
-    let r = crate::diretivas::resolver_hospedeira(meta).map_err(prov)?;
+    let r = crate::directives::resolver_hospedeira(meta).map_err(prov)?;
     // O componente é o último ansioso: os que ele pede vêm antes, e nada
     // depois dele é criado no `build()` (consulta de conteúdo que acha um
     // provedor o tornaria ansioso: recusada à parte).
@@ -13013,7 +13013,7 @@ fn provedores_da_hospedeira(local: &Local) -> Result<crate::diretivas::NoResolvi
 
 /// O tipo de um `T` inferido (`o.importType`): o do `dart:core` sem prefixo,
 /// com o import dele contado.
-fn texto_do_tipo(t: &crate::diretivas::TipoDeToken, asset: &str) -> String {
+fn texto_do_tipo(t: &crate::directives::TipoDeToken, asset: &str) -> String {
     let args = if t.genericos > 0 {
         format!("<{}>", vec!["dynamic"; t.genericos].join(", "))
     } else {
@@ -13028,8 +13028,8 @@ fn texto_do_tipo(t: &crate::diretivas::TipoDeToken, asset: &str) -> String {
 }
 
 /// O token de um provedor visto deste arquivo, pronto para [`expr_do_token`].
-fn token_local(t: &crate::diretivas::Token, asset: &str) -> crate::diretivas::Token {
-    use crate::diretivas::{TipoDeToken, Token};
+fn token_local(t: &crate::directives::Token, asset: &str) -> crate::directives::Token {
+    use crate::directives::{TipoDeToken, Token};
     let tipo = |x: &TipoDeToken| TipoDeToken {
         uri: import_de(&x.uri, asset),
         ..x.clone()
@@ -13052,8 +13052,8 @@ fn token_local(t: &crate::diretivas::Token, asset: &str) -> crate::diretivas::To
 }
 
 /// Um `useValue:` como o emissor o escreve.
-fn texto_do_valor(v: &crate::diretivas::ValorConst, asset: &str) -> String {
-    use crate::diretivas::ValorConst;
+fn texto_do_valor(v: &crate::directives::ValorConst, asset: &str) -> String {
+    use crate::directives::ValorConst;
     match v {
         ValorConst::Texto(s) => literal(s),
         ValorConst::Inteiro(i) => i.to_string(),
@@ -13095,14 +13095,14 @@ fn texto_do_valor(v: &crate::diretivas::ValorConst, asset: &str) -> String {
 /// (`injectFromViewParentInjector`: `(v.parentView!).injectorGet(T,
 /// v.parentIndex)`).
 fn texto_da_expr(
-    e: &crate::diretivas::Expr,
-    token: &crate::diretivas::Token,
+    e: &crate::directives::Expr,
+    token: &crate::directives::Token,
     asset: &str,
     util: &str,
     recuo: usize,
     vista: Option<&str>,
 ) -> String {
-    use crate::diretivas::Expr;
+    use crate::directives::Expr;
     let simples = |e: &Expr| -> String {
         let args = |a: &[Expr]| -> String {
             a.iter()
@@ -13156,8 +13156,8 @@ fn texto_da_expr(
 
 /// O tipo do campo de um provedor da hospedeira (`createProvider`): o `T`
 /// inferido; sem ele, o tipo da expressão (`dynamic` quando ela não tem).
-fn tipo_do_provedor(i: &crate::diretivas::Instancia, asset: &str) -> Result<String, Recusa> {
-    use crate::diretivas::{Criacao, Expr, ValorConst};
+fn tipo_do_provedor(i: &crate::directives::Instancia, asset: &str) -> Result<String, Recusa> {
+    use crate::directives::{Criacao, Expr, ValorConst};
     if let Criacao::Multi(_) = &i.criacao {
         return Ok(match &i.tipo {
             Some(t) => format!("List<{}>", texto_do_tipo(t, asset)),
@@ -13197,11 +13197,11 @@ fn tipo_do_provedor(i: &crate::diretivas::Instancia, asset: &str) -> Result<Stri
 /// valor;`), com imports tardios: o tipo e depois o valor, a ordem em que o
 /// oficial escreve (e numera os imports).
 fn texto_de_provedor_preguicoso(
-    i: &crate::diretivas::Instancia,
+    i: &crate::directives::Instancia,
     asset: &str,
     vista: Option<&str>,
 ) -> Result<String, Recusa> {
-    use crate::diretivas::Criacao;
+    use crate::directives::Criacao;
     let tipo = tipo_do_provedor(i, asset)?;
     // O `isDevMode` do `debugInjectorWrap` (só com dependência do injetor)
     // com import tardio, na ordem do texto (caso i78).
@@ -13233,15 +13233,15 @@ fn texto_de_provedor_preguicoso(
 struct ProvedoresNaHospedeira {
     campos: String,
     antes_do_componente: String,
-    injetaveis: Vec<(Vec<crate::diretivas::Token>, String)>,
+    injetaveis: Vec<(Vec<crate::directives::Token>, String)>,
 }
 
 fn escrever_provedores_da_hospedeira(
-    r: &crate::diretivas::NoResolvido,
+    r: &crate::directives::NoResolvido,
     asset: &str,
     util: &str,
 ) -> Result<ProvedoresNaHospedeira, Recusa> {
-    use crate::diretivas::Criacao;
+    use crate::directives::Criacao;
     let mut preguicosos = Vec::new();
     let mut ansiosos = Vec::new();
     let mut antes = String::new();
@@ -13300,7 +13300,7 @@ fn consultas_da_hospedeira(
     c: &Componente,
     local: &Local,
     resolvedor: Option<&dyn Resolucao>,
-    tokens: &[crate::diretivas::Token],
+    tokens: &[crate::directives::Token],
 ) -> Result<String, Recusa> {
     let Some(consultas) = &c.consultas_de_conteudo else {
         return Ok(String::new());
@@ -13314,7 +13314,7 @@ fn consultas_da_hospedeira(
                     recusa(Motivo::ContentChild, "@ContentChild de tipo não resolvido")
                 })?;
             let simples = q.alvo.rsplit('.').next().unwrap_or(&q.alvo).to_string();
-            let token = crate::diretivas::Token::Classe {
+            let token = crate::directives::Token::Classe {
                 uri: uri.clone(),
                 classe: simples.clone(),
             };
@@ -13355,16 +13355,16 @@ fn construcao_do_componente(
     imp: &mut Importacoes,
     proprio: &str,
     util: &str,
-    locais: &[(crate::diretivas::Token, String)],
+    locais: &[(crate::directives::Token, String)],
 ) -> Option<String> {
     let x = &c.classe;
     // Um parâmetro que um provedor do próprio nó satisfaz lê o campo dele
     // (`this._Servico_0_5`) e não conta como injeção.
-    let do_no = |p: &crate::componente::Parametro| -> Option<String> {
+    let do_no = |p: &crate::component::Parametro| -> Option<String> {
         let tipo = p.tipo.as_deref()?.trim_end_matches('?');
         let simples = tipo.rsplit('.').next()?;
         let uri = resolvedor?.uri_do_tipo(local.caminho, tipo)?;
-        let token = crate::diretivas::Token::Classe {
+        let token = crate::directives::Token::Classe {
             uri,
             classe: simples.to_string(),
         };
@@ -13402,7 +13402,7 @@ fn construcao_do_componente(
                 continue;
             }
             let expr = match &d.token {
-                crate::diretivas::Token::Classe { uri, classe } => {
+                crate::directives::Token::Classe { uri, classe } => {
                     let asset = asset_de_uri(uri, local.pacote, local.raiz)?;
                     let caminho = caminho_do_import(&local.asset(), &asset)?;
                     format!("{}.{classe}", imp.alias(&caminho))
@@ -13450,7 +13450,7 @@ fn construcao_do_componente(
         let uri = resolvedor?.uri_do_tipo(local.caminho, tipo)?;
         // Outro embutido do elemento hospedeiro (`ElementRef`,
         // `TemplateRef`…): não vem do injetor; ainda sem caso.
-        if crate::diretivas::embutido_do_elemento(&crate::diretivas::Token::Classe {
+        if crate::directives::embutido_do_elemento(&crate::directives::Token::Classe {
             uri: uri.clone(),
             classe: simples.to_string(),
         }) {
@@ -13489,8 +13489,8 @@ fn construcao_do_componente(
 fn dependencia_anotada<'m>(
     c: &Componente,
     local: &'m Local,
-    p: &crate::componente::Parametro,
-) -> Option<&'m crate::diretivas::Dependencia> {
+    p: &crate::component::Parametro,
+) -> Option<&'m crate::directives::Dependencia> {
     if !p.outra_anotacao || p.nomeado || p.proprio || p.hospedeiro || p.pular {
         return None;
     }
@@ -13508,8 +13508,8 @@ fn dependencia_anotada<'m>(
     let d = meta.dependencias.get(k)?;
     match &d.token {
         _ if d.atributo.is_some() => Some(d),
-        crate::diretivas::Token::Elemento | crate::diretivas::Token::Detector => None,
-        t if crate::diretivas::embutido_do_elemento(t) => None,
+        crate::directives::Token::Elemento | crate::directives::Token::Detector => None,
+        t if crate::directives::embutido_do_elemento(t) => None,
         _ => Some(d),
     }
 }
@@ -13517,7 +13517,7 @@ fn dependencia_anotada<'m>(
 /// O parâmetro é o elemento raiz do componente?
 /// O parâmetro é o `ChangeDetectorRef` do ngdart (sem anotação)?
 fn e_detector(
-    p: &crate::componente::Parametro,
+    p: &crate::component::Parametro,
     local: &Local,
     resolvedor: Option<&dyn Resolucao>,
 ) -> bool {
@@ -13533,7 +13533,7 @@ fn e_detector(
 
 /// O parâmetro é o `ViewContainerRef` do ngdart (sem anotação)?
 fn e_container(
-    p: &crate::componente::Parametro,
+    p: &crate::component::Parametro,
     local: &Local,
     resolvedor: Option<&dyn Resolucao>,
 ) -> bool {
@@ -13553,7 +13553,7 @@ fn e_container(
 /// O parâmetro pede o nó do elemento: `Element`/`HtmlElement` do `dart:html`,
 /// ou `Element`/`HTMLElement` do `package:web` no 9.
 fn e_elemento(tipo: Option<&str>) -> bool {
-    let ngx = crate::dialeto::atual() == crate::dialeto::Dialeto::Ngx;
+    let ngx = crate::dialect::atual() == crate::dialect::Dialeto::Ngx;
     match tipo.map(|t| t.rsplit('.').next().unwrap_or(t)) {
         Some("Element") => true,
         Some("HtmlElement") => !ngx,
@@ -13619,7 +13619,7 @@ fn falta_para_construir(
 #[cfg(test)]
 mod testes {
     use super::*;
-    use crate::componente::Parametro;
+    use crate::component::Parametro;
     use dartforge_intern::Interner;
 
     /// `<template ngFor let-x [ngForOf]>` vira a `estrela` do `*ngFor`
@@ -13756,7 +13756,7 @@ mod testes {
             &Ok(Vec::new()),
         )
         .expect("gera");
-        let esperado = include_str!("../testes/form_feedback_component.template.dart");
+        let esperado = include_str!("../testdata/form_feedback_component.template.dart");
         assert_eq!(saida, esperado.replace("\r\n", "\n"));
     }
 
@@ -13792,7 +13792,7 @@ mod testes {
             &Ok(Vec::new()),
         )
         .expect("gera");
-        let esperado = include_str!("../testes/callback_component.template.dart");
+        let esperado = include_str!("../testdata/callback_component.template.dart");
         assert_eq!(saida, esperado.replace("\r\n", "\n"));
     }
 
@@ -13908,7 +13908,7 @@ mod testes {
             &Ok(Vec::new()),
         )
         .expect("gera");
-        let esperado = include_str!("../testes/callback_com_injecao.template.dart");
+        let esperado = include_str!("../testdata/callback_with_injection.template.dart");
         assert_eq!(saida, esperado.replace("\r\n", "\n"));
     }
 }

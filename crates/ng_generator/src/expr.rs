@@ -20,9 +20,9 @@
 //!
 //! Os handlers de evento (`parseAction`) são a mesma linguagem com duas
 //! formas a mais: `$event` e a atribuição (`x = y`, `a.b = y`).
-use crate::componente::Membro;
+use crate::component::Membro;
 use crate::resolucao::Resolucao;
-use crate::visao::{Motivo, Recusa, recusa};
+use crate::view::{Motivo, Recusa, recusa};
 use dartforge_frontend::ast;
 use dartforge_intern::Interner;
 use std::collections::HashMap;
@@ -174,7 +174,7 @@ pub struct Escopo<'a> {
     /// sabe, e o estático é recusado.
     pub classe: Option<&'a str>,
     /// Os nomes de `exports:` (`_matchExport`), com o qualificador tardio.
-    pub exportados: Option<&'a crate::visao::Exportados>,
+    pub exportados: Option<&'a crate::view::Exportados>,
     /// Os parâmetros de tipo do componente (`T` de `Classe<T>`): em escopo em
     /// toda visão dele, entram como estão na substituição dos tipos herdados.
     pub genericos: &'a [String],
@@ -642,7 +642,7 @@ impl Conversor<'_> {
                     pode_ser_nulo: false,
                     tipo: Some("String".into()),
                     literal: true,
-                    ..Convertida::nova(crate::visao::literal(&valor.to_string_lossy()), "literal")
+                    ..Convertida::nova(crate::view::literal(&valor.to_string_lossy()), "literal")
                 })
             }
             ast::ExprKind::Identifier(n) => {

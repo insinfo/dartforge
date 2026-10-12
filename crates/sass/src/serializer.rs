@@ -117,7 +117,7 @@ pub(crate) struct Serializer<'a> {
     buffer: Vec<u8>,
     map: &'a CodeMap,
     /// O mapa de fontes em construção, quando pedido.
-    mapa: Option<crate::mapa::BufferMapa>,
+    mapa: Option<crate::source_map::BufferMapa>,
     /// O `span` dos erros sem nó próprio (o do valor ou da folha).
     span: Span,
 }
@@ -639,7 +639,7 @@ impl<'a> Serializer<'a> {
 
     /// Liga o mapa de fontes.
     pub fn ligar_mapa(&mut self) {
-        self.mapa = Some(crate::mapa::BufferMapa::default());
+        self.mapa = Some(crate::source_map::BufferMapa::default());
     }
 
     /// `_for`/`_buffer.forSpan`: associa o que `f` escreve a `span`.
@@ -1110,7 +1110,7 @@ impl<'a> Serializer<'a> {
 
     /// O CSS pronto e o mapa: `serialize` acrescenta o `@charset` (ou o
     /// BOM, no `compressed`) quando há caractere fora do ASCII.
-    pub fn finish_com_mapa(mut self) -> (String, Option<crate::mapa::Mapa>) {
+    pub fn finish_com_mapa(mut self) -> (String, Option<crate::source_map::Mapa>) {
         let prefixo = if self.options.allows_charset && self.buffer.iter().any(|&c| c > 0x7F) {
             if self.options.is_compressed() {
                 "\u{FEFF}"

@@ -7,7 +7,7 @@
 //! ngdart, que é exatamente o que consome essa saída.
 //!
 //! ```text
-//! cargo run -p dartforge-ng-generator --example conferir-sass -- C:/MyDartProjects/new_sali/frontend
+//! cargo run -p dartforge-ng-generator --example check-sass -- C:/MyDartProjects/new_sali/frontend
 //! ```
 use dartforge_ng_generator::{css, sass};
 use std::path::{Path, PathBuf};

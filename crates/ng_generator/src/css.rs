@@ -10,7 +10,7 @@
 //! imprime com o porte do csslib, [`crate::csslib`]): o `StyleCompiler`
 //! chama `shimShadowCss(style, '_ngcontent-%ID%', '_nghost-%ID%')`
 //! (`style_compiler.dart`).
-use crate::visao::Motivo;
+use crate::view::Motivo;
 
 /// `_viewClass` do `style_compiler.dart`.
 const CONTEUDO: &str = "_ngcontent-%ID%";

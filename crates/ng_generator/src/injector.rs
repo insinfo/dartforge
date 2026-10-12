@@ -9,8 +9,8 @@
 //! membro. Os imports são os do `Allocator.simplePrefixing` (`_i1`, `_i2`…,
 //! na ordem em que cada biblioteca aparece no texto; `dart:core` sem
 //! prefixo), e a unidade inteira do arquivo divide a mesma tabela.
-use crate::diretivas::{DI_TOKENS, Dependencia, Token};
-use crate::metadados::{FonteDoInjetor, Injetor, Revivido, TipoEscrito};
+use crate::directives::{DI_TOKENS, Dependencia, Token};
+use crate::metadata::{FonteDoInjetor, Injetor, Revivido, TipoEscrito};
 
 const INJECTOR: &str = "package:ngdart/src/di/injector.dart";
 const UTILITIES: &str = "package:ngdart/src/utilities.dart";
@@ -147,7 +147,7 @@ impl Emissor<'_> {
                     "OpaqueToken"
                 };
                 let c = self.al.r(DI_TOKENS, classe);
-                let t = self.al.tipo(&crate::metadados::tipo_escrito_do_token(tipo));
+                let t = self.al.tipo(&crate::metadata::tipo_escrito_do_token(tipo));
                 let args = if nome.is_empty() {
                     Vec::new()
                 } else {
@@ -267,7 +267,7 @@ pub fn emitir(injetores: &[&Injetor]) -> Result<(String, String), String> {
         .uris
         .iter()
         .enumerate()
-        .map(|(i, u)| format!("import '{}' as _i{};\n", crate::dialeto::escrita(u), i + 1))
+        .map(|(i, u)| format!("import '{}' as _i{};\n", crate::dialect::escrita(u), i + 1))
         .collect();
     let corpo = format!(
         "// ignore_for_file: no_leading_underscores_for_library_prefixes\n{}",

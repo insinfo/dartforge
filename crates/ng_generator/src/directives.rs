@@ -2,7 +2,7 @@
 //! oficial sabe de cada uma (o `CompileDirectiveMetadata` na parte que o
 //! emissor usa) e a resolução dos provedores de um nó.
 //!
-//! Os metadados **não** são escritos aqui: `metadados.rs` os lê do programa
+//! Os metadados **não** são escritos aqui: `metadata.rs` os lê do programa
 //! carregado, como o `find_components.dart` os lê do analyzer — seletor,
 //! `@Input`/`@Output`/`@HostListener` também herdados de superclasses,
 //! interfaces e mixins, provedores, visibilidade e as dependências do
@@ -17,7 +17,7 @@
 //! tamanho da tabela de instâncias no momento (cinco embutidas do elemento
 //! antes de tudo), e um `ExistingProvider` de um provedor do próprio nó vira
 //! apelido, sem campo.
-use crate::componente::Ganchos;
+use crate::component::Ganchos;
 use std::sync::Arc;
 
 /// `package:ngdart/src/meta/di_tokens.dart`, onde está o `MultiToken`.
@@ -258,7 +258,7 @@ pub struct Diretiva {
     pub consultas: bool,
     /// Os `@ContentChild(ren)`, com os tipos resolvidos na biblioteca da
     /// diretiva: setters, depois campos, cada grupo em ordem de declaração.
-    pub consultas_de_conteudo: Vec<crate::visao::ConsultaDoFilho>,
+    pub consultas_de_conteudo: Vec<crate::view::ConsultaDoFilho>,
     /// O que a leitura não conseguiu entender: com qualquer coisa aqui, os
     /// metadados estão incompletos e a diretiva não é usada.
     pub fora: Vec<String>,
@@ -320,7 +320,7 @@ impl Diretiva {
         if self
             .ouvintes
             .iter()
-            .any(|o| !crate::visao::evento_nativo(&o.evento))
+            .any(|o| !crate::view::evento_nativo(&o.evento))
         {
             return Some("@HostListener de evento não nativo".into());
         }
@@ -586,7 +586,7 @@ pub fn resolver_de_molde(
     template_ref: &dyn Fn(u32) -> String,
 ) -> Result<(NoResolvido, u32), &'static str> {
     let container = forcar_container || casadas.iter().any(|d| pede_container(d));
-    let indice = crate::dialeto::embutidos_extra() + if container { 8 } else { 7 };
+    let indice = crate::dialect::embutidos_extra() + if container { 8 } else { 7 };
     let leitura = template_ref(indice);
     let r = resolver_com(
         casadas,
@@ -850,8 +850,8 @@ fn resolver_com(
     // No `<template>`, as diretivas vêm depois do `TemplateRef`.
     let mut tamanho = match molde {
         Some((_, indice)) => indice + 1,
-        None if container => 8 + crate::dialeto::embutidos_extra(),
-        None => 5 + crate::dialeto::embutidos_extra(),
+        None if container => 8 + crate::dialect::embutidos_extra(),
+        None => 5 + crate::dialect::embutidos_extra(),
     };
     let mut campos: Vec<(Token, String)> = Vec::new();
     let mut apelidos: Vec<(Token, Token)> = Vec::new();
@@ -1200,7 +1200,7 @@ mod testes {
         }
     }
 
-    /// Diretivas de teste com a forma que `metadados.rs` lê do `ngforms`.
+    /// Diretivas de teste com a forma que `metadata.rs` lê do `ngforms`.
     fn ng_model() -> Arc<Diretiva> {
         Arc::new(Diretiva {
             classe: "NgModel".into(),
