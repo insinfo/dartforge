@@ -128,6 +128,12 @@ pub struct Ctx<'a> {
     /// expressão não dependem do ambiente em execução. 132 mil chamadas,
     /// 1,78 M alocações.
     pub rti_memo: RefCell<HashMap<Ty, String>>,
+    /// Nomes simples que mais de uma classe do programa (SDK incluído) usa:
+    /// só eles levam a biblioteca na receita do modo SDK
+    /// ([`Ctx::class_recipe`]).
+    pub nomes_de_classe_repetidos: HashSet<SymbolId>,
+    /// `DARTFORGE_JSPROD_RECEITA_CURTA=0` mantém a biblioteca em toda receita.
+    receita_curta: bool,
     /// Por unidade, os nós que são alvo de atribuição composta ou de
     /// `++`/`--` ([`Ctx::e_alvo_de_escrita`]).
     alvos_de_escrita: RefCell<HashMap<u32, std::rc::Rc<HashSet<u32>>>>,
@@ -242,6 +248,17 @@ impl<'a> Ctx<'a> {
             js_names: HashMap::new(),
             membro_memo: RefCell::new(HashMap::new()),
             rti_memo: RefCell::new(HashMap::new()),
+            nomes_de_classe_repetidos: {
+                let mut vistos: HashSet<SymbolId> = HashSet::new();
+                let mut repetidos: HashSet<SymbolId> = HashSet::new();
+                for c in &program.classes {
+                    if !vistos.insert(c.name) {
+                        repetidos.insert(c.name);
+                    }
+                }
+                repetidos
+            },
+            receita_curta: std::env::var("DARTFORGE_JSPROD_RECEITA_CURTA").map_or(true, |v| v != "0"),
             alvos_de_escrita: RefCell::new(HashMap::new()),
             super_memo: RefCell::new(HashMap::new()),
             erros: RefCell::new(Vec::new()),
@@ -2006,12 +2023,35 @@ impl<'a> Ctx<'a> {
     /// runtime (`_rtiToString` só lê o que vem depois), e o nome inteiro
     /// da biblioteca repetido em toda receita era ~20% do arquivo
     /// (`docs/JS-PRODUCAO-TAMANHO.md` §3.2).
+    ///
+    /// No modo SDK, a classe cujo nome simples nenhuma outra usa nem leva a
+    /// biblioteca: `|Padding`, `|int` (`docs/JS-PRODUCAO-TAMANHO.md` §9.3). O
+    /// `|` inicial é identificador para o *parser* de receitas
+    /// (`Recipe.isIdentifierStart`), o `_rtiToString` corta até ele e mostra
+    /// `Padding`, e ele marca a receita para o verificador e as regras
+    /// (`emit_js_producao::regras`).
     pub fn class_recipe(&self, c: ClassId) -> String {
         let lib = self.lib_of_class(c);
+        if self.sdk.is_some() && self.receita_curta && !self.nomes_de_classe_repetidos.contains(&self.program.class(c).name) {
+            return format!("|{}", self.class_name(c));
+        }
         if self.sdk.is_some() && !self.libs[lib.0 as usize].is_sdk {
             return format!("{}|{}", crate::tag_de_receita(lib), self.class_name(c));
         }
         format!("{}|{}", self.lib_ident(lib), self.class_name(c))
+    }
+
+    /// [`Ctx::class_recipe`] da classe `nome` de `uri`; `padrao` se ela não
+    /// existe no programa.
+    pub fn receita_de(&self, uri: &str, nome: &str, padrao: &str) -> String {
+        let classe = self.program.libraries.iter().position(|l| l.uri == uri).and_then(|i| {
+            let sym = self.interner.lookup(nome)?;
+            match self.program.library(LibraryId(i as u32)).declared.get(&sym)?.getter {
+                Some(Element::Class(c)) => Some(c),
+                _ => None,
+            }
+        });
+        classe.map_or_else(|| padrao.to_string(), |c| self.class_recipe(c))
     }
 
     /// Quantos parâmetros de tipo a classe declara.

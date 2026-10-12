@@ -396,26 +396,7 @@ impl<'a> oxc_ast_visit::Visit<'a> for StringsIdentificador {
         oxc_ast_visit::walk::walk_template_literal(self, it);
     }
     fn visit_call_expression(&mut self, it: &oxc_ast::ast::CallExpression<'a>) {
-        use oxc_ast::ast::Expression;
-        let contexto = match &it.callee {
-            Expression::StaticMemberExpression(m) => {
-                let prop = m.property.name.as_str();
-                match &m.object {
-                    Expression::Identifier(o) if o.name == "dart" => !DART_SEM_NOMES.contains(&prop),
-                    Expression::Identifier(o) if o.name == "js_util" => true,
-                    _ => JS_COM_NOMES.contains(&prop),
-                }
-            }
-            // Os mesmos, já achatados (`dart$$dsend`, `achatar.rs`).
-            Expression::Identifier(i) => {
-                if let Some(x) = crate::achatar::membro(i.name.as_str(), "dart") {
-                    !DART_SEM_NOMES.contains(&x)
-                } else {
-                    crate::achatar::membro(i.name.as_str(), "js_util").is_some()
-                }
-            }
-            _ => false,
-        };
+        let contexto = chamada_de_nomes(&it.callee);
         // O contexto vale para os argumentos e o que está dentro deles
         // (`() => ["a"]` das assinaturas estáticas, `[…]` do
         // `defineExtensionMethods`), até a próxima chamada, `new` ou corpo de
@@ -433,6 +414,15 @@ impl<'a> oxc_ast_visit::Visit<'a> for StringsIdentificador {
         self.pilha.push(false);
         oxc_ast_visit::walk::walk_new_expression(self, it);
         self.pilha.pop();
+    }
+    fn visit_variable_declarator(&mut self, it: &oxc_ast::ast::VariableDeclarator<'a>) {
+        // As `var t$S… = "…"` da deduplicação ficam no topo do arquivo, antes
+        // da marca, mas só levam *strings* de dados: as de posição de nome
+        // não são deduplicadas (`OcorrenciasDeString`).
+        if it.id.get_binding_identifier().is_some_and(|b| b.name.starts_with("t$S")) {
+            return;
+        }
+        oxc_ast_visit::walk::walk_variable_declarator(self, it);
     }
     fn visit_function_body(&mut self, it: &oxc_ast::ast::FunctionBody<'a>) {
         // Corpo de função com instruções (os *getters* do `defineLazy`, os
@@ -502,19 +492,70 @@ fn inicio_da_marca(programa: &oxc_ast::ast::Program<'_>) -> u32 {
 
 /// *Strings* literais em posição de expressão (não chaves de objeto nem
 /// diretivas), com o trecho do fonte de cada ocorrência.
-struct OcorrenciasDeString(std::collections::HashMap<String, Vec<(u32, u32)>>);
+struct OcorrenciasDeString {
+    mapa: std::collections::HashMap<String, Vec<(u32, u32)>>,
+    /// Início da marca do fim do SDK ([`MARCA_FIM_DO_SDK`]).
+    fim_sdk: u32,
+    /// Como em [`StringsIdentificador`]: se as *strings* da chamada aberta
+    /// são nomes.
+    pilha: Vec<bool>,
+}
+
+impl OcorrenciasDeString {
+    fn guardar(&mut self, it: &oxc_ast::ast::StringLiteral<'_>) {
+        self.mapa.entry(it.value.to_string()).or_default().push((it.span.start, it.span.end));
+    }
+}
 
 impl<'a> oxc_ast_visit::Visit<'a> for OcorrenciasDeString {
     fn visit_string_literal(&mut self, it: &oxc_ast::ast::StringLiteral<'a>) {
-        // Com forma de identificador fica literal: no acesso `x["_n$1c"]` a
-        // compressão o troca por `x._n$1c`, que o renomeio de propriedades
-        // encurta — uma variável no lugar impediria as duas coisas.
-        let v = it.value.as_str();
-        let mut cs = v.chars();
-        if cs.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$') && cs.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$') {
+        // Com forma de identificador, fica literal onde é (ou pode ser) nome
+        // de propriedade: no runtime, em posição de nome (a reserva do
+        // renomeio a lê ali) e como chave de `x["_n$1c"]` ou de `in` (as
+        // visitas abaixo), que a compressão troca por `x._n$1c`.
+        if e_identificador(it.value.as_str()) && (it.span.start < self.fim_sdk || self.pilha.last().copied().unwrap_or(false)) {
             return;
         }
-        self.0.entry(v.to_string()).or_default().push((it.span.start, it.span.end));
+        self.guardar(it);
+    }
+    fn visit_computed_member_expression(&mut self, it: &oxc_ast::ast::ComputedMemberExpression<'a>) {
+        self.visit_expression(&it.object);
+        match &it.expression {
+            oxc_ast::ast::Expression::StringLiteral(l) if e_identificador(l.value.as_str()) => {}
+            e => self.visit_expression(e),
+        }
+    }
+    fn visit_binary_expression(&mut self, it: &oxc_ast::ast::BinaryExpression<'a>) {
+        if it.operator == oxc_syntax::operator::BinaryOperator::In
+            && let oxc_ast::ast::Expression::StringLiteral(l) = &it.left
+            && e_identificador(l.value.as_str())
+        {
+            self.visit_expression(&it.right);
+            return;
+        }
+        oxc_ast_visit::walk::walk_binary_expression(self, it);
+    }
+    fn visit_call_expression(&mut self, it: &oxc_ast::ast::CallExpression<'a>) {
+        self.pilha.push(false);
+        self.visit_expression(&it.callee);
+        self.pilha.pop();
+        self.pilha.push(chamada_de_nomes(&it.callee));
+        for a in &it.arguments {
+            self.visit_argument(a);
+        }
+        self.pilha.pop();
+    }
+    fn visit_new_expression(&mut self, it: &oxc_ast::ast::NewExpression<'a>) {
+        self.pilha.push(false);
+        oxc_ast_visit::walk::walk_new_expression(self, it);
+        self.pilha.pop();
+    }
+    fn visit_function_body(&mut self, it: &oxc_ast::ast::FunctionBody<'a>) {
+        let expressao = it.statements.len() == 1 && matches!(it.statements[0], oxc_ast::ast::Statement::ExpressionStatement(_)) && it.directives.is_empty();
+        let herdado = self.pilha.last().copied().unwrap_or(false);
+        self.pilha.push(expressao && herdado);
+        oxc_ast_visit::walk::walk_function_body(self, it);
+        self.pilha.pop();
     }
     fn visit_property_key(&mut self, it: &oxc_ast::ast::PropertyKey<'a>) {
         if matches!(it, oxc_ast::ast::PropertyKey::StringLiteral(_)) {
@@ -523,6 +564,36 @@ impl<'a> oxc_ast_visit::Visit<'a> for OcorrenciasDeString {
         oxc_ast_visit::walk::walk_property_key(self, it);
     }
     fn visit_directive(&mut self, _it: &oxc_ast::ast::Directive<'a>) {}
+}
+
+fn e_identificador(v: &str) -> bool {
+    let mut cs = v.chars();
+    cs.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$') && cs.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+}
+
+/// Se as *strings* nos argumentos de uma chamada a `callee` são nomes de
+/// propriedade (ver [`StringsIdentificador`]).
+fn chamada_de_nomes(callee: &oxc_ast::ast::Expression<'_>) -> bool {
+    use oxc_ast::ast::Expression;
+    match callee {
+        Expression::StaticMemberExpression(m) => {
+            let prop = m.property.name.as_str();
+            match &m.object {
+                Expression::Identifier(o) if o.name == "dart" => !DART_SEM_NOMES.contains(&prop),
+                Expression::Identifier(o) if o.name == "js_util" => true,
+                _ => JS_COM_NOMES.contains(&prop),
+            }
+        }
+        // Os mesmos, já achatados (`dart$$dsend`, `achatar.rs`).
+        Expression::Identifier(i) => {
+            if let Some(x) = crate::achatar::membro(i.name.as_str(), "dart") {
+                !DART_SEM_NOMES.contains(&x)
+            } else {
+                crate::achatar::membro(i.name.as_str(), "js_util").is_some()
+            }
+        }
+        _ => false,
+    }
 }
 
 /// Deduplicação de *strings* (`docs/JS-PRODUCAO-TAMANHO.md` §3.4): toda
@@ -538,12 +609,12 @@ fn deduplicar_strings(fonte: &str) -> Result<String, String> {
     if let Some(e) = lido.diagnostics.first() {
         return Err(format!("oxc não leu o arquivo de produção: {e}"));
     }
-    let mut oc = OcorrenciasDeString(std::collections::HashMap::new());
+    let mut oc = OcorrenciasDeString { mapa: std::collections::HashMap::new(), fim_sdk: inicio_da_marca(&lido.program), pilha: Vec::new() };
     oc.visit_program(&lido.program);
     // Compensa quando as `n` cópias custam mais que a declaração e as `n`
     // referências (≈ 3 bytes cada depois da minificação).
     let mut escolhidas: Vec<(String, Vec<(u32, u32)>)> = oc
-        .0
+        .mapa
         .into_iter()
         .filter(|(_, v)| {
             let n = v.len();

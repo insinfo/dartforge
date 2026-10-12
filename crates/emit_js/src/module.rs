@@ -553,7 +553,7 @@ pub(crate) fn emit_rules_com(ctx: &Ctx, m: &ModState, sdk: bool) -> String {
             continue; // apagado para `_interceptors|JSObject` nas receitas
         }
         if ctx.is_js_class(c) {
-            entries.push(format!("{}:\"_interceptors|LegacyJavaScriptObject\"", json_str(&ctx.class_recipe(c))));
+            entries.push(format!("{}:{}", json_str(&ctx.class_recipe(c)), json_str(&ctx.receita_de("dart:_interceptors", "LegacyJavaScriptObject", "_interceptors|LegacyJavaScriptObject"))));
             interop.push(ctx.class_recipe(c));
             continue;
         }
@@ -606,12 +606,13 @@ pub(crate) fn emit_rules_com(ctx: &Ctx, m: &ModState, sdk: bool) -> String {
         interop.sort();
         m.use_sdk("_interceptors");
         let update: Vec<String> = interop.iter().map(|r| format!("{}:[]", json_str(r))).collect();
+        let ljo = ctx.receita_de("dart:_interceptors", "LegacyJavaScriptObject", "_interceptors|LegacyJavaScriptObject");
         out.push_str(&format!(
             "dart_rti._Universe.addOrUpdateRules(dart.typeUniverse, JSON.parse({}));\n",
-            js::string_literal(&format!("{{\"_interceptors|LegacyJavaScriptObject\":{{{}}}}}", update.join(",")))
+            js::string_literal(&format!("{{{}:{{{}}}}}", json_str(&ljo), update.join(",")))
         ));
         let names: Vec<String> = interop.iter().map(|r| js::string_literal(r)).collect();
-        out.push_str(&format!("dart.addRtiResources(_interceptors.LegacyJavaScriptObject, [\"_interceptors|LegacyJavaScriptObject\", {}]);\n", names.join(", ")));
+        out.push_str(&format!("dart.addRtiResources(_interceptors.LegacyJavaScriptObject, [{}, {}]);\n", js::string_literal(&ljo), names.join(", ")));
     }
     out
 }

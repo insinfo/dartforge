@@ -1616,7 +1616,8 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
             self.m.use_sdk("async");
             let it = self.temp();
             let elem_rti = self.rti(&elem_ty);
-            crate::linha!(self.w, "{it} = async.StreamIterator.new({elem_rti}[_eval](\"async|StreamIterator<0>\"), {});", ijs.code);
+            let receita = self.ctx.receita_de("dart:async", "StreamIterator", "async|StreamIterator");
+            crate::linha!(self.w, "{it} = async.StreamIterator.new({elem_rti}[_eval](\"{receita}<0>\"), {});", ijs.code);
             self.w.open("try {");
             crate::abre!(self.w, "while ((yield {it}.moveNext())) {{");
             let _ = &decl_ty;

@@ -1019,8 +1019,8 @@ pub fn emitir_intrinseco(e: &mut FnEmitter, fid: FunctionElementId, args: &ast::
                 "OPERATOR_IS_PREFIX" => "\"$is_\"".to_string(),
                 "SIGNATURE_NAME" => "dart._functionRti".to_string(),
                 "RTI_NAME" => "\"$ti\"".to_string(),
-                "FUTURE_CLASS_TYPE_NAME" => "\"async|Future\"".to_string(),
-                "LIST_CLASS_TYPE_NAME" => "\"core|List\"".to_string(),
+                "FUTURE_CLASS_TYPE_NAME" => js::string_literal(&e.ctx.receita_de("dart:async", "Future", "async|Future")),
+                "LIST_CLASS_TYPE_NAME" => js::string_literal(&e.ctx.receita_de("dart:core", "List", "core|List")),
                 "RTI_FIELD_AS" | "RTI_FIELD_IS" => {
                     let rti = e.ctx.sdk.as_ref()?.rti?;
                     e.private_sym(rti, if n == "RTI_FIELD_AS" { "_as" } else { "_is" })
@@ -1380,7 +1380,8 @@ pub fn emitir_modulo_sdk(ctx: &Ctx) -> (String, BTreeSet<String>) {
         out.push_str(&format!("{lvar}.$constCache = new Map();\n{lvar}.$C = function(k, f) {{ let v = {lvar}.$constCache.get(k); if (v === void 0) {{ v = f(); {lvar}.$constCache.set(k, v); }} return v; }};\n"));
     }
     out.push_str(&corpo.out);
-    out.push_str("dart_rti.findType(\"core|Object*\");\ndart_rti.findType(\"core|Object?\");\ndart_rti.findType(\"0&*\");\n");
+    let objeto = ctx.receita_de("dart:core", "Object", "core|Object");
+    out.push_str(&format!("dart_rti.findType(\"{objeto}*\");\ndart_rti.findType(\"{objeto}?\");\ndart_rti.findType(\"0&*\");\n"));
     (out, dartx_usados)
 }
 

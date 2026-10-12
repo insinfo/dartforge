@@ -625,3 +625,24 @@ local, quando:
   função atribuída a ele lê `this` (nem há `delete N.x`).
 
 `DARTFORGE_JSPROD_ACHATAR=0` desliga.
+
+### 9.3 Receita com o nome simples
+
+A classe cujo nome simples nenhuma outra do programa (SDK incluído) usa é
+escrita nas receitas e nas regras rti sem a biblioteca: `|Padding`, `|int`
+(`Ctx::class_recipe`). O `|` inicial é começo de identificador para o
+*parser* de receitas (`Recipe.isIdentifierStart`), o `_rtiToString` corta até
+ele (mostra `Padding`, como antes), e ele marca a receita para o verificador
+(que acha a classe pelo nome único) e para a poda das regras. Nomes repetidos
+continuam `rótulo|Nome`. Os nomes que o emissor escrevia à mão
+(`core|List` e `async|Future` do `JS_GET_NAME`, `core|Object*`,
+`async|StreamIterator`, `_interceptors|LegacyJavaScriptObject`) passam por
+`Ctx::receita_de`. `DARTFORGE_JSPROD_RECEITA_CURTA=0` desliga.
+
+### 9.4 *Strings* de dados com forma de identificador também deduplicadas
+
+Com a reserva da §9.1, as *strings* com forma de identificador fora de
+posição de nome são dados, e entram na deduplicação da §3.4 (`"button"`,
+`"label"`, `"NgValueAccessor"`…). Ficam literais as do runtime, as de
+posição de nome, as chaves de `x["…"]` e de `in`. A reserva ignora as
+declarações `t$S…` da deduplicação.

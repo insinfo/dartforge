@@ -183,7 +183,7 @@ fn definicoes(modulos: &[(String, String)], idents: &HashSet<&str>) -> Definicoe
 /// Referências a namespaces (`L$x.Nome`, `core.Nome`, `dart.f`) e receitas
 /// `ident|Nome` no texto. O conteúdo de *strings* e comentários não é
 /// referência (só as receitas, que vivem dentro de *strings*).
-fn referencias(texto: &str, idents: &HashSet<&str>, receitas: &HashMap<&str, &str>, classes: &HashSet<String>, out: &mut HashSet<String>) {
+fn referencias(texto: &str, idents: &HashSet<&str>, receitas: &HashMap<&str, &str>, unicos: &HashMap<String, &str>, classes: &HashSet<String>, out: &mut HashSet<String>) {
     let b = texto.as_bytes();
     let mut i = 0usize;
     while i < b.len() {
@@ -280,11 +280,10 @@ fn referencias(texto: &str, idents: &HashSet<&str>, receitas: &HashMap<&str, &st
         while ini > 0 && e_ident(b[ini - 1]) {
             ini -= 1;
         }
-        if ini == p {
-            continue;
-        }
-        let Some(var) = receitas.get(&texto[ini..p]) else { continue };
         let fim = ident_em(b, p + 1);
+        // `|Nome`: a classe de nome simples único (`Ctx::class_recipe`).
+        let var = if ini == p { unicos.get(&texto[p + 1..fim]) } else { receitas.get(&texto[ini..p]) };
+        let Some(var) = var else { continue };
         out.insert(format!("{var}.{}", &texto[p + 1..fim]));
     }
 }
@@ -472,9 +471,22 @@ pub fn conferir(modulos: &[(String, String)], libs: &HashMap<String, LibraryId>,
         }
     }
     let receitas: HashMap<&str, &str> = por_receita.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+    // Classe de nome simples único → variável do namespace (a receita
+    // `|Nome` do modo SDK).
+    let var_da_lib: HashMap<LibraryId, &str> = libs.iter().map(|(v, l)| (*l, v.as_str())).collect();
+    let mut contagem: HashMap<&str, (u32, LibraryId)> = HashMap::new();
+    for c in &program.classes {
+        let e = contagem.entry(interner.resolve(c.name)).or_insert((0, c.library));
+        e.0 += 1;
+    }
+    let unicos: HashMap<String, &str> = contagem
+        .into_iter()
+        .filter(|(_, (n, _))| *n == 1)
+        .filter_map(|(nome, (_, l))| var_da_lib.get(&l).map(|v| (nome.to_string(), *v)))
+        .collect();
     let mut refs: HashSet<String> = HashSet::new();
     for (_, t) in modulos {
-        referencias(t, &idents, &receitas, &defs.classes, &mut refs);
+        referencias(t, &idents, &receitas, &unicos, &defs.classes, &mut refs);
     }
     let mut faltas = Faltas::default();
     let mut pendentes: Vec<&String> = refs.iter().filter(|r| !defs.nomes.contains(*r)).collect();
@@ -651,7 +663,7 @@ mod testes {
         assert!(!d.nomes.contains("L$a.C.g"), "membro de instância não é definição estática");
         let receitas: HashMap<&str, &str> = [("a", "L$a")].into_iter().collect();
         let mut r = HashSet::new();
-        referencias(&m[0].1, &idents, &receitas, &d.classes, &mut r);
+        referencias(&m[0].1, &idents, &receitas, &HashMap::new(), &d.classes, &mut r);
         let pend: Vec<&String> = r.iter().filter(|x| !d.nomes.contains(*x)).collect();
         assert_eq!(pend, vec!["L$a.z"]);
     }
@@ -661,7 +673,7 @@ mod testes {
         let idents: HashSet<&str> = ["L$main"].into_iter().collect();
         let receitas: HashMap<&str, &str> = [("main", "L$main")].into_iter().collect();
         let mut r = HashSet::new();
-        referencias("x[_is](dart_rti._Universe.eval(u, \"main|D<core|int>\"))", &idents, &receitas, &HashSet::new(), &mut r);
+        referencias("x[_is](dart_rti._Universe.eval(u, \"main|D<core|int>\"))", &idents, &receitas, &HashMap::new(), &HashSet::new(), &mut r);
         assert!(r.contains("L$main.D"), "{r:?}");
         assert!(!r.iter().any(|x| x.contains("core")));
     }

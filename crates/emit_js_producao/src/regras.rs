@@ -59,7 +59,7 @@ fn string_js(t: &str, ini: usize) -> Option<(usize, String)> {
     None
 }
 
-/// Os nomes `lib|Classe` de um texto.
+/// Os nomes `lib|Classe` e `|Classe` de um texto.
 fn nomes_de_classe(t: &str, out: &mut HashSet<String>) {
     let b = t.as_bytes();
     let id = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'$';
@@ -72,7 +72,8 @@ fn nomes_de_classe(t: &str, out: &mut HashSet<String>) {
         while f < b.len() && id(b[f]) {
             f += 1;
         }
-        if i < p && f > p + 1 {
+        // `|Nome` (sem biblioteca) é a receita curta de `Ctx::class_recipe`.
+        if f > p + 1 {
             out.insert(t[i..f].to_string());
         }
     }
