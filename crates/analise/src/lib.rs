@@ -94,12 +94,30 @@ impl Pulados<'_> {
 
     /// Como [`Pulados::cita`], só nos trechos que tocam `dentro` (a
     /// declaração executável de um local).
+    /// Só a citação que começa dentro de `dentro` conta (o próprio nome
+    /// declarado, num trecho pulado que o contém, não é uso: `var enum;`).
     pub fn cita_em(&self, nome: &str, dentro: dartforge_diagnostics::Span) -> bool {
-        self.trechos
-            .iter()
-            .filter(|t| t.start < dentro.end && dentro.start < t.end)
-            .any(|t| cita_no_trecho(self.fonte, *t, nome))
+        self.trechos.iter().filter(|t| t.start < dentro.end && dentro.start < t.end).any(|t| {
+            let inicio = t.start.max(dentro.start);
+            let fim = t.end.min(dentro.end);
+            // O trecho inteiro decide a fronteira de palavra; a posição, o recorte.
+            citacoes(self.fonte, *t, nome).any(|p| p >= inicio && p < fim)
+        })
     }
+}
+
+/// As posições (na unidade) das citações de `nome` como palavra no trecho `t`.
+fn citacoes<'a>(fonte: &'a str, t: dartforge_diagnostics::Span, nome: &'a str) -> impl Iterator<Item = usize> + 'a {
+    let texto = fonte.get(t.start..t.end.min(fonte.len())).unwrap_or("");
+    let bytes = texto.as_bytes();
+    let de_palavra = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'$';
+    texto
+        .match_indices(nome)
+        .filter(move |(ini, _)| {
+            let fim = ini + nome.len();
+            !nome.is_empty() && (*ini == 0 || !de_palavra(bytes[ini - 1])) && (fim >= bytes.len() || !de_palavra(bytes[fim]))
+        })
+        .map(move |(ini, _)| t.start + ini)
 }
 
 fn cita_no_trecho(fonte: &str, t: dartforge_diagnostics::Span, nome: &str) -> bool {

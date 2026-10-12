@@ -640,8 +640,12 @@ impl<'a> Visita<'a> {
                 }
                 self.stmt(*then);
                 self.sair();
+                // Cada ramo é um escopo (`_visitStatementInScope`): o
+                // `else var x = 0;` não vaza.
                 if let Some(e) = else_ {
+                    self.entrar();
                     self.stmt(*e);
+                    self.sair();
                 }
             }
             StmtKind::For { init, condition, updates, body, .. } => {
@@ -663,9 +667,17 @@ impl<'a> Visita<'a> {
                 self.stmt(*body);
                 self.sair();
             }
-            StmtKind::While { condition, body } | StmtKind::DoWhile { body, condition } => {
+            StmtKind::While { condition, body } => {
                 self.expr(*condition);
+                self.entrar();
                 self.stmt(*body);
+                self.sair();
+            }
+            StmtKind::DoWhile { body, condition } => {
+                self.entrar();
+                self.stmt(*body);
+                self.sair();
+                self.expr(*condition);
             }
             StmtKind::Switch { value, cases } => {
                 self.expr(*value);

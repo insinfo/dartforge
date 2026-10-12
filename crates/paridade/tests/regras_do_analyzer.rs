@@ -190,6 +190,27 @@ const CASOS: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
         "import 'dart:_wasm';\n",
         &[("import_internal_library", 1, 8, 12), ("unused_import", 1, 8, 12)],
     ),
+    // FN do corpus (2026-10-12, 2): `for (constante in …)`, `(_) && p`, `m<T>` estático\nherdado, `[super._]` repetido e o escopo de cada ramo de `if`/`while`/`do`.
+    (
+        "escopo_de_ramo.dart",
+        "var x = 1;\nvoid f() {\n  while (false) var x = 0;\n  print(x);\n}\nvoid g(bool b) {\n  if (b) {} else var x = 0;\n  print(x);\n  do var x = 0; while (x > 0);\n  print(x);\n}\n",
+        &[("dead_code", 3, 17, 10), ("unused_local_variable", 3, 21, 1), ("unused_local_variable", 7, 22, 1), ("unused_local_variable", 9, 10, 1)],
+    ),
+    (
+        "estatico_instanciado.dart",
+        "class A {\n  static void a<T>() {}\n  static T g<T>(T x) => x;\n}\nclass B extends A {\n  void b() {\n    a<int>;\n    a;\n    print(g<int>);\n  }\n  static void s() {\n    a<int>;\n  }\n}\n",
+        &[("unqualified_reference_to_non_local_static_member", 7, 5, 1), ("unqualified_reference_to_non_local_static_member", 9, 11, 1), ("unqualified_reference_to_non_local_static_member", 12, 5, 1)],
+    ),
+    (
+        "for_in_const.dart",
+        "f(Object? o) {\n  const x = 0;\n  for (x in <int>[1, 2]) {\n    print(x);\n  }\n  if (o case (_) && 0) {}\n}\nclass A {\n  final int x, y;\n  A(this.x, [this.y = 0]);\n}\nclass C extends A {\n  final int c;\n  C(this.c, super._, [super._]);\n}\n",
+        &[("assignment_to_const", 3, 8, 1), ("unnecessary_wildcard_pattern", 6, 15, 1), ("duplicate_definition", 14, 29, 1), ("missing_default_value_for_parameter", 14, 29, 1)],
+    ),
+    (
+        "super_curinga.dart",
+        "class A {\n  final int x, y;\n  A(this.x, [this.y = 0]);\n}\nclass C extends A {\n  C(super.x, [super._]);\n}\nclass D extends A {\n  D(super._, [super.y]);\n}\n",
+        &[],
+    ),
 ];
 
 #[test]

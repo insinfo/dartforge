@@ -739,8 +739,10 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
             }
         }
         PatternKind::Parenthesized(x) => {
+            // O `analyzeParenthesizedPattern` repassa o contexto, com o
+            // `unnecessaryWildcardKind` (`(_) && p`).
             let x = *x;
-            tipar(inf, cx, x, final_, atribuicao, false);
+            tipar(inf, cx, x, final_, atribuicao, de_e);
         }
         PatternKind::Cast { pattern, ty } => {
             let (pattern, ty) = (*pattern, *ty);

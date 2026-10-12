@@ -1626,6 +1626,19 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
                     }
                     return (inf.table.invalido(inf.core.dynamic_), false);
                 }
+                // `m<T>` com `m` estático herdado (ou do tipo estendido) achado
+                // pelo `this` implícito (`_resolveSimpleIdentifierFunction`,
+                // 3.6.2 `function_reference_resolver.dart:657-694`): o
+                // `FunctionReference` relata o acesso não qualificado, que o
+                // tear-off sem argumentos de tipo não relata.
+                if let ExprKind::Identifier(n) = &ast(inf, cx).expr(*target).kind
+                    && matches!(resolver_nome(inf, cx, n.sym, false), RefNome::Nenhum | RefNome::ThisImplicito)
+                    && let Some(this) = tipo_this_do_analyzer(inf, cx)
+                    && let PeloThis::Estatico(dono, true) = buscar_pelo_this(inf, cx, this, n.sym, false)
+                {
+                    let n = *n;
+                    avisar_estatico_nao_qualificado(inf, cx, dono, n);
+                }
                 let t = inferir_livre(inf, cx, *target);
                 let targs: Vec<TypeId> = type_args.iter().map(|&x| inf.tipo_de_argumento_de_tipo(cx, x)).collect();
                 // `_resolve`: o parâmetro de tipo vale pelo limite.

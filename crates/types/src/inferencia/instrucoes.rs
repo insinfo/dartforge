@@ -1193,6 +1193,12 @@ pub(crate) fn cabecalho_for_in(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, targe
                     // `assignment_expression_resolver.dart:354-388`): o local
                     // `final` relata sempre, sem olhar a atribuição definida.
                     let l = cx.local(id);
+                    // `visitForEachPartsWithIdentifier` → `_checkForAssignmentToFinal`
+                    // (3.6.2 `error_verifier.dart:926-930`, `:2155-2161`): a
+                    // constante local, com as partes do laço válidas.
+                    if l.const_ && partes_validas {
+                        inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::ASSIGNMENT_TO_CONST, n.span, &[]);
+                    }
                     if l.final_ && !l.const_ && !cx.funcoes_locais.contains(&id) {
                         if l.late {
                             inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::LATE_FINAL_LOCAL_ALREADY_ASSIGNED, n.span, &[]);

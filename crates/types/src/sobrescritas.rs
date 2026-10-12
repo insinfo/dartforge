@@ -1432,7 +1432,13 @@ pub fn valores_padrao_com(
             // `_` com o recurso fica de fora
             // (`_isWildcardSuperFormalPositionalParameter`).
             if p.super_ {
-                if tem_padrao(program, interner, table, core, outline, corpos, FunctionElementId(i as u32), idx, 0) {
+                // O `_` repetido (sem o recurso de curingas, `duplicate_definition`)
+                // não chega ao parâmetro da superclasse: sem padrão herdado
+                // (conferido no oráculo 3.6.2, `C(this.c, super._, [super._])`).
+                let repetido = p.name.is_some_and(|n| {
+                    interner.resolve(n.sym) == "_" && params[..idx].iter().any(|q| q.name.is_some_and(|m| m.sym == n.sym))
+                });
+                if !repetido && tem_padrao(program, interner, table, core, outline, corpos, FunctionElementId(i as u32), idx, 0) {
                     continue;
                 }
                 let curinga = p.kind == ast::ParameterKind::Optional
