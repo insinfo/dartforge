@@ -489,6 +489,7 @@ dependencies = [
  "dartforge-analise",
  "dartforge-diagnostics",
  "dartforge-elements",
+ "dartforge-formatar",
  "dartforge-frontend",
  "dartforge-instrument",
  "dartforge-intern",

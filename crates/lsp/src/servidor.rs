@@ -419,6 +419,12 @@ impl<A: Analisador> Servidor<A> {
             renomear_arquivos,
             self.observar_arquivos,
         );
+        // `supportsDynamic => enableFormatter && ...` das três features de
+        // formatação: com `enableSdkFormatter: false`, elas saem.
+        let mut novos = novos;
+        if !self.configuracao.enable_sdk_formatter {
+            novos.retain(|(m, _)| !m.ends_with("ormatting"));
+        }
         let (sair, entrar) = self.registros.diferenca(novos);
         if !sair.is_empty() {
             self.proximo_pedido += 1;
@@ -1222,6 +1228,16 @@ impl<A: Analisador> Servidor<A> {
                 // `workspace`: as pastas e, sem o registro dinâmico das
                 // operações de arquivo, o `willRename` estático (com
                 // `updateImportsOnRename`, `server_capabilities_computer.dart:197-205`).
+                // A formatação (`FormattingRegistrations` e afins): estática
+                // quando `enableSdkFormatter` (o padrão).
+                if self.configuracao.enable_sdk_formatter {
+                    resultado["capabilities"]["documentFormattingProvider"] = json!(true);
+                    resultado["capabilities"]["documentOnTypeFormattingProvider"] = json!({
+                        "firstTriggerCharacter": crate::formatacao::CARACTERES_AO_DIGITAR[0],
+                        "moreTriggerCharacter": &crate::formatacao::CARACTERES_AO_DIGITAR[1..],
+                    });
+                    resultado["capabilities"]["documentRangeFormattingProvider"] = json!(true);
+                }
                 resultado["capabilities"]["workspace"] = json!({"workspaceFolders": {"supported": true, "changeNotifications": true}});
                 if !self.operacoes_de_arquivo_dinamicas && self.configuracao.update_imports_on_rename {
                     resultado["capabilities"]["workspace"]["fileOperations"] = json!({"willRename": crate::registro::opcoes_das_operacoes_de_arquivo()});
@@ -1820,6 +1836,41 @@ impl<A: Analisador> Servidor<A> {
             // in examples/api/…" do Flutter; as URIs das diretivas não viram
             // link (o oráculo devolve `[]` nos 36 arquivos, todos com
             // imports). Fora do Flutter a resposta é sempre a lista vazia.
+            "textDocument/formatting" | "textDocument/rangeFormatting" | "textDocument/onTypeFormatting" => {
+                // `FormattingHandler`, `FormatRangeHandler` e
+                // `FormatOnTypeHandler`: só arquivos Dart, nada com
+                // `enableSdkFormatter: false`, o `lineLength` do recurso; o
+                // `onTypeFormatting` formata o documento inteiro.
+                let uri = mensagem.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or_default().to_string();
+                if !uri.ends_with(".dart") {
+                    return resposta(&id, Value::Null);
+                }
+                let configuracao = self.configuracao_de(&uri);
+                if !configuracao.enable_sdk_formatter {
+                    return resposta(&id, Value::Null);
+                }
+                let largura = configuracao.line_length;
+                let Some(texto) = self.texto_do_arquivo(&uri).map(|t| t.into_owned()) else {
+                    return resposta(&id, Value::Null);
+                };
+                let faixa = if metodo == "textDocument/rangeFormatting" {
+                    // `toOffset`: linha além do fim é erro; a coluna soma ao
+                    // início da linha sem limite (pode passar da quebra).
+                    let mut pontos = [0usize; 2];
+                    for (i, p) in ["start", "end"].into_iter().enumerate() {
+                        let l = mensagem.pointer(&format!("/params/range/{p}/line")).and_then(Value::as_u64).unwrap_or(0);
+                        let c = mensagem.pointer(&format!("/params/range/{p}/character")).and_then(Value::as_u64).unwrap_or(0);
+                        match crate::formatacao::offset_sem_limite(&texto, l, c) {
+                            Some(o) => pontos[i] = o,
+                            None => return erro_com_dado(&id, -32004, "Invalid line number", json!(l.to_string())),
+                        }
+                    }
+                    Some((pontos[0], pontos[1]))
+                } else {
+                    None
+                };
+                resposta(&id, crate::formatacao::edicoes(&texto, largura, faixa))
+            }
             "textDocument/documentLink" => {
                 // Os blocos `{@tool}` que citam o código de exemplo
                 // (`crate::links`, o visitor do 3.6.2).

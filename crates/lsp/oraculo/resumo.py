@@ -325,6 +325,14 @@ for l in linhas:
         continue
     if m == "textDocument/formatting":
         conta("formatting (sem edição = igual)", (not a) == (not b), bool(a), bool(b), (onde, str(a)[:80], str(b)[:80]))
+        # As `TextEdit` exatas (faixa e texto, na ordem): as edições mínimas
+        # de brancos do `generateEditsForFormatting`.
+        def lista_fmt(x):
+            if not x or erro(x):
+                return []
+            return [(rg(e.get("range")), e.get("newText")) for e in x]
+        fa, fb = lista_fmt(a), lista_fmt(b)
+        conta("formatting (edições idênticas)", fa == fb, bool(fa), bool(fb), (onde, str(fa)[:200], str(fb)[:200]))
         continue
     f = NORMAS.get(m)
     if not f:

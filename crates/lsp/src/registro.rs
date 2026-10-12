@@ -35,6 +35,11 @@ pub const FEATURES: &[Feature] = &[
     Feature { cliente: "documentHighlight", estatica: "documentHighlightProvider", metodos: &["textDocument/documentHighlight"], so_dart: false },
     Feature { cliente: "documentSymbol", estatica: "documentSymbolProvider", metodos: &["textDocument/documentSymbol"], so_dart: false },
     Feature { cliente: "foldingRange", estatica: "foldingRangeProvider", metodos: &["textDocument/foldingRange"], so_dart: false },
+    // A formatação (`handler_format_on_type.dart`, `handler_format_range.dart`,
+    // `handler_formatting.dart`), na ordem do `allFeatures`.
+    Feature { cliente: "onTypeFormatting", estatica: "documentOnTypeFormattingProvider", metodos: &["textDocument/onTypeFormatting"], so_dart: true },
+    Feature { cliente: "rangeFormatting", estatica: "documentRangeFormattingProvider", metodos: &["textDocument/rangeFormatting"], so_dart: true },
+    Feature { cliente: "formatting", estatica: "documentFormattingProvider", metodos: &["textDocument/formatting"], so_dart: false },
     Feature { cliente: "signatureHelp", estatica: "signatureHelpProvider", metodos: &["textDocument/signatureHelp"], so_dart: false },
     Feature { cliente: "codeAction", estatica: "codeActionProvider", metodos: &["textDocument/codeAction"], so_dart: false },
     Feature { cliente: "rename", estatica: "renameProvider", metodos: &["textDocument/rename"], so_dart: false },

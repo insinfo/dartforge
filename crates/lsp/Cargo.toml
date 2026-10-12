@@ -10,6 +10,7 @@ workspace = true
 dartforge-diagnostics = { path = "../diagnostics" }
 dartforge-analise = { path = "../analise" }
 dartforge-elements = { path = "../elements" }
+dartforge-formatar = { path = "../formatar" }
 dartforge-frontend = { path = "../frontend" }
 dartforge-intern = { path = "../intern" }
 dartforge-paridade = { path = "../paridade" }

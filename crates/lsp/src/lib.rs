@@ -13,6 +13,7 @@
 //! `dartforge analyze` (`tipado`), publicada só se a versão ainda é a
 //! vigente (`docs/LSP.md`, "Diagnósticos tipados").
 
+pub mod formatacao;
 pub mod servidor;
 mod acoes;
 pub(crate) use dartforge_analise::arvore_analyzer;
