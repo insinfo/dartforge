@@ -127,6 +127,9 @@ const TETO_CANCELAMENTOS: usize = 4096;
 /// lenta. Clientes reais nunca enviam este método.
 const METODO_DORMIR: &str = "dartforge/dormir";
 
+/// O texto de um arquivo do disco e a tabela de linhas dele.
+type TextoComLinhas = std::sync::Arc<(String, crate::utf16::TabelaLinhas)>;
+
 /// Estado global do servidor: dono dos documentos, da fila e dos cancelamentos.
 ///
 /// Parametrizado pelo [`Analisador`] para que a semântica entre sem tocar no
@@ -138,7 +141,7 @@ pub struct Servidor<A = AnalisadorSintatico> {
     /// requisição em curso converteu para posições LSP: uma busca que
     /// devolve milhares de locais no SDK lê cada arquivo uma vez. Esvaziado
     /// a cada requisição (o disco pode mudar entre elas).
-    linhas_do_disco: std::cell::RefCell<HashMap<String, Option<std::sync::Arc<(String, crate::utf16::TabelaLinhas)>>>>,
+    linhas_do_disco: std::cell::RefCell<HashMap<String, Option<TextoComLinhas>>>,
     analisador: A,
     /// Mensagens recebidas ainda não despachadas, em ordem de chegada.
     fila: VecDeque<Value>,
