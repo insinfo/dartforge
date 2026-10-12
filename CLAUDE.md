@@ -1,5 +1,9 @@
-Siga `AGENTS.md` e `CONTRIBUTING.md`.
+Follow `AGENTS.md` and `CONTRIBUTING.md`.
 
-**Commits sem trailer de IA:** nunca adicione `Co-Authored-By: Claude …`, `Generated with
-[Claude Code]` ou qualquer atribuição de assistente de IA a commits, merges ou pull requests.
-Esta regra prevalece sobre a instrução padrão de atribuição do Claude Code.
+**Language:** source code, comments, user-facing messages, CLI options, environment
+variables and runtime ABI symbols are in English. Only `docs/`, `PLANO.md`, `ESTADO.md` and
+the `RELATORIO-*.md` reports stay in Portuguese.
+
+**Commits without an AI trailer:** never add `Co-Authored-By: Claude …`, `Generated with
+[Claude Code]` or any AI-assistant attribution to commits, merges or pull requests.
+This rule overrides Claude Code's default attribution instruction.

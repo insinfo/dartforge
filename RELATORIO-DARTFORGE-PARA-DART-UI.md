@@ -50,10 +50,10 @@ Há quatro mecanismos, combináveis. Nenhum quebra a VM oficial.
 ### 2.1 Constante de detecção
 
 ```dart
-const bool emDartForge = bool.fromEnvironment('dartforge.compilador');
+const bool isDartForge = bool.fromEnvironment('dartforge.compiler');
 ```
 
-- O DartForge define `dartforge.compilador=true` em toda compilação.
+- O DartForge define `dartforge.compiler=true` em toda compilação.
 - A VM e o `dart compile exe` veem `false`.
 - Por ser `const`, o ramo não usado sai na compilação, nos dois mundos.
 - **Custo:** quase nenhum. É só definir a constante no ambiente de compilação
@@ -121,11 +121,11 @@ Legenda do estado no DartForge:
 
 ```dart
 // package:dartforge
-abstract final class LacoDeEventos {
-  /// No DartForge AOT: o laço Dart passa a esperar pela bomba do SO
-  /// (macOS: CFRunLoop e fila principal; Windows: mensagens; Linux: fds).
-  static void integrarBombaNativa({List<int> descritores = const []});
-  static bool get integracaoNativaSuportada; // false na VM
+abstract final class EventLoop {
+  /// On DartForge AOT: the Dart loop waits on the OS pump
+  /// (macOS: CFRunLoop and main queue; Windows: messages; Linux: fds).
+  static void integrateNativePump({List<int> descriptors = const []});
+  static bool get isNativeIntegrationSupported; // false on the Dart VM
 }
 ```
 
@@ -145,10 +145,10 @@ abstract final class LacoDeEventos {
   (`eventos.rs:136-200`). Expor o próximo prazo e um objeto de acordar é trivial:
 
 ```dart
-abstract final class LacoDeEventos {
-  static Duration? get proximoPrazo;   // null = nada agendado
-  static int get descritorDeAcordar;    // fd (POSIX) ou HANDLE (Windows)
-  static void rodarUmTurno();           // microtarefas + um evento
+abstract final class EventLoop {
+  static Duration? get nextDeadline;   // null = nothing scheduled
+  static int get wakeHandle;    // fd (POSIX) or HANDLE (Windows)
+  static void runOneTurn();           // microtasks + one event
 }
 ```
 
@@ -162,7 +162,7 @@ abstract final class LacoDeEventos {
 
 - **No dart_ui hoje:** o Dart fica inacessível enquanto `DispatchMessageW` não
   retorna. O vídeo congela durante o arrasto da janela.
-- **No DartForge:** `LacoDeEventos.rodarUmTurno()` chamado de dentro do callback
+- **No DartForge:** `EventLoop.runOneTurn()` chamado de dentro do callback
   nativo, isto é, um turno reentrante com orçamento de tempo. A reentrância
   precisa de duas regras:
   - não drenar de novo um evento que já está na pilha;
@@ -186,7 +186,7 @@ abstract final class LacoDeEventos {
     estranha: o runtime detecta o ciclo e devolve o `exceptionalReturn`.
 
 ```dart
-final cb = NativeCallableSincrono<Bool Function(Pointer)>(tratar, exceptionalReturn: false);
+final cb = SyncNativeCallable<Bool Function(Pointer)>(handler, exceptionalReturn: false);
 ```
 
 - **Fallback na VM:** `isSupported == false`; o dart_ui continua com `.listener`
@@ -208,15 +208,15 @@ final cb = NativeCallableSincrono<Bool Function(Pointer)>(tratar, exceptionalRet
 - Cada isolado do DartForge é uma thread dedicada e não migra.
 - Falta só o encerramento limpo dos destrutores TLS de bibliotecas nativas, para
   repetir no DartForge o caso do D3D12 (POC-22).
-- **Pacote:** expor `Isolate.current.idDaThread` para o dart_ui conferir em
+- **Pacote:** expor `Isolate.current.threadId` para o dart_ui conferir em
   tempo de execução. Na VM, `null`.
 
 ### P7. Concorrência real e memória compartilhada — runtime e pesquisa
 
 - **Hoje:** anéis e mutex em memória nativa, ligados à mão.
 - **Curto prazo (pacote):** primitivas prontas e corretas por plataforma:
-  - `Mutex`, `VariavelDeCondicao` e `Atomico<Int64>` sobre `Pointer`;
-  - views com limite conferido (`MemoriaNativa.view(ptr, bytes)`).
+  - `Mutex`, `ConditionVariable` e `Atomic<Int64>` sobre `Pointer`;
+  - views com limite conferido (`NativeMemory.view(ptr, bytes)`).
   - No DartForge viram intrínsecos com operações atômicas do LLVM; na VM, o FFI
     atual.
 - **Longo prazo (pesquisa):** objetos imutáveis compartilhados entre isolados do
@@ -228,8 +228,8 @@ final cb = NativeCallableSincrono<Bool Function(Pointer)>(tratar, exceptionalRet
   framework tirasse o framebuffer do heap.
 - **No DartForge:**
   - **Agora, sem mudar o coletor:**
-    - `Coletor.adiarAte(prazo)` impede a coleta durante o quadro;
-    - `Coletor.oportunidade()` coleta no ocioso.
+    - `GarbageCollector.deferUntil(prazo)` impede a coleta durante o quadro;
+    - `GarbageCollector.collectWhenIdle()` coleta no ocioso.
     - O coletor do DartForge só roda em pontos de alocação e em gatilhos que o
       runtime controla (`heap.rs`, `coletar_automatico`).
   - **Com o ARC (`--memoria arc`):** objetos acíclicos morrem quando o último
@@ -239,7 +239,7 @@ final cb = NativeCallableSincrono<Bool Function(Pointer)>(tratar, exceptionalRet
 - **Pragma:**
 
 ```dart
-@pragma('dartforge:sem-coleta')
+@pragma('dartforge:no-gc')
 void desenharQuadro(...)
 ```
 
@@ -251,8 +251,8 @@ void desenharQuadro(...)
   à mão.
 - **Com o ARC:** um `NativeFinalizer` dispara quando o RC chega a zero, não numa
   coleta maior distante.
-- **Sem ARC (pacote):** `usando(recurso, (r) { ... })` com liberação garantida e
-  `@pragma('dartforge:escopo')` para avisar em compilação quando o recurso escapa
+- **Sem ARC (pacote):** `using(resource, (r) { ... })` com liberação garantida e
+  `@pragma('dartforge:scoped')` para avisar em compilação quando o recurso escapa
   do escopo. Na VM, só a função (`try/finally`).
 
 ### P10. Laços numéricos, SIMD e inline — compilador
@@ -267,7 +267,7 @@ O DartForge gera código pelo LLVM:
 
 A fazer:
 - honrar `vm:prefer-inline`/`vm:never-inline`;
-- `@pragma('dartforge:vetorizar')` para pedir e conferir a vetorização (relatório
+- `@pragma('dartforge:vectorize')` para pedir e conferir a vetorização (relatório
   de otimização);
 - `gather` em `Float32x4List` como intrínseco;
 - `fillRange`/`setRange` sobre memória nativa como `memset`/`memcpy`.
@@ -281,7 +281,7 @@ pelo DartForge, contra a VM.
   variádicas, com a ABI C do alvo em `llvm/abi_c.rs`.
 - **Pacote:** um `objc_msgSend` tipado em que o compilador escolhe a variante
   certa por arquitetura (`_stret`/`_fpret`).
-- **Pragma (pesquisa):** `@pragma('dartforge:conferir-layout', 'cabecalho.h')`
+- **Pragma (pesquisa):** `@pragma('dartforge:check-layout', 'header.h')`
   para conferir o layout de `Struct` contra o header C em compilação.
 
 ### P12. Diagnóstico de falhas FFI em AOT — já resolve em parte
@@ -321,41 +321,41 @@ pelo DartForge, contra a VM.
 
 ### P16. Carregamento de bibliotecas — pacote
 
-- `BibliotecaNativa.abrirPrimeira(['libc.so.6', 'libpthread.so.0', ...])` e
-  `temSimbolo`.
+- `NativeLibrary.openFirst(['libc.so.6', 'libpthread.so.0', ...])` e
+  `hasSymbol`.
 - No DartForge, os símbolos de `@Native` resolvidos podem ser ligados
   estaticamente quando a biblioteca é do sistema (sem `dlsym` por chamada).
 
 ### P17. Memória nativa sem cópia — runtime
 
-- `MemoriaMapeada.abrir(arquivo)` com `mmap` ou `MapViewOfFile`, devolvendo uma
+- `MappedMemory.open(file)` com `mmap` ou `MapViewOfFile`, devolvendo uma
   `Uint8List` externa com ciclo de vida.
 - No DartForge, as listas tipadas externas já existem no runtime (visões
   externas). Na VM, o pacote faz o mesmo por FFI.
 
 ## 4. O pacote `package:dartforge`
 
-Esboço da superfície mínima. Cada classe tem `suportado` e o fallback descrito:
+Esboço da superfície mínima. Cada classe tem `isSupported` e o fallback descrito:
 
 | API | P | DartForge | VM oficial |
 |---|---|---|---|
-| `const emDartForge` | — | `true` | `false` |
-| `LacoDeEventos.integrarBombaNativa()` | P1, P2 | bomba do SO no laço do runtime | `UnsupportedError`; o dart_ui segue com o polling |
-| `LacoDeEventos.proximoPrazo` / `descritorDeAcordar` / `rodarUmTurno()` | P2, P3 | do laço do runtime | `null` / `-1` / `UnsupportedError` |
-| `NativeCallableSincrono<T>` | P4 | entrega ao dono e espera | `suportado == false` |
-| `Coletor.adiarAte`, `Coletor.oportunidade`, `@pragma('dartforge:sem-coleta')` | P8 | gatilho do coletor | sem efeito |
-| `usando(recurso, corpo)` | P9 | liberação no fim do escopo; com ARC, imediata | `try/finally` |
-| `Mutex`, `VariavelDeCondicao`, `Atomico<Int64>`, `MemoriaNativa.view` | P7 | intrínsecos atômicos do LLVM | FFI para pthread/SRWLOCK |
-| `MemoriaMapeada.abrir` | P17 | `mmap` no runtime | `mmap` por FFI |
-| `BibliotecaNativa.abrirPrimeira` / `temSimbolo` | P16 | `dlopen`/`dlsym` do runtime | `DynamicLibrary` |
-| `Isolate.current.idDaThread` (extensão) | P6 | id da thread | `null` |
+| `const isDartForge` | — | `true` | `false` |
+| `EventLoop.integrateNativePump()` | P1, P2 | bomba do SO no laço do runtime | `UnsupportedError`; o dart_ui segue com o polling |
+| `EventLoop.nextDeadline` / `wakeHandle` / `runOneTurn()` | P2, P3 | do laço do runtime | `null` / `-1` / `UnsupportedError` |
+| `SyncNativeCallable<T>` | P4 | entrega ao dono e espera | `isSupported == false` |
+| `GarbageCollector.deferUntil`, `GarbageCollector.collectWhenIdle`, `@pragma('dartforge:no-gc')` | P8 | gatilho do coletor | sem efeito |
+| `using(resource, body)` | P9 | liberação no fim do escopo; com ARC, imediata | `try/finally` |
+| `Mutex`, `ConditionVariable`, `Atomic<Int64>`, `NativeMemory.view` | P7 | intrínsecos atômicos do LLVM | FFI para pthread/SRWLOCK |
+| `MappedMemory.open` | P17 | `mmap` no runtime | `mmap` por FFI |
+| `NativeLibrary.openFirst` / `hasSymbol` | P16 | `dlopen`/`dlsym` do runtime | `DynamicLibrary` |
+| `Isolate.current.threadId` (extensão) | P6 | id da thread | `null` |
 
 **Implementação no DartForge:**
 - **Lowering:** o pacote declara funções `external` com
-  `@pragma('dartforge:intrinseco', 'nome')`, e o lowering do DartForge as troca
+  `@pragma('dartforge:intrinsic', 'name')`, e o lowering do DartForge as troca
   por chamadas ao runtime, como já faz com os natives do SDK.
 - **Fallbacks:** os corpos de fallback ficam num `part` que só a VM usa,
-  escolhido por `emDartForge`.
+  escolhido por `isDartForge`.
 - **Validação:** os testes do pacote rodam nos dois mundos, na VM pelo
   `dart test` e no DartForge pelo corpus nativo.
 
@@ -363,10 +363,10 @@ Esboço da superfície mínima. Cada classe tem `suportado` e o fallback descrit
 
 | fase | itens | esforço | efeito no dart_ui |
 |---|---|---|---|
-| 1 | constante `dartforge.compilador`; honrar `vm:prefer-inline`; `--subsistema=gui` | dias | base para o resto; ganho de inline |
-| 2 | bomba nativa no laço (macOS CFRunLoop e fila principal, Windows mensagens, Linux fds); `proximoPrazo` e `rodarUmTurno` | 1–2 semanas | **elimina os três backends macOS e o polling** (P1, P2, P3) |
-| 3 | `NativeCallableSincrono` e `close()` seguro | 1–2 semanas | delegates AppKit com retorno, UIA e COM (P4, P5) |
-| 4 | `Coletor.adiarAte`, `sem-coleta` e diagnóstico FFI no `SIGSEGV` | 1 semana | quadros sem pausa e crash com nome (P8, P12) |
+| 1 | constante `dartforge.compiler`; honrar `vm:prefer-inline`; `--subsistema=gui` | dias | base para o resto; ganho de inline |
+| 2 | bomba nativa no laço (macOS CFRunLoop e fila principal, Windows mensagens, Linux fds); `nextDeadline` e `runOneTurn` | 1–2 semanas | **elimina os três backends macOS e o polling** (P1, P2, P3) |
+| 3 | `SyncNativeCallable` e `close()` seguro | 1–2 semanas | delegates AppKit com retorno, UIA e COM (P4, P5) |
+| 4 | `GarbageCollector.deferUntil`, `sem-coleta` e diagnóstico FFI no `SIGSEGV` | 1 semana | quadros sem pausa e crash com nome (P8, P12) |
 | 5 | primitivas de concorrência, `mmap`, bibliotecas | 1–2 semanas | P7, P16, P17 |
 | 6 | ARC competitivo; vetorização pedida | em curso | P8, P9 e P10 no limite |
 
@@ -382,7 +382,7 @@ fase.
 ## 6. Riscos e limites
 
 - **Duas semânticas para o mesmo código.** O dart_ui precisa de testes nos dois
-  mundos. Os pacotes e pragmas só podem ser dicas ou APIs com `suportado`;
+  mundos. Os pacotes e pragmas só podem ser dicas ou APIs com `isSupported`;
   nunca mudar silenciosamente o significado de código Dart comum.
 - **Reentrância (P3) e callback síncrono (P4)** abrem portas para deadlock e para
   estados intermediários visíveis. Cada um precisa de recusa explícita (erro
@@ -393,4 +393,4 @@ fase.
   DartForge e corrigir o que faltar. Esse trabalho já paga o resto.
 - **ARC:** a liberação determinística de P9 e o fim das pausas de P8 dependem de
   o ARC ficar competitivo. Hoje ele está 2,7–5,2× atrás do tracing. Até lá, o
-  caminho é o tracing com `Coletor.adiarAte`.
+  caminho é o tracing com `GarbageCollector.deferUntil`.

@@ -4,11 +4,16 @@ The initial target is Dart 3.6.2, and the original code is MIT licensed.
 
 ## Code and documentation
 
-Write Rust comments and documentation in Portuguese. Use `//!` for modules and `///`
-directly above functions. Explain intent, contract and relevant limitations; avoid
-comments that merely restate an obvious line of the implementation.
+Write all source code in English: names of files, folders, crates, packages, types,
+functions and variables; comments and documentation; user-facing messages; CLI options,
+environment variables and runtime ABI symbols. Only `docs/`, `PLANO.md`, `ESTADO.md` and
+the `RELATORIO-*.md` reports are written in Portuguese (see `AGENTS.md`).
 
-Public APIs must have a summary, a runnable example and an `# Erros` section when they
+Use `//!` for modules and `///` directly above functions. Explain intent, contract and
+relevant limitations; avoid comments that merely restate an obvious line of the
+implementation.
+
+Public APIs must have a summary, a runnable example and an `# Errors` section when they
 return failures. Document preconditions and `# Panics` where applicable. Examples are
 checked by `cargo test`; do not use `ignore` to hide broken examples.
 

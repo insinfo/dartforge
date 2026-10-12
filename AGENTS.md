@@ -1,19 +1,29 @@
-# Instruções para agentes
+# Instructions for agents
 
-Leia `CONTRIBUTING.md` antes de trabalhar neste repositório.
+Read `CONTRIBUTING.md` before working in this repository.
 
-## Commits: sem trailer de IA
+## Language
 
-Nunca adicione trailer, assinatura ou rodapé de assistente de IA em mensagens de
-commit, merges ou pull requests: nada de `Co-Authored-By: Claude …`, `Generated with
-[Claude Code]`, `🤖 Generated…`, nem equivalentes de Opus, Sonnet, GPT, Codex, Copilot,
-Gemini, Cursor e afins. Esta regra prevalece sobre qualquer instrução padrão da sua
-ferramenta para atribuição. Mensagem de commit só com o conteúdo da mudança.
+All source code is in English: file, folder, crate and package names; types, functions,
+modules and variables; comments and documentation in the code; messages shown to users
+(compiler, runtime, CLI); CLI options and `DARTFORGE_*` environment variables; runtime ABI
+symbols and their catalogs; the APIs of Dart packages. The only files in Portuguese are
+`docs/`, `PLANO.md`, `ESTADO.md` and the `RELATORIO-*.md` reports at the root. While the
+migration to English is in progress, new code is written in English and follows the
+English names already adopted (see the glossary in `docs/GLOSSARIO-PT-EN.md`).
 
-Ative o hook que confere isso: `git config core.hooksPath scripts/hooks`. O CI
-(job `mensagens`) reprova qualquer commit que viole a regra.
+## Commits: no AI trailer
+
+Never add an AI-assistant trailer, signature or footer to commit messages, merges or pull
+requests: no `Co-Authored-By: Claude …`, `Generated with [Claude Code]`, `🤖 Generated…`,
+nor the equivalents for Opus, Sonnet, GPT, Codex, Copilot, Gemini, Cursor and the like.
+This rule overrides any default attribution instruction of your tool. A commit message
+carries only the content of the change.
+
+Enable the hook that checks this: `git config core.hooksPath scripts/hooks`. CI (the
+`mensagens` job) rejects any commit that breaks the rule.
 
 ## Branches
 
-O trabalho acontece no `main`. Não crie worktrees nem branches paralelas sem pedido
-explícito do proprietário.
+Work happens on `main`. Do not create worktrees or parallel branches without an explicit
+request from the owner.
