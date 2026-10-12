@@ -412,3 +412,7 @@ dartforge_late_field_set_initializing	ref:borrow,i64:scalar,u8:scalar	void:scala
 # só o lê enquanto o quadro que o empurrou (e o empresta) está na pilha.
 dartforge_rastro_entrar	i64:scalar,ref:borrow	i64:scalar	0	0	normal
 dartforge_rastro_sair	i64:scalar	void:scalar	0	0	normal
+# Preenchimento de faixa de uma lista tipada viva (o `fillRange` em linha):
+# grava bytes, sem Dart, alocação nem pendência; 0 devolve ao despacho.
+dartforge_typed_fill_int	ref:borrow,i64:scalar,i64:scalar,i64:scalar,i64:scalar	i64:scalar	0	0	normal
+dartforge_typed_fill_double	ref:borrow,i64:scalar,i64:scalar,i64:scalar,f64:scalar	i64:scalar	0	0	normal

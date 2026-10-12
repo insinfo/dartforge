@@ -35,6 +35,7 @@ pub use slots_planos::{ContratoQuadrosCompartilhadosCfg, produzir_planos_slots_r
 pub use slots_vidas::verificar_vidas_slots_ref_cfg;
 pub use slots_compartilhados::{auditar_slots_ref_compartilhados, baixar_slots_ref_compartilhados, RascunhoSlotsRefArc};
 mod puros;
+mod derivados;
 mod emprestimos;
 mod arestas;
 mod phis;

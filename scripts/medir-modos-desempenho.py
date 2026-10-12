@@ -6,6 +6,8 @@ exceções do backend nativo (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §6, §8)
     A1  pilha-sombra + tabelas    (`--excecoes tabelas`)
     B0  mapas        + checagem   (`DARTFORGE_RAIZES=mapas`)
     B1  mapas        + tabelas
+    ARC  pilha-sombra + checagem, `--memoria arc` (ARC legado)
+    ARCP o mesmo com a preparação publicada (`DARTFORGE_ARC_PREPARADO=1`)
 
 e o `dart compile exe` como referência. Todos em produção (`aot --optimize`).
 
@@ -25,12 +27,15 @@ conforme o núcleo em que o sistema o põe. Só no Windows.
 Uso: scripts/medir-modos-desempenho.py <dir de saída> [--repeticoes N]
      [--sem-dart] [--afinidade MASCARA] [--modos A0,ARC] [filtro...]
 """
-import argparse, json, os, re, statistics, subprocess, sys, time
+import argparse, json, os, re, shutil, statistics, subprocess, sys, time
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BENCH = os.path.join(RAIZ, "bench", "desempenho")
-DF = os.environ.get("DARTFORGE_BIN") or os.path.join(RAIZ, "target", "release", "dartforge.exe")
-DART = os.path.join(os.environ.get("DARTFORGE_DART_SDK", "C:/tools/dartsdk-3.6.2"), "bin", "dart.exe")
+SUF = ".exe" if os.name == "nt" else ""
+DF = os.environ.get("DARTFORGE_BIN") or os.path.join(RAIZ, "target", "release", "dartforge" + SUF)
+# Fora do Windows, o SDK do `dart` no PATH.
+SDK_PADRAO = "C:/tools/dartsdk-3.6.2" if os.name == "nt" else os.path.dirname(os.path.dirname(os.path.realpath(shutil.which("dart") or "/dart/bin/dart")))
+DART = os.path.join(os.environ.get("DARTFORGE_DART_SDK", SDK_PADRAO), "bin", "dart" + SUF)
 LINHA = re.compile(r"^(\w+): ([\d ]+) us \| (.*)$")
 MODOS = [
     ("A0", "sombra", "checagem", "tracing"),
@@ -38,6 +43,7 @@ MODOS = [
     ("B0", "mapas", "checagem", "tracing"),
     ("B1", "mapas", "tabelas", "tracing"),
     ("ARC", "sombra", "checagem", "arc"),
+    ("ARCP", "sombra", "checagem", "arc"),
 ]
 
 
@@ -46,10 +52,13 @@ def log(msg):
 
 
 def compilar(saida, nome, fonte, modo, raizes, excecoes, memoria):
-    exe = os.path.join(saida, f"{nome}-{modo}.exe")
+    exe = os.path.join(saida, f"{nome}-{modo}{SUF}")
     if os.path.exists(exe):
         return exe, 0.0
     env = dict(os.environ, DARTFORGE_RAIZES=raizes)
+    env.pop("DARTFORGE_ARC_PREPARADO", None)
+    if modo == "ARCP":
+        env["DARTFORGE_ARC_PREPARADO"] = "1"
     cmd = [DF, "aot", fonte, exe, "--optimize", "--excecoes", excecoes, "--memoria", memoria]
     t0 = time.perf_counter()
     r = subprocess.run(cmd, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
@@ -61,7 +70,7 @@ def compilar(saida, nome, fonte, modo, raizes, excecoes, memoria):
 
 
 def compilar_dart(saida, nome, fonte):
-    exe = os.path.join(saida, f"{nome}-dart.exe")
+    exe = os.path.join(saida, f"{nome}-dart{SUF}")
     if os.path.exists(exe):
         return exe, 0.0
     t0 = time.perf_counter()
@@ -96,6 +105,8 @@ def main():
     a = ap.parse_args()
     if a.repeticoes < 1:
         ap.error("--repeticoes deve ser positivo")
+    # Os executáveis rodam com cwd em bench/desempenho.
+    a.saida = os.path.abspath(a.saida)
     os.makedirs(a.saida, exist_ok=True)
     if a.afinidade:
         import ctypes
@@ -183,8 +194,8 @@ def main():
                 if presentes != esperados:
                     falhas.append(f"{nome}/{modo}, repetição {rep + 1}: faltam {sorted(esperados - presentes)}")
 
-    linhas = ["| programa/núcleo | " + " | ".join(modos) + " | A1/A0 | B0/A0 | B1/A0 | ARC/A0 | A0/dart |",
-              "|---|" + "---:|" * (len(modos) + 5)]
+    linhas = ["| programa/núcleo | " + " | ".join(modos) + " | A1/A0 | B0/A0 | B1/A0 | ARC/A0 | ARCP/A0 | A0/dart |",
+              "|---|" + "---:|" * (len(modos) + 6)]
     for nome in programas:
         nucleos = sorted({n for (p, m, n) in medidas if p == nome})
         for n in nucleos:
@@ -192,7 +203,7 @@ def main():
             def razao(x, y):
                 return f"{med[x] / med[y]:.2f}" if x in med and y in med and med[y] else "—"
             celulas = [f"{med[m] / 1000:.1f}" if m in med else "—" for m in modos]
-            linhas.append(f"| {nome}/{n} | " + " | ".join(celulas) + f" | {razao('A1', 'A0')} | {razao('B0', 'A0')} | {razao('B1', 'A0')} | {razao('ARC', 'A0')} | {razao('A0', 'dart')} |")
+            linhas.append(f"| {nome}/{n} | " + " | ".join(celulas) + f" | {razao('A1', 'A0')} | {razao('B0', 'A0')} | {razao('B1', 'A0')} | {razao('ARC', 'A0')} | {razao('ARCP', 'A0')} | {razao('A0', 'dart')} |")
     # Média geométrica das razões.
     def geo(x, y):
         rs = []
@@ -205,7 +216,7 @@ def main():
         return statistics.geometric_mean(rs) if rs else float("nan")
     resumo = [
         "",
-        f"Média geométrica: A1/A0 {geo('A1', 'A0'):.3f}, B0/A0 {geo('B0', 'A0'):.3f}, B1/A0 {geo('B1', 'A0'):.3f}, ARC/A0 {geo('ARC', 'A0'):.3f}"
+        f"Média geométrica: A1/A0 {geo('A1', 'A0'):.3f}, B0/A0 {geo('B0', 'A0'):.3f}, B1/A0 {geo('B1', 'A0'):.3f}, ARC/A0 {geo('ARC', 'A0'):.3f}, ARCP/A0 {geo('ARCP', 'A0'):.3f}"
         + ("" if a.sem_dart else f", A0/dart {geo('A0', 'dart'):.3f}"),
         f"Tempos em ms (mediana de {a.repeticoes} execuções alternadas; em cada uma, a mediana das rodadas sem a primeira)"
         + (f"; presos aos processadores {a.afinidade}." if a.afinidade else "."),

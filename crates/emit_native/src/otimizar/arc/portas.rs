@@ -354,6 +354,10 @@ pub(super) fn certificar(
                 f.symbol
             ));
         }
+        // Gravações nos elementos de listas, pelo endereço que
+        // `derivados::verificar` segura; as de ponteiros FFI não passam.
+        super::derivados::verificar(f)?;
+        let enderecos_de_listas = super::derivados::enderecos(f);
         for (_, i, t) in f.blocks.iter().flat_map(|b| &b.instructions) {
             super::tipadas::conferir(f, i, *t)?;
             super::seletores::conferir_vetor_local(f, i, *t, Some(&getters_rti))?;
@@ -368,7 +372,9 @@ pub(super) fn certificar(
                     f.symbol
                 ));
             }
-            if matches!(
+            let gravacao_em_lista = matches!(i, Instruction::GravacaoNativa { endereco: Operand::Val(d), .. }
+                if enderecos_de_listas.contains(d));
+            if !gravacao_em_lista && matches!(
                 i,
                 Instruction::CallDynamic { .. }
                     | Instruction::CallInterface { .. }

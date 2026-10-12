@@ -435,6 +435,8 @@ fn contratos_arc_cobrem_exportacoes_sem_inventar_contratos_para_outras_externs()
                         | "dartforge_ffi_handles_fechar"
                         | "dartforge_rastro_entrar"
                         | "dartforge_rastro_sair"
+                        | "dartforge_typed_fill_int"
+                        | "dartforge_typed_fill_double"
                 )
         })
         .collect();

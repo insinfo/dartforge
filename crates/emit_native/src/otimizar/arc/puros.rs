@@ -62,8 +62,11 @@ pub(super) fn conferir(
         // na instrução e o vetor não guarda handle.
         Instruction::Unbox { to, .. } if to.e_vetor() => Some(*to),
         // A aritmética e as conversões SIMD sobre vetores e escalares sem
-        // caixa; ler e gravar por endereço exigem prova de proveniência.
-        Instruction::Simd { op, .. } if !matches!(op, OpSimd::Carrega | OpSimd::Grava) => Some(*ty),
+        // caixa. Ler e gravar por endereço exigem prova de proveniência: o
+        // endereço derivado de uma lista que `derivados::verificar` segura.
+        Instruction::Simd { .. } => Some(*ty),
+        Instruction::CargaNativa { .. } => Some(*ty),
+        Instruction::GravacaoNativa { .. } => Some(Type::Void),
         _ => None,
     };
     if let Some(esperado) = puro {
@@ -146,6 +149,17 @@ pub(super) fn conferir(
             | Instruction::FDiv(a, b) => !numerico(a) || !numerico(b),
             Instruction::FNeg(op) | Instruction::DoubleToInt(op) => !numerico(op),
             Instruction::Unbox { op, .. } => !matches!(op, Operand::Val(v) if tipos.get(v) == Some(&Type::Ref)),
+            Instruction::CargaNativa { endereco, indice, tipo } => {
+                !inteiro(endereco) || !inteiro(indice) || *ty != tipo.tipo_hir()
+            }
+            Instruction::GravacaoNativa { endereco, indice, tipo, valor } => {
+                !inteiro(endereco) || !inteiro(indice) || match valor {
+                    Operand::Val(v) => tipos.get(v) != Some(&tipo.tipo_hir()),
+                    Operand::Constant(Constant::Int(_)) => tipo.tipo_hir() != Type::I64,
+                    Operand::Constant(Constant::Double(_)) => tipo.tipo_hir() != Type::F64,
+                    _ => true,
+                }
+            }
             Instruction::Simd { args, .. } => args.iter().any(|op| match op {
                 Operand::Val(v) => !tipos.get(v).is_some_and(|t| matches!(t, Type::I1 | Type::I8 | Type::I64 | Type::F64) || t.e_vetor()),
                 Operand::Constant(c) => !matches!(c, Constant::Int(_) | Constant::Double(_) | Constant::Bool(_)),
@@ -192,6 +206,14 @@ pub(super) fn conferir_origens(
             && args.iter().any(|op| matches!(op, Operand::Val(o) if classes.get(o) != Some(&Ownership::Trivial)))
         {
             return Err(format!("v{}: operação SIMD exige origens Trivial em {}", v.0, f.symbol));
+        }
+        let nativos: &[&Operand] = match inst {
+            Instruction::CargaNativa { endereco, indice, .. } => &[endereco, indice],
+            Instruction::GravacaoNativa { endereco, indice, valor, .. } => &[endereco, indice, valor],
+            _ => &[],
+        };
+        if nativos.iter().any(|op| matches!(op, Operand::Val(o) if classes.get(o) != Some(&Ownership::Trivial))) {
+            return Err(format!("v{}: acesso nativo exige origens Trivial em {}", v.0, f.symbol));
         }
         let operandos = match inst {
             Instruction::Bitcast {
@@ -267,6 +289,7 @@ pub(super) fn verificar(
             }
         }
     }
+    super::derivados::verificar(f)?;
     conferir_origens(f, classes)
 }
 

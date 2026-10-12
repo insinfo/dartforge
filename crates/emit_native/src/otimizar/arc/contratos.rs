@@ -16,10 +16,11 @@ use std::collections::{HashMap, HashSet, VecDeque};
 /// publicada), sem alocar, reter, lançar ou chamar Dart — o que os efeitos
 /// deles (`EFEITOS_DOS_AJUDANTES`) dizem e o teste
 /// `ajudantes_concordam_com_os_efeitos` confere. `@df.tipada_base` empresta
-/// a base da visão, que ela segura numa aresta imutável. Os que devolvem
-/// endereço derivado do objeto (`@df.tipada_dados`,
-/// `@df.nucleo_armazenamento`, `@df.nucleo_forma`, `@df.palavra_ref`) ficam
-/// de fora: sob ARC o lowering usa as entradas auditadas do runtime.
+/// a base da visão, que ela segura numa aresta imutável. Os endereços
+/// derivados (`@df.tipada_dados`, `@df.nucleo_armazenamento`, lido por
+/// `@df.nucleo_forma`) são escalares cujos acessos `derivados.rs` segura com
+/// `@df.manter_vivo(lista)`; `@df.palavra_ref` (um `Ref` lido do
+/// armazenamento) fica de fora: sob ARC o lowering usa a leitura Owned.
 pub const CONTRATOS_DOS_AJUDANTES: &[Contrato] = &[
     Contrato { nome: "df.bit_smi", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
     Contrato { nome: "df.valor_smi", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
@@ -40,6 +41,10 @@ pub const CONTRATOS_DOS_AJUDANTES: &[Contrato] = &[
     Contrato { nome: "df.tipada_cid", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
     Contrato { nome: "df.tipada_deslocamento", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
     Contrato { nome: "df.tipada_len", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.tipada_dados", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.nucleo_armazenamento", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.nucleo_forma", parametros: &[ModoParametro::Scalar], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.manter_vivo", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::Void, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
     Contrato { nome: "df.tipada_len_gravavel", parametros: &[ModoParametro::Borrow, ModoParametro::Scalar], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
 ];
 
@@ -53,7 +58,7 @@ pub const CONTRATOS_DOS_AJUDANTES: &[Contrato] = &[
 /// use dartforge_emit_native::otimizar::arc::contrato;
 /// assert!(contrato("df.texto_len").is_ok());
 /// assert!(contrato("dartforge_arc_lista_len_v1").is_ok());
-/// assert!(contrato("df.tipada_dados").is_err());
+/// assert!(contrato("df.palavra_ref").is_err());
 /// ```
 pub fn contrato(nome: &str) -> Result<&'static Contrato, &'static str> {
     if let Some(base) = nome.strip_prefix(super::PREFIXO_ESCOPO_NATIVO) {
@@ -1476,8 +1481,8 @@ mod testes {
             assert!(!c.retencao_persistente, "{}", c.nome);
             assert!(c.parametros.iter().all(|m| matches!(m, ModoParametro::Borrow | ModoParametro::Scalar)));
         }
-        // Os de endereço derivado e o que aloca ficam sem contrato.
-        for nome in ["df.tipada_dados", "df.nucleo_armazenamento", "df.nucleo_forma", "df.palavra_ref", "df.texto_alocar"] {
+        // A leitura Ref do armazenamento e o que aloca ficam sem contrato.
+        for nome in ["df.palavra_ref", "df.texto_alocar"] {
             assert!(contrato(nome).is_err(), "{nome}");
         }
         let rt = |name: &str, args, ret_ty| Instruction::CallRuntime { name: name.into(), args, ret_ty };

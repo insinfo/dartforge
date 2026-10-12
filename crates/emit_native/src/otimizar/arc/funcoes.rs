@@ -214,6 +214,10 @@ pub(super) fn preparar_com_variantes(
         return Ok((0, 0));
     }
     let mut origem = modulo.clone();
+    // Os acessos por endereço derivado de lista seguram a lista até ali.
+    for f in &mut origem.functions {
+        super::derivados::manter_vivas(f)?;
+    }
     let mut novos = planos.clone();
     super::classes_cfg::preparar(&mut origem, &mut novos)?;
     let mut slots = super::baixar_slots_ref_compartilhados(&origem)?;

@@ -34,7 +34,8 @@ um() {
     preparado) extra=(--memoria=arc); memoria=arc; export DARTFORGE_ARC_PREPARADO=1 ;;
     tabelas) extra=(--memoria=arc --excecoes=tabelas); memoria=arc; export DARTFORGE_ARC_PREPARADO=1 ;;
   esac
-  if ! "$bin" compile-native "$f" -o "$dest/$n" "${extra[@]}" > "$dest/$n.build.log" 2>&1; then
+  # `${extra[@]+…}`: o bash 3.2 do macOS recusa o vetor vazio sob `set -u`.
+  if ! "$bin" compile-native "$f" -o "$dest/$n" ${extra[@]+"${extra[@]}"} > "$dest/$n.build.log" 2>&1; then
     printf "%s\tbuild\t%s\n" "$n" "$(tail -1 "$dest/$n.build.log" | cut -c1-200)"
     return
   fi

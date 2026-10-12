@@ -84,6 +84,9 @@ define internal i64 @df.tipada_deslocamento(i64 %t) alwaysinline {
   %d = load i64, ptr %p, align 8, !invariant.load !{}
   ret i64 %d
 }
+define internal void @df.manter_vivo(i64 %l) alwaysinline {
+  ret void
+}
 define internal i64 @df.nucleo_len(i64 %l) alwaysinline {
 entrada:
   %c = call i64 @df.classe(i64 %l)
@@ -175,6 +178,7 @@ pub const EFEITOS_DOS_AJUDANTES: &[(&str, bool, bool)] = &[
     ("df.nucleo_forma", false, false),
     ("df.nucleo_len_gravavel", false, false),
     ("df.palavra_ref", false, false),
+    ("df.manter_vivo", false, false),
     ("df.simd_caixa", true, false),
 ];
 
