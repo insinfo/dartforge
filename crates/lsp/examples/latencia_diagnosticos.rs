@@ -146,7 +146,10 @@ fn main() {
             servidor.receber(edicao(&uri, v));
             servidor.bombear();
             imediatos.push(t.elapsed());
-            esperar_tipada(&mut servidor, &uri).expect("publicação tipada");
+            // Sem mudança nos diagnósticos, a lista repetida não é publicada
+            // (`_filesWithClientDiagnostics`): mede-se até o trabalhador
+            // ficar ocioso, com ou sem publicação.
+            let _ = esperar_tipada(&mut servidor, &uri);
             tipados.push(t.elapsed());
         }
         imediatos.sort();

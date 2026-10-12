@@ -16692,7 +16692,9 @@ reanálise do pacote inteiro a cada mudança (I5/I6 a tornariam proporcional ao 
 * `didOpen`/`didClose` de um arquivo cujo texto é o que a carga já tem não derrubam mais as sessões.
 * Medido com `examples/latencia_recursos.rs`: o `didChange` dentro de um corpo de um arquivo de 1200 linhas
   custa 3 ms (a troca da unidade com todos os corpos dela reinferidos), e o hover seguinte 0,7 ms — o ganho
-  de I5 (reinferir só o corpo editado) seria de ~2 ms por tecla.
+  de I5 (reinferir só o corpo editado) seria de ~2 ms por tecla. Os diagnósticos tipados depois de uma edição
+  (`examples/latencia_diagnosticos.rs`, a análise do pacote inteiro pelo `Motor`) saem em 46 ms (`path`,
+  `context.dart`) e 27 ms (`args`, `arg_parser.dart`).
 
 Continuam: I5 (reaproveitar as tabelas dos corpos não alterados pede remapear `ExprId`s e offsets dentro de
 `UnitBodyTypes`, em `crates/types`; diagnósticos tipados incrementais pedem o `Motor` de `crates/paridade`
