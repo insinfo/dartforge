@@ -211,6 +211,37 @@ const CASOS: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
         "class A {\n  final int x, y;\n  A(this.x, [this.y = 0]);\n}\nclass C extends A {\n  C(super.x, [super._]);\n}\nclass D extends A {\n  D(super._, [super.y]);\n}\n",
         &[],
     ),
+    // Pacotes e projetos reais (2026-10-12): captura só de variável de fora da\nfunção, condição guardada antes da 2.15, `/x.dart` numa biblioteca de `lib/`\ne construtor privado de outra biblioteca.
+    (
+        "captura_local.dart",
+        "void f(List<int> l) {\n  void g(Map<int, int>? m) {\n    m ??= {};\n    l.forEach((x) {\n      if (!m!.containsKey(x)) print(m.keys);\n    });\n  }\n  Map<int, int>? n;\n  l.forEach((x) {\n    if (n!.containsKey(x)) print(n.keys);\n  });\n  n = {};\n  g(null);\n}\n",
+        &[],
+    ),
+    (
+        "condicao_2_14.dart",
+        "// @dart=2.14\nvoid f({List<String>? join}) {\n  final bool b = join != null;\n  if (b) print(join!.length);\n  var c = join != null;\n  if (c) print(join!.length);\n}\n",
+        &[("unnecessary_non_null_assertion", 4, 20, 1)],
+    ),
+    (
+        "lib/src/a.dart",
+        "import '/z.dart';\nimport '/nao.dart';\nvoid f() {}\n",
+        &[("unused_import", 1, 8, 9), ("uri_does_not_exist", 2, 8, 11)],
+    ),
+    (
+        "lib/z.dart",
+        "class Z {}\n",
+        &[],
+    ),
+    (
+        "privado_lib.dart",
+        "class Class {\n  Class._constructor();\n  Class();\n}\n",
+        &[("unused_element", 2, 9, 12)],
+    ),
+    (
+        "privado_uso.dart",
+        "import 'privado_lib.dart';\nimport 'privado_lib.dart' as p;\nmain() {\n  new Class._constructor();\n  new p.Class._constructor();\n  Class();\n}\n",
+        &[("new_with_undefined_constructor", 4, 13, 12), ("new_with_undefined_constructor", 5, 15, 12)],
+    ),
 ];
 
 #[test]
@@ -227,6 +258,7 @@ fn regras_portadas_dao_o_que_o_analyzer_3_6_2_da() {
     let cfg = corpus::preparar(&raiz, "regras", &g).unwrap();
     let mut fontes = Vec::new();
     for (nome, texto, _) in CASOS {
+        std::fs::create_dir_all(raiz.join(nome).parent().unwrap()).unwrap();
         std::fs::write(raiz.join(nome), texto).unwrap();
         fontes.push(raiz.join(nome));
     }

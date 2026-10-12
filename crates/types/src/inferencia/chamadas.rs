@@ -1921,7 +1921,7 @@ fn alvo_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, target: ExprId) -
         }
         let (c, args) = tipo_args(inf, cx, &rt);
         let chave = if Some(name.sym) == inf.sym.new_ { vazio } else { name.sym };
-        let f = inf.construtor_ou_primario(c, chave)?;
+        let f = inf.construtor_visivel(c, chave, cx.lib)?;
         registrar_referencia(inf, cx, recv);
         if let Some(f) = f
             && inf.program.function(f).class == Some(c)
@@ -1998,6 +1998,16 @@ impl<'a> BodyInferrer<'a> {
             ast::DeclKind::ExtensionType(et) if et.constructor.map(|n| n.sym).or(self.sym.vazio) == Some(nome) => Some(None),
             _ => None,
         }
+    }
+
+    /// [`Self::construtor_ou_primario`] pelo `lookUpConstructor(nome, library)`
+    /// do analyzer: o construtor privado de outra biblioteca não é achado
+    /// (`isAccessibleIn`).
+    pub(crate) fn construtor_visivel(&self, c: ClassId, nome: dartforge_intern::SymbolId, lib: dartforge_elements::model::LibraryId) -> Option<Option<FunctionElementId>> {
+        if self.interner.resolve(nome).starts_with('_') && self.program.class(c).library != lib {
+            return None;
+        }
+        self.construtor_ou_primario(c, nome)
     }
 
     /// `(Representação) -> E<parâmetros>`: o construtor primário.
@@ -2507,7 +2517,7 @@ pub(crate) fn instanciacao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
         Some(n) if Some(n.sym) != inf.sym.new_ => Some(n.sym),
         _ => inf.sym.vazio,
     };
-    let f = chave.and_then(|k| inf.construtor_ou_primario(c, k));
+    let f = chave.and_then(|k| inf.construtor_visivel(c, k, cx.lib));
     // `new E()` / `const E()`: o construtor gerador do enum (ou o sem nome
     // implícito) não instancia fora da criação de constantes. Nome
     // explícito sem alvo (`const E.foo()`) é outro diagnóstico

@@ -1847,7 +1847,9 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
             fluxo_dentro.juncao_conservadora(&[], &[id]);
         }
     }
-    cx.escritos_em_closure.extend(escritos.iter().copied());
+    // Só a escrita de variável de fora da função é captura: a dos próprios
+    // parâmetros e locais (declaração achada na varredura dela) não.
+    cx.escritos_em_closure.extend(escritos.iter().copied().filter(|e| e.1.is_none()));
     cx.fluxo = fluxo_dentro;
     cx.empurrar_escopo();
     // Parâmetros de tipo da função literal.

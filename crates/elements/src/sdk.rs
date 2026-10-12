@@ -351,8 +351,15 @@ impl SdkLayout {
         for dir in std::env::split_paths(&path_var) {
             for exe in ["dart.exe", "dart"] {
                 if dir.join(exe).exists() {
-                    let lib = dir.join("..").join("lib");
-                    if lib.join("libraries.json").exists() {
+                    // `<bin>/../lib` sem o `..` (os caminhos do SDK aparecem nas
+                    // mensagens, como no analyzer: `…/dart-sdk/lib/…`); com o
+                    // `dart` simbólico (Homebrew), pelo executável real.
+                    let candidatos = [
+                        dir.parent().map(|p| p.join("lib")),
+                        Some(dir.join("..").join("lib")),
+                        std::fs::canonicalize(dir.join(exe)).ok().and_then(|e| Some(e.parent()?.parent()?.join("lib"))),
+                    ];
+                    if let Some(lib) = candidatos.into_iter().flatten().find(|l| l.join("libraries.json").exists()) {
                         return Some(lib);
                     }
                 }

@@ -1327,6 +1327,13 @@ fn valor_padrao_do_parametro(
     let (fs, j) = parametro_do_super(program, interner, f, i)?;
     let v = valor_padrao_do_parametro(program, interner, table, core, outline, corpos, fs, j, prof + 1)?;
     let core = core?;
+    // O tipo do valor não conhecido aqui (biblioteca da superclasse sem os
+    // corpos inferidos, como na análise de um arquivo só no LSP): o valor
+    // existe, e a checagem fica com quem o conhece (sem falso
+    // `missing_default_value_for_parameter`).
+    if v == core.dynamic_ {
+        return Some(tipo_p);
+    }
     let mut env = SubtypeEnv::new(table, &outline.hierarchy, core);
     is_subtype(v, tipo_p, &mut env).then_some(v)
 }

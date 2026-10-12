@@ -1076,7 +1076,15 @@ pub(crate) fn declaracao_de_variaveis(inf: &mut BodyInferrer<'_>, cx: &mut Corpo
             Some(_) => cx.fluxo.inicializar(id),
             None => {}
         }
-        if let (Some((sim, nao)), Some(versao)) = (condicao_guardada, cx.fluxo.versao(id)) {
+        // `_initialize` (`flow_analysis.dart:5957-5962`): antes da 2.15
+        // (`respectImplicitlyTypedVarInitializers`, o `constructor-tearoffs`),
+        // a variável sem tipo escrito ignora a informação do inicializador
+        // (o comportamento de dart-lang/language#1785).
+        let versao_da_biblioteca = inf.program.library(cx.lib).features.versao();
+        let respeita_inicializador = declarado.is_some() || (versao_da_biblioteca.major, versao_da_biblioteca.minor) >= (2, 15);
+        if respeita_inicializador
+            && let (Some((sim, nao)), Some(versao)) = (condicao_guardada, cx.fluxo.versao(id))
+        {
             cx.condicoes.insert(id, (sim, nao, versao));
         }
     }
@@ -1499,11 +1507,14 @@ struct Varredura<'a> {
     escopos: Vec<Vec<(SymbolId, usize)>>,
     fora: Vec<Escrita>,
     dentro: Vec<Escrita>,
+    /// O índice do escopo em que começa cada closure ou função local em
+    /// curso: a escrita de uma variável declarada nela mesma não é captura.
+    closures: Vec<usize>,
 }
 
 impl<'a> Varredura<'a> {
     fn nova(a: &'a ast::Ast) -> Self {
-        Varredura { a, escopos: vec![Vec::new()], fora: Vec::new(), dentro: Vec::new() }
+        Varredura { a, escopos: vec![Vec::new()], fora: Vec::new(), dentro: Vec::new(), closures: Vec::new() }
     }
 
     fn declarar(&mut self, n: ast::Name) {
@@ -1521,11 +1532,17 @@ impl<'a> Varredura<'a> {
     }
 
     fn escrever(&mut self, n: ast::Name, dentro: bool) {
-        let decl = self
+        let achado = self
             .escopos
             .iter()
+            .enumerate()
             .rev()
-            .find_map(|e| e.iter().rev().find(|(s, _)| *s == n.sym).map(|(_, o)| *o));
+            .find_map(|(i, e)| e.iter().rev().find(|(s, _)| *s == n.sym).map(|(_, o)| (i, *o)));
+        let decl = achado.map(|(_, o)| o);
+        // `AssignedVariables.captured`: só a escrita numa closure de variável
+        // declarada fora dela (o parâmetro de uma função local escrito nela
+        // mesma é escrita comum).
+        let dentro = dentro && !achado.is_some_and(|(i, _)| self.closures.last().is_some_and(|&c| i >= c));
         let e = (n.sym, decl);
         let v = if dentro { &mut self.dentro } else { &mut self.fora };
         if !v.contains(&e) {
@@ -1551,8 +1568,10 @@ impl<'a> Varredura<'a> {
     /// closure; os parâmetros dela são declarações próprias.
     fn funcao(&mut self, f: &ast::Function) {
         self.com_escopo(|v| {
+            v.closures.push(v.escopos.len() - 1);
             v.declarar_parametros(f);
             v.corpo(&f.body, true);
+            v.closures.pop();
         });
     }
 

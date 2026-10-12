@@ -1135,13 +1135,19 @@ fn canonical_file_uri(canonical: &Path, package_config: &PackageConfig) -> Strin
 /// texto, como `Uri.resolve`: `None` se `..` sair do pacote (aí o chamador
 /// resolve pelo caminho) ou se `rel` tiver esquema.
 fn resolver_relativo_a_package(base: &str, rel: &str) -> Option<String> {
-    if rel.contains(':') || rel.starts_with('/') {
+    if rel.contains(':') || rel.starts_with("//") {
         return None;
     }
     let corpo = base.strip_prefix("package:")?;
     let (pacote, resto) = corpo.split_once('/')?;
     let mut segs: Vec<&str> = resto.split('/').collect();
     segs.pop(); // o arquivo base
+    // `/x.dart` numa biblioteca `package:`: a raiz do pacote (a VM e o
+    // analyzer 3.6.2 resolvem `package:p/src/a.dart` + `/x.dart` como
+    // `package:p/x.dart`; conferido com `dart run` e `dart analyze`).
+    if rel.starts_with('/') {
+        segs.clear();
+    }
     for s in rel.split('/') {
         match s {
             "" | "." => {}

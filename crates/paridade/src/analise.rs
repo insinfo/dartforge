@@ -172,6 +172,13 @@ fn resolver_uri_de_diretiva(uri: &str, base: &Path, config: Option<&dartforge_el
     if uri.contains(':') {
         return None;
     }
+    // `/x.dart` numa biblioteca de `lib/` (URI `package:`): a raiz do pacote,
+    // como `resolver_relativo_a_package` na carga.
+    if uri.starts_with('/') && !uri.starts_with("//")
+        && let Some(dir) = config.and_then(|c| c.package_dirs.iter().find(|(_, d)| base.starts_with(d)).map(|(_, d)| d.clone()))
+    {
+        return Some(dir.join(uri.trim_start_matches('/')));
+    }
     Some(base.join(uri))
 }
 
@@ -226,6 +233,74 @@ fn parte_com_biblioteca(
         });
     }
     false
+}
+
+/// A biblioteca que inclui a parte `a` quando ela não está no lote: a do
+/// `part of 'uri'`, ou, por nome, uma biblioteca **da mesma pasta** com esse
+/// nome que a inclui (`PartOfNameFileKind.discoverLibraries` só lê os
+/// irmãos; a primeira pelo caminho). `None` se a biblioteca está no lote ou
+/// não é achada assim (a parte segue como biblioteca própria).
+fn biblioteca_fora_do_lote(
+    a: &Path,
+    texto: &str,
+    raiz: &Path,
+    lote: &[(usize, &PathBuf, String)],
+    config: Option<&dartforge_elements::PackageConfig>,
+    textos: &HashMap<PathBuf, String>,
+) -> Option<PathBuf> {
+    let mut nomes = dartforge_intern::Interner::new();
+    let analisado = dartforge_frontend::parser::parse(texto, &mut nomes);
+    let base = a.parent().map(Path::to_path_buf).unwrap_or_default();
+    let alvo = chave(a);
+    let no_lote = |c: &Path| lote.iter().any(|(_, x, _)| chave(x) == chave(c));
+    let ler = |c: &Path| textos.get(&chave(c)).cloned().or_else(|| std::fs::read_to_string(c).ok());
+    let inclui = |caminho_lib: &Path, texto_lib: &str| -> bool {
+        let mut n2 = dartforge_intern::Interner::new();
+        let lib = dartforge_frontend::parser::parse(texto_lib, &mut n2);
+        let base_lib = caminho_lib.parent().map(Path::to_path_buf).unwrap_or_default();
+        lib.unit.directives.iter().any(|d| match &d.kind {
+            DirectiveKind::Part { uri } => dartforge_elements::load::string_lit_value(uri)
+                .and_then(|u| resolver_uri_de_diretiva(&u, &base_lib, config))
+                .is_some_and(|c| chave(&c) == alvo),
+            _ => false,
+        })
+    };
+    let d = analisado.unit.directives.iter().find(|d| matches!(d.kind, DirectiveKind::PartOf { .. }))?;
+    let DirectiveKind::PartOf { uri, name } = &d.kind else { return None };
+    if let Some(lit) = uri {
+        let u = dartforge_elements::load::string_lit_value(lit)?;
+        let caminho = resolver_uri_de_diretiva(&u, &base, config)?;
+        let t = ler(&caminho)?;
+        return (!no_lote(&caminho) && !e_parte(&t) && inclui(&caminho, &t)).then_some(caminho);
+    }
+    let procurado: Vec<String> = name.iter().map(|n| nomes.resolve(n.sym).to_string()).collect();
+    if procurado.is_empty() {
+        return None;
+    }
+    let _ = raiz;
+    let mut irmaos: Vec<PathBuf> = std::fs::read_dir(&base)
+        .map(|it| it.flatten().map(|e| e.path()).filter(|p| p.is_file() && p.extension().is_some_and(|x| x == "dart")).collect())
+        .unwrap_or_default();
+    irmaos.sort();
+    for c in irmaos {
+        if no_lote(&c) || chave(&c) == alvo {
+            continue;
+        }
+        let Some(t) = ler(&c) else { continue };
+        if e_parte(&t) || !t.contains(procurado.last().map(String::as_str).unwrap_or("")) {
+            continue;
+        }
+        let mut n3 = dartforge_intern::Interner::new();
+        let lib = dartforge_frontend::parser::parse(&t, &mut n3);
+        let nome_da_lib = lib.unit.directives.iter().find_map(|d| match &d.kind {
+            DirectiveKind::Library { name } => Some(name.iter().map(|n| n3.resolve(n.sym).to_string()).collect::<Vec<_>>()),
+            _ => None,
+        });
+        if nome_da_lib.as_ref() == Some(&procurado) && inclui(&c, &t) {
+            return Some(c);
+        }
+    }
+    None
 }
 
 /// Sufixos de arquivo gerado (`file_paths.isGenerated`, analyzer 6.11.0).
@@ -353,7 +428,22 @@ impl Motor {
             // Uma parte cuja biblioteca não é conhecida (o `part of` não
             // aponta para uma biblioteca que a inclui) é analisada como
             // biblioteca própria (`FileKind.asLibrary`; INFRA III.5 item 1).
-            let como_biblioteca = !e_parte(&texto) || !parte_com_biblioteca(a, &texto, &lidos, config_de_pacotes.as_ref(), textos);
+            let parte = e_parte(&texto);
+            let como_biblioteca = !parte || !parte_com_biblioteca(a, &texto, &lidos, config_de_pacotes.as_ref(), textos);
+            // A parte pedida sem a biblioteca no lote (a análise de um arquivo
+            // só: o LSP, as mutações): o analyzer conhece todos os arquivos
+            // do contexto e a analisa dentro da biblioteca que a inclui
+            // (`part of 'uri'` ou `part of nome;` de uma biblioteca do
+            // pacote). A biblioteca entra na carga; os relatos continuam só
+            // os dos arquivos pedidos.
+            if parte
+                && let Some(lib) = biblioteca_fora_do_lote(a, &texto, raiz, &lidos, config_de_pacotes.as_ref(), textos)
+            {
+                let rel = lib.strip_prefix(raiz).unwrap_or(&lib).to_string_lossy().replace('\\', "/").replace(' ', "%20");
+                imports.push_str(&format!("import '{rel}' as _dfb{i};\n"));
+                proprios.insert(chave(a), texto);
+                continue;
+            }
             if como_biblioteca {
                 let rel = a.strip_prefix(raiz).unwrap_or(a).to_string_lossy().replace('\\', "/");
                 let rel: String = rel
@@ -1299,7 +1389,7 @@ impl Motor {
             // Outros esquemas (`dart-ext:`, `http:`): fora do escopo.
             return None;
         } else {
-            let alvo = chave(&base.join(uri));
+            let alvo = chave(&resolver_uri_de_diretiva(uri, base, config).unwrap_or_else(|| base.join(uri)));
             alvo.is_file() || config.is_some_and(|c| gerado_pelo_build(c, &alvo))
         };
         if existe {
