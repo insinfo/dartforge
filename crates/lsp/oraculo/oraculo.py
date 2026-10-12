@@ -3,11 +3,17 @@
 # recursos nas mesmas posições e grava as respostas lado a lado (JSONL).
 #
 # Uso: python oraculo.py <saida.jsonl> <binario-dartforge> [projeto ...]
+# (variáveis de ambiente: ORACULO_DART, ORACULO_SDK_LIB, ORACULO_POR_ARQUIVO,
+# ORACULO_SNIPPETS)
 # O resumo (tabela de paridade) sai de `resumo.py`.
 import json, os, re, subprocess, sys, threading, time, queue, urllib.parse, pathlib
 
-DART = r"C:\tools\dartsdk-3.6.2\bin\dart.exe"
-SDK_LIB = r"C:\tools\dartsdk-3.6.2\lib"
+# Caminhos do SDK 3.6.2: `ORACULO_DART` (o executável `dart`) e
+# `ORACULO_SDK_LIB` (a pasta `lib` do mesmo SDK, que vira o
+# `DARTFORGE_SDK_LIB` do servidor do DartForge). Sem elas, os padrões do
+# Windows.
+DART = os.environ.get("ORACULO_DART", r"C:\tools\dartsdk-3.6.2\bin\dart.exe")
+SDK_LIB = os.environ.get("ORACULO_SDK_LIB", r"C:\tools\dartsdk-3.6.2\lib")
 POR_ARQUIVO = int(os.environ.get("ORACULO_POR_ARQUIVO", "12"))
 
 
@@ -129,6 +135,10 @@ CAPACIDADES = {
                   "executeCommand": {}},
     "window": {"workDoneProgress": False},
 }
+# Os `SnippetTextEdit` das ações de código (o que o Dart-Code anuncia):
+# ligados por padrão; `ORACULO_SNIPPETS=0` mede o cliente sem a capacidade.
+if os.environ.get("ORACULO_SNIPPETS", "1") != "0":
+    CAPACIDADES["experimental"] = {"snippetTextEdit": True}
 
 ID = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
 PALAVRAS = set("""abstract as assert async await base break case catch class const continue covariant default deferred do

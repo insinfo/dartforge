@@ -71,6 +71,30 @@ def edicoes(x):
     return frozenset(s)
 
 
+def edicao_por_titulo(x):
+    """Por título das ações `quickfix`/`refactor` com `edit`: as edições
+    normalizadas, com o `insertTextFormat` (2 = snippet)."""
+    if not x or erro(x):
+        return {}
+    saida = {}
+    for acao in x:
+        k = acao.get("kind") or ""
+        if not (k.startswith("quickfix") or k.startswith("refactor")) or "edit" not in acao:
+            continue
+        s = set()
+        for dc in acao["edit"].get("documentChanges") or []:
+            if "textDocument" in dc:
+                for e in dc["edits"]:
+                    s.add((nu(dc["textDocument"]["uri"]), rg(e["range"]), e["newText"], e.get("insertTextFormat")))
+            else:
+                s.add((dc.get("kind"), nu(dc.get("oldUri") or dc.get("uri")), nu(dc.get("newUri"))))
+        for u, es in (acao["edit"].get("changes") or {}).items():
+            for e in es:
+                s.add((nu(u), rg(e["range"]), e["newText"], e.get("insertTextFormat")))
+        saida.setdefault(acao.get("title"), frozenset(s))
+    return saida
+
+
 def preparar(x):
     if erro(x):
         return "ERRO"
@@ -283,6 +307,13 @@ for l in linhas:
                   (onde, sorted(ta - tb), sorted(tb - ta)))
         ta, tb = por_especie(a, "source"), por_especie(b, "source")
         conta("codeAction: ações de fonte (source)", ta == tb, bool(ta), bool(ta & tb), (onde, sorted(ta - tb), sorted(tb - ta)))
+        # A edição de cada ação de título comum (correções e assistências):
+        # as `TextEdit`/`SnippetTextEdit` normalizadas, com o formato.
+        ea, eb = edicao_por_titulo(a), edicao_por_titulo(b)
+        for titulo in sorted(set(ea) & set(eb)):
+            chave = "codeAction: edição (quickfix, título comum)" if l.get("diagnostico") is not None \
+                else "codeAction: edição (refactor, título comum)"
+            conta(chave, ea[titulo] == eb[titulo], True, True, (onde, titulo, str(ea[titulo])[:300], str(eb[titulo])[:300]))
         continue
     if m == "textDocument/semanticTokens/full":
         ta, tb = tokens(a, "dart"), tokens(b, "dartforge")
