@@ -408,3 +408,7 @@ dartforge_late_field_initialized	ref:borrow,i64:scalar	u8:scalar	0	0	normal
 dartforge_late_field_initializing	ref:borrow,i64:scalar	u8:scalar	0	0	normal
 dartforge_late_field_mark_initialized	ref:borrow,i64:scalar	void:scalar	0	0	normal
 dartforge_late_field_set_initializing	ref:borrow,i64:scalar,u8:scalar	void:scalar	0	0	normal
+# Pilha do rastro simbólico: guarda o endereço sem contar; o desenrolamento
+# só o lê enquanto o quadro que o empurrou (e o empresta) está na pilha.
+dartforge_rastro_entrar	i64:scalar,ref:borrow	i64:scalar	0	0	normal
+dartforge_rastro_sair	i64:scalar	void:scalar	0	0	normal

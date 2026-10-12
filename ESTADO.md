@@ -294,8 +294,16 @@ Exceções por tabelas (`--excecoes=tabelas`) com a preparação publicada:
 O corpus fica com 125 de 126 iguais também nesse modo
 (`scripts/corpus-nativo.sh tabelas`).
 
-**Próximo passo:** rastro simbólico (`dartforge_rastro_entrar` sem
-contrato); depois §§27–34 e o gate ARC >= A0.
+Rastro simbólico (`--rastro=simbolico`) com a preparação:
+`dartforge_rastro_entrar` (borrow, sem retenção: o desenrolamento só lê o
+endereço enquanto o quadro que o empurrou está na pilha) e
+`dartforge_rastro_sair` ganham contrato. Um programa com lançamento
+síncrono e cadeia async (`target/prova-rastro/`) sai igual em tracing e no
+preparado, normal/GC stress. Os dois perdem os quadros de quem espera
+(`meio`, `topo`) que a VM mostra: a cadeia async do §13.14 ainda não
+casa no macOS, independente do ARC.
+
+**Próximo passo:** §§27–34 e o gate ARC >= A0.
 
 ### Evidências (macOS arm64, logs em `target/`)
 
