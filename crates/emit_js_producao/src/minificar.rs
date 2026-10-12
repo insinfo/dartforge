@@ -656,6 +656,84 @@ fn deduplicar_strings(fonte: &str) -> Result<String, String> {
     Ok(out)
 }
 
+/// Nomes de propriedade que todo objeto (ou função, *array*, *string*) do
+/// JavaScript já tem: nenhum membro renomeado pode cair neles.
+const PROTOTIPOS_JS: &[&str] = &[
+    "constructor", "prototype", "__proto__", "__defineGetter__", "__defineSetter__", "__lookupGetter__", "__lookupSetter__", "toString",
+    "toLocaleString", "valueOf", "hasOwnProperty", "isPrototypeOf", "propertyIsEnumerable", "name", "length", "call", "apply", "bind",
+    "arguments", "caller", "at", "of", "is", "big", "sub", "sup", "map", "pop", "raw", "now", "get", "set", "has", "add", "keys", "fill",
+    "find", "flat", "join", "push", "some", "sort", "trim", "link", "bold", "anchor", "blink", "fixed", "small", "strike", "fontsize",
+    "fontcolor", "italics", "then", "catch", "finally", "next", "done", "value", "return", "throw",
+];
+
+/// Conta as propriedades do programa e dá a cada nome de `renomeados` um
+/// nome curto: o mais usado fica com o menor (`base54`, a ordem do `oxc`).
+/// Nenhum destino coincide com um nome que **fica** no arquivo (propriedade
+/// não renomeada, chave entre aspas, `extra_ocupados`) nem com outro
+/// destino; um nome renomeado pode virar destino de outro, porque todas as
+/// suas ocorrências mudam. Determinístico: empate pela ordem do nome.
+fn atribuir_nomes(programa: &oxc_ast::ast::Program<'_>, renomeados: &std::collections::HashSet<String>, extra_ocupados: &[&str]) -> Vec<(String, String)> {
+    use oxc_ast_visit::Visit;
+    struct Contagem(std::collections::HashMap<String, u32>);
+    impl Contagem {
+        fn um(&mut self, n: &str) {
+            *self.0.entry(n.to_string()).or_default() += 1;
+        }
+    }
+    impl<'a> oxc_ast_visit::Visit<'a> for Contagem {
+        fn visit_static_member_expression(&mut self, it: &oxc_ast::ast::StaticMemberExpression<'a>) {
+            self.um(it.property.name.as_str());
+            oxc_ast_visit::walk::walk_static_member_expression(self, it);
+        }
+        fn visit_computed_member_expression(&mut self, it: &oxc_ast::ast::ComputedMemberExpression<'a>) {
+            if let oxc_ast::ast::Expression::StringLiteral(l) = &it.expression {
+                self.um(l.value.as_str());
+            }
+            oxc_ast_visit::walk::walk_computed_member_expression(self, it);
+        }
+        fn visit_property_key(&mut self, it: &oxc_ast::ast::PropertyKey<'a>) {
+            match it {
+                oxc_ast::ast::PropertyKey::StaticIdentifier(i) => self.um(i.name.as_str()),
+                oxc_ast::ast::PropertyKey::StringLiteral(l) => self.um(l.value.as_str()),
+                _ => {}
+            }
+            oxc_ast_visit::walk::walk_property_key(self, it);
+        }
+        fn visit_assignment_target_property_identifier(&mut self, it: &oxc_ast::ast::AssignmentTargetPropertyIdentifier<'a>) {
+            self.um(it.binding.name.as_str());
+            oxc_ast_visit::walk::walk_assignment_target_property_identifier(self, it);
+        }
+        fn visit_binary_expression(&mut self, it: &oxc_ast::ast::BinaryExpression<'a>) {
+            if it.operator == oxc_syntax::operator::BinaryOperator::In
+                && let oxc_ast::ast::Expression::StringLiteral(l) = &it.left
+            {
+                self.um(l.value.as_str());
+            }
+            oxc_ast_visit::walk::walk_binary_expression(self, it);
+        }
+    }
+    let mut c = Contagem(std::collections::HashMap::new());
+    c.visit_program(programa);
+    let mut ocupados: std::collections::HashSet<&str> = c.0.keys().map(String::as_str).filter(|n| !renomeados.contains(*n)).collect();
+    ocupados.extend(extra_ocupados.iter().copied());
+    let mut ordem: Vec<(&String, u32)> = renomeados.iter().map(|n| (n, c.0.get(n).copied().unwrap_or(0))).collect();
+    ordem.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+    let mut out = Vec::with_capacity(ordem.len());
+    let mut k = 0u32;
+    for (de, _) in ordem {
+        let para = loop {
+            let n = oxc_mangler::base54(k);
+            k += 1;
+            let n = n.as_str();
+            if !ocupados.contains(n) && !matches!(n, "__proto__" | "constructor" | "prototype") {
+                break n.to_string();
+            }
+        };
+        out.push((de.clone(), para));
+    }
+    out
+}
+
 /// Como [`minificar_nomes`], renomeando também as propriedades de
 /// `nomes.renomeaveis` que não estão reservadas nem aparecem como *string*
 /// (`docs/JS-PRODUCAO-TAMANHO.md` §3.1), com o `PropertyMangler` do
@@ -726,6 +804,7 @@ pub fn minificar_com_propriedades(js: &str, nomes: &crate::propriedades::Nomes) 
         let mut sonda = oxc_minifier::PropertyMangler::new_in(base.clone(), &alocador);
         sonda.collect(&programa);
         let candidatos: Vec<String> = sonda.assign().keys().map(|k| k.as_str().to_string()).collect();
+        let sonda_candidatos = candidatos.clone();
         let mut o = base;
         for c in candidatos {
             // Propriedade de nome privado do programa (`_x$1c`, `$C$x$1c`):
@@ -733,6 +812,19 @@ pub fn minificar_com_propriedades(js: &str, nomes: &crate::propriedades::Nomes) 
             let privado = c.rsplit_once('$').is_some_and(|(b, t)| !b.is_empty() && nomes.tags.contains(&format!("${t}")));
             if !livres.contains(c.as_str()) && !(privado && !nomes.reservados.contains(&c) && !strings.nomes.contains(&c)) {
                 o.reserved.insert(c.as_str().into());
+            }
+        }
+        // Os nomes curtos por nossa conta (`atribuir_nomes`): o `oxc` evita
+        // como destino toda *string* do arquivo, e as letras sozinhas
+        // (`"a"`, `"p"` de tags e CSS) ficavam sem uso.
+        if std::env::var("DARTFORGE_JSPROD_NOMES_PROPRIOS").map_or(true, |v| v != "0") {
+            let renomeados: std::collections::HashSet<String> =
+                sonda_candidatos.iter().filter(|c| !o.reserved.contains(c.as_str())).cloned().collect();
+            let mut extra_ocupados: Vec<&str> = PROTOTIPOS_JS.to_vec();
+            extra_ocupados.extend(nomes.reservados.iter().map(String::as_str));
+            extra_ocupados.extend(strings.nomes.iter().map(String::as_str));
+            for (de, para) in atribuir_nomes(&programa, &renomeados, &extra_ocupados) {
+                o.cache.insert(de.into(), Some(para.into())).map_err(|e| e.to_string())?;
             }
         }
         let mut pm = oxc_minifier::PropertyMangler::new_in(o, &alocador);
