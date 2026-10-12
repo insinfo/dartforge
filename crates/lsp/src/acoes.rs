@@ -103,12 +103,19 @@ impl AcaoDeCodigo {
 
     /// A seleção e os grupos de uma [`crate::snippets::Escrita`] que é o
     /// texto da edição `i`.
-    pub(crate) fn com_escrita(mut self, i: usize, e: &crate::snippets::Escrita) -> Self {
+    pub(crate) fn com_escrita(self, i: usize, e: &crate::snippets::Escrita) -> Self {
+        self.com_escrita_em(i, 0, e)
+    }
+
+    /// [`Self::com_escrita`] com a escrita começando no byte `base` do texto
+    /// da edição `i`.
+    pub(crate) fn com_escrita_em(mut self, i: usize, base: usize, e: &crate::snippets::Escrita) -> Self {
         if let Some((k, n)) = e.selecao {
-            self = self.com_selecao(i, k, n);
+            self = self.com_selecao(i, base + k, n);
         }
         for (_, posicoes, n, sugestoes) in &e.grupos {
-            self = self.com_grupo(i, posicoes, *n, sugestoes.clone());
+            let posicoes: Vec<usize> = posicoes.iter().map(|p| base + p).collect();
+            self = self.com_grupo(i, &posicoes, *n, sugestoes.clone());
         }
         self
     }

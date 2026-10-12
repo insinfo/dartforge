@@ -595,6 +595,35 @@ enum Membro {
 /// dele, as restrições `on`, as interfaces e os mixins, na ordem do
 /// `InterfacesMerger`; as aplicações de mixin sintéticas se desfazem no
 /// supertipo e nos mixins.
+/// As marcas de `e` (a declaração escrita) dentro de `texto`, onde ela
+/// entrou (pelo `insertIntoUnitMember` ou com o separador antes).
+fn marcas_em(texto: &str, e: crate::snippets::Escrita) -> Option<(usize, crate::snippets::Escrita)> {
+    texto.find(&e.texto).map(|k| (k, e))
+}
+
+/// `addSuperTypesAsSuggestions(type)` num contexto só de leitura: os
+/// supertipos instanciados são internados numa cópia da tabela de tipos,
+/// feita na primeira vez (`copia`).
+pub(crate) fn sugestoes_de_supertipos_em(p: &Projeto, copia: &mut Option<dartforge_types::TypeTable>, t: TypeId) -> Vec<String> {
+    let Type::Interface { class, args, nullable } = p.consulta.tabela.get(t).clone() else { return Vec::new() };
+    let mut v = vec![p.consulta.formatar(t)];
+    let classes = todos_os_supertipos(p, class);
+    if classes.is_empty() {
+        return v;
+    }
+    let tabela = copia.get_or_insert_with(|| p.consulta.tabela.clone());
+    let base = tabela.intern(Type::Interface { class, args, nullable: false });
+    for s in classes {
+        if let Some(mut st) = p.consulta.outline.hierarchy.supertype_of(base, s, tabela, &p.consulta.core) {
+            if nullable && let Type::Interface { class, args, .. } = tabela.get(st).clone() {
+                st = tabela.intern(Type::Interface { class, args, nullable: true });
+            }
+            v.push(tabela.format_sem_alias(st, &p.consulta.nomes, p.programa()));
+        }
+    }
+    v
+}
+
 pub(crate) fn todos_os_supertipos(p: &Projeto, c: ClassId) -> Vec<ClassId> {
     fn diretos(p: &Projeto, c: ClassId) -> (Option<ClassId>, Vec<ClassId>, Vec<ClassId>, Vec<ClassId>) {
         let prog = p.programa();
@@ -670,6 +699,9 @@ struct Proposta {
     unidade: UnitId,
     edicoes: Vec<(Span, String)>,
     importar: BTreeSet<LibraryId>,
+    /// Os grupos ligados (e a seleção) da declaração escrita, com o offset
+    /// dela no texto da primeira edição: o `SnippetTextEdit` dos `Create …`.
+    marcas: Option<(usize, crate::snippets::Escrita)>,
 }
 
 /// O `CompilationUnitMember` de topo que contém o nó.
@@ -786,7 +818,7 @@ impl Projeto {
                     }
                 }
                 let proposto = melhor.nome?;
-                Some(Proposta { titulo: format!("Change to '{proposto}'"), especie: "quickfix.change.to", unidade: cx.unidade, edicoes: vec![(token, proposto)], importar: BTreeSet::new() })
+                Some(Proposta { titulo: format!("Change to '{proposto}'"), especie: "quickfix.change.to", unidade: cx.unidade, edicoes: vec![(token, proposto)], importar: BTreeSet::new(), marcas: None })
             }
             TrocarFuncao => {
                 if cx.especie(node) != "SimpleIdentifier" {
@@ -848,7 +880,7 @@ impl Projeto {
                     }
                 }
                 let proposto = melhor.nome?;
-                Some(Proposta { titulo: format!("Change to '{proposto}'"), especie: "quickfix.change.to", unidade: cx.unidade, edicoes: vec![(cx.arvore.span(node), proposto)], importar: BTreeSet::new() })
+                Some(Proposta { titulo: format!("Change to '{proposto}'"), especie: "quickfix.change.to", unidade: cx.unidade, edicoes: vec![(cx.arvore.span(node), proposto)], importar: BTreeSet::new(), marcas: None })
             }
             TrocarGetterOuSetter | TrocarMetodo => {
                 if cx.especie(node) != "SimpleIdentifier" {
@@ -893,7 +925,7 @@ impl Projeto {
                     }
                 }
                 let proposto = melhor.nome?;
-                Some(Proposta { titulo: format!("Change to '{proposto}'"), especie: "quickfix.change.to", unidade: cx.unidade, edicoes: vec![(cx.arvore.span(node), proposto)], importar: BTreeSet::new() })
+                Some(Proposta { titulo: format!("Change to '{proposto}'"), especie: "quickfix.change.to", unidade: cx.unidade, edicoes: vec![(cx.arvore.span(node), proposto)], importar: BTreeSet::new(), marcas: None })
             }
             CriarClasse | CriarMixin => {
                 let mut alvo = node;
@@ -970,22 +1002,32 @@ impl Projeto {
                     }
                 };
                 let eol_d = Texto::novo(&prog.unit(unidade).source).eol().to_string();
+                // O grupo `NAME` no nome da classe (e no do construtor) e os
+                // dos parâmetros (`create_class.dart:118-139`).
+                let mut e = crate::snippets::Escrita::default();
+                e.escrever(&antes);
                 let texto = if produtor == CriarMixin {
-                    format!("{antes}mixin {nome} {{{eol_d}}}{depois}")
+                    e.escrever("mixin ").ligado("NAME", &nome, &[]).escrever(&format!(" {{{eol_d}}}{depois}"));
+                    e.texto.clone()
                 } else if argumentos.is_none() && !exige_const {
-                    format!("{antes}class {nome} {{{eol_d}}}{depois}")
+                    e.escrever("class ").ligado("NAME", &nome, &[]).escrever(&format!(" {{{eol_d}}}{depois}"));
+                    e.texto.clone()
                 } else {
                     let destino = Contexto::novo(self, unidade);
                     let mut escritor = Escritor::novo(&destino, offset);
-                    let params = argumentos.map(|a| cx.parametros_para_argumentos(a, &mut escritor)).unwrap_or_default();
                     let c = if exige_const { "const " } else { "" };
-                    let t = format!("{antes}class {nome} {{{eol_d}  {c}{nome}({params});{eol_d}}}{depois}");
+                    e.escrever("class ").ligado("NAME", &nome, &[]).escrever(&format!(" {{{eol_d}  {c}")).ligado("NAME", &nome, &[]).escrever("(");
+                    if let Some(a) = argumentos {
+                        cx.parametros_para_argumentos_em(a, &mut escritor, &mut e);
+                    }
+                    e.escrever(&format!(");{eol_d}}}{depois}"));
+                    let t = e.texto.clone();
                     return Some(Proposta {
                         titulo: format!("Create class '{nome}'"),
                         especie: "quickfix.create.class",
                         unidade,
                         edicoes: vec![(Span { start: offset, end: offset }, t)],
-                        importar: escritor.importar,
+                        importar: escritor.importar, marcas: Some((0, e)),
                     });
                 };
                 let (titulo, especie) = if produtor == CriarMixin {
@@ -993,7 +1035,7 @@ impl Projeto {
                 } else {
                     (format!("Create class '{nome}'"), "quickfix.create.class")
                 };
-                Some(Proposta { titulo, especie, unidade, edicoes: vec![(Span { start: offset, end: offset }, texto)], importar: BTreeSet::new() })
+                Some(Proposta { titulo, especie, unidade, edicoes: vec![(Span { start: offset, end: offset }, texto)], importar: BTreeSet::new(), marcas: Some((0, e)) })
             }
             CriarCampo | CriarGetter | CriarSetter => self.criar_campo_getter_setter(cx, produtor, node),
             CriarLocal => {
@@ -1008,7 +1050,7 @@ impl Projeto {
                     && cx.pai(a).is_some_and(|s| cx.especie(s) == "ExpressionStatement")
                 {
                     let o = cx.arvore.nos[node].inicio;
-                    return Some(Proposta { titulo: format!("Create local variable '{nome}'"), especie: "quickfix.create.localVariable", unidade: cx.unidade, edicoes: vec![(Span { start: o, end: o }, "var ".into())], importar: BTreeSet::new() });
+                    return Some(Proposta { titulo: format!("Create local variable '{nome}'"), especie: "quickfix.create.localVariable", unidade: cx.unidade, edicoes: vec![(Span { start: o, end: o }, "var ".into())], importar: BTreeSet::new(), marcas: None });
                 }
                 if alvo_qualificado(cx, node).is_some() || cx.pai(node).is_some_and(|p| matches!(cx.especie(p), "PrefixedIdentifier" | "PropertyAccess")) {
                     return None;
@@ -1028,17 +1070,26 @@ impl Projeto {
                 }
                 let o = cx.arvore.nos[comando].inicio;
                 let mut escritor = Escritor::novo(cx, o);
-                let declaracao = match tipo.and_then(|t| escritor.escrever(t, false)) {
-                    Some(t) => format!("{t} {nome};"),
-                    None if tipo.is_some() => format!(" {nome};"),
-                    None => format!("var {nome};"),
-                };
+                // `writeLocalVariableDeclaration(nameGroupName: 'NAME',
+                // typeGroupName: 'TYPE')`.
+                let mut e = crate::snippets::Escrita::default();
+                match tipo.and_then(|t| escritor.escrever(t, false)) {
+                    Some(t) => {
+                        e.ligado("TYPE", &t, &[]);
+                    }
+                    None if tipo.is_some() => {}
+                    None => {
+                        e.escrever("var");
+                    }
+                }
+                e.escrever(" ").ligado("NAME", &nome, &[]).escrever(&format!(";{eol}{prefixo}"));
+                let texto = e.texto.clone();
                 Some(Proposta {
                     titulo: format!("Create local variable '{nome}'"),
                     especie: "quickfix.create.localVariable",
                     unidade: cx.unidade,
-                    edicoes: vec![(Span { start: o, end: o }, format!("{declaracao}{eol}{prefixo}"))],
-                    importar: escritor.importar,
+                    edicoes: vec![(Span { start: o, end: o }, texto)],
+                    importar: escritor.importar, marcas: Some((0, e)),
                 })
             }
             CriarParametro => self.criar_parametro(cx, node),
@@ -1057,10 +1108,18 @@ impl Projeto {
                 let mut escritor = Escritor::novo(cx, o);
                 let ret = cx.tipo_inferido_indefinido(inv).and_then(|t| escritor.escrever_tipo(Some(t), false));
                 let lista = cx.filhos_da_especie(inv, "ArgumentList").first().copied()?;
-                let params = cx.parametros_para_argumentos(lista, &mut escritor);
-                let r = ret.map(|t| format!("{t} ")).unwrap_or_default();
-                let texto = format!("{eol}{eol}{r}{nome}({params}) {{{eol}}}");
-                Some(Proposta { titulo: format!("Create function '{nome}'"), especie: "quickfix.create.function", unidade: cx.unidade, edicoes: vec![(Span { start: o, end: o }, texto)], importar: escritor.importar })
+                // `RETURN_TYPE`, `NAME` e os grupos dos parâmetros
+                // (`create_function.dart:51-69`).
+                let mut e = crate::snippets::Escrita::default();
+                e.escrever(&format!("{eol}{eol}"));
+                if let Some(r) = &ret {
+                    e.ligado("RETURN_TYPE", r, &[]).escrever(" ");
+                }
+                e.ligado("NAME", &nome, &[]).escrever("(");
+                cx.parametros_para_argumentos_em(lista, &mut escritor, &mut e);
+                e.escrever(&format!(") {{{eol}}}"));
+                let texto = e.texto.clone();
+                Some(Proposta { titulo: format!("Create function '{nome}'"), especie: "quickfix.create.function", unidade: cx.unidade, edicoes: vec![(Span { start: o, end: o }, texto)], importar: escritor.importar, marcas: Some((0, e)) })
             }
             CriarMetodo => self.criar_metodo(cx, node),
             CriarGetterDeExtensao | CriarMetodoDeExtensao | CriarSetterDeExtensao => self.criar_membro_de_extensao(cx, produtor, node),
@@ -1091,8 +1150,9 @@ impl Projeto {
             });
             let tipo = tipo.and_then(|q| q.ty).and_then(|t| self.consulta.outline.tipos_escritos.get(&(cx.unidade, t)).copied());
             let decl = declaracao_de_campo(&mut escritor, &nome, constante, false, tipo);
-            let (o, texto) = cx.inserir_no_membro(conteiner, Filtro::Campo, &decl)?;
-            return Some(Proposta { titulo: format!("Create field '{nome}'"), especie: "quickfix.create.field", unidade: cx.unidade, edicoes: vec![(Span { start: o, end: o }, texto)], importar: escritor.importar });
+            let (o, texto) = cx.inserir_no_membro(conteiner, Filtro::Campo, &decl.texto)?;
+            let marcas = marcas_em(&texto, decl);
+            return Some(Proposta { titulo: format!("Create field '{nome}'"), especie: "quickfix.create.field", unidade: cx.unidade, edicoes: vec![(Span { start: o, end: o }, texto)], importar: escritor.importar, marcas });
         }
         if cx.especie(node) != "SimpleIdentifier" {
             return None;
@@ -1175,24 +1235,42 @@ impl Projeto {
         let o = dcx.inserir_no_membro(conteiner, filtro, "")?.0;
         let mut escritor = Escritor::novo(&dcx, o);
         let s = if estatico { "static " } else { "" };
-        let (decl, titulo, especie) = match produtor {
+        // Os grupos `TYPE` e `NAME` de `writeFieldDeclaration`,
+        // `writeGetterDeclaration` e `writeSetterDeclaration`.
+        let mut decl = crate::snippets::Escrita::default();
+        decl.escrever(s);
+        let (titulo, especie) = match produtor {
             Produtor::CriarCampo => {
                 let final_ = dcx.especie(conteiner) == "EnumDeclaration";
-                (format!("{s}{}", declaracao_de_campo(&mut escritor, &nome, false, final_, tipo)), format!("Create field '{nome}'"), "quickfix.create.field")
+                let campo = declaracao_de_campo(&mut escritor, &nome, false, final_, tipo);
+                let base = decl.texto.len();
+                decl.texto.push_str(&campo.texto);
+                for (n, posicoes, c, sug) in campo.grupos {
+                    decl.grupos.push((n, posicoes.into_iter().map(|p| base + p).collect(), c, sug));
+                }
+                (format!("Create field '{nome}'"), "quickfix.create.field")
             }
             Produtor::CriarGetter => {
                 let t = tipo.filter(|t| !matches!(self.consulta.tabela.get(*t), Type::Dynamic)).and_then(|t| escritor.escrever(t, false));
-                let t = t.map(|x| format!("{x} ")).unwrap_or_default();
-                (format!("{s}{t}get {nome} => null;"), format!("Create getter '{nome}'"), "quickfix.create.getter")
+                if let Some(t) = &t {
+                    decl.ligado("TYPE", t, &[]).escrever(" ");
+                }
+                decl.escrever("get ").ligado("NAME", &nome, &[]).escrever(" => null;");
+                (format!("Create getter '{nome}'"), "quickfix.create.getter")
             }
             _ => {
                 let t = tipo.filter(|t| !matches!(self.consulta.tabela.get(*t), Type::Dynamic)).and_then(|t| escritor.escrever(t, false));
-                let t = t.map(|x| format!("{x} ")).unwrap_or_default();
-                (format!("{s}set {nome}({t}{nome}) {{}}"), format!("Create setter '{nome}'"), "quickfix.create.setter")
+                decl.escrever("set ").ligado("NAME", &nome, &[]).escrever("(");
+                if let Some(t) = &t {
+                    decl.ligado("TYPE", t, &[]).escrever(" ");
+                }
+                decl.escrever(&format!("{nome}) {{}}"));
+                (format!("Create setter '{nome}'"), "quickfix.create.setter")
             }
         };
-        let (o, texto) = dcx.inserir_no_membro(conteiner, filtro, &decl)?;
-        Some(Proposta { titulo, especie, unidade: dcx.unidade, edicoes: vec![(Span { start: o, end: o }, texto)], importar: escritor.importar })
+        let (o, texto) = dcx.inserir_no_membro(conteiner, filtro, &decl.texto)?;
+        let marcas = marcas_em(&texto, decl);
+        Some(Proposta { titulo, especie, unidade: dcx.unidade, edicoes: vec![(Span { start: o, end: o }, texto)], importar: escritor.importar, marcas })
     }
 
     /// `CreateParameter` (`create_parameter.dart`).
@@ -1252,12 +1330,21 @@ impl Projeto {
             }
             Some(u) => (cx.arvore.nos[u].fim, format!(", {req}{t} {nome}")),
         };
+        // `writeParameter(nameGroupName: 'NAME', typeGroupName: 'TYPE')`: o
+        // tipo com as sugestões de supertipos e o nome.
+        let marcas = texto.rfind(&format!("{t} {nome}")).map(|k| {
+            let mut e = crate::snippets::Escrita { texto: texto.clone(), ..Default::default() };
+            let sugestoes = tipo.map(|x| sugestoes_de_supertipos_em(self, &mut None, x)).unwrap_or_default();
+            e.grupos.push(("TYPE".into(), vec![k], t.len(), sugestoes));
+            e.grupos.push(("NAME".into(), vec![k + t.len() + 1], nome.len(), Vec::new()));
+            (0, e)
+        });
         Some(Proposta {
             titulo: format!("Create required positional parameter '{nome}'"),
             especie: "quickfix.create.parameter",
             unidade: cx.unidade,
             edicoes: vec![(Span { start: offset, end: offset }, texto)],
-            importar: escritor.importar,
+            importar: escritor.importar, marcas,
         })
     }
 
@@ -1296,15 +1383,18 @@ impl Projeto {
             Type::Function { ret, positional, optional, named, .. } => (ret, positional.to_vec(), optional.to_vec(), named.to_vec()),
             _ => return None,
         };
-        let escrever = |escritor: &mut Escritor<'_, '_>| -> String {
-            let mut s = String::new();
+        // `RETURN_TYPE`, `NAME` e o `writeFormalParameters` do tipo de função
+        // (`TYPE<i>` com as sugestões de supertipos; `PARAM<i>` nos não
+        // nomeados), `create_method_or_function.dart:105-128`.
+        let escrever = |escritor: &mut Escritor<'_, '_>| -> crate::snippets::Escrita {
+            let mut copia: Option<dartforge_types::TypeTable> = None;
+            let mut e = crate::snippets::Escrita::default();
             if let Some(r) = escritor.escrever(ret, false) {
-                s.push_str(&r);
-                s.push(' ');
+                e.ligado("RETURN_TYPE", &r, &[]).escrever(" ");
             }
-            s.push_str(&nome);
+            e.ligado("NAME", &nome, &[]);
             // `writeFormalParameters`: os posicionais sem nome viram `p1`…
-            s.push('(');
+            e.escrever("(");
             let mut i = 0usize;
             let mut usados: BTreeSet<String> = named.iter().map(|(n, _, _)| self.nome(*n).to_string()).collect();
             let gerar = |usados: &mut BTreeSet<String>| {
@@ -1320,46 +1410,46 @@ impl Projeto {
             let mut abriu_n = false;
             for (q, opcional) in positional.iter().map(|q| (*q, false)).chain(optional.iter().map(|q| (*q, true))) {
                 if i > 0 {
-                    s.push_str(", ");
+                    e.escrever(", ");
                 }
                 if opcional && !abriu_o {
-                    s.push('[');
+                    e.escrever("[");
                     abriu_o = true;
                 }
                 let n = gerar(&mut usados);
                 if let Some(t) = escritor.escrever(q, false) {
-                    s.push_str(&t);
-                    s.push(' ');
+                    let sugestoes = sugestoes_de_supertipos_em(self, &mut copia, q);
+                    e.ligado(&format!("TYPE{i}"), &t, &sugestoes).escrever(" ");
                 }
-                s.push_str(&n);
+                e.ligado(&format!("PARAM{i}"), &n, &[]);
                 i += 1;
             }
             for (n, q, requerido) in named.iter() {
                 if i > 0 {
-                    s.push_str(", ");
+                    e.escrever(", ");
                 }
                 if !abriu_n {
-                    s.push('{');
+                    e.escrever("{");
                     abriu_n = true;
                 }
                 if *requerido {
-                    s.push_str("required ");
+                    e.escrever("required ");
                 }
                 if let Some(t) = escritor.escrever(*q, false) {
-                    s.push_str(&t);
-                    s.push(' ');
+                    let sugestoes = sugestoes_de_supertipos_em(self, &mut copia, *q);
+                    e.ligado(&format!("TYPE{i}"), &t, &sugestoes).escrever(" ");
                 }
-                s.push_str(self.nome(*n));
+                e.escrever(self.nome(*n));
                 i += 1;
             }
             if abriu_n {
-                s.push('}');
+                e.escrever("}");
             }
             if abriu_o {
-                s.push(']');
+                e.escrever("]");
             }
-            s.push(')');
-            s
+            e.escrever(")");
+            e
         };
         match classe {
             Some(c) if matches!(prog.class(c).kind, ClassKind::Class | ClassKind::Mixin) => {
@@ -1371,8 +1461,9 @@ impl Projeto {
                 let antes = if dcx.membros_do_conteiner(conteiner).is_empty() { "" } else { eol };
                 let s = if cx.em_contexto_estatico(node) { "static " } else { "" };
                 let corpo = escrever(&mut escritor);
-                let texto = format!("{antes}  {s}{corpo} {{{eol}  }}{eol}");
-                Some(Proposta { titulo: format!("Create method '{nome}'"), especie: "quickfix.create.method", unidade: dcx.unidade, edicoes: vec![(Span { start: o, end: o }, texto)], importar: escritor.importar })
+                let inicio = format!("{antes}  {s}");
+                let texto = format!("{inicio}{} {{{eol}  }}{eol}", corpo.texto);
+                Some(Proposta { titulo: format!("Create method '{nome}'"), especie: "quickfix.create.method", unidade: dcx.unidade, edicoes: vec![(Span { start: o, end: o }, texto)], importar: escritor.importar, marcas: Some((inicio.len(), corpo)) })
             }
             Some(_) => None,
             None => {
@@ -1380,8 +1471,8 @@ impl Projeto {
                 let eol = Texto::novo(cx.fonte).eol();
                 let mut escritor = Escritor::novo(cx, o);
                 let corpo = escrever(&mut escritor);
-                let texto = format!("{eol}{corpo} {{{eol}}}{eol}");
-                Some(Proposta { titulo: format!("Create function '{nome}'"), especie: "quickfix.create.function", unidade: cx.unidade, edicoes: vec![(Span { start: o, end: o }, texto)], importar: escritor.importar })
+                let texto = format!("{eol}{} {{{eol}}}{eol}", corpo.texto);
+                Some(Proposta { titulo: format!("Create function '{nome}'"), especie: "quickfix.create.function", unidade: cx.unidade, edicoes: vec![(Span { start: o, end: o }, texto)], importar: escritor.importar, marcas: Some((eol.len(), corpo)) })
             }
         }
     }
@@ -1434,11 +1525,20 @@ impl Projeto {
         let o = dcx.inserir_no_membro(conteiner, Filtro::Metodo, "")?.0;
         let mut escritor = Escritor::novo(&dcx, o);
         let s = if estatico { "static " } else { "" };
-        let ret = cx.tipo_inferido_indefinido(inv).and_then(|t| escritor.escrever_tipo(Some(t), false)).map(|t| format!("{t} ")).unwrap_or_default();
+        let ret = cx.tipo_inferido_indefinido(inv).and_then(|t| escritor.escrever_tipo(Some(t), false));
         let lista = cx.filhos_da_especie(inv, "ArgumentList").first().copied()?;
-        let params = cx.parametros_para_argumentos(lista, &mut escritor);
-        let (o, texto) = dcx.inserir_no_membro(conteiner, Filtro::Metodo, &format!("{s}{ret}{nome}({params}) {{}}"))?;
-        Some(Proposta { titulo: format!("Create method '{nome}'"), especie: "quickfix.create.method", unidade: dcx.unidade, edicoes: vec![(Span { start: o, end: o }, texto)], importar: escritor.importar })
+        // `RETURN_TYPE`, `NAME` e os parâmetros (`create_method.dart:183-200`).
+        let mut e = crate::snippets::Escrita::default();
+        e.escrever(s);
+        if let Some(r) = &ret {
+            e.ligado("RETURN_TYPE", r, &[]).escrever(" ");
+        }
+        e.ligado("NAME", &nome, &[]).escrever("(");
+        cx.parametros_para_argumentos_em(lista, &mut escritor, &mut e);
+        e.escrever(") {}");
+        let (o, texto) = dcx.inserir_no_membro(conteiner, Filtro::Metodo, &e.texto)?;
+        let marcas = marcas_em(&texto, e);
+        Some(Proposta { titulo: format!("Create method '{nome}'"), especie: "quickfix.create.method", unidade: dcx.unidade, edicoes: vec![(Span { start: o, end: o }, texto)], importar: escritor.importar, marcas })
     }
 
     /// `CreateExtensionGetter`/`Method`/`Setter`
@@ -1476,38 +1576,53 @@ impl Projeto {
         let eol = Texto::novo(cx.fonte).eol();
         // A extensão existente aplicável (a primeira da unidade).
         let existente = self.extensao_aplicavel(cx, tipo_alvo);
-        let membro = |escritor: &mut Escritor<'_, '_>| -> String {
+        // A declaração e os grupos de cada produtor: o `VALUE` do getter, o
+        // `NAME`/`TYPE` do `writeSetterDeclaration`, e `RETURN_TYPE`, `NAME`
+        // e os parâmetros do método (`create_extension_member.dart`).
+        let membro = |escritor: &mut Escritor<'_, '_>| -> crate::snippets::Escrita {
+            let mut e = crate::snippets::Escrita::default();
             match produtor {
                 Produtor::CriarGetterDeExtensao => {
                     let t = cx.tipo_inferido_indefinido(subir_acesso(cx, node)).and_then(|t| escritor.escrever_tipo(Some(t), false)).map(|t| format!("{t} ")).unwrap_or_default();
-                    format!("{t}get {nome} => null;")
+                    e.escrever(&format!("{t}get {nome} => ")).ligado("VALUE", "null", &[]).escrever(";");
                 }
                 Produtor::CriarSetterDeExtensao => {
-                    let t = cx.tipo_inferido_indefinido(subir_acesso(cx, node)).and_then(|t| escritor.escrever_tipo(Some(t), false)).map(|t| format!("{t} ")).unwrap_or_default();
-                    format!("set {nome}({t}{nome}) {{}}")
+                    let t = cx.tipo_inferido_indefinido(subir_acesso(cx, node)).and_then(|t| escritor.escrever_tipo(Some(t), false));
+                    e.escrever("set ").ligado("NAME", &nome, &[]).escrever("(");
+                    if let Some(t) = &t {
+                        e.ligado("TYPE", t, &[]).escrever(" ");
+                    }
+                    e.escrever(&format!("{nome}) {{}}"));
                 }
                 _ => {
                     let inv = inv.unwrap_or(node);
-                    let t = cx.tipo_inferido_indefinido(inv).and_then(|t| escritor.escrever_tipo(Some(t), false)).map(|t| format!("{t} ")).unwrap_or_default();
-                    let lista = cx.filhos_da_especie(inv, "ArgumentList").first().copied();
-                    let params = lista.map(|l| cx.parametros_para_argumentos(l, escritor)).unwrap_or_default();
-                    format!("{t}{nome}({params}) {{}}")
+                    let t = cx.tipo_inferido_indefinido(inv).and_then(|t| escritor.escrever_tipo(Some(t), false));
+                    if let Some(t) = &t {
+                        e.ligado("RETURN_TYPE", t, &[]).escrever(" ");
+                    }
+                    e.ligado("NAME", &nome, &[]).escrever("(");
+                    if let Some(l) = cx.filhos_da_especie(inv, "ArgumentList").first().copied() {
+                        cx.parametros_para_argumentos_em(l, escritor, &mut e);
+                    }
+                    e.escrever(") {}");
                 }
             }
+            e
         };
         let (titulo, especie) = match produtor {
             Produtor::CriarGetterDeExtensao => (format!("Create extension getter '{nome}'"), "quickfix.create.extension.getter"),
             Produtor::CriarSetterDeExtensao => (format!("Create extension setter '{nome}'"), "quickfix.create.extension.setter"),
             _ => (format!("Create extension method '{nome}'"), "quickfix.create.extension.method"),
         };
-        let (o, texto, importar) = match existente {
+        let (o, texto, importar, marcas) = match existente {
             Some(ext) => {
                 let filtro = if produtor == Produtor::CriarMetodoDeExtensao { Filtro::Metodo } else { Filtro::Getter };
                 let o0 = cx.inserir_no_membro(ext, filtro, "")?.0;
                 let mut escritor = Escritor::novo(cx, o0);
                 let m = membro(&mut escritor);
-                let (o, t) = cx.inserir_no_membro(ext, filtro, &m)?;
-                (o, t, escritor.importar)
+                let (o, t) = cx.inserir_no_membro(ext, filtro, &m.texto)?;
+                let marcas = marcas_em(&t, m);
+                (o, t, escritor.importar, marcas)
             }
             None => {
                 let topo = membro_de_topo(cx, node)?;
@@ -1515,10 +1630,12 @@ impl Projeto {
                 let mut escritor = Escritor::novo(cx, o);
                 let tipo = escritor.escrever(tipo_alvo, true).unwrap_or_else(|| "dynamic".into());
                 let m = membro(&mut escritor);
-                (o, format!("{eol}{eol}extension on {tipo} {{{eol}{UM_RECUO}{m}{eol}}}"), escritor.importar)
+                let antes = format!("{eol}{eol}extension on {tipo} {{{eol}{UM_RECUO}");
+                let texto = format!("{antes}{}{eol}}}", m.texto);
+                (o, texto, escritor.importar, Some((antes.len(), m)))
             }
         };
-        Some(Proposta { titulo, especie, unidade: cx.unidade, edicoes: vec![(Span { start: o, end: o }, texto)], importar })
+        Some(Proposta { titulo, especie, unidade: cx.unidade, edicoes: vec![(Span { start: o, end: o }, texto)], importar, marcas })
     }
 
     /// `_existingExtension`: a primeira `ExtensionDeclaration` da unidade que
@@ -1544,6 +1661,7 @@ impl Projeto {
         for &pr in produtores(codigo) {
             let Some(p) = self.propor(cx, pr, node) else { continue };
             let Some(uri) = self.uri_da_unidade(p.unidade) else { continue };
+            let principal = p.edicoes.first().cloned();
             let mut m = Mudanca::default();
             for (s, t) in p.edicoes {
                 m.adicionar(&uri, s, t);
@@ -1556,7 +1674,14 @@ impl Projeto {
                 continue;
             }
             let edicoes: Vec<Edicao> = m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect();
-            saida.push(AcaoDeCodigo { titulo: p.titulo, especie: p.especie.into(), edicoes, diagnostico: d.cloned(), criar_arquivo: None, ligado: Default::default() });
+            let mut a = AcaoDeCodigo { titulo: p.titulo, especie: p.especie.into(), edicoes, diagnostico: d.cloned(), criar_arquivo: None, ligado: Default::default() };
+            // Os grupos e a seleção da declaração, na edição dela.
+            if let (Some((base, e)), Some((s, t))) = (&p.marcas, &principal)
+                && let Some(i) = a.edicoes.iter().position(|x| x.span == *s && x.texto == *t)
+            {
+                a = a.com_escrita_em(i, *base, e);
+            }
+            saida.push(a);
         }
         saida
     }
@@ -1669,26 +1794,34 @@ impl Projeto {
 
 /// `writeFieldDeclaration(name, isFinal, isStatic, type)` (com `static`
 /// posto pelo chamador).
-fn declaracao_de_campo(escritor: &mut Escritor<'_, '_>, nome: &str, final_: bool, enum_final: bool, tipo: Option<TypeId>) -> String {
+/// `writeFieldDeclaration(name, nameGroupName: 'NAME', type,
+/// typeGroupName: 'TYPE')`: o tipo escrito é o grupo `TYPE` (o `dynamic`
+/// depois de `final` não), o nome é o `NAME`.
+fn declaracao_de_campo(escritor: &mut Escritor<'_, '_>, nome: &str, final_: bool, enum_final: bool, tipo: Option<TypeId>) -> crate::snippets::Escrita {
     let final_ = final_ || enum_final;
-    let mut s = String::new();
+    let mut e = crate::snippets::Escrita::default();
     if final_ {
-        s.push_str("final ");
+        e.escrever("final ");
     }
     match tipo {
         Some(t) => {
-            let escrito = if final_ { escritor.escrever(t, false).or_else(|| Some("dynamic".into())) } else { escritor.escrever_tipo(Some(t), true) };
-            if let Some(x) = escrito {
-                s.push_str(&x);
-                s.push(' ');
+            let escrito = if final_ { escritor.escrever(t, false).map(|x| (x, true)).or_else(|| Some(("dynamic".into(), false))) } else { escritor.escrever_tipo(Some(t), true).map(|x| (x, true)) };
+            if let Some((x, grupo)) = escrito {
+                if grupo {
+                    e.ligado("TYPE", &x, &[]);
+                } else {
+                    e.escrever(&x);
+                }
+                e.escrever(" ");
             }
         }
-        None if !final_ => s.push_str("var "),
+        None if !final_ => {
+            e.escrever("var ");
+        }
         None => {}
     }
-    s.push_str(nome);
-    s.push(';');
-    s
+    e.ligado("NAME", nome, &[]).escrever(";");
+    e
 }
 
 /// `_requiresConstConstructor`.

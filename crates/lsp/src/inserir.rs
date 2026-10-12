@@ -214,6 +214,17 @@ impl Contexto<'_> {
     /// `writeParametersMatchingArguments(argumentList)`: os tipos vêm deste
     /// contexto e são escritos pelo `escritor` (o do arquivo de destino).
     pub(crate) fn parametros_para_argumentos(&self, lista: usize, escritor: &mut Escritor<'_, '_>) -> String {
+        let mut e = crate::snippets::Escrita::default();
+        self.parametros_para_argumentos_em(lista, escritor, &mut e);
+        e.texto
+    }
+
+    /// [`Self::parametros_para_argumentos`] escrito em `e`, com os grupos
+    /// ligados do `writeParameterMatchingArgument`: `TYPE<i>` no tipo (com as
+    /// sugestões de supertipos) e `PARAM<i>` no nome de um argumento
+    /// posicional (com todas as sugestões de nome).
+    pub(crate) fn parametros_para_argumentos_em(&self, lista: usize, escritor: &mut Escritor<'_, '_>, e: &mut crate::snippets::Escrita) {
+        let mut copia: Option<dartforge_types::TypeTable> = None;
         let mut usados: HashSet<String> = HashSet::new();
         let mut s = String::new();
         let mut nomeados = false;
@@ -236,7 +247,10 @@ impl Contexto<'_> {
                 s.push_str("required ");
             }
             if let Some(t) = escritor.escrever_tipo(tipo, false) {
-                s.push_str(&t);
+                e.escrever(&s);
+                s.clear();
+                let sugestoes = tipo.map(|x| crate::criar::sugestoes_de_supertipos_em(self.p, &mut copia, x)).unwrap_or_default();
+                e.ligado(&format!("TYPE{i}"), &t, &sugestoes);
                 s.push(' ');
             }
             if nomeado {
@@ -246,13 +260,15 @@ impl Contexto<'_> {
                 let sugestoes = self.sugestoes_de_parametro(&usados, tipo.map(|t| tabela.get(t)), valor, i);
                 let favorita = sugestoes[0].clone();
                 usados.insert(favorita.clone());
-                s.push_str(&favorita);
+                e.escrever(&s);
+                s.clear();
+                e.ligado(&format!("PARAM{i}"), &favorita, &sugestoes);
             }
         }
         if nomeados {
             s.push('}');
         }
-        s
+        e.escrever(&s);
     }
 }
 
