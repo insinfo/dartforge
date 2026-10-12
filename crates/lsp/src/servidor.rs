@@ -134,6 +134,11 @@ const METODO_DORMIR: &str = "dartforge/dormir";
 #[derive(Debug)]
 pub struct Servidor<A = AnalisadorSintatico> {
     documentos: DocumentStore,
+    /// Texto e tabela de linhas dos arquivos do disco (não abertos) que a
+    /// requisição em curso converteu para posições LSP: uma busca que
+    /// devolve milhares de locais no SDK lê cada arquivo uma vez. Esvaziado
+    /// a cada requisição (o disco pode mudar entre elas).
+    linhas_do_disco: std::cell::RefCell<HashMap<String, Option<std::sync::Arc<(String, crate::utf16::TabelaLinhas)>>>>,
     analisador: A,
     /// Mensagens recebidas ainda não despachadas, em ordem de chegada.
     fila: VecDeque<Value>,
@@ -338,6 +343,7 @@ impl<A: Analisador> Servidor<A> {
             analisador,
             fila: VecDeque::new(),
             cancelados: HashSet::new(),
+            linhas_do_disco: Default::default(),
             desligando: false,
             inicializado: false,
             encerrar: false,
@@ -1040,6 +1046,7 @@ impl<A: Analisador> Servidor<A> {
 
     /// Executa uma requisição e devolve exatamente uma resposta.
     fn tratar_requisicao(&mut self, mensagem: &Value) -> Value {
+        self.linhas_do_disco.get_mut().clear();
         let id = mensagem.get("id").cloned().unwrap_or(Value::Null);
         let chave = chave_id(&id);
         if self.cancelados.remove(&chave) {
@@ -3161,10 +3168,18 @@ impl<A: Analisador> Servidor<A> {
         if let (Some(texto), Some(tabela)) = (self.documentos.get(uri), self.documentos.linhas(uri)) {
             return Some(intervalo_lsp(texto, tabela, span.start, span.end));
         }
-        let caminho = url::Url::parse(uri).ok()?.to_file_path().ok()?;
-        let fonte = std::fs::read_to_string(caminho).ok()?;
-        let tabela = crate::utf16::TabelaLinhas::construir(&fonte);
-        Some(intervalo_lsp(&fonte, &tabela, span.start, span.end))
+        let lido = self
+            .linhas_do_disco
+            .borrow_mut()
+            .entry(uri.to_string())
+            .or_insert_with(|| {
+                let caminho = url::Url::parse(uri).ok()?.to_file_path().ok()?;
+                let fonte = std::fs::read_to_string(caminho).ok()?;
+                let tabela = crate::utf16::TabelaLinhas::construir(&fonte);
+                Some(std::sync::Arc::new((fonte, tabela)))
+            })
+            .clone()?;
+        Some(intervalo_lsp(&lido.0, &lido.1, span.start, span.end))
     }
 
     /// Diagnostica o documento e monta `textDocument/publishDiagnostics`.

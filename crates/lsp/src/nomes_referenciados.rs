@@ -367,7 +367,9 @@ impl Projeto {
             Err(_) => Vec::new(),
         };
         for u in faltam {
-            if self.programa().unit(u).role == UnitRole::Patch {
+            // Uma unidade cujo texto não tem `nome` não o cita: fica para
+            // quando outro nome a pedir (o `referencedNames` sai do texto).
+            if self.programa().unit(u).role == UnitRole::Patch || !self.programa().unit(u).source.contains(nome) {
                 continue;
             }
             let nomes = self.nomes_referenciados_da_unidade(u);

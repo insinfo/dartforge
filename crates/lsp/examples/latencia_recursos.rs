@@ -100,6 +100,23 @@ fn main() {
         completar_ed.push(pedir(&mut servidor, "textDocument/completion", json!({"textDocument": doc, "position": pos(a + (b - a).min(2))})));
         dobras.push(pedir(&mut servidor, "textDocument/foldingRange", json!({"textDocument": doc})));
     }
+    // Edições dentro de um corpo (um espaço antes do último `return`): o
+    // `didChange` troca a unidade retida e reinfere os corpos dela (§16.10
+    // I4); mede-se o `didChange` e o `hover` seguinte.
+    let (mut troca, mut hover_corpo) = (Vec::new(), Vec::new());
+    if let Some(r) = texto.rfind("return ") {
+        let (l, c) = tabela.posicao_de_offset(&texto, r);
+        for v in 0..10 {
+            servidor.receber(json!({"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {
+                "textDocument": {"uri": uri, "version": 1000 + v},
+                "contentChanges": [{"range": {"start": {"line": l, "character": c}, "end": {"line": l, "character": c}}, "text": " "}]}}));
+            let inicio = Instant::now();
+            servidor.bombear();
+            troca.push(inicio.elapsed());
+            let (a, _) = amostra[v as usize % amostra.len().max(1)];
+            hover_corpo.push(pedir(&mut servidor, "textDocument/hover", json!({"textDocument": doc, "position": pos(a + 1)})));
+        }
+    }
     servidor.aguardar_diagnosticos(Duration::from_secs(600));
     println!("arquivo: {} ({} bytes)", caminho.display(), texto.len());
     println!("| recurso | mediana; máximo |");
@@ -111,4 +128,6 @@ fn main() {
     println!("| foldingRange | {} |", resumo(&mut dobras));
     println!("| hover logo após edição | {} |", resumo(&mut hover_ed));
     println!("| completion logo após edição | {} |", resumo(&mut completar_ed));
+    println!("| didChange dentro de um corpo | {} |", resumo(&mut troca));
+    println!("| hover depois da edição de corpo | {} |", resumo(&mut hover_corpo));
 }
