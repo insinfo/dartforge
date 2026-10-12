@@ -123,7 +123,7 @@ impl Contexto<'_> {
                     especie: especie.into(),
                     edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
                     diagnostico: None,
-                    criar_arquivo: None,
+                    criar_arquivo: None, ligado: Default::default(),
                 });
             }
         }
@@ -157,7 +157,7 @@ impl Contexto<'_> {
             especie: "refactor.convert.toMultilineString".into(),
             edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
             diagnostico: None,
-            criar_arquivo: None,
+            criar_arquivo: None, ligado: Default::default(),
         })
     }
 }

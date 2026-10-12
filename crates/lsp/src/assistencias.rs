@@ -35,7 +35,7 @@ fn acao(uri: &str, titulo: &str, especie: &str, edicoes: Vec<(Span, String)>) ->
         especie: especie.into(),
         edicoes: edicoes.into_iter().map(|(span, texto)| Edicao { uri: uri.to_string(), span, texto }).collect(),
         diagnostico: None,
-        criar_arquivo: None,
+        criar_arquivo: None, ligado: Default::default(),
     }
 }
 
@@ -146,9 +146,25 @@ impl Projeto {
                         && let Some(t) = tipo
                         && !matches!(self.consulta.tabela.get(t), Type::Void)
                     {
-                        let nome = self.nome_sugerido(unidade, *e, Some(t), offset);
-                        let p = ast.expr(*e).span.start;
-                        saida.push(acao(uri, "Assign value to new local variable", "refactor.assignToVariable", vec![(Span { start: p, end: p }, format!("var {nome} = "))]));
+                        // `AssignToLocalVariable`: as sugestões de
+                        // `getVariableNameSuggestionsForExpression` com os
+                        // nomes do `ScopedNameFinder` excluídos; a primeira é
+                        // escrita, todas vão para o grupo ligado `NAME`.
+                        let es = ast.expr(*e).span;
+                        let cx = crate::refatoracoes::Contexto::novo(self, unidade);
+                        let sugestoes = match cx.arvore.localizar(es.start, es.end) {
+                            Some(n) => {
+                                let excluidos = cx.nomes_em_escopo(n, es.start);
+                                cx.nomes_para_expressao(Some(t), n, &excluidos, false)
+                            }
+                            None => vec![self.nome_sugerido(unidade, *e, Some(t), offset)],
+                        };
+                        if let Some(nome) = sugestoes.first().cloned() {
+                            let chave = if crate::refatoracoes_exec::regra_ligada(self, unidade, "prefer_final_locals") { "final" } else { "var" };
+                            let texto = format!("{chave} {nome} = ");
+                            let a = acao(uri, "Assign value to new local variable", "refactor.assignToVariable", vec![(Span { start: es.start, end: es.start }, texto)]);
+                            saida.push(a.com_grupo(0, &[chave.len() + 1], nome.len(), sugestoes));
+                        }
                     }
                 }
                 _ => {}
@@ -183,50 +199,142 @@ impl Projeto {
         saida
     }
 
-    /// `Use curly braces` no comando `cid` (ou no pai dele).
+    /// `Use curly braces` no comando `cid` (ou no pai dele): o porte de
+    /// `UseCurlyBraces` (`use_curly_braces.dart`). O comando e o pai são
+    /// examinados na ordem do Dart (`do`, `for`, `if`, `while`); cada corpo
+    /// sem chaves recebe duas edições: ` {<eol><recuo>` no lugar do espaço
+    /// entre o token da esquerda e o corpo (os comentários antes do corpo
+    /// ficam), e `<eol><prefixo>}` depois do corpo (e do comentário na mesma
+    /// linha), ou `<eol><prefixo>} ` até o `else`/`while` seguinte.
     fn usar_chaves(&self, uri: &str, unidade: UnitId, cid: StmtId, offset: usize) -> Option<AcaoDeCodigo> {
         let u = self.programa().unit(unidade);
         let ast = &u.ast;
         let fonte = u.source.as_str();
-        let pai = ast.stmts.iter().position(|s| match &s.kind {
-            StmtKind::If { then, else_, .. } => *then == cid || *else_ == Some(cid),
-            StmtKind::For { body, .. } | StmtKind::ForIn { body, .. } | StmtKind::While { body, .. } | StmtKind::DoWhile { body, .. } => *body == cid,
-            _ => false,
-        });
-        let alvo = match &ast.stmt(cid).kind {
-            StmtKind::If { .. } | StmtKind::For { .. } | StmtKind::ForIn { .. } | StmtKind::While { .. } | StmtKind::DoWhile { .. } => cid,
-            _ => StmtId(pai? as u32),
+        let pai = ast
+            .stmts
+            .iter()
+            .position(|s| match &s.kind {
+                StmtKind::If { then, else_, .. } => *then == cid || *else_ == Some(cid),
+                StmtKind::For { body, .. } | StmtKind::ForIn { body, .. } | StmtKind::While { body, .. } | StmtKind::DoWhile { body, .. } => *body == cid,
+                _ => false,
+            })
+            .map(|i| StmtId(i as u32));
+        let tokens = dartforge_frontend::lexer::lex(fonte).ok()?;
+        // O fim do último token antes de `o` e o início do primeiro depois.
+        let antes = |o: usize| tokens.iter().take_while(|t| t.span.end <= o).last().map_or(0, |t| t.span.end);
+        let depois = |o: usize| tokens.iter().find(|t| t.span.start >= o).map(|t| t.span);
+        let eol = if fonte.contains("\r\n") { "\r\n" } else { "\n" };
+        let e_bloco = |s: StmtId| matches!(ast.stmt(s).kind, StmtKind::Block(_));
+        let e_do = |s: StmtId| matches!(ast.stmt(s).kind, StmtKind::DoWhile { .. });
+        let e_for = |s: StmtId| matches!(ast.stmt(s).kind, StmtKind::For { .. } | StmtKind::ForIn { .. });
+        let e_if = |s: StmtId| matches!(ast.stmt(s).kind, StmtKind::If { .. });
+        let e_while = |s: StmtId| matches!(ast.stmt(s).kind, StmtKind::While { .. });
+        let corpo = |s: StmtId| match &ast.stmt(s).kind {
+            StmtKind::For { body, .. } | StmtKind::ForIn { body, .. } | StmtKind::While { body, .. } | StmtKind::DoWhile { body, .. } => Some(*body),
+            _ => None,
         };
-        let s = ast.stmt(alvo);
-        let corpos_sem_chaves: Vec<StmtId> = match &s.kind {
+        // `_endAfterComments`: o fim do corpo, ou do comentário que começa na
+        // mesma linha logo depois dele.
+        let fim_com_comentario = |fim: usize| -> usize {
+            let resto = &fonte[fim..];
+            let espacos = resto.len() - resto.trim_start_matches([' ', '\t']).len();
+            let c = &resto[espacos..];
+            if c.starts_with("//") {
+                fim + espacos + c.find(['\n', '\r']).unwrap_or(c.len())
+            } else if c.starts_with("/*") {
+                c.find("*/").map_or(fim, |k| fim + espacos + k + 2)
+            } else {
+                fim
+            }
+        };
+        let mut edicoes: Vec<(Span, String)> = Vec::new();
+        // `_replaceLeftParenthesis`: do fim do token da esquerda ao corpo (ou
+        // ao primeiro comentário antes dele).
+        let esquerda = |edicoes: &mut Vec<(Span, String)>, corpo: StmtId, recuo: &str| {
+            let b = ast.stmt(corpo).span.start;
+            let a = antes(b);
+            let entre = &fonte[a..b];
+            let inicio = a + (entre.len() - entre.trim_start().len());
+            edicoes.push((Span { start: a, end: inicio.min(b) }, format!(" {{{eol}{recuo}")));
+        };
+        let mut so: Option<StmtId> = None;
+        let alvo = if e_do(cid) {
+            cid
+        } else if pai.is_some_and(e_do) {
+            pai?
+        } else if e_for(cid) {
+            cid
+        } else if pai.is_some_and(e_for) {
+            pai?
+        } else if e_if(cid) {
+            if let StmtKind::If { then, else_: Some(e), .. } = &ast.stmt(cid).kind
+                && let Some(k) = depois(ast.stmt(*then).span.end)
+                && &fonte[k.start..k.end] == "else"
+                && k.start <= offset
+                && offset <= k.end
+            {
+                so = Some(*e);
+            }
+            cid
+        } else if pai.is_some_and(e_if) {
+            so = Some(cid);
+            pai?
+        } else if e_while(cid) {
+            cid
+        } else if pai.is_some_and(e_while) {
+            pai?
+        } else {
+            return None;
+        };
+        let alvo_stmt = ast.stmt(alvo);
+        let prefixo = indentacao(fonte, alvo_stmt.span.start);
+        let recuo = format!("{prefixo}  ");
+        match &alvo_stmt.kind {
             StmtKind::If { then, else_, .. } => {
-                // Cursor no `else`: só o `else`; senão o `then` (e o `else`
-                // sem chaves que não seja outro `if`).
-                let mut v = vec![*then];
-                if let Some(e) = else_
-                    && !matches!(ast.stmt(*e).kind, StmtKind::If { .. })
-                {
-                    let antes_do_else = fonte[ast.stmt(*then).span.end..ast.stmt(*e).span.start].find("else").map(|k| ast.stmt(*then).span.end + k);
-                    if antes_do_else.is_some_and(|k| k <= offset && offset <= k + 4) {
-                        v = vec![*e];
+                // O `else if` de uma cadeia não muda.
+                if ast.stmts.iter().any(|s| matches!(&s.kind, StmtKind::If { else_: Some(e), .. } if *e == alvo)) {
+                    return None;
+                }
+                let palavra_else = else_.and_then(|_| depois(ast.stmt(*then).span.end)).filter(|k| &fonte[k.start..k.end] == "else");
+                if !e_bloco(*then) && so.is_none_or(|x| x == *then) {
+                    esquerda(&mut edicoes, *then, &recuo);
+                    let fim = fim_com_comentario(ast.stmt(*then).span.end);
+                    match palavra_else {
+                        None => edicoes.push((Span { start: fim, end: fim }, format!("{eol}{prefixo}}}"))),
+                        Some(k) => edicoes.push((Span { start: fim, end: k.start }, format!("{eol}{prefixo}}} "))),
                     }
                 }
-                v
+                if let (Some(e), Some(_)) = (else_, palavra_else)
+                    && !e_bloco(*e)
+                    && !e_if(*e)
+                    && so.is_none_or(|x| x == *e)
+                {
+                    esquerda(&mut edicoes, *e, &recuo);
+                    let fim = fim_com_comentario(ast.stmt(*e).span.end);
+                    edicoes.push((Span { start: fim, end: fim }, format!("{eol}{prefixo}}}")));
+                }
             }
-            StmtKind::For { body, .. } | StmtKind::ForIn { body, .. } | StmtKind::While { body, .. } | StmtKind::DoWhile { body, .. } => vec![*body],
-            _ => return None,
-        };
-        let corpos_sem_chaves: Vec<StmtId> = corpos_sem_chaves.into_iter().filter(|b| !matches!(ast.stmt(*b).kind, StmtKind::Block(_))).collect();
-        if corpos_sem_chaves.is_empty() {
-            return None;
+            StmtKind::DoWhile { body, .. } => {
+                if e_bloco(*body) {
+                    return None;
+                }
+                esquerda(&mut edicoes, *body, &recuo);
+                let fim = fim_com_comentario(ast.stmt(*body).span.end);
+                let k = depois(ast.stmt(*body).span.end)?;
+                edicoes.push((Span { start: fim, end: k.start.max(fim) }, format!("{eol}{prefixo}}} ")));
+            }
+            _ => {
+                let b = corpo(alvo)?;
+                if e_bloco(b) {
+                    return None;
+                }
+                esquerda(&mut edicoes, b, &recuo);
+                let fim = fim_com_comentario(ast.stmt(b).span.end);
+                edicoes.push((Span { start: fim, end: fim }, format!("{eol}{prefixo}}}")));
+            }
         }
-        let prefixo = indentacao(fonte, s.span.start);
-        let mut edicoes = Vec::new();
-        for b in corpos_sem_chaves {
-            let bs = ast.stmt(b).span;
-            let antes = fonte[..bs.start].trim_end().len();
-            let dentro = &fonte[bs.start..bs.end];
-            edicoes.push((Span { start: antes, end: bs.end }, format!(" {{\n{prefixo}  {dentro}\n{prefixo}}}")));
+        if edicoes.is_empty() {
+            return None;
         }
         Some(acao(uri, "Use curly braces", "refactor.surround.curlyBraces", edicoes))
     }

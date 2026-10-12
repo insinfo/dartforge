@@ -108,7 +108,7 @@ impl Contexto<'_> {
             especie: "refactor.convert.conditionalToIfElse".into(),
             edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
             diagnostico: None,
-            criar_arquivo: None,
+            criar_arquivo: None, ligado: Default::default(),
         })
     }
 
@@ -199,7 +199,7 @@ impl Contexto<'_> {
             especie: "refactor.splitIfConjunction".into(),
             edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
             diagnostico: None,
-            criar_arquivo: None,
+            criar_arquivo: None, ligado: Default::default(),
         })
     }
 
@@ -317,7 +317,7 @@ impl Contexto<'_> {
             especie: "refactor.convert.toNullAware".into(),
             edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
             diagnostico: None,
-            criar_arquivo: None,
+            criar_arquivo: None, ligado: Default::default(),
         })
     }
 
@@ -418,7 +418,7 @@ impl Contexto<'_> {
             especie: "refactor.convert.ifCaseStatement".into(),
             edicoes,
             diagnostico: None,
-            criar_arquivo: None,
+            criar_arquivo: None, ligado: Default::default(),
         })
     }
 
@@ -506,7 +506,7 @@ impl Contexto<'_> {
             especie: "refactor.convert.ifCaseStatementChain".into(),
             edicoes: vec![Edicao { uri: uri.to_string(), span: self.arvore.span(switch), texto: s }],
             diagnostico: None,
-            criar_arquivo: None,
+            criar_arquivo: None, ligado: Default::default(),
         })
     }
 }

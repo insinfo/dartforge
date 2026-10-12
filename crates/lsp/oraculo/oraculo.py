@@ -4,7 +4,7 @@
 #
 # Uso: python oraculo.py <saida.jsonl> <binario-dartforge> [projeto ...]
 # (variáveis de ambiente: ORACULO_DART, ORACULO_SDK_LIB, ORACULO_POR_ARQUIVO,
-# ORACULO_SNIPPETS)
+# ORACULO_SNIPPETS, ORACULO_METODOS)
 # O resumo (tabela de paridade) sai de `resumo.py`.
 import json, os, re, subprocess, sys, threading, time, queue, urllib.parse, pathlib
 
@@ -15,6 +15,12 @@ import json, os, re, subprocess, sys, threading, time, queue, urllib.parse, path
 DART = os.environ.get("ORACULO_DART", r"C:\tools\dartsdk-3.6.2\bin\dart.exe")
 SDK_LIB = os.environ.get("ORACULO_SDK_LIB", r"C:\tools\dartsdk-3.6.2\lib")
 POR_ARQUIVO = int(os.environ.get("ORACULO_POR_ARQUIVO", "12"))
+# Só estes métodos (separados por vírgula, sem o `textDocument/`); vazio: todos.
+METODOS = {m.strip() for m in os.environ.get("ORACULO_METODOS", "").split(",") if m.strip()}
+
+
+def pedido(metodo):
+    return not METODOS or metodo.split("/", 1)[-1] in METODOS
 
 
 class Lsp:
@@ -242,6 +248,8 @@ def main():
                 rel = str(a.relative_to(raiz)).replace("\\", "/")
 
                 def registrar(metodo, pos, params, extra=None):
+                    if not pedido(metodo):
+                        return
                     linha = {"projeto": raiz.name, "arquivo": rel, "metodo": metodo, "pos": pos}
                     if extra:
                         linha.update(extra)
@@ -320,7 +328,7 @@ def main():
                                   {"textDocument": doc, "position": pos,
                                    "context": {"triggerKind": 1, "isRetrigger": False}})
             # workspace/symbol
-            for q in ["Arg", "parse", "Scanner", "ctx", "Ponto", "join"]:
+            for q in ["Arg", "parse", "Scanner", "ctx", "Ponto", "join"] if pedido("workspace/symbol") else []:
                 linha = {"projeto": raiz.name, "metodo": "workspace/symbol", "pos": q}
                 for s in servidores:
                     r, ms = s.pedir("workspace/symbol", {"query": q})

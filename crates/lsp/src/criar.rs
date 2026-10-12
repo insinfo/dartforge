@@ -1556,7 +1556,7 @@ impl Projeto {
                 continue;
             }
             let edicoes: Vec<Edicao> = m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect();
-            saida.push(AcaoDeCodigo { titulo: p.titulo, especie: p.especie.into(), edicoes, diagnostico: d.cloned(), criar_arquivo: None });
+            saida.push(AcaoDeCodigo { titulo: p.titulo, especie: p.especie.into(), edicoes, diagnostico: d.cloned(), criar_arquivo: None, ligado: Default::default() });
         }
         saida
     }

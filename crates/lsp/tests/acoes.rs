@@ -2941,3 +2941,69 @@ class C extends Widget with Diagnosticable {
     }
     assert!(falhas.is_empty(), "{}", falhas.join("\n----\n"));
 }
+
+/// Cliente com `experimental.snippetTextEdit` e `documentChanges`: as ações
+/// com seleção ou grupos ligados saem como `SnippetTextEdit` (o
+/// `createWorkspaceEdit(..., allowSnippets: true)` do Dart, §13.8.1-G).
+fn com_snippets(nome: &str) -> Projeto {
+    Projeto::com_capacidades(
+        nome,
+        json!({
+            "experimental": {"snippetTextEdit": true},
+            "workspace": {"workspaceEdit": {"documentChanges": true}},
+            "textDocument": {"codeAction": {"codeActionLiteralSupport": {"codeActionKind": {"valueSet": ["quickfix", "refactor", "source"]}}}},
+        }),
+    )
+}
+
+#[test]
+fn snippets_nas_assistencias() {
+    let mut p = com_snippets("acoes-snippets");
+    let texto = "void f() {\n  print(1);\n  print(r'$x');\n}\nint g() => 1;\n";
+    p.abrir("lib/a.dart", texto);
+    p.servidor.aguardar_diagnosticos(std::time::Duration::from_secs(120));
+    let de = onde(texto, "print(1)", 0);
+    let ate = onde(texto, "\n}", 0);
+    let r = acoes(&mut p, "lib/a.dart", de, ate, json!({}));
+    // Um grupo (`CONDITION`) e a seleção: `${1:condition}` e `$0`; o `$` do
+    // texto escapa.
+    let e = &acao(&r, "Surround with 'if'")["edit"]["documentChanges"][0]["edits"][0];
+    assert_eq!(e["insertTextFormat"], 2);
+    assert_eq!(e["newText"], "  if (${1:condition}) {\n    print(1);\n    print(r'\\$x');\n  }$0\n");
+    // Vários grupos: numerados na ordem do texto.
+    let e = &acao(&r, "Surround with 'for'")["edit"]["documentChanges"][0]["edits"][0];
+    assert!(e["newText"].as_str().unwrap().starts_with("  for (var ${1:v} = ${2:init}; ${3:condition}; ${4:increment}) {\n"), "{e}");
+    // `Surround with block` tem só texto: edição simples.
+    let e = &acao(&r, "Surround with block")["edit"]["documentChanges"][0]["edits"][0];
+    assert!(e.get("insertTextFormat").is_none(), "{e}");
+    // `Convert to block body`: a seleção antes da quebra que fecha o bloco.
+    let pos = onde(texto, "g()", 0);
+    let r = p.requisitar(
+        "textDocument/codeAction",
+        json!({"textDocument": {"uri": p.uri("lib/a.dart")}, "range": {"start": {"line": pos.0, "character": pos.1}, "end": {"line": pos.0, "character": pos.1}}, "context": {"diagnostics": []}}),
+    )["result"]
+        .clone();
+    let e = &acao(&r, "Convert to block body")["edit"]["documentChanges"][0]["edits"][0];
+    assert_eq!(e["insertTextFormat"], 2);
+    assert_eq!(e["newText"], " {\n  return 1;$0\n}");
+}
+
+#[test]
+fn sem_a_capacidade_a_edicao_e_simples() {
+    let mut p = Projeto::com_capacidades(
+        "acoes-sem-snippets",
+        json!({
+            "workspace": {"workspaceEdit": {"documentChanges": true}},
+            "textDocument": {"codeAction": {"codeActionLiteralSupport": {"codeActionKind": {"valueSet": ["quickfix", "refactor", "source"]}}}},
+        }),
+    );
+    let texto = "void f() {\n  print(1);\n}\n";
+    p.abrir("lib/a.dart", texto);
+    p.servidor.aguardar_diagnosticos(std::time::Duration::from_secs(120));
+    let de = onde(texto, "print(1)", 0);
+    let ate = onde(texto, "\n}", 0);
+    let r = acoes(&mut p, "lib/a.dart", de, ate, json!({}));
+    let e = &acao(&r, "Surround with 'if'")["edit"]["documentChanges"][0]["edits"][0];
+    assert!(e.get("insertTextFormat").is_none(), "{e}");
+    assert_eq!(e["newText"], "  if (condition) {\n    print(1);\n  }\n");
+}

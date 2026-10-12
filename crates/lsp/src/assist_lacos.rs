@@ -90,7 +90,7 @@ impl Contexto<'_> {
                 },
             ],
             diagnostico: None,
-            criar_arquivo: None,
+            criar_arquivo: None, ligado: Default::default(),
         })
     }
 }

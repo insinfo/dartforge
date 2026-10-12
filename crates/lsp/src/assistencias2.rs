@@ -23,7 +23,7 @@ fn acao(uri: &str, titulo: &str, especie: &str, edicoes: Vec<(Span, String)>) ->
         especie: especie.into(),
         edicoes: edicoes.into_iter().map(|(span, texto)| Edicao { uri: uri.to_string(), span, texto }).collect(),
         diagnostico: None,
-        criar_arquivo: None,
+        criar_arquivo: None, ligado: Default::default(),
     }
 }
 

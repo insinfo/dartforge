@@ -47,6 +47,92 @@ pub struct AcaoDeCodigo {
     /// Arquivo que a ação cria (URI e conteúdo): uma operação `create` no
     /// `WorkspaceEdit`, oferecida só ao cliente que a aceita.
     pub criar_arquivo: Option<(String, String)>,
+    /// A seleção e os grupos ligados da mudança (`SourceChange.selection` e
+    /// `linkedEditGroups`), que viram `SnippetTextEdit` para o cliente com
+    /// `experimental.snippetTextEdit` (docs/LSP-ESPECIFICACAO.md §13.8.1-G).
+    pub ligado: Ligado,
+}
+
+/// A seleção e os grupos ligados de uma ação, em offsets (bytes) do
+/// documento **depois** de aplicadas as edições, como no `SourceChange` do
+/// Dart.
+///
+/// ```
+/// use dartforge_lsp::{GrupoLigado, Ligado};
+/// let l = Ligado { selecao: Some((10, 0)), grupos: vec![GrupoLigado { posicoes: vec![4], comprimento: 1, sugestoes: vec![] }] };
+/// assert!(!l.vazio());
+/// assert!(Ligado::default().vazio());
+/// ```
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Ligado {
+    /// Offset e comprimento da seleção depois da mudança.
+    pub selecao: Option<(usize, usize)>,
+    /// Os grupos ligados, na ordem em que foram criados.
+    pub grupos: Vec<GrupoLigado>,
+}
+
+impl Ligado {
+    /// Sem seleção nem grupos: a edição fica simples mesmo com a capacidade.
+    pub fn vazio(&self) -> bool {
+        self.selecao.is_none() && self.grupos.is_empty()
+    }
+}
+
+impl AcaoDeCodigo {
+    /// O offset, no documento final, do byte `relativo` do texto da edição
+    /// `i`: o início dela mais o saldo das edições que vêm antes.
+    fn no_documento_final(&self, i: usize, relativo: usize) -> Option<usize> {
+        let e = self.edicoes.get(i)?;
+        let antes: isize = self
+            .edicoes
+            .iter()
+            .filter(|o| o.uri == e.uri && o.span.start < e.span.start)
+            .map(|o| o.texto.len() as isize - (o.span.end - o.span.start) as isize)
+            .sum();
+        usize::try_from(e.span.start as isize + antes + relativo as isize).ok()
+    }
+
+    /// A seleção (`selectHere`/`selectAll`) no byte `relativo` do texto da
+    /// edição `i`, com `comprimento` bytes.
+    pub(crate) fn com_selecao(mut self, i: usize, relativo: usize, comprimento: usize) -> Self {
+        if let Some(s) = self.no_documento_final(i, relativo) {
+            self.ligado.selecao = Some((s, comprimento));
+        }
+        self
+    }
+
+    /// A seleção e os grupos de uma [`crate::snippets::Escrita`] que é o
+    /// texto da edição `i`.
+    pub(crate) fn com_escrita(mut self, i: usize, e: &crate::snippets::Escrita) -> Self {
+        if let Some((k, n)) = e.selecao {
+            self = self.com_selecao(i, k, n);
+        }
+        for (_, posicoes, n, sugestoes) in &e.grupos {
+            self = self.com_grupo(i, posicoes, *n, sugestoes.clone());
+        }
+        self
+    }
+
+    /// Um grupo ligado (`addLinkedEdit`) com as posições dadas em bytes do
+    /// texto da edição `i`.
+    pub(crate) fn com_grupo(mut self, i: usize, relativos: &[usize], comprimento: usize, sugestoes: Vec<String>) -> Self {
+        let posicoes: Vec<usize> = relativos.iter().filter_map(|&r| self.no_documento_final(i, r)).collect();
+        if !posicoes.is_empty() {
+            self.ligado.grupos.push(GrupoLigado { posicoes, comprimento, sugestoes });
+        }
+        self
+    }
+}
+
+/// Um grupo ligado (`LinkedEditGroup`): as posições que mudam juntas.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GrupoLigado {
+    /// Offsets (bytes) das posições no documento final.
+    pub posicoes: Vec<usize>,
+    /// Comprimento comum das posições (o da última acrescentada).
+    pub comprimento: usize,
+    /// Os valores sugeridos, na ordem do produtor.
+    pub sugestoes: Vec<String>,
 }
 
 /// A espécie do Dart pelo id (`dart.fix.…`, `dart.assist.…`): a
@@ -139,7 +225,7 @@ pub(crate) fn corrigir_em_todo_o_arquivo(
                 especie: format!("quickfix.{resto}.multi"),
                 edicoes,
                 diagnostico: Some(d.clone()),
-                criar_arquivo: None,
+                criar_arquivo: None, ligado: Default::default(),
             });
         }
     }
@@ -175,7 +261,7 @@ pub(crate) fn corrigir_sintaxe(
                     texto: ";".into(),
                 }],
                 diagnostico: Some(d.clone()),
-                criar_arquivo: None,
+                criar_arquivo: None, ligado: Default::default(),
             });
         }
     }
@@ -466,7 +552,7 @@ pub(crate) fn importar(
                         especie: "quickfix.import.libraryPrefix".into(),
                         edicoes: vec![Edicao { uri: uri.to_string(), span: Span { start: offset, end: offset }, texto: format!("{pr}.") }],
                         diagnostico: None,
-                        criar_arquivo: None,
+                        criar_arquivo: None, ligado: Default::default(),
                     });
                     continue;
                 }
@@ -489,7 +575,7 @@ pub(crate) fn importar(
                             especie: "quickfix.import.libraryShow".into(),
                             edicoes: vec![Edicao { uri: uri_def, span: Span { start: comeco, end: b.span.end }, texto: format!("show {}", nomes.into_iter().collect::<Vec<_>>().join(", ")) }],
                             diagnostico: None,
-                            criar_arquivo: None,
+                            criar_arquivo: None, ligado: Default::default(),
                         });
                     }
                 }
@@ -529,7 +615,7 @@ pub(crate) fn importar(
                             especie: tipo.into(),
                             edicoes,
                             diagnostico: None,
-                            criar_arquivo: None,
+                            criar_arquivo: None, ligado: Default::default(),
                         });
                     }
                 }
@@ -564,7 +650,7 @@ fn correcao(
             })
             .collect(),
         diagnostico: Some(d.clone()),
-        criar_arquivo: None,
+        criar_arquivo: None, ligado: Default::default(),
     }
 }
 
@@ -685,7 +771,7 @@ pub(crate) fn corrigir_publicados(
                             especie: "quickfix.change.toStaticAccess".into(),
                             edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
                             diagnostico: Some(d.clone()),
-                            criar_arquivo: None,
+                            criar_arquivo: None, ligado: Default::default(),
                         });
                     }
                 }
@@ -857,7 +943,7 @@ fn campo_nao_final(projeto: &Projeto, unidade: UnitId, d: &Diagnostic) -> Option
         especie: "quickfix.makeFieldNotFinal".into(),
         edicoes: vec![Edicao { uri: uri_decl, span, texto: novo }],
         diagnostico: Some(d.clone()),
-        criar_arquivo: None,
+        criar_arquivo: None, ligado: Default::default(),
     })
 }
 
@@ -881,7 +967,7 @@ fn campo_late(projeto: &Projeto, unidade: UnitId, d: &Diagnostic) -> Option<Acao
         especie: "quickfix.add.late".into(),
         edicoes: vec![Edicao { uri: uri_decl, span: Span { start: final_.span.start, end: final_.span.start }, texto: "late ".into() }],
         diagnostico: Some(d.clone()),
-        criar_arquivo: None,
+        criar_arquivo: None, ligado: Default::default(),
     })
 }
 
@@ -984,6 +1070,7 @@ fn criar_arquivo(projeto: &Projeto, unidade: UnitId, _uri: &str, d: &Diagnostic)
         edicoes: Vec::new(),
         diagnostico: Some(d.clone()),
         criar_arquivo: Some((Url::from_file_path(&destino).ok()?.to_string(), conteudo)),
+        ligado: Default::default(),
     })
 }
 
@@ -1006,6 +1093,6 @@ pub(crate) fn organizar_imports(uri: &str, texto: &str) -> AcaoDeCodigo {
         especie: "source.organizeImports".into(),
         edicoes,
         diagnostico: None,
-        criar_arquivo: None,
+        criar_arquivo: None, ligado: Default::default(),
     }
 }

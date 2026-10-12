@@ -152,7 +152,7 @@ pub(crate) fn ignorar(uri: &str, texto: &str, diagnosticos: &[Diagnostic], inici
                 especie: "quickfix.ignore.analysis".into(),
                 edicoes: vec![Edicao { uri: uri_yaml.to_string(), span: Span { start: offset, end: offset }, texto: texto_novo }],
                 diagnostico: Some(d.clone()),
-                criar_arquivo: None,
+                criar_arquivo: None, ligado: Default::default(),
             });
         }
     }
@@ -165,7 +165,7 @@ fn acao(uri: &str, titulo: String, especie: &str, edicoes: Vec<(Span, String)>, 
         especie: especie.into(),
         edicoes: edicoes.into_iter().map(|(span, texto)| Edicao { uri: uri.to_string(), span, texto }).collect(),
         diagnostico: Some(d.clone()),
-        criar_arquivo: None,
+        criar_arquivo: None, ligado: Default::default(),
     }
 }
 

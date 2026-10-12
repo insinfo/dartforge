@@ -155,6 +155,9 @@ pub struct Servidor<A = AnalisadorSintatico> {
     /// O cliente aceita `WorkspaceEdit.documentChanges` (edições com a
     /// versão do documento): as edições saem nessa forma.
     mudancas_versionadas: bool,
+    /// O cliente anunciou `experimental.snippetTextEdit`: as ações de código
+    /// com seleção ou grupos ligados saem como `SnippetTextEdit`.
+    edicoes_snippet: bool,
     /// O cliente aceita a operação de recurso `rename` e pediu
     /// `renameFilesWithClasses: "always"` nas opções de inicialização.
     renomear_arquivos: bool,
@@ -343,6 +346,7 @@ impl<A: Analisador> Servidor<A> {
             hover_markdown: false,
             preparar_renomeacao: false,
             mudancas_versionadas: false,
+            edicoes_snippet: false,
             renomear_arquivos: false,
             criar_arquivos: false,
             completar_chamadas: false,
@@ -1070,6 +1074,10 @@ impl<A: Analisador> Servidor<A> {
                     .pointer("/params/capabilities/workspace/workspaceEdit/documentChanges")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
+                // `experimental.snippetTextEdit == true`
+                // (`client_capabilities.dart:368-371`).
+                self.edicoes_snippet =
+                    mensagem.pointer("/params/capabilities/experimental/snippetTextEdit").and_then(Value::as_bool).unwrap_or(false);
                 self.aplicar_edicoes =
                     mensagem.pointer("/params/capabilities/workspace/applyEdit").and_then(Value::as_bool).unwrap_or(false);
                 self.rotulos_de_fechamento =
@@ -1641,7 +1649,10 @@ impl<A: Analisador> Servidor<A> {
                             }
                             e
                         }
-                        None => self.edicao_de_workspace(&acao.edicoes, None),
+                        None => match self.edicao_snippet(&u, &acao) {
+                            Some(e) => e,
+                            None => self.edicao_de_workspace(&acao.edicoes, None),
+                        },
                     };
                     // A forma do servidor do Dart (§13.7.1 item 8 e §13.8.1):
                     // `diagnostics` (o do erro numa correção, vazia numa
@@ -3032,6 +3043,31 @@ impl<A: Analisador> Servidor<A> {
     /// versão vigente, `null` se fechado) quando o cliente aceita, senão
     /// `changes`. Uma operação de recurso (renomear arquivo) vai depois das
     /// edições de texto, que valem para o texto antes dela.
+    /// `createWorkspaceEdit(..., allowSnippets: true)` (`mapping.dart:156-213`,
+    /// docs/LSP-ESPECIFICACAO.md §13.8.1-G): a ação vira um `TextDocumentEdit`
+    /// com um `SnippetTextEdit` só quando o cliente anunciou
+    /// `experimental.snippetTextEdit` e `documentChanges`, a mudança é **uma**
+    /// edição no arquivo do pedido (que já existe) e há seleção ou grupo
+    /// ligado. Senão `None`: a edição simples, sem seleção nem grupos.
+    fn edicao_snippet(&self, uri: &str, acao: &crate::AcaoDeCodigo) -> Option<Value> {
+        if !self.edicoes_snippet || !self.mudancas_versionadas || acao.criar_arquivo.is_some() || acao.ligado.vazio() {
+            return None;
+        }
+        let [e] = acao.edicoes.as_slice() else { return None };
+        if e.uri != uri {
+            return None;
+        }
+        let range = self.faixa(&e.uri, e.span)?;
+        // Uma só edição: o texto dela começa no mesmo offset no documento
+        // final (`toSnippetTextEdits`, `offsetDelta` = 0).
+        let novo = crate::snippets::texto_de_snippet(&e.texto, e.span.start, &acao.ligado);
+        let versao = self.documentos.version(&e.uri).map_or(Value::Null, |v| json!(v));
+        Some(json!({"documentChanges": [{
+            "textDocument": {"uri": e.uri, "version": versao},
+            "edits": [{"insertTextFormat": 2, "range": range, "newText": novo}],
+        }]}))
+    }
+
     fn edicao_de_workspace(&self, edicoes: &[crate::Edicao], recurso: Option<Value>) -> Value {
         let mut por_uri: Vec<(String, Vec<Value>)> = Vec::new();
         for e in edicoes {

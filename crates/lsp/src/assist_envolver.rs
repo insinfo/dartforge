@@ -67,39 +67,89 @@ impl Contexto<'_> {
         let velho = self.prefixo_do_no(primeiro);
         let novo = format!("{velho}{UM_RECUO}");
         let recuado = tx.trocar_recuo(&self.fonte[faixa.start..faixa.end], &velho, &novo, true, true);
-        let mut acao = |titulo: &str, especie: &str, texto: String| {
-            saida.push(AcaoDeCodigo {
+        let mut acao = |titulo: &str, especie: &str, e: &crate::snippets::Escrita| {
+            let a = AcaoDeCodigo {
                 titulo: titulo.into(),
                 especie: especie.into(),
-                edicoes: vec![Edicao { uri: uri.to_string(), span: faixa, texto }],
+                edicoes: vec![Edicao { uri: uri.to_string(), span: faixa, texto: e.texto.clone() }],
                 diagnostico: None,
                 criar_arquivo: None,
-            });
+                ligado: Default::default(),
+            };
+            saida.push(a.com_escrita(0, e));
         };
+        let mut e = crate::snippets::Escrita::default();
         // `_SurroundWithBlock`: `{` antes, o código recuado e `}` depois.
-        acao("Surround with block", "refactor.surround.block", format!("{velho}{{{eol}{recuado}{velho}}}{eol}"));
-        acao("Surround with 'do-while'", "refactor.surround.doWhile", format!("{velho}do {{{eol}{recuado}{velho}}} while (condition);{eol}"));
-        acao(
-            "Surround with 'for'",
-            "refactor.surround.forEach",
-            format!("{velho}for (var v = init; condition; increment) {{{eol}{recuado}{velho}}}{eol}"),
-        );
-        acao("Surround with 'for-in'", "refactor.surround.forIn", format!("{velho}for (var item in iterable) {{{eol}{recuado}{velho}}}{eol}"));
-        acao("Surround with 'if'", "refactor.surround.if", format!("{velho}if (condition) {{{eol}{recuado}{velho}}}{eol}"));
+        e.escrever(&format!("{velho}{{{eol}{recuado}{velho}}}{eol}"));
+        acao("Surround with block", "refactor.surround.block", &e);
+        // Os demais escrevem a substituição inteira com os grupos ligados e o
+        // `selectHere` de `surround_with.dart:135-424`.
+        let mut e = crate::snippets::Escrita::default();
+        e.escrever(&format!("{velho}do {{{eol}{recuado}{velho}}} while ("))
+            .ligado("CONDITION", "condition", &[])
+            .escrever(");")
+            .aqui()
+            .escrever(eol);
+        acao("Surround with 'do-while'", "refactor.surround.doWhile", &e);
+        let mut e = crate::snippets::Escrita::default();
+        e.escrever(&format!("{velho}for (var "))
+            .ligado("VAR", "v", &[])
+            .escrever(" = ")
+            .ligado("INIT", "init", &[])
+            .escrever("; ")
+            .ligado("CONDITION", "condition", &[])
+            .escrever("; ")
+            .ligado("INCREMENT", "increment", &[])
+            .escrever(&format!(") {{{eol}{recuado}{velho}}}"))
+            .aqui()
+            .escrever(eol);
+        acao("Surround with 'for'", "refactor.surround.forEach", &e);
+        let mut e = crate::snippets::Escrita::default();
+        e.escrever(&format!("{velho}for (var "))
+            .ligado("NAME", "item", &[])
+            .escrever(" in ")
+            .ligado("ITERABLE", "iterable", &[])
+            .escrever(&format!(") {{{eol}{recuado}{velho}}}"))
+            .aqui()
+            .escrever(eol);
+        acao("Surround with 'for-in'", "refactor.surround.forIn", &e);
+        let mut e = crate::snippets::Escrita::default();
+        e.escrever(&format!("{velho}if ("))
+            .ligado("CONDITION", "condition", &[])
+            .escrever(&format!(") {{{eol}{recuado}{velho}}}"))
+            .aqui()
+            .escrever(eol);
+        acao("Surround with 'if'", "refactor.surround.if", &e);
         if self.pai(no).is_some_and(|p| self.classe_e_state(p)) {
-            acao("Surround with 'setState'", "refactor.surround.setState", format!("{velho}setState(() {{{eol}{recuado}{velho}}});{eol}"));
+            let mut e = crate::snippets::Escrita::default();
+            e.escrever(&format!("{velho}setState(() {{{eol}{recuado}{velho}"))
+                .aqui()
+                .escrever(&format!("}});{eol}"));
+            acao("Surround with 'setState'", "refactor.surround.setState", &e);
         }
-        acao(
-            "Surround with 'try-catch'",
-            "refactor.surround.tryCatch",
-            format!("{velho}try {{{eol}{recuado}{velho}}} on Exception catch (e) {{{eol}{novo}// TODO{eol}{velho}}}{eol}"),
-        );
-        acao(
-            "Surround with 'try-finally'",
-            "refactor.surround.tryFinally",
-            format!("{velho}try {{{eol}{recuado}{velho}}} finally {{{eol}{novo}// TODO{eol}{velho}}}{eol}"),
-        );
-        acao("Surround with 'while'", "refactor.surround.while", format!("{velho}while (condition) {{{eol}{recuado}{velho}}}{eol}"));
+        let mut e = crate::snippets::Escrita::default();
+        e.escrever(&format!("{velho}try {{{eol}{recuado}{velho}}} on "))
+            .ligado("EXCEPTION_TYPE", "Exception", &[])
+            .escrever(" catch (")
+            .ligado("EXCEPTION_VAR", "e", &[])
+            .escrever(&format!(") {{{eol}{novo}"))
+            .ligado("CATCH", "// TODO", &[])
+            .aqui()
+            .escrever(&format!("{eol}{velho}}}{eol}"));
+        acao("Surround with 'try-catch'", "refactor.surround.tryCatch", &e);
+        let mut e = crate::snippets::Escrita::default();
+        e.escrever(&format!("{velho}try {{{eol}{recuado}{velho}}} finally {{{eol}{novo}"))
+            .ligado("FINALLY", "// TODO", &[])
+            .aqui()
+            .escrever(&format!("{eol}{velho}}}{eol}"));
+        acao("Surround with 'try-finally'", "refactor.surround.tryFinally", &e);
+        let mut e = crate::snippets::Escrita::default();
+        e.escrever(&format!("{velho}while ("))
+            .ligado("CONDITION", "condition", &[])
+            .escrever(&format!(") {{{eol}{recuado}{velho}}}"))
+            .aqui()
+            .escrever(eol);
+        acao("Surround with 'while'", "refactor.surround.while", &e);
         saida
     }
 }

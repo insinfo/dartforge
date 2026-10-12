@@ -83,6 +83,7 @@ mod rotulos;
 mod semantica;
 mod sessao;
 mod simbolos;
+mod snippets;
 mod tipado;
 pub mod transporte;
 pub mod utf16;
@@ -96,7 +97,7 @@ pub use semantica::AnalisadorSemantico;
 pub use completar::{Chamada, Completar, ImportAutomatico, ItemCompletar};
 pub use renomear::{Edicao, RenomearArquivo, Renomeacao};
 
-pub use acoes::AcaoDeCodigo;
+pub use acoes::{AcaoDeCodigo, GrupoLigado, Ligado};
 pub use refatoracoes::{ComandoDeRefatoracao, PedidoDeRefatoracao, Refatoracao, ResultadoDeRefatoracao};
 pub use assinatura::Assinatura;
 pub use chamadas::{EspecieDeChamada, ItemDeChamada};

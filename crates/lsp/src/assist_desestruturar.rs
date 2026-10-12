@@ -161,7 +161,7 @@ impl Contexto<'_> {
             especie: "refactor.destructureLocalVariableAssignment".into(),
             edicoes: edicoes.into_iter().rev().map(|(span, texto)| Edicao { uri: uri.to_string(), span, texto }).collect(),
             diagnostico: None,
-            criar_arquivo: None,
+            criar_arquivo: None, ligado: Default::default(),
         };
         match tabela.get(tipo) {
             Type::Record { positional, named, .. } => {
@@ -178,17 +178,37 @@ impl Contexto<'_> {
                     excluidos.insert(nome_v.clone());
                     variaveis.push(nome_v);
                 }
+                // Cada variável é um grupo ligado `VAR_i` com as sugestões do
+                // `RecordField.write`: (prefixo escrito, texto do grupo,
+                // sugestões).
+                let mut grupos: Vec<(String, String, Vec<String>)> =
+                    variaveis.into_iter().map(|v| (String::new(), v.clone(), vec![v, "_".to_string()])).collect();
                 let mut nomeados: Vec<String> = named.iter().map(|(s, _)| self.p.nome(*s).to_string()).collect();
                 nomeados.sort();
                 for campo in nomeados {
                     if !excluidos.contains(&campo) {
-                        variaveis.push(format!(":{campo}"));
+                        grupos.push((String::new(), format!(":{campo}"), vec![format!(":{campo}"), format!("{campo}: _")]));
                     } else {
                         let sugestao = nomes_para_texto(&campo, &excluidos).into_iter().next()?;
-                        variaveis.push(format!("{campo}: {sugestao}"));
+                        grupos.push((format!("{campo}: "), sugestao.clone(), vec![sugestao, "_".to_string()]));
                     }
                 }
-                Some(acao(vec![(nome, format!("({})", variaveis.join(", ")))]))
+                let mut texto = String::from("(");
+                let mut posicoes = Vec::new();
+                for (i, (prefixo, v, _)) in grupos.iter().enumerate() {
+                    if i > 0 {
+                        texto.push_str(", ");
+                    }
+                    texto.push_str(prefixo);
+                    posicoes.push((texto.len(), v.len()));
+                    texto.push_str(v);
+                }
+                texto.push(')');
+                let mut a = acao(vec![(nome, texto)]);
+                for ((k, n), (_, _, sugestoes)) in posicoes.into_iter().zip(grupos) {
+                    a = a.com_grupo(0, &[k], n, sugestoes);
+                }
+                Some(a)
             }
             Type::Interface { class, .. } => {
                 let corpo = self.com_pais(no).find(|&k| matches!(self.especie(k), "BlockFunctionBody" | "ExpressionFunctionBody"))?;
@@ -225,14 +245,23 @@ impl Contexto<'_> {
                     .map(|(v, p, _)| if v == p { format!(":{v}") } else { format!("{p}: {v}") })
                     .collect::<Vec<_>>()
                     .join(", ");
-                let mut edicoes = vec![(nome, format!("{}({padrao})", self.p.nome(prog.class(*class).name)))];
+                let classe = self.p.nome(prog.class(*class).name);
+                let mut edicoes = vec![(nome, format!("{classe}({padrao})"))];
                 for (v, _, acessos) in &campos {
                     for &a in acessos {
                         edicoes.push((self.arvore.span(a), v.clone()));
                     }
                 }
                 edicoes.sort_by_key(|(s, _)| s.start);
-                Some(acao(edicoes))
+                // Sem propriedades lidas, `selectHere` entre os parênteses;
+                // com elas, as leituras trocadas são outras edições (os
+                // grupos delas não chegam a um snippet).
+                let selecao = campos.is_empty().then_some(classe.len() + 1);
+                let a = acao(edicoes);
+                Some(match selecao {
+                    Some(k) => a.com_selecao(0, k, 0),
+                    None => a,
+                })
             }
             _ => None,
         }

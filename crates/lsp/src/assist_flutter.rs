@@ -192,6 +192,17 @@ impl Contexto<'_> {
         }
     }
 
+    /// [`Self::acao_com_mudanca`] com a seleção e os grupos ligados de `e`,
+    /// que é o texto da edição em `trecho` (as outras edições, de imports,
+    /// tiram a ação do caminho do snippet).
+    fn acao_ligada(&self, titulo: &str, especie: &str, m: Mudanca, trecho: Span, e: &crate::snippets::Escrita) -> Option<AcaoDeCodigo> {
+        let a = self.acao_com_mudanca(titulo, especie, m)?;
+        Some(match a.edicoes.iter().position(|x| x.span == trecho) {
+            Some(i) => a.com_escrita(i, e),
+            None => a,
+        })
+    }
+
     fn acao_com_mudanca(&self, titulo: &str, especie: &str, m: Mudanca) -> Option<AcaoDeCodigo> {
         if m.conflito.is_some() {
             return None;
@@ -201,7 +212,7 @@ impl Contexto<'_> {
             especie: especie.into(),
             edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
             diagnostico: None,
-            criar_arquivo: None,
+            criar_arquivo: None, ligado: Default::default(),
         })
     }
 
@@ -700,8 +711,14 @@ impl Contexto<'_> {
         let virgulas = crate::refatoracoes_exec::regra_ligada(self.p, self.unidade, "require_trailing_commas");
         let fonte_widget = tx.trocar_recuo(self.texto_do_no(widget), &recuo, &recuo2, false, false);
         let mut s = referencia;
+        let mut marcas = crate::snippets::Escrita::default();
         if stream {
-            s.push_str("<Object>(");
+            // `addSimpleLinkedEdit('type', 'Object')`.
+            s.push('<');
+            marcas.texto = s.clone();
+            marcas.ligado("type", "Object", &[]);
+            s = marcas.texto.clone();
+            s.push_str(">(");
         } else {
             s.push('(');
         }
@@ -720,7 +737,7 @@ impl Contexto<'_> {
         m.adicionar(uri, self.arvore.span(widget), s);
         crate::refatoracoes_mover::imports_do_builder(self, &mut m, &escritor.importar);
         let (titulo, especie) = if stream { ("Wrap with StreamBuilder", "refactor.flutter.wrap.streamBuilder") } else { ("Wrap with Builder", "refactor.flutter.wrap.builder") };
-        self.acao_com_mudanca(titulo, especie, m)
+        self.acao_ligada(titulo, especie, m, self.arvore.span(widget), &marcas)
     }
 
     /// `FlutterWrapGeneric` (o produtor da lista de widgets).
@@ -743,10 +760,15 @@ impl Contexto<'_> {
         let recuo_arg = format!("{recuo}{UM_RECUO}");
         let recuo_lista = format!("{recuo}{UM_RECUO}{UM_RECUO}");
         let lista = tx.trocar_recuo(fonte, &recuo, &recuo_lista, false, false);
-        let s = format!("[{eol}{recuo_arg}widget({eol}{recuo_lista}children: {lista},{eol}{recuo_arg}),{eol}{recuo}]");
+        // `addSimpleLinkedEdit('WIDGET', 'widget')`.
+        let mut marcas = crate::snippets::Escrita::default();
+        marcas
+            .escrever(&format!("[{eol}{recuo_arg}"))
+            .ligado("WIDGET", "widget", &[])
+            .escrever(&format!("({eol}{recuo_lista}children: {lista},{eol}{recuo_arg}),{eol}{recuo}]"));
         let mut m = Mudanca::default();
-        m.adicionar(uri, self.arvore.span(n), s);
-        self.acao_com_mudanca("Wrap with widget...", "refactor.flutter.wrap.generic", m)
+        m.adicionar(uri, self.arvore.span(n), marcas.texto.clone());
+        self.acao_ligada("Wrap with widget...", "refactor.flutter.wrap.generic", m, self.arvore.span(n), &marcas)
     }
 
     /// `SortChildPropertyLast`.
@@ -860,11 +882,19 @@ impl Contexto<'_> {
             None => None,
         };
         let mut escritor = crate::escrever_tipo::Escritor::novo(self, self.arvore.nos[widget].inicio);
-        let mut s = match (classe, nome) {
-            (Some(c), Some(x)) => escritor.referencia_de(Element::Class(c), x),
-            _ => "widget".to_string(),
-        };
-        s.push('(');
+        // Sem classe, os grupos `WIDGET` e `CHILD`; com ela, a seleção logo
+        // depois do `(` (`flutter_wrap.dart:302-345`).
+        let mut marcas = crate::snippets::Escrita::default();
+        match (classe, nome) {
+            (Some(c), Some(x)) => {
+                marcas.escrever(&escritor.referencia_de(Element::Class(c), x));
+                marcas.escrever("(").aqui();
+            }
+            _ => {
+                marcas.ligado("WIDGET", "widget", &[]).escrever("(");
+            }
+        }
+        let mut s = marcas.texto.clone();
         let linhas: Vec<String> = if nome == Some("Padding") {
             let palavra = if crate::criar::em_contexto_constante(self, widget) { "" } else { " const" };
             let valor = if crate::refatoracoes_exec::regra_ligada(self.p, self.unidade, "prefer_int_literals") { "8" } else { "8.0" };
@@ -885,18 +915,22 @@ impl Contexto<'_> {
             fonte = tx.trocar_recuo(&fonte, &recuo, &recuo_novo, false, false);
             fonte = format!("{fonte},{eol}{recuo}");
         }
-        s.push_str("child: ");
-        s.push_str(&fonte);
-        s.push(')');
+        marcas.texto = s;
+        if classe.is_none() {
+            marcas.ligado("CHILD", "child", &[]);
+        } else {
+            marcas.escrever("child");
+        }
+        marcas.escrever(": ").escrever(&fonte).escrever(")");
         let mut m = Mudanca::default();
-        m.adicionar(uri, self.arvore.span(widget), s);
+        m.adicionar(uri, self.arvore.span(widget), marcas.texto.clone());
         crate::refatoracoes_mover::imports_do_builder(self, &mut m, &escritor.importar);
         let (titulo, especie) = match nome {
             None => ("Wrap with widget...".to_string(), "refactor.flutter.wrap.generic".to_string()),
             Some("SizedBox") => ("Wrap with SizedBox".to_string(), "refactor.flutter.wrap.sizedBox".to_string()),
             Some(x) => (format!("Wrap with {x}"), format!("refactor.flutter.wrap.{}", x.to_lowercase())),
         };
-        self.acao_com_mudanca(&titulo, &especie, m)
+        self.acao_ligada(&titulo, &especie, m, self.arvore.span(widget), &marcas)
     }
 
     /// `_WrapMultipleWidgets`.

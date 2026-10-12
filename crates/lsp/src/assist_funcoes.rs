@@ -134,7 +134,7 @@ impl Contexto<'_> {
             especie: "refactor.convert.bodyToAsync".into(),
             edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect::<Vec<Edicao>>(),
             diagnostico: None,
-            criar_arquivo: None,
+            criar_arquivo: None, ligado: Default::default(),
         })
     }
 
@@ -252,7 +252,7 @@ impl Contexto<'_> {
             especie: "refactor.add.returnType".into(),
             edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
             diagnostico: None,
-            criar_arquivo: None,
+            criar_arquivo: None, ligado: Default::default(),
         })
     }
 }

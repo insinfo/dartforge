@@ -15,6 +15,11 @@ use dartforge_frontend::ast::{self, ExprKind, MemberKind};
 use dartforge_frontend::token::Kind;
 use dartforge_types::{MemberRef, Resolved};
 
+/// Um `Add required argument`: o nome do parâmetro, a inserção e o cursor
+/// (`Ok`: seleção no byte do texto; `Err`: o grupo `VALUE`, início e
+/// comprimento).
+pub(crate) type ArgumentoRequerido = (String, Span, String, Result<usize, (usize, usize)>);
+
 /// O elemento declarado por um nó (o `declaredElement`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Declarado {
@@ -1675,8 +1680,11 @@ impl Contexto<'_> {
     /// `AddMissingRequiredArgument` para cada parâmetro nomeado obrigatório
     /// sem argumento nas chamadas cujo nome está nas linhas `ini..fim` (o
     /// `missing_required_argument` não é publicado: as chamadas são
-    /// examinadas no pedido). O nome do parâmetro e a inserção.
-    pub(crate) fn argumentos_requeridos(&self, ini: usize, fim: usize) -> Vec<(String, Span, String)> {
+    /// examinadas no pedido). O nome do parâmetro, a inserção e onde fica o
+    /// cursor: `Ok(k)`, a seleção no byte `k` do valor padrão com
+    /// `cursorPosition`; `Err((k, n))`, o grupo ligado `VALUE` do valor sem
+    /// cursor (`add_missing_required_argument.dart:105-121`).
+    pub(crate) fn argumentos_requeridos(&self, ini: usize, fim: usize) -> Vec<ArgumentoRequerido> {
         use dartforge_types::Resolved;
         let prog = self.p.programa();
         let aspas = if crate::refatoracoes_exec::regra_ligada(self.p, self.unidade, "prefer_double_quotes") { "\"" } else { "'" };
@@ -1751,12 +1759,20 @@ impl Contexto<'_> {
                     }
                 }
                 let anotacao = declarados.iter().find(|p| p.name.is_some_and(|n| self.p.nome(n.sym) == nome)).and_then(|p| p.ty).and_then(|t| ast_decl.map(|a| (a, t)));
-                let valor = self.valor_padrao_de_argumento(q.ty, aspas, anotacao).unwrap_or_else(|| "null".to_string());
+                let padrao = self.valor_padrao_de_argumento(q.ty, aspas, anotacao);
                 let mut texto = String::new();
                 if !argumentos.is_empty() && !entre {
                     texto.push_str(", ");
                 }
-                texto.push_str(&format!("{nome}: {valor}"));
+                texto.push_str(&format!("{nome}: "));
+                // `DefaultArgument.cursorPosition`: 1 em `[]`, `{}` e `''`;
+                // entre as chaves de `(…) {  }`.
+                let cursor = match &padrao {
+                    Some(v) if v.starts_with('(') => Ok(texto.len() + v.len() - 2),
+                    Some(_) => Ok(texto.len() + 1),
+                    None => Err((texto.len(), 4)),
+                };
+                texto.push_str(padrao.as_deref().unwrap_or("null"));
                 if widget {
                     if !virgula_final {
                         texto.push(',');
@@ -1767,7 +1783,7 @@ impl Contexto<'_> {
                         texto.push_str(Texto::novo(self.fonte).prefixo_da_linha(offset));
                     }
                 }
-                saida.push((nome, Span { start: offset, end: offset }, texto));
+                saida.push((nome, Span { start: offset, end: offset }, texto, cursor));
             }
         }
         saida
@@ -1874,14 +1890,11 @@ impl Contexto<'_> {
         use crate::refatoracoes::Elem;
         match self.elemento_do_corpo(n)? {
             Elem::Funcao(f) => {
-                let p = self.p.programa();
-                let fe = p.function(f);
-                let nome = crate::projeto::nome_base(self.p.nome(fe.name)).to_string();
-                if fe.kind == dartforge_elements::model::FunctionKind::Constructor {
-                    let classe = fe.class.map(|c| self.p.nome(p.class(c).name).to_string()).unwrap_or_default();
-                    return Some(if nome.is_empty() { classe } else { format!("{classe}.{nome}") });
-                }
-                Some(nome)
+                let fe = self.p.programa().function(f);
+                // O `displayName` do elemento novo (`ElementImpl2`): o nome
+                // do fragmento, sem a classe num construtor (vazio no sem
+                // nome; conferido no servidor do Dart 3.6.2).
+                Some(crate::projeto::nome_base(self.p.nome(fe.name)).to_string())
             }
             Elem::FuncaoLocal(fid) => Some(self.ast.function(fid).name.map(|x| self.lexema(x.span).to_string()).unwrap_or_default()),
             _ => None,

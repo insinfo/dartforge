@@ -27,7 +27,7 @@ impl Contexto<'_> {
             especie: especie.into(),
             edicoes: edicoes.into_iter().map(|(span, texto)| Edicao { uri: uri.to_string(), span, texto }).collect(),
             diagnostico: None,
-            criar_arquivo: None,
+            criar_arquivo: None, ligado: Default::default(),
         }
     }
 
@@ -414,7 +414,7 @@ impl Contexto<'_> {
             especie: "refactor.convert.toMapLiteral".into(),
             edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
             diagnostico: None,
-            criar_arquivo: None,
+            criar_arquivo: None, ligado: Default::default(),
         })
     }
 

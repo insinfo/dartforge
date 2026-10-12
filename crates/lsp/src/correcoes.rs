@@ -55,7 +55,7 @@ fn acao_com_imports(
         especie: especie.into(),
         edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
         diagnostico: Some(d.clone()),
-        criar_arquivo: None,
+        criar_arquivo: None, ligado: Default::default(),
     })
 }
 
@@ -67,14 +67,30 @@ pub(crate) fn argumentos_requeridos(projeto: &Projeto, uri: &str, inicio: usize,
     let cx = crate::refatoracoes::Contexto::novo(projeto, unidade);
     cx.argumentos_requeridos(inicio, fim)
         .into_iter()
-        .map(|(nome, s, texto)| AcaoDeCodigo {
-            titulo: format!("Add required argument '{nome}'"),
-            especie: "quickfix.add.missingRequiredArgument".into(),
-            edicoes: vec![Edicao { uri: uri.to_string(), span: s, texto }],
-            diagnostico: None,
-            criar_arquivo: None,
+        .map(|(nome, s, texto, cursor)| {
+            let a = AcaoDeCodigo {
+                titulo: format!("Add required argument '{nome}'"),
+                especie: "quickfix.add.missingRequiredArgument".into(),
+                edicoes: vec![Edicao { uri: uri.to_string(), span: s, texto }],
+                diagnostico: None,
+                criar_arquivo: None,
+                ligado: Default::default(),
+            };
+            match cursor {
+                Ok(k) => a.com_selecao(0, k, 0),
+                Err((k, n)) => a.com_grupo(0, &[k], n, Vec::new()),
+            }
         })
         .collect()
+}
+
+/// `ConvertIntoBlockBody.missingBody`: `selectHere` antes da quebra de linha
+/// que precede o `}` final (`convert_into_block_body.dart:52-53`).
+pub(crate) fn corpo_de_bloco(a: AcaoDeCodigo) -> AcaoDeCodigo {
+    match a.edicoes.first().and_then(|e| e.texto.rfind('\n')) {
+        Some(k) => a.com_selecao(0, k, 0),
+        None => a,
+    }
 }
 
 fn acao(uri: &str, titulo: String, especie: &str, edicoes: Vec<(Span, String)>, d: &Diagnostic) -> AcaoDeCodigo {
@@ -83,7 +99,7 @@ fn acao(uri: &str, titulo: String, especie: &str, edicoes: Vec<(Span, String)>, 
         especie: especie.into(),
         edicoes: edicoes.into_iter().map(|(span, texto)| Edicao { uri: uri.to_string(), span, texto }).collect(),
         diagnostico: Some(d.clone()),
-        criar_arquivo: None,
+        criar_arquivo: None, ligado: Default::default(),
     }
 }
 
@@ -114,11 +130,16 @@ pub(crate) fn corrigir(projeto: &mut Projeto, uri: &str, diagnosticos: &[Diagnos
         match codigo {
             "non_abstract_class_inherits_abstract_member" => {
                 let Some((c, decl)) = classe_com_nome(projeto, unidade, d.span) else { continue };
-                if let Some((titulo, edicao)) = sobrescritas_ausentes(projeto, c, unidade, decl) {
-                    saida.push(acao(uri, titulo, "quickfix.create.missingOverrides", vec![edicao], d));
+                if let Some((titulo, edicao, selecao)) = sobrescritas_ausentes(projeto, c, unidade, decl) {
+                    let a = acao(uri, titulo, "quickfix.create.missingOverrides", vec![edicao], d);
+                    saida.push(match selecao {
+                        Some((rel, n)) => a.com_selecao(0, rel, n),
+                        None => a,
+                    });
                 }
                 if let Some(e) = no_such_method(projeto, unidade, decl) {
-                    saida.push(acao(uri, "Create 'noSuchMethod' method".into(), "quickfix.create.noSuchMethod", vec![e], d));
+                    // `selectHere` antes de tudo (`create_no_such_method.dart:33`).
+                    saida.push(acao(uri, "Create 'noSuchMethod' method".into(), "quickfix.create.noSuchMethod", vec![e], d).com_selecao(0, 0, 0));
                 }
                 if let Some((nome, e)) = classe_abstrata(projeto, unidade, decl) {
                     saida.push(acao(uri, format!("Make class '{nome}' abstract"), "quickfix.makeClassAbstract", vec![e], d));
@@ -130,7 +151,7 @@ pub(crate) fn corrigir(projeto: &mut Projeto, uri: &str, diagnosticos: &[Diagnos
                 // membro, nunca sai) e `MakeClassAbstract`.
                 let cx = crate::refatoracoes::Contexto::novo(projeto, unidade);
                 if let Some(e) = cx.converter_em_corpo_de_bloco(d.span) {
-                    saida.push(acao(uri, "Convert to block body".into(), "quickfix.convert.bodyToBlock", vec![e], d));
+                    saida.push(corpo_de_bloco(acao(uri, "Convert to block body".into(), "quickfix.convert.bodyToBlock", vec![e], d)));
                 }
                 drop(cx);
                 let Some(decl) = classe_que_contem(projeto, unidade, d.span.start) else { continue };
@@ -207,7 +228,7 @@ pub(crate) fn corrigir(projeto: &mut Projeto, uri: &str, diagnosticos: &[Diagnos
                             especie: "quickfix.add.async".into(),
                             edicoes: todas,
                             diagnostico: Some(d.clone()),
-                            criar_arquivo: None,
+                            criar_arquivo: None, ligado: Default::default(),
                         });
                     }
                 }
@@ -351,7 +372,7 @@ pub(crate) fn corrigir(projeto: &mut Projeto, uri: &str, diagnosticos: &[Diagnos
             "enum_with_abstract_member" | "extension_type_with_abstract_member" => {
                 let cx = crate::refatoracoes::Contexto::novo(projeto, unidade);
                 if let Some(e) = cx.converter_em_corpo_de_bloco(d.span) {
-                    saida.push(acao(uri, "Convert to block body".into(), "quickfix.convert.bodyToBlock", vec![e], d));
+                    saida.push(corpo_de_bloco(acao(uri, "Convert to block body".into(), "quickfix.convert.bodyToBlock", vec![e], d)));
                 }
             }
             "non_constant_map_pattern_key" => {
@@ -486,6 +507,9 @@ fn local_nao_final(projeto: &Projeto, unidade: UnitId, uso: Span) -> Option<(Str
     Some((nome, vec![edicao]))
 }
 
+/// O título, a inserção e a seleção relativa do `Create N missing override(s)`.
+type Sobrescritas = (String, (Span, String), Option<(usize, usize)>);
+
 /// Um membro a sobrescrever: nome exibido, se é getter/setter e o elemento.
 struct Ausente {
     nome: String,
@@ -498,8 +522,14 @@ struct Ausente {
 /// `Create N missing override(s)`: os membros abstratos ou de interface sem
 /// implementação concreta na cadeia de `c`, ordenados pelo nome (getter
 /// antes de setter; um par getter/setter vira campo), inseridos depois do
-/// último membro (ou logo depois do `{`).
-fn sobrescritas_ausentes(projeto: &mut Projeto, c: ClassId, unidade: UnitId, decl: ast::DeclId) -> Option<(String, (Span, String))> {
+/// último membro (ou logo depois do `{`). Os pares viram campos antes dos
+/// demais membros, como no laço do Dart (`create_missing_overrides.dart:78-114`).
+///
+/// A seleção (relativa ao texto inserido): com mais de um membro, no começo
+/// do primeiro (`selectHere`); com um só, a do `writeOverride(setSelection:
+/// true)` (o corpo `throw` inteiro, ou logo depois do `// TODO`); um campo
+/// sozinho não tem seleção.
+fn sobrescritas_ausentes(projeto: &mut Projeto, c: ClassId, unidade: UnitId, decl: ast::DeclId) -> Option<Sobrescritas> {
     let ausentes = ausentes(projeto, c);
     if ausentes.is_empty() {
         return None;
@@ -522,6 +552,7 @@ fn sobrescritas_ausentes(projeto: &mut Projeto, c: ClassId, unidade: UnitId, dec
     };
     let linha_unica = !fonte[d.span.start..d.span.end].contains('\n');
     let mapa = mapeamento(projeto, c);
+    let mut campos = Vec::new();
     let mut textos = Vec::new();
     let mut n = ausentes.len();
     let mut i = 0;
@@ -530,7 +561,7 @@ fn sobrescritas_ausentes(projeto: &mut Projeto, c: ClassId, unidade: UnitId, dec
         if a.getter && ausentes.get(i + 1).is_some_and(|b| b.setter && b.nome == a.nome) {
             let tipo = retorno(projeto, a.funcao, mapa.get(&a.dono));
             let final_ = if enum_ { "final " } else { "" };
-            textos.push(format!("@override\n  {final_}{tipo} {};", a.nome));
+            campos.push(format!("@override\n  {final_}{tipo} {};", a.nome));
             n -= 1;
             i += 2;
             continue;
@@ -538,12 +569,32 @@ fn sobrescritas_ausentes(projeto: &mut Projeto, c: ClassId, unidade: UnitId, dec
         textos.push(sobrescrita(projeto, a, mapa.get(&a.dono)));
         i += 1;
     }
-    let mut texto = prefixo + &textos.join("\n\n  ");
+    let selecao = if n > 1 {
+        Some((prefixo.len(), 0))
+    } else if let [s] = textos.as_slice()
+        && campos.is_empty()
+    {
+        let corpo = "throw UnimplementedError()";
+        if let Some(k) = s.find(&format!("=> {corpo};")) {
+            Some((prefixo.len() + k + 3, corpo.len()))
+        } else if let Some(k) = s.find(&format!("{corpo};")) {
+            Some((prefixo.len() + k, corpo.len() + 1))
+        } else {
+            s.find("// TODO: implement ").map(|k| {
+                let fim = s[k..].find('\n').map_or(s.len(), |x| k + x);
+                (prefixo.len() + fim, 0)
+            })
+        }
+    } else {
+        None
+    };
+    campos.extend(textos);
+    let mut texto = prefixo + &campos.join("\n\n  ");
     if ultimo.is_none() && linha_unica {
         texto.push('\n');
     }
     let titulo = format!("Create {n} missing override{}", if n == 1 { "" } else { "s" });
-    Some((titulo, (Span { start: posicao, end: posicao }, texto)))
+    Some((titulo, (Span { start: posicao, end: posicao }, texto), selecao))
 }
 
 /// Os membros sem implementação concreta na cadeia de `c`.

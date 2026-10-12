@@ -63,7 +63,7 @@ impl Contexto<'_> {
             especie: "refactor.add.showCombinator".into(),
             edicoes: vec![Edicao { uri: uri.to_string(), span: Span { start: em, end: em }, texto: format!(" show {}", nomes.join(", ")) }],
             diagnostico: None,
-            criar_arquivo: None,
+            criar_arquivo: None, ligado: Default::default(),
         })
     }
 
@@ -110,7 +110,7 @@ impl Contexto<'_> {
             especie: "refactor.convert.relativeToPackageImport".into(),
             edicoes: vec![Edicao { uri: uri.to_string(), span: faixa, texto: format!("'{canonica}'") }],
             diagnostico: None,
-            criar_arquivo: None,
+            criar_arquivo: None, ligado: Default::default(),
         })
     }
 
@@ -140,7 +140,7 @@ impl Contexto<'_> {
             especie: "refactor.convert.packageToRelativeImport".into(),
             edicoes: vec![Edicao { uri: uri.to_string(), span: Span { start: faixa.start + 1, end: faixa.end - 1 }, texto: relativo }],
             diagnostico: None,
-            criar_arquivo: None,
+            criar_arquivo: None, ligado: Default::default(),
         })
     }
 
@@ -168,7 +168,7 @@ impl Contexto<'_> {
             especie: "refactor.convert.partOfToPartUri".into(),
             edicoes: vec![Edicao { uri: uri.to_string(), span: self.arvore.span(nome), texto: format!("'{relativo}'") }],
             diagnostico: None,
-            criar_arquivo: None,
+            criar_arquivo: None, ligado: Default::default(),
         })
     }
 }

@@ -447,13 +447,13 @@ impl Analisador for AnalisadorSemantico {
                     // `ConvertIntoBlockBody.missingBody` como assistência: o
                     // nó da seleção (`NodeLocator`).
                     if let Some((span, texto)) = cx.converter_em_corpo_de_bloco(dartforge_diagnostics::Span { start: inicio, end: fim }) {
-                        saida.push(crate::acoes::AcaoDeCodigo {
+                        saida.push(crate::correcoes::corpo_de_bloco(crate::acoes::AcaoDeCodigo {
                             titulo: "Convert to block body".into(),
                             especie: "refactor.convert.bodyToBlock".into(),
                             edicoes: vec![crate::Edicao { uri: uri.to_string(), span, texto }],
                             diagnostico: None,
-                            criar_arquivo: None,
-                        });
+                            criar_arquivo: None, ligado: Default::default(),
+                        }));
                     }
                     saida.extend(cx.converter_em_campo_final(uri, inicio, fim));
                     saida.extend(cx.converter_em_for_com_indice(uri, inicio, fim));

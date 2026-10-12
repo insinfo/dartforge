@@ -29,7 +29,7 @@ impl Contexto<'_> {
             especie: especie.into(),
             edicoes: vec![Edicao { uri: uri.to_string(), span, texto }],
             diagnostico: None,
-            criar_arquivo: None,
+            criar_arquivo: None, ligado: Default::default(),
         }
     }
 
@@ -217,7 +217,7 @@ impl Contexto<'_> {
             especie: "refactor.convert.toConstructorNormalParameter".into(),
             edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
             diagnostico: None,
-            criar_arquivo: None,
+            criar_arquivo: None, ligado: Default::default(),
         })
     }
 
@@ -360,7 +360,7 @@ impl Contexto<'_> {
             especie: "refactor.convert.classToMixin".into(),
             edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
             diagnostico: None,
-            criar_arquivo: None,
+            criar_arquivo: None, ligado: Default::default(),
         })
     }
 
@@ -526,7 +526,7 @@ impl Contexto<'_> {
             especie: "refactor.encapsulateField".into(),
             edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
             diagnostico: None,
-            criar_arquivo: None,
+            criar_arquivo: None, ligado: Default::default(),
         })
     }
 
@@ -616,7 +616,7 @@ impl Contexto<'_> {
             especie: "refactor.convert.toConstructorFieldParameter".into(),
             edicoes: edicoes.into_iter().rev().map(|(span, texto)| Edicao { uri: uri.to_string(), span, texto }).collect(),
             diagnostico: None,
-            criar_arquivo: None,
+            criar_arquivo: None, ligado: Default::default(),
         })
     }
 
@@ -705,7 +705,7 @@ impl Contexto<'_> {
             especie: "refactor.shadowField".into(),
             edicoes: vec![Edicao { uri: uri.to_string(), span: Span { start: offset, end: offset }, texto: format!("var {nome} = this.{nome};{eol}{prefixo}") }],
             diagnostico: None,
-            criar_arquivo: None,
+            criar_arquivo: None, ligado: Default::default(),
         })
     }
 }
