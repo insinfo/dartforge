@@ -1,41 +1,42 @@
-//! Mundo fechado sobre o modelo de elementos: o que do programa do usuário e
-//! dos pacotes é alcançável a partir das raízes.
+//! Closed world over the element model: what of the user's program and of the
+//! packages is reachable from the roots.
 //!
-//! É o RTA de Bacon na forma do `ResolutionWorldBuilder` do dart2js
+//! It is Bacon's RTA in the shape of dart2js's `ResolutionWorldBuilder`
 //! (`pkg/compiler/lib/src/universe/resolution_world_builder.dart:196-240`):
-//! dois conjuntos que só crescem — classes **instanciadas** e **seletores**
-//! invocados — e a regra "um membro de instância vive se a classe dele é
-//! instanciada **e** o nome dele é seletor vivo". O impacto de cada elemento é
-//! calculado quando ele entra na fila (`resolution/enqueuer.dart:283-302`),
-//! então código morto nunca é percorrido.
+//! two sets that only grow — **instantiated** classes and invoked
+//! **selectors** — and the rule "an instance member is live if its class is
+//! instantiated **and** its name is a live selector". The impact of each
+//! element is computed when it enters the queue
+//! (`resolution/enqueuer.dart:283-302`), so dead code is never traversed.
 //!
-//! O crate não conhece nenhum backend. O que só o backend sabe — o que o
-//! runtime chama por nome, o que a interop expõe — entra pelas [`Raizes`].
+//! The crate knows no backend. What only the backend knows — what the runtime
+//! calls by name, what interop exposes — comes in through the [`Raizes`].
 //!
-//! Decisões de conservadorismo (o contrato está em `docs/JS-PRODUCAO.md` §1.7):
+//! Conservativeness decisions (the contract is in `docs/JS-PRODUCAO.md` §1.7):
 //!
-//! * seletor por nome **com restrição pelo tipo do receptor**: `foo` chamado
-//!   só em receptores de tipo estático `T` mantém `foo` vivo nas classes
-//!   alcançáveis de `T` — ela mesma, as superclasses que ela herda (o membro
-//!   mora no dono, não no receptor), as subclasses que a sobrescrevem e a
-//!   hierarquia que um subtipo instanciado de `T` traz (mixin aplicado ou
-//!   interface implementada só na subclasse). Receptor dinâmico ou
-//!   desconhecido (`dynamic`, lacuna de inferência) registra o seletor
-//!   irrestrito, como antes — nunca se poda por falta de informação;
-//! * seletor **por espécie**: leitura/chamada (`foo`) e escrita (`foo_=`)
-//!   são seletores distintos, como as chaves do `instance_members`. Nomes
-//!   vindos de fora do programa (o runtime chamando por string) valem para
-//!   as duas espécies; usos no programa registram a espécie exata;
-//! * operadores, membros de `Object` e `call` vivem em toda classe
-//!   instanciada, e também os membros que implementam um supertipo do SDK
-//!   (o runtime pré-compilado chama por esses nomes sem que o programa veja);
-//! * três níveis de classe — morta, só tipo (identidade e rti) e instanciada —
-//!   que são as três alcançabilidades de `docs/PESQUISA-OTIMIZACAO.md` §5.
+//! * selector by name **restricted by the receiver type**: `foo` called only
+//!   on receivers of static type `T` keeps `foo` live in the classes reachable
+//!   from `T` — `T` itself, the superclasses it inherits from (the member
+//!   lives in the owner, not in the receiver), the subclasses that override it
+//!   and the hierarchy that an instantiated subtype of `T` brings in (a mixin
+//!   applied or an interface implemented only in the subclass). A dynamic or
+//!   unknown receiver (`dynamic`, an inference gap) records the selector
+//!   unrestricted, as before — nothing is ever pruned for lack of information;
+//! * selector **by kind**: read/call (`foo`) and write (`foo_=`) are distinct
+//!   selectors, like the keys of `instance_members`. Names that come from
+//!   outside the program (the runtime calling by string) apply to both kinds;
+//!   uses in the program record the exact kind;
+//! * operators, `Object` members and `call` are live in every instantiated
+//!   class, and so are the members that implement an SDK supertype (the
+//!   precompiled runtime calls those names without the program seeing it);
+//! * three class levels — dead, type only (identity and rti) and
+//!   instantiated — which are the three reachabilities of
+//!   `docs/PESQUISA-OTIMIZACAO.md` §5.
 
-mod constantes;
+mod constants;
 mod impacto;
 
-pub use constantes::Constantes;
+pub use constants::Constantes;
 
 use dartforge_elements::model::{ClassId, ClassKind, Element, FunctionElementId, FunctionKind, FunctionRef, LibraryId, Program, VariableId, VariableRef};
 use dartforge_frontend::ast;
@@ -46,36 +47,36 @@ use dartforge_types::table::{Type, TypeTable};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
-/// Fecho de supertipos de toda classe, calculado uma vez: `sub ⊑ sup` vira um
-/// teste de bit (`docs/JS-PRODUCAO-TAMANHO.md` §2.1). A cadeia é a nominal —
-/// a própria classe, superclasse, mixins aplicados, interfaces e `on`,
-/// transitivamente —, sem argumentos de tipo (conservador para genéricos).
-pub struct Hierarquia {
-    palavras: usize,
+/// Supertype closure of every class, computed once: `sub ⊑ sup` becomes a
+/// bit test (`docs/JS-PRODUCAO-TAMANHO.md` §2.1). The chain is the nominal
+/// one — the class itself, superclass, applied mixins, interfaces and `on`,
+/// transitively —, without type arguments (conservative for generics).
+pub struct Hierarchy {
+    words: usize,
     bits: Vec<u64>,
-    listas: Vec<Vec<ClassId>>,
+    lists: Vec<Vec<ClassId>>,
 }
 
-impl Hierarquia {
-    pub fn nova(p: &Program) -> Hierarquia {
+impl Hierarchy {
+    pub fn new(p: &Program) -> Hierarchy {
         let n = p.classes.len();
-        let palavras = n.div_ceil(64).max(1);
-        let mut h = Hierarquia { palavras, bits: vec![0; n * palavras], listas: vec![Vec::new(); n] };
-        // 0 = por fazer, 1 = em curso (ciclo: a classe fica com o que já
-        // tem), 2 = feita.
-        let mut estado = vec![0u8; n];
-        for raiz in 0..n {
-            if estado[raiz] != 0 {
+        let words = n.div_ceil(64).max(1);
+        let mut h = Hierarchy { words, bits: vec![0; n * words], lists: vec![Vec::new(); n] };
+        // 0 = to do, 1 = in progress (cycle: the class keeps what it already
+        // has), 2 = done.
+        let mut state = vec![0u8; n];
+        for root in 0..n {
+            if state[root] != 0 {
                 continue;
             }
-            // DFS pós-ordem sem recursão: cada classe junta os bits dos pais.
-            let mut pilha: Vec<(usize, bool)> = vec![(raiz, false)];
-            while let Some((c, pais_feitos)) = pilha.pop() {
-                if pais_feitos {
-                    let base = c * palavras;
+            // Post-order DFS without recursion: each class merges its parents' bits.
+            let mut stack: Vec<(usize, bool)> = vec![(root, false)];
+            while let Some((c, parents_done)) = stack.pop() {
+                if parents_done {
+                    let base = c * words;
                     h.bits[base + c / 64] |= 1 << (c % 64);
                     let k = p.class(ClassId(c as u32));
-                    let pais: Vec<usize> = k
+                    let parents: Vec<usize> = k
                         .supertype_class
                         .iter()
                         .chain(k.mixin_classes.iter())
@@ -83,36 +84,36 @@ impl Hierarquia {
                         .chain(k.on_classes.iter())
                         .map(|x| x.0 as usize)
                         .collect();
-                    for q in pais {
+                    for q in parents {
                         if q == c || q >= n {
                             continue;
                         }
-                        for w in 0..palavras {
-                            let v = h.bits[q * palavras + w];
+                        for w in 0..words {
+                            let v = h.bits[q * words + w];
                             h.bits[base + w] |= v;
                         }
                     }
-                    estado[c] = 2;
+                    state[c] = 2;
                     continue;
                 }
-                if estado[c] != 0 {
+                if state[c] != 0 {
                     continue;
                 }
-                estado[c] = 1;
-                pilha.push((c, true));
+                state[c] = 1;
+                stack.push((c, true));
                 let k = p.class(ClassId(c as u32));
                 for q in k.supertype_class.iter().chain(k.mixin_classes.iter()).chain(k.interface_classes.iter()).chain(k.on_classes.iter()) {
                     let q = q.0 as usize;
-                    if q < n && estado[q] == 0 {
-                        pilha.push((q, false));
+                    if q < n && state[q] == 0 {
+                        stack.push((q, false));
                     }
                 }
             }
         }
         for c in 0..n {
-            let base = c * palavras;
+            let base = c * words;
             let mut l = Vec::new();
-            for w in 0..palavras {
+            for w in 0..words {
                 let mut v = h.bits[base + w];
                 while v != 0 {
                     let b = v.trailing_zeros() as usize;
@@ -120,44 +121,45 @@ impl Hierarquia {
                     v &= v - 1;
                 }
             }
-            h.listas[c] = l;
+            h.lists[c] = l;
         }
         h
     }
-    /// `sub ⊑ sup` na cadeia nominal (a própria classe inclusive).
-    pub fn e_subtipo(&self, sub: ClassId, sup: ClassId) -> bool {
+    /// `sub ⊑ sup` in the nominal chain (the class itself included).
+    pub fn is_subtype(&self, sub: ClassId, sup: ClassId) -> bool {
         let (a, b) = (sub.0 as usize, sup.0 as usize);
-        if a * self.palavras >= self.bits.len() {
+        if a * self.words >= self.bits.len() {
             return sub == sup;
         }
-        (self.bits[a * self.palavras + b / 64] >> (b % 64)) & 1 == 1
+        (self.bits[a * self.words + b / 64] >> (b % 64)) & 1 == 1
     }
-    /// Os supertipos de `c`, ela inclusive, em ordem de id.
-    pub fn supertipos(&self, c: ClassId) -> &[ClassId] {
-        self.listas.get(c.0 as usize).map(Vec::as_slice).unwrap_or(&[])
+    /// The supertypes of `c`, itself included, in id order.
+    pub fn supertypes(&self, c: ClassId) -> &[ClassId] {
+        self.lists.get(c.0 as usize).map(Vec::as_slice).unwrap_or(&[])
     }
 }
 
-/// A regra de alcance do cone, com a hierarquia pronta e os subtipos
-/// instanciados de cada classe: o membro do dono `membro` atende um receptor
-/// de tipo estático `cone` se é a mesma classe, se um é ancestral do outro
-/// (herdado ou sobrescrito) ou se algum subtipo **instanciado** do cone tem o
-/// membro na cadeia (o subtipo traz mixin/interface fora da hierarquia do
-/// cone). Percorre a menor das duas listas de instanciados.
-fn alcance(h: &Hierarquia, inst_sub: &[Vec<ClassId>], membro: ClassId, cone: ClassId) -> bool {
-    if h.e_subtipo(membro, cone) || h.e_subtipo(cone, membro) {
+/// The cone reach rule, with the hierarchy ready and the instantiated
+/// subtypes of each class: the member of owner `member` serves a receiver of
+/// static type `cone` if they are the same class, if one is an ancestor of the
+/// other (inherited or overridden) or if some **instantiated** subtype of the
+/// cone has the member in its chain (the subtype brings a mixin/interface
+/// outside the cone's hierarchy). Walks the shorter of the two instantiated
+/// lists.
+fn reaches(h: &Hierarchy, inst_sub: &[Vec<ClassId>], member: ClassId, cone: ClassId) -> bool {
+    if h.is_subtype(member, cone) || h.is_subtype(cone, member) {
         return true;
     }
-    let de_cone = inst_sub.get(cone.0 as usize).map(Vec::as_slice).unwrap_or(&[]);
-    let de_membro = inst_sub.get(membro.0 as usize).map(Vec::as_slice).unwrap_or(&[]);
-    if de_cone.len() <= de_membro.len() {
-        de_cone.iter().any(|s| h.e_subtipo(*s, membro))
+    let of_cone = inst_sub.get(cone.0 as usize).map(Vec::as_slice).unwrap_or(&[]);
+    let of_member = inst_sub.get(member.0 as usize).map(Vec::as_slice).unwrap_or(&[]);
+    if of_cone.len() <= of_member.len() {
+        of_cone.iter().any(|s| h.is_subtype(*s, member))
     } else {
-        de_membro.iter().any(|s| h.e_subtipo(*s, cone))
+        of_member.iter().any(|s| h.is_subtype(*s, cone))
     }
 }
 
-/// O programa analisado, emprestado de quem compilou.
+/// The analyzed program, borrowed from whoever compiled it.
 #[derive(Clone, Copy)]
 pub struct Entrada<'a> {
     pub program: &'a Program,
@@ -167,35 +169,35 @@ pub struct Entrada<'a> {
     pub bodies: &'a BodyTypes,
 }
 
-/// O que o programa Dart não enxerga, mas que chama ou cria código dele.
+/// What the Dart program does not see, but which calls or creates its code.
 #[derive(Default, Clone)]
 pub struct Raizes {
-    /// `main` e o que mais for chamado de fora.
+    /// `main` and whatever else is called from outside.
     pub funcoes: Vec<FunctionElementId>,
     pub variaveis: Vec<VariableId>,
-    /// Instanciadas por código que não vemos.
+    /// Instantiated by code we do not see.
     pub classes_instanciadas: Vec<ClassId>,
-    /// Pelo menos identidade de tipo (casca e regras rti).
+    /// At least type identity (shell and rti rules).
     pub classes_tipo: Vec<ClassId>,
-    /// Instanciadas e com **todos** os membros vivos (`@JSExport`).
+    /// Instantiated and with **all** members live (`@JSExport`).
     pub classes_todos_os_membros: Vec<ClassId>,
-    /// Nomes chamados por fora do programa (`dart.dsend(o, "toJson")` no
-    /// runtime): valem para toda classe instanciada.
+    /// Names called from outside the program (`dart.dsend(o, "toJson")` in
+    /// the runtime): they apply to every instantiated class.
     pub seletores: Vec<String>,
-    /// Construtores cujo tearoff estático é citado por fora.
+    /// Constructors whose static tearoff is referenced from outside.
     pub tearoffs: Vec<FunctionElementId>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum NivelClasse {
     Morta,
-    /// Identidade: casca, `addRtiResources`, regras rti, estáticos vivos.
+    /// Identity: shell, `addRtiResources`, rti rules, live statics.
     Tipo,
-    /// Construída: membros de instância elegíveis por seletor.
+    /// Constructed: instance members eligible by selector.
     Instanciada,
 }
 
-/// Quem puxou um elemento para o mundo (o primeiro que o fez).
+/// Who pulled an element into the world (the first one that did).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Causa {
     Raiz,
@@ -213,32 +215,32 @@ pub struct Estatisticas {
     pub funcoes_vivas: usize,
     pub variaveis_vivas: usize,
     pub seletores: usize,
-    /// Seletores com restrição de receptor (`foo` só em cone de `T`).
+    /// Selectors with a receiver restriction (`foo` only in the cone of `T`).
     pub seletores_restritos: usize,
     pub itens_processados: usize,
 }
 
-/// O resultado: o que vive.
+/// The result: what is live.
 pub struct Mundo {
     classes: Vec<NivelClasse>,
-    funcoes: Vec<bool>,
-    variaveis: Vec<bool>,
+    functions: Vec<bool>,
+    variables: Vec<bool>,
     tearoffs: Vec<bool>,
-    seletores: HashSet<String>,
-    /// Restrição de mundo fechado pelo tipo do receptor: `nome` chamado só em
-    /// receptores de tipo estático conhecido vive só nos cones listados. A
-    /// lista por nome é ordenada (determinismo).
+    selectors: HashSet<String>,
+    /// Closed-world restriction by receiver type: `name` called only on
+    /// receivers of known static type is live only in the listed cones. The
+    /// list per name is sorted (determinism).
     sel_cone: HashMap<String, Vec<ClassId>>,
-    causa_fn: Vec<Option<Causa>>,
-    causa_classe: Vec<Option<Causa>>,
-    causa_var: Vec<Option<Causa>>,
+    cause_fn: Vec<Option<Causa>>,
+    cause_class: Vec<Option<Causa>>,
+    cause_var: Vec<Option<Causa>>,
     pub estat: Estatisticas,
-    /// Calculado com o SDK no ponto fixo (`Opcoes::incluir_sdk`).
+    /// Computed with the SDK in the fixed point (`Opcoes::incluir_sdk`).
     pub incluir_sdk: bool,
-    hier: Arc<Hierarquia>,
-    /// Subtipos instanciados de cada classe (a regra de cone, [`alcance`]).
+    hier: Arc<Hierarchy>,
+    /// Instantiated subtypes of each class (the cone rule, [`reaches`]).
     inst_sub: Vec<Vec<ClassId>>,
-    /// Palavras dos *templates* `JS()` vivos (nomes do JavaScript).
+    /// Words of the live `JS()` *templates* (JavaScript names).
     pub nomes_js: HashSet<String>,
 }
 
@@ -247,33 +249,33 @@ impl Mundo {
         self.classes.get(c.0 as usize).copied().unwrap_or(NivelClasse::Morta)
     }
     pub fn funcao(&self, f: FunctionElementId) -> bool {
-        self.funcoes.get(f.0 as usize).copied().unwrap_or(false)
+        self.functions.get(f.0 as usize).copied().unwrap_or(false)
     }
     pub fn variavel(&self, v: VariableId) -> bool {
-        self.variaveis.get(v.0 as usize).copied().unwrap_or(false)
+        self.variables.get(v.0 as usize).copied().unwrap_or(false)
     }
-    pub fn seletor(&self, nome: &str) -> bool {
-        self.seletores.contains(nome)
+    pub fn seletor(&self, name: &str) -> bool {
+        self.selectors.contains(name)
     }
-    /// Algum uso com receptor de tipo conhecido registrou `nome` (mesmo que
-    /// restrito a outro cone). O filtro de encaminhadores usa para não emitir
-    /// de menos; a poda de membros usa [`Mundo::seletor_vivo_para`].
-    pub fn tem_restricao(&self, nome: &str) -> bool {
-        self.sel_cone.contains_key(nome)
+    /// Some use with a receiver of known type recorded `name` (even if
+    /// restricted to another cone). The forwarder filter uses it so as not to
+    /// emit too little; member pruning uses [`Mundo::seletor_vivo_para`].
+    pub fn tem_restricao(&self, name: &str) -> bool {
+        self.sel_cone.contains_key(name)
     }
-    /// `nome` mantém vivo um membro da `classe`: seletor irrestrito vale para
-    /// todas; restrito, só para as classes alcançáveis do cone do receptor
-    /// (a mesma regra do ponto fixo, `alcance`).
-    pub fn seletor_vivo_para(&self, _program: &Program, nome: &str, classe: ClassId) -> bool {
-        if self.seletores.contains(nome) {
+    /// `name` keeps a member of `class` live: an unrestricted selector applies
+    /// to all classes; a restricted one, only to the classes reachable from
+    /// the receiver's cone (the same rule as the fixed point, `reaches`).
+    pub fn seletor_vivo_para(&self, _program: &Program, name: &str, class: ClassId) -> bool {
+        if self.selectors.contains(name) {
             return true;
         }
-        let Some(cones) = self.sel_cone.get(nome) else { return false };
-        cones.iter().any(|c| alcance(&self.hier, &self.inst_sub, classe, *c))
+        let Some(cones) = self.sel_cone.get(name) else { return false };
+        cones.iter().any(|c| reaches(&self.hier, &self.inst_sub, class, *c))
     }
-    /// Os seletores vivos, em ordem alfabética (o conjunto é um `HashSet`).
-    pub fn seletores(&self) -> impl Iterator<Item = &str> {
-        let mut v: Vec<&str> = self.seletores.iter().map(String::as_str).collect();
+    /// The live selectors, in alphabetical order (the set is a `HashSet`).
+    pub fn selectors(&self) -> impl Iterator<Item = &str> {
+        let mut v: Vec<&str> = self.selectors.iter().map(String::as_str).collect();
         v.sort_unstable();
         v.into_iter()
     }
@@ -281,52 +283,54 @@ impl Mundo {
         self.tearoffs.get(f.0 as usize).copied().unwrap_or(false)
     }
     pub fn causa_funcao(&self, f: FunctionElementId) -> Option<Causa> {
-        self.causa_fn.get(f.0 as usize).copied().flatten()
+        self.cause_fn.get(f.0 as usize).copied().flatten()
     }
     pub fn causa_classe(&self, c: ClassId) -> Option<Causa> {
-        self.causa_classe.get(c.0 as usize).copied().flatten()
+        self.cause_class.get(c.0 as usize).copied().flatten()
     }
     pub fn causa_variavel(&self, v: VariableId) -> Option<Causa> {
-        self.causa_var.get(v.0 as usize).copied().flatten()
+        self.cause_var.get(v.0 as usize).copied().flatten()
     }
 }
 
-/// Um elemento esperando para ter o impacto calculado.
+/// An element waiting to have its impact computed.
 #[derive(Clone, Copy, Debug)]
 enum Item {
-    Funcao(FunctionElementId),
-    Variavel(VariableId),
-    /// Inicializadores dos campos de instância de uma classe instanciada.
-    Campos(ClassId),
+    Function(FunctionElementId),
+    Variable(VariableId),
+    /// Initializers of the instance fields of an instantiated class.
+    Fields(ClassId),
 }
 
-/// Opções do cálculo.
+/// Options of the computation.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Opcoes {
-    /// As bibliotecas `dart:` entram no ponto fixo como as do programa (o
-    /// perfil de produção com o SDK compilado pela nossa trilha,
-    /// `docs/JS-PRODUCAO-SDK-PROPRIO.md` §4). Exige os corpos do SDK
-    /// inferidos. Sem ela, o SDK é fronteira, como sempre.
+    /// The `dart:` libraries enter the fixed point like the program's (the
+    /// production profile with the SDK compiled by our own pipeline,
+    /// `docs/JS-PRODUCAO-SDK-PROPRIO.md` §4). Requires the SDK bodies to be
+    /// inferred. Without it, the SDK is a boundary, as always.
     pub incluir_sdk: bool,
-    /// `assert` desligados (o padrão do perfil de produção, como no
-    /// `dart2js`): o corpo deles não é percorrido, e as condições que só
-    /// eles mudavam viram constantes (`constantes.rs`).
+    /// `assert`s disabled (the production profile's default, as in
+    /// `dart2js`): their bodies are not traversed, and the conditions that
+    /// only they changed become constants (`constants.rs`).
     pub sem_asserts: bool,
 }
 
-/// Calcula o mundo. Determinístico: a fila é FIFO, as raízes são ordenadas, e
-/// o resultado (os conjuntos) é o menor ponto fixo, que não depende da ordem.
+/// Computes the world. Deterministic: the queue is FIFO, the roots are
+/// sorted, and the result (the sets) is the least fixed point, which does not
+/// depend on order.
 pub fn calcular(e: Entrada<'_>, r: &Raizes) -> Mundo {
-    calcular_com(e, r, Opcoes::default())
+    compute_with(e, r, Opcoes::default())
 }
 
-/// Constante cujo valor o emissor dobra no uso (o `shouldInlineConstant` do
-/// DDC, `kernel/constants.dart:105-120`): `const` com inicializador literal
-/// numérico, booleano, nulo ou *string* de menos de 32 unidades. É o mesmo
-/// critério de `emit_js::sdk_proprio::literal_inlinavel`.
+/// Constant whose value the emitter folds at the use site (DDC's
+/// `shouldInlineConstant`, `kernel/constants.dart:105-120`): a `const` with a
+/// numeric, boolean or null literal initializer, or a *string* of fewer than
+/// 32 units. It is the same criterion as
+/// `emit_js::sdk_proprio::literal_inlinavel`.
 pub fn constante_inlinavel(p: &Program, v: VariableId) -> bool {
     let var = p.variable(v);
-    // Estático de extensão é lido pela chave `L['Ext|x']`, sem dobra.
+    // An extension static is read through the key `L['Ext|x']`, without folding.
     if !var.const_ || var.extension.is_some() {
         return false;
     }
@@ -354,9 +358,9 @@ pub fn constante_inlinavel(p: &Program, v: VariableId) -> bool {
     literal(&p.unit(unit).ast, x)
 }
 
-/// Classes `@Native`/`@JsPeerInterface` das bibliotecas do SDK
-/// (`native_types.dart` do DDC).
-fn classes_nativas(e: &Entrada<'_>) -> HashSet<ClassId> {
+/// `@Native`/`@JsPeerInterface` classes of the SDK libraries (DDC's
+/// `native_types.dart`).
+fn native_classes(e: &Entrada<'_>) -> HashSet<ClassId> {
     let p = e.program;
     let mut out = HashSet::new();
     for (i, c) in p.classes.iter().enumerate() {
@@ -372,10 +376,10 @@ fn classes_nativas(e: &Entrada<'_>) -> HashSet<ClassId> {
     out
 }
 
-/// Classes nativas do SDK com as *tags* JS de `@Native('A,B')` /
-/// `@JsPeerInterface(name: 'A')` — quem compila o SDK usa as das tags
-/// embutidas do JS (`String`, `Number`, `Array`…) como raízes: um valor
-/// primitivo do JS vira instância delas sem `new` nenhum.
+/// Native SDK classes with the JS *tags* of `@Native('A,B')` /
+/// `@JsPeerInterface(name: 'A')` — whoever compiles the SDK uses the ones for
+/// the JS built-in tags (`String`, `Number`, `Array`…) as roots: a JS
+/// primitive value becomes an instance of them without any `new`.
 pub fn tags_nativas(e: &Entrada<'_>) -> Vec<(ClassId, Vec<String>)> {
     let p = e.program;
     let mut out = Vec::new();
@@ -407,456 +411,458 @@ pub fn tags_nativas(e: &Entrada<'_>) -> Vec<(ClassId, Vec<String>)> {
     out
 }
 
-/// Para cada supertipo de classe nativa que não é nativo nem de
-/// `dart:core`/`dart:_interceptors`/`dart:collection`, as nativas que o
-/// implementam (determinístico: ordenadas).
-fn nativas_por_interface(e: &Entrada<'_>, nativas: &HashSet<ClassId>) -> HashMap<ClassId, Vec<ClassId>> {
+/// For each supertype of a native class that is neither native nor from
+/// `dart:core`/`dart:_interceptors`/`dart:collection`, the natives that
+/// implement it (deterministic: sorted).
+fn natives_by_interface(e: &Entrada<'_>, natives: &HashSet<ClassId>) -> HashMap<ClassId, Vec<ClassId>> {
     let p = e.program;
     let mut out: HashMap<ClassId, Vec<ClassId>> = HashMap::new();
-    let mut ns: Vec<ClassId> = nativas.iter().copied().collect();
+    let mut ns: Vec<ClassId> = natives.iter().copied().collect();
     ns.sort();
     for n in ns {
-        let mut vistos: HashSet<ClassId> = HashSet::new();
-        let mut pilha = vec![n];
-        while let Some(k) = pilha.pop() {
-            if !vistos.insert(k) {
+        let mut seen: HashSet<ClassId> = HashSet::new();
+        let mut stack = vec![n];
+        while let Some(k) = stack.pop() {
+            if !seen.insert(k) {
                 continue;
             }
             let c = p.class(k);
-            if k != n && !nativas.contains(&k) && !matches!(p.library(c.library).uri.as_str(), "dart:core" | "dart:_interceptors" | "dart:collection") {
+            if k != n && !natives.contains(&k) && !matches!(p.library(c.library).uri.as_str(), "dart:core" | "dart:_interceptors" | "dart:collection") {
                 out.entry(k).or_default().push(n);
             }
-            pilha.extend(c.supertype_class);
-            pilha.extend(c.mixin_classes.iter().copied());
-            pilha.extend(c.interface_classes.iter().copied());
+            stack.extend(c.supertype_class);
+            stack.extend(c.mixin_classes.iter().copied());
+            stack.extend(c.interface_classes.iter().copied());
         }
     }
     out
 }
 
-/// `int` e `num` de `dart:core`.
+/// `int` and `num` from `dart:core`.
 fn int_num(e: &Entrada<'_>) -> Option<(ClassId, ClassId)> {
     let core = e.program.core?;
-    let classe = |n: &str| match e.program.library(core).declared.get(&e.interner.lookup(n)?)?.getter? {
+    let class_named = |n: &str| match e.program.library(core).declared.get(&e.interner.lookup(n)?)?.getter? {
         Element::Class(c) => Some(c),
         _ => None,
     };
-    Some((classe("int")?, classe("num")?))
+    Some((class_named("int")?, class_named("num")?))
 }
 
-/// Como [`calcular`], com [`Opcoes`].
-pub fn calcular_com(e: Entrada<'_>, r: &Raizes, op: Opcoes) -> Mundo {
+/// Like [`calcular`], with [`Opcoes`].
+pub fn compute_with(e: Entrada<'_>, r: &Raizes, op: Opcoes) -> Mundo {
     let mut c = Calculo::novo(e, op);
     c.semear(r);
-    c.motor.finalizar()
+    c.engine.finish()
 }
 
-/// O ponto fixo retomável: as rodadas do laço externo (`emit_js_production`,
-/// mundo → emissão → verificação do texto) só acrescentam raízes, e o mundo
-/// é monotônico, então o motor fica vivo entre elas e cada rodada processa
-/// só o que as raízes novas alcançam (`docs/JS-PRODUCAO-TAMANHO.md` §2.1).
+/// The resumable fixed point: the rounds of the outer loop
+/// (`emit_js_production`, world → emission → text verification) only add
+/// roots, and the world is monotonic, so the engine stays alive between them
+/// and each round processes only what the new roots reach
+/// (`docs/JS-PRODUCAO-TAMANHO.md` §2.1).
 pub struct Calculo<'a> {
-    motor: Motor<'a>,
+    engine: Engine<'a>,
 }
 
 impl<'a> Calculo<'a> {
     pub fn novo(e: Entrada<'a>, op: Opcoes) -> Calculo<'a> {
-        let mut m = Motor::novo(e);
+        let mut m = Engine::new(e);
         if op.incluir_sdk {
-            m.incluir_sdk = true;
-            m.nativas = classes_nativas(&e);
+            m.include_sdk = true;
+            m.natives = native_classes(&e);
             m.int_num = int_num(&e);
-            m.nativas_por_interface = nativas_por_interface(&e, &m.nativas);
-            m.constantes = Some(Constantes::nova(e, op.sem_asserts));
+            m.natives_by_interface = natives_by_interface(&e, &m.natives);
+            m.constants = Some(Constantes::nova(e, op.sem_asserts));
         }
-        Calculo { motor: m }
+        Calculo { engine: m }
     }
-    /// Acrescenta raízes e roda até o ponto fixo.
+    /// Adds roots and runs until the fixed point.
     pub fn semear(&mut self, r: &Raizes) {
-        semear(&mut self.motor, r);
+        seed(&mut self.engine, r);
     }
-    /// O mundo atual (cópia; o motor continua retomável).
+    /// The current world (a copy; the engine stays resumable).
     pub fn mundo(&self) -> Mundo {
-        self.motor.fotografar()
+        self.engine.snapshot()
     }
 }
 
-fn semear(m: &mut Motor<'_>, r: &Raizes) {
-    m.causa = Causa::Raiz;
+fn seed(m: &mut Engine<'_>, r: &Raizes) {
+    m.cause = Causa::Raiz;
     for s in {
         let mut v = r.seletores.clone();
         v.sort();
         v
     } {
-        m.novo_seletor_externo(&s);
+        m.new_external_selector(&s);
     }
-    let mut todos: Vec<ClassId> = r.classes_todos_os_membros.clone();
-    todos.sort();
-    for c in todos {
-        m.todos_membros.insert(c);
-        m.instanciar(c);
+    let mut all: Vec<ClassId> = r.classes_todos_os_membros.clone();
+    all.sort();
+    for c in all {
+        m.all_members.insert(c);
+        m.instantiate(c);
     }
     let mut cs = r.classes_instanciadas.clone();
     cs.sort();
     for c in cs {
-        m.instanciar(c);
+        m.instantiate(c);
     }
     let mut ts = r.classes_tipo.clone();
     ts.sort();
     for c in ts {
-        m.marcar_tipo(c);
+        m.mark_type(c);
     }
     let mut fs = r.funcoes.clone();
     fs.sort();
     for f in fs {
-        m.usar_funcao_direta(f);
+        m.use_function_directly(f);
     }
     let mut vs = r.variaveis.clone();
     vs.sort();
     for v in vs {
-        m.usar_variavel(v);
+        m.use_variable(v);
     }
     let mut to = r.tearoffs.clone();
     to.sort();
     for f in to {
-        m.usar_construtor(f, true);
+        m.use_constructor(f, true);
     }
-    m.inicializar_extensoes();
-    m.rodar();
+    m.init_extensions();
+    m.run();
 }
 
-/// Uma inconsistência achada pela conferência a seco.
+/// An inconsistency found by the dry-run check.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Inconsistencia {
-    Funcao(FunctionElementId),
-    Variavel(VariableId),
-    Classe(ClassId),
-    Seletor(String),
-    /// Restrição de receptor (`nome` em cone de `classe`) que o ponto fixo
-    /// não tinha.
-    SeletorRestrito { nome: String, classe: ClassId },
+pub enum Inconsistency {
+    Function(FunctionElementId),
+    Variable(VariableId),
+    Class(ClassId),
+    Selector(String),
+    /// A receiver restriction (`name` in the cone of `class`) that the fixed
+    /// point did not have.
+    RestrictedSelector { name: String, class: ClassId },
 }
 
 /// `checkEnqueuerConsistency` (`pkg/compiler/lib/src/enqueue.dart:142-156`):
-/// refaz o impacto de **todos** os elementos vivos, sem reaproveitar o estado
-/// do ponto fixo, e acusa todo uso que aponte para algo que o mundo diz estar
-/// morto. Um resultado não vazio é defeito do ponto fixo.
-pub fn conferir(e: Entrada<'_>, r: &Raizes, mundo: &Mundo) -> Vec<Inconsistencia> {
-    // Recalcula num motor novo, semeado com o mundo pronto, e compara: se o
-    // motor achar qualquer coisa nova, o mundo não era um ponto fixo.
-    let mut m = Motor::novo(e);
-    if mundo.incluir_sdk {
-        m.incluir_sdk = true;
-        m.nativas = classes_nativas(&e);
+/// recomputes the impact of **all** live elements, without reusing the fixed
+/// point's state, and reports every use that points to something the world
+/// says is dead. A non-empty result is a defect of the fixed point.
+pub fn conferir(e: Entrada<'_>, r: &Raizes, world: &Mundo) -> Vec<Inconsistency> {
+    // Recompute in a new engine, seeded with the finished world, and compare:
+    // if the engine finds anything new, the world was not a fixed point.
+    let mut m = Engine::new(e);
+    if world.incluir_sdk {
+        m.include_sdk = true;
+        m.natives = native_classes(&e);
         m.int_num = int_num(&e);
-        m.nativas_por_interface = nativas_por_interface(&e, &m.nativas);
+        m.natives_by_interface = natives_by_interface(&e, &m.natives);
     }
-    m.classes = mundo.classes.clone();
-    m.f_vivo = mundo.funcoes.clone();
-    m.v_vivo = mundo.variaveis.clone();
-    m.tearoff = mundo.tearoffs.clone();
-    m.sel = mundo.seletores.clone();
-    m.inst_sub = mundo.inst_sub.clone();
-    for (n, cs) in mundo.sel_cone.iter() {
+    m.classes = world.classes.clone();
+    m.fn_live = world.functions.clone();
+    m.var_live = world.variables.clone();
+    m.tearoff = world.tearoffs.clone();
+    m.sel = world.selectors.clone();
+    m.inst_sub = world.inst_sub.clone();
+    for (n, cs) in world.sel_cone.iter() {
         m.sel_cone.insert(n.clone(), cs.iter().copied().collect());
         for c in cs {
-            if let Some(l) = m.nomes_por_cone.get_mut(c.0 as usize) {
+            if let Some(l) = m.names_by_cone.get_mut(c.0 as usize) {
                 l.push(n.clone());
             }
         }
     }
     for c in &r.classes_todos_os_membros {
-        m.todos_membros.insert(*c);
+        m.all_members.insert(*c);
     }
-    // Pendentes: membros de classes instanciadas cujo nome ainda não vive.
-    for (i, n) in mundo.classes.iter().enumerate() {
+    // Pending: members of instantiated classes whose name is not live yet.
+    for (i, n) in world.classes.iter().enumerate() {
         if *n == NivelClasse::Instanciada {
-            m.processar_membros_da_cadeia(ClassId(i as u32), true);
+            m.process_chain_members(ClassId(i as u32), true);
         }
     }
-    m.inicializar_extensoes();
-    // Refaz o impacto de tudo que vive.
-    for (i, v) in mundo.funcoes.iter().enumerate() {
+    m.init_extensions();
+    // Redo the impact of everything that is live.
+    for (i, v) in world.functions.iter().enumerate() {
         if *v {
-            m.fila.push_back(Item::Funcao(FunctionElementId(i as u32)));
+            m.queue.push_back(Item::Function(FunctionElementId(i as u32)));
         }
     }
-    for (i, v) in mundo.variaveis.iter().enumerate() {
+    for (i, v) in world.variables.iter().enumerate() {
         if *v {
-            m.fila.push_back(Item::Variavel(VariableId(i as u32)));
+            m.queue.push_back(Item::Variable(VariableId(i as u32)));
         }
     }
-    for (i, n) in mundo.classes.iter().enumerate() {
+    for (i, n) in world.classes.iter().enumerate() {
         if *n == NivelClasse::Instanciada {
-            m.fila.push_back(Item::Campos(ClassId(i as u32)));
+            m.queue.push_back(Item::Fields(ClassId(i as u32)));
         }
     }
-    let base = m.fila.len();
-    m.rodar_itens(base);
+    let base = m.queue.len();
+    m.run_items(base);
     let mut out = Vec::new();
-    for (i, v) in m.f_vivo.iter().enumerate() {
-        if *v && !mundo.funcoes[i] {
-            out.push(Inconsistencia::Funcao(FunctionElementId(i as u32)));
+    for (i, v) in m.fn_live.iter().enumerate() {
+        if *v && !world.functions[i] {
+            out.push(Inconsistency::Function(FunctionElementId(i as u32)));
         }
     }
-    for (i, v) in m.v_vivo.iter().enumerate() {
-        if *v && !mundo.variaveis[i] {
-            out.push(Inconsistencia::Variavel(VariableId(i as u32)));
+    for (i, v) in m.var_live.iter().enumerate() {
+        if *v && !world.variables[i] {
+            out.push(Inconsistency::Variable(VariableId(i as u32)));
         }
     }
     for (i, n) in m.classes.iter().enumerate() {
-        if *n > mundo.classes[i] {
-            out.push(Inconsistencia::Classe(ClassId(i as u32)));
+        if *n > world.classes[i] {
+            out.push(Inconsistency::Class(ClassId(i as u32)));
         }
     }
-    let mut novos: Vec<&String> = m.sel.iter().filter(|s| !mundo.seletores.contains(*s)).collect();
-    novos.sort();
-    out.extend(novos.into_iter().map(|s| Inconsistencia::Seletor(s.clone())));
-    let mut novos_cone: Vec<(&String, ClassId)> = Vec::new();
+    let mut new_selectors: Vec<&String> = m.sel.iter().filter(|s| !world.selectors.contains(*s)).collect();
+    new_selectors.sort();
+    out.extend(new_selectors.into_iter().map(|s| Inconsistency::Selector(s.clone())));
+    let mut new_cones: Vec<(&String, ClassId)> = Vec::new();
     for (n, cs) in m.sel_cone.iter() {
         for c in cs.iter() {
-            if !mundo.sel_cone.get(n).is_some_and(|v| v.contains(c)) {
-                novos_cone.push((n, *c));
+            if !world.sel_cone.get(n).is_some_and(|v| v.contains(c)) {
+                new_cones.push((n, *c));
             }
         }
     }
-    novos_cone.sort();
-    out.extend(novos_cone.into_iter().map(|(n, c)| Inconsistencia::SeletorRestrito { nome: n.clone(), classe: c }));
+    new_cones.sort();
+    out.extend(new_cones.into_iter().map(|(n, c)| Inconsistency::RestrictedSelector { name: n.clone(), class: c }));
     out
 }
 
-/// Dono dos pendentes que não têm classe (membros de extensão).
-const SEM_DONO: ClassId = ClassId(u32::MAX);
+/// Owner of the pending members that have no class (extension members).
+const NO_OWNER: ClassId = ClassId(u32::MAX);
 
-pub(crate) struct Motor<'a> {
+pub(crate) struct Engine<'a> {
     pub(crate) e: Entrada<'a>,
     classes: Vec<NivelClasse>,
-    f_vivo: Vec<bool>,
-    v_vivo: Vec<bool>,
+    fn_live: Vec<bool>,
+    var_live: Vec<bool>,
     tearoff: Vec<bool>,
     sel: HashSet<String>,
-    /// Seletores com receptor de tipo conhecido: nome → classes dos tipos
-    /// estáticos dos receptores (`foo` chamado em `T` vive no cone de `T`).
+    /// Selectors with a receiver of known type: name → classes of the
+    /// receivers' static types (`foo` called on `T` is live in the cone of `T`).
     sel_cone: HashMap<String, HashSet<ClassId>>,
-    /// Fecho de supertipos (`e_subtipo` em O(1)).
-    hier: Arc<Hierarquia>,
-    /// Subtipos instanciados de cada classe (o terceiro caso de [`alcance`]).
+    /// Supertype closure (`is_subtype` in O(1)).
+    hier: Arc<Hierarchy>,
+    /// Instantiated subtypes of each class (the third case of [`reaches`]).
     inst_sub: Vec<Vec<ClassId>>,
-    /// Palavras dos *templates* `JS()` vivos: nomes do JavaScript que o
-    /// renomeio de propriedades não pode tocar.
-    nomes_js: HashSet<String>,
-    /// Condições constantes (perfil de produção com o SDK no mundo).
-    pub(crate) constantes: Option<Constantes<'a>>,
-    /// Nomes registrados com receptor de cada classe-cone (o lado "classe
-    /// nova" do casamento acorda os pendentes desses nomes).
-    nomes_por_cone: Vec<Vec<String>>,
-    /// Membros de classes instanciadas cujo nome ainda não é seletor vivo
-    /// para eles (`_invokableInstanceMembersByName`,
-    /// `resolution_world_builder.dart:232`), por nome e por classe dona
-    /// (`SEM_DONO` para membros de extensão).
-    pendentes: HashMap<String, HashMap<ClassId, Vec<FunctionElementId>>>,
-    todos_membros: HashSet<ClassId>,
-    fila: VecDeque<Item>,
-    /// Tipos (da `TypeTable`) já varridos atrás de classes.
-    tipos_vistos: HashSet<dartforge_types::table::TypeId>,
-    /// Nomes que o runtime chama em qualquer objeto: membros de `Object` e `call`.
-    nomes_universais: HashSet<String>,
-    /// Classes instanciadas cuja regra de protocolo do SDK já foi aplicada.
-    protocolo_feito: HashSet<ClassId>,
-    causa: Causa,
-    causa_fn: Vec<Option<Causa>>,
-    causa_classe: Vec<Option<Causa>>,
-    causa_var: Vec<Option<Causa>>,
-    itens: usize,
-    extensoes_prontas: bool,
-    /// O alvo de um `Assign` simples sendo percorrido: o membro mais externo
-    /// dele é escrita (`foo_=`), não leitura. Consumido (e zerado) pelo braço
-    /// `Property`/`Identifier`; o resto do alvo continua sendo leitura.
-    pub(crate) alvo_de_escrita: Option<dartforge_frontend::ast::ExprId>,
-    /// O `C.nome` em visita é o alvo de uma chamada (`C.nome(..)`): cria pelo
-    /// construtor sem o *tearoff* estático, que só a referência sem chamada
-    /// cita.
-    pub(crate) alvo_de_chamada: Option<dartforge_frontend::ast::ExprId>,
-    /// O SDK entra no ponto fixo como o programa (`Opcoes::incluir_sdk`).
-    incluir_sdk: bool,
-    /// Classes nativas (`@Native`/`@JsPeerInterface`): viva como tipo é
-    /// instanciada, porque o objeto nasce no navegador.
-    nativas: HashSet<ClassId>,
-    /// `(int, num)` de `dart:core`, com o SDK no mundo.
+    /// Words of the live `JS()` *templates*: JavaScript names that property
+    /// renaming must not touch.
+    js_names: HashSet<String>,
+    /// Constant conditions (production profile with the SDK in the world).
+    pub(crate) constants: Option<Constantes<'a>>,
+    /// Names recorded with a receiver of each cone class (the "new class"
+    /// side of the matching wakes up the pending members of these names).
+    names_by_cone: Vec<Vec<String>>,
+    /// Members of instantiated classes whose name is not yet a live selector
+    /// for them (`_invokableInstanceMembersByName`,
+    /// `resolution_world_builder.dart:232`), by name and by owner class
+    /// (`NO_OWNER` for extension members).
+    pending: HashMap<String, HashMap<ClassId, Vec<FunctionElementId>>>,
+    all_members: HashSet<ClassId>,
+    queue: VecDeque<Item>,
+    /// Types (from the `TypeTable`) already scanned for classes.
+    seen_types: HashSet<dartforge_types::table::TypeId>,
+    /// Names the runtime calls on any object: `Object` members and `call`.
+    universal_names: HashSet<String>,
+    /// Instantiated classes whose SDK protocol rule has already been applied.
+    protocol_done: HashSet<ClassId>,
+    cause: Causa,
+    cause_fn: Vec<Option<Causa>>,
+    cause_class: Vec<Option<Causa>>,
+    cause_var: Vec<Option<Causa>>,
+    items: usize,
+    extensions_ready: bool,
+    /// The target of a simple `Assign` being traversed: its outermost member
+    /// is a write (`foo_=`), not a read. Consumed (and cleared) by the
+    /// `Property`/`Identifier` arm; the rest of the target is still a read.
+    pub(crate) write_target: Option<dartforge_frontend::ast::ExprId>,
+    /// The `C.name` being visited is the target of a call (`C.name(..)`): it
+    /// creates through the constructor without the static *tearoff*, which
+    /// only the reference without a call cites.
+    pub(crate) call_target: Option<dartforge_frontend::ast::ExprId>,
+    /// The SDK enters the fixed point like the program (`Opcoes::incluir_sdk`).
+    include_sdk: bool,
+    /// Native classes (`@Native`/`@JsPeerInterface`): live as a type means
+    /// instantiated, because the object is born in the browser.
+    natives: HashSet<ClassId>,
+    /// `(int, num)` from `dart:core`, with the SDK in the world.
     int_num: Option<(ClassId, ClassId)>,
-    /// Interface (fora de `core`/`_interceptors`/`collection`) → classes nativas
-    /// que a implementam: um `ByteBuffer` vivo pode ser um `ArrayBuffer` do JS.
-    nativas_por_interface: HashMap<ClassId, Vec<ClassId>>,
+    /// Interface (outside `core`/`_interceptors`/`collection`) → native
+    /// classes that implement it: a live `ByteBuffer` may be a JS `ArrayBuffer`.
+    natives_by_interface: HashMap<ClassId, Vec<ClassId>>,
 }
 
-impl<'a> Motor<'a> {
-    fn novo(e: Entrada<'a>) -> Motor<'a> {
+impl<'a> Engine<'a> {
+    fn new(e: Entrada<'a>) -> Engine<'a> {
         let p = e.program;
-        let mut universais: HashSet<String> = HashSet::new();
-        universais.insert("call".into());
-        // Os membros de `Object` saem do modelo de elementos, não de uma lista.
+        let mut universal: HashSet<String> = HashSet::new();
+        universal.insert("call".into());
+        // The `Object` members come from the element model, not from a list.
         if let Some(core) = p.core {
             if let Some(sym) = e.interner.lookup("Object") {
                 if let Some(Element::Class(obj)) = p.library(core).declared.get(&sym).and_then(|b| b.getter) {
                     for f in p.class(obj).instance_members.values() {
-                        universais.insert(e.interner.resolve(p.function(*f).name).to_string());
+                        universal.insert(e.interner.resolve(p.function(*f).name).to_string());
                     }
                 }
             }
         }
-        Motor {
+        Engine {
             e,
             classes: vec![NivelClasse::Morta; p.classes.len()],
-            f_vivo: vec![false; p.functions.len()],
-            v_vivo: vec![false; p.variables.len()],
+            fn_live: vec![false; p.functions.len()],
+            var_live: vec![false; p.variables.len()],
             tearoff: vec![false; p.functions.len()],
             sel: HashSet::new(),
             sel_cone: HashMap::new(),
-            hier: Arc::new(Hierarquia::nova(p)),
+            hier: Arc::new(Hierarchy::new(p)),
             inst_sub: vec![Vec::new(); p.classes.len()],
-            nomes_por_cone: vec![Vec::new(); p.classes.len()],
-            nomes_js: HashSet::new(),
-            constantes: None,
-            pendentes: HashMap::new(),
-            todos_membros: HashSet::new(),
-            fila: VecDeque::new(),
-            tipos_vistos: HashSet::new(),
-            nomes_universais: universais,
-            protocolo_feito: HashSet::new(),
-            causa: Causa::Raiz,
-            causa_fn: vec![None; p.functions.len()],
-            causa_classe: vec![None; p.classes.len()],
-            causa_var: vec![None; p.variables.len()],
-            itens: 0,
-            extensoes_prontas: false,
-            alvo_de_escrita: None,
-            alvo_de_chamada: None,
-            incluir_sdk: false,
-            nativas: HashSet::new(),
+            names_by_cone: vec![Vec::new(); p.classes.len()],
+            js_names: HashSet::new(),
+            constants: None,
+            pending: HashMap::new(),
+            all_members: HashSet::new(),
+            queue: VecDeque::new(),
+            seen_types: HashSet::new(),
+            universal_names: universal,
+            protocol_done: HashSet::new(),
+            cause: Causa::Raiz,
+            cause_fn: vec![None; p.functions.len()],
+            cause_class: vec![None; p.classes.len()],
+            cause_var: vec![None; p.variables.len()],
+            items: 0,
+            extensions_ready: false,
+            write_target: None,
+            call_target: None,
+            include_sdk: false,
+            natives: HashSet::new(),
             int_num: None,
-            nativas_por_interface: HashMap::new(),
+            natives_by_interface: HashMap::new(),
         }
     }
 
-    fn e_usuario_lib(&self, l: LibraryId) -> bool {
-        self.incluir_sdk || !self.e.program.library(l).is_sdk
+    fn is_user_lib(&self, l: LibraryId) -> bool {
+        self.include_sdk || !self.e.program.library(l).is_sdk
     }
-    fn e_usuario_classe(&self, c: ClassId) -> bool {
-        self.e_usuario_lib(self.e.program.class(c).library)
+    fn is_user_class(&self, c: ClassId) -> bool {
+        self.is_user_lib(self.e.program.class(c).library)
     }
 
-    fn nome(&self, s: SymbolId) -> &'a str {
+    fn name(&self, s: SymbolId) -> &'a str {
         self.e.interner.resolve(s)
     }
 
-    // ------------------------------------------------------------ marcações
+    // ------------------------------------------------------------ marking
 
-    fn viva_fn(&mut self, f: FunctionElementId) {
+    fn mark_fn_live(&mut self, f: FunctionElementId) {
         let i = f.0 as usize;
-        if i >= self.f_vivo.len() || self.f_vivo[i] {
+        if i >= self.fn_live.len() || self.fn_live[i] {
             return;
         }
         let func = self.e.program.function(f);
-        if !self.e_usuario_lib(func.library) {
+        if !self.is_user_lib(func.library) {
             return;
         }
-        self.f_vivo[i] = true;
-        self.causa_fn[i] = Some(self.causa);
-        self.fila.push_back(Item::Funcao(f));
+        self.fn_live[i] = true;
+        self.cause_fn[i] = Some(self.cause);
+        self.queue.push_back(Item::Function(f));
     }
 
-    pub(crate) fn usar_variavel(&mut self, v: VariableId) {
-        self.usar_variavel_com_receptor(v, None);
+    pub(crate) fn use_variable(&mut self, v: VariableId) {
+        self.use_variable_with_receiver(v, None);
     }
 
-    pub(crate) fn usar_variavel_com_receptor(&mut self, v: VariableId, receptor: Option<ClassId>) {
+    pub(crate) fn use_variable_with_receiver(&mut self, v: VariableId, receiver: Option<ClassId>) {
         let i = v.0 as usize;
-        if i >= self.v_vivo.len() || self.v_vivo[i] {
+        if i >= self.var_live.len() || self.var_live[i] {
             return;
         }
         let var = self.e.program.variable(v);
-        if !self.e_usuario_lib(var.library) {
+        if !self.is_user_lib(var.library) {
             return;
         }
-        // Com o SDK no mundo (o perfil de produção do SDK próprio), a
-        // constante primitiva é dobrada no ponto de uso pelo emissor: a
-        // variável não é lida em execução e não precisa existir.
-        if self.incluir_sdk && constante_inlinavel(self.e.program, v) {
+        // With the SDK in the world (the production profile of our own SDK),
+        // the primitive constant is folded at the use site by the emitter:
+        // the variable is not read at run time and does not need to exist.
+        if self.include_sdk && constante_inlinavel(self.e.program, v) {
             return;
         }
-        // Campo de instância é armazenamento: vive com a classe instanciada,
-        // e o acesso é por seletor. Aqui só entram topo e estáticos. O
-        // `Resolved` não diz se o uso é leitura ou escrita, então vale a
-        // espécie de leitura (a escrita exata vem do alvo do `Assign`); o
-        // pior caso é manter o getter, nunca podar o setter sem registro.
+        // An instance field is storage: it lives with the instantiated class,
+        // and access goes through a selector. Only top-level and static
+        // variables get here. `Resolved` does not say whether the use is a
+        // read or a write, so the read kind applies (the exact write comes
+        // from the `Assign` target); the worst case is keeping the getter,
+        // never pruning the setter without a record.
         if var.class.is_some() && !var.static_ && var.extension.is_none() {
-            let n = self.nome(var.name).to_string();
-            self.novo_seletor_com_receptor(&n, receptor);
+            let n = self.name(var.name).to_string();
+            self.new_selector_with_receiver(&n, receiver);
             return;
         }
-        self.v_vivo[i] = true;
-        self.causa_var[i] = Some(self.causa);
+        self.var_live[i] = true;
+        self.cause_var[i] = Some(self.cause);
         if let Some(g) = var.getter {
-            self.viva_fn(g);
+            self.mark_fn_live(g);
         }
         if let Some(s) = var.setter {
-            self.viva_fn(s);
+            self.mark_fn_live(s);
         }
         if let Some(c) = var.class {
-            self.marcar_tipo(c);
+            self.mark_type(c);
         }
-        self.fila.push_back(Item::Variavel(v));
+        self.queue.push_back(Item::Variable(v));
     }
 
-    pub(crate) fn novo_seletor(&mut self, nome: &str) {
-        // Leitura e chamada (`x.foo`, `x.foo()`) valem para o getter e o
-        // método; a escrita (`x.foo = v`) registra `foo_=` à parte (a chave
-        // do setter no `instance_members`). Sem sufixo não há atendimento
-        // entre espécies: um `foo` lido nunca mantém um `set foo` vivo.
-        if self.sel.contains(nome) {
+    pub(crate) fn new_selector(&mut self, name: &str) {
+        // Read and call (`x.foo`, `x.foo()`) apply to the getter and the
+        // method; the write (`x.foo = v`) records `foo_=` separately (the
+        // setter's key in `instance_members`). Without a suffix there is no
+        // serving across kinds: a read `foo` never keeps a `set foo` live.
+        if self.sel.contains(name) {
             return;
         }
-        self.sel.insert(nome.to_string());
-        if let Some(por_dono) = self.pendentes.remove(nome) {
-            let mut fs: Vec<FunctionElementId> = por_dono.into_values().flatten().collect();
+        self.sel.insert(name.to_string());
+        if let Some(by_owner) = self.pending.remove(name) {
+            let mut fs: Vec<FunctionElementId> = by_owner.into_values().flatten().collect();
             fs.sort();
             for f in fs {
-                self.viva_fn(f);
+                self.mark_fn_live(f);
             }
         }
     }
 
-    /// Nome chamado por fora do programa (`dart.dsend`/`dput` no runtime):
-    /// pode ser leitura ou escrita, então vale para as duas espécies (a de
-    /// escrita é a chave `nome_=` do `instance_members`).
-    pub(crate) fn novo_seletor_externo(&mut self, nome: &str) {
-        self.novo_seletor(nome);
-        if !nome.ends_with('=') {
-            self.novo_seletor(&format!("{nome}_="));
+    /// A name called from outside the program (`dart.dsend`/`dput` in the
+    /// runtime): it may be a read or a write, so it applies to both kinds (the
+    /// write one is the `name_=` key of `instance_members`).
+    pub(crate) fn new_external_selector(&mut self, name: &str) {
+        self.new_selector(name);
+        if !name.ends_with('=') {
+            self.new_selector(&format!("{name}_="));
         }
     }
 
-    /// Um uso de membro com o tipo estático do receptor conhecido: `None` é o
-    /// comportamento antigo (seletor irrestrito, vale para toda classe
-    /// instanciada); `Some(t)` restringe ao cone de `t` — classes fora da
-    /// hierarquia de `t` não mantêm o membro vivo. Monotônico como o resto do
-    /// ponto fixo: cada chamada nova só acende mais membros, nunca apaga.
-    pub(crate) fn novo_seletor_com_receptor(&mut self, nome: &str, receptor: Option<ClassId>) {
-        let Some(t) = receptor else {
-            self.novo_seletor(nome);
+    /// A member use with the receiver's static type known: `None` is the old
+    /// behavior (unrestricted selector, applies to every instantiated class);
+    /// `Some(t)` restricts to the cone of `t` — classes outside `t`'s
+    /// hierarchy do not keep the member live. Monotonic like the rest of the
+    /// fixed point: each new call only turns on more members, never off.
+    pub(crate) fn new_selector_with_receiver(&mut self, name: &str, receiver: Option<ClassId>) {
+        let Some(t) = receiver else {
+            self.new_selector(name);
             return;
         };
-        // Com o SDK no mundo: um `int` em execução é um número do JS, cuja
-        // classe é `JSNumber` — que implementa `double`, não `int` (o `JSInt`
-        // do DDC nunca é instanciado). O cone de `int` é o de `num`.
+        // With the SDK in the world: an `int` at run time is a JS number,
+        // whose class is `JSNumber` — which implements `double`, not `int`
+        // (DDC's `JSInt` is never instantiated). The cone of `int` is `num`'s.
         let t = match self.int_num {
             Some((int, num)) if t == int => num,
             _ => t,
         };
-        // Tipo de extensão (inclusive o `this` implícito de um membro dele):
-        // em execução o valor é a representação.
-        let t = if self.incluir_sdk && self.e.program.class(t).kind == ClassKind::ExtensionType {
-            match self.e.program.class(t).representation.and_then(|v| self.e.outline.variables.get(v.0 as usize)).and_then(|vt| vt.declared_type.or(vt.inferred)).and_then(|ty| self.classe_do_tipo(ty)) {
+        // Extension type (including the implicit `this` of one of its
+        // members): at run time the value is the representation.
+        let t = if self.include_sdk && self.e.program.class(t).kind == ClassKind::ExtensionType {
+            match self.e.program.class(t).representation.and_then(|v| self.e.outline.variables.get(v.0 as usize)).and_then(|vt| vt.declared_type.or(vt.inferred)).and_then(|ty| self.class_of_type(ty)) {
                 Some(r) if r != t => match self.int_num {
                     Some((int, num)) if r == int => num,
                     _ => r,
@@ -866,72 +872,74 @@ impl<'a> Motor<'a> {
         } else {
             t
         };
-        if self.sel.contains(nome) {
+        if self.sel.contains(name) {
             return;
         }
-        // O par (nome, cone) já registrado não acorda nada de novo (o
-        // `addReceiverConstraint` do dart2js, `resolution_world_builder.dart:541-560`).
-        match self.sel_cone.get_mut(nome) {
+        // An already recorded (name, cone) pair wakes up nothing new (dart2js's
+        // `addReceiverConstraint`, `resolution_world_builder.dart:541-560`).
+        match self.sel_cone.get_mut(name) {
             Some(cs) => {
                 if !cs.insert(t) {
                     return;
                 }
             }
             None => {
-                self.sel_cone.insert(nome.to_string(), HashSet::from([t]));
+                self.sel_cone.insert(name.to_string(), HashSet::from([t]));
             }
         }
-        if let Some(l) = self.nomes_por_cone.get_mut(t.0 as usize) {
-            l.push(nome.to_string());
+        if let Some(l) = self.names_by_cone.get_mut(t.0 as usize) {
+            l.push(name.to_string());
         }
-        // Acorda só os pendentes da mesma chave dentro do cone de `t`; o
-        // resto continua pendente (não é poda, é espera).
-        let Some(por_dono) = self.pendentes.get_mut(nome) else { return };
-        let mut acordar: Vec<ClassId> = Vec::new();
-        for &k in por_dono.keys() {
-            // Membro de extensão não tem classe dona: vive por nome, como
-            // antes (a aplicabilidade `on` é do emissor).
-            if k == SEM_DONO || alcance(&self.hier, &self.inst_sub, k, t) {
-                acordar.push(k);
+        // Wake up only the pending members of the same key inside the cone of
+        // `t`; the rest stays pending (it is not pruning, it is waiting).
+        let Some(by_owner) = self.pending.get_mut(name) else { return };
+        let mut to_wake: Vec<ClassId> = Vec::new();
+        for &k in by_owner.keys() {
+            // An extension member has no owner class: it lives by name, as
+            // before (the `on` applicability is the emitter's business).
+            if k == NO_OWNER || reaches(&self.hier, &self.inst_sub, k, t) {
+                to_wake.push(k);
             }
         }
         let mut fs: Vec<FunctionElementId> = Vec::new();
-        for k in acordar {
-            fs.extend(por_dono.remove(&k).unwrap_or_default());
+        for k in to_wake {
+            fs.extend(by_owner.remove(&k).unwrap_or_default());
         }
-        if por_dono.is_empty() {
-            self.pendentes.remove(nome);
+        if by_owner.is_empty() {
+            self.pending.remove(name);
         }
         fs.sort();
         for f in fs {
-            self.viva_fn(f);
+            self.mark_fn_live(f);
         }
     }
 
-    /// O seletor `nome` (irrestrito ou restrito) mantém vivo um membro da
-    /// `classe` instanciada (a regra é `alcance`).
-    pub(crate) fn seletor_para(&mut self, nome: &str, classe: ClassId) -> bool {
-        if self.sel.contains(nome) {
+    /// The selector `name` (unrestricted or restricted) keeps a member of the
+    /// instantiated `class` live (the rule is `reaches`).
+    pub(crate) fn selector_for(&mut self, name: &str, class: ClassId) -> bool {
+        if self.sel.contains(name) {
             return true;
         }
-        match self.sel_cone.get(nome) {
-            Some(cs) => cs.iter().any(|c| alcance(&self.hier, &self.inst_sub, classe, *c)),
+        match self.sel_cone.get(name) {
+            Some(cs) => cs.iter().any(|c| reaches(&self.hier, &self.inst_sub, class, *c)),
             None => false,
         }
     }
 
-    /// O seletor `nome` vive de algum jeito (irrestrito ou restrito): o que os
-    /// membros de extensão usam, porque eles não têm classe dona para o cone.
-    pub(crate) fn seletor_algum(&self, nome: &str) -> bool {
-        self.sel.contains(nome) || self.sel_cone.contains_key(nome)
+    /// The selector `name` is live in some way (unrestricted or restricted):
+    /// what extension members use, because they have no owner class for the
+    /// cone.
+    pub(crate) fn selector_any(&self, name: &str) -> bool {
+        self.sel.contains(name) || self.sel_cone.contains_key(name)
     }
 
-    /// A classe do tipo estático `t`, quando ela existe e é nominal: `C`,
-    /// `C?`, tipo de extensão, variável de tipo (pelo limite) e variável
-    /// promovida `X & B` (por `B`). `dynamic`, lacuna de inferência, função,
-    /// record, `FutureOr`, variável de tipo sem classe no limite e `Null`/
-    /// `Never`/`void` dão `None` — receptor desconhecido, seletor irrestrito.
-    pub(crate) fn classe_do_tipo(&self, t: dartforge_types::table::TypeId) -> Option<ClassId> {
+    /// The class of static type `t`, when it exists and is nominal: `C`,
+    /// `C?`, an extension type, a type variable (through its bound) and a
+    /// promoted variable `X & B` (through `B`). `dynamic`, an inference gap, a
+    /// function, a record, `FutureOr`, a type variable without a class in its
+    /// bound and `Null`/`Never`/`void` give `None` — unknown receiver,
+    /// unrestricted selector.
+    pub(crate) fn class_of_type(&self, t: dartforge_types::table::TypeId) -> Option<ClassId> {
         use dartforge_types::table::Type;
         let mut cur = t;
         for _ in 0..8 {
@@ -941,10 +949,11 @@ impl<'a> Motor<'a> {
             match self.e.table.get(cur) {
                 Type::Dynamic | Type::Void | Type::Never | Type::Null => return None,
                 Type::Interface { class, .. } => return Some(*class),
-                // Com o SDK no mundo, um tipo de extensão é, em execução, o
-                // valor da representação: o cone é o dela (`$this[$toUpperCase]`
-                // num tipo de extensão sobre `String` chama `JSString`).
-                Type::ExtensionType { decl: class, .. } if self.incluir_sdk => {
+                // With the SDK in the world, an extension type is, at run
+                // time, the value of its representation: the cone is the
+                // representation's (`$this[$toUpperCase]` on an extension type
+                // over `String` calls `JSString`).
+                Type::ExtensionType { decl: class, .. } if self.include_sdk => {
                     let rep = self.e.program.class(*class).representation;
                     match rep.and_then(|v| self.e.outline.variables.get(v.0 as usize)).and_then(|vt| vt.declared_type.or(vt.inferred)) {
                         Some(t) if t != cur => cur = t,
@@ -954,7 +963,7 @@ impl<'a> Motor<'a> {
                 Type::ExtensionType { decl: class, .. } => return Some(*class),
                 Type::Function { .. } | Type::Record { .. } => return None,
                 Type::TypeParameter { param, .. } => cur = self.e.table.param(*param).bound,
-                // `X & B` (variável de tipo promovida): o valor é um `B`.
+                // `X & B` (promoted type variable): the value is a `B`.
                 Type::Intersection { bound, .. } => cur = *bound,
                 Type::FutureOr { .. } => return None,
             }
@@ -962,128 +971,130 @@ impl<'a> Motor<'a> {
         None
     }
 
-    /// A chave do seletor de um membro de instância: `foo` para leitura e
-    /// chamada, `foo_=` para escrita — a mesma chave do `instance_members`.
-    pub(crate) fn chave_membro_instancia(&self, f: FunctionElementId) -> String {
+    /// The selector key of an instance member: `foo` for read and call,
+    /// `foo_=` for write — the same key as in `instance_members`.
+    pub(crate) fn instance_member_key(&self, f: FunctionElementId) -> String {
         let func = self.e.program.function(f);
-        let nome = self.nome(func.name);
+        let name = self.name(func.name);
         if func.kind == FunctionKind::Setter {
-            return format!("{nome}_=");
+            return format!("{name}_=");
         }
         if func.kind == FunctionKind::ImplicitAccessor {
             if let Some(v) = func.variable {
                 if self.e.program.variable(v).setter == Some(f) {
-                    return format!("{nome}_=");
+                    return format!("{name}_=");
                 }
             }
         }
-        nome.to_string()
+        name.to_string()
     }
 
-    /// Uso de uma função pelo seu elemento: estática, de topo, de extensão ou
-    /// construtor vão direto; membro de instância vira seletor (restrito ao
-    /// cone do `receptor`, quando conhecido).
-    pub(crate) fn usar_funcao(&mut self, f: FunctionElementId) {
-        self.usar_funcao_com_receptor(f, None);
+    /// Use of a function through its element: static, top-level, extension
+    /// or constructor go directly; an instance member becomes a selector
+    /// (restricted to the cone of `receiver`, when known).
+    pub(crate) fn use_function(&mut self, f: FunctionElementId) {
+        self.use_function_with_receiver(f, None);
     }
 
-    pub(crate) fn usar_funcao_com_receptor(&mut self, f: FunctionElementId, receptor: Option<ClassId>) {
+    pub(crate) fn use_function_with_receiver(&mut self, f: FunctionElementId, receiver: Option<ClassId>) {
         let func = self.e.program.function(f);
         match func.kind {
-            FunctionKind::Constructor | FunctionKind::SyntheticConstructor => self.usar_construtor(f, false),
+            FunctionKind::Constructor | FunctionKind::SyntheticConstructor => self.use_constructor(f, false),
             _ => {
-                // Membro de tipo de extensão: despacho estático (como o de
-                // uma extensão), vive pelo uso, sem esperar instanciação.
-                let de_tipo_de_extensao = func.class.is_some_and(|c| self.e.program.class(c).kind == ClassKind::ExtensionType);
-                let instancia = func.class.is_some() && !func.static_ && func.extension.is_none() && !de_tipo_de_extensao;
-                if instancia {
-                    let n = self.chave_membro_instancia(f);
-                    self.novo_seletor_com_receptor(&n, receptor);
+                // Member of an extension type: static dispatch (like an
+                // extension's), live through use, without waiting for
+                // instantiation.
+                let in_extension_type = func.class.is_some_and(|c| self.e.program.class(c).kind == ClassKind::ExtensionType);
+                let instance = func.class.is_some() && !func.static_ && func.extension.is_none() && !in_extension_type;
+                if instance {
+                    let n = self.instance_member_key(f);
+                    self.new_selector_with_receiver(&n, receiver);
                 } else {
                     if let Some(v) = func.variable {
                         if func.kind == FunctionKind::ImplicitAccessor {
-                            self.usar_variavel(v);
+                            self.use_variable(v);
                             return;
                         }
                     }
                     if func.extension.is_some() {
-                        let n = self.chave_membro_instancia(f);
-                        self.novo_seletor(&n);
+                        let n = self.instance_member_key(f);
+                        self.new_selector(&n);
                     }
                     if let Some(c) = func.class {
-                        self.marcar_tipo(c);
+                        self.mark_type(c);
                     }
-                    self.viva_fn(f);
+                    self.mark_fn_live(f);
                 }
             }
         }
     }
 
-    fn usar_funcao_direta(&mut self, f: FunctionElementId) {
-        self.usar_funcao(f);
-        self.viva_fn(f);
+    fn use_function_directly(&mut self, f: FunctionElementId) {
+        self.use_function(f);
+        self.mark_fn_live(f);
     }
 
     /// `C(..)`, `new C.n(..)`, `const C()`, tearoff `C.new`.
-    pub(crate) fn usar_construtor(&mut self, f: FunctionElementId, tearoff: bool) {
+    pub(crate) fn use_constructor(&mut self, f: FunctionElementId, tearoff: bool) {
         let func = self.e.program.function(f);
         let Some(c) = func.class else { return };
-        if !self.e_usuario_classe(c) {
+        if !self.is_user_class(c) {
             return;
         }
         if tearoff {
             self.tearoff[f.0 as usize] = true;
         }
         if func.factory {
-            self.marcar_tipo(c);
+            self.mark_type(c);
         } else {
-            self.instanciar(c);
+            self.instantiate(c);
         }
-        self.viva_fn(f);
+        self.mark_fn_live(f);
     }
 
-    /// `C.nome(..)` / `C(..)` pela classe: o construtor declarado, ou — classe
-    /// sem construtor nenhum (`class C = S with M`, abstrata) — a instanciação
-    /// direta, com o repasse para o construtor da superclasse.
-    pub(crate) fn criar(&mut self, c: ClassId, nome: &str, tearoff: bool) {
-        if let Some(f) = self.construtor(c, nome) {
-            self.usar_construtor(f, tearoff);
-        } else if (nome.is_empty() || nome == "new") && self.e.program.class(c).constructors.is_empty() && self.e_usuario_classe(c) {
-            self.instanciar(c);
-            if let Some(sc) = self.construtor_super(c, "") {
-                self.usar_construtor_por_inicializador(sc);
+    /// `C.name(..)` / `C(..)` through the class: the declared constructor, or
+    /// — a class with no constructor at all (`class C = S with M`, abstract) —
+    /// the direct instantiation, forwarding to the superclass constructor.
+    pub(crate) fn create(&mut self, c: ClassId, name: &str, tearoff: bool) {
+        if let Some(f) = self.constructor(c, name) {
+            self.use_constructor(f, tearoff);
+        } else if (name.is_empty() || name == "new") && self.e.program.class(c).constructors.is_empty() && self.is_user_class(c) {
+            self.instantiate(c);
+            if let Some(sc) = self.super_constructor(c, "") {
+                self.use_constructor_from_initializer(sc);
             }
         }
     }
 
-    /// Chamada de construtor como inicializador (`super(..)`, `this.n(..)`,
-    /// super implícito): não instancia a classe — a subclasse instanciada já
-    /// instanciou a cadeia.
-    pub(crate) fn usar_construtor_por_inicializador(&mut self, f: FunctionElementId) {
+    /// A constructor call as an initializer (`super(..)`, `this.n(..)`,
+    /// implicit super): it does not instantiate the class — the instantiated
+    /// subclass has already instantiated the chain.
+    pub(crate) fn use_constructor_from_initializer(&mut self, f: FunctionElementId) {
         let func = self.e.program.function(f);
         if let Some(c) = func.class {
-            self.marcar_tipo(c);
+            self.mark_type(c);
         }
-        self.viva_fn(f);
+        self.mark_fn_live(f);
     }
 
-    pub(crate) fn marcar_tipo(&mut self, c: ClassId) {
+    pub(crate) fn mark_type(&mut self, c: ClassId) {
         let i = c.0 as usize;
-        if i >= self.classes.len() || !self.e_usuario_classe(c) || self.classes[i] >= NivelClasse::Tipo {
+        if i >= self.classes.len() || !self.is_user_class(c) || self.classes[i] >= NivelClasse::Tipo {
             return;
         }
         self.classes[i] = NivelClasse::Tipo;
-        self.causa_classe[i] = Some(self.causa);
+        self.cause_class[i] = Some(self.cause);
         let p = self.e.program;
         let class = p.class(c);
-        // Enum referenciado: as constantes existem com a classe.
+        // A referenced enum: the constants exist with the class.
         if class.kind == ClassKind::Enum {
-            self.instanciar(c);
-            // Os campos de `_Enum` que o emissor lê sem passar pelo modelo
-            // (o `index` sintético do enum, o `_name` do `toString`).
-            // No modelo de elementos o enum implementa `Enum`; no JS ele estende
-            // `core._Enum`, que o emissor põe como superclasse.
-            if self.incluir_sdk {
+            self.instantiate(c);
+            // The `_Enum` fields that the emitter reads without going through
+            // the model (the enum's synthetic `index`, the `_name` of
+            // `toString`). In the element model the enum implements `Enum`; in
+            // JS it extends `core._Enum`, which the emitter sets as the
+            // superclass.
+            if self.include_sdk {
                 let en = p.core.and_then(|core| {
                     let s = self.e.interner.lookup("_Enum")?;
                     match p.library(core).declared.get(&s)?.getter? {
@@ -1092,21 +1103,21 @@ impl<'a> Motor<'a> {
                     }
                 });
                 if let Some(en) = en {
-                    self.instanciar(en);
+                    self.instantiate(en);
                     for n in ["index", "_name", "toString", "_enumToString", "name"] {
-                        self.novo_seletor_com_receptor(n, Some(en));
+                        self.new_selector_with_receiver(n, Some(en));
                     }
                 }
             }
         }
-        // Classe nativa viva como tipo é instanciada: o objeto vem do
-        // navegador (ou é um primitivo do JS), não de um `new` do programa.
-        if self.nativas.contains(&c) {
-            self.instanciar(c);
+        // A native class live as a type is instantiated: the object comes from
+        // the browser (or is a JS primitive), not from a `new` in the program.
+        if self.natives.contains(&c) {
+            self.instantiate(c);
         }
-        if let Some(ns) = self.nativas_por_interface.get(&c).cloned() {
+        if let Some(ns) = self.natives_by_interface.get(&c).cloned() {
             for n in ns {
-                self.marcar_tipo(n);
+                self.mark_type(n);
             }
         }
         let mut supers: Vec<ClassId> = Vec::new();
@@ -1115,9 +1126,9 @@ impl<'a> Motor<'a> {
         supers.extend(class.interface_classes.iter().copied());
         supers.extend(class.on_classes.iter().copied());
         for s in supers {
-            self.marcar_tipo(s);
+            self.mark_type(s);
         }
-        // Argumentos de tipo dos supertipos entram nas regras rti da classe.
+        // Type arguments of the supertypes enter the class's rti rules.
         if let Some(ct) = self.e.outline.classes.get(i) {
             let mut ts: Vec<dartforge_types::table::TypeId> = Vec::new();
             ts.extend(ct.supertype);
@@ -1128,33 +1139,33 @@ impl<'a> Motor<'a> {
                 ts.push(self.e.table.param(tp).bound);
             }
             for t in ts {
-                self.tipo_de(t);
+                self.visit_type(t);
             }
         }
-        // Tipos dos campos de instância: o emissor escreve `setFieldSignature`
-        // de toda classe emitida, inclusive a só-tipo.
+        // Types of the instance fields: the emitter writes `setFieldSignature`
+        // for every emitted class, including the type-only one.
         for &vid in &class.fields {
             if p.variable(vid).static_ {
                 continue;
             }
             if let Some(vt) = self.e.outline.variables.get(vid.0 as usize) {
                 if let Some(t) = vt.declared_type.or(vt.inferred) {
-                    self.tipo_de(t);
+                    self.visit_type(t);
                 }
             }
         }
         if let Some(rep) = class.representation {
             if let Some(vt) = self.e.outline.variables.get(rep.0 as usize) {
                 if let Some(t) = vt.declared_type.or(vt.inferred) {
-                    self.tipo_de(t);
+                    self.visit_type(t);
                 }
             }
         }
     }
 
-    /// Classes citadas por um tipo da `TypeTable`.
-    pub(crate) fn tipo_de(&mut self, t: dartforge_types::table::TypeId) {
-        if !self.tipos_vistos.insert(t) {
+    /// Classes cited by a type of the `TypeTable`.
+    pub(crate) fn visit_type(&mut self, t: dartforge_types::table::TypeId) {
+        if !self.seen_types.insert(t) {
             return;
         }
         let table = self.e.table;
@@ -1165,9 +1176,9 @@ impl<'a> Motor<'a> {
             Type::Dynamic | Type::Void | Type::Never | Type::Null => {}
             Type::Interface { class, args, .. } | Type::ExtensionType { decl: class, args, .. } => {
                 let (class, args) = (*class, args.clone());
-                self.marcar_tipo(class);
+                self.mark_type(class);
                 for a in args.iter() {
-                    self.tipo_de(*a);
+                    self.visit_type(*a);
                 }
             }
             Type::Function { type_params, ret, positional, optional, named, .. } => {
@@ -1177,146 +1188,146 @@ impl<'a> Motor<'a> {
                 ts.extend(named.iter().map(|(_, t, _)| *t));
                 ts.extend(type_params.iter().map(|p| table.param(*p).bound));
                 for x in ts {
-                    self.tipo_de(x);
+                    self.visit_type(x);
                 }
             }
             Type::Record { positional, named, .. } => {
                 let mut ts: Vec<dartforge_types::table::TypeId> = positional.to_vec();
                 ts.extend(named.iter().map(|(_, t)| *t));
                 for x in ts {
-                    self.tipo_de(x);
+                    self.visit_type(x);
                 }
             }
             Type::TypeParameter { param, .. } => {
                 let b = table.param(*param).bound;
-                self.tipo_de(b);
+                self.visit_type(b);
             }
             Type::FutureOr { arg, .. } => {
                 let a = *arg;
-                self.tipo_de(a);
+                self.visit_type(a);
             }
             Type::Intersection { param, bound } => {
                 let (b, pb) = (*bound, table.param(*param).bound);
-                self.tipo_de(b);
-                self.tipo_de(pb);
+                self.visit_type(b);
+                self.visit_type(pb);
             }
         }
     }
 
-    /// Instancia `c` e a cadeia de superclasses (`_processInstantiatedClass`,
-    /// `resolution_world_builder.dart:706-737`), com os mixins aplicados.
-    pub(crate) fn instanciar(&mut self, c: ClassId) {
-        if !self.e_usuario_classe(c) {
+    /// Instantiates `c` and its superclass chain (`_processInstantiatedClass`,
+    /// `resolution_world_builder.dart:706-737`), with the applied mixins.
+    pub(crate) fn instantiate(&mut self, c: ClassId) {
+        if !self.is_user_class(c) {
             return;
         }
         let p = self.e.program;
-        let mut cadeia: Vec<ClassId> = Vec::new();
+        let mut chain: Vec<ClassId> = Vec::new();
         let mut cur = Some(c);
         while let Some(k) = cur {
-            if !self.e_usuario_classe(k) || cadeia.contains(&k) {
+            if !self.is_user_class(k) || chain.contains(&k) {
                 break;
             }
-            cadeia.push(k);
+            chain.push(k);
             cur = p.class(k).supertype_class;
         }
-        for k in cadeia.clone() {
+        for k in chain.clone() {
             let class = p.class(k);
             let mixins = class.mixin_classes.clone();
-            self.subir_para_instanciada(k);
+            self.raise_to_instantiated(k);
             for mx in mixins {
-                if self.e_usuario_classe(mx) {
-                    self.subir_para_instanciada(mx);
+                if self.is_user_class(mx) {
+                    self.raise_to_instantiated(mx);
                 }
             }
         }
-        // O protocolo do SDK é relativo à classe construída: um `compareTo`
-        // herdado de uma superclasse sem `Comparable` também é chamado.
-        if self.protocolo_feito.insert(c) {
-            self.aplicar_protocolo(c);
+        // The SDK protocol is relative to the constructed class: a `compareTo`
+        // inherited from a superclass without `Comparable` is called too.
+        if self.protocol_done.insert(c) {
+            self.apply_protocol(c);
         }
     }
 
-    fn subir_para_instanciada(&mut self, k: ClassId) {
+    fn raise_to_instantiated(&mut self, k: ClassId) {
         let i = k.0 as usize;
         if self.classes[i] == NivelClasse::Instanciada {
             return;
         }
-        self.marcar_tipo(k);
+        self.mark_type(k);
         self.classes[i] = NivelClasse::Instanciada;
-        if self.causa_classe[i].is_none() {
-            self.causa_classe[i] = Some(self.causa);
+        if self.cause_class[i].is_none() {
+            self.cause_class[i] = Some(self.cause);
         }
-        self.registrar_instanciada(k);
-        self.fila.push_back(Item::Campos(k));
-        self.processar_membros(k, false);
+        self.register_instantiated(k);
+        self.queue.push_back(Item::Fields(k));
+        self.process_members(k, false);
     }
 
-    /// Guarda as palavras (identificadores) de um *template* `JS()`.
-    pub(crate) fn registrar_palavras_js(&mut self, t: &str) {
-        // Só o que pode ser nome de propriedade: depois de `.`, antes de
-        // `:` (chave de objeto literal) ou entre aspas. Variáveis locais e
-        // globais do *template* não são propriedades.
+    /// Stores the words (identifiers) of a `JS()` *template*.
+    pub(crate) fn record_js_words(&mut self, t: &str) {
+        // Only what can be a property name: after `.`, before `:` (an object
+        // literal key) or between quotes. Local and global variables of the
+        // *template* are not properties.
         let b = t.as_bytes();
         let ident = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'$';
         let mut i = 0;
-        let mut aspas: Option<u8> = None;
+        let mut quote: Option<u8> = None;
         while i < b.len() {
             let c = b[i];
-            if let Some(q) = aspas {
+            if let Some(q) = quote {
                 if c == q {
-                    aspas = None;
+                    quote = None;
                 }
             } else if c == b'\'' || c == b'"' {
-                aspas = Some(c);
+                quote = Some(c);
             }
             if !ident(c) || c.is_ascii_digit() {
                 i += 1;
                 continue;
             }
-            let ini = i;
+            let start = i;
             while i < b.len() && ident(b[i]) {
                 i += 1;
             }
-            let w = &t[ini..i];
+            let w = &t[start..i];
             let mut j = i;
             while j < b.len() && b[j] == b' ' {
                 j += 1;
             }
-            let depois_de_ponto = ini > 0 && b[ini - 1] == b'.';
-            let chave = j < b.len() && b[j] == b':' && b.get(j + 1) != Some(&b':');
-            if (depois_de_ponto || chave || aspas.is_some()) && !self.nomes_js.contains(w) {
-                self.nomes_js.insert(w.to_string());
+            let after_dot = start > 0 && b[start - 1] == b'.';
+            let key = j < b.len() && b[j] == b':' && b.get(j + 1) != Some(&b':');
+            if (after_dot || key || quote.is_some()) && !self.js_names.contains(w) {
+                self.js_names.insert(w.to_string());
             }
         }
     }
 
-    /// `k` acabou de ser instanciada: entra nos subtipos instanciados de cada
-    /// supertipo dela e acorda os pendentes que o terceiro caso de
-    /// [`alcance`] passa a atender — membro de um dono `M` com `k ⊑ M`,
-    /// pendente de um nome registrado com cone `T` e `k ⊑ T`. É o lado
-    /// "classe nova" do casamento (`_processInstantiatedClass` →
+    /// `k` has just been instantiated: it enters the instantiated subtypes of
+    /// each of its supertypes and wakes up the pending members that the third
+    /// case of [`reaches`] now serves — a member of an owner `M` with
+    /// `k ⊑ M`, pending on a name recorded with cone `T` and `k ⊑ T`. It is the
+    /// "new class" side of the matching (`_processInstantiatedClass` →
     /// `processClassMembers`, `resolution/enqueuer.dart:135-139`).
-    fn registrar_instanciada(&mut self, k: ClassId) {
+    fn register_instantiated(&mut self, k: ClassId) {
         let hier = Arc::clone(&self.hier);
-        let sups = hier.supertipos(k);
+        let sups = hier.supertypes(k);
         for t in sups {
             if let Some(l) = self.inst_sub.get_mut(t.0 as usize) {
                 l.push(k);
             }
         }
-        if self.pendentes.is_empty() {
+        if self.pending.is_empty() {
             return;
         }
         let mut fs: Vec<FunctionElementId> = Vec::new();
         for t in sups {
-            let Some(nomes) = self.nomes_por_cone.get(t.0 as usize) else { continue };
-            if nomes.is_empty() {
+            let Some(names) = self.names_by_cone.get(t.0 as usize) else { continue };
+            if names.is_empty() {
                 continue;
             }
-            for n in nomes {
-                let Some(por_dono) = self.pendentes.get_mut(n.as_str()) else { continue };
+            for n in names {
+                let Some(by_owner) = self.pending.get_mut(n.as_str()) else { continue };
                 for m in sups {
-                    if let Some(v) = por_dono.remove(m) {
+                    if let Some(v) = by_owner.remove(m) {
                         fs.extend(v);
                     }
                 }
@@ -1325,147 +1336,148 @@ impl<'a> Motor<'a> {
         if fs.is_empty() {
             return;
         }
-        self.pendentes.retain(|_, v| !v.is_empty());
+        self.pending.retain(|_, v| !v.is_empty());
         fs.sort();
         fs.dedup();
         for f in fs {
-            self.viva_fn(f);
+            self.mark_fn_live(f);
         }
     }
 
-    /// Membros de instância de `k` (já instanciada): vivos se a chave é
-    /// seletor vivo **para `k`** (irrestrito ou no cone dela) ou de protocolo;
-    /// senão, pendentes pela chave (`foo` e `foo_=` têm pendências separadas).
-    fn processar_membros(&mut self, k: ClassId, so_pendentes: bool) {
+    /// Instance members of `k` (already instantiated): live if the key is a
+    /// live selector **for `k`** (unrestricted or in its cone) or a protocol
+    /// one; otherwise pending on the key (`foo` and `foo_=` are pending
+    /// separately).
+    fn process_members(&mut self, k: ClassId, only_pending: bool) {
         let p = self.e.program;
         let class = p.class(k);
-        let todos = self.todos_membros.contains(&k) || class.kind == ClassKind::Enum;
-        let mut membros: Vec<(dartforge_intern::SymbolId, FunctionElementId)> =
+        let all = self.all_members.contains(&k) || class.kind == ClassKind::Enum;
+        let mut members: Vec<(dartforge_intern::SymbolId, FunctionElementId)> =
             class.instance_members.iter().map(|(s, f)| (*s, *f)).collect();
-        membros.sort_by_key(|(_, f)| *f);
-        for (chave, f) in membros {
+        members.sort_by_key(|(_, f)| *f);
+        for (key, f) in members {
             let func = p.function(f);
-            let nome = self.nome(chave).to_string();
-            let vive = todos
+            let name = self.name(key).to_string();
+            let live = all
                 || func.kind == FunctionKind::Operator
-                || self.nomes_universais.contains(nome.as_str())
-                || self.seletor_para(nome.as_str(), k);
-            if vive && !so_pendentes {
-                self.viva_fn(f);
-            } else if !vive {
-                self.pendentes.entry(nome).or_default().entry(k).or_default().push(f);
+                || self.universal_names.contains(name.as_str())
+                || self.selector_for(name.as_str(), k);
+            if live && !only_pending {
+                self.mark_fn_live(f);
+            } else if !live {
+                self.pending.entry(name).or_default().entry(k).or_default().push(f);
             }
         }
     }
 
-    fn processar_membros_da_cadeia(&mut self, k: ClassId, so_pendentes: bool) {
-        self.processar_membros(k, so_pendentes);
+    fn process_chain_members(&mut self, k: ClassId, only_pending: bool) {
+        self.process_members(k, only_pending);
     }
 
-    /// Regra (i) do contrato: a implementação, na cadeia de `c`, de todo
-    /// membro de instância declarado num supertipo do SDK de `c`. O casamento
-    /// é pela chave (`foo_=` casa com `set foo`), como nos pendentes.
-    fn aplicar_protocolo(&mut self, c: ClassId) {
+    /// Rule (i) of the contract: the implementation, in `c`'s chain, of every
+    /// instance member declared in an SDK supertype of `c`. Matching is by
+    /// key (`foo_=` matches `set foo`), as for the pending members.
+    fn apply_protocol(&mut self, c: ClassId) {
         let p = self.e.program;
-        let mut vistos: HashSet<ClassId> = HashSet::new();
-        let mut fila = vec![c];
-        let mut nomes: HashSet<&'a str> = HashSet::new();
-        while let Some(k) = fila.pop() {
-            if !vistos.insert(k) {
+        let mut seen: HashSet<ClassId> = HashSet::new();
+        let mut work = vec![c];
+        let mut names: HashSet<&'a str> = HashSet::new();
+        while let Some(k) = work.pop() {
+            if !seen.insert(k) {
                 continue;
             }
             let class = p.class(k);
-            if !self.e_usuario_classe(k) {
+            if !self.is_user_class(k) {
                 for s in class.instance_members.keys() {
-                    nomes.insert(self.nome(*s));
+                    names.insert(self.name(*s));
                 }
             }
-            fila.extend(class.supertype_class);
-            fila.extend(class.mixin_classes.iter().copied());
-            fila.extend(class.interface_classes.iter().copied());
-            fila.extend(class.on_classes.iter().copied());
+            work.extend(class.supertype_class);
+            work.extend(class.mixin_classes.iter().copied());
+            work.extend(class.interface_classes.iter().copied());
+            work.extend(class.on_classes.iter().copied());
         }
-        if nomes.is_empty() {
+        if names.is_empty() {
             return;
         }
-        // Os membros com esses nomes, na cadeia e nos mixins aplicados.
-        let mut alvo: Vec<ClassId> = Vec::new();
+        // The members with those names, in the chain and in the applied mixins.
+        let mut targets: Vec<ClassId> = Vec::new();
         let mut cur = Some(c);
         while let Some(k) = cur {
-            if !self.e_usuario_classe(k) || alvo.contains(&k) {
+            if !self.is_user_class(k) || targets.contains(&k) {
                 break;
             }
-            alvo.push(k);
-            alvo.extend(p.class(k).mixin_classes.iter().copied().filter(|m| self.e_usuario_classe(*m)));
+            targets.push(k);
+            targets.extend(p.class(k).mixin_classes.iter().copied().filter(|m| self.is_user_class(*m)));
             cur = p.class(k).supertype_class;
         }
-        for k in alvo {
-            let mut membros: Vec<(dartforge_intern::SymbolId, FunctionElementId)> =
+        for k in targets {
+            let mut members: Vec<(dartforge_intern::SymbolId, FunctionElementId)> =
                 p.class(k).instance_members.iter().map(|(s, f)| (*s, *f)).collect();
-            membros.sort_by_key(|(_, f)| *f);
-            for (chave, f) in membros {
-                if nomes.contains(self.nome(chave)) {
-                    self.viva_fn(f);
+            members.sort_by_key(|(_, f)| *f);
+            for (key, f) in members {
+                if names.contains(self.name(key)) {
+                    self.mark_fn_live(f);
                 }
             }
         }
     }
 
-    /// Membros de instância de extensões do usuário: donos "sempre
-    /// instanciados", vivos por nome (irrestrito **ou** restrito — o membro de
-    /// extensão não tem classe dona para o cone). O emissor resolve extensões
-    /// por conta própria (`call.rs::try_extension_call`), então casar pelo
-    /// `Resolved` seria divergir dele.
-    fn inicializar_extensoes(&mut self) {
-        if self.extensoes_prontas {
+    /// Instance members of the user's extensions: "always instantiated"
+    /// owners, live by name (unrestricted **or** restricted — an extension
+    /// member has no owner class for the cone). The emitter resolves
+    /// extensions on its own (`call.rs::try_extension_call`), so matching
+    /// through `Resolved` would diverge from it.
+    fn init_extensions(&mut self) {
+        if self.extensions_ready {
             return;
         }
-        self.extensoes_prontas = true;
+        self.extensions_ready = true;
         let p = self.e.program;
         for ext in p.extensions.iter() {
-            if !self.e_usuario_lib(ext.library) {
+            if !self.is_user_lib(ext.library) {
                 continue;
             }
-            let mut membros: Vec<(dartforge_intern::SymbolId, FunctionElementId)> =
+            let mut members: Vec<(dartforge_intern::SymbolId, FunctionElementId)> =
                 ext.instance_members.iter().map(|(s, f)| (*s, *f)).collect();
-            membros.sort_by_key(|(_, f)| *f);
-            for (chave, f) in membros {
-                let nome = self.nome(chave).to_string();
-                if self.seletor_algum(nome.as_str()) || p.function(f).kind == FunctionKind::Operator {
-                    self.viva_fn(f);
+            members.sort_by_key(|(_, f)| *f);
+            for (key, f) in members {
+                let name = self.name(key).to_string();
+                if self.selector_any(name.as_str()) || p.function(f).kind == FunctionKind::Operator {
+                    self.mark_fn_live(f);
                 } else {
-                    self.pendentes.entry(nome).or_default().entry(SEM_DONO).or_default().push(f);
+                    self.pending.entry(name).or_default().entry(NO_OWNER).or_default().push(f);
                 }
             }
         }
     }
 
-    // ------------------------------------------------------------ o laço
+    // ------------------------------------------------------------ the loop
 
-    fn rodar(&mut self) {
-        self.rodar_itens(usize::MAX);
+    fn run(&mut self) {
+        self.run_items(usize::MAX);
     }
 
-    fn rodar_itens(&mut self, _limite: usize) {
-        while let Some(it) = self.fila.pop_front() {
-            self.itens += 1;
-            self.causa = match it {
-                Item::Funcao(f) => Causa::Funcao(f),
-                Item::Variavel(v) => Causa::Variavel(v),
-                Item::Campos(c) => Causa::Classe(c),
+    fn run_items(&mut self, _limit: usize) {
+        while let Some(it) = self.queue.pop_front() {
+            self.items += 1;
+            self.cause = match it {
+                Item::Function(f) => Causa::Funcao(f),
+                Item::Variable(v) => Causa::Variavel(v),
+                Item::Fields(c) => Causa::Classe(c),
             };
             match it {
-                Item::Funcao(f) => impacto::de_funcao(self, f),
-                Item::Variavel(v) => impacto::de_variavel(self, v),
-                Item::Campos(c) => impacto::de_campos(self, c),
+                Item::Function(f) => impacto::of_function(self, f),
+                Item::Variable(v) => impacto::of_variable(self, v),
+                Item::Fields(c) => impacto::of_fields(self, c),
             }
         }
     }
 
-    /// O mundo atual sem consumir o motor.
-    fn fotografar(&self) -> Mundo {
-        let mut est = self.estatisticas();
-        est.itens_processados = self.itens;
+    /// The current world without consuming the engine.
+    fn snapshot(&self) -> Mundo {
+        let mut stats = self.statistics();
+        stats.itens_processados = self.items;
         let mut sel_cone: HashMap<String, Vec<ClassId>> = HashMap::new();
         for (n, cs) in &self.sel_cone {
             let mut v: Vec<ClassId> = cs.iter().copied().collect();
@@ -1474,33 +1486,33 @@ impl<'a> Motor<'a> {
         }
         Mundo {
             classes: self.classes.clone(),
-            funcoes: self.f_vivo.clone(),
-            variaveis: self.v_vivo.clone(),
+            functions: self.fn_live.clone(),
+            variables: self.var_live.clone(),
             tearoffs: self.tearoff.clone(),
-            seletores: self.sel.clone(),
+            selectors: self.sel.clone(),
             sel_cone,
-            causa_fn: self.causa_fn.clone(),
-            causa_classe: self.causa_classe.clone(),
-            causa_var: self.causa_var.clone(),
-            estat: est,
-            incluir_sdk: self.incluir_sdk,
+            cause_fn: self.cause_fn.clone(),
+            cause_class: self.cause_class.clone(),
+            cause_var: self.cause_var.clone(),
+            estat: stats,
+            incluir_sdk: self.include_sdk,
             hier: Arc::clone(&self.hier),
             inst_sub: self.inst_sub.clone(),
-            nomes_js: self.nomes_js.clone(),
+            nomes_js: self.js_names.clone(),
         }
     }
 
-    fn estatisticas(&self) -> Estatisticas {
+    fn statistics(&self) -> Estatisticas {
         let p = self.e.program;
-        let mut est = Estatisticas::default();
+        let mut stats = Estatisticas::default();
         for (i, c) in p.classes.iter().enumerate() {
             if p.library(c.library).is_sdk {
                 continue;
             }
-            est.classes_usuario += 1;
+            stats.classes_usuario += 1;
             match self.classes[i] {
-                NivelClasse::Instanciada => est.classes_instanciadas += 1,
-                NivelClasse::Tipo => est.classes_tipo += 1,
+                NivelClasse::Instanciada => stats.classes_instanciadas += 1,
+                NivelClasse::Tipo => stats.classes_tipo += 1,
                 NivelClasse::Morta => {}
             }
         }
@@ -1508,28 +1520,28 @@ impl<'a> Motor<'a> {
             if p.library(f.library).is_sdk {
                 continue;
             }
-            est.funcoes_usuario += 1;
-            if self.f_vivo[i] {
-                est.funcoes_vivas += 1;
+            stats.funcoes_usuario += 1;
+            if self.fn_live[i] {
+                stats.funcoes_vivas += 1;
             }
         }
-        est.variaveis_vivas = self.v_vivo.iter().filter(|v| **v).count();
-        est.seletores = self.sel.len();
-        est.seletores_restritos = self.sel_cone.len();
-        est
+        stats.variaveis_vivas = self.var_live.iter().filter(|v| **v).count();
+        stats.seletores = self.sel.len();
+        stats.seletores_restritos = self.sel_cone.len();
+        stats
     }
 
-    fn finalizar(self) -> Mundo {
+    fn finish(self) -> Mundo {
         let p = self.e.program;
-        let mut est = Estatisticas::default();
+        let mut stats = Estatisticas::default();
         for (i, c) in p.classes.iter().enumerate() {
             if p.library(c.library).is_sdk {
                 continue;
             }
-            est.classes_usuario += 1;
+            stats.classes_usuario += 1;
             match self.classes[i] {
-                NivelClasse::Instanciada => est.classes_instanciadas += 1,
-                NivelClasse::Tipo => est.classes_tipo += 1,
+                NivelClasse::Instanciada => stats.classes_instanciadas += 1,
+                NivelClasse::Tipo => stats.classes_tipo += 1,
                 NivelClasse::Morta => {}
             }
         }
@@ -1537,15 +1549,15 @@ impl<'a> Motor<'a> {
             if p.library(f.library).is_sdk {
                 continue;
             }
-            est.funcoes_usuario += 1;
-            if self.f_vivo[i] {
-                est.funcoes_vivas += 1;
+            stats.funcoes_usuario += 1;
+            if self.fn_live[i] {
+                stats.funcoes_vivas += 1;
             }
         }
-        est.variaveis_vivas = self.v_vivo.iter().filter(|v| **v).count();
-        est.seletores = self.sel.len();
-        est.seletores_restritos = self.sel_cone.len();
-        est.itens_processados = self.itens;
+        stats.variaveis_vivas = self.var_live.iter().filter(|v| **v).count();
+        stats.seletores = self.sel.len();
+        stats.seletores_restritos = self.sel_cone.len();
+        stats.itens_processados = self.items;
         let mut sel_cone: HashMap<String, Vec<ClassId>> = HashMap::new();
         for (n, cs) in self.sel_cone {
             let mut v: Vec<ClassId> = cs.into_iter().collect();
@@ -1554,46 +1566,46 @@ impl<'a> Motor<'a> {
         }
         Mundo {
             classes: self.classes,
-            funcoes: self.f_vivo,
-            variaveis: self.v_vivo,
+            functions: self.fn_live,
+            variables: self.var_live,
             tearoffs: self.tearoff,
-            seletores: self.sel,
+            selectors: self.sel,
             sel_cone,
-            causa_fn: self.causa_fn,
-            causa_classe: self.causa_classe,
-            causa_var: self.causa_var,
-            estat: est,
-            incluir_sdk: self.incluir_sdk,
+            cause_fn: self.cause_fn,
+            cause_class: self.cause_class,
+            cause_var: self.cause_var,
+            estat: stats,
+            incluir_sdk: self.include_sdk,
             hier: self.hier,
             inst_sub: self.inst_sub,
-            nomes_js: self.nomes_js,
+            nomes_js: self.js_names,
         }
     }
 
-    // ------------------------------------------------------------ resolução por nome
+    // ------------------------------------------------------------ resolution by name
 
-    /// Construtor `nome` da classe `c` (`""`/`new` é o sem nome).
-    pub(crate) fn construtor(&self, c: ClassId, nome: &str) -> Option<FunctionElementId> {
-        let n = if nome == "new" { "" } else { nome };
+    /// Constructor `name` of class `c` (`""`/`new` is the unnamed one).
+    pub(crate) fn constructor(&self, c: ClassId, name: &str) -> Option<FunctionElementId> {
+        let n = if name == "new" { "" } else { name };
         let sym = self.e.interner.lookup(n)?;
         self.e.program.class(c).constructors.get(&sym).copied()
     }
 
-    /// Construtor chamado por `super.nome(..)` a partir de `k`: sobe as
-    /// aplicações de mixin sintéticas até achar quem o declara.
-    pub(crate) fn construtor_super(&self, k: ClassId, nome: &str) -> Option<FunctionElementId> {
+    /// Constructor called by `super.name(..)` from `k`: climbs the synthetic
+    /// mixin applications until it finds the one that declares it.
+    pub(crate) fn super_constructor(&self, k: ClassId, name: &str) -> Option<FunctionElementId> {
         let p = self.e.program;
         let mut cur = p.class(k).supertype_class;
         let mut n = 0;
         while let Some(s) = cur {
-            if let Some(f) = self.construtor(s, nome) {
+            if let Some(f) = self.constructor(s, name) {
                 return Some(f);
             }
-            // Aplicação de mixin (sintética ou `class C = S with M`) e classe
-            // abstrata sem construtor: o emissor escreve um `new` que só
-            // repassa para a superclasse (`emit_super_call_default`).
-            let sem_ctor = p.class(s).constructors.is_empty();
-            if (p.class(s).decl.is_some() && !sem_ctor) || n > 32 {
+            // A mixin application (synthetic or `class C = S with M`) and an
+            // abstract class without a constructor: the emitter writes a `new`
+            // that only forwards to the superclass (`emit_super_call_default`).
+            let no_ctor = p.class(s).constructors.is_empty();
+            if (p.class(s).decl.is_some() && !no_ctor) || n > 32 {
                 return None;
             }
             cur = p.class(s).supertype_class;
@@ -1602,71 +1614,71 @@ impl<'a> Motor<'a> {
         None
     }
 
-    /// Todas as ligações de `nome` visíveis sem prefixo em `lib`, mais os
-    /// estáticos da classe e da extensão envolventes.
-    pub(crate) fn usar_nome(&mut self, ctx: &impacto::Contexto, nome: SymbolId) {
+    /// Every binding of `name` visible without a prefix in `lib`, plus the
+    /// statics of the enclosing class and extension.
+    pub(crate) fn use_name(&mut self, ctx: &impacto::Context, name: SymbolId) {
         let p = self.e.program;
-        let texto = self.nome(nome);
-        let setter = self.e.interner.lookup(&format!("{texto}_="));
-        if let Some(c) = ctx.classe {
+        let text = self.name(name);
+        let setter = self.e.interner.lookup(&format!("{text}_="));
+        if let Some(c) = ctx.class {
             let class = p.class(c);
             let mut fs: Vec<FunctionElementId> = Vec::new();
-            fs.extend(class.static_members.get(&nome).copied());
+            fs.extend(class.static_members.get(&name).copied());
             if let Some(s) = setter {
                 fs.extend(class.static_members.get(&s).copied());
             }
             for f in fs {
-                self.usar_funcao(f);
+                self.use_function(f);
             }
         }
-        if let Some(x) = ctx.extensao {
-            self.usar_estatico_de_extensao(x, nome);
+        if let Some(x) = ctx.extension {
+            self.use_extension_static(x, name);
         }
-        if let Some(b) = p.lookup(ctx.biblioteca, nome) {
+        if let Some(b) = p.lookup(ctx.library, name) {
             for el in [b.getter, b.setter].into_iter().flatten() {
-                self.usar_elemento(el);
+                self.use_element(el);
             }
         }
     }
 
-    /// `Ext.nome` / `nome` dentro da extensão: membro estático ou campo
-    /// estático (os campos de extensão não têm acessor no modelo de elementos,
-    /// só `ExtensionElement::fields`).
-    pub(crate) fn usar_estatico_de_extensao(&mut self, x: dartforge_elements::model::ExtensionId, nome: SymbolId) {
+    /// `Ext.name` / `name` inside the extension: a static member or a static
+    /// field (extension fields have no accessor in the element model, only
+    /// `ExtensionElement::fields`).
+    pub(crate) fn use_extension_static(&mut self, x: dartforge_elements::model::ExtensionId, name: SymbolId) {
         let p = self.e.program;
         let ext = p.extension(x);
-        let setter = self.e.interner.lookup(&format!("{}_=", self.nome(nome)));
+        let setter = self.e.interner.lookup(&format!("{}_=", self.name(name)));
         let mut fs: Vec<FunctionElementId> = Vec::new();
-        fs.extend(ext.static_members.get(&nome).copied());
+        fs.extend(ext.static_members.get(&name).copied());
         if let Some(s) = setter {
             fs.extend(ext.static_members.get(&s).copied());
         }
         for f in fs {
-            self.usar_funcao(f);
+            self.use_function(f);
         }
-        let vs: Vec<VariableId> = ext.fields.iter().copied().filter(|v| p.variable(*v).name == nome).collect();
+        let vs: Vec<VariableId> = ext.fields.iter().copied().filter(|v| p.variable(*v).name == name).collect();
         for v in vs {
-            self.usar_variavel(v);
+            self.use_variable(v);
         }
     }
 
-    pub(crate) fn usar_elemento(&mut self, el: Element) {
+    pub(crate) fn use_element(&mut self, el: Element) {
         match el {
-            Element::Class(c) => self.marcar_tipo(c),
+            Element::Class(c) => self.mark_type(c),
             Element::Extension(_) | Element::Prefix(..) => {}
             Element::Typedef(t) => {
                 if let Some(td) = self.e.outline.typedefs.get(t.0 as usize) {
                     let tt = td.target_type;
-                    self.tipo_de(tt);
+                    self.visit_type(tt);
                 }
             }
-            Element::Function(f) => self.usar_funcao(f),
-            Element::Variable(v) => self.usar_variavel(v),
+            Element::Function(f) => self.use_function(f),
+            Element::Variable(v) => self.use_variable(v),
         }
     }
 
-    /// Nó da AST de uma variável (inicializador), para o impacto.
-    pub(crate) fn no_da_variavel(&self, v: VariableId) -> Option<(dartforge_elements::model::UnitId, Option<ast::ExprId>)> {
+    /// AST node of a variable (its initializer), for the impact.
+    pub(crate) fn variable_node(&self, v: VariableId) -> Option<(dartforge_elements::model::UnitId, Option<ast::ExprId>)> {
         let p = self.e.program;
         match p.variable(v).node {
             VariableRef::TopLevel { unit, decl, index } => match &p.unit(unit).ast.decl(decl).kind {
@@ -1681,7 +1693,7 @@ impl<'a> Motor<'a> {
         }
     }
 
-    pub(crate) fn no_da_funcao(&self, f: FunctionElementId) -> FunctionRef {
+    pub(crate) fn function_node(&self, f: FunctionElementId) -> FunctionRef {
         self.e.program.function(f).node
     }
 }

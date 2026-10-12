@@ -1,4 +1,4 @@
-// Casos do mundo fechado (crates/world/tests/mundo.rs).
+// Closed-world cases (crates/world/tests/world.rs).
 
 abstract class I {
   void f();
@@ -80,7 +80,7 @@ class Tear {
   Tear();
 }
 
-// Espécie de seletor: leitura (`v`) e escrita (`v=`) são independentes.
+// Selector kind: read (`v`) and write (`v=`) are independent.
 class SoLeitura {
   int _v = 0;
   int get v => _v;
@@ -105,8 +105,8 @@ class ConstMorta {
   const ConstMorta();
 }
 
-// Restrição pelo tipo do receptor: `toca` chamado só em `Sopro` mantém
-// `toca` em `Sopro` e nas subclasses, mas não em `Flauta` (disjunta).
+// Restriction by receiver type: `toca` called only on `Sopro` keeps
+// `toca` in `Sopro` and its subclasses, but not in `Flauta` (disjoint).
 class Sopro {
   void toca() => print('Sopro.toca');
 }

@@ -1,0 +1,143 @@
+//! The closed world over a real program (`tests/programs/cases.dart`), with
+//! assertions by element name. Compiles against the SDK: `--ignored`.
+
+use dartforge_elements::model::{ClassId, Element, FunctionElementId, Program, VariableId};
+use dartforge_intern::Interner;
+use dartforge_world::{Entrada, Mundo, NivelClasse, Raizes, calcular, conferir};
+use std::path::Path;
+
+struct Case<'a> {
+    p: &'a Program,
+    i: &'a Interner,
+    m: &'a Mundo,
+}
+
+impl Case<'_> {
+    fn class(&self, name: &str) -> ClassId {
+        (0..self.p.classes.len())
+            .map(|i| ClassId(i as u32))
+            .find(|c| !self.p.library(self.p.class(*c).library).is_sdk && self.i.resolve(self.p.class(*c).name) == name)
+            .unwrap_or_else(|| panic!("class {name}"))
+    }
+    /// `C.m` (class member), `ext:m` (extension member) or `m` (top-level).
+    fn function(&self, name: &str) -> FunctionElementId {
+        let (class, member) = match name.split_once('.') {
+            Some((c, m)) => (Some(self.class(c)), m),
+            None => (None, name),
+        };
+        let ext = member.strip_prefix("ext:");
+        let member = ext.unwrap_or(member);
+        (0..self.p.functions.len())
+            .map(|i| FunctionElementId(i as u32))
+            .find(|f| {
+                let func = self.p.function(*f);
+                !self.p.library(func.library).is_sdk
+                    && self.i.resolve(func.name) == member
+                    && func.class == class
+                    && func.extension.is_some() == ext.is_some()
+            })
+            .unwrap_or_else(|| panic!("function {name}"))
+    }
+    fn variable(&self, name: &str) -> VariableId {
+        (0..self.p.variables.len())
+            .map(|i| VariableId(i as u32))
+            .find(|v| !self.p.library(self.p.variable(*v).library).is_sdk && self.i.resolve(self.p.variable(*v).name) == name)
+            .unwrap_or_else(|| panic!("variable {name}"))
+    }
+    fn live(&self, name: &str) -> bool {
+        self.m.funcao(self.function(name))
+    }
+    /// `C.m` by kind: `write` picks the setter (`set m`), otherwise the
+    /// getter/method. Tells them apart by `FunctionKind`, because both are
+    /// named `m`.
+    fn live_kind(&self, name: &str, write: bool) -> bool {
+        use dartforge_elements::model::FunctionKind;
+        let (class, member) = match name.split_once('.') {
+            Some((c, m)) => (Some(self.class(c)), m),
+            None => (None, name),
+        };
+        let f = (0..self.p.functions.len())
+            .map(|i| FunctionElementId(i as u32))
+            .find(|f| {
+                let func = self.p.function(*f);
+                !self.p.library(func.library).is_sdk
+                    && self.i.resolve(func.name) == member
+                    && func.class == class
+                    && matches!(func.kind, FunctionKind::Setter) == write
+            })
+            .unwrap_or_else(|| panic!("function {name} (write={write})"));
+        self.m.funcao(f)
+    }
+    fn level(&self, name: &str) -> NivelClasse {
+        self.m.classe(self.class(name))
+    }
+}
+
+#[test]
+#[ignore = "compiles against the SDK; run with --ignored"]
+fn closed_world_cases() {
+    let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/programs/cases.dart");
+    let (r, _) = dartforge_emit_js::compilar_com(&file, None, None, &Default::default(), |a| {
+        let e = Entrada { program: a.program, interner: a.interner, table: a.table, outline: a.outline, bodies: a.bodies };
+        let mut roots = Raizes::default();
+        let lib = a.program.entry.expect("entry library");
+        let main = a.interner.lookup("main").unwrap();
+        let Some(Element::Function(f)) = a.program.library(lib).declared.get(&main).and_then(|b| b.getter) else { panic!("main") };
+        roots.funcoes.push(f);
+        roots.seletores.push("toJson".into());
+        let m = calcular(e, &roots);
+        let c = Case { p: a.program, i: a.interner, m: &m };
+        let mut errors: Vec<String> = Vec::new();
+        let mut check = |cond: bool, o: &str| {
+            if !cond {
+                errors.push(o.to_string());
+            }
+        };
+        // dynamic by name, in every instantiated class
+        check(c.live("A.f") && c.live("B.f"), "A.f and B.f live (dynamic d.f())");
+        check(!c.live("A.g") && !c.live("A.morto"), "A.g and A.morto dead");
+        check(c.level("NaoInstanciada") == NivelClasse::Morta && !c.live("NaoInstanciada.f"), "non-instantiated class dead even with a live selector");
+        check(c.level("SoTipo") == NivelClasse::Tipo, "class only in `is` is Tipo");
+        check(c.level("I") == NivelClasse::Tipo, "implemented interface is Tipo");
+        // SDK and Object protocol
+        check(c.live("Comp.compareTo"), "compareTo live through Comparable (rule i)");
+        check(c.live("Comp.toString"), "toString live (rule ii)");
+        check(!c.live("Comp.naoUsado"), "Comp.naoUsado dead");
+        check(c.live("Nsm.noSuchMethod"), "noSuchMethod live");
+        // super, mixin
+        check(c.live("Base.s") && c.level("Base") == NivelClasse::Instanciada, "Base.s live through the chain");
+        check(c.live("M.doMixin") && !c.live("M.mixinMorto"), "mixin member by selector");
+        // statics and top-level
+        check(c.live("Estat.usado") && !c.live("Estat.naoUsado"), "used static live, the other dead");
+        check(c.m.variavel(c.variable("contador")), "static read/written live");
+        check(c.live("topoUsado") && !c.live("topoMorto") && !c.live("topoMorto2"), "top-level functions");
+        check(!c.m.variavel(c.variable("preguicoso")), "unread top-level variable dead");
+        check(c.level("Cor") == NivelClasse::Instanciada, "used enum instantiated");
+        // extension
+        check(c.live("ext:grita") && !c.live("ext:cala"), "extension members by name");
+        // constructors
+        check(c.level("Fab") == NivelClasse::Instanciada && c.live("Fab._"), "redirecting factory instantiates the target");
+        check(c.m.tearoff_de_construtor(c.function("Tear.")), "constructor tearoff");
+        check(c.level("ConstUsada") == NivelClasse::Instanciada && c.level("ConstMorta") == NivelClasse::Morta, "used and unused const");
+        check(c.level("Json") == NivelClasse::Morta, "unreferenced class dead");
+        // selector kind: read and write are independent
+        check(c.live_kind("SoLeitura.v", false) && !c.live_kind("SoLeitura.v", true), "read getter lives, never-written setter dies");
+        check(c.live_kind("SoEscrita.w", true) && !c.live_kind("SoEscrita.w", false), "written setter lives, never-read getter dies");
+        // restriction by receiver type: `toca` on `Sopro` does not keep `Flauta`'s `toca`
+        check(c.live("Sopro.toca") && c.live("Gaita.toca"), "toca live in the receiver's cone (base and subclass)");
+        check(!c.live("Flauta.toca") && !c.live("Flauta.assobia"), "toca/assobia dead in the disjoint instantiated class");
+        check(c.level("Flauta") == NivelClasse::Instanciada, "Flauta instantiated even with its members pruned");
+        // dry-run check and determinism
+        let inc = conferir(e, &roots, &m);
+        check(inc.is_empty(), &format!("consistency check: {inc:?}"));
+        let mut perm = roots.clone();
+        perm.seletores.insert(0, "toJson".into());
+        let m2 = calcular(e, &perm);
+        let same = (0..a.program.functions.len()).all(|i| m.funcao(FunctionElementId(i as u32)) == m2.funcao(FunctionElementId(i as u32)))
+            && (0..a.program.classes.len()).all(|i| m.classe(ClassId(i as u32)) == m2.classe(ClassId(i as u32)));
+        check(same, "determinism");
+        Ok(errors)
+    })
+    .expect("compilation");
+    assert!(r.is_empty(), "failures:\n{}", r.join("\n"));
+}
