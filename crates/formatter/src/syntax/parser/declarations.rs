@@ -7,10 +7,10 @@
 
 use dartforge_frontend::token::{Keyword, Op};
 
-use super::super::arvore::{No, NoId};
+use super::super::tree::{No, NoId};
 use super::super::token::{TipoToken, Tk};
-use super::olhar::Forma;
-use super::tipos::Membro;
+use super::lookahead::Forma;
+use super::types::Membro;
 use super::{Parser, R};
 
 /// `DirectiveState` do fasta.
@@ -1510,7 +1510,7 @@ impl Parser<'_> {
     fn campos(
         &mut self,
         m: &Mods,
-        ti: super::olhar::InfoTipo,
+        ti: super::lookahead::InfoTipo,
         nome_classe: Option<&str>,
     ) -> R<NoId> {
         if let Some(c) = m.covariant
@@ -1718,7 +1718,7 @@ impl Parser<'_> {
         ini: usize,
         metadata: Vec<NoId>,
         m: Mods,
-        ti: super::olhar::InfoTipo,
+        ti: super::lookahead::InfoTipo,
         get_set: Option<usize>,
         nome: usize,
         corpo: Corpo,
@@ -2048,7 +2048,7 @@ impl Parser<'_> {
         let r = self.precedencia(
             super::prec::ATRIBUICAO,
             true,
-            super::expressoes::CtxConst::Nenhum,
+            super::expressions::CtxConst::Nenhum,
         );
         self.sair();
         let r = r?;

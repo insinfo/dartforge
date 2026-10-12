@@ -5,11 +5,11 @@
 
 use dartforge_frontend::token::{Keyword, Op};
 
-use super::super::arvore::{No, NoId};
+use super::super::tree::{No, NoId};
 use super::super::token::{TipoToken, Tk};
-use super::olhar::InfoTipo;
-use super::padroes::CtxPadrao;
-use super::tipos::Membro;
+use super::lookahead::InfoTipo;
+use super::patterns::CtxPadrao;
+use super::types::Membro;
 use super::{Assinc, Laco, Parser, R};
 
 /// Início de uma declaração local: metadata e modificadores já lidos.

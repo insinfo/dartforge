@@ -32,7 +32,7 @@
 //! * `>` sempre chega isolado do lexer, então `<` … `>` de tipos nunca precisa
 //!   de retrocesso; `in_type_args` é incrementado durante a leitura para que
 //!   expressões dentro de metadata não componham `>>`.
-use super::modificadores::{DonoDeParametros, Fichas};
+use super::modifiers::{DonoDeParametros, Fichas};
 use super::{MAX_DEPTH, PResult, Parser};
 use crate::ast::{
     Annotation, Name, Parameter, ParameterKind, TypeAnnotation, TypeId, TypeKind, TypeParameter,

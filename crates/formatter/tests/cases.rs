@@ -9,9 +9,9 @@ use dartforge_formatter::{Opcoes, formatar};
 
 #[test]
 fn casos_iguais_ao_dart_format() {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/casos");
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/cases");
     let mut nomes: Vec<_> = std::fs::read_dir(&dir)
-        .expect("tests/casos")
+        .expect("tests/cases")
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| p.extension().is_some_and(|e| e == "dart"))
         .collect();
@@ -20,7 +20,7 @@ fn casos_iguais_ao_dart_format() {
     let mut falhas = Vec::new();
     for p in &nomes {
         let fonte = std::fs::read_to_string(p).expect("caso");
-        let esperado = std::fs::read_to_string(p.with_extension("esperado")).expect("esperado");
+        let esperado = std::fs::read_to_string(p.with_extension("expected")).expect("esperado");
         match formatar(&fonte, &Opcoes::default()) {
             Ok(saida) if saida == esperado => {}
             Ok(saida) => {

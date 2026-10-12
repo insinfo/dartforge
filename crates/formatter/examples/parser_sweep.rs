@@ -6,18 +6,18 @@
 //! ```
 //!
 //! Para cada arquivo, roda [`analisar`] e, se a análise teve sucesso, a
-//! conferência de cobertura de tokens ([`verificar::conferir`]). Imprime a
+//! conferência de cobertura de tokens ([`verify::conferir`]). Imprime a
 //! contagem de arquivos aceitos, recusados e com falha de cobertura, e o
 //! tempo total. Com `--lista`, os caminhos vêm da entrada padrão, um por
 //! linha. Com `--despejar`, escreve na saída padrão, para cada arquivo,
 //! `### caminho` seguido de `ERR <mensagem>` ou do despejo da árvore
-//! ([`verificar::despejar`]), no formato do oráculo do analyzer.
+//! ([`verify::despejar`]), no formato do oráculo do analyzer.
 
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use dartforge_formatter::sintaxe::parser::{analisar, verificar};
+use dartforge_formatter::syntax::parser::{analisar, verify};
 
 fn coletar(caminho: &Path, saida: &mut Vec<PathBuf>) {
     if caminho.is_dir() {
@@ -72,12 +72,12 @@ fn main() {
         match r {
             Ok((tokens, arvore)) => {
                 ok += 1;
-                if let Err(e) = verificar::conferir(&tokens, &arvore, &fonte) {
+                if let Err(e) = verify::conferir(&tokens, &arvore, &fonte) {
                     falhas += 1;
                     eprintln!("COBERTURA {}: {e}", p.display());
                 }
                 if despejar {
-                    let _ = write!(saida, "{}", verificar::despejar(&tokens, &arvore));
+                    let _ = write!(saida, "{}", verify::despejar(&tokens, &arvore));
                 }
             }
             Err(e) => {

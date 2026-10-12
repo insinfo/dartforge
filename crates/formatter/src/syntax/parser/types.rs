@@ -8,7 +8,7 @@
 
 use dartforge_frontend::token::{Keyword, Op};
 
-use super::super::arvore::{No, NoId, TipoParametro};
+use super::super::tree::{No, NoId, TipoParametro};
 use super::{Parser, R};
 
 /// Contexto da lista de parâmetros (`MemberKind` do fasta), no grão que

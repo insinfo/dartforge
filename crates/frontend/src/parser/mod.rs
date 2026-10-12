@@ -30,7 +30,7 @@
 //!   seguintes, e aceitar todo programa válido é o critério de aceite aqui.
 pub mod declarations;
 pub(crate) mod fasta;
-pub(crate) mod modificadores;
+pub(crate) mod modifiers;
 pub mod expressions;
 pub mod patterns;
 pub mod statements;
@@ -293,7 +293,7 @@ pub fn parse_lexed_com(
     };
     let mut do_scanner = erros_recuperaveis_do_scanner(source, &tokens);
     // Os fechos que faltam (e o erro de cada um), como o scanner do fasta.
-    let (tokens, de_grupo, mut fechos) = crate::agrupamento::agrupar(source, tokens);
+    let (tokens, de_grupo, mut fechos) = crate::grouping::agrupar(source, tokens);
     for f in &mut fechos {
         f.erro += do_scanner.len();
     }
@@ -394,9 +394,9 @@ pub struct Parser<'s, 'i> {
     /// as tentativas especulativas as desfazem ao recuar
     /// ([`Parser::desfazer_emendas`]).
     pub(crate) emendas: Vec<Emenda>,
-    /// Os fechos sintéticos do scanner ([`crate::agrupamento::agrupar`]);
+    /// Os fechos sintéticos do scanner ([`crate::grouping::agrupar`]);
     /// o `erro` de cada um é o índice em `diagnostics`.
-    pub(crate) fechos_sinteticos: Vec<crate::agrupamento::FechoSintetico>,
+    pub(crate) fechos_sinteticos: Vec<crate::grouping::FechoSintetico>,
     /// Numa tentativa de `operador_por_extenso` (o `_currentlyRecovering` do
     /// fasta): não se tenta outra dentro dela.
     pub(crate) recuperando_operador: bool,
@@ -406,7 +406,7 @@ pub struct Parser<'s, 'i> {
     /// O dono da próxima lista de parâmetros formais (o `MemberKind` do
     /// fasta), posto por quem a lê logo antes; a lista o consome (as listas
     /// aninhadas, de parâmetro-função, são `Outro`).
-    pub(crate) params_de: modificadores::DonoDeParametros,
+    pub(crate) params_de: modifiers::DonoDeParametros,
     /// O nome da declaração cujo membro está sendo lido (`None` no topo):
     /// campo, getter ou setter com ele é `MEMBER_WITH_CLASS_NAME`.
     pub(crate) nome_envolvente: Option<&'s str>,
@@ -500,7 +500,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             fechos_sinteticos: Vec::new(),
             recuperando_operador: false,
             dono: DonoDeMembros::Classe,
-            params_de: modificadores::DonoDeParametros::Outro,
+            params_de: modifiers::DonoDeParametros::Outro,
             nome_envolvente: None,
             contexto_padrao: patterns::ContextoDePadrao::Correspondencia,
             estado_diretivas: EstadoDiretivas::Nenhum,

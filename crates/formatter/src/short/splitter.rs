@@ -9,7 +9,7 @@
 use std::collections::HashSet;
 
 use super::arena::{Arenas, ChunkId, DEVE_QUEBRAR, NAO_QUEBRA, RegraId, recuo};
-use super::escritor::{CacheDeBlocos, formatar_bloco};
+use super::writer::{CacheDeBlocos, formatar_bloco};
 
 const MAX_TENTATIVAS: usize = 5000;
 

@@ -11,9 +11,9 @@
 //! para `visitBinaryExpression`), para que cada regra possa ser conferida
 //! contra o fonte do `dart_style`.
 pub mod arena;
-pub mod argumentos;
-pub mod cadeia;
-pub mod construtor;
-pub mod divisor;
-pub mod escritor;
-pub mod visitante;
+pub mod arguments;
+pub mod chain;
+pub mod builder;
+pub mod splitter;
+pub mod writer;
+pub mod visitor;

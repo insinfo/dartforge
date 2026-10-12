@@ -11,7 +11,7 @@
 //! permitidas pelo original (`>>` por `>` `>`, `[]` por `[` `]`) dão a mesma
 //! faixa de brancos.
 
-use crate::sintaxe::token::{TipoToken, Tokens};
+use crate::syntax::token::{TipoToken, Tokens};
 use dartforge_frontend::token::Op;
 
 /// Uma edição: substituir `fonte[inicio..fim]` (bytes do original) por `texto`.

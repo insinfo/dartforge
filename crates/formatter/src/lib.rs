@@ -13,13 +13,13 @@
 //! let saida = formatar("main(){print( 'oi' );}", &Opcoes::default()).unwrap();
 //! assert_eq!(saida, "main() {\n  print('oi');\n}\n");
 //! ```
-pub mod curto;
+pub mod short;
 pub mod edicoes;
-pub mod sintaxe;
+pub mod syntax;
 
-use curto::escritor::{CacheDeBlocos, EscritorDeLinhas};
-use curto::visitante::Visitante;
-pub use sintaxe::token::ErroSintaxe;
+use short::writer::{CacheDeBlocos, EscritorDeLinhas};
+use short::visitor::Visitante;
+pub use syntax::token::ErroSintaxe;
 
 /// Opções do formatador (`DartFormatter`).
 #[derive(Debug, Clone)]
@@ -74,7 +74,7 @@ impl std::error::Error for ErroFormatacao {}
 /// [`ErroFormatacao::SaidaInesperada`] se a saída não for igual à entrada a
 /// menos de espaços (a mesma checagem de sanidade do `dart_style`).
 pub fn formatar(fonte: &str, opcoes: &Opcoes) -> Result<String, ErroFormatacao> {
-    let (tokens, arvore) = sintaxe::parser::analisar(fonte).map_err(ErroFormatacao::Sintaxe)?;
+    let (tokens, arvore) = syntax::parser::analisar(fonte).map_err(ErroFormatacao::Sintaxe)?;
     let fim_de_linha = opcoes.fim_de_linha.clone().unwrap_or_else(|| inferir_fim_de_linha(fonte));
     let raiz = arvore.raiz.expect("unidade de compilação");
     let visitante = Visitante::novo(fonte, &tokens, &arvore, opcoes.largura, opcoes.recuo as i32, fim_de_linha);
@@ -92,7 +92,7 @@ pub fn formatar(fonte: &str, opcoes: &Opcoes) -> Result<String, ErroFormatacao> 
 
 /// `\r\n` se a primeira quebra de linha da fonte for `\r\n`; senão `\n`.
 fn inferir_fim_de_linha(fonte: &str) -> String {
-    let info = curto::visitante::InfoLinhas::de(fonte);
+    let info = short::visitor::InfoLinhas::de(fonte);
     let inicios = info.inicios();
     if inicios.len() > 1 && inicios[1] >= 2 && fonte.as_bytes()[inicios[1] - 2] == b'\r' {
         "\r\n".into()

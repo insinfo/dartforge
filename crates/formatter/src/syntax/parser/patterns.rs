@@ -4,10 +4,10 @@
 
 use dartforge_frontend::token::{Keyword, Op};
 
-use super::super::arvore::{No, NoId};
+use super::super::tree::{No, NoId};
 use super::super::token::{TipoToken, Tk};
-use super::expressoes::CtxConst;
-use super::olhar::{Forma, InfoTipo};
+use super::expressions::CtxConst;
+use super::lookahead::{Forma, InfoTipo};
 use super::{Parser, R};
 
 /// `PatternContext` do fasta.

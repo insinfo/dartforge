@@ -32,17 +32,17 @@
 //! resolução vira [`ErroSintaxe`]; o formatador recusa o arquivo, como o
 //! `dart format`. Não há recuperação de erros.
 
-mod declaracoes;
-mod expressoes;
-mod instrucoes;
-mod olhar;
-mod padroes;
-mod tipos;
-pub mod verificar;
+mod declarations;
+mod expressions;
+mod statements;
+mod lookahead;
+mod patterns;
+mod types;
+pub mod verify;
 
 use dartforge_frontend::token::{Keyword, Op};
 
-use super::arvore::{Arvore, No, NoId};
+use super::tree::{Arvore, No, NoId};
 use super::token::{ErroSintaxe, TipoToken, Tk, Token, Tokens};
 
 /// Resultado das funções do parser.
@@ -121,8 +121,8 @@ impl Default for OpcoesAnalise {
 /// Lê `fonte` inteira como unidade de compilação, na versão 3.6 da linguagem.
 ///
 /// ```
-/// use dartforge_formatter::sintaxe::arvore::No;
-/// use dartforge_formatter::sintaxe::parser::analisar;
+/// use dartforge_formatter::syntax::tree::No;
+/// use dartforge_formatter::syntax::parser::analisar;
 /// let (_tokens, arvore) = analisar("main() => a.b();").unwrap();
 /// let raiz = arvore.raiz.unwrap();
 /// assert!(matches!(arvore.no(raiz), No::CompilationUnit { .. }));
@@ -137,7 +137,7 @@ pub fn analisar(fonte: &str) -> Result<(Tokens, Arvore), ErroSintaxe> {
 /// Como [`analisar`], com a versão da linguagem explícita.
 ///
 /// ```
-/// use dartforge_formatter::sintaxe::parser::{analisar_com, OpcoesAnalise};
+/// use dartforge_formatter::syntax::parser::{analisar_com, OpcoesAnalise};
 /// let fonte = "f(x) { switch (x) { case 1: break; } }";
 /// assert!(analisar_com(fonte, OpcoesAnalise { versao: (2, 19) }).is_ok());
 /// ```
@@ -246,7 +246,7 @@ fn aplicar_fusoes(toks: &mut Tokens, arv: &mut Arvore, fusoes: &[(usize, Fusao)]
     for d in &mut arv.nos {
         d.inicio = novo[d.inicio as usize];
         d.fim = novo[d.fim as usize];
-        verificar::tokens_mut(&mut d.no, &mut |t| mapa(t));
+        verify::tokens_mut(&mut d.no, &mut |t| mapa(t));
     }
 }
 

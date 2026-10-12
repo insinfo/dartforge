@@ -13,7 +13,7 @@
 
 use dartforge_frontend::token::Op;
 
-use super::super::arvore::{Arvore, No, NoId, TipoParametro};
+use super::super::tree::{Arvore, No, NoId, TipoParametro};
 use super::super::token::{TipoToken, Tk, Tokens};
 
 /// Chama `f` para cada campo de token de `no` (mutável), na ordem dos

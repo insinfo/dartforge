@@ -4,9 +4,9 @@
 //! das chamadas com argumentos em bloco e da chamada pendurada final.
 
 use super::arena::{RegraId, custo};
-use super::argumentos::ArgumentListVisitor;
-use super::visitante::Visitante;
-use crate::sintaxe::arvore::{No, NoId};
+use super::arguments::ArgumentListVisitor;
+use super::visitor::Visitante;
+use crate::syntax::tree::{No, NoId};
 
 /// Tipo de seletor (`_MethodSelector`, `_PrefixedSelector`,
 /// `_PropertySelector`).

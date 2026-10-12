@@ -3,9 +3,9 @@
 //! (funções com corpo `{}`, coleções e strings de várias linhas).
 
 use super::arena::{ChunkId, RegraId, custo};
-use super::visitante::Visitante;
-use crate::sintaxe::arvore::{No, NoId};
-use crate::sintaxe::token::Tk;
+use super::visitor::Visitante;
+use crate::syntax::tree::{No, NoId};
+use crate::syntax::token::Tk;
 
 /// `ArgumentListVisitor`.
 pub struct ArgumentListVisitor {

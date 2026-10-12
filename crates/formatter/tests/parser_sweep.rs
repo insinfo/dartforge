@@ -6,14 +6,14 @@
 //! ```
 //!
 //! Confere, para todo arquivo aceito, a cobertura de tokens
-//! ([`verificar::conferir`]); exige que toda a `lib/` do SDK 3.6.2 (que o
+//! ([`verify::conferir`]); exige que toda a `lib/` do SDK 3.6.2 (que o
 //! `dart format` aceita por inteiro) seja aceita. A comparação nó a nó com o
 //! analyzer fica no exemplo `parser_varredura --despejar` mais o despejo do
 //! analyzer (ver o relatório da tarefa).
 
 use std::path::{Path, PathBuf};
 
-use dartforge_formatter::sintaxe::parser::{analisar, verificar};
+use dartforge_formatter::syntax::parser::{analisar, verify};
 
 fn coletar(caminho: &Path, saida: &mut Vec<PathBuf>) {
     if caminho.is_dir() {
@@ -46,7 +46,7 @@ fn varrer(raiz: &Path) -> (usize, Vec<String>, Vec<String>) {
         match analisar(&fonte) {
             Ok((t, a)) => {
                 ok += 1;
-                if let Err(e) = verificar::conferir(&t, &a, &fonte) {
+                if let Err(e) = verify::conferir(&t, &a, &fonte) {
                     falhas.push(format!("{}: {e}", p.display()));
                 }
             }

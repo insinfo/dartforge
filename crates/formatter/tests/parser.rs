@@ -2,14 +2,14 @@
 //! nos casos em que o `dart_style` as distingue, a cobertura de tokens e os
 //! erros que o analyzer relata como sintáticos.
 
-use dartforge_formatter::sintaxe::arvore::{Arvore, No, NoId};
-use dartforge_formatter::sintaxe::parser::{OpcoesAnalise, analisar, analisar_com, verificar};
-use dartforge_formatter::sintaxe::token::Tokens;
+use dartforge_formatter::syntax::tree::{Arvore, No, NoId};
+use dartforge_formatter::syntax::parser::{OpcoesAnalise, analisar, analisar_com, verify};
+use dartforge_formatter::syntax::token::Tokens;
 
 /// Analisa `fonte`, confere a cobertura e devolve tokens e árvore.
 fn ler(fonte: &str) -> (Tokens, Arvore) {
     let (t, a) = analisar(fonte).unwrap_or_else(|e| panic!("{fonte:?}: {e:?}"));
-    verificar::conferir(&t, &a, fonte).unwrap_or_else(|e| panic!("{fonte:?}: {e}"));
+    verify::conferir(&t, &a, fonte).unwrap_or_else(|e| panic!("{fonte:?}: {e}"));
     (t, a)
 }
 
@@ -29,7 +29,7 @@ fn render(fonte: &str, t: &Tokens, a: &Arvore, id: NoId) -> String {
     let mut filhos = Vec::new();
     a.no(id)
         .filhos(&mut |f| filhos.push(render(fonte, t, a, f)));
-    format!("{}({})", verificar::nome_do_no(a.no(id)), filhos.join(", "))
+    format!("{}({})", verify::nome_do_no(a.no(id)), filhos.join(", "))
 }
 
 /// A expressão de `f() { return <expr>; }`.
@@ -62,7 +62,7 @@ fn primeiro(fonte: &str, nome: &str) -> String {
     let i = a
         .nos
         .iter()
-        .position(|d| verificar::nome_do_no(&d.no) == nome)
+        .position(|d| verify::nome_do_no(&d.no) == nome)
         .unwrap_or_else(|| panic!("sem {nome} em {fonte:?}"));
     render(fonte, &t, &a, NoId(i as u32))
 }
@@ -742,7 +742,7 @@ fn versao_da_linguagem() {
     // Antes do 3.0, `case` lê uma expressão: `SwitchCase`.
     let fonte = "f(x) { switch (x) { case 1: break; } }";
     let (t, a) = analisar_com(fonte, OpcoesAnalise { versao: (2, 19) }).unwrap();
-    verificar::conferir(&t, &a, fonte).unwrap();
+    verify::conferir(&t, &a, fonte).unwrap();
     assert!(a.nos.iter().any(|d| matches!(d.no, No::SwitchCase { .. })));
     // O comentário `// @dart=` vence a versão pedida.
     let fonte = "// @dart=2.19\nf(x) { switch (x) { case 1: break; } }";
@@ -777,7 +777,7 @@ fn desempenho_arquivo_grande() {
     let inicio = std::time::Instant::now();
     let (t, a) = analisar(&fonte).unwrap();
     let tempo = inicio.elapsed();
-    verificar::conferir(&t, &a, &fonte).unwrap();
+    verify::conferir(&t, &a, &fonte).unwrap();
     // 10 mil linhas; o limite é folgado para o perfil de testes sem otimização.
     assert!(tempo.as_secs_f64() < 5.0, "{tempo:?}");
 }

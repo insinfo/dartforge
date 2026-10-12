@@ -13,10 +13,10 @@
 
 use dartforge_frontend::token::{Keyword, Op};
 
-use super::super::arvore::{No, NoId};
+use super::super::tree::{No, NoId};
 use super::super::token::{TipoToken, Tk};
-use super::padroes::CtxPadrao;
-use super::tipos::Membro;
+use super::patterns::CtxPadrao;
+use super::types::Membro;
 use super::{Assinc, Parser, R, prec};
 
 /// `ConstantPatternContext` do fasta.

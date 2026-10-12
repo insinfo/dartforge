@@ -44,7 +44,7 @@ use crate::ast::{
     Initializer, Member, MemberId, MemberKind, MixinDecl, Name, ParameterKind, RedirectTarget,
     TypeAnnotation, TypeId, TypeKind, TypedefDecl, TypedefKind, Variable, VariableList,
 };
-use super::modificadores::{DonoDeParametros, Fichas};
+use super::modifiers::{DonoDeParametros, Fichas};
 use crate::features::Feature;
 use crate::token::{Keyword, Kind, Op};
 use dartforge_diagnostics::{Diagnostic, Span, codigos};

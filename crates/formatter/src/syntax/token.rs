@@ -97,7 +97,7 @@ impl Tokens {
     /// Lê `fonte` em tokens.
     ///
     /// ```
-    /// use dartforge_formatter::sintaxe::token::{Tokens, TipoToken};
+    /// use dartforge_formatter::syntax::token::{Tokens, TipoToken};
     /// let t = Tokens::ler("a = 'x${b}y'; // fim\n").unwrap();
     /// let textos: Vec<_> = t.lista.iter().map(|k| &"a = 'x${b}y'; // fim\n"[k.inicio..k.fim]).collect();
     /// assert_eq!(textos, ["a", "=", "'x", "${", "b", "}", "y'", ";", ""]);

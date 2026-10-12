@@ -1,4 +1,4 @@
-//! A pilha de agrupamento do scanner do fasta (`abstract_scanner.dart`,
+//! A pilha de grouping do scanner do fasta (`abstract_scanner.dart`,
 //! `appendBeginGroup`, `appendEndGroup`, `discardBeginGroupUntil`,
 //! `insertSyntheticClosers`, `unmatchedBeginGroup`, `appendEofToken`),
 //! refeita sobre os tokens do nosso lexer: o fecho que falta vira um token

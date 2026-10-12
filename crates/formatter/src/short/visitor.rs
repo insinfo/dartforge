@@ -10,9 +10,9 @@
 use std::collections::{HashMap, HashSet};
 
 use super::arena::{Arenas, ChunkId, RegraId, custo, recuo};
-use super::construtor::{ComentarioFonte, Construtor, TipoComentario};
-use crate::sintaxe::arvore::{Arvore, No, NoId, TipoParametro};
-use crate::sintaxe::token::{TipoToken, Tk, Tokens};
+use super::builder::{ComentarioFonte, Construtor, TipoComentario};
+use crate::syntax::tree::{Arvore, No, NoId, TipoParametro};
+use crate::syntax::token::{TipoToken, Tk, Tokens};
 use dartforge_frontend::token::{Keyword, Op};
 
 /// Ação entre (ou antes/depois de) nós de uma lista, como as funções passadas
@@ -1081,7 +1081,7 @@ impl<'f> Visitante<'f> {
                     return;
                 }
                 self.nest_expression(None, false);
-                super::argumentos::ArgumentListVisitor::for_arguments(self, *left_parenthesis, *right_parenthesis, &args).visit(self);
+                super::arguments::ArgumentListVisitor::for_arguments(self, *left_parenthesis, *right_parenthesis, &args).visit(self);
                 self.unnest();
             }
             No::BlockFunctionBody { keyword, star, block } => {
@@ -1604,7 +1604,7 @@ impl<'f> Visitante<'f> {
                 if self.list_has_comma_after(&args) {
                     self.visit_collection_literal(*left_parenthesis, &args, *right_parenthesis, None, None, None, false, false);
                 } else {
-                    super::argumentos::ArgumentListVisitor::for_arguments(self, *left_parenthesis, *right_parenthesis, &args).visit(self);
+                    super::arguments::ArgumentListVisitor::for_arguments(self, *left_parenthesis, *right_parenthesis, &args).visit(self);
                 }
                 self.token(*semicolon);
                 self.unnest();
@@ -1827,7 +1827,7 @@ impl<'f> Visitante<'f> {
                 }
                 self.visit(Some(*operand));
             }
-            No::PrefixedIdentifier { .. } => super::cadeia::CallChainVisitor::novo(self, id).visit(self),
+            No::PrefixedIdentifier { .. } => super::chain::CallChainVisitor::novo(self, id).visit(self),
             No::PropertyAccess {
                 target,
                 operator,
@@ -1838,7 +1838,7 @@ impl<'f> Visitante<'f> {
                     self.visit(Some(*property_name));
                     return;
                 }
-                super::cadeia::CallChainVisitor::novo(self, id).visit(self);
+                super::chain::CallChainVisitor::novo(self, id).visit(self);
             }
             No::RecordLiteral {
                 const_keyword,
@@ -3536,7 +3536,7 @@ impl<'f> Visitante<'f> {
         if aninhar {
             self.nest_expression(None, false);
         }
-        super::argumentos::ArgumentListVisitor::novo(self, id).visit(self);
+        super::arguments::ArgumentListVisitor::novo(self, id).visit(self);
         if aninhar {
             self.unnest();
         }
@@ -3713,7 +3713,7 @@ impl<'f> Visitante<'f> {
             self.unnest();
             return;
         }
-        super::cadeia::CallChainVisitor::novo(self, id).visit(self);
+        super::chain::CallChainVisitor::novo(self, id).visit(self);
     }
 
     /// `visitNamedNode(name, colon, node, [rule])`.

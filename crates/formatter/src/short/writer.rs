@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 
 use super::arena::{Arenas, ChunkId};
-use super::divisor::DivisorDeLinhas;
+use super::splitter::DivisorDeLinhas;
 
 /// `FormatResult`.
 #[derive(Debug, Clone)]
