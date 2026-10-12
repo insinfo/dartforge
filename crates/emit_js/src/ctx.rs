@@ -1,5 +1,5 @@
-//! Contexto global da emissão: programa, tipos, classes conhecidas, conjunto
-//! de tipos nativos (`dartx`), nomes de bibliotecas e utilidades de tipos.
+//! Global emission context: program, types, well-known classes, the set of
+//! native types (`dartx`), library names and type utilities.
 
 use crate::js;
 use crate::ty::{Ty, TyParam};
@@ -16,24 +16,24 @@ use dartforge_types::table::{CoreTypes, Type, TypeId, TypeParamId, TypeTable};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
-/// Informações de uma biblioteca para a emissão.
+/// Information about a library for emission.
 #[derive(Clone, Debug)]
 pub struct LibInfo {
-    /// Identificador JS (`main`, `lib__util`, `foo__src__a`, `core`).
+    /// JS identifier (`main`, `lib__util`, `foo__src__a`, `core`).
     pub ident: String,
-    /// Caminho do módulo (`main.js`, `packages/foo/a.js`); vazio para SDK.
+    /// Module path (`main.js`, `packages/foo/a.js`); empty for the SDK.
     pub module_path: String,
     pub is_sdk: bool,
-    /// Variável JS do namespace (`L$main` para usuário; `core` para SDK).
+    /// JS variable of the namespace (`L$main` for user code; `core` for the SDK).
     pub js_var: String,
 }
 
-/// Membro encontrado numa classe.
+/// Member found in a class.
 #[derive(Clone, Debug)]
 pub struct Member {
     pub class: ClassId,
     pub kind: MemberKind,
-    /// Substituição dos parâmetros da classe declarante.
+    /// Substitution of the declaring class's parameters.
     pub subst: HashMap<u32, Ty>,
 }
 
@@ -42,7 +42,7 @@ pub enum MemberKind {
     Method(FunctionElementId),
     Getter(FunctionElementId),
     Setter(FunctionElementId),
-    /// Campo (getter implícito); `setter` diz se pode ser atribuído.
+    /// Field (implicit getter); `setter` tells whether it can be assigned.
     Field(VariableId),
 }
 
@@ -84,83 +84,84 @@ pub struct Ctx<'a> {
     pub map_entry: Option<ClassId>,
     pub invocation_: Option<ClassId>,
     pub future_or: Option<ClassId>,
-    /// Classes nativas (JSArray, JSString…) e interfaces que elas implementam:
-    /// membros acessados por `dartx`.
+    /// Native classes (JSArray, JSString…) and the interfaces they implement:
+    /// members accessed through `dartx`.
     pub ext_set: HashSet<ClassId>,
     pub native_set: HashSet<ClassId>,
-    /// Supertipos diretos (tipo instanciado em função dos parâmetros da classe).
+    /// Direct supertypes (types instantiated in terms of the class's parameters).
     pub class_supers: Vec<Vec<Ty>>,
     pub class_params: Vec<Vec<TyParam>>,
-    /// Bounds por id de parâmetro de tipo.
+    /// Bounds by type parameter id.
     pub param_bounds: RefCell<HashMap<u32, Ty>>,
     pub param_names: RefCell<HashMap<u32, String>>,
     pub next_param_id: RefCell<u32>,
     pub empty_sym: Option<SymbolId>,
-    /// Componentes fortemente conexos do grafo de imports das bibliotecas do
-    /// usuário: cada um vira um módulo JS (classes de bibliotecas em ciclo
-    /// precisam de ordem única). Chave: id de cada membro → grupo ordenado.
+    /// Strongly connected components of the import graph of the user's
+    /// libraries: each one becomes a JS module (classes of libraries in a cycle
+    /// need a single order). Key: id of each member → sorted group.
     pub groups: HashMap<u32, Vec<LibraryId>>,
     /// Classes `@JS` (package:js / dart:_js_annotations / dart:js_interop).
     pub js_classes: HashMap<ClassId, JsClass>,
-    /// Bibliotecas com `@JS(...)` na diretiva `library`: prefixo JS.
+    /// Libraries with `@JS(...)` on the `library` directive: JS prefix.
     pub js_libs: HashMap<LibraryId, Option<String>>,
-    /// Funções (de topo, métodos, construtores) com `@JS(...)` explícito.
+    /// Functions (top-level, methods, constructors) with an explicit `@JS(...)`.
     pub fn_js: HashMap<FunctionElementId, Option<String>>,
-    /// Variáveis (campos, topo) com `@JS(...)` explícito.
+    /// Variables (fields, top-level) with an explicit `@JS(...)`.
     pub var_js: HashMap<VariableId, Option<String>>,
-    /// `dart:_interceptors::JSObject`: alvo do apagamento dos tipos de extensão
-    /// de interop nas receitas rti (é o que o DDC emite).
+    /// `dart:_interceptors::JSObject`: target of the erasure of interop
+    /// extension types in rti recipes (it is what the DDC emits).
     pub js_object_ic: Option<ClassId>,
-    /// Tipos de extensão de interop mantidos (não apagados para a
-    /// representação): os de `dart:js_interop` e os de bibliotecas `@JS()`.
+    /// Interop extension types that are kept (not erased to their
+    /// representation): those of `dart:js_interop` and of `@JS()` libraries.
     pub interop_ext_types: HashSet<ClassId>,
-    /// `@JSName('x')` de membros de classes nativas: o nome JS difere do nome
-    /// Dart, e o DDC simboliza esses membros (`_isSymbolizedMember`).
+    /// `@JSName('x')` of members of native classes: the JS name differs from
+    /// the Dart name, and the DDC symbolizes these members (`_isSymbolizedMember`).
     pub js_names: HashMap<u32, String>,
-    /// Memória da busca de membro: `(classe inicial, nome, setter)` →
-    /// `(classe declarante, espécie)`. A busca percorre a hierarquia e o que
-    /// ela encontra depende só do grafo de classes, não dos argumentos de
-    /// tipo do receptor — por isso pode ser guardada. Medido no `new_sali`:
-    /// 316 mil buscas custavam 1,84 M alocações (fila, conjunto de visitados
-    /// e supertipos instanciados a cada chamada).
-    membro_memo: RefCell<HashMap<(ClassId, SymbolId, bool), Option<(ClassId, MemberKind)>>>,
-    /// Memória do rti de tipos fechados (sem `Ty::Param`): receita e
-    /// expressão não dependem do ambiente em execução. 132 mil chamadas,
-    /// 1,78 M alocações.
+    /// Memo of the member lookup: `(initial class, name, setter)` →
+    /// `(declaring class, kind)`. The lookup walks the hierarchy and what it
+    /// finds depends only on the class graph, not on the receiver's type
+    /// arguments — that is why it can be stored. Measured on `new_sali`:
+    /// 316 thousand lookups cost 1.84 M allocations (queue, visited set and
+    /// instantiated supertypes on every call).
+    member_memo: RefCell<HashMap<(ClassId, SymbolId, bool), Option<(ClassId, MemberKind)>>>,
+    /// Memo of the rti of closed types (without `Ty::Param`): the recipe and
+    /// the expression do not depend on the runtime environment. 132 thousand
+    /// calls, 1.78 M allocations.
     pub rti_memo: RefCell<HashMap<Ty, String>>,
-    /// Os ids curtos das classes nas receitas do modo SDK
-    /// ([`crate::ids_de_receita`]), calculados no primeiro uso.
-    ids_de_receita: std::cell::OnceCell<Vec<String>>,
-    /// `DARTFORGE_JSPROD_RECEITA_CURTA=0` mantém a biblioteca em toda receita.
-    receita_curta: bool,
-    /// Por unidade, os nós que são alvo de atribuição composta ou de
+    /// The short ids of the classes in SDK-mode recipes
+    /// ([`crate::ids_de_receita`]), computed on first use.
+    recipe_ids: std::cell::OnceCell<Vec<String>>,
+    /// `DARTFORGE_JSPROD_RECEITA_CURTA=0` keeps the library in every recipe.
+    short_recipe: bool,
+    /// Per unit, the nodes that are the target of a compound assignment or of
     /// `++`/`--` ([`Ctx::e_alvo_de_escrita`]).
-    alvos_de_escrita: RefCell<HashMap<u32, std::rc::Rc<HashSet<u32>>>>,
-    /// Memória de `as_super`: `(classe, alvo)` → o alvo escrito em função
-    /// dos parâmetros da classe. 78 mil chamadas, 525 mil alocações.
+    write_targets: RefCell<HashMap<u32, std::rc::Rc<HashSet<u32>>>>,
+    /// Memo of `as_super`: `(class, target)` → the target written in terms of
+    /// the class's parameters. 78 thousand calls, 525 thousand allocations.
     super_memo: RefCell<HashMap<(ClassId, ClassId), Option<Ty>>>,
-    /// Filtro de alcance do perfil de produção (`crate::filtro`). `None` é o
-    /// perfil de desenvolvimento: tudo emitido, exatamente como antes.
+    /// Reachability filter of the production profile (`crate::filtro`). `None`
+    /// is the development profile: everything emitted, exactly as before.
     pub filtro: Option<&'a dyn crate::filtro::Vivos>,
-    /// Erros de linguagem achados na emissão (atalho de ponto sem contexto
-    /// ou sem membro, docs/VERSOES-LINGUAGEM.md §3): a emissão falha com
-    /// eles. O emissor é quem tem a inferência completa do contexto.
+    /// Language errors found during emission (a dot shorthand without a
+    /// context or without a member, docs/VERSOES-LINGUAGEM.md §3): emission
+    /// fails with them. The emitter is the one with the complete inference of
+    /// the context.
     pub erros: RefCell<Vec<dartforge_diagnostics::Diagnostic>>,
-    /// Conferência dos tipos do emissor contra a inferência comum
-    /// (`DARTFORGE_JS_CONFERIR_TIPOS`, ver `crate::conferencia`); `None`
-    /// quando desligada.
+    /// Check of the emitter's types against the common inference
+    /// (`DARTFORGE_JS_CONFERIR_TIPOS`, see `crate::conferencia`); `None` when
+    /// it is off.
     pub conferencia: Option<RefCell<crate::conferencia::Conferencia>>,
-    /// Modo SDK (`crate::sdk_proprio`): as bibliotecas `dart:` também são
-    /// compiladas, pela nossa trilha. `None` em todo caminho que liga
-    /// contra o `dart_sdk.js` — os ganchos do modo não disparam.
+    /// SDK mode (`crate::sdk_proprio`): the `dart:` libraries are compiled
+    /// too, through our own pipeline. `None` on every path that links against
+    /// `dart_sdk.js` — the mode's hooks do not fire.
     pub sdk: Option<Box<crate::sdk_proprio::ModoSdk>>,
 }
 
-/// Classe de interop JS (`js_interop.dart` do DDC: `usesJSInterop`,
+/// JS interop class (the DDC's `js_interop.dart`: `usesJSInterop`,
 /// `isJSAnonymousType`, `isStaticInteropType`).
 #[derive(Clone, Debug, Default)]
 pub struct JsClass {
-    /// Nome em `@JS('nome')`; `None` usa o nome Dart.
+    /// Name in `@JS('name')`; `None` uses the Dart name.
     pub name: Option<String>,
     pub anonymous: bool,
     pub static_interop: bool,
@@ -245,20 +246,20 @@ impl<'a> Ctx<'a> {
             js_object_ic: find_class("dart:_interceptors", "JSObject"),
             interop_ext_types: HashSet::new(),
             js_names: HashMap::new(),
-            membro_memo: RefCell::new(HashMap::new()),
+            member_memo: RefCell::new(HashMap::new()),
             rti_memo: RefCell::new(HashMap::new()),
-            ids_de_receita: std::cell::OnceCell::new(),
-            receita_curta: std::env::var("DARTFORGE_JSPROD_RECEITA_CURTA").map_or(true, |v| v != "0"),
-            alvos_de_escrita: RefCell::new(HashMap::new()),
+            recipe_ids: std::cell::OnceCell::new(),
+            short_recipe: std::env::var("DARTFORGE_JSPROD_RECEITA_CURTA").map_or(true, |v| v != "0"),
+            write_targets: RefCell::new(HashMap::new()),
             super_memo: RefCell::new(HashMap::new()),
             erros: RefCell::new(Vec::new()),
             filtro: None,
             conferencia: crate::conferencia::Conferencia::do_ambiente().map(RefCell::new),
             sdk: None,
         };
-        // A interop vem antes da hierarquia: os tipos de extensão de interop
-        // não são apagados, e os supertipos (`implements JSAny`) precisam
-        // disso para as extensões do SDK se aplicarem ao receptor certo.
+        // Interop comes before the hierarchy: interop extension types are not
+        // erased, and the supertypes (`implements JSAny`) need that for the
+        // SDK's extensions to apply to the right receiver.
         ctx.compute_js_interop();
         ctx.compute_hierarchy();
         ctx.compute_ext_set(find_lib);
@@ -268,10 +269,10 @@ impl<'a> Ctx<'a> {
     }
 
     // -----------------------------------------------------------------------
-    // Interop JS (package:js): `js_interop.dart` do DDC
+    // JS interop (package:js): the DDC's `js_interop.dart`
     // -----------------------------------------------------------------------
 
-    /// Anotação `@JS`/`@JS('nome')`: `Some(nome)`; outras: `None`.
+    /// Annotation `@JS`/`@JS('name')`: `Some(name)`; others: `None`.
     fn ann_js(&self, unit: UnitId, a: &ast::Annotation) -> Option<Option<String>> {
         let last = a.name.last()?;
         if self.interner.resolve(last.sym) != "JS" || a.name.len() > 2 {
@@ -291,7 +292,7 @@ impl<'a> Ctx<'a> {
         a.name.last().is_some_and(|n| self.interner.resolve(n.sym) == name)
     }
 
-    /// Classes, bibliotecas, funções e variáveis anotadas com `@JS` (fora do SDK).
+    /// Classes, libraries, functions and variables annotated with `@JS` (outside the SDK).
     fn compute_js_interop(&mut self) {
         let mut fn_index: HashMap<(u32, u32), FunctionElementId> = HashMap::new();
         let mut ctor_index: HashMap<(u32, u32), FunctionElementId> = HashMap::new();
@@ -419,9 +420,10 @@ impl<'a> Ctx<'a> {
                 info.static_interop = d.metadata.iter().any(|a| self.ann_is(a, "staticInterop"));
             }
             // `dart:js_interop`/package:web: `extension type X._(JSObject _)`
-            // numa biblioteca `@JS()`, com membros `external` — é interop pelo
-            // mesmo `usesJSInterop` do DDC (anotação na biblioteca basta para
-            // membros `external`, e os de um extension type nunca têm classe).
+            // in a `@JS()` library, with `external` members — it is interop by
+            // the same `usesJSInterop` of the DDC (an annotation on the library
+            // is enough for `external` members, and those of an extension type
+            // never have a class).
             if info.is_none() && c.kind == ClassKind::ExtensionType && js_libs.contains_key(&c.library) {
                 info = Some(JsClass { name: None, anonymous: false, static_interop: true });
             }
@@ -429,10 +431,10 @@ impl<'a> Ctx<'a> {
                 js_classes.insert(ClassId(i as u32), info);
             }
         }
-        // Tipos de extensão de `dart:js_interop` (JSPromise, JSString, JSAny…):
-        // não são emitidos por nós, mas o tipo precisa sobreviver para os
-        // membros de extensão do SDK (`toDart`, `toJS`) serem os certos.
-        let mut ext_tipos: HashSet<ClassId> = js_classes
+        // Extension types of `dart:js_interop` (JSPromise, JSString, JSAny…):
+        // we do not emit them, but the type has to survive for the SDK's
+        // extension members (`toDart`, `toJS`) to be the right ones.
+        let mut ext_types: HashSet<ClassId> = js_classes
             .keys()
             .copied()
             .filter(|c| self.program.class(*c).kind == ClassKind::ExtensionType)
@@ -443,17 +445,17 @@ impl<'a> Ctx<'a> {
             }
             let uri = self.program.library(c.library).uri.as_str();
             if uri == "dart:js_interop" || uri == "dart:js_interop_unsafe" {
-                ext_tipos.insert(ClassId(i as u32));
+                ext_types.insert(ClassId(i as u32));
             }
         }
-        self.interop_ext_types = ext_tipos;
+        self.interop_ext_types = ext_types;
         self.js_classes = js_classes;
         self.js_libs = js_libs;
         self.fn_js = fn_js;
         self.var_js = var_js;
     }
 
-    /// Anotação `@JSName('x')` (de `dart:_js_helper`): o nome JS do membro nativo.
+    /// Annotation `@JSName('x')` (from `dart:_js_helper`): the JS name of the native member.
     fn ann_js_name(&self, unit: UnitId, a: &ast::Annotation) -> Option<String> {
         let last = a.name.last()?;
         if self.interner.resolve(last.sym) != "JSName" {
@@ -467,9 +469,10 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    /// Mapa `membro → nome JS` para as classes da hierarquia nativa. É lido da
-    /// anotação `@JSName` do outline (não de uma lista de nomes): em `dart:html`
-    /// são 614 membros, e a regra vale para qualquer classe `@Native`.
+    /// Map `member → JS name` for the classes of the native hierarchy. It is
+    /// read from the outline's `@JSName` annotation (not from a list of names):
+    /// in `dart:html` there are 614 members, and the rule applies to any
+    /// `@Native` class.
     fn compute_js_names(&mut self) {
         let mut map: HashMap<u32, String> = HashMap::new();
         let classes: Vec<ClassId> = self.ext_set.iter().copied().collect();
@@ -483,37 +486,37 @@ impl<'a> Ctx<'a> {
                 DeclKindRef::Mixin(md) => &md.members,
                 _ => continue,
             };
-            // Nome JS por função do AST (métodos, getters, setters) e por
-            // declaração de campo (os acessores implícitos herdam o nome).
-            let mut por_funcao: HashMap<u32, String> = HashMap::new();
-            let mut por_campo: HashMap<u32, String> = HashMap::new();
+            // JS name per AST function (methods, getters, setters) and per
+            // field declaration (the implicit accessors inherit the name).
+            let mut by_function: HashMap<u32, String> = HashMap::new();
+            let mut by_field: HashMap<u32, String> = HashMap::new();
             for &mid in members {
                 let mem = unit.ast.member(mid);
-                let Some(nome) = mem.metadata.iter().find_map(|a| self.ann_js_name(decl.unit, a)) else { continue };
+                let Some(js_name) = mem.metadata.iter().find_map(|a| self.ann_js_name(decl.unit, a)) else { continue };
                 match &mem.kind {
                     ast::MemberKind::Method(fid) => {
-                        por_funcao.insert(fid.0, nome);
+                        by_function.insert(fid.0, js_name);
                     }
                     ast::MemberKind::Field(_) => {
-                        por_campo.insert(mid.0, nome);
+                        by_field.insert(mid.0, js_name);
                     }
                     ast::MemberKind::Constructor(_) => {}
                 }
             }
-            if por_funcao.is_empty() && por_campo.is_empty() {
+            if by_function.is_empty() && by_field.is_empty() {
                 continue;
             }
             for &fid in class.instance_members.values().chain(class.static_members.values()) {
                 let f = self.program.function(fid);
                 if let dartforge_elements::model::FunctionRef::Function { function, .. } = f.node {
-                    if let Some(n) = por_funcao.get(&function.0) {
+                    if let Some(n) = by_function.get(&function.0) {
                         map.insert(fid.0, n.clone());
                         continue;
                     }
                 }
                 if let Some(v) = f.variable {
                     if let dartforge_elements::model::VariableRef::Field { member, .. } = self.program.variable(v).node {
-                        if let Some(n) = por_campo.get(&member.0) {
+                        if let Some(n) = by_field.get(&member.0) {
                             map.insert(fid.0, n.clone());
                         }
                     }
@@ -523,10 +526,10 @@ impl<'a> Ctx<'a> {
         self.js_names = map;
     }
 
-    /// Tipo de representação de um tipo de extensão, com os argumentos
-    /// substituídos: `JSArray<JSString>` → `_interceptors.JSArray<Object?>`,
-    /// `JSString` → `String`, `JSObject` → `_interceptors.JSObject`. É o que o
-    /// DDC usa nas receitas rti (os tipos de extensão são apagados).
+    /// Representation type of an extension type, with the arguments
+    /// substituted: `JSArray<JSString>` → `_interceptors.JSArray<Object?>`,
+    /// `JSString` → `String`, `JSObject` → `_interceptors.JSObject`. It is what
+    /// the DDC uses in rti recipes (extension types are erased).
     pub fn erase_ext(&self, class: ClassId, args: &[Ty]) -> Option<Ty> {
         let rep = self.program.class(class).representation?;
         let v = &self.outline.variables[rep.0 as usize];
@@ -538,47 +541,47 @@ impl<'a> Ctx<'a> {
         Some(self.ty_of(t).subst_prop(&map))
     }
 
-    /// Nível de alcance da classe; sem filtro, `Instanciada` (tudo emitido).
+    /// Reachability level of the class; without a filter, `Instanciada` (everything emitted).
     pub fn nivel_classe(&self, c: ClassId) -> crate::filtro::Nivel {
         self.filtro.map_or(crate::filtro::Nivel::Instanciada, |f| f.classe(c))
     }
 
-    /// Estado da função; sem filtro, `Viva`.
+    /// State of the function; without a filter, `Viva`.
     pub fn estado_fn(&self, f: FunctionElementId) -> crate::filtro::Estado {
         self.filtro.map_or(crate::filtro::Estado::Viva, |x| x.funcao(f))
     }
 
-    /// Estado da variável; sem filtro, `Viva`.
+    /// State of the variable; without a filter, `Viva`.
     pub fn estado_var(&self, v: VariableId) -> crate::filtro::Estado {
         self.filtro.map_or(crate::filtro::Estado::Viva, |x| x.variavel(v))
     }
 
-    /// Nome invocado em algum lugar; sem filtro, sempre.
-    pub fn seletor_vivo(&self, nome: &str) -> bool {
-        self.filtro.is_none_or(|x| x.seletor(nome))
+    /// Name invoked somewhere; without a filter, always.
+    pub fn seletor_vivo(&self, name: &str) -> bool {
+        self.filtro.is_none_or(|x| x.seletor(name))
     }
 
-    /// Nome escrito em algum lugar (`x.nome = v`); sem filtro, sempre.
-    pub fn seletor_escrita(&self, nome_base: &str) -> bool {
-        self.filtro.is_none_or(|x| x.seletor_escrita(nome_base))
+    /// Name written somewhere (`x.name = v`); without a filter, always.
+    pub fn seletor_escrita(&self, base_name: &str) -> bool {
+        self.filtro.is_none_or(|x| x.seletor_escrita(base_name))
     }
 
-    /// Tearoff estático do construtor citado; sem filtro, sempre.
+    /// Static tearoff of the referenced constructor; without a filter, always.
     pub fn tearoff_vivo(&self, f: FunctionElementId) -> bool {
         self.filtro.is_none_or(|x| x.tearoff_ctor(f))
     }
 
-    /// A entrada de assinatura do membro `nome` é emitida ([`crate::filtro::Vivos::assinatura`]).
-    pub fn assinatura_viva(&self, nome: &str) -> bool {
-        self.filtro.is_none_or(|x| x.assinatura(nome))
+    /// The signature entry of the member `name` is emitted ([`crate::filtro::Vivos::assinatura`]).
+    pub fn assinatura_viva(&self, name: &str) -> bool {
+        self.filtro.is_none_or(|x| x.assinatura(name))
     }
 
-    /// Rótulo de um elemento podado para o *stub* (`dart_podado("…")`).
-    pub fn rotulo_podado(&self, lib: LibraryId, classe: Option<ClassId>, nome: &str) -> String {
+    /// Label of a pruned element for the *stub* (`dart_podado("…")`).
+    pub fn rotulo_podado(&self, lib: LibraryId, class: Option<ClassId>, name: &str) -> String {
         let uri = &self.program.library(lib).uri;
-        match classe {
-            Some(c) => format!("{uri}::{}.{nome}", self.class_name(c)),
-            None => format!("{uri}::{nome}"),
+        match class {
+            Some(c) => format!("{uri}::{}.{name}", self.class_name(c)),
+            None => format!("{uri}::{name}"),
         }
     }
 
@@ -586,8 +589,9 @@ impl<'a> Ctx<'a> {
         self.js_classes.contains_key(&c)
     }
 
-    /// Membro `external` de interop (`isJsMember` do DDC): fora do SDK, com
-    /// `@JS` no próprio membro, na classe ou (topo) na biblioteca.
+    /// `external` interop member (the DDC's `isJsMember`): outside the SDK,
+    /// with `@JS` on the member itself, on the class or (top-level) on the
+    /// library.
     pub fn is_js_member(&self, fid: FunctionElementId) -> bool {
         let f = self.program.function(fid);
         if !f.external || self.libs[f.library.0 as usize].is_sdk {
@@ -623,8 +627,8 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    /// `_isNullCheckableJsInterop`: membro de interop (não `@staticInterop`)
-    /// cujo tipo (retorno ou getter) é não anulável.
+    /// `_isNullCheckableJsInterop`: an interop member (not `@staticInterop`)
+    /// whose type (return or getter) is non-nullable.
     pub fn js_null_checkable(&self, mk: &MemberKind) -> bool {
         if !self.is_js_member_kind(mk) {
             return false;
@@ -644,7 +648,7 @@ impl<'a> Ctx<'a> {
         !ty.is_nullable()
     }
 
-    /// `dart.global.<prefixo da biblioteca>.<partes>` (`_emitJSInteropForGlobal`).
+    /// `dart.global.<library prefix>.<parts>` (`_emitJSInteropForGlobal`).
     pub fn js_global(&self, lib: LibraryId, name: &str) -> String {
         let mut full = String::new();
         if let Some(Some(p)) = self.js_libs.get(&lib) {
@@ -659,15 +663,15 @@ impl<'a> Ctx<'a> {
         out
     }
 
-    /// Nome JS global de uma classe de interop (`_jsNameWithoutGlobal`).
+    /// Global JS name of an interop class (`_jsNameWithoutGlobal`).
     pub fn js_class_global(&self, c: ClassId) -> String {
         let class = self.program.class(c);
         let name = self.js_classes.get(&c).and_then(|j| j.name.clone()).unwrap_or_else(|| self.name(class.name).to_string());
         self.js_global(class.library, &name)
     }
 
-    /// Nome JS de um membro estático/topo `external` de interop
-    /// (`_emitJSInteropExternalStaticMemberName`): `@JS('x')` ou o nome Dart.
+    /// JS name of an `external` static/top-level interop member
+    /// (`_emitJSInteropExternalStaticMemberName`): `@JS('x')` or the Dart name.
     pub fn js_interop_member_name(&self, mk: &MemberKind, dart_name: &str) -> String {
         let explicit = match *mk {
             MemberKind::Method(f) | MemberKind::Getter(f) | MemberKind::Setter(f) => {
@@ -678,8 +682,8 @@ impl<'a> Ctx<'a> {
         explicit.unwrap_or_else(|| dart_name.to_string())
     }
 
-    /// Referência global de um membro estático `external` de classe de interop
-    /// ou de função/variável de topo de interop.
+    /// Global reference of an `external` static member of an interop class, or
+    /// of an interop top-level function/variable.
     pub fn js_static_ref(&self, class: Option<ClassId>, lib: LibraryId, mk: &MemberKind, dart_name: &str) -> String {
         let member = self.js_interop_member_name(mk, dart_name);
         match class {
@@ -688,14 +692,14 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    /// Granularidade dos módulos (docs/EMISSAO-DDC.md): bibliotecas do projeto
-    /// → um módulo por biblioteca; pacotes do pub cache → um módulo por pacote
-    /// (`packages/<nome>.js`). Ciclos de imports entre módulos são fundidos no
-    /// módulo da primeira biblioteca (classes em ciclo precisam de ordem única).
+    /// Module granularity (docs/EMISSAO-DDC.md): project libraries → one
+    /// module per library; pub cache packages → one module per package
+    /// (`packages/<name>.js`). Import cycles between modules are merged into
+    /// the module of the first library (classes in a cycle need a single order).
     fn compute_groups(&mut self) {
         let n = self.program.libraries.len();
         let is_user = |i: usize, s: &Self| !s.libs[i].is_sdk && !s.program.libraries[i].units.is_empty();
-        // 1. Módulo inicial de cada biblioteca.
+        // 1. Initial module of each library.
         let mut key_of: Vec<Option<String>> = vec![None; n];
         for i in 0..n {
             if !is_user(i, self) {
@@ -721,7 +725,7 @@ impl<'a> Ctx<'a> {
             self.libs[i].module_path = key.clone();
             key_of[i] = Some(key);
         }
-        // 2. Grafo de módulos.
+        // 2. Module graph.
         let mut keys: Vec<String> = Vec::new();
         let mut index_of: HashMap<String, usize> = HashMap::new();
         for k in key_of.iter().flatten() {
@@ -747,7 +751,7 @@ impl<'a> Ctx<'a> {
                 }
             }
         }
-        // 3. Tarjan iterativo sobre os módulos.
+        // 3. Iterative Tarjan over the modules.
         let mut index = vec![usize::MAX; m];
         let mut low = vec![0usize; m];
         let mut on_stack = vec![false; m];
@@ -797,14 +801,14 @@ impl<'a> Ctx<'a> {
                 }
             }
         }
-        // 4. Grupos finais: bibliotecas de cada componente, ordenadas por id.
+        // 4. Final groups: the libraries of each component, sorted by id.
         for comp in sccs {
             let mut libs: Vec<usize> = comp.iter().flat_map(|&mi| members[mi].iter().copied()).collect();
             libs.sort();
             if libs.len() < 2 {
                 continue;
             }
-            // Caminho: o do módulo da primeira biblioteca (pacote → `packages/x.js`).
+            // Path: that of the first library's module (package → `packages/x.js`).
             let path = key_of[libs[0]].clone().unwrap();
             let group: Vec<LibraryId> = libs.iter().map(|&i| LibraryId(i as u32)).collect();
             for &i in &libs {
@@ -850,9 +854,9 @@ impl<'a> Ctx<'a> {
 
     fn compute_ext_set(&mut self, find_lib: impl Fn(&str) -> Option<LibraryId>) {
         let mut natives = Vec::new();
-        // Classes `@Native` do SDK: interceptors, typed data e as bibliotecas web
-        // (no DDC com null safety os membros nativos de `dart:html` também são
-        // simbolizados, com `checkNativeNonNull`).
+        // `@Native` classes of the SDK: interceptors, typed data and the web
+        // libraries (in the DDC with null safety the native members of
+        // `dart:html` are symbolized too, with `checkNativeNonNull`).
         for lib_uri in [
             "dart:_interceptors",
             "dart:_native_typed_data",
@@ -937,7 +941,7 @@ impl<'a> Ctx<'a> {
     }
 
     // -----------------------------------------------------------------------
-    // Conversão de tipos
+    // Type conversion
     // -----------------------------------------------------------------------
 
     pub fn ty_param_of(&self, pid: TypeParamId) -> TyParam {
@@ -956,10 +960,10 @@ impl<'a> Ctx<'a> {
             Type::Never => Ty::Never,
             Type::Null => Ty::Null,
             Type::Interface { class, args, nullable } => {
-                // Tipo cru vindo da tabela (`Caixa` por `Caixa<dynamic>`):
-                // completa a aridade aqui, na única porta de entrada, para que
-                // receitas, regras rti, substituições e busca de membros vejam
-                // sempre a mesma forma (ver `args_na_aridade`).
+                // Raw type coming from the table (`Caixa` for `Caixa<dynamic>`):
+                // complete the arity here, at the single entry point, so that
+                // recipes, rti rules, substitutions and member lookup always
+                // see the same shape (see `args_na_aridade`).
                 let args: Vec<Ty> = args.iter().map(|a| self.ty_of(*a)).collect();
                 let args = self.args_na_aridade(*class, &args).into_owned();
                 Ty::Iface { class: *class, args, nullable: *nullable }
@@ -985,7 +989,7 @@ impl<'a> Ctx<'a> {
                 let data = self.table.param(*param);
                 let name = self.interner.resolve(data.name).to_string();
                 if !self.param_bounds.borrow().contains_key(&param.0) {
-                    // Registra o bound (evitando recursão infinita em F-bounds).
+                    // Register the bound (avoiding infinite recursion on F-bounds).
                     self.param_bounds.borrow_mut().insert(param.0, Ty::Dynamic);
                     let b = self.ty_of(data.bound);
                     self.param_bounds.borrow_mut().insert(param.0, b);
@@ -994,8 +998,8 @@ impl<'a> Ctx<'a> {
                 Ty::Param { id: param.0, name, nullable: *nullable }
             }
             Type::FutureOr { arg, nullable } => Ty::FutureOr { arg: Box::new(self.ty_of(*arg)), nullable: *nullable },
-            // `X & B` (promoção de variável de tipo, só na inferência): em
-            // tempo de execução é a própria variável `X`.
+            // `X & B` (type variable promotion, only in inference): at runtime
+            // it is the variable `X` itself.
             Type::Intersection { param, .. } => {
                 let p = *param;
                 let t = self.table.intern_lookup(Type::TypeParameter { param: p, nullable: false });
@@ -1005,9 +1009,9 @@ impl<'a> Ctx<'a> {
                 }
             }
             Type::ExtensionType { decl, args, nullable } => {
-                // Interop (`@JS`): mantém o tipo, para os membros `external`
-                // virarem propriedades do objeto JS; os demais são apagados
-                // para o tipo de representação.
+                // Interop (`@JS`): keep the type, so that the `external`
+                // members become properties of the JS object; the others are
+                // erased to the representation type.
                 if self.interop_ext_types.contains(decl) {
                     let args: Vec<Ty> = args.iter().map(|a| self.ty_of(*a)).collect();
                     let args = self.args_na_aridade(*decl, &args).into_owned();
@@ -1018,9 +1022,9 @@ impl<'a> Ctx<'a> {
                     let v = &self.outline.variables[rep.0 as usize];
                     if let Some(t) = v.declared_type.or(v.inferred) {
                         let mut map = HashMap::new();
-                        // Durante `compute_hierarchy` a tabela ainda não existe:
-                        // um supertipo pode mencionar um extension type, então
-                        // os parâmetros vêm do outline nesse caso.
+                        // During `compute_hierarchy` the table does not exist
+                        // yet: a supertype may mention an extension type, so the
+                        // parameters come from the outline in that case.
                         let params: Vec<TyParam> = match self.class_params.get(decl.0 as usize) {
                             Some(p) => p.clone(),
                             None => self.outline.classes[decl.0 as usize]
@@ -1055,7 +1059,7 @@ impl<'a> Ctx<'a> {
     }
 
     // -----------------------------------------------------------------------
-    // Tipos bem conhecidos
+    // Well-known types
     // -----------------------------------------------------------------------
 
     pub fn t_int(&self) -> Ty {
@@ -1119,7 +1123,7 @@ impl<'a> Ctx<'a> {
     pub fn is_bool(&self, t: &Ty) -> bool {
         t.is_class(self.bool_) && !t.is_nullable()
     }
-    /// Tipos cuja representação JS é primitiva (número, string, bool, null).
+    /// Types whose JS representation is primitive (number, string, bool, null).
     pub fn is_js_primitive(&self, t: &Ty) -> bool {
         let t = self.resolve_param_bound(t);
         match &t {
@@ -1157,14 +1161,14 @@ impl<'a> Ctx<'a> {
     }
 
     // -----------------------------------------------------------------------
-    // Hierarquia e membros
+    // Hierarchy and members
     // -----------------------------------------------------------------------
 
     pub fn class_name(&self, c: ClassId) -> &str {
         self.interner.resolve(self.program.class(c).name)
     }
 
-    /// Supertipos diretos de `ty` (Iface) com argumentos substituídos.
+    /// Direct supertypes of `ty` (an Iface) with the arguments substituted.
     pub fn direct_supers(&self, ty: &Ty) -> Vec<Ty> {
         let Ty::Iface { class, args, .. } = ty else { return vec![] };
         let params = &self.class_params[class.0 as usize];
@@ -1178,16 +1182,16 @@ impl<'a> Ctx<'a> {
         self.class_supers[class.0 as usize].iter().map(|s| s.subst(&map)).collect()
     }
 
-    /// `ty` visto como instância da classe `target` (`List<int>` → `Iterable<int>`).
+    /// `ty` seen as an instance of the class `target` (`List<int>` → `Iterable<int>`).
     ///
-    /// O caminho na hierarquia depende só das duas classes: a resposta é
-    /// calculada uma vez em função dos parâmetros de `class` (memória
-    /// `(classe, alvo)`) e depois instanciada com os argumentos de `ty`.
+    /// The path through the hierarchy depends only on the two classes: the
+    /// answer is computed once in terms of the parameters of `class` (memo
+    /// `(class, target)`) and then instantiated with the arguments of `ty`.
     pub fn as_super(&self, ty: &Ty, target: ClassId) -> Option<Ty> {
-        let resolvido;
+        let resolved;
         let ty: &Ty = if matches!(ty, Ty::Param { .. }) {
-            resolvido = self.resolve_param_bound(ty);
-            &resolvido
+            resolved = self.resolve_param_bound(ty);
+            &resolved
         } else {
             ty
         };
@@ -1195,19 +1199,19 @@ impl<'a> Ctx<'a> {
         if *class == target {
             return Some(ty.clone());
         }
-        let generico = match self.super_memo.borrow().get(&(*class, target)) {
+        let generic = match self.super_memo.borrow().get(&(*class, target)) {
             Some(g) => Some(g.clone()),
             None => None,
         };
-        let generico = match generico {
+        let generic = match generic {
             Some(g) => g,
             None => {
-                let g = self.as_super_generico(*class, target);
+                let g = self.as_super_generic(*class, target);
                 self.super_memo.borrow_mut().insert((*class, target), g.clone());
                 g
             }
         };
-        let g = generico?;
+        let g = generic?;
         let params = &self.class_params[class.0 as usize];
         if params.is_empty() {
             return Some(g);
@@ -1222,10 +1226,10 @@ impl<'a> Ctx<'a> {
         Some(g.subst_prop(&map))
     }
 
-    /// `target` visto a partir de `class`, escrito em função dos parâmetros
-    /// de `class` (`List<E>` → `Iterable<E>`); `None` se não é supertipo.
-    fn as_super_generico(&self, class: ClassId, target: ClassId) -> Option<Ty> {
-        let proprio = Ty::Iface {
+    /// `target` seen from `class`, written in terms of the parameters of
+    /// `class` (`List<E>` → `Iterable<E>`); `None` if it is not a supertype.
+    fn as_super_generic(&self, class: ClassId, target: ClassId) -> Option<Ty> {
+        let own = Ty::Iface {
             class,
             args: self.class_params[class.0 as usize]
                 .iter()
@@ -1234,7 +1238,7 @@ impl<'a> Ctx<'a> {
             nullable: false,
         };
         let mut seen = HashSet::new();
-        let mut queue = vec![proprio];
+        let mut queue = vec![own];
         while let Some(t) = queue.pop() {
             for s in self.direct_supers(&t) {
                 if let Some(c) = s.class() {
@@ -1274,9 +1278,9 @@ impl<'a> Ctx<'a> {
         Some(target) == self.object
     }
 
-    /// Cadeia de superclasses (extends) e mixins, da classe para cima.
+    /// Superclass chain (extends) and mixins, from the class upwards.
     pub fn superclass_of(&self, c: ClassId) -> Option<ClassId> {
-        // Pelo outline de tipos (expande typedefs como `IterableBase`), senão pelo nome.
+        // From the type outline (expands typedefs such as `IterableBase`), otherwise by name.
         if let Some(t) = self.outline.classes[c.0 as usize].supertype {
             if let Some(sc) = self.ty_of(t).class() {
                 return Some(sc);
@@ -1285,14 +1289,14 @@ impl<'a> Ctx<'a> {
         self.program.class(c).supertype_class
     }
 
-    /// Procura membro de instância declarado na classe (não herdado).
+    /// Looks up an instance member declared in the class (not inherited).
     pub fn declared_member(&self, c: ClassId, name: &str, setter: bool) -> Option<MemberKind> {
         let class = self.program.class(c);
         let key = if setter { format!("{name}_=") } else { name.to_string() };
         let found = self.interner.lookup(&key).and_then(|sym| class.instance_members.get(&sym).copied());
         let Some(fid) = found else {
             if setter {
-                // `late final` sem inicializador aceita uma atribuição.
+                // A `late final` without an initializer accepts one assignment.
                 let fsym = self.interner.lookup(name)?;
                 let vid = class.fields.iter().copied().find(|v| {
                     let var = self.program.variable(*v);
@@ -1340,17 +1344,17 @@ impl<'a> Ctx<'a> {
         })
     }
 
-    /// Procura membro de instância em `ty` e supertipos (BFS), com substituição.
+    /// Looks up an instance member in `ty` and its supertypes (BFS), with substitution.
     pub fn lookup_member(&self, ty: &Ty, name: &str, setter: bool) -> Option<Member> {
-        // `resolve_param_bound` clona; só um `Ty::Param` precisa dela.
-        let resolvido;
+        // `resolve_param_bound` clones; only a `Ty::Param` needs it.
+        let resolved;
         let ty: &Ty = if matches!(ty, Ty::Param { .. }) {
-            resolvido = self.resolve_param_bound(ty);
-            &resolvido
+            resolved = self.resolve_param_bound(ty);
+            &resolved
         } else {
             ty
         };
-        let inicial: Ty = match ty {
+        let initial: Ty = match ty {
             Ty::Iface { class, .. } => Ty::iface(*class),
             Ty::Fn { .. } | Ty::Record { .. } | Ty::Never | Ty::Dynamic | Ty::Void => {
                 if matches!(ty, Ty::Fn { .. }) && name == "call" {
@@ -1362,15 +1366,15 @@ impl<'a> Ctx<'a> {
             Ty::FutureOr { .. } => self.object.map(Ty::iface)?,
             Ty::Param { .. } => self.object.map(Ty::iface)?,
         };
-        let classe_inicial = inicial.class()?;
-        // Consulta a memória: a classe declarante e a espécie do membro são as
-        // mesmas para qualquer instanciação da classe inicial. Quando a classe
-        // declarante não tem parâmetros de tipo, a substituição é vazia e o
-        // resultado sai sem percorrer nada.
-        let chave = self.interner.lookup(name).map(|sym| (classe_inicial, sym, setter));
-        if let Some(k) = chave {
-            if let Some(achado) = self.membro_memo.borrow().get(&k) {
-                match achado {
+        let initial_class = initial.class()?;
+        // Consult the memo: the declaring class and the member kind are the
+        // same for any instantiation of the initial class. When the declaring
+        // class has no type parameters, the substitution is empty and the
+        // result comes out without walking anything.
+        let memo_key = self.interner.lookup(name).map(|sym| (initial_class, sym, setter));
+        if let Some(k) = memo_key {
+            if let Some(found) = self.member_memo.borrow().get(&k) {
+                match found {
                     None => return None,
                     Some((c, kind)) if self.class_params[c.0 as usize].is_empty() => {
                         return Some(Member { class: *c, kind: *kind, subst: HashMap::new() });
@@ -1379,14 +1383,14 @@ impl<'a> Ctx<'a> {
                 }
             }
         }
-        let guardar = |achado: Option<(ClassId, MemberKind)>| {
-            if let Some(k) = chave {
-                self.membro_memo.borrow_mut().insert(k, achado);
+        let store = |found: Option<(ClassId, MemberKind)>| {
+            if let Some(k) = memo_key {
+                self.member_memo.borrow_mut().insert(k, found);
             }
         };
         let start = match ty {
             Ty::Iface { .. } => ty.clone(),
-            _ => inicial,
+            _ => initial,
         };
         let mut seen = HashSet::new();
         let mut queue = std::collections::VecDeque::new();
@@ -1405,27 +1409,27 @@ impl<'a> Ctx<'a> {
                 for p in params.iter().skip(args.len()) {
                     subst.insert(p.id, Ty::Dynamic);
                 }
-                guardar(Some((*class, kind)));
+                store(Some((*class, kind)));
                 return Some(Member { class: *class, kind, subst });
             }
             for s in self.direct_supers(&t) {
                 queue.push_back(s);
             }
         }
-        // Object como último recurso.
+        // Object as a last resort.
         if let Some(o) = self.object {
             if !seen.contains(&o) {
                 if let Some(kind) = self.declared_member(o, name, setter) {
-                    guardar(Some((o, kind)));
+                    store(Some((o, kind)));
                     return Some(Member { class: o, kind, subst: HashMap::new() });
                 }
             }
         }
-        guardar(None);
+        store(None);
         None
     }
 
-    /// Tipo de um membro já substituído: getter/campo → tipo do valor; método → tipo função; setter → tipo do parâmetro.
+    /// Type of a member, already substituted: getter/field → value type; method → function type; setter → parameter type.
     pub fn member_ty(&self, m: &Member) -> Ty {
         let raw = match m.kind {
             MemberKind::Method(fid) => self.fn_ty(fid),
@@ -1437,8 +1441,8 @@ impl<'a> Ctx<'a> {
                 .unwrap_or(Ty::Dynamic),
             MemberKind::Field(vid) => self.var_ty(vid),
         };
-        // `subst` com mapa vazio clona a árvore inteira de novo; `raw` já é
-        // nosso (a maioria dos membros vem de classe sem parâmetros de tipo).
+        // `subst` with an empty map clones the whole tree again; `raw` is
+        // already ours (most members come from classes without type parameters).
         if m.subst.is_empty() {
             return raw;
         }
@@ -1459,7 +1463,7 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    /// Mixins da classe pelo outline de tipos (expande typedefs), senão pelo nome.
+    /// Mixins of the class from the type outline (expands typedefs), otherwise by name.
     pub fn mixins_of(&self, c: ClassId) -> Vec<ClassId> {
         let data = &self.outline.classes[c.0 as usize];
         let mut out = Vec::new();
@@ -1474,7 +1478,7 @@ impl<'a> Ctx<'a> {
         out
     }
 
-    /// Interfaces da classe pelo outline.
+    /// Interfaces of the class from the outline.
     pub fn interfaces_of(&self, c: ClassId) -> Vec<ClassId> {
         let data = &self.outline.classes[c.0 as usize];
         let mut out = Vec::new();
@@ -1489,7 +1493,7 @@ impl<'a> Ctx<'a> {
         out
     }
 
-    /// A classe (ou uma superclasse) é genérica: o construtor recebe `_ti`.
+    /// The class (or a superclass) is generic: the constructor receives `_ti`.
     pub fn requires_rti(&self, c: ClassId) -> bool {
         if self.js_classes.contains_key(&c) {
             return false;
@@ -1509,8 +1513,8 @@ impl<'a> Ctx<'a> {
         false
     }
 
-    /// Membro público encaminhado numa classe nativa: procura na classe e nas
-    /// superclasses (`getDispatchTarget`); `(função, é campo)`.
+    /// Public forwarded member in a native class: looks in the class and its
+    /// superclasses (`getDispatchTarget`); `(function, is field)`.
     pub fn native_forwarded_member(&self, c: ClassId, name: &str, setter: bool) -> Option<(FunctionElementId, bool)> {
         let mut cur = Some(c);
         let mut guard = 0;
@@ -1539,7 +1543,7 @@ impl<'a> Ctx<'a> {
         None
     }
 
-    /// A função tem corpo `native;` (equivalente a `external` no SDK).
+    /// The function has a `native;` body (equivalent to `external` in the SDK).
     pub fn has_native_body(&self, fid: FunctionElementId) -> bool {
         match self.program.function(fid).node {
             dartforge_elements::model::FunctionRef::Function { unit, function } => {
@@ -1549,7 +1553,7 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    /// Biblioteca web do SDK (`_isWebLibrary` do DDC).
+    /// Web library of the SDK (the DDC's `_isWebLibrary`).
     pub fn is_web_library(&self, lib: LibraryId) -> bool {
         matches!(
             self.program.library(lib).uri.as_str(),
@@ -1557,7 +1561,7 @@ impl<'a> Ctx<'a> {
         )
     }
 
-    /// Membro concreto (não abstrato) na cadeia de superclasses e mixins.
+    /// Concrete (non-abstract) member in the chain of superclasses and mixins.
     pub fn has_concrete_member(&self, c: ClassId, name: &str, setter: bool) -> bool {
         let mut seen = HashSet::new();
         let mut queue = vec![c];
@@ -1583,7 +1587,7 @@ impl<'a> Ctx<'a> {
         false
     }
 
-    /// Classe (própria ou herdada, sem contar Object) que declara `noSuchMethod`.
+    /// The class (itself or an ancestor, not counting Object) declares `noSuchMethod`.
     pub fn has_user_nsm(&self, c: ClassId) -> bool {
         let mut cur = Some(c);
         while let Some(k) = cur {
@@ -1604,66 +1608,67 @@ impl<'a> Ctx<'a> {
         false
     }
 
-    /// Membros de instância declarados em `k`, na ordem de declaração (o id
-    /// da função é atribuído pelo outline na ordem da fonte). O mapa
-    /// `instance_members` é um `HashMap`: iterá-lo direto dá uma ordem que
-    /// muda de uma execução para outra.
-    fn membros_declarados(&self, k: ClassId) -> Vec<(SymbolId, FunctionElementId)> {
+    /// Instance members declared in `k`, in declaration order (the function
+    /// id is assigned by the outline in source order). The `instance_members`
+    /// map is a `HashMap`: iterating it directly gives an order that changes
+    /// from one run to the next.
+    fn declared_members(&self, k: ClassId) -> Vec<(SymbolId, FunctionElementId)> {
         let mut v: Vec<(SymbolId, FunctionElementId)> = self.program.class(k).instance_members.iter().map(|(&s, &f)| (s, f)).collect();
         v.sort_by_key(|&(_, f)| f);
         v
     }
 
-    /// Ordem dos nomes de membros de instância de `c` como o CFE monta o
-    /// `memberMap` de `ClassMembersNodeBuilder.build` (`members_node.dart`):
-    /// os declarados (getters e métodos, depois setters), os da superclasse,
-    /// os dos mixins (um membro **abstrato** de mixin não entra como
-    /// `mixedInMember`, e sim pela interface da aplicação `S with M`, depois
-    /// de `S`) e os das interfaces, cada nome na primeira vez em que aparece.
-    /// Os encaminhadores de `noSuchMethod` nascem nessa ordem
+    /// Order of the instance member names of `c` as the CFE builds the
+    /// `memberMap` of `ClassMembersNodeBuilder.build` (`members_node.dart`):
+    /// the declared ones (getters and methods, then setters), the
+    /// superclass's, the mixins' (an **abstract** mixin member does not enter
+    /// as a `mixedInMember`, but through the interface of the application
+    /// `S with M`, after `S`) and the interfaces', each name the first time it
+    /// appears. The `noSuchMethod` forwarders are born in this order
     /// (`registerMemberComputation` → `ForwardingNode.finalize` →
-    /// `cls.addProcedure`) e o DDC os emite na ordem de `cls.procedures`.
-    /// Em hierarquias fundas o CFE ainda separa membros de classe dos só de
-    /// interface (`classMemberMap` antes de `interfaceMemberMap`); aqui a
-    /// ordem é a da busca em profundidade — determinística nos dois casos.
-    fn ordem_membros_cfe(&self, c: ClassId) -> Vec<String> {
-        fn visitar(ctx: &Ctx, k: ClassId, vistos: &mut HashSet<ClassId>, out: &mut Vec<String>) {
-            if Some(k) == ctx.object || !vistos.insert(k) {
+    /// `cls.addProcedure`) and the DDC emits them in the order of
+    /// `cls.procedures`. In deep hierarchies the CFE also separates class
+    /// members from interface-only ones (`classMemberMap` before
+    /// `interfaceMemberMap`); here the order is that of the depth-first
+    /// search — deterministic in both cases.
+    fn cfe_member_order(&self, c: ClassId) -> Vec<String> {
+        fn visit(ctx: &Ctx, k: ClassId, seen: &mut HashSet<ClassId>, out: &mut Vec<String>) {
+            if Some(k) == ctx.object || !seen.insert(k) {
                 return;
             }
-            let membros = ctx.membros_declarados(k);
+            let members = ctx.declared_members(k);
             for setters in [false, true] {
-                for &(sym, _) in &membros {
-                    let chave = ctx.interner.resolve(sym);
-                    let (nome, e_setter) = match chave.strip_suffix("_=") {
+                for &(sym, _) in &members {
+                    let key = ctx.interner.resolve(sym);
+                    let (name, is_setter) = match key.strip_suffix("_=") {
                         Some(n) => (n, true),
-                        None => (chave, false),
+                        None => (key, false),
                     };
-                    if e_setter == setters && !out.iter().any(|x| x == nome) {
-                        out.push(nome.to_string());
+                    if is_setter == setters && !out.iter().any(|x| x == name) {
+                        out.push(name.to_string());
                     }
                 }
             }
             let class = ctx.program.class(k);
             if let Some(s) = class.supertype_class {
-                visitar(ctx, s, vistos, out);
+                visit(ctx, s, seen, out);
             }
             for &mx in &class.mixin_classes {
-                visitar(ctx, mx, vistos, out);
+                visit(ctx, mx, seen, out);
             }
             for &i in class.interface_classes.iter().chain(class.on_classes.iter()) {
-                visitar(ctx, i, vistos, out);
+                visit(ctx, i, seen, out);
             }
         }
         let mut out = Vec::new();
-        visitar(self, c, &mut HashSet::new(), &mut out);
+        visit(self, c, &mut HashSet::new(), &mut out);
         out
     }
 
-    /// Membros abstratos (nome, kind) alcançáveis pelos supertipos que não
-    /// têm implementação concreta, na ordem em que o CFE cria os
-    /// encaminhadores de `noSuchMethod` (`Self::ordem_membros_cfe`; getter
-    /// antes do setter de mesmo nome).
+    /// Abstract members (name, kind) reachable through the supertypes that
+    /// have no concrete implementation, in the order in which the CFE creates
+    /// the `noSuchMethod` forwarders (`Self::cfe_member_order`; a getter
+    /// before the setter of the same name).
     pub fn unimplemented_abstract(&self, c: ClassId) -> Vec<(String, MemberKind)> {
         let mut out: Vec<(String, MemberKind)> = Vec::new();
         let mut seen = HashSet::new();
@@ -1672,7 +1677,7 @@ impl<'a> Ctx<'a> {
             if !seen.insert(k) || Some(k) == self.object {
                 continue;
             }
-            for (sym, fid) in self.membros_declarados(k) {
+            for (sym, fid) in self.declared_members(k) {
                 let f = self.program.function(fid);
                 if !f.abstract_ {
                     continue;
@@ -1705,8 +1710,8 @@ impl<'a> Ctx<'a> {
             }
         }
         if out.len() > 1 {
-            let ordem = self.ordem_membros_cfe(c);
-            let pos = |n: &str| ordem.iter().position(|x| x == n).unwrap_or(usize::MAX);
+            let order = self.cfe_member_order(c);
+            let pos = |n: &str| order.iter().position(|x| x == n).unwrap_or(usize::MAX);
             out.sort_by(|(na, ka), (nb, kb)| {
                 let (sa, sb) = (matches!(ka, MemberKind::Setter(_)), matches!(kb, MemberKind::Setter(_)));
                 pos(na).cmp(&pos(nb)).then_with(|| na.cmp(nb)).then(sa.cmp(&sb))
@@ -1719,9 +1724,9 @@ impl<'a> Ctx<'a> {
         let data = &self.outline.functions[fid.0 as usize];
         let f = self.program.function(fid);
         if f.kind == FunctionKind::ImplicitAccessor {
-            return self.var_ty(f.variable.expect("acessor implícito sem variável"));
+            return self.var_ty(f.variable.expect("implicit accessor without a variable"));
         }
-        // Reconstrói a partir dos parâmetros (o `signature` de construtores ignora nomeados opcionais? usa mesmo).
+        // Rebuild from the parameters (does the constructors' `signature` ignore optional named ones? use it anyway).
         let mut pos = Vec::new();
         let mut opt = Vec::new();
         let mut named = Vec::new();
@@ -1747,13 +1752,13 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    /// `C<dynamic, …>`: classe como literal de tipo sem argumentos.
+    /// `C<dynamic, …>`: the class as a type literal without arguments.
     pub fn this_ty_default(&self, c: ClassId) -> Ty {
         let args = self.class_params[c.0 as usize].iter().map(|_| Ty::Dynamic).collect();
         Ty::Iface { class: c, args, nullable: false }
     }
 
-    /// Tipo `this` de uma classe: `C<T1..Tn>`.
+    /// The `this` type of a class: `C<T1..Tn>`.
     pub fn this_ty(&self, c: ClassId) -> Ty {
         let args = self.class_params[c.0 as usize]
             .iter()
@@ -1762,7 +1767,7 @@ impl<'a> Ctx<'a> {
         Ty::Iface { class: c, args, nullable: false }
     }
 
-    /// Classe que declara o membro visto a partir de `ty` (para decidir `dartx`).
+    /// Whether the member seen from `ty` is accessed through `dartx` (decided by the class that declares it).
     pub fn is_ext_member(&self, ty: &Ty, name: &str, setter: bool) -> bool {
         if name.starts_with('_') {
             return false;
@@ -1780,13 +1785,13 @@ impl<'a> Ctx<'a> {
             },
             _ => return false,
         };
-        // Receptor de tipo nativo (`_isSymbolizedMember`, compiler.dart:3311):
-        // o membro encaminhado (público) que é campo ou `external`/`native`
-        // acede a propriedade JS direta, exceto (a) quando é `external` numa
-        // biblioteca web com retorno não anulável — precisa do
-        // `checkNativeNonNull` da definição — e (b) quando `@JSName('x')` o
-        // renomeia (`x != nome`), porque aí o nome Dart não existe no objeto JS.
-        // Membros com corpo Dart são sempre símbolos `dartx`.
+        // Receiver of a native type (`_isSymbolizedMember`, compiler.dart:3311):
+        // a (public) forwarded member that is a field or `external`/`native`
+        // accesses the JS property directly, except (a) when it is `external`
+        // in a web library with a non-nullable return — it needs the
+        // definition's `checkNativeNonNull` — and (b) when `@JSName('x')`
+        // renames it (`x != name`), because then the Dart name does not exist
+        // on the JS object. Members with a Dart body are always `dartx` symbols.
         let impl_class = if Some(class) == self.int_ || Some(class) == self.double_ || Some(class) == self.num_ {
             self.jsnumber
         } else if Some(class) == self.bool_ {
@@ -1803,10 +1808,10 @@ impl<'a> Ctx<'a> {
                     let f = self.program.function(fid);
                     let external = f.external || self.has_native_body(fid);
                     if !is_field && !external {
-                        return true; // corpo Dart: sempre simbolizado
+                        return true; // Dart body: always symbolized
                     }
-                    // `_isNullCheckableNative`: só procedimentos `external` de
-                    // biblioteca web com retorno potencialmente não anulável.
+                    // `_isNullCheckableNative`: only `external` procedures of a
+                    // web library with a potentially non-nullable return.
                     if !is_field && external && self.is_web_library(f.library) {
                         let ret = self.ty_of(self.outline.functions[fid.0 as usize].return_type);
                         if !ret.is_nullable() {
@@ -1825,7 +1830,7 @@ impl<'a> Ctx<'a> {
     }
 
     // -----------------------------------------------------------------------
-    // Subtipagem aproximada e LUB
+    // Approximate subtyping and LUB
     // -----------------------------------------------------------------------
 
     pub fn is_subtype(&self, a: &Ty, b: &Ty) -> bool {
@@ -1938,7 +1943,7 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    /// Menor supertipo comum (aproximado).
+    /// Least upper bound (approximate).
     pub fn lub(&self, a: &Ty, b: &Ty) -> Ty {
         if a == b {
             return a.clone();
@@ -1962,14 +1967,14 @@ impl<'a> Ctx<'a> {
                 if self.is_num_like(&an) && self.is_num_like(&bn) {
                     return self.t_num().with_nullable(nullable);
                 }
-                // Mesma classe: lub dos argumentos.
+                // Same class: lub of the arguments.
                 if let (Ty::Iface { class: ca, args: aa, .. }, Ty::Iface { class: cb, args: ab, .. }) = (&an, &bn) {
                     if ca == cb && aa.len() == ab.len() {
                         let args = aa.iter().zip(ab.iter()).map(|(x, y)| self.lub(x, y)).collect();
                         return Ty::Iface { class: *ca, args, nullable };
                     }
                 }
-                // Procura superclasse comum na cadeia de `extends` de `a`.
+                // Look for a common superclass in the `extends` chain of `a`.
                 if let (Ty::Iface { .. }, Ty::Iface { .. }) = (&an, &bn) {
                     let mut cur = Some(an.clone());
                     while let Some(t) = cur {
@@ -1989,7 +1994,7 @@ impl<'a> Ctx<'a> {
     }
 
     // -----------------------------------------------------------------------
-    // Nomes
+    // Names
     // -----------------------------------------------------------------------
 
     pub fn lib_of_class(&self, c: ClassId) -> LibraryId {
@@ -2000,30 +2005,31 @@ impl<'a> Ctx<'a> {
         &self.libs[lib.0 as usize].ident
     }
 
-    /// A chave JS de um parâmetro nomeado: o nome Dart, ou o curto do perfil
-    /// de produção (`Vivos::nome_nomeado`). O mesmo mapa vale na chamada, no
-    /// prólogo da função e na receita rti do tipo de função.
-    pub fn nomeado(&self, nome: &str) -> String {
-        self.filtro.and_then(|f| f.nome_nomeado(nome)).unwrap_or(nome).to_string()
+    /// The JS key of a named parameter: the Dart name, or the short one of the
+    /// production profile (`Vivos::nome_nomeado`). The same map applies at the
+    /// call, in the function's prologue and in the rti recipe of the function
+    /// type.
+    pub fn nomeado(&self, name: &str) -> String {
+        self.filtro.and_then(|f| f.nome_nomeado(name)).unwrap_or(name).to_string()
     }
 
-    /// Prefixo de receita rti da classe: `core|int`, `main|P`. No modo SDK
-    /// (perfil de produção), a biblioteca do programa é um rótulo curto
-    /// ([`crate::tag_de_receita`]): a parte antes do `|` é opaca para o
-    /// runtime (`_rtiToString` só lê o que vem depois), e o nome inteiro
-    /// da biblioteca repetido em toda receita era ~20% do arquivo
+    /// rti recipe prefix of the class: `core|int`, `main|P`. In SDK mode
+    /// (production profile), the program's library is a short label
+    /// ([`crate::tag_de_receita`]): the part before the `|` is opaque to the
+    /// runtime (`_rtiToString` only reads what comes after it), and the full
+    /// library name repeated in every recipe was ~20% of the file
     /// (`docs/JS-PRODUCAO-TAMANHO.md` §3.2).
     ///
-    /// No modo SDK a receita é um id curto (`|a`, `|bK`,
-    /// `docs/JS-PRODUCAO-TAMANHO.md` §9.5): o `|` inicial é identificador
-    /// para o *parser* de receitas (`Recipe.isIdentifierStart`) e marca a
-    /// receita para o verificador e as regras (`emit_js_production::regras`); o
-    /// nome que o `_rtiToString` mostra vem da tabela que o perfil de produção
-    /// põe no `unmangleGlobalNameIfPreservedAnyways`.
+    /// In SDK mode the recipe is a short id (`|a`, `|bK`,
+    /// `docs/JS-PRODUCAO-TAMANHO.md` §9.5): the leading `|` is an identifier
+    /// for the recipe *parser* (`Recipe.isIdentifierStart`) and marks the
+    /// recipe for the verifier and the rules (`emit_js_production::regras`);
+    /// the name that `_rtiToString` shows comes from the table the production
+    /// profile puts into `unmangleGlobalNameIfPreservedAnyways`.
     pub fn class_recipe(&self, c: ClassId) -> String {
         let lib = self.lib_of_class(c);
-        if self.sdk.is_some() && self.receita_curta {
-            let ids = self.ids_de_receita.get_or_init(|| crate::ids_de_receita(self.program, self.interner));
+        if self.sdk.is_some() && self.short_recipe {
+            let ids = self.recipe_ids.get_or_init(|| crate::ids_de_receita(self.program, self.interner));
             return format!("|{}", ids[c.0 as usize]);
         }
         if self.sdk.is_some() && !self.libs[lib.0 as usize].is_sdk {
@@ -2032,23 +2038,23 @@ impl<'a> Ctx<'a> {
         format!("{}|{}", self.lib_ident(lib), self.class_name(c))
     }
 
-    /// [`Ctx::class_recipe`] da classe `nome` de `uri`; `padrao` se ela não
-    /// existe no programa.
-    pub fn receita_de(&self, uri: &str, nome: &str, padrao: &str) -> String {
-        let classe = self.program.libraries.iter().position(|l| l.uri == uri).and_then(|i| {
-            let sym = self.interner.lookup(nome)?;
+    /// [`Ctx::class_recipe`] of the class `name` of `uri`; `fallback` if it
+    /// does not exist in the program.
+    pub fn receita_de(&self, uri: &str, name: &str, fallback: &str) -> String {
+        let class = self.program.libraries.iter().position(|l| l.uri == uri).and_then(|i| {
+            let sym = self.interner.lookup(name)?;
             match self.program.library(LibraryId(i as u32)).declared.get(&sym)?.getter {
                 Some(Element::Class(c)) => Some(c),
                 _ => None,
             }
         });
-        classe.map_or_else(|| padrao.to_string(), |c| self.class_recipe(c))
+        class.map_or_else(|| fallback.to_string(), |c| self.class_recipe(c))
     }
 
-    /// Quantos parâmetros de tipo a classe declara.
+    /// How many type parameters the class declares.
     ///
-    /// Usa `class_params` quando já existe e o outline enquanto
-    /// `compute_hierarchy` ainda o está construindo.
+    /// Uses `class_params` when it already exists and the outline while
+    /// `compute_hierarchy` is still building it.
     pub fn class_arity(&self, c: ClassId) -> usize {
         match self.class_params.get(c.0 as usize) {
             Some(p) => p.len(),
@@ -2056,25 +2062,15 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    /// Argumentos de uma interface na aridade declarada: um tipo **cru**
-    /// (`Caixa` querendo dizer `Caixa<dynamic>`) recebe um `dynamic` por
-    /// parâmetro que falta.
-    ///
-    /// O `rti` exige um argumento por parâmetro declarado — `_areArgumentsSubtypes`
-    /// (`rti.dart:3676`) tem `assert(length == _Utils.arrayLength(tArgs))`, e uma
-    /// receita crua derruba a aplicação no primeiro `is`/`as` que a atravesse. O
-    /// `dartdevc` emite `raw|Caixa<@>` e nunca `raw|Caixa` (o nome sem
-    /// argumentos só aparece como **chave** de `addRules`/`addRtiResources`, que
-    /// é outra coisa).
-    /// Se `e` (da unidade `unit`) é alvo de atribuição composta (`+=`,
-    /// `??=`…) ou de `++`/`--`. A inferência comum registra o tipo de
-    /// leitura desses alvos no nó da atribuição e não no alvo (como o
-    /// analyzer, que dá `readType` à `AssignmentExpression`), então o tipo
-    /// estático do alvo não vale como tipo da leitura. Calculado uma vez por
-    /// unidade.
+    /// Whether `e` (of the unit `unit`) is the target of a compound assignment
+    /// (`+=`, `??=`…) or of `++`/`--`. The common inference records the read
+    /// type of these targets on the assignment node and not on the target
+    /// (like the analyzer, which gives `readType` to the
+    /// `AssignmentExpression`), so the static type of the target does not
+    /// count as the read type. Computed once per unit.
     pub fn e_alvo_de_escrita(&self, unit: dartforge_elements::model::UnitId, e: ast::ExprId) -> bool {
-        let conjunto = self
-            .alvos_de_escrita
+        let targets = self
+            .write_targets
             .borrow_mut()
             .entry(unit.0)
             .or_insert_with(|| {
@@ -2096,9 +2092,20 @@ impl<'a> Ctx<'a> {
                 std::rc::Rc::new(v)
             })
             .clone();
-        conjunto.contains(&e.0)
+        targets.contains(&e.0)
     }
 
+    /// Arguments of an interface at the declared arity: a **raw** type
+    /// (`Caixa` meaning `Caixa<dynamic>`) receives one `dynamic` per missing
+    /// parameter.
+    ///
+    /// The `rti` requires one argument per declared parameter —
+    /// `_areArgumentsSubtypes` (`rti.dart:3676`) has
+    /// `assert(length == _Utils.arrayLength(tArgs))`, and a raw recipe brings
+    /// the application down at the first `is`/`as` that goes through it.
+    /// `dartdevc` emits `raw|Caixa<@>` and never `raw|Caixa` (the name without
+    /// arguments only appears as a **key** of `addRules`/`addRtiResources`,
+    /// which is something else).
     pub fn args_na_aridade<'t>(&self, class: ClassId, args: &'t [Ty]) -> std::borrow::Cow<'t, [Ty]> {
         let n = self.class_arity(class);
         if args.len() >= n {
@@ -2121,8 +2128,8 @@ impl<'a> Ctx<'a> {
         self.program.unit(u)
     }
 
-    /// Extensões visíveis numa biblioteca: as declaradas nela e nas importadas
-    /// (e em `dart:core`).
+    /// Extensions visible in a library: those declared in it and in the
+    /// imported ones (and in `dart:core`).
     pub fn visible_extensions(&self, lib: LibraryId) -> Vec<ExtensionId> {
         let mut libs: Vec<LibraryId> = vec![lib];
         let l = self.program.library(lib);
@@ -2136,7 +2143,7 @@ impl<'a> Ctx<'a> {
                 libs.push(c);
             }
         }
-        // Exports transitivos das bibliotecas visíveis.
+        // Transitive exports of the visible libraries.
         let mut i = 0;
         while i < libs.len() {
             let cur = libs[i];
@@ -2157,9 +2164,9 @@ impl<'a> Ctx<'a> {
     }
 }
 
-/// Deriva identificadores e caminhos de módulo das bibliotecas.
+/// Derives the identifiers and module paths of the libraries.
 fn compute_libs(program: &Program) -> Vec<LibInfo> {
-    // Diretório da entrada, para caminhos relativos.
+    // Directory of the entry point, for relative paths.
     let entry_dir: Option<String> = program.entry.and_then(|e| {
         let lib = program.library(e);
         let uri = &lib.uri;
@@ -2176,9 +2183,9 @@ fn compute_libs(program: &Program) -> Vec<LibInfo> {
     for lib in &program.libraries {
         let uri = &lib.uri;
         let info = if let Some(name) = uri.strip_prefix("dart:") {
-            // O runtime é o objeto `dart` e `dart:_rti` é `dart_rti` (os nomes
-            // do contrato do DDC); a receita rti continua pelo caminho
-            // (`_rti|Rti`), que é o `ident`.
+            // The runtime is the `dart` object and `dart:_rti` is `dart_rti`
+            // (the names of the DDC contract); the rti recipe still goes by the
+            // path (`_rti|Rti`), which is the `ident`.
             let js_var = match name {
                 "_runtime" => "dart",
                 "_rti" => "dart_rti",
@@ -2216,7 +2223,7 @@ fn compute_libs(program: &Program) -> Vec<LibInfo> {
     infos
 }
 
-/// `lib/src/a-b` → `lib__src__a_b`, com caracteres inválidos escapados.
+/// `lib/src/a-b` → `lib__src__a_b`, with invalid characters escaped.
 pub fn path_ident(path: &str) -> String {
     let mut out = String::new();
     let mut chars = path.chars().peekable();

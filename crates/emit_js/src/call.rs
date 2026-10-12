@@ -1,4 +1,4 @@
-//! Chamadas, argumentos, inferência de argumentos de tipo e closures.
+//! Calls, arguments, type-argument inference and closures.
 
 use crate::body::{static_member_name, AsyncKind, FnEmitter};
 use crate::ctx::MemberKind;
@@ -14,23 +14,23 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     pub fn emit_call(&mut self, target: ExprId, arguments: &ast::Arguments, expected: Option<&Ty>) -> (Js, Ty, Vec<Guard>) {
         let t = self.expr(target);
         match &t.kind {
-            // `.nome(args)` / `.new(args)` / `const .nome(args)` (3.10): a
-            // chamada de `D.nome` — método estático ou construtor, com os
-            // argumentos de tipo inferidos do contexto da chamada.
+            // `.name(args)` / `.new(args)` / `const .name(args)` (3.10): the
+            // call of `D.name` — a static method or a constructor, with the
+            // type arguments inferred from the context of the call.
             ExprKind::DotShorthand { name, const_ } => {
                 let n = self.name(name.sym).to_string();
                 let span = t.span;
-                let Some(d) = self.classe_do_atalho(target, expected) else {
+                let Some(d) = self.shorthand_class(target, expected) else {
                     return (Js::prim("null"), Ty::Dynamic, vec![]);
                 };
-                let salvo = self.in_const;
+                let saved = self.in_const;
                 self.in_const |= *const_;
                 let r = self.static_call_on_class(d, &n, arguments, expected);
-                self.in_const = salvo;
+                self.in_const = saved;
                 match r {
                     Some((js, ty)) => (js, ty, vec![]),
                     None => {
-                        let msg = format!("'{}' não tem membro estático nem construtor '{n}' para o atalho de ponto", self.ctx.class_name(d));
+                        let msg = format!("'{}' has no static member or constructor '{n}' for the dot shorthand", self.ctx.class_name(d));
                         self.erro_de_linguagem(span, msg);
                         (Js::prim("null"), Ty::Dynamic, vec![])
                     }
@@ -38,7 +38,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             ExprKind::Property { target: recv, name, null_aware } => {
                 let n = self.name(name.sym).to_string();
-                if let Some((dono, membro)) = self.membro_de_tipo_extensao(target) {
+                if let Some((owner, member)) = self.membro_de_tipo_extensao(target) {
                     let (rjs, _, mut guards) = self.emit_target(*recv);
                     let r = if *null_aware {
                         let tmp = self.temp();
@@ -47,7 +47,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     } else {
                         rjs
                     };
-                    let (js, ty) = self.tipo_ext_chamar(&r, Some(*recv), dono, membro, arguments, expected);
+                    let (js, ty) = self.tipo_ext_chamar(&r, Some(*recv), owner, member, arguments, expected);
                     let ty = if *null_aware { ty.with_nullable(true) } else { ty };
                     return (js, ty, guards);
                 }
@@ -55,7 +55,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     return (r.0, r.1, vec![]);
                 }
                 if let ExprKind::Super = self.expr(*recv).kind {
-                    let sup_ty = self.super_ty_de(&n, false);
+                    let sup_ty = self.super_ty_for(&n, false);
                     let (js, ty) = self.emit_method_call(&Js::prim(self.super_ref()), &sup_ty, &n, arguments, expected, true, None);
                     return (js, ty, vec![]);
                 }
@@ -76,9 +76,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 if self.ctx.conferencia.is_some() {
                     self.conferir_alvo(target, &self.resolve_ident(id.sym));
                 }
-                // Membro de instância de tipo de extensão pelo `this` implícito.
-                if let Some((dono, membro)) = self.membro_de_tipo_extensao(target) {
-                    let (js, ty) = self.tipo_ext_chamar(&Js::prim("$this"), None, dono, membro, arguments, expected);
+                // Instance member of an extension type through the implicit `this`.
+                if let Some((owner, member)) = self.membro_de_tipo_extensao(target) {
+                    let (js, ty) = self.tipo_ext_chamar(&Js::prim("$this"), None, owner, member, arguments, expected);
                     return (js, ty, vec![]);
                 }
                 match self.alvo_do_identificador(id.sym, target) {
@@ -142,7 +142,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    /// Chamada de um valor de função.
+    /// Call of a function value.
     pub fn emit_fn_value_call(&mut self, f: &Js, fty: &Ty, arguments: &ast::Arguments, expected: Option<&Ty>) -> (Js, Ty) {
         match fty {
             Ty::Fn { nullable: false, .. } => {
@@ -151,10 +151,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 all.extend(args);
                 (Js::prim(format!("{}({})", f.at(P_PRIMARY), all.join(", "))), ret)
             }
-            // Objeto com método `call` (classe chamável): `o(args)` é
-            // `o.call(args)`, despachado pelo tipo do receptor como qualquer
-            // método (a CFE insere o `.call` e o DDC o emite direto); só o
-            // valor de tipo `Function`, `dynamic` ou anulável fica em
+            // Object with a `call` method (callable class): `o(args)` is
+            // `o.call(args)`, dispatched on the receiver type like any other
+            // method (the CFE inserts the `.call` and the DDC emits it directly);
+            // only a value of type `Function`, `dynamic` or nullable stays in
             // `dart.dcall`.
             Ty::Iface { class, nullable: false, .. }
                 if Some(*class) != self.ctx.function_
@@ -174,7 +174,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    /// Argumentos sem tipagem (chamada dinâmica): (posicionais, objeto nomeado, tipos).
+    /// Untyped arguments (dynamic call): (positional, named object, types).
     pub fn emit_args_plain(&mut self, arguments: &ast::Arguments) -> (Vec<String>, Option<String>, Vec<Ty>) {
         let mut pos = Vec::new();
         let mut named = Vec::new();
@@ -191,7 +191,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         (pos, named_obj, tys)
     }
 
-    /// Emite argumentos para um tipo de função conhecido; devolve (args JS, tipo de retorno substituído, rtis dos argumentos de tipo).
+    /// Emits arguments for a known function type; returns (JS args, substituted return type, rtis of the type arguments).
     pub fn emit_args_for(&mut self, fty: &Ty, arguments: &ast::Arguments, expected: Option<&Ty>) -> (Vec<String>, Ty, Vec<String>) {
         let Ty::Fn { type_params, ret, .. } = fty else {
             let (args, named, _) = self.emit_args_plain(arguments);
@@ -207,16 +207,16 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             Ty::Fn { ret, pos, opt, named, nullable, .. } => Ty::Fn { type_params: vec![], ret: ret.clone(), pos: pos.clone(), opt: opt.clone(), named: named.clone(), nullable: *nullable },
             t => t.clone(),
         };
-        // A instanciação que a inferência comum escolheu (explícita ou
-        // inferida, com o contexto descendente e os estágios de closures da
-        // especificação): os argumentos são emitidos já contra a assinatura
-        // instanciada, e os argumentos de tipo reificados são esses.
+        // The instantiation the common inference chose (explicit or
+        // inferred, with the downward context and the closure stages of the
+        // specification): the arguments are emitted against the instantiated
+        // signature, and the reified type arguments are those.
         if !type_params.is_empty() {
-            if let Some(inst) = self.instanciacao_comum(arguments, type_params.len()) {
-                let mapa: HashMap<u32, Ty> = free.iter().copied().zip(inst.iter().cloned()).collect();
-                let (args, _) = self.emit_args_infer(&inner.subst(&mapa), arguments, &[], &mut HashMap::new(), expected);
+            if let Some(inst) = self.common_instantiation(arguments, type_params.len()) {
+                let map: HashMap<u32, Ty> = free.iter().copied().zip(inst.iter().cloned()).collect();
+                let (args, _) = self.emit_args_infer(&inner.subst(&map), arguments, &[], &mut HashMap::new(), expected);
                 let targs = inst.iter().map(|t| self.rti(t)).collect();
-                return (args, ret.subst(&mapa), targs);
+                return (args, ret.subst(&map), targs);
             }
         }
         let (args, _) = self.emit_args_infer(&inner, arguments, &free, &mut subst, expected);
@@ -232,17 +232,17 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         (args, ret.subst(&subst), targs)
     }
 
-    /// Inferência usando bounds (3.7, `inference-using-bounds`, na
-    /// biblioteca da chamada): um parâmetro cuja solução pelos argumentos não
-    /// satisfaz o limite declarado recebe as restrições de `solução <: limite`
-    /// (casamento com os parâmetros livres como incógnitas), e a solução
-    /// passa ao limite superior das duas. `f<X extends A<X>>(C())`, com
-    /// `C <: B <: A<B>`, dá `X = B`; `Caixa<T extends Comparable<T>>(3)` dá
-    /// `T = num`. É a regra de `GenericInferrer::restringir_pelos_limites`
-    /// de `types`.
+    /// Inference using bounds (3.7, `inference-using-bounds`, in the library
+    /// of the call): a parameter whose solution from the arguments does not
+    /// satisfy the declared bound receives the constraints of
+    /// `solution <: bound` (matched with the free parameters as unknowns), and
+    /// the solution becomes the upper bound of the two. `f<X extends A<X>>(C())`,
+    /// with `C <: B <: A<B>`, gives `X = B`; `Caixa<T extends Comparable<T>>(3)`
+    /// gives `T = num`. It is the rule of `GenericInferrer::restringir_pelos_limites`
+    /// in `types`.
     pub fn restringir_pelos_limites(&self, params: &[TyParam], free: &[u32], subst: &mut HashMap<u32, Ty>) {
-        let biblioteca = self.ctx.program.library(self.lib);
-        if !biblioteca.features.tem(dartforge_frontend::Feature::InferenceUsingBounds) {
+        let library = self.ctx.program.library(self.lib);
+        if !library.features.tem(dartforge_frontend::Feature::InferenceUsingBounds) {
             return;
         }
         for p in params {
@@ -257,8 +257,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    /// Núcleo: emite argumentos casando com a assinatura `fty` (sem parâmetros
-    /// de tipo próprios), inferindo os parâmetros livres `free` em `subst`.
+    /// Core: emits arguments matched against the signature `fty` (without type
+    /// parameters of its own), inferring the free parameters `free` into `subst`.
     pub fn emit_args_infer(
         &mut self,
         fty: &Ty,
@@ -271,9 +271,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             Ty::Fn { pos, opt, named, ret, .. } => (pos.clone(), opt.clone(), named.clone(), (**ret).clone()),
             _ => (vec![], vec![], vec![], Ty::Dynamic),
         };
-        // Só os argumentos diretos desta chamada passam por `assertInterop`.
+        // Only the direct arguments of this call go through `assertInterop`.
         let interop = std::mem::replace(&mut self.interop_args, false);
-        // Argumentos de tipo explícitos.
+        // Explicit type arguments.
         if !arguments.type_args.is_empty() {
             for (p, t) in free.iter().zip(arguments.type_args.iter()) {
                 let ty = self.resolve_type(*t);
@@ -302,7 +302,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
         }
         let is_closure = |s: &Self, e: ExprId| matches!(s.expr(e).kind, ExprKind::FunctionExpression(_));
-        // Fase 1: argumentos que não são closures.
+        // Phase 1: arguments that are not closures.
         for (i, a) in arguments.args.iter().enumerate() {
             if is_closure(self, a.value) {
                 continue;
@@ -317,7 +317,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 } else if is_literal {
                     None
                 } else {
-                    // Parâmetros ainda livres viram dynamic (só para coerções de função).
+                    // Still-free parameters become dynamic (only for function coercions).
                     let mut m = HashMap::new();
                     for f in free {
                         m.insert(*f, Ty::Dynamic);
@@ -335,19 +335,19 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             out[i] = Some(js.into_at(P_ASSIGN));
             tys[i] = ty;
         }
-        // Fase 2: closures.
+        // Phase 2: closures.
         for (i, a) in arguments.args.iter().enumerate() {
             if !is_closure(self, a.value) {
                 continue;
             }
             let expected = param_of[i].as_ref().map(|p| {
-                // Parâmetros livres ainda não ligados viram dynamic nos tipos dos parâmetros da closure.
+                // Free parameters not bound yet become dynamic in the closure's parameter types.
                 let mut m = subst.clone();
                 for f in free {
                     m.entry(*f).or_insert(Ty::Dynamic);
                 }
                 let p2 = p.subst(subst);
-                // Mantém o retorno com parâmetros livres para casar depois.
+                // Keep the return type with free parameters, to match it later.
                 match (&p2, p.subst(&m)) {
                     (Ty::Fn { ret, type_params, .. }, Ty::Fn { pos, opt, named, nullable, .. }) => {
                         Ty::Fn { type_params: type_params.clone(), ret: ret.clone(), pos, opt, named, nullable }
@@ -365,7 +365,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             out[i] = Some(js.into_at(P_ASSIGN));
             tys[i] = ty;
         }
-        // Retorno esperado (só para o que ainda falta).
+        // Expected return type (only for what is still missing).
         if let Some(e) = expected_ret {
             if !free.is_empty() {
                 let mut tmp = subst.clone();
@@ -381,7 +381,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
             }
         }
-        // Monta a lista: posicionais na ordem, nomeados no objeto final.
+        // Build the list: positionals in order, named ones in the final object.
         let mut pos_js = Vec::new();
         let mut named_js = Vec::new();
         for (i, a) in arguments.args.iter().enumerate() {
@@ -392,8 +392,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
         }
         if !named_js.is_empty() {
-            // Preenche opcionais posicionais omitidos entre os fornecidos e o objeto? Não: o
-            // objeto `opts` é o parâmetro seguinte aos posicionais declarados.
+            // Fill omitted optional positionals between the given ones and the object? No: the
+            // `opts` object is the parameter that follows the declared positionals.
             let declared_pos = pos_p.len() + opt_p.len();
             while pos_js.len() < declared_pos {
                 pos_js.push("void 0".into());
@@ -404,13 +404,14 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         (pos_js, tys)
     }
 
-    /// Chamada de método de instância `recv.name(args)`.
+    /// Call of the instance method `recv.name(args)`.
     ///
-    /// `no` é o acesso `recv.name` na fonte, quando há: o membro é o que a
-    /// resolução comum registrou para ele ([`Self::membro_do_acesso`]).
-    pub fn emit_method_call(&mut self, recv: &Js, recv_ty: &Ty, name: &str, arguments: &ast::Arguments, expected: Option<&Ty>, is_super: bool, no: Option<ExprId>) -> (Js, Ty) {
+    /// `node` is the `recv.name` access in the source, when there is one: the
+    /// member is the one the common resolution recorded for it
+    /// ([`Self::membro_do_acesso`]).
+    pub fn emit_method_call(&mut self, recv: &Js, recv_ty: &Ty, name: &str, arguments: &ast::Arguments, expected: Option<&Ty>, is_super: bool, node: Option<ExprId>) -> (Js, Ty) {
         let recv_nn = recv_ty.non_null();
-        // Membros de Object com helpers.
+        // Object members with helpers.
         let user = self.is_user_class_ty(&recv_nn) || is_super;
         match name {
             "toString" if !user && arguments.args.is_empty() => {
@@ -431,20 +432,20 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         if recv_ty.is_dynamic() {
             return self.emit_dsend(recv, name, arguments);
         }
-        // Tipo função: `.call`.
+        // Function type: `.call`.
         if let Ty::Fn { .. } = &recv_nn {
             if name == "call" {
                 return self.emit_fn_value_call(recv, &recv_nn, arguments, expected);
             }
         }
-        match self.membro_do_acesso(no, &recv_nn, name, false) {
+        match self.membro_do_acesso(node, &recv_nn, name, false) {
             Some(m) => {
                 let mty = self.ctx.member_ty(&m);
                 let access = self.member_access(&recv_nn, name, false);
                 match m.kind {
                     MemberKind::Method(_) if self.ctx.is_js_member_kind(&m.kind) => {
-                        // Interop: sem argumentos de tipo, `assertInterop` nas funções,
-                        // `jsInteropNullCheck` no retorno não anulável.
+                        // Interop: no type arguments, `assertInterop` on functions,
+                        // `jsInteropNullCheck` on a non-nullable return.
                         let saved = self.interop_args;
                         self.interop_args = true;
                         let (args, ret, _) = self.emit_args_for(&mty, arguments, expected);
@@ -461,7 +462,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         (Js::prim(format!("{}{access}({})", recv.at(P_PRIMARY), all.join(", "))), ret)
                     }
                     _ => {
-                        // Getter/campo devolvendo função.
+                        // Getter/field returning a function.
                         let getter = Js::prim(format!("{}{access}", recv.at(P_PRIMARY)));
                         self.emit_fn_value_call(&getter, &mty, arguments, expected)
                     }
@@ -504,7 +505,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let (ext, fid, subst) = found?;
         let f = self.ctx.program.function(fid);
         let e = self.ctx.program.extension(ext);
-        if let Some(r) = self.baixar_is_a(ext, name, recv, arguments) {
+        if let Some(r) = self.lower_is_a(ext, name, recv, arguments) {
             return Some(r);
         }
         let ext_name = self.extension_js_name(ext);
@@ -513,7 +514,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let fty = self.ctx.fn_ty(fid);
         match f.kind {
             FunctionKind::Function | FunctionKind::Operator => {
-                // Parâmetros livres: os da extensão (parcialmente ligados) + os do método.
+                // Free parameters: the extension's (partially bound) + the method's.
                 let (mtps, inner) = match &fty {
                     Ty::Fn { type_params, ret, pos, opt, named, nullable } => (
                         type_params.clone(),
@@ -523,10 +524,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 };
                 let mut free: Vec<u32> = ext_tps.clone();
                 let mut s = subst.clone();
-                // Os parâmetros do próprio método pela instanciação comum,
-                // quando há; os da extensão continuam pela aplicação achada.
-                let comum = if mtps.is_empty() { None } else { self.instanciacao_comum(arguments, mtps.len()) };
-                let inner = match comum {
+                // The method's own parameters from the common instantiation,
+                // when there is one; the extension's still come from the
+                // application that was found.
+                let common = if mtps.is_empty() { None } else { self.common_instantiation(arguments, mtps.len()) };
+                let inner = match common {
                     Some(inst) => {
                         for (p, t) in mtps.iter().zip(inst) {
                             s.insert(p.id, t);
@@ -561,7 +563,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    /// `C.m(args)`, `C.named(args)`, `p.f(args)`, `p.C.m(args)`, `E.method(...)` (extensão estática).
+    /// `C.m(args)`, `C.named(args)`, `p.f(args)`, `p.C.m(args)`, `E.method(...)` (static extension member).
     fn try_static_call(&mut self, recv: ExprId, name: &str, arguments: &ast::Arguments, expected: Option<&Ty>) -> Option<(Js, Ty)> {
         let t = self.expr(recv);
         match &t.kind {
@@ -643,16 +645,16 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             cur = self.ctx.superclass_of(k);
         }
-        // Construtor nomeado.
+        // Named constructor.
         let cname = if name == "new" { "" } else { name };
-        // Modo SDK: o construtor de representação de um tipo de extensão de
-        // interop (`JSNumber._(x)` nos *patches* de `dart:js_interop`) é o
-        // próprio valor, como nos apagados.
+        // SDK mode: the representation constructor of an interop extension
+        // type (`JSNumber._(x)` in the `dart:js_interop` *patches*) is the
+        // value itself, as with erased ones.
         if self.ctx.sdk.is_some() && self.ctx.program.class(c).kind == dartforge_elements::model::ClassKind::ExtensionType && crate::tipo_extensao::nome_do_primario(self.ctx, c).as_deref() == Some(cname) {
             return Some(self.tipo_ext_construir(c, vec![], false, cname, arguments, expected));
         }
         if crate::tipo_extensao::e_tipo_extensao_apagado(self.ctx, c) {
-            // O primário não é elemento: `tipo_ext_construir` o reconhece.
+            // The primary constructor is not an element: `tipo_ext_construir` recognizes it.
             if !crate::tipo_extensao::tem_construtor(self.ctx, c, cname) {
                 return None;
             }
@@ -678,15 +680,15 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             all.extend(args);
             return Some((Js::prim(format!("{lib_var}[{}]({})", js::string_literal(&format!("{ext_name}|{name}")), all.join(", "))), ret));
         }
-        // `Ext(x).m()` é tratado como chamada em `Ext(x)`; aqui só estáticos.
+        // `Ext(x).m()` is handled as a call on `Ext(x)`; only statics here.
         None
     }
 
     pub fn emit_static_call(&mut self, c: ClassId, name: &str, mk: MemberKind, arguments: &ast::Arguments, expected: Option<&Ty>) -> (Js, Ty) {
-        // Constante de ambiente chamada como estático (`X.fromEnvironment(...)`
-        // sem `const`): o valor é o mesmo, avaliado na compilação.
+        // Environment constant called as a static (`X.fromEnvironment(...)`
+        // without `const`): the value is the same, evaluated at compile time.
         if name == "fromEnvironment" {
-            if let Some(r) = self.constante_de_ambiente(c, arguments) {
+            if let Some(r) = self.environment_constant(c, arguments) {
                 return r;
             }
         }
@@ -737,7 +739,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     pub fn emit_element_call(&mut self, el: Element, arguments: &ast::Arguments, expected: Option<&Ty>) -> (Js, Ty) {
         match el {
             Element::Function(fid) => {
-                // Modo SDK: `JS(...)`, `JS_GET_FLAG(...)`, `TYPE_REF<T>()`…
+                // SDK mode: `JS(...)`, `JS_GET_FLAG(...)`, `TYPE_REF<T>()`…
                 if self.ctx.sdk.is_some() {
                     if let Some(r) = crate::sdk_proprio::emitir_intrinseco(self, fid, arguments, expected) {
                         return r;
@@ -748,7 +750,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     let (g, gty) = self.element_ref(el).map(|(j, _)| (Js::prim(j), self.ctx.ty_of(self.ctx.outline.functions[fid.0 as usize].return_type))).expect("getter");
                     return self.emit_fn_value_call(&g, &gty, arguments, expected);
                 }
-                let (js, fty) = self.element_ref(el).expect("função");
+                let (js, fty) = self.element_ref(el).expect("function");
                 if self.ctx.is_js_member(fid) {
                     let saved = self.interop_args;
                     self.interop_args = true;
@@ -757,18 +759,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     return (self.js_null_check(Js::prim(format!("{js}({})", args.join(", "))), &MemberKind::Method(fid)), ret);
                 }
                 let (args, ret, targs) = self.emit_args_for(&fty, arguments, expected);
-                // Modo SDK: `@NoReifyGeneric` não passa os argumentos de tipo.
+                // SDK mode: `@NoReifyGeneric` does not pass the type arguments.
                 let mut all = if crate::sdk_proprio::sem_generico(self.ctx, fid) { Vec::new() } else { targs };
                 all.extend(args);
                 (Js::prim(format!("{js}({})", all.join(", "))), ret)
             }
             Element::Variable(_) => {
-                let (js, ty) = self.element_ref(el).expect("variável");
+                let (js, ty) = self.element_ref(el).expect("variable");
                 self.emit_fn_value_call(&Js::prim(js), &ty, arguments, expected)
             }
             Element::Class(c) => {
-                // Extension type: `E(x)` é o valor representado (nos de
-                // interop, `X(...)` é o construtor JS).
+                // Extension type: `E(x)` is the represented value (in interop
+                // ones, `X(...)` is the JS constructor).
                 if crate::tipo_extensao::e_tipo_extensao_apagado(self.ctx, c) {
                     return self.tipo_ext_construir(c, vec![], false, "", arguments, expected);
                 }
@@ -776,7 +778,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 self.emit_constructor_call(c, vec![], false, "", arguments, expected, is_const)
             }
             Element::Extension(ext) => {
-                // `Ext(x)` — valor para acesso explícito a membros da extensão.
+                // `Ext(x)` — a value for explicit access to the extension's members.
                 let _ = ext;
                 if let Some(a) = arguments.args.first() {
                     let (js, ty) = self.emit_expr(a.value, None);
@@ -800,17 +802,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     // Closures
     // -----------------------------------------------------------------------
 
-    /// Emite uma expressão de função (closure ou função local). Devolve
-    /// `dart.fn(...)`/`dart.gFn(...)` e o tipo.
+    /// Emits a function expression (closure or local function). Returns
+    /// `dart.fn(...)`/`dart.gFn(...)` and the type.
     ///
-    /// `comum` é o tipo que a inferência comum deu à função: os parâmetros
-    /// sem anotação e o retorno sem anotação vêm dele (o retorno inferido do
-    /// corpo, `Null` de corpo sem `return`, `Never` de corpo que só lança, o
-    /// contexto descendente), e os parâmetros de tipo da `TypeTable` que ele
-    /// liga são traduzidos para os do emissor enquanto o corpo é emitido.
-    pub fn emit_function_expr(&mut self, fid: ast::FunctionId, expected: Option<&Ty>, comum: Option<dartforge_types::table::TypeId>) -> (Js, Ty) {
+    /// `common` is the type the common inference gave the function: the
+    /// unannotated parameters and the unannotated return type come from it
+    /// (the return type inferred from the body, `Null` for a body without
+    /// `return`, `Never` for a body that only throws, the downward context),
+    /// and the `TypeTable` type parameters it binds are translated into the
+    /// emitter's ones while the body is emitted.
+    pub fn emit_function_expr(&mut self, fid: ast::FunctionId, expected: Option<&Ty>, common: Option<dartforge_types::table::TypeId>) -> (Js, Ty) {
         let f = self.ast().function(fid);
-        // Parâmetros de tipo próprios.
+        // Own type parameters.
         let mut tps: Vec<TyParam> = Vec::new();
         let mut scope_params = Vec::new();
         for tp in f.type_params.iter() {
@@ -823,10 +826,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let mut new_tps = scope_params.clone();
         new_tps.extend(saved_tps.iter().cloned());
         self.fn_type_params = new_tps;
-        let saved_comuns = self.params_comuns.clone();
-        if let Some(dartforge_types::table::Type::Function { type_params: da_tabela, .. }) = comum.map(|id| self.ctx.table.get(id)) {
-            if da_tabela.len() == tps.len() {
-                for (t, p) in da_tabela.iter().zip(tps.iter()) {
+        let saved_common_params = self.params_comuns.clone();
+        if let Some(dartforge_types::table::Type::Function { type_params: from_table, .. }) = common.map(|id| self.ctx.table.get(id)) {
+            if from_table.len() == tps.len() {
+                for (t, p) in from_table.iter().zip(tps.iter()) {
                     self.params_comuns.insert(t.0, Ty::Param { id: p.id, name: p.name.clone(), nullable: false });
                 }
             }
@@ -838,18 +841,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 p.bound = Box::new(bt);
             }
         }
-        // Assinatura comum, só de função não genérica (a genérica liga
-        // parâmetros próprios, que a tradução acima cobre no corpo).
-        let comum_fn = match comum {
+        // Common signature, only for a non-generic function (a generic one
+        // binds its own parameters, which the translation above covers in the body).
+        let common_fn = match common {
             Some(id) if tps.is_empty() => self.ty_comum_em_escopo(id).filter(|t| matches!(t, Ty::Fn { type_params, nullable: false, .. } if type_params.is_empty())),
             _ => None,
         };
-        let expected_fn = match (&comum_fn, expected) {
+        let expected_fn = match (&common_fn, expected) {
             (Some(c), _) => Some(c.clone()),
             (None, Some(Ty::Fn { .. })) => expected.cloned(),
             _ => None,
         };
-        let ret_comum = match (&comum_fn, f.return_type) {
+        let common_ret = match (&common_fn, f.return_type) {
             (Some(Ty::Fn { ret, .. }), None) => Some((**ret).clone()),
             _ => None,
         };
@@ -864,20 +867,20 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             Some(Ty::Fn { ret, .. }) => Some((**ret).clone()),
             _ => None,
         };
-        let ret_for_body = declared_ret.clone().or(ret_comum.clone()).or(expected_ret.clone()).unwrap_or(Ty::Dynamic);
+        let ret_for_body = declared_ret.clone().or(common_ret.clone()).or(expected_ret.clone()).unwrap_or(Ty::Dynamic);
         let saved = self.enter_fn(kind, ret_for_body.clone(), self.is_static);
         self.is_closure_body = true;
         let params: &[ast::Parameter] = f.parameters.as_deref().unwrap_or(&[]);
         let (param_js, prologue) = self.declare_params(params, expected_fn.as_ref());
-        // Tipo dos parâmetros já declarados: lê do escopo.
+        // Types of the parameters already declared: read them from the scope.
         let (pos, opt, named) = self.declared_param_tys(params);
         self.emit_body(&f.body);
         let (body, returns) = self.exit_fn(saved);
         self.is_closure_body = false;
-        // Num gerador, `returns` são os elementos produzidos (`yield`).
-        let gerador = matches!(kind, AsyncKind::SyncStar | AsyncKind::AsyncStar);
-        let (returns, mut rendimentos) = if gerador { (Vec::new(), returns) } else { (returns, Vec::new()) };
-        // Tipo de retorno: declarado, senão inferido do corpo (ou do contexto).
+        // In a generator, `returns` are the produced elements (`yield`).
+        let is_generator = matches!(kind, AsyncKind::SyncStar | AsyncKind::AsyncStar);
+        let (returns, mut yields) = if is_generator { (Vec::new(), returns) } else { (returns, Vec::new()) };
+        // Return type: declared, otherwise inferred from the body (or from the context).
         let inferred = if returns.is_empty() {
             if matches!(f.body, ast::FunctionBody::Expression(_)) { None } else { Some(Ty::Void) }
         } else {
@@ -904,16 +907,16 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             (None, None) => expected_ret.clone().unwrap_or(Ty::Dynamic),
         };
-        // O retorno comum vale quando tem a forma que a espécie do corpo
-        // exige (`Future`/`Stream`/`Iterable` de `async`/`async*`/`sync*`).
-        let ret_comum = ret_comum.filter(|r| match kind {
+        // The common return type applies when it has the shape the body kind
+        // requires (`Future`/`Stream`/`Iterable` for `async`/`async*`/`sync*`).
+        let common_ret = common_ret.filter(|r| match kind {
             AsyncKind::None => true,
             AsyncKind::Async => r.is_class(self.ctx.future_),
             AsyncKind::AsyncStar => r.is_class(self.ctx.stream_),
             AsyncKind::SyncStar => r.is_class(self.ctx.iterable_),
         });
         let ret_ty = match kind {
-            _ if ret_comum.is_some() => ret_comum.unwrap_or(Ty::Dynamic),
+            _ if common_ret.is_some() => common_ret.unwrap_or(Ty::Dynamic),
             AsyncKind::None => inner_ret,
             AsyncKind::Async => match &inner_ret {
                 Ty::Iface { class, .. } if Some(*class) == self.ctx.future_ && declared_ret.is_some() => inner_ret.clone(),
@@ -921,7 +924,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             },
             AsyncKind::AsyncStar | AsyncKind::SyncStar if declared_ret.is_some() => inner_ret,
             AsyncKind::AsyncStar | AsyncKind::SyncStar => {
-                self.retorno_inferido_de_gerador(kind, std::mem::take(&mut rendimentos), expected_ret.as_ref())
+                self.inferred_generator_return(kind, std::mem::take(&mut yields), expected_ret.as_ref())
             }
         };
         let fn_ty = Ty::Fn { type_params: tps.clone(), ret: Box::new(ret_ty.clone()), pos, opt, named, nullable: false };
@@ -932,8 +935,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let head = format!("({}) => {{", all_params.join(", "));
         let text = self.wrap_async_head(kind, &head, &prologue, &body, &ret_ty);
         self.fn_type_params = saved_tps;
-        self.params_comuns = saved_comuns;
-        // Modo SDK: `@ReifyFunctionTypes(false)` (o runtime) — função JS crua.
+        self.params_comuns = saved_common_params;
+        // SDK mode: `@ReifyFunctionTypes(false)` (the runtime) — a raw JS function.
         if crate::sdk_proprio::sem_reificar(self.ctx, self.lib) {
             return (Js::prim(format!("({text})")), fn_ty);
         }
@@ -949,31 +952,31 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    /// Tipo de retorno inferido de uma função literal geradora sem tipo
-    /// declarado (`closure_context.dart` do CFE, `inferReturnType` dos
-    /// contextos `sync*`/`async*`): o elemento é o limite superior dos tipos
-    /// produzidos (`Null` sem nenhum `yield`), embrulhado em `Iterable`/
-    /// `Stream`. Com tipo de retorno de contexto `R` cujo elemento é `E`, o
-    /// CFE compara o tipo **embrulhado** com `E` e, se não for subtipo, usa
-    /// `R`: por isso `Iterable<num> Function() f = () sync* { yield 1; }` tem
-    /// tipo `() => Iterable<num>`, mas com `Iterable<Object>` fica
-    /// `() => Iterable<int>` (medido na VM 3.6.2 e 3.13.4).
-    fn retorno_inferido_de_gerador(&self, kind: AsyncKind, rendimentos: Vec<Ty>, contexto: Option<&Ty>) -> Ty {
-        let mut it = rendimentos.into_iter();
-        let elemento = match it.next() {
-            Some(primeiro) => it.fold(primeiro, |a, b| self.ctx.lub(&a, &b)),
+    /// Inferred return type of a generator function literal with no declared
+    /// type (the CFE's `closure_context.dart`, `inferReturnType` of the
+    /// `sync*`/`async*` contexts): the element is the upper bound of the
+    /// produced types (`Null` without any `yield`), wrapped in `Iterable`/
+    /// `Stream`. With a context return type `R` whose element is `E`, the CFE
+    /// compares the **wrapped** type with `E` and, if it is not a subtype, uses
+    /// `R`: that is why `Iterable<num> Function() f = () sync* { yield 1; }` has
+    /// type `() => Iterable<num>`, but with `Iterable<Object>` it is
+    /// `() => Iterable<int>` (measured on the 3.6.2 and 3.13.4 VMs).
+    fn inferred_generator_return(&self, kind: AsyncKind, yields: Vec<Ty>, context: Option<&Ty>) -> Ty {
+        let mut it = yields.into_iter();
+        let element = match it.next() {
+            Some(first) => it.fold(first, |a, b| self.ctx.lub(&a, &b)),
             None => Ty::Null,
         };
-        let (inferido, alvo) = if kind == AsyncKind::AsyncStar {
-            (self.ctx.t_stream(elemento), self.ctx.stream_)
+        let (inferred, target) = if kind == AsyncKind::AsyncStar {
+            (self.ctx.t_stream(element), self.ctx.stream_)
         } else {
-            (self.ctx.t_iterable(elemento), self.ctx.iterable_)
+            (self.ctx.t_iterable(element), self.ctx.iterable_)
         };
-        let Some(r) = contexto.filter(|r| !r.is_dynamic()) else { return inferido };
-        let e = alvo.and_then(|c| self.ctx.as_super(&r.non_null(), c)).and_then(|s| s.args().first().cloned());
+        let Some(r) = context.filter(|r| !r.is_dynamic()) else { return inferred };
+        let e = target.and_then(|c| self.ctx.as_super(&r.non_null(), c)).and_then(|s| s.args().first().cloned());
         match e {
-            Some(e) if !self.ctx.is_subtype(&inferido, &e) => r.clone(),
-            _ => inferido,
+            Some(e) if !self.ctx.is_subtype(&inferred, &e) => r.clone(),
+            _ => inferred,
         }
     }
 
@@ -985,7 +988,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    /// Tipos dos parâmetros já declarados no escopo atual (após `declare_params`).
+    /// Types of the parameters already declared in the current scope (after `declare_params`).
     pub fn declared_param_tys(&self, params: &[ast::Parameter]) -> (Vec<Ty>, Vec<Ty>, Vec<(String, Ty, bool)>) {
         let mut pos = Vec::new();
         let mut opt = Vec::new();
@@ -1011,17 +1014,17 @@ fn mentions_any(t: &Ty, free: &[u32]) -> bool {
 }
 
 impl<'m, 'a> FnEmitter<'m, 'a> {
-    /// `x.isA<T>()` do `dart:js_interop` (`JSAnyUtilityExtension`): o
-    /// transformador de interop do CFE o troca pela checagem de tipo JS
+    /// `x.isA<T>()` from `dart:js_interop` (`JSAnyUtilityExtension`): the
+    /// CFE's interop transformer replaces it with the JS type check
     /// (`_js_interop_checks/.../shared_interop_transformer.dart`
-    /// `_createIsACheck`); para um tipo de extensão de interop que não é um
-    /// primitivo do JS (o `HTMLElement` do package:web), um `instanceof` pelo
-    /// nome JS do tipo — no DDC 3.6.2, `x != null &&
+    /// `_createIsACheck`); for an interop extension type that is not a JS
+    /// primitive (package:web's `HTMLElement`), an `instanceof` by the JS name
+    /// of the type — in DDC 3.6.2, `x != null &&
     /// js_interop['JSAnyUtilityExtension|instanceOfString'](x, "HTMLElement")`
-    /// (`x == null || …` com `T?`). Os primitivos (`JSString`…) vão pelo
-    /// `typeof`. O resto (`JSAny`, `JSObject`, `JSArray`…) segue o caminho
-    /// comum.
-    pub(crate) fn baixar_is_a(
+    /// (`x == null || …` with `T?`). The primitives (`JSString`…) go through
+    /// `typeof`. The rest (`JSAny`, `JSObject`, `JSArray`…) follows the
+    /// common path.
+    pub(crate) fn lower_is_a(
         &mut self,
         ext: dartforge_elements::model::ExtensionId,
         name: &str,
@@ -1037,21 +1040,21 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             return None;
         }
         let [t] = &arguments.type_args[..] else { return None };
-        let no = self.ast().ty(*t);
-        let ast::TypeKind::Named { name: partes, .. } = &no.kind else { return None };
-        let anulavel = no.nullable;
-        let binding = match &partes[..] {
+        let node = self.ast().ty(*t);
+        let ast::TypeKind::Named { name: parts, .. } = &node.kind else { return None };
+        let nullable = node.nullable;
+        let binding = match &parts[..] {
             [p, n] => self.ctx.program.lookup_prefixed_na_unidade(self.unit, p.sym, n.sym),
             [n] => self.ctx.program.lookup_na_unidade(self.unit, n.sym),
             _ => None,
         };
         let Some(Element::Class(c)) = binding.and_then(|b| b.getter) else { return None };
-        let classe = self.ctx.program.class(c);
-        let nome_dart = self.ctx.name(classe.name).to_string();
-        let do_js_interop = self.ctx.program.library(classe.library).uri == "dart:js_interop";
-        let checagem = |v: &str| -> Option<String> {
-            if do_js_interop {
-                let tipo = match nome_dart.as_str() {
+        let class = self.ctx.program.class(c);
+        let dart_name = self.ctx.name(class.name).to_string();
+        let from_js_interop = self.ctx.program.library(class.library).uri == "dart:js_interop";
+        let check = |v: &str| -> Option<String> {
+            if from_js_interop {
+                let type_name = match dart_name.as_str() {
                     "JSNumber" => "number",
                     "JSBoolean" => "boolean",
                     "JSString" => "string",
@@ -1059,34 +1062,34 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     "JSSymbol" => "symbol",
                     _ => return None,
                 };
-                return Some(format!("typeof {v} === \"{tipo}\""));
+                return Some(format!("typeof {v} === \"{type_name}\""));
             }
             if !self.ctx.is_js_class(c) {
                 return None;
             }
-            let tipo = self
+            let type_name = self
                 .ctx
                 .js_classes
                 .get(&c)
                 .and_then(|j| j.name.clone())
                 .filter(|n| !n.is_empty())
-                .unwrap_or_else(|| nome_dart.clone());
-            let nome = match self.ctx.js_libs.get(&classe.library).cloned().flatten() {
-                Some(l) if !l.is_empty() => format!("{l}.{tipo}"),
-                _ => tipo,
+                .unwrap_or_else(|| dart_name.clone());
+            let js_name = match self.ctx.js_libs.get(&class.library).cloned().flatten() {
+                Some(l) if !l.is_empty() => format!("{l}.{type_name}"),
+                _ => type_name,
             };
             Some(format!(
                 "js_interop['JSAnyUtilityExtension|instanceOfString']({v}, {})",
-                js::string_literal(&nome)
+                js::string_literal(&js_name)
             ))
         };
-        let teste = checagem("v")?;
+        let test = check("v")?;
         self.m.use_sdk("js_interop");
-        let corpo = if anulavel {
-            format!("v == null || {teste}")
+        let body = if nullable {
+            format!("v == null || {test}")
         } else {
-            format!("v != null && {teste}")
+            format!("v != null && {test}")
         };
-        Some((Js::prim(format!("((v) => {corpo})({})", recv.code)), self.ctx.t_bool()))
+        Some((Js::prim(format!("((v) => {body})({})", recv.code)), self.ctx.t_bool()))
     }
 }

@@ -1,4 +1,4 @@
-//! Emissão de expressões.
+//! Expression emission.
 
 use crate::body::{js_member_name, static_member_name, AsyncKind, FnEmitter};
 use crate::ctx::{Member, MemberKind};
@@ -9,37 +9,37 @@ use dartforge_frontend::ast::{self, AssignOp, BinaryOp, CollectionElement, ExprI
 use dartforge_types::resolved::{MemberRef, Resolved};
 use std::collections::HashMap;
 
-/// Guarda de null-shorting: `temp` recebe `init`; se for nulo, a cadeia vale `null`.
+/// Null-shorting guard: `temp` receives `init`; if it is null, the chain evaluates to `null`.
 #[derive(Clone, Debug)]
 pub struct Guard {
     pub temp: String,
     pub init: String,
 }
 
-/// Alvo resolvido de um identificador simples.
+/// Resolved target of a simple identifier.
 pub enum IdentTarget {
     Local(String, Ty),
-    /// Membro de instância via `this` implícito.
+    /// Instance member through the implicit `this`.
     ThisMember(Member),
-    /// Membro estático da classe envolvente (ou de superclasse).
+    /// Static member of the enclosing class (or of a superclass).
     Static(ClassId, MemberKind),
     Element(Element),
     Prefix(dartforge_intern::SymbolId),
     TypeParam(Ty),
-    /// Membro do receptor implícito `$this` de uma extensão.
+    /// Member of the implicit `$this` receiver of an extension.
     ExtThisMember(Member),
-    /// Membro de extensão aplicável a `this`.
+    /// Extension member applicable to `this`.
     ThisExt,
-    /// Membro de instância da própria extensão (chamado com `$this`).
+    /// Instance member of the extension itself (called with `$this`).
     ExtMember(dartforge_elements::model::ExtensionId, dartforge_elements::model::FunctionElementId),
     ExtStatic(dartforge_elements::model::ExtensionId, dartforge_elements::model::FunctionElementId),
-    /// Campo estático da própria extensão.
+    /// Static field of the extension itself.
     ExtField(dartforge_elements::model::ExtensionId),
     Unknown,
 }
 
 impl<'m, 'a> FnEmitter<'m, 'a> {
-    /// Resolve um identificador simples.
+    /// Resolves a simple identifier.
     pub fn resolve_ident(&self, sym: dartforge_intern::SymbolId) -> IdentTarget {
         if let Some(l) = self.lookup_local(sym) {
             return IdentTarget::Local(l.js.clone(), l.ty.clone());
@@ -49,7 +49,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             return IdentTarget::TypeParam(t);
         }
         if let Some(t) = self.extension_this.clone() {
-            // Membros da própria extensão, depois do tipo `on`.
+            // Members of the extension itself, then of the `on` type.
             if let Some(ext) = self.current_extension {
                 let e = self.ctx.program.extension(ext);
                 if let Some(&fid) = e.instance_members.get(&sym) {
@@ -76,8 +76,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 return IdentTarget::ExtThisMember(Member { class: self.ctx.object.unwrap_or(ClassId(0)), kind: MemberKind::Field(dartforge_elements::model::VariableId(0)), subst: HashMap::new() });
             }
         }
-        // Estáticos do tipo de extensão cujo membro está em emissão (os de
-        // instância chegam pela resolução comum, `crate::tipo_extensao`).
+        // Statics of the extension type whose member is being emitted (instance
+        // ones arrive through the common resolution, `crate::tipo_extensao`).
         if let Some(c) = self.tipo_extensao {
             if let Some(mk) = self.ctx.declared_static(c, n, false).or_else(|| self.ctx.declared_static(c, n, true)) {
                 return IdentTarget::Static(c, mk);
@@ -89,7 +89,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     return IdentTarget::ThisMember(m);
                 }
             }
-            // Estáticos da classe e superclasses.
+            // Statics of the class and its superclasses.
             let mut cur = Some(c);
             while let Some(k) = cur {
                 if let Some(mk) = self.ctx.declared_static(k, n, false) {
@@ -126,71 +126,73 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         IdentTarget::Unknown
     }
 
-    /// Alvo do identificador `e` (de nome `sym`), lido, chamado, escrito ou
-    /// usado como receptor, pela resolução da inferência comum
-    /// (`BodyTypes`, a mesma que o backend nativo consome), que segue o
-    /// escopo léxico do Dart: elemento de topo, local e parâmetro, parâmetro
-    /// de tipo, prefixo, membro da classe por `this` implícito (instância ou
-    /// estático, herdado ou não, constante de enum), membro da própria
-    /// extensão e de outra extensão aplicável a `this`, campo estático de
-    /// extensão. A busca própria ([`Self::resolve_ident`]) só decide o que a
-    /// resolução comum não registrou (nó sintético, `this` de extensão, que o
-    /// parser dá como identificador) ou o que o emissor não sabe acessar pela
-    /// identidade comum (receptor de extensão sem classe, membro dinâmico).
-    /// Passo 2 da fonte única de inferência (docs/INFERENCIA-JS-ALINHAMENTO.md).
+    /// Target of the identifier `e` (named `sym`), read, called, written or
+    /// used as a receiver, from the resolution of the common inference
+    /// (`BodyTypes`, the same one the native backend consumes), which follows
+    /// Dart's lexical scope: top-level element, local and parameter, type
+    /// parameter, prefix, class member through the implicit `this` (instance
+    /// or static, inherited or not, enum constant), member of the extension
+    /// itself and of another extension applicable to `this`, static field of
+    /// an extension. The emitter's own lookup ([`Self::resolve_ident`]) only
+    /// decides what the common resolution did not record (a synthetic node,
+    /// an extension's `this`, which the parser yields as an identifier) or
+    /// what the emitter cannot access through the common identity (an
+    /// extension receiver without a class, a dynamic member).
+    /// Step 2 of the single source of inference (docs/INFERENCIA-JS-ALINHAMENTO.md).
     pub fn alvo_do_identificador(&self, sym: dartforge_intern::SymbolId, e: ExprId) -> IdentTarget {
-        let comum = self.resolucao_comum(e).and_then(|r| self.alvo_da_resolucao(sym, r));
-        self.contar_origem_do_alvo(e, comum.is_some());
-        match comum {
-            Some(alvo) => alvo,
+        let common = self.resolucao_comum(e).and_then(|r| self.target_from_resolution(sym, r));
+        self.contar_origem_do_alvo(e, common.is_some());
+        match common {
+            Some(target) => target,
             None => self.resolve_ident(sym),
         }
     }
 
-    /// Membro de instância do acesso `e` com receptor explícito (`a.b`,
-    /// `a.m(…)`, `a.b = v`), cujo receptor tem o tipo `recv_ty`: a
-    /// declaração que a resolução comum registrou para o nó (a mais
-    /// específica pela interface do receptor, `Resolved::Member`), com a
-    /// espécie do emissor e a substituição do dono pelo supertipo do
-    /// receptor. Sem registro comum traduzível (nó sintético, receptor
-    /// `dynamic`, membro de extensão ou de tipo de extensão, `super`), a
-    /// busca própria ([`crate::ctx::Ctx::lookup_member`]) decide.
+    /// Instance member of the access `e` with an explicit receiver (`a.b`,
+    /// `a.m(…)`, `a.b = v`), whose receiver has type `recv_ty`: the
+    /// declaration the common resolution recorded for the node (the most
+    /// specific one through the receiver's interface, `Resolved::Member`),
+    /// with the emitter's member kind and the owner's substitution through the
+    /// receiver's supertype. Without a translatable common record (a
+    /// synthetic node, a `dynamic` receiver, a member of an extension or of an
+    /// extension type, `super`), the emitter's own lookup
+    /// ([`crate::ctx::Ctx::lookup_member`]) decides.
     pub fn membro_do_acesso(&self, e: Option<ExprId>, recv_ty: &Ty, name: &str, setter: bool) -> Option<Member> {
-        let comum = e.and_then(|e| self.membro_da_resolucao(e, recv_ty, name, setter));
-        let proprio = || self.ctx.lookup_member(recv_ty, name, setter);
+        let common = e.and_then(|e| self.member_from_resolution(e, recv_ty, name, setter));
+        let own = || self.ctx.lookup_member(recv_ty, name, setter);
         if let Some(e) = e {
-            self.conferir_membro(e, name, comum.as_ref(), proprio().as_ref());
+            self.conferir_membro(e, name, common.as_ref(), own().as_ref());
         }
-        comum.or_else(proprio)
+        common.or_else(own)
     }
 
-    fn membro_da_resolucao(&self, e: ExprId, recv_ty: &Ty, name: &str, setter: bool) -> Option<Member> {
-        let Resolved::Member { class: dono, member, via_super: false } = self.resolucao_comum(e)? else { return None };
+    fn member_from_resolution(&self, e: ExprId, recv_ty: &Ty, name: &str, setter: bool) -> Option<Member> {
+        let Resolved::Member { class: owner, member, via_super: false } = self.resolucao_comum(e)? else { return None };
         let p = self.ctx.program;
-        let estatico = match *member {
+        let is_static = match *member {
             MemberRef::Variable(v) => p.variable(v).static_,
             MemberRef::Function(f) => p.function(f).static_,
         };
-        if estatico {
+        if is_static {
             return None;
         }
-        let kind = self.ctx.declared_member(*dono, name, setter)?;
-        // A espécie do emissor tem de ser a mesma declaração: o nó alvo de
-        // uma escrita composta guarda uma resolução só (a do setter), e a
-        // leitura dele não a usa.
-        let mesma = match (kind, *member) {
+        let kind = self.ctx.declared_member(*owner, name, setter)?;
+        // The emitter's member kind must be the same declaration: the target
+        // node of a compound write keeps a single resolution (the setter's),
+        // and reading it does not use that.
+        let same = match (kind, *member) {
             (MemberKind::Method(f) | MemberKind::Getter(f) | MemberKind::Setter(f), MemberRef::Function(g)) => f == g,
             (MemberKind::Field(v), MemberRef::Function(g)) => p.function(g).variable == Some(v),
             (MemberKind::Field(v), MemberRef::Variable(w)) => v == w,
             _ => false,
         };
-        if !mesma {
+        if !same {
             return None;
         }
-        let params = &self.ctx.class_params[dono.0 as usize];
+        let params = &self.ctx.class_params[owner.0 as usize];
         let mut subst = HashMap::new();
         if !params.is_empty() {
-            let sup = self.ctx.as_super(&recv_ty.non_null(), *dono)?;
+            let sup = self.ctx.as_super(&recv_ty.non_null(), *owner)?;
             for (q, a) in params.iter().zip(sup.args().iter()) {
                 subst.insert(q.id, a.clone());
             }
@@ -198,31 +200,32 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 subst.insert(q.id, Ty::Dynamic);
             }
         }
-        Some(Member { class: *dono, kind, subst })
+        Some(Member { class: *owner, kind, subst })
     }
 
-    /// Traduz a resolução comum `r` do identificador `sym` para o alvo do
-    /// emissor; `None` quando não há tradução (a busca própria decide).
-    fn alvo_da_resolucao(&self, sym: dartforge_intern::SymbolId, r: &Resolved) -> Option<IdentTarget> {
+    /// Translates the common resolution `r` of the identifier `sym` into the
+    /// emitter's target; `None` when there is no translation (the emitter's
+    /// own lookup decides).
+    fn target_from_resolution(&self, sym: dartforge_intern::SymbolId, r: &Resolved) -> Option<IdentTarget> {
         let p = self.ctx.program;
         let n = self.name(sym);
         match r {
-            // A identidade é a declaração que a resolução comum achou; o nome
-            // JS e o tipo declarado vêm do escopo do emissor, que declarou o
-            // local com o mesmo escopo léxico.
+            // The identity is the declaration the common resolution found; the
+            // JS name and the declared type come from the emitter's scope,
+            // which declared the local with the same lexical scope.
             Resolved::Local(_) | Resolved::Parameter { .. } => {
                 let l = self.lookup_local(sym)?;
                 Some(IdentTarget::Local(l.js.clone(), l.ty.clone()))
             }
             Resolved::TypeParameter(tp) => {
-                let t = self.ty_do_parametro_comum(*tp)?;
+                let t = self.common_type_param_ty(*tp)?;
                 Some(IdentTarget::TypeParam(t))
             }
             Resolved::Prefix(_) => Some(IdentTarget::Prefix(sym)),
             Resolved::Element(el) => match *el {
                 Element::Prefix(..) => None,
-                // Campo estático da própria extensão, lido no corpo dela: o
-                // emissor o acessa pela extensão.
+                // Static field of the extension itself, read in its body: the
+                // emitter accesses it through the extension.
                 Element::Variable(v) if p.variable(v).extension.is_some() => {
                     let x = p.variable(v).extension?;
                     (self.current_extension == Some(x)).then_some(IdentTarget::ExtField(x))
@@ -231,31 +234,32 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 Element::Function(f) if p.function(f).class.is_some() || p.function(f).extension.is_some() => None,
                 el => Some(IdentTarget::Element(el)),
             },
-            Resolved::Member { class: dono, member, via_super: false } => {
-                let (estatico, constante_de_enum) = match *member {
+            Resolved::Member { class: owner, member, via_super: false } => {
+                let (is_static, enum_constant) = match *member {
                     MemberRef::Variable(v) => {
                         let var = p.variable(v);
-                        let de_enum = var.class.is_some_and(|c| p.class(c).enum_constants.contains(&v));
-                        (var.static_ || de_enum, de_enum.then_some(v))
+                        let of_enum = var.class.is_some_and(|c| p.class(c).enum_constants.contains(&v));
+                        (var.static_ || of_enum, of_enum.then_some(v))
                     }
                     MemberRef::Function(f) => {
                         let fe = p.function(f);
-                        let estatico = fe.static_ || fe.variable.is_some_and(|v| p.variable(v).static_);
-                        (estatico, None)
+                        let is_static = fe.static_ || fe.variable.is_some_and(|v| p.variable(v).static_);
+                        (is_static, None)
                     }
                 };
-                if estatico {
-                    if let Some(v) = constante_de_enum {
-                        return Some(IdentTarget::Static(*dono, MemberKind::Field(v)));
+                if is_static {
+                    if let Some(v) = enum_constant {
+                        return Some(IdentTarget::Static(*owner, MemberKind::Field(v)));
                     }
-                    let mk = self.ctx.declared_static(*dono, n, false).or_else(|| self.ctx.declared_static(*dono, n, true))?;
-                    return Some(IdentTarget::Static(*dono, mk));
+                    let mk = self.ctx.declared_static(*owner, n, false).or_else(|| self.ctx.declared_static(*owner, n, true))?;
+                    return Some(IdentTarget::Static(*owner, mk));
                 }
                 if let Some(t) = &self.extension_this {
-                    // `this` implícito de extensão: o receptor é `$this`, e o
-                    // acesso vai pelo tipo `on` (a classe que declara o membro
-                    // na busca do emissor pode ser a implementação, não a
-                    // interface que a resolução comum registra).
+                    // Implicit `this` of an extension: the receiver is `$this`,
+                    // and the access goes through the `on` type (the class that
+                    // declares the member in the emitter's lookup may be the
+                    // implementation, not the interface the common resolution
+                    // records).
                     let m = self.ctx.lookup_member(t, n, false).or_else(|| self.ctx.lookup_member(t, n, true))?;
                     return Some(IdentTarget::ExtThisMember(m));
                 }
@@ -263,14 +267,15 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     return None;
                 }
                 let c = self.class?;
-                let kind = self.ctx.declared_member(*dono, n, false).or_else(|| self.ctx.declared_member(*dono, n, true))?;
-                let sup = self.ctx.as_super(&self.ctx.this_ty(c), *dono)?;
-                let subst = self.ctx.class_params[dono.0 as usize].iter().map(|q| q.id).zip(sup.args().iter().cloned()).collect();
-                Some(IdentTarget::ThisMember(Member { class: *dono, kind, subst }))
+                let kind = self.ctx.declared_member(*owner, n, false).or_else(|| self.ctx.declared_member(*owner, n, true))?;
+                let sup = self.ctx.as_super(&self.ctx.this_ty(c), *owner)?;
+                let subst = self.ctx.class_params[owner.0 as usize].iter().map(|q| q.id).zip(sup.args().iter().cloned()).collect();
+                Some(IdentTarget::ThisMember(Member { class: *owner, kind, subst }))
             }
             Resolved::ExtensionMember { extension, .. } => {
-                // O elemento é o do nome na extensão (getter e setter de mesmo
-                // nome dividem a entrada), como na busca própria.
+                // The element is the one for the name in the extension (a
+                // getter and a setter with the same name share the entry), as
+                // in the emitter's own lookup.
                 let x = p.extension(*extension);
                 if self.current_extension == Some(*extension) {
                     if let Some(&f) = x.instance_members.get(&sym) {
@@ -278,31 +283,32 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     }
                     return x.static_members.get(&sym).map(|&f| IdentTarget::ExtStatic(*extension, f));
                 }
-                // Outra extensão aplicável ao `this` da classe: o emissor
-                // despacha pelo receptor `this` e acha a mesma extensão.
+                // Another extension applicable to the class's `this`: the
+                // emitter dispatches on the `this` receiver and finds the same
+                // extension.
                 (self.class.is_some() && !self.is_static && self.extension_this.is_none()).then_some(IdentTarget::ThisExt)
             }
             Resolved::Member { via_super: true, .. } | Resolved::Dynamic | Resolved::Constructor(_) => None,
         }
     }
 
-    /// `Ty` de um parâmetro de tipo da `TypeTable` em escopo nesta emissão
-    /// (da classe, de uma função envolvente, ou de função genérica local
-    /// traduzido por [`FnEmitter::params_comuns`]).
-    fn ty_do_parametro_comum(&self, tp: dartforge_types::table::TypeParamId) -> Option<Ty> {
+    /// `Ty` of a `TypeTable` type parameter in scope in this emission (of the
+    /// class, of an enclosing function, or of a local generic function,
+    /// translated by [`FnEmitter::params_comuns`]).
+    fn common_type_param_ty(&self, tp: dartforge_types::table::TypeParamId) -> Option<Ty> {
         if let Some(t) = self.params_comuns.get(&tp.0) {
             return Some(t.clone());
         }
-        let em_fn = self.fn_type_params.iter().any(|(id, _)| *id == tp.0);
-        let na_classe = self.class.is_some_and(|c| self.ctx.class_params[c.0 as usize].iter().any(|q| q.id == tp.0));
-        if !(em_fn || na_classe) {
+        let in_fn = self.fn_type_params.iter().any(|(id, _)| *id == tp.0);
+        let in_class = self.class.is_some_and(|c| self.ctx.class_params[c.0 as usize].iter().any(|q| q.id == tp.0));
+        if !(in_fn || in_class) {
             return None;
         }
         let name = self.name(self.ctx.table.param(tp).name).to_string();
         Some(Ty::Param { id: tp.0, name, nullable: false })
     }
 
-    /// O alvo que a inferência comum registrou para `e`, se registrou.
+    /// The target the common inference recorded for `e`, if it recorded one.
     pub fn resolucao_comum(&self, e: ExprId) -> Option<&'a Resolved> {
         if e.0 == u32::MAX {
             return None;
@@ -310,8 +316,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         self.ctx.bodies.units.get(self.unit.0 as usize)?.get_resolved(e)
     }
 
-    /// Tipo estático que a inferência comum registrou para `e`, em `Ty`, se
-    /// ele pode ser reificado aqui (ver [`Self::ty_comum_em_escopo`]).
+    /// Static type the common inference recorded for `e`, as a `Ty`, if it can
+    /// be reified here (see [`Self::ty_comum_em_escopo`]).
     pub fn tipo_comum(&self, e: ExprId) -> Option<Ty> {
         if e.0 == u32::MAX {
             return None;
@@ -320,12 +326,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         self.ty_comum_em_escopo(id)
     }
 
-    /// Argumentos de tipo que a inferência comum escolheu para a chamada
-    /// genérica cuja lista de argumentos é `arguments`, se todos podem ser
-    /// reificados aqui.
-    /// `n` é o número de parâmetros de tipo que o emissor espera; outra
-    /// aridade não é usada.
-    pub fn instanciacao_comum(&self, arguments: &ast::Arguments, n: usize) -> Option<Vec<Ty>> {
+    /// Type arguments the common inference chose for the generic call whose
+    /// argument list is `arguments`, if all of them can be reified here.
+    /// `n` is the number of type parameters the emitter expects; another
+    /// arity is not used.
+    pub fn common_instantiation(&self, arguments: &ast::Arguments, n: usize) -> Option<Vec<Ty>> {
         let inst = (|| {
             let ids = self.ctx.bodies.units.get(self.unit.0 as usize)?.instanciacao(arguments.span.start)?;
             let tys: Option<Vec<Ty>> = ids.iter().map(|&t| self.ty_comum_em_escopo(t)).collect();
@@ -335,33 +340,33 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         inst
     }
 
-    /// Converte um tipo da inferência comum para `Ty` quando todo parâmetro
-    /// de tipo livre nele está em escopo nesta emissão (da classe
-    /// envolvente ou de uma função envolvente), isto é, quando a receita rti
-    /// consegue achá-lo no ambiente. Parâmetros de funções genéricas locais
-    /// (o emissor lhes dá ids próprios, [`crate::ctx::Ctx::fresh_param`]) são traduzidos
-    /// pelo mapa [`FnEmitter::params_comuns`]; o que sobrar fora de escopo (o
-    /// desconhecido `_`, parâmetro de outra função) faz a conversão falhar,
-    /// e quem chama fica com a dedução própria.
+    /// Converts a type from the common inference into a `Ty` when every free
+    /// type parameter in it is in scope in this emission (of the enclosing
+    /// class or of an enclosing function), that is, when the rti recipe can
+    /// find it in the environment. Parameters of local generic functions (the
+    /// emitter gives them its own ids, [`crate::ctx::Ctx::fresh_param`]) are
+    /// translated by the [`FnEmitter::params_comuns`] map; anything left out of
+    /// scope (the unknown `_`, a parameter of another function) makes the
+    /// conversion fail, and the caller keeps its own deduction.
     pub fn ty_comum_em_escopo(&self, id: dartforge_types::table::TypeId) -> Option<Ty> {
-        // A porta de entrada do contexto: limites registrados, extension
-        // types apagados e aridade completa, como os tipos do outline.
+        // The context's entry point: registered bounds, erased extension
+        // types and full arity, like the outline types.
         let t = self.ctx.ty_of(id).subst_prop(&self.params_comuns);
-        let mut livres = Vec::new();
-        t.collect_params(&mut livres);
-        let da_classe = |id: u32| self.class.is_some_and(|c| self.ctx.class_params[c.0 as usize].iter().any(|p| p.id == id));
-        let em_escopo = livres.iter().all(|&id| self.fn_type_params.iter().any(|(p, _)| *p == id) || da_classe(id));
-        em_escopo.then_some(t)
+        let mut free = Vec::new();
+        t.collect_params(&mut free);
+        let of_class = |id: u32| self.class.is_some_and(|c| self.ctx.class_params[c.0 as usize].iter().any(|p| p.id == id));
+        let in_scope = free.iter().all(|&id| self.fn_type_params.iter().any(|(p, _)| *p == id) || of_class(id));
+        in_scope.then_some(t)
     }
 
-    /// O tipo de `e` que a emissão segue: o deduzido pelo emissor, trocado
-    /// pelo da inferência comum quando este é um **refinamento** dele (um
-    /// subtipo próprio, que não é `dynamic`): `15.clamp(0, 10)` é `int` e não
-    /// `num`, `await null` é `Null`, `soma5(10)` com `call` é `int`, a
-    /// leitura promovida é o tipo promovido. Nunca alarga o tipo do emissor
-    /// nem o troca por outro não relacionado; nó que a inferência comum não
-    /// visitou tem `dynamic` e fica como está. O alvo de atribuição composta
-    /// e de `++`/`--` não tem tipo comum próprio
+    /// The type of `e` that emission follows: the one deduced by the emitter,
+    /// replaced by the common inference's when that is a **refinement** of it
+    /// (a proper subtype that is not `dynamic`): `15.clamp(0, 10)` is `int`
+    /// and not `num`, `await null` is `Null`, `soma5(10)` with `call` is `int`,
+    /// a promoted read has the promoted type. It never widens the emitter's
+    /// type nor replaces it with an unrelated one; a node the common inference
+    /// did not visit has `dynamic` and stays as it is. The target of a
+    /// compound assignment and of `++`/`--` has no common type of its own
     /// ([`crate::ctx::Ctx::e_alvo_de_escrita`]).
     fn refinar_pelo_comum(&self, e: ExprId, ty: Ty) -> Ty {
         if e.0 == u32::MAX || self.ctx.e_alvo_de_escrita(self.unit, e) {
@@ -373,11 +378,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    /// Emite uma expressão; `expected` é o tipo de contexto (inferência descendente).
-    /// Valor booleano constante de `x` provado pelo mundo (`Vivos::constante_bool`),
-    /// só nas formas que o mundo também dobra (as mesmas de
+    /// Constant boolean value of `x` proven by the world (`Vivos::constante_bool`),
+    /// only in the forms the world also folds (the same as in
     /// `dartforge_world::impacto::constante`).
-    pub fn constante(&self, x: ExprId) -> Option<bool> {
+    pub fn constant(&self, x: ExprId) -> Option<bool> {
         let f = self.ctx.filtro?;
         match &self.expr(x).kind {
             ExprKind::Identifier(_) | ExprKind::Property { .. } | ExprKind::Unary { .. } | ExprKind::Binary { .. } | ExprKind::Parenthesized(_) => f.constante_bool(self.unit, x),
@@ -385,12 +389,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
+    /// Emits an expression; `expected` is the context type (downward inference).
     pub fn emit_expr(&mut self, e: ExprId, expected: Option<&Ty>) -> (Js, Ty) {
-        if let Some(b) = self.constante(e) {
+        if let Some(b) = self.constant(e) {
             return (Js::prim(if b { "true" } else { "false" }.to_string()), self.ctx.t_bool());
         }
         let expr = self.expr(e);
-        let registro = self.registrar_contexto_atalho(e, expected);
+        let registration = self.register_shorthand_context(e, expected);
         let (js, ty) = match &expr.kind {
             ExprKind::Property { .. } | ExprKind::Index { .. } | ExprKind::Call { .. } => {
                 let (js, ty, guards) = self.emit_selector(e, expected);
@@ -402,13 +407,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         if self.ctx.conferencia.is_some() {
             self.conferir_tipo(e, &ty);
         }
-        if let Some((raiz, anterior)) = registro {
-            match anterior {
+        if let Some((root, previous)) = registration {
+            match previous {
                 Some(a) => {
-                    self.contextos_atalho.insert(raiz, a);
+                    self.contextos_atalho.insert(root, a);
                 }
                 None => {
-                    self.contextos_atalho.remove(&raiz);
+                    self.contextos_atalho.remove(&root);
                 }
             }
         }
@@ -418,12 +423,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    /// Atalho de ponto (3.10): se `e` é um nó de uma cadeia de seletores
-    /// (`.x`, `(…)`, `[…]`, `<T>`, `!`) cuja raiz é `.id`, o contexto da
-    /// cadeia (`expected`) vira o *shorthand context* da raiz, salvo se um
-    /// nó mais externo (ou `==`, ou um padrão) já registrou um contexto
-    /// conhecido. Devolve o que restaurar ao fim da emissão de `e`.
-    fn registrar_contexto_atalho(&mut self, e: ExprId, expected: Option<&Ty>) -> Option<(ExprId, Option<Option<Ty>>)> {
+    /// Dot shorthand (3.10): if `e` is a node of a selector chain (`.x`,
+    /// `(…)`, `[…]`, `<T>`, `!`) whose root is `.id`, the chain's context
+    /// (`expected`) becomes the root's *shorthand context*, unless an outer
+    /// node (or `==`, or a pattern) already registered a known context.
+    /// Returns what to restore at the end of the emission of `e`.
+    fn register_shorthand_context(&mut self, e: ExprId, expected: Option<&Ty>) -> Option<(ExprId, Option<Option<Ty>>)> {
         if !self.atalhos {
             return None;
         }
@@ -433,95 +438,95 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         ) {
             return None;
         }
-        let raiz = self.ast().raiz_de_atalho(e)?;
-        let anterior = self.contextos_atalho.get(&raiz).cloned();
-        if matches!(anterior, Some(Some(_))) || (anterior.is_some() && expected.is_none()) {
+        let root = self.ast().raiz_de_atalho(e)?;
+        let previous = self.contextos_atalho.get(&root).cloned();
+        if matches!(previous, Some(Some(_))) || (previous.is_some() && expected.is_none()) {
             return None;
         }
-        self.contextos_atalho.insert(raiz, expected.cloned());
-        Some((raiz, anterior))
+        self.contextos_atalho.insert(root, expected.cloned());
+        Some((root, previous))
     }
 
-    /// Registra `ctx` como contexto do atalho na raiz de `e` (se houver)
-    /// enquanto `f` emite; `==` e padrões dão o contexto assim (spec 3.10,
-    /// "Special case for `==`").
+    /// Registers `ctx` as the shorthand context at the root of `e` (if there
+    /// is one) while `f` emits; `==` and patterns provide the context this way
+    /// (spec 3.10, "Special case for `==`").
     pub fn com_contexto_de_atalho<R>(&mut self, e: ExprId, ctx: &Ty, f: impl FnOnce(&mut Self) -> R) -> R {
-        let raiz = if self.atalhos { self.ast().raiz_de_atalho(e) } else { None };
-        let Some(raiz) = raiz else { return f(self) };
-        let anterior = self.contextos_atalho.insert(raiz, Some(ctx.clone()));
+        let root = if self.atalhos { self.ast().raiz_de_atalho(e) } else { None };
+        let Some(root) = root else { return f(self) };
+        let previous = self.contextos_atalho.insert(root, Some(ctx.clone()));
         let r = f(self);
-        match anterior {
+        match previous {
             Some(a) => {
-                self.contextos_atalho.insert(raiz, a);
+                self.contextos_atalho.insert(root, a);
             }
             None => {
-                self.contextos_atalho.remove(&raiz);
+                self.contextos_atalho.remove(&root);
             }
         }
         r
     }
 
-    /// A declaração que o contexto de um atalho denota (spec 3.10): `C`,
-    /// `C<…>` e `C?` denotam `C`; `FutureOr<S>` denota o que `S` denota;
-    /// tipo de função, record, parâmetro de tipo e `dynamic` não denotam
-    /// nada.
-    pub fn declaracao_do_contexto(&self, t: &Ty) -> Option<ClassId> {
+    /// The declaration that a shorthand's context denotes (spec 3.10): `C`,
+    /// `C<…>` and `C?` denote `C`; `FutureOr<S>` denotes what `S` denotes;
+    /// function types, records, type parameters and `dynamic` denote
+    /// nothing.
+    pub fn context_declaration(&self, t: &Ty) -> Option<ClassId> {
         match t {
-            Ty::Iface { class, args, .. } if Some(*class) == self.ctx.future_or => args.first().and_then(|a| self.declaracao_do_contexto(a)),
+            Ty::Iface { class, args, .. } if Some(*class) == self.ctx.future_or => args.first().and_then(|a| self.context_declaration(a)),
             Ty::Iface { class, .. } => Some(*class),
-            Ty::FutureOr { arg, .. } => self.declaracao_do_contexto(arg),
+            Ty::FutureOr { arg, .. } => self.context_declaration(arg),
             _ => None,
         }
     }
 
-    /// `D` de um atalho de ponto: pelo contexto registrado para ele, senão
-    /// pelo `expected` da própria posição. Sem declaração, registra o erro
-    /// de linguagem (fora de emissão especulativa).
-    pub(crate) fn classe_do_atalho(&mut self, e: ExprId, expected: Option<&Ty>) -> Option<ClassId> {
+    /// `D` of a dot shorthand: from the context registered for it, otherwise
+    /// from the `expected` type of its own position. Without a declaration,
+    /// records the language error (outside speculative emission).
+    pub(crate) fn shorthand_class(&mut self, e: ExprId, expected: Option<&Ty>) -> Option<ClassId> {
         let ctx = match self.contextos_atalho.get(&e) {
             Some(Some(t)) => Some(t.clone()),
             _ => expected.cloned(),
         };
-        let d = ctx.as_ref().and_then(|t| self.declaracao_do_contexto(t));
+        let d = ctx.as_ref().and_then(|t| self.context_declaration(t));
         if d.is_none() {
             let ExprKind::DotShorthand { name, .. } = &self.expr(e).kind else { return None };
-            let msg = format!("nenhum tipo de contexto para achar o atalho de ponto '.{}'", self.name(name.sym));
+            let msg = format!("no context type to resolve the dot shorthand '.{}'", self.name(name.sym));
             self.erro_de_linguagem(self.expr(e).span, msg);
         }
         d
     }
 
-    /// Registra um erro de linguagem na emissão (ignorado quando a emissão
-    /// é só para descobrir um tipo).
+    /// Records a language error during emission (ignored when the emission
+    /// only serves to find out a type).
     pub fn erro_de_linguagem(&self, span: dartforge_diagnostics::Span, msg: String) {
         if self.especulando > 0 {
             return;
         }
-        let arquivo = self.ctx.program.unit(self.unit).path.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
+        let file = self.ctx.program.unit(self.unit).path.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
         self.ctx.erros.borrow_mut().push(dartforge_diagnostics::Diagnostic::new(
-            format!("{}{arquivo}:{}: {msg}", dartforge_types::codes::ERRO_DE_LINGUAGEM, span.start),
+            format!("{}{file}:{}: {msg}", dartforge_types::codes::ERRO_DE_LINGUAGEM, span.start),
             span,
         ));
     }
 
-    /// `.id` / `.new` sem chamada: `D.id` (getter, campo, constante de enum,
-    /// tear-off de método ou de construtor).
-    fn emit_atalho(&mut self, e: ExprId, expected: Option<&Ty>) -> (Js, Ty) {
+    /// `.id` / `.new` without a call: `D.id` (getter, field, enum constant,
+    /// method or constructor tear-off).
+    fn emit_dot_shorthand(&mut self, e: ExprId, expected: Option<&Ty>) -> (Js, Ty) {
         let ExprKind::DotShorthand { name, .. } = &self.expr(e).kind else { unreachable!() };
-        let nome = self.name(name.sym).to_string();
+        let name = self.name(name.sym).to_string();
         let span = self.expr(e).span;
-        let Some(d) = self.classe_do_atalho(e, expected) else { return (Js::prim("null"), Ty::Dynamic) };
-        match self.static_member_get(d, &nome) {
+        let Some(d) = self.shorthand_class(e, expected) else { return (Js::prim("null"), Ty::Dynamic) };
+        match self.static_member_get(d, &name) {
             Some(r) => r,
             None => {
-                let msg = format!("'{}' não tem membro estático nem construtor '{nome}' para o atalho de ponto", self.ctx.class_name(d));
+                let msg = format!("'{}' has no static member or constructor '{name}' for the dot shorthand", self.ctx.class_name(d));
                 self.erro_de_linguagem(span, msg);
                 (Js::prim("null"), Ty::Dynamic)
             }
         }
     }
 
-    /// Coerções implícitas: instanciação de tearoff genérico e `.call` de classe invocável.
+    /// Implicit coercions: instantiation of a generic tearoff and `.call` of a callable class.
     pub fn coerce_to(&mut self, js: Js, ty: Ty, expected: &Ty) -> (Js, Ty) {
         if ty.is_dynamic() && !self.in_const {
             let needs_cast = match expected {
@@ -540,7 +545,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
         match &ty {
             Ty::Fn { type_params, .. } if !type_params.is_empty() => {
-                // Instancia com os argumentos inferidos do tipo esperado.
+                // Instantiate with the arguments inferred from the expected type.
                 let free: Vec<u32> = type_params.iter().map(|p| p.id).collect();
                 let inner = match &ty {
                     Ty::Fn { ret, pos, opt, named, nullable, .. } => Ty::Fn { type_params: vec![], ret: ret.clone(), pos: pos.clone(), opt: opt.clone(), named: named.clone(), nullable: *nullable },
@@ -557,7 +562,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 (Js::prim(format!("dart.gbind({}, {})", js.code, rtis.join(", "))), inner.subst(&subst))
             }
             Ty::Iface { class, nullable: false, .. } if Some(*class) != self.ctx.function_ => {
-                // Classe invocável: tearoff de `call`.
+                // Callable class: tearoff of `call`.
                 match self.ctx.lookup_member(&ty, "call", false) {
                     Some(m) if matches!(m.kind, MemberKind::Method(_)) => {
                         let mty = self.ctx.member_ty(&m);
@@ -571,7 +576,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    /// Nome de membro como expressão JS (string, símbolo `dartx` ou privado) para `dart.bind`.
+    /// Member name as a JS expression (string, `dartx` symbol or private symbol) for `dart.bind`.
     pub fn member_key_string(&self, recv_ty: &Ty, name: &str) -> String {
         if name.starts_with('_') {
             let lib = self.ctx.lookup_member(recv_ty, name, false).map(|m| self.ctx.lib_of_class(m.class)).unwrap_or(self.lib);
@@ -630,7 +635,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 )
             }
             ExprKind::Identifier(name) => self.emit_identifier(name.sym, e),
-            ExprKind::DotShorthand { .. } => self.emit_atalho(e, expected),
+            ExprKind::DotShorthand { .. } => self.emit_dot_shorthand(e, expected),
             ExprKind::This => self.emit_this(),
             ExprKind::Super => {
                 let ty = self.super_ty();
@@ -641,12 +646,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 (js.paren(), ty)
             }
             ExprKind::List { const_, type_args, elements } => {
-                let comum = if type_args.is_empty() { self.tipo_comum(e) } else { None };
-                self.emit_list_literal(*const_, type_args, elements, expected, comum.as_ref())
+                let common = if type_args.is_empty() { self.tipo_comum(e) } else { None };
+                self.emit_list_literal(*const_, type_args, elements, expected, common.as_ref())
             }
             ExprKind::SetOrMap { const_, type_args, elements } => {
-                let comum = if type_args.is_empty() { self.tipo_comum(e) } else { None };
-                self.emit_set_or_map(*const_, type_args, elements, expected, comum.as_ref())
+                let common = if type_args.is_empty() { self.tipo_comum(e) } else { None };
+                self.emit_set_or_map(*const_, type_args, elements, expected, common.as_ref())
             }
             ExprKind::Record { positional, named, const_ } if *const_ && positional.len() == 1 && named.is_empty() => {
                 let saved = self.in_const;
@@ -662,16 +667,17 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             ExprKind::FunctionExpression(fid) => {
                 let saved_const = self.in_const;
                 self.in_const = false;
-                // O tipo de execução de um gerador sem retorno escrito (a regra
-                // do CFE, que dá o `runtimeType`) vale sobre o estático, que
-                // segue o analyzer (`tipos_de_execucao_de_funcoes`).
-                let comum = self
+                // The runtime type of a generator without a written return
+                // type (the CFE's rule, which gives the `runtimeType`) takes
+                // precedence over the static one, which follows the analyzer
+                // (`tipos_de_execucao_de_funcoes`).
+                let common = self
                     .ctx
                     .bodies
                     .units
                     .get(self.unit.0 as usize)
                     .and_then(|u| u.tipo_de_execucao_de_funcao(*fid).or_else(|| u.get_type(e)));
-                let r = self.emit_function_expr(*fid, expected, comum);
+                let r = self.emit_function_expr(*fid, expected, common);
                 self.in_const = saved_const;
                 r
             }
@@ -706,23 +712,23 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             ExprKind::Unary { op: op @ (UnaryOp::Neg | UnaryOp::BitNot), operand } if self.membro_de_tipo_extensao(e).is_some() => {
                 let _ = op;
-                let Some((dono, MemberRef::Function(f))) = self.membro_de_tipo_extensao(e) else { unreachable!() };
+                let Some((owner, MemberRef::Function(f))) = self.membro_de_tipo_extensao(e) else { unreachable!() };
                 let (v, _) = self.emit_expr(*operand, None);
-                self.tipo_ext_operador(&v, Some(*operand), dono, f, &[])
+                self.tipo_ext_operador(&v, Some(*operand), owner, f, &[])
             }
             ExprKind::Unary { op, operand } => self.emit_unary(*op, *operand, e),
             ExprKind::Binary { op, left, right } if !matches!(op, BinaryOp::And | BinaryOp::Or | BinaryOp::IfNull | BinaryOp::Eq | BinaryOp::NotEq) && self.membro_de_tipo_extensao(e).is_some() => {
-                // Operador declarado num tipo de extensão: a função de apoio.
-                let Some((dono, MemberRef::Function(f))) = self.membro_de_tipo_extensao(e) else { unreachable!() };
+                // Operator declared in an extension type: the helper function.
+                let Some((owner, MemberRef::Function(f))) = self.membro_de_tipo_extensao(e) else { unreachable!() };
                 let (l, _) = self.emit_expr(*left, None);
-                let ctx_r = self.tipo_ext_parametro(Some(*left), dono, f, 0);
+                let ctx_r = self.tipo_ext_parametro(Some(*left), owner, f, 0);
                 let (r, _) = self.emit_expr(*right, ctx_r.as_ref());
-                self.tipo_ext_operador(&l, Some(*left), dono, f, &[r])
+                self.tipo_ext_operador(&l, Some(*left), owner, f, &[r])
             }
             ExprKind::Binary { op, left, right } => self.emit_binary(*op, *left, *right, expected, e),
-            ExprKind::Conditional { condition, then, else_ } if self.constante(*condition).is_some() => {
-                let ramo = if self.constante(*condition) == Some(true) { *then } else { *else_ };
-                self.emit_expr(ramo, expected)
+            ExprKind::Conditional { condition, then, else_ } if self.constant(*condition).is_some() => {
+                let branch = if self.constant(*condition) == Some(true) { *then } else { *else_ };
+                self.emit_expr(branch, expected)
             }
             ExprKind::Conditional { condition, then, else_ } => {
                 self.pending_promotions.clear();
@@ -753,7 +759,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let (v, vty) = self.emit_expr(*value, None);
                 let t = self.resolve_type(*ty);
                 let test = self.is_test(&v, &t);
-                // Promoção de variável local.
+                // Local variable promotion.
                 if let ExprKind::Identifier(n) = &self.expr(*value).kind {
                     if self.lookup_local(n.sym).is_some() && (self.ctx.is_subtype(&t, &vty) || vty.is_dynamic()) {
                         if *negated {
@@ -844,7 +850,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     // -----------------------------------------------------------------------
-    // Literais
+    // Literals
     // -----------------------------------------------------------------------
 
     fn emit_string_lit(&mut self, lit: &ast::StringLit) -> (Js, Ty) {
@@ -875,14 +881,14 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             let is_lit = parts[0].starts_with('"');
             return (Js::new(parts.remove(0), if is_lit { P_PRIMARY } else { P_PRIMARY }), self.ctx.t_string());
         }
-        // Garante que a concatenação começa por string.
+        // Make sure the concatenation starts with a string.
         if !parts[0].starts_with('"') {
             parts.insert(0, "\"\"".into());
         }
         (Js::new(parts.join(" + "), P_ADD), self.ctx.t_string())
     }
 
-    /// Tipo de elemento esperado para um literal de coleção.
+    /// Expected element type for a collection literal.
     fn expected_arg(&self, expected: Option<&Ty>, class: Option<ClassId>, idx: usize) -> Option<Ty> {
         let e = expected?;
         let c = class?;
@@ -890,26 +896,26 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         sup.args().get(idx).cloned()
     }
 
-    /// Literal de lista. `comum` é o tipo que a inferência comum deu ao
-    /// literal sem argumentos de tipo escritos: o tipo do elemento vem dele
-    /// (com o contexto e o limite superior da especificação); sem ele, do
-    /// contexto e dos elementos pela dedução própria.
-    fn emit_list_literal(&mut self, const_: bool, type_args: &[ast::TypeId], elements: &[CollectionElement], expected: Option<&Ty>, comum: Option<&Ty>) -> (Js, Ty) {
+    /// List literal. `common` is the type the common inference gave the
+    /// literal without written type arguments: the element type comes from it
+    /// (with the context and the upper bound of the specification); without
+    /// it, from the context and the elements by the emitter's own deduction.
+    fn emit_list_literal(&mut self, const_: bool, type_args: &[ast::TypeId], elements: &[CollectionElement], expected: Option<&Ty>, common: Option<&Ty>) -> (Js, Ty) {
         let const_ = const_ || self.in_const;
         let saved_const = self.in_const;
         if const_ {
             self.in_const = true;
         }
-        let comum = comum.filter(|t| t.is_class(self.ctx.list_)).and_then(|t| t.args().first().cloned());
-        let r = self.emit_list_literal_inner(const_, type_args, elements, expected, comum);
+        let common = common.filter(|t| t.is_class(self.ctx.list_)).and_then(|t| t.args().first().cloned());
+        let r = self.emit_list_literal_inner(const_, type_args, elements, expected, common);
         self.in_const = saved_const;
         r
     }
 
-    fn emit_list_literal_inner(&mut self, const_: bool, type_args: &[ast::TypeId], elements: &[CollectionElement], expected: Option<&Ty>, comum: Option<Ty>) -> (Js, Ty) {
+    fn emit_list_literal_inner(&mut self, const_: bool, type_args: &[ast::TypeId], elements: &[CollectionElement], expected: Option<&Ty>, common: Option<Ty>) -> (Js, Ty) {
         let elem_ty = if let Some(t) = type_args.first() {
             self.resolve_type(*t)
-        } else if let Some(t) = comum {
+        } else if let Some(t) = common {
             t
         } else if let Some(t) = self.expected_arg(expected, self.ctx.list_, 0).or_else(|| self.expected_arg(expected, self.ctx.iterable_, 0)) {
             t
@@ -938,7 +944,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             self.m.use_sdk("_interceptors");
             return (Js::prim(format!("_interceptors.JSArray.of({rti}, [{}])", items.join(", "))), list_ty);
         }
-        // Forma geral: IIFE construindo a lista.
+        // General form: an IIFE that builds the list.
         let t = self.temp();
         let saved_w = std::mem::take(&mut self.w);
         let jsarr = self.ctx.js_array.map(|c| Ty::iface_args(c, vec![elem_ty.clone()])).unwrap_or(list_ty.clone());
@@ -966,7 +972,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     fn infer_elements_ty(&mut self, elements: &[CollectionElement]) -> Ty {
-        // Sem emitir: tipa os elementos numa cópia descartável do escritor.
+        // Without emitting: types the elements in a throwaway copy of the writer.
         let mut tys = Vec::new();
         let saved = std::mem::take(&mut self.w);
         let saved_temps = self.temps.len();
@@ -1027,7 +1033,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    /// Tipo estático de uma expressão sem emitir (descarta o texto).
+    /// Static type of an expression without emitting it (discards the text).
     pub fn type_of(&mut self, e: ExprId) -> Ty {
         let saved = std::mem::take(&mut self.w);
         let saved_temps = self.temps.len();
@@ -1043,7 +1049,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         t
     }
 
-    /// IIFE (ou `yield*` de gerador dentro de geradores).
+    /// IIFE (or a generator `yield*` inside generators).
     pub fn iife(&self, body: &str) -> Js {
         match self.async_kind {
             AsyncKind::None => Js::prim(format!("(() => {{\n{body}}})()")),
@@ -1064,8 +1070,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 add(self, v.code);
             }
             CollectionElement::NullAwareExpression(e) => {
-                // Contexto anulável para o operando (spec 3.8): o `null` é
-                // descartado aqui, não chega ao literal.
+                // Nullable context for the operand (spec 3.8): the `null` is
+                // discarded here, it does not reach the literal.
                 let (v, _) = self.emit_expr(*e, Some(&elem_ty.with_nullable(true)));
                 let t = self.temp();
                 crate::linha!(self.w, "{t} = {};", v.code);
@@ -1079,8 +1085,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 add(self, format!("{}\u{0}{}", k.code, v.code));
             }
             CollectionElement::MapEntry { key, value, null_aware_key, null_aware_value } => {
-                // Entrada null-aware (3.8): a chave antes do valor; chave
-                // null-aware nula descarta a entrada SEM avaliar o valor.
+                // Null-aware entry (3.8): the key before the value; a null
+                // null-aware key discards the entry WITHOUT evaluating the value.
                 let kctx = if *null_aware_key { elem_ty.with_nullable(true) } else { elem_ty.clone() };
                 let (k, _) = self.emit_expr(*key, Some(&kctx));
                 let tk = self.temp();
@@ -1111,7 +1117,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     crate::abre!(self.w, "if ({t} != null) {{");
                 }
                 if value_ty.is_some() {
-                    // Mapa: percorre entradas.
+                    // Map: iterate over the entries.
                     let entries = self.member_access(&vty.non_null(), "entries", false);
                     let x = self.temp();
                     crate::abre!(self.w, "for ({x} of {t}{entries}) {{");
@@ -1239,26 +1245,26 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    /// Literal de conjunto ou mapa; `comum` como em [`Self::emit_list_literal`]
-    /// (decide também entre conjunto e mapa, em `{}` com contexto).
-    fn emit_set_or_map(&mut self, const_: bool, type_args: &[ast::TypeId], elements: &[CollectionElement], expected: Option<&Ty>, comum: Option<&Ty>) -> (Js, Ty) {
+    /// Set or map literal; `common` as in [`Self::emit_list_literal`] (it
+    /// also decides between set and map, for `{}` with a context).
+    fn emit_set_or_map(&mut self, const_: bool, type_args: &[ast::TypeId], elements: &[CollectionElement], expected: Option<&Ty>, common: Option<&Ty>) -> (Js, Ty) {
         let const_ = const_ || self.in_const;
         let saved_const = self.in_const;
         if const_ {
             self.in_const = true;
         }
-        let comum = comum.filter(|t| t.is_class(self.ctx.map_) || t.is_class(self.ctx.set_)).cloned();
-        let r = self.emit_set_or_map_inner(const_, type_args, elements, expected, comum);
+        let common = common.filter(|t| t.is_class(self.ctx.map_) || t.is_class(self.ctx.set_)).cloned();
+        let r = self.emit_set_or_map_inner(const_, type_args, elements, expected, common);
         self.in_const = saved_const;
         r
     }
 
-    fn emit_set_or_map_inner(&mut self, const_: bool, type_args: &[ast::TypeId], elements: &[CollectionElement], expected: Option<&Ty>, comum: Option<Ty>) -> (Js, Ty) {
+    fn emit_set_or_map_inner(&mut self, const_: bool, type_args: &[ast::TypeId], elements: &[CollectionElement], expected: Option<&Ty>, common: Option<Ty>) -> (Js, Ty) {
         let is_map = if type_args.len() == 2 {
             true
         } else if type_args.len() == 1 {
             false
-        } else if let Some(c) = &comum {
+        } else if let Some(c) = &common {
             c.is_class(self.ctx.map_)
         } else if elements.is_empty() {
             !expected.is_some_and(|t| t.non_null().class() == self.ctx.set_ || self.ctx.set_.is_some_and(|s| self.ctx.as_super(&t.non_null(), s).is_some() && t.non_null().class() != self.ctx.map_))
@@ -1273,7 +1279,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         if is_map {
             let (kt, vt) = if type_args.len() == 2 {
                 (self.resolve_type(type_args[0]), self.resolve_type(type_args[1]))
-            } else if let Some([k, v]) = comum.as_ref().map(|c| c.args()) {
+            } else if let Some([k, v]) = common.as_ref().map(|c| c.args()) {
                 (k.clone(), v.clone())
             } else if let (Some(k), Some(v)) = (self.expected_arg(expected, self.ctx.map_, 0), self.expected_arg(expected, self.ctx.map_, 1)) {
                 (k, v)
@@ -1334,7 +1340,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         // Set
         let et = if let Some(t) = type_args.first() {
             self.resolve_type(*t)
-        } else if let Some([t]) = comum.as_ref().map(|c| c.args()) {
+        } else if let Some([t]) = common.as_ref().map(|c| c.args()) {
             t.clone()
         } else if let Some(t) = self.expected_arg(expected, self.ctx.set_, 0).or_else(|| self.expected_arg(expected, self.ctx.iterable_, 0)) {
             t
@@ -1390,7 +1396,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         (self.iife(&body), set_ty)
     }
 
-    /// Marca se o elemento indica mapa (entrada) ou conjunto (expressão).
+    /// Marks whether the element indicates a map (an entry) or a set (an expression).
     fn classify_element(&mut self, e: &CollectionElement, any_map: &mut bool, any_set: &mut bool) {
         match e {
             CollectionElement::MapEntry { .. } => *any_map = true,
@@ -1421,7 +1427,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         for el in elements {
             match el {
                 CollectionElement::MapEntry { key, value, null_aware_key, null_aware_value } => {
-                    // Parte null-aware entra sem o `null` (spec 3.8, NonNull).
+                    // A null-aware part enters without the `null` (spec 3.8, NonNull).
                     let k = self.type_of(*key);
                     let v = self.type_of(*value);
                     ks.push(if *null_aware_key { k.non_null() } else { k });
@@ -1488,7 +1494,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         (fold(self, ks), fold(self, vs))
     }
 
-    /// Classe de implementação de mapa (`IdentityMap` para chaves primitivas) e seu rti.
+    /// Map implementation class (`IdentityMap` for primitive keys) and its rti.
     pub(crate) fn map_impl(&mut self, kt: &Ty, vt: &Ty) -> (String, String) {
         self.m.use_sdk("_js_helper");
         let identity = self.ctx.is_js_primitive(kt);
@@ -1530,11 +1536,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             let (j, t) = self.emit_expr(*e, None);
             named_items.push((self.name(n.sym).to_string(), j.into_at(P_ASSIGN), t));
         }
-        // Ordem de avaliação preservada por temps quando há nomeados fora de ordem.
+        // Evaluation order preserved through temps when named fields are out of order.
         let mut sorted = named_items.clone();
         sorted.sort_by(|a, b| a.0.cmp(&b.0));
         let in_order = named_items.iter().map(|x| &x.0).eq(sorted.iter().map(|x| &x.0));
-        // Nomeados antes de algum posicional na fonte? Então a ordem de avaliação exige temps.
+        // Named fields before some positional one in the source? Then the evaluation order requires temps.
         let mut interleaved = false;
         let mut seen_named = false;
         for (n, e) in named.iter().map(|(n, e)| (Some(n), *e)).chain(std::iter::empty()) {
@@ -1556,7 +1562,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let sorted_vals: Vec<String> = if (in_order && !interleaved) || (named_items.is_empty()) {
             sorted.iter().map(|x| x.1.clone()).collect()
         } else {
-            // Avalia tudo na ordem da fonte em temps.
+            // Evaluate everything in source order into temps.
             let mut temps: HashMap<String, String> = HashMap::new();
             let mut order: Vec<(usize, Option<String>, String)> = Vec::new();
             for (i, e) in positional.iter().enumerate() {
@@ -1603,15 +1609,15 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     // -----------------------------------------------------------------------
-    // Identificadores e acesso a membros
+    // Identifiers and member access
     // -----------------------------------------------------------------------
 
-    /// Valor de um identificador (sem nó de expressão).
+    /// Value of an identifier (without an expression node).
     pub fn emit_identifier_value(&mut self, sym: dartforge_intern::SymbolId) -> (Js, Ty) {
         self.emit_identifier(sym, ExprId(u32::MAX))
     }
 
-    /// `this` (o receptor da extensão, `$this`, dentro de uma).
+    /// `this` (the extension's receiver, `$this`, inside one).
     fn emit_this(&mut self) -> (Js, Ty) {
         if let Some(t) = &self.extension_this {
             return (Js::prim("$this"), t.clone());
@@ -1622,27 +1628,27 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
 
     fn emit_identifier(&mut self, sym: dartforge_intern::SymbolId, e: ExprId) -> (Js, Ty) {
         let n = self.name(sym).to_string();
-        // `$this` numa interpolação simples chega como identificador.
+        // `$this` in a simple interpolation arrives as an identifier.
         if n == "this" {
             return self.emit_this();
         }
         if self.ctx.conferencia.is_some() {
             self.conferir_alvo(e, &self.resolve_ident(sym));
         }
-        // Membro de instância de tipo de extensão pelo `this` implícito.
-        if let Some((dono, membro)) = self.membro_de_tipo_extensao(e) {
-            return self.tipo_ext_ler(&Js::prim("$this"), None, dono, membro);
+        // Instance member of an extension type through the implicit `this`.
+        if let Some((owner, member)) = self.membro_de_tipo_extensao(e) {
+            return self.tipo_ext_ler(&Js::prim("$this"), None, owner, member);
         }
         match self.alvo_do_identificador(sym, e) {
             IdentTarget::Local(js, ty) => {
-                // O tipo da leitura é o da inferência comum: o declarado com
-                // as promoções e rebaixamentos do fluxo da especificação
-                // (`int? v = 3; v` é `int`; o padrão, o `catch` e o `as`
-                // promovem; a atribuição num laço desfaz). O escopo do emissor
-                // guarda só o declarado. Só nó que a inferência visitou (a
-                // resolução é de local) e que não é alvo de escrita composta
-                // (cujo tipo de leitura fica no nó da atribuição), para não
-                // trocar tipo por `dynamic`.
+                // The type of the read is the common inference's: the declared
+                // one with the promotions and demotions of the specification's
+                // flow analysis (`int? v = 3; v` is `int`; patterns, `catch`
+                // and `as` promote; an assignment in a loop undoes it). The
+                // emitter's scope only keeps the declared type. Only for a node
+                // the inference visited (the resolution is a local) and that is
+                // not the target of a compound write (whose read type stays on
+                // the assignment node), so as not to swap a type for `dynamic`.
                 let ty = match self.resolucao_comum(e) {
                     Some(Resolved::Local(_) | Resolved::Parameter { .. }) if !self.ctx.e_alvo_de_escrita(self.unit, e) => self.tipo_comum(e).unwrap_or(ty),
                     _ => ty,
@@ -1700,10 +1706,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             IdentTarget::Prefix(_) => (Js::prim("null"), Ty::Dynamic),
             IdentTarget::Unknown => {
-                // Modo SDK: numa extensão sobre um tipo de extensão (o *patch*
-                // `JSArrayToList on JSArray<T>`), o campo de representação
-                // lido sem `this` é o próprio valor: o tipo de extensão é
-                // apagado para a representação.
+                // SDK mode: in an extension on an extension type (the
+                // `JSArrayToList on JSArray<T>` *patch*), the representation
+                // field read without `this` is the value itself: the extension
+                // type is erased to its representation.
                 if self.ctx.sdk.is_some() {
                     if let Some(Ty::Iface { class, .. }) = self.extension_this.clone() {
                         if let Some(rep) = self.ctx.program.class(class).representation {
@@ -1713,7 +1719,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         }
                     }
                 }
-                // Literais de tipo especiais.
+                // Special type literals.
                 let special = match n.as_str() {
                     "dynamic" => Some(Ty::Dynamic),
                     "Never" => Some(Ty::Never),
@@ -1722,10 +1728,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 if let Some(t) = special {
                     return (Js::prim(format!("dart_rti.createRuntimeType({})", self.rti(&t))), self.ctx.t_type());
                 }
-                // Nada no escopo léxico, nas importações nem no outline tem o
-                // nome: o programa é inválido (o `Undefined name` da VM).
-                let biblioteca = self.ctx.program.unit(self.unit).library;
-                if e != ExprId(u32::MAX) && !self.ctx.libs[biblioteca.0 as usize].is_sdk {
+                // Nothing in the lexical scope, the imports or the outline has
+                // the name: the program is invalid (the VM's `Undefined name`).
+                let library = self.ctx.program.unit(self.unit).library;
+                if e != ExprId(u32::MAX) && !self.ctx.libs[library.0 as usize].is_sdk {
                     self.erro_de_linguagem(self.expr(e).span, format!("Undefined name '{n}'."));
                 }
                 (Js::prim(js::ident(&n)), Ty::Dynamic)
@@ -1736,12 +1742,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     pub fn emit_element_get(&mut self, el: Element, n: &str) -> (Js, Ty) {
         match el {
             Element::Function(fid) => {
-                // Modo SDK: `staticInteropGlobalContext` é `dart.global`.
+                // SDK mode: `staticInteropGlobalContext` is `dart.global`.
                 if crate::sdk_proprio::intrinseco_de(self.ctx, fid) == Some(crate::sdk_proprio::Intrinseco::GlobalContext) {
                     return (Js::prim("dart.global"), Ty::Dynamic);
                 }
-                let (js, ty) = self.element_ref(el).expect("função");
-                // Tearoff de função de topo.
+                let (js, ty) = self.element_ref(el).expect("function");
+                // Tearoff of a top-level function.
                 let f = self.ctx.program.function(fid);
                 if self.ctx.is_js_member(fid) {
                     return match f.kind {
@@ -1753,18 +1759,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 match f.kind {
                     FunctionKind::Getter => (Js::prim(js), self.ctx.ty_of(self.ctx.outline.functions[fid.0 as usize].return_type)),
                     FunctionKind::Setter => (Js::prim(js), Ty::Dynamic),
-                    // Modo SDK: dentro de `JS()` e para funções do runtime, o
-                    // *tearoff* é a função crua (`compiler.dart:7331-7338, 7366`).
+                    // SDK mode: inside `JS()` and for runtime functions, the
+                    // *tearoff* is the raw function (`compiler.dart:7331-7338, 7366`).
                     _ if self.em_js_estrangeiro || crate::sdk_proprio::funcao_sem_reificar(self.ctx, fid) => (Js::prim(js), ty),
                     _ => (self.tearoff_static(&js, &ty), ty),
                 }
             }
             Element::Variable(vid) => {
-                // Modo SDK: constante primitiva dobrada no uso.
+                // SDK mode: a primitive constant folded at the use site.
                 if let Some(js) = crate::sdk_proprio::constante_inline(self, vid) {
                     return (js, self.ctx.var_ty(vid));
                 }
-                let (js, ty) = self.element_ref(el).expect("variável");
+                let (js, ty) = self.element_ref(el).expect("variable");
                 if self.ctx.is_js_var(vid) {
                     return (self.js_null_check(Js::prim(js), &MemberKind::Field(vid)), ty);
                 }
@@ -1772,7 +1778,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             Element::Class(c) => {
                 let rti = self.rti(&self.ctx.this_ty_default(c));
-                // Modo SDK: literal de tipo dentro de `JS()` é a rti crua.
+                // SDK mode: a type literal inside `JS()` is the raw rti.
                 if self.em_js_estrangeiro {
                     return (Js::prim(rti), self.ctx.t_type());
                 }
@@ -1782,7 +1788,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    /// Tearoff de função estática/topo: `dart.fn(f, rti)` ou `dart.gFn`.
+    /// Tearoff of a static/top-level function: `dart.fn(f, rti)` or `dart.gFn`.
     pub fn tearoff_static(&mut self, js: &str, ty: &Ty) -> Js {
         match ty {
             Ty::Fn { type_params, .. } if !type_params.is_empty() => {
@@ -1824,7 +1830,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let cls = self.class_ref(c);
         let js = format!("{cls}{}", js::prop_access(&static_member_name(n)));
         match mk {
-            // Modo SDK: dentro de `JS()` e no runtime, o *tearoff* é cru.
+            // SDK mode: inside `JS()` and in the runtime, the *tearoff* is raw.
             MemberKind::Method(fid) if self.em_js_estrangeiro || crate::sdk_proprio::funcao_sem_reificar(self.ctx, fid) => (Js::prim(js), self.ctx.fn_ty(fid)),
             MemberKind::Method(fid) => {
                 let ty = self.ctx.fn_ty(fid);
@@ -1839,10 +1845,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    /// `recv.name` (getter, campo, ou tearoff de método).
+    /// `recv.name` (getter, field, or method tearoff).
     pub fn emit_member_get(&mut self, recv: &Js, recv_ty: &Ty, name: &str, member: Option<Member>) -> (Js, Ty) {
-        // Modo SDK: `this._jsString` num tipo de extensão é o próprio valor
-        // (o tipo é apagado para a representação).
+        // SDK mode: `this._jsString` in an extension type is the value itself
+        // (the type is erased to its representation).
         if self.ctx.sdk.is_some() {
             if let Ty::Iface { class, .. } = recv_ty.non_null() {
                 if let Some(rep) = self.ctx.program.class(class).representation {
@@ -1859,7 +1865,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             self.forced_ext = None;
         }
         let member = member.or_else(|| self.ctx.lookup_member(recv_ty, name, false));
-        // Membros de Object com helpers.
+        // Object members with helpers.
         let recv_nn = recv_ty.non_null();
         match name {
             "hashCode" if !self.is_user_class_recv(&recv_nn) => {
@@ -1878,7 +1884,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             return (Js::prim(format!("dart.dload({}, {})", recv.code, js::string_literal(&crate::body::js_member_name(name)))), Ty::Dynamic);
         }
         let Some(m) = member else {
-            // Extensão?
+            // Extension?
             if let Some(r) = self.try_extension_get(recv, recv_ty, name) {
                 return r;
             }
@@ -1903,7 +1909,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let access = self.member_access(recv_ty, name, false);
         let js = format!("{}{access}", recv.at(P_PRIMARY));
         if self.ctx.is_js_member_kind(&m.kind) {
-            // Interop: propriedade direta; `tearoffInterop` para métodos.
+            // Interop: direct property; `tearoffInterop` for methods.
             return match m.kind {
                 MemberKind::Method(_) => (Js::prim(format!("dart.tearoffInterop({js}, {})", self.ctx.js_null_checkable(&m.kind))), ty),
                 _ => (self.js_null_check(Js::prim(js), &m.kind), ty),
@@ -1911,7 +1917,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
         match m.kind {
             MemberKind::Method(_) => {
-                // Tearoff de método de instância.
+                // Instance method tearoff.
                 let key = if name.starts_with('_') {
                     self.private_sym(self.ctx.lib_of_class(m.class), name)
                 } else if self.ctx.is_ext_member(recv_ty, name, false) {
@@ -1935,18 +1941,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    /// Getter de extensão aplicável.
+    /// Applicable extension getter.
     pub fn try_extension_get(&mut self, recv: &Js, recv_ty: &Ty, name: &str) -> Option<(Js, Ty)> {
         let found = self.find_extension_member(recv_ty, name, false);
         self.forced_ext = None;
         let (ext, fid, subst) = found?;
         let f = self.ctx.program.function(fid);
         let e = self.ctx.program.extension(ext);
-        // `Function.toJS`/`toJSCaptureThis` do `dart:js_interop`: o
-        // transformador de interop do CFE os troca pelo `_functionToJS{N}` do
-        // `dart:js_util`, N = parâmetros posicionais do tipo estático
-        // (`_js_interop_checks/.../js_util_optimizer.dart:1003-1041`; no DDC o
-        // `toJSCaptureThis` sempre pelo `_functionToJSCaptureThisN`).
+        // `Function.toJS`/`toJSCaptureThis` from `dart:js_interop`: the CFE's
+        // interop transformer replaces them with `dart:js_util`'s
+        // `_functionToJS{N}`, N = positional parameters of the static type
+        // (`_js_interop_checks/.../js_util_optimizer.dart:1003-1041`; in the DDC
+        // `toJSCaptureThis` always through `_functionToJSCaptureThisN`).
         if self.ctx.program.library(e.library).uri == "dart:js_interop"
             && e.name.is_some_and(|n| self.ctx.name(n) == "FunctionToJSExportedDartFunction")
             && matches!(name, "toJS" | "toJSCaptureThis")
@@ -1986,7 +1992,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 Some((Js::prim(format!("{lib_var}[{}]({})", js::string_literal(&format!("{ext_name}|get#{name}")), args.join(", "))), ret))
             }
             FunctionKind::Function | FunctionKind::Operator => {
-                // Tearoff de método de extensão: closure.
+                // Extension method tearoff: a closure.
                 let (pos_n, ..) = match &ty {
                     Ty::Fn { pos, .. } => (pos.len(), ()),
                     _ => (0, ()),
@@ -2009,7 +2015,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    /// Rtis dos parâmetros de tipo da extensão (na ordem), a partir da substituição.
+    /// Rtis of the extension's type parameters (in order), from the substitution.
     pub fn ext_type_args(&mut self, ext: dartforge_elements::model::ExtensionId, subst: &HashMap<u32, Ty>) -> Vec<String> {
         self.ctx.outline.extensions[ext.0 as usize]
             .type_params
@@ -2023,7 +2029,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         match e.name {
             Some(n) => self.name(n).to_string(),
             None => {
-                // Índice entre as extensões sem nome da biblioteca.
+                // Index among the library's unnamed extensions.
                 let mut idx = 0;
                 for (i, x) in self.ctx.program.extensions.iter().enumerate() {
                     if x.library == e.library && x.name.is_none() {
@@ -2038,7 +2044,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    /// Procura membro de extensão aplicável ao tipo do receptor.
+    /// Looks up an extension member applicable to the receiver type.
     pub fn find_extension_member(
         &self,
         recv_ty: &Ty,
@@ -2065,7 +2071,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             let data = &self.ctx.outline.extensions[ext.0 as usize];
             let on = self.ctx.ty_of(data.on);
             let mut subst = HashMap::new();
-            // Liga parâmetros da extensão comparando com o receptor.
+            // Bind the extension's parameters by matching against the receiver.
             let params: Vec<u32> = data.type_params.iter().map(|p| p.0).collect();
             let ok = self.match_type(&on, &recv_nn, &params, &mut subst);
             if !ok {
@@ -2079,7 +2085,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     continue;
                 }
             }
-            // Especificidade: `on` mais específico vence; empate → biblioteca própria.
+            // Specificity: the more specific `on` wins; on a tie → the current library.
             let score = if e.library == self.lib { 1 } else { 0 };
             let better = match &best {
                 None => true,
@@ -2097,7 +2103,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         best.map(|(a, b, c, _)| (a, b, c))
     }
 
-    /// Casa `pattern` (com parâmetros livres `params`) contra `actual`, preenchendo `subst`.
+    /// Matches `pattern` (with free parameters `params`) against `actual`, filling `subst`.
     pub fn match_type(&self, pattern: &Ty, actual: &Ty, params: &[u32], subst: &mut HashMap<u32, Ty>) -> bool {
         match pattern {
             Ty::Param { id, .. } if params.contains(id) => {
@@ -2114,8 +2120,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             Ty::Iface { class, args, .. } => {
                 let actual_r = self.ctx.resolve_param_bound(actual);
-                // Todo tipo de função é subtipo de `Function` (a extensão
-                // `on Function` do `dart:js_interop` aplica a um `f.toJS`).
+                // Every function type is a subtype of `Function` (the
+                // `dart:js_interop` extension `on Function` applies to `f.toJS`).
                 if Some(*class) == self.ctx.function_ && matches!(actual_r.non_null(), Ty::Fn { .. }) {
                     return true;
                 }
@@ -2168,17 +2174,17 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     // -----------------------------------------------------------------------
-    // Seletores (com null-shorting)
+    // Selectors (with null-shorting)
     // -----------------------------------------------------------------------
 
-    /// Emite um seletor (`a.b`, `a[i]`, `f(x)`) devolvendo o texto sem as
-    /// guardas de `?.`, o tipo e as guardas acumuladas.
+    /// Emits a selector (`a.b`, `a[i]`, `f(x)`), returning the text without
+    /// the `?.` guards, the type, and the accumulated guards.
     pub fn emit_selector(&mut self, e: ExprId, expected: Option<&Ty>) -> (Js, Ty, Vec<Guard>) {
         let expr = self.expr(e);
         match &expr.kind {
             ExprKind::Property { target, name, null_aware } => {
                 let n = self.name(name.sym).to_string();
-                if let Some((dono, membro)) = self.membro_de_tipo_extensao(e) {
+                if let Some((owner, member)) = self.membro_de_tipo_extensao(e) {
                     let (tjs, _, mut guards) = self.emit_target(*target);
                     let recv = if *null_aware {
                         let t = self.temp();
@@ -2187,16 +2193,16 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     } else {
                         tjs
                     };
-                    let (js, ty) = self.tipo_ext_ler(&recv, Some(*target), dono, membro);
+                    let (js, ty) = self.tipo_ext_ler(&recv, Some(*target), owner, member);
                     let ty = if *null_aware { ty.with_nullable(true) } else { ty };
                     return (js, ty, guards);
                 }
-                // Casos estáticos: prefixo, classe, enum.
+                // Static cases: prefix, class, enum.
                 if let Some(r) = self.try_static_property(*target, &n) {
                     return (r.0, r.1, vec![]);
                 }
                 if let ExprKind::Super = self.expr(*target).kind {
-                    let sup_ty = self.super_ty_de(&n, false);
+                    let sup_ty = self.super_ty_for(&n, false);
                     let m = self.ctx.lookup_member(&sup_ty, &n, false);
                     let ty = m.as_ref().map(|m| self.ctx.member_ty(m)).unwrap_or(Ty::Dynamic);
                     let access = self.member_access(&sup_ty, &n, false);
@@ -2210,8 +2216,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 } else {
                     (tjs, tty)
                 };
-                let membro = self.membro_do_acesso(Some(e), &recv_ty, &n, false);
-                let (js, ty) = self.emit_member_get(&recv, &recv_ty, &n, membro);
+                let member = self.membro_do_acesso(Some(e), &recv_ty, &n, false);
+                let (js, ty) = self.emit_member_get(&recv, &recv_ty, &n, member);
                 let ty = if *null_aware { ty.with_nullable(true) } else { ty };
                 (js, ty, guards)
             }
@@ -2224,10 +2230,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 } else {
                     (tjs, tty)
                 };
-                if let Some((dono, MemberRef::Function(f))) = self.membro_de_tipo_extensao(e) {
-                    let ctx_i = self.tipo_ext_parametro(Some(*target), dono, f, 0);
+                if let Some((owner, MemberRef::Function(f))) = self.membro_de_tipo_extensao(e) {
+                    let ctx_i = self.tipo_ext_parametro(Some(*target), owner, f, 0);
                     let (ijs, _) = self.emit_expr(*index, ctx_i.as_ref());
-                    let (js, ty) = self.tipo_ext_operador(&recv, Some(*target), dono, f, &[ijs]);
+                    let (js, ty) = self.tipo_ext_operador(&recv, Some(*target), owner, f, &[ijs]);
                     let ty = if *null_aware { ty.with_nullable(true) } else { ty };
                     return (js, ty, guards);
                 }
@@ -2244,7 +2250,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    /// Tipo da superclasse (Object quando não há `extends`).
+    /// Type of the superclass (Object when there is no `extends`).
     pub fn super_ty(&self) -> Ty {
         self.class
             .and_then(|c| self.ctx.direct_supers(&self.ctx.this_ty(c)).first().cloned())
@@ -2253,20 +2259,20 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             .unwrap_or(Ty::Dynamic)
     }
 
-    /// O tipo do `super` para o membro `nome`: a superclasse, ou — quando o
-    /// membro vem de um mixin aplicado à classe (`extends B with M`) — o
-    /// último mixin que o declara. Sem isso, `super.m()` de um membro de
-    /// mixin caía em `dart.dsend(super, …)`, que nem é JS válido.
-    pub fn super_ty_de(&self, nome: &str, setter: bool) -> Ty {
+    /// The type of `super` for the member `name`: the superclass, or — when
+    /// the member comes from a mixin applied to the class (`extends B with M`)
+    /// — the last mixin that declares it. Without this, `super.m()` of a mixin
+    /// member fell into `dart.dsend(super, …)`, which is not even valid JS.
+    pub fn super_ty_for(&self, name: &str, setter: bool) -> Ty {
         let base = self.super_ty();
-        if self.ctx.lookup_member(&base, nome, setter).is_some() {
+        if self.ctx.lookup_member(&base, name, setter).is_some() {
             return base;
         }
         let Some(c) = self.class else { return base };
         let mixins = self.ctx.mixins_of(c);
         let supers = self.ctx.direct_supers(&self.ctx.this_ty(c));
         for t in supers.iter().rev() {
-            if t.class().is_some_and(|k| mixins.contains(&k)) && self.ctx.lookup_member(t, nome, setter).is_some() {
+            if t.class().is_some_and(|k| mixins.contains(&k)) && self.ctx.lookup_member(t, name, setter).is_some() {
                 return t.clone();
             }
         }
@@ -2284,12 +2290,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    /// Alvo de um seletor: se também for seletor, propaga guardas.
+    /// Target of a selector: if it is a selector too, propagates the guards.
     pub fn emit_target(&mut self, target: ExprId) -> (Js, Ty, Vec<Guard>) {
         let t = self.expr(target);
-        // `Ext(x).membro`: aplicação explícita de extensão.
+        // `Ext(x).member`: explicit extension application.
         if let ExprKind::Call { target: ct, arguments } = &t.kind {
-            // `Ext(x)` ou `prefixo.Ext(x)` (o template do ngdart escreve
+            // `Ext(x)` or `prefix.Ext(x)` (the ngdart template writes
             // `import18.FunctionToJSExportedDartFunction(h).toJS`).
             let ext = match &self.expr(*ct).kind {
                 ExprKind::Identifier(id) => match self.alvo_do_identificador(id.sym, *ct) {
@@ -2378,7 +2384,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 None
             }
             ExprKind::TypeArguments { target: t2, type_args } => {
-                // `C<T>.new` / `C<T>.named`: tearoff de construtor instanciado.
+                // `C<T>.new` / `C<T>.named`: tearoff of an instantiated constructor.
                 if let ExprKind::Identifier(id) = &self.expr(*t2).kind {
                     if let IdentTarget::Element(Element::Class(c)) = self.alvo_do_identificador(id.sym, *t2) {
                         let targs: Vec<Ty> = type_args.iter().map(|t| self.resolve_type(*t)).collect();
@@ -2391,7 +2397,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    /// Tearoff de construtor `C<args>.name` como closure.
+    /// Tearoff of the constructor `C<args>.name` as a closure.
     pub fn ctor_tearoff(&mut self, c: ClassId, targs: Vec<Ty>, name: &str) -> Option<(Js, Ty)> {
         if crate::tipo_extensao::e_tipo_extensao_apagado(self.ctx, c) {
             return self.tipo_ext_tearoff_construtor(c, targs, name);
@@ -2417,8 +2423,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let params_js: Vec<String> = (0..pos_n).map(|i| format!("a{i}")).collect();
         let f = self.ctx.program.function(fid);
         let cname = if name == "new" { "new".to_string() } else { static_member_name(name) };
-        // O tearoff estático existe quando a classe não tem parâmetros próprios
-        // (ele mesmo passa o `rti` da classe ao construtor).
+        // The static tearoff exists when the class has no type parameters of
+        // its own (it passes the class's `rti` to the constructor itself).
         if self.ctx.class_params[c.0 as usize].is_empty() {
             let rti = self.rti(&ty);
             return Some((Js::prim(format!("dart.fn({}[{}], {rti})", self.class_ref(c), js::string_literal(&format!("_#{cname}#tearOff")))), ty));
@@ -2444,7 +2450,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             cur = self.ctx.superclass_of(k);
         }
-        // Constantes de enum.
+        // Enum constants.
         {
             let class = self.ctx.program.class(c);
             if class.kind == ClassKind::Enum {
@@ -2456,8 +2462,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
             }
         }
-        // Construtor como tearoff: `C.new`/`C.named` (num tipo de extensão,
-        // o primário também, que não é elemento).
+        // Constructor as a tearoff: `C.new`/`C.named` (in an extension type,
+        // the primary one too, which is not an element).
         if crate::tipo_extensao::e_tipo_extensao_apagado(self.ctx, c) {
             if !crate::tipo_extensao::tem_construtor(self.ctx, c, if name == "new" { "" } else { name }) {
                 return None;
@@ -2493,13 +2499,14 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         None
     }
 
-    /// `recv[i]`; `no` é o índice na fonte, quando há (o operador é o que a
-    /// resolução comum registrou para ele, [`Self::membro_do_acesso`]).
-    pub fn emit_index_get(&mut self, recv: &Js, recv_ty: &Ty, idx: &Js, no: Option<ExprId>) -> (Js, Ty) {
+    /// `recv[i]`; `node` is the index expression in the source, when there is
+    /// one (the operator is the one the common resolution recorded for it,
+    /// [`Self::membro_do_acesso`]).
+    pub fn emit_index_get(&mut self, recv: &Js, recv_ty: &Ty, idx: &Js, node: Option<ExprId>) -> (Js, Ty) {
         if recv_ty.is_dynamic() {
             return (Js::prim(format!("dart.dsend({}, '_get', [{}])", recv.code, idx.code)), Ty::Dynamic);
         }
-        match self.membro_do_acesso(no, recv_ty, "[]", false) {
+        match self.membro_do_acesso(node, recv_ty, "[]", false) {
             Some(m) => {
                 let ty = match self.ctx.member_ty(&m) {
                     Ty::Fn { ret, .. } => (*ret).clone(),
@@ -2528,7 +2535,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     // -----------------------------------------------------------------------
-    // Operadores
+    // Operators
     // -----------------------------------------------------------------------
 
     fn emit_unary(&mut self, op: UnaryOp, operand: ExprId, e: ExprId) -> (Js, Ty) {
@@ -2621,10 +2628,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    /// Operador binário aplicado a valores já emitidos, com tipos.
-    /// `no` é a expressão do operador na fonte, quando há: o membro é o que a
-    /// resolução comum registrou para ela ([`Self::membro_do_acesso`]).
-    pub fn emit_binop_values(&mut self, op: BinaryOp, l: Js, lt: &Ty, r: Js, rt: &Ty, no: Option<ExprId>) -> (Js, Ty) {
+    /// Binary operator applied to already emitted values, with types.
+    /// `node` is the operator expression in the source, when there is one: the
+    /// member is the one the common resolution recorded for it
+    /// ([`Self::membro_do_acesso`]).
+    pub fn emit_binop_values(&mut self, op: BinaryOp, l: Js, lt: &Ty, r: Js, rt: &Ty, node: Option<ExprId>) -> (Js, Ty) {
         let ctx = self.ctx;
         let num_l = ctx.is_num_like_nullable(lt);
         let num_r = ctx.is_num_like_nullable(rt) || matches!(rt, Ty::Dynamic);
@@ -2678,7 +2686,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 if lt.is_dynamic() {
                     return (Js::prim(format!("dart.dsend({}, {}, [{}])", l.code, js::string_literal(&crate::body::js_member_name(name)), r.code)), Ty::Dynamic);
                 }
-                match self.membro_do_acesso(no, lt, name, false) {
+                match self.membro_do_acesso(node, lt, name, false) {
                     Some(m) => {
                         let ret = match ctx.member_ty(&m) {
                             Ty::Fn { ret, .. } => (*ret).clone(),
@@ -2708,7 +2716,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    /// Registra promoção `x != null` / `x == null` para a variável `sym`.
+    /// Records the `x != null` / `x == null` promotion for the variable `sym`.
     pub fn note_null_promotion(&mut self, sym: dartforge_intern::SymbolId, ty: &Ty, negated: bool) {
         if ty.is_nullable() && !ty.is_dynamic() {
             let nn = ty.non_null();
@@ -2760,12 +2768,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 return (Js::new(format!("{} || {}", Js::new(l, P_PRIMARY).at(P_OR), Js::new(r, P_PRIMARY).at(P_OR + 1)), P_OR), self.ctx.t_bool());
             }
             BinaryOp::IfNull => {
-                // O contexto do operando esquerdo é o anulável do contexto
-                // (`K?`): um `dynamic` nulo não pode passar pelo teste de
-                // `K` antes do `??`; o do resultado vale para a expressão
-                // inteira.
-                let contexto = expected.map(|t| t.with_nullable(true));
-                let (l, lt) = self.emit_expr(left, contexto.as_ref());
+                // The context of the left operand is the nullable version of
+                // the context (`K?`): a null `dynamic` must not go through the
+                // `K` test before the `??`; the result's context applies to the
+                // whole expression.
+                let context = expected.map(|t| t.with_nullable(true));
+                let (l, lt) = self.emit_expr(left, context.as_ref());
                 let (r, rt) = self.emit_expr(right, expected.or(Some(&lt.non_null())));
                 let t = self.temp();
                 let ty = self.ctx.lub(&lt.non_null(), &rt);
@@ -2773,9 +2781,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             _ => {}
         }
-        // `super == x` / `super + x`: chamada direta do operador da superclasse.
+        // `super == x` / `super + x`: direct call of the superclass's operator.
         if let ExprKind::Super = self.expr(left).kind {
-            let sup_ty = self.super_ty_de(if matches!(op, BinaryOp::Eq | BinaryOp::NotEq) { "==" } else { binop_name(op) }, false);
+            let sup_ty = self.super_ty_for(if matches!(op, BinaryOp::Eq | BinaryOp::NotEq) { "==" } else { binop_name(op) }, false);
             let name = binop_name(op);
             let is_eq = matches!(op, BinaryOp::Eq | BinaryOp::NotEq);
             let mname = if is_eq { "==" } else { name };
@@ -2811,10 +2819,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 _ => None,
             })
         };
-        // `e == .x` (3.10): o atalho à direita usa o tipo estático da esquerda.
+        // `e == .x` (3.10): the shorthand on the right uses the static type of the left.
         let (r, rt) = if matches!(op, BinaryOp::Eq | BinaryOp::NotEq) {
-            let esquerda = lt.clone();
-            self.com_contexto_de_atalho(right, &esquerda, |s| s.emit_expr(right, r_expected.as_ref()))
+            let left_ty = lt.clone();
+            self.com_contexto_de_atalho(right, &left_ty, |s| s.emit_expr(right, r_expected.as_ref()))
         } else {
             self.emit_expr(right, r_expected.as_ref())
         };
@@ -2822,7 +2830,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     // -----------------------------------------------------------------------
-    // Atribuições
+    // Assignments
     // -----------------------------------------------------------------------
 
     fn emit_assign(&mut self, op: AssignOp, target: ExprId, value: ExprId, e: ExprId) -> (Js, Ty) {
@@ -2830,7 +2838,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             AssignOp::Assign => {
                 let tty = self.target_ty(target);
                 let (v, vty) = self.emit_expr(value, tty.as_ref());
-                // Atualiza tipo de local sem anotação de valor conhecido (promoção por atribuição).
+                // Update the type of an unannotated local with a known value type (promotion by assignment).
                 let (js, _) = self.emit_assign_to(target, &v, &vty);
                 (js, vty)
             }
@@ -2839,20 +2847,20 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    /// Tipo estático do alvo de atribuição (sem emitir).
+    /// Static type of the assignment target (without emitting).
     pub fn target_ty(&mut self, target: ExprId) -> Option<Ty> {
-        if let Some((dono, MemberRef::Function(f))) = self.membro_de_tipo_extensao(target) {
+        if let Some((owner, MemberRef::Function(f))) = self.membro_de_tipo_extensao(target) {
             let fe = self.ctx.program.function(f);
-            let nome = self.name(fe.name).trim_end_matches("_=").to_string();
+            let name = self.name(fe.name).trim_end_matches("_=").to_string();
             return match &self.expr(target).kind {
-                ExprKind::Index { target: recv, .. } => self.tipo_ext_parametro(Some(*recv), dono, f, 1),
+                ExprKind::Index { target: recv, .. } => self.tipo_ext_parametro(Some(*recv), owner, f, 1),
                 kind => {
                     let recv = match kind {
                         ExprKind::Property { target: recv, .. } => Some(*recv),
                         _ => None,
                     };
-                    let setter = if fe.kind == FunctionKind::Setter { f } else { self.setter_de_tipo_extensao(dono, &nome)? };
-                    self.tipo_ext_parametro(recv, dono, setter, 0)
+                    let setter = if fe.kind == FunctionKind::Setter { f } else { self.setter_de_tipo_extensao(owner, &name)? };
+                    self.tipo_ext_parametro(recv, owner, setter, 0)
                 }
             };
         }
@@ -2891,9 +2899,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    /// Atribui `v` ao alvo. Devolve a expressão (cujo valor é `v`).
+    /// Assigns `v` to the target. Returns the expression (whose value is `v`).
     pub fn emit_assign_to(&mut self, target: ExprId, v: &Js, vty: &Ty) -> (Js, Ty) {
-        if let Some(r) = self.atribuir_a_tipo_extensao(target, v, vty) {
+        if let Some(r) = self.assign_to_extension_type(target, v, vty) {
             return r;
         }
         let t = self.expr(target);
@@ -2908,11 +2916,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                                 return (Js::new(format!("{js} === void 0 ? {js} = {} : dart.throw(new _internal.LateError.localAI({}))", v.at(P_ASSIGN), js::string_literal(&name)), P_COND).paren(), lty);
                             }
                         }
-                        // Promoção por atribuição: local `dynamic`/nullable recebe tipo do valor quando compatível.
+                        // Promotion by assignment: a `dynamic`/nullable local takes the value's type when compatible.
                         if lty.is_nullable() && !lty.is_dynamic() && self.ctx.is_subtype(vty, &lty) && !vty.is_dynamic() && !matches!(vty, Ty::Null) {
                             self.set_local_ty(n.sym, vty.clone());
                         } else if matches!(vty, Ty::Null) && lty.is_nullable() {
-                            // mantém
+                            // keep it
                         }
                         (Js::new(format!("{js} = {}", v.at(P_ASSIGN)), P_ASSIGN), lty)
                     }
@@ -2998,13 +3006,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             ExprKind::Property { target: recv, name, null_aware } => {
                 let n = self.name(name.sym).to_string();
-                // Estático via classe/prefixo.
+                // Static through a class/prefix.
                 if let Some((target_js, interop)) = self.try_static_lvalue(*recv, &n) {
                     let v = if interop { self.assert_interop(v.clone(), vty) } else { v.clone() };
                     return (Js::new(format!("{target_js} = {}", v.at(P_ASSIGN)), P_ASSIGN), Ty::Dynamic);
                 }
                 if let ExprKind::Super = self.expr(*recv).kind {
-                    let sup_ty = self.super_ty_de(&n, true);
+                    let sup_ty = self.super_ty_for(&n, true);
                     let access = self.member_access(&sup_ty, &n, true);
                     return (Js::new(format!("{}{access} = {}", self.super_ref(), v.at(P_ASSIGN)), P_ASSIGN), Ty::Dynamic);
                 }
@@ -3062,19 +3070,20 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    /// Escrita num membro de instância de tipo de extensão (`x.s = v`, `s = v`
-    /// no corpo, `x[i] = v`), quando a resolução comum do alvo aponta um.
-    fn atribuir_a_tipo_extensao(&mut self, target: ExprId, v: &Js, vty: &Ty) -> Option<(Js, Ty)> {
-        let (dono, MemberRef::Function(f)) = self.membro_de_tipo_extensao(target)? else { return None };
+    /// Write to an instance member of an extension type (`x.s = v`, `s = v`
+    /// in the body, `x[i] = v`), when the common resolution of the target
+    /// points to one.
+    fn assign_to_extension_type(&mut self, target: ExprId, v: &Js, vty: &Ty) -> Option<(Js, Ty)> {
+        let (owner, MemberRef::Function(f)) = self.membro_de_tipo_extensao(target)? else { return None };
         let fe = self.ctx.program.function(f);
-        let nome = self.name(fe.name).trim_end_matches("_=").to_string();
+        let name = self.name(fe.name).trim_end_matches("_=").to_string();
         match &self.expr(target).kind {
             ExprKind::Identifier(_) => {
-                let setter = if fe.kind == FunctionKind::Setter { f } else { self.setter_de_tipo_extensao(dono, &nome)? };
-                Some(self.tipo_ext_escrever(&Js::prim("$this"), None, dono, setter, v, vty))
+                let setter = if fe.kind == FunctionKind::Setter { f } else { self.setter_de_tipo_extensao(owner, &name)? };
+                Some(self.tipo_ext_escrever(&Js::prim("$this"), None, owner, setter, v, vty))
             }
             ExprKind::Property { target: recv, null_aware, .. } => {
-                let setter = if fe.kind == FunctionKind::Setter { f } else { self.setter_de_tipo_extensao(dono, &nome)? };
+                let setter = if fe.kind == FunctionKind::Setter { f } else { self.setter_de_tipo_extensao(owner, &name)? };
                 let (rjs, _, mut guards) = self.emit_target(*recv);
                 let recv_js = if *null_aware {
                     let t = self.temp();
@@ -3083,10 +3092,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 } else {
                     rjs
                 };
-                let (js, ty) = self.tipo_ext_escrever(&recv_js, Some(*recv), dono, setter, v, vty);
+                let (js, ty) = self.tipo_ext_escrever(&recv_js, Some(*recv), owner, setter, v, vty);
                 Some((self.wrap_guards(js, guards), ty))
             }
-            ExprKind::Index { target: recv, index, null_aware } if nome == "[]=" => {
+            ExprKind::Index { target: recv, index, null_aware } if name == "[]=" => {
                 let (rjs, _, mut guards) = self.emit_target(*recv);
                 let recv_js = if *null_aware {
                     let t = self.temp();
@@ -3095,11 +3104,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 } else {
                     rjs
                 };
-                let ctx_i = self.tipo_ext_parametro(Some(*recv), dono, f, 0);
+                let ctx_i = self.tipo_ext_parametro(Some(*recv), owner, f, 0);
                 let (ijs, _) = self.emit_expr(*index, ctx_i.as_ref());
                 let t = self.temp();
-                let atrib = Js::new(format!("{t} = {}", v.at(P_ASSIGN)), P_ASSIGN);
-                let (call, _) = self.tipo_ext_operador(&recv_js, Some(*recv), dono, f, &[ijs, atrib]);
+                let assign = Js::new(format!("{t} = {}", v.at(P_ASSIGN)), P_ASSIGN);
+                let (call, _) = self.tipo_ext_operador(&recv_js, Some(*recv), owner, f, &[ijs, assign]);
                 let js = Js::new(format!("({}, {t})", call.code), P_PRIMARY);
                 Some((self.wrap_guards(js, guards), vty.clone()))
             }
@@ -3153,7 +3162,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    /// `recv[i] = v`; a expressão vale `v`.
+    /// `recv[i] = v`; the expression evaluates to `v`.
     pub fn emit_index_set(&mut self, recv: &Js, recv_ty: &Ty, idx: &Js, v: &Js) -> Js {
         if recv_ty.is_dynamic() {
             return Js::prim(format!("dart.dsend({}, '_set', [{}, {}])", recv.code, idx.code, v.code));
@@ -3200,10 +3209,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     /// `x op= v`, `++x`, `x++`.
-    /// `no` é a atribuição composta ou o `++`/`--`: a resolução comum do
-    /// operador fica nele.
-    fn emit_compound(&mut self, target: ExprId, bop: BinaryOp, value: Option<ExprId>, literal: Option<i64>, prefix: bool, no: ExprId) -> (Js, Ty) {
-        // Lê o alvo uma vez com temps para receptores/índices.
+    /// `node` is the compound assignment or the `++`/`--`: the common
+    /// resolution of the operator is recorded on it.
+    fn emit_compound(&mut self, target: ExprId, bop: BinaryOp, value: Option<ExprId>, literal: Option<i64>, prefix: bool, node: ExprId) -> (Js, Ty) {
+        // Read the target once, with temps for receivers/indices.
         let t = self.expr(target);
         let (read, read_ty, write): (Js, Ty, Box<dyn Fn(&mut Self, &Js) -> Js>) = match &t.kind {
             ExprKind::Identifier(_) | ExprKind::Parenthesized(_) => {
@@ -3212,8 +3221,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 (r, rt, Box::new(move |s: &mut Self, v: &Js| s.emit_assign_to(tgt, v, &Ty::Dynamic).0))
             }
             ExprKind::Property { target: recv, name, .. } if self.membro_de_tipo_extensao(target).is_some() => {
-                // Getter e setter de tipo de extensão: receptor avaliado uma vez.
-                let Some((dono, membro)) = self.membro_de_tipo_extensao(target) else { unreachable!() };
+                // Extension type getter and setter: the receiver is evaluated once.
+                let Some((owner, member)) = self.membro_de_tipo_extensao(target) else { unreachable!() };
                 let n = self.name(name.sym).to_string();
                 let recv_e = *recv;
                 let (rjs, _, _guards) = self.emit_target(recv_e);
@@ -3224,16 +3233,16 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     self.pending_prefix.push(format!("{tmp} = {}", rjs.code));
                     tmp
                 };
-                let (r, rt) = self.tipo_ext_ler(&Js::prim(recv_js.clone()), Some(recv_e), dono, membro);
-                let setter = self.setter_de_tipo_extensao(dono, &n);
+                let (r, rt) = self.tipo_ext_ler(&Js::prim(recv_js.clone()), Some(recv_e), owner, member);
+                let setter = self.setter_de_tipo_extensao(owner, &n);
                 (r, rt, Box::new(move |s: &mut Self, v: &Js| match setter {
-                    Some(f) => s.tipo_ext_escrever(&Js::prim(recv_js.clone()), Some(recv_e), dono, f, v, &Ty::Dynamic).0,
+                    Some(f) => s.tipo_ext_escrever(&Js::prim(recv_js.clone()), Some(recv_e), owner, f, v, &Ty::Dynamic).0,
                     None => v.clone(),
                 }))
             }
             ExprKind::Index { target: recv, index, .. } if self.membro_de_tipo_extensao(target).is_some() => {
-                // `x[i] op= v` com `[]`/`[]=` de tipo de extensão.
-                let Some((dono, _)) = self.membro_de_tipo_extensao(target) else { unreachable!() };
+                // `x[i] op= v` with an extension type's `[]`/`[]=`.
+                let Some((owner, _)) = self.membro_de_tipo_extensao(target) else { unreachable!() };
                 let recv_e = *recv;
                 let (rjs, _, _guards) = self.emit_target(recv_e);
                 let recv_js = if is_simple(&rjs.code) {
@@ -3243,9 +3252,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     self.pending_prefix.push(format!("{tmp} = {}", rjs.code));
                     tmp
                 };
-                let ler = self.operador_de_tipo_extensao(dono, "[]");
-                let escrever = self.operador_de_tipo_extensao(dono, "[]=");
-                let ctx_i = ler.and_then(|f| self.tipo_ext_parametro(Some(recv_e), dono, f, 0));
+                let read_op = self.operador_de_tipo_extensao(owner, "[]");
+                let write_op = self.operador_de_tipo_extensao(owner, "[]=");
+                let ctx_i = read_op.and_then(|f| self.tipo_ext_parametro(Some(recv_e), owner, f, 0));
                 let (ijs, _) = self.emit_expr(*index, ctx_i.as_ref());
                 let idx_js = if is_simple(&ijs.code) {
                     ijs.code.clone()
@@ -3254,15 +3263,15 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     self.pending_prefix.push(format!("{tmp} = {}", ijs.code));
                     tmp
                 };
-                let (r, rt) = match ler {
-                    Some(f) => self.tipo_ext_operador(&Js::prim(recv_js.clone()), Some(recv_e), dono, f, &[Js::prim(idx_js.clone())]),
+                let (r, rt) = match read_op {
+                    Some(f) => self.tipo_ext_operador(&Js::prim(recv_js.clone()), Some(recv_e), owner, f, &[Js::prim(idx_js.clone())]),
                     None => (Js::prim("null"), Ty::Dynamic),
                 };
-                (r, rt, Box::new(move |s: &mut Self, v: &Js| match escrever {
+                (r, rt, Box::new(move |s: &mut Self, v: &Js| match write_op {
                     Some(f) => {
                         let t = s.temp();
-                        let atrib = Js::new(format!("{t} = {}", v.at(P_ASSIGN)), P_ASSIGN);
-                        let (call, _) = s.tipo_ext_operador(&Js::prim(recv_js.clone()), Some(recv_e), dono, f, &[Js::prim(idx_js.clone()), atrib]);
+                        let assign = Js::new(format!("{t} = {}", v.at(P_ASSIGN)), P_ASSIGN);
+                        let (call, _) = s.tipo_ext_operador(&Js::prim(recv_js.clone()), Some(recv_e), owner, f, &[Js::prim(idx_js.clone()), assign]);
                         Js::new(format!("({}, {t})", call.code), P_PRIMARY)
                     }
                     None => v.clone(),
@@ -3275,7 +3284,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     let sjs2 = sjs.clone();
                     (Js::prim(sjs), rt, Box::new(move |_s: &mut Self, v: &Js| Js::new(format!("{sjs2} = {}", v.at(P_ASSIGN)), P_ASSIGN)))
                 } else if let ExprKind::Super = self.expr(*recv).kind {
-                    let sup_ty = self.super_ty_de(&n, false);
+                    let sup_ty = self.super_ty_for(&n, false);
                     let m = self.ctx.lookup_member(&sup_ty, &n, false);
                     let rt = m.map(|m| self.ctx.member_ty(&m)).unwrap_or(Ty::Dynamic);
                     let get = self.member_access(&sup_ty, &n, false);
@@ -3290,22 +3299,22 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         rjs.code.clone()
                     } else {
                         let tmp = self.temp();
-                        // Prefixo de inicialização do temp fica na leitura.
+                        // The temp's initialization prefix goes with the read.
                         self.pending_prefix.push(format!("{tmp} = {}", rjs.code));
                         tmp
                     };
                     let _ = guards;
-                    // A resolução comum do alvo de `a.b op= v` é a do setter
-                    // (uma por nó): a leitura acha o getter pela busca
-                    // própria, sobre o mesmo tipo de receptor.
+                    // The common resolution of the target of `a.b op= v` is the
+                    // setter's (one per node): the read finds the getter through
+                    // the emitter's own lookup, on the same receiver type.
                     let (r, rt) = self.emit_member_get(&Js::prim(recv_js.clone()), &rty, &n, None);
                     let recv_ty2 = rty.clone();
                     let n2 = n.clone();
                     (r, rt, Box::new(move |s: &mut Self, v: &Js| {
                         if recv_ty2.is_dynamic() || s.membro_do_acesso(Some(target), &recv_ty2, &n2, true).is_none() {
-                            // O setter de uma extensão (a leitura já foi pelo
-                            // getter dela, `emit_member_get`), como na
-                            // atribuição simples.
+                            // An extension's setter (the read already went
+                            // through its getter, `emit_member_get`), as in a
+                            // simple assignment.
                             if let Some((ext, _, subst)) = s.find_extension_member(&recv_ty2, &n2, true) {
                                 let e = s.ctx.program.extension(ext);
                                 let lib_var = s.lib_var(e.library);
@@ -3369,7 +3378,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             _ => (Js::prim("1"), self.ctx.t_int()),
         };
         if prefix {
-            let (res, rty) = self.emit_binop_values(bop, read, &read_ty, v, &vty, Some(no));
+            let (res, rty) = self.emit_binop_values(bop, read, &read_ty, v, &vty, Some(node));
             let assign = write(self, &res);
             let code = if prefix_parts.is_empty() {
                 assign.code
@@ -3379,9 +3388,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             let ty = if literal.is_some() { read_ty } else { rty };
             (Js::new(code, P_COMMA).paren(), ty)
         } else {
-            // Pós-incremento: valor antigo.
+            // Postfix increment: the old value.
             let old = self.temp();
-            let (res, _) = self.emit_binop_values(bop, Js::prim(old.clone()), &read_ty, v, &vty, Some(no));
+            let (res, _) = self.emit_binop_values(bop, Js::prim(old.clone()), &read_ty, v, &vty, Some(node));
             let assign = write(self, &res);
             let mut parts = prefix_parts;
             parts.push(format!("{old} = {}", read.code));
@@ -3392,7 +3401,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     // -----------------------------------------------------------------------
-    // Switch-expressão
+    // Switch expression
     // -----------------------------------------------------------------------
 
     fn emit_switch_expr(&mut self, value: ExprId, cases: &[ast::SwitchExprCase], expected: Option<&Ty>) -> (Js, Ty) {
@@ -3430,7 +3439,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     // -----------------------------------------------------------------------
-    // Instanciação
+    // Instantiation
     // -----------------------------------------------------------------------
 
     fn emit_instance_creation(
@@ -3444,7 +3453,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let mut t = self.resolve_type(ty);
         let is_const = keyword == Some(ast::CreationKeyword::Const) || (keyword.is_none() && self.in_const);
         let mut ctor_name = constructor.map(|n| self.name(n.sym).to_string()).unwrap_or_default();
-        // `const C.nome(...)`: o parser pode ler `C.nome` como tipo prefixado.
+        // `const C.name(...)`: the parser may read `C.name` as a prefixed type.
         if !matches!(t, Ty::Iface { .. }) && constructor.is_none() {
             if let ast::TypeKind::Named { name: parts, .. } = &self.ast().ty(ty).kind {
                 if parts.len() == 2 {
@@ -3476,7 +3485,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    /// Chamada de construtor `C<args>.name(...)`; infere argumentos de tipo quando ausentes.
+    /// Constructor call `C<args>.name(...)`; infers type arguments when they are missing.
     pub fn emit_constructor_call(
         &mut self,
         class: ClassId,
@@ -3487,17 +3496,17 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         expected: Option<&Ty>,
         is_const: bool,
     ) -> (Js, Ty) {
-        // `bool/int/String.fromEnvironment` e `bool.hasEnvironment` (construtores
-        // `const factory external`): constantes de ambiente, avaliadas na
-        // compilação — é o que a CFE faz e o que o `dart_sdk.js` exige, pois os
-        // construtores lançam `UnsupportedError` em tempo de execução.
+        // `bool/int/String.fromEnvironment` and `bool.hasEnvironment` (`const
+        // factory external` constructors): environment constants, evaluated at
+        // compile time — that is what the CFE does and what `dart_sdk.js`
+        // requires, since the constructors throw `UnsupportedError` at runtime.
         if ctor_name == "fromEnvironment" {
-            if let Some(r) = self.constante_de_ambiente(class, arguments) {
+            if let Some(r) = self.environment_constant(class, arguments) {
                 return r;
             }
         }
         if ctor_name == "hasEnvironment" && Some(class) == self.ctx.bool_ {
-            // Sem `-D` na linha de comando, nenhuma variável está declarada.
+            // Without `-D` on the command line, no variable is declared.
             return (Js::prim("false"), self.ctx.t_bool());
         }
         if crate::tipo_extensao::e_tipo_extensao_apagado(self.ctx, class) {
@@ -3508,7 +3517,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let key = if ctor_name.is_empty() { self.ctx.empty_sym } else { self.ctx.sym(ctor_name) };
         let fid = key.and_then(|k| cls.constructors.get(&k).copied());
         let params = &self.ctx.class_params[class.0 as usize];
-        // Tipo função do construtor com os parâmetros da classe como genéricos.
+        // Function type of the constructor with the class's parameters as generics.
         let ctor_fn = match fid {
             Some(f) => self.ctx.fn_ty(f),
             None => Ty::Fn { type_params: vec![], ret: Box::new(Ty::Dynamic), pos: vec![], opt: vec![], named: vec![], nullable: false },
@@ -3520,11 +3529,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let _ = ctor_tps;
         let mut subst: HashMap<u32, Ty> = HashMap::new();
         let mut targs: Vec<Ty> = Vec::new();
-        // Sem argumentos escritos, a instanciação que a inferência comum
-        // escolheu para a classe (o construtor é inferido como função
-        // genérica sobre os parâmetros dela).
-        let comum = if explicit_args || params.is_empty() { None } else { self.instanciacao_comum(arguments, params.len()) };
-        if let Some(inst) = comum {
+        // Without written arguments, the instantiation the common inference
+        // chose for the class (the constructor is inferred as a generic
+        // function over the class's parameters).
+        let common = if explicit_args || params.is_empty() { None } else { self.common_instantiation(arguments, params.len()) };
+        if let Some(inst) = common {
             for (p, a) in params.iter().zip(inst) {
                 subst.insert(p.id, a.clone());
                 targs.push(a);
@@ -3535,11 +3544,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 targs.push(a.clone());
             }
         } else {
-            // Inferência: contexto esperado e argumentos.
+            // Inference: expected context and arguments.
             let free: Vec<u32> = params.iter().map(|p| p.id).collect();
             if let Some(e) = expected {
                 if let Some(ec) = e.non_null().class() {
-                    // `C<T..>` visto como o supertipo esperado, casado com o esperado.
+                    // `C<T..>` seen as the expected supertype, matched against the expected type.
                     let this_ty = self.ctx.this_ty(class);
                     if let Some(sup) = self.ctx.as_super(&this_ty, ec) {
                         let mut tmp = HashMap::new();
@@ -3571,11 +3580,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         self.finish_ctor_call(class, targs, fid, ctor_name, arg_js, is_const)
     }
 
-    /// Valor de `const bool/int/String.fromEnvironment(nome, defaultValue: v)`.
-    /// Sem `-D` na linha de comando, o valor é sempre o `defaultValue`
-    /// (`false`, `0` e `""` quando omitido, como manda a especificação).
-    pub fn constante_de_ambiente(&mut self, class: ClassId, arguments: &ast::Arguments) -> Option<(Js, Ty)> {
-        let (padrao, ty) = if Some(class) == self.ctx.bool_ {
+    /// Value of `const bool/int/String.fromEnvironment(name, defaultValue: v)`.
+    /// Without `-D` on the command line, the value is always the `defaultValue`
+    /// (`false`, `0` and `""` when omitted, as the specification requires).
+    pub fn environment_constant(&mut self, class: ClassId, arguments: &ast::Arguments) -> Option<(Js, Ty)> {
+        let (default_js, ty) = if Some(class) == self.ctx.bool_ {
             ("false".to_string(), self.ctx.t_bool())
         } else if Some(class) == self.ctx.int_ {
             ("0".to_string(), self.ctx.t_int())
@@ -3590,11 +3599,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             .find(|a| a.name.as_ref().is_some_and(|n| self.name(n.sym) == "defaultValue"))
             .map(|a| a.value);
         let Some(arg) = default_arg else {
-            return Some((Js::prim(padrao), ty));
+            return Some((Js::prim(default_js), ty));
         };
         let (js, jty) = self.emit_expr(arg, Some(&ty));
-        // Só dobra quando o padrão já é um literal; qualquer outra forma cai no
-        // caminho normal (e o programa não é válido em Dart de qualquer modo).
+        // Only fold when the default is already a literal; any other form falls
+        // into the normal path (and the program is not valid Dart anyway).
         let literal = matches!(js.code.as_str(), "true" | "false")
             || js.code.starts_with('"')
             || js.code.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '-');
@@ -3611,31 +3620,31 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let jsname = if ctor_name.is_empty() { "new".to_string() } else { static_member_name(ctor_name) };
         let is_factory = fid.is_some_and(|f| self.ctx.program.function(f).factory);
         let generic = self.ctx.requires_rti(class);
-        // Interop JS (`visitConstructorInvocation`/`_emitJSInteropNew`): tipo
-        // `@anonymous` vira literal de objeto; construtor `external` (ou
-        // sintético) é `new dart.global.Nome(args)`, sem rti; factory não
-        // `external` fica na classe emitida.
+        // JS interop (`visitConstructorInvocation`/`_emitJSInteropNew`): an
+        // `@anonymous` type becomes an object literal; an `external` (or
+        // synthetic) constructor is `new dart.global.Name(args)`, without rti;
+        // a non-`external` factory stays in the emitted class.
         if let Some(jc) = self.ctx.js_classes.get(&class) {
             let external = fid.is_none_or(|f| {
                 let fun = self.ctx.program.function(f);
                 fun.external || fun.kind == FunctionKind::SyntheticConstructor
             });
             if external {
-                // Literal de objeto: `@anonymous` (package:js) e construtor
-                // `external` de extension type só com parâmetros nomeados
+                // Object literal: `@anonymous` (package:js) and an `external`
+                // extension type constructor with only named parameters
                 // (`dart:js_interop`, compiler.dart:6948) — `{a: 1, b: 2}`.
-                let so_nomeados = fid.is_some_and(|f| {
+                let only_named = fid.is_some_and(|f| {
                     let ps = &self.ctx.outline.functions[f.0 as usize].parameters;
                     !ps.is_empty() && ps.iter().all(|p| p.kind == ast::ParameterKind::Named)
                 });
-                if jc.anonymous || so_nomeados {
+                if jc.anonymous || only_named {
                     let obj = arg_js.last().filter(|a| a.starts_with('{')).cloned().unwrap_or_else(|| "{}".to_string());
                     return (Js::prim(obj), ty);
                 }
                 return (Js::prim(format!("new {}({})", self.ctx.js_class_global(class), arg_js.join(", "))), ty);
             }
         }
-        // Redirecionamento de factory `= Outra`: resolve o alvo.
+        // Factory redirection `= Other`: resolve the target.
         if is_factory {
             if let Some(target) = self.factory_redirect_target(fid.unwrap()) {
                 let (tclass, tname, is_target_factory) = target;
@@ -3661,9 +3670,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
         self.m.note_class(class);
         let _ = cls;
-        // Construtor gerativo não-`external` de extension type de interop: a
-        // função estática do objeto da classe (`emit_js_interop_class`), que
-        // devolve a representação — não há classe JS para o `new`.
+        // Non-`external` generative constructor of an interop extension type:
+        // the static function of the class object (`emit_js_interop_class`),
+        // which returns the representation — there is no JS class for `new`.
         let ext_interop = cls.kind == dartforge_elements::model::ClassKind::ExtensionType
             && self.ctx.js_classes.contains_key(&class);
         let call = if is_factory || ext_interop {
@@ -3675,7 +3684,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         (Js::prim(call), ty)
     }
 
-    /// Alvo de `factory C.x(...) = D.y;`.
+    /// Target of `factory C.x(...) = D.y;`.
     pub fn factory_redirect_target(&self, fid: dartforge_elements::model::FunctionElementId) -> Option<(ClassId, String, bool)> {
         let fid = self.ctx.program.function(fid).patched_by.unwrap_or(fid);
         let f = self.ctx.program.function(fid);
@@ -3683,12 +3692,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let m = self.ctx.program.unit(unit).ast.member(member);
         let ast::MemberKind::Constructor(ctor) = &m.kind else { return None };
         let redirect = ctor.redirect.as_ref()?;
-        // Resolve o tipo alvo no contexto da unidade do construtor.
+        // Resolve the target type in the context of the constructor's unit.
         let sub = FnEmitter::new(self.ctx, self.m, unit, f.class, true);
         let mut t = sub.resolve_type(redirect.ty);
         let mut name = redirect.constructor.map(|n| self.name(n.sym).to_string()).unwrap_or_default();
-        // `= Classe.nome` chega como tipo com duas partes (`prefixo.Tipo`): se a
-        // primeira parte é uma classe, a segunda é o nome do construtor.
+        // `= Class.name` arrives as a type with two parts (`prefix.Type`): if
+        // the first part is a class, the second is the constructor name.
         if !matches!(t, Ty::Iface { .. }) && redirect.constructor.is_none() {
             if let ast::TypeKind::Named { name: parts, .. } = &sub.ast().ty(redirect.ty).kind {
                 if parts.len() == 2 {
@@ -3705,7 +3714,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let key = if name.is_empty() { self.ctx.empty_sym } else { self.ctx.sym(&name) };
         let tfid = key.and_then(|k| self.ctx.program.class(class).constructors.get(&k).copied());
         let is_factory = tfid.is_some_and(|x| self.ctx.program.function(x).factory);
-        // Se o alvo também redireciona, segue.
+        // If the target redirects too, follow it.
         if let Some(tf) = tfid {
             if is_factory {
                 if let Some(next) = self.factory_redirect_target(tf) {
@@ -3717,7 +3726,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 }
 
-/// Nome Dart do operador binário.
+/// Dart name of the binary operator.
 pub fn binop_name(op: BinaryOp) -> &'static str {
     match op {
         BinaryOp::Add => "+",
@@ -3741,7 +3750,7 @@ pub fn binop_name(op: BinaryOp) -> &'static str {
         BinaryOp::And => "&&",
         BinaryOp::Or => "||",
         BinaryOp::IfNull => "??",
-        // `a ~ b`: erro de compilação (`NOT_BINARY_OPERATOR`); não chega à emissão.
+        // `a ~ b`: a compile-time error (`NOT_BINARY_OPERATOR`); it never reaches emission.
         BinaryOp::NaoBinario => "~",
     }
 }
