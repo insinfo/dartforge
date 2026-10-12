@@ -119,7 +119,7 @@ impl Parser<'_> {
     /// `looksLikePatternStart`.
     fn looks_like_pattern_start(&self, i: usize) -> bool {
         matches!(
-            self.tipo(i),
+            self.kind_(i),
             TokenKind::Identifier
                 | TokenKind::Double
                 | TokenKind::Integer
@@ -208,7 +208,7 @@ impl Parser<'_> {
                 i,
             ));
         }
-        let relational = match self.tipo(i) {
+        let relational = match self.kind_(i) {
             TokenKind::Op(Op::Lt | Op::LtEq | Op::EqEq | Op::BangEq) => true,
             TokenKind::Op(Op::Gt) => matches!(self.toks.composed_greater(i as Tk), None | Some(">=")),
             _ => false,
@@ -254,11 +254,11 @@ impl Parser<'_> {
                 self.unary_pattern_ok = true;
                 return Ok(r);
             } else if second.is_none() {
-                let nome = self.txt(first);
-                if ctx != PatternCtx::Matching || nome == "_" {
+                let name_ = self.txt(first);
+                if ctx != PatternCtx::Matching || name_ == "_" {
                     self.unary_pattern_ok = true;
                     return self.variable_pattern(ctx, None);
-                } else if nome == "when" || nome == "as" {
+                } else if name_ == "when" || name_ == "as" {
                     return Err(self.error_at(
                         first,
                         "A pattern can't refer to an identifier named 'when' or 'as'.",
@@ -295,8 +295,8 @@ impl Parser<'_> {
         } else {
             nu = true;
         }
-        let nome = self.expect_ident()?;
-        let texto = self.txt(nome);
+        let name_ = self.expect_ident()?;
+        let text = self.txt(name_);
         match ctx {
             PatternCtx::Declaration => {
                 if let Some(k) = keyword {
@@ -309,7 +309,7 @@ impl Parser<'_> {
             PatternCtx::Matching => {
                 if type_.is_some() && keyword.is_some_and(|k| self.kw(k, Keyword::Var)) {
                     return Err(self.error_at(
-                        keyword.unwrap_or(nome),
+                        keyword.unwrap_or(name_),
                         "Variables can't be declared using both 'var' and a type name.",
                     ));
                 }
@@ -317,37 +317,37 @@ impl Parser<'_> {
             PatternCtx::Assignment => {
                 if !nu {
                     return Err(self.error_at(
-                        nome,
+                        name_,
                         "Variable patterns in assignments can't declare variables.",
                     ));
                 }
             }
         }
-        if texto == "_" {
+        if text == "_" {
             // `WildcardPatternImpl.beginToken` é `type?.beginToken ?? name`:
             // o `var`/`final` fica fora do intervalo do nó.
-            let start_ = type_.map_or(nome, |t| self.start_(t));
+            let start_ = type_.map_or(name_, |t| self.start_(t));
             return Ok(self.node(
                 Node::WildcardPattern {
                     keyword: keyword.map(|k| k as Tk),
                     type_,
-                    name: nome as Tk,
+                    name: name_ as Tk,
                 },
                 start_,
             ));
         }
-        if texto == "when" || texto == "as" {
-            return Err(self.error_at(nome, "A variable pattern can't be named 'when' or 'as'."));
+        if text == "when" || text == "as" {
+            return Err(self.error_at(name_, "A variable pattern can't be named 'when' or 'as'."));
         }
-        self.check_await_yield(nome)?;
+        self.check_await_yield(name_)?;
         if ctx == PatternCtx::Assignment && nu {
-            return Ok(self.node(Node::AssignedVariablePattern { name: nome as Tk }, start_));
+            return Ok(self.node(Node::AssignedVariablePattern { name: name_ as Tk }, start_));
         }
         Ok(self.node(
             Node::DeclaredVariablePattern {
                 keyword: keyword.map(|k| k as Tk),
                 type_,
-                name: nome as Tk,
+                name: name_ as Tk,
             },
             start_,
         ))
@@ -449,13 +449,13 @@ impl Parser<'_> {
         ))
     }
 
-    /// Campo de padrão com nome opcional (`(nome)? :`).
+    /// Campo de padrão com nome opcional (`(name_)? :`).
     fn pattern_field(&mut self, ctx: PatternCtx, allows_parenthesized_name: bool) -> R<(NodeId, bool)> {
         let fi = self.pos;
-        let mut nome = None;
+        let mut name_ = None;
         if self.op(self.pos, Op::Colon) {
             let c = self.advance();
-            nome = Some(self.node(
+            name_ = Some(self.node(
                 Node::PatternFieldName {
                     name: None,
                     colon: c as Tk,
@@ -467,7 +467,7 @@ impl Parser<'_> {
         {
             let n = self.expect_ident()?;
             let c = self.advance();
-            nome = Some(self.node(
+            name_ = Some(self.node(
                 Node::PatternFieldName {
                     name: Some(n as Tk),
                     colon: c as Tk,
@@ -475,13 +475,13 @@ impl Parser<'_> {
                 n,
             ));
         }
-        let has_name = nome.is_some();
+        let has_name = name_.is_some();
         let pattern = self.pattern(ctx)?;
         if has_name {
             return Ok((
                 self.node(
                     Node::PatternField {
-                        name: nome,
+                        name: name_,
                         pattern,
                     },
                     fi,
@@ -582,14 +582,14 @@ impl Parser<'_> {
     ) -> R<NodeId> {
         let start_ = self.pos;
         let mut import_prefix = None;
-        let nome = match second {
+        let name_ = match second {
             Some(s) => {
                 import_prefix = Some((first as Tk, (first + 1) as Tk));
                 s
             }
             None => first,
         };
-        self.pos = nome + 1;
+        self.pos = name_ + 1;
         let type_arguments = if with_args {
             Some(self.type_args()?)
         } else {
@@ -598,7 +598,7 @@ impl Parser<'_> {
         let type_ = self.node(
             Node::NamedType {
                 import_prefix,
-                name2: nome as Tk,
+                name2: name_ as Tk,
                 type_arguments,
                 question: None,
             },

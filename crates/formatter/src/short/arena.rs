@@ -39,7 +39,7 @@ pub mod cost {
 }
 
 /// Recuos (`Indent` de `constants.dart`).
-pub mod recuo {
+pub mod indentation {
     pub const BLOCK: i32 = 2;
     pub const CASCADE: i32 = 2;
     pub const EXPRESSION: i32 = 4;
@@ -80,7 +80,7 @@ pub enum RuleKind {
 /// Uma regra de quebra (`Rule`).
 #[derive(Debug, Clone)]
 pub struct Rule {
-    pub tipo: RuleKind,
+    pub kind_: RuleKind,
     cost: i32,
     /// `index`: posição na lista de regras do último divisor que a usou.
     /// Como no original, nunca volta a `None`.
@@ -106,10 +106,10 @@ pub struct Block {
 /// Um chunk (`Chunk`/`BlockChunk`).
 #[derive(Debug, Clone)]
 pub struct Chunk {
-    pub texto: String,
-    /// Comprimento de `texto` em unidades UTF-16 (o `length` do Dart).
+    pub text: String,
+    /// Comprimento de `text` em unidades UTF-16 (o `length` do Dart).
     pub text_len: usize,
-    pub recuo: i32,
+    pub indentation: i32,
     pub nesting_: NestingId,
     pub rule: RuleId,
     pub double: bool,
@@ -131,7 +131,7 @@ impl Chunk {
 #[derive(Debug, Clone)]
 pub struct Nesting {
     pub parent: Option<NestingId>,
-    pub recuo: i32,
+    pub indentation: i32,
     marked: bool,
     total: Option<i32>,
 }
@@ -152,7 +152,7 @@ pub struct Arenas {
     pub nestings: Vec<Nesting>,
     /// `Rule.dummy`.
     pub dummy_rule: RuleId,
-    pub largura: usize,
+    pub page_width: usize,
     pub line_ending: String,
 }
 
@@ -167,14 +167,14 @@ pub fn len16(s: &str) -> usize {
 
 impl Arenas {
     /// Arenas vazias com a regra falsa já criada.
-    pub fn new_arenas(largura: usize, line_ending: String) -> Arenas {
+    pub fn new(page_width: usize, line_ending: String) -> Arenas {
         let mut a = Arenas {
             rules: Vec::new(),
             chunks: Vec::new(),
             spans: Vec::new(),
             nestings: Vec::new(),
             dummy_rule: 0,
-            largura,
+            page_width,
             line_ending,
         };
         a.dummy_rule = a.hard_rule();
@@ -183,9 +183,9 @@ impl Arenas {
 
     // ------------------------------------------------------------- regras
 
-    fn new_rule(&mut self, tipo: RuleKind, cost: i32) -> RuleId {
+    fn new_rule(&mut self, kind_: RuleKind, cost: i32) -> RuleId {
         self.rules.push(Rule {
-            tipo,
+            kind_,
             cost,
             index: None,
             is_hardened: false,
@@ -272,7 +272,7 @@ impl Arenas {
 
     /// `ArgumentRule.beforeArgument` e `TypeArgumentRule.beforeArgument`.
     pub fn before_argument(&mut self, r: RuleId, chunk: Option<ChunkId>) {
-        match &mut self.rules[r as usize].tipo {
+        match &mut self.rules[r as usize].kind_ {
             RuleKind::Positional { arguments_, .. } | RuleKind::NamedRule { arguments_ } => arguments_.push(chunk),
             RuleKind::TypeArgument { arguments_ } => arguments_.push(chunk.expect("chunk do argumento de tipo")),
             _ => panic!("beforeArgument numa regra que não é de argumentos"),
@@ -281,7 +281,7 @@ impl Arenas {
 
     /// `CombinatorRule.addCombinator`.
     pub fn add_combinator(&mut self, r: RuleId, chunk: ChunkId) {
-        if let RuleKind::Combinator { combinators_, names } = &mut self.rules[r as usize].tipo {
+        if let RuleKind::Combinator { combinators_, names } = &mut self.rules[r as usize].kind_ {
             if !combinators_.contains(&chunk) {
                 combinators_.push(chunk);
             }
@@ -293,7 +293,7 @@ impl Arenas {
 
     /// `CombinatorRule.addName`.
     pub fn add_name(&mut self, r: RuleId, chunk: ChunkId) {
-        if let RuleKind::Combinator { names, .. } = &mut self.rules[r as usize].tipo {
+        if let RuleKind::Combinator { names, .. } = &mut self.rules[r as usize].kind_ {
             let ultimo = names.last_mut().expect("combinador antes dos nomes");
             if !ultimo.contains(&chunk) {
                 ultimo.push(chunk);
@@ -305,12 +305,12 @@ impl Arenas {
 
     /// `rule is CombinatorRule`.
     pub fn is_combinator(&self, r: RuleId) -> bool {
-        matches!(self.rules[r as usize].tipo, RuleKind::Combinator { .. })
+        matches!(self.rules[r as usize].kind_, RuleKind::Combinator { .. })
     }
 
     /// `numValues`.
     pub fn num_values(&self, r: RuleId) -> i32 {
-        match &self.rules[r as usize].tipo {
+        match &self.rules[r as usize].kind_ {
             RuleKind::Simple => 2,
             RuleKind::Positional {
                 arguments_,
@@ -366,7 +366,7 @@ impl Arenas {
 
     /// `splitsOnInnerRules`.
     pub fn splits_with_inner(&self, r: RuleId) -> bool {
-        match self.rules[r as usize].tipo {
+        match self.rules[r as usize].kind_ {
             RuleKind::Positional { .. } | RuleKind::NamedRule { .. } => self.rules[r as usize].track_inner,
             _ => true,
         }
@@ -387,7 +387,7 @@ impl Arenas {
     /// `isSplit(value, chunk)`.
     pub fn split(&self, r: RuleId, value: i32, chunk: ChunkId) -> bool {
         let rule = &self.rules[r as usize];
-        if let RuleKind::TypeArgument { arguments_ } = &rule.tipo {
+        if let RuleKind::TypeArgument { arguments_ } = &rule.kind_ {
             // `TypeArgumentRule` sobrescreve o `isSplit` inteiro.
             if value == UNSPLIT {
                 return false;
@@ -404,7 +404,7 @@ impl Arenas {
         if value == UNSPLIT {
             return false;
         }
-        match &rule.tipo {
+        match &rule.kind_ {
             RuleKind::Simple => true,
             RuleKind::Positional {
                 arguments_,
@@ -568,11 +568,11 @@ impl Arenas {
     // ------------------------------------------------------------- chunks
 
     /// `Chunk(rule, indent, nesting, space:, flushLeft:, isDouble:)`.
-    pub fn new_chunk(&mut self, rule: RuleId, recuo: i32, nesting_: NestingId, space: bool, flush_left: bool, double: bool) -> ChunkId {
+    pub fn new_chunk(&mut self, rule: RuleId, indentation: i32, nesting_: NestingId, space: bool, flush_left: bool, double: bool) -> ChunkId {
         self.chunks.push(Chunk {
-            texto: String::new(),
+            text: String::new(),
             text_len: 0,
-            recuo,
+            indentation,
             nesting_,
             rule,
             double,
@@ -586,8 +586,8 @@ impl Arenas {
     }
 
     /// `BlockChunk(argument, rule, indent, nesting, space:, flushLeft:)`.
-    pub fn new_block(&mut self, argument: Option<ChunkId>, rule: RuleId, recuo: i32, nesting_: NestingId, space: bool, flush_left: bool) -> ChunkId {
-        let c = self.new_chunk(rule, recuo, nesting_, space, flush_left, false);
+    pub fn new_block(&mut self, argument: Option<ChunkId>, rule: RuleId, indentation: i32, nesting_: NestingId, space: bool, flush_left: bool) -> ChunkId {
+        let c = self.new_chunk(rule, indentation, nesting_, space, flush_left, false);
         self.chunks[c as usize].block = Some(Block {
             argument,
             children: Vec::new(),
@@ -597,20 +597,20 @@ impl Arenas {
     }
 
     /// `Chunk.dummy()`.
-    pub fn chunk_falso(&mut self) -> ChunkId {
+    pub fn dummy_chunk(&mut self) -> ChunkId {
         let n = self.new_root_nesting();
         let r = self.dummy_rule;
         let c = self.new_chunk(r, 0, n, false, false, false);
-        self.chunks[c as usize].texto = "(dummy)".into();
+        self.chunks[c as usize].text = "(dummy)".into();
         self.chunks[c as usize].text_len = 7;
         c
     }
 
     /// `appendText`.
-    pub fn append(&mut self, c: ChunkId, texto: &str) {
+    pub fn append(&mut self, c: ChunkId, text: &str) {
         let ch = &mut self.chunks[c as usize];
-        ch.texto.push_str(texto);
-        ch.text_len += len16(texto);
+        ch.text.push_str(text);
+        ch.text_len += len16(text);
     }
 
     /// `updateSplit(flushLeft:, isDouble:, space:)`.
@@ -667,7 +667,7 @@ impl Arenas {
     pub fn new_root_nesting(&mut self) -> NestingId {
         self.nestings.push(Nesting {
             parent: None,
-            recuo: 0,
+            indentation: 0,
             marked: false,
             total: None,
         });
@@ -675,10 +675,10 @@ impl Arenas {
     }
 
     /// `nest(spaces)`.
-    pub fn nest(&mut self, parent: NestingId, recuo: i32) -> NestingId {
+    pub fn nest(&mut self, parent: NestingId, indentation: i32) -> NestingId {
         self.nestings.push(Nesting {
             parent: Some(parent),
-            recuo,
+            indentation,
             marked: false,
             total: None,
         });
@@ -725,7 +725,7 @@ impl Arenas {
             total += self.nestings[p as usize].total.expect("total do pai");
         }
         if self.nestings[n as usize].marked {
-            total += self.nestings[n as usize].recuo;
+            total += self.nestings[n as usize].indentation;
         }
         self.nestings[n as usize].total = Some(total);
     }

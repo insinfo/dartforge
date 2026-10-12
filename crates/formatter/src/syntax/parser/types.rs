@@ -34,13 +34,13 @@ impl Parser<'_> {
     /// [`Parser::type_at`]).
     pub(super) fn type_until(&mut self, end_index: usize) -> R<NodeId> {
         let start_ = self.pos;
-        let mut tipo: Option<NodeId> = None;
-        let gft_inicial = self.word(self.pos, "Function")
+        let mut kind_: Option<NodeId> = None;
+        let initial_gft = self.word(self.pos, "Function")
             && self.pos + 1 < end_index
             && (self.op(self.pos + 1, Op::Lt) || self.op(self.pos + 1, Op::LParen));
         if self.kw(self.pos, Keyword::Void) {
             let v = self.advance();
-            tipo = Some(self.node(
+            kind_ = Some(self.node(
                 Node::NamedType {
                     import_prefix: None,
                     name2: v as u32,
@@ -49,11 +49,11 @@ impl Parser<'_> {
                 },
                 v,
             ));
-        } else if gft_inicial {
+        } else if initial_gft {
         } else if self.op(self.pos, Op::LParen) {
-            tipo = Some(self.record_type_node(end_index)?);
+            kind_ = Some(self.record_type_node(end_index)?);
         } else {
-            tipo = Some(self.named_type_(end_index)?);
+            kind_ = Some(self.named_type_(end_index)?);
         }
         while self.pos < end_index && self.word(self.pos, "Function") {
             let f = self.advance();
@@ -71,9 +71,9 @@ impl Parser<'_> {
             } else {
                 None
             };
-            tipo = Some(self.node(
+            kind_ = Some(self.node(
                 Node::GenericFunctionType {
-                    return_type: tipo,
+                    return_type: kind_,
                     function_keyword: f as u32,
                     type_parameters,
                     parameters,
@@ -85,7 +85,7 @@ impl Parser<'_> {
         if self.pos != end_index {
             return Err(self.error("Unexpected token in type."));
         }
-        tipo.ok_or_else(|| self.error("Expected a type."))
+        kind_.ok_or_else(|| self.error("Expected a type."))
     }
 
     /// `prefix.Nome<args>?`.
@@ -106,7 +106,7 @@ impl Parser<'_> {
         if !self.word_(self.pos) {
             return Err(self.error("Expected a type name."));
         }
-        let nome = self.advance();
+        let name_ = self.advance();
         let type_arguments = if self.pos < end_index && self.op(self.pos, Op::Lt) {
             Some(self.type_args()?)
         } else {
@@ -120,7 +120,7 @@ impl Parser<'_> {
         Ok(self.node(
             Node::NamedType {
                 import_prefix,
-                name2: nome as u32,
+                name2: name_ as u32,
                 type_arguments,
                 question,
             },
@@ -336,7 +336,7 @@ impl Parser<'_> {
     }
 
     /// Lista de parâmetros formais (`parseFormalParametersRest`).
-    pub(super) fn formal_params(&mut self, membro: MemberKind) -> R<NodeId> {
+    pub(super) fn formal_params(&mut self, member: MemberKind) -> R<NodeId> {
         let start_ = self.pos;
         let lp = self.expect_op(Op::LParen)?;
         let mut params = Vec::new();
@@ -347,7 +347,7 @@ impl Parser<'_> {
                 break;
             }
             if self.op(self.pos, Op::LBracket) || self.op(self.pos, Op::LBrace) {
-                let (opens, closer, tipo) = if self.op(self.pos, Op::LBracket) {
+                let (opens, closer, kind_) = if self.op(self.pos, Op::LBracket) {
                     (
                         Op::LBracket,
                         Op::RBracket,
@@ -362,7 +362,7 @@ impl Parser<'_> {
                     if self.op(self.pos, closer) {
                         break;
                     }
-                    params.push(self.param_formal(tipo, membro)?);
+                    params.push(self.param_formal(kind_, member)?);
                     if !self.op(self.pos, Op::Comma) {
                         break;
                     }
@@ -374,7 +374,7 @@ impl Parser<'_> {
                 rd = Some(self.expect_op(closer)? as u32);
                 break;
             }
-            params.push(self.param_formal(ParameterKind::Required, membro)?);
+            params.push(self.param_formal(ParameterKind::Required, member)?);
             if !self.op(self.pos, Op::Comma) {
                 break;
             }
@@ -395,21 +395,21 @@ impl Parser<'_> {
 
     /// Um parâmetro formal (`parseFormalParameter`), já embrulhado em
     /// [`Node::DefaultFormalParameter`] quando opcional.
-    fn param_formal(&mut self, tipo: ParameterKind, membro: MemberKind) -> R<NodeId> {
+    fn param_formal(&mut self, kind_: ParameterKind, member: MemberKind) -> R<NodeId> {
         let start_ = self.pos;
         let metadata = self.metadata_()?;
-        let in_function_type = membro == MemberKind::FunctionType;
+        let in_function_type = member == MemberKind::FunctionType;
         let mut required = None;
         let mut covariant = None;
         let mut keyword = None;
         if self.modifier(self.pos) {
-            if self.word(self.pos, "required") && tipo == ParameterKind::Named {
+            if self.word(self.pos, "required") && kind_ == ParameterKind::Named {
                 required = Some(self.advance() as u32);
             }
             if self.modifier(self.pos) {
                 if self.word(self.pos, "covariant") {
                     if matches!(
-                        membro,
+                        member,
                         MemberKind::StaticMethod | MemberKind::TopLevelFunction | MemberKind::Extension
                     ) {
                         return Err(self.error("Can't have modifier 'covariant' here."));
@@ -494,8 +494,8 @@ impl Parser<'_> {
             }
             None => (None, None),
         };
-        let named = tipo == ParameterKind::Named;
-        let nome = if in_function_type && !named && !self.word_(self.pos) && !inline_function {
+        let named = kind_ == ParameterKind::Named;
+        let name_ = if in_function_type && !named && !self.word_(self.pos) && !inline_function {
             None
         } else {
             let n = self.expect_ident()?;
@@ -517,7 +517,7 @@ impl Parser<'_> {
             (None, None, None)
         };
         let parameter_ = if let Some(t) = this_kw {
-            let name = nome.ok_or_else(|| self.error("Expected a name."))? as u32;
+            let name = name_.ok_or_else(|| self.error("Expected a name."))? as u32;
             let node = if self.kw(t, Keyword::This) {
                 Node::FieldFormalParameter {
                     metadata,
@@ -531,7 +531,7 @@ impl Parser<'_> {
                     type_parameters,
                     parameters,
                     question,
-                    kind: tipo,
+                    kind: kind_,
                 }
             } else {
                 Node::SuperFormalParameter {
@@ -546,12 +546,12 @@ impl Parser<'_> {
                     type_parameters,
                     parameters,
                     question,
-                    kind: tipo,
+                    kind: kind_,
                 }
             };
             self.node(node, start_)
         } else if inline_function {
-            let name = nome.ok_or_else(|| self.error("Expected a name."))? as u32;
+            let name = name_.ok_or_else(|| self.error("Expected a name."))? as u32;
             self.node(
                 Node::FunctionTypedFormalParameter {
                     metadata,
@@ -562,7 +562,7 @@ impl Parser<'_> {
                     type_parameters,
                     parameters: parameters.unwrap_or(NodeId(0)),
                     question,
-                    kind: tipo,
+                    kind: kind_,
                 },
                 start_,
             )
@@ -574,8 +574,8 @@ impl Parser<'_> {
                     required_keyword: required,
                     keyword,
                     type_,
-                    name: nome.map(|n| n as u32),
-                    kind: tipo,
+                    name: name_.map(|n| n as u32),
+                    kind: kind_,
                 },
                 start_,
             )
@@ -584,16 +584,16 @@ impl Parser<'_> {
         let mut default_value = None;
         if self.op(self.pos, Op::Assign) || self.op(self.pos, Op::Colon) {
             let s = self.pos;
-            if tipo == ParameterKind::Required {
+            if kind_ == ParameterKind::Required {
                 return Err(self.error("Non-optional parameters can't have a default value."));
             }
-            if tipo == ParameterKind::OptionalPositional && self.op(s, Op::Colon) {
+            if kind_ == ParameterKind::OptionalPositional && self.op(s, Op::Colon) {
                 return Err(self.error(
                     "Positional optional parameters can't use ':' to specify a default value.",
                 ));
             }
             if matches!(
-                membro,
+                member,
                 MemberKind::FunctionType | MemberKind::FunctionAlias | MemberKind::FunctionParameter
             ) {
                 return Err(self.error("Can't have a default value in a function type."));
@@ -602,7 +602,7 @@ impl Parser<'_> {
             separator = Some(s as u32);
             default_value = Some(self.expression()?);
         }
-        if tipo == ParameterKind::Required {
+        if kind_ == ParameterKind::Required {
             return Ok(parameter_);
         }
         Ok(self.node(
@@ -610,7 +610,7 @@ impl Parser<'_> {
                 parameter: parameter_,
                 separator,
                 default_value,
-                kind: tipo,
+                kind: kind_,
             },
             start_,
         ))

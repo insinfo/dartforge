@@ -145,7 +145,7 @@ pub fn parse(source: &str) -> Result<(Tokens, Tree), ErroSintaxe> {
 /// # Erros
 /// O primeiro erro de sintaxe encontrado.
 pub fn parse_with(source: &str, options: ParseOptions) -> Result<(Tokens, Tree), ErroSintaxe> {
-    let tokens = Tokens::ler(source)?;
+    let tokens = Tokens::read(source)?;
     let version = comment_version(source, &tokens).unwrap_or(options.version);
     let mut p = Parser::new(source, tokens)?;
     p.patterns_ = version >= (3, 0);
@@ -170,18 +170,18 @@ pub fn parse_with(source: &str, options: ParseOptions) -> Result<(Tokens, Tree),
 /// scanner).
 fn comment_version(source: &str, tokens: &Tokens) -> Option<(u32, u32)> {
     let first = tokens.list.first()?;
-    let alvo = if first.tipo == TokenKind::ScriptTag {
+    let target_ = if first.kind_ == TokenKind::ScriptTag {
         tokens.list.get(1)?
     } else {
         first
     };
-    let (a, b) = alvo.comments;
+    let (a, b) = target_.comments;
     for c in &tokens.comments[a as usize..b as usize] {
         if !c.is_line {
             continue;
         }
-        let texto = &source[c.start + 2..c.end];
-        let t = texto.trim_start();
+        let text = &source[c.start + 2..c.end];
+        let t = text.trim_start();
         let Some(rest) = t.strip_prefix("@dart") else {
             continue;
         };
@@ -259,8 +259,8 @@ enum WordStyle {
     NoneKind,
 }
 
-fn word_style(texto: &str) -> WordStyle {
-    match texto {
+fn word_style(text: &str) -> WordStyle {
+    match text {
         "abstract" | "as" | "covariant" | "deferred" | "dynamic" | "export" | "extension"
         | "external" | "factory" | "Function" | "get" | "implements" | "import" | "interface"
         | "late" | "library" | "mixin" | "operator" | "part" | "required" | "set" | "static"
@@ -301,14 +301,14 @@ impl<'f> Parser<'f> {
         let mut pairs = vec![u32::MAX; n];
         let mut stack: Vec<usize> = Vec::new();
         for (i, t) in toks.list.iter().enumerate() {
-            match t.tipo {
+            match t.kind_ {
                 TokenKind::Op(Op::LParen | Op::LBracket | Op::LBrace)
                 | TokenKind::ExpressionInterpolation => stack.push(i),
                 TokenKind::Op(o @ (Op::RParen | Op::RBracket | Op::RBrace)) => {
                     let Some(a) = stack.pop() else {
                         return Err(token_error(source, t, &format!("Unexpected '{}'.", o.text())));
                     };
-                    let expected = match toks.list[a].tipo {
+                    let expected = match toks.list[a].kind_ {
                         TokenKind::Op(Op::LParen) => Op::RParen,
                         TokenKind::Op(Op::LBracket) => Op::RBracket,
                         _ => Op::RBrace,
@@ -355,8 +355,8 @@ impl<'f> Parser<'f> {
         &self.toks.list[i.min(n - 1)]
     }
 
-    fn tipo(&self, i: usize) -> TokenKind {
-        self.tk(i).tipo
+    fn kind_(&self, i: usize) -> TokenKind {
+        self.tk(i).kind_
     }
 
     fn txt(&self, i: usize) -> &'f str {
@@ -365,21 +365,21 @@ impl<'f> Parser<'f> {
     }
 
     fn op(&self, i: usize, o: Op) -> bool {
-        self.tipo(i) == TokenKind::Op(o)
+        self.kind_(i) == TokenKind::Op(o)
     }
 
     fn kw(&self, i: usize, k: Keyword) -> bool {
-        self.tipo(i) == TokenKind::Reserved(k)
+        self.kind_(i) == TokenKind::Reserved(k)
     }
 
     /// `isIdentifier` do fasta: identificador comum, embutido ou pseudo.
     fn ident(&self, i: usize) -> bool {
-        self.tipo(i) == TokenKind::Identifier
+        self.kind_(i) == TokenKind::Identifier
     }
 
     /// `kind == IDENTIFIER_TOKEN`: identificador que não é embutido nem
     /// pseudo-palavra.
-    fn ident_puro(&self, i: usize) -> bool {
+    fn plain_ident(&self, i: usize) -> bool {
         self.ident(i) && word_style(self.txt(i)) == WordStyle::NoneKind
     }
 
@@ -399,17 +399,17 @@ impl<'f> Parser<'f> {
     /// `isKeywordOrIdentifier`.
     fn word_(&self, i: usize) -> bool {
         matches!(
-            self.tipo(i),
+            self.kind_(i),
             TokenKind::Identifier | TokenKind::Reserved(_)
         )
     }
 
     fn eof(&self, i: usize) -> bool {
-        self.tipo(i) == TokenKind::Eof
+        self.kind_(i) == TokenKind::Eof
     }
 
-    fn texto(&self, i: usize) -> bool {
-        self.tipo(i) == TokenKind::Text
+    fn text(&self, i: usize) -> bool {
+        self.kind_(i) == TokenKind::Text
     }
 
     /// Fecho do grupo aberto em `i`.
@@ -427,7 +427,7 @@ impl<'f> Parser<'f> {
     /// nome).
     fn modifier(&self, i: usize) -> bool {
         let t = self.txt(i);
-        match self.tipo(i) {
+        match self.kind_(i) {
             TokenKind::Reserved(Keyword::Const | Keyword::Final | Keyword::Var) => true,
             TokenKind::Identifier
                 if matches!(
@@ -463,7 +463,7 @@ impl<'f> Parser<'f> {
     /// Operador definível pelo usuário começando em `i` e quantos tokens
     /// nossos ele ocupa (`isUserDefinableOperator`).
     fn user_definable_operator(&self, i: usize) -> Option<usize> {
-        match self.tipo(i) {
+        match self.kind_(i) {
             TokenKind::Op(
                 Op::EqEq
                 | Op::Lt
@@ -590,12 +590,12 @@ impl<'f> Parser<'f> {
         Ok(())
     }
 
-    /// Anota a fusão do `>` em `i` com os seguintes, formando `alvo`.
-    fn merge_greater_at(&mut self, i: usize, alvo: &'static str) {
-        if alvo.starts_with(">>>") {
+    /// Anota a fusão do `>` em `i` com os seguintes, formando `target_`.
+    fn merge_greater_at(&mut self, i: usize, target_: &'static str) {
+        if target_.starts_with(">>>") {
             self.feature(i, (2, 14), "triple-shift");
         }
-        self.merges.push((i, Merge::Greater(alvo)));
+        self.merges.push((i, Merge::Greater(target_)));
     }
 
     /// Consome um operador definível pelo usuário (nome de `operator` ou de
@@ -606,8 +606,8 @@ impl<'f> Parser<'f> {
             return Err(self.error("Expected an operator."));
         };
         if self.op(i, Op::Gt) && n > 1 {
-            let alvo = self.toks.composed_greater(i as Tk).unwrap_or(">");
-            self.merge_greater_at(i, alvo);
+            let target_ = self.toks.composed_greater(i as Tk).unwrap_or(">");
+            self.merge_greater_at(i, target_);
         } else if self.op(i, Op::LBracket) {
             self.merges.push((i, Merge::Brackets(n)));
         }
@@ -618,11 +618,11 @@ impl<'f> Parser<'f> {
     /// Recurso da linguagem que exige a versão `minima`: antes dela o
     /// analyzer relata `EXPERIMENT_NOT_ENABLED`, que é erro sintático. O
     /// primeiro erro fica guardado e é devolvido no fim da análise.
-    fn feature(&mut self, i: usize, minima: (u32, u32), nome: &str) {
+    fn feature(&mut self, i: usize, minima: (u32, u32), name_: &str) {
         if self.version < minima && self.version_error.is_none() {
             self.version_error = Some(self.error_at(
                 i,
-                &format!("This requires the '{nome}' language feature to be enabled."),
+                &format!("This requires the '{name_}' language feature to be enabled."),
             ));
         }
     }
@@ -725,7 +725,7 @@ fn check_gaps(source: &str, toks: &Tokens) -> R<()> {
             }
             p += 1;
         }
-        if t.tipo == TokenKind::ScriptTag {
+        if t.kind_ == TokenKind::ScriptTag {
             ant = t.end;
         } else {
             ant = ant.max(t.end);

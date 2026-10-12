@@ -1,6 +1,6 @@
-//! Porte de `short/line_writer.dart`: divide a lista de chunks em trechos
-//! independentes, roda o divisor de linhas em cada um e escreve o texto,
-//! formatando os blocos filhos recursivamente (com cache por coluna).
+//! Port of `short/line_writer.dart`: splits the chunk list into independent
+//! sections, runs the line splitter on each one and writes the text,
+//! formatting child blocks recursively (with a per-column cache).
 
 use std::collections::HashMap;
 
@@ -10,11 +10,11 @@ use super::splitter::LineSplitter;
 /// `FormatResult`.
 #[derive(Debug, Clone)]
 pub struct WriteResult {
-    pub texto: String,
+    pub text: String,
     pub cost: i32,
 }
 
-/// Cache de blocos formatados, por (chunk, coluna).
+/// Cache of formatted blocks, by (chunk, column).
 pub type BlockCache = HashMap<(ChunkId, i32), WriteResult>;
 
 /// `LineWriter`.
@@ -30,7 +30,7 @@ pub fn format_block(a: &mut Arenas, cache: &mut BlockCache, chunk: ChunkId, colu
     if let Some(r) = cache.get(&(chunk, column)) {
         return r.clone();
     }
-    let children = a.chunks[chunk as usize].block.as_ref().expect("bloco").children.clone();
+    let children = a.chunks[chunk as usize].block.as_ref().expect("block").children.clone();
     let r = {
         let mut writer = LineWriter {
             output: String::new(),
@@ -45,7 +45,7 @@ pub fn format_block(a: &mut Arenas, cache: &mut BlockCache, chunk: ChunkId, colu
 }
 
 impl<'c> LineWriter<'c> {
-    /// O escritor de topo.
+    /// The top-level writer.
     pub fn new(chunks: Vec<ChunkId>, cache: &'c mut BlockCache) -> LineWriter<'c> {
         LineWriter {
             output: String::new(),
@@ -74,7 +74,7 @@ impl<'c> LineWriter<'c> {
             self.output.push_str(&a.line_ending);
         }
         WriteResult {
-            texto: std::mem::take(&mut self.output),
+            text: std::mem::take(&mut self.output),
             cost: total_cost,
         }
     }
@@ -89,7 +89,7 @@ impl<'c> LineWriter<'c> {
                 } else {
                     self.output.push_str(&a.line_ending);
                     let block = format_block(a, self.cache, c, splits.column(i));
-                    self.output.push_str(&block.texto);
+                    self.output.push_str(&block.text);
                 }
             }
             if splits.should_split_at(i) {
@@ -105,13 +105,13 @@ impl<'c> LineWriter<'c> {
             } else if a.chunks[c as usize].space {
                 self.output.push(' ');
             }
-            self.output.push_str(&a.chunks[c as usize].texto);
+            self.output.push_str(&a.chunks[c as usize].text);
         }
         splits.cost
     }
 
     fn write_without_splits(&mut self, a: &Arenas, block: ChunkId) {
-        let children = a.chunks[block as usize].block.as_ref().expect("bloco").children.clone();
+        let children = a.chunks[block as usize].block.as_ref().expect("block").children.clone();
         for c in children {
             if a.chunks[c as usize].space {
                 self.output.push(' ');
@@ -119,7 +119,7 @@ impl<'c> LineWriter<'c> {
             if a.chunks[c as usize].block.is_some() {
                 self.write_without_splits(a, c);
             }
-            self.output.push_str(&a.chunks[c as usize].texto);
+            self.output.push_str(&a.chunks[c as usize].text);
         }
     }
 }

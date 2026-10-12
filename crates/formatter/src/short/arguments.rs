@@ -218,8 +218,8 @@ fn is_block_function(v: &SourceVisitor, expr: NodeId) -> bool {
 }
 
 /// `_isValidWrappingTarget(expression)`.
-fn is_valid_wrapping_target(v: &SourceVisitor, alvo: Option<NodeId>) -> bool {
-    let Some(mut e) = alvo else {
+fn is_valid_wrapping_target(v: &SourceVisitor, target_: Option<NodeId>) -> bool {
+    let Some(mut e) = target_ else {
         return true;
     };
     while let Node::PropertyAccess { target: Some(t), .. } = v.node(e) {

@@ -10,7 +10,7 @@
 //! contagem de arquivos aceitos, recusados e com falha de cobertura, e o
 //! tempo total. Com `--list`, os caminhos vêm da entrada padrão, um por
 //! linha. Com `--dump`, escreve na saída padrão, para cada arquivo,
-//! `### path` seguido de `ERR <mensagem>` ou do despejo da árvore
+//! `### path` seguido de `ERR <message>` ou do despejo da árvore
 //! ([`verify::dump`]), no formato do oráculo do analyzer.
 
 use std::io::{BufRead, Write};

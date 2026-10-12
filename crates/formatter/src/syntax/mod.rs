@@ -1,5 +1,5 @@
-//! Leitura do código Dart no formato que o `dart_style` consome: tokens com
-//! comentários ([`token`]) e a árvore do analyzer ([`tree`]), montada pelo
+//! Reading Dart code in the shape `dart_style` consumes: tokens with
+//! comments ([`token`]) and the analyzer tree ([`tree`]), built by the
 //! [`parser`].
 pub mod tree;
 pub mod parser;

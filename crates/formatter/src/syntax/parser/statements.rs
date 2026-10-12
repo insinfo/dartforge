@@ -57,7 +57,7 @@ impl Parser<'_> {
 
     fn statement_x(&mut self) -> R<NodeId> {
         let i = self.pos;
-        if self.ident_puro(i) {
+        if self.plain_ident(i) {
             if self.op(i + 1, Op::Colon) {
                 return self.labeled();
             }
@@ -70,7 +70,7 @@ impl Parser<'_> {
                 ti: None,
             });
         }
-        match self.tipo(i) {
+        match self.kind_(i) {
             TokenKind::Op(Op::LBrace) => {
                 if self.patterns_ && self.op(self.pair(i) + 1, Op::Assign) {
                     self.expression_statement()
@@ -259,7 +259,7 @@ impl Parser<'_> {
     }
 
     /// O teste de `parseExpressionStatementOrDeclarationAfterModifiers` para
-    /// `Type? nome`: decide se é declaração ou o início de um condicional.
+    /// `Type? name_`: decide se é declaração ou o início de um condicional.
     fn question_and_conditional(&mut self, ti: TypeInfo) -> R<bool> {
         let next = ti.end_index;
         if !self.looks_like_name(next) {
@@ -361,7 +361,7 @@ impl Parser<'_> {
         Ok(())
     }
 
-    /// `nome (= expr)? (, nome (= expr)?)*` numa [`Node::VariableDeclarationList`].
+    /// `name_ (= expr)? (, name_ (= expr)?)*` numa [`Node::VariableDeclarationList`].
     fn variables_(&mut self, d: Decl, type_: Option<NodeId>) -> R<NodeId> {
         let mut vars = Vec::new();
         loop {
@@ -434,7 +434,7 @@ impl Parser<'_> {
         } else {
             Some(self.type_until(ti.end_index)?)
         };
-        let nome = self.expect_declared_name()?;
+        let name_ = self.expect_declared_name()?;
         let fi = self.pos;
         let type_parameters = if self.op(self.pos, Op::Lt) {
             Some(self.type_params()?)
@@ -465,7 +465,7 @@ impl Parser<'_> {
                 external_keyword: None,
                 return_type,
                 property_keyword: None,
-                name: nome as Tk,
+                name: name_ as Tk,
                 function_expression: fe,
             },
             start_,
@@ -882,7 +882,7 @@ impl Parser<'_> {
             self.loop_ = LoopState::Switch;
         }
         let lb = self.expect_op(Op::LBrace)?;
-        let mut membros = Vec::new();
+        let mut members_ = Vec::new();
         let mut saw_default = false;
         while !self.op(self.pos, Op::RBrace) {
             if self.eof(self.pos) {
@@ -982,7 +982,7 @@ impl Parser<'_> {
                         statements: sts,
                     },
                 };
-                membros.push(self.node_between(node, start_, end));
+                members_.push(self.node_between(node, start_, end));
             }
         }
         let rb = self.advance();
@@ -994,7 +994,7 @@ impl Parser<'_> {
                 expression,
                 right_parenthesis: rp as Tk,
                 left_bracket: lb as Tk,
-                members: membros,
+                members: members_,
                 right_bracket: rb as Tk,
             },
             sw,
@@ -1127,7 +1127,7 @@ impl Parser<'_> {
         Ok(self.node(node, k))
     }
 
-    /// `assert ( condição (, mensagem)? ,? )` — as partes comuns a
+    /// `assert ( condição (, message)? ,? )` — as partes comuns a
     /// [`Node::AssertStatement`] e [`Node::AssertInitializer`].
     pub(super) fn assert_parts(&mut self) -> R<AssertParts> {
         let a = self.expect_kw(Keyword::Assert)?;
@@ -1204,7 +1204,7 @@ impl Parser<'_> {
         let start_ = keyword.unwrap_or(self.pos);
         if self.word(self.pos, "native") {
             let n = self.advance();
-            let string_literal = if self.texto(self.pos) {
+            let string_literal = if self.text(self.pos) {
                 Some(self.string_literal()?)
             } else {
                 None

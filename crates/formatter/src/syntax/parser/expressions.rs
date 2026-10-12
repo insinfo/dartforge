@@ -233,11 +233,11 @@ impl Parser<'_> {
     /// Precedência do token `i` (`_computePrecedence`).
     pub(super) fn precedence_at(&mut self, i: usize, pattern: bool) -> u8 {
         use prec::*;
-        match self.tipo(i) {
+        match self.kind_(i) {
             TokenKind::Op(o) => match o {
                 Op::Bang => {
                     if matches!(
-                        self.tipo(i + 1),
+                        self.kind_(i + 1),
                         TokenKind::Op(
                             Op::Dot | Op::Question | Op::LParen | Op::LBracket | Op::QuestionDot
                         )
@@ -296,7 +296,7 @@ impl Parser<'_> {
 
     /// Operador de atribuição em `i` e quantos tokens ocupa.
     fn assignment_op_at(&self, i: usize) -> Option<usize> {
-        match self.tipo(i) {
+        match self.kind_(i) {
             TokenKind::Op(
                 Op::Assign
                 | Op::PlusAssign
@@ -541,7 +541,7 @@ impl Parser<'_> {
             let nx = ti.end_index;
             let end_ok = self.eof(nx)
                 || matches!(
-                    self.tipo(nx),
+                    self.kind_(nx),
                     TokenKind::Op(
                         Op::RParen
                             | Op::RBrace
@@ -635,7 +635,7 @@ impl Parser<'_> {
     }
 
     /// `parseCascadeExpression`.
-    fn cascade(&mut self, alvo: NodeId) -> R<NodeId> {
+    fn cascade(&mut self, target_: NodeId) -> R<NodeId> {
         let op_c = self.advance();
         let mut sec = if self.op(self.pos, Op::LBracket) {
             let lb = self.advance();
@@ -708,16 +708,16 @@ impl Parser<'_> {
         let end = self.end(sec);
         if let Node::CascadeExpression {
             cascade_sections, ..
-        } = &mut self.tree_.nodes[alvo.0 as usize].node
+        } = &mut self.tree_.nodes[target_.0 as usize].node
         {
             cascade_sections.push(sec);
-            self.tree_.nodes[alvo.0 as usize].end = end as Tk;
-            return Ok(alvo);
+            self.tree_.nodes[target_.0 as usize].end = end as Tk;
+            return Ok(target_);
         }
-        let start_ = self.start_(alvo);
+        let start_ = self.start_(target_);
         Ok(self.node(
             Node::CascadeExpression {
-                target: alvo,
+                target: target_,
                 cascade_sections: vec![sec],
             },
             start_,
@@ -861,7 +861,7 @@ impl Parser<'_> {
                 i,
             ));
         }
-        match self.tipo(i) {
+        match self.kind_(i) {
             TokenKind::Op(Op::Plus) => return Err(self.error("'+' is not a prefix operator.")),
             TokenKind::Op(Op::Bang | Op::Tilde) => {
                 if ctx != ConstCtx::NoneKind {
@@ -939,7 +939,7 @@ impl Parser<'_> {
         let explicit = ctx == ConstCtx::Explicit;
         let numeric = ctx == ConstCtx::NumericOnly;
         let invalid = |p: &Self| Err(p.error("This expression isn't a valid constant pattern."));
-        match self.tipo(i) {
+        match self.kind_(i) {
             TokenKind::Identifier => {
                 if numeric {
                     return invalid(self);
@@ -1034,11 +1034,11 @@ impl Parser<'_> {
     fn send_or_function(&mut self, ctx: ConstCtx) -> R<NodeId> {
         if self.functions {
             let ti = self.type_at(self.pos, false, false, false);
-            let nome = ti.end_index;
-            if self.ident(nome) {
-                let nx = self.type_args_at(nome, false).map_or(nome + 1, |a| a.end_index);
+            let name_ = ti.end_index;
+            if self.ident(name_) {
+                let nx = self.type_args_at(name_, false).map_or(name_ + 1, |a| a.end_index);
                 if self.op(nx, Op::LParen) && self.looks_like_body(self.pair(nx) + 1) {
-                    return Err(self.error_at(nome, "A function expression can't have a name."));
+                    return Err(self.error_at(name_, "A function expression can't have a name."));
                 }
             }
         }
@@ -1075,21 +1075,21 @@ impl Parser<'_> {
         {
             return Err(self.error_at(i, "The expression can't be prefixed by 'const'."));
         }
-        let nome = self.simple(i);
+        let name_ = self.simple(i);
         if self.op(self.pos, Op::LParen) {
             let args = self.arguments_()?;
             return Ok(self.node(
                 Node::MethodInvocation {
                     target: None,
                     operator: None,
-                    method_name: nome,
+                    method_name: name_,
                     type_arguments: targs,
                     argument_list: args,
                 },
                 i,
             ));
         }
-        Ok(nome)
+        Ok(name_)
     }
 
     /// `parseThisExpression`/`parseSuperExpression`.
@@ -1192,7 +1192,7 @@ impl Parser<'_> {
         ))
     }
 
-    /// `nome: expressão` (argumento nomeado ou campo de record).
+    /// `name_: expressão` (argumento nomeado ou campo de record).
     fn named_expression(&mut self) -> R<NodeId> {
         let start_ = self.pos;
         let n = self.expect_ident()?;
@@ -1242,13 +1242,13 @@ impl Parser<'_> {
         let start_ = self.pos;
         let a = self.expect_ident()?;
         let mut prefix = None;
-        let mut nome = a;
+        let mut name_ = a;
         if self.op(self.pos, Op::Dot) {
             let d = self.advance();
             if !(self.ident(self.pos) || self.kw(self.pos, Keyword::New)) {
                 return Err(self.error("Expected an identifier."));
             }
-            nome = self.advance();
+            name_ = self.advance();
             prefix = Some((a as Tk, d as Tk));
         }
         let type_arguments = if self.op(self.pos, Op::Lt) {
@@ -1259,10 +1259,10 @@ impl Parser<'_> {
         } else {
             None
         };
-        let tipo = self.node(
+        let kind_ = self.node(
             Node::NamedType {
                 import_prefix: prefix,
-                name2: nome as Tk,
+                name2: name_ as Tk,
                 type_arguments,
                 question: None,
             },
@@ -1280,7 +1280,7 @@ impl Parser<'_> {
         }
         Ok(self.node(
             Node::ConstructorName {
-                type_: tipo,
+                type_: kind_,
                 period,
                 name,
             },
@@ -1291,7 +1291,7 @@ impl Parser<'_> {
     /// `parseConstExpression`.
     fn const_expression(&mut self) -> R<NodeId> {
         let c = self.pos;
-        match self.tipo(c + 1) {
+        match self.kind_(c + 1) {
             TokenKind::Op(Op::LBracket) => {
                 self.advance();
                 self.list(Some(c), None)
@@ -1475,7 +1475,7 @@ impl Parser<'_> {
         let old = self.functions;
         self.functions = true;
         let mut parts_ = vec![self.single_text()?];
-        while self.texto(self.pos) {
+        while self.text(self.pos) {
             parts_.push(self.single_text()?);
         }
         self.functions = old;
@@ -1488,13 +1488,13 @@ impl Parser<'_> {
     /// `parseSingleLiteralString`.
     fn single_text(&mut self) -> R<NodeId> {
         let start_ = self.pos;
-        if !self.texto(start_) {
+        if !self.text(start_) {
             return Err(self.error("Expected a string literal."));
         }
         self.advance();
         let raw_ = self.txt(start_).starts_with('r');
         let single = !matches!(
-            self.tipo(self.pos),
+            self.kind_(self.pos),
             TokenKind::ExpressionInterpolation | TokenKind::IdentifierInterpolation
         );
         if !raw_ {
@@ -1512,7 +1512,7 @@ impl Parser<'_> {
         let mut elements_ = vec![first];
         loop {
             let lb = self.pos;
-            match self.tipo(lb) {
+            match self.kind_(lb) {
                 TokenKind::ExpressionInterpolation => {
                     self.advance();
                     let expression = self.expression()?;
@@ -1562,12 +1562,12 @@ impl Parser<'_> {
                 _ => break,
             }
             let s = self.pos;
-            if !self.texto(s) {
+            if !self.text(s) {
                 return Err(self.error("Expected a string."));
             }
             self.advance();
             let ultimo = !matches!(
-                self.tipo(self.pos),
+                self.kind_(self.pos),
                 TokenKind::ExpressionInterpolation | TokenKind::IdentifierInterpolation
             );
             self.check_escapes(s, false, ultimo)?;

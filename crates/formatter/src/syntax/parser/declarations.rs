@@ -37,7 +37,7 @@ enum Body {
 
 /// Modificadores lidos (`ModifierContext`).
 #[derive(Debug, Default, Clone, Copy)]
-struct Mods {
+struct Modifiers {
     abstract_: Option<usize>,
     augment: Option<usize>,
     const_: Option<usize>,
@@ -50,7 +50,7 @@ struct Mods {
     var: Option<usize>,
 }
 
-impl Mods {
+impl Modifiers {
     fn vfc(&self) -> Option<usize> {
         self.var.or(self.final_).or(self.const_)
     }
@@ -65,7 +65,7 @@ impl Parser<'_> {
     pub(super) fn unit(&mut self) -> R<NodeId> {
         let mut estado = Estado::Unknown;
         let mut script_tag = None;
-        if self.tipo(0) == TokenKind::ScriptTag {
+        if self.kind_(0) == TokenKind::ScriptTag {
             script_tag = Some(0);
             estado = Estado::Script;
             self.pos = 1;
@@ -128,7 +128,7 @@ impl Parser<'_> {
                 || (self.kw(next, Keyword::Const) && !self.kw(next + 1, Keyword::Class))
             {
                 Self::mark_declaration(estado);
-                return Ok((false, self.membro_topo(start_, meta)?));
+                return Ok((false, self.top_level_member(start_, meta)?));
             }
             while self.modifier(k) {
                 k += 1;
@@ -180,7 +180,7 @@ impl Parser<'_> {
         }
         if self.word_(k) || k != beginning || self.op(k, Op::LParen) {
             Self::mark_declaration(estado);
-            return Ok((false, self.membro_topo(start_, meta)?));
+            return Ok((false, self.top_level_member(start_, meta)?));
         }
         Err(self.error_at(
             k,
@@ -190,10 +190,10 @@ impl Parser<'_> {
 
     /// Modificadores de `start` até `end` (exclusivo) aceitos numa
     /// declaração de palavra-chave de topo.
-    fn top_level_modifiers(&mut self, start: usize, end: usize, allowed: &[&str]) -> R<Mods> {
+    fn top_level_modifiers(&mut self, start: usize, end: usize, allowed: &[&str]) -> R<Modifiers> {
         let salvo = self.pos;
         self.pos = start;
-        let mut m = Mods::default();
+        let mut m = Modifiers::default();
         let r = self.collect_modifiers(&mut m);
         let reached = self.pos;
         self.pos = salvo;
@@ -237,7 +237,7 @@ impl Parser<'_> {
             .min()
             .unwrap_or(kw)
             .max(modifiers_start);
-        let texto = self.txt(kw);
+        let text = self.txt(kw);
         if self.kw(kw, Keyword::Class) {
             Self::mark_declaration(estado);
             let m = self.top_level_modifiers(modifiers_start, modifiers_end, &["abstract", "augment", "final"])?;
@@ -258,7 +258,7 @@ impl Parser<'_> {
         }
         let nv = kw + 1;
         let mut record_typedef = false;
-        if texto == "typedef" && self.op(nv, Op::LParen) {
+        if text == "typedef" && self.op(nv, Op::LParen) {
             let f = self.pair(nv) + 1;
             if self.ident(f) || (self.op(f, Op::Question) && self.ident(f + 1)) {
                 let t = self.type_at(nv, false, false, false);
@@ -267,16 +267,16 @@ impl Parser<'_> {
                 }
             }
         }
-        let membro = |p: &mut Self, estado: &mut Estado, meta: Vec<NodeId>| -> R<(bool, NodeId)> {
+        let member = |p: &mut Self, estado: &mut Estado, meta: Vec<NodeId>| -> R<(bool, NodeId)> {
             Self::mark_declaration(estado);
             p.pos = modifiers_start;
-            Ok((false, p.membro_topo(start_, meta)?))
+            Ok((false, p.top_level_member(start_, meta)?))
         };
         if (self.op(nv, Op::LParen) || self.op(nv, Op::Dot)) && !record_typedef {
-            return membro(self, estado, meta);
+            return member(self, estado, meta);
         }
         if self.op(nv, Op::Lt) {
-            if texto == "extension"
+            if text == "extension"
                 && let Some(a) = self.type_args_lt(nv, true)
                 && self.word(a.end_index, "on")
             {
@@ -285,20 +285,20 @@ impl Parser<'_> {
                 self.pos = kw;
                 return Ok((false, self.extension(start_, meta, m)?));
             }
-            return membro(self, estado, meta);
+            return member(self, estado, meta);
         }
-        if base.is_some() && texto != "mixin"
+        if base.is_some() && text != "mixin"
             || sealed.is_some()
             || interface.is_some()
             || macro_.is_some()
         {
             return Err(self.error_at(kw, "Unexpected modifier."));
         }
-        match texto {
+        match text {
             "import" | "export" | "part" | "library" => {
                 self.top_level_modifiers(modifiers_start, kw, &[])?;
                 self.pos = kw;
-                let d = match texto {
+                let d = match text {
                     "import" => {
                         self.check_import_export(estado, kw)?;
                         self.import(start_, meta)?
@@ -378,7 +378,7 @@ impl Parser<'_> {
 
     /// URI: um literal de string (`ensureLiteralString`).
     fn uri(&mut self) -> R<NodeId> {
-        if !self.texto(self.pos) {
+        if !self.text(self.pos) {
             return Err(self.error("Expected a string literal."));
         }
         self.string_literal()
@@ -648,7 +648,7 @@ impl Parser<'_> {
 
     /// Port de `ModifierContext._parseModifiers`: lê modificadores em
     /// qualquer ordem, com os erros de ordem e conflito do fasta.
-    fn collect_modifiers(&mut self, m: &mut Mods) -> R<()> {
+    fn collect_modifiers(&mut self, m: &mut Modifiers) -> R<()> {
         while self.modifier(self.pos) {
             let i = self.pos;
             let fora = |p: &Self| {
@@ -764,7 +764,7 @@ impl Parser<'_> {
         &mut self,
         start_: usize,
         metadata: Vec<NodeId>,
-        m: Mods,
+        m: Modifiers,
         extras: [Option<usize>; 4],
         mixin: Option<usize>,
     ) -> R<NodeId> {
@@ -845,7 +845,7 @@ impl Parser<'_> {
         let implements_clause = self.implements_clause_()?;
         let native_clause = if self.word(self.pos, "native") {
             let n = self.advance();
-            let name = if self.texto(self.pos) {
+            let name = if self.text(self.pos) {
                 Some(self.string_literal()?)
             } else {
                 None
@@ -860,8 +860,8 @@ impl Parser<'_> {
         } else {
             None
         };
-        let nome = self.txt(name);
-        let (lb, members, rb) = self.class_body(Body::Class, nome)?;
+        let name_ = self.txt(name);
+        let (lb, members, rb) = self.class_body(Body::Class, name_)?;
         Ok(self.node(
             Node::ClassDeclaration {
                 metadata,
@@ -931,25 +931,25 @@ impl Parser<'_> {
         )))
     }
 
-    /// `{ membros }`.
-    fn class_body(&mut self, corpo: Body, nome: &str) -> R<(usize, Vec<NodeId>, usize)> {
+    /// `{ members_ }`.
+    fn class_body(&mut self, body_: Body, name_: &str) -> R<(usize, Vec<NodeId>, usize)> {
         if !self.op(self.pos, Op::LBrace) {
             return Err(self.expected("{"));
         }
         let lb = self.advance();
-        let mut membros = Vec::new();
+        let mut members_ = Vec::new();
         while !self.op(self.pos, Op::RBrace) {
             if self.eof(self.pos) {
                 return Err(self.expected("}"));
             }
-            membros.push(self.membro(corpo, nome)?);
+            members_.push(self.member(body_, name_)?);
         }
         let rb = self.advance();
-        Ok((lb, membros, rb))
+        Ok((lb, members_, rb))
     }
 
     /// `parseMixin`; `self.pos` está no `mixin`.
-    fn mixin(&mut self, start_: usize, metadata: Vec<NodeId>, m: Mods, base: Option<usize>) -> R<NodeId> {
+    fn mixin(&mut self, start_: usize, metadata: Vec<NodeId>, m: Modifiers, base: Option<usize>) -> R<NodeId> {
         if m.final_.is_some() {
             return Err(self.error_at(
                 m.final_.unwrap_or(start_),
@@ -984,8 +984,8 @@ impl Parser<'_> {
             None
         };
         let implements_clause = self.implements_clause_()?;
-        let nome = self.txt(name);
-        let (lb, members, rb) = self.class_body(Body::Mixin, nome)?;
+        let name_ = self.txt(name);
+        let (lb, members, rb) = self.class_body(Body::Mixin, name_)?;
         Ok(self.node(
             Node::MixinDeclaration {
                 metadata,
@@ -1005,7 +1005,7 @@ impl Parser<'_> {
     }
 
     /// `parseExtension`; `self.pos` está no `extension`.
-    fn extension(&mut self, start_: usize, metadata: Vec<NodeId>, m: Mods) -> R<NodeId> {
+    fn extension(&mut self, start_: usize, metadata: Vec<NodeId>, m: Modifiers) -> R<NodeId> {
         let e = self.advance();
         self.feature(e, (2, 6), "extension-methods");
         if self.word(self.pos, "type")
@@ -1034,8 +1034,8 @@ impl Parser<'_> {
             },
             o,
         ));
-        let nome = name.map_or("", |n| self.txt(n));
-        let (lb, members, rb) = self.class_body(Body::Extension, nome)?;
+        let name_ = name.map_or("", |n| self.txt(n));
+        let (lb, members, rb) = self.class_body(Body::Extension, name_)?;
         Ok(self.node(
             Node::ExtensionDeclaration {
                 metadata,
@@ -1053,7 +1053,7 @@ impl Parser<'_> {
     }
 
     /// `parseExtensionTypeDeclaration`.
-    fn extension_type(&mut self, start_: usize, metadata: Vec<NodeId>, m: Mods, e: usize) -> R<NodeId> {
+    fn extension_type(&mut self, start_: usize, metadata: Vec<NodeId>, m: Modifiers, e: usize) -> R<NodeId> {
         if self.version < (3, 3) {
             return Err(
                 self.error("This requires the 'inline-class' language feature to be enabled.")
@@ -1121,8 +1121,8 @@ impl Parser<'_> {
             ri,
         );
         let implements_clause = self.implements_clause_()?;
-        let nome = self.txt(name);
-        let (lb, members, rb) = self.class_body(Body::ExtensionType, nome)?;
+        let name_ = self.txt(name);
+        let (lb, members, rb) = self.class_body(Body::ExtensionType, name_)?;
         Ok(self.node(
             Node::ExtensionTypeDeclaration {
                 metadata,
@@ -1143,7 +1143,7 @@ impl Parser<'_> {
     }
 
     /// `parseEnum`; `self.pos` está no `enum`.
-    fn enumeration(&mut self, start_: usize, metadata: Vec<NodeId>, m: Mods) -> R<NodeId> {
+    fn enumeration(&mut self, start_: usize, metadata: Vec<NodeId>, m: Modifiers) -> R<NodeId> {
         let e = self.advance();
         let name = self.expect_ident()?;
         let type_parameters = if self.op(self.pos, Op::Lt) {
@@ -1183,12 +1183,12 @@ impl Parser<'_> {
         let mut members = Vec::new();
         if self.op(self.pos, Op::Semicolon) {
             semicolon = Some(self.advance() as Tk);
-            let nome = self.txt(name);
+            let name_ = self.txt(name);
             while !self.op(self.pos, Op::RBrace) {
                 if self.eof(self.pos) {
                     return Err(self.expected("}"));
                 }
-                members.push(self.membro(Body::Enum, nome)?);
+                members.push(self.member(Body::Enum, name_)?);
             }
         }
         let rb = self.expect_op(Op::RBrace)?;
@@ -1276,7 +1276,7 @@ impl Parser<'_> {
     }
 
     /// `parseTypedef`; `self.pos` está no `typedef`.
-    fn alias(&mut self, start_: usize, metadata: Vec<NodeId>, m: Mods) -> R<NodeId> {
+    fn alias(&mut self, start_: usize, metadata: Vec<NodeId>, m: Modifiers) -> R<NodeId> {
         let td = self.advance();
         let ti = self.type_at(self.pos, false, false, false);
         let nx = ti.end_index;
@@ -1363,7 +1363,7 @@ impl Parser<'_> {
     /// `indicatesMethodOrField`.
     fn indicates_method_or_field(&self, i: usize) -> bool {
         matches!(
-            self.tipo(i),
+            self.kind_(i),
             TokenKind::Op(
                 Op::Semicolon | Op::Assign | Op::LParen | Op::LBrace | Op::Arrow | Op::Lt
             )
@@ -1371,17 +1371,17 @@ impl Parser<'_> {
     }
 
     /// `parseTopLevelMemberImpl`.
-    fn membro_topo(&mut self, start_: usize, metadata: Vec<NodeId>) -> R<NodeId> {
-        let mut m = Mods::default();
+    fn top_level_member(&mut self, start_: usize, metadata: Vec<NodeId>) -> R<NodeId> {
+        let mut m = Modifiers::default();
         self.collect_modifiers(&mut m)?;
-        for (x, nome) in [
+        for (x, name_) in [
             (m.abstract_, "abstract"),
             (m.covariant, "covariant"),
             (m.required, "required"),
             (m.static_, "static"),
         ] {
             if let Some(i) = x {
-                return Err(self.error_at(i, &format!("Can't have modifier '{nome}' here.")));
+                return Err(self.error_at(i, &format!("Can't have modifier '{name_}' here.")));
             }
         }
         if m.vfc().is_some()
@@ -1406,7 +1406,7 @@ impl Parser<'_> {
         {
             return Err(self.error_at(nx + 1, "Expected an identifier."));
         }
-        if !self.ident_puro(nx) {
+        if !self.plain_ident(nx) {
             let v = self.txt(nx);
             if v == "factory" || v == "operator" {
                 if prop.is_none()
@@ -1428,7 +1428,7 @@ impl Parser<'_> {
         let after = nx + 1;
         if prop.is_some()
             || matches!(
-                self.tipo(after),
+                self.kind_(after),
                 TokenKind::Op(Op::LParen | Op::LBrace | Op::Lt | Op::Dot | Op::Arrow)
             )
         {
@@ -1509,7 +1509,7 @@ impl Parser<'_> {
     /// `parseFields` até antes do `;`: o [`Node::VariableDeclarationList`].
     fn fields_(
         &mut self,
-        m: &Mods,
+        m: &Modifiers,
         ti: super::lookahead::TypeInfo,
         class_name: Option<&str>,
     ) -> R<NodeId> {
@@ -1594,10 +1594,10 @@ impl Parser<'_> {
     }
 
     /// `parseClassOrMixinOrExtensionOrEnumMemberImpl`.
-    fn membro(&mut self, corpo: Body, class_name: &str) -> R<NodeId> {
+    fn member(&mut self, body_: Body, class_name: &str) -> R<NodeId> {
         let start_ = self.pos;
         let metadata = self.metadata_()?;
-        let mut m = Mods::default();
+        let mut m = Modifiers::default();
         self.collect_modifiers(&mut m)?;
         if let Some(r) = m.required {
             return Err(self.error_at(r, "Can't have modifier 'required' here."));
@@ -1613,7 +1613,7 @@ impl Parser<'_> {
         let ti = self.type_at(self.pos, false, true, false);
         let mut nx = ti.end_index;
         let mut get_set = None;
-        if !self.ident_puro(nx) {
+        if !self.plain_ident(nx) {
             let v = self.txt(nx);
             if (v == "get" || v == "set") && self.ident(nx) {
                 if self.ident(nx + 1) {
@@ -1635,12 +1635,12 @@ impl Parser<'_> {
                             self.error("Members of classes can't be declared to be 'abstract'.")
                         );
                     }
-                    return self.factory(start_, metadata, m, nx, corpo);
+                    return self.factory(start_, metadata, m, nx, body_);
                 }
             } else if v == "operator" && self.ident(nx) {
                 let n2 = nx + 1;
                 if self.user_definable_operator(n2).is_some() && self.type_args_at(nx, false).is_none() {
-                    return self.method(start_, metadata, m, ti, None, nx, corpo, class_name);
+                    return self.method(start_, metadata, m, ti, None, nx, body_, class_name);
                 } else if !self.op(n2, Op::Assign)
                     && !self.op(n2, Op::Lt)
                     && !self.word_(n2)
@@ -1676,16 +1676,16 @@ impl Parser<'_> {
         let after = nx + 1;
         if get_set.is_some()
             || matches!(
-                self.tipo(after),
+                self.kind_(after),
                 TokenKind::Op(Op::LParen | Op::LBrace | Op::Lt | Op::Dot | Op::Arrow)
             )
         {
-            return self.method(start_, metadata, m, ti, get_set, nx, corpo, class_name);
+            return self.method(start_, metadata, m, ti, get_set, nx, body_, class_name);
         }
         if get_set.is_some() {
             return Err(self.error("Unexpected 'get'/'set'."));
         }
-        if corpo == Body::Extension {
+        if body_ == Body::Extension {
             if m.abstract_.is_some() {
                 return Err(self.error("Extensions can't declare abstract members."));
             }
@@ -1711,17 +1711,17 @@ impl Parser<'_> {
     }
 
     /// `parseMethod`: métodos, getters, setters, operadores e construtores
-    /// não-fábrica. `nome` é o índice do nome (ou do `operator`).
+    /// não-fábrica. `name_` é o índice do nome (ou do `operator`).
     #[allow(clippy::too_many_arguments)]
     fn method(
         &mut self,
         start_: usize,
         metadata: Vec<NodeId>,
-        m: Mods,
+        m: Modifiers,
         ti: super::lookahead::TypeInfo,
         get_set: Option<usize>,
-        nome: usize,
-        corpo: Body,
+        name_: usize,
+        body_: Body,
         class_name: &str,
     ) -> R<NodeId> {
         if let Some(a) = m.abstract_ {
@@ -1731,9 +1731,9 @@ impl Parser<'_> {
             return Err(self.error_at(l, "Can't have modifier 'late' here."));
         }
         let operator_ = get_set.is_none()
-            && self.word(nome, "operator")
-            && self.user_definable_operator(nome + 1).is_some()
-            && self.type_args_at(nome, false).is_none();
+            && self.word(name_, "operator")
+            && self.user_definable_operator(name_ + 1).is_some()
+            && self.type_args_at(name_, false).is_none();
         if m.static_.is_some() && operator_ {
             return Err(self.error("Operators can't be static."));
         }
@@ -1789,7 +1789,7 @@ impl Parser<'_> {
         } else {
             None
         };
-        let membro = match (corpo, m.static_.is_some()) {
+        let member = match (body_, m.static_.is_some()) {
             (Body::Extension | Body::ExtensionType, _) => MemberKind::Extension,
             (_, true) => MemberKind::StaticMethod,
             _ => MemberKind::InstanceMethod,
@@ -1798,7 +1798,7 @@ impl Parser<'_> {
             if getter {
                 return Err(self.error("Getters must be declared without a parameter list."));
             }
-            Some(self.formal_params(membro)?)
+            Some(self.formal_params(member)?)
         } else if getter {
             None
         } else {
@@ -1874,7 +1874,7 @@ impl Parser<'_> {
             {
                 return Err(self.error_at(name, "An external constructor can't initialize fields."));
             }
-            if matches!(corpo, Body::Mixin | Body::Extension) {
+            if matches!(body_, Body::Mixin | Body::Extension) {
                 return Err(self.error_at(name, "Mixins and extensions can't declare constructors."));
             }
             if matches!(
@@ -1916,7 +1916,7 @@ impl Parser<'_> {
         if m.const_.is_some() {
             return Err(self.error("Methods can't be declared 'const'."));
         }
-        if corpo == Body::Extension
+        if body_ == Body::Extension
             && matches!(self.tree_.node(body), Node::EmptyFunctionBody { .. })
             && m.external.is_none()
         {
@@ -1945,9 +1945,9 @@ impl Parser<'_> {
         &mut self,
         start_: usize,
         metadata: Vec<NodeId>,
-        m: Mods,
+        m: Modifiers,
         f: usize,
-        corpo: Body,
+        body_: Body,
     ) -> R<NodeId> {
         self.pos = f + 1;
         if !self.valid_type_ref(self.pos) {
@@ -1959,7 +1959,7 @@ impl Parser<'_> {
         if let Some(v) = m.var.or(m.final_) {
             return Err(self.error_at(v, "Can't have this modifier on a factory."));
         }
-        if matches!(corpo, Body::Mixin | Body::Extension) {
+        if matches!(body_, Body::Mixin | Body::Extension) {
             return Err(self.error_at(f, "Mixins and extensions can't declare constructors."));
         }
         let name = self.expect_ident()?;
@@ -2102,7 +2102,7 @@ impl Parser<'_> {
         if self.kw(i, Keyword::This) {
             self.advance();
             let mut period = None;
-            let mut nome = None;
+            let mut name_ = None;
             if self.op(self.pos, Op::Dot) {
                 period = Some(self.advance());
                 if !(self.ident(self.pos)
@@ -2110,9 +2110,9 @@ impl Parser<'_> {
                 {
                     return Err(self.error("Expected an identifier."));
                 }
-                nome = Some(self.advance());
+                name_ = Some(self.advance());
                 if self.op(self.pos, Op::Assign) {
-                    let field_name = self.simple(nome.unwrap_or(0));
+                    let field_name = self.simple(name_.unwrap_or(0));
                     let eq = self.advance();
                     let expression = self.initializer_right()?;
                     return Ok(self.node(
@@ -2128,7 +2128,7 @@ impl Parser<'_> {
                 }
             }
             if self.op(self.pos, Op::LParen) {
-                let constructor_name = nome.map(|n| self.simple(n));
+                let constructor_name = name_.map(|n| self.simple(n));
                 let argument_list = self.arguments_()?;
                 return Ok(self.node(
                     Node::RedirectingConstructorInvocation {

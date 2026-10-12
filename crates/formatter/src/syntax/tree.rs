@@ -13,7 +13,7 @@
 //!
 //! * `foo()` e `a.foo()` são [`Node::MethodInvocation`]; `a()()` e `(a)()` são
 //!   [`Node::FunctionExpressionInvocation`]; `new A()`, `const A()` e
-//!   `A<T>.nome()` são [`Node::InstanceCreationExpression`].
+//!   `A<T>.name_()` são [`Node::InstanceCreationExpression`].
 //! * `a.b` com `a` identificador simples é [`Node::PrefixedIdentifier`];
 //!   qualquer outro acesso (`a.b.c`, `a?.b`, `(a).b`, `this.x`) é
 //!   [`Node::PropertyAccess`].

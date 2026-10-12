@@ -850,7 +850,7 @@ pub fn check(tokens: &Tokens, tree_: &Tree, source: &str) -> Result<(), String> 
         return Err("árvore sem raiz".into());
     };
     let mut stack = vec![root];
-    let texto = |i: usize| -> String {
+    let text = |i: usize| -> String {
         let t = &tokens.list[i];
         format!("'{}'@{}", &source[t.start..t.end], t.start)
     };
@@ -865,8 +865,8 @@ pub fn check(tokens: &Tokens, tree_: &Tree, source: &str) -> Result<(), String> 
             return Err(format!(
                 "{}: início {} depois do fim {}",
                 node_name(&d.node),
-                texto(d.start as usize),
-                texto(d.end as usize)
+                text(d.start as usize),
+                text(d.end as usize)
             ));
         }
         for t in tokens_of_node(&d.node) {
@@ -880,9 +880,9 @@ pub fn check(tokens: &Tokens, tree_: &Tree, source: &str) -> Result<(), String> 
                 return Err(format!(
                     "{} [{}..{}]: token {} fora do intervalo",
                     node_name(&d.node),
-                    texto(d.start as usize),
-                    texto(d.end as usize),
-                    texto(t)
+                    text(d.start as usize),
+                    text(d.end as usize),
+                    text(t)
                 ));
             }
             usage[t] += 1;
@@ -907,11 +907,11 @@ pub fn check(tokens: &Tokens, tree_: &Tree, source: &str) -> Result<(), String> 
                 return Err(format!(
                     "{} [{}..{}] fora de {} [{}..{}]",
                     node_name(&fd.node),
-                    texto(fd.start as usize),
-                    texto(fd.end as usize),
+                    text(fd.start as usize),
+                    text(fd.end as usize),
                     node_name(&d.node),
-                    texto(d.start as usize),
-                    texto(d.end as usize)
+                    text(d.start as usize),
+                    text(d.end as usize)
                 ));
             }
             if fd.parent != Some(id) {
@@ -922,17 +922,17 @@ pub fn check(tokens: &Tokens, tree_: &Tree, source: &str) -> Result<(), String> 
     }
     for (i, &u) in usage.iter().enumerate() {
         let t = &tokens.list[i];
-        if t.tipo == TokenKind::Eof {
+        if t.kind_ == TokenKind::Eof {
             continue;
         }
         if u > 1 {
-            return Err(format!("token {} referenciado {} vezes", texto(i), u));
+            return Err(format!("token {} referenciado {} vezes", text(i), u));
         }
         if u == 0 {
-            let livre = t.tipo == TokenKind::Op(Op::Comma)
-                || (t.tipo == TokenKind::Op(Op::Dot) && dots_ok[i]);
+            let livre = t.kind_ == TokenKind::Op(Op::Comma)
+                || (t.kind_ == TokenKind::Op(Op::Dot) && dots_ok[i]);
             if !livre {
-                return Err(format!("token {} não referenciado", texto(i)));
+                return Err(format!("token {} não referenciado", text(i)));
             }
         }
     }
@@ -955,7 +955,7 @@ fn dump_node(tokens: &Tokens, tree_: &Tree, id: NodeId, prof: usize, s: &mut Str
     let mut toks: Vec<usize> = tokens_of_node(&d.node).into_iter().map(off).collect();
     toks.sort_unstable();
     let list: Vec<String> = toks.iter().map(|t| t.to_string()).collect();
-    let tipo = match &d.node {
+    let kind_ = match &d.node {
         Node::SimpleFormalParameter { kind, .. }
         | Node::FieldFormalParameter { kind, .. }
         | Node::SuperFormalParameter { kind, .. }
@@ -975,7 +975,7 @@ fn dump_node(tokens: &Tokens, tree_: &Tree, id: NodeId, prof: usize, s: &mut Str
         off(d.start),
         off(d.end),
         list.join(","),
-        tipo
+        kind_
     );
     let mut children = Vec::new();
     d.node.children(&mut |f| children.push(f));

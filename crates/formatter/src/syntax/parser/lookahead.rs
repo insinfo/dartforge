@@ -151,7 +151,7 @@ impl Parser<'_> {
 
     /// `isValidNonRecordTypeReference`.
     pub(super) fn valid_type_ref(&self, i: usize) -> bool {
-        if self.ident_puro(i) || self.pseudo(i) || self.kw(i, Keyword::Void) {
+        if self.plain_ident(i) || self.pseudo(i) || self.kw(i, Keyword::Void) {
             return true;
         }
         if self.built_in(i) {
@@ -163,7 +163,7 @@ impl Parser<'_> {
 
     /// `looksLikeName`.
     pub(super) fn looks_like_name(&self, i: usize) -> bool {
-        self.ident_puro(i)
+        self.plain_ident(i)
             || self.kw(i, Keyword::This)
             || self.kw(i, Keyword::Super)
             || (self.ident(i) && !(self.txt(i) == "typedef" && self.ident(i + 1)))
@@ -180,7 +180,7 @@ impl Parser<'_> {
     }
 
     /// `computeType(token, required, inDeclaration,
-    /// acceptKeywordForSimpleType)` to one tipo que começa em `i`.
+    /// acceptKeywordForSimpleType)` to one kind_ que começa em `i`.
     pub(super) fn type_at(
         &self,
         i: usize,
@@ -438,7 +438,7 @@ impl Parser<'_> {
                 let after = next + 1;
                 let ok = self.eof(after)
                     || matches!(
-                        self.tipo(after),
+                        self.kind_(after),
                         super::TokenKind::Op(
                             Op::Semicolon
                                 | Op::Assign
@@ -453,14 +453,14 @@ impl Parser<'_> {
                     )
                     || self.kw(after, Keyword::In);
                 if !ok {
-                    let corpo = self.op(after, Op::Arrow)
+                    let body_ = self.op(after, Op::Arrow)
                         || self.op(after, Op::LBrace)
                         || self.word(after, "async")
                         || self.word(after, "sync")
                         || self.eof(after);
                     let operator_ =
                         self.word(next, "operator") && self.user_definable_operator(after).is_some();
-                    if !(get_set && corpo) && !operator_ {
+                    if !(get_set && body_) && !operator_ {
                         return TypeInfo::none_(n);
                     }
                 }
@@ -542,7 +542,7 @@ impl Parser<'_> {
             return None;
         }
         let next = lt + 1;
-        if self.ident_puro(next) || self.pseudo(next) {
+        if self.plain_ident(next) || self.pseudo(next) {
             if self.op(next + 1, Op::Gt) {
                 return Some(InfoArgs {
                     end_index: next + 2,
@@ -602,8 +602,8 @@ impl Parser<'_> {
                     return None;
                 }
                 // Recuperação: vírgula ausente.
-                if !(self.ident_puro(next)
-                    && (self.ident_puro(next + 1)
+                if !(self.plain_ident(next)
+                    && (self.plain_ident(next + 1)
                         || self.op(next + 1, Op::Comma)
                         || self.type_closer(next + 1)))
                 {
@@ -648,7 +648,7 @@ impl Parser<'_> {
         let t = a.end_index;
         let ok = self.eof(t)
             || matches!(
-                self.tipo(t),
+                self.kind_(t),
                 super::TokenKind::Op(
                     Op::LParen
                         | Op::Dot
@@ -789,7 +789,7 @@ impl Parser<'_> {
         if self.op(t, Op::LParen) {
             let d = self.pair(t) + 1;
             return matches!(
-                self.tipo(d),
+                self.kind_(d),
                 super::TokenKind::Op(
                     Op::Semicolon
                         | Op::Dot
@@ -812,7 +812,7 @@ impl Parser<'_> {
     pub(super) fn binary_operator(&self, i: usize) -> bool {
         use super::TokenKind::Op as O;
         matches!(
-            self.tipo(i),
+            self.kind_(i),
             O(Op::Gt)
                 | O(Op::Plus
                     | Op::Minus
@@ -835,7 +835,7 @@ impl Parser<'_> {
 
     /// Palavra reservada (`isReservedWord`).
     pub(super) fn reserved(&self, i: usize) -> bool {
-        matches!(self.tipo(i), super::TokenKind::Reserved(_))
+        matches!(self.kind_(i), super::TokenKind::Reserved(_))
     }
 
     /// Estilo da palavra em `i`.

@@ -1,5 +1,5 @@
-//! Casos fixos do formatador: cada `tests/cases_/<nome>.dart` formatado tem de
-//! ser igual, byte a byte, a `<nome>.expected`, gerado com
+//! Casos fixos do formatador: cada `tests/cases_/<name_>.dart` formatado tem de
+//! ser igual, byte a byte, a `<name_>.expected`, gerado com
 //! `dart format -o show --summary none` do SDK 3.6.2. Para (re)gerar um
 //! esperado: `dart format -o show --summary none cases_/x.dart > cases_/x.expected`.
 

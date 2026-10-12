@@ -8,7 +8,7 @@
 
 use std::collections::HashSet;
 
-use super::arena::{Arenas, ChunkId, MUST_SPLIT, UNSPLIT, RuleId, recuo};
+use super::arena::{Arenas, ChunkId, MUST_SPLIT, UNSPLIT, RuleId, indentation};
 use super::writer::{BlockCache, format_block};
 
 const MAX_ATTEMPTS: usize = 5000;
@@ -254,11 +254,11 @@ impl LineSplitter {
                 let mut col = 0;
                 let ch = &a.chunks[c as usize];
                 if !ch.flush_left {
-                    col = self.block_indent + ch.recuo;
+                    col = self.block_indent + ch.indentation;
                     col += a.nesting_total(ch.nesting_);
                     let values = &e.values;
                     if a.indents_block(c, &|r| values.value(a, r)) {
-                        col += recuo::EXPRESSION;
+                        col += indentation::EXPRESSION;
                     }
                 }
                 columns[i] = col;
@@ -272,14 +272,14 @@ impl LineSplitter {
         let mut length: i64 = 0;
         let mut found_rules = false;
         let mut start = 0usize;
-        let largura = a.largura as i64;
+        let page_width = a.page_width as i64;
 
         let mut split_spans = Vec::new();
         let mut previous_nesting = None;
 
         let line_ending = |a: &mut Arenas, e: &mut Estado, end: usize, length: i64, start: &mut usize, found_it: &mut bool| {
-            if length > largura {
-                e.overflow += (length - largura) as i32;
+            if length > page_width {
+                e.overflow += (length - page_width) as i32;
                 if !*found_it {
                     for i in *start..end {
                         let r = a.chunks[self.chunks[i] as usize].rule;
@@ -642,9 +642,9 @@ impl Queue {
         if n == 0 {
             return false;
         }
-        let mut posicao = 1usize;
+        let mut position = 1usize;
         loop {
-            let index = posicao - 1;
+            let index = position - 1;
             let enqueued = self.items[index];
             let mut comparison = Self::compare_scores(states, enqueued, e);
             if comparison == 0 {
@@ -659,22 +659,22 @@ impl Queue {
                 }
             }
             if comparison < 0 {
-                let left_ = posicao * 2;
+                let left_ = position * 2;
                 if left_ <= n {
-                    posicao = left_;
+                    position = left_;
                     continue;
                 }
             }
             loop {
-                while posicao % 2 == 1 {
-                    posicao >>= 1;
+                while position % 2 == 1 {
+                    position >>= 1;
                 }
-                posicao += 1;
-                if posicao <= n {
+                position += 1;
+                if position <= n {
                     break;
                 }
             }
-            if posicao == 1 {
+            if position == 1 {
                 break;
             }
         }

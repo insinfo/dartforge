@@ -47,8 +47,8 @@ fn collect(root: &Path, output: &mut Vec<PathBuf>) {
     let mut children: Vec<PathBuf> = inputs.filter_map(|e| e.ok().map(|e| e.path())).collect();
     children.sort();
     for f in children {
-        let nome = f.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if nome.starts_with('.') || nome == "target" || nome == "references" || nome == "node_modules" {
+        let name_ = f.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if name_.starts_with('.') || name_ == "target" || name_ == "references" || name_ == "node_modules" {
             continue;
         }
         if f.is_symlink() {
@@ -72,9 +72,9 @@ fn references(dart: &str, cache: &Path, lote: &[(PathBuf, u64)]) {
             return;
         }
     };
-    let texto = String::from_utf8_lossy(&output.stdout);
+    let text = String::from_utf8_lossy(&output.stdout);
     let mut by_path: BTreeMap<String, String> = BTreeMap::new();
-    for line in texto.lines() {
+    for line in text.lines() {
         let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
             continue;
         };
@@ -145,7 +145,7 @@ fn main() {
     }
 
     let mut general = Scoreboard::default();
-    for (nome, roots) in &sets {
+    for (name_, roots) in &sets {
         let mut files = Vec::new();
         for r in roots {
             collect(r, &mut files);
@@ -160,7 +160,7 @@ fn main() {
             .map(|(p, h, _)| (p.clone(), *h))
             .collect();
         if !missing.is_empty() {
-            eprintln!("{nome}: {} referências novas do dart format…", missing.len());
+            eprintln!("{name_}: {} referências novas do dart format…", missing.len());
             let batches: Vec<&[(PathBuf, u64)]> = missing.chunks(150).collect();
             let proximo = Mutex::new(0usize);
             std::thread::scope(|s| {
@@ -208,7 +208,7 @@ fn main() {
                             (None, _) => pl.only_dart_rejects += 1,
                             (Some(r), result) => {
                                 pl.total += 1;
-                                let tipo = match result {
+                                let kind_ = match result {
                                     Ok(Ok(output)) if output == r => {
                                         pl.equal += 1;
                                         None
@@ -237,7 +237,7 @@ fn main() {
                                         Some("pânico")
                                     }
                                 };
-                                if let Some(t) = tipo {
+                                if let Some(t) = kind_ {
                                     failures.lock().expect("trava").push((p.clone(), t));
                                 }
                             }
@@ -248,7 +248,7 @@ fn main() {
         });
         let pl = scoreboard.into_inner().expect("placar");
         println!(
-            "{nome}: {}/{} idênticos ({:.1}%) — diferentes {}, recusados {}, saída inesperada {}, pânicos {}; o dart recusa {} (nós também: {})",
+            "{name_}: {}/{} idênticos ({:.1}%) — diferentes {}, recusados {}, saída inesperada {}, pânicos {}; o dart recusa {} (nós também: {})",
             pl.equal,
             pl.total,
             100.0 * pl.equal as f64 / pl.total.max(1) as f64,

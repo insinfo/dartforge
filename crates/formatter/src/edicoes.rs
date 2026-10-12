@@ -1,20 +1,20 @@
-//! Edições mínimas entre o código original e o formatado: porte do
-//! `_MinimalEditComputer` do analysis server 3.6.2
-//! (`pkg/analysis_server/lib/src/lsp/source_edits.dart`), que o
-//! `textDocument/formatting` do `dart language-server` usa para devolver só
-//! as trocas de brancos entre os tokens em vez do documento inteiro.
+//! Minimal edits between the original and the formatted code: a port of the
+//! `_MinimalEditComputer` of analysis server 3.6.2
+//! (`pkg/analysis_server/lib/src/lsp/source_edits.dart`), which
+//! `textDocument/formatting` in `dart language-server` uses to return only the
+//! whitespace changes between tokens instead of the whole document.
 //!
-//! O original percorre o fluxo de tokens do scanner do analyzer (com os
-//! comentários) dos dois textos. Aqui o fluxo é o de [`Tokens`]; as
-//! diferenças de tokenização (`>>` e `[]` separados) não mudam as edições,
-//! porque o formatador nunca põe brancos dentro desses pares e as trocas
-//! permitidas pelo original (`>>` por `>` `>`, `[]` por `[` `]`) dão a mesma
-//! faixa de brancos.
+//! The original walks the analyzer scanner's token stream (with comments) of
+//! both texts. Here the stream is that of [`Tokens`]; the tokenization
+//! differences (`>>` and `[]` split apart) do not change the edits, because
+//! the formatter never puts whitespace inside those pairs, and the swaps the
+//! original allows (`>>` for `>` `>`, `[]` for `[` `]`) give the same
+//! whitespace range.
 
 use crate::syntax::token::{TokenKind, Tokens};
 use dartforge_frontend::token::Op;
 
-/// Uma edição: substituir `source[start..end]` (bytes do original) por `texto`.
+/// One edit: replace `source[start..end]` (bytes of the original) with `text`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Edicao {
     pub inicio: usize,
@@ -30,28 +30,28 @@ enum Type {
 
 #[derive(Debug, Clone, Copy)]
 struct Item {
-    tipo: Type,
+    kind_: Type,
     start: usize,
     end: usize,
 }
 
-/// `_iterateAllTokens`: comentários e tokens em ordem, sem o EOF (nem os
-/// comentários antes dele).
+/// `_iterateAllTokens`: comments and tokens in order, without the EOF (or the
+/// comments before it).
 fn items(t: &Tokens) -> Vec<Item> {
     let mut v = Vec::new();
     for (i, k) in t.list.iter().enumerate() {
-        if k.tipo == TokenKind::Eof {
+        if k.kind_ == TokenKind::Eof {
             break;
         }
         for c in t.comments_of(i as u32) {
             v.push(Item {
-                tipo: Type::Comment { line: c.is_line },
+                kind_: Type::Comment { line: c.is_line },
                 start: c.start,
                 end: c.end,
             });
         }
         v.push(Item {
-            tipo: Type::Token(k.tipo),
+            kind_: Type::Token(k.kind_),
             start: k.start,
             end: k.end,
         });
@@ -60,19 +60,19 @@ fn items(t: &Tokens) -> Vec<Item> {
 }
 
 fn optional(i: &Item) -> bool {
-    matches!(i.tipo, Type::Token(TokenKind::Op(Op::Comma)) | Type::Token(TokenKind::Op(Op::Semicolon)))
+    matches!(i.kind_, Type::Token(TokenKind::Op(Op::Comma)) | Type::Token(TokenKind::Op(Op::Semicolon)))
 }
 
 fn valid_change(s: &str) -> bool {
     s.chars().all(|c| c.is_whitespace() || matches!(c, ',' | ';' | '<' | '>'))
 }
 
-/// As edições mínimas que levam `original` a `formatted`.
+/// The minimal edits that turn `original` into `formatted`.
 ///
-/// Com `range` (bytes do original), só as edições inteiramente dentro dela,
-/// como na formatação de trecho. Se os fluxos de tokens divergirem de um jeito
-/// inesperado, devolve uma edição do documento inteiro (sem faixa) ou nenhuma
-/// (com faixa), como o original.
+/// With `range` (bytes of the original), only the edits entirely inside it,
+/// as in range formatting. If the token streams diverge unexpectedly, returns
+/// one edit of the whole document (without a range) or none (with a range),
+/// like the original.
 ///
 /// ```
 /// use dartforge_formatter::edicoes::edicoes_minimas;
@@ -92,7 +92,7 @@ pub fn edicoes_minimas(original: &str, formatted: &str, range: Option<(usize, us
             }]
         }
     };
-    let (Ok(ta), Ok(tb)) = (Tokens::ler(original), Tokens::ler(formatted)) else {
+    let (Ok(ta), Ok(tb)) = (Tokens::read(original), Tokens::read(formatted)) else {
         return complete();
     };
     let a = items(&ta);
@@ -122,7 +122,7 @@ pub fn edicoes_minimas(original: &str, formatted: &str, range: Option<(usize, us
             if !(has_a && has_b) {
                 break;
             }
-            let same = tok_a.tipo == tok_b.tipo;
+            let same = tok_a.kind_ == tok_b.kind_;
             if !same {
                 if optional(&tok_b) {
                     end_b = tok_b.end;
@@ -144,7 +144,7 @@ pub fn edicoes_minimas(original: &str, formatted: &str, range: Option<(usize, us
                     }
                     continue;
                 }
-            } else if matches!(tok_a.tipo, Type::Comment { .. }) && text_a(&tok_a) != text_b(&tok_b) {
+            } else if matches!(tok_a.kind_, Type::Comment { .. }) && text_a(&tok_a) != text_b(&tok_b) {
                 end_a = tok_a.end;
                 ia += 1;
                 has_a = ia < a.len();
@@ -165,8 +165,8 @@ pub fn edicoes_minimas(original: &str, formatted: &str, range: Option<(usize, us
             break;
         }
         if !(has_a && has_b) {
-            // O original não confere os lexemas aqui; o laço externo termina e
-            // a sobra cai no recurso de edição completa.
+            // The original does not compare the lexemes here; the outer loop ends and
+            // the leftover falls back to the full-edit path.
             if has_a != has_b {
                 return complete();
             }
@@ -207,8 +207,8 @@ impl EditComputer<'_> {
         let blank_b = &self.formatted[start_b..end_b];
         if let Some((range_start, range_end)) = self.range {
             if start_a < range_start && end_a > range_start && blank_a.contains('\n') && blank_b.contains('\n') && !blank_a.ends_with('\n') {
-                let oa = blank_a.rfind('\n').expect("quebra") + 1;
-                let ob = blank_b.rfind('\n').expect("quebra") + 1;
+                let oa = blank_a.rfind('\n').expect("line break") + 1;
+                let ob = blank_b.rfind('\n').expect("line break") + 1;
                 self.add(start_a, start_a + oa, start_b, start_b + ob, false);
                 self.add(start_a + oa, end_a, start_b + ob, end_b, false);
                 return;
@@ -220,9 +220,9 @@ impl EditComputer<'_> {
         if blank_a == blank_b {
             return;
         }
-        // Prefixo e sufixo comuns, em unidades UTF-16 como no original; nos
-        // brancos e comentários comparar por `char` dá o mesmo corte, exceto
-        // em pares substitutos parciais, que não ocorrem em texto válido.
+        // Common prefix and suffix, in UTF-16 units as in the original; on
+        // whitespace and comments, comparing by `char` gives the same cut, except
+        // for partial surrogate pairs, which do not occur in valid text.
         let va: Vec<char> = blank_a.chars().collect();
         let vb: Vec<char> = blank_b.chars().collect();
         let mut p = 0;

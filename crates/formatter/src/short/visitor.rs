@@ -9,7 +9,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use super::arena::{Arenas, ChunkId, RuleId, cost, recuo};
+use super::arena::{Arenas, ChunkId, RuleId, cost, indentation};
 use super::builder::{SourceComment, ChunkBuilder, CommentKind};
 use crate::syntax::tree::{Tree, Node, NodeId, ParameterKind};
 use crate::syntax::token::{TokenKind, Tk, Tokens};
@@ -88,9 +88,9 @@ pub struct SourceVisitor<'f> {
 
 impl<'f> SourceVisitor<'f> {
     /// `SourceVisitor(formatter, lineInfo, source)`.
-    pub fn new(source: &'f str, tk: &'f Tokens, tree_: &'f Tree, largura: usize, recuo: i32, line_ending: String) -> SourceVisitor<'f> {
-        let mut a = Arenas::new_arenas(largura, line_ending);
-        let topo = ChunkBuilder::topo(&mut a, recuo);
+    pub fn new(source: &'f str, tk: &'f Tokens, tree_: &'f Tree, page_width: usize, indentation: i32, line_ending: String) -> SourceVisitor<'f> {
+        let mut a = Arenas::new(page_width, line_ending);
+        let topo = ChunkBuilder::topo(&mut a, indentation);
         SourceVisitor {
             source,
             tk,
@@ -120,16 +120,16 @@ impl<'f> SourceVisitor<'f> {
 
     // ================================================================ tokens
 
-    fn tipo(&self, t: Tk) -> TokenKind {
-        self.tk.list[t as usize].tipo
+    fn kind_(&self, t: Tk) -> TokenKind {
+        self.tk.list[t as usize].kind_
     }
 
     fn lexeme(&self, t: Tk) -> &'f str {
-        self.tk.texto(self.source, t)
+        self.tk.text(self.source, t)
     }
 
     fn is_op(&self, t: Tk, op: Op) -> bool {
-        self.tipo(t) == TokenKind::Op(op)
+        self.kind_(t) == TokenKind::Op(op)
     }
 
     fn has_comments(&self, t: Tk) -> bool {
@@ -143,7 +143,7 @@ impl<'f> SourceVisitor<'f> {
     fn end_line(&self, t: Tk) -> i32 {
         let k = &self.tk.list[t as usize];
         let mut end = k.end;
-        if k.tipo == TokenKind::ScriptTag {
+        if k.kind_ == TokenKind::ScriptTag {
             // O lexema do analyzer inclui a quebra de linha.
             let b = self.source.as_bytes();
             if b.get(end) == Some(&b'\r') {
@@ -276,9 +276,9 @@ impl<'f> SourceVisitor<'f> {
         b.force_rules_(a);
     }
 
-    pub fn nest_expression(&mut self, recuo: Option<i32>, agora: bool) {
+    pub fn nest_expression(&mut self, indentation: Option<i32>, agora: bool) {
         let (b, a) = self.b();
-        b.nest_expression_at(a, recuo, agora);
+        b.nest_expression_at(a, indentation, agora);
     }
 
     /// `unnest()` (que por padrão confirma na hora).
@@ -328,8 +328,8 @@ impl<'f> SourceVisitor<'f> {
     /// `token(token)`.
     pub fn token(&mut self, t: Tk) {
         self.write_preceding_comments_and_newlines(t);
-        let texto = self.lexeme(t);
-        self.write_text(texto, t);
+        let text = self.lexeme(t);
+        self.write_text(text, t);
     }
 
     /// `token(token)` com token opcional.
@@ -352,19 +352,19 @@ impl<'f> SourceVisitor<'f> {
         if let Some(t) = t {
             self.write_preceding_comments_and_newlines(t);
             self.space();
-            let texto = self.lexeme(t);
-            self.write_text(texto, t);
+            let text = self.lexeme(t);
+            self.write_text(text, t);
         }
     }
 
     /// `_writeText(text, token)`.
-    fn write_text(&mut self, texto: &str, t: Tk) {
-        self.write_text_merge(texto, t, true);
+    fn write_text(&mut self, text: &str, t: Tk) {
+        self.write_text_merge(text, t, true);
     }
 
-    fn write_text_merge(&mut self, texto: &str, t: Tk, join: bool) {
+    fn write_text_merge(&mut self, text: &str, t: Tk, join: bool) {
         let (b, a) = self.b();
-        b.write(a, texto, join);
+        b.write(a, text, join);
         self.ultimo_token = t;
     }
 
@@ -380,7 +380,7 @@ impl<'f> SourceVisitor<'f> {
         let anterior = if t == 0 { None } else { Some(t - 1) };
         let mut previous_line = anterior.map(|p| self.end_line(p)).unwrap_or(1);
         let token_line = self.start_line(t);
-        if anterior.is_some_and(|p| self.tipo(p) == TokenKind::ScriptTag) {
+        if anterior.is_some_and(|p| self.kind_(p) == TokenKind::ScriptTag) {
             previous_line = token_line;
         }
         let mut list = Vec::with_capacity(comments.len());
@@ -389,17 +389,17 @@ impl<'f> SourceVisitor<'f> {
             if i == 0 && anterior.is_none() {
                 previous_line = line_c;
             }
-            let texto = self.source[c.start..c.end].trim();
+            let text = self.source[c.start..c.end].trim();
             let mut lines_before = line_c - previous_line;
             let mut flush_left = self.lines_.column(c.start) == 1;
-            let doc_line = texto.starts_with("///") && !texto.starts_with("////");
+            let doc_line = text.starts_with("///") && !text.starts_with("////");
             if doc_line {
                 flush_left = false;
                 if i == 0 {
                     lines_before = 2;
                 }
             }
-            let tipo = if doc_line || (texto.starts_with("/**") && texto != "/**/") {
+            let kind_ = if doc_line || (text.starts_with("/**") && text != "/**/") {
                 CommentKind::Doc
             } else if c.is_line {
                 CommentKind::Line
@@ -409,8 +409,8 @@ impl<'f> SourceVisitor<'f> {
                 CommentKind::Block
             };
             list.push(SourceComment {
-                texto: texto.to_string(),
-                tipo,
+                text: text.to_string(),
+                kind_,
                 lines_before,
                 flush_left,
             });
@@ -493,13 +493,13 @@ impl<'f> SourceVisitor<'f> {
 
     /// `hasNonEmptyBody`.
     fn has_non_empty_body(&self, id: NodeId) -> bool {
-        let corpo = match self.node(id) {
+        let body_ = match self.node(id) {
             Node::MethodDeclaration { body, .. } => Some(*body),
             Node::FunctionDeclarationStatement { function_declaration } => self.declaration_body(*function_declaration),
             Node::FunctionDeclaration { .. } => self.declaration_body(id),
             _ => None,
         };
-        corpo.is_some_and(|c| self.non_empty_block(c))
+        body_.is_some_and(|c| self.non_empty_block(c))
     }
 
     fn declaration_body(&self, decl: NodeId) -> Option<NodeId> {
@@ -512,8 +512,8 @@ impl<'f> SourceVisitor<'f> {
     }
 
     /// `body is BlockFunctionBody && body.block.statements.isNotEmpty`.
-    fn non_empty_block(&self, corpo: NodeId) -> bool {
-        if let Node::BlockFunctionBody { block, .. } = self.node(corpo)
+    fn non_empty_block(&self, body_: NodeId) -> bool {
+        if let Node::BlockFunctionBody { block, .. } = self.node(body_)
             && let Node::Block { statements, .. } = self.node(*block)
         {
             return !statements.is_empty();
@@ -582,16 +582,16 @@ impl<'f> SourceVisitor<'f> {
         let Node::MethodInvocation { target, method_name, .. } = self.node(id) else {
             return false;
         };
-        let Some(mut alvo) = *target else {
+        let Some(mut target_) = *target else {
             return false;
         };
-        if matches!(self.node(alvo), Node::SimpleIdentifier { .. }) && looks_like_class_name(self.simple_name(*method_name)) {
+        if matches!(self.node(target_), Node::SimpleIdentifier { .. }) && looks_like_class_name(self.simple_name(*method_name)) {
             return true;
         }
-        if let Node::PrefixedIdentifier { identifier, .. } = self.node(alvo) {
-            alvo = *identifier;
+        if let Node::PrefixedIdentifier { identifier, .. } = self.node(target_) {
+            target_ = *identifier;
         }
-        matches!(self.node(alvo), Node::SimpleIdentifier { .. }) && looks_like_class_name(self.simple_name(alvo))
+        matches!(self.node(target_), Node::SimpleIdentifier { .. }) && looks_like_class_name(self.simple_name(target_))
     }
 
     pub fn simple_name(&self, id: NodeId) -> &'f str {
@@ -1794,8 +1794,8 @@ impl<'f> SourceVisitor<'f> {
             }
             Node::MethodInvocation { .. } => self.visit_method_invocation(id),
             Node::NamedExpression { .. } => {
-                let (nome, colon_, expr) = self.named_parts(id);
-                self.visit_named_node(nome, colon_, expr, None);
+                let (name_, colon_, expr) = self.named_parts(id);
+                self.visit_named_node(name_, colon_, expr, None);
             }
             Node::ParenthesizedExpression {
                 left_parenthesis,
@@ -2003,10 +2003,10 @@ impl<'f> SourceVisitor<'f> {
             if has_body {
                 needs_double = true;
             } else if matches!(self.node(d), Node::FunctionDeclaration { .. })
-                && let Some(corpo) = self.declaration_body(d)
-                && matches!(self.node(corpo), Node::BlockFunctionBody { .. })
+                && let Some(body_) = self.declaration_body(d)
+                && matches!(self.node(body_), Node::BlockFunctionBody { .. })
             {
-                needs_double = self.non_empty_block(corpo);
+                needs_double = self.non_empty_block(body_);
             }
         }
     }
@@ -2517,7 +2517,7 @@ impl<'f> SourceVisitor<'f> {
             self.space();
             self.indent(Some(6));
         } else {
-            self.indent(Some(recuo::CONSTRUCTOR_INITIALIZER));
+            self.indent(Some(indentation::CONSTRUCTOR_INITIALIZER));
             self.split();
             self.token(sep);
             self.space();
@@ -2849,8 +2849,8 @@ impl<'f> SourceVisitor<'f> {
     }
 
     /// `_separatorBetweenTypeAndVariable(type, isSolo:)`.
-    fn separator_between_type_and_variable(&mut self, tipo: Option<NodeId>, solo: bool) {
-        let Some(t) = tipo else {
+    fn separator_between_type_and_variable(&mut self, kind_: Option<NodeId>, solo: bool) {
+        let Some(t) = kind_ else {
             return;
         };
         let block_type = match self.node(t) {
@@ -2997,18 +2997,18 @@ impl<'f> SourceVisitor<'f> {
     // ============================================================ instruções
 
     /// `_visitLoopBody(body)`.
-    fn visit_loop_body(&mut self, corpo: NodeId) {
-        match self.node(corpo) {
-            Node::EmptyStatement { .. } => self.visit(Some(corpo)),
+    fn visit_loop_body(&mut self, body_: NodeId) {
+        match self.node(body_) {
+            Node::EmptyStatement { .. } => self.visit(Some(body_)),
             Node::Block { .. } => {
                 self.space();
-                self.visit(Some(corpo));
+                self.visit(Some(body_));
             }
             _ => {
                 self.indent(None);
                 self.start_rule(None);
                 self.builder_split(false, true);
-                self.visit(Some(corpo));
+                self.visit(Some(body_));
                 self.end_rule();
                 self.unindent();
             }
@@ -3357,10 +3357,10 @@ impl<'f> SourceVisitor<'f> {
             self.token(ops[i]);
             self.split();
         }
-        self.nest_expression(Some(recuo::BLOCK), false);
+        self.nest_expression(Some(indentation::BLOCK), false);
         if when_clause.is_some() {
             self.start_lazy_rule(None);
-            self.nest_expression(Some(recuo::BLOCK), false);
+            self.nest_expression(Some(indentation::BLOCK), false);
         }
         self.visit(branches.last().copied());
         if let Some(w) = when_clause {
@@ -3575,7 +3575,7 @@ impl<'f> SourceVisitor<'f> {
             self.start_lazy_rule(Some(r));
         }
         self.visit(Some(*target));
-        self.nest_expression(Some(recuo::CASCADE), true);
+        self.nest_expression(Some(indentation::CASCADE), true);
         self.start_block_argument_nesting();
         if !split_with_target {
             let r = if inline { self.a.rule(cost::NORMAL) } else { self.a.hard_rule() };
@@ -3597,7 +3597,7 @@ impl<'f> SourceVisitor<'f> {
         let hard = self.a.hard_rule();
         self.start_lazy_rule(Some(hard));
         self.visit(Some(target));
-        self.nest_expression(Some(recuo::CASCADE), true);
+        self.nest_expression(Some(indentation::CASCADE), true);
         self.start_block_argument_nesting();
         let first = self.tree_.start(sections[0]);
         self.write_preceding_comments_and_newlines(first);
@@ -3631,7 +3631,7 @@ impl<'f> SourceVisitor<'f> {
         self.nest_expression(None, false);
         self.start_lazy_rule(None);
         self.visit(Some(*condition));
-        self.nest_expression(Some(recuo::BLOCK), true);
+        self.nest_expression(Some(indentation::BLOCK), true);
         self.start_block_argument_nesting();
         self.unnest();
         self.start_span(cost::NORMAL);
@@ -3717,10 +3717,10 @@ impl<'f> SourceVisitor<'f> {
     }
 
     /// `visitNamedNode(name, colon, node, [rule])`.
-    pub fn visit_named_node(&mut self, nome: Tk, colon_: Tk, node: NodeId, rule: Option<RuleId>) {
+    pub fn visit_named_node(&mut self, name_: Tk, colon_: Tk, node: NodeId, rule: Option<RuleId>) {
         self.nest_expression(None, false);
         self.start_span(cost::NORMAL);
-        self.token(nome);
+        self.token(name_);
         self.token(colon_);
         if matches!(self.node(node), Node::ListLiteral { .. } | Node::SetOrMapLiteral { .. } | Node::RecordLiteral { .. }) {
             self.space();
@@ -3934,7 +3934,7 @@ impl<'f> SourceVisitor<'f> {
         self.token(*right_parenthesis);
         self.end_rule();
         self.unnest();
-        self.nest_expression(Some(recuo::BLOCK), true);
+        self.nest_expression(Some(indentation::BLOCK), true);
         if spread_body {
             self.space();
         } else {
@@ -4141,16 +4141,16 @@ impl<'f> SourceVisitor<'f> {
                 }
             }
             if cursor == b.len() {
-                let mut texto = line[..quote_end].to_string();
+                let mut text = line[..quote_end].to_string();
                 if barras > 0 {
-                    texto.push('\\');
+                    text.push('\\');
                     barras -= 1;
                     while barras > 0 {
-                        texto.push_str(" \\");
+                        text.push_str(" \\");
                         barras -= 1;
                     }
                 }
-                self.write_text(&texto, t);
+                self.write_text(&text, t);
                 return;
             }
         }
@@ -4182,11 +4182,11 @@ fn split_lines(s: &str) -> Vec<&str> {
 }
 
 /// `_looksLikeClassName(name)`.
-pub fn looks_like_class_name(nome: &str) -> bool {
-    if matches!(nome, "bool" | "double" | "int" | "num") {
+pub fn looks_like_class_name(name_: &str) -> bool {
+    if matches!(name_, "bool" | "double" | "int" | "num") {
         return true;
     }
-    let b = nome.as_bytes();
+    let b = name_.as_bytes();
     let mut i = 0;
     let Some(&first) = b.first() else {
         return false;

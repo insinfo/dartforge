@@ -7,7 +7,7 @@
 //! pilha no visitante; [`ChunkBuilder::block`] lembra o chunk de bloco cujos
 //! filhos este construtor escreve, e `endBlock` move a lista para lá.
 
-use super::arena::{Arenas, ChunkId, NestingId, RuleId, cost, recuo};
+use super::arena::{Arenas, ChunkId, NestingId, RuleId, cost, indentation};
 
 /// Tipo de comentário (`CommentType`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,8 +21,8 @@ pub enum CommentKind {
 /// Comentário pronto para escrita (`SourceComment`).
 #[derive(Debug, Clone)]
 pub struct SourceComment {
-    pub texto: String,
-    pub tipo: CommentKind,
+    pub text: String,
+    pub kind_: CommentKind,
     pub lines_before: i32,
     pub flush_left: bool,
 }
@@ -36,7 +36,7 @@ struct NestingStack {
 }
 
 impl NestingStack {
-    fn recuo(&self) -> i32 {
+    fn indentation(&self) -> i32 {
         *self.stack.last().expect("pilha de recuo")
     }
 
@@ -44,9 +44,9 @@ impl NestingStack {
         self.pending.unwrap_or(self.current)
     }
 
-    fn nest(&mut self, a: &mut Arenas, recuo: i32) {
+    fn nest(&mut self, a: &mut Arenas, indentation: i32) {
         let base = self.pending.unwrap_or(self.current);
-        self.pending = Some(a.nest(base, recuo));
+        self.pending = Some(a.nest(base, indentation));
     }
 
     fn unnest_(&mut self, a: &Arenas) {
@@ -83,12 +83,12 @@ pub struct ChunkBuilder {
     prevent_split: i32,
 }
 
-fn ends_with_ident(texto: &str) -> bool {
-    texto.as_bytes().last().is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_')
+fn ends_with_ident(text: &str) -> bool {
+    text.as_bytes().last().is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_')
 }
 
 fn is_generic_method_comment(c: &SourceComment) -> bool {
-    c.texto.starts_with("/*<") || c.texto.starts_with("/*=")
+    c.text.starts_with("/*<") || c.text.starts_with("/*=")
 }
 
 impl ChunkBuilder {
@@ -132,9 +132,9 @@ impl ChunkBuilder {
     }
 
     /// `write(string, mergeEmptySplits:)`.
-    pub fn write(&mut self, a: &mut Arenas, texto: &str, merge_empty: bool) {
+    pub fn write(&mut self, a: &mut Arenas, text: &str, merge_empty: bool) {
         self.emit_pending_whitespace(a, false, merge_empty);
-        self.write_text(a, texto, None);
+        self.write_text(a, text, None);
         let lazy_rules = std::mem::take(&mut self.lazy_rules_);
         for r in lazy_rules {
             self.activate_rule(a, r);
@@ -163,10 +163,10 @@ impl ChunkBuilder {
             if space {
                 self.pending_space = true;
             }
-            return a.chunk_falso();
+            return a.dummy_chunk();
         }
         if self.pending_newlines > 0 {
-            return a.chunk_falso();
+            return a.dummy_chunk();
         }
         self.write_split(a, false, false, nest, space, true)
     }
@@ -193,7 +193,7 @@ impl ChunkBuilder {
 
         if lines_before_token == 0
             && i32::from(self.pending_newlines) > comments[0].lines_before
-            && comments.iter().all(|c| c.tipo == CommentKind::InlineBlock)
+            && comments.iter().all(|c| c.kind_ == CommentKind::InlineBlock)
         {
             comments[0].lines_before = i32::from(self.pending_newlines);
         }
@@ -209,7 +209,7 @@ impl ChunkBuilder {
                 }
             } else {
                 if self.pending_newlines == 0 {
-                    if comment.lines_before > 0 && (self.after_comment || comment.tipo != CommentKind::InlineBlock) {
+                    if comment.lines_before > 0 && (self.after_comment || comment.kind_ != CommentKind::InlineBlock) {
                         let double = self.needs_blank_line(a, &comment);
                         self.newline(double, comment.flush_left, true);
                     } else if let Some(&ultimo) = self.chunks.last() {
@@ -222,14 +222,14 @@ impl ChunkBuilder {
                 self.emit_pending_whitespace(a, double, true);
             }
 
-            self.write_text(a, &comment.texto, chunk);
+            self.write_text(a, &comment.text, chunk);
 
             let mut lines_after;
             if i < comments.len() - 1 {
                 lines_after = comments[i + 1].lines_before;
             } else {
                 lines_after = lines_before_token;
-                if lines_after == 0 && comments.last().expect("comentário").texto.contains('\n') {
+                if lines_after == 0 && comments.last().expect("comentário").text.contains('\n') {
                     lines_after = 1;
                 }
             }
@@ -246,9 +246,9 @@ impl ChunkBuilder {
 
     /// `indent([spaces])`.
     pub fn indent(&mut self, spaces: Option<i32>) {
-        let e = spaces.unwrap_or(recuo::BLOCK);
+        let e = spaces.unwrap_or(indentation::BLOCK);
         debug_assert!(self.nesting.pending.is_none());
-        let topo = self.nesting.recuo();
+        let topo = self.nesting.indentation();
         self.nesting.stack.push(topo + e);
     }
 
@@ -322,8 +322,8 @@ impl ChunkBuilder {
     }
 
     /// `nestExpression(indent:, now:)`.
-    pub fn nest_expression_at(&mut self, a: &mut Arenas, recuo: Option<i32>, agora: bool) {
-        self.nesting.nest(a, recuo.unwrap_or(recuo::EXPRESSION));
+    pub fn nest_expression_at(&mut self, a: &mut Arenas, indentation: Option<i32>, agora: bool) {
+        self.nesting.nest(a, indentation.unwrap_or(indentation::EXPRESSION));
         if agora {
             self.nesting.commit();
         }
@@ -352,7 +352,7 @@ impl ChunkBuilder {
     pub fn start_block(&mut self, a: &mut Arenas, argument: Option<ChunkId>, indent: bool, space: bool) -> ChunkBuilder {
         let rule = *self.rules.last().expect("regra do bloco");
         let nesting_ = *self.argument_nesting.last().expect("aninhamento de argumento");
-        let chunk = a.new_block(argument, rule, self.nesting.recuo(), nesting_, space, self.pending_flush_left);
+        let chunk = a.new_block(argument, rule, self.nesting.indentation(), nesting_, space, self.pending_flush_left);
         self.chunks.push(chunk);
         self.pending_flush_left = false;
 
@@ -376,7 +376,7 @@ impl ChunkBuilder {
             let first_ = self.rules.first().copied();
             for &c in &self.chunks {
                 length += a.chunks[c as usize].length() + a.block_length(c);
-                if length > a.largura {
+                if length > a.page_width {
                     force = true;
                     break;
                 }
@@ -428,40 +428,40 @@ impl ChunkBuilder {
         if c.lines_before != 0 {
             return None;
         }
-        if c.tipo == CommentKind::Doc || c.tipo == CommentKind::Block {
+        if c.kind_ == CommentKind::Doc || c.kind_ == CommentKind::Block {
             return None;
         }
         let mut chunk = *self.chunks.last().expect("chunk");
-        if a.chunks[chunk as usize].texto.is_empty() && self.chunks.len() > 1 && (!is_generic_method_comment(c) || token != "(") {
+        if a.chunks[chunk as usize].text.is_empty() && self.chunks.len() > 1 && (!is_generic_method_comment(c) || token != "(") {
             chunk = self.chunks[self.chunks.len() - 2];
         }
-        let texto = &a.chunks[chunk as usize].texto;
-        if texto.ends_with(',') && c.tipo == CommentKind::InlineBlock {
+        let text = &a.chunks[chunk as usize].text;
+        if text.ends_with(',') && c.kind_ == CommentKind::InlineBlock {
             return None;
         }
-        if texto.ends_with('(') || texto.ends_with('[') || (texto.ends_with('{') && !texto.ends_with("${")) {
+        if text.ends_with('(') || text.ends_with('[') || (text.ends_with('{') && !text.ends_with("${")) {
             return None;
         }
         Some(chunk)
     }
 
     fn needs_space_before(&self, a: &Arenas, c: &SourceComment, chunk: ChunkId) -> bool {
-        let texto = &a.chunks[chunk as usize].texto;
-        if texto.is_empty() {
+        let text = &a.chunks[chunk as usize].text;
+        if text.is_empty() {
             return false;
         }
-        if c.tipo == CommentKind::Line {
+        if c.kind_ == CommentKind::Line {
             return true;
         }
-        if is_generic_method_comment(c) && ends_with_ident(texto) {
+        if is_generic_method_comment(c) && ends_with_ident(text) {
             return false;
         }
-        !texto.ends_with('(') && !texto.ends_with('[') && !texto.ends_with('{')
+        !text.ends_with('(') && !text.ends_with('[') && !text.ends_with('{')
     }
 
     fn needs_space_after(&self, a: &Arenas, c: &SourceComment, token: &str) -> bool {
         let ultimo = *self.chunks.last().expect("chunk");
-        if a.chunks[ultimo as usize].texto.is_empty() {
+        if a.chunks[ultimo as usize].text.is_empty() {
             return false;
         }
         if self.pending_newlines > 0 {
@@ -480,8 +480,8 @@ impl ChunkBuilder {
         let Some(&ultimo) = self.chunks.last() else {
             return false;
         };
-        let texto = &a.chunks[ultimo as usize].texto;
-        if texto.ends_with('{') || texto.ends_with('[') {
+        let text = &a.chunks[ultimo as usize].text;
+        if text.ends_with('{') || text.ends_with('[') {
             return false;
         }
         true
@@ -489,11 +489,11 @@ impl ChunkBuilder {
 
     fn write_split(&mut self, a: &mut Arenas, hard: bool, double: bool, nest: bool, space: bool, merge_empty: bool) -> ChunkId {
         let chunk;
-        let last_empty = self.chunks.last().is_some_and(|&c| a.chunks[c as usize].texto.is_empty());
+        let last_empty = self.chunks.last().is_some_and(|&c| a.chunks[c as usize].text.is_empty());
         if merge_empty && last_empty {
             chunk = *self.chunks.last().expect("chunk");
             let mut double = double;
-            if double && self.chunks.len() > 1 && a.chunks[self.chunks[self.chunks.len() - 2] as usize].texto.ends_with('{') {
+            if double && self.chunks.len() > 1 && a.chunks[self.chunks[self.chunks.len() - 2] as usize].text.ends_with('{') {
                 double = false;
             }
             let r = a.chunks[chunk as usize].rule;
@@ -512,7 +512,7 @@ impl ChunkBuilder {
         chunk
     }
 
-    fn write_text(&mut self, a: &mut Arenas, texto: &str, chunk: Option<ChunkId>) {
+    fn write_text(&mut self, a: &mut Arenas, text: &str, chunk: Option<ChunkId>) {
         let chunk = match chunk {
             Some(c) => c,
             None => {
@@ -523,16 +523,16 @@ impl ChunkBuilder {
                 *self.chunks.last().expect("chunk")
             }
         };
-        if self.pending_space && !a.chunks[chunk as usize].texto.is_empty() {
+        if self.pending_space && !a.chunks[chunk as usize].text.is_empty() {
             a.append(chunk, " ");
         }
         self.pending_space = false;
-        a.append(chunk, texto);
+        a.append(chunk, text);
     }
 
     fn start_chunk(&mut self, a: &mut Arenas, nesting_: NestingId, hard: bool, double: bool, space: bool) -> ChunkId {
         let rule = if hard { a.hard_rule() } else { *self.rules.last().expect("regra ativa") };
-        let c = a.new_chunk(rule, self.nesting.recuo(), nesting_, space, self.pending_flush_left, double);
+        let c = a.new_chunk(rule, self.nesting.indentation(), nesting_, space, self.pending_flush_left, double);
         self.chunks.push(c);
         self.pending_flush_left = false;
         c

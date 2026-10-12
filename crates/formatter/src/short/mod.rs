@@ -1,15 +1,15 @@
-//! O estilo "curto" do `dart_style` 2.3.8 (`lib/src/short/`), o padrão do
-//! `dart format` do SDK 3.6.2.
+//! The "short" style of `dart_style` 2.3.8 (`lib/src/short/`), the default of
+//! `dart format` in SDK 3.6.2.
 //!
-//! * [`arena`]: regras, chunks, spans e níveis de aninhamento.
-//! * [`builder`]: o `ChunkBuilder`.
-//! * [`writer`] e [`divisor`]: o `LineWriter` e o `LineSplitter`.
-//! * [`visitor`]: o `SourceVisitor`, com [`arguments_`]
-//!   (`ArgumentListVisitor`) e [`cadeia`] (`CallChainVisitor`).
+//! * [`arena`]: rules, chunks, spans and nesting levels.
+//! * [`builder`]: the `ChunkBuilder`.
+//! * [`writer`] and [`splitter`]: the `LineWriter` and the `LineSplitter`.
+//! * [`visitor`]: the `SourceVisitor`, with [`arguments`]
+//!   (`ArgumentListVisitor`) and [`chain`] (`CallChainVisitor`).
 //!
-//! Os métodos do visitante mantêm os nomes do original (`visit_binary_expression`
-//! para `visitBinaryExpression`), para que cada regra possa ser conferida
-//! contra o fonte do `dart_style`.
+//! The visitor's methods keep the original names (`visit_binary_expression`
+//! for `visitBinaryExpression`), so that every rule can be checked against
+//! the `dart_style` source.
 pub mod arena;
 pub mod arguments;
 pub mod chain;

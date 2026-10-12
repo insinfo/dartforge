@@ -1,12 +1,12 @@
-//! Formatador de Dart: porte em Rust do `dart_style` 2.3.8, a versão que o
-//! `dart format` do SDK 3.6.2 traz. O SDK 3.6.2 formata no estilo "curto"
-//! (o `SourceVisitor` de `lib/src/short/`); o estilo "alto" só existe atrás do
-//! experimento `tall-style` e não é portado.
+//! Dart formatter: a Rust port of `dart_style` 2.3.8, the version shipped with
+//! `dart format` in SDK 3.6.2. SDK 3.6.2 formats in the "short" style (the
+//! `SourceVisitor` in `lib/src/short/`); the "tall" style only exists behind
+//! the `tall-style` experiment and is not ported.
 //!
-//! O fluxo é o mesmo do original: [`sintaxe`] lê a fonte na árvore do
-//! analyzer, o visitante de [`curto`] a percorre gerando *chunks* com regras
-//! de quebra, e o divisor de linhas escolhe as quebras de menor custo que
-//! cabem na largura da página.
+//! The flow is the same as the original: [`syntax`] reads the source into the
+//! analyzer's tree, the visitor in [`short`] walks it producing *chunks* with
+//! split rules, and the line splitter picks the cheapest splits that fit in
+//! the page width.
 //!
 //! ```
 //! use dartforge_formatter::{formatar, Opcoes};
@@ -21,15 +21,15 @@ use short::writer::{BlockCache, LineWriter};
 use short::visitor::SourceVisitor;
 pub use syntax::token::ErroSintaxe;
 
-/// Opções do formatador (`DartFormatter`).
+/// Formatter options (`DartFormatter`).
 #[derive(Debug, Clone)]
 pub struct Opcoes {
-    /// Largura da página (`pageWidth`), 80 por padrão.
+    /// Page width (`pageWidth`), 80 by default.
     pub largura: usize,
-    /// Recuo inicial de todas as linhas (`indent`).
+    /// Initial indentation of every line (`indent`).
     pub recuo: usize,
-    /// Fim de linha; `None` infere da fonte (`\r\n` se a primeira quebra for
-    /// `\r\n`, senão `\n`).
+    /// Line ending; `None` infers it from the source (`\r\n` if the first line
+    /// break is `\r\n`, otherwise `\n`).
     pub fim_de_linha: Option<String>,
 }
 
@@ -43,13 +43,13 @@ impl Default for Opcoes {
     }
 }
 
-/// Falha ao formatar.
+/// Formatting failure.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ErroFormatacao {
-    /// A fonte tem erro de sintaxe (`FormatterException`).
+    /// The source has a syntax error (`FormatterException`).
     Sintaxe(ErroSintaxe),
-    /// A saída mudou mais que espaços (`UnexpectedOutputException`): erro do
-    /// formatador.
+    /// The output changed more than whitespace (`UnexpectedOutputException`):
+    /// a formatter bug.
     SaidaInesperada { input: String, output: String },
 }
 
@@ -67,30 +67,30 @@ impl std::fmt::Display for ErroFormatacao {
 
 impl std::error::Error for ErroFormatacao {}
 
-/// Formata uma unidade de compilação inteira (`DartFormatter.format`).
+/// Formats a whole compilation unit (`DartFormatter.format`).
 ///
-/// # Erros
-/// [`ErroFormatacao::Sintaxe`] quando a fonte não é Dart válido e
-/// [`ErroFormatacao::SaidaInesperada`] se a saída não for igual à entrada a
-/// menos de espaços (a mesma checagem de sanidade do `dart_style`).
+/// # Errors
+/// [`ErroFormatacao::Sintaxe`] when the source is not valid Dart, and
+/// [`ErroFormatacao::SaidaInesperada`] if the output differs from the input
+/// beyond whitespace (the same sanity check `dart_style` does).
 pub fn formatar(source: &str, options: &Opcoes) -> Result<String, ErroFormatacao> {
     let (tokens, tree) = syntax::parser::parse(source).map_err(ErroFormatacao::Sintaxe)?;
     let line_ending = options.fim_de_linha.clone().unwrap_or_else(|| infer_line_ending(source));
-    let root = tree.root.expect("unidade de compilação");
+    let root = tree.root.expect("compilation unit");
     let visitor = SourceVisitor::new(source, &tokens, &tree, options.largura, options.recuo as i32, line_ending);
     let (mut arenas, chunks) = visitor.run(root);
     let mut cache = BlockCache::new();
     let result = LineWriter::new(chunks, &mut cache).write_lines(&mut arenas, true);
-    if !equal_ignoring_whitespace(source, &result.texto) {
+    if !equal_ignoring_whitespace(source, &result.text) {
         return Err(ErroFormatacao::SaidaInesperada {
             input: source.to_string(),
-            output: result.texto,
+            output: result.text,
         });
     }
-    Ok(result.texto)
+    Ok(result.text)
 }
 
-/// `\r\n` se a primeira quebra de linha da fonte for `\r\n`; senão `\n`.
+/// `\r\n` if the source's first line break is `\r\n`; otherwise `\n`.
 fn infer_line_ending(source: &str) -> String {
     let info = short::visitor::LineInfo::from(source);
     let starts = info.starts();
@@ -101,7 +101,7 @@ fn infer_line_ending(source: &str) -> String {
     }
 }
 
-/// `string_compare.equalIgnoringWhitespace`: compara ignorando brancos e
+/// `string_compare.equalIgnoringWhitespace`: compares ignoring whitespace and
 /// `,`, `[`, `]`, `{`, `}`, `;`.
 pub fn equal_ignoring_whitespace(a: &str, b: &str) -> bool {
     fn blank(c: u16) -> bool {

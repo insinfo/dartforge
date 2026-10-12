@@ -67,7 +67,7 @@ pub struct Comment {
 /// Token com posição em bytes e os comentários que o precedem.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Token {
-    pub tipo: TokenKind,
+    pub kind_: TokenKind,
     pub start: usize,
     pub end: usize,
     /// O próximo token começa em `end` (sem branco nem comentário).
@@ -98,10 +98,10 @@ impl Tokens {
     ///
     /// ```
     /// use dartforge_formatter::syntax::token::{Tokens, TokenKind};
-    /// let t = Tokens::ler("a = 'x${b}y'; // end\n").unwrap();
+    /// let t = Tokens::read("a = 'x${b}y'; // end\n").unwrap();
     /// let textos: Vec<_> = t.list.iter().map(|k| &"a = 'x${b}y'; // end\n"[k.start..k.end]).collect();
     /// assert_eq!(textos, ["a", "=", "'x", "${", "b", "}", "y'", ";", ""]);
-    /// assert_eq!(t.list.last().unwrap().tipo, TokenKind::Eof);
+    /// assert_eq!(t.list.last().unwrap().kind_, TokenKind::Eof);
     /// assert_eq!(t.comments.len(), 1);
     /// ```
     ///
@@ -109,7 +109,7 @@ impl Tokens {
     /// Caractere inesperado, string ou comentário de bloco sem fecho, e os
     /// operadores `===`/`!==`, que o scanner do fasta aceita só para relatar
     /// erro.
-    pub fn ler(source: &str) -> Result<Tokens, ErroSintaxe> {
+    pub fn read(source: &str) -> Result<Tokens, ErroSintaxe> {
         let raw_tokens = dartforge_frontend::lexer::lex(source).map_err(|d| ErroSintaxe {
             posicao: d.span.start,
             comprimento: (d.span.end - d.span.start).max(1),
@@ -119,8 +119,8 @@ impl Tokens {
         // Pilha das interpolações abertas, por literal: `true` para `${…}`.
         // O trecho que segue uma interpolação `${…}` começa pela `}`.
         let mut open_groups: Vec<bool> = Vec::new();
-        let new = |tipo, start, end| Token {
-            tipo,
+        let new = |kind_, start, end| Token {
+            kind_,
             start,
             end,
             glued: false,
@@ -128,14 +128,14 @@ impl Tokens {
         };
         for b in &raw_tokens {
             let (start_, end) = (b.span.start, b.span.end);
-            let texto = &source[start_..end];
+            let text = &source[start_..end];
             match b.kind {
                 Kind::Ident => {
-                    if !texto.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'$') {
+                    if !text.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'$') {
                         return Err(ErroSintaxe {
                             posicao: start_,
                             comprimento: end - start_,
-                            mensagem: format!("Unexpected character in '{texto}'."),
+                            mensagem: format!("Unexpected character in '{text}'."),
                         });
                     }
                     list.push(new(TokenKind::Identifier, start_, end));
@@ -162,12 +162,12 @@ impl Tokens {
                         dartforge_frontend::token::Interp::Ident => 1,
                     };
                     list.push(new(TokenKind::Text, i, end - delim));
-                    let tipo = if delim == 2 {
+                    let kind_ = if delim == 2 {
                         TokenKind::ExpressionInterpolation
                     } else {
                         TokenKind::IdentifierInterpolation
                     };
-                    list.push(new(tipo, end - delim, end));
+                    list.push(new(kind_, end - delim, end));
                 }
                 Kind::StrEnd(f) => {
                     if f.aberta {
@@ -185,7 +185,7 @@ impl Tokens {
                         return Err(ErroSintaxe {
                             posicao: start_,
                             comprimento: 3,
-                            mensagem: format!("The '{texto}' operator is not supported."),
+                            mensagem: format!("The '{text}' operator is not supported."),
                         });
                     }
                     list.push(new(TokenKind::Op(op), start_, end));
@@ -255,7 +255,7 @@ impl Tokens {
     }
 
     /// Texto do token `t`.
-    pub fn texto<'a>(&self, source: &'a str, t: Tk) -> &'a str {
+    pub fn text<'a>(&self, source: &'a str, t: Tk) -> &'a str {
         let k = &self.list[t as usize];
         &source[k.start..k.end]
     }
@@ -267,18 +267,18 @@ impl Tokens {
     }
 
     /// Junta o `>` em `t` com os `>`/`=` colados que o seguem, até formar o
-    /// operador `alvo` (`">>"`, `">="`, `">>>"`, `">>="` ou `">>>="`). Só é
+    /// operador `target_` (`">>"`, `">="`, `">>>"`, `">>="` ou `">>>="`). Só é
     /// chamado pelo parser em contexto de expressão, logo depois de conferir
     /// com [`Tokens::composed_greater`]. Os tokens absorvidos saem da lista;
     /// nenhum nó aponta para eles ainda, porque o parser está exatamente em `t`.
-    pub fn merge_greater(&mut self, t: Tk, alvo: &str) {
+    pub fn merge_greater(&mut self, t: Tk, target_: &str) {
         let i = t as usize;
-        let n = alvo.len();
+        let n = target_.len();
         let end = self.list[i].start + n;
         let glued_last = self.list[i + n - 1].glued;
         self.list.drain(i + 1..i + n);
         self.list[i].end = end;
-        self.list[i].tipo = TokenKind::ComposedGreater;
+        self.list[i].kind_ = TokenKind::ComposedGreater;
         self.list[i].glued = glued_last;
     }
 
@@ -286,7 +286,7 @@ impl Tokens {
     /// devolve o maior deles (`>>>=`, `>>>`, `>>=`, `>>`, `>=`).
     pub fn composed_greater(&self, t: Tk) -> Option<&'static str> {
         let i = t as usize;
-        let e = |k: usize, op: Op| self.list.get(i + k).is_some_and(|x| x.tipo == TokenKind::Op(op));
+        let e = |k: usize, op: Op| self.list.get(i + k).is_some_and(|x| x.kind_ == TokenKind::Op(op));
         let col = |k: usize| self.list.get(i + k).is_some_and(|x| x.glued);
         if !e(0, Op::Gt) || !col(0) {
             return None;
@@ -307,7 +307,7 @@ impl Tokens {
             return Some(">=");
         }
         // `>==`, `>=>` etc. não existem; `>` seguido de `==` é `>=` e `=`.
-        if self.list.get(i + 1).is_some_and(|x| x.tipo == TokenKind::Op(Op::EqEq)) {
+        if self.list.get(i + 1).is_some_and(|x| x.kind_ == TokenKind::Op(Op::EqEq)) {
             return None;
         }
         None

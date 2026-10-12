@@ -7,7 +7,7 @@ use dartforge_formatter::syntax::parser::{ParseOptions, parse, parse_with, verif
 use dartforge_formatter::syntax::token::Tokens;
 
 /// Analisa `source`, confere a cobertura e devolve tokens e árvore.
-fn ler(source: &str) -> (Tokens, Tree) {
+fn read(source: &str) -> (Tokens, Tree) {
     let (t, a) = parse(source).unwrap_or_else(|e| panic!("{source:?}: {e:?}"));
     verify::check(&t, &a, source).unwrap_or_else(|e| panic!("{source:?}: {e}"));
     (t, a)
@@ -16,13 +16,13 @@ fn ler(source: &str) -> (Tokens, Tree) {
 /// Renderiza a subárvore de `id` como `Type(children...)`; identificadores e
 /// literais simples viram o próprio texto.
 fn render(source: &str, t: &Tokens, a: &Tree, id: NodeId) -> String {
-    let texto = |tk: u32| t.texto(source, tk).to_string();
+    let text = |tk: u32| t.text(source, tk).to_string();
     match a.node(id) {
-        Node::SimpleIdentifier { token } => return texto(*token),
+        Node::SimpleIdentifier { token } => return text(*token),
         Node::IntegerLiteral { literal }
         | Node::SimpleStringLiteral { literal }
         | Node::BooleanLiteral { literal } => {
-            return texto(*literal);
+            return text(*literal);
         }
         _ => {}
     }
@@ -35,7 +35,7 @@ fn render(source: &str, t: &Tokens, a: &Tree, id: NodeId) -> String {
 /// A expressão de `f() { return <expr>; }`.
 fn expr(e: &str) -> String {
     let source = format!("f() {{ return {e}; }}");
-    let (t, a) = ler(&source);
+    let (t, a) = read(&source);
     let id = a
         .nodes
         .iter()
@@ -49,21 +49,21 @@ fn expr(e: &str) -> String {
 
 /// A primeira declaração de topo de `source`, renderizada.
 fn decl(source: &str) -> String {
-    let (t, a) = ler(source);
+    let (t, a) = read(source);
     let Node::CompilationUnit { declarations, .. } = a.node(a.root.unwrap()) else {
         unreachable!()
     };
     render(source, &t, &a, declarations[0])
 }
 
-/// O primeiro nó do tipo `nome` em `source`, renderizado.
-fn first(source: &str, nome: &str) -> String {
-    let (t, a) = ler(source);
+/// O primeiro nó do tipo `name_` em `source`, renderizado.
+fn first(source: &str, name_: &str) -> String {
+    let (t, a) = read(source);
     let i = a
         .nodes
         .iter()
-        .position(|d| verify::node_name(&d.node) == nome)
-        .unwrap_or_else(|| panic!("sem {nome} em {source:?}"));
+        .position(|d| verify::node_name(&d.node) == name_)
+        .unwrap_or_else(|| panic!("sem {name_} em {source:?}"));
     render(source, &t, &a, NodeId(i as u32))
 }
 
@@ -151,7 +151,7 @@ fn instance_creation() {
 }
 
 #[test]
-fn identificadores_prefixados_e_acessos() {
+fn prefixed_identifiers_and_accesses() {
     assert_eq!(expr("a.b"), "PrefixedIdentifier(a, b)");
     assert_eq!(expr("a.b.c"), "PropertyAccess(PrefixedIdentifier(a, b), c)");
     assert_eq!(expr("a?.b"), "PropertyAccess(a, b)");
@@ -171,7 +171,7 @@ fn identificadores_prefixados_e_acessos() {
 #[test]
 fn index_with_question() {
     let source = "f() { return a?[i]; }";
-    let (t, a) = ler(source);
+    let (t, a) = read(source);
     let ix = a
         .nodes
         .iter()
@@ -183,7 +183,7 @@ fn index_with_question() {
     else {
         unreachable!()
     };
-    assert_eq!(t.texto(source, question.unwrap()), "?");
+    assert_eq!(t.text(source, question.unwrap()), "?");
     assert!(period.is_none());
     // `a ? [b] : c` é condicional.
     assert_eq!(
@@ -215,13 +215,13 @@ fn cascades() {
     assert_eq!(expr("x..[0]"), "CascadeExpression(x, IndexExpression(0))");
     // A seção sem alvo começa no operador.
     let source = "f() { return x..a; }";
-    let (t, a) = ler(source);
+    let (t, a) = read(source);
     let pa = a
         .nodes
         .iter()
         .find(|d| matches!(d.node, Node::PropertyAccess { .. }))
         .unwrap();
-    assert_eq!(t.texto(source, pa.start), "..");
+    assert_eq!(t.text(source, pa.start), "..");
 }
 
 #[test]
@@ -252,19 +252,19 @@ fn function_references_and_relationals() {
 #[test]
 fn composed_greater_operators() {
     let source = "f() { a >> b >>> c; x >>= 1; y >= 2; }";
-    let (t, a) = ler(source);
+    let (t, a) = read(source);
     let ops: Vec<&str> =
         a.nodes
             .iter()
             .filter_map(|d| match d.node {
                 Node::BinaryExpression { operator, .. }
-                | Node::AssignmentExpression { operator, .. } => Some(t.texto(source, operator)),
+                | Node::AssignmentExpression { operator, .. } => Some(t.text(source, operator)),
                 _ => None,
             })
             .collect();
     assert_eq!(ops, [">>", ">>>", ">>=", ">="]);
     // Em tipo, os `>` ficam separados.
-    let (t, a) = ler("List<List<int>> x;");
+    let (t, a) = read("List<List<int>> x;");
     let gts = t
         .list
         .iter()
@@ -356,7 +356,7 @@ fn functions() {
     );
     // O `;` do `=>`: presente em declarações, ausente em closures.
     let source = "f() => () => 1;";
-    let (_, a) = ler(source);
+    let (_, a) = read(source);
     let bodies: Vec<bool> = a
         .nodes
         .iter()
@@ -388,7 +388,7 @@ fn formal_parameters_() {
          FormalParameterList(SimpleFormalParameter(NamedType())))), EmptyFunctionBody())"
     );
     let source = "f([a]) {}\ng({b}) {}";
-    let (_, a) = ler(source);
+    let (_, a) = read(source);
     let types_: Vec<String> =
         a.nodes
             .iter()
@@ -434,7 +434,7 @@ fn types_() {
 fn patterns_() {
     let source = "f(o) { switch (o) { case [var a, ...] when a > 0: case {'k': _} || (1, :var b): case Foo(x: > 0): \
                  case int? _: case const [1] as Object: case -1: default: } }";
-    let (t, a) = ler(source);
+    let (t, a) = read(source);
     let names: Vec<String> = a
         .nodes
         .iter()
@@ -477,13 +477,13 @@ fn patterns_() {
     );
     // `WildcardPatternImpl.beginToken` ignora o `var`.
     let source = "f(o) { if (o case var _) {} }";
-    let (t, a) = ler(source);
+    let (t, a) = read(source);
     let w = a
         .nodes
         .iter()
         .find(|d| matches!(d.node, Node::WildcardPattern { .. }))
         .unwrap();
-    assert_eq!(t.texto(source, w.start), "_");
+    assert_eq!(t.text(source, w.start), "_");
     rejection("f(o) { if (o case 1 + 2) {} }");
     rejection("f(o) { if (o case a? as int?) {} }");
 }
@@ -632,7 +632,7 @@ fn declarations_() {
 fn directives_() {
     let source = "library a.b;\nimport 'x.dart' if (dart.library.io) 'y.dart' deferred as p show A, B hide C;\n\
                  export 'z.dart';\npart 'w.dart';\n";
-    let (t, a) = ler(source);
+    let (t, a) = read(source);
     let Node::CompilationUnit { directives, .. } = a.node(a.root.unwrap()) else {
         unreachable!()
     };
@@ -675,25 +675,25 @@ fn annotations() {
 fn symbols_and_merged_operator_names() {
     // O analyzer tem um único token `[]`/`[]=`; o nó termina nele.
     let source = "f() => g(#[], [n]);";
-    let (t, a) = ler(source);
+    let (t, a) = read(source);
     let s = a
         .nodes
         .iter()
         .find(|d| matches!(d.node, Node::SymbolLiteral { .. }))
         .unwrap();
-    assert_eq!(t.texto(source, s.end), "[]");
+    assert_eq!(t.text(source, s.end), "[]");
     let Node::SymbolLiteral { components, .. } = &s.node else {
         unreachable!()
     };
-    assert_eq!(t.texto(source, components[0]), "[]");
+    assert_eq!(t.text(source, components[0]), "[]");
     assert_eq!(expr("#a.b.c"), "SymbolLiteral()");
     let source = "class A { operator []=(i, v) {} operator >>(o) => 0; }";
-    let (t, a) = ler(source);
+    let (t, a) = read(source);
     let names: Vec<&str> = a
         .nodes
         .iter()
         .filter_map(|d| match d.node {
-            Node::MethodDeclaration { name, .. } => Some(t.texto(source, name)),
+            Node::MethodDeclaration { name, .. } => Some(t.text(source, name)),
             _ => None,
         })
         .collect();
@@ -733,7 +733,7 @@ fn errors_the_analyzer_does_not_treat_as_syntactic() {
         "f() native;",
         "var x = 1_000;",
     ] {
-        ler(source);
+        read(source);
     }
 }
 
@@ -755,13 +755,13 @@ fn language_version() {
 #[test]
 fn declaration_start_and_end_ignore_comments() {
     let source = "/// doc\n@a\nclass A {}\n// x\nvoid f() {}";
-    let (t, a) = ler(source);
+    let (t, a) = read(source);
     let Node::CompilationUnit { declarations, .. } = a.node(a.root.unwrap()) else {
         unreachable!()
     };
-    assert_eq!(t.texto(source, a.start(declarations[0])), "@");
-    assert_eq!(t.texto(source, a.start(declarations[1])), "void");
-    assert_eq!(t.texto(source, a.end(declarations[1])), "}");
+    assert_eq!(t.text(source, a.start(declarations[0])), "@");
+    assert_eq!(t.text(source, a.start(declarations[1])), "void");
+    assert_eq!(t.text(source, a.end(declarations[1])), "}");
 }
 
 #[test]
