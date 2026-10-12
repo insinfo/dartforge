@@ -2114,9 +2114,13 @@ fn operando_de_fluxo<R>(
     // (`MethodInvocation` → `FunctionExpressionInvocation`), e o `flowEnd`
     // deste operando não o encontra mais (`_containsFirstDeadNode`): o
     // trecho só fecha no fim do bloco básico de fora.
-    let reescrito = abre && chamada_de_local(inf, cx, e) && !cx.fins_de_fluxo.is_empty();
+    // `p.y` com `p` local de tipo record: o `PrefixedIdentifierResolver`
+    // troca o nó por um `PropertyAccess`, com o mesmo efeito.
+    let reescrito = abre && (chamada_de_local(inf, cx, e) || propriedade_de_record_local(inf, cx, e)) && !cx.fins_de_fluxo.is_empty();
     if abre {
-        let fim = if reescrito { cx.fins_de_fluxo.last().copied().unwrap_or(sp.end).max(sp.end) } else { sp.end };
+        // Com pai binário, o `flowEnd` que fecha o trecho troca o nó pelo
+        // `rightOperand` (o novo): o fim é o do operando de qualquer forma.
+        let fim = if reescrito && inicio.is_none() { cx.fins_de_fluxo.last().copied().unwrap_or(sp.end).max(sp.end) } else { sp.end };
         let span = dartforge_diagnostics::Span { start: inicio.unwrap_or(sp.start), end: fim };
         inf.aviso(DEAD_CODE.template.to_string(), span);
         if reescrito {
@@ -2161,6 +2165,18 @@ fn primeira_secao_sem_reescrita(inf: &mut BodyInferrer<'_>, cx: &Corpo, secao: E
     let nome = name.sym;
     let nn = inf.nao_nulo(t);
     !matches!(inf.buscar_membro(cx.lib, nn, nome, false), Busca::Achado(m) if !m.metodo)
+}
+
+/// `e` é `p.y` (um `PrefixedIdentifier`) com `p` local cujo tipo, pelo
+/// limite, é um record (`prefixed_identifier_resolver.dart:31-46`).
+fn propriedade_de_record_local(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId) -> bool {
+    let a = ast(inf, cx);
+    let ExprKind::Property { target, null_aware: false, .. } = &a.expr(e).kind else { return false };
+    let ExprKind::Identifier(n) = &a.expr(*target).kind else { return false };
+    let Some(super::corpo::Nome::Local(id)) = cx.buscar(n.sym) else { return false };
+    let t = cx.fluxo.tipo_atual(id, cx.local(id).tipo);
+    let t = inf.resolver_ao_limite(t);
+    matches!(inf.table.get(t), Type::Record { .. })
 }
 
 /// `e` é `f(...)` com `f` uma variável local (não função local).
@@ -5051,7 +5067,27 @@ fn api_sem_nulo(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, resultado: Ty
         Some(Some(t)) => matches!(inf.table.get(t), Type::Null),
     };
     if nulo {
-        let sp = inf.span_expr(cx.unit, argumento.unwrap_or(e));
+        let mut sp = inf.span_expr(cx.unit, argumento.unwrap_or(e));
+        // A seção de cascata (`c..complete()`): o `MethodInvocation` sem alvo
+        // começa no operador `..`/`?..`.
+        if argumento.is_none()
+            && let ExprKind::Call { target, .. } = &a.expr(e).kind
+            && let ExprKind::Property { target: receptor, .. } = &a.expr(*target).kind
+            && matches!(a.expr(*receptor).kind, ExprKind::CascadeTarget)
+        {
+            let fonte = inf.program.unit(cx.unit).source.as_bytes();
+            let mut i = sp.start;
+            while i > 0 && fonte[i - 1].is_ascii_whitespace() {
+                i -= 1;
+            }
+            if i >= 2 && &fonte[i - 2..i] == b".." {
+                i -= 2;
+                if i >= 1 && fonte[i - 1] == b'?' {
+                    i -= 1;
+                }
+                sp.start = i;
+            }
+        }
         let exibido = inf.table.format_sem_alias(tipo, inf.interner, inf.program);
         inf.aviso_com_codigo(dartforge_diagnostics::codigos::warning::NULL_ARGUMENT_TO_NON_NULL_TYPE, sp, &[nome, &exibido]);
     }

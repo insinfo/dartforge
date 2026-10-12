@@ -198,6 +198,14 @@ pub fn verificar(unidades: &[Unidade<'_>], nomes: &Interner) -> Vec<(usize, Diag
                             saida.push((iu, Diagnostic::com_codigo(c::INITIALIZING_FORMAL_FOR_NON_EXISTENT_FIELD, sp, [nome.as_str()])));
                         }
                         Achado::Declarado(i) if dono.campos[i].estatico => {
+                            // O construtor primário (3.13.4,
+                            // `_checkForValidField`): no `this`.
+                            let sp = match p.name {
+                                Some(n) if e_primario => u.fonte[sp.start..n.span.start]
+                                    .rfind("this")
+                                    .map_or(sp, |i| Span { start: sp.start + i, end: sp.start + i + 4 }),
+                                _ => sp,
+                            };
                             saida.push((iu, Diagnostic::com_codigo(c::INITIALIZER_FOR_STATIC_FIELD, sp, [nome.as_str()])));
                         }
                         Achado::Declarado(_) => {}

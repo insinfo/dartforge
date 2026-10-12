@@ -660,6 +660,21 @@ impl<'a> Visita<'a> {
         let mut vistos: Vec<(SymbolId, Span)> = Vec::new();
         for f in campos.iter() {
             let (nome, span) = match f.name {
+                // `:var x` com o nome guardado (o da variável, dentro do
+                // subpadrão): o alvo é o `:` que o precede.
+                Some(n) if {
+                    let sp = a.pattern(f.pattern).span;
+                    sp.start <= n.span.start && n.span.end <= sp.end
+                } =>
+                {
+                    let bytes = self.fonte.as_bytes();
+                    let mut i = a.pattern(f.pattern).span.start;
+                    while i > 0 && bytes.get(i - 1).is_some_and(|b| b.is_ascii_whitespace()) {
+                        i -= 1;
+                    }
+                    let dois_pontos = if i > 0 && bytes.get(i - 1) == Some(&b':') { Span { start: i - 1, end: i } } else { n.span };
+                    (Some(n.sym), dois_pontos)
+                }
                 Some(n) => (Some(n.sym), n.span),
                 None => {
                     // `:var x` (o campo começa em `:`): o nome é o da variável.

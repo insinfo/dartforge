@@ -1958,7 +1958,44 @@ impl<'s, 'i> Parser<'s, 'i> {
             return Ok((Vec::new(), ty, nome));
         }
         if !simples {
-            self.erro_em(codigos::parser::EXPECTED_REPRESENTATION_FIELD, depois_abre, &[]);
+            // O 3.13.4 relata no `ErrorVerifier`
+            // (`_checkForExtensionTypeRepresentationErrorCodes`): o `this`
+            // de `int this.x`, o `super` de `int super.x`, o parâmetro sem
+            // nome inteiro, o delimitador de `[`/`{` (recurso desligado) e o
+            // começo do parâmetro de função; o 3.6.2, o token depois do `(`.
+            let em_3_13 = params.first().and_then(|p| {
+                let palavra = |pp: &Self, k: Keyword| {
+                    pp.tokens[abre..pp.pos].iter().find(|t| t.span.start >= p.span.start && t.kind == Kind::Keyword(k)).map(|t| t.span)
+                };
+                let inicio = p.metadata.first().map_or(p.span.start, |m| m.span.start.min(p.span.start));
+                if p.this_ {
+                    palavra(self, Keyword::This)
+                } else if p.super_ {
+                    palavra(self, Keyword::Super)
+                } else if p.name.is_none() {
+                    Some(Span { start: inicio, end: p.span.end })
+                } else if p.kind != ParameterKind::Required && !self.features.tem(Feature::PrimaryConstructors) {
+                    self.tokens[abre..self.pos]
+                        .iter()
+                        .find(|t| matches!(t.kind, Kind::Op(Op::LBracket | Op::LBrace)))
+                        .map(|t| t.span)
+                } else if p.function_parameters.is_some() && !self.features.tem(Feature::PrimaryConstructors) {
+                    self.tokens[abre..self.pos].iter().find(|t| t.span.start >= inicio).map(|t| t.span)
+                } else {
+                    None
+                }
+            });
+            match em_3_13 {
+                Some(sp) if sp != depois_abre => {
+                    self.erro_em(codigos::parser::EXPECTED_REPRESENTATION_FIELD, depois_abre, &[]);
+                    self.so_3_6.push((codigos::parser::EXPECTED_REPRESENTATION_FIELD, depois_abre));
+                    self.erro_em(codigos::parser::EXPECTED_REPRESENTATION_FIELD, sp, &[]);
+                    self.so_3_13.push((codigos::parser::EXPECTED_REPRESENTATION_FIELD, sp));
+                }
+                _ => {
+                    self.erro_em(codigos::parser::EXPECTED_REPRESENTATION_FIELD, depois_abre, &[]);
+                }
+            }
             let (ty, nome) = sintetico(self);
             return Ok((Vec::new(), ty, nome));
         }
@@ -1987,7 +2024,18 @@ impl<'s, 'i> Parser<'s, 'i> {
                 sintetico(self).0
             }
             None => {
-                self.erro_em(codigos::parser::EXPECTED_REPRESENTATION_TYPE, depois_abre, &[]);
+                // O 3.13.4 relata no nome (`@anno int`: `int` é o nome).
+                match p.name {
+                    Some(nome) if nome.span != depois_abre => {
+                        self.erro_em(codigos::parser::EXPECTED_REPRESENTATION_TYPE, depois_abre, &[]);
+                        self.so_3_6.push((codigos::parser::EXPECTED_REPRESENTATION_TYPE, depois_abre));
+                        self.erro_em(codigos::parser::EXPECTED_REPRESENTATION_TYPE, nome.span, &[]);
+                        self.so_3_13.push((codigos::parser::EXPECTED_REPRESENTATION_TYPE, nome.span));
+                    }
+                    _ => {
+                        self.erro_em(codigos::parser::EXPECTED_REPRESENTATION_TYPE, depois_abre, &[]);
+                    }
+                }
                 sintetico(self).0
             }
         };

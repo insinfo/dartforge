@@ -10,7 +10,7 @@ use crate::resolve::OutlineTypes;
 use crate::subtyping::{is_subtype, SubtypeEnv};
 use crate::table::{CoreTypes, Type, TypeTable};
 use dartforge_diagnostics::codigos::compile_time_error as c;
-use dartforge_diagnostics::Diagnostic;
+use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_elements::model::{FunctionKind, FunctionRef, LibraryId, Program, UnitId};
 use dartforge_frontend::ast::ParameterKind;
 use dartforge_intern::Interner;
@@ -47,7 +47,34 @@ pub fn funcao_main(
         // O primeiro posicional (obrigatório ou opcional), pelo tipo escrito:
         // sem tipo ele é `dynamic` e a condição não dispara.
         let Some(k) = ps.iter().position(|p| p.kind != ParameterKind::Named) else { continue };
-        let Some(escrito) = ps[k].ty else { continue };
+        let p = &ps[k];
+        // `typeOrSelf` do `notDefault`: o tipo escrito de um parâmetro simples;
+        // o parâmetro inteiro (sem o valor padrão) na forma de função
+        // (`void args()`), em `this.x` e em `super.x`.
+        let span = if p.function_parameters.is_none() && !p.this_ && !p.super_ {
+            let Some(escrito) = p.ty else { continue };
+            a.ty(escrito).span
+        } else {
+            let inicio = p.metadata.first().map_or(p.span.start, |m| m.span.start.min(p.span.start));
+            let fim = match p.default_value {
+                Some(d) => {
+                    let fonte = program.unit(unit).source.as_bytes();
+                    let mut i = a.expr(d).span.start;
+                    while i > inicio && fonte[i - 1].is_ascii_whitespace() {
+                        i -= 1;
+                    }
+                    if i > inicio && matches!(fonte[i - 1], b'=' | b':') {
+                        i -= 1;
+                    }
+                    while i > inicio && fonte[i - 1].is_ascii_whitespace() {
+                        i -= 1;
+                    }
+                    i
+                }
+                None => p.span.end,
+            };
+            Span { start: inicio, end: fim }
+        };
         let Some(dados) = outline.functions.get(i) else { continue };
         let Some(tipo) = dados.parameters.get(k).map(|p| p.ty) else { continue };
         let Some(lista) = core.list_class else { continue };
@@ -57,7 +84,6 @@ pub fn funcao_main(
             is_subtype(lista_de_string, tipo, &mut env)
         };
         if !cabe {
-            let span = a.ty(escrito).span;
             saida.push((unit, Diagnostic::com_codigo(c::MAIN_FIRST_POSITIONAL_PARAMETER_TYPE, span, vazio.iter().copied())));
         }
     }

@@ -112,6 +112,32 @@ const CASOS: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
         "class M {\n  late final c = f();\n  late final d = c.toString();\n  int f() => 0;\n}\nclass N {\n  late final c = this.g<int>();\n  late final d = c.isEven;\n  T g<T>() => throw 0;\n}\nvoid main() {\n  print(M().d);\n  print(N().d);\n}\n",
         &[],
     ),
+    // Posições do corpus (2026-10-12): trecho morto com nó reescrito (record) e\nfor de coleção com inicialização que não completa, `:var` repetido, `main`\ncom parâmetro de função, `..complete()` e o fluxo do `for (x in e)`.
+    (
+        "campo_padrao.dart",
+        "void f(x) {\n  switch (x) {\n    case (foo: 0, :var foo):\n      break;\n  }\n}\n",
+        &[("duplicate_pattern_field", 3, 19, 1), ("unused_local_variable", 3, 24, 3)],
+    ),
+    (
+        "cascata_completer.dart",
+        "import 'dart:async';\nvoid f(Completer<int> c) {\n  c..complete();\n}\n",
+        &[("null_argument_to_non_null_type", 3, 4, 12)],
+    ),
+    (
+        "for_in_fluxo.dart",
+        "void use(Object? o) {}\nvoid f(bool b) {\n  if (b) {\n    int x;\n    late int y;\n    for (x in []) {}\n    for (y in []) {}\n    use(x);\n    use(y);\n  }\n  if (b) {\n    int x;\n    late int y;\n    [for (x in []) 0];\n    [for (y in []) 0];\n    use(x);\n    use(y);\n  }\n}\n",
+        &[("not_assigned_potentially_non_nullable_local_variable", 8, 9, 1), ("not_assigned_potentially_non_nullable_local_variable", 16, 9, 1)],
+    ),
+    (
+        "main_funcao.dart",
+        "void main(void args()) {}\n",
+        &[("main_first_positional_parameter_type", 1, 11, 11)],
+    ),
+    (
+        "morto_record.dart",
+        "void f(({int x, int y}) p) {\n  true ? p.x : p.y;\n}\nvoid g(({bool b, }) r) {\n  if (true || r.b) {}\n}\nf2() => [for (var (i) = throw 0; true; 1) 0];\n",
+        &[("dead_code", 2, 16, 4), ("dead_code", 5, 12, 6), ("unused_local_variable", 7, 20, 1), ("dead_code", 7, 34, 7)],
+    ),
 ];
 
 #[test]

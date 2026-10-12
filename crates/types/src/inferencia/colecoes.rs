@@ -809,6 +809,20 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, el: &CollectionElement, f
             if let Some(i) = init {
                 super::instrucoes::inicializacao_de_for(inf, cx, i);
             }
+            // Inicialização que não completa (`[for (var (i) = throw 0; c; u) e]`),
+            // como no comando `for`: o primeiro nó morto é a condição, e o
+            // `flowEnd` que o encerra (o do corpo da função) vai dele ao fim
+            // da última atualização (o pai é o `ForParts`); o resto do
+            // elemento fica no mesmo trecho.
+            let morto_no_inicio = !cx.fluxo.alcancavel && cx.trecho_morto.is_none();
+            if morto_no_inicio {
+                let a = &inf.program.unit(cx.unit).ast;
+                if let (Some(c), Some(u)) = (condition, updates.last()) {
+                    let sp = dartforge_diagnostics::Span { start: a.expr(*c).span.start, end: a.expr(*u).span.end };
+                    inf.aviso(crate::codes::DEAD_CODE.template.to_string(), sp);
+                }
+                cx.trecho_morto = Some(usize::MAX);
+            }
             // `for_conditionBegin`: o que o laço escreve — a condição, as
             // atualizações e o corpo (o `AssignedVariables` do nó inteiro,
             // como no comando `for`) — perde a promoção e deixa de estar
@@ -832,18 +846,27 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, el: &CollectionElement, f
                 inferir_livre(inf, cx, *u2);
             }
             cx.fluxo = antes;
+            if morto_no_inicio {
+                cx.trecho_morto = if condition.is_some() && updates.is_empty() { Some(0) } else { None };
+            }
             cx.tirar_escopo();
         }
         CollectionElement::ForIn { await_, target, iterable, body } => {
             cx.empurrar_escopo();
-            let antes = cx.fluxo.clone();
-            super::instrucoes::cabecalho_for_in(inf, cx, target, *iterable, *await_);
+            let escrita = super::instrucoes::cabecalho_for_in(inf, cx, target, *iterable, *await_);
             // `forEach_bodyBegin`: o que o corpo escreve, como no comando
-            // `for-in` (junção conservadora do laço).
+            // `for-in` (junção conservadora do laço); o estado daí entra no
+            // `forEach_end`, juntado ao do fim do corpo.
             let (escritas, capturadas) = super::instrucoes::escritas_em(inf, cx, &[super::instrucoes::Parte::Elemento(body)]);
             cx.fluxo.juncao_conservadora(&escritas, &capturadas);
+            let antes = cx.fluxo.clone();
+            if let Some(x) = escrita {
+                x.aplicar(inf, cx);
+            }
             reborrow_visitar(inf, cx, body, forma, ctxs, &mut gi);
-            cx.fluxo = antes;
+            let depois = std::mem::replace(&mut cx.fluxo, antes);
+            let antes = cx.fluxo.clone();
+            cx.fluxo = inf.juntar(&depois, &antes);
             cx.tirar_escopo();
         }
     }

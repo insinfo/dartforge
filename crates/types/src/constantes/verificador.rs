@@ -671,7 +671,8 @@ impl Verificador<'_, '_> {
         // do `PrimaryConstructorDeclaration` (`ast.dart:45420-45424`), do
         // primeiro token (o `const`, quando escrito) ao nome do construtor, ou
         // só o primeiro token.
-        let faixa = if self.e_primario(a, mid, k) {
+        let primario = self.e_primario(a, mid, k);
+        let faixa = if primario {
             let fonte = &program.unit(self.unidade).source;
             let inicio = if k.const_ {
                 let antes = fonte[..k.class_name.span.start].trim_end();
@@ -717,7 +718,11 @@ impl Verificador<'_, '_> {
                         None => program.class(sup).constructors.is_empty() && nome_do_super.is_none(),
                     };
                     if nao_const {
-                        let span = escrito.map_or(k.class_name.span, |(s, _)| s);
+                        // Sem `super(…)` escrito, o `implicitErrorRange`: no
+                        // primário, a faixa do cabeçalho (`class const B()`:
+                        // o `const`).
+                        let implicito = if primario { faixa } else { k.class_name.span };
+                        let span = escrito.map_or(implicito, |(s, _)| s);
                         // No 3.6.2 o argumento é a classe DO CONSTRUTOR; no
                         // 3.13.4, a superclasse (o segundo argumento, que só
                         // a variante 3.13 do código usa: T2, caso c04).
@@ -757,7 +762,11 @@ impl Verificador<'_, '_> {
                 fila.extend(dx.supertype_class);
             }
             if achou {
-                self.relatar(c::CONST_CONSTRUCTOR_WITH_NON_FINAL_FIELD, cabecalho, Vec::new());
+                // No primário, o `errorRange` do cabeçalho
+                // (`class const A()`: `const`; `class const A.n()`:
+                // `const A.n`).
+                let span = if primario { faixa } else { cabecalho };
+                self.relatar(c::CONST_CONSTRUCTOR_WITH_NON_FINAL_FIELD, span, Vec::new());
             }
         }
     }

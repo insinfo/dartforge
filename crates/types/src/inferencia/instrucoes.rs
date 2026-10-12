@@ -218,7 +218,7 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
             cx.empurrar_escopo();
             let antes_do_corpo = {
                 let alcancavel_antes = cx.fluxo.alcancavel;
-                cabecalho_for_in(inf, cx, target, *iterable, *await_);
+                let escrita = cabecalho_for_in(inf, cx, target, *iterable, *await_);
                 // Iterável que não completa (`Never`): o primeiro nó morto é a
                 // variável do laço (o `DeclaredIdentifier`, depois do
                 // iterável na ordem do fluxo), e o trecho vai dela ao fim do
@@ -239,7 +239,11 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
                 }
                 let (escritas, capturadas) = escritas_em(inf, cx, &[Parte::Stmt(*body)]);
                 cx.fluxo.juncao_conservadora(&escritas, &capturadas);
-                cx.fluxo.clone()
+                let antes = cx.fluxo.clone();
+                if let Some(x) = escrita {
+                    x.aplicar(inf, cx);
+                }
+                antes
             };
             cx.saltos.push(AlvoSalto { rotulos, laco: true, e_switch: false, breaks: Vec::new(), continues: Vec::new() });
             ramo_de_fluxo(inf, cx, *body);
@@ -1106,9 +1110,30 @@ pub(crate) fn inicializacao_de_for(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, i
     }
 }
 
+/// A escrita da variável existente de um `for (x in e)`, adiada para depois
+/// do `forEach_bodyBegin` (a junção conservadora do laço e o estado
+/// anterior ao corpo, que entra no `forEach_end`).
+pub(crate) struct EscritaDoLaco {
+    pub(crate) local: LocalId,
+    declarado: TypeId,
+    escrito: TypeId,
+    motivo: super::fluxo::MotivoDeNaoPromocao,
+}
+
+impl EscritaDoLaco {
+    /// O `flow.write` do identificador (`for_resolver.dart:187-191`).
+    pub(crate) fn aplicar(self, inf: &mut BodyInferrer<'_>, cx: &mut Corpo) {
+        let mut f = std::mem::replace(&mut cx.fluxo, Fluxo::alcancavel());
+        inf.atribuir_fluxo(&mut f, self.local, self.declarado, self.escrito, Some(self.motivo));
+        cx.fluxo = f;
+    }
+}
+
 /// Cabeçalho de `for-in` (instrução ou elemento de coleção): infere o
-/// iterável e declara/atribui a variável do laço.
-pub(crate) fn cabecalho_for_in(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, target: &ast::ForInTarget, iterable: ExprId, await_: bool) {
+/// iterável e declara a variável do laço. A atribuição a uma variável
+/// existente volta para quem chama, que a aplica depois da junção
+/// conservadora (`forEach_bodyBegin`).
+pub(crate) fn cabecalho_for_in(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, target: &ast::ForInTarget, iterable: ExprId, await_: bool) -> Option<EscritaDoLaco> {
     let classe = if await_ { inf.core.stream_class } else { inf.core.iterable_class };
     // Contexto do iterável: `Iterable<T>` com o tipo escrito da variável.
     let escrito = match target {
@@ -1178,18 +1203,16 @@ pub(crate) fn cabecalho_for_in(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, targe
                     }
                     let decl = cx.local(id).tipo;
                     expr::registrar(inf, cx, *e, decl);
-                    let mut f = std::mem::replace(&mut cx.fluxo, Fluxo::alcancavel());
                     // `DemoteViaExplicitWrite` no identificador
                     // (`ForEachPartsWithIdentifier.identifier`).
                     let motivo = super::fluxo::MotivoDeNaoPromocao::Escrita { nome: n.sym, span: n.span };
-                    inf.atribuir_fluxo(&mut f, id, decl, el, Some(motivo));
-                    cx.fluxo = f;
-                    return;
+                    return Some(EscritaDoLaco { local: id, declarado: decl, escrito: el, motivo });
                 }
             }
             inferir_livre(inf, cx, *e);
         }
     }
+    None
 }
 
 /// As anotações de uma declaração local (`Ast::metadados_locais`), pelo
