@@ -471,7 +471,21 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
                 // O valor do nome como constante (`_getConstantValue`,
                 // 3.6.2 `evaluation.dart:1790-1870`): sem `const`, o erro
                 // genérico, que o `ConstantVerifier` relata no nome.
-                let nao_constante = match expr::resolver_nome(inf, cx, name.sym, false) {
+                let referido = expr::resolver_nome(inf, cx, name.sym, false);
+                let resolvido = match &referido {
+                    expr::RefNome::Elemento(el) => Some(crate::resolved::Resolved::Element(*el)),
+                    expr::RefNome::MembroLexico(f, estatico) => Some(expr::resolved_de_membro_lexico(inf, cx, *f, *estatico)),
+                    expr::RefNome::ConstanteEnum(v) => inf.program.variable(*v).class.map(|c| crate::resolved::Resolved::Member {
+                        class: c,
+                        member: crate::resolved::MemberRef::Variable(*v),
+                        via_super: false,
+                    }),
+                    _ => None,
+                };
+                if let Some(r) = resolvido {
+                    inf.body_types.units[cx.unit.0 as usize].nomes_de_padroes.insert(p, r);
+                }
+                let nao_constante = match referido {
                     expr::RefNome::Local(id) => !cx.local(id).const_,
                     expr::RefNome::Elemento(dartforge_elements::model::Element::Variable(v)) => !inf.program.variable(v).const_,
                     expr::RefNome::Elemento(dartforge_elements::model::Element::Function(f)) => {

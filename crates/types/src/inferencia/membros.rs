@@ -80,6 +80,22 @@ impl<'a> crate::heranca::Provedor<'a> for BodyInferrer<'a> {
                 self.heranca_provisoria = true;
                 self.core.dynamic_
             }
+            // Outro campo ainda não inferido, numa busca feita durante a
+            // inferência de topo (`late final c = m(); late final d = c.x;`:
+            // inferir `c` busca `m`): o analyzer só infere o que o
+            // inicializador lê, e a interface dele guarda elementos. Inferir
+            // `d` aqui faria um falso `TOP_LEVEL_CYCLE`. Só os membros com o
+            // nome buscado decidem o resultado; os outros ficam provisórios.
+            Some(v)
+                if self.program.function(f).kind == FunctionKind::ImplicitAccessor
+                    && self.nome_da_busca.is_some_and(|n| n != self.program.variable(v).name)
+                    && !self.pilha_de_variaveis.is_empty()
+                    && matches!(self.estado_vars[v.0 as usize], super::EstadoVar::Pendente)
+                    && self.outline.variables.get(v.0 as usize).is_some_and(|d| d.declared_type.is_none()) =>
+            {
+                self.heranca_provisoria = true;
+                self.core.dynamic_
+            }
             Some(v) if self.program.function(f).kind == FunctionKind::ImplicitAccessor => self.tipo_variavel(v),
             _ => self.core.dynamic_,
         };
@@ -105,9 +121,13 @@ impl<'a> BodyInferrer<'a> {
         // A busca pode inferir um campo, e a inferência dele buscar membros:
         // o gerenciador sai do lugar durante a chamada (uma busca aninhada
         // monta as interfaces que precisar num gerenciador próprio).
+        let base = self.interner.resolve(chave);
+        let base = base.strip_suffix('=').map_or(Some(chave), |b| self.interner.lookup(b));
+        let nome_salvo = std::mem::replace(&mut self.nome_da_busca, base);
         let mut h = std::mem::take(&mut self.heranca);
         let achado = h.membro(self, classe, nome, concreto, None, para_super);
         self.heranca = h;
+        self.nome_da_busca = nome_salvo;
         self.depois_da_busca_provisoria(achado.as_ref());
         achado
     }
@@ -138,9 +158,13 @@ impl<'a> BodyInferrer<'a> {
             None => self.program.class(classe).library,
         };
         let nome = crate::heranca::Nome::novo(self.interner, lib, chave);
+        let base = self.interner.resolve(chave);
+        let base = base.strip_suffix('=').map_or(Some(chave), |b| self.interner.lookup(b));
+        let nome_salvo = std::mem::replace(&mut self.nome_da_busca, base);
         let mut h = std::mem::take(&mut self.heranca);
         let achado = h.herdado(self, classe, nome);
         self.heranca = h;
+        self.nome_da_busca = nome_salvo;
         self.depois_da_busca_provisoria(achado.as_ref());
         achado
     }

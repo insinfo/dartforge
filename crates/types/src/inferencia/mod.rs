@@ -339,6 +339,10 @@ pub struct BodyInferrer<'a> {
     pub(crate) declarados_sem_tipar: Option<dartforge_elements::model::ClassId>,
     /// Alguma interface do cache foi montada com um campo não tipado.
     pub(crate) heranca_provisoria: bool,
+    /// O nome (sem o `=`) buscado na interface durante uma inferência de
+    /// topo: os campos ainda não inferidos com outro nome ficam provisórios
+    /// ([`crate::heranca::Provedor::tipo_do_membro`]).
+    pub(crate) nome_da_busca: Option<SymbolId>,
 }
 
 /// As extensões acessíveis em `lib` (as da biblioteca e as que os imports
@@ -444,6 +448,7 @@ impl<'a> BodyInferrer<'a> {
             heranca: crate::heranca::Heranca::default(),
             declarados_sem_tipar: None,
             heranca_provisoria: false,
+            nome_da_busca: None,
             pais: HashMap::new(),
             pilha_de_variaveis: Vec::new(),
             em_ciclo: HashSet::new(),

@@ -1097,12 +1097,16 @@ pub fn membros_abstratos(
                     });
                     if let Some(&m) = declarado {
                         let mut sp = ast_.member(m).span;
-                        // `var get a;`: o `var` (erro de sintaxe) fica fora do nó.
-                        if let MemberKind::Method(_) = &ast_.member(m).kind
-                            && let Some(resto) = fonte[sp.start..sp.end].strip_prefix("var")
-                            && resto.starts_with(char::is_whitespace)
-                        {
-                            sp.start = sp.end - resto.trim_start().len();
+                        // `var get a;`, `const m();`, `abstract void m();`…: os
+                        // modificadores que o `MethodDeclaration` não guarda (erros
+                        // de sintaxe) ficam fora do nó; `external`/`static` ficam.
+                        if let MemberKind::Method(_) = &ast_.member(m).kind {
+                            const FORA: [&str; 7] = ["var", "const", "final", "abstract", "covariant", "late", "required"];
+                            while let Some(resto) =
+                                FORA.iter().find_map(|k| fonte[sp.start..sp.end].strip_prefix(k).filter(|r| r.starts_with(char::is_whitespace)))
+                            {
+                                sp.start = sp.end - resto.trim_start().len();
+                            }
                         }
                         let span = Span { start: inicio_com_documentacao(fonte, sp.start), end: sp.end };
                         let codigo = if e_enum { c::ENUM_WITH_ABSTRACT_MEMBER } else { c::CONCRETE_CLASS_WITH_ABSTRACT_MEMBER };

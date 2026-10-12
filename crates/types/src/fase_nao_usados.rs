@@ -757,6 +757,50 @@ pub fn elementos_nao_usados(
             }
         }
 
+        // O nome solto de um padrão refutável (`case _limite:`): o
+        // `SimpleIdentifier` do `ConstantPattern`, lido.
+        for (p, r) in corpo.nomes_de_padroes.iter() {
+            let onde = a.pattern(*p).span;
+            match r {
+                Resolved::Element(e) => {
+                    let Some(el) = cx.do_elemento(*e) else { continue };
+                    match el {
+                        El::Variavel(v) | El::Getter(v) | El::Setter(v) if program.variable(v).class.is_none() && program.variable(v).extension.is_some() => {
+                            usados.membros.insert(El::Getter(v));
+                            membro_lido(&mut usados, El::Getter(v));
+                        }
+                        El::Variavel(v) | El::Getter(v) | El::Setter(v) if program.variable(v).class.is_none() => {
+                            usados.elementos.insert(El::Variavel(v));
+                        }
+                        El::Funcao(f) if matches!(program.function(f).kind, FunctionKind::Getter | FunctionKind::Setter) => {
+                            usados.membros.insert(el);
+                            membro_lido(&mut usados, el);
+                        }
+                        _ => usar(&mut usados, el, onde),
+                    }
+                }
+                Resolved::Member { member, .. } => {
+                    let el = match member {
+                        MemberRef::Variable(v) => El::Getter(*v),
+                        MemberRef::Function(f) => match cx.da_funcao(*f) {
+                            El::Getter(v) | El::Setter(v) => El::Getter(v),
+                            outro => outro,
+                        },
+                    };
+                    usar(&mut usados, el, onde);
+                    usados.membros.insert(el);
+                    membro_lido(&mut usados, el);
+                }
+                Resolved::ExtensionMember { member, .. } => {
+                    let el = cx.da_funcao(*member);
+                    usar(&mut usados, el, onde);
+                    usados.membros.insert(el);
+                    membro_lido(&mut usados, el);
+                }
+                _ => {}
+            }
+        }
+
         // `visitPatternField`: `addMember` e `addReadMember` do elemento do
         // campo.
         for p in a.patterns.iter() {

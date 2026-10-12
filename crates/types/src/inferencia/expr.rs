@@ -878,7 +878,7 @@ fn ler_elemento(inf: &mut BodyInferrer<'_>, el: Element) -> TypeId {
     }
 }
 
-fn resolved_de_membro_lexico(inf: &BodyInferrer<'_>, cx: &Corpo, f: dartforge_elements::model::FunctionElementId, estatico: bool) -> Resolved {
+pub(crate) fn resolved_de_membro_lexico(inf: &BodyInferrer<'_>, cx: &Corpo, f: dartforge_elements::model::FunctionElementId, estatico: bool) -> Resolved {
     let fe = inf.program.function(f);
     if let Some(x) = fe.extension.or(cx.extensao) {
         if fe.class.is_none() {

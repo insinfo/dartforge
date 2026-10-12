@@ -112,6 +112,10 @@ pub struct UnitBodyTypes {
     /// `const`, membro de instância, getter (o `_getConstantValue` do 3.6.2 dá
     /// o erro genérico). O `ConstantVerifier` relata no nome.
     pub padroes_de_nome_nao_constante: std::collections::HashSet<ast::PatternId>,
+    /// O elemento do nome solto em contexto refutável (o `SimpleIdentifier`
+    /// do `ConstantPattern`: `case _limite:`), que não tem `ExprId` na nossa
+    /// árvore: o que o `Resolved` de um identificador daria.
+    pub nomes_de_padroes: std::collections::HashMap<ast::PatternId, Resolved>,
     /// As expressões de função cujo tipo de contexto era um tipo de função
     /// (`FunctionExpressionImpl.wasFunctionTypeSupplied`, o
     /// `FunctionExpressionResolver` do analyzer: `contextType is
@@ -167,6 +171,7 @@ impl UnitBodyTypes {
             padroes_invalidos: std::collections::HashSet::new(),
             tipos_casados: std::collections::HashMap::new(),
             padroes_de_nome_nao_constante: std::collections::HashSet::new(),
+            nomes_de_padroes: std::collections::HashMap::new(),
             chamadas_implicitas: std::collections::HashSet::new(),
             tipos_de_parametros: std::collections::HashMap::new(),
             tipos_de_escrita: std::collections::HashMap::new(),

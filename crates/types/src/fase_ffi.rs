@@ -904,11 +904,25 @@ impl<'a> V<'a> {
         let (alvo, membro) = match &m.name[..] {
             [c] => (p.lookup_na_unidade(u, c.sym).and_then(|b| b.getter), None),
             [x, y] => match p.lookup_na_unidade(u, x.sym).and_then(|b| b.getter) {
-                Some(el @ Element::Class(_)) => (Some(el), Some(y.sym)),
+                Some(el @ (Element::Class(_) | Element::Typedef(_))) => (Some(el), Some(y.sym)),
                 _ => (p.lookup_prefixed_na_unidade(u, x.sym, y.sym).and_then(|b| b.getter), None),
             },
             [x, c, n] => (p.lookup_prefixed_na_unidade(u, x.sym, c.sym).and_then(|b| b.getter), Some(n.sym)),
             _ => (None, None),
+        };
+        // `@DWORD()` com `typedef DWORD = Uint32;`: o elemento da anotação é o
+        // construtor da classe que o alias nomeia.
+        let alvo = match alvo {
+            Some(Element::Typedef(t)) if m.arguments.is_some() || membro.is_some() => self
+                .outline
+                .typedefs
+                .get(t.0 as usize)
+                .and_then(|d| match self.tabela_ref().get(d.target_type) {
+                    Type::Interface { class, .. } => Some(Element::Class(*class)),
+                    _ => None,
+                })
+                .or(alvo),
+            outro => outro,
         };
         match (alvo, m.arguments.is_some(), membro) {
             (Some(Element::Class(c)), true, _) => {

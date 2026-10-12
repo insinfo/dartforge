@@ -2288,6 +2288,14 @@ pub(crate) fn conjunto_desnecessario(inf: &mut BodyInferrer<'_>, unit: UnitId, f
 /// Metadados (anotações) e argumentos de constantes de enum de uma unidade.
 pub(crate) fn inferir_metadados_da_unidade(inf: &mut BodyInferrer<'_>, unit: UnitId) {
     let a = &inf.program.unit(unit).ast;
+    // As anotações das diretivas (`@Timeout(Duration(seconds: 9)) library;`,
+    // ou antes do primeiro `import`): no escopo da biblioteca, como as das
+    // declarações (`ResolutionVisitor.visitDirective`).
+    for d in inf.program.unit(unit).unit.directives.iter() {
+        for m in d.metadata.iter() {
+            anotacao(inf, unit, None, None, m);
+        }
+    }
     for (di, d) in a.decls.iter().enumerate() {
         let (classe, _) = classe_da_decl(inf, unit, d);
         // A anotação da declaração é resolvida no escopo de fora dela (o da

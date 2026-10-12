@@ -79,6 +79,39 @@ const CASOS: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
         "sealed class State {\n  final String label;\n  final String? since;\n  const State({required this.label, this.since});\n}\nclass DeprecatedState extends State {\n  final String? replacedBy;\n  const DeprecatedState({super.since, this.replacedBy}) : super(label: 'deprecated');\n}\nclass _P {\n  void _m([int? a]) {}\n}\nf() => _P()._m;\nclass _Q { _Q([int? z]) { print(z); } }\nvoid main() { _Q(); }\n",
         &[],
     ),
+    // Rodada de 2026-10-12 (macOS): modificadores fora do `MethodDeclaration`,
+    // nome solto de padrão refutável, anotação por alias de `typedef` no FFI,
+    // anotações de diretivas e campos `late` sem falso ciclo.
+    (
+        "metodo_modificador.dart",
+        "class C {\n  const m1();\n  final m2();\n  abstract void m3();\n  covariant void m4();\n  var get m5;\n  late void m6();\n  required void m7();\n}\n",
+        &[("const_method", 2, 3, 5), ("concrete_class_with_abstract_member", 2, 9, 5), ("extraneous_modifier", 3, 3, 5), ("concrete_class_with_abstract_member", 3, 9, 5), ("abstract_class_member", 4, 3, 8), ("concrete_class_with_abstract_member", 4, 12, 10), ("covariant_member", 5, 3, 9), ("concrete_class_with_abstract_member", 5, 13, 10), ("var_return_type", 6, 3, 3), ("concrete_class_with_abstract_member", 6, 7, 7), ("extraneous_modifier", 7, 3, 4), ("concrete_class_with_abstract_member", 7, 8, 10), ("extraneous_modifier", 8, 3, 8), ("concrete_class_with_abstract_member", 8, 12, 10)],
+    ),
+    (
+        "padrao_privado.dart",
+        "const _a = 10;\nconst _b = 92;\nconst _c = 93;\nconst _d = 94;\nvoid f(int c) {\n  switch (c) {\n    case _a:\n      print('a');\n  }\n  var x = switch (c) { _b => 1, _ => 2 };\n  if (c case _c) print(x);\n}\nvoid g(int c) {\n  for (var i = 0; i < 2; ++i) {\n    switch (c) {\n      case _d:\n        print('a');\n    }\n  }\n}\nclass K {\n  static const _s = 1;\n  static const _t = 2;\n  void m(int c) {\n    switch (c) { case _s: print(1); }\n  }\n}\nextension E on int {\n  static const _u = 3;\n  void n(int c) { if (c case _u) print(1); }\n}\n",
+        &[("unused_field", 23, 16, 2)],
+    ),
+    (
+        "ffi_alias.dart",
+        "import 'dart:ffi';\ntypedef DWORD = Uint32;\ntypedef P = Packed;\nfinal class F extends Struct {\n  @DWORD()\n  external int x;\n  @Int8()\n  @DWORD()\n  external int y;\n  external int z;\n}\n",
+        &[("extra_annotation_on_struct_field", 8, 3, 8), ("missing_annotation_on_struct_field", 10, 12, 3)],
+    ),
+    (
+        "anotacao_diretiva.dart",
+        "@A(Duratio(seconds: 180))\n@A(1 + 'a')\n@B()\nlibrary;\n\nclass A { final Object o; const A(this.o); }\n",
+        &[("undefined_function", 1, 4, 7), ("const_with_non_constant_argument", 1, 4, 21), ("const_eval_type_num", 2, 4, 7), ("argument_type_not_assignable", 2, 8, 3), ("undefined_annotation", 3, 1, 4)],
+    ),
+    (
+        "anotacao_import.dart",
+        "@A(Duration(seconds: 180))\nimport 'dart:typed_data';\n\nclass A { final Object o; const A(this.o); }\nvoid main() { print(Uint8List(1)); }\n",
+        &[],
+    ),
+    (
+        "campo_tardio.dart",
+        "class M {\n  late final c = f();\n  late final d = c.toString();\n  int f() => 0;\n}\nclass N {\n  late final c = this.g<int>();\n  late final d = c.isEven;\n  T g<T>() => throw 0;\n}\nvoid main() {\n  print(M().d);\n  print(N().d);\n}\n",
+        &[],
+    ),
 ];
 
 #[test]
