@@ -16,7 +16,7 @@ use oxc_ast_visit::{Visit, walk};
 use oxc_span::GetSpan;
 
 /// A função auxiliar, declarada no topo do arquivo.
-const AUXILIAR: &str = "var t$P = function(f, c) { f.prototype = c.prototype; };\n";
+const AUXILIAR: &str = "var t$P = function(f, c) { f.prototype = c.prototype; };\nvar t$O = function(o, k, d) { return o && k in o ? o[k] : d; };\n";
 
 struct Achados<'s> {
     fonte: &'s str,
@@ -46,6 +46,13 @@ impl<'a> Visit<'a> for Achados<'_> {
                 .insert(id.name.to_string(), l.value.to_string());
         }
         walk::walk_variable_declarator(self, it);
+    }
+    fn visit_conditional_expression(&mut self, it: &oxc_ast::ast::ConditionalExpression<'a>) {
+        if let Some(novo) = nomeado(self.fonte, it) {
+            self.trocas.push((it.span.start, it.span.end, novo));
+            return;
+        }
+        walk::walk_conditional_expression(self, it);
     }
     fn visit_call_expression(&mut self, it: &oxc_ast::ast::CallExpression<'a>) {
         if it.span.start > self.fim_sdk
@@ -116,6 +123,64 @@ fn prototipo(fonte: &str, it: &ExpressionStatement<'_>) -> Option<[(u32, u32, St
         (p.span.start, p.span.start + 1, "t$P(".to_string()),
         (p.span.end - 1, it.span.end, format!(", {classe});")),
     ])
+}
+
+/// O prólogo de um parâmetro nomeado, `o && "k" in o ? o.k : d`, com `d`
+/// literal ou variável (sem efeito, então avaliar antes não muda nada; o
+/// valor padrão de um parâmetro Dart é constante): `t$O(o, "k", d)`.
+fn nomeado(fonte: &str, it: &oxc_ast::ast::ConditionalExpression<'_>) -> Option<String> {
+    use oxc_ast::ast::{BinaryOperator, LogicalOperator};
+    let Expression::LogicalExpression(l) = &it.test else {
+        return None;
+    };
+    if l.operator != LogicalOperator::And {
+        return None;
+    }
+    let Expression::Identifier(o) = &l.left else {
+        return None;
+    };
+    let Expression::BinaryExpression(b) = &l.right else {
+        return None;
+    };
+    if b.operator != BinaryOperator::In {
+        return None;
+    }
+    let Expression::StringLiteral(k) = &b.left else {
+        return None;
+    };
+    if !matches!(&b.right, Expression::Identifier(o2) if o2.name == o.name) {
+        return None;
+    }
+    let lido = match &it.consequent {
+        Expression::StaticMemberExpression(m) => {
+            matches!(&m.object, Expression::Identifier(o3) if o3.name == o.name)
+                && m.property.name == k.value
+        }
+        Expression::ComputedMemberExpression(m) => {
+            matches!(&m.object, Expression::Identifier(o3) if o3.name == o.name)
+                && matches!(&m.expression, Expression::StringLiteral(k2) if k2.value == k.value)
+        }
+        _ => false,
+    };
+    let simples = matches!(
+        &it.alternate,
+        Expression::NullLiteral(_)
+            | Expression::BooleanLiteral(_)
+            | Expression::NumericLiteral(_)
+            | Expression::StringLiteral(_)
+            | Expression::Identifier(_)
+    ) || matches!(&it.alternate, Expression::UnaryExpression(u) if u.operator == oxc_ast::ast::UnaryOperator::Void && matches!(u.argument, Expression::NumericLiteral(_)))
+        || matches!(&it.alternate, Expression::UnaryExpression(u) if u.operator == oxc_ast::ast::UnaryOperator::UnaryNegation && matches!(u.argument, Expression::NumericLiteral(_)));
+    if !lido || !simples {
+        return None;
+    }
+    let texto = |s: oxc_span::Span| &fonte[s.start as usize..s.end as usize];
+    Some(format!(
+        "t$O({}, {}, {})",
+        o.name,
+        texto(k.span),
+        texto(it.alternate.span())
+    ))
 }
 
 /// Aplica as formas compactas a `fonte` (o arquivo já embrulhado em

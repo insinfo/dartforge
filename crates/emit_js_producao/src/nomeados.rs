@@ -8,7 +8,7 @@
 //! (`_checkAndCall`) compara com as chaves do objeto. O nome, então, não pode
 //! passar pelo renomeio de propriedades do `oxc`: a receita é uma *string*.
 //!
-//! Aqui o emissor troca o nome por uma chave curta (`$1a`) de um mapa
+//! Aqui o emissor troca o nome por uma chave curta (`$a`, `$bK`) de um mapa
 //! **global por nome**, aplicado ao mesmo tempo na chamada, no prólogo e na
 //! receita (`Ctx::nomeado`). Sendo função só do nome, chamador e chamado
 //! concordam sem saber um do outro, inclusive nas chamadas dinâmicas.
@@ -30,18 +30,18 @@ use dartforge_elements::model::{ClassKind, Element, FunctionElementId};
 use dartforge_types::table::{Type, TypeId};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-fn base36(mut n: usize) -> String {
-    let mut d: Vec<u8> = Vec::new();
-    loop {
-        let r = (n % 36) as u8;
-        d.push(if r < 10 { b'0' + r } else { b'a' + r - 10 });
-        n /= 36;
-        if n == 0 {
-            break;
-        }
+/// O `n`-ésimo sufixo de chave: uma letra entre 54, depois as seguintes
+/// entre 64 (a numeração dos ids de receita, `dartforge_emit_js::numero_de_id`).
+fn sufixo(mut n: usize) -> String {
+    let (a, b) = (dartforge_emit_js::ID_PRIMEIRA, dartforge_emit_js::ID_OUTRAS);
+    let mut s = vec![a[n % a.len()]];
+    n /= a.len();
+    while n > 0 {
+        n -= 1;
+        s.push(b[n % b.len()]);
+        n /= b.len();
     }
-    d.reverse();
-    String::from_utf8(d).unwrap_or_default()
+    String::from_utf8(s).unwrap_or_default()
 }
 
 /// O mapa nome → chave curta, ou `None` quando o programa precisa dos nomes
@@ -71,6 +71,9 @@ pub fn calcular(a: &dartforge_emit_js::Analise<'_>, mundo: &dartforge_mundo::Mun
     }
     let ctx = a.ctx();
     let mut todos: BTreeSet<String> = BTreeSet::new();
+    // Quantas funções declaram cada nome: os mais comuns ficam com as chaves
+    // de uma letra.
+    let mut frequencia: HashMap<String, usize> = HashMap::new();
     let mut fixos: HashSet<String> = mundo.nomes_js.clone();
     for (k, f) in p.functions.iter().enumerate() {
         let Some(ft) = a.outline.functions.get(k) else { continue };
@@ -84,6 +87,7 @@ pub fn calcular(a: &dartforge_emit_js::Analise<'_>, mundo: &dartforge_mundo::Mun
             if interop {
                 fixos.insert(n.clone());
             }
+            *frequencia.entry(n.clone()).or_default() += 1;
             todos.insert(n);
         }
     }
@@ -98,13 +102,15 @@ pub fn calcular(a: &dartforge_emit_js::Analise<'_>, mundo: &dartforge_mundo::Mun
     let mut mapa: HashMap<String, String> = HashMap::new();
     let mut k = 0usize;
     let existentes: HashSet<String> = todos.iter().cloned().collect();
-    for n in todos {
+    let mut ordem: Vec<String> = todos.into_iter().collect();
+    ordem.sort_by(|x, y| frequencia.get(y).unwrap_or(&0).cmp(frequencia.get(x).unwrap_or(&0)).then_with(|| x.cmp(y)));
+    for n in ordem {
         if fixos.contains(&n) {
             continue;
         }
         // A chave curta não pode coincidir com um nome de origem que fica.
         let curto = loop {
-            let c = format!("${}", base36(k));
+            let c = format!("${}", sufixo(k));
             k += 1;
             if !fixos.contains(&c) && !existentes.contains(&c) {
                 break c;

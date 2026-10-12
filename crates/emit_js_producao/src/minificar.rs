@@ -645,6 +645,8 @@ fn chamada_de_nomes(callee: &oxc_ast::ast::Expression<'_>) -> bool {
                 _ => JS_COM_NOMES.contains(&prop),
             }
         }
+        // O prólogo de nomeado de `formas.rs`: `t$O(o, "k", d)` lê `o[k]`.
+        Expression::Identifier(i) if i.name == "t$O" => true,
         // Os mesmos, já achatados (`dart$$dsend`, `achatar.rs`).
         Expression::Identifier(i) => {
             if let Some(x) = crate::achatar::membro(i.name.as_str(), "dart") {

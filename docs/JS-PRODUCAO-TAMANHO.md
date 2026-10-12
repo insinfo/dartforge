@@ -718,3 +718,13 @@ chamada. O SDK fica como está: código dele roda durante a carga, antes da
 declaração. Também em `formas.rs`; `DARTFORGE_JSPROD_RECEITAS_FIXAS=0`
 desliga. A troca do protótipo (§9.8) passou a ser duas trocas pequenas, para
 compor com as de dentro da função.
+
+### 9.10 Prólogo dos parâmetros nomeados e chaves por frequência
+
+O prólogo `o && "k" in o ? o.k : d` (6 mil no `new_sali`) vira `t$O(o, "k",
+d)` quando `d` é literal ou variável (`formas.rs`): o valor padrão Dart é
+constante, então avaliá-lo antes não muda nada. `t$O` conta como chamada de
+nomes para a reserva (a chave é lida por *string*). As chaves curtas dos
+nomeados (§8.2) passaram de base 36 por ordem alfabética para a numeração dos
+ids de receita (uma letra entre 54, depois 64), os nomes mais declarados
+primeiro.
