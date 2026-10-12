@@ -957,11 +957,29 @@ pub fn ligar(ld: &Path, sysroot: &SysrootMacos, l: &Ligacao<'_>) -> Result<(), S
             cmd.arg(format!("--lto-newpm-passes=lto<O{nivel}>,rewrite-statepoints-for-gc,verify"));
         }
         cmd.arg(format!("--thinlto-jobs={}", crate::driver::tarefas_de_geracao()));
+        // O outliner (`driver::outliner_na_ligacao`) é opção global do LLVM,
+        // que a chave do cache do ThinLTO não vê: os módulos gerados com ele
+        // ficam num cache à parte.
+        let outliner = crate::driver::outliner_na_ligacao();
+        if outliner {
+            cmd.arg("-mllvm").arg("-enable-machine-outliner=always");
+        }
         if let Some(d) = crate::driver::cache_do_thinlto() {
-            cmd.arg("-cache_path_lto").arg(d);
+            let d = if outliner { d.join("outliner") } else { d };
+            if std::fs::create_dir_all(&d).is_ok() {
+                cmd.arg("-cache_path_lto").arg(d);
+            }
         }
         if let Some(c) = l.cpu {
             cmd.arg("-mllvm").arg(format!("-mcpu={c}"));
+        }
+        // Medida: opções do LLVM para a LTO (`DARTFORGE_LTO_MLLVM="-a -b=1"`,
+        // como no Windows). O cache do ThinLTO não as vê na chave: medir com
+        // `DARTFORGE_SEM_CACHE_THINLTO=1`.
+        if let Ok(v) = std::env::var("DARTFORGE_LTO_MLLVM") {
+            for o in v.split_whitespace() {
+                cmd.arg("-mllvm").arg(o);
+            }
         }
     }
     if l.podar {
@@ -973,6 +991,18 @@ pub fn ligar(ld: &Path, sysroot: &SysrootMacos, l: &Ligacao<'_>) -> Result<(), S
         // `-S` tira o mapa de depuração (J05); `-x`, os símbolos locais.
         if !crate::ligador::manter_simbolos() && !l.manter_depuracao {
             cmd.args(["-S", "-x"]);
+        }
+        // O executável de produção não exporta nada: ninguém o carrega nem
+        // procura símbolo nele (o `dlsym` do runtime e o
+        // `DynamicLibrary.process()` olham as bibliotecas do sistema). Sem
+        // isto, cada função e cada constante global do programa (as `weak`
+        // das imagens, `linkonce_odr`) entrava na árvore de exportação, na
+        // tabela de símbolos (o `-x` só tira os locais) e na ligação fraca
+        // que o dyld refaz a cada carga: 6,5 MB do `new_sali/backend`.
+        // Os símbolos não exportados viram locais e o `-x` os tira; com
+        // `DARTFORGE_MANTER_SIMBOLOS=1` ficam, para o perfil.
+        if matches!(l.produto, Produto::Executavel) {
+            cmd.arg("-no_exported_symbols");
         }
     }
     if l.podar

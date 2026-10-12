@@ -364,6 +364,33 @@ pub fn nivel_da_lto() -> u8 {
     std::env::var("DARTFORGE_LTO_NIVEL").ok().and_then(|v| v.trim().parse::<u8>().ok()).filter(|n| *n <= 3).unwrap_or(padrao)
 }
 
+/// Se a LTO desta ligação roda o *machine outliner* do LLVM em todas as
+/// funções (`-enable-machine-outliner=always`): o programa grande (em
+/// partes) no modo padrão — exceções por checagem, pilha-sombra, memória
+/// por rastreamento, sem o rastro simbólico — no aarch64. O código Dart
+/// repete muito as mesmas sequências (a moldura da pilha-sombra, a checagem
+/// da exceção pendente, a montagem dos argumentos de um seletor) e o
+/// outliner as troca por uma chamada: o `new_sali/backend` cai de 53,1 para
+/// 38,5 MB (`__text` 44,6 → 30,0 MB). Fica de fora onde o endereço de
+/// retorno de uma chamada importa: as exceções por tabelas e as raízes por
+/// mapas desenrolam os quadros, e o rastro simbólico acha a posição pelo
+/// rótulo antes da chamada (`llvm/rastro.rs`); uma chamada levada para a
+/// função extraída teria o retorno fora da função dela. O programa pequeno
+/// não paga o salto a mais (a LTO dele já é um módulo só, e o tamanho já
+/// fica abaixo do `dart compile exe`). `DARTFORGE_OUTLINER=0` desliga;
+/// `=1` liga também no programa pequeno (medida).
+pub fn outliner_na_ligacao() -> bool {
+    let pedido = std::env::var("DARTFORGE_OUTLINER").ok();
+    if pedido.as_deref() == Some("0") {
+        return false;
+    }
+    let modo_padrao = !crate::alvo::excecoes_por_tabelas().unwrap_or(true)
+        && !crate::alvo::raizes_por_mapas().unwrap_or(true)
+        && !crate::alvo::rastro_simbolico().unwrap_or(true)
+        && !crate::alvo::memoria_arc().unwrap_or(true);
+    cfg!(target_arch = "aarch64") && modo_padrao && (LIGACAO_EM_PARTES.get() || pedido.as_deref() == Some("1"))
+}
+
 /// O diretório do cache do ThinLTO da ligação de produção (ao lado do cache
 /// de objetos); `None` com `DARTFORGE_SEM_CACHE_THINLTO=1` ou sem cache de
 /// objetos.

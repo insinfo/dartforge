@@ -369,6 +369,7 @@ pub fn emitir_bibliotecas_do_sdk(lib_dir: &Path, producao: bool) -> Result<Vec<B
         }
         let ir = if producao { com_optsize(&ir) } else { ir };
         let ir = if excecoes_por_tabelas && cfg!(unix) { com_uwtable(&ir) } else { ir };
+        let ir = if !excecoes_por_tabelas && !raizes_por_mapas { com_nounwind(&ir) } else { ir };
         let tabelas = if producao { std::mem::take(&mut module.tabelas_de_metodos) } else { Vec::new() };
         saida.push(BibliotecaDoSdk { uri, ir, recusados: std::mem::take(&mut module.recusados), tabelas });
     }
@@ -916,11 +917,46 @@ pub fn com_uwtable(ir: &str) -> String {
     com_atributo(ir, " uwtable")
 }
 
+/// O IR com `nounwind` em toda função definida que ainda não o tem: nas
+/// exceções por checagem com a pilha-sombra (o padrão), nada desenrola um
+/// quadro do código Dart — a exceção é uma bandeira no contexto, o rastro
+/// vem da pilha-sombra e o runtime de produção aborta no pânico. Sem o
+/// atributo, o LLVM emite o CFI de toda função que não é folha e, no
+/// Mach-O arm64 sem ponteiro de quadro, isso vira DWARF no `__eh_frame`
+/// (1,4 MB do `new_sali/backend`). As exceções por tabelas
+/// ([`com_uwtable`]) e as raízes por mapas (`_Unwind_Backtrace`)
+/// atravessam os quadros e não passam por aqui.
+///
+/// ```
+/// use dartforge_emit_native::sdk_modulo::com_nounwind;
+/// let ir = "define i64 @f(i64 %x) {\n  ret i64 %x\n}\ndefine internal void @g() alwaysinline nounwind {\n";
+/// assert_eq!(
+///     com_nounwind(ir),
+///     "define i64 @f(i64 %x) nounwind {\n  ret i64 %x\n}\ndefine internal void @g() alwaysinline nounwind {\n"
+/// );
+/// ```
+pub fn com_nounwind(ir: &str) -> String {
+    com_atributo_ausente(ir, " nounwind")
+}
+
 /// Acrescenta um atributo de função (com o espaço na frente) a cada linha
 /// `define`.
 fn com_atributo(ir: &str, atributo: &str) -> String {
+    com_atributo_se(ir, atributo, false)
+}
+
+/// [`com_atributo`] só nas linhas `define` que ainda não têm o atributo.
+fn com_atributo_ausente(ir: &str, atributo: &str) -> String {
+    com_atributo_se(ir, atributo, true)
+}
+
+fn com_atributo_se(ir: &str, atributo: &str, so_ausente: bool) -> String {
     let mut s = String::with_capacity(ir.len() + ir.len() / 64);
     for l in ir.split_inclusive('\n') {
+        if so_ausente && l.starts_with("define ") && l.contains(atributo) {
+            s.push_str(l);
+            continue;
+        }
         // Os atributos vêm depois dos parâmetros e antes do `comdat` (ou da
         // chave que abre o corpo).
         // O `gc "…"` (raízes por mapas) e a personalidade (`personality ptr

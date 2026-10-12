@@ -533,6 +533,9 @@ fn emitir_ir_interno(
     }
     // Nos alvos Itanium, toda função precisa da tabela de desenrolamento.
     let llvm_ir = if excecoes_por_tabelas && cfg!(unix) { sdk_modulo::com_uwtable(&llvm_ir) } else { llvm_ir };
+    // Nas exceções por checagem com a pilha-sombra nada desenrola o código
+    // Dart: sem o CFI de cada função (`sdk_modulo::com_nounwind`).
+    let llvm_ir = if !excecoes_por_tabelas && !raizes_por_mapas { sdk_modulo::com_nounwind(&llvm_ir) } else { llvm_ir };
     let llvm_duration = t_llvm.elapsed();
 
     let bytes_sdk = bytes_do_sdk(&llvm_ir, &program);
