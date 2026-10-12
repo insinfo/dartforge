@@ -2006,22 +2006,26 @@ impl Heap {
     pub(crate) fn reter_owner_codigo(&mut self, valor: Ref) {
         if !smi::e_handle(valor) { return; }
         self.conferir_vivo(valor);
-        let n = self.owners_codigo.get(&valor).copied().unwrap_or(0)
-            .checked_add(1).expect("tokens ARC do código esgotados");
         self.arc_trocar_raiz_proprietaria(valor, 0);
-        self.owners_codigo.insert(valor, n);
+        // Uma busca só no inventário (o caminho de cada retain do código).
+        let n = self.owners_codigo.entry(valor).or_insert(0);
+        *n = n.checked_add(1).expect("tokens ARC do código esgotados");
     }
 
     /// Consome exatamente uma ocorrência da ABI, nunca um owner de slot.
     pub(crate) fn soltar_owner_codigo(&mut self, valor: Ref) {
         if !smi::e_handle(valor) { return; }
-        let n = *self.owners_codigo.get(&valor).expect("release ARC sem token do código");
-        self.arc_trocar_raiz_proprietaria(0, valor);
-        if n == 1 {
-            self.owners_codigo.remove(&valor);
-        } else {
-            self.owners_codigo.insert(valor, n - 1);
+        match self.owners_codigo.entry(valor) {
+            std::collections::hash_map::Entry::Occupied(mut e) => {
+                if *e.get() == 1 {
+                    e.remove();
+                } else {
+                    *e.get_mut() -= 1;
+                }
+            }
+            std::collections::hash_map::Entry::Vacant(_) => panic!("release ARC sem token do código"),
         }
+        self.arc_trocar_raiz_proprietaria(0, valor);
     }
 
     /// Copia um slot proprietário para um token independente do código.
