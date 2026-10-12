@@ -1,23 +1,25 @@
-//! O executor de builders pela **VM Dart** (`docs/BUILD-PROTOCOLO.md` §3):
-//! um processo persistente que fala `dfexec/1` e atende o serviço `build.*`
-//! com o lado Dart de `packages/build_executor`. É o caminho provisório da
-//! Fase 4 (BUILD-RUST.md): o mesmo protocolo que o executor auto-hospedado
-//! vai falar, com a VM oficial no lugar do nosso runtime. Por isso é opcional
-//! e explícito (`dartforge build --dart <exe>`, ou `DARTFORGE_BUILD_DART`):
-//! sem ele o motor continua com o executor [`crate::executor::Indisponivel`].
+//! The builder executor on the **Dart VM** (`docs/BUILD-PROTOCOLO.md` §3):
+//! a persistent process that speaks `dfexec/1` and serves the `build.*`
+//! service with the Dart side of `packages/build_executor`. This is the
+//! interim path of Phase 4 (BUILD-RUST.md): the same protocol the
+//! self-hosted executor will speak, with the official VM in place of our
+//! runtime. That is why it is optional and explicit
+//! (`dartforge build --dart <exe>`, or `DARTFORGE_BUILD_DART`): without it
+//! the engine keeps the [`crate::executor::Indisponivel`] executor.
 //!
-//! O hospedeiro gera, em `.dart_tool/dartforge/build/` do projeto:
+//! The host generates, in the project's `.dart_tool/dartforge/build/`:
 //!
-//! * o pacote `dartforge_build_executor` (as fontes vêm embutidas no binário);
-//! * um `package_config.json` que é o do projeto mais esse pacote — o projeto
-//!   usa `build_runner`, então `build`, `build_resolvers` e as dependências
-//!   deles já estão lá, nas versões do lock;
-//! * o *bootstrap* (`bootstrap.dart`): o equivalente ao
-//!   `.dart_tool/build/entrypoint/build.dart` do oficial, com os mesmos
-//!   imports das fábricas e um mapa chave → fábrica, no mesmo nível de
-//!   diretório (os imports relativos do plano valem sem reescrita);
-//! * um *kernel* compilado uma vez (`dart compile kernel`), reaproveitado
-//!   entre sessões enquanto nenhum arquivo do `--depfile` mudar.
+//! * the `dartforge_build_executor` package (its sources are embedded in the
+//!   binary);
+//! * a `package_config.json` that is the project's plus that package — the
+//!   project uses `build_runner`, so `build`, `build_resolvers` and their
+//!   dependencies are already there, at the locked versions;
+//! * the *bootstrap* (`bootstrap.dart`): the equivalent of the official
+//!   `.dart_tool/build/entrypoint/build.dart`, with the same factory imports
+//!   and a key → factory map, at the same directory depth (the plan's
+//!   relative imports work without rewriting);
+//! * a *kernel* compiled once (`dart compile kernel`), reused across
+//!   sessions as long as no file in the `--depfile` changes.
 use crate::cliente::ClienteBuild;
 use crate::executor::{
     Disponibilidade, ErroExecutor, ExecutorDart, ExtensoesDeExecucao, PedidoAcao, PedidoExtensoes,
@@ -28,11 +30,11 @@ use serde_json::{Value, json};
 use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
-/// Nome do pacote Dart do executor no `package_config.json` gerado.
-pub const PACOTE: &str = "dartforge_build_executor";
+/// Name of the executor's Dart package in the generated `package_config.json`.
+pub const EXECUTOR_PACKAGE: &str = "dartforge_build_executor";
 
-/// Fontes do lado Dart, embutidas: (caminho em `lib/`, texto).
-const FONTES: &[(&str, &str)] = &[
+/// Embedded sources of the Dart side: (path under `lib/`, text).
+const SOURCES: &[(&str, &str)] = &[
     (
         "executor.dart",
         include_str!("../../../packages/build_executor/lib/executor.dart"),
@@ -47,29 +49,30 @@ const FONTES: &[(&str, &str)] = &[
     ),
 ];
 
-/// Variável de ambiente que liga o executor pela VM fora do `dartforge build`.
-pub const VARIAVEL: &str = "DARTFORGE_BUILD_DART";
+/// Environment variable that enables the VM executor outside `dartforge build`.
+pub const ENV_VAR: &str = "DARTFORGE_BUILD_DART";
 
-/// O executável `dart` pedido pelo ambiente ([`VARIAVEL`]), se houver.
+/// The `dart` executable requested by the environment ([`ENV_VAR`]), if any.
 pub fn dart_do_ambiente() -> Option<PathBuf> {
-    std::env::var_os(VARIAVEL)
+    std::env::var_os(ENV_VAR)
         .filter(|v| !v.is_empty())
         .map(PathBuf::from)
 }
 
-/// Liga o executor pela VM no `motor` com o `dart` dado: o processo só nasce
-/// na primeira ação Dart da sessão. `package_config` é o do projeto (o que o
-/// motor leu).
+/// Enables the VM executor on `motor` with the given `dart`: the process is
+/// only spawned on the session's first Dart action. `package_config` is the
+/// project's (the one the engine read).
 pub fn ligar(motor: &mut crate::Motor, dart: PathBuf, package_config: &Path) {
-    let raiz = motor.grafo_pacotes.dir_raiz.clone();
+    let root = motor.grafo_pacotes.dir_raiz.clone();
     let cfg = ConfigDaVm {
         package_config: package_config.to_path_buf(),
-        ..ConfigDaVm::do_projeto(dart, &raiz)
+        ..ConfigDaVm::do_projeto(dart, &root)
     };
     motor.definir_executor_dart(Box::new(ExecutorVm::novo(cfg)));
 }
 
-/// [`ligar`] com o `dart` de [`VARIAVEL`], se o ambiente pediu; diz se ligou.
+/// [`ligar`] with the `dart` from [`ENV_VAR`], if the environment asked for
+/// it; returns whether it was enabled.
 pub fn ligar_do_ambiente(motor: &mut crate::Motor, package_config: &Path) -> bool {
     match dart_do_ambiente() {
         Some(d) => {
@@ -80,42 +83,43 @@ pub fn ligar_do_ambiente(motor: &mut crate::Motor, package_config: &Path) -> boo
     }
 }
 
-/// Onde estão a VM e o projeto.
+/// Where the VM and the project are.
 #[derive(Debug, Clone)]
 pub struct ConfigDaVm {
-    /// O executável `dart`.
+    /// The `dart` executable.
     pub dart: PathBuf,
-    /// Diretório do pacote raiz (o processo roda nele, como o `build_runner`:
-    /// o `build_resolvers` guarda o resumo do SDK em `.dart_tool/`).
-    pub raiz: PathBuf,
-    /// O `package_config.json` do projeto.
+    /// Directory of the root package (the process runs in it, like
+    /// `build_runner`: `build_resolvers` keeps the SDK summary in
+    /// `.dart_tool/`).
+    pub root: PathBuf,
+    /// The project's `package_config.json`.
     pub package_config: PathBuf,
-    /// Onde gravar bootstrap, pacote do executor e kernel.
-    pub trabalho: PathBuf,
+    /// Where to write the bootstrap, the executor package and the kernel.
+    pub work_dir: PathBuf,
 }
 
 impl ConfigDaVm {
-    /// A configuração padrão de um projeto: `.dart_tool/package_config.json`
-    /// e trabalho em `.dart_tool/dartforge/build` (mesma profundidade do
-    /// `.dart_tool/build/entrypoint` do oficial).
+    /// The default configuration of a project: `.dart_tool/package_config.json`
+    /// and work directory `.dart_tool/dartforge/build` (the same depth as the
+    /// official `.dart_tool/build/entrypoint`).
     ///
     /// ```
     /// use dartforge_build::vm::ConfigDaVm;
     /// use std::path::Path;
     /// let c = ConfigDaVm::do_projeto("dart".into(), Path::new("/p"));
-    /// assert!(c.trabalho.ends_with(".dart_tool/dartforge/build"));
+    /// assert!(c.work_dir.ends_with(".dart_tool/dartforge/build"));
     /// ```
-    pub fn do_projeto(dart: PathBuf, raiz: &Path) -> ConfigDaVm {
+    pub fn do_projeto(dart: PathBuf, root: &Path) -> ConfigDaVm {
         ConfigDaVm {
             dart,
-            raiz: raiz.to_path_buf(),
-            package_config: raiz.join(".dart_tool").join("package_config.json"),
-            trabalho: raiz.join(".dart_tool").join("dartforge").join("build"),
+            root: root.to_path_buf(),
+            package_config: root.join(".dart_tool").join("package_config.json"),
+            work_dir: root.join(".dart_tool").join("dartforge").join("build"),
         }
     }
 }
 
-/// Literal de texto Dart entre aspas simples.
+/// Single-quoted Dart string literal.
 fn literal(s: &str) -> String {
     let mut r = String::with_capacity(s.len() + 2);
     r.push('\'');
@@ -133,8 +137,8 @@ fn literal(s: &str) -> String {
     r
 }
 
-/// O texto do bootstrap: imports das fábricas (como o `build.dart` do
-/// oficial os escreve) e o mapa chave → fábrica.
+/// The bootstrap text: the factory imports (as the official `build.dart`
+/// writes them) and the key → factory map.
 ///
 /// ```
 /// use dartforge_build::executor::ScriptDeBuilders;
@@ -143,9 +147,9 @@ fn literal(s: &str) -> String {
 ///     aplicacoes: vec![("p:b".into(), "package:p/builder.dart".into(), vec!["b".into()])],
 ///     chave_de_cache: "x".into(),
 /// };
-/// let texto = dartforge_build::vm::bootstrap(&s, Path::new("/p/.dart_tool/package_config.json"));
-/// assert!(texto.contains("import 'package:p/builder.dart' as _i0;"));
-/// assert!(texto.contains("'p:b': {'b': _i0.b}"));
+/// let text = dartforge_build::vm::bootstrap(&s, Path::new("/p/.dart_tool/package_config.json"));
+/// assert!(text.contains("import 'package:p/builder.dart' as _i0;"));
+/// assert!(text.contains("'p:b': {'b': _i0.b}"));
 /// ```
 pub fn bootstrap(script: &ScriptDeBuilders, package_config: &Path) -> String {
     let mut imports: Vec<&str> = Vec::new();
@@ -163,13 +167,13 @@ pub fn bootstrap(script: &ScriptDeBuilders, package_config: &Path) -> String {
         s.push_str(&format!("import {} as _i{i};\n", literal(imp)));
     }
     s.push_str("\nFuture<void> main() => _df.servir({\n");
-    for (chave, import, fabricas) in &script.aplicacoes {
+    for (key, import, factories) in &script.aplicacoes {
         let i = imports.iter().position(|x| x == import).unwrap_or(0);
-        let mapa: Vec<String> = fabricas
+        let map: Vec<String> = factories
             .iter()
             .map(|f| format!("{}: _i{i}.{f}", literal(f)))
             .collect();
-        s.push_str(&format!("  {}: {{{}}},\n", literal(chave), mapa.join(", ")));
+        s.push_str(&format!("  {}: {{{}}},\n", literal(key), map.join(", ")));
     }
     s.push_str(&format!(
         "}}, packageConfig: {});\n",
@@ -178,8 +182,8 @@ pub fn bootstrap(script: &ScriptDeBuilders, package_config: &Path) -> String {
     s
 }
 
-/// URI `file:` de um diretório (termina em `/`), absoluto.
-fn uri_de_diretorio(p: &Path) -> String {
+/// Absolute `file:` URI of a directory (ends in `/`).
+fn directory_uri(p: &Path) -> String {
     let abs = std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf());
     url::Url::from_directory_path(&abs)
         .map(|u| u.to_string())
@@ -193,26 +197,26 @@ fn uri_de_diretorio(p: &Path) -> String {
         })
 }
 
-/// O `package_config.json` do projeto (URIs relativas viram absolutas, pois
-/// o arquivo novo mora em outro diretório) com o pacote do executor.
+/// The project's `package_config.json` (relative URIs become absolute,
+/// since the new file lives in another directory) plus the executor package.
 ///
-/// # Erros
+/// # Errors
 ///
-/// O arquivo do projeto não pode ser lido ou não é um `package_config`.
-pub fn package_config(do_projeto: &Path, executor: &Path) -> Result<Value, String> {
-    let texto = std::fs::read_to_string(do_projeto)
-        .map_err(|e| format!("{}: {e}", do_projeto.display()))?;
+/// The project's file cannot be read or is not a `package_config`.
+pub fn package_config(of_project: &Path, executor: &Path) -> Result<Value, String> {
+    let text = std::fs::read_to_string(of_project)
+        .map_err(|e| format!("{}: {e}", of_project.display()))?;
     let mut v: Value =
-        serde_json::from_str(&texto).map_err(|e| format!("{}: {e}", do_projeto.display()))?;
+        serde_json::from_str(&text).map_err(|e| format!("{}: {e}", of_project.display()))?;
     let base = url::Url::from_directory_path(
-        std::path::absolute(do_projeto.parent().unwrap_or(Path::new(".")))
+        std::path::absolute(of_project.parent().unwrap_or(Path::new(".")))
             .map_err(|e| e.to_string())?,
     )
-    .map_err(|_| format!("{}: caminho sem URI", do_projeto.display()))?;
+    .map_err(|_| format!("{}: path has no URI", of_project.display()))?;
     let ps = v
         .get_mut("packages")
         .and_then(Value::as_array_mut)
-        .ok_or("package_config sem 'packages'")?;
+        .ok_or("package_config without 'packages'")?;
     for p in ps.iter_mut() {
         if let Some(r) = p.get("rootUri").and_then(Value::as_str)
             && let Ok(abs) = base.join(r)
@@ -220,13 +224,13 @@ pub fn package_config(do_projeto: &Path, executor: &Path) -> Result<Value, Strin
             p["rootUri"] = json!(abs.to_string());
         }
     }
-    ps.retain(|p| p["name"] != PACOTE);
-    ps.push(json!({"name": PACOTE, "rootUri": uri_de_diretorio(executor), "packageUri": "lib/", "languageVersion": "3.6"}));
+    ps.retain(|p| p["name"] != EXECUTOR_PACKAGE);
+    ps.push(json!({"name": EXECUTOR_PACKAGE, "rootUri": directory_uri(executor), "packageUri": "lib/", "languageVersion": "3.6"}));
     Ok(v)
 }
 
-/// Normaliza `.`/`..` sem tocar no disco.
-fn normalizar(p: &Path) -> PathBuf {
+/// Normalizes `.`/`..` without touching the disk.
+fn normalize(p: &Path) -> PathBuf {
     let mut r = PathBuf::new();
     for c in p.components() {
         match c {
@@ -240,32 +244,31 @@ fn normalizar(p: &Path) -> PathBuf {
     r
 }
 
-/// Arquivos de um depfile do Ninja (`saida: dep1 dep2`, espaço escapado com
-/// `\`).
-pub(crate) fn deps_do_depfile(texto: &str) -> Vec<PathBuf> {
-    let Some((_, resto)) = texto.split_once(": ") else {
+/// Files of a Ninja depfile (`output: dep1 dep2`, spaces escaped with `\`).
+pub(crate) fn deps_do_depfile(text: &str) -> Vec<PathBuf> {
+    let Some((_, rest)) = text.split_once(": ") else {
         return Vec::new();
     };
     let mut v = Vec::new();
-    let mut atual = String::new();
-    let mut escapado = false;
-    for c in resto.chars() {
+    let mut current = String::new();
+    let mut escaped = false;
+    for c in rest.chars() {
         match c {
-            _ if escapado => {
-                atual.push(c);
-                escapado = false;
+            _ if escaped => {
+                current.push(c);
+                escaped = false;
             }
-            '\\' => escapado = true,
+            '\\' => escaped = true,
             ' ' | '\n' | '\r' | '\t' => {
-                if !atual.is_empty() {
-                    v.push(PathBuf::from(std::mem::take(&mut atual)));
+                if !current.is_empty() {
+                    v.push(PathBuf::from(std::mem::take(&mut current)));
                 }
             }
-            c => atual.push(c),
+            c => current.push(c),
         }
     }
-    if !atual.is_empty() {
-        v.push(PathBuf::from(atual));
+    if !current.is_empty() {
+        v.push(PathBuf::from(current));
     }
     v
 }
@@ -274,192 +277,191 @@ fn mtime(p: &Path) -> Option<SystemTime> {
     std::fs::metadata(p).and_then(|m| m.modified()).ok()
 }
 
-/// O kernel ainda vale? Existe, e nenhum arquivo que a compilação leu é
-/// mais novo que ele (nem sumiu).
-fn kernel_valido(dill: &Path, depfile: &Path) -> bool {
-    let (Some(t), Ok(texto)) = (mtime(dill), std::fs::read_to_string(depfile)) else {
+/// Is the kernel still valid? It exists, and no file the compilation read
+/// is newer than it (or has disappeared).
+fn kernel_is_valid(dill: &Path, depfile: &Path) -> bool {
+    let (Some(t), Ok(text)) = (mtime(dill), std::fs::read_to_string(depfile)) else {
         return false;
     };
-    let deps = deps_do_depfile(&texto);
+    let deps = deps_do_depfile(&text);
     !deps.is_empty() && deps.iter().all(|d| mtime(d).is_some_and(|m| m <= t))
 }
 
-/// Os arquivos que o bootstrap de builders precisa, já gravados.
+/// The files the builder bootstrap needs, already written.
 pub(crate) struct Gravados {
-    /// O `bootstrap.dart`.
+    /// The `bootstrap.dart`.
     pub principal: PathBuf,
-    /// O `package_config.json` do projeto com o pacote do executor.
+    /// The project's `package_config.json` plus the executor package.
     pub package_config: PathBuf,
-    /// Hash do script, das fontes do executor, do bootstrap e do
-    /// `package_config.json` gravados: a base da chave do que se compila.
+    /// Hash of the script, the executor sources, and the written bootstrap
+    /// and `package_config.json`: the base of the key of what gets compiled.
     pub hasher: blake3::Hasher,
 }
 
-/// Grava em `trabalho` o pacote do executor (as fontes embutidas), o
-/// `package_config.json` (o do projeto, `package_config`, mais o executor) e
-/// o bootstrap do `script`, reescrevendo só o que mudou (a data dos arquivos
-/// decide se o compilado ainda vale). Comum à VM e ao executor nativo.
+/// Writes into `work_dir` the executor package (the embedded sources), the
+/// `package_config.json` (the project's, `package_config`, plus the
+/// executor) and the bootstrap for `script`, rewriting only what changed (the
+/// file dates decide whether the compiled artifact is still valid). Shared by
+/// the VM and the native executor.
 pub(crate) fn gravar_bootstrap(
-    trabalho: &Path,
-    package_config_do_projeto: &Path,
+    work_dir: &Path,
+    project_package_config: &Path,
     script: &ScriptDeBuilders,
 ) -> Result<Gravados, String> {
-    let erro = |p: &Path, e: std::io::Error| format!("{}: {e}", p.display());
-    let pacote = trabalho.join(PACOTE);
+    let error = |p: &Path, e: std::io::Error| format!("{}: {e}", p.display());
+    let package = work_dir.join(EXECUTOR_PACKAGE);
     let mut h = blake3::Hasher::new();
     h.update(script.chave_de_cache.as_bytes());
-    for (rel, texto) in FONTES {
-        let destino = pacote.join("lib").join(rel);
-        if let Some(pai) = destino.parent() {
-            std::fs::create_dir_all(pai).map_err(|e| erro(pai, e))?;
+    for (rel, text) in SOURCES {
+        let destination = package.join("lib").join(rel);
+        if let Some(parent) = destination.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| error(parent, e))?;
         }
-        if std::fs::read_to_string(&destino).ok().as_deref() != Some(*texto) {
-            std::fs::write(&destino, texto).map_err(|e| erro(&destino, e))?;
+        if std::fs::read_to_string(&destination).ok().as_deref() != Some(*text) {
+            std::fs::write(&destination, text).map_err(|e| error(&destination, e))?;
         }
         h.update(rel.as_bytes());
-        h.update(texto.as_bytes());
+        h.update(text.as_bytes());
     }
-    let pc = trabalho.join("package_config.json");
-    let json = serde_json::to_string_pretty(&package_config(package_config_do_projeto, &pacote)?)
+    let pc = work_dir.join("package_config.json");
+    let json = serde_json::to_string_pretty(&package_config(project_package_config, &package)?)
         .unwrap_or_default();
     if std::fs::read_to_string(&pc).ok().as_deref() != Some(json.as_str()) {
-        std::fs::write(&pc, &json).map_err(|e| erro(&pc, e))?;
+        std::fs::write(&pc, &json).map_err(|e| error(&pc, e))?;
     }
-    let principal = trabalho.join("bootstrap.dart");
-    let texto = bootstrap(
+    let main = work_dir.join("bootstrap.dart");
+    let text = bootstrap(
         script,
-        &normalizar(&std::path::absolute(package_config_do_projeto).unwrap_or_default()),
+        &normalize(&std::path::absolute(project_package_config).unwrap_or_default()),
     );
-    if std::fs::read_to_string(&principal).ok().as_deref() != Some(texto.as_str()) {
-        std::fs::write(&principal, &texto).map_err(|e| erro(&principal, e))?;
+    if std::fs::read_to_string(&main).ok().as_deref() != Some(text.as_str()) {
+        std::fs::write(&main, &text).map_err(|e| error(&main, e))?;
     }
-    h.update(texto.as_bytes());
+    h.update(text.as_bytes());
     h.update(json.as_bytes());
     Ok(Gravados {
-        principal,
+        principal: main,
         package_config: pc,
         hasher: h,
     })
 }
 
-/// O que o executor mediu (para o relatório e os testes).
+/// What the executor measured (for the report and the tests).
 #[derive(Debug, Clone, Default)]
-pub struct MedicaoVm {
-    /// Tempo de `dart compile kernel` (zero quando o kernel foi reaproveitado).
-    pub compilacao: Duration,
-    /// Do início do processo ao `build.carregado`.
-    pub inicio: Duration,
-    pub kernel_reaproveitado: bool,
+pub struct VmMeasurement {
+    /// Time of `dart compile kernel` (zero when the kernel was reused).
+    pub compilation: Duration,
+    /// From process start to `build.carregado`.
+    pub startup: Duration,
+    pub kernel_reused: bool,
 }
 
-/// O executor pela VM: cria o processo na primeira ação Dart da sessão e o
-/// mantém quente até [`ExecutorDart::encerrar`].
+/// The VM executor: spawns the process on the session's first Dart action
+/// and keeps it warm until [`ExecutorDart::encerrar`].
 pub struct ExecutorVm {
     cfg: ConfigDaVm,
-    cliente: Option<ClienteBuild<CanalDeProcesso>>,
-    /// Chave do kernel que o processo corrente carregou.
-    chave: Option<String>,
-    falha: Option<String>,
-    pub medicao: MedicaoVm,
+    client: Option<ClienteBuild<CanalDeProcesso>>,
+    /// Key of the kernel the current process loaded.
+    key: Option<String>,
+    failure: Option<String>,
+    pub measurement: VmMeasurement,
 }
 
 impl ExecutorVm {
     pub fn novo(cfg: ConfigDaVm) -> ExecutorVm {
         ExecutorVm {
             cfg,
-            cliente: None,
-            chave: None,
-            falha: None,
-            medicao: MedicaoVm::default(),
+            client: None,
+            key: None,
+            failure: None,
+            measurement: VmMeasurement::default(),
         }
     }
 
-    /// Grava os arquivos, compila (ou reaproveita) o kernel e inicia o
-    /// processo. Devolve a chave do kernel.
-    fn iniciar(&mut self, script: &ScriptDeBuilders) -> Result<String, String> {
-        let t = &self.cfg.trabalho;
-        let erro = |p: &Path, e: std::io::Error| format!("{}: {e}", p.display());
+    /// Writes the files, compiles (or reuses) the kernel and starts the
+    /// process. Returns the kernel key.
+    fn start(&mut self, script: &ScriptDeBuilders) -> Result<String, String> {
+        let t = &self.cfg.work_dir;
+        let error = |p: &Path, e: std::io::Error| format!("{}: {e}", p.display());
         let Gravados {
-            principal,
+            principal: main,
             package_config: pc,
             mut hasher,
         } = gravar_bootstrap(t, &self.cfg.package_config, script)?;
         let h = &mut hasher;
         h.update(self.cfg.dart.to_string_lossy().as_bytes());
-        let chave = h.finalize().to_hex()[..16].to_string();
-        let dill = t.join(format!("bootstrap-{chave}.dill"));
-        let depfile = t.join(format!("bootstrap-{chave}.d"));
-        self.medicao = MedicaoVm::default();
-        if kernel_valido(&dill, &depfile) {
-            self.medicao.kernel_reaproveitado = true;
+        let key = h.finalize().to_hex()[..16].to_string();
+        let dill = t.join(format!("bootstrap-{key}.dill"));
+        let depfile = t.join(format!("bootstrap-{key}.d"));
+        self.measurement = VmMeasurement::default();
+        if kernel_is_valid(&dill, &depfile) {
+            self.measurement.kernel_reused = true;
         } else {
             let t0 = Instant::now();
-            let provisorio = t.join(format!("bootstrap-{chave}.dill.tmp"));
-            let saida = std::process::Command::new(&self.cfg.dart)
-                .current_dir(&self.cfg.raiz)
+            let temporary = t.join(format!("bootstrap-{key}.dill.tmp"));
+            let output = std::process::Command::new(&self.cfg.dart)
+                .current_dir(&self.cfg.root)
                 .arg("compile")
                 .arg("kernel")
                 .arg("--verbosity=error")
                 .arg(format!("--packages={}", pc.display()))
                 .arg(format!("--depfile={}", depfile.display()))
                 .arg("-o")
-                .arg(&provisorio)
-                .arg(&principal)
+                .arg(&temporary)
+                .arg(&main)
                 .output()
-                .map_err(|e| {
-                    format!("não foi possível executar {}: {e}", self.cfg.dart.display())
-                })?;
-            if !saida.status.success() {
+                .map_err(|e| format!("could not run {}: {e}", self.cfg.dart.display()))?;
+            if !output.status.success() {
                 return Err(format!(
-                    "a compilação do bootstrap de builders falhou:\n{}{}",
-                    String::from_utf8_lossy(&saida.stdout),
-                    String::from_utf8_lossy(&saida.stderr)
+                    "compiling the builder bootstrap failed:\n{}{}",
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr)
                 ));
             }
-            std::fs::rename(&provisorio, &dill).map_err(|e| erro(&dill, e))?;
-            // Kernels de chaves antigas não servem mais.
+            std::fs::rename(&temporary, &dill).map_err(|e| error(&dill, e))?;
+            // Kernels with old keys are no longer useful.
             if let Ok(ls) = std::fs::read_dir(t) {
                 for e in ls.flatten() {
                     let n = e.file_name().to_string_lossy().to_string();
-                    if n.starts_with("bootstrap-") && !n.contains(&chave) {
+                    if n.starts_with("bootstrap-") && !n.contains(&key) {
                         let _ = std::fs::remove_file(e.path());
                     }
                 }
             }
-            self.medicao.compilacao = t0.elapsed();
+            self.measurement.compilation = t0.elapsed();
         }
         let mut cmd = std::process::Command::new(&self.cfg.dart);
-        cmd.current_dir(&self.cfg.raiz)
+        cmd.current_dir(&self.cfg.root)
             .arg(format!("--packages={}", pc.display()))
             .arg(&dill);
-        self.cliente = Some(ClienteBuild::iniciar(cmd)?);
-        Ok(chave)
+        self.client = Some(ClienteBuild::iniciar(cmd)?);
+        Ok(key)
     }
 }
 
 impl ExecutorVm {
-    /// Uma ação (de build ou de pós-processamento) pelo processo.
-    fn acao(
+    /// One action (build or post-processing) through the process.
+    fn action(
         &mut self,
-        pedido: &PedidoAcao,
-        servico: &mut dyn ServicoBuildStep,
-        pos: bool,
+        request: &PedidoAcao,
+        service: &mut dyn ServicoBuildStep,
+        post: bool,
     ) -> Result<ResultadoAcao, ErroExecutor> {
-        let cliente = self
-            .cliente
+        let client = self
+            .client
             .as_mut()
-            .ok_or_else(|| ErroExecutor("build.executar antes de build.carregar".into()))?;
-        let r = if pos {
-            cliente.pos_processar(pedido, servico)
+            .ok_or_else(|| ErroExecutor("build.executar before build.carregar".into()))?;
+        let r = if post {
+            client.pos_processar(request, service)
         } else {
-            cliente.executar(pedido, servico)
+            client.executar(request, service)
         };
         if let Err(e) = &r {
-            // Canal quebrado (processo morreu, protocolo violado): a sessão
-            // não usa mais este processo.
-            self.falha = Some(format!("executor de builders pela VM: {}", e.0));
-            self.cliente = None;
-            self.chave = None;
+            // Broken channel (process died, protocol violated): the session
+            // no longer uses this process.
+            self.failure = Some(format!("VM builder executor: {}", e.0));
+            self.client = None;
+            self.key = None;
         }
         r
     }
@@ -467,111 +469,111 @@ impl ExecutorVm {
 
 impl ExecutorDart for ExecutorVm {
     fn disponibilidade(&self) -> Disponibilidade {
-        match &self.falha {
+        match &self.failure {
             Some(m) => Disponibilidade::Indisponivel(m.clone()),
             None => Disponibilidade::Disponivel,
         }
     }
 
     fn preparar(&mut self, script: &ScriptDeBuilders) -> Result<(), ErroExecutor> {
-        if let Some(m) = &self.falha {
+        if let Some(m) = &self.failure {
             return Err(ErroExecutor(m.clone()));
         }
-        // Um script novo (a configuração mudou) exige outro processo.
-        if self.chave.is_some() {
+        // A new script (the configuration changed) requires another process.
+        if self.key.is_some() {
             self.encerrar();
         }
         let t0 = Instant::now();
-        let r = self.iniciar(script).and_then(|chave| {
-            let cliente = self.cliente.as_mut().ok_or("executor sem processo")?;
-            cliente.preparar(script).map_err(|e| e.0)?;
-            self.chave = Some(chave);
+        let r = self.start(script).and_then(|key| {
+            let client = self.client.as_mut().ok_or("executor has no process")?;
+            client.preparar(script).map_err(|e| e.0)?;
+            self.key = Some(key);
             Ok(())
         });
-        self.medicao.inicio = t0.elapsed().saturating_sub(self.medicao.compilacao);
+        self.measurement.startup = t0.elapsed().saturating_sub(self.measurement.compilation);
         r.map_err(|m| {
-            self.cliente = None;
-            self.falha = Some(m.clone());
+            self.client = None;
+            self.failure = Some(m.clone());
             ErroExecutor(m)
         })
     }
 
     fn nova_rodada(&mut self) {
-        if let Some(c) = self.cliente.as_mut() {
+        if let Some(c) = self.client.as_mut() {
             c.nova_rodada();
         }
     }
 
     fn extensoes(
         &mut self,
-        pedido: &PedidoExtensoes,
+        request: &PedidoExtensoes,
     ) -> Result<Option<ExtensoesDeExecucao>, ErroExecutor> {
-        match self.cliente.as_mut() {
-            Some(c) => c.extensoes(pedido),
+        match self.client.as_mut() {
+            Some(c) => c.extensoes(request),
             None => Ok(None),
         }
     }
 
     fn executar(
         &mut self,
-        pedido: &PedidoAcao,
-        servico: &mut dyn ServicoBuildStep,
+        request: &PedidoAcao,
+        service: &mut dyn ServicoBuildStep,
     ) -> Result<ResultadoAcao, ErroExecutor> {
-        self.acao(pedido, servico, false)
+        self.action(request, service, false)
     }
 
     fn codigo(&self) -> Option<Vec<PathBuf>> {
-        let chave = self.chave.as_ref()?;
-        let texto =
-            std::fs::read_to_string(self.cfg.trabalho.join(format!("bootstrap-{chave}.d"))).ok()?;
-        let deps = deps_do_depfile(&texto);
+        let key = self.key.as_ref()?;
+        let text =
+            std::fs::read_to_string(self.cfg.work_dir.join(format!("bootstrap-{key}.d"))).ok()?;
+        let deps = deps_do_depfile(&text);
         (!deps.is_empty()).then_some(deps)
     }
 
     fn entradas_pos(
         &mut self,
-        pedido: &PedidoExtensoes,
+        request: &PedidoExtensoes,
     ) -> Result<Option<Vec<String>>, ErroExecutor> {
-        match self.cliente.as_mut() {
-            Some(c) => c.entradas_pos(pedido),
+        match self.client.as_mut() {
+            Some(c) => c.entradas_pos(request),
             None => Ok(None),
         }
     }
 
     fn pos_processar(
         &mut self,
-        pedido: &PedidoAcao,
-        servico: &mut dyn ServicoBuildStep,
+        request: &PedidoAcao,
+        service: &mut dyn ServicoBuildStep,
     ) -> Result<ResultadoAcao, ErroExecutor> {
-        self.acao(pedido, servico, true)
+        self.action(request, service, true)
     }
 
     fn encerrar(&mut self) {
-        if let Some(mut c) = self.cliente.take() {
+        if let Some(mut c) = self.client.take() {
             c.encerrar();
         }
-        self.chave = None;
+        self.key = None;
     }
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     #[test]
-    fn depfile_com_espacos_escapados() {
-        let d = deps_do_depfile("/t/x.dill: /a/b.dart /c/com\\ espaco.dart\n");
+    fn depfile_with_escaped_spaces() {
+        let d = deps_do_depfile("/t/x.dill: /a/b.dart /c/with\\ space.dart\n");
         assert_eq!(
             d,
             vec![
                 PathBuf::from("/a/b.dart"),
-                PathBuf::from("/c/com espaco.dart")
+                PathBuf::from("/c/with space.dart")
             ]
         );
     }
 
     #[test]
-    fn package_config_absoluto_com_o_executor() {
+    fn absolute_package_config_with_the_executor() {
         let dir = tempfile::tempdir().unwrap();
         let dt = dir.path().join(".dart_tool");
         std::fs::create_dir_all(&dt).unwrap();
@@ -593,11 +595,11 @@ mod testes {
             )
         );
         assert_eq!(ps[1]["rootUri"], "file:///c/q/");
-        assert_eq!(ps[2]["name"], PACOTE);
+        assert_eq!(ps[2]["name"], EXECUTOR_PACKAGE);
     }
 
     #[test]
-    fn literal_dart_escapa_interpolacao() {
+    fn dart_literal_escapes_interpolation() {
         assert_eq!(literal("a'b$c\\"), "'a\\'b\\$c\\\\'");
     }
 }

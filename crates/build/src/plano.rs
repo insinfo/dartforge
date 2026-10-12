@@ -1,6 +1,6 @@
-//! O plano: a lista de aplicações de builder que o `build_runner` escreve no
-//! `.dart_tool/build/entrypoint/build.dart` (`build_script_generate.dart`) e
-//! as fases que ele expande em tempo de execução (`apply_builders.dart`).
+//! The plan: the list of builder applications that `build_runner` writes to
+//! `.dart_tool/build/entrypoint/build.dart` (`build_script_generate.dart`) and
+//! the phases it expands at run time (`apply_builders.dart`).
 use crate::config::{AutoApply, BuildConfig, BuildTo, InputSet};
 use crate::extensoes::Extensoes;
 use crate::glob::Glob;
@@ -17,7 +17,7 @@ pub enum Filtro {
 }
 
 impl Filtro {
-    fn texto(&self) -> String {
+    fn text(&self) -> String {
         match self {
             Filtro::Nenhum => "toNoneByDefault()".into(),
             Filtro::DependentesDe(p) => {
@@ -29,12 +29,12 @@ impl Filtro {
     }
 }
 
-/// Uma aplicação do `build.dart`: `apply(...)` ou `applyPostProcess(...)`.
+/// An application in `build.dart`: `apply(...)` or `applyPostProcess(...)`.
 #[derive(Debug, Clone)]
 pub struct Aplicacao {
     pub chave: String,
     pub pos: bool,
-    /// Import como o script o escreve (`package:…` ou relativo ao
+    /// Import as the script writes it (`package:…` or relative to
     /// `.dart_tool/build/entrypoint`).
     pub import: String,
     pub fabricas: Vec<String>,
@@ -46,14 +46,15 @@ pub struct Aplicacao {
     pub opcoes_dev: Mapa,
     pub opcoes_release: Mapa,
     pub aplica: Vec<String>,
-    /// Pacote que define o builder.
+    /// Package that defines the builder.
     pub pacote: String,
-    /// Extensões do `build.yaml` (as de execução vêm do descritor).
+    /// Extensions from `build.yaml` (the run-time ones come from the
+    /// descriptor).
     pub extensoes_declaradas: Vec<(String, Vec<String>)>,
 }
 
 impl Aplicacao {
-    /// Forma canônica, comparável com a que se lê do `build.dart`.
+    /// Canonical form, comparable with the one read from `build.dart`.
     pub fn texto_canonico(&self) -> String {
         let l = |v: &[String]| {
             crate::valor::Valor::Lista(
@@ -63,7 +64,7 @@ impl Aplicacao {
             )
             .texto_canonico()
         };
-        let fabricas: Vec<String> = self
+        let factories: Vec<String> = self
             .fabricas
             .iter()
             .map(|f| format!("{}#{f}", self.import))
@@ -77,7 +78,7 @@ impl Aplicacao {
             format!(
                 "applyPostProcess {} {} defaultGenerateFor={gf} defaultOptions={} defaultDevOptions={} defaultReleaseOptions={}",
                 serde_json::Value::String(self.chave.clone()),
-                l(&fabricas),
+                l(&factories),
                 self.opcoes_padrao.texto_canonico(),
                 self.opcoes_dev.texto_canonico(),
                 self.opcoes_release.texto_canonico(),
@@ -86,8 +87,8 @@ impl Aplicacao {
             format!(
                 "apply {} {} {} isOptional={} hideOutput={} defaultGenerateFor={gf} defaultOptions={} defaultDevOptions={} defaultReleaseOptions={} appliesBuilders={}",
                 serde_json::Value::String(self.chave.clone()),
-                l(&fabricas),
-                self.filtro.texto(),
+                l(&factories),
+                self.filtro.text(),
                 self.opcional,
                 self.oculta,
                 self.opcoes_padrao.texto_canonico(),
@@ -98,117 +99,117 @@ impl Aplicacao {
         }
     }
 
-    fn aplica_ao_pacote(&self, grafo: &GrafoPacotes, pacote: usize) -> bool {
-        let no = &grafo.nos[pacote];
+    fn applies_to_package(&self, graph: &GrafoPacotes, package: usize) -> bool {
+        let node = &graph.nos[package];
         match &self.filtro {
             Filtro::Nenhum => false,
             Filtro::Todos => true,
-            Filtro::Raiz => no.e_raiz,
-            Filtro::DependentesDe(p) => no.deps.iter().any(|&d| grafo.nos[d].nome == *p),
+            Filtro::Raiz => node.e_raiz,
+            Filtro::DependentesDe(p) => node.deps.iter().any(|&d| graph.nos[d].nome == *p),
         }
     }
 }
 
 /// `_buildScriptImport` (`build_script_generate.dart:252-263`).
-fn import_do_script(import: &str) -> String {
+fn script_import(import: &str) -> String {
     if import.starts_with("package:") || import.starts_with("../") || import.starts_with('/') {
         return import.to_string();
     }
     // `p.url.relative(import, from: '.dart_tool/build/entrypoint')`.
-    let mut partes: Vec<&str> = Vec::new();
+    let mut parts: Vec<&str> = Vec::new();
     for p in import.split('/') {
         match p {
             "" | "." => {}
             ".." => {
-                partes.pop();
+                parts.pop();
             }
-            x => partes.push(x),
+            x => parts.push(x),
         }
     }
-    let alvo = partes.join("/");
-    if let Some(dentro) = alvo.strip_prefix(".dart_tool/build/entrypoint/") {
-        return dentro.to_string();
+    let target = parts.join("/");
+    if let Some(inside) = target.strip_prefix(".dart_tool/build/entrypoint/") {
+        return inside.to_string();
     }
-    if alvo.starts_with(".dart_tool/build/") {
-        return format!("../{}", &alvo[".dart_tool/build/".len()..]);
+    if target.starts_with(".dart_tool/build/") {
+        return format!("../{}", &target[".dart_tool/build/".len()..]);
     }
-    if alvo.starts_with(".dart_tool/") {
-        return format!("../../{}", &alvo[".dart_tool/".len()..]);
+    if target.starts_with(".dart_tool/") {
+        return format!("../../{}", &target[".dart_tool/".len()..]);
     }
-    format!("../../../{alvo}")
+    format!("../../../{target}")
 }
 
-/// Configuração de cada pacote, como o `build_runner` a obtém.
+/// The configuration of each package, as `build_runner` obtains it.
 pub struct Configs {
     pub por_pacote: Vec<BuildConfig>,
     pub avisos: Vec<String>,
-    /// Os `triggers` acumulados de todos os pacotes (`BuildConfigs.buildTriggers`).
+    /// The `triggers` accumulated from all packages (`BuildConfigs.buildTriggers`).
     pub gatilhos: crate::gatilhos::Gatilhos,
 }
 
-/// `<pacote>.build.yaml` na raiz e, com `--config <nome>`, o
-/// `build.<nome>.yaml` no lugar do `build.yaml` da raiz
-/// (`findBuildConfigOverrides`, igual no 2.4.15 e no 2.16.1).
+/// `<package>.build.yaml` at the root and, with `--config <name>`,
+/// `build.<name>.yaml` in place of the root's `build.yaml`
+/// (`findBuildConfigOverrides`, the same in 2.4.15 and 2.16.1).
 fn overrides(
-    grafo: &GrafoPacotes,
-    chave_config: Option<&str>,
+    graph: &GrafoPacotes,
+    config_key: Option<&str>,
 ) -> Result<HashMap<String, BuildConfig>, String> {
-    let perfil = grafo.perfil();
-    let raiz = &grafo.nos[grafo.raiz];
+    let profile = graph.perfil();
+    let root = &graph.nos[graph.raiz];
     let mut m = HashMap::new();
-    if let Some(k) = chave_config {
-        let caminho = raiz.raiz.join(format!("build.{k}.yaml"));
-        let texto = std::fs::read_to_string(&caminho)
+    if let Some(k) = config_key {
+        let path = root.raiz.join(format!("build.{k}.yaml"));
+        let text = std::fs::read_to_string(&path)
             .map_err(|_| format!("Cannot find build.{k}.yaml for specified config."))?;
-        let deps: Vec<String> = raiz.deps.iter().map(|&d| grafo.nos[d].nome.clone()).collect();
-        // As definições de builder do arquivo são ignoradas (o oficial avisa):
-        // o plano vem do `build.yaml`; aqui só valem alvos, opções globais e
-        // triggers.
+        let deps: Vec<String> = root.deps.iter().map(|&d| graph.nos[d].nome.clone()).collect();
+        // The file's builder definitions are ignored (the official tool
+        // warns): the plan comes from `build.yaml`; only targets, global
+        // options and triggers count here.
         m.insert(
-            raiz.nome.clone(),
+            root.nome.clone(),
             BuildConfig::de_texto_no_perfil(
-                &raiz.nome,
+                &root.nome,
                 &deps,
-                &texto,
-                &caminho.display().to_string(),
-                perfil,
+                &text,
+                &path.display().to_string(),
+                profile,
             )?,
         );
     }
-    let Ok(ls) = std::fs::read_dir(&raiz.raiz) else {
+    let Ok(ls) = std::fs::read_dir(&root.raiz) else {
         return Ok(m);
     };
     let glob = Glob::novo("*.build.yaml")?;
-    let mut nomes: Vec<String> = ls
+    let mut names: Vec<String> = ls
         .flatten()
         .filter(|e| e.path().is_file())
         .map(|e| e.file_name().to_string_lossy().to_string())
         .collect();
-    nomes.sort();
-    for nome in nomes {
-        if !glob.casa(&nome) {
+    names.sort();
+    for name in names {
+        if !glob.casa(&name) {
             continue;
         }
-        let pacote = nome.split('.').next().unwrap_or_default().to_string();
-        let Some(no) = grafo.no(&pacote) else {
+        let package = name.split('.').next().unwrap_or_default().to_string();
+        let Some(node) = graph.no(&package) else {
             continue;
         };
-        let deps: Vec<String> = no.deps.iter().map(|&d| grafo.nos[d].nome.clone()).collect();
-        // `--config` vence o `<raiz>.build.yaml` (é inserido depois).
-        if chave_config.is_some() && pacote == raiz.nome {
+        let deps: Vec<String> = node.deps.iter().map(|&d| graph.nos[d].nome.clone()).collect();
+        // `--config` wins over `<root>.build.yaml` (it is inserted later).
+        if config_key.is_some() && package == root.nome {
             continue;
         }
-        let caminho = raiz.raiz.join(&nome);
-        let texto =
-            std::fs::read_to_string(&caminho).map_err(|e| format!("{}: {e}", caminho.display()))?;
+        let path = root.raiz.join(&name);
+        let text =
+            std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
         m.insert(
-            pacote.clone(),
+            package.clone(),
             BuildConfig::de_texto_no_perfil(
-                &pacote,
+                &package,
                 &deps,
-                &texto,
-                &caminho.display().to_string(),
-                perfil,
+                &text,
+                &path.display().to_string(),
+                profile,
             )?,
         );
     }
@@ -216,68 +217,68 @@ fn overrides(
 }
 
 impl Configs {
-    /// `estrito`: erro de `build.yaml` é fatal (o `TargetGraph` em tempo de
-    /// execução); senão vira o padrão com aviso (a geração do script).
+    /// `strict`: a `build.yaml` error is fatal (the run-time `TargetGraph`);
+    /// otherwise it becomes the default with a warning (script generation).
     ///
-    /// # Erros
-    /// `build.yaml` recusado (com `estrito`) ou override ilegível.
-    pub fn ler(grafo: &GrafoPacotes, estrito: bool) -> Result<Configs, String> {
-        Self::ler_com(grafo, estrito, None)
+    /// # Errors
+    /// `build.yaml` rejected (with `strict`) or unreadable override.
+    pub fn ler(graph: &GrafoPacotes, strict: bool) -> Result<Configs, String> {
+        Self::read_with_config(graph, strict, None)
     }
 
-    /// [`Configs::ler`] com `--config <chave>`: o `build.<chave>.yaml` no
-    /// lugar do `build.yaml` da raiz (só na configuração de execução; o
-    /// script — definições e ordem dos builders — lê sempre o `build.yaml`).
+    /// [`Configs::ler`] with `--config <key>`: `build.<key>.yaml` in place of
+    /// the root's `build.yaml` (only in the run-time configuration; the
+    /// script — builder definitions and order — always reads `build.yaml`).
     ///
-    /// # Erros
-    /// Como [`Configs::ler`], e o `build.<chave>.yaml` ausente.
-    pub fn ler_com(
-        grafo: &GrafoPacotes,
-        estrito: bool,
-        chave_config: Option<&str>,
+    /// # Errors
+    /// As [`Configs::ler`], plus a missing `build.<key>.yaml`.
+    pub fn read_with_config(
+        graph: &GrafoPacotes,
+        strict: bool,
+        config_key: Option<&str>,
     ) -> Result<Configs, String> {
-        let perfil = grafo.perfil();
-        let ov = overrides(grafo, chave_config)?;
-        let mut por_pacote = Vec::with_capacity(grafo.nos.len());
-        let mut avisos = Vec::new();
-        for no in &grafo.nos {
-            let deps: Vec<String> = no.deps.iter().map(|&d| grafo.nos[d].nome.clone()).collect();
-            if let Some(c) = ov.get(&no.nome) {
-                por_pacote.push(c.clone());
+        let profile = graph.perfil();
+        let ov = overrides(graph, config_key)?;
+        let mut per_package = Vec::with_capacity(graph.nos.len());
+        let mut warnings = Vec::new();
+        for node in &graph.nos {
+            let deps: Vec<String> = node.deps.iter().map(|&d| graph.nos[d].nome.clone()).collect();
+            if let Some(c) = ov.get(&node.nome) {
+                per_package.push(c.clone());
                 continue;
             }
-            if no.nome == SDK {
-                por_pacote.push(BuildConfig::padrao(SDK, &deps));
+            if node.nome == SDK {
+                per_package.push(BuildConfig::padrao(SDK, &deps));
                 continue;
             }
-            match BuildConfig::do_diretorio_no_perfil(&no.nome, &deps, &no.raiz, perfil) {
-                Ok(c) => por_pacote.push(c),
-                Err(e) if estrito => {
-                    return Err(format!("Failed to parse `build.yaml` for {}: {e}", no.nome));
+            match BuildConfig::from_dir_with_profile(&node.nome, &deps, &node.raiz, profile) {
+                Ok(c) => per_package.push(c),
+                Err(e) if strict => {
+                    return Err(format!("Failed to parse `build.yaml` for {}: {e}", node.nome));
                 }
                 Err(e) => {
-                    avisos.push(e);
-                    por_pacote.push(BuildConfig::padrao(&no.nome, &deps));
+                    warnings.push(e);
+                    per_package.push(BuildConfig::padrao(&node.nome, &deps));
                 }
             }
         }
-        let gatilhos = if perfil.aceita_triggers() {
-            crate::gatilhos::Gatilhos::das_configs(&por_pacote)
+        let triggers = if profile.aceita_triggers() {
+            crate::gatilhos::Gatilhos::das_configs(&per_package)
         } else {
             crate::gatilhos::Gatilhos::default()
         };
-        if let Some(t) = gatilhos.texto_dos_avisos() {
-            avisos.push(t);
+        if let Some(t) = triggers.texto_dos_avisos() {
+            warnings.push(t);
         }
         Ok(Configs {
-            por_pacote,
-            avisos,
-            gatilhos,
+            por_pacote: per_package,
+            avisos: warnings,
+            gatilhos: triggers,
         })
     }
 }
 
-/// O conteúdo do `build.dart`: as aplicações na ordem final.
+/// The contents of `build.dart`: the applications in their final order.
 #[derive(Debug, Clone)]
 pub struct Plano {
     pub aplicacoes: Vec<Aplicacao>,
@@ -292,163 +293,166 @@ impl Plano {
             .collect()
     }
 
-    pub fn aplicacao(&self, chave: &str) -> Option<&Aplicacao> {
-        self.aplicacoes.iter().find(|a| a.chave == chave)
+    pub fn aplicacao(&self, key: &str) -> Option<&Aplicacao> {
+        self.aplicacoes.iter().find(|a| a.chave == key)
     }
 
     /// `findBuildScriptOptions` (`build_script_generate.dart:72-160`).
-    pub fn do_script(grafo: &GrafoPacotes, configs: &Configs) -> Result<Plano, String> {
-        let ordem = grafo.ordem_do_script();
-        let raiz = &grafo.nos[grafo.raiz];
-        let valido = |import: &str, pacote: &str| -> bool {
-            if let Some(resto) = import.strip_prefix("package:") {
-                let p = resto.split('/').next().unwrap_or_default();
-                return grafo.no(p).is_some();
+    pub fn do_script(graph: &GrafoPacotes, configs: &Configs) -> Result<Plano, String> {
+        let order = graph.ordem_do_script();
+        let root = &graph.nos[graph.raiz];
+        let valid = |import: &str, package: &str| -> bool {
+            if let Some(rest) = import.strip_prefix("package:") {
+                let p = rest.split('/').next().unwrap_or_default();
+                return graph.no(p).is_some();
             }
-            pacote == raiz.nome
+            package == root.nome
         };
-        let mut avisos = configs.avisos.clone();
+        let mut warnings = configs.avisos.clone();
         let mut defs = Vec::new();
-        let mut pos = Vec::new();
-        for &i in &ordem {
+        let mut post = Vec::new();
+        for &i in &order {
             let c = &configs.por_pacote[i];
             for b in &c.builders {
-                if valido(&b.import, &b.pacote) {
+                if valid(&b.import, &b.pacote) {
                     defs.push(b.clone());
                 } else {
-                    avisos.push(format!(
+                    warnings.push(format!(
                         "Could not load imported package for definition \"{}\".",
                         b.chave
                     ));
                 }
             }
             for p in &c.pos {
-                if valido(&p.import, &p.pacote) {
-                    pos.push(p.clone());
+                if valid(&p.import, &p.pacote) {
+                    post.push(p.clone());
                 }
             }
         }
-        let cfg_raiz = &configs.por_pacote[*ordem.last().ok_or("grafo de pacotes vazio")?];
+        let root_cfg = &configs.por_pacote[*order.last().ok_or("empty package graph")?];
         // `findBuilderOrder` (`builder_ordering.dart`).
         defs.sort_by(|a, b| a.chave.cmp(&b.chave));
-        if grafo.perfil().recusa_chave_duplicada()
+        if graph.perfil().recusa_chave_duplicada()
             && let Some(d) = defs.windows(2).find(|w| w[0].chave == w[1].chave)
         {
             return Err(format!("Duplicate builder key: {}", d[0].chave));
         }
         let n = defs.len();
-        let saidas: Vec<Vec<&String>> = defs
+        let outputs: Vec<Vec<&String>> = defs
             .iter()
             .map(|d| d.extensoes.iter().flat_map(|(_, s)| s).collect())
             .collect();
-        let deve_antes = |filho: usize, pai: usize| -> bool {
-            defs[filho].runs_before.contains(&defs[pai].chave)
-                || cfg_raiz
-                    .global_de(&defs[filho].chave)
-                    .is_some_and(|g| g.runs_before.contains(&defs[pai].chave))
+        let must_run_before = |child: usize, parent: usize| -> bool {
+            defs[child].runs_before.contains(&defs[parent].chave)
+                || root_cfg
+                    .global_for(&defs[child].chave)
+                    .is_some_and(|g| g.runs_before.contains(&defs[parent].chave))
         };
-        let arestas: Vec<Vec<usize>> =
+        let edges: Vec<Vec<usize>> =
             (0..n)
-                .map(|pai| {
+                .map(|parent| {
                     (0..n)
-                        .filter(|&filho| {
-                            pai != filho
-                                && (defs[pai].required_inputs.iter().any(|ri| {
-                                    saidas[filho].iter().any(|s| s.ends_with(ri.as_str()))
-                                }) || deve_antes(filho, pai))
+                        .filter(|&child| {
+                            parent != child
+                                && (defs[parent].required_inputs.iter().any(|ri| {
+                                    outputs[child].iter().any(|s| s.ends_with(ri.as_str()))
+                                }) || must_run_before(child, parent))
                         })
                         .collect()
                 })
                 .collect();
-        // Kahn com fila de prioridade pela chave (`_topologicalSortWithSecondary`).
-        let mut entrada = vec![0usize; n];
-        for a in &arestas {
+        // Kahn with a priority queue by key (`_topologicalSortWithSecondary`).
+        let mut in_degree = vec![0usize; n];
+        for a in &edges {
             for &f in a {
-                entrada[f] += 1;
+                in_degree[f] += 1;
             }
         }
-        let mut prontos: std::collections::BTreeSet<(String, usize)> = (0..n)
-            .filter(|&i| entrada[i] == 0)
+        let mut ready: std::collections::BTreeSet<(String, usize)> = (0..n)
+            .filter(|&i| in_degree[i] == 0)
             .map(|i| (defs[i].chave.clone(), i))
             .collect();
         let mut kahn = Vec::with_capacity(n);
-        while let Some(primeiro) = prontos.iter().next().cloned() {
-            prontos.remove(&primeiro);
-            kahn.push(primeiro.1);
-            for &f in &arestas[primeiro.1] {
-                entrada[f] -= 1;
-                if entrada[f] == 0 {
-                    prontos.insert((defs[f].chave.clone(), f));
+        while let Some(first) = ready.iter().next().cloned() {
+            ready.remove(&first);
+            kahn.push(first.1);
+            for &f in &edges[first.1] {
+                in_degree[f] -= 1;
+                if in_degree[f] == 0 {
+                    ready.insert((defs[f].chave.clone(), f));
                 }
             }
         }
         if kahn.len() < n {
-            let ciclo: Vec<&str> = (0..n)
-                .filter(|&i| entrada[i] > 0)
+            let cycle: Vec<&str> = (0..n)
+                .filter(|&i| in_degree[i] > 0)
                 .map(|i| defs[i].chave.as_str())
                 .collect();
-            return Err(format!("Required input cycle for [{}]", ciclo.join(", ")));
+            return Err(format!("Required input cycle for [{}]", cycle.join(", ")));
         }
         kahn.reverse();
-        for (chave, _) in &cfg_raiz.global {
-            let conhecida = |k: &str| defs.iter().any(|d| d.chave == k);
-            let g = cfg_raiz.global_de(chave).expect("chave global");
-            for k in std::iter::once(chave).chain(&g.runs_before) {
-                if !conhecida(k) {
-                    avisos.push(format!(
+        for (key, _) in &root_cfg.global {
+            let known = |k: &str| defs.iter().any(|d| d.chave == k);
+            let g = root_cfg.global_for(key).expect("global key");
+            for k in std::iter::once(key).chain(&g.runs_before) {
+                if !known(k) {
+                    warnings.push(format!(
                         "Invalid builder key `{k}` found in global_options config of build.yaml. This configuration will have no effect."
                     ));
                 }
             }
         }
-        let mut aplicacoes = Vec::with_capacity(n + pos.len());
+        let mut applications = Vec::with_capacity(n + post.len());
         for i in kahn {
             let d = &defs[i];
-            aplicacoes.push(Aplicacao {
+            applications.push(Aplicacao {
                 chave: d.chave.clone(),
                 pos: false,
-                import: import_do_script(&d.import),
+                import: script_import(&d.import),
                 fabricas: d.fabricas.clone(),
                 filtro: match d.auto_apply {
-                    AutoApply::Nenhum => Filtro::Nenhum,
-                    AutoApply::Dependentes => Filtro::DependentesDe(d.pacote.clone()),
-                    AutoApply::Todos => Filtro::Todos,
-                    AutoApply::Raiz => Filtro::Raiz,
+                    AutoApply::None => Filtro::Nenhum,
+                    AutoApply::Dependents => Filtro::DependentesDe(d.pacote.clone()),
+                    AutoApply::AllPackages => Filtro::Todos,
+                    AutoApply::RootPackage => Filtro::Raiz,
                 },
                 opcional: d.opcional,
                 oculta: d.build_to == BuildTo::Cache,
-                generate_for_padrao: d.padroes.generate_for.clone(),
-                opcoes_padrao: d.padroes.options.clone(),
-                opcoes_dev: d.padroes.dev_options.clone(),
-                opcoes_release: d.padroes.release_options.clone(),
+                generate_for_padrao: d.defaults.generate_for.clone(),
+                opcoes_padrao: d.defaults.options.clone(),
+                opcoes_dev: d.defaults.dev_options.clone(),
+                opcoes_release: d.defaults.release_options.clone(),
                 aplica: d.applies_builders.clone(),
                 pacote: d.pacote.clone(),
                 extensoes_declaradas: d.extensoes.clone(),
             });
         }
-        for p in pos {
-            aplicacoes.push(Aplicacao {
+        for p in post {
+            applications.push(Aplicacao {
                 chave: p.chave.clone(),
                 pos: true,
-                import: import_do_script(&p.import),
+                import: script_import(&p.import),
                 fabricas: vec![p.fabrica.clone()],
                 filtro: Filtro::Nenhum,
                 opcional: false,
                 oculta: p.build_to == BuildTo::Cache,
-                generate_for_padrao: p.padroes.generate_for.clone(),
-                opcoes_padrao: p.padroes.options.clone(),
-                opcoes_dev: p.padroes.dev_options.clone(),
-                opcoes_release: p.padroes.release_options.clone(),
+                generate_for_padrao: p.defaults.generate_for.clone(),
+                opcoes_padrao: p.defaults.options.clone(),
+                opcoes_dev: p.defaults.dev_options.clone(),
+                opcoes_release: p.defaults.release_options.clone(),
                 aplica: Vec::new(),
                 pacote: p.pacote.clone(),
                 extensoes_declaradas: Vec::new(),
             });
         }
-        Ok(Plano { aplicacoes, avisos })
+        Ok(Plano {
+            aplicacoes: applications,
+            avisos: warnings,
+        })
     }
 }
 
-/// `InputMatcher`: `include` vazio ou ausente = tudo.
+/// `InputMatcher`: empty or missing `include` = everything.
 #[derive(Debug, Clone)]
 pub struct Casador {
     pub include: Option<Vec<Glob>>,
@@ -456,8 +460,8 @@ pub struct Casador {
 }
 
 impl Casador {
-    pub fn novo(s: &InputSet, padrao_include: Option<&[String]>) -> Result<Casador, String> {
-        let inc = s.include.as_deref().or(padrao_include);
+    pub fn novo(s: &InputSet, default_include: Option<&[String]>) -> Result<Casador, String> {
+        let inc = s.include.as_deref().or(default_include);
         Ok(Casador {
             include: inc
                 .map(|v| v.iter().map(|g| Glob::novo(g)).collect::<Result<_, _>>())
@@ -470,21 +474,21 @@ impl Casador {
         })
     }
 
-    pub fn inclui(&self, caminho: &str) -> bool {
+    pub fn inclui(&self, path: &str) -> bool {
         match &self.include {
             None => true,
-            Some(v) => v.is_empty() || v.iter().any(|g| g.casa(caminho)),
+            Some(v) => v.is_empty() || v.iter().any(|g| g.casa(path)),
         }
     }
 
-    pub fn exclui(&self, caminho: &str) -> bool {
+    pub fn exclui(&self, path: &str) -> bool {
         self.exclude
             .as_ref()
-            .is_some_and(|v| !v.is_empty() && v.iter().any(|g| g.casa(caminho)))
+            .is_some_and(|v| !v.is_empty() && v.iter().any(|g| g.casa(path)))
     }
 
-    pub fn casa(&self, caminho: &str) -> bool {
-        self.inclui(caminho) && !self.exclui(caminho)
+    pub fn casa(&self, path: &str) -> bool {
+        self.inclui(path) && !self.exclui(path)
     }
 
     pub fn texto(&self) -> String {
@@ -500,7 +504,7 @@ impl Casador {
     }
 }
 
-/// Uma fase (`InBuildPhase`, ou uma ação do `PostBuildPhase` final).
+/// A phase (`InBuildPhase`, or an action of the final `PostBuildPhase`).
 #[derive(Debug, Clone)]
 pub struct Fase {
     pub aplicacao: usize,
@@ -514,31 +518,34 @@ pub struct Fase {
     pub opcional: bool,
     pub oculta: bool,
     pub pos: bool,
-    /// `None` para pós-processadores e builders substituídos.
+    /// `None` for post-processors and replaced builders.
     pub extensoes: Option<Extensoes>,
-    /// Pós-processador: as `inputExtensions` do objeto `PostProcessBuilder`
-    /// (o `build_runner` ignora o `input_extensions` do `build.yaml`). Só o
-    /// executor Dart as conhece; `None` enquanto ninguém respondeu, e então a
-    /// fase não tem âncoras (`_addPostBuildPhaseAnchors`).
+    /// Post-processor: the `inputExtensions` of the `PostProcessBuilder`
+    /// object (`build_runner` ignores the `input_extensions` in
+    /// `build.yaml`). Only the Dart executor knows them; `None` while nobody
+    /// has answered, and then the phase has no anchors
+    /// (`_addPostBuildPhaseAnchors`).
     pub entradas_pos: Option<Vec<String>>,
     pub substituido: Option<&'static str>,
-    /// A fábrica é um builder conhecido com opções fixas
-    /// ([`crate::equivalente`]): a chave dele, e `opcoes` já são as do
-    /// construtor.
+    /// The factory is a known builder with fixed options
+    /// ([`crate::equivalente`]): its key, and `opcoes` are already the
+    /// constructor's.
     pub equivalente: Option<&'static str>,
-    /// `run_only_if_triggered: true` nas opções fundidas e o perfil com
-    /// triggers ([`crate::gatilhos`]): o passo só roda se disparado.
-    pub so_se_disparada: bool,
+    /// `run_only_if_triggered: true` in the merged options and a profile with
+    /// triggers ([`crate::gatilhos`]): the step only runs if triggered.
+    pub only_if_triggered: bool,
 }
 
 impl Fase {
-    /// `InBuildPhase.identity`: o que muda a fase sem ser opção.
-    pub fn identidade(&self, plano: &Plano, grafo: &GrafoPacotes) -> String {
+    /// `InBuildPhase.identity`: what changes the phase other than options.
+    pub fn identity(&self, plan: &Plano, graph: &GrafoPacotes) -> String {
+        // The labels are hashed into the action fingerprints and the keys of
+        // the saved state: changing them invalidates existing caches.
         format!(
             "{}#{} {} {} gen={} fontes={} opcional={} oculta={} pos={} ext={:?} entradas_pos={:?} gatilho={}",
-            plano.aplicacoes[self.aplicacao].chave,
+            plan.aplicacoes[self.aplicacao].chave,
             self.fabrica,
-            grafo.nos[self.pacote].nome,
+            graph.nos[self.pacote].nome,
             self.alvo,
             self.generate_for.texto(),
             self.fontes_alvo.texto(),
@@ -547,12 +554,12 @@ impl Fase {
             self.pos,
             self.extensoes.as_ref().map(|e| &e.declaradas),
             self.entradas_pos,
-            self.so_se_disparada,
+            self.only_if_triggered,
         )
     }
 }
 
-/// Um alvo do grafo de alvos (`TargetNode`).
+/// A target of the target graph (`TargetNode`).
 #[derive(Debug, Clone)]
 pub struct NoAlvo {
     pub pacote: usize,
@@ -560,43 +567,43 @@ pub struct NoAlvo {
     pub alvo: usize,
 }
 
-/// As fases, como `createBuildPhases` (`apply_builders.dart:196-349` no
-/// 2.4.15, `build_phase_creator.dart` no 2.16.1 — a mesma ordem e a mesma
-/// precedência de opções). `definicoes`: os `--define`, fundidos por chave
-/// sobre as `global_options` da raiz.
+/// The phases, like `createBuildPhases` (`apply_builders.dart:196-349` in
+/// 2.4.15, `build_phase_creator.dart` in 2.16.1 — the same order and the same
+/// option precedence). `definitions`: the `--define`s, merged by key over the
+/// root's `global_options`.
 ///
-/// # Erros
-/// Dependência de alvo inexistente, extensões inválidas, ou pós-processador
-/// com `build_to: source` (`build_config` ≥ 1.3.0), que o motor ainda não
-/// executa.
+/// # Errors
+/// Dependency on a nonexistent target, invalid extensions, or a
+/// post-processor with `build_to: source` (`build_config` ≥ 1.3.0), which the
+/// engine does not run yet.
 pub fn fases(
-    grafo: &GrafoPacotes,
+    graph: &GrafoPacotes,
     configs: &Configs,
-    plano: &Plano,
+    plan: &Plano,
     release: bool,
-    definicoes: &crate::linha_de_comando::Definicoes,
+    definitions: &crate::linha_de_comando::Definicoes,
 ) -> Result<(Vec<Fase>, Vec<NoAlvo>), String> {
-    let dispara = grafo.perfil().dispara();
-    // `allModules`: por pacote (ordem de `allPackages`), alvos na ordem.
-    let mut nos: Vec<NoAlvo> = Vec::new();
-    let mut por_chave: HashMap<&str, usize> = HashMap::new();
+    let triggers_enabled = graph.perfil().dispara();
+    // `allModules`: per package (in `allPackages` order), targets in order.
+    let mut nodes: Vec<NoAlvo> = Vec::new();
+    let mut by_key: HashMap<&str, usize> = HashMap::new();
     for (p, c) in configs.por_pacote.iter().enumerate() {
-        for (a, alvo) in c.alvos.iter().enumerate() {
-            por_chave.insert(alvo.chave.as_str(), nos.len());
-            nos.push(NoAlvo {
+        for (a, target) in c.alvos.iter().enumerate() {
+            by_key.insert(target.chave.as_str(), nodes.len());
+            nodes.push(NoAlvo {
                 pacote: p,
                 config: p,
                 alvo: a,
             });
         }
     }
-    let alvo = |n: &NoAlvo| &configs.por_pacote[n.config].alvos[n.alvo];
-    let mut deps_alvo: Vec<Vec<usize>> = Vec::with_capacity(nos.len());
-    for n in &nos {
-        let a = alvo(n);
+    let target = |n: &NoAlvo| &configs.por_pacote[n.config].alvos[n.alvo];
+    let mut target_deps: Vec<Vec<usize>> = Vec::with_capacity(nodes.len());
+    for n in &nodes {
+        let a = target(n);
         let mut v = Vec::new();
         for d in &a.dependencias {
-            let Some(&i) = por_chave.get(d.as_str()) else {
+            let Some(&i) = by_key.get(d.as_str()) else {
                 return Err(format!(
                     "{} declares a dependency on {d} but it does not exist",
                     a.chave
@@ -604,13 +611,13 @@ pub fn fases(
             };
             v.push(i);
         }
-        deps_alvo.push(v);
+        target_deps.push(v);
     }
-    let inicio: Vec<usize> = (0..nos.len()).collect();
-    let ciclos = scc(&inicio, |i| deps_alvo[i].clone());
+    let start: Vec<usize> = (0..nodes.len()).collect();
+    let cycles = scc(&start, |i| target_deps[i].clone());
 
-    let cfg_raiz = &configs.por_pacote[grafo.raiz];
-    let mut global: HashMap<&str, Mapa> = cfg_raiz
+    let root_cfg = &configs.por_pacote[graph.raiz];
+    let mut global: HashMap<&str, Mapa> = root_cfg
         .global
         .iter()
         .map(|(k, g)| {
@@ -625,99 +632,100 @@ pub fn fases(
         })
         .collect();
     // `builderConfigOverrides`: `(global ?? empty).overrideWith(define)`.
-    for (k, m) in &definicoes.0 {
+    for (k, m) in &definitions.0 {
         let base = global.remove(k.as_str()).unwrap_or_default();
         global.insert(k.as_str(), base.sobrepor(m));
     }
-    let por_aplicacao: HashMap<&str, usize> = plano
+    let by_application: HashMap<&str, usize> = plan
         .aplicacoes
         .iter()
         .enumerate()
         .map(|(i, a)| (a.chave.as_str(), i))
         .collect();
-    let mut aplica_com: HashMap<&str, Vec<usize>> = HashMap::new();
-    for (i, a) in plano.aplicacoes.iter().enumerate() {
+    let mut applied_with: HashMap<&str, Vec<usize>> = HashMap::new();
+    for (i, a) in plan.aplicacoes.iter().enumerate() {
         for b in &a.aplica {
-            aplica_com.entry(b.as_str()).or_default().push(i);
+            applied_with.entry(b.as_str()).or_default().push(i);
         }
     }
 
-    // `_shouldApply` com memória (a recursão por `applies_builders` repete).
-    fn deve_aplicar(
+    // `_shouldApply` with memory (the recursion through `applies_builders`
+    // repeats).
+    fn should_apply(
         a: usize,
         n: usize,
-        grafo: &GrafoPacotes,
-        plano: &Plano,
-        nos: &[NoAlvo],
+        graph: &GrafoPacotes,
+        plan: &Plano,
+        nodes: &[NoAlvo],
         configs: &Configs,
-        por_aplicacao: &HashMap<&str, usize>,
-        aplica_com: &HashMap<&str, Vec<usize>>,
-        profundidade: usize,
+        by_application: &HashMap<&str, usize>,
+        applied_with: &HashMap<&str, Vec<usize>>,
+        depth: usize,
     ) -> bool {
-        let ap = &plano.aplicacoes[a];
-        let no = &nos[n];
-        let pacote = &grafo.nos[no.pacote];
-        let todas_ocultas = ap.aplica.iter().all(|b| {
-            por_aplicacao
+        let ap = &plan.aplicacoes[a];
+        let node = &nodes[n];
+        let package = &graph.nos[node.pacote];
+        let all_hidden = ap.aplica.iter().all(|b| {
+            by_application
                 .get(b.as_str())
-                .is_none_or(|&i| plano.aplicacoes[i].oculta)
+                .is_none_or(|&i| plan.aplicacoes[i].oculta)
         });
-        if !(ap.oculta && todas_ocultas) && !pacote.e_raiz {
+        if !(ap.oculta && all_hidden) && !package.e_raiz {
             return false;
         }
-        let alvo = &configs.por_pacote[no.config].alvos[no.alvo];
-        if let Some(c) = alvo.cfg(&ap.chave) {
-            return c.habilitado;
+        let target = &configs.por_pacote[node.config].alvos[node.alvo];
+        if let Some(c) = target.cfg(&ap.chave) {
+            return c.enabled;
         }
-        if alvo.auto_apply_builders && ap.aplica_ao_pacote(grafo, no.pacote) {
+        if target.auto_apply_builders && ap.applies_to_package(graph, node.pacote) {
             return true;
         }
-        if profundidade > 64 {
+        if depth > 64 {
             return false;
         }
-        aplica_com.get(ap.chave.as_str()).is_some_and(|ancoras| {
-            ancoras.iter().any(|&anc| {
-                deve_aplicar(
-                    anc,
+        applied_with.get(ap.chave.as_str()).is_some_and(|anchors| {
+            anchors.iter().any(|&anchor| {
+                should_apply(
+                    anchor,
                     n,
-                    grafo,
-                    plano,
-                    nos,
+                    graph,
+                    plan,
+                    nodes,
                     configs,
-                    por_aplicacao,
-                    aplica_com,
-                    profundidade + 1,
+                    by_application,
+                    applied_with,
+                    depth + 1,
                 )
             })
         })
     }
 
-    let mut equivalentes: HashMap<(usize, String), Option<crate::equivalente::Equivalente>> =
+    let mut equivalents: HashMap<(usize, String), Option<crate::equivalente::Equivalente>> =
         HashMap::new();
-    let mut em_build = Vec::new();
-    let mut pos = Vec::new();
-    for ciclo in &ciclos {
-        for (ia, ap) in plano.aplicacoes.iter().enumerate() {
+    let mut in_build = Vec::new();
+    let mut post = Vec::new();
+    for cycle in &cycles {
+        for (ia, ap) in plan.aplicacoes.iter().enumerate() {
             for fab in &ap.fabricas {
-                for &n in ciclo {
-                    if !deve_aplicar(
+                for &n in cycle {
+                    if !should_apply(
                         ia,
                         n,
-                        grafo,
-                        plano,
-                        &nos,
+                        graph,
+                        plan,
+                        &nodes,
                         configs,
-                        &por_aplicacao,
-                        &aplica_com,
+                        &by_application,
+                        &applied_with,
                         0,
                     ) {
                         continue;
                     }
-                    let no = &nos[n];
-                    let a = alvo(no);
+                    let node = &nodes[n];
+                    let a = target(node);
                     let cfg = a.cfg(&ap.chave);
-                    let vazio = Mapa::default();
-                    let opcoes_alvo = cfg
+                    let empty = Mapa::default();
+                    let target_options = cfg
                         .map(|c| {
                             c.options.sobrepor(if release {
                                 &c.release_options
@@ -726,24 +734,24 @@ pub fn fases(
                             })
                         })
                         .unwrap_or_default()
-                        .sobrepor(global.get(ap.chave.as_str()).unwrap_or(&vazio));
-                    let opcoes = ap
+                        .sobrepor(global.get(ap.chave.as_str()).unwrap_or(&empty));
+                    let options = ap
                         .opcoes_padrao
                         .sobrepor(if release {
                             &ap.opcoes_release
                         } else {
                             &ap.opcoes_dev
                         })
-                        .sobrepor(&opcoes_alvo);
+                        .sobrepor(&target_options);
                     // `phase.options.config['run_only_if_triggered'] == true`,
-                    // nas opções da fase antes de qualquer equivalência.
-                    let so_se_disparada = dispara
+                    // on the phase options before any equivalence.
+                    let only_if_triggered = triggers_enabled
                         && !ap.pos
-                        && opcoes.obter("run_only_if_triggered")
+                        && options.obter("run_only_if_triggered")
                             == Some(&crate::valor::Valor::Bool(true));
                     if ap.pos && !ap.oculta {
                         return Err(format!(
-                            "{}: post_process_builders com build_to: source (build_config ≥ 1.3.0) ainda não é suportado pelo motor do DartForge",
+                            "{}: post_process_builders with build_to: source (build_config ≥ 1.3.0) is not supported by the DartForge engine yet",
                             ap.chave
                         ));
                     }
@@ -751,15 +759,15 @@ pub fn fases(
                         .and_then(|c| c.generate_for.clone())
                         .or_else(|| ap.generate_for_padrao.clone())
                         .unwrap_or_default();
-                    let substituido = crate::descritor::substituido(&ap.chave);
-                    let equivalente = if ap.pos || substituido.is_some() {
+                    let replaced = crate::descritor::substituido(&ap.chave);
+                    let equivalent = if ap.pos || replaced.is_some() {
                         None
                     } else {
-                        equivalentes
+                        equivalents
                             .entry((ia, fab.clone()))
                             .or_insert_with(|| {
                                 crate::equivalente::equivalente(
-                                    grafo,
+                                    graph,
                                     &ap.import,
                                     fab,
                                     &ap.extensoes_declaradas,
@@ -767,18 +775,18 @@ pub fn fases(
                             })
                             .clone()
                     };
-                    let opcoes = match &equivalente {
+                    let options = match &equivalent {
                         Some(e) => e.opcoes.clone(),
-                        None => opcoes,
+                        None => options,
                     };
-                    let extensoes = if ap.pos || substituido.is_some() {
+                    let extensions = if ap.pos || replaced.is_some() {
                         None
                     } else {
                         let decl = crate::descritor::extensoes_de_execucao(
                             &ap.chave,
                             fab,
                             &ap.fabricas,
-                            &opcoes,
+                            &options,
                             &ap.extensoes_declaradas,
                         )?;
                         Some(Extensoes::novas(&decl, &ap.chave)?)
@@ -786,47 +794,47 @@ pub fn fases(
                     let f = Fase {
                         aplicacao: ia,
                         fabrica: fab.clone(),
-                        pacote: no.pacote,
+                        pacote: node.pacote,
                         alvo: a.chave.clone(),
                         fontes_alvo: Casador::novo(&a.sources, None)?,
                         generate_for: Casador::novo(&generate_for, None)?,
-                        opcoes,
-                        raiz: grafo.nos[no.pacote].e_raiz,
+                        opcoes: options,
+                        raiz: graph.nos[node.pacote].e_raiz,
                         opcional: ap.opcional,
                         oculta: ap.oculta,
                         pos: ap.pos,
-                        extensoes,
+                        extensoes: extensions,
                         entradas_pos: None,
-                        substituido,
-                        equivalente: equivalente.map(|e| e.chave),
-                        so_se_disparada,
+                        substituido: replaced,
+                        equivalente: equivalent.map(|e| e.chave),
+                        only_if_triggered,
                     };
                     if ap.pos {
-                        pos.push(f);
+                        post.push(f);
                     } else {
-                        em_build.push(f);
+                        in_build.push(f);
                     }
                 }
             }
         }
     }
-    em_build.extend(pos);
-    Ok((em_build, nos))
+    in_build.extend(post);
+    Ok((in_build, nodes))
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     #[test]
-    fn import_relativo_do_script() {
-        assert_eq!(import_do_script("package:a/b.dart"), "package:a/b.dart");
+    fn relative_script_import() {
+        assert_eq!(script_import("package:a/b.dart"), "package:a/b.dart");
         assert_eq!(
-            import_do_script("tool/builders.dart"),
+            script_import("tool/builders.dart"),
             "../../../tool/builders.dart"
         );
         assert_eq!(
-            import_do_script("./tool/builders.dart"),
+            script_import("./tool/builders.dart"),
             "../../../tool/builders.dart"
         );
     }

@@ -1,23 +1,24 @@
-//! O motor: plano + grafo + impressão digital por ação + agenda
-//! determinística + executores, publicando numa `Geracao` em memória.
+//! The engine: plan + graph + per-action fingerprint + deterministic
+//! schedule + executors, publishing into an in-memory `Geracao`.
 //!
-//! * Fases em série; ações de uma fase em paralelo (`std::thread::scope`,
-//!   índice atômico, até `trabalhadores`), resultados reunidos na ordem das
-//!   ações — o resultado não depende do número de trabalhadores.
-//! * Uma ação já executada só volta a executar se o digest de alguma consulta
-//!   que ela fez mudou (revalidação), e uma saída igual à anterior não
-//!   invalida ninguém (corte pela saída).
-//! * Preguiça (D-B6): na demanda [`Demanda::Carregador`] só se calculam as
-//!   saídas que o carregador pode importar (`.dart`) e as `build_to: source`;
-//!   o resto (um `.css` servido, o `--comparar`) sai por
-//!   [`Motor::materializar`] ou [`Demanda::Tudo`]. Com o executor Dart, as
-//!   fases ocultas que ele executa também entram (um builder posterior pode
-//!   lê-las); só as opcionais ficam preguiçosas.
+//! * Phases run in series; the actions of a phase run in parallel
+//!   (`std::thread::scope`, atomic index, up to `trabalhadores`), with results
+//!   gathered in action order — the result does not depend on the number of
+//!   workers.
+//! * An action that already ran only runs again if the digest of some query
+//!   it made changed (revalidation), and an output equal to the previous one
+//!   invalidates nobody (output cutoff).
+//! * Laziness (D-B6): under [`Demanda::Carregador`] only the outputs the
+//!   loader can import (`.dart`) and the `build_to: source` ones are
+//!   computed; the rest (a served `.css`, `--comparar`) goes through
+//!   [`Motor::materializar`] or [`Demanda::Tudo`]. With the Dart executor,
+//!   the hidden phases it runs are included too (a later builder may read
+//!   them); only the optional ones stay lazy.
 use crate::consulta::{BancoSemantico, Consulta, Digest, digest_bytes};
 use crate::executor::{
-    AcaoNativa, CtxGerador, Disponibilidade, ExecutorDart, GeradorNativo, Indisponivel, PedidoAcao,
-    PedidoExtensoes, PedidoNativo, ScriptDeBuilders, ServicoAcao, ServicoBuildStep,
-    candidatos_do_glob, digest_de,
+    ActionService, CtxGerador, Disponibilidade, ExecutorDart, GeradorNativo, Indisponivel,
+    NativeAction, PedidoAcao, PedidoExtensoes, PedidoNativo, ScriptDeBuilders, ServicoBuildStep,
+    glob_candidates, query_digest,
 };
 use crate::grafo::{AssetId, Grafo};
 use crate::pacotes::GrafoPacotes;
@@ -37,24 +38,24 @@ use std::time::{Duration, Instant};
 pub struct OpcoesMotor {
     pub release: bool,
     pub trabalhadores: usize,
-    /// Apoio desatualizado vira erro (D-B5, `dartforge build --estrito`).
+    /// A stale fallback becomes an error (D-B5, `dartforge build --estrito`).
     pub estrito: bool,
-    /// Executa também os geradores nativos ainda não verificados, só para
-    /// medir (`--comparar`).
+    /// Also runs the native generators that are not verified yet, only to
+    /// measure them (`--comparar`).
     pub medir_nao_verificados: bool,
-    /// Lê e grava o estado entre processos em
-    /// `.dart_tool/dartforge/build/estado` (§4.1). Desligado por padrão: só
-    /// quando o usuário pede (`dartforge build --estado`,
-    /// `DARTFORGE_BUILD_ESTADO=1`), pela regra governante 6 do `PLANO.md`.
+    /// Reads and writes the state across processes in
+    /// `.dart_tool/dartforge/build/estado` (§4.1). Off by default: only when
+    /// the user asks for it (`dartforge build --estado`,
+    /// `DARTFORGE_BUILD_ESTADO=1`), per governing rule 6 of `PLANO.md`.
     pub persistir: bool,
-    /// `--config <nome>`: `build.<nome>.yaml` no lugar do `build.yaml` da raiz
-    /// (alvos, `global_options` e `triggers`).
+    /// `--config <name>`: `build.<name>.yaml` in place of the root's
+    /// `build.yaml` (targets, `global_options` and `triggers`).
     pub config: Option<String>,
-    /// `--define <builder>=<opção>=<valor>`, por cima das `global_options`.
+    /// `--define <builder>=<option>=<value>`, on top of the `global_options`.
     pub definicoes: crate::linha_de_comando::Definicoes,
-    /// `--build-filter`: só as ações com saída que algum filtro casa rodam
-    /// de início; as outras, só se um passo que roda ler a saída delas
-    /// (`shouldBuildForDirs` e a construção sob demanda do oficial).
+    /// `--build-filter`: only the actions with an output some filter matches
+    /// run from the start; the others only if a running step reads their
+    /// output (`shouldBuildForDirs` and the official on-demand build).
     pub filtros: Vec<crate::linha_de_comando::FiltroBuild>,
 }
 
@@ -76,105 +77,112 @@ impl Default for OpcoesMotor {
     }
 }
 
-/// As consultas de uma ação com o digest de cada resposta.
-type Consultas = Vec<(Consulta, Option<Digest>)>;
+/// An action's queries with the digest of each answer.
+type Queries = Vec<(Consulta, Option<Digest>)>;
 
-/// Quem produziu uma saída.
+/// Who produced an output.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Origem {
     Nativo(&'static str),
     Dart,
     Apoio,
     Pendente,
-    /// O builder (ou o executor, no meio da ação) falhou: sem saídas, e a
-    /// geração inteira falha (DF-BUILD-005).
+    /// The builder (or the executor, in the middle of the action) failed: no
+    /// outputs, and the whole generation fails (DF-BUILD-005).
     Falha,
-    /// Entrada gerada que não foi escrita (ou falhou): o oficial não executa
-    /// o passo (`_runPostProcessAction` e `_matchingPrimaryInputs`,
-    /// `wasOutput`).
+    /// A generated input that was not written (or failed): the official tool
+    /// does not run the step (`_runPostProcessAction` and
+    /// `_matchingPrimaryInputs`, `wasOutput`).
     Omitida,
-    /// `run_only_if_triggered: true` e nenhum trigger disparou
-    /// ([`crate::gatilhos`]): o passo não roda, e nada é escrito.
-    NaoDisparada,
+    /// `run_only_if_triggered: true` and no trigger fired
+    /// ([`crate::gatilhos`]): the step does not run, and nothing is written.
+    NotTriggered,
 }
 
-/// Por que uma ação não saiu do executor Dart.
+/// Why an action did not come out of the Dart executor.
 #[derive(Debug, Clone)]
-enum FalhaDart {
-    /// Não há executor (desligado, não sobe): vale a política de apoio.
-    Indisponivel(String),
-    /// O builder falhou, ou o executor caiu no meio da ação.
+enum DartFailure {
+    /// There is no executor (disabled, does not start): the fallback policy
+    /// applies.
+    Unavailable(String),
+    /// The builder failed, or the executor crashed in the middle of the
+    /// action.
     Builder(String),
 }
 
-/// O que se sabe de uma ação executada.
+/// What is known about an action that ran.
 #[derive(Debug, Clone)]
 pub struct Registro {
-    pub impressao: Digest,
+    pub fingerprint: Digest,
     pub consultas: Vec<(Consulta, Option<Digest>)>,
-    /// Saídas esperadas e o conteúdo (`None` = não escrita).
+    /// Expected outputs and their content (`None` = not written).
     pub saidas: Vec<(AssetId, Option<Arc<[u8]>>)>,
     pub origem: Origem,
-    /// Motivo de pendência (ou de recusa do nativo, quando o apoio supriu).
+    /// Reason it is pending (or why the native generator refused, when the
+    /// fallback supplied it).
     pub motivo: Option<String>,
-    /// Medição de um nativo não verificado (só com `medir_nao_verificados`).
-    pub medido: Vec<(AssetId, Arc<[u8]>)>,
-    /// Numa ação nativa, as saídas que o nativo não escreve e vieram do
-    /// apoio (o `.css.dart` que o ngdart oficial escreve ao lado do
-    /// `.css.shim.dart`): contam como pendentes, não como iguais.
-    pub do_apoio: Vec<AssetId>,
-    /// Pós-processador: entradas marcadas por `deletePrimaryInput`.
+    /// Measurement of an unverified native generator (only with
+    /// `medir_nao_verificados`).
+    pub measured: Vec<(AssetId, Arc<[u8]>)>,
+    /// In a native action, the outputs the native generator does not write
+    /// and that came from the fallback (the `.css.dart` the official ngdart
+    /// writes next to the `.css.shim.dart`): they count as pending, not as
+    /// equal.
+    pub from_fallback: Vec<AssetId>,
+    /// Post-processor: inputs marked by `deletePrimaryInput`.
     pub apagados: Vec<AssetId>,
-    /// Veio do estado salvo por outro processo e ainda não foi conferido
-    /// nesta sessão: a primeira verificação recalcula **todas** as
-    /// consultas, não só as que os eventos tocam (§4.1).
-    pub restaurado: bool,
+    /// Came from the state saved by another process and has not been checked
+    /// in this session yet: the first verification recomputes **all**
+    /// queries, not only the ones the events touch (§4.1).
+    pub restored: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Demanda {
-    /// O que o carregador pode importar (`.dart`) e as saídas `source`.
+    /// What the loader can import (`.dart`) and the `source` outputs.
     Carregador,
-    /// Tudo (`dartforge build`, `--comparar`).
+    /// Everything (`dartforge build`, `--comparar`).
     Tudo,
 }
 
-/// Relatório de uma atualização (vai para o `Relatorio` do `dev`).
+/// Report of one update (goes into the `dev` crate's `Relatorio`).
 #[derive(Debug, Clone, Default)]
 pub struct RelMotor {
-    pub acoes_verificadas: usize,
+    pub checked_actions: usize,
     pub acoes_executadas: usize,
-    pub consultas_reavaliadas: usize,
+    pub reevaluated_queries: usize,
     pub saidas_alteradas: usize,
     pub nativas: usize,
     pub dart: usize,
-    /// Unidades efetivamente regeneradas dentro de um gerador por pacote.
+    /// Units actually regenerated inside a per-package generator.
     pub unidades_nativas: usize,
-    /// Consultas registradas por geradores nesta atualização.
+    /// Queries recorded by generators in this update.
     pub consultas_gerador: usize,
     pub apoio: usize,
-    /// Das ações de apoio, as que deram conteúdo lido do disco do
-    /// `build_runner` (as outras: o oficial não escreveu nada ali).
+    /// Of the fallback actions, those that produced content read from
+    /// `build_runner`'s disk (for the others, the official tool wrote nothing
+    /// there).
     pub apoio_com_saida: usize,
     pub pendentes_por_motivo: BTreeMap<String, usize>,
-    /// Passos com `run_only_if_triggered` que nenhum trigger disparou.
-    pub nao_disparadas: usize,
-    /// Ações cujo builder falhou nesta atualização: a geração falhou.
+    /// Steps with `run_only_if_triggered` that no trigger fired.
+    pub not_triggered: usize,
+    /// Actions whose builder failed in this update: the generation failed.
     pub falhas: Vec<String>,
     pub tempo: Duration,
-    /// Revalidação das rodadas por pacote (digests das consultas afetadas).
-    pub tempo_revalidar: Duration,
-    /// Geradores nativos por pacote (o estágio A do ngdart).
+    /// Revalidation of the per-package rounds (digests of the affected
+    /// queries).
+    pub revalidation_time: Duration,
+    /// Per-package native generators (ngdart's stage A).
     pub tempo_nativo: Duration,
 }
 
 impl RelMotor {
-    /// Soma uma passada seguinte (a construção sob demanda do
-    /// `--build-filter` repete a atualização).
-    fn somar(&mut self, o: RelMotor) {
-        self.acoes_verificadas += o.acoes_verificadas;
+    /// Adds a following pass (the on-demand build of `--build-filter`
+    /// repeats the update).
+    fn add(&mut self, o: RelMotor) {
+        self.checked_actions += o.checked_actions;
         self.acoes_executadas += o.acoes_executadas;
-        self.consultas_reavaliadas += o.consultas_reavaliadas;
+        self.reevaluated_queries += o.reevaluated_queries;
         self.nativas += o.nativas;
         self.dart += o.dart;
         self.unidades_nativas += o.unidades_nativas;
@@ -184,37 +192,37 @@ impl RelMotor {
         for (m, n) in o.pendentes_por_motivo {
             *self.pendentes_por_motivo.entry(m).or_default() += n;
         }
-        self.nao_disparadas += o.nao_disparadas;
+        self.not_triggered += o.not_triggered;
         self.falhas.extend(o.falhas);
         self.tempo += o.tempo;
-        self.tempo_revalidar += o.tempo_revalidar;
+        self.revalidation_time += o.revalidation_time;
         self.tempo_nativo += o.tempo_nativo;
     }
 
     pub fn texto(&self) -> String {
         let mut s = format!(
-            "motor: {} ações verificadas, {} executadas ({} nativas, {} Dart, {} apoio, {} unidades regeneradas), {} consultas reavaliadas, {} consultas do gerador, {} saídas alteradas, {:.1} ms (revalidar {:.1} ms, nativo por pacote {:.1} ms)",
-            self.acoes_verificadas,
+            "engine: {} actions checked, {} run ({} native, {} Dart, {} fallback, {} units regenerated), {} queries reevaluated, {} generator queries, {} outputs changed, {:.1} ms (revalidation {:.1} ms, per-package native {:.1} ms)",
+            self.checked_actions,
             self.acoes_executadas,
             self.nativas,
             self.dart,
             self.apoio,
             self.unidades_nativas,
-            self.consultas_reavaliadas,
+            self.reevaluated_queries,
             self.consultas_gerador,
             self.saidas_alteradas,
             self.tempo.as_secs_f64() * 1000.0,
-            self.tempo_revalidar.as_secs_f64() * 1000.0,
+            self.revalidation_time.as_secs_f64() * 1000.0,
             self.tempo_nativo.as_secs_f64() * 1000.0,
         );
-        if self.nao_disparadas > 0 {
-            s.push_str(&format!("\n  não disparadas: {}", self.nao_disparadas));
+        if self.not_triggered > 0 {
+            s.push_str(&format!("\n  not triggered: {}", self.not_triggered));
         }
         for (m, n) in &self.pendentes_por_motivo {
-            s.push_str(&format!("\n  pendentes ({n}): {m}"));
+            s.push_str(&format!("\n  pending ({n}): {m}"));
         }
         for f in &self.falhas {
-            s.push_str(&format!("\n  falha: {f}"));
+            s.push_str(&format!("\n  failure: {f}"));
         }
         s
     }
@@ -222,26 +230,26 @@ impl RelMotor {
 
 pub struct Atualizacao {
     pub geracao: Arc<Geracao>,
-    /// Caminhos naturais cujo conteúdo mudou (ou sumiu) nesta atualização.
+    /// Natural paths whose content changed (or disappeared) in this update.
     pub alterados: Vec<PathBuf>,
     pub rel: RelMotor,
     pub avisos: Vec<String>,
 }
 
-/// Contexto de uma atualização: o banco semântico e, na sessão, o programa
-/// já carregado (o `BuildStep.resolver` sem carga extra).
+/// Context of an update: the semantic database and, in a session, the
+/// already loaded program (`BuildStep.resolver` without an extra load).
 pub struct Contexto<'a> {
     pub banco: &'a dyn BancoSemantico,
     pub programa: Option<(&'a Program, &'a Interner)>,
 }
 
-/// Execução de um gerador por pacote numa rodada.
-struct RodadaPacote {
-    registro_consultas: Vec<(Consulta, Option<Digest>)>,
-    saidas: BTreeMap<PathBuf, Arc<[u8]>>,
-    recusas: BTreeMap<PathBuf, String>,
-    erro: Option<String>,
-    unidades_geradas: usize,
+/// One run of a per-package generator in a round.
+struct PackageRound {
+    queries: Vec<(Consulta, Option<Digest>)>,
+    outputs: BTreeMap<PathBuf, Arc<[u8]>>,
+    refusals: BTreeMap<PathBuf, String>,
+    error: Option<String>,
+    generated_units: usize,
 }
 
 pub struct Motor {
@@ -253,51 +261,52 @@ pub struct Motor {
     pub alvos: Vec<NoAlvo>,
     pub grafo: Grafo,
     pub opcoes: OpcoesMotor,
-    nativos: Vec<Arc<dyn GeradorNativo>>,
+    natives: Vec<Arc<dyn GeradorNativo>>,
     dart: std::sync::Mutex<Box<dyn ExecutorDart>>,
-    dart_preparado: AtomicBool,
-    /// As extensões de execução já foram conferidas com o executor Dart
-    /// ([`Motor::conferir_extensoes`]).
-    extensoes_conferidas: bool,
-    registros: Vec<Option<Registro>>,
-    /// Ações por fase (índices em `grafo.acoes`).
-    por_fase: Vec<Vec<usize>>,
-    /// Rodadas dos geradores por pacote: (gerador, pacote).
-    pacotes: HashMap<(usize, Arc<str>), RodadaPacote>,
-    memoria: HashMap<PathBuf, Arc<[u8]>>,
-    /// Saída → caminho natural (chave da geração).
+    dart_prepared: AtomicBool,
+    /// The run-time extensions were already checked with the Dart executor
+    /// ([`Motor::check_extensions`]).
+    extensions_checked: bool,
+    records: Vec<Option<Registro>>,
+    /// Actions per phase (indices into `grafo.acoes`).
+    per_phase: Vec<Vec<usize>>,
+    /// Rounds of the per-package generators: (generator, package).
+    package_rounds: HashMap<(usize, Arc<str>), PackageRound>,
+    memory: HashMap<PathBuf, Arc<[u8]>>,
+    /// Output → natural path (the generation key).
     pub naturais: BTreeMap<AssetId, PathBuf>,
-    /// Caminhos naturais das saídas `.dart` (o que o carregador pode pedir).
-    esperadas: HashSet<PathBuf>,
-    /// Caminhos naturais das fontes listadas (arquivo novo ou apagado refaz o
-    /// grafo, como `graph.dart:343-356` reavalia os globs).
-    fontes: HashSet<PathBuf>,
-    /// Diretórios com fontes do pacote raiz: a marca de um diretório muda
-    /// quando um arquivo entra ou sai dele.
+    /// Natural paths of the `.dart` outputs (what the loader may ask for).
+    expected: HashSet<PathBuf>,
+    /// Natural paths of the listed sources (a new or deleted file rebuilds
+    /// the graph, as `graph.dart:343-356` re-evaluates the globs).
+    sources: HashSet<PathBuf>,
+    /// Directories with sources of the root package: a directory's mark
+    /// changes when a file enters or leaves it.
     dirs: Vec<PathBuf>,
-    /// Arquivos de configuração: mudou um, o plano é refeito.
-    configuracao: Vec<PathBuf>,
-    marcas: HashMap<PathBuf, Option<Marca>>,
-    /// O que [`Motor::mudancas`] olha (recalculado a cada atualização).
-    observados: Vec<PathBuf>,
-    geracao: Arc<Geracao>,
-    avisados: HashSet<PathBuf>,
-    rotulos: HashMap<String, &'static str>,
-    /// Saídas que a reconstrução do grafo tirou da memória (a ação ou a
-    /// âncora deixou de existir): entram nos alterados da atualização, para
-    /// que a geração seja republicada sem elas.
-    retirados: Vec<PathBuf>,
-    /// Estado salvo lido no início, aplicado na primeira atualização (depois
-    /// que as extensões e as âncoras foram conferidas com o executor Dart).
-    restaurar: Option<crate::persistencia::Estado>,
-    /// O código dos builders Dart do estado restaurado, conferido: vale
-    /// para regravar ações Dart restauradas sem que o executor tenha rodado.
-    codigo_restaurado: Option<Vec<PathBuf>>,
-    /// Algum registro mudou desde a última gravação do estado.
-    estado_sujo: bool,
-    /// Com `--build-filter`: as ações pedidas (as de saída filtrada, a cadeia
-    /// das entradas geradas delas e as que um passo que rodou leu).
-    pedidas: HashSet<usize>,
+    /// Configuration files: when one changes, the plan is rebuilt.
+    config_files: Vec<PathBuf>,
+    marks: HashMap<PathBuf, Option<Marca>>,
+    /// What [`Motor::mudancas`] looks at (recomputed on every update).
+    watched: Vec<PathBuf>,
+    generation: Arc<Geracao>,
+    warned: HashSet<PathBuf>,
+    labels: HashMap<String, &'static str>,
+    /// Outputs that the graph rebuild removed from memory (the action or the
+    /// anchor no longer exists): they join the update's changed paths, so
+    /// that the generation is republished without them.
+    removed: Vec<PathBuf>,
+    /// Saved state read at startup, applied on the first update (after the
+    /// extensions and the anchors were checked with the Dart executor).
+    to_restore: Option<crate::persistencia::Estado>,
+    /// The Dart builders' code from the restored state, checked: it allows
+    /// re-saving restored Dart actions without the executor having run.
+    restored_code: Option<Vec<PathBuf>>,
+    /// Some record changed since the state was last written.
+    state_dirty: bool,
+    /// With `--build-filter`: the requested actions (those with a filtered
+    /// output, the chain of their generated inputs, and those that a step
+    /// that ran read).
+    requested: HashSet<usize>,
 }
 
 impl Drop for Motor {
@@ -308,75 +317,75 @@ impl Drop for Motor {
     }
 }
 
-fn natural(grafo: &GrafoPacotes, id: &AssetId) -> PathBuf {
-    let raiz = grafo
+fn natural_path(graph: &GrafoPacotes, id: &AssetId) -> PathBuf {
+    let root = graph
         .no(&id.pacote)
         .map(|n| n.raiz.clone())
         .unwrap_or_default();
-    chave(&raiz.join(id.caminho.as_ref()))
+    chave(&root.join(id.caminho.as_ref()))
 }
 
 struct Indices {
-    por_fase: Vec<Vec<usize>>,
-    naturais: BTreeMap<AssetId, PathBuf>,
-    esperadas: HashSet<PathBuf>,
-    fontes: HashSet<PathBuf>,
+    per_phase: Vec<Vec<usize>>,
+    natural_paths: BTreeMap<AssetId, PathBuf>,
+    expected: HashSet<PathBuf>,
+    sources: HashSet<PathBuf>,
     dirs: Vec<PathBuf>,
 }
 
-fn indices(gp: &GrafoPacotes, grafo: &Grafo, n_fases: usize) -> Indices {
-    let mut por_fase = vec![Vec::new(); n_fases];
-    for (i, a) in grafo.acoes.iter().enumerate() {
+fn build_indices(gp: &GrafoPacotes, graph: &Grafo, phase_count: usize) -> Indices {
+    let mut per_phase = vec![Vec::new(); phase_count];
+    for (i, a) in graph.acoes.iter().enumerate() {
         if a.viva() {
-            por_fase[a.fase].push(i);
+            per_phase[a.fase].push(i);
         }
     }
-    let mut naturais = BTreeMap::new();
-    let mut esperadas = HashSet::new();
-    for a in &grafo.acoes {
+    let mut natural_paths = BTreeMap::new();
+    let mut expected = HashSet::new();
+    for a in &graph.acoes {
         for s in &a.saidas {
-            let n = natural(gp, s);
+            let n = natural_path(gp, s);
             if s.caminho.ends_with(".dart") {
-                esperadas.insert(n.clone());
+                expected.insert(n.clone());
             }
-            naturais.insert(s.clone(), n);
+            natural_paths.insert(s.clone(), n);
         }
     }
-    let mut fontes = HashSet::new();
+    let mut sources = HashSet::new();
     let mut dirs = BTreeSet::new();
-    let raiz = &gp.nos[gp.raiz];
-    for (pacote, caminhos) in &grafo.fontes {
-        let Some(no) = gp.no(pacote) else { continue };
-        for c in caminhos {
+    let root = &gp.nos[gp.raiz];
+    for (package, paths) in &graph.fontes {
+        let Some(node) = gp.no(package) else { continue };
+        for c in paths {
             if c.contains('$') {
                 continue;
             }
-            let n = chave(&no.raiz.join(c.as_ref()));
-            if no.nome == raiz.nome {
+            let n = chave(&node.raiz.join(c.as_ref()));
+            if node.nome == root.nome {
                 let mut d = n.parent();
                 while let Some(x) = d {
-                    if !x.starts_with(&raiz.raiz) || x == raiz.raiz {
+                    if !x.starts_with(&root.raiz) || x == root.raiz {
                         break;
                     }
                     dirs.insert(x.to_path_buf());
                     d = x.parent();
                 }
             }
-            fontes.insert(n);
+            sources.insert(n);
         }
     }
     Indices {
-        por_fase,
-        naturais,
-        esperadas,
-        fontes,
+        per_phase,
+        natural_paths,
+        expected,
+        sources,
         dirs: dirs.into_iter().collect(),
     }
 }
 
-/// Forma canônica de um caminho de evento (o arquivo pode ter sido apagado:
-/// então canoniza o diretório).
-fn canonico(p: &Path) -> Option<PathBuf> {
+/// Canonical form of an event path (the file may have been deleted: then
+/// the directory is canonicalized).
+fn canonical(p: &Path) -> Option<PathBuf> {
     let c = match std::fs::canonicalize(p) {
         Ok(c) => c,
         Err(_) => std::fs::canonicalize(p.parent()?)
@@ -386,203 +395,201 @@ fn canonico(p: &Path) -> Option<PathBuf> {
     Some(chave(&dartforge_elements::config::sem_verbatim(c)))
 }
 
-/// A consulta pode ter mudado com estes eventos?
-fn afetada(
+/// Could the query have changed with these events?
+fn affected(
     c: &Consulta,
-    mudados: &HashSet<PathBuf>,
-    dart_mudou: bool,
-    estruturais: &HashSet<PathBuf>,
+    changed: &HashSet<PathBuf>,
+    dart_changed: bool,
+    structural: &HashSet<PathBuf>,
 ) -> bool {
     match c {
-        // Uma listagem só muda quando entra ou sai arquivo (diretório observado
-        // que mudou, ou arquivo novo/apagado).
-        Consulta::Glob { dir, .. } => estruturais.iter().any(|m| m.starts_with(dir)),
+        // A listing only changes when a file enters or leaves (a watched
+        // directory that changed, or a new/deleted file).
+        Consulta::Glob { dir, .. } => structural.iter().any(|m| m.starts_with(dir)),
         Consulta::GlobAtivos {
             dir, candidatos, ..
         } => {
-            estruturais.iter().any(|m| m.starts_with(dir))
+            structural.iter().any(|m| m.starts_with(dir))
                 || candidatos
                     .iter()
-                    .any(|(rel, _)| mudados.contains(&chave(&dir.join(rel))))
+                    .any(|(rel, _)| changed.contains(&chave(&dir.join(rel))))
         }
-        _ => c.caminho().is_some_and(|p| mudados.contains(p)) || (c.semantica() && dart_mudou),
+        _ => c.caminho().is_some_and(|p| changed.contains(p)) || (c.semantica() && dart_changed),
     }
 }
 
 impl Motor {
-    /// Constrói o motor de um projeto: lê a configuração e monta plano, fases
-    /// e grafo. Só chamado quando [`crate::detectar`] disse sim.
-    pub fn novo(raiz: &Path, cfg: &PackageConfig, opcoes: OpcoesMotor) -> Result<Motor, String> {
+    /// Builds the engine of a project: reads the configuration and assembles
+    /// plan, phases and graph. Only called when [`crate::detectar`] said yes.
+    pub fn novo(root: &Path, cfg: &PackageConfig, options: OpcoesMotor) -> Result<Motor, String> {
         crate::contar_instancia();
-        let grafo_pacotes = GrafoPacotes::montar(raiz, cfg, None)?;
-        let configs_script = Configs::ler(&grafo_pacotes, false)?;
-        let plano = Plano::do_script(&grafo_pacotes, &configs_script)?;
-        let configs = Configs::ler_com(&grafo_pacotes, true, opcoes.config.as_deref())?;
-        let (fases, alvos) = fases(
-            &grafo_pacotes,
+        let package_graph = GrafoPacotes::montar(root, cfg, None)?;
+        let script_configs = Configs::ler(&package_graph, false)?;
+        let plan = Plano::do_script(&package_graph, &script_configs)?;
+        let configs =
+            Configs::read_with_config(&package_graph, true, options.config.as_deref())?;
+        let (phases, targets) = fases(
+            &package_graph,
             &configs,
-            &plano,
-            opcoes.release,
-            &opcoes.definicoes,
+            &plan,
+            options.release,
+            &options.definicoes,
         )?;
-        let grafo = Grafo::montar(&grafo_pacotes, &configs, &fases, &alvos)?;
+        let graph = Grafo::montar(&package_graph, &configs, &phases, &targets)?;
         let Indices {
-            por_fase,
-            naturais,
-            esperadas,
-            fontes,
+            per_phase,
+            natural_paths,
+            expected,
+            sources,
             dirs,
-        } = indices(&grafo_pacotes, &grafo, fases.len());
-        let mut configuracao = vec![
-            chave(&grafo_pacotes.dir_raiz.join("pubspec.lock")),
+        } = build_indices(&package_graph, &graph, phases.len());
+        let mut config_files = vec![
+            chave(&package_graph.dir_raiz.join("pubspec.lock")),
             chave(
-                &grafo_pacotes
+                &package_graph
                     .dir_raiz
                     .join(".dart_tool")
                     .join("package_config.json"),
             ),
         ];
-        let r = &grafo_pacotes.nos[grafo_pacotes.raiz].raiz;
-        configuracao.push(chave(&r.join("pubspec.yaml")));
-        // O `build.yaml` de cada pacote, exista ou não (criá-lo muda o
-        // plano), e o diretório raiz, cuja marca muda quando um override
-        // `<pacote>.build.yaml` aparece ou some (DF-BUILD-018).
-        for no in &grafo_pacotes.nos {
-            configuracao.push(chave(&no.raiz.join("build.yaml")));
+        let r = &package_graph.nos[package_graph.raiz].raiz;
+        config_files.push(chave(&r.join("pubspec.yaml")));
+        // Each package's `build.yaml`, whether it exists or not (creating it
+        // changes the plan), and the root directory, whose mark changes when
+        // a `<package>.build.yaml` override appears or disappears
+        // (DF-BUILD-018).
+        for node in &package_graph.nos {
+            config_files.push(chave(&node.raiz.join("build.yaml")));
         }
-        configuracao.push(chave(r));
-        if let Some(k) = &opcoes.config {
-            configuracao.push(chave(&r.join(format!("build.{k}.yaml"))));
+        config_files.push(chave(r));
+        if let Some(k) = &options.config {
+            config_files.push(chave(&r.join(format!("build.{k}.yaml"))));
         }
         if let Ok(ls) = std::fs::read_dir(r) {
             for e in ls.flatten() {
                 if e.file_name().to_string_lossy().ends_with(".build.yaml") {
-                    configuracao.push(chave(&e.path()));
+                    config_files.push(chave(&e.path()));
                 }
             }
         }
-        configuracao.sort();
-        configuracao.dedup();
-        let n_acoes = grafo.acoes.len();
+        config_files.sort();
+        config_files.dedup();
+        let action_count = graph.acoes.len();
         let mut m = Motor {
-            raiz: raiz.to_path_buf(),
-            grafo_pacotes,
+            raiz: root.to_path_buf(),
+            grafo_pacotes: package_graph,
             configs,
-            plano,
-            fases,
-            alvos,
-            grafo,
-            opcoes,
-            nativos: Vec::new(),
+            plano: plan,
+            fases: phases,
+            alvos: targets,
+            grafo: graph,
+            opcoes: options,
+            natives: Vec::new(),
             dart: std::sync::Mutex::new(Box::new(Indisponivel::default())),
-            dart_preparado: AtomicBool::new(false),
-            extensoes_conferidas: false,
-            registros: vec![None; n_acoes],
-            por_fase,
-            pacotes: HashMap::new(),
-            memoria: HashMap::new(),
-            naturais,
-            esperadas,
-            fontes,
+            dart_prepared: AtomicBool::new(false),
+            extensions_checked: false,
+            records: vec![None; action_count],
+            per_phase,
+            package_rounds: HashMap::new(),
+            memory: HashMap::new(),
+            naturais: natural_paths,
+            expected,
+            sources,
             dirs,
-            configuracao,
-            marcas: HashMap::new(),
-            observados: Vec::new(),
-            geracao: Arc::new(Geracao::default()),
-            avisados: HashSet::new(),
-            rotulos: HashMap::new(),
-            retirados: Vec::new(),
-            restaurar: None,
-            codigo_restaurado: None,
-            estado_sujo: false,
-            pedidas: HashSet::new(),
+            config_files,
+            marks: HashMap::new(),
+            watched: Vec::new(),
+            generation: Arc::new(Geracao::default()),
+            warned: HashSet::new(),
+            labels: HashMap::new(),
+            removed: Vec::new(),
+            to_restore: None,
+            restored_code: None,
+            state_dirty: false,
+            requested: HashSet::new(),
         };
-        m.pedir_pelos_filtros();
-        for c in m.configuracao.iter().chain(&m.dirs) {
-            m.marcas.insert(c.clone(), Marca::ler(c));
+        m.request_by_filters();
+        for c in m.config_files.iter().chain(&m.dirs) {
+            m.marks.insert(c.clone(), Marca::ler(c));
         }
-        m.recalcular_observados();
+        m.recompute_watched();
         if m.opcoes.persistir {
-            m.restaurar = crate::persistencia::ler(&crate::persistencia::diretorio(
+            m.to_restore = crate::persistencia::ler(&crate::persistencia::diretorio(
                 &m.grafo_pacotes.dir_raiz,
             ));
         }
         #[cfg(feature = "nativos")]
         {
             for g in crate::nativos::todos() {
-                m.registrar_nativo(g);
+                m.register_native(g);
             }
         }
         Ok(m)
     }
 
-    pub fn registrar_nativo(&mut self, g: Arc<dyn GeradorNativo>) {
-        self.nativos.push(g);
+    pub fn register_native(&mut self, g: Arc<dyn GeradorNativo>) {
+        self.natives.push(g);
     }
 
     pub fn definir_executor_dart(&mut self, e: Box<dyn ExecutorDart>) {
-        if let Ok(mut anterior) = self.dart.lock() {
-            anterior.encerrar();
+        if let Ok(mut previous) = self.dart.lock() {
+            previous.encerrar();
         }
         self.dart = std::sync::Mutex::new(e);
-        self.dart_preparado.store(false, Ordering::Release);
+        self.dart_prepared.store(false, Ordering::Release);
     }
 
     pub fn geracao(&self) -> Arc<Geracao> {
-        self.geracao.clone()
+        self.generation.clone()
     }
 
-    /// Caminhos naturais das saídas `.dart` esperadas: a primeira carga não
-    /// pode abortar por "não foi possível ler" de uma delas.
+    /// Natural paths of the expected `.dart` outputs: the first load must
+    /// not abort with "could not read" for one of them.
     pub fn saidas_esperadas(&self) -> &HashSet<PathBuf> {
-        &self.esperadas
+        &self.expected
     }
 
-    pub fn registro(&self, acao: usize) -> Option<&Registro> {
-        self.registros.get(acao).and_then(|r| r.as_ref())
+    pub fn registro(&self, action: usize) -> Option<&Registro> {
+        self.records.get(action).and_then(|r| r.as_ref())
     }
 
-    /// Entradas que não são Dart e que o motor observa (o carregador já
-    /// observa os `.dart`): os arquivos de configuração e o que as ações
-    /// consultaram fora da memória.
+    /// Non-Dart inputs the engine watches (the loader already watches the
+    /// `.dart` files): the configuration files and what the actions queried
+    /// outside memory.
     pub fn observados(&self) -> Vec<PathBuf> {
-        self.observados.clone()
+        self.watched.clone()
     }
 
-    /// Recalcula a lista observada (depois de cada atualização) e anota a
-    /// marca de quem entrou nela agora — o estado que as ações leram.
-    fn recalcular_observados(&mut self) {
-        let v = self.calcular_observados();
+    /// Recomputes the watched list (after each update) and records the mark
+    /// of whatever just entered it — the state the actions read.
+    fn recompute_watched(&mut self) {
+        let v = self.compute_watched();
         for p in &v {
-            if !self.marcas.contains_key(p) {
-                self.marcas.insert(p.clone(), Marca::ler(p));
+            if !self.marks.contains_key(p) {
+                self.marks.insert(p.clone(), Marca::ler(p));
             }
         }
-        self.observados = v;
+        self.watched = v;
     }
 
-    fn calcular_observados(&self) -> Vec<PathBuf> {
+    fn compute_watched(&self) -> Vec<PathBuf> {
         let mut v: BTreeSet<PathBuf> = self
-            .configuracao
+            .config_files
             .iter()
             .chain(&self.dirs)
             .cloned()
             .collect();
-        let consultas = self
-            .registros
+        let queries = self
+            .records
             .iter()
             .flatten()
             .flat_map(|r| r.consultas.iter())
-            .chain(
-                self.pacotes
-                    .values()
-                    .flat_map(|p| p.registro_consultas.iter()),
-            );
-        for (c, _) in consultas {
+            .chain(self.package_rounds.values().flat_map(|p| p.queries.iter()));
+        for (c, _) in queries {
             if let Consulta::Arquivo(p) = c {
                 if !p.to_string_lossy().ends_with(".dart")
-                    && !self.memoria.contains_key(p)
-                    && !self.apoio_de(p)
+                    && !self.memory.contains_key(p)
+                    && !self.is_fallback_path(p)
                 {
                     v.insert(p.clone());
                 }
@@ -591,26 +598,26 @@ impl Motor {
         v.into_iter().collect()
     }
 
-    fn apoio_de(&self, p: &Path) -> bool {
+    fn is_fallback_path(&self, p: &Path) -> bool {
         p.starts_with(self.grafo_pacotes.dir_raiz.join(".dart_tool"))
     }
 
-    /// Observados cuja marca mudou desde a última olhada (mtime e tamanho).
+    /// Watched paths whose mark changed since the last look (mtime and size).
     pub fn mudancas(&mut self) -> Vec<PathBuf> {
-        // Um `stat` por observado, em paralelo como o `CacheUnidades`
-        // (no Windows cada `stat` passa pelo antivírus).
-        let caminhos = &self.observados;
+        // One `stat` per watched path, in parallel like `CacheUnidades` (on
+        // Windows each `stat` goes through the antivirus).
+        let paths = &self.watched;
         let threads = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(4)
             .min(8);
-        let agora: Vec<Option<Marca>> = if caminhos.len() < 64 || threads < 2 {
-            caminhos.iter().map(|p| Marca::ler(p)).collect()
+        let now: Vec<Option<Marca>> = if paths.len() < 64 || threads < 2 {
+            paths.iter().map(|p| Marca::ler(p)).collect()
         } else {
-            let pedaco = caminhos.len().div_ceil(threads);
+            let chunk = paths.len().div_ceil(threads);
             std::thread::scope(|s| {
-                let hs: Vec<_> = caminhos
-                    .chunks(pedaco)
+                let hs: Vec<_> = paths
+                    .chunks(chunk)
                     .map(|c| s.spawn(move || c.iter().map(|p| Marca::ler(p)).collect::<Vec<_>>()))
                     .collect();
                 hs.into_iter()
@@ -619,29 +626,29 @@ impl Motor {
             })
         };
         let mut v = Vec::new();
-        for (p, m) in self.observados.iter().zip(agora) {
-            match self.marcas.get(p) {
-                Some(antes) if *antes == m => {}
+        for (p, m) in self.watched.iter().zip(now) {
+            match self.marks.get(p) {
+                Some(before) if *before == m => {}
                 _ => {
                     v.push(p.clone());
-                    self.marcas.insert(p.clone(), m);
+                    self.marks.insert(p.clone(), m);
                 }
             }
         }
         v
     }
 
-    fn rotulo(&mut self, s: &str) -> &'static str {
-        if let Some(r) = self.rotulos.get(s) {
+    fn label(&mut self, s: &str) -> &'static str {
+        if let Some(r) = self.labels.get(s) {
             return r;
         }
         let r: &'static str = Box::leak(s.to_string().into_boxed_str());
-        self.rotulos.insert(s.to_string(), r);
+        self.labels.insert(s.to_string(), r);
         r
     }
 
-    pub fn caminho_de_apoio(&self, id: &AssetId, oculto: bool) -> PathBuf {
-        if oculto {
+    pub fn caminho_de_apoio(&self, id: &AssetId, hidden: bool) -> PathBuf {
+        if hidden {
             self.grafo_pacotes
                 .dir_raiz
                 .join(".dart_tool/build/generated")
@@ -652,20 +659,21 @@ impl Motor {
         }
     }
 
-    /// A ação entra nesta atualização? `dart_ativo`: há executor Dart. Um
-    /// builder Dart pode ler uma saída `cache` de fase anterior que não é
-    /// `.dart` (o combining_builder lê as partes `.g.part` por glob) e o motor
-    /// não interrompe uma ação para calcular outra; então, com o executor,
-    /// as fases ocultas sem gerador nativo não são preguiçosas — só as
-    /// opcionais, como no `build_runner` (`is_optional`).
-    fn demandada(&self, a: usize, demanda: Demanda, dart_ativo: bool) -> bool {
-        if self.registros[a].is_some() {
+    /// Is the action part of this update? `dart_active`: there is a Dart
+    /// executor. A Dart builder may read a `cache` output of an earlier phase
+    /// that is not `.dart` (the combining_builder reads the `.g.part` parts by
+    /// glob), and the engine does not interrupt an action to compute another
+    /// one; so, with the executor, the hidden phases without a native
+    /// generator are not lazy — only the optional ones, as in `build_runner`
+    /// (`is_optional`).
+    fn is_demanded(&self, a: usize, demand: Demanda, dart_active: bool) -> bool {
+        if self.records[a].is_some() {
             return true;
         }
         if !self.opcoes.filtros.is_empty() {
-            return self.pedidas.contains(&a);
+            return self.requested.contains(&a);
         }
-        if demanda == Demanda::Tudo {
+        if demand == Demanda::Tudo {
             return true;
         }
         let fi = self.grafo.acoes[a].fase;
@@ -675,79 +683,83 @@ impl Motor {
                 .saidas
                 .iter()
                 .any(|s| s.caminho.ends_with(".dart"))
-            || (dart_ativo && !f.opcional && self.nativo_da_fase(fi).is_none())
+            || (dart_active && !f.opcional && self.native_for_phase(fi).is_none())
     }
 
-    /// As saídas que o builder `chave` (ex. `ngdart:ngdart`) não enxerga ao
-    /// resolver o programa: as de todas as fases a partir da primeira dele,
-    /// pelo caminho natural ([`dartforge_elements::gerado::chave`]). No
-    /// `build_runner` uma ação só lê saídas de fases anteriores à dela; um
-    /// `build_to: source` que já está no disco (o `messages.i18n.dart` do
-    /// `i18n`, fase posterior ao ngdart no limitless_ui) não existe para o
-    /// resolver do ngdart, e o tipo que viria dele é `dynamic`.
+    /// The outputs that builder `key` (e.g. `ngdart:ngdart`) does not see
+    /// when resolving the program: those of every phase from its first one
+    /// on, by natural path ([`dartforge_elements::gerado::chave`]). In
+    /// `build_runner` an action only reads outputs of phases before its own;
+    /// a `build_to: source` output already on disk (the `i18n`'s
+    /// `messages.i18n.dart`, a phase after ngdart in limitless_ui) does not
+    /// exist for ngdart's resolver, and the type that would come from it is
+    /// `dynamic`.
     ///
-    /// O programa é um só para todos os pacotes; conta a primeira fase do
-    /// builder, e uma saída de fase entre a do primeiro pacote e a de outro
-    /// fica oculta também para o segundo.
-    pub fn saidas_invisiveis_a(&self, chave: &str) -> HashSet<PathBuf> {
-        let Some(primeira) = (0..self.fases.len())
-            .find(|&fi| self.plano.aplicacoes[self.fases[fi].aplicacao].chave == chave)
+    /// The program is a single one for all packages; the builder's first
+    /// phase is what counts, and an output of a phase between the first
+    /// package's and another's is hidden from the second as well.
+    pub fn saidas_invisiveis_a(&self, key: &str) -> HashSet<PathBuf> {
+        let Some(first) = (0..self.fases.len())
+            .find(|&fi| self.plano.aplicacoes[self.fases[fi].aplicacao].chave == key)
         else {
             return HashSet::new();
         };
         self.grafo
             .gerados
             .iter()
-            .filter(|(_, g)| g.fase >= primeira)
-            .map(|(id, _)| dartforge_elements::gerado::chave(&natural(&self.grafo_pacotes, id)))
+            .filter(|(_, g)| g.fase >= first)
+            .map(|(id, _)| {
+                dartforge_elements::gerado::chave(&natural_path(&self.grafo_pacotes, id))
+            })
             .collect()
     }
 
-    /// As entradas `.dart` das ações do builder `chave` (ex. `ngdart:ngdart`),
-    /// pelo caminho natural: os arquivos que ele gera — alcançáveis ou não
-    /// a partir do `main`. O `build_runner` resolve cada um; o programa dos
-    /// geradores nativos precisa tê-los todos (um componente que ninguém
-    /// importa também ganha `.template.dart`).
-    pub fn entradas_de(&self, chave: &str) -> Vec<PathBuf> {
-        let mut saida: Vec<PathBuf> = self
+    /// The `.dart` inputs of the actions of builder `key` (e.g.
+    /// `ngdart:ngdart`), by natural path: the files it generates for —
+    /// reachable from `main` or not. `build_runner` resolves each one; the
+    /// native generators' program must have all of them (a component nobody
+    /// imports also gets a `.template.dart`).
+    pub fn entradas_de(&self, key: &str) -> Vec<PathBuf> {
+        let mut out: Vec<PathBuf> = self
             .grafo
             .acoes
             .iter()
             .filter(|a| a.viva())
-            .filter(|a| self.plano.aplicacoes[self.fases[a.fase].aplicacao].chave == chave)
+            .filter(|a| self.plano.aplicacoes[self.fases[a.fase].aplicacao].chave == key)
             .filter(|a| a.entrada.caminho.ends_with(".dart"))
-            .map(|a| natural(&self.grafo_pacotes, &a.entrada))
+            .map(|a| natural_path(&self.grafo_pacotes, &a.entrada))
             .collect();
-        saida.sort();
-        saida.dedup();
-        saida
+        out.sort();
+        out.dedup();
+        out
     }
 
-    /// O gerador nativo que cobre a fase, se a versão do lock é a imitada e o
-    /// pacote é o publicado no pub.dev (um fork com a mesma versão pode ter
-    /// outra fábrica: vai ao executor, DF-BUILD-022).
-    fn nativo_da_fase(&self, fi: usize) -> Option<usize> {
+    /// The native generator that covers the phase, if the locked version is
+    /// the imitated one and the package is the one published on pub.dev (a
+    /// fork with the same version may have another factory: it goes to the
+    /// executor, DF-BUILD-022).
+    fn native_for_phase(&self, fi: usize) -> Option<usize> {
         let f = &self.fases[fi];
-        let chave = f
+        let key = f
             .equivalente
             .unwrap_or(&self.plano.aplicacoes[f.aplicacao].chave);
-        self.nativos.iter().position(|g| {
-            g.chave() == chave
+        self.natives.iter().position(|g| {
+            g.chave() == key
                 && g.cobre(&f.fabrica)
                 && (g.verificado() || self.opcoes.medir_nao_verificados)
-                && crate::descritor::imita(chave).iter().all(|(p, vs)| {
+                && crate::descritor::imita(key).iter().all(|(p, vs)| {
                     self.grafo_pacotes
                         .lock
                         .get(*p)
-                        .is_some_and(|t| t.do_pub_dev() && vs.contains(&t.versao.as_str()))
+                        .is_some_and(|t| t.is_from_pub_dev() && vs.contains(&t.versao.as_str()))
                 })
         })
     }
 
-    /// As versões do `pubspec.lock` dos pacotes que o gerador nativo `chave`
-    /// imita (as que escolhem o modo dele; ver [`crate::descritor::imita`]).
-    fn versoes_imitadas(&self, chave: &str) -> BTreeMap<String, String> {
-        crate::descritor::imita(chave)
+    /// The `pubspec.lock` versions of the packages the native generator `key`
+    /// imitates (the ones that pick its mode; see [`crate::descritor::imita`]).
+    fn imitated_versions(&self, key: &str) -> BTreeMap<String, String> {
+        crate::descritor::imita(key)
             .iter()
             .filter_map(|(p, _)| {
                 let t = self.grafo_pacotes.lock.get(*p)?;
@@ -756,176 +768,179 @@ impl Motor {
             .collect()
     }
 
-    /// A configuração mudou (pubspec, lock, build.yaml)? Então o plano é
-    /// refeito do zero, como o `build_runner` faz quando o script muda.
-    fn configuracao_mudou(&self, mudados: &HashSet<PathBuf>) -> bool {
-        self.configuracao.iter().any(|c| mudados.contains(c))
-            || mudados.iter().any(|m| {
+    /// Did the configuration change (pubspec, lock, build.yaml)? Then the
+    /// plan is rebuilt from scratch, as `build_runner` does when the script
+    /// changes.
+    fn config_changed(&self, changed: &HashSet<PathBuf>) -> bool {
+        self.config_files.iter().any(|c| changed.contains(c))
+            || changed.iter().any(|m| {
                 m.file_name()
                     .is_some_and(|n| n.to_string_lossy().ends_with("build.yaml"))
             })
     }
 
-    /// Arquivo que entrou ou saiu (ou diretório observado que mudou): as
-    /// fontes, e com elas as saídas esperadas, podem ter mudado.
-    fn estrutural(&self, m: &Path) -> bool {
+    /// A file that entered or left (or a watched directory that changed):
+    /// the sources, and with them the expected outputs, may have changed.
+    fn is_structural(&self, m: &Path) -> bool {
         if self.dirs.iter().any(|d| d == m) {
             return true;
         }
-        if self.fontes.contains(m) {
+        if self.sources.contains(m) {
             return !m.is_file();
         }
-        // Arquivo novo num pacote listado (fora do `.dart_tool` e sem ser
-        // saída conhecida escrita no disco).
-        let listado = self.grafo.listados.iter().any(|p| {
+        // A new file in a listed package (outside `.dart_tool` and not a
+        // known output written to disk).
+        let listed = self.grafo.listados.iter().any(|p| {
             self.grafo_pacotes.no(p).is_some_and(|n| {
                 m.starts_with(&n.raiz) && !m.starts_with(n.raiz.join(".dart_tool"))
             })
         });
-        listado && m.is_file() && !self.naturais.values().any(|n| n == m)
+        listed && m.is_file() && !self.naturais.values().any(|n| n == m)
     }
 
-    /// Refaz a listagem de fontes e as saídas esperadas com o mesmo plano;
-    /// os registros das ações que continuam existindo (mesma fase e mesma
-    /// entrada) são mantidos.
-    fn reconstruir_grafo(&mut self, mudados: &mut HashSet<PathBuf>) -> Result<(), String> {
-        let grafo = Grafo::montar(&self.grafo_pacotes, &self.configs, &self.fases, &self.alvos)?;
-        let mut antigos: HashMap<(usize, AssetId), Registro> = HashMap::new();
-        for (i, r) in std::mem::take(&mut self.registros).into_iter().enumerate() {
+    /// Redoes the source listing and the expected outputs with the same
+    /// plan; the records of the actions that still exist (same phase and
+    /// same input) are kept.
+    fn rebuild_graph(&mut self, changed: &mut HashSet<PathBuf>) -> Result<(), String> {
+        let graph = Grafo::montar(&self.grafo_pacotes, &self.configs, &self.fases, &self.alvos)?;
+        let mut old: HashMap<(usize, AssetId), Registro> = HashMap::new();
+        for (i, r) in std::mem::take(&mut self.records).into_iter().enumerate() {
             if let Some(r) = r {
                 let a = &self.grafo.acoes[i];
-                antigos.insert((a.fase, a.entrada.clone()), r);
+                old.insert((a.fase, a.entrada.clone()), r);
             }
         }
         let Indices {
-            por_fase,
-            naturais,
-            esperadas,
-            fontes,
+            per_phase,
+            natural_paths,
+            expected,
+            sources,
             dirs,
-        } = indices(&self.grafo_pacotes, &grafo, self.fases.len());
-        self.registros = grafo
+        } = build_indices(&self.grafo_pacotes, &graph, self.fases.len());
+        self.records = graph
             .acoes
             .iter()
             .map(|a| {
                 if a.viva() {
-                    antigos.remove(&(a.fase, a.entrada.clone()))
+                    old.remove(&(a.fase, a.entrada.clone()))
                 } else {
                     None
                 }
             })
             .collect();
-        // Saídas que deixaram de existir saem da memória. As de um
-        // pós-processador não estão no grafo: valem as das âncoras que
-        // continuam existindo.
-        self.estado_sujo = true;
-        let dinamicas: Vec<PathBuf> = grafo
+        // Outputs that no longer exist leave memory. A post-processor's
+        // outputs are not in the graph: those of the anchors that still exist
+        // remain valid.
+        self.state_dirty = true;
+        let dynamic: Vec<PathBuf> = graph
             .acoes
             .iter()
-            .zip(&self.registros)
+            .zip(&self.records)
             .filter(|(a, _)| a.pos)
             .filter_map(|(_, r)| r.as_ref())
             .flat_map(|r| {
                 r.saidas
                     .iter()
-                    .map(|(s, _)| natural(&self.grafo_pacotes, s))
+                    .map(|(s, _)| natural_path(&self.grafo_pacotes, s))
             })
             .collect();
-        let validas: HashSet<&PathBuf> = naturais.values().chain(&dinamicas).collect();
-        let sumiram: Vec<PathBuf> = self
-            .memoria
+        let valid: HashSet<&PathBuf> = natural_paths.values().chain(&dynamic).collect();
+        let gone: Vec<PathBuf> = self
+            .memory
             .keys()
-            .filter(|k| !validas.contains(k))
+            .filter(|k| !valid.contains(k))
             .cloned()
             .collect();
-        for k in sumiram {
-            self.memoria.remove(&k);
-            self.retirados.push(k.clone());
-            mudados.insert(k);
+        for k in gone {
+            self.memory.remove(&k);
+            self.removed.push(k.clone());
+            changed.insert(k);
         }
         for d in &dirs {
-            self.marcas
+            self.marks
                 .entry(d.clone())
                 .or_insert_with(|| Marca::ler(d));
         }
-        self.grafo = grafo;
-        self.por_fase = por_fase;
-        self.naturais = naturais;
-        self.esperadas = esperadas;
-        self.fontes = fontes;
+        self.grafo = graph;
+        self.per_phase = per_phase;
+        self.naturais = natural_paths;
+        self.expected = expected;
+        self.sources = sources;
         self.dirs = dirs;
-        self.pedir_pelos_filtros();
+        self.request_by_filters();
         Ok(())
     }
 
-    /// Recalcula o que for preciso e publica a geração.
+    /// Recomputes whatever is needed and publishes the generation.
     pub fn atualizar(
         &mut self,
         ctx: &Contexto<'_>,
-        mudados: &[PathBuf],
-        demanda: Demanda,
+        changed: &[PathBuf],
+        demand: Demanda,
     ) -> Result<Atualizacao, String> {
-        let mut at = self.atualizar_passo(ctx, mudados, demanda)?;
-        // `--build-filter`: um passo que rodou leu a saída de uma ação que
-        // não estava pedida — o oficial a constrói na hora (`_isReadableNode`
-        // → `_runLazyPhaseForInput`). Aqui ela entra nas pedidas e a
-        // atualização se repete: a saída nova acorda quem a leu.
+        let mut at = self.update_pass(ctx, changed, demand)?;
+        // `--build-filter`: a step that ran read the output of an action that
+        // was not requested — the official tool builds it on the spot
+        // (`_isReadableNode` → `_runLazyPhaseForInput`). Here it joins the
+        // requested ones and the update repeats: the new output wakes up
+        // whoever read it.
         while !self.opcoes.filtros.is_empty() {
-            let novas = self.pedidas_por_leitura();
-            if novas.is_empty() {
+            let new = self.requested_by_reads();
+            if new.is_empty() {
                 break;
             }
-            self.pedidas.extend(novas);
-            let mais = self.atualizar_passo(ctx, &[], demanda)?;
-            let mut alterados: BTreeSet<PathBuf> = at.alterados.into_iter().collect();
-            alterados.extend(mais.alterados);
-            at.alterados = alterados.into_iter().collect();
-            at.rel.somar(mais.rel);
+            self.requested.extend(new);
+            let more = self.update_pass(ctx, &[], demand)?;
+            let mut altered: BTreeSet<PathBuf> = at.alterados.into_iter().collect();
+            altered.extend(more.alterados);
+            at.alterados = altered.into_iter().collect();
+            at.rel.add(more.rel);
             at.rel.saidas_alteradas = at.alterados.len();
-            at.avisos.extend(mais.avisos);
-            at.geracao = mais.geracao;
+            at.avisos.extend(more.avisos);
+            at.geracao = more.geracao;
         }
         Ok(at)
     }
 
-    /// As ações que o `--build-filter` pede de início
-    /// (`_matchingPrimaryInputs` com `shouldBuildForDirs`): as de fase não
-    /// opcional com alguma saída que um filtro casa e que é visível no build
-    /// (fora da raiz, só os assets públicos), e, para cada uma, a ação que
-    /// produz a entrada gerada dela. Âncoras de pós-processador rodam sempre.
-    fn pedir_pelos_filtros(&mut self) {
-        self.pedidas.clear();
+    /// The actions `--build-filter` requests from the start
+    /// (`_matchingPrimaryInputs` with `shouldBuildForDirs`): those of a
+    /// non-optional phase with some output that a filter matches and that is
+    /// visible in the build (outside the root, only the public assets), and,
+    /// for each one, the action that produces its generated input.
+    /// Post-processor anchors always run.
+    fn request_by_filters(&mut self) {
+        self.requested.clear();
         if self.opcoes.filtros.is_empty() {
             return;
         }
-        let mut pilha = Vec::new();
-        for (a, acao) in self.grafo.acoes.iter().enumerate() {
-            if !acao.viva() {
+        let mut stack = Vec::new();
+        for (a, action) in self.grafo.acoes.iter().enumerate() {
+            if !action.viva() {
                 continue;
             }
-            let fase = &self.fases[acao.fase];
-            let pedida = acao.pos
-                || !fase.opcional
-                    && acao.saidas.iter().any(|s| {
-                        self.opcoes.filtros.iter().any(|f| f.casa(s)) && self.visivel_no_build(s)
+            let phase = &self.fases[action.fase];
+            let requested = action.pos
+                || !phase.opcional
+                    && action.saidas.iter().any(|s| {
+                        self.opcoes.filtros.iter().any(|f| f.casa(s)) && self.visible_in_build(s)
                     });
-            if pedida {
-                pilha.push(a);
+            if requested {
+                stack.push(a);
             }
         }
-        while let Some(a) = pilha.pop() {
-            if !self.pedidas.insert(a) {
+        while let Some(a) = stack.pop() {
+            if !self.requested.insert(a) {
                 continue;
             }
             if let Some(g) = self.grafo.gerados.get(&self.grafo.acoes[a].entrada) {
-                pilha.push(g.acao);
+                stack.push(g.acao);
             }
         }
     }
 
-    /// `isVisibleInBuild`: na raiz tudo; fora dela, os assets públicos
-    /// (`lib/**`, `bin/**`, … e `additional_public_assets`).
-    fn visivel_no_build(&self, id: &AssetId) -> bool {
+    /// `isVisibleInBuild`: everything at the root; outside it, the public
+    /// assets (`lib/**`, `bin/**`, … and `additional_public_assets`).
+    fn visible_in_build(&self, id: &AssetId) -> bool {
         let Some(&p) = self.grafo_pacotes.por_nome.get(id.pacote.as_ref()) else {
             return false;
         };
@@ -939,26 +954,26 @@ impl Motor {
             .any(|g| crate::glob::Glob::novo(&g).is_ok_and(|g| g.casa(&id.caminho)))
     }
 
-    /// As ações ainda não pedidas cuja saída um passo executado consultou:
-    /// por caminho (`canRead`, leitura) ou como candidato de um glob
-    /// (`findAssets`), de fase anterior à do leitor.
-    fn pedidas_por_leitura(&self) -> Vec<usize> {
-        let por_natural: HashMap<&Path, &AssetId> = self
+    /// The not yet requested actions whose output a step that ran queried:
+    /// by path (`canRead`, a read) or as a glob candidate (`findAssets`),
+    /// from a phase before the reader's.
+    fn requested_by_reads(&self) -> Vec<usize> {
+        let by_natural: HashMap<&Path, &AssetId> = self
             .naturais
             .iter()
             .map(|(id, n)| (n.as_path(), id))
             .collect();
-        let mut novas = BTreeSet::new();
-        for (a, r) in self.registros.iter().enumerate() {
+        let mut new = BTreeSet::new();
+        for (a, r) in self.records.iter().enumerate() {
             let Some(r) = r else { continue };
-            let fase = self.grafo.acoes[a].fase;
-            let mut pedir = |id: &AssetId| {
+            let phase = self.grafo.acoes[a].fase;
+            let mut request = |id: &AssetId| {
                 if let Some(g) = self.grafo.gerados.get(id)
-                    && g.fase < fase
-                    && self.registros[g.acao].is_none()
-                    && !self.pedidas.contains(&g.acao)
+                    && g.fase < phase
+                    && self.records[g.acao].is_none()
+                    && !self.requested.contains(&g.acao)
                 {
-                    novas.insert(g.acao);
+                    new.insert(g.acao);
                 }
             };
             for (c, _) in &r.consultas {
@@ -966,191 +981,192 @@ impl Motor {
                     Consulta::GlobAtivos {
                         dir, candidatos, ..
                     } => {
-                        for (rel, gerado) in candidatos {
-                            if *gerado
-                                && let Some(id) = por_natural.get(chave(&dir.join(rel)).as_path())
+                        for (rel, generated) in candidatos {
+                            if *generated
+                                && let Some(id) = by_natural.get(chave(&dir.join(rel)).as_path())
                             {
-                                pedir(id);
+                                request(id);
                             }
                         }
                     }
                     _ => {
-                        if let Some(id) = c.caminho().and_then(|p| por_natural.get(p)) {
-                            pedir(id);
+                        if let Some(id) = c.caminho().and_then(|p| by_natural.get(p)) {
+                            request(id);
                         }
                     }
                 }
             }
         }
-        novas.into_iter().collect()
+        new.into_iter().collect()
     }
 
-    /// Uma passada do motor sobre as fases (ver [`Motor::atualizar`]).
-    fn atualizar_passo(
+    /// One engine pass over the phases (see [`Motor::atualizar`]).
+    fn update_pass(
         &mut self,
         ctx: &Contexto<'_>,
-        mudados: &[PathBuf],
-        demanda: Demanda,
+        changed: &[PathBuf],
+        demand: Demanda,
     ) -> Result<Atualizacao, String> {
         let t0 = Instant::now();
-        // Os caminhos do motor saem do `package_config.json` (canônicos); um
-        // evento pode vir por outro nome do mesmo arquivo (nome curto 8.3 do
-        // Windows, link): entra também a forma canônica.
-        let mut mudados: HashSet<PathBuf> = {
-            let mut m = HashSet::with_capacity(mudados.len() * 2);
-            for p in mudados {
+        // The engine's paths come from `package_config.json` (canonical); an
+        // event may arrive under another name for the same file (Windows 8.3
+        // short name, link): the canonical form is added as well.
+        let mut changed: HashSet<PathBuf> = {
+            let mut m = HashSet::with_capacity(changed.len() * 2);
+            for p in changed {
                 m.insert(chave(p));
-                if let Some(c) = canonico(p) {
+                if let Some(c) = canonical(p) {
                     m.insert(c);
                 }
             }
             m
         };
-        if self.configuracao_mudou(&mudados) {
-            let antiga = std::mem::take(&mut self.memoria);
-            let opcoes = self.opcoes.clone();
-            let nativos = std::mem::take(&mut self.nativos);
+        if self.config_changed(&changed) {
+            let old_memory = std::mem::take(&mut self.memory);
+            let options = self.opcoes.clone();
+            let natives = std::mem::take(&mut self.natives);
             let dart = std::mem::replace(
                 &mut self.dart,
                 std::sync::Mutex::new(Box::new(Indisponivel::default())),
             );
-            // O `package_config.json` relido do disco (uma dependência
-            // `path` pode ter mudado de lugar ou de versão): o guardado é o
-            // do começo da sessão. Ilegível agora, a atualização falha, como
-            // num processo novo.
-            let arquivo = self
+            // The `package_config.json` reread from disk (a `path`
+            // dependency may have moved or changed version): the stored one
+            // is from the start of the session. If it is unreadable now, the
+            // update fails, as in a new process.
+            let file = self
                 .grafo_pacotes
                 .dir_raiz
                 .join(".dart_tool")
                 .join("package_config.json");
-            let cfg = PackageConfig::load(&arquivo)?;
-            *self = Motor::novo(&self.raiz.clone(), &cfg, opcoes)?;
-            self.nativos = nativos;
+            let cfg = PackageConfig::load(&file)?;
+            *self = Motor::novo(&self.raiz.clone(), &cfg, options)?;
+            self.natives = natives;
             self.dart = dart;
-            self.dart_preparado.store(false, Ordering::Release);
-            // Tudo o que existia conta como possivelmente alterado.
-            for k in antiga.keys() {
-                mudados.insert(k.clone());
+            self.dart_prepared.store(false, Ordering::Release);
+            // Everything that existed counts as possibly changed.
+            for k in old_memory.keys() {
+                changed.insert(k.clone());
             }
-            self.memoria = antiga;
+            self.memory = old_memory;
         }
-        if !self.extensoes_conferidas {
-            self.conferir_extensoes(&mut mudados)?;
+        if !self.extensions_checked {
+            self.check_extensions(&mut changed)?;
         }
-        // Eventos que mudam listagens: diretório observado, arquivo novo ou
-        // apagado. Também refazem as fontes e as saídas esperadas.
-        let estruturais: HashSet<PathBuf> = mudados
+        // Events that change listings: a watched directory, a new or deleted
+        // file. They also redo the sources and the expected outputs.
+        let structural: HashSet<PathBuf> = changed
             .iter()
-            .filter(|m| self.estrutural(m))
+            .filter(|m| self.is_structural(m))
             .cloned()
             .collect();
-        if !estruturais.is_empty() {
-            self.reconstruir_grafo(&mut mudados)?;
+        if !structural.is_empty() {
+            self.rebuild_graph(&mut changed)?;
         }
-        if self.dart_preparado.load(Ordering::Acquire)
+        if self.dart_prepared.load(Ordering::Acquire)
             && let Ok(mut d) = self.dart.lock()
         {
             d.nova_rodada();
         }
         let mut rel = RelMotor::default();
-        let mut avisos = Vec::new();
-        let mut alterados: BTreeSet<PathBuf> = self.retirados.drain(..).collect();
-        let dart_mudou = mudados
+        let mut warnings = Vec::new();
+        let mut altered: BTreeSet<PathBuf> = self.removed.drain(..).collect();
+        let dart_changed = changed
             .iter()
             .any(|p| p.to_string_lossy().ends_with(".dart"));
-        let mut pacotes_feitos: HashSet<(usize, Arc<str>)> = HashSet::new();
-        let mut pacotes_rodaram: HashSet<(usize, Arc<str>)> = HashSet::new();
-        let motivo_dart = self
+        let mut packages_done: HashSet<(usize, Arc<str>)> = HashSet::new();
+        let mut packages_ran: HashSet<(usize, Arc<str>)> = HashSet::new();
+        let dart_reason = self
             .dart
             .lock()
             .map(|d| match d.disponibilidade() {
                 Disponibilidade::Disponivel => None,
                 Disponibilidade::Indisponivel(m) => Some(m),
             })
-            .unwrap_or_else(|_| Some("executor Dart envenenado".into()));
-        if self.restaurar.is_some() {
-            self.aplicar_restauracao(motivo_dart.as_deref());
+            .unwrap_or_else(|_| Some("Dart executor poisoned".into()));
+        if self.to_restore.is_some() {
+            self.apply_restoration(dart_reason.as_deref());
         }
 
         for fi in 0..self.fases.len() {
-            let acoes: Vec<usize> = self.por_fase[fi]
+            let actions: Vec<usize> = self.per_phase[fi]
                 .iter()
                 .copied()
-                .filter(|&a| self.demandada(a, demanda, motivo_dart.is_none()))
+                .filter(|&a| self.is_demanded(a, demand, dart_reason.is_none()))
                 .collect();
-            if acoes.is_empty() {
+            if actions.is_empty() {
                 continue;
             }
-            let nativo = self.nativo_da_fase(fi);
-            // Gerador por pacote: uma rodada por (gerador, pacote), feita (ou
-            // reaproveitada) na primeira fase que ele cobre.
-            let mut rodou: Option<bool> = None;
-            if let Some(g) = nativo.filter(|&g| self.nativos[g].por_pacote()) {
-                let pacote: Arc<str> = self.grafo_pacotes.nos[self.fases[fi].pacote]
+            let native = self.native_for_phase(fi);
+            // Per-package generator: one round per (generator, package), done
+            // (or reused) in the first phase it covers.
+            let mut round_ran: Option<bool> = None;
+            if let Some(g) = native.filter(|&g| self.natives[g].por_pacote()) {
+                let package: Arc<str> = self.grafo_pacotes.nos[self.fases[fi].pacote]
                     .nome
                     .as_str()
                     .into();
-                let k = (g, pacote.clone());
-                if !pacotes_feitos.contains(&k) {
-                    pacotes_feitos.insert(k.clone());
-                    if self.rodar_pacote(
+                let k = (g, package.clone());
+                if !packages_done.contains(&k) {
+                    packages_done.insert(k.clone());
+                    if self.run_package(
                         ctx,
                         g,
-                        &pacote,
-                        &mudados,
-                        dart_mudou,
-                        &estruturais,
+                        &package,
+                        &changed,
+                        dart_changed,
+                        &structural,
                         &mut rel,
                     )? {
-                        pacotes_rodaram.insert(k.clone());
+                        packages_ran.insert(k.clone());
                     }
                 }
-                rodou = Some(pacotes_rodaram.contains(&k));
+                round_ran = Some(packages_ran.contains(&k));
             }
-            // Quais ações precisam (re)executar.
-            let mut executar = Vec::new();
-            for &a in &acoes {
-                rel.acoes_verificadas += 1;
-                let sujo = match (&self.registros[a], rodou) {
+            // Which actions need to (re)run.
+            let mut to_run = Vec::new();
+            for &a in &actions {
+                rel.checked_actions += 1;
+                let dirty = match (&self.records[a], round_ran) {
                     (None, _) => true,
-                    // Coberta por rodada de pacote: refaz se a rodada refez.
+                    // Covered by a package round: redone if the round was.
                     (Some(_), Some(r)) => r,
-                    // Do estado salvo: todas as consultas, e as saídas
-                    // `source` no disco.
-                    (Some(r), None) if r.restaurado => {
-                        rel.consultas_reavaliadas += r.consultas.len();
-                        let (sujo, fora_do_disco) = self.conferir_restaurado(a, ctx.banco);
-                        for n in fora_do_disco {
-                            self.memoria.remove(&n);
+                    // From the saved state: all queries, and the `source`
+                    // outputs on disk.
+                    (Some(r), None) if r.restored => {
+                        rel.reevaluated_queries += r.consultas.len();
+                        let (dirty, off_disk) = self.check_restored(a, ctx.banco);
+                        for n in off_disk {
+                            self.memory.remove(&n);
                         }
-                        if !sujo && let Some(r) = self.registros[a].as_mut() {
-                            r.restaurado = false;
+                        if !dirty && let Some(r) = self.records[a].as_mut() {
+                            r.restored = false;
                         }
-                        sujo
+                        dirty
                     }
                     (Some(r), None) => {
-                        // Só as consultas que os eventos podem ter mudado.
-                        let memoria = |p: &Path| self.memoria.get(p).cloned();
-                        let mut refeitas = Vec::new();
-                        let sujo = r
+                        // Only the queries the events may have changed.
+                        let memory = |p: &Path| self.memory.get(p).cloned();
+                        let mut redone = Vec::new();
+                        let dirty = r
                             .consultas
                             .iter()
                             .enumerate()
                             .filter(|(_, (c, _))| {
-                                afetada(c, &mudados, dart_mudou, &estruturais)
-                                    && !self.invisivel(a, c)
+                                affected(c, &changed, dart_changed, &structural)
+                                    && !self.is_invisible(a, c)
                             })
                             .any(|(i, (c, d))| {
-                                rel.consultas_reavaliadas += 1;
+                                rel.reevaluated_queries += 1;
                                 if let Consulta::GlobAtivos { dir, padrao, .. } = c {
-                                    // O grafo pode ter ganhado (ou perdido) um
-                                    // candidato: a lista é refeita no grafo novo
-                                    // e só a resposta diferente suja a ação.
-                                    if estruturais.iter().any(|m| m.starts_with(dir)) {
+                                    // The graph may have gained (or lost) a
+                                    // candidate: the list is redone on the new
+                                    // graph and only a different answer
+                                    // dirties the action.
+                                    if structural.iter().any(|m| m.starts_with(dir)) {
                                         let Ok(g) = crate::glob::Glob::novo(padrao) else {
                                             return true;
                                         };
-                                        let candidatos = candidatos_do_glob(&self.grafo, a, &g)
+                                        let candidates = glob_candidates(&self.grafo, a, &g)
                                             .into_iter()
                                             .map(|id| {
                                                 (
@@ -1159,96 +1175,99 @@ impl Motor {
                                                 )
                                             })
                                             .collect();
-                                        let refeita = Consulta::GlobAtivos {
+                                        let redone_query = Consulta::GlobAtivos {
                                             dir: dir.clone(),
                                             padrao: padrao.clone(),
-                                            candidatos,
+                                            candidatos: candidates,
                                         };
-                                        let mudou = digest_de(&refeita, ctx.banco, &memoria) != *d;
-                                        refeitas.push((i, refeita));
-                                        return mudou;
+                                        let differs =
+                                            query_digest(&redone_query, ctx.banco, &memory) != *d;
+                                        redone.push((i, redone_query));
+                                        return differs;
                                     }
                                 }
-                                digest_de(c, ctx.banco, &memoria) != *d
+                                query_digest(c, ctx.banco, &memory) != *d
                             });
-                        if !sujo && !refeitas.is_empty() {
-                            // A resposta é a mesma, mas os candidatos são os
-                            // do grafo novo: um evento futuro num deles tem
-                            // de acordar a ação.
-                            if let Some(r) = self.registros[a].as_mut() {
-                                for (i, c) in refeitas {
+                        if !dirty && !redone.is_empty() {
+                            // The answer is the same, but the candidates are
+                            // those of the new graph: a future event on one of
+                            // them has to wake the action up.
+                            if let Some(r) = self.records[a].as_mut() {
+                                for (i, c) in redone {
                                     r.consultas[i].0 = c;
                                 }
                             }
                         }
-                        sujo
+                        dirty
                     }
                 };
-                if sujo {
-                    executar.push(a);
+                if dirty {
+                    to_run.push(a);
                 }
             }
-            if executar.is_empty() {
+            if to_run.is_empty() {
                 continue;
             }
-            // Passos que não rodam: entrada gerada que não foi escrita
-            // (`wasOutput`) e, com `run_only_if_triggered`, os que nenhum
-            // trigger dispara. Os disparados guardam as leituras do trigger
-            // (a entrada e as partes), que decidem a próxima vez.
-            let mut previos: HashMap<usize, Registro> = HashMap::new();
-            let mut do_gatilho: HashMap<usize, Consultas> = HashMap::new();
+            // Steps that do not run: a generated input that was not written
+            // (`wasOutput`) and, with `run_only_if_triggered`, those no
+            // trigger fires. The triggered ones keep the trigger's reads (the
+            // input and the parts), which decide the next time.
+            let mut preset: HashMap<usize, Registro> = HashMap::new();
+            let mut from_trigger: HashMap<usize, Queries> = HashMap::new();
             if !self.fases[fi].pos {
-                for &a in &executar {
-                    if let Some(r) = self.entrada_nao_escrita(a) {
-                        previos.insert(a, r);
-                    } else if let Some((disparou, consultas)) = self.disparo(a) {
-                        if disparou {
-                            do_gatilho.insert(a, consultas);
+                for &a in &to_run {
+                    if let Some(r) = self.unwritten_input(a) {
+                        preset.insert(a, r);
+                    } else if let Some((fired, queries)) = self.trigger_decision(a) {
+                        if fired {
+                            from_trigger.insert(a, queries);
                         } else {
-                            previos.insert(a, self.sem_saidas(a, consultas, Origem::NaoDisparada));
+                            preset.insert(a, self.without_outputs(a, queries, Origem::NotTriggered));
                         }
                     }
                 }
             }
-            let rodar: Vec<usize> = executar
+            let run: Vec<usize> = to_run
                 .iter()
                 .copied()
-                .filter(|a| !previos.contains_key(a))
+                .filter(|a| !preset.contains_key(a))
                 .collect();
-            let rodados: Vec<Registro> = match nativo {
-                _ if rodar.is_empty() => Vec::new(),
-                Some(g) if self.nativos[g].por_pacote() => rodar
+            let ran: Vec<Registro> = match native {
+                _ if run.is_empty() => Vec::new(),
+                Some(g) if self.natives[g].por_pacote() => run
                     .iter()
-                    .map(|&a| self.de_pacote(g, a, motivo_dart.as_deref()))
+                    .map(|&a| self.from_package_round(g, a, dart_reason.as_deref()))
                     .collect(),
                 Some(g) => {
-                    let mut v = Vec::with_capacity(rodar.len());
-                    for &a in &rodar {
-                        v.push(self.nativo_por_acao(ctx, &mudados, g, a, motivo_dart.as_deref()));
+                    let mut v = Vec::with_capacity(run.len());
+                    for &a in &run {
+                        v.push(self.native_action(ctx, &changed, g, a, dart_reason.as_deref()));
                     }
                     v
                 }
-                None if motivo_dart.is_none() && self.fases[fi].pos => self.pos_em_serie(&rodar),
-                None if motivo_dart.is_none() => {
-                    rodar.iter().map(|&a| self.dart_ou_apoio(a)).collect()
+                None if dart_reason.is_none() && self.fases[fi].pos => {
+                    self.post_process_serial(&run)
                 }
-                None => self.apoio_em_paralelo(&rodar, motivo_dart.as_deref()),
+                None if dart_reason.is_none() => {
+                    run.iter().map(|&a| self.dart_or_fallback(a)).collect()
+                }
+                None => self.fallback_in_parallel(&run, dart_reason.as_deref()),
             };
-            let mut rodados: HashMap<usize, Registro> = rodar.into_iter().zip(rodados).collect();
-            let novos: Vec<Registro> = executar
+            let mut ran: HashMap<usize, Registro> = run.into_iter().zip(ran).collect();
+            let new_records: Vec<Registro> = to_run
                 .iter()
                 .map(|a| {
-                    previos.remove(a).unwrap_or_else(|| {
-                        let mut r = rodados.remove(a).expect("registro de ação rodada");
-                        if let Some(c) = do_gatilho.remove(a) {
+                    preset.remove(a).unwrap_or_else(|| {
+                        let mut r = ran.remove(a).expect("record of an action that ran");
+                        if let Some(c) = from_trigger.remove(a) {
                             r.consultas.extend(c);
                         }
                         r
                     })
                 })
                 .collect();
-            for (a, mut r) in executar.into_iter().zip(novos) {
-                if !matches!(r.origem, Origem::Omitida | Origem::NaoDisparada) {
+            for (a, mut r) in to_run.into_iter().zip(new_records) {
+                if !matches!(r.origem, Origem::Omitida | Origem::NotTriggered) {
                     rel.acoes_executadas += 1;
                 }
                 match r.origem {
@@ -1261,7 +1280,7 @@ impl Motor {
                         }
                     }
                     Origem::Falha => rel.falhas.push(r.motivo.clone().unwrap_or_default()),
-                    Origem::NaoDisparada => rel.nao_disparadas += 1,
+                    Origem::NotTriggered => rel.not_triggered += 1,
                     Origem::Pendente | Origem::Omitida => {}
                 }
                 if let Some(m) = &r.motivo {
@@ -1269,215 +1288,221 @@ impl Motor {
                         *rel.pendentes_por_motivo.entry(m.clone()).or_default() += 1;
                     }
                 }
-                // Apoio desatualizado (D-B5).
+                // Stale fallback (D-B5).
                 if r.origem == Origem::Apoio {
-                    let entrada = self.naturais_de_entrada(a);
+                    let input = self.input_natural_path(a);
                     for (s, _) in &r.saidas {
                         let loc = self.caminho_de_apoio(s, self.fases[fi].oculta);
-                        if mais_nova(&entrada, &loc) && self.avisados.insert(loc.clone()) {
+                        if is_newer(&input, &loc) && self.warned.insert(loc.clone()) {
                             let msg = format!(
-                                "{}: {} pode estar desatualizado — {}; rode 'dart run build_runner build'",
+                                "{}: {} may be out of date — {}; run 'dart run build_runner build'",
                                 self.plano.aplicacoes[self.fases[fi].aplicacao].chave,
                                 s.texto(),
                                 r.motivo
                                     .as_deref()
-                                    .unwrap_or("executor Dart não produziu saída atual")
+                                    .unwrap_or("the Dart executor produced no current output")
                             );
                             if self.opcoes.estrito {
                                 return Err(msg);
                             }
-                            avisos.push(msg);
+                            warnings.push(msg);
                         }
                     }
                 }
-                // Saídas de um pós-processador que a nova execução não
-                // escreveu somem (`_cleanUpStaleOutputs` da âncora).
-                if let Some(antigo) = &self.registros[a]
+                // A post-processor's outputs that the new run did not write
+                // disappear (the anchor's `_cleanUpStaleOutputs`).
+                if let Some(old) = &self.records[a]
                     && self.grafo.acoes[a].pos
                 {
-                    for (s, _) in &antigo.saidas {
+                    for (s, _) in &old.saidas {
                         if !r.saidas.iter().any(|(x, _)| x == s) {
-                            let n = self.natural_de(s);
-                            if self.memoria.remove(&n).is_some() {
-                                alterados.insert(n.clone());
-                                mudados.insert(n);
+                            let n = self.natural_path_of(s);
+                            if self.memory.remove(&n).is_some() {
+                                altered.insert(n.clone());
+                                changed.insert(n);
                             }
                         }
                     }
                 }
-                // `deletePrimaryInput` (`deletedBy`): o `FinalizedReader` do
-                // oficial — o `serve` e o diretório mesclado — deixa de
-                // enxergar a entrada; os builders continuam lendo. Numa
-                // entrada gerada o efeito é o mesmo aqui: ela sai da geração
-                // publicada (`publicar`). Uma fonte apagada continuaria no
-                // disco servido pelo DartForge: aviso, e erro no estrito.
-                let antes: Vec<AssetId> = self.registros[a]
+                // `deletePrimaryInput` (`deletedBy`): the official
+                // `FinalizedReader` — `serve` and the merged output directory
+                // — stops seeing the input; the builders keep reading it. For
+                // a generated input the effect is the same here: it leaves
+                // the published generation (`publish`). A deleted source
+                // would still be on the disk DartForge serves: a warning, and
+                // an error in strict mode.
+                let before: Vec<AssetId> = self.records[a]
                     .as_ref()
                     .map(|x| x.apagados.clone())
                     .unwrap_or_default();
-                if antes != r.apagados {
-                    for id in antes.iter().chain(&r.apagados) {
+                if before != r.apagados {
+                    for id in before.iter().chain(&r.apagados) {
                         if self.grafo.gerados.contains_key(id) {
-                            let n = self.natural_de(id);
-                            alterados.insert(n);
+                            let n = self.natural_path_of(id);
+                            altered.insert(n);
                         }
                     }
                 }
-                for apagado in r
+                for deleted in r
                     .apagados
                     .iter()
                     .filter(|x| !self.grafo.gerados.contains_key(*x))
                 {
                     let msg = format!(
-                        "{}: a fonte {} foi marcada por deletePrimaryInput; o DartForge não tem o diretório mesclado (`build -o`) nem esconde fontes no `serve`, então ela continua visível",
+                        "{}: the source {} was marked by deletePrimaryInput; DartForge has no merged output directory (`build -o`) and does not hide sources in `serve`, so it stays visible",
                         self.plano.aplicacoes[self.fases[fi].aplicacao].chave,
-                        apagado.texto()
+                        deleted.texto()
                     );
                     if self.opcoes.estrito {
                         return Err(msg);
                     }
-                    avisos.push(msg);
+                    warnings.push(msg);
                 }
-                // Corte pela saída: só o que mudou de conteúdo segue adiante.
+                // Output cutoff: only what changed content moves on.
                 for (s, c) in &r.saidas {
-                    let n = self.natural_de(s);
-                    let antes = self.memoria.get(&n).cloned();
-                    let igual = match (&antes, c) {
+                    let n = self.natural_path_of(s);
+                    let before = self.memory.get(&n).cloned();
+                    let equal = match (&before, c) {
                         (Some(x), Some(y)) => x == y,
                         (None, None) => true,
                         _ => false,
                     };
-                    if !igual {
-                        alterados.insert(n.clone());
-                        mudados.insert(n.clone());
+                    if !equal {
+                        altered.insert(n.clone());
+                        changed.insert(n.clone());
                         match c {
                             Some(c) => {
-                                self.memoria.insert(n, c.clone());
+                                self.memory.insert(n, c.clone());
                             }
                             None => {
-                                self.memoria.remove(&n);
+                                self.memory.remove(&n);
                             }
                         }
                     }
                 }
-                let impressao = self.impressao(a, &r.consultas);
-                r.impressao = impressao;
-                self.registros[a] = Some(r);
-                self.estado_sujo = true;
+                let fingerprint = self.fingerprint(a, &r.consultas);
+                r.fingerprint = fingerprint;
+                self.records[a] = Some(r);
+                self.state_dirty = true;
             }
         }
-        rel.saidas_alteradas = alterados.len();
-        if !alterados.is_empty() || self.geracao.vazia() {
-            self.publicar();
+        rel.saidas_alteradas = altered.len();
+        if !altered.is_empty() || self.generation.vazia() {
+            self.publish();
         }
-        if self.opcoes.persistir && self.estado_sujo {
-            match self.salvar() {
-                Ok(()) => self.estado_sujo = false,
-                Err(e) => avisos.push(format!("estado do motor não gravado: {e}")),
+        if self.opcoes.persistir && self.state_dirty {
+            match self.save() {
+                Ok(()) => self.state_dirty = false,
+                // Kept in Portuguese: `crates/build/tests/corpus.rs` matches
+                // "não gravado".
+                Err(e) => warnings.push(format!("estado do motor não gravado: {e}")),
             }
         }
         rel.tempo = t0.elapsed();
-        self.recalcular_observados();
+        self.recompute_watched();
         Ok(Atualizacao {
-            geracao: self.geracao.clone(),
-            alterados: alterados.into_iter().collect(),
+            geracao: self.generation.clone(),
+            alterados: altered.into_iter().collect(),
             rel,
-            avisos,
+            avisos: warnings,
         })
     }
 
-    /// As extensões de execução vêm do objeto `Builder`, não do `build.yaml`
-    /// (`expected_outputs.dart`). Com o executor Dart disponível, o motor
-    /// pergunta a cada fase que nenhum gerador nativo verificado cobre quais
-    /// são (`build.extensoes`) e, se alguma diverge do descritor ou do
-    /// `build.yaml` — uma fábrica de um builder com várias, extensões que
-    /// dependem das opções —, refaz o grafo com as do `Builder`. Uma vez por
-    /// plano; sem executor, ficam as previstas.
-    fn conferir_extensoes(&mut self, mudados: &mut HashSet<PathBuf>) -> Result<(), String> {
-        self.extensoes_conferidas = true;
-        let candidatas: Vec<usize> = (0..self.fases.len())
-            .filter(|&fi| self.fases[fi].extensoes.is_some() && self.nativo_da_fase(fi).is_none())
+    /// The run-time extensions come from the `Builder` object, not from
+    /// `build.yaml` (`expected_outputs.dart`). With the Dart executor
+    /// available, the engine asks, for each phase that no verified native
+    /// generator covers, what they are (`build.extensoes`) and, if any of
+    /// them differs from the descriptor or from `build.yaml` — one factory of
+    /// a builder with several, extensions that depend on the options —,
+    /// rebuilds the graph with the `Builder`'s. Once per plan; without an
+    /// executor, the predicted ones stay.
+    fn check_extensions(&mut self, changed: &mut HashSet<PathBuf>) -> Result<(), String> {
+        self.extensions_checked = true;
+        let candidates: Vec<usize> = (0..self.fases.len())
+            .filter(|&fi| self.fases[fi].extensoes.is_some() && self.native_for_phase(fi).is_none())
             .collect();
-        let pos: Vec<usize> = (0..self.fases.len())
+        let post: Vec<usize> = (0..self.fases.len())
             .filter(|&fi| self.fases[fi].pos && self.fases[fi].substituido.is_none())
             .collect();
-        let disponivel = self
+        let available = self
             .dart
             .lock()
             .is_ok_and(|d| d.disponibilidade() == Disponibilidade::Disponivel);
-        if (candidatas.is_empty() && pos.is_empty())
-            || !disponivel
-            || self.preparar_dart().is_some()
+        if (candidates.is_empty() && post.is_empty())
+            || !available
+            || self.prepare_dart().is_some()
         {
             return Ok(());
         }
-        let mut mudou = false;
-        // Pós-processadores: as `inputExtensions` do objeto decidem as
-        // âncoras (`_actionMatches` de uma `PostBuildAction`).
-        for fi in pos {
+        let mut differs = false;
+        // Post-processors: the object's `inputExtensions` decide the anchors
+        // (`_actionMatches` of a `PostBuildAction`).
+        for fi in post {
             let f = &self.fases[fi];
-            let chave = self.plano.aplicacoes[f.aplicacao].chave.clone();
-            let pedido = PedidoExtensoes {
-                chave,
+            let key = self.plano.aplicacoes[f.aplicacao].chave.clone();
+            let request = PedidoExtensoes {
+                chave: key,
                 fabrica: f.fabrica.clone(),
                 opcoes: f.opcoes.clone(),
                 raiz: f.raiz,
             };
-            let resposta = self
+            let answer = self
                 .dart
                 .lock()
-                .map_err(|_| "executor Dart envenenado")?
-                .entradas_pos(&pedido);
-            let Ok(Some(v)) = resposta else { continue };
+                .map_err(|_| "Dart executor poisoned")?
+                .entradas_pos(&request);
+            let Ok(Some(v)) = answer else { continue };
             if self.fases[fi].entradas_pos.as_ref() != Some(&v) {
                 self.fases[fi].entradas_pos = Some(v);
-                mudou = true;
+                differs = true;
             }
         }
-        for fi in candidatas {
+        for fi in candidates {
             let f = &self.fases[fi];
-            let chave = self.plano.aplicacoes[f.aplicacao].chave.clone();
-            let pedido = PedidoExtensoes {
-                chave: chave.clone(),
+            let key = self.plano.aplicacoes[f.aplicacao].chave.clone();
+            let request = PedidoExtensoes {
+                chave: key.clone(),
                 fabrica: f.fabrica.clone(),
                 opcoes: f.opcoes.clone(),
                 raiz: f.raiz,
             };
-            let resposta = self
+            let answer = self
                 .dart
                 .lock()
-                .map_err(|_| "executor Dart envenenado")?
-                .extensoes(&pedido);
-            // Sem resposta (fábrica que falha ao instanciar, executor que não
-            // sabe): ficam as previstas, e a ação dirá o erro ao executar.
-            let Ok(Some(v)) = resposta else { continue };
+                .map_err(|_| "Dart executor poisoned")?
+                .extensoes(&request);
+            // No answer (a factory that fails to instantiate, an executor
+            // that does not know): the predicted ones stay, and the action
+            // will report the error when it runs.
+            let Ok(Some(v)) = answer else { continue };
             if self.fases[fi]
                 .extensoes
                 .as_ref()
                 .is_some_and(|e| e.declaradas != v)
             {
-                self.fases[fi].extensoes = Some(crate::extensoes::Extensoes::novas(&v, &chave)?);
-                mudou = true;
+                self.fases[fi].extensoes = Some(crate::extensoes::Extensoes::novas(&v, &key)?);
+                differs = true;
             }
         }
-        if mudou {
-            self.reconstruir_grafo(mudados)?;
+        if differs {
+            self.rebuild_graph(changed)?;
         }
         Ok(())
     }
 
-    /// A consulta é de arquivo sobre uma saída que a ação não enxerga pela
-    /// fase — de fase posterior, ou da mesma fase e de outra ação, ou a
-    /// própria saída (`build_impl.dart:443-463`)? Então a resposta que a ação
-    /// recebeu não depende do conteúdo (é "ilegível", ou o que ela mesma
-    /// escreveu) e não muda enquanto o grafo não muda; o digest do disco ou
-    /// da memória não a representa.
-    fn invisivel(&self, a: usize, c: &Consulta) -> bool {
+    /// Is the query a file query about an output the action cannot see
+    /// because of its phase — of a later phase, or of the same phase and
+    /// another action, or its own output (`build_impl.dart:443-463`)? Then
+    /// the answer the action got does not depend on the content (it is
+    /// "unreadable", or what the action itself wrote) and does not change
+    /// while the graph does not change; the digest from disk or memory does
+    /// not represent it.
+    fn is_invisible(&self, a: usize, c: &Consulta) -> bool {
         let (Consulta::Arquivo(p) | Consulta::Existe(p)) = c else {
             return false;
         };
-        let fase = self.grafo.acoes[a].fase;
-        let Some(no) = self
+        let phase = self.grafo.acoes[a].fase;
+        let Some(node) = self
             .grafo_pacotes
             .nos
             .iter()
@@ -1486,66 +1511,67 @@ impl Motor {
         else {
             return false;
         };
-        let Ok(rel) = p.strip_prefix(&no.raiz) else {
+        let Ok(rel) = p.strip_prefix(&node.raiz) else {
             return false;
         };
-        let caminho = rel.to_string_lossy().replace('\\', "/");
+        let path = rel.to_string_lossy().replace('\\', "/");
         self.grafo
             .gerados
-            .get(&AssetId::novo(&no.nome, &caminho))
-            .is_some_and(|g| g.fase >= fase)
+            .get(&AssetId::novo(&node.nome, &path))
+            .is_some_and(|g| g.fase >= phase)
     }
 
-    /// Chave global do estado salvo: o que nenhuma consulta vê — versão do
-    /// motor, o executável (código dos geradores nativos), o plano, o lock e
-    /// o modo.
-    fn chave_do_estado(&self) -> String {
+    /// Global key of the saved state: what no query sees — engine version,
+    /// the executable (the native generators' code), the plan, the lock and
+    /// the mode.
+    fn state_key(&self) -> String {
         let mut h = blake3::Hasher::new();
         h.update(crate::VERSAO.as_bytes());
         h.update(crate::persistencia::identidade_do_executavel().as_bytes());
         h.update(self.plano.texto_canonico().as_bytes());
         let mut lock: Vec<_> = self.grafo_pacotes.lock.iter().collect();
-        lock.sort_by_key(|(nome, _)| *nome);
-        for (nome, t) in lock {
-            h.update(format!("{nome} {} {:?}\n", t.versao, t.tipo).as_bytes());
+        lock.sort_by_key(|(name, _)| *name);
+        for (name, t) in lock {
+            h.update(format!("{name} {} {:?}\n", t.versao, t.tipo).as_bytes());
         }
         h.update(&[u8::from(self.opcoes.release)]);
-        // `--config` e os `triggers` acumulados decidem o que roda sem
-        // aparecer em consulta nenhuma (o `buildTriggersDigest` do oficial).
+        // `--config` and the accumulated `triggers` decide what runs without
+        // showing up in any query (the official `buildTriggersDigest`).
         h.update(format!("{:?}", self.opcoes.config).as_bytes());
         h.update(format!("{:?}", self.configs.gatilhos.por_builder).as_bytes());
         h.finalize().to_hex().to_string()
     }
 
-    /// Chave de uma ação no estado salvo: a fase (com as extensões e as
-    /// entradas de pós-processador já conferidas), as opções, a entrada e as
-    /// saídas previstas.
-    fn chave_da_acao(&self, a: usize) -> String {
-        let acao = &self.grafo.acoes[a];
-        let f = &self.fases[acao.fase];
+    /// Key of an action in the saved state: the phase (with the extensions
+    /// and the post-processor inputs already checked), the options, the
+    /// input and the predicted outputs.
+    fn action_key(&self, a: usize) -> String {
+        let action = &self.grafo.acoes[a];
+        let f = &self.fases[action.fase];
         let mut h = blake3::Hasher::new();
-        h.update(f.identidade(&self.plano, &self.grafo_pacotes).as_bytes());
+        h.update(f.identity(&self.plano, &self.grafo_pacotes).as_bytes());
         h.update(f.opcoes.texto_canonico().as_bytes());
-        h.update(&[u8::from(f.raiz), u8::from(acao.pos)]);
-        h.update(acao.entrada.texto().as_bytes());
-        for s in &acao.saidas {
+        h.update(&[u8::from(f.raiz), u8::from(action.pos)]);
+        h.update(action.entrada.texto().as_bytes());
+        for s in &action.saidas {
             h.update(b"\n");
             h.update(s.texto().as_bytes());
         }
         h.finalize().to_hex().to_string()
     }
 
-    /// O código dos builders Dart (arquivos do depfile do bootstrap) fora
-    /// dos pacotes `hosted`, que o lock já fixa: arquivo e digest do
-    /// conteúdo. `None` se não se sabe (o executor não compilou o bootstrap
-    /// nesta sessão e nada foi restaurado) ou se um deles sumiu.
-    fn codigo_dart(&self) -> Option<Vec<(PathBuf, Digest)>> {
-        let lista = self
+    /// The Dart builders' code (files of the bootstrap's depfile) outside the
+    /// `hosted` packages, which the lock already pins: file and content
+    /// digest. `None` if it is unknown (the executor did not compile the
+    /// bootstrap in this session and nothing was restored) or if one of them
+    /// disappeared.
+    fn dart_code(&self) -> Option<Vec<(PathBuf, Digest)>> {
+        let list = self
             .dart
             .lock()
             .ok()
             .and_then(|d| d.codigo())
-            .or_else(|| self.codigo_restaurado.clone())?;
+            .or_else(|| self.restored_code.clone())?;
         let hosted: Vec<&Path> = self
             .grafo_pacotes
             .nos
@@ -1556,7 +1582,7 @@ impl Motor {
             .map(|n| n.raiz.as_path())
             .collect();
         let mut v = Vec::new();
-        for p in lista {
+        for p in list {
             if hosted.iter().any(|h| p.starts_with(h)) {
                 continue;
             }
@@ -1566,37 +1592,37 @@ impl Motor {
         Some(v)
     }
 
-    /// O registro pode ir para o estado salvo (§4.1)?
-    fn persistivel(&self, a: usize, r: &Registro) -> bool {
+    /// Can the record go into the saved state (§4.1)?
+    fn is_persistable(&self, a: usize, r: &Registro) -> bool {
         let fi = self.grafo.acoes[a].fase;
         !matches!(r.origem, Origem::Pendente)
-            && r.medido.is_empty()
+            && r.measured.is_empty()
             && self
-                .nativo_da_fase(fi)
-                .is_none_or(|g| !self.nativos[g].por_pacote())
+                .native_for_phase(fi)
+                .is_none_or(|g| !self.natives[g].por_pacote())
             && r.consultas
                 .iter()
                 .all(|(c, _)| crate::persistencia::persistivel(c))
     }
 
-    /// Grava o estado: as ações persistíveis e o conteúdo das saídas.
-    fn salvar(&mut self) -> Result<(), String> {
-        let tem_dart = self
-            .registros
+    /// Writes the state: the persistable actions and the outputs' content.
+    fn save(&mut self) -> Result<(), String> {
+        let has_dart = self
+            .records
             .iter()
             .flatten()
             .any(|r| r.origem == Origem::Dart);
-        let codigo_dart = if tem_dart { self.codigo_dart() } else { None };
-        let mut acoes = Vec::new();
-        let mut conteudos = Vec::new();
-        for (a, r) in self.registros.iter().enumerate() {
+        let dart_code = if has_dart { self.dart_code() } else { None };
+        let mut actions = Vec::new();
+        let mut contents = Vec::new();
+        for (a, r) in self.records.iter().enumerate() {
             let Some(r) = r else { continue };
-            if !self.persistivel(a, r) {
+            if !self.is_persistable(a, r) {
                 continue;
             }
-            let origem = match r.origem {
+            let origin = match r.origem {
                 Origem::Nativo(n) => crate::persistencia::OrigemSalva::Nativo(n.to_string()),
-                Origem::Dart if codigo_dart.is_some() => crate::persistencia::OrigemSalva::Dart,
+                Origem::Dart if dart_code.is_some() => crate::persistencia::OrigemSalva::Dart,
                 Origem::Apoio => crate::persistencia::OrigemSalva::Apoio,
                 Origem::Omitida if self.grafo.acoes[a].pos => {
                     crate::persistencia::OrigemSalva::Omitida
@@ -1605,87 +1631,87 @@ impl Motor {
                 | Origem::Pendente
                 | Origem::Falha
                 | Origem::Omitida
-                | Origem::NaoDisparada => continue,
+                | Origem::NotTriggered => continue,
             };
-            let saidas = r
+            let outputs = r
                 .saidas
                 .iter()
                 .map(|(id, c)| {
                     let d = c.as_ref().map(|c| {
                         let d = digest_bytes(c);
-                        conteudos.push((d, c.clone()));
+                        contents.push((d, c.clone()));
                         d
                     });
                     (id.clone(), d)
                 })
                 .collect();
-            acoes.push(crate::persistencia::AcaoSalva {
-                chave: self.chave_da_acao(a),
-                origem,
+            actions.push(crate::persistencia::AcaoSalva {
+                chave: self.action_key(a),
+                origem: origin,
                 motivo: r.motivo.clone(),
                 consultas: r.consultas.clone(),
-                saidas,
-                do_apoio: r.do_apoio.clone(),
+                saidas: outputs,
+                do_apoio: r.from_fallback.clone(),
                 apagados: r.apagados.clone(),
             });
         }
-        let estado = crate::persistencia::Estado {
-            chave: self.chave_do_estado(),
-            codigo_dart,
-            acoes,
+        let state = crate::persistencia::Estado {
+            chave: self.state_key(),
+            codigo_dart: dart_code,
+            acoes: actions,
         };
         crate::persistencia::gravar(
             &crate::persistencia::diretorio(&self.grafo_pacotes.dir_raiz),
-            &estado,
-            &conteudos,
+            &state,
+            &contents,
         )
     }
 
-    /// Aplica o estado lido no início: cada ação salva cuja chave ainda
-    /// existe e cuja origem continua sendo a que este motor escolheria volta
-    /// como registro `restaurado`, com as saídas na memória. A validade é
-    /// conferida na primeira verificação de cada uma
-    /// ([`Motor::conferir_restaurado`]).
-    fn aplicar_restauracao(&mut self, motivo_dart: Option<&str>) {
-        let Some(estado) = self.restaurar.take() else {
+    /// Applies the state read at startup: each saved action whose key still
+    /// exists and whose origin is still the one this engine would choose
+    /// comes back as a `restored` record, with its outputs in memory. Its
+    /// validity is checked on the first verification of each one
+    /// ([`Motor::check_restored`]).
+    fn apply_restoration(&mut self, dart_reason: Option<&str>) {
+        let Some(state) = self.to_restore.take() else {
             return;
         };
-        if estado.chave != self.chave_do_estado() {
+        if state.chave != self.state_key() {
             return;
         }
         let dir = crate::persistencia::diretorio(&self.grafo_pacotes.dir_raiz);
-        let dart_valido = estado.codigo_dart.as_ref().is_some_and(|l| {
+        let dart_valid = state.codigo_dart.as_ref().is_some_and(|l| {
             l.iter()
                 .all(|(p, d)| crate::consulta::digest_arquivo(p).as_ref() == Some(d))
         });
-        if dart_valido {
-            self.codigo_restaurado = estado
+        if dart_valid {
+            self.restored_code = state
                 .codigo_dart
                 .as_ref()
                 .map(|l| l.iter().map(|(p, _)| p.clone()).collect());
         }
-        let por_chave: HashMap<String, usize> = (0..self.grafo.acoes.len())
-            .filter(|&a| self.grafo.acoes[a].viva() && self.registros[a].is_none())
-            .map(|a| (self.chave_da_acao(a), a))
+        let by_key: HashMap<String, usize> = (0..self.grafo.acoes.len())
+            .filter(|&a| self.grafo.acoes[a].viva() && self.records[a].is_none())
+            .map(|a| (self.action_key(a), a))
             .collect();
-        for s in estado.acoes {
-            let Some(&a) = por_chave.get(&s.chave) else {
+        for s in state.acoes {
+            let Some(&a) = by_key.get(&s.chave) else {
                 continue;
             };
             let fi = self.grafo.acoes[a].fase;
-            let nativo = self.nativo_da_fase(fi);
-            let origem = match &s.origem {
-                crate::persistencia::OrigemSalva::Nativo(n) => match nativo {
-                    Some(g) if self.nativos[g].chave() == n && !self.nativos[g].por_pacote() => {
-                        Origem::Nativo(self.nativos[g].chave())
+            let native = self.native_for_phase(fi);
+            let origin = match &s.origem {
+                crate::persistencia::OrigemSalva::Nativo(n) => match native {
+                    Some(g) if self.natives[g].chave() == n && !self.natives[g].por_pacote() => {
+                        Origem::Nativo(self.natives[g].chave())
                     }
                     _ => continue,
                 },
-                crate::persistencia::OrigemSalva::Dart if dart_valido && nativo.is_none() => {
+                crate::persistencia::OrigemSalva::Dart if dart_valid && native.is_none() => {
                     Origem::Dart
                 }
                 crate::persistencia::OrigemSalva::Apoio
-                    if nativo.is_none() && motivo_dart.is_some() =>
+                    if native.is_none() && dart_reason.is_some() =>
                 {
                     Origem::Apoio
                 }
@@ -1694,207 +1720,217 @@ impl Motor {
                 }
                 _ => continue,
             };
-            let mut saidas = Vec::with_capacity(s.saidas.len());
+            let mut outputs = Vec::with_capacity(s.saidas.len());
             for (id, d) in &s.saidas {
                 match d {
-                    None => saidas.push((id.clone(), None)),
+                    None => outputs.push((id.clone(), None)),
                     Some(d) => match crate::persistencia::ler_blob(&dir, d) {
-                        Some(b) => saidas.push((id.clone(), Some(b))),
+                        Some(b) => outputs.push((id.clone(), Some(b))),
                         None => break,
                     },
                 }
             }
-            if saidas.len() != s.saidas.len() {
+            if outputs.len() != s.saidas.len() {
                 continue;
             }
-            for (id, c) in &saidas {
+            for (id, c) in &outputs {
                 if let Some(c) = c {
-                    let n = self.natural_de(id);
-                    self.memoria.insert(n, c.clone());
+                    let n = self.natural_path_of(id);
+                    self.memory.insert(n, c.clone());
                 }
             }
-            let impressao = self.impressao(a, &s.consultas);
-            self.registros[a] = Some(Registro {
-                impressao,
+            let fingerprint = self.fingerprint(a, &s.consultas);
+            self.records[a] = Some(Registro {
+                fingerprint,
                 consultas: s.consultas,
-                saidas,
-                origem,
+                saidas: outputs,
+                origem: origin,
                 motivo: s.motivo,
-                medido: Vec::new(),
-                do_apoio: s.do_apoio,
+                measured: Vec::new(),
+                from_fallback: s.do_apoio,
                 apagados: s.apagados,
-                restaurado: true,
+                restored: true,
             });
         }
     }
 
-    /// Confere um registro restaurado: todas as consultas (um `GlobAtivos`
-    /// com os candidatos do grafo atual) e, numa saída `source` de gerador
-    /// nativo ou do executor Dart, o arquivo no disco, que a CLI só regrava
-    /// quando o conteúdo muda. Devolve se está sujo e os caminhos de saída
-    /// que divergem do disco (a memória os esquece, para que a reexecução os
-    /// conte como alterados e os regrave).
-    fn conferir_restaurado(&self, a: usize, banco: &dyn BancoSemantico) -> (bool, Vec<PathBuf>) {
-        let Some(r) = self.registros[a].as_ref() else {
+    /// Checks a restored record: all queries (a `GlobAtivos` with the
+    /// candidates of the current graph) and, for a `source` output of a
+    /// native generator or of the Dart executor, the file on disk, which the
+    /// CLI only rewrites when the content changes. Returns whether it is
+    /// dirty and the output paths that differ from disk (memory forgets them,
+    /// so that the rerun counts them as changed and rewrites them).
+    fn check_restored(&self, a: usize, database: &dyn BancoSemantico) -> (bool, Vec<PathBuf>) {
+        let Some(r) = self.records[a].as_ref() else {
             return (true, Vec::new());
         };
-        let memoria = |p: &Path| self.memoria.get(p).cloned();
-        let sujo = r
+        let memory = |p: &Path| self.memory.get(p).cloned();
+        let dirty = r
             .consultas
             .iter()
-            .filter(|(c, _)| !self.invisivel(a, c))
+            .filter(|(c, _)| !self.is_invisible(a, c))
             .any(|(c, d)| {
-                let atual = match c {
+                let current = match c {
                     Consulta::GlobAtivos { dir, padrao, .. } => {
                         let Ok(g) = crate::glob::Glob::novo(padrao) else {
                             return true;
                         };
-                        let candidatos = candidatos_do_glob(&self.grafo, a, &g)
+                        let candidates = glob_candidates(&self.grafo, a, &g)
                             .into_iter()
                             .map(|id| {
                                 (id.caminho.to_string(), self.grafo.gerados.contains_key(&id))
                             })
                             .collect();
-                        digest_de(
+                        query_digest(
                             &Consulta::GlobAtivos {
                                 dir: dir.clone(),
                                 padrao: padrao.clone(),
-                                candidatos,
+                                candidatos: candidates,
                             },
-                            banco,
-                            &memoria,
+                            database,
+                            &memory,
                         )
                     }
-                    _ => digest_de(c, banco, &memoria),
+                    _ => query_digest(c, database, &memory),
                 };
-                atual != *d
+                current != *d
             });
-        let mut fora_do_disco = Vec::new();
+        let mut off_disk = Vec::new();
         let f = &self.fases[self.grafo.acoes[a].fase];
         if !f.oculta && matches!(r.origem, Origem::Nativo(_) | Origem::Dart) {
             for (s, c) in &r.saidas {
-                let n = self.natural_de(s);
+                let n = self.natural_path_of(s);
                 if let Some(c) = c
                     && std::fs::read(&n).ok().as_deref() != Some(&c[..])
                 {
-                    fora_do_disco.push(n);
+                    off_disk.push(n);
                 }
             }
         }
-        (sujo || !fora_do_disco.is_empty(), fora_do_disco)
+        (dirty || !off_disk.is_empty(), off_disk)
     }
 
-    /// Caminho natural de uma saída: a prevista pelo grafo ou, numa saída de
-    /// pós-processador, o caminho do asset no pacote.
-    fn natural_de(&self, s: &AssetId) -> PathBuf {
+    /// Natural path of an output: the one the graph predicted or, for a
+    /// post-processor output, the asset's path in the package.
+    fn natural_path_of(&self, s: &AssetId) -> PathBuf {
         self.naturais
             .get(s)
             .cloned()
-            .unwrap_or_else(|| natural(&self.grafo_pacotes, s))
+            .unwrap_or_else(|| natural_path(&self.grafo_pacotes, s))
     }
 
-    /// As âncoras de pós-processamento de uma fase, em série e na ordem do
-    /// grafo: cada uma enxerga, como "já existentes", as saídas das outras
-    /// (o `addAsset` do oficial recusa um asset que o grafo já tem).
-    fn pos_em_serie(&self, executar: &[usize]) -> Vec<Registro> {
-        let mut donos: BTreeMap<AssetId, usize> = BTreeMap::new();
-        for (a, (acao, r)) in self.grafo.acoes.iter().zip(&self.registros).enumerate() {
-            if let (true, Some(r)) = (acao.pos, r) {
+    /// The post-processing anchors of a phase, in series and in graph order:
+    /// each one sees the others' outputs as "already existing" (the official
+    /// `addAsset` rejects an asset the graph already has).
+    fn post_process_serial(&self, to_run: &[usize]) -> Vec<Registro> {
+        let mut owners: BTreeMap<AssetId, usize> = BTreeMap::new();
+        for (a, (action, r)) in self.grafo.acoes.iter().zip(&self.records).enumerate() {
+            if let (true, Some(r)) = (action.pos, r) {
                 for (s, _) in &r.saidas {
-                    donos.insert(s.clone(), a);
+                    owners.insert(s.clone(), a);
                 }
             }
         }
-        let mut v = Vec::with_capacity(executar.len());
-        for &a in executar {
-            let ocupadas = donos
+        let mut v = Vec::with_capacity(to_run.len());
+        for &a in to_run {
+            let occupied = owners
                 .iter()
                 .filter(|(_, d)| **d != a)
                 .map(|(s, _)| s.clone())
                 .collect();
-            let r = self.pos_por_acao(a, ocupadas).unwrap_or_else(|e| Registro {
-                impressao: [0; 32],
+            let r = self.post_process_action(a, occupied).unwrap_or_else(|e| Registro {
+                fingerprint: [0; 32],
                 consultas: Vec::new(),
                 saidas: Vec::new(),
                 origem: Origem::Pendente,
                 motivo: Some(e),
-                medido: Vec::new(),
-                do_apoio: Vec::new(),
+                measured: Vec::new(),
+                from_fallback: Vec::new(),
                 apagados: Vec::new(),
-                restaurado: false,
+                restored: false,
             });
-            donos.retain(|_, d| *d != a);
+            owners.retain(|_, d| *d != a);
             for (s, _) in &r.saidas {
-                donos.insert(s.clone(), a);
+                owners.insert(s.clone(), a);
             }
             v.push(r);
         }
         v
     }
 
-    /// `_runPostProcessBuilderForAnchor`: uma entrada gerada só é processada
-    /// se foi escrita (`wasOutput`, sem falha); então o pós-processador roda
-    /// pelo executor Dart com o `PostProcessBuildStep` servido pelo motor.
-    fn pos_por_acao(&self, a: usize, ocupadas: BTreeSet<AssetId>) -> Result<Registro, String> {
-        let acao = self.grafo.acoes.get(a).ok_or("âncora inexistente")?;
-        if self.grafo.gerados.contains_key(&acao.entrada) {
-            let n = self.natural_de(&acao.entrada);
-            if !self.memoria.contains_key(&n) {
-                // A consulta negativa acorda a âncora quando a entrada for
-                // escrita.
+    /// `_runPostProcessBuilderForAnchor`: a generated input is only processed
+    /// if it was written (`wasOutput`, without failure); then the
+    /// post-processor runs on the Dart executor with the
+    /// `PostProcessBuildStep` served by the engine.
+    ///
+    /// The error messages that start with "pós-processador" stay in
+    /// Portuguese: `crates/build/tests/corpus.rs` matches that prefix on the
+    /// pending reasons.
+    fn post_process_action(
+        &self,
+        a: usize,
+        occupied: BTreeSet<AssetId>,
+    ) -> Result<Registro, String> {
+        let action = self.grafo.acoes.get(a).ok_or("nonexistent anchor")?;
+        if self.grafo.gerados.contains_key(&action.entrada) {
+            let n = self.natural_path_of(&action.entrada);
+            if !self.memory.contains_key(&n) {
+                // The negative query wakes the anchor up when the input is
+                // written.
                 return Ok(Registro {
-                    impressao: [0; 32],
+                    fingerprint: [0; 32],
                     consultas: vec![(Consulta::Arquivo(n), None)],
                     saidas: Vec::new(),
                     origem: Origem::Omitida,
                     motivo: None,
-                    medido: Vec::new(),
-                    do_apoio: Vec::new(),
+                    measured: Vec::new(),
+                    from_fallback: Vec::new(),
                     apagados: Vec::new(),
-                    restaurado: false,
+                    restored: false,
                 });
             }
         }
-        if let Some(e) = self.preparar_dart() {
+        if let Some(e) = self.prepare_dart() {
             return Err(e);
         }
-        let fase = &self.fases[acao.fase];
-        let memoria = |id: &AssetId| {
+        let phase = &self.fases[action.fase];
+        let memory = |id: &AssetId| {
             self.naturais
                 .get(id)
-                .and_then(|p| self.memoria.get(p))
+                .and_then(|p| self.memory.get(p))
                 .cloned()
         };
-        let mut servico = ServicoAcao::novo(&self.grafo, &self.grafo_pacotes, a, &memoria);
-        servico.ocupadas = ocupadas;
-        let pedido = PedidoAcao {
-            fase: acao.fase,
-            chave: self.plano.aplicacoes[fase.aplicacao].chave.clone(),
-            fabrica: fase.fabrica.clone(),
-            opcoes: fase.opcoes.clone(),
-            raiz: fase.raiz,
-            entrada: acao.entrada.clone(),
+        let mut service = ActionService::new(&self.grafo, &self.grafo_pacotes, a, &memory);
+        service.occupied = occupied;
+        let request = PedidoAcao {
+            fase: action.fase,
+            chave: self.plano.aplicacoes[phase.aplicacao].chave.clone(),
+            fabrica: phase.fabrica.clone(),
+            opcoes: phase.opcoes.clone(),
+            raiz: phase.raiz,
+            entrada: action.entrada.clone(),
             saidas_permitidas: Vec::new(),
         };
-        let mut dart = self.dart.lock().map_err(|_| "executor Dart envenenado")?;
-        let resultado = dart.pos_processar(&pedido, &mut servico).map_err(|e| e.0)?;
-        if resultado.falhou {
-            let detalhes = resultado
+        let mut dart = self.dart.lock().map_err(|_| "Dart executor poisoned")?;
+        let result = dart.pos_processar(&request, &mut service).map_err(|e| e.0)?;
+        if result.falhou {
+            // "severo" and "erro" are log levels of the dfexec/1 protocol.
+            let details = result
                 .logs
                 .iter()
-                .filter(|(nivel, _)| nivel == "severo" || nivel == "erro")
-                .map(|(_, mensagem)| mensagem.as_str())
+                .filter(|(level, _)| level == "severo" || level == "erro")
+                .map(|(_, message)| message.as_str())
                 .collect::<Vec<_>>()
                 .join("; ");
-            return Err(if detalhes.is_empty() {
-                format!("{}: pós-processador Dart falhou", pedido.chave)
+            return Err(if details.is_empty() {
+                format!("{}: Dart post-processor failed", request.chave)
             } else {
-                format!("{}: {detalhes}", pedido.chave)
+                format!("{}: {details}", request.chave)
             });
         }
-        for (id, bytes) in resultado.saidas {
-            if servico
-                .escritas
+        for (id, bytes) in result.saidas {
+            if service
+                .writes
                 .get(&id)
                 .is_some_and(|b| b.as_ref() != bytes.as_ref())
             {
@@ -1903,8 +1939,8 @@ impl Motor {
                     id.texto()
                 ));
             }
-            if !servico.escritas.contains_key(&id) {
-                servico.escrever(&id, bytes).map_err(|e| {
+            if !service.writes.contains_key(&id) {
+                service.escrever(&id, bytes).map_err(|e| {
                     format!(
                         "pós-processador escreveu asset já existente: {}",
                         e.0.texto()
@@ -1912,154 +1948,156 @@ impl Motor {
                 })?;
             }
         }
-        if let Some(x) = resultado.apagados.iter().find(|x| **x != acao.entrada) {
+        if let Some(x) = result.apagados.iter().find(|x| **x != action.entrada) {
             return Err(format!(
                 "pós-processador apagou {}, que não é a entrada primária",
                 x.texto()
             ));
         }
-        let saidas = servico
-            .escritas
+        let outputs = service
+            .writes
             .into_iter()
             .map(|(id, b)| (id, Some(b)))
             .collect();
-        // A âncora depende do digest da entrada primária mesmo que o
-        // pós-processador não a leia (`_postProcessBuildShouldRun` compara o
-        // `previousInputsDigest`): o `part_cleanup` só a apaga.
-        let n = self.natural_de(&acao.entrada);
+        // The anchor depends on the digest of the primary input even if the
+        // post-processor does not read it (`_postProcessBuildShouldRun`
+        // compares the `previousInputsDigest`): `part_cleanup` only deletes
+        // it.
+        let n = self.natural_path_of(&action.entrada);
         let d = self
-            .memoria
+            .memory
             .get(&n)
             .map(|b| digest_bytes(b))
             .or_else(|| crate::consulta::digest_arquivo(&n));
-        let mut consultas = vec![(Consulta::Arquivo(n), d)];
-        consultas.extend(servico.consultas);
+        let mut queries = vec![(Consulta::Arquivo(n), d)];
+        queries.extend(service.queries);
         Ok(Registro {
-            impressao: [0; 32],
-            consultas,
-            saidas,
+            fingerprint: [0; 32],
+            consultas: queries,
+            saidas: outputs,
             origem: Origem::Dart,
             motivo: None,
-            medido: Vec::new(),
-            do_apoio: Vec::new(),
-            apagados: resultado.apagados,
-            restaurado: false,
+            measured: Vec::new(),
+            from_fallback: Vec::new(),
+            apagados: result.apagados,
+            restored: false,
         })
     }
 
-    /// Registro de um passo que não roda: nenhuma saída escrita, só as
-    /// consultas que decidiram isso.
-    fn sem_saidas(
+    /// Record of a step that does not run: no output written, only the
+    /// queries that decided so.
+    fn without_outputs(
         &self,
         a: usize,
-        consultas: Vec<(Consulta, Option<Digest>)>,
-        origem: Origem,
+        queries: Vec<(Consulta, Option<Digest>)>,
+        origin: Origem,
     ) -> Registro {
         Registro {
-            impressao: [0; 32],
-            consultas,
+            fingerprint: [0; 32],
+            consultas: queries,
             saidas: self.grafo.acoes[a]
                 .saidas
                 .iter()
                 .map(|s| (s.clone(), None))
                 .collect(),
-            origem,
+            origem: origin,
             motivo: None,
-            medido: Vec::new(),
-            do_apoio: Vec::new(),
+            measured: Vec::new(),
+            from_fallback: Vec::new(),
             apagados: Vec::new(),
-            restaurado: false,
+            restored: false,
         }
     }
 
-    /// A entrada primária é saída de uma fase anterior que não foi escrita
-    /// (ou falhou): o passo não roda (`_matchingPrimaryInputs`: `if
-    /// (!input.wasOutput) return`; no 2.16.1, `skipMissingPrimaryInput`). A
-    /// consulta negativa o acorda quando a entrada for escrita.
-    fn entrada_nao_escrita(&self, a: usize) -> Option<Registro> {
-        let entrada = &self.grafo.acoes[a].entrada;
-        let g = self.grafo.gerados.get(entrada)?;
-        // Só quando quem produz a entrada rodou de fato: sem executor (a
-        // ação pendente, ou lida do apoio) não se sabe o que o builder
-        // escreveria, e o passo segue a política de apoio.
-        let conhecida = self.registros[g.acao].as_ref().is_some_and(|r| {
+    /// The primary input is an output of an earlier phase that was not
+    /// written (or failed): the step does not run (`_matchingPrimaryInputs`:
+    /// `if (!input.wasOutput) return`; in 2.16.1, `skipMissingPrimaryInput`).
+    /// The negative query wakes it up when the input is written.
+    fn unwritten_input(&self, a: usize) -> Option<Registro> {
+        let input = &self.grafo.acoes[a].entrada;
+        let g = self.grafo.gerados.get(input)?;
+        // Only when whoever produces the input actually ran: without an
+        // executor (the action pending, or read from the fallback) it is
+        // unknown what the builder would write, and the step follows the
+        // fallback policy.
+        let known = self.records[g.acao].as_ref().is_some_and(|r| {
             matches!(
                 r.origem,
                 Origem::Dart
                     | Origem::Nativo(_)
                     | Origem::Falha
-                    | Origem::NaoDisparada
+                    | Origem::NotTriggered
                     | Origem::Omitida
             )
         });
-        if !conhecida {
+        if !known {
             return None;
         }
-        let n = self.natural_de(entrada);
-        if self.memoria.contains_key(&n) {
+        let n = self.natural_path_of(input);
+        if self.memory.contains_key(&n) {
             return None;
         }
-        Some(self.sem_saidas(a, vec![(Consulta::Arquivo(n), None)], Origem::Omitida))
+        Some(self.without_outputs(a, vec![(Consulta::Arquivo(n), None)], Origem::Omitida))
     }
 
-    /// `_allowedByTriggers`: `None` se a fase não tem `run_only_if_triggered:
-    /// true` (ou o perfil não tem triggers); senão, se algum trigger do
-    /// builder dispara, com as leituras que a decisão fez (a entrada e, para
-    /// trigger de anotação, as partes legíveis pela fase — inclusive as
-    /// geradas por fases anteriores).
-    fn disparo(&self, a: usize) -> Option<(bool, Consultas)> {
-        let acao = &self.grafo.acoes[a];
-        let fase = &self.fases[acao.fase];
-        if !fase.so_se_disparada {
+    /// `_allowedByTriggers`: `None` if the phase does not have
+    /// `run_only_if_triggered: true` (or the profile has no triggers);
+    /// otherwise, whether some trigger of the builder fires, with the reads
+    /// the decision made (the input and, for an annotation trigger, the parts
+    /// readable by the phase — including those generated by earlier phases).
+    fn trigger_decision(&self, a: usize) -> Option<(bool, Queries)> {
+        let action = &self.grafo.acoes[a];
+        let phase = &self.fases[action.fase];
+        if !phase.only_if_triggered {
             return None;
         }
-        let chave = &self.plano.aplicacoes[fase.aplicacao].chave;
-        let abreviado = self.grafo_pacotes.perfil().trigger_pelo_nome_abreviado();
-        let Some(gatilhos) = self.configs.gatilhos.do_builder(chave, abreviado) else {
+        let key = &self.plano.aplicacoes[phase.aplicacao].chave;
+        let short_name = self.grafo_pacotes.perfil().trigger_pelo_nome_abreviado();
+        let Some(triggers) = self.configs.gatilhos.do_builder(key, short_name) else {
             return Some((false, Vec::new()));
         };
-        let memoria = |id: &AssetId| {
+        let memory = |id: &AssetId| {
             self.naturais
                 .get(id)
-                .and_then(|p| self.memoria.get(p))
+                .and_then(|p| self.memory.get(p))
                 .cloned()
         };
-        let mut servico = ServicoAcao::novo(&self.grafo, &self.grafo_pacotes, a, &memoria);
-        let primaria = servico
-            .ler(&acao.entrada)
+        let mut service = ActionService::new(&self.grafo, &self.grafo_pacotes, a, &memory);
+        let primary = service
+            .ler(&action.entrada)
             .map(|b| String::from_utf8_lossy(&b).into_owned())
             .unwrap_or_default();
-        let disparou = crate::gatilhos::disparado(gatilhos, &primaria, |uri| {
-            let id = resolver_uri(uri, &acao.entrada)?;
-            if !servico.can_read(&id) {
+        let fired = crate::gatilhos::disparado(triggers, &primary, |uri| {
+            let id = resolve_uri(uri, &action.entrada)?;
+            if !service.can_read(&id) {
                 return None;
             }
-            servico
+            service
                 .ler(&id)
                 .map(|b| String::from_utf8_lossy(&b).into_owned())
         });
-        Some((disparou, servico.consultas))
+        Some((fired, service.queries))
     }
 
-    fn naturais_de_entrada(&self, a: usize) -> PathBuf {
-        natural(&self.grafo_pacotes, &self.grafo.acoes[a].entrada)
+    fn input_natural_path(&self, a: usize) -> PathBuf {
+        natural_path(&self.grafo_pacotes, &self.grafo.acoes[a].entrada)
     }
 
-    fn preparar_dart(&self) -> Option<String> {
+    fn prepare_dart(&self) -> Option<String> {
         let Ok(mut dart) = self.dart.lock() else {
-            return Some("executor Dart envenenado".into());
+            return Some("Dart executor poisoned".into());
         };
         match dart.disponibilidade() {
             Disponibilidade::Indisponivel(m) => return Some(m),
-            Disponibilidade::Disponivel if self.dart_preparado.load(Ordering::Acquire) => {
+            Disponibilidade::Disponivel if self.dart_prepared.load(Ordering::Acquire) => {
                 return None;
             }
             Disponibilidade::Disponivel => {}
         }
-        // Só o que pode virar ação Dart (builders e pós-processadores): os
-        // substituídos nunca executam (§6 do BUILD-MOTOR.md); importá-los só
-        // aumentaria a compilação do script.
-        let aplicacoes = self
+        // Only what can become a Dart action (builders and post-processors):
+        // the replaced ones never run (§6 of BUILD-MOTOR.md); importing them
+        // would only make the script's compilation bigger.
+        let applications = self
             .plano
             .aplicacoes
             .iter()
@@ -2070,232 +2108,234 @@ impl Motor {
         h.update(crate::VERSAO.as_bytes());
         h.update(self.plano.texto_canonico().as_bytes());
         let mut lock: Vec<_> = self.grafo_pacotes.lock.iter().collect();
-        lock.sort_by_key(|(nome, _)| *nome);
-        for (nome, pacote) in lock {
-            h.update(nome.as_bytes());
-            h.update(pacote.versao.as_bytes());
-            h.update(format!("{:?}", pacote.tipo).as_bytes());
+        lock.sort_by_key(|(name, _)| *name);
+        for (name, package) in lock {
+            h.update(name.as_bytes());
+            h.update(package.versao.as_bytes());
+            h.update(format!("{:?}", package.tipo).as_bytes());
         }
         let script = ScriptDeBuilders {
-            aplicacoes,
+            aplicacoes: applications,
             chave_de_cache: h.finalize().to_hex().to_string(),
         };
         match dart.preparar(&script) {
             Ok(()) => {
-                self.dart_preparado.store(true, Ordering::Release);
+                self.dart_prepared.store(true, Ordering::Release);
                 None
             }
             Err(e) => Some(e.0),
         }
     }
 
-    /// A ação pelo executor Dart; sem executor, o apoio. A falha do builder
-    /// (exceção, erro severo, saída não permitida) ou do executor no meio da
-    /// ação é falha da geração, nunca o resultado antigo do `build_runner`
-    /// (DF-BUILD-005).
-    fn dart_ou_apoio(&self, a: usize) -> Registro {
-        match self.dart_por_acao(a) {
+    /// The action through the Dart executor; without an executor, the
+    /// fallback. A failure of the builder (exception, severe error,
+    /// disallowed output) or of the executor in the middle of the action is a
+    /// generation failure, never `build_runner`'s old result (DF-BUILD-005).
+    fn dart_or_fallback(&self, a: usize) -> Registro {
+        match self.dart_action(a) {
             Ok(r) => r,
-            Err(FalhaDart::Builder(e)) => self.falha(a, e),
-            Err(FalhaDart::Indisponivel(e)) => self.apoio(a, Some(&e)),
+            Err(DartFailure::Builder(e)) => self.failure(a, e),
+            Err(DartFailure::Unavailable(e)) => self.fallback(a, Some(&e)),
         }
     }
 
-    /// O registro de uma ação que falhou: nenhuma saída (a antiga, do disco
-    /// ou da memória, não vale), a falha como motivo.
-    fn falha(&self, a: usize, e: String) -> Registro {
-        let acao = &self.grafo.acoes[a];
-        let entrada = natural(&self.grafo_pacotes, &acao.entrada);
+    /// The record of an action that failed: no output (the old one, from
+    /// disk or memory, does not count), the failure as the reason.
+    fn failure(&self, a: usize, e: String) -> Registro {
+        let action = &self.grafo.acoes[a];
+        let input = natural_path(&self.grafo_pacotes, &action.entrada);
         let d = self
-            .memoria
-            .get(&entrada)
+            .memory
+            .get(&input)
             .map(|b| digest_bytes(b))
-            .or_else(|| crate::consulta::digest_arquivo(&entrada));
+            .or_else(|| crate::consulta::digest_arquivo(&input));
         Registro {
-            impressao: [0; 32],
-            consultas: vec![(Consulta::Arquivo(entrada), d)],
-            saidas: acao.saidas.iter().map(|s| (s.clone(), None)).collect(),
+            fingerprint: [0; 32],
+            consultas: vec![(Consulta::Arquivo(input), d)],
+            saidas: action.saidas.iter().map(|s| (s.clone(), None)).collect(),
             origem: Origem::Falha,
             motivo: Some(e),
-            medido: Vec::new(),
-            do_apoio: Vec::new(),
+            measured: Vec::new(),
+            from_fallback: Vec::new(),
             apagados: Vec::new(),
-            restaurado: false,
+            restored: false,
         }
     }
 
-    fn dart_por_acao(&self, a: usize) -> Result<Registro, FalhaDart> {
-        if let Some(e) = self.preparar_dart() {
-            return Err(FalhaDart::Indisponivel(e));
+    fn dart_action(&self, a: usize) -> Result<Registro, DartFailure> {
+        if let Some(e) = self.prepare_dart() {
+            return Err(DartFailure::Unavailable(e));
         }
-        let acao = self
+        let action = self
             .grafo
             .acoes
             .get(a)
-            .ok_or(FalhaDart::Indisponivel("ação Dart inexistente".into()))?;
-        let fase = &self.fases[acao.fase];
-        let memoria = |id: &AssetId| {
+            .ok_or(DartFailure::Unavailable("nonexistent Dart action".into()))?;
+        let phase = &self.fases[action.fase];
+        let memory = |id: &AssetId| {
             self.naturais
                 .get(id)
-                .and_then(|p| self.memoria.get(p))
+                .and_then(|p| self.memory.get(p))
                 .cloned()
         };
-        let mut servico = ServicoAcao::novo(&self.grafo, &self.grafo_pacotes, a, &memoria);
-        let pedido = PedidoAcao {
-            fase: acao.fase,
-            chave: self.plano.aplicacoes[fase.aplicacao].chave.clone(),
-            fabrica: fase.fabrica.clone(),
-            opcoes: fase.opcoes.clone(),
-            raiz: fase.raiz,
-            entrada: acao.entrada.clone(),
-            saidas_permitidas: acao.saidas.clone(),
+        let mut service = ActionService::new(&self.grafo, &self.grafo_pacotes, a, &memory);
+        let request = PedidoAcao {
+            fase: action.fase,
+            chave: self.plano.aplicacoes[phase.aplicacao].chave.clone(),
+            fabrica: phase.fabrica.clone(),
+            opcoes: phase.opcoes.clone(),
+            raiz: phase.raiz,
+            entrada: action.entrada.clone(),
+            saidas_permitidas: action.saidas.clone(),
         };
         let mut dart = self
             .dart
             .lock()
-            .map_err(|_| FalhaDart::Indisponivel("executor Dart envenenado".into()))?;
-        // O executor caiu no meio da ação: falha, não ausência de executor.
-        let resultado = dart.executar(&pedido, &mut servico).map_err(|e| {
-            FalhaDart::Builder(format!("{}: falha do executor: {}", pedido.chave, e.0))
+            .map_err(|_| DartFailure::Unavailable("Dart executor poisoned".into()))?;
+        // The executor crashed in the middle of the action: a failure, not a
+        // missing executor.
+        let result = dart.executar(&request, &mut service).map_err(|e| {
+            DartFailure::Builder(format!("{}: executor failure: {}", request.chave, e.0))
         })?;
-        if resultado.falhou {
-            let detalhes = resultado
+        if result.falhou {
+            // "severo" and "erro" are log levels of the dfexec/1 protocol.
+            let details = result
                 .logs
                 .iter()
-                .filter(|(nivel, _)| nivel == "severo" || nivel == "erro")
-                .map(|(_, mensagem)| mensagem.as_str())
+                .filter(|(level, _)| level == "severo" || level == "erro")
+                .map(|(_, message)| message.as_str())
                 .chain(
-                    servico
+                    service
                         .logs
                         .iter()
-                        .filter(|(nivel, _)| *nivel == crate::executor::Nivel::Severo)
-                        .map(|(_, mensagem)| mensagem.as_str()),
+                        .filter(|(level, _)| *level == crate::executor::Nivel::Severo)
+                        .map(|(_, message)| message.as_str()),
                 )
                 .collect::<Vec<_>>()
                 .join("; ");
-            return Err(FalhaDart::Builder(if detalhes.is_empty() {
-                format!("{}: builder Dart falhou", pedido.chave)
+            return Err(DartFailure::Builder(if details.is_empty() {
+                format!("{}: Dart builder failed", request.chave)
             } else {
-                format!("{}: {detalhes}", pedido.chave)
+                format!("{}: {details}", request.chave)
             }));
         }
-        for (id, bytes) in resultado.saidas {
-            if let Some(ja_escritos) = servico.escritas.get(&id) {
-                if ja_escritos.as_ref() != bytes.as_ref() {
-                    return Err(FalhaDart::Builder(format!(
-                        "builder Dart retornou bytes diferentes para {} após escrever via BuildStep",
+        for (id, bytes) in result.saidas {
+            if let Some(already_written) = service.writes.get(&id) {
+                if already_written.as_ref() != bytes.as_ref() {
+                    return Err(DartFailure::Builder(format!(
+                        "Dart builder returned different bytes for {} after writing through BuildStep",
                         id.texto()
                     )));
                 }
             }
-            servico.escrever(&id, bytes).map_err(|e| {
-                FalhaDart::Builder(format!(
-                    "builder Dart escreveu saída não permitida: {}",
+            service.escrever(&id, bytes).map_err(|e| {
+                DartFailure::Builder(format!(
+                    "Dart builder wrote a disallowed output: {}",
                     e.0.texto()
                 ))
             })?;
         }
-        let saidas = acao
+        let outputs = action
             .saidas
             .iter()
-            .map(|id| (id.clone(), servico.escritas.get(id).cloned()))
+            .map(|id| (id.clone(), service.writes.get(id).cloned()))
             .collect();
         Ok(Registro {
-            impressao: [0; 32],
-            consultas: servico.consultas,
-            saidas,
+            fingerprint: [0; 32],
+            consultas: service.queries,
+            saidas: outputs,
             origem: Origem::Dart,
             motivo: None,
-            medido: Vec::new(),
-            do_apoio: Vec::new(),
+            measured: Vec::new(),
+            from_fallback: Vec::new(),
             apagados: Vec::new(),
-            restaurado: false,
+            restored: false,
         })
     }
 
-    /// `blake3(versão ‖ chave ‖ fábrica ‖ imita ‖ opções ‖ identidade ‖
-    /// entrada ‖ consultas)`.
-    fn impressao(&self, a: usize, consultas: &[(Consulta, Option<Digest>)]) -> Digest {
-        let acao = &self.grafo.acoes[a];
-        let f = &self.fases[acao.fase];
+    /// `blake3(version ‖ key ‖ factory ‖ imitated ‖ options ‖ identity ‖
+    /// input ‖ queries)`.
+    fn fingerprint(&self, a: usize, queries: &[(Consulta, Option<Digest>)]) -> Digest {
+        let action = &self.grafo.acoes[a];
+        let f = &self.fases[action.fase];
         let ap = &self.plano.aplicacoes[f.aplicacao];
         let mut h = blake3::Hasher::new();
         h.update(crate::VERSAO.as_bytes());
         h.update(ap.chave.as_bytes());
         h.update(f.fabrica.as_bytes());
-        for (p, v) in self.versoes_imitadas(&ap.chave) {
+        for (p, v) in self.imitated_versions(&ap.chave) {
             h.update(p.as_bytes());
             h.update(v.as_bytes());
         }
         h.update(f.opcoes.texto_canonico().as_bytes());
         h.update(&[u8::from(f.raiz)]);
-        h.update(f.identidade(&self.plano, &self.grafo_pacotes).as_bytes());
-        h.update(acao.entrada.texto().as_bytes());
-        for (c, d) in consultas {
+        h.update(f.identity(&self.plano, &self.grafo_pacotes).as_bytes());
+        h.update(action.entrada.texto().as_bytes());
+        for (c, d) in queries {
             h.update(format!("{c:?}").as_bytes());
             h.update(d.as_ref().map(|d| &d[..]).unwrap_or(b"-"));
         }
         *h.finalize().as_bytes()
     }
 
-    /// Roda (ou reaproveita) o gerador por pacote `g` sobre `pacote`.
-    /// Devolve se rodou de fato.
-    fn rodar_pacote(
+    /// Runs (or reuses) the per-package generator `g` over `package`.
+    /// Returns whether it actually ran.
+    fn run_package(
         &mut self,
         ctx: &Contexto<'_>,
         g: usize,
-        pacote: &Arc<str>,
-        mudados: &HashSet<PathBuf>,
-        dart_mudou: bool,
-        estruturais: &HashSet<PathBuf>,
+        package: &Arc<str>,
+        changed: &HashSet<PathBuf>,
+        dart_changed: bool,
+        structural: &HashSet<PathBuf>,
         rel: &mut RelMotor,
     ) -> Result<bool, String> {
-        let k = (g, pacote.clone());
-        if let Some(r) = self.pacotes.get(&k) {
-            let talvez = r
-                .registro_consultas
+        let k = (g, package.clone());
+        if let Some(r) = self.package_rounds.get(&k) {
+            let maybe = r
+                .queries
                 .iter()
-                .any(|(c, _)| afetada(c, mudados, dart_mudou, estruturais));
-            if !talvez {
+                .any(|(c, _)| affected(c, changed, dart_changed, structural));
+            if !maybe {
                 return Ok(false);
             }
-            // Só as consultas que os eventos podem ter mudado são refeitas.
+            // Only the queries the events may have changed are redone.
             let t = Instant::now();
-            let memoria = |p: &Path| self.memoria.get(p).cloned();
-            let mut iguais = true;
+            let memory = |p: &Path| self.memory.get(p).cloned();
+            let mut unchanged = true;
             for (c, d) in r
-                .registro_consultas
+                .queries
                 .iter()
-                .filter(|(c, _)| afetada(c, mudados, dart_mudou, estruturais))
+                .filter(|(c, _)| affected(c, changed, dart_changed, structural))
             {
-                rel.consultas_reavaliadas += 1;
-                if digest_de(c, ctx.banco, &memoria) != *d {
-                    iguais = false;
+                rel.reevaluated_queries += 1;
+                if query_digest(c, ctx.banco, &memory) != *d {
+                    unchanged = false;
                     break;
                 }
             }
-            rel.tempo_revalidar += t.elapsed();
-            if iguais {
+            rel.revalidation_time += t.elapsed();
+            if unchanged {
                 return Ok(false);
             }
         }
-        let t_gerar = Instant::now();
-        let gerador = self.nativos[g].clone();
-        // Todas as ações das fases que o gerador cobre no pacote.
-        let mut acoes = Vec::new();
+        let t_generate = Instant::now();
+        let generator = self.natives[g].clone();
+        // All the actions of the phases the generator covers in the package.
+        let mut actions = Vec::new();
         for (fi, f) in self.fases.iter().enumerate() {
-            if self.grafo_pacotes.nos[f.pacote].nome != **pacote
-                || self.nativo_da_fase(fi) != Some(g)
+            if self.grafo_pacotes.nos[f.pacote].nome != **package
+                || self.native_for_phase(fi) != Some(g)
             {
                 continue;
             }
-            for &a in &self.por_fase[fi] {
-                let acao = &self.grafo.acoes[a];
-                acoes.push(AcaoNativa {
+            for &a in &self.per_phase[fi] {
+                let action = &self.grafo.acoes[a];
+                actions.push(NativeAction {
                     fabrica: f.fabrica.clone(),
-                    entrada: acao.entrada.clone(),
-                    entrada_natural: natural(&self.grafo_pacotes, &acao.entrada),
-                    saidas: acao
+                    entrada: action.entrada.clone(),
+                    entrada_natural: natural_path(&self.grafo_pacotes, &action.entrada),
+                    saidas: action
                         .saidas
                         .iter()
                         .map(|s| (s.clone(), self.naturais[s].clone()))
@@ -2304,161 +2344,166 @@ impl Motor {
                 });
             }
         }
-        let no = self.grafo_pacotes.no(pacote).ok_or("pacote desconhecido")?;
-        let pedido = PedidoNativo {
-            pacote: pacote.to_string(),
-            raiz_do_pacote: no.raiz.clone(),
-            acoes,
-            raizes: self.raizes_dos_pacotes(),
-            versoes: self.versoes_imitadas(gerador.chave()),
+        let node = self.grafo_pacotes.no(package).ok_or("unknown package")?;
+        let request = PedidoNativo {
+            pacote: package.to_string(),
+            raiz_do_pacote: node.raiz.clone(),
+            acoes: actions,
+            raizes: self.package_roots(),
+            versoes: self.imitated_versions(generator.chave()),
         };
-        let (resultado, consultas) = {
-            let memoria = |p: &Path| self.memoria.get(p).cloned();
-            let mut c = CtxGerador::novo(ctx.programa, mudados, ctx.banco, &memoria);
-            let r = gerador.gerar(&mut c, &pedido);
+        let (result, queries) = {
+            let memory = |p: &Path| self.memory.get(p).cloned();
+            let mut c = CtxGerador::new(ctx.programa, changed, ctx.banco, &memory);
+            let r = generator.gerar(&mut c, &request);
             (r, std::mem::take(&mut c.consultas))
         };
-        rel.consultas_gerador += consultas.len();
-        let rodada = match resultado {
-            Ok(s) => RodadaPacote {
-                registro_consultas: if s.reutilizar_consultas {
-                    let anterior = self
-                        .pacotes
+        rel.consultas_gerador += queries.len();
+        let round = match result {
+            Ok(s) => PackageRound {
+                queries: if s.reutilizar_consultas {
+                    let previous = self
+                        .package_rounds
                         .get(&k)
-                        .ok_or("ngdart: consultas anteriores ausentes")?;
-                    let mut mantidas = anterior.registro_consultas.clone();
-                    for (nova, digest) in consultas {
-                        if let Some((_, antigo)) = mantidas.iter_mut().find(|(c, _)| *c == nova) {
-                            *antigo = digest;
+                        .ok_or("ngdart: previous queries missing")?;
+                    let mut kept = previous.queries.clone();
+                    for (new, digest) in queries {
+                        if let Some((_, old)) = kept.iter_mut().find(|(c, _)| *c == new) {
+                            *old = digest;
                         } else {
-                            mantidas.push((nova, digest));
+                            kept.push((new, digest));
                         }
                     }
-                    mantidas
+                    kept
                 } else {
-                    consultas
+                    queries
                 },
-                saidas: s
+                outputs: s
                     .saidas
                     .into_iter()
                     .map(|(p, b)| (chave(&p), Arc::from(b)))
                     .collect(),
-                recusas: s.recusas.into_iter().map(|(p, m)| (chave(&p), m)).collect(),
-                erro: None,
-                unidades_geradas: s.unidades_geradas,
+                refusals: s.recusas.into_iter().map(|(p, m)| (chave(&p), m)).collect(),
+                error: None,
+                generated_units: s.unidades_geradas,
             },
-            Err(e) => RodadaPacote {
-                registro_consultas: consultas,
-                saidas: BTreeMap::new(),
-                recusas: BTreeMap::new(),
-                erro: Some(e),
-                unidades_geradas: 0,
+            Err(e) => PackageRound {
+                queries,
+                outputs: BTreeMap::new(),
+                refusals: BTreeMap::new(),
+                error: Some(e),
+                generated_units: 0,
             },
         };
-        rel.unidades_nativas += rodada.unidades_geradas;
-        self.pacotes.insert(k, rodada);
-        rel.tempo_nativo += t_gerar.elapsed();
+        rel.unidades_nativas += round.generated_units;
+        self.package_rounds.insert(k, round);
+        rel.tempo_nativo += t_generate.elapsed();
         Ok(true)
     }
 
-    /// Registro de uma ação coberta por um gerador por pacote: as saídas
-    /// geradas vêm da rodada; o que ele recusou vai para o apoio.
-    fn de_pacote(&self, g: usize, a: usize, motivo_dart: Option<&str>) -> Registro {
-        let acao = &self.grafo.acoes[a];
-        let pacote: Arc<str> = self.grafo_pacotes.nos[self.fases[acao.fase].pacote]
+    /// Record of an action covered by a per-package generator: the generated
+    /// outputs come from the round; whatever it refused goes to the
+    /// fallback.
+    fn from_package_round(&self, g: usize, a: usize, dart_reason: Option<&str>) -> Registro {
+        let action = &self.grafo.acoes[a];
+        let package: Arc<str> = self.grafo_pacotes.nos[self.fases[action.fase].pacote]
             .nome
             .as_str()
             .into();
-        let rodada = self.pacotes.get(&(g, pacote));
-        let gerador = &self.nativos[g];
-        let saidas: Vec<(AssetId, Option<Arc<[u8]>>)> = acao
+        let round = self.package_rounds.get(&(g, package));
+        let generator = &self.natives[g];
+        let outputs: Vec<(AssetId, Option<Arc<[u8]>>)> = action
             .saidas
             .iter()
             .map(|s| {
                 (
                     s.clone(),
-                    rodada
-                        .and_then(|r| r.saidas.get(&self.naturais[s]))
+                    round
+                        .and_then(|r| r.outputs.get(&self.naturais[s]))
                         .cloned(),
                 )
             })
             .collect();
-        let entrada = natural(&self.grafo_pacotes, &acao.entrada);
-        // As consultas ficam na rodada do pacote (é ela que se revalida);
-        // copiá-las para cada ação custava centenas de ms por edição.
-        let consultas = Vec::new();
-        // Nativo cobre a ação quando gerou alguma saída dela e não a recusou.
-        let recusa =
-            rodada.and_then(|r| r.erro.clone().or_else(|| r.recusas.get(&entrada).cloned()));
-        let gerou_algo = saidas.iter().any(|(_, c)| c.is_some());
-        if gerador.verificado() && recusa.is_none() && gerou_algo {
-            if saidas.iter().any(|(_, c)| c.is_none()) && motivo_dart.is_none() {
-                match self.dart_por_acao(a) {
+        let input = natural_path(&self.grafo_pacotes, &action.entrada);
+        // The queries stay in the package round (that is what gets
+        // revalidated); copying them into each action cost hundreds of ms per
+        // edit.
+        let queries = Vec::new();
+        // The native generator covers the action when it generated some output
+        // of it and did not refuse it.
+        let refusal =
+            round.and_then(|r| r.error.clone().or_else(|| r.refusals.get(&input).cloned()));
+        let generated_any = outputs.iter().any(|(_, c)| c.is_some());
+        if generator.verificado() && refusal.is_none() && generated_any {
+            if outputs.iter().any(|(_, c)| c.is_none()) && dart_reason.is_none() {
+                match self.dart_action(a) {
                     Ok(r) => return r,
-                    Err(FalhaDart::Builder(e)) => return self.falha(a, e),
-                    Err(FalhaDart::Indisponivel(_)) => {}
+                    Err(DartFailure::Builder(e)) => return self.failure(a, e),
+                    Err(DartFailure::Unavailable(_)) => {}
                 }
             }
-            // Saída que o nativo não escreve e o oficial sim (o `.css.dart`
-            // ao lado do `.css.shim.dart`) vem do apoio e é marcada como tal.
-            let mut saidas = saidas;
-            let mut do_apoio = Vec::new();
-            let oculta = self.fases[acao.fase].oculta;
-            for (s, c) in saidas.iter_mut() {
+            // An output the native generator does not write and the official
+            // one does (the `.css.dart` next to the `.css.shim.dart`) comes
+            // from the fallback and is marked as such.
+            let mut outputs = outputs;
+            let mut from_fallback = Vec::new();
+            let hidden = self.fases[action.fase].oculta;
+            for (s, c) in outputs.iter_mut() {
                 if c.is_none() {
-                    if let Ok(b) = std::fs::read(self.caminho_de_apoio(s, oculta)) {
+                    if let Ok(b) = std::fs::read(self.caminho_de_apoio(s, hidden)) {
                         *c = Some(Arc::from(b));
-                        do_apoio.push(s.clone());
+                        from_fallback.push(s.clone());
                     }
                 }
             }
             return Registro {
-                impressao: [0; 32],
-                consultas,
-                saidas,
-                origem: Origem::Nativo(gerador.chave()),
+                fingerprint: [0; 32],
+                consultas: queries,
+                saidas: outputs,
+                origem: Origem::Nativo(generator.chave()),
                 motivo: None,
-                medido: Vec::new(),
-                do_apoio,
+                measured: Vec::new(),
+                from_fallback,
                 apagados: Vec::new(),
-                restaurado: false,
+                restored: false,
             };
         }
-        // O apoio de uma ação que já vinha dele não é relido: o disco do
-        // `build_runner` não muda sob a sessão (limitação declarada: rodá-lo
-        // à parte pede reiniciar a sessão).
-        if motivo_dart.is_none() {
-            match self.dart_por_acao(a) {
+        // The fallback of an action that already came from it is not reread:
+        // `build_runner`'s disk does not change under the session (declared
+        // limitation: running it separately requires restarting the
+        // session).
+        if dart_reason.is_none() {
+            match self.dart_action(a) {
                 Ok(r) => return r,
-                Err(FalhaDart::Builder(e)) => return self.falha(a, e),
-                Err(FalhaDart::Indisponivel(_)) => {}
+                Err(DartFailure::Builder(e)) => return self.failure(a, e),
+                Err(DartFailure::Unavailable(_)) => {}
             }
         }
-        let mut r = match &self.registros[a] {
-            Some(ant) if ant.origem == Origem::Apoio => {
-                let mut r = ant.clone();
-                r.motivo = motivo_dart.map(|m| format!("apoio do build_runner: {m}"));
+        let mut r = match &self.records[a] {
+            Some(prev) if prev.origem == Origem::Apoio => {
+                let mut r = prev.clone();
+                r.motivo = dart_reason.map(|m| format!("build_runner fallback: {m}"));
                 r
             }
-            _ => self.apoio(a, motivo_dart),
+            _ => self.fallback(a, dart_reason),
         };
-        if !gerador.verificado() {
-            r.medido = saidas
+        if !generator.verificado() {
+            r.measured = outputs
                 .into_iter()
                 .filter_map(|(s, c)| c.map(|c| (s, c)))
                 .collect();
         }
-        let motivo_nativo =
-            recusa.unwrap_or_else(|| format!("{}: não gera esta saída", gerador.chave()));
+        let native_reason = refusal
+            .unwrap_or_else(|| format!("{}: does not generate this output", generator.chave()));
         r.motivo = Some(match r.motivo.take() {
-            Some(m) => format!("{motivo_nativo}; {m}"),
-            None => motivo_nativo,
+            Some(m) => format!("{native_reason}; {m}"),
+            None => native_reason,
         });
         r
     }
 
-    /// Nome → raiz de cada pacote do grafo.
-    fn raizes_dos_pacotes(&self) -> BTreeMap<String, PathBuf> {
+    /// Name → root of each package in the graph.
+    fn package_roots(&self) -> BTreeMap<String, PathBuf> {
         self.grafo_pacotes
             .nos
             .iter()
@@ -2466,53 +2511,53 @@ impl Motor {
             .collect()
     }
 
-    fn nativo_por_acao(
+    fn native_action(
         &self,
         ctx: &Contexto<'_>,
-        mudados: &HashSet<PathBuf>,
+        changed: &HashSet<PathBuf>,
         g: usize,
         a: usize,
-        motivo_dart: Option<&str>,
+        dart_reason: Option<&str>,
     ) -> Registro {
-        let acao = &self.grafo.acoes[a];
-        let f = &self.fases[acao.fase];
-        let gerador = self.nativos[g].clone();
-        let pedido = PedidoNativo {
-            pacote: acao.entrada.pacote.to_string(),
+        let action = &self.grafo.acoes[a];
+        let f = &self.fases[action.fase];
+        let generator = self.natives[g].clone();
+        let request = PedidoNativo {
+            pacote: action.entrada.pacote.to_string(),
             raiz_do_pacote: self.grafo_pacotes.nos[f.pacote].raiz.clone(),
-            acoes: vec![AcaoNativa {
+            acoes: vec![NativeAction {
                 fabrica: f.fabrica.clone(),
-                entrada: acao.entrada.clone(),
-                entrada_natural: natural(&self.grafo_pacotes, &acao.entrada),
-                saidas: acao
+                entrada: action.entrada.clone(),
+                entrada_natural: natural_path(&self.grafo_pacotes, &action.entrada),
+                saidas: action
                     .saidas
                     .iter()
                     .map(|s| (s.clone(), self.naturais[s].clone()))
                     .collect(),
                 opcoes: f.opcoes.clone(),
             }],
-            raizes: self.raizes_dos_pacotes(),
-            versoes: self.versoes_imitadas(gerador.chave()),
+            raizes: self.package_roots(),
+            versoes: self.imitated_versions(generator.chave()),
         };
-        let memoria = |p: &Path| self.memoria.get(p).cloned();
-        let mut c = CtxGerador::novo(ctx.programa, mudados, ctx.banco, &memoria);
-        let res = gerador.gerar(&mut c, &pedido);
-        let consultas = std::mem::take(&mut c.consultas);
+        let memory = |p: &Path| self.memory.get(p).cloned();
+        let mut c = CtxGerador::new(ctx.programa, changed, ctx.banco, &memory);
+        let res = generator.gerar(&mut c, &request);
+        let queries = std::mem::take(&mut c.consultas);
         match res {
             Ok(s)
-                if gerador.verificado()
+                if generator.verificado()
                     && s.recusas.is_empty()
                     && !s.saidas.is_empty()
-                    && (motivo_dart.is_some()
-                        || acao
+                    && (dart_reason.is_some()
+                        || action
                             .saidas
                             .iter()
                             .all(|id| s.saidas.contains_key(&self.naturais[id]))) =>
             {
                 Registro {
-                    impressao: [0; 32],
-                    consultas,
-                    saidas: acao
+                    fingerprint: [0; 32],
+                    consultas: queries,
+                    saidas: action
                         .saidas
                         .iter()
                         .map(|id| {
@@ -2524,24 +2569,24 @@ impl Motor {
                             )
                         })
                         .collect(),
-                    origem: Origem::Nativo(gerador.chave()),
+                    origem: Origem::Nativo(generator.chave()),
                     motivo: None,
-                    medido: Vec::new(),
-                    do_apoio: Vec::new(),
+                    measured: Vec::new(),
+                    from_fallback: Vec::new(),
                     apagados: Vec::new(),
-                    restaurado: false,
+                    restored: false,
                 }
             }
             Ok(s) => {
-                if motivo_dart.is_none() {
-                    match self.dart_por_acao(a) {
+                if dart_reason.is_none() {
+                    match self.dart_action(a) {
                         Ok(r) => return r,
-                        Err(FalhaDart::Builder(e)) => return self.falha(a, e),
-                        Err(FalhaDart::Indisponivel(_)) => {}
+                        Err(DartFailure::Builder(e)) => return self.failure(a, e),
+                        Err(DartFailure::Unavailable(_)) => {}
                     }
                 }
-                let mut r = self.apoio(a, motivo_dart);
-                r.medido = acao
+                let mut r = self.fallback(a, dart_reason);
+                r.measured = action
                     .saidas
                     .iter()
                     .filter_map(|id| {
@@ -2552,8 +2597,8 @@ impl Motor {
                     .collect();
                 let m = s.recusas.values().next().cloned().unwrap_or_else(|| {
                     format!(
-                        "{}: saída ainda não verificada byte a byte",
-                        gerador.chave()
+                        "{}: output not yet verified byte for byte",
+                        generator.chave()
                     )
                 });
                 r.motivo = Some(match r.motivo.take() {
@@ -2563,14 +2608,14 @@ impl Motor {
                 r
             }
             Err(m) => {
-                if motivo_dart.is_none() {
-                    match self.dart_por_acao(a) {
+                if dart_reason.is_none() {
+                    match self.dart_action(a) {
                         Ok(r) => return r,
-                        Err(FalhaDart::Builder(e)) => return self.falha(a, e),
-                        Err(FalhaDart::Indisponivel(_)) => {}
+                        Err(DartFailure::Builder(e)) => return self.failure(a, e),
+                        Err(DartFailure::Unavailable(_)) => {}
                     }
                 }
-                let mut r = self.apoio(a, motivo_dart);
+                let mut r = self.fallback(a, dart_reason);
                 r.motivo = Some(match r.motivo.take() {
                     Some(x) => format!("{m}; {x}"),
                     None => m,
@@ -2580,23 +2625,23 @@ impl Motor {
         }
     }
 
-    fn apoio_em_paralelo(&self, acoes: &[usize], motivo_dart: Option<&str>) -> Vec<Registro> {
-        let n = self.opcoes.trabalhadores.max(1).min(acoes.len());
-        if n <= 1 || acoes.len() < 8 {
-            return acoes.iter().map(|&a| self.apoio(a, motivo_dart)).collect();
+    fn fallback_in_parallel(&self, actions: &[usize], dart_reason: Option<&str>) -> Vec<Registro> {
+        let n = self.opcoes.trabalhadores.max(1).min(actions.len());
+        if n <= 1 || actions.len() < 8 {
+            return actions.iter().map(|&a| self.fallback(a, dart_reason)).collect();
         }
-        let proximo = AtomicUsize::new(0);
-        let mut todos: Vec<(usize, Registro)> = std::thread::scope(|s| {
+        let next = AtomicUsize::new(0);
+        let mut all: Vec<(usize, Registro)> = std::thread::scope(|s| {
             let hs: Vec<_> = (0..n)
                 .map(|_| {
                     s.spawn(|| {
-                        let mut meus = Vec::new();
+                        let mut mine = Vec::new();
                         loop {
-                            let i = proximo.fetch_add(1, Ordering::Relaxed);
-                            let Some(&a) = acoes.get(i) else { break };
-                            meus.push((i, self.apoio(a, motivo_dart)));
+                            let i = next.fetch_add(1, Ordering::Relaxed);
+                            let Some(&a) = actions.get(i) else { break };
+                            mine.push((i, self.fallback(a, dart_reason)));
                         }
-                        meus
+                        mine
                     })
                 })
                 .collect();
@@ -2604,150 +2649,152 @@ impl Motor {
                 .flat_map(|h| h.join().unwrap_or_default())
                 .collect()
         });
-        todos.sort_by_key(|(i, _)| *i);
-        todos.into_iter().map(|(_, r)| r).collect()
+        all.sort_by_key(|(i, _)| *i);
+        all.into_iter().map(|(_, r)| r).collect()
     }
 
-    /// Executor de apoio: o que o `build_runner` deixou no disco.
-    fn apoio(&self, a: usize, motivo_dart: Option<&str>) -> Registro {
-        let acao = &self.grafo.acoes[a];
-        let f = &self.fases[acao.fase];
-        let entrada = natural(&self.grafo_pacotes, &acao.entrada);
-        let memoria = |p: &Path| self.memoria.get(p).cloned();
-        let mut consultas = Vec::with_capacity(1 + acao.saidas.len());
-        let d = memoria(&entrada)
+    /// Fallback executor: what `build_runner` left on disk.
+    fn fallback(&self, a: usize, dart_reason: Option<&str>) -> Registro {
+        let action = &self.grafo.acoes[a];
+        let f = &self.fases[action.fase];
+        let input = natural_path(&self.grafo_pacotes, &action.entrada);
+        let memory = |p: &Path| self.memory.get(p).cloned();
+        let mut queries = Vec::with_capacity(1 + action.saidas.len());
+        let d = memory(&input)
             .map(|b| digest_bytes(&b))
-            .or_else(|| crate::consulta::digest_arquivo(&entrada));
-        consultas.push((Consulta::Arquivo(entrada), d));
-        let mut saidas = Vec::with_capacity(acao.saidas.len());
-        for s in &acao.saidas {
+            .or_else(|| crate::consulta::digest_arquivo(&input));
+        queries.push((Consulta::Arquivo(input), d));
+        let mut outputs = Vec::with_capacity(action.saidas.len());
+        for s in &action.saidas {
             let loc = self.caminho_de_apoio(s, f.oculta);
             let c: Option<Arc<[u8]>> = std::fs::read(&loc).ok().map(Arc::from);
-            consultas.push((
+            queries.push((
                 Consulta::Arquivo(chave(&loc)),
                 c.as_deref().map(digest_bytes),
             ));
-            saidas.push((s.clone(), c));
+            outputs.push((s.clone(), c));
         }
-        let tem_build = self
+        let has_build_dir = self
             .grafo_pacotes
             .dir_raiz
             .join(".dart_tool/build")
             .is_dir();
-        let algum = saidas.iter().any(|(_, c)| c.is_some());
-        if !algum && !tem_build {
+        let any = outputs.iter().any(|(_, c)| c.is_some());
+        if !any && !has_build_dir {
             let m = format!(
-                "sem apoio: {} (não há .dart_tool/build; rode 'dart run build_runner build')",
-                motivo_dart.unwrap_or("sem executor")
+                "no fallback: {} (there is no .dart_tool/build; run 'dart run build_runner build')",
+                dart_reason.unwrap_or("no executor")
             );
             return Registro {
-                impressao: [0; 32],
-                consultas,
-                saidas,
+                fingerprint: [0; 32],
+                consultas: queries,
+                saidas: outputs,
                 origem: Origem::Pendente,
                 motivo: Some(m),
-                medido: Vec::new(),
-                do_apoio: Vec::new(),
+                measured: Vec::new(),
+                from_fallback: Vec::new(),
                 apagados: Vec::new(),
-                restaurado: false,
+                restored: false,
             };
         }
         Registro {
-            impressao: [0; 32],
-            consultas,
-            saidas,
+            fingerprint: [0; 32],
+            consultas: queries,
+            saidas: outputs,
             origem: Origem::Apoio,
-            motivo: motivo_dart.map(|m| format!("apoio do build_runner: {m}")),
-            medido: Vec::new(),
-            do_apoio: Vec::new(),
+            motivo: dart_reason.map(|m| format!("build_runner fallback: {m}")),
+            measured: Vec::new(),
+            from_fallback: Vec::new(),
             apagados: Vec::new(),
-            restaurado: false,
+            restored: false,
         }
     }
 
-    /// Publica a geração: saídas com conteúdo UTF-8 que o carregador lê da
-    /// memória — as `cache`, e as `source` de gerador nativo (as de apoio já
-    /// estão no disco, no caminho natural).
-    fn publicar(&mut self) {
-        // Saídas marcadas por `deletePrimaryInput`: fora da geração, como o
-        // `FinalizedReader` do oficial (`finalized_reader.dart:44`).
-        let apagados: HashSet<&AssetId> = self
-            .registros
+    /// Publishes the generation: outputs with UTF-8 content that the loader
+    /// reads from memory — the `cache` ones, and the `source` ones of native
+    /// generators (the fallback ones are already on disk, at the natural
+    /// path).
+    fn publish(&mut self) {
+        // Outputs marked by `deletePrimaryInput`: out of the generation, like
+        // the official `FinalizedReader` (`finalized_reader.dart:44`).
+        let deleted: HashSet<&AssetId> = self
+            .records
             .iter()
             .flatten()
             .flat_map(|r| r.apagados.iter())
             .collect();
-        let apagados: HashSet<AssetId> = apagados.into_iter().cloned().collect();
+        let deleted: HashSet<AssetId> = deleted.into_iter().cloned().collect();
         let mut c = Construtor::nova();
         let mut h = blake3::Hasher::new();
-        let mut itens: Vec<(PathBuf, Arc<[u8]>, &'static str, PathBuf)> = Vec::new();
-        let mut rotulos: Vec<(usize, String)> = Vec::new();
-        for (a, r) in self.registros.iter().enumerate() {
+        let mut items: Vec<(PathBuf, Arc<[u8]>, &'static str, PathBuf)> = Vec::new();
+        let mut labels: Vec<(usize, String)> = Vec::new();
+        for (a, r) in self.records.iter().enumerate() {
             let Some(r) = r else { continue };
-            let acao = &self.grafo.acoes[a];
-            let f = &self.fases[acao.fase];
+            let action = &self.grafo.acoes[a];
+            let f = &self.fases[action.fase];
             if !f.oculta && !matches!(r.origem, Origem::Nativo(_) | Origem::Dart) {
                 continue;
             }
-            for (s, conteudo) in &r.saidas {
-                let Some(conteudo) = conteudo else { continue };
-                if apagados.contains(s) {
+            for (s, content) in &r.saidas {
+                let Some(content) = content else { continue };
+                if deleted.contains(s) {
                     continue;
                 }
-                let rotulo = match r.origem {
+                let label = match r.origem {
                     Origem::Nativo(_) | Origem::Dart => {
                         self.plano.aplicacoes[f.aplicacao].chave.clone()
                     }
                     _ => "build_runner".to_string(),
                 };
-                rotulos.push((a, rotulo));
-                itens.push((
-                    self.natural_de(s),
-                    conteudo.clone(),
+                labels.push((a, label));
+                items.push((
+                    self.natural_path_of(s),
+                    content.clone(),
                     "",
-                    natural(&self.grafo_pacotes, &acao.entrada),
+                    natural_path(&self.grafo_pacotes, &action.entrada),
                 ));
             }
         }
-        let rotulos: Vec<&'static str> =
-            rotulos.into_iter().map(|(_, k)| self.rotulo(&k)).collect();
-        for (i, (n, conteudo, _, entrada)) in itens.into_iter().enumerate() {
-            let Ok(texto) = std::str::from_utf8(&conteudo) else {
+        let labels: Vec<&'static str> =
+            labels.into_iter().map(|(_, k)| self.label(&k)).collect();
+        for (i, (n, content, _, input)) in items.into_iter().enumerate() {
+            let Ok(text) = std::str::from_utf8(&content) else {
                 continue;
             };
             h.update(n.to_string_lossy().as_bytes());
-            h.update(&digest_bytes(&conteudo));
-            c.por(n, texto, rotulos[i], vec![entrada]);
+            h.update(&digest_bytes(&content));
+            c.por(n, text, labels[i], vec![input]);
         }
         let id = u64::from_le_bytes(h.finalize().as_bytes()[..8].try_into().unwrap_or([0; 8]));
         match c.concluir(id) {
-            Ok(g) => self.geracao = g,
+            Ok(g) => self.generation = g,
             Err(e) => {
                 for m in e {
-                    eprintln!("erro do motor de build: {m}");
+                    eprintln!("build engine error: {m}");
                 }
             }
         }
     }
 
-    /// Conteúdo de uma saída pelo caminho natural, calculando-a se ainda não
-    /// foi (a demanda de um `.css` pedido pelo navegador).
-    pub fn materializar(&mut self, ctx: &Contexto<'_>, caminho: &Path) -> Option<Arc<[u8]>> {
-        let mut k = chave(caminho);
-        if let Some(c) = self.memoria.get(&k) {
+    /// Content of an output by natural path, computing it if it has not been
+    /// computed yet (the demand for a `.css` requested by the browser).
+    pub fn materializar(&mut self, ctx: &Contexto<'_>, path: &Path) -> Option<Arc<[u8]>> {
+        let mut k = chave(path);
+        if let Some(c) = self.memory.get(&k) {
             return Some(c.clone());
         }
-        // `package_config.json` usa a raiz canônica; a URL servida pode
-        // chegar pela grafia lexical (alias 8.3 ou link no Windows). O
-        // arquivo gerado ainda não existe, então canonizamos só o pai.
+        // `package_config.json` uses the canonical root; the served URL may
+        // arrive with the lexical spelling (8.3 alias or link on Windows).
+        // The generated file does not exist yet, so only the parent is
+        // canonicalized.
         if !self.naturais.values().any(|n| n == &k) {
-            if let (Some(pai), Some(nome)) = (caminho.parent(), caminho.file_name()) {
-                if let Ok(pai) = std::fs::canonicalize(pai) {
-                    k = chave(&dartforge_elements::config::sem_verbatim(pai).join(nome));
+            if let (Some(parent), Some(name)) = (path.parent(), path.file_name()) {
+                if let Ok(parent) = std::fs::canonicalize(parent) {
+                    k = chave(&dartforge_elements::config::sem_verbatim(parent).join(name));
                 }
             }
         }
-        if let Some(c) = self.memoria.get(&k) {
+        if let Some(c) = self.memory.get(&k) {
             return Some(c.clone());
         }
         let id = self
@@ -2756,63 +2803,61 @@ impl Motor {
             .find(|(_, n)| **n == k)
             .map(|(id, _)| id.clone())?;
         let g = self.grafo.gerados.get(&id)?.clone();
-        if self.registros[g.acao]
-            .as_ref()
-            .is_some_and(|r| r.restaurado)
-        {
-            let (sujo, fora_do_disco) = self.conferir_restaurado(g.acao, ctx.banco);
-            for n in fora_do_disco {
-                self.memoria.remove(&n);
+        if self.records[g.acao].as_ref().is_some_and(|r| r.restored) {
+            let (dirty, off_disk) = self.check_restored(g.acao, ctx.banco);
+            for n in off_disk {
+                self.memory.remove(&n);
             }
-            match self.registros[g.acao].as_mut() {
-                Some(r) if !sujo => r.restaurado = false,
-                _ => self.registros[g.acao] = None,
+            match self.records[g.acao].as_mut() {
+                Some(r) if !dirty => r.restored = false,
+                _ => self.records[g.acao] = None,
             }
         }
-        if self.registros[g.acao].is_none() {
+        if self.records[g.acao].is_none() {
             let a = g.acao;
             let fi = self.grafo.acoes[a].fase;
-            let motivo_dart = self
+            let dart_reason = self
                 .dart
                 .lock()
                 .map(|d| match d.disponibilidade() {
                     Disponibilidade::Disponivel => None,
                     Disponibilidade::Indisponivel(m) => Some(m),
                 })
-                .unwrap_or_else(|_| Some("executor Dart envenenado".into()));
-            let mut r = match self.nativo_da_fase(fi) {
-                Some(n) if !self.nativos[n].por_pacote() => {
-                    self.nativo_por_acao(ctx, &HashSet::new(), n, a, motivo_dart.as_deref())
+                .unwrap_or_else(|_| Some("Dart executor poisoned".into()));
+            let mut r = match self.native_for_phase(fi) {
+                Some(n) if !self.natives[n].por_pacote() => {
+                    self.native_action(ctx, &HashSet::new(), n, a, dart_reason.as_deref())
                 }
-                _ if motivo_dart.is_none() => self.dart_ou_apoio(a),
-                _ => self.apoio(a, motivo_dart.as_deref()),
+                _ if dart_reason.is_none() => self.dart_or_fallback(a),
+                _ => self.fallback(a, dart_reason.as_deref()),
             };
-            r.impressao = self.impressao(a, &r.consultas);
+            r.fingerprint = self.fingerprint(a, &r.consultas);
             for (s, c) in &r.saidas {
                 if let Some(c) = c {
-                    self.memoria.insert(self.naturais[s].clone(), c.clone());
+                    self.memory.insert(self.naturais[s].clone(), c.clone());
                 }
             }
-            self.registros[a] = Some(r);
-            self.estado_sujo = true;
-            self.publicar();
-            self.recalcular_observados();
-            if self.opcoes.persistir && self.salvar().is_ok() {
-                self.estado_sujo = false;
+            self.records[a] = Some(r);
+            self.state_dirty = true;
+            self.publish();
+            self.recompute_watched();
+            if self.opcoes.persistir && self.save().is_ok() {
+                self.state_dirty = false;
             }
         }
-        self.memoria.get(&k).cloned()
+        self.memory.get(&k).cloned()
     }
 
-    /// Saídas `build_to: source` de gerador nativo entre `alterados`, com o
-    /// conteúdo: vão ao disco (D-B2). As de apoio já estão lá.
-    pub fn saidas_source_nativas(&self, alterados: &[PathBuf]) -> Vec<(PathBuf, Arc<[u8]>)> {
-        if alterados.is_empty() {
+    /// `build_to: source` outputs of native generators among `altered`, with
+    /// their content: they go to disk (D-B2). The fallback ones are already
+    /// there.
+    pub fn saidas_source_nativas(&self, altered: &[PathBuf]) -> Vec<(PathBuf, Arc<[u8]>)> {
+        if altered.is_empty() {
             return Vec::new();
         }
-        let alt: HashSet<&PathBuf> = alterados.iter().collect();
+        let alt: HashSet<&PathBuf> = altered.iter().collect();
         let mut v = Vec::new();
-        for (a, r) in self.registros.iter().enumerate() {
+        for (a, r) in self.records.iter().enumerate() {
             let Some(r) = r else { continue };
             if !matches!(r.origem, Origem::Nativo(_) | Origem::Dart)
                 || self.fases[self.grafo.acoes[a].fase].oculta
@@ -2829,26 +2874,26 @@ impl Motor {
         v
     }
 
-    /// Estado canônico (ações, origem, motivo, digest de cada saída e a
-    /// geração publicada): o que os invariantes de determinismo e
-    /// "incremental = do zero" comparam.
+    /// Canonical state (actions, origin, reason, digest of each output and
+    /// the published generation): what the determinism and "incremental =
+    /// from scratch" invariants compare.
     pub fn estado_canonico(&self) -> String {
-        let mut linhas: Vec<String> = Vec::new();
+        let mut lines: Vec<String> = Vec::new();
         for (i, a) in self.grafo.acoes.iter().enumerate() {
             if !a.viva() {
                 continue;
             }
             let f = &self.fases[a.fase];
-            let cab = format!(
+            let head = format!(
                 "{}#{} {}",
                 self.plano.aplicacoes[f.aplicacao].chave,
                 f.fabrica,
                 a.entrada.texto()
             );
-            match &self.registros[i] {
-                None => linhas.push(format!("{cab} -")),
+            match &self.records[i] {
+                None => lines.push(format!("{head} -")),
                 Some(r) => {
-                    let saidas: Vec<String> = r
+                    let outputs: Vec<String> = r
                         .saidas
                         .iter()
                         .map(|(s, c)| {
@@ -2859,24 +2904,24 @@ impl Motor {
                             format!("{}={}", s.caminho, &d[..d.len().min(16)])
                         })
                         .collect();
-                    let apagados: Vec<String> = r.apagados.iter().map(AssetId::texto).collect();
-                    linhas.push(format!(
-                        "{cab} {:?} {} [{}]{}",
+                    let deleted: Vec<String> = r.apagados.iter().map(AssetId::texto).collect();
+                    lines.push(format!(
+                        "{head} {:?} {} [{}]{}",
                         r.origem,
                         r.motivo.as_deref().unwrap_or(""),
-                        saidas.join(" "),
-                        if apagados.is_empty() {
+                        outputs.join(" "),
+                        if deleted.is_empty() {
                             String::new()
                         } else {
-                            format!(" apagados=[{}]", apagados.join(" "))
+                            format!(" deleted=[{}]", deleted.join(" "))
                         }
                     ));
                 }
             }
         }
-        linhas.sort();
+        lines.sort();
         let mut g: Vec<String> = self
-            .geracao
+            .generation
             .iter()
             .map(|(p, f)| {
                 let rel = p
@@ -2885,29 +2930,33 @@ impl Motor {
                     .to_string_lossy()
                     .replace('\\', "/");
                 format!(
-                    "gerado {rel} {}",
+                    "generated {rel} {}",
                     &blake3::hash(f.conteudo.as_bytes()).to_hex()[..16]
                 )
             })
             .collect();
         g.sort();
-        linhas.extend(g);
-        linhas.join("\n")
+        lines.extend(g);
+        lines.join("\n")
     }
 
-    /// Placar contra uma referência (o oráculo do corpus, ou o apoio no
-    /// disco): por saída de referência, igual/pendente/diferente.
-    pub fn placar(&self, referencia: &BTreeMap<AssetId, Vec<u8>>) -> Placar {
+    /// Scoreboard against a reference (the corpus oracle, or the fallback on
+    /// disk): per reference output, equal/pending/different.
+    ///
+    /// The reasons that start with "pós-processador" stay in Portuguese:
+    /// `crates/build/tests/corpus.rs` matches that prefix on the pending
+    /// reasons.
+    pub fn placar(&self, reference: &BTreeMap<AssetId, Vec<u8>>) -> Placar {
         let mut p = Placar::default();
-        for (id, esperado) in referencia {
+        for (id, expected) in reference {
             let Some(g) = self.grafo.gerados.get(id) else {
-                // Um pós-processador escreve saídas que o grafo não prevê
-                // (`PostProcessBuildStep`): estão no registro da âncora.
-                let da_ancora = self
+                // A post-processor writes outputs the graph does not predict
+                // (`PostProcessBuildStep`): they are in the anchor's record.
+                let from_anchor = self
                     .grafo
                     .acoes
                     .iter()
-                    .zip(&self.registros)
+                    .zip(&self.records)
                     .filter(|(a, _)| a.pos)
                     .filter_map(|(_, r)| r.as_ref())
                     .find_map(|r| {
@@ -2916,9 +2965,9 @@ impl Motor {
                             .find(|(s, _)| s == id)
                             .map(|(_, c)| (r, c.clone()))
                     });
-                if let Some((r, c)) = da_ancora {
+                if let Some((r, c)) = from_anchor {
                     match (&r.origem, c) {
-                        (Origem::Dart, Some(c)) if c.as_ref() == esperado.as_slice() => {
+                        (Origem::Dart, Some(c)) if c.as_ref() == expected.as_slice() => {
                             p.iguais.push(id.clone())
                         }
                         _ => p
@@ -2927,23 +2976,23 @@ impl Motor {
                     }
                     continue;
                 }
-                let tem_pos = self
+                let has_post = self
                     .fases
                     .iter()
                     .any(|f| f.pos && self.grafo_pacotes.nos[f.pacote].nome == *id.pacote);
-                if tem_pos {
+                if has_post {
                     p.pendentes.push((
                         id.clone(),
                         "pós-processador: saída só com o executor Dart".into(),
                     ));
                 } else {
                     p.diferentes
-                        .push((id.clone(), "saída não prevista pelo plano".into()));
+                        .push((id.clone(), "output not predicted by the plan".into()));
                 }
                 continue;
             };
-            match self.registros[g.acao].as_ref() {
-                None => p.pendentes.push((id.clone(), "não calculada".into())),
+            match self.records[g.acao].as_ref() {
+                None => p.pendentes.push((id.clone(), "not computed".into())),
                 Some(r) => {
                     let c = r
                         .saidas
@@ -2951,91 +3000,97 @@ impl Motor {
                         .find(|(s, _)| s == id)
                         .and_then(|(_, c)| c.clone());
                     match (&r.origem, c) {
-                        (Origem::Nativo(n), _) if r.do_apoio.contains(id) => p.pendentes.push((
-                            id.clone(),
-                            format!("{n}: saída não gerada pelo nativo; apoio do build_runner"),
-                        )),
+                        (Origem::Nativo(n), _) if r.from_fallback.contains(id) => {
+                            p.pendentes.push((
+                                id.clone(),
+                                format!(
+                                    "{n}: output not generated by the native generator; build_runner fallback"
+                                ),
+                            ))
+                        }
                         (Origem::Nativo(_) | Origem::Dart, Some(c))
-                            if c.as_ref() == esperado.as_slice() =>
+                            if c.as_ref() == expected.as_slice() =>
                         {
                             p.iguais.push(id.clone())
                         }
                         (Origem::Nativo(n), _) => p
                             .diferentes
-                            .push((id.clone(), format!("{n}: difere do oficial"))),
-                        (Origem::Dart, _) => p
-                            .diferentes
-                            .push((id.clone(), "executor Dart: difere do oficial".into())),
-                        (Origem::NaoDisparada, _) => p.diferentes.push((
+                            .push((id.clone(), format!("{n}: differs from the official output"))),
+                        (Origem::Dart, _) => p.diferentes.push((
                             id.clone(),
-                            "nenhum trigger disparou aqui; o oficial escreveu".into(),
+                            "Dart executor: differs from the official output".into(),
+                        )),
+                        (Origem::NotTriggered, _) => p.diferentes.push((
+                            id.clone(),
+                            "no trigger fired here; the official tool wrote it".into(),
                         )),
                         (Origem::Omitida, _) => p.diferentes.push((
                             id.clone(),
-                            "entrada gerada não escrita aqui; o oficial escreveu".into(),
+                            "generated input not written here; the official tool wrote it".into(),
                         )),
                         _ => {
-                            if let Some((_, m)) = r.medido.iter().find(|(s, _)| s == id) {
-                                if m.as_ref() == esperado.as_slice() {
-                                    p.medidos_iguais += 1;
+                            if let Some((_, m)) = r.measured.iter().find(|(s, _)| s == id) {
+                                if m.as_ref() == expected.as_slice() {
+                                    p.measured_equal += 1;
                                 } else {
-                                    p.medidos_diferentes += 1;
+                                    p.measured_different += 1;
                                 }
                             }
                             p.pendentes.push((
                                 id.clone(),
-                                r.motivo.clone().unwrap_or_else(|| "apoio".into()),
+                                r.motivo.clone().unwrap_or_else(|| "fallback".into()),
                             ))
                         }
                     }
                 }
             }
         }
-        // Saída nativa a mais (que a referência não tem). A de um builder
-        // opcional (`is_optional`) só existe no oficial se alguém a pediu: sem
-        // falha dele naquela entrada (`error_cache`), é uma saída que o grafo
-        // oficial nunca solicitou (não alcançável) — fora da conta, não
-        // pendente: não é esperada.
-        for (i, r) in self.registros.iter().enumerate() {
+        // An extra native output (one the reference does not have). One from
+        // an optional builder (`is_optional`) only exists in the official
+        // tool if someone asked for it: without a failure of it on that input
+        // (`error_cache`), it is an output the official graph never requested
+        // (unreachable) — left out of the count, not pending: it is not
+        // expected.
+        for (i, r) in self.records.iter().enumerate() {
             let Some(r) = r else { continue };
             let n = match r.origem {
                 Origem::Nativo(n) => n,
-                Origem::Dart => "executor Dart",
+                Origem::Dart => "Dart executor",
                 _ => continue,
             };
-            let acao = &self.grafo.acoes[i];
-            let opcional = self.fases[acao.fase].opcional;
+            let action = &self.grafo.acoes[i];
+            let optional = self.fases[action.fase].opcional;
             for (s, c) in &r.saidas {
-                if c.is_none() || referencia.contains_key(s) {
+                if c.is_none() || reference.contains_key(s) {
                     continue;
                 }
-                if opcional && !self.falhou_no_oficial(&acao.entrada) {
+                if optional && !self.failed_in_official(&action.entrada) {
                     p.nao_solicitados.push((
                         s.clone(),
-                        format!("{n}: saída opcional que o grafo oficial não solicita"),
+                        format!("{n}: optional output the official graph does not request"),
                     ));
                 } else {
-                    p.diferentes.push((s.clone(), format!("{n}: saída a mais")));
+                    p.diferentes.push((s.clone(), format!("{n}: extra output")));
                 }
             }
         }
         p
     }
 
-    /// O `build_runner` oficial registrou erro de algum builder nesta
-    /// entrada (`.dart_tool/build/<hash>/error_cache/<pacote>/<fase>/<caminho>`).
-    fn falhou_no_oficial(&self, entrada: &AssetId) -> bool {
+    /// The official `build_runner` recorded an error of some builder on this
+    /// input (`.dart_tool/build/<hash>/error_cache/<package>/<phase>/<path>`).
+    fn failed_in_official(&self, input: &AssetId) -> bool {
         let base = self.grafo_pacotes.dir_raiz.join(".dart_tool/build");
         let Ok(hashes) = std::fs::read_dir(&base) else {
             return false;
         };
         for h in hashes.flatten() {
-            let pacote = h.path().join("error_cache").join(entrada.pacote.as_ref());
-            let Ok(fases) = std::fs::read_dir(&pacote) else {
+            let package = h.path().join("error_cache").join(input.pacote.as_ref());
+            let Ok(phases) = std::fs::read_dir(&package) else {
                 continue;
             };
-            for f in fases.flatten() {
-                if f.path().join(entrada.caminho.as_ref()).is_file() {
+            for f in phases.flatten() {
+                if f.path().join(input.caminho.as_ref()).is_file() {
                     return true;
                 }
             }
@@ -3044,25 +3099,25 @@ impl Motor {
     }
 }
 
-/// `AssetId.resolve(Uri.parse(uri), from: de)`: `package:p/x` é `p|lib/x`,
-/// `asset:p/x` é `p|x`, um caminho relativo é relativo ao diretório de `de`.
-/// `None` para outro esquema ou caminho que sai do pacote.
-fn resolver_uri(uri: &str, de: &AssetId) -> Option<AssetId> {
-    if let Some(resto) = uri.strip_prefix("package:") {
-        let (p, c) = resto.split_once('/')?;
+/// `AssetId.resolve(Uri.parse(uri), from: from)`: `package:p/x` is `p|lib/x`,
+/// `asset:p/x` is `p|x`, a relative path is relative to `from`'s directory.
+/// `None` for another scheme or a path that leaves the package.
+fn resolve_uri(uri: &str, from: &AssetId) -> Option<AssetId> {
+    if let Some(rest) = uri.strip_prefix("package:") {
+        let (p, c) = rest.split_once('/')?;
         return Some(AssetId::novo(p, &format!("lib/{c}")));
     }
-    if let Some(resto) = uri.strip_prefix("asset:") {
-        let (p, c) = resto.split_once('/')?;
+    if let Some(rest) = uri.strip_prefix("asset:") {
+        let (p, c) = rest.split_once('/')?;
         return Some(AssetId::novo(p, c));
     }
     if uri.contains(':') {
         return None;
     }
-    let mut partes: Vec<&str> = if uri.starts_with('/') {
+    let mut parts: Vec<&str> = if uri.starts_with('/') {
         Vec::new()
     } else {
-        let mut v: Vec<&str> = de.caminho.split('/').collect();
+        let mut v: Vec<&str> = from.caminho.split('/').collect();
         v.pop();
         v
     };
@@ -3070,16 +3125,16 @@ fn resolver_uri(uri: &str, de: &AssetId) -> Option<AssetId> {
         match s {
             "" | "." => {}
             ".." => {
-                partes.pop()?;
+                parts.pop()?;
             }
-            x => partes.push(x),
+            x => parts.push(x),
         }
     }
-    Some(AssetId::novo(&de.pacote, &partes.join("/")))
+    Some(AssetId::novo(&from.pacote, &parts.join("/")))
 }
 
-fn mais_nova(entrada: &Path, apoio: &Path) -> bool {
-    let (Some(e), Some(a)) = (Marca::ler(entrada), Marca::ler(apoio)) else {
+fn is_newer(input: &Path, fallback: &Path) -> bool {
+    let (Some(e), Some(a)) = (Marca::ler(input), Marca::ler(fallback)) else {
         return false;
     };
     e.mtime_ns > a.mtime_ns
@@ -3090,33 +3145,33 @@ pub struct Placar {
     pub iguais: Vec<AssetId>,
     pub pendentes: Vec<(AssetId, String)>,
     pub diferentes: Vec<(AssetId, String)>,
-    /// Saídas que o builder poderia produzir mas o grafo oficial nunca pede
-    /// (builder opcional sem ninguém que leia a saída): fora da conta — não
-    /// são esperadas, nem pendentes, nem diferentes.
+    /// Outputs the builder could produce but the official graph never asks
+    /// for (an optional builder with nobody reading the output): not counted
+    /// — they are neither expected, nor pending, nor different.
     pub nao_solicitados: Vec<(AssetId, String)>,
-    /// Nativos não verificados, medidos contra a referência.
-    pub medidos_iguais: usize,
-    pub medidos_diferentes: usize,
+    /// Unverified native generators, measured against the reference.
+    pub measured_equal: usize,
+    pub measured_different: usize,
 }
 
 impl Placar {
     pub fn resumo(&self) -> String {
         let mut s = format!(
-            "{} iguais / {} pendentes / {} diferentes",
+            "{} equal / {} pending / {} different",
             self.iguais.len(),
             self.pendentes.len(),
             self.diferentes.len()
         );
         if !self.nao_solicitados.is_empty() {
             s.push_str(&format!(
-                " ({} não solicitados, fora da conta)",
+                " ({} not requested, not counted)",
                 self.nao_solicitados.len()
             ));
         }
-        if self.medidos_iguais + self.medidos_diferentes > 0 {
+        if self.measured_equal + self.measured_different > 0 {
             s.push_str(&format!(
-                " (nativos não verificados, medidos: {} iguais, {} diferentes)",
-                self.medidos_iguais, self.medidos_diferentes
+                " (unverified native generators, measured: {} equal, {} different)",
+                self.measured_equal, self.measured_different
             ));
         }
         s
