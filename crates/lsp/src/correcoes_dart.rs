@@ -1284,7 +1284,14 @@ impl Contexto<'_> {
                 let substituir = |r: usize| -> Option<Vec<(Span, String)>> {
                     if self.especie(r) == "Block" {
                         let s = self.arvore.span(r);
-                        let linhas = tx.faixa_de_linhas(s.start + 1, s.end - 1);
+                        // As linhas dos comandos do bloco (o servidor do Dart
+                        // 3.6.2 conferido no oráculo não leva a quebra que
+                        // segue o `{`); bloco vazio: o que há entre as chaves.
+                        let comandos = self.filhos(r);
+                        let linhas = match (comandos.first(), comandos.last()) {
+                            (Some(&a), Some(&b)) => tx.faixa_de_linhas(self.arvore.nos[a].inicio, self.arvore.nos[b].fim),
+                            _ => tx.faixa_de_linhas(s.start + 1, s.end - 1),
+                        };
                         let texto = tirar_recuo(&self.fonte[linhas.start..linhas.end]);
                         return Some(vec![(self.linhas_do_no(pai), texto)]);
                     }
