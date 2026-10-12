@@ -67,6 +67,20 @@ impl Contexto<'_> {
         let velho = self.prefixo_do_no(primeiro);
         let novo = format!("{velho}{UM_RECUO}");
         let recuado = tx.trocar_recuo(&self.fonte[faixa.start..faixa.end], &velho, &novo, true, true);
+        // `_SurroundWithBlock`: três edições, como o Dart — `{` inserido
+        // antes, o código recuado no lugar e `}` inserido depois.
+        saida.push(AcaoDeCodigo {
+            titulo: "Surround with block".into(),
+            especie: "refactor.surround.block".into(),
+            edicoes: vec![
+                Edicao { uri: uri.to_string(), span: dartforge_diagnostics::Span { start: faixa.start, end: faixa.start }, texto: format!("{velho}{{{eol}") },
+                Edicao { uri: uri.to_string(), span: faixa, texto: recuado.clone() },
+                Edicao { uri: uri.to_string(), span: dartforge_diagnostics::Span { start: faixa.end, end: faixa.end }, texto: format!("{velho}}}{eol}") },
+            ],
+            diagnostico: None,
+            criar_arquivo: None,
+            ligado: Default::default(),
+        });
         let mut acao = |titulo: &str, especie: &str, e: &crate::snippets::Escrita| {
             let a = AcaoDeCodigo {
                 titulo: titulo.into(),
@@ -78,10 +92,6 @@ impl Contexto<'_> {
             };
             saida.push(a.com_escrita(0, e));
         };
-        let mut e = crate::snippets::Escrita::default();
-        // `_SurroundWithBlock`: `{` antes, o código recuado e `}` depois.
-        e.escrever(&format!("{velho}{{{eol}{recuado}{velho}}}{eol}"));
-        acao("Surround with block", "refactor.surround.block", &e);
         // Os demais escrevem a substituição inteira com os grupos ligados e o
         // `selectHere` de `surround_with.dart:135-424`.
         let mut e = crate::snippets::Escrita::default();
