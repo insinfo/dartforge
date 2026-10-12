@@ -7376,7 +7376,7 @@ Arquivos: `crates/lsp/src/semantica.rs:294-346` (montagem), `acoes.rs` (1135 lin
 | `command` | `dart.logAction` com `{action: id}` | ausente | `servidor.rs:881` |
 | Filtro `only` | `kind == w` ou começa com `w.`; sem `only`, os kinds anunciados pelo cliente | `only` igual; sem `only` não consulta os kinds do cliente | `servidor.rs:857-859` |
 | "Fix all in file" | para produtores `acrossSingleFile`/`acrossFiles`/`automatically`, com 2+ erros do mesmo nome | não existe | — |
-| Snippets/grupos ligados | `SnippetTextEdit` com `experimental.snippetTextEdit` | igual (`AcaoDeCodigo::ligado`, `crate::snippets`; `servidor.rs`, `edicao_snippet`) nos produtores que já marcam seleção/grupos; os `Create …` de `criar.rs` ainda saem sem eles | `snippets.rs` |
+| Snippets/grupos ligados | `SnippetTextEdit` com `experimental.snippetTextEdit` | igual (`AcaoDeCodigo::ligado`, `crate::snippets`; `servidor.rs`, `edicao_snippet`), conferido contra o `dart language-server` 3.6.2 nos produtores que marcam seleção/grupos; falta o nome declarado dos parâmetros de um tipo de função (o DartForge escreve `p1`) | `snippets.rs` |
 | Criar arquivo | `{"kind":"create"}` + edit | igual, com `options.ignoreIfExists` a mais | `servidor.rs:863-878` |
 
 **B. Ignore** (`correcoes.rs:583-653`).
@@ -8693,8 +8693,10 @@ edição no arquivo do pedido, `documentChanges` e `experimental.snippetTextEdit
 de `_buildSnippetString`/`SnippetBuilder`. Marcam seleção/grupos: `Convert to block body` (assist e fix),
 `Assign value to new local variable` (grupo `NAME` com as sugestões de `name_suggestion.dart`), `Destructure
 variable assignment`, os `Surround with …`, os `Wrap with …` do Flutter, `Add required argument`, `Create N
-missing override(s)` e `Create 'noSuchMethod' method`. Faltam os `Create …` de `criar.rs` (tipo de retorno,
-nome, parâmetros com as sugestões de supertipos).
+missing override(s)` (com os grupos `<método>:TYPE<i>`/`PARAM<i>` dos parâmetros e as sugestões de
+`addSuperTypesAsSuggestions`), `Create 'noSuchMethod' method` e os `Create …` de `criar.rs`/`inserir.rs`
+(`NAME`, `RETURN_TYPE`, `TYPE`, `VALUE` e os grupos de `writeParametersMatchingArguments`/
+`writeFormalParameters`).
 No `ConvertIntoIsNot` o cursor vale no `!`, num dos parênteses ou dentro do `is`.
 
 **Moldura.** O DartForge não tem contexto de assist nem `NodeLocator` sobre árvore no formato do analyzer: cada

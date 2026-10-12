@@ -4332,7 +4332,7 @@ microbenchmark só valem presos a um núcleo P).
 | **JS desenvolvimento** (`crates/emit_js`, contrato do DDC) | corpus diferencial **238/238** byte a byte contra `dart run` (medido hoje, 60 s); `limitless_ui` 26/26 no e2e; `new_sali/frontend` com os 11 passos do fluxo iguais ao oficial | — |
 | **JS produção** (`crates/emit_js_producao`) | corpus `--producao` 238/238; `new_sali` 12.082.759 bytes, `limitless_ui` 6.693.718 bytes (brutos) | piso de ~1 MB enquanto o runtime for o `dart_sdk.js` do DDC: compilar o SDK pela nossa trilha (PLANO passo 4); precisão do mundo fechado, minificação, *code splitting* (`docs/JS-PRODUCAO.md` §6) |
 | **Analisador** (`crates/analise`, `types`) | placar **22.900/23.012** (99,5%, posição exata), FP 17, FN 95; projetos reais sem diagnóstico a mais; CLI e LSP publicam os 167 códigos de `verificados.txt` | os 17 FP e 95 FN; conferir nos projetos reais os 391 códigos com zero FP no corpus para entrarem em `verificados.txt` |
-| **LSP** (`crates/lsp`) | oráculo contra o `dart language-server` 3.6.2 (`r6`): símbolos, dobras, tokens, correções, hover, rename, highlight, selectionRange e workspace/symbol 100%; formatação (`formatting`, `rangeFormatting`, `onTypeFormatting`) pelo porte do `dart_style`, edições idênticas às do Dart; references 96%, implementation 96%, completar top-1/top-5 97%, assistências 98% (títulos) e 99% (edição, com `SnippetTextEdit`; reprise macOS 2026-10-12); latência mediana de references/implementation 1,7/1,0 ms (Dart 1,4/0,6; eram 269/221 ms) | `SnippetTextEdit` dos `Create …` (`criar.rs`); incremental I5–I6 (dependem do motor em `crates/types`/`paridade`) |
+| **LSP** (`crates/lsp`) | oráculo contra o `dart language-server` 3.6.2 (`r6`): símbolos, dobras, tokens, correções, hover, rename, highlight, selectionRange e workspace/symbol 100%; formatação (`formatting`, `rangeFormatting`, `onTypeFormatting`) pelo porte do `dart_style`, edições idênticas às do Dart; references 96%, implementation 96%, completar top-1/top-5 97%, assistências 98% (títulos; o resto são erros -32001 do próprio Dart) e 100% (edição, com `SnippetTextEdit`; reprise macOS 2026-10-12); latência mediana de references/implementation 1,5/1,1 ms (Dart 1,2/0,6; eram 269/221 ms) | nomes declarados dos parâmetros de tipo de função nos `Create …` (`p1`); incremental I5–I6 (dependem do motor em `crates/types`/`paridade`) |
 | **Geração de código e ngdart** (`crates/build`, `dartforge serve`) | builders pelo executor nativo; `limitless_ui` e `new_sali/frontend` pela nossa trilha | compilador de visões do ngdart (§2.0) |
 
 ### Formatador (`dart format`)
@@ -4411,7 +4411,7 @@ no commit do ARC, atualizada com a implementação.
 2. ARC: metadados por bloco (§19.1), retain/release em linha, drenagens sem `HashSet` por objeto; medir
    até ficar perto de A0; atualizar e commitar a `ARC-CICLOS-ESPECIFICACAO.md`.
 3. Analisador: os 17 FP e os FN; ampliar `verificados.txt`.
-4. LSP: snippets dos `Create …`, incremental I5–I6 (snippets das assistências e latência de references/implementation feitos em 2026-10-12).
+4. LSP: incremental I5–I6 (snippets das ações de código e latência de references/implementation feitos em 2026-10-12).
 
 ## Rodada de 2026-10-08, manhã: nativo (ARC, Linux e macOS) e analisador
 
@@ -4487,12 +4487,13 @@ como igual):
 Reprise de 2026-10-12 (macOS arm64, Dart 3.6.2 em `~/tools/dart/3.6.2`, por `ORACULO_DART`/`ORACULO_SDK_LIB`;
 cópias de `args-2.7.0`, `path-1.9.1` e `string_scanner-1.4.1` do pub-cache sem `dev_dependencies` e um `app`
 novo com os mesmos erros comuns; o cliente anuncia `experimental.snippetTextEdit`; os caminhos das cópias na
-caixa do disco, porque com outra caixa o DartForge não acha as unidades), antes → depois dos commits
-`8f165ec1`, `d778f50b` e `9579c722`: assistências (títulos) 98 → 98%; edição das assistências de título comum
-(métrica nova: `TextEdit`/`SnippetTextEdit` normalizados, com o `insertTextFormat`) 70 → 99%; edição das
-correções de título comum 68 → 88%; references 96 → 96% e implementation 96 → 96% (respostas idênticas às de
-antes nas 410 posições); mediana de references 269,0 → 1,7 ms (Dart 2,2 e 1,4 nas duas rodadas) e de
-implementation 220,9 → 1,0 ms (Dart 0,8 e 0,6). Os demais recursos ficaram como na tabela, salvo o top-5 do
+caixa do disco; com outra caixa o DartForge não achava as unidades, corrigido em `e67fa017`), antes → depois
+dos commits LSP de 2026-10-12 (`8f165ec1` … `aeff64f8`): assistências (títulos) 98 → 98% (as 7 posições que
+restam são `-32001` do servidor do Dart, em imports com prefixo); edição das assistências de título comum
+(métrica nova: `TextEdit`/`SnippetTextEdit` normalizados, com o `insertTextFormat`) 70 → 100% (391); edição das
+correções de título comum 68 → 100% (25); references 96 → 96% e implementation 96 → 96% (respostas idênticas às
+de antes nas 410 posições); mediana de references 269,0 → 1,5 ms (Dart 2,2 e 1,2 nas duas rodadas) e de
+implementation 220,9 → 1,1 ms (Dart 0,8 e 0,6). Os demais recursos ficaram como na tabela, salvo o top-5 do
 completar, 76% na métrica atual do `resumo.py` (sem a regra da lista vazia).
 
 | recurso | 2026-10-01 | agora |
@@ -4506,7 +4507,7 @@ completar, 76% na métrica atual do `resumo.py` (sem a regra da lista vazia).
 | references | 58% | 96% |
 | documentHighlight | 95% | 100% |
 | prepareRename / rename | 96 / 89% | 100 / 100% |
-| assistências (refactor): títulos / edição | 26% / — | 98 / 99% |
+| assistências (refactor): títulos / edição | 26% / — | 98 / 100% |
 | selectionRange | 48% | 100% |
 | prepareCallHierarchy / prepareTypeHierarchy | 86 / 76% | 99 / 100% |
 | completion: alvo / top-1 / top-5 | 98 / 63 / 52% | 100 / 97 / 97% |
