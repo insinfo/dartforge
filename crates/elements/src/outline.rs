@@ -36,83 +36,83 @@ pub(crate) struct ElementPools<'a> {
 /// A espécie de uma declaração de topo, para a regra de qual declaração um
 /// nome repetido designa (docs/ANALYZER-ESPECIFICACAO.md §G, T1.1 a).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Especie {
+enum Species {
     Getter,
     Setter,
     Variavel,
     Funcao,
     Enum,
-    Extensao,
-    TipoDeExtensao,
+    Extension,
+    ExtensionType,
     Typedef,
     Mixin,
-    Classe,
+    Class,
 }
 
-impl Especie {
+impl Species {
     /// A ordem em que o analyzer põe as declarações no escopo da biblioteca
     /// (`LibraryDeclarations._addLibraryFragment`, `scope.dart:312-332`):
     /// acessores (os explícitos e os das variáveis), funções, enums,
     /// extensões, tipos de extensão, typedefs, mixins, classes. Cada inclusão
     /// é `??=`: quem entra primeiro fica com o nome.
-    fn ordem(self) -> u8 {
+    fn order(self) -> u8 {
         match self {
-            Especie::Getter | Especie::Setter | Especie::Variavel => 0,
-            Especie::Funcao => 1,
-            Especie::Enum => 2,
-            Especie::Extensao => 3,
-            Especie::TipoDeExtensao => 4,
-            Especie::Typedef => 5,
-            Especie::Mixin => 6,
-            Especie::Classe => 7,
+            Species::Getter | Species::Setter | Species::Variavel => 0,
+            Species::Funcao => 1,
+            Species::Enum => 2,
+            Species::Extension => 3,
+            Species::ExtensionType => 4,
+            Species::Typedef => 5,
+            Species::Mixin => 6,
+            Species::Class => 7,
         }
     }
 }
 
 /// T1: com um nome de topo declarado mais de uma vez, o nome designa a
 /// declaração que o analyzer poria primeiro no escopo — a de espécie
-/// anterior na [`Especie::ordem`] e, na mesma espécie, a primeira da fonte —,
+/// anterior na [`Species::order`] e, na mesma espécie, a primeira da fonte —,
 /// e não a última, que é o que o laço de declarações deixa. Getter e setter
 /// são vagas separadas. Os homônimos da mesma espécie ganham o
 /// [`Library::representante`]. Sem nome repetido, nada muda.
-fn resolver_homonimos(lib: &mut Library, candidatos: &[(SymbolId, bool, Especie, Element, u32)]) {
-    let mut por_vaga: HashMap<(SymbolId, bool), Vec<usize>> = HashMap::new();
-    for (k, (nome, setter, _, _, _)) in candidatos.iter().enumerate() {
-        por_vaga.entry((*nome, *setter)).or_default().push(k);
+fn resolve_homonyms(lib: &mut Library, candidates: &[(SymbolId, bool, Species, Element, u32)]) {
+    let mut per_slot: HashMap<(SymbolId, bool), Vec<usize>> = HashMap::new();
+    for (k, (nome, setter, _, _, _)) in candidates.iter().enumerate() {
+        per_slot.entry((*nome, *setter)).or_default().push(k);
     }
-    for ((nome, setter), grupo) in &por_vaga {
-        if grupo.len() < 2 {
+    for ((nome, setter), group) in &per_slot {
+        if group.len() < 2 {
             continue;
         }
         // O vencedor: a menor (unidade, ordem da espécie, posição na fonte).
         // O escopo é montado unidade por unidade (`library.units.forEach(
         // _addLibraryFragment)`, `scope.dart:286`), e só dentro de cada uma
         // vale a ordem por espécie.
-        let vencedor = grupo
+        let winner = group
             .iter()
             .copied()
-            .min_by_key(|&k| (candidatos[k].4, candidatos[k].2.ordem(), k))
+            .min_by_key(|&k| (candidates[k].4, candidates[k].2.order(), k))
             .expect("grupo não vazio");
         let entrada = lib.declared.entry(*nome).or_default();
         if *setter {
-            entrada.setter = Some(candidatos[vencedor].3);
+            entrada.setter = Some(candidates[winner].3);
         } else {
-            entrada.getter = Some(candidatos[vencedor].3);
+            entrada.getter = Some(candidates[winner].3);
         }
         // Os representantes: o primeiro de cada espécie no grupo.
-        let mut primeiro: HashMap<Especie, Element> = HashMap::new();
-        for &k in grupo {
-            let (_, _, especie, elemento, _) = candidatos[k];
-            primeiro.entry(especie).or_insert(elemento);
+        let mut first: HashMap<Species, Element> = HashMap::new();
+        for &k in group {
+            let (_, _, species, element, _) = candidates[k];
+            first.entry(species).or_insert(element);
         }
-        let mut quantos: HashMap<Especie, usize> = HashMap::new();
-        for &k in grupo {
-            *quantos.entry(candidatos[k].2).or_default() += 1;
+        let mut how_many: HashMap<Species, usize> = HashMap::new();
+        for &k in group {
+            *how_many.entry(candidates[k].2).or_default() += 1;
         }
-        for &k in grupo {
-            let (_, _, especie, elemento, _) = candidatos[k];
-            if quantos[&especie] > 1 {
-                lib.representante.insert(elemento, primeiro[&especie]);
+        for &k in group {
+            let (_, _, species, element, _) = candidates[k];
+            if how_many[&species] > 1 {
+                lib.representante.insert(element, first[&species]);
             }
         }
     }
@@ -125,7 +125,7 @@ pub fn build_outline(
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let empty_sym = interner.intern("");
-    let mut t_fase = std::time::Instant::now();
+    let mut t_phase = std::time::Instant::now();
 
     // -----------------------------------------------------------------------
     // Fase 1: Coleta de elementos declarados por biblioteca
@@ -154,11 +154,11 @@ pub fn build_outline(
         let mut classes_macro: Vec<ClassId> = Vec::new();
         // T1: cada declaração de topo das unidades de origem, na ordem da
         // fonte — (nome, é a vaga do setter?, espécie, elemento). Com um
-        // nome repetido, quem ele designa sai de `resolver_homonimos`.
-        let mut candidatos: Vec<(SymbolId, bool, Especie, Element, u32)> = Vec::new();
-        let tem_patch = unit_ids.iter().any(|u| program.units[u.0 as usize].role == UnitRole::Patch);
-        for (ordem_da_unidade, unit_id) in unit_ids.into_iter().enumerate() {
-            let ordem_da_unidade = ordem_da_unidade as u32;
+        // nome repetido, quem ele designa sai de `resolve_homonyms`.
+        let mut candidates: Vec<(SymbolId, bool, Species, Element, u32)> = Vec::new();
+        let has_patch = unit_ids.iter().any(|u| program.units[u.0 as usize].role == UnitRole::Patch);
+        for (unit_order, unit_id) in unit_ids.into_iter().enumerate() {
+            let unit_order = unit_order as u32;
             let role = program.units[unit_id.0 as usize].role;
             let decl_ids = program.units[unit_id.0 as usize].unit.declarations.clone();
             let ast = &program.units[unit_id.0 as usize].ast;
@@ -169,7 +169,7 @@ pub fn build_outline(
                 // (docs/AUGMENTATIONS.md). As unidades estão na ordem de
                 // aplicação (pré-ordem da árvore de partes, `load.rs`).
                 if decl.augment && role != UnitRole::Patch {
-                    let mut fusao = crate::augmentation::Fusao {
+                    let mut merge = crate::augmentation::Merge {
                         units: &program.units,
                         library: &mut program.libraries[lib_idx],
                         lib_id,
@@ -178,7 +178,7 @@ pub fn build_outline(
                         diagnostics,
                         cadeias: &mut cadeias,
                     };
-                    crate::augmentation::aplicar(&mut fusao, &mut pools, unit_id, decl_id);
+                    crate::augmentation::aplicar(&mut merge, &mut pools, unit_id, decl_id);
                     continue;
                 }
                 let is_patch =
@@ -223,7 +223,7 @@ pub fn build_outline(
                                 .entry(class_name)
                                 .or_default();
                             entry.getter = Some(Element::Class(class_id));
-                            candidatos.push((class_name, false, Especie::Classe, Element::Class(class_id), ordem_da_unidade));
+                            candidates.push((class_name, false, Species::Class, Element::Class(class_id), unit_order));
                         }
                     }
                     DeclKind::Mixin(m) => {
@@ -235,7 +235,7 @@ pub fn build_outline(
                             .entry(m.name.sym)
                             .or_default();
                         entry.getter = Some(Element::Class(mixin_id));
-                        candidatos.push((m.name.sym, false, Especie::Mixin, Element::Class(mixin_id), ordem_da_unidade));
+                        candidates.push((m.name.sym, false, Species::Mixin, Element::Class(mixin_id), unit_order));
                     }
                     DeclKind::Enum(e) => {
                         let enum_id = create_enum_element(
@@ -246,12 +246,12 @@ pub fn build_outline(
                             .entry(e.name.sym)
                             .or_default();
                         entry.getter = Some(Element::Class(enum_id));
-                        candidatos.push((e.name.sym, false, Especie::Enum, Element::Class(enum_id), ordem_da_unidade));
+                        candidates.push((e.name.sym, false, Species::Enum, Element::Class(enum_id), unit_order));
                     }
                     DeclKind::Extension(ext) => {
                         // `@patch extension E` funde os membros na extensão
                         // `E` da biblioteca (como `merge_class_patch`).
-                        let existente = if role == UnitRole::Patch {
+                        let existing_one = if role == UnitRole::Patch {
                             ext.name.and_then(|n| {
                                 program.libraries[lib_idx].declared.get(&n.sym).and_then(|b| match b.getter {
                                     Some(Element::Extension(e)) => Some(e),
@@ -261,7 +261,7 @@ pub fn build_outline(
                         } else {
                             None
                         };
-                        if let Some(e) = existente {
+                        if let Some(e) = existing_one {
                             merge_extension_patch(&mut pools, ast, e, unit_id, ext, is_patch, interner);
                             continue;
                         }
@@ -274,7 +274,7 @@ pub fn build_outline(
                                 .entry(name.sym)
                                 .or_default();
                             entry.getter = Some(Element::Extension(ext_id));
-                            candidatos.push((name.sym, false, Especie::Extensao, Element::Extension(ext_id), ordem_da_unidade));
+                            candidates.push((name.sym, false, Species::Extension, Element::Extension(ext_id), unit_order));
                         }
                     }
                     DeclKind::ExtensionType(et) => {
@@ -286,7 +286,7 @@ pub fn build_outline(
                             .entry(et.name.sym)
                             .or_default();
                         entry.getter = Some(Element::Class(ext_type_id));
-                        candidatos.push((et.name.sym, false, Especie::TipoDeExtensao, Element::Class(ext_type_id), ordem_da_unidade));
+                        candidates.push((et.name.sym, false, Species::ExtensionType, Element::Class(ext_type_id), unit_order));
                     }
                     DeclKind::Typedef(td) => {
                         let td_id = TypedefId(program.typedefs.len() as u32);
@@ -312,7 +312,7 @@ pub fn build_outline(
                             .entry(td.name.sym)
                             .or_default();
                         entry.getter = Some(Element::Typedef(td_id));
-                        candidatos.push((td.name.sym, false, Especie::Typedef, Element::Typedef(td_id), ordem_da_unidade));
+                        candidates.push((td.name.sym, false, Species::Typedef, Element::Typedef(td_id), unit_order));
                     }
                     DeclKind::Function(fid) => {
                         let ast_fn = ast.function(*fid);
@@ -345,10 +345,10 @@ pub fn build_outline(
                                 declaracao_publica: None,
                             });
 
-                            candidatos.push(match fn_kind {
-                                FunctionKind::Getter => (fn_sym, false, Especie::Getter, Element::Function(fn_id), ordem_da_unidade),
-                                FunctionKind::Setter => (fn_sym, true, Especie::Setter, Element::Function(fn_id), ordem_da_unidade),
-                                _ => (fn_sym, false, Especie::Funcao, Element::Function(fn_id), ordem_da_unidade),
+                            candidates.push(match fn_kind {
+                                FunctionKind::Getter => (fn_sym, false, Species::Getter, Element::Function(fn_id), unit_order),
+                                FunctionKind::Setter => (fn_sym, true, Species::Setter, Element::Function(fn_id), unit_order),
+                                _ => (fn_sym, false, Species::Funcao, Element::Function(fn_id), unit_order),
                             });
                             let entry = program.libraries[lib_idx]
                                 .declared
@@ -460,10 +460,10 @@ pub fn build_outline(
                                 .entry(var_sym)
                                 .or_default();
                             entry.getter = Some(Element::Variable(var_id));
-                            candidatos.push((var_sym, false, Especie::Variavel, Element::Variable(var_id), ordem_da_unidade));
+                            candidates.push((var_sym, false, Species::Variavel, Element::Variable(var_id), unit_order));
                             if setter_id.is_some() {
                                 entry.setter = Some(Element::Variable(var_id));
-                                candidatos.push((var_sym, true, Especie::Variavel, Element::Variable(var_id), ordem_da_unidade));
+                                candidates.push((var_sym, true, Species::Variavel, Element::Variable(var_id), unit_order));
                             }
                         }
                     }
@@ -472,8 +472,8 @@ pub fn build_outline(
         }
         // Uma biblioteca com patches (o SDK) não tem homônimos: lá o patch
         // substitui a declaração, e a ordem é a que o laço acima já deu.
-        if !tem_patch {
-            resolver_homonimos(&mut program.libraries[lib_idx], &candidatos);
+        if !has_patch {
+            resolve_homonyms(&mut program.libraries[lib_idx], &candidates);
         }
         for (c, d) in cadeias {
             program.augmentacoes.entry(c).or_default().push(d);
@@ -483,8 +483,8 @@ pub fn build_outline(
 
     // -----------------------------------------------------------------------
     // Fase 2: Construção de Library::exported (com ponto fixo para reexports)
-    program.tempos.outline_declaracoes += t_fase.elapsed();
-    t_fase = std::time::Instant::now();
+    program.tempos.outline_declaracoes += t_phase.elapsed();
+    t_phase = std::time::Instant::now();
     // -----------------------------------------------------------------------
     // Inicializa `exported` com o que é declarado localmente e não privado
     for lib in &mut program.libraries {
@@ -529,8 +529,8 @@ pub fn build_outline(
 
     // -----------------------------------------------------------------------
     // Fase 3: Construção do escopo léxico de cada biblioteca (Library::scope)
-    program.tempos.outline_reexports += t_fase.elapsed();
-    t_fase = std::time::Instant::now();
+    program.tempos.outline_reexports += t_phase.elapsed();
+    t_phase = std::time::Instant::now();
     // -----------------------------------------------------------------------
     for lib_idx in 0..program.libraries.len() {
         let mut scope = program.libraries[lib_idx].declared.clone();
@@ -548,7 +548,7 @@ pub fn build_outline(
                 let prefix_ns = prefixes.entry(prefix_sym).or_default();
                 for (sym, binding) in filtered {
                     let entry = prefix_ns.entry(sym).or_default();
-                    merge_binding_com(entry, binding, &|e| elemento_do_sdk(program, e));
+                    merge_binding_with(entry, binding, &|e| sdk_element(program, e));
                 }
                 // Registra o prefixo no escopo geral
                 scope.insert(
@@ -567,7 +567,7 @@ pub fn build_outline(
                         continue;
                     }
                     let entry = scope.entry(sym).or_default();
-                    merge_binding_com(entry, binding, &|e| elemento_do_sdk(program, e));
+                    merge_binding_with(entry, binding, &|e| sdk_element(program, e));
                 }
             }
         }
@@ -579,12 +579,12 @@ pub fn build_outline(
         // `hasDartCoreImport`), e o `import 'dart:core' as prefix0;` de uma
         // augmentation (a das macros) ou de uma parte não conta.
         let principal = program.libraries[lib_idx].units.first().copied();
-        let importa_core = program.libraries[lib_idx]
+        let imports_core = program.libraries[lib_idx]
             .imports
             .iter()
             .any(|i| Some(i.library) == program.core && Some(i.unit) == principal);
         if let Some(core_id) = program.core
-            && !importa_core
+            && !imports_core
         {
             if LibraryId(lib_idx as u32) != core_id {
                 let core_exported = program.libraries[core_id.0 as usize].exported.clone();
@@ -597,14 +597,14 @@ pub fn build_outline(
 
         program.libraries[lib_idx].scope = scope;
         program.libraries[lib_idx].prefixes = prefixes;
-        let escopos = escopos_de_unidade(program, LibraryId(lib_idx as u32));
-        program.libraries[lib_idx].escopos_de_unidade = escopos;
+        let scopes = escopos_de_unidade(program, LibraryId(lib_idx as u32));
+        program.libraries[lib_idx].escopos_de_unidade = scopes;
     }
 
     // -----------------------------------------------------------------------
     // Fase 4: Resolução de supertipos e verificação de ciclos
-    program.tempos.outline_escopos += t_fase.elapsed();
-    t_fase = std::time::Instant::now();
+    program.tempos.outline_escopos += t_phase.elapsed();
+    t_phase = std::time::Instant::now();
     // -----------------------------------------------------------------------
     let object_sym = interner.intern("Object");
     let core_id = program.core;
@@ -684,8 +684,8 @@ pub fn build_outline(
             curr = program.classes[next_id.0 as usize].supertype_class;
         }
     }
-    calcular_donos_de_homonimos(program);
-    program.tempos.outline_supertipos += t_fase.elapsed();
+    compute_homonym_owners(program);
+    program.tempos.outline_supertipos += t_phase.elapsed();
 }
 
 /// T1 (docs/ANALYZER-ESPECIFICACAO.md §G, T1.1 d): o dono dos caches de
@@ -698,70 +698,70 @@ pub fn build_outline(
 /// nome designa. Sem pedido na resolução, o verificador de herança pede
 /// pela primeira em ordem de fonte (o representante). Citar o nome conta
 /// como pedido (aproximação: o analyzer só pede no acesso a membro).
-fn calcular_donos_de_homonimos(program: &mut Program) {
-    let dentro = |a: Span, b: Span| a.start >= b.start && a.end <= b.end;
+fn compute_homonym_owners(program: &mut Program) {
+    let inside = |a: Span, b: Span| a.start >= b.start && a.end <= b.end;
     for li in 0..program.libraries.len() {
         if program.libraries[li].representante.is_empty() {
             continue;
         }
-        let mut grupos: HashMap<ClassId, Vec<ClassId>> = HashMap::new();
+        let mut groups: HashMap<ClassId, Vec<ClassId>> = HashMap::new();
         for (e, r) in &program.libraries[li].representante {
             if let (Element::Class(c), Element::Class(rc)) = (e, r) {
-                grupos.entry(*rc).or_default().push(*c);
+                groups.entry(*rc).or_default().push(*c);
             }
         }
-        let mut donos: HashMap<ClassId, ClassId> = HashMap::new();
-        for (rep, membros) in grupos {
+        let mut owners: HashMap<ClassId, ClassId> = HashMap::new();
+        for (rep, members_) in groups {
             let nome = program.classes[rep.0 as usize].name;
-            let designado = match program.libraries[li].declared.get(&nome).and_then(|d| d.getter) {
-                Some(Element::Class(c)) if membros.contains(&c) => Some(c),
+            let designated = match program.libraries[li].declared.get(&nome).and_then(|d| d.getter) {
+                Some(Element::Class(c)) if members_.contains(&c) => Some(c),
                 _ => None,
             };
-            let mut dono = None;
+            let mut owner = None;
             'unidades: for &u in &program.libraries[li].units {
                 let unidade = &program.units[u.0 as usize];
                 let a = &unidade.ast;
                 for &d in &unidade.unit.declarations {
                     let span = a.decl(d).span;
-                    let do_grupo = membros
+                    let of_group = members_
                         .iter()
                         .copied()
                         .find(|&c| program.classes[c.0 as usize].decl.is_some_and(|r| r.unit == u && r.decl == d));
-                    match do_grupo {
+                    match of_group {
                         Some(c) => {
-                            let pede = a
+                            let asks = a
                                 .exprs
                                 .iter()
-                                .any(|e| matches!(e.kind, ast::ExprKind::This | ast::ExprKind::Super) && dentro(e.span, span));
-                            if pede {
-                                dono = Some(c);
+                                .any(|e| matches!(e.kind, ast::ExprKind::This | ast::ExprKind::Super) && inside(e.span, span));
+                            if asks {
+                                owner = Some(c);
                                 break 'unidades;
                             }
                         }
                         None => {
-                            let Some(designado) = designado else { continue };
-                            let cita = a
+                            let Some(designated) = designated else { continue };
+                            let quote_char = a
                                 .exprs
                                 .iter()
-                                .any(|e| matches!(&e.kind, ast::ExprKind::Identifier(n) if n.sym == nome) && dentro(e.span, span))
+                                .any(|e| matches!(&e.kind, ast::ExprKind::Identifier(n) if n.sym == nome) && inside(e.span, span))
                                 || a.types.iter().any(|t| {
                                     matches!(&t.kind, ast::TypeKind::Named { name, .. } if name.len() == 1 && name[0].sym == nome)
-                                        && dentro(t.span, span)
+                                        && inside(t.span, span)
                                 });
-                            if cita {
-                                dono = Some(designado);
+                            if quote_char {
+                                owner = Some(designated);
                                 break 'unidades;
                             }
                         }
                     }
                 }
             }
-            let dono = dono.unwrap_or(rep);
-            for c in membros {
-                donos.insert(c, dono);
+            let owner = owner.unwrap_or(rep);
+            for c in members_ {
+                owners.insert(c, owner);
             }
         }
-        program.libraries[li].dono_do_grupo = donos;
+        program.libraries[li].dono_do_grupo = owners;
     }
 }
 
@@ -777,37 +777,37 @@ fn calcular_donos_de_homonimos(program: &mut Program) {
 ///
 /// Vazio quando só o arquivo da biblioteca importa: aí o escopo da
 /// biblioteca vale para todas as unidades.
-fn escopos_de_unidade(program: &Program, lib_id: LibraryId) -> HashMap<UnitId, EscopoDeUnidade> {
+fn escopos_de_unidade(program: &Program, lib_id: LibraryId) -> HashMap<UnitId, UnitScope> {
     let lib = &program.libraries[lib_id.0 as usize];
     if lib.is_sdk {
-        return escopos_de_patch(program, lib);
+        return patch_scopes(program, lib);
     }
-    let mut saida = HashMap::new();
-    let com_imports_em_parte = lib
+    let mut output = HashMap::new();
+    let with_imports_in_part = lib
         .imports
         .iter()
         .any(|i| program.units[i.unit.0 as usize].role != UnitRole::Library);
-    if lib.is_sdk || !com_imports_em_parte {
-        return saida;
+    if lib.is_sdk || !with_imports_in_part {
+        return output;
     }
     // Os imports de cada arquivo, filtrados pelos combinadores.
-    let mut sem_prefixo: HashMap<UnitId, Namespace> = HashMap::new();
-    let mut com_prefixo: HashMap<UnitId, HashMap<SymbolId, (Namespace, LibraryId)>> = HashMap::new();
+    let mut without_prefix: HashMap<UnitId, Namespace> = HashMap::new();
+    let mut with_prefix: HashMap<UnitId, HashMap<SymbolId, (Namespace, LibraryId)>> = HashMap::new();
     for import in &lib.imports {
-        let exportado = &program.libraries[import.library.0 as usize].exported;
-        let filtrado = filter_namespace(exportado, &import.combinators);
+        let exported_ = &program.libraries[import.library.0 as usize].exported;
+        let filtered_ = filter_namespace(exported_, &import.combinators);
         match import.prefix {
             Some(p) => {
-                let (ns, dono) = com_prefixo.entry(import.unit).or_default().entry(p).or_insert_with(|| (Namespace::new(), import.library));
-                *dono = import.library;
-                for (sym, b) in filtrado {
-                    merge_binding_com(ns.entry(sym).or_default(), b, &|e| elemento_do_sdk(program, e));
+                let (ns, owner) = with_prefix.entry(import.unit).or_default().entry(p).or_insert_with(|| (Namespace::new(), import.library));
+                *owner = import.library;
+                for (sym, b) in filtered_ {
+                    merge_binding_with(ns.entry(sym).or_default(), b, &|e| sdk_element(program, e));
                 }
             }
             None => {
-                let ns = sem_prefixo.entry(import.unit).or_default();
-                for (sym, b) in filtrado {
-                    merge_binding_com(ns.entry(sym).or_default(), b, &|e| elemento_do_sdk(program, e));
+                let ns = without_prefix.entry(import.unit).or_default();
+                for (sym, b) in filtered_ {
+                    merge_binding_with(ns.entry(sym).or_default(), b, &|e| sdk_element(program, e));
                 }
             }
         }
@@ -817,43 +817,43 @@ fn escopos_de_unidade(program: &Program, lib_id: LibraryId) -> HashMap<UnitId, E
             continue;
         }
         // A cadeia do arquivo até o da biblioteca, de fora para dentro.
-        let mut cadeia = vec![unidade];
+        let mut chain = vec![unidade];
         let mut atual = unidade;
-        while let Some(&pai) = lib.pais.get(&atual) {
-            if cadeia.contains(&pai) {
+        while let Some(&parent) = lib.pais.get(&atual) {
+            if chain.contains(&parent) {
                 break;
             }
-            cadeia.push(pai);
-            atual = pai;
+            chain.push(parent);
+            atual = parent;
         }
-        cadeia.reverse();
-        let mut escopo = EscopoDeUnidade { scope: lib.declared.clone(), prefixes: HashMap::new() };
-        for arquivo in &cadeia {
-            if let Some(ns) = sem_prefixo.get(arquivo) {
+        chain.reverse();
+        let mut scope_ = UnitScope { scope: lib.declared.clone(), prefixes: HashMap::new() };
+        for file in &chain {
+            if let Some(ns) = without_prefix.get(file) {
                 for (sym, b) in ns {
                     if lib.declared.contains_key(sym) {
                         continue;
                     }
-                    escopo.scope.insert(*sym, *b);
+                    scope_.scope.insert(*sym, *b);
                 }
             }
-            if let Some(ps) = com_prefixo.get(arquivo) {
-                for (p, (ns, dono)) in ps {
-                    escopo.prefixes.insert(*p, ns.clone());
-                    escopo.scope.insert(*p, Binding { getter: Some(Element::Prefix(*dono, *p)), setter: None, ambiguous: false });
+            if let Some(ps) = with_prefix.get(file) {
+                for (p, (ns, owner)) in ps {
+                    scope_.prefixes.insert(*p, ns.clone());
+                    scope_.scope.insert(*p, Binding { getter: Some(Element::Prefix(*owner, *p)), setter: None, ambiguous: false });
                 }
             }
         }
         if let Some(core_id) = program.core {
             if lib_id != core_id {
                 for (sym, b) in &program.libraries[core_id.0 as usize].exported {
-                    escopo.scope.entry(*sym).or_insert(*b);
+                    scope_.scope.entry(*sym).or_insert(*b);
                 }
             }
         }
-        saida.insert(unidade, escopo);
+        output.insert(unidade, scope_);
     }
-    saida
+    output
 }
 
 /// Os escopos dos arquivos de patch de uma biblioteca do SDK que importam:
@@ -862,44 +862,44 @@ fn escopos_de_unidade(program: &Program, lib_id: LibraryId) -> HashMap<UnitId, E
 /// `dart:js_interop hide JS`, e o `JS(...)` do corpo é o intrínseco, não a
 /// anotação `@JS` que o arquivo da biblioteca traz. Nomes que o patch não
 /// importa caem no escopo da biblioteca (declarações, imports, `dart:core`).
-fn escopos_de_patch(program: &Program, lib: &crate::model::Library) -> HashMap<UnitId, EscopoDeUnidade> {
-    let mut saida: HashMap<UnitId, EscopoDeUnidade> = HashMap::new();
+fn patch_scopes(program: &Program, lib: &crate::model::Library) -> HashMap<UnitId, UnitScope> {
+    let mut output: HashMap<UnitId, UnitScope> = HashMap::new();
     for import in &lib.imports {
         if program.units[import.unit.0 as usize].role != UnitRole::Patch {
             continue;
         }
-        let escopo = saida
+        let scope_ = output
             .entry(import.unit)
-            .or_insert_with(|| EscopoDeUnidade { scope: HashMap::new(), prefixes: HashMap::new() });
-        let exportado = &program.libraries[import.library.0 as usize].exported;
-        let filtrado = filter_namespace(exportado, &import.combinators);
+            .or_insert_with(|| UnitScope { scope: HashMap::new(), prefixes: HashMap::new() });
+        let exported_ = &program.libraries[import.library.0 as usize].exported;
+        let filtered_ = filter_namespace(exported_, &import.combinators);
         match import.prefix {
             Some(p) => {
-                let ns = escopo.prefixes.entry(p).or_default();
-                for (sym, b) in filtrado {
-                    merge_binding_com(ns.entry(sym).or_default(), b, &|e| elemento_do_sdk(program, e));
+                let ns = scope_.prefixes.entry(p).or_default();
+                for (sym, b) in filtered_ {
+                    merge_binding_with(ns.entry(sym).or_default(), b, &|e| sdk_element(program, e));
                 }
-                escopo.scope.insert(p, Binding { getter: Some(Element::Prefix(import.library, p)), setter: None, ambiguous: false });
+                scope_.scope.insert(p, Binding { getter: Some(Element::Prefix(import.library, p)), setter: None, ambiguous: false });
             }
             None => {
-                for (sym, b) in filtrado {
+                for (sym, b) in filtered_ {
                     if lib.declared.contains_key(&sym) {
                         continue;
                     }
-                    merge_binding_com(escopo.scope.entry(sym).or_default(), b, &|e| elemento_do_sdk(program, e));
+                    merge_binding_with(scope_.scope.entry(sym).or_default(), b, &|e| sdk_element(program, e));
                 }
             }
         }
     }
-    for escopo in saida.values_mut() {
+    for scope_ in output.values_mut() {
         for (sym, b) in &lib.scope {
-            escopo.scope.entry(*sym).or_insert(*b);
+            scope_.scope.entry(*sym).or_insert(*b);
         }
         for (p, ns) in &lib.prefixes {
-            escopo.prefixes.entry(*p).or_insert_with(|| ns.clone());
+            scope_.prefixes.entry(*p).or_insert_with(|| ns.clone());
         }
     }
-    saida
+    output
 }
 
 // ---------------------------------------------------------------------------
@@ -1290,16 +1290,16 @@ fn extension_members(
                     } else {
                         fn_sym
                     };
-                    let membros = if ast_fn.static_ {
+                    let members_ = if ast_fn.static_ {
                         &mut ext_elem.static_members
                     } else {
                         &mut ext_elem.instance_members
                     };
                     // Um membro `@patch` substitui o `external` da declaração.
-                    let velho = membros.insert(key, fn_id);
-                    if is_patch && let Some(velho) = velho {
-                        pools.functions[velho.0 as usize].patched_by = Some(fn_id);
-                        pools.functions[fn_id.0 as usize].declaracao_publica = Some(pools.functions[velho.0 as usize].declaracao_publica.unwrap_or(velho));
+                    let old_ = members_.insert(key, fn_id);
+                    if is_patch && let Some(old_) = old_ {
+                        pools.functions[old_.0 as usize].patched_by = Some(fn_id);
+                        pools.functions[fn_id.0 as usize].declaracao_publica = Some(pools.functions[old_.0 as usize].declaracao_publica.unwrap_or(old_));
                     }
                 }
             }
@@ -1315,7 +1315,7 @@ fn extension_members(
                     let (getter, setter) = if vars.static_ {
                         (None, None)
                     } else {
-                        let acessor = |pools: &mut ElementPools| {
+                        let accessor = |pools: &mut ElementPools| {
                             let id = FunctionElementId(pools.functions.len() as u32);
                             pools.functions.push(FunctionElement {
                                 name: var.name.sym,
@@ -1335,10 +1335,10 @@ fn extension_members(
                             });
                             id
                         };
-                        let g = acessor(pools);
+                        let g = accessor(pools);
                         ext_elem.instance_members.insert(var.name.sym, g);
                         let s = if !vars.final_ && !vars.const_ {
-                            let s = acessor(pools);
+                            let s = accessor(pools);
                             let chave = interner.intern(&format!("{}_=", interner.resolve(var.name.sym)));
                             ext_elem.instance_members.insert(chave, s);
                             Some(s)
@@ -1526,8 +1526,8 @@ pub(crate) fn extract_members(
 
                     if ast_fn.static_ {
                         elem.static_members.insert(key, fn_id);
-                    } else if let Some(antigo) = elem.instance_members.insert(key, fn_id) {
-                        elem.instancia_sobrepostos.push((key, antigo));
+                    } else if let Some(old) = elem.instance_members.insert(key, fn_id) {
+                        elem.instancia_sobrepostos.push((key, old));
                     }
                 }
             }
@@ -1634,14 +1634,14 @@ pub(crate) fn extract_members(
                             elem.static_members.insert(setter_key, sid);
                         }
                     } else {
-                        if let Some(antigo) = elem.instance_members.insert(var_sym, getter_id) {
-                            elem.instancia_sobrepostos.push((var_sym, antigo));
+                        if let Some(old) = elem.instance_members.insert(var_sym, getter_id) {
+                            elem.instancia_sobrepostos.push((var_sym, old));
                         }
                         if let Some(sid) = setter_id {
                             let setter_key =
                                 interner.intern(&format!("{}_=", interner.resolve(var_sym)));
-                            if let Some(antigo) = elem.instance_members.insert(setter_key, sid) {
-                                elem.instancia_sobrepostos.push((setter_key, antigo));
+                            if let Some(old) = elem.instance_members.insert(setter_key, sid) {
+                                elem.instancia_sobrepostos.push((setter_key, old));
                             }
                         }
                     }
@@ -1823,7 +1823,7 @@ fn filter_namespace(ns: &Namespace, combinators: &[ast::Combinator]) -> Namespac
 }
 
 /// A biblioteca do SDK que declara o elemento (para a regra de conflito).
-fn elemento_do_sdk(program: &Program, el: Element) -> bool {
+fn sdk_element(program: &Program, el: Element) -> bool {
     let lib = match el {
         Element::Class(c) => program.classes[c.0 as usize].library,
         Element::Extension(e) => program.extensions[e.0 as usize].library,
@@ -1838,10 +1838,10 @@ fn elemento_do_sdk(program: &Program, el: Element) -> bool {
 /// Junta dois imports do mesmo nome. Regra do Dart (especificação,
 /// "Imports"): se um vem de biblioteca do sistema (`dart:`) e o outro não,
 /// o do sistema fica oculto — não há ambiguidade.
-fn merge_binding_com(entry: &mut Binding, incoming: Binding, do_sdk: &dyn Fn(Element) -> bool) {
-    let juntar = |atual: &mut Option<Element>, novo: Option<Element>, amb: &mut bool| match (*atual, novo) {
+fn merge_binding_with(entry: &mut Binding, incoming: Binding, from_sdk: &dyn Fn(Element) -> bool) {
+    let join = |atual: &mut Option<Element>, novo: Option<Element>, amb: &mut bool| match (*atual, novo) {
         (None, n) => *atual = n,
-        (Some(a), Some(n)) if a != n => match (do_sdk(a), do_sdk(n)) {
+        (Some(a), Some(n)) if a != n => match (from_sdk(a), from_sdk(n)) {
             (true, false) => *atual = Some(n),
             (false, true) => {}
             _ => *amb = true,
@@ -1849,8 +1849,8 @@ fn merge_binding_com(entry: &mut Binding, incoming: Binding, do_sdk: &dyn Fn(Ele
         _ => {}
     };
     let mut amb = entry.ambiguous;
-    juntar(&mut entry.getter, incoming.getter, &mut amb);
-    juntar(&mut entry.setter, incoming.setter, &mut amb);
+    join(&mut entry.getter, incoming.getter, &mut amb);
+    join(&mut entry.setter, incoming.setter, &mut amb);
     entry.ambiguous = amb;
 
     if incoming.ambiguous {
@@ -1892,7 +1892,7 @@ fn resolve_type_to_class(
                         } else {
                             match b.getter {
                                 Some(Element::Class(cid)) => Some(cid),
-                                Some(Element::Typedef(tid)) => classe_do_typedef(program, tid, 0),
+                                Some(Element::Typedef(tid)) => typedef_class(program, tid, 0),
                                 _ => None,
                             }
                         }
@@ -1910,8 +1910,8 @@ fn resolve_type_to_class(
 /// MapMixin<K, V> = MapBase<K, V>` no `dart:collection`). Segue alias de
 /// alias até uma profundidade pequena; um alias de tipo que não é classe dá
 /// `None`.
-fn classe_do_typedef(program: &Program, tid: TypedefId, profundidade: u32) -> Option<ClassId> {
-    if profundidade > 8 {
+fn typedef_class(program: &Program, tid: TypedefId, depth: u32) -> Option<ClassId> {
+    if depth > 8 {
         return None;
     }
     let t = program.typedef(tid);
@@ -1926,7 +1926,7 @@ fn classe_do_typedef(program: &Program, tid: TypedefId, profundidade: u32) -> Op
     }?;
     match b.getter {
         Some(Element::Class(cid)) => Some(cid),
-        Some(Element::Typedef(outro)) => classe_do_typedef(program, outro, profundidade + 1),
+        Some(Element::Typedef(other)) => typedef_class(program, other, depth + 1),
         _ => None,
     }
 }
@@ -1940,17 +1940,17 @@ fn resolve_name_to_class(
     name_sym: SymbolId,
     core_id: Option<LibraryId>,
 ) -> Option<ClassId> {
-    let achado = match unit {
+    let found = match unit {
         Some(u) => program.lookup_na_unidade(u, name_sym),
         None => program.lookup(lib_id, name_sym),
     };
-    if let Some(b) = achado {
+    if let Some(b) = found {
         if !b.ambiguous {
             if let Some(Element::Class(cid)) = b.getter {
                 return Some(cid);
             }
             if let Some(Element::Typedef(tid)) = b.getter {
-                return classe_do_typedef(program, tid, 0);
+                return typedef_class(program, tid, 0);
             }
         }
     }

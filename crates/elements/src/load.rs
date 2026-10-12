@@ -136,23 +136,23 @@ pub fn load_lenient_entradas(
     unidades: Option<&mut crate::unidades::CacheUnidades>,
     gerados: Option<std::sync::Arc<crate::gerado::Geracao>>,
 ) -> (Program, Vec<Diagnostic>) {
-    carregar_leniente(entries, sdk, package_config_path, interner, cache, unidades, gerados, None)
+    load_lenient_(entries, sdk, package_config_path, interner, cache, unidades, gerados, None)
 }
 
 /// Como [`load_lenient`], sem enxergar `ocultos` (chaves de
 /// [`crate::gerado::chave`]): a carga que um builder do `build_runner` faz
 /// do programa, sem as saídas das fases que ainda não rodaram para ele.
-pub fn load_lenient_ocultando(
+pub fn load_lenient_hiding(
     entry: &Path,
     sdk: &SdkLayout,
     package_config_path: Option<&Path>,
     interner: &mut Interner,
     ocultos: std::sync::Arc<std::collections::HashSet<PathBuf>>,
 ) -> (Program, Vec<Diagnostic>) {
-    carregar_leniente(&[entry], sdk, package_config_path, interner, None, None, None, Some(ocultos))
+    load_lenient_(&[entry], sdk, package_config_path, interner, None, None, None, Some(ocultos))
 }
 
-/// Como [`load_lenient_ocultando`], com várias raízes: a primeira é a
+/// Como [`load_lenient_hiding`], com várias raízes: a primeira é a
 /// entrada do programa; as outras entram na fila como bibliotecas. Uma raiz
 /// que é parte (`part of`) é descartada — ela entra pela biblioteca dona, e
 /// carregá-la também como biblioteca a duplicaria.
@@ -163,23 +163,23 @@ pub fn load_lenient_entradas_ocultando(
     interner: &mut Interner,
     ocultos: std::sync::Arc<std::collections::HashSet<PathBuf>>,
 ) -> (Program, Vec<Diagnostic>) {
-    let mut raizes: Vec<&Path> = Vec::with_capacity(entries.len());
+    let mut roots: Vec<&Path> = Vec::with_capacity(entries.len());
     for (i, e) in entries.iter().enumerate() {
-        if i == 0 || !e_parte_no_disco(e, interner) {
-            raizes.push(e);
+        if i == 0 || !is_part_on_disk(e, interner) {
+            roots.push(e);
         }
     }
-    carregar_leniente(&raizes, sdk, package_config_path, interner, None, None, None, Some(ocultos))
+    load_lenient_(&roots, sdk, package_config_path, interner, None, None, None, Some(ocultos))
 }
 
 /// O arquivo tem a diretiva `part of`? Ilegível conta como não.
-fn e_parte_no_disco(caminho: &Path, interner: &mut Interner) -> bool {
-    let Ok(texto) = std::fs::read_to_string(caminho) else {
+fn is_part_on_disk(caminho: &Path, interner: &mut Interner) -> bool {
+    let Ok(text) = std::fs::read_to_string(caminho) else {
         return false;
     };
-    let tokens = dartforge_frontend::lexer::lex(&texto);
-    let analisada = dartforge_frontend::parser::parse_lexed(&texto, tokens, interner);
-    analisada
+    let tokens = dartforge_frontend::lexer::lex(&text);
+    let parsed_unit = dartforge_frontend::parser::parse_lexed(&text, tokens, interner);
+    parsed_unit
         .unit
         .directives
         .iter()
@@ -187,7 +187,7 @@ fn e_parte_no_disco(caminho: &Path, interner: &mut Interner) -> bool {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn carregar_leniente(
+fn load_lenient_(
     entries: &[&Path],
     sdk: &SdkLayout,
     package_config_path: Option<&Path>,
@@ -199,10 +199,10 @@ fn carregar_leniente(
 ) -> (Program, Vec<Diagnostic>) {
     let entry = *entries.first().expect("ao menos uma entrada");
     if let Some(u) = unidades.as_deref_mut() {
-        u.iniciar_carga();
+        u.start_load();
     }
     let mut diagnostics = Vec::new();
-    let mut cache = cache.filter(|c| c.preparar_interner(interner));
+    let mut cache = cache.filter(|c| c.prepare_interner(interner));
     // Bibliotecas cujas partes já vieram do cache (a diretiva `part` não
     // deve recarregá-las).
     let mut libs_do_cache: std::collections::HashSet<LibraryId> = std::collections::HashSet::new();
@@ -257,10 +257,10 @@ fn carregar_leniente(
         ocultos: package_config.ocultos.clone(),
         ..Default::default()
     };
-    let mut considerados = 0usize;
+    let mut considered = 0usize;
     // Unidades do SDK já decodificadas do cache pela onda, à espera da vez da
     // biblioteca na fila.
-    let mut sdk_decodificadas: HashMap<String, Vec<crate::sdk_cache::UnitCache>> = HashMap::new();
+    let mut decoded_sdk: HashMap<String, Vec<crate::sdk_cache::UnitCache>> = HashMap::new();
     for (i, entrada) in entries.iter().enumerate() {
         let canonical_entry = crate::config::sem_verbatim(
             std::fs::canonicalize(entrada).unwrap_or_else(|_| entrada.to_path_buf()),
@@ -301,17 +301,17 @@ fn carregar_leniente(
     while let Some(lib_id) = queue.pop_front() {
         // Onda: as bibliotecas já enfileiradas (um nível do grafo de imports)
         // são lidas e lexadas em paralelo antes de serem analisadas em série.
-        // `considerados` evita reexaminar a fila inteira a cada iteração: as
+        // `considered` evita reexaminar a fila inteira a cada iteração: as
         // bibliotecas ganham ids em ordem, então basta olhar as novas. (Sem
         // isso, uma compilação em que tudo vem do cache varria a fila 2.063
         // vezes — 11 s no `new_sali`.)
-        if prefetch.vazio() && considerados < program.libraries.len() {
+        if prefetch.empty() && considered < program.libraries.len() {
             let t = std::time::Instant::now();
             let mut caminhos: Vec<PathBuf> = Vec::new();
-            for i in considerados..program.libraries.len() {
+            for i in considered..program.libraries.len() {
                 let uri = &program.libraries[i].uri;
                 if !uri.starts_with("dart:") {
-                    if let Some(p) = caminho_da_biblioteca(uri, &package_config) {
+                    if let Some(p) = library_path(uri, &package_config) {
                         // Unidade já analisada não precisa ser lida nem lexada
                         // aqui. Se o arquivo tiver mudado, `load_unit`
                         // descobre pela marca e lê ele mesmo — é um arquivo.
@@ -329,18 +329,18 @@ fn carregar_leniente(
             // reanalisar o SDK).
             if let Some(c) = cache.as_mut() {
                 let t_cache = std::time::Instant::now();
-                let nomes: Vec<&str> = program.libraries[considerados..]
+                let names_: Vec<&str> = program.libraries[considered..]
                     .iter()
                     .filter_map(|l| l.uri.strip_prefix("dart:"))
                     .filter(|n| c.tem(n))
                     .collect();
-                if !nomes.is_empty() {
-                    sdk_decodificadas.extend(c.retirar_varios(&nomes));
+                if !names_.is_empty() {
+                    decoded_sdk.extend(c.remove_several(&names_));
                 }
                 program.tempos.sdk_cache += t_cache.elapsed();
             }
-            considerados = program.libraries.len();
-            prefetch.carregar(caminhos);
+            considered = program.libraries.len();
+            prefetch.load_(caminhos);
             program.tempos.leitura_lex_paralelo += t.elapsed();
             program.tempos.ondas += 1;
         }
@@ -350,11 +350,11 @@ fn carregar_leniente(
         if lib_uri.starts_with("dart:") {
             let lib_name = lib_uri.strip_prefix("dart:").unwrap();
             let t_cache = std::time::Instant::now();
-            let do_cache = sdk_decodificadas
+            let from_cache = decoded_sdk
                 .remove(lib_name)
                 .or_else(|| cache.as_mut().and_then(|c| c.retirar(lib_name)));
             program.tempos.sdk_cache += t_cache.elapsed();
-            if let Some(unidades) = do_cache {
+            if let Some(unidades) = from_cache {
                 for u in unidades {
                     let unit_id = UnitId(program.units.len() as u32);
                     program.units.push(Unit {
@@ -379,11 +379,11 @@ fn carregar_leniente(
                     &lib_uri,
                     lib_id,
                     UnitRole::Library,
-                    Versao::Sdk,
+                    Version::Sdk,
                     interner,
                     &mut program,
                     &mut diagnostics,
-                    ler_substituto(sdk, &sdk_lib.path),
+                    read_substitute(sdk, &sdk_lib.path),
                     unidades.as_deref_mut(),
                 );
                 if let Some(uid) = main_unit {
@@ -401,11 +401,11 @@ fn carregar_leniente(
                         &patch_uri,
                         lib_id,
                         UnitRole::Patch,
-                        Versao::Sdk,
+                        Version::Sdk,
                         interner,
                         &mut program,
                         &mut diagnostics,
-                        ler_substituto(sdk, patch_path),
+                        read_substitute(sdk, patch_path),
                         unidades.as_deref_mut(),
                     );
                     if let Some(uid) = patch_unit {
@@ -420,7 +420,7 @@ fn carregar_leniente(
             }
         } else {
             // Biblioteca de arquivo local ou pacote
-            let file_path = caminho_da_biblioteca(&lib_uri, &package_config);
+            let file_path = library_path(&lib_uri, &package_config);
 
             if let Some(path) = file_path {
                 let main_unit = load_unit(
@@ -428,11 +428,11 @@ fn carregar_leniente(
                     &lib_uri,
                     lib_id,
                     UnitRole::Library,
-                    Versao::Biblioteca { config: &package_config, corrente: sdk.versao_corrente, experimentos: &sdk.experimentos },
+                    Version::Library { config: &package_config, corrente: sdk.versao_corrente, experimentos: &sdk.experimentos },
                     interner,
                     &mut program,
                     &mut diagnostics,
-                    prefetch.tirar(&path),
+                    prefetch.take(&path),
                     unidades.as_deref_mut(),
                 );
                 if let Some(uid) = main_unit {
@@ -448,7 +448,7 @@ fn carregar_leniente(
 
         // 5. Analisa diretivas em todas as unidades carregadas desta biblioteca
         let t_dir = std::time::Instant::now();
-        let (leitura_antes, parse_antes) = (program.tempos.leitura, program.tempos.parse);
+        let (read_before, parse_antes) = (program.tempos.leitura, program.tempos.parse);
         let mut unit_idx = 0;
         // A augmentation que o hospedeiro de macros montou para esta
         // biblioteca (em memória, `<nome>.macro.dart` ao lado dela) entra
@@ -462,7 +462,7 @@ fn carregar_leniente(
                     break;
                 }
                 macro_anexada = true;
-                match anexar_augmentation_de_macro(&mut program, lib_id, &package_config, sdk.versao_corrente, interner, &mut diagnostics, &mut prefetch) {
+                match attach_macro_augmentation(&mut program, lib_id, &package_config, sdk.versao_corrente, interner, &mut diagnostics, &mut prefetch) {
                     Some(uid) => {
                         program.libraries[lib_id.0 as usize].units.push(uid);
                         continue;
@@ -477,7 +477,7 @@ fn carregar_leniente(
             // Parte de um arquivo de patch (`core_patch.dart` tem
             // `part 'bigint_patch.dart'`) é patch também: as suas classes
             // `@patch` se fundem na classe de origem, em vez de criarem outra.
-            let papel_das_partes = if program.units[unit_id.0 as usize].role == UnitRole::Patch {
+            let part_roles = if program.units[unit_id.0 as usize].role == UnitRole::Patch {
                 UnitRole::Patch
             } else {
                 UnitRole::Part
@@ -487,7 +487,7 @@ fn carregar_leniente(
             // logo depois dela, na ordem das diretivas: `Library::units` fica
             // na pré-ordem da árvore de partes, que é a ordem de aplicação
             // das augmentations (spec de augmentations, "Application order").
-            let mut incluidas = 0usize;
+            let mut included = 0usize;
             let actions: Vec<(usize, DirectiveAction)> = program.units[unit_id.0 as usize]
                 .unit
                 .directives
@@ -561,14 +561,14 @@ fn carregar_leniente(
                         };
                         // `part 'package:p/x.dart'` (o `diff_match_patch`): a URI
                         // já é absoluta; o resto é relativo à da biblioteca.
-                        let absoluta = uri.starts_with("package:").then(|| uri.clone());
-                        let pela_uri = absoluta
-                            .or_else(|| resolver_relativo_a_package(&unit_uri, &uri))
+                        let absolute = uri.starts_with("package:").then(|| uri.clone());
+                        let by_uri = absolute
+                            .or_else(|| resolve_relative_to_package(&unit_uri, &uri))
                             .and_then(|u| package_config.resolve_package_uri(&u).ok().map(|p| (p, u)));
-                        let (canonical_part, part_uri) = match pela_uri {
+                        let (canonical_part, part_uri) = match by_uri {
                             Some(x) => x,
                             None => {
-                                let p = normalizar(&base_path.parent().unwrap_or(Path::new(".")).join(&uri));
+                                let p = normalize(&base_path.parent().unwrap_or(Path::new(".")).join(&uri));
                                 let u = canonical_file_uri(&p, &package_config);
                                 (p, u)
                             }
@@ -576,32 +576,32 @@ fn carregar_leniente(
                         // Uma parte que já é unidade desta biblioteca (`part` do
                         // próprio arquivo, ou ciclo de partes aninhadas) não é
                         // carregada de novo: a carga não termina.
-                        let ja_na_biblioteca = program.libraries[lib_id.0 as usize]
+                        let already_in_library = program.libraries[lib_id.0 as usize]
                             .units
                             .iter()
                             .copied()
                             .find(|u| program.units[u.0 as usize].path.as_deref() == Some(canonical_part.as_path()));
-                        if ja_na_biblioteca.is_some() {
+                        if already_in_library.is_some() {
                             continue;
                         }
-                        let da_biblioteca = program.libraries[lib_id.0 as usize].features;
-                        let versao_da_parte = if program.libraries[lib_id.0 as usize].is_sdk {
-                            Versao::Sdk
+                        let of_library = program.libraries[lib_id.0 as usize].features;
+                        let part_version = if program.libraries[lib_id.0 as usize].is_sdk {
+                            Version::Sdk
                         } else {
-                            Versao::Parte { da_biblioteca, config: &package_config, corrente: sdk.versao_corrente }
+                            Version::Part { of_library, config: &package_config, corrente: sdk.versao_corrente }
                         };
 
-                        let papel = if augmentation { UnitRole::Augmentation } else { papel_das_partes };
+                        let role_ = if augmentation { UnitRole::Augmentation } else { part_roles };
                         let part_unit = load_unit(
                             &canonical_part,
                             &part_uri,
                             lib_id,
-                            papel,
-                            versao_da_parte,
+                            role_,
+                            part_version,
                             interner,
                             &mut program,
                             &mut diagnostics,
-                            ler_substituto(sdk, &canonical_part).or_else(|| prefetch.tirar(&canonical_part)),
+                            read_substitute(sdk, &canonical_part).or_else(|| prefetch.take(&canonical_part)),
                             unidades.as_deref_mut(),
                         );
 
@@ -618,8 +618,8 @@ fn carregar_leniente(
                             if libr.is_sdk {
                                 libr.units.push(p_uid);
                             } else {
-                                libr.units.insert(unit_idx + incluidas, p_uid);
-                                incluidas += 1;
+                                libr.units.insert(unit_idx + included, p_uid);
+                                included += 1;
                             }
                         }
                     }
@@ -699,7 +699,7 @@ fn carregar_leniente(
         // Partes carregadas aqui já contaram em leitura/parse.
         program.tempos.diretivas += t_dir
             .elapsed()
-            .saturating_sub(program.tempos.leitura - leitura_antes)
+            .saturating_sub(program.tempos.leitura - read_before)
             .saturating_sub(program.tempos.parse - parse_antes);
     }
 
@@ -738,7 +738,7 @@ type Lido = std::io::Result<(String, Result<Vec<dartforge_frontend::token::Token
 /// Arquivos de uma onda da fila, lidos e lexados em paralelo.
 #[derive(Default)]
 struct Prefetch {
-    prontos: HashMap<PathBuf, Lido>,
+    ready: HashMap<PathBuf, Lido>,
     /// Geração corrente: fontes daqui nunca vêm do disco.
     gerados: Option<std::sync::Arc<crate::gerado::Geracao>>,
     /// O que a carga não enxerga ([`PackageConfig::ocultos`]): lido como
@@ -747,23 +747,23 @@ struct Prefetch {
 }
 
 impl Prefetch {
-    fn vazio(&self) -> bool {
-        self.prontos.is_empty()
+    fn empty(&self) -> bool {
+        self.ready.is_empty()
     }
 
-    fn tirar(&mut self, path: &Path) -> Option<Lido> {
+    fn take(&mut self, path: &Path) -> Option<Lido> {
         if let Some(f) = self.gerados.as_ref().and_then(|g| g.obter(path)) {
-            let fonte = f.conteudo.to_string();
-            let tokens = dartforge_frontend::lexer::lex(&fonte);
-            return Some(Ok((fonte, tokens)));
+            let source = f.conteudo.to_string();
+            let tokens = dartforge_frontend::lexer::lex(&source);
+            return Some(Ok((source, tokens)));
         }
-        self.prontos.remove(path)
+        self.ready.remove(path)
     }
 
     /// Lê e lexa `caminhos` com até 8 threads (`std::thread::scope`); poucos
     /// arquivos ficam na própria thread, que o custo de criar threads não
     /// compensa.
-    fn carregar(&mut self, caminhos: Vec<PathBuf>) {
+    fn load_(&mut self, caminhos: Vec<PathBuf>) {
         // O que a geração tem em memória não é lido do disco.
         let caminhos: Vec<PathBuf> = match &self.gerados {
             Some(g) => caminhos.into_iter().filter(|p| !g.contem(p)).collect(),
@@ -773,7 +773,7 @@ impl Prefetch {
             self.ocultos.as_ref().is_some_and(|o| o.contains(&crate::gerado::chave(p)))
         });
         for p in ocultos {
-            self.prontos.insert(p, Err(std::io::ErrorKind::NotFound.into()));
+            self.ready.insert(p, Err(std::io::ErrorKind::NotFound.into()));
         }
         let ler = |p: &Path| -> Lido {
             let s = std::fs::read_to_string(p)?;
@@ -784,31 +784,31 @@ impl Prefetch {
         if caminhos.len() < 4 || threads < 2 {
             for p in caminhos {
                 let l = ler(&p);
-                self.prontos.insert(p, l);
+                self.ready.insert(p, l);
             }
             return;
         }
         let proximo = std::sync::atomic::AtomicUsize::new(0);
-        let resultados: Vec<Vec<(PathBuf, Lido)>> = std::thread::scope(|s| {
+        let results: Vec<Vec<(PathBuf, Lido)>> = std::thread::scope(|s| {
             let handles: Vec<_> = (0..threads)
                 .map(|_| {
                     s.spawn(|| {
-                        let mut meus = Vec::new();
+                        let mut mine = Vec::new();
                         loop {
                             let i = proximo.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             let Some(p) = caminhos.get(i) else { break };
                             let l = ler(p);
-                            meus.push((p.clone(), l));
+                            mine.push((p.clone(), l));
                         }
-                        meus
+                        mine
                     })
                 })
                 .collect();
             handles.into_iter().map(|h| h.join().unwrap_or_default()).collect()
         });
-        for lote in resultados {
+        for lote in results {
             for (p, l) in lote {
-                self.prontos.insert(p, l);
+                self.ready.insert(p, l);
             }
         }
     }
@@ -818,7 +818,7 @@ impl Prefetch {
 /// (`SdkLayout::load_com_sobreposicao`): lido do substituto, com o caminho
 /// lógico do original — é o que faz um `part` dele resolver ao lado do
 /// original. `None` quando não há troca (a leitura segue o caminho normal).
-fn ler_substituto(sdk: &SdkLayout, path: &Path) -> Option<Lido> {
+fn read_substitute(sdk: &SdkLayout, path: &Path) -> Option<Lido> {
     let novo = sdk.substituto(path)?;
     Some(std::fs::read_to_string(novo).map(|s| {
         let t = dartforge_frontend::lexer::lex(&s);
@@ -827,7 +827,7 @@ fn ler_substituto(sdk: &SdkLayout, path: &Path) -> Option<Lido> {
 }
 
 /// Caminho do arquivo principal de uma biblioteca `package:` ou `file:`.
-fn caminho_da_biblioteca(lib_uri: &str, package_config: &PackageConfig) -> Option<PathBuf> {
+fn library_path(lib_uri: &str, package_config: &PackageConfig) -> Option<PathBuf> {
     if lib_uri.starts_with("package:") {
         package_config.resolve_package_uri(lib_uri).ok()
     } else if let Ok(url) = Url::parse(lib_uri) {
@@ -849,7 +849,7 @@ fn caminho_da_biblioteca(lib_uri: &str, package_config: &PackageConfig) -> Optio
 
 /// Resolve `.` e `..` sem tocar no sistema de arquivos (`Uri.resolve` do Dart
 /// é lexical; `canonicalize` custava uma chamada ao sistema por diretiva).
-pub(crate) fn normalizar(p: &Path) -> PathBuf {
+pub(crate) fn normalize(p: &Path) -> PathBuf {
     let mut out = PathBuf::new();
     for c in p.components() {
         match c {
@@ -869,47 +869,47 @@ pub(crate) fn normalizar(p: &Path) -> PathBuf {
 /// (`docs/VERSOES-LINGUAGEM.md` §2). Resolvida uma vez por unidade, antes do
 /// parse, a partir da fonte já lida (o marcador) e do `package_config`.
 #[derive(Clone, Copy)]
-enum Versao<'c> {
+enum Version<'c> {
     /// Biblioteca, patch ou parte do SDK: sempre o piso (D1).
     Sdk,
     /// Unidade principal de uma biblioteca do usuário ou de pacote.
-    Biblioteca { config: &'c PackageConfig, corrente: LanguageVersion, experimentos: &'c [Feature] },
+    Library { config: &'c PackageConfig, corrente: LanguageVersion, experimentos: &'c [Feature] },
     /// Parte: analisada com os recursos da biblioteca; a versão da própria
     /// parte (marcador ou pacote) tem de ser a mesma, senão é erro
     /// (`LanguageVersionMismatchInPart`).
-    Parte { da_biblioteca: LibraryFeatures, config: &'c PackageConfig, corrente: LanguageVersion },
+    Part { of_library: LibraryFeatures, config: &'c PackageConfig, corrente: LanguageVersion },
 }
 
 /// Os recursos de uma unidade e os diagnósticos da escolha da versão.
-fn features_da_unidade(
-    fonte: &str,
+fn unit_features(
+    source: &str,
     uri: &str,
     path: &Path,
-    versao: Versao<'_>,
+    version: Version<'_>,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> LibraryFeatures {
-    match versao {
-        Versao::Sdk => LibraryFeatures::piso(),
-        Versao::Biblioteca { config, corrente, experimentos } => {
-            let (padrao, marcador) = versao_propria(fonte, uri, path, config, corrente, diagnostics);
-            LibraryFeatures::for_library(marcador.map(|m| m.0), padrao, corrente, experimentos)
+    match version {
+        Version::Sdk => LibraryFeatures::piso(),
+        Version::Library { config, corrente, experimentos } => {
+            let (padrao, marker) = own_version(source, uri, path, config, corrente, diagnostics);
+            LibraryFeatures::for_library(marker.map(|m| m.0), padrao, corrente, experimentos)
         }
-        Versao::Parte { da_biblioteca, config, corrente } => {
-            let (padrao, marcador) = versao_propria(fonte, uri, path, config, corrente, diagnostics);
-            let propria = marcador.map_or(padrao, |m| m.0);
-            if propria != da_biblioteca.versao() {
-                let span = marcador.map_or(Span { start: 0, end: 0 }, |m| m.1);
+        Version::Part { of_library, config, corrente } => {
+            let (padrao, marker) = own_version(source, uri, path, config, corrente, diagnostics);
+            let own = marker.map_or(padrao, |m| m.0);
+            if own != of_library.versao() {
+                let span = marker.map_or(Span { start: 0, end: 0 }, |m| m.1);
                 diagnostics.push(Diagnostic::new(
                     format!(
-                        "{}:{}: a parte está na versão de linguagem {propria}, mas a biblioteca dela está na {}: uma parte tem de ter a versão da sua biblioteca",
+                        "{}:{}: a parte está na versão de linguagem {own}, mas a biblioteca dela está na {}: uma parte tem de ter a versão da sua biblioteca",
                         path.display(),
                         span.start,
-                        da_biblioteca.versao()
+                        of_library.versao()
                     ),
                     span,
                 ));
             }
-            da_biblioteca
+            of_library
         }
     }
 }
@@ -918,8 +918,8 @@ fn features_da_unidade(
 /// o marcador `// @dart = x.y` válido, com o seu intervalo. Marcador acima da
 /// corrente ou abaixo de 2.12 é erro e fica de fora, como no CFE
 /// (`LanguageVersionTooHighExplicit`/`TooLowExplicit`).
-fn versao_propria(
-    fonte: &str,
+fn own_version(
+    source: &str,
     uri: &str,
     path: &Path,
     config: &PackageConfig,
@@ -928,20 +928,20 @@ fn versao_propria(
 ) -> (LanguageVersion, Option<(LanguageVersion, Span)>) {
     // O caminho e o offset na frente da mensagem, como os diagnósticos do
     // parser; o código (quando há um no analyzer) fica no diagnóstico.
-    let prefixo = |span: Span| format!("{}:{}: ", path.display(), span.start);
-    let mut erro_cod = |mut d: Diagnostic| {
-        d.message = format!("{}{}", prefixo(d.span), d.message);
+    let prefix = |span: Span| format!("{}:{}: ", path.display(), span.start);
+    let mut error_code = |mut d: Diagnostic| {
+        d.message = format!("{}{}", prefix(d.span), d.message);
         diagnostics.push(d);
     };
     let zero = Span { start: 0, end: 0 };
     let padrao = match config.pacote_da_biblioteca(uri, Some(path)) {
         Some(p) => {
-            if let Some(t) = &p.language_version_invalida {
-                erro_cod(Diagnostic::new(format!("The languageVersion '{t}' of package '{}' in package_config.json isn't a valid x.y version.", p.name), zero));
+            if let Some(t) = &p.invalid_language_version {
+                error_code(Diagnostic::new(format!("The languageVersion '{t}' of package '{}' in package_config.json isn't a valid x.y version.", p.name), zero));
             }
             match p.language_version {
                 Some(v) if v > corrente => {
-                    erro_cod(Diagnostic::new(format!("The package '{}' has language version {v}, greater than the latest known language version: {corrente}.", p.name), zero));
+                    error_code(Diagnostic::new(format!("The package '{}' has language version {v}, greater than the latest known language version: {corrente}.", p.name), zero));
                     corrente
                 }
                 Some(v) => v,
@@ -950,26 +950,26 @@ fn versao_propria(
         }
         None => corrente,
     };
-    let marcador = dartforge_frontend::features::marcador_versao(fonte).and_then(|(v, span)| {
+    let marker = dartforge_frontend::features::marcador_versao(source).and_then(|(v, span)| {
         if v > corrente {
             // WarningCode.INVALID_LANGUAGE_VERSION_OVERRIDE_GREATER.
-            let (maior, menor) = (corrente.major.to_string(), corrente.minor.to_string());
-            erro_cod(Diagnostic::com_codigo(
+            let (greater, lesser) = (corrente.major.to_string(), corrente.minor.to_string());
+            error_code(Diagnostic::com_codigo(
                 codigos::warning::INVALID_LANGUAGE_VERSION_OVERRIDE_GREATER,
                 span,
-                [maior.as_str(), menor.as_str()],
+                [greater.as_str(), lesser.as_str()],
             ));
             None
         } else if v < LanguageVersion::MINIMA {
             // CompileTimeErrorCode.ILLEGAL_LANGUAGE_VERSION_OVERRIDE.
             let minima = format!(">={}.0", LanguageVersion::MINIMA);
-            erro_cod(Diagnostic::com_codigo(codigos::compile_time_error::ILLEGAL_LANGUAGE_VERSION_OVERRIDE, span, [minima.as_str()]));
+            error_code(Diagnostic::com_codigo(codigos::compile_time_error::ILLEGAL_LANGUAGE_VERSION_OVERRIDE, span, [minima.as_str()]));
             None
         } else {
             Some((v, span))
         }
     });
-    (padrao, marcador)
+    (padrao, marker)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -978,7 +978,7 @@ fn load_unit(
     uri: &str,
     lib_id: LibraryId,
     role: UnitRole,
-    versao: Versao<'_>,
+    version: Version<'_>,
     interner: &mut Interner,
     program: &mut Program,
     diagnostics: &mut Vec<Diagnostic>,
@@ -992,13 +992,13 @@ fn load_unit(
     // unidade é analisada de novo.
     let mut unidades = unidades;
     if let Some(cache) = unidades.as_deref_mut() {
-        let tirada = cache.tirar(path);
-        if let Some(mut u) = tirada {
-            let mut diags_versao = Vec::new();
-            let features = features_da_unidade(&u.source, uri, path, versao, &mut diags_versao);
+        let removed = cache.take(path);
+        if let Some(mut u) = removed {
+            let mut version_diags = Vec::new();
+            let features = unit_features(&u.source, uri, path, version, &mut version_diags);
             let ok = crate::unidades::serve(&u, uri, role) && u.features == features;
             if ok {
-                diagnostics.extend(diags_versao);
+                diagnostics.extend(version_diags);
                 if role == UnitRole::Library {
                     program.libraries[lib_id.0 as usize].features = features;
                 }
@@ -1033,10 +1033,10 @@ fn load_unit(
     program.tempos.bytes_lidos += source.len();
     // Um único `stat` por arquivo lido, para a sessão saber quando ele mudar.
     if let Some(cache) = unidades.as_deref_mut() {
-        cache.anotar_marca(path);
+        cache.annotate_marker(path);
     }
 
-    let features = features_da_unidade(&source, uri, path, versao, diagnostics);
+    let features = unit_features(&source, uri, path, version, diagnostics);
     if role == UnitRole::Library {
         program.libraries[lib_id.0 as usize].features = features;
     }
@@ -1101,7 +1101,7 @@ fn get_or_create_library(
 
 /// URI canônica de um caminho **já canonizado** pelo chamador: `package:x/y.dart`
 /// quando está dentro do `packageUri` de um pacote ou dos gerados do
-/// `build_runner` (`<projeto>/.dart_tool/build/generated/<pacote>/lib/<rel>`),
+/// `build_runner` (`<projeto>/.dart_tool/build/generated/<package>/lib/<rel>`),
 /// senão `file:///…`.
 ///
 /// Não chama `canonicalize`: os diretórios dos pacotes e a raiz de gerados
@@ -1134,13 +1134,13 @@ fn canonical_file_uri(canonical: &Path, package_config: &PackageConfig) -> Strin
 /// Resolve `rel` (sem esquema) contra `base` (`package:x/a/b.dart`) só com
 /// texto, como `Uri.resolve`: `None` se `..` sair do pacote (aí o chamador
 /// resolve pelo caminho) ou se `rel` tiver esquema.
-fn resolver_relativo_a_package(base: &str, rel: &str) -> Option<String> {
+fn resolve_relative_to_package(base: &str, rel: &str) -> Option<String> {
     if rel.contains(':') || rel.starts_with("//") {
         return None;
     }
-    let corpo = base.strip_prefix("package:")?;
-    let (pacote, resto) = corpo.split_once('/')?;
-    let mut segs: Vec<&str> = resto.split('/').collect();
+    let body_node = base.strip_prefix("package:")?;
+    let (package, rest) = body_node.split_once('/')?;
+    let mut segs: Vec<&str> = rest.split('/').collect();
     segs.pop(); // o arquivo base
     // `/x.dart` numa biblioteca `package:`: a raiz do pacote (a VM e o
     // analyzer 3.6.2 resolvem `package:p/src/a.dart` + `/x.dart` como
@@ -1159,7 +1159,7 @@ fn resolver_relativo_a_package(base: &str, rel: &str) -> Option<String> {
     }
     let mut out = String::with_capacity(base.len() + rel.len());
     out.push_str("package:");
-    out.push_str(pacote);
+    out.push_str(package);
     for s in segs {
         out.push('/');
         out.push_str(s);
@@ -1191,7 +1191,7 @@ fn resolve_directive_target(
         }
     } else if uri_str.starts_with("package:") {
         // Só valida o pacote; o caminho é calculado uma vez, quando a
-        // biblioteca sai da fila (`caminho_da_biblioteca`), não por diretiva.
+        // biblioteca sai da fila (`library_path`), não por diretiva.
         let nome = uri_str["package:".len()..].split('/').next().unwrap_or("");
         if package_config.packages.contains_key(nome) {
             Ok((uri_str.to_string(), None))
@@ -1199,7 +1199,7 @@ fn resolve_directive_target(
             let file_path = package_config.resolve_package_uri(uri_str)?;
             Ok((uri_str.to_string(), Some(file_path)))
         }
-    } else if let Some(uri) = resolver_relativo_a_package(base_uri, uri_str) {
+    } else if let Some(uri) = resolve_relative_to_package(base_uri, uri_str) {
         Ok((uri, None))
     } else {
         // Relativo ao arquivo base. Se o base está num pacote (real ou gerado),
@@ -1231,11 +1231,11 @@ fn resolve_directive_target(
         }
         // Um gerado do `build_runner` resolve os relativos a partir do lugar
         // de origem dele (`test/x.template.dart` importa `x.dart` de `test/`).
-        let origem = base_path.and_then(|p| package_config.origem_do_gerado(p));
-        let base = origem.as_deref().or(base_path).and_then(|p| p.parent()).unwrap_or(Path::new("."));
+        let origin = base_path.and_then(|p| package_config.generated_origin(p));
+        let base = origin.as_deref().or(base_path).and_then(|p| p.parent()).unwrap_or(Path::new("."));
         let target_path = base.join(uri_str);
         // Lexical, como `Uri.resolve`; arquivo inexistente falha na leitura.
-        let canonical = normalizar(&target_path);
+        let canonical = normalize(&target_path);
         let canonical_uri = canonical_file_uri(&canonical, package_config);
         // Fora de `lib/` (`test/`, `web/`), o gerado do `build_runner` ocupa
         // o lugar do arquivo que falta, com a URI do lugar.
@@ -1287,14 +1287,14 @@ fn evaluate_configuration(
 /// O caminho da augmentation de macro de uma biblioteca: `x.macro.dart` ao
 /// lado de `x.dart` (o mesmo nome da materialização,
 /// docs/MACROS-COMPATIBILIDADE.md).
-pub fn caminho_da_augmentation_de_macro(biblioteca: &Path) -> PathBuf {
-    let stem = biblioteca.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-    biblioteca.with_file_name(format!("{stem}.macro.dart"))
+pub fn caminho_da_augmentation_de_macro(library: &Path) -> PathBuf {
+    let stem = library.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    library.with_file_name(format!("{stem}.macro.dart"))
 }
 
 /// Carrega a augmentation de macro de `lib`, se a geração em memória tiver
 /// uma (e a biblioteca ainda não a incluir por `import augment`/`part`).
-fn anexar_augmentation_de_macro(
+fn attach_macro_augmentation(
     program: &mut Program,
     lib_id: LibraryId,
     package_config: &PackageConfig,
@@ -1318,9 +1318,9 @@ fn anexar_augmentation_de_macro(
         return None;
     }
     let uri = canonical_file_uri(&caminho, package_config);
-    let versao = Versao::Parte { da_biblioteca: lib.features, config: package_config, corrente };
-    let lido = prefetch.tirar(&caminho);
-    let uid = load_unit(&caminho, &uri, lib_id, UnitRole::Augmentation, versao, interner, program, diagnostics, lido, None)?;
+    let version = Version::Part { of_library: lib.features, config: package_config, corrente };
+    let lido = prefetch.take(&caminho);
+    let uid = load_unit(&caminho, &uri, lib_id, UnitRole::Augmentation, version, interner, program, diagnostics, lido, None)?;
     Some(uid)
 }
 
@@ -1329,31 +1329,31 @@ fn anexar_augmentation_de_macro(
 fn verify_augment_library(
     program: &Program,
     aug_unit_id: UnitId,
-    quem_importa: Option<&Path>,
+    importers: Option<&Path>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let unidade = &program.units[aug_unit_id.0 as usize];
-    let cabecalho = unidade.unit.directives.iter().find_map(|d| match &d.kind {
+    let header = unidade.unit.directives.iter().find_map(|d| match &d.kind {
         DirectiveKind::AugmentLibrary { uri } => Some((d.span, uri)),
         _ => None,
     });
-    let Some((span, uri)) = cabecalho else {
+    let Some((span, uri)) = header else {
         diagnostics.push(Diagnostic::new(
             format!("a biblioteca de augmentation '{}' não começa por 'augment library'", unidade.uri),
             Span { start: 0, end: 0 },
         ));
         return;
     };
-    let (Some(alvo), Some(caminho), Some(importador)) = (string_lit_value(uri), &unidade.path, quem_importa) else {
+    let (Some(target), Some(caminho), Some(importer)) = (string_lit_value(uri), &unidade.path, importers) else {
         return;
     };
-    let esperado = normalizar(&caminho.parent().unwrap_or(Path::new(".")).join(&alvo));
-    if esperado != normalizar(importador) {
+    let expected = normalize(&caminho.parent().unwrap_or(Path::new(".")).join(&target));
+    if expected != normalize(importer) {
         diagnostics.push(Diagnostic::new(
             format!(
                 "'augment library' aponta para '{}', mas quem importa a augmentation é '{}'",
-                esperado.display(),
-                importador.display()
+                expected.display(),
+                importer.display()
             ),
             span,
         ));
@@ -1380,10 +1380,10 @@ fn verify_part_of(
                             .parent()
                             .unwrap_or(Path::new("."))
                             .join(&parent_uri_str);
-                        let canonical_expected = normalizar(&expected_parent);
+                        let canonical_expected = normalize(&expected_parent);
                         let matches_any_unit = parent_lib.units.iter().any(|&u| {
                             if let Some(p) = &program.units[u.0 as usize].path {
-                                normalizar(p) == canonical_expected
+                                normalize(p) == canonical_expected
                             } else {
                                 false
                             }

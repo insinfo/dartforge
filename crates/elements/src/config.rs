@@ -18,7 +18,7 @@ pub struct PackageInfo {
     /// O texto do `languageVersion` quando ele existe mas não é `x.y`: é
     /// erro de compilação para as bibliotecas do pacote (o CFE diz
     /// `LanguageVersionInvalidInDotPackages`).
-    pub language_version_invalida: Option<String>,
+    pub invalid_language_version: Option<String>,
 }
 
 /// Mapeamento de pacotes para seus diretórios e versões de linguagem.
@@ -27,7 +27,7 @@ pub struct PackageConfig {
     /// Caminho do arquivo lido, se houver.
     pub origin: Option<PathBuf>,
     pub packages: HashMap<String, PackageInfo>,
-    /// `(nome, diretório do packageUri canônico, sem o prefixo `\\?\`)`,
+    /// `(nome, diretório do packageUri canônico, sem o prefix `\\?\`)`,
     /// calculado uma vez na carga: mapear um caminho de arquivo para
     /// `package:x/…` acontece milhares de vezes por programa e
     /// `canonicalize` custa uma chamada ao sistema cada.
@@ -38,7 +38,7 @@ pub struct PackageConfig {
     pub root_dirs: Vec<(String, PathBuf)>,
     /// `<projeto>/.dart_tool/build/generated`, canônico e sem `\?\`, quando
     /// existe: raiz dos arquivos gerados pelo `build_runner`, mapeados para
-    /// `package:<pacote>/<rel>` em `canonical_file_uri`.
+    /// `package:<package>/<rel>` em `canonical_file_uri`.
     pub generated_root: Option<PathBuf>,
     /// Fontes geradas em memória (`.template.dart` do ngdart e afins).
     /// Quando a geração tem o caminho natural de um arquivo, ela manda:
@@ -75,8 +75,8 @@ impl PackageConfig {
     /// pertence a `x`; um arquivo pertence ao pacote cuja raiz (`rootUri`) o
     /// contém, a mais interna quando há aninhamento.
     pub fn pacote_da_biblioteca(&self, uri: &str, path: Option<&Path>) -> Option<&PackageInfo> {
-        if let Some(resto) = uri.strip_prefix("package:") {
-            let nome = resto.split('/').next().unwrap_or("");
+        if let Some(rest) = uri.strip_prefix("package:") {
+            let nome = rest.split('/').next().unwrap_or("");
             return self.packages.get(nome);
         }
         let path = path?;
@@ -87,7 +87,7 @@ impl PackageConfig {
     }
 
     /// Caminho de um arquivo gerado pelo build_runner, quando existe:
-    /// `<projeto>/.dart_tool/build/generated/<pacote>/lib/<rel>` (o projeto é o
+    /// `<projeto>/.dart_tool/build/generated/<package>/lib/<rel>` (o projeto é o
     /// dono do `package_config.json` lido).
     pub fn generated_path(&self, pkg_name: &str, rel_path: &str) -> Option<PathBuf> {
         let origin = self.origin.as_ref()?;
@@ -98,7 +98,7 @@ impl PackageConfig {
 
     /// O arquivo gerado pelo `build_runner` que ocupa o lugar de `path`, um
     /// arquivo de qualquer pasta de um pacote (não só `lib/`: `test/`,
-    /// `web/`, `example/`): `<projeto>/.dart_tool/build/generated/<pacote>/<rel>`,
+    /// `web/`, `example/`): `<projeto>/.dart_tool/build/generated/<package>/<rel>`,
     /// com `rel` relativo à raiz (`rootUri`) do pacote mais interno que o
     /// contém. É a sobreposição que o analyzer faz dos gerados.
     ///
@@ -111,18 +111,18 @@ impl PackageConfig {
         if self.oculto(path) {
             return None;
         }
-        let raiz_gerados = self.generated_root.as_ref()?;
+        let generated_root_dir = self.generated_root.as_ref()?;
         let (nome, raiz) = self.root_dirs.iter().find(|(_, dir)| path.starts_with(dir))?;
         let rel = path.strip_prefix(raiz).ok()?;
-        let candidato = raiz_gerados.join(nome).join(rel);
-        candidato.is_file().then_some(candidato)
+        let candidate = generated_root_dir.join(nome).join(rel);
+        candidate.is_file().then_some(candidate)
     }
 
     /// O lugar de origem de um arquivo gerado (o inverso de
-    /// [`PackageConfig::gerado_no_lugar_de`]): `…/generated/<pacote>/<rel>` →
-    /// `<raiz do pacote>/<rel>`. Os imports relativos de um gerado se
+    /// [`PackageConfig::gerado_no_lugar_de`]): `…/generated/<package>/<rel>` →
+    /// `<raiz do package>/<rel>`. Os imports relativos de um gerado se
     /// resolvem a partir daí, como no analyzer.
-    pub fn origem_do_gerado(&self, path: &Path) -> Option<PathBuf> {
+    pub fn generated_origin(&self, path: &Path) -> Option<PathBuf> {
         let rel = path.strip_prefix(self.generated_root.as_ref()?).ok()?;
         let mut partes = rel.iter();
         let nome = partes.next()?.to_str()?;
@@ -210,10 +210,10 @@ impl PackageConfig {
                 .join(&normalized_pkg)
                 .map_err(|e| format!("packageUri inválida em '{name}': {e}"))?;
 
-            let texto_versao = entry.get("languageVersion").and_then(|v| v.as_str());
-            let language_version = texto_versao.and_then(LanguageVersion::parse);
-            let language_version_invalida =
-                texto_versao.filter(|_| language_version.is_none()).map(str::to_string);
+            let version_text = entry.get("languageVersion").and_then(|v| v.as_str());
+            let language_version = version_text.and_then(LanguageVersion::parse);
+            let invalid_language_version =
+                version_text.filter(|_| language_version.is_none()).map(str::to_string);
 
             packages.insert(
                 name.to_string(),
@@ -222,7 +222,7 @@ impl PackageConfig {
                     root_uri,
                     package_uri,
                     language_version,
-                    language_version_invalida,
+                    invalid_language_version,
                 },
             );
         }
@@ -288,7 +288,7 @@ impl PackageConfig {
                 return Ok(path);
             }
             // Sobreposição de gerados do build_runner (`.template.dart` do ngdart…):
-            // `<raiz do projeto>/.dart_tool/build/generated/<pacote>/lib/<x>`.
+            // `<raiz do projeto>/.dart_tool/build/generated/<package>/lib/<x>`.
             if let Some(gerado) = self.generated_path(pkg_name, rel_path) {
                 return Ok(gerado);
             }
@@ -316,12 +316,12 @@ impl PackageConfig {
                 }
             }
 
-            let origem = self
+            let origin = self
                 .origin
                 .as_ref()
                 .map(|p| p.display().to_string())
                 .unwrap_or_else(|| "configuração não encontrada".to_string());
-            Err(format!("pacote '{pkg_name}' não mapeado em {origem}"))
+            Err(format!("pacote '{pkg_name}' não mapeado em {origin}"))
         }
     }
 }

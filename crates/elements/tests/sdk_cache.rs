@@ -20,7 +20,7 @@ fn sdk_real() -> Option<SdkLayout> {
 }
 
 #[test]
-fn cache_do_sdk_reproduz_o_programa_e_e_mais_rapido() {
+fn sdk_cache_reproduces_the_program_and_is_faster() {
     let Some(sdk) = sdk_real() else {
         eprintln!("SDK não encontrado; teste pulado");
         return;
@@ -43,8 +43,8 @@ fn cache_do_sdk_reproduz_o_programa_e_e_mais_rapido() {
     // 2. Constrói o cache (uma vez) e carrega por ele.
     let caminho = tmp.path().join("sdk.bin");
     let t1 = Instant::now();
-    SdkCache::construir_e_gravar(&sdk, &caminho).expect("constrói o cache");
-    let t_construir = t1.elapsed();
+    SdkCache::build_and_write(&sdk, &caminho).expect("constrói o cache");
+    let t_build = t1.elapsed();
     assert!(caminho.exists());
     let cache = SdkCache::abrir(&caminho).expect("abre o cache");
     let mut i2 = Interner::new();
@@ -58,12 +58,12 @@ fn cache_do_sdk_reproduz_o_programa_e_e_mais_rapido() {
     // empatava, 150 × 155 ms, e o teste reprovava ao acaso); em `release`,
     // 15 × 44 ms (em série, 22 ms). A margem exige que continue claramente mais rápido.
     const N: usize = 5;
-    let mut t_arquivos = std::time::Duration::MAX;
+    let mut t_files = std::time::Duration::MAX;
     let mut t_cache = std::time::Duration::MAX;
     for _ in 0..N {
         let t = Instant::now();
         let _ = load_lenient(&entry, &sdk, None, &mut Interner::new());
-        t_arquivos = t_arquivos.min(t.elapsed());
+        t_files = t_files.min(t.elapsed());
         let t = Instant::now();
         let cache = SdkCache::abrir(&caminho).expect("abre o cache");
         let _ = load_lenient_com_cache(&entry, &sdk, None, &mut Interner::new(), Some(cache));
@@ -71,9 +71,9 @@ fn cache_do_sdk_reproduz_o_programa_e_e_mais_rapido() {
     }
 
     eprintln!(
-        "mínimo de {N}: arquivos {t_arquivos:.1?}; abrir+carregar pelo cache {t_cache:.1?} ({:.0}%); construir cache {t_construir:.1?}; \
+        "mínimo de {N}: arquivos {t_files:.1?}; abrir+carregar pelo cache {t_cache:.1?} ({:.0}%); construir cache {t_build:.1?}; \
          unidades {} / bibliotecas {} / classes {} / funções {} / variáveis {}",
-        100.0 * t_cache.as_secs_f64() / t_arquivos.as_secs_f64(),
+        100.0 * t_cache.as_secs_f64() / t_files.as_secs_f64(),
         p2.units.len(), p2.libraries.len(), p2.classes.len(), p2.functions.len(), p2.variables.len()
     );
 
@@ -106,13 +106,13 @@ fn cache_do_sdk_reproduz_o_programa_e_e_mais_rapido() {
     assert!(p2.units.iter().any(|u| u.uri.ends_with("/parte.dart") && !p2.library(u.library).is_sdk));
 
     assert!(
-        t_cache.as_secs_f64() < 0.75 * t_arquivos.as_secs_f64(),
-        "abrir+carregar pelo cache ({t_cache:?}, mínimo de {N}) deveria custar menos de 75% da carga pelos arquivos ({t_arquivos:?})"
+        t_cache.as_secs_f64() < 0.75 * t_files.as_secs_f64(),
+        "abrir+carregar pelo cache ({t_cache:?}, mínimo de {N}) deveria custar menos de 75% da carga pelos arquivos ({t_files:?})"
     );
 }
 
 #[test]
-fn cache_invalido_e_ignorado() {
+fn invalid_cache_is_ignored() {
     let Some(sdk) = sdk_real() else {
         return;
     };

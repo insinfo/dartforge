@@ -96,7 +96,7 @@ fn test_sdk_core_load_and_patch() {
 }
 
 #[test]
-fn todo_dart_x_carrega() {
+fn every_dart_x_loads() {
     let Some((_lib_dir, sdk)) = get_sdk() else {
         eprintln!("SDK não disponível no ambiente, pulando teste.");
         return;
@@ -168,7 +168,7 @@ fn todo_dart_x_carrega() {
 }
 
 #[test]
-fn supertipos_do_sdk_resolvem() {
+fn sdk_supertypes_resolve() {
     let Some((_lib_dir, sdk)) = get_sdk() else {
         eprintln!("SDK não disponível no ambiente, pulando teste.");
         return;
@@ -210,7 +210,7 @@ fn supertipos_do_sdk_resolvem() {
 }
 
 #[test]
-fn namespaces_do_sdk_sem_ambiguidade_em_uso() {
+fn sdk_namespaces_without_ambiguity_in_use() {
     let Some((_lib_dir, sdk)) = get_sdk() else {
         eprintln!("SDK não disponível no ambiente, pulando teste.");
         return;

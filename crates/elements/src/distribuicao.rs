@@ -4,8 +4,8 @@
 //!
 //! ```text
 //! <raiz>/bin/dartforge[.exe]
-//! <raiz>/lib/dartforge-distribuicao.json   marca e versão da distribuição
-//! <raiz>/lib/dart-sdk/lib/…                as bibliotecas do SDK do Dart (fonte)
+//! <raiz>/lib/dartforge-distribuicao.json   mark e versão da distribuição
+//! <raiz>/lib/dart-sdk/lib/…                as bibliotecas do SDK do Dart (source)
 //! <raiz>/lib/native_sdk/…                  a sobreposição do backend nativo
 //! <raiz>/lib/runtime/…                     o runtime pré-compilado (staticlib)
 //! <raiz>/lib/llvm/bin/…                    o ligador do LLVM (e o Clang, sem o gerador embutido)
@@ -52,8 +52,8 @@ pub fn sobreposicao_nativa() -> Option<PathBuf> {
 /// Um executável do LLVM da distribuição (`clang`, `ld.lld`…), com a
 /// extensão do sistema.
 pub fn ferramenta_llvm(nome: &str) -> Option<PathBuf> {
-    let arquivo = if cfg!(windows) { format!("{nome}.exe") } else { nome.to_string() };
-    em_lib(&format!("llvm/bin/{arquivo}")).filter(|p| p.is_file())
+    let file = if cfg!(windows) { format!("{nome}.exe") } else { nome.to_string() };
+    em_lib(&format!("llvm/bin/{file}")).filter(|p| p.is_file())
 }
 
 /// O diretório de cache do usuário para o dartforge: `%LOCALAPPDATA%` no

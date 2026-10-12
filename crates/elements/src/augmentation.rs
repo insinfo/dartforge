@@ -32,7 +32,7 @@ use dartforge_intern::{Interner, SymbolId};
 use std::collections::{BTreeMap, HashMap};
 
 /// O que a fusão precisa ler e escrever, além dos elementos.
-pub(crate) struct Fusao<'a> {
+pub(crate) struct Merge<'a> {
     pub units: &'a [Unit],
     pub library: &'a mut Library,
     pub lib_id: LibraryId,
@@ -43,7 +43,7 @@ pub(crate) struct Fusao<'a> {
     pub cadeias: &'a mut Vec<(ClassId, DeclRef)>,
 }
 
-impl Fusao<'_> {
+impl Merge<'_> {
     fn erro(&mut self, unit: UnitId, msg: impl Into<String>, span: Span) {
         let u = &self.units[unit.0 as usize];
         self.diagnostics.push(Diagnostic::new(format!("{}: {}", u.uri, msg.into()), span));
@@ -51,7 +51,7 @@ impl Fusao<'_> {
 }
 
 /// Aplica a declaração de topo `augment` `decl_id` da unidade `unit_id`.
-pub(crate) fn aplicar(f: &mut Fusao<'_>, pools: &mut ElementPools, unit_id: UnitId, decl_id: ast::DeclId) {
+pub(crate) fn aplicar(f: &mut Merge<'_>, pools: &mut ElementPools, unit_id: UnitId, decl_id: ast::DeclId) {
     let ast = &f.units[unit_id.0 as usize].ast;
     let decl = ast.decl(decl_id);
     let span = decl.span;
@@ -61,38 +61,38 @@ pub(crate) fn aplicar(f: &mut Fusao<'_>, pools: &mut ElementPools, unit_id: Unit
                 f.erro(unit_id, "uma aplicação de mixin ('class C = S with M') não pode ser aumentada", span);
                 return;
             }
-            let Some(cid) = classe_introdutoria(f, pools, unit_id, c.name, ClassKind::Class) else { return };
-            let classe = &mut pools.classes[cid.0 as usize];
+            let Some(cid) = introductory_class(f, pools, unit_id, c.name, ClassKind::Class) else { return };
+            let class_elem = &mut pools.classes[cid.0 as usize];
             if let Some(t) = c.extends {
-                if classe.supertype.is_some() {
+                if class_elem.supertype.is_some() {
                     f.erro(unit_id, format!("a classe '{}' já tem cláusula 'extends'", nome(f, c.name.sym)), span);
                 } else {
-                    classe.supertype = Some((unit_id, t));
+                    class_elem.supertype = Some((unit_id, t));
                 }
             }
-            classe.mixins.extend(c.with.iter().map(|t| (unit_id, *t)));
-            classe.interfaces.extend(c.implements.iter().map(|t| (unit_id, *t)));
+            class_elem.mixins.extend(c.with.iter().map(|t| (unit_id, *t)));
+            class_elem.interfaces.extend(c.implements.iter().map(|t| (unit_id, *t)));
             f.cadeias.push((cid, DeclRef { unit: unit_id, decl: decl_id }));
-            aplicar_membros(f, pools, cid, unit_id, &c.members);
+            apply_members(f, pools, cid, unit_id, &c.members);
         }
         DeclKind::Mixin(m) => {
-            let Some(cid) = classe_introdutoria(f, pools, unit_id, m.name, ClassKind::Mixin) else { return };
-            let classe = &mut pools.classes[cid.0 as usize];
-            classe.on.extend(m.on.iter().map(|t| (unit_id, *t)));
-            classe.interfaces.extend(m.implements.iter().map(|t| (unit_id, *t)));
+            let Some(cid) = introductory_class(f, pools, unit_id, m.name, ClassKind::Mixin) else { return };
+            let class_elem = &mut pools.classes[cid.0 as usize];
+            class_elem.on.extend(m.on.iter().map(|t| (unit_id, *t)));
+            class_elem.interfaces.extend(m.implements.iter().map(|t| (unit_id, *t)));
             f.cadeias.push((cid, DeclRef { unit: unit_id, decl: decl_id }));
-            aplicar_membros(f, pools, cid, unit_id, &m.members);
+            apply_members(f, pools, cid, unit_id, &m.members);
         }
         DeclKind::Function(fid) => {
             let func = ast.function(*fid);
             let Some(n) = func.name else { return };
-            let kind = tipo_de_funcao(func.kind);
+            let kind = function_type(func.kind);
             let entrada = f.library.declared.get(&n.sym).copied().unwrap_or_default();
             let anterior = match kind {
                 FunctionKind::Setter => entrada.setter,
                 _ => entrada.getter,
             };
-            let Some(Element::Function(antigo)) = anterior else {
+            let Some(Element::Function(old)) = anterior else {
                 f.erro(
                     unit_id,
                     format!("'augment' de '{}' sem declaração introdutória antes dele", nome(f, n.sym)),
@@ -117,7 +117,7 @@ pub(crate) fn aplicar(f: &mut Fusao<'_>, pools: &mut ElementPools, unit_id: Unit
                 patched_by: None,
                 declaracao_publica: None,
             });
-            if ligar(f, pools, unit_id, antigo, novo, funcao_completa(func), n.span) {
+            if link(f, pools, unit_id, old, novo, full_function(func), n.span) {
                 let e = f.library.declared.entry(n.sym).or_default();
                 match kind {
                     FunctionKind::Setter => e.setter = Some(Element::Function(novo)),
@@ -130,19 +130,19 @@ pub(crate) fn aplicar(f: &mut Fusao<'_>, pools: &mut ElementPools, unit_id: Unit
                 f.erro(unit_id, "augmentation de enum com construtor primário ainda não é suportada", span);
                 return;
             }
-            let Some(cid) = classe_introdutoria(f, pools, unit_id, e.name, ClassKind::Enum) else { return };
-            let classe = &mut pools.classes[cid.0 as usize];
-            classe.mixins.extend(e.with.iter().map(|t| (unit_id, *t)));
-            classe.interfaces.extend(e.implements.iter().map(|t| (unit_id, *t)));
+            let Some(cid) = introductory_class(f, pools, unit_id, e.name, ClassKind::Enum) else { return };
+            let class_elem = &mut pools.classes[cid.0 as usize];
+            class_elem.mixins.extend(e.with.iter().map(|t| (unit_id, *t)));
+            class_elem.interfaces.extend(e.implements.iter().map(|t| (unit_id, *t)));
             // Valores novos entram depois dos que já existem, na ordem de
             // aplicação (spec, "Augmenting enum declarations": `values` na
             // ordem da cadeia).
             for (idx, k) in e.constants.iter().enumerate() {
                 let c = &pools.classes[cid.0 as usize];
-                let repetido = c.enum_constants.iter().any(|v| pools.variables[v.0 as usize].name == k.name.sym)
+                let repeated = c.enum_constants.iter().any(|v| pools.variables[v.0 as usize].name == k.name.sym)
                     || c.instance_members.contains_key(&k.name.sym)
                     || c.static_members.contains_key(&k.name.sym);
-                if repetido {
+                if repeated {
                     let n = nome(f, k.name.sym);
                     f.erro(unit_id, format!("'{n}' já está declarado; para aumentá-lo, use 'augment'"), k.name.span);
                     continue;
@@ -165,7 +165,7 @@ pub(crate) fn aplicar(f: &mut Fusao<'_>, pools: &mut ElementPools, unit_id: Unit
                 pools.classes[cid.0 as usize].enum_constants.push(id);
             }
             f.cadeias.push((cid, DeclRef { unit: unit_id, decl: decl_id }));
-            aplicar_membros(f, pools, cid, unit_id, &e.members);
+            apply_members(f, pools, cid, unit_id, &e.members);
         }
         DeclKind::Extension(_) | DeclKind::ExtensionType(_) => {
             f.erro(unit_id, "augmentation de extension e extension type ainda não é suportada", span);
@@ -180,15 +180,15 @@ pub(crate) fn aplicar(f: &mut Fusao<'_>, pools: &mut ElementPools, unit_id: Unit
 }
 
 /// A classe (ou mixin) introdutória de mesmo nome, já declarada antes.
-fn classe_introdutoria(
-    f: &mut Fusao<'_>,
+fn introductory_class(
+    f: &mut Merge<'_>,
     pools: &ElementPools,
     unit_id: UnitId,
     n: ast::Name,
     kind: ClassKind,
 ) -> Option<ClassId> {
-    let achada = f.library.declared.get(&n.sym).and_then(|b| b.getter);
-    match achada {
+    let found_one = f.library.declared.get(&n.sym).and_then(|b| b.getter);
+    match found_one {
         Some(Element::Class(cid)) if pools.classes[cid.0 as usize].kind == kind => Some(cid),
         Some(_) => {
             f.erro(unit_id, format!("'augment' de '{}' com outro tipo de declaração", nome(f, n.sym)), n.span);
@@ -203,17 +203,17 @@ fn classe_introdutoria(
 
 /// Os membros do corpo de uma `augment class`/`augment mixin`: os comuns são
 /// acrescentados; os `augment` se ligam ao membro de mesmo nome.
-fn aplicar_membros(f: &mut Fusao<'_>, pools: &mut ElementPools, cid: ClassId, unit_id: UnitId, membros: &[ast::MemberId]) {
+fn apply_members(f: &mut Merge<'_>, pools: &mut ElementPools, cid: ClassId, unit_id: UnitId, members_: &[ast::MemberId]) {
     let ast = &f.units[unit_id.0 as usize].ast;
     // Na ordem do texto: um membro novo pode ser aumentado logo depois, no
     // mesmo corpo (é o que a saída das macros faz: `external C.x(...)` e
     // `augment C.x(...)` na mesma `augment class`).
-    for &mid in membros {
+    for &mid in members_ {
         let m = ast.member(mid);
         if !m.augment {
-            if let Some((sym, span)) = nome_do_membro(ast, m) {
+            if let Some((sym, span)) = member_name(ast, m) {
                 let c = &pools.classes[cid.0 as usize];
-                let existe = match &m.kind {
+                let exists_ = match &m.kind {
                     MemberKind::Constructor(k) => {
                         let s = k.name.map(|n| n.sym).unwrap_or(f.empty_sym);
                         c.constructors
@@ -222,20 +222,20 @@ fn aplicar_membros(f: &mut Fusao<'_>, pools: &mut ElementPools, cid: ClassId, un
                     }
                     _ => c.instance_members.contains_key(&sym) || c.static_members.contains_key(&sym),
                 };
-                if existe {
+                if exists_ {
                     let n = nome(f, sym);
                     f.erro(unit_id, format!("'{n}' já está declarado; para aumentá-lo, use 'augment'"), span);
                     continue;
                 }
             }
-            acrescentar_membro(f, pools, cid, unit_id, mid);
+            append_member(f, pools, cid, unit_id, mid);
             continue;
         }
         match &m.kind {
             MemberKind::Method(fid) => {
                 let func = ast.function(*fid);
                 let Some(n) = func.name else { continue };
-                let kind = tipo_de_funcao(func.kind);
+                let kind = function_type(func.kind);
                 let mut sym = n.sym;
                 if kind == FunctionKind::Operator
                     && f.interner.resolve(sym) == "-"
@@ -250,8 +250,8 @@ fn aplicar_membros(f: &mut Fusao<'_>, pools: &mut ElementPools, cid: ClassId, un
                     sym
                 };
                 let c = &pools.classes[cid.0 as usize];
-                let mapa = if func.static_ { &c.static_members } else { &c.instance_members };
-                let Some(&antigo) = mapa.get(&chave) else {
+                let map = if func.static_ { &c.static_members } else { &c.instance_members };
+                let Some(&old) = map.get(&chave) else {
                     let t = nome(f, n.sym);
                     f.erro(unit_id, format!("'augment' de '{t}' sem membro introdutório antes dele"), n.span);
                     continue;
@@ -273,16 +273,16 @@ fn aplicar_membros(f: &mut Fusao<'_>, pools: &mut ElementPools, cid: ClassId, un
                     patched_by: None,
                     declaracao_publica: None,
                 });
-                if ligar(f, pools, unit_id, antigo, novo, funcao_completa(func), n.span) {
+                if link(f, pools, unit_id, old, novo, full_function(func), n.span) {
                     let c = &mut pools.classes[cid.0 as usize];
-                    let mapa = if func.static_ { &mut c.static_members } else { &mut c.instance_members };
-                    mapa.insert(chave, novo);
+                    let map = if func.static_ { &mut c.static_members } else { &mut c.instance_members };
+                    map.insert(chave, novo);
                 }
             }
             MemberKind::Constructor(k) => {
                 let sym = k.name.map(|n| n.sym).unwrap_or(f.empty_sym);
                 let span = k.name.map(|n| n.span).unwrap_or(k.class_name.span);
-                let Some(&antigo) = pools.classes[cid.0 as usize].constructors.get(&sym) else {
+                let Some(&old) = pools.classes[cid.0 as usize].constructors.get(&sym) else {
                     f.erro(unit_id, "'augment' de construtor sem construtor introdutório antes dele", span);
                     continue;
                 };
@@ -303,7 +303,7 @@ fn aplicar_membros(f: &mut Fusao<'_>, pools: &mut ElementPools, cid: ClassId, un
                     patched_by: None,
                     declaracao_publica: None,
                 });
-                if ligar(f, pools, unit_id, antigo, novo, construtor_completo(k), span) {
+                if link(f, pools, unit_id, old, novo, full_constructor(k), span) {
                     pools.classes[cid.0 as usize].constructors.insert(sym, novo);
                 }
             }
@@ -317,57 +317,57 @@ fn aplicar_membros(f: &mut Fusao<'_>, pools: &mut ElementPools, cid: ClassId, un
 /// Um membro novo: os mesmos elementos de uma declaração comum. Um
 /// construtor declarado na augmentation tira o construtor sintético (a
 /// classe passa a declarar construtor).
-fn acrescentar_membro(f: &mut Fusao<'_>, pools: &mut ElementPools, cid: ClassId, unit_id: UnitId, mid: ast::MemberId) {
+fn append_member(f: &mut Merge<'_>, pools: &mut ElementPools, cid: ClassId, unit_id: UnitId, mid: ast::MemberId) {
     let ast = &f.units[unit_id.0 as usize].ast;
-    let mut classe = std::mem::replace(&mut pools.classes[cid.0 as usize], classe_vazia(f.lib_id, f.empty_sym));
+    let mut class_elem = std::mem::replace(&mut pools.classes[cid.0 as usize], empty_class(f.lib_id, f.empty_sym));
     if matches!(ast.member(mid).kind, MemberKind::Constructor(_)) {
-        classe
+        class_elem
             .constructors
             .retain(|_, id| pools.functions[id.0 as usize].kind != FunctionKind::SyntheticConstructor);
     }
-    extract_members(pools, ast, &mut classe, cid, unit_id, &[mid], f.empty_sym, f.interner);
-    pools.classes[cid.0 as usize] = classe;
+    extract_members(pools, ast, &mut class_elem, cid, unit_id, &[mid], f.empty_sym, f.interner);
+    pools.classes[cid.0 as usize] = class_elem;
 }
 
-/// Liga `novo` à cadeia cujo elemento efetivo é `antigo`. Devolve `true` se
+/// Liga `novo` à cadeia cujo elemento efetivo é `old`. Devolve `true` se
 /// `novo` passou a ser o efetivo (quem chama troca a entrada do mapa).
-fn ligar(
-    f: &mut Fusao<'_>,
+fn link(
+    f: &mut Merge<'_>,
     pools: &mut ElementPools,
     unit_id: UnitId,
-    antigo: FunctionElementId,
+    old: FunctionElementId,
     novo: FunctionElementId,
-    novo_completo: bool,
+    new_full: bool,
     span: Span,
 ) -> bool {
-    if !novo_completo {
+    if !new_full {
         // Só metadata (ou nada): o corpo continua o do efetivo.
-        pools.functions[novo.0 as usize].patched_by = Some(antigo);
+        pools.functions[novo.0 as usize].patched_by = Some(old);
         return false;
     }
-    if tem_corpo(f.units, &pools.functions[antigo.0 as usize]) && !augmentation_com_macros(f.units, unit_id) {
+    if has_body(f.units, &pools.functions[old.0 as usize]) && !augmentation_with_macros(f.units, unit_id) {
         f.erro(unit_id, "a declaração aumentada já tem corpo; uma augmentation não pode substituí-lo", span);
-        pools.functions[novo.0 as usize].patched_by = Some(antigo);
+        pools.functions[novo.0 as usize].patched_by = Some(old);
         return false;
     }
     for e in pools.functions.iter_mut() {
-        if e.patched_by == Some(antigo) {
+        if e.patched_by == Some(old) {
             e.patched_by = Some(novo);
         }
     }
-    pools.functions[antigo.0 as usize].patched_by = Some(novo);
+    pools.functions[old.0 as usize].patched_by = Some(novo);
     true
 }
 
 /// O CFE 3.6.2 aceita a substituição sob `macros`, inclusive de uma
 /// augmentation escrita manualmente; fora do experimento segue a spec.
-fn augmentation_com_macros(units: &[Unit], unit: UnitId) -> bool {
+fn augmentation_with_macros(units: &[Unit], unit: UnitId) -> bool {
     let u = &units[unit.0 as usize];
     u.role == UnitRole::Augmentation && u.features.tem(Feature::Macros)
 }
 
 /// A declaração tem corpo em Dart (não `external`, não `;`)?
-fn tem_corpo(units: &[Unit], e: &FunctionElement) -> bool {
+fn has_body(units: &[Unit], e: &FunctionElement) -> bool {
     match e.node {
         FunctionRef::Function { unit, function } => {
             let func = units[unit.0 as usize].ast.function(function);
@@ -375,7 +375,7 @@ fn tem_corpo(units: &[Unit], e: &FunctionElement) -> bool {
         }
         FunctionRef::Constructor { unit, member } => {
             let MemberKind::Constructor(k) = &units[unit.0 as usize].ast.member(member).kind else { return false };
-            !k.external && construtor_completo(k)
+            !k.external && full_constructor(k)
         }
         // Acessor implícito de campo não abstrato: tem o corpo sintético.
         FunctionRef::None => !e.abstract_ && !e.external,
@@ -383,11 +383,11 @@ fn tem_corpo(units: &[Unit], e: &FunctionElement) -> bool {
 }
 
 /// "Complete" da spec (`:547-560`), com `external` contando como completa.
-fn funcao_completa(func: &ast::Function) -> bool {
+fn full_function(func: &ast::Function) -> bool {
     func.external || !matches!(func.body, FunctionBody::Empty)
 }
 
-fn construtor_completo(k: &ast::Constructor) -> bool {
+fn full_constructor(k: &ast::Constructor) -> bool {
     k.external
         || !matches!(k.body, FunctionBody::Empty)
         || !k.initializers.is_empty()
@@ -395,7 +395,7 @@ fn construtor_completo(k: &ast::Constructor) -> bool {
         || k.parameters.iter().any(|p| p.this_ || p.super_)
 }
 
-fn tipo_de_funcao(k: ast::FunctionKind) -> FunctionKind {
+fn function_type(k: ast::FunctionKind) -> FunctionKind {
     match k {
         ast::FunctionKind::Getter => FunctionKind::Getter,
         ast::FunctionKind::Setter => FunctionKind::Setter,
@@ -404,7 +404,7 @@ fn tipo_de_funcao(k: ast::FunctionKind) -> FunctionKind {
     }
 }
 
-fn nome_do_membro(ast: &ast::Ast, m: &ast::Member) -> Option<(SymbolId, Span)> {
+fn member_name(ast: &ast::Ast, m: &ast::Member) -> Option<(SymbolId, Span)> {
     match &m.kind {
         MemberKind::Method(fid) => ast.function(*fid).name.map(|n| (n.sym, n.span)),
         MemberKind::Constructor(k) => Some(k.name.map(|n| (n.sym, n.span)).unwrap_or((k.class_name.sym, k.class_name.span))),
@@ -412,13 +412,13 @@ fn nome_do_membro(ast: &ast::Ast, m: &ast::Member) -> Option<(SymbolId, Span)> {
     }
 }
 
-fn nome(f: &Fusao<'_>, s: SymbolId) -> String {
+fn nome(f: &Merge<'_>, s: SymbolId) -> String {
     f.interner.resolve(s).to_string()
 }
 
 /// Marcador que ocupa o lugar de uma classe enquanto os membros novos são
 /// extraídos para ela (a extração trabalha sobre um `ClassElement` solto).
-fn classe_vazia(library: LibraryId, name: SymbolId) -> ClassElement {
+fn empty_class(library: LibraryId, name: SymbolId) -> ClassElement {
     ClassElement {
         name,
         library,

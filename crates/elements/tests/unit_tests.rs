@@ -411,11 +411,11 @@ fn test_inheritance_cycle_detection() {
 
 /// Gerados do `build_runner` fora de `lib/` (`test/`, `web/`): um import
 /// relativo a um `.template.dart` que só existe em
-/// `.dart_tool/build/generated/<pacote>/test/` resolve para ele, com a URI do
+/// `.dart_tool/build/generated/<package>/test/` resolve para ele, com a URI do
 /// lugar de origem, e os relativos do gerado voltam para `test/`. O `dart
 /// analyze` 3.6.2 dá "No issues found!" nesse projeto (`v01/min/gentest`).
 #[test]
-fn gerado_do_build_runner_fora_de_lib() {
+fn build_runner_output_outside_lib() {
     let tmp = tempdir().unwrap();
     let sdk = empty_sdk(tmp.path());
     let mut interner = Interner::new();
@@ -443,13 +443,13 @@ fn gerado_do_build_runner_fora_de_lib() {
     let unidade = &prog.units[gerado.units[0].0 as usize];
     let caminho = unidade.path.as_ref().unwrap().to_string_lossy().replace('\\', "/");
     assert!(caminho.contains(".dart_tool/build/generated/gentest/test/x_test.template.dart"), "{caminho}");
-    let valor = interner.intern("valor");
-    assert!(gerado.declared.contains_key(&valor));
+    let value = interner.intern("valor");
+    assert!(gerado.declared.contains_key(&value));
     // O relativo do gerado (`x_test.dart`) é a biblioteca de `test/`, não
     // um arquivo inexistente na pasta dos gerados.
     let orig = interner.intern("orig");
-    let alvo = gerado.imports.iter().find(|i| i.prefix == Some(orig)).expect("import do gerado");
-    assert!(prog.library(alvo.library).uri.ends_with("/proj/test/x_test.dart"), "{}", prog.library(alvo.library).uri);
+    let target = gerado.imports.iter().find(|i| i.prefix == Some(orig)).expect("import do gerado");
+    assert!(prog.library(target.library).uri.ends_with("/proj/test/x_test.dart"), "{}", prog.library(target.library).uri);
 }
 
 /// `parts-with-imports`: os imports de uma parte valem nela e nas partes
@@ -457,7 +457,7 @@ fn gerado_do_build_runner_fora_de_lib() {
 /// declarações da biblioteca escondem todo import. Mesmo resultado do CFE
 /// 3.13.4 (`corpus/macros/406_partes_imports_313`).
 #[test]
-fn escopo_de_imports_por_unidade() {
+fn import_scope_per_unit() {
     let tmp = tempdir().unwrap();
     let mut sdk = empty_sdk(tmp.path());
     sdk.experimentos.push(dartforge_frontend::features::Feature::EnhancedParts);
@@ -473,28 +473,28 @@ fn escopo_de_imports_por_unidade() {
     fs::write(proj.join("outra.dart"), "part of 'parte.dart';\nimport 'c.dart';\n").unwrap();
     let prog = load(&proj.join("main.dart"), &sdk, None, &mut interner).expect("carregamento falhou");
     let lib = prog.libraries.iter().position(|l| l.uri.ends_with("/main.dart")).map(|i| LibraryId(i as u32)).unwrap();
-    let unidade = |sufixo: &str| {
-        *prog.library(lib).units.iter().find(|u| prog.unit(**u).uri.ends_with(sufixo)).expect(sufixo)
+    let unidade = |suffix: &str| {
+        *prog.library(lib).units.iter().find(|u| prog.unit(**u).uri.ends_with(suffix)).expect(suffix)
     };
     let de = |u: UnitId, nome: &str| -> String {
         let b = prog.lookup_na_unidade(u, interner.lookup(nome).unwrap()).expect(nome);
         assert!(!b.ambiguous, "{nome}");
         match b.getter {
             Some(Element::Function(f)) => prog.library(prog.function(f).library).uri.rsplit('/').next().unwrap().to_string(),
-            outro => format!("{outro:?}"),
+            other => format!("{other:?}"),
         }
     };
-    let prefixado = |u: UnitId| -> String {
+    let prefixed = |u: UnitId| -> String {
         let (p, n) = (interner.lookup("p").unwrap(), interner.lookup("nome").unwrap());
         let b = prog.lookup_prefixed_na_unidade(u, p, n).expect("p.nome");
         match b.getter {
             Some(Element::Function(f)) => prog.library(prog.function(f).library).uri.rsplit('/').next().unwrap().to_string(),
-            outro => format!("{outro:?}"),
+            other => format!("{other:?}"),
         }
     };
-    let (m, pa, ne, ou) = (unidade("/main.dart"), unidade("/parte.dart"), unidade("/neta.dart"), unidade("/outra.dart"));
-    assert_eq!((de(m, "nome"), de(pa, "nome"), de(ne, "nome"), de(ou, "nome")), ("a.dart".into(), "b.dart".into(), "b.dart".into(), "c.dart".into()));
-    assert_eq!((prefixado(m), prefixado(pa), prefixado(ne), prefixado(ou)), ("a.dart".into(), "b.dart".into(), "b.dart".into(), "b.dart".into()));
+    let (m, pa, ne, either) = (unidade("/main.dart"), unidade("/parte.dart"), unidade("/neta.dart"), unidade("/outra.dart"));
+    assert_eq!((de(m, "nome"), de(pa, "nome"), de(ne, "nome"), de(either, "nome")), ("a.dart".into(), "b.dart".into(), "b.dart".into(), "c.dart".into()));
+    assert_eq!((prefixed(m), prefixed(pa), prefixed(ne), prefixed(either)), ("a.dart".into(), "b.dart".into(), "b.dart".into(), "b.dart".into()));
     // A declaração da biblioteca vence o import da parte.
     assert_eq!(de(pa, "local"), "main.dart");
     // Sem imports em partes, nada muda: o escopo da biblioteca vale para todas.
@@ -510,13 +510,13 @@ fn escopo_de_imports_por_unidade() {
 /// `part` do próprio arquivo (`part/self_test.dart` da linguagem): a carga
 /// termina, com a unidade uma vez só.
 #[test]
-fn parte_de_si_mesma_nao_recarrega() {
+fn part_of_itself_does_not_reload() {
     let dir = tempdir().unwrap();
     let sdk = empty_sdk(dir.path());
     let main = dir.path().join("self_test.dart");
     fs::write(&main, "part 'self_test.dart';\nmain() {}\n").unwrap();
-    let mut nomes = Interner::new();
-    let (p, _) = dartforge_elements::load::load_lenient(&main, &sdk, None, &mut nomes);
+    let mut names_ = Interner::new();
+    let (p, _) = dartforge_elements::load::load_lenient(&main, &sdk, None, &mut names_);
     let lib = p.library(p.entry.unwrap());
     assert_eq!(lib.units.len(), 1);
 }
@@ -525,7 +525,7 @@ fn parte_de_si_mesma_nao_recarrega() {
 /// C5): a URI absoluta da parte vai ao `package_config`, como a de um
 /// `import`; antes era juntada ao diretório da biblioteca (`lib/src/package:p/…`).
 #[test]
-fn parte_por_uri_package() {
+fn part_by_package_uri() {
     let tmp = tempdir().unwrap();
     let sdk = empty_sdk(tmp.path());
     let mut interner = Interner::new();

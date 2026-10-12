@@ -1,4 +1,4 @@
-//! Cache do SDK analisado: as unidades (`fonte + AST`) de cada `dart:x`,
+//! Cache do SDK analisado: as unidades (`source + AST`) de cada `dart:x`,
 //! serializadas uma vez em `target/dartforge/sdk-<hash>.bin`.
 //!
 //! O que se poupa é ler e analisar sintaticamente ~180 arquivos do SDK a
@@ -27,7 +27,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// Versão do formato; mudar invalida todos os caches.
-const FORMATO: u32 = 4; // 4: `Ast::metadados_locais`; 3: partes de patch com papel `Patch` (o main já tinha ido a 2)
+const FORMAT: u32 = 4; // 4: `Ast::metadados_locais`; 3: partes de patch com papel `Patch` (o main já tinha ido a 2)
 
 /// Uma unidade do SDK já analisada.
 #[derive(Serialize, Deserialize)]
@@ -41,8 +41,8 @@ pub struct UnitCache {
 }
 
 #[derive(Serialize, Deserialize)]
-struct Cabecalho<'a> {
-    formato: u32,
+struct Header<'a> {
+    format: u32,
     /// Textos do `Interner` na ordem dos `SymbolId`.
     #[serde(borrow)]
     simbolos: Vec<&'a str>,
@@ -60,35 +60,35 @@ pub struct SdkCache {
     simbolos: Vec<(usize, usize)>,
     blobs: HashMap<String, (usize, usize)>,
     /// `dart:` importadas ou exportadas por biblioteca (sem o prefixo).
-    dependencias: HashMap<String, Vec<String>>,
+    dependencies: HashMap<String, Vec<String>>,
     /// Blobs já decodificados, retirados pela carga.
-    pub unidades_decodificadas: usize,
+    pub decoded_units: usize,
 }
 
 impl SdkCache {
     /// Decodifica o cabeçalho de `bytes` e guarda só intervalos.
-    fn de_bytes(bytes: Vec<u8>) -> Option<SdkCache> {
+    fn from_bytes_(bytes: Vec<u8>) -> Option<SdkCache> {
         let base = bytes.as_ptr() as usize;
-        let intervalo = |p: *const u8, n: usize| ((p as usize) - base, (p as usize) - base + n);
-        let (simbolos, blobs, dependencias) = {
-            let cab: Cabecalho<'_> = postcard::from_bytes(&bytes).ok()?;
-            if cab.formato != FORMATO {
+        let range = |p: *const u8, n: usize| ((p as usize) - base, (p as usize) - base + n);
+        let (simbolos, blobs, dependencies) = {
+            let cab: Header<'_> = postcard::from_bytes(&bytes).ok()?;
+            if cab.format != FORMAT {
                 return None;
             }
-            let simbolos = cab.simbolos.iter().map(|s| intervalo(s.as_ptr(), s.len())).collect();
+            let simbolos = cab.simbolos.iter().map(|s| range(s.as_ptr(), s.len())).collect();
             let blobs = cab
                 .bibliotecas
                 .iter()
-                .map(|(nome, b, _)| (nome.to_string(), intervalo(b.as_ptr(), b.len())))
+                .map(|(nome, b, _)| (nome.to_string(), range(b.as_ptr(), b.len())))
                 .collect();
-            let dependencias = cab
+            let dependencies = cab
                 .bibliotecas
                 .iter()
                 .map(|(nome, _, deps)| (nome.to_string(), deps.iter().map(|d| d.to_string()).collect()))
                 .collect();
-            (simbolos, blobs, dependencias)
+            (simbolos, blobs, dependencies)
         };
-        Some(SdkCache { bytes, simbolos, blobs, dependencias, unidades_decodificadas: 0 })
+        Some(SdkCache { bytes, simbolos, blobs, dependencies, decoded_units: 0 })
     }
     /// Hash FNV-1a de tudo o que invalida o cache.
     pub fn hash(sdk: &SdkLayout, target: &str) -> String {
@@ -101,7 +101,7 @@ impl SdkCache {
             h ^= 0xff;
             h = h.wrapping_mul(0x0000_0100_0000_01b3);
         };
-        mix(&FORMATO.to_le_bytes());
+        mix(&FORMAT.to_le_bytes());
         mix(target.as_bytes());
         // A raiz entra na chave: as unidades guardadas trazem o caminho
         // absoluto de cada arquivo, e dois SDKs com `libraries.json` igual em
@@ -112,9 +112,9 @@ impl SdkCache {
         mix(&std::fs::read(sdk.root.join("../version")).unwrap_or_default());
         // Sobreposição (`load_com_sobreposicao`): cada troca e o conteúdo do
         // substituto, em ordem estável.
-        let mut trocas: Vec<(&PathBuf, &PathBuf)> = sdk.substituicoes.iter().collect();
-        trocas.sort();
-        for (original, novo) in trocas {
+        let mut swaps: Vec<(&PathBuf, &PathBuf)> = sdk.substituicoes.iter().collect();
+        swaps.sort();
+        for (original, novo) in swaps {
             mix(original.to_string_lossy().as_bytes());
             mix(&std::fs::read(novo).unwrap_or_default());
         }
@@ -152,23 +152,23 @@ impl SdkCache {
     /// Lê e decodifica o cabeçalho de `caminho`; `None` se não existe ou não decodifica.
     pub fn abrir(caminho: &Path) -> Option<SdkCache> {
         let bytes = std::fs::read(caminho).ok()?;
-        Self::de_bytes(bytes)
+        Self::from_bytes_(bytes)
     }
 
     /// Analisa o SDK inteiro (todas as bibliotecas de `sdk`, com patches e
     /// partes) com um `Interner` novo e grava o cache em `caminho`.
     ///
     /// Devolve o cache pronto para uso (sem reler o arquivo).
-    pub fn construir_e_gravar(sdk: &SdkLayout, caminho: &Path) -> Result<SdkCache, String> {
+    pub fn build_and_write(sdk: &SdkLayout, caminho: &Path) -> Result<SdkCache, String> {
         let mut interner = Interner::new();
-        let mut nomes: Vec<&String> = sdk.libraries.keys().collect();
-        nomes.sort();
-        let mut bibliotecas = Vec::with_capacity(nomes.len());
-        for nome in nomes {
+        let mut names_: Vec<&String> = sdk.libraries.keys().collect();
+        names_.sort();
+        let mut bibliotecas = Vec::with_capacity(names_.len());
+        for nome in names_ {
             let lib = &sdk.libraries[nome];
             let uri = format!("dart:{nome}");
             let mut unidades = Vec::new();
-            let Some(principal) = analisar(sdk, &lib.path, &uri, UnitRole::Library, &mut interner)? else {
+            let Some(principal) = parse(sdk, &lib.path, &uri, UnitRole::Library, &mut interner)? else {
                 // Biblioteca sem arquivo de origem: não entra no cache; a
                 // carga normal emite o diagnóstico.
                 continue;
@@ -179,7 +179,7 @@ impl SdkCache {
                     "{uri}#patch_{}",
                     patch.file_name().unwrap_or_default().to_string_lossy()
                 );
-                if let Some(u) = analisar(sdk, patch, &patch_uri, UnitRole::Patch, &mut interner)? {
+                if let Some(u) = parse(sdk, patch, &patch_uri, UnitRole::Patch, &mut interner)? {
                     unidades.push(u);
                 }
             }
@@ -188,8 +188,8 @@ impl SdkCache {
             // partes de cada uma ao fim.
             let mut i = 0;
             while i < unidades.len() {
-                let novas = partes_de(sdk, &unidades[i], &mut interner)?;
-                unidades.extend(novas);
+                let new_ones = parts_of(sdk, &unidades[i], &mut interner)?;
+                unidades.extend(new_ones);
                 i += 1;
             }
             let blob = postcard::to_allocvec(&unidades).map_err(|e| format!("serializar dart:{nome}: {e}"))?;
@@ -210,8 +210,8 @@ impl SdkCache {
             bibliotecas.push((nome.clone(), blob, deps));
         }
         let bytes = {
-            let cab = Cabecalho {
-                formato: FORMATO,
+            let cab = Header {
+                format: FORMAT,
                 simbolos: interner.textos().collect(),
                 bibliotecas: bibliotecas
                     .iter()
@@ -229,7 +229,7 @@ impl SdkCache {
         if std::fs::rename(&tmp, caminho).is_err() {
             let _ = std::fs::remove_file(&tmp);
         }
-        Self::de_bytes(bytes).ok_or_else(|| "cache do SDK recém-gravado não decodifica".to_string())
+        Self::from_bytes_(bytes).ok_or_else(|| "cache do SDK recém-gravado não decodifica".to_string())
     }
 
     /// Abre o cache de `sdk` (em [`SdkCache::caminho`]) ou constrói e grava.
@@ -239,17 +239,17 @@ impl SdkCache {
         if let Some(c) = Self::abrir(&caminho) {
             return Ok((c, true));
         }
-        Self::construir_e_gravar(sdk, &caminho).map(|c| (c, false))
+        Self::build_and_write(sdk, &caminho).map(|c| (c, false))
     }
 
     /// Interna os símbolos do cache em `interner`, na ordem original. Falha
     /// (devolve `false`) se `interner` já tinha outros símbolos e os ids não
     /// coincidem — nesse caso o cache não pode ser usado nesta carga.
-    pub fn preparar_interner(&self, interner: &mut Interner) -> bool {
+    pub fn prepare_interner(&self, interner: &mut Interner) -> bool {
         for (i, &(a, b)) in self.simbolos.iter().enumerate() {
             // O cabeçalho decodificou estes bytes como `&str`: são UTF-8.
-            let texto = std::str::from_utf8(&self.bytes[a..b]).unwrap_or("");
-            if interner.intern(texto).as_u32() as usize != i {
+            let text = std::str::from_utf8(&self.bytes[a..b]).unwrap_or("");
+            if interner.intern(text).as_u32() as usize != i {
                 return false;
             }
         }
@@ -261,11 +261,11 @@ impl SdkCache {
     pub fn retirar(&mut self, nome: &str) -> Option<Vec<UnitCache>> {
         let (a, b) = self.blobs.remove(nome)?;
         let unidades: Vec<UnitCache> = postcard::from_bytes(&self.bytes[a..b]).ok()?;
-        self.unidades_decodificadas += unidades.len();
+        self.decoded_units += unidades.len();
         Some(unidades)
     }
 
-    /// Retira e decodifica de uma vez as bibliotecas de `nomes` e o fecho das
+    /// Retira e decodifica de uma vez as bibliotecas de `names_` e o fecho das
     /// `dart:` que elas importam ou exportam (o que ainda está no cache), em
     /// até 8 threads: os blobs são independentes e a decodificação não toca no
     /// `Interner`. As que não decodificam ficam de fora — como em
@@ -277,52 +277,52 @@ impl SdkCache {
     /// `dev` (`serde` sem otimização: ~120 ms contra ~145 ms de leitura +
     /// parse nas 21 bibliotecas que `dart:core`/`convert`/`math`… puxam), e o
     /// teste de desempenho do cache virava cara ou coroa no runner.
-    pub fn retirar_varios(&mut self, nomes: &[&str]) -> HashMap<String, Vec<UnitCache>> {
-        let mut pedidos: Vec<(String, (usize, usize))> = Vec::new();
-        let mut pendentes: Vec<String> = nomes.iter().map(|n| n.to_string()).collect();
-        while let Some(nome) = pendentes.pop() {
+    pub fn remove_several(&mut self, names_: &[&str]) -> HashMap<String, Vec<UnitCache>> {
+        let mut requests: Vec<(String, (usize, usize))> = Vec::new();
+        let mut pending: Vec<String> = names_.iter().map(|n| n.to_string()).collect();
+        while let Some(nome) = pending.pop() {
             let Some(r) = self.blobs.remove(&nome) else { continue };
-            if let Some(deps) = self.dependencias.get(&nome) {
-                pendentes.extend(deps.iter().filter(|d| self.blobs.contains_key(*d)).cloned());
+            if let Some(deps) = self.dependencies.get(&nome) {
+                pending.extend(deps.iter().filter(|d| self.blobs.contains_key(*d)).cloned());
             }
-            pedidos.push((nome, r));
+            requests.push((nome, r));
         }
         // Maiores primeiro: o maior blob (`dart:core`) não fica para o fim.
-        pedidos.sort_by_key(|(_, (a, b))| std::cmp::Reverse(b - a));
+        requests.sort_by_key(|(_, (a, b))| std::cmp::Reverse(b - a));
         let bytes = &self.bytes;
-        let decodificar = |(a, b): (usize, usize)| postcard::from_bytes::<Vec<UnitCache>>(&bytes[a..b]).ok();
-        let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(8).min(pedidos.len());
-        let mut saida = HashMap::new();
+        let decode = |(a, b): (usize, usize)| postcard::from_bytes::<Vec<UnitCache>>(&bytes[a..b]).ok();
+        let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(8).min(requests.len());
+        let mut output = HashMap::new();
         if threads < 2 {
-            for (nome, r) in pedidos {
-                if let Some(u) = decodificar(r) {
-                    saida.insert(nome, u);
+            for (nome, r) in requests {
+                if let Some(u) = decode(r) {
+                    output.insert(nome, u);
                 }
             }
         } else {
             let proximo = std::sync::atomic::AtomicUsize::new(0);
-            let lotes: Vec<Vec<(String, Vec<UnitCache>)>> = std::thread::scope(|s| {
+            let batches: Vec<Vec<(String, Vec<UnitCache>)>> = std::thread::scope(|s| {
                 let handles: Vec<_> = (0..threads)
                     .map(|_| {
                         s.spawn(|| {
-                            let mut meus = Vec::new();
+                            let mut mine = Vec::new();
                             loop {
                                 let i = proximo.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                let Some((nome, r)) = pedidos.get(i) else { break };
-                                if let Some(u) = decodificar(*r) {
-                                    meus.push((nome.clone(), u));
+                                let Some((nome, r)) = requests.get(i) else { break };
+                                if let Some(u) = decode(*r) {
+                                    mine.push((nome.clone(), u));
                                 }
                             }
-                            meus
+                            mine
                         })
                     })
                     .collect();
                 handles.into_iter().map(|h| h.join().unwrap_or_default()).collect()
             });
-            saida.extend(lotes.into_iter().flatten());
+            output.extend(batches.into_iter().flatten());
         }
-        self.unidades_decodificadas += saida.values().map(Vec::len).sum::<usize>();
-        saida
+        self.decoded_units += output.values().map(Vec::len).sum::<usize>();
+        output
     }
 
     pub fn tem(&self, nome: &str) -> bool {
@@ -340,7 +340,7 @@ impl SdkCache {
 
 /// Lê e analisa um arquivo; `Ok(None)` se não existe, `Err` se tem erro de sintaxe
 /// (o SDK oficial não tem: um erro aqui é lacuna do parser e não entra no cache).
-fn analisar(sdk: &SdkLayout, path: &Path, uri: &str, role: UnitRole, interner: &mut Interner) -> Result<Option<UnitCache>, String> {
+fn parse(sdk: &SdkLayout, path: &Path, uri: &str, role: UnitRole, interner: &mut Interner) -> Result<Option<UnitCache>, String> {
     // A sobreposição troca o conteúdo, não o caminho (`SdkLayout::substituto`).
     let Ok(source) = std::fs::read_to_string(sdk.substituto(path).unwrap_or(path)) else {
         return Ok(None);
@@ -356,23 +356,23 @@ fn analisar(sdk: &SdkLayout, path: &Path, uri: &str, role: UnitRole, interner: &
 }
 
 /// As partes declaradas por `part 'x.dart';` em `unidade`, analisadas.
-fn partes_de(sdk: &SdkLayout, unidade: &UnitCache, interner: &mut Interner) -> Result<Vec<UnitCache>, String> {
-    let mut saida = Vec::new();
+fn parts_of(sdk: &SdkLayout, unidade: &UnitCache, interner: &mut Interner) -> Result<Vec<UnitCache>, String> {
+    let mut output = Vec::new();
     for d in &unidade.unit.directives {
         let DirectiveKind::Part { uri } = &d.kind else { continue };
         let Some(rel) = string_lit_value(uri) else { continue };
         let path = unidade.path.parent().unwrap_or(Path::new(".")).join(&rel);
         // Mesma normalização lexical do carregador: o caminho é a chave do
         // cache da sessão residente e tem de bater com o que `load.rs` monta.
-        let canonico = crate::load::normalizar(&path);
-        let part_uri = url::Url::from_file_path(&canonico)
+        let canonical = crate::load::normalize(&path);
+        let part_uri = url::Url::from_file_path(&canonical)
             .map(|u| u.to_string())
-            .unwrap_or_else(|_| canonico.to_string_lossy().to_string());
+            .unwrap_or_else(|_| canonical.to_string_lossy().to_string());
         // Parte de patch é patch (ver `load.rs`).
-        let papel = if unidade.role == UnitRole::Patch { UnitRole::Patch } else { UnitRole::Part };
-        if let Some(p) = analisar(sdk, &canonico, &part_uri, papel, interner)? {
-            saida.push(p);
+        let role_ = if unidade.role == UnitRole::Patch { UnitRole::Patch } else { UnitRole::Part };
+        if let Some(p) = parse(sdk, &canonical, &part_uri, role_, interner)? {
+            output.push(p);
         }
     }
-    Ok(saida)
+    Ok(output)
 }

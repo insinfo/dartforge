@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 /// Uma fonte Dart produzida por um gerador.
 #[derive(Debug, Clone)]
-pub struct FonteGerada {
+pub struct GeneratedSource {
     pub conteudo: Arc<str>,
     /// Arquivos que a produziram (`.dart`, `.html`, `.css`): é por eles que o
     /// observador do `serve` sabe o que invalidar.
@@ -29,46 +29,46 @@ pub struct FonteGerada {
 #[derive(Debug, Default)]
 pub struct Geracao {
     pub id: u64,
-    fontes: HashMap<PathBuf, FonteGerada>,
+    sources: HashMap<PathBuf, GeneratedSource>,
 }
 
 /// Normaliza o caminho para servir de chave: lexical (sem tocar no disco, que
 /// o arquivo não existe) e sem o prefixo verbatim do Windows.
 pub fn chave(caminho: &Path) -> PathBuf {
-    crate::config::sem_verbatim(crate::load::normalizar(caminho))
+    crate::config::sem_verbatim(crate::load::normalize(caminho))
 }
 
 impl Geracao {
-    pub fn obter(&self, caminho: &Path) -> Option<&FonteGerada> {
-        self.fontes.get(&chave(caminho))
+    pub fn obter(&self, caminho: &Path) -> Option<&GeneratedSource> {
+        self.sources.get(&chave(caminho))
     }
 
     pub fn contem(&self, caminho: &Path) -> bool {
-        self.fontes.contains_key(&chave(caminho))
+        self.sources.contains_key(&chave(caminho))
     }
 
     pub fn vazia(&self) -> bool {
-        self.fontes.is_empty()
+        self.sources.is_empty()
     }
 
     pub fn len(&self) -> usize {
-        self.fontes.len()
+        self.sources.len()
     }
 
     pub fn caminhos(&self) -> impl Iterator<Item = &PathBuf> {
-        self.fontes.keys()
+        self.sources.keys()
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&PathBuf, &FonteGerada)> {
-        self.fontes.iter()
+    pub fn iter(&self) -> impl Iterator<Item = (&PathBuf, &GeneratedSource)> {
+        self.sources.iter()
     }
 }
 
 /// Acumula uma geração. Só vira `Geracao` se fechar sem erro.
 #[derive(Default)]
 pub struct Construtor {
-    fontes: HashMap<PathBuf, FonteGerada>,
-    erros: Vec<String>,
+    sources: HashMap<PathBuf, GeneratedSource>,
+    errors: Vec<String>,
 }
 
 impl Construtor {
@@ -83,27 +83,27 @@ impl Construtor {
         gerador: &'static str,
         entradas: Vec<PathBuf>,
     ) {
-        self.fontes.insert(
+        self.sources.insert(
             chave(&caminho),
-            FonteGerada { conteudo: conteudo.into(), entradas: entradas.into(), gerador },
+            GeneratedSource { conteudo: conteudo.into(), entradas: entradas.into(), gerador },
         );
     }
 
     pub fn contem(&self, caminho: &Path) -> bool {
-        self.fontes.contains_key(&chave(caminho))
+        self.sources.contains_key(&chave(caminho))
     }
 
-    pub fn erro(&mut self, mensagem: String) {
-        self.erros.push(mensagem);
+    pub fn erro(&mut self, message: String) {
+        self.errors.push(message);
     }
 
     /// Fecha a geração. Com qualquer erro nada é publicado — quem chamou segue
     /// com a geração anterior.
     pub fn concluir(self, id: u64) -> Result<Arc<Geracao>, Vec<String>> {
-        if !self.erros.is_empty() {
-            return Err(self.erros);
+        if !self.errors.is_empty() {
+            return Err(self.errors);
         }
-        Ok(Arc::new(Geracao { id, fontes: self.fontes }))
+        Ok(Arc::new(Geracao { id, sources: self.sources }))
     }
 }
 
@@ -117,44 +117,44 @@ impl Construtor {
 /// quem produz as strings.
 pub fn do_build_runner(
     cfg: &crate::config::PackageConfig,
-    sufixos: &[&str],
-    pacotes: Option<&std::collections::HashSet<String>>,
+    suffixes: &[&str],
+    packages_: Option<&std::collections::HashSet<String>>,
 ) -> Arc<Geracao> {
     let mut c = Construtor::nova();
-    let Some(origem) = cfg.origin.as_ref().and_then(|o| o.parent()) else {
+    let Some(origin) = cfg.origin.as_ref().and_then(|o| o.parent()) else {
         return c.concluir(0).unwrap_or_default_arc();
     };
-    let raiz = origem.join("build").join("generated");
+    let raiz = origin.join("build").join("generated");
     for (nome, pkg) in &cfg.packages {
-        if pacotes.is_some_and(|p| !p.contains(nome)) {
+        if packages_.is_some_and(|p| !p.contains(nome)) {
             continue;
         }
         let dir = raiz.join(nome).join("lib");
         if !dir.is_dir() {
             continue;
         }
-        let mut pilha = vec![dir.clone()];
-        while let Some(d) = pilha.pop() {
+        let mut stack = vec![dir.clone()];
+        while let Some(d) = stack.pop() {
             let Ok(entradas) = std::fs::read_dir(&d) else { continue };
             for e in entradas.flatten() {
                 let p = e.path();
                 if p.is_dir() {
-                    pilha.push(p);
+                    stack.push(p);
                     continue;
                 }
                 let nome = p.to_string_lossy();
-                if !sufixos.iter().any(|s| nome.ends_with(s)) {
+                if !suffixes.iter().any(|s| nome.ends_with(s)) {
                     continue;
                 }
                 let Ok(rel) = p.strip_prefix(&dir) else { continue };
                 let rel = rel.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/");
-                let Ok(destino) = pkg.package_uri.join(&rel).and_then(|u| {
+                let Ok(destination) = pkg.package_uri.join(&rel).and_then(|u| {
                     u.to_file_path().map_err(|_| url::ParseError::RelativeUrlWithoutBase)
                 }) else {
                     continue;
                 };
                 match std::fs::read_to_string(&p) {
-                    Ok(texto) => c.por(destino, texto, "build_runner", vec![p]),
+                    Ok(text) => c.por(destination, text, "build_runner", vec![p]),
                     Err(e) => c.erro(format!("não foi possível ler {}: {e}", p.display())),
                 }
             }
@@ -163,11 +163,11 @@ pub fn do_build_runner(
     c.concluir(0).unwrap_or_default_arc()
 }
 
-trait OuVazia {
+trait OrEmpty {
     fn unwrap_or_default_arc(self) -> Arc<Geracao>;
 }
 
-impl OuVazia for Result<Arc<Geracao>, Vec<String>> {
+impl OrEmpty for Result<Arc<Geracao>, Vec<String>> {
     fn unwrap_or_default_arc(self) -> Arc<Geracao> {
         self.unwrap_or_else(|e| {
             for m in e {
@@ -183,7 +183,7 @@ mod testes {
     use super::*;
 
     #[test]
-    fn chave_e_lexical() {
+    fn key_is_lexical() {
         let g = {
             let mut c = Construtor::nova();
             c.por(PathBuf::from("/p/lib/./a/../foo.template.dart"), "// x", "teste", vec![]);
@@ -195,7 +195,7 @@ mod testes {
     }
 
     #[test]
-    fn erro_aborta_a_geracao() {
+    fn error_aborts_generation() {
         let mut c = Construtor::nova();
         c.por(PathBuf::from("/p/lib/foo.template.dart"), "// x", "teste", vec![]);
         c.erro("template quebrado".into());

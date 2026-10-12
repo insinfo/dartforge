@@ -257,7 +257,7 @@ pub struct Library {
     /// partes dele, e os de dentro escondem os de fora. Vazio quando só o
     /// arquivo da biblioteca importa — aí vale [`Library::scope`] para
     /// todas. Consulte por [`Program::lookup_na_unidade`].
-    pub escopos_de_unidade: HashMap<UnitId, EscopoDeUnidade>,
+    pub escopos_de_unidade: HashMap<UnitId, UnitScope>,
     /// Para cada elemento de topo com homônimo da MESMA espécie na
     /// biblioteca (duas classes `A`, duas funções `f`): o representante do
     /// grupo, o primeiro em ordem de fonte — ele próprio inclusive. Sem
@@ -269,14 +269,14 @@ pub struct Library {
     pub representante: HashMap<Element, Element>,
     /// T1.1 d: para cada classe com homônimo da mesma espécie, a classe cujo
     /// cálculo de interface e de hierarquia vale para o grupo inteiro — a
-    /// que o analyzer consulta primeiro (`outline::calcular_donos_de_homonimos`).
+    /// que o analyzer consulta primeiro (`outline::compute_homonym_owners`).
     /// Sem homônimo, ausente.
     pub dono_do_grupo: HashMap<ClassId, ClassId>,
 }
 
 /// Escopo de nomes de topo de uma unidade (ver [`Library::escopos_de_unidade`]).
 #[derive(Debug, Clone, Default)]
-pub struct EscopoDeUnidade {
+pub struct UnitScope {
     /// Como [`Library::scope`], com os imports da cadeia da unidade.
     pub scope: Namespace,
     /// Como [`Library::prefixes`], com os prefixos da cadeia da unidade.
@@ -304,7 +304,7 @@ pub struct DeclRef {
 #[derive(Debug)]
 pub struct TypeParameterElement {
     pub name: SymbolId,
-    /// `(unidade, tipo na arena)` do bound escrito, resolvido em `types`.
+    /// `(unidade, kind na arena)` do bound escrito, resolvido em `types`.
     pub bound: Option<(UnitId, ast::TypeId)>,
 }
 
@@ -550,7 +550,7 @@ impl Program {
 
     /// T1: a classe `c` tem homônimo da mesma espécie na biblioteca (ela é
     /// uma das declarações repetidas, a primeira inclusive)?
-    pub fn classe_com_homonimo(&self, c: ClassId) -> bool {
+    pub fn class_with_homonym(&self, c: ClassId) -> bool {
         self.library(self.class(c).library).representante.contains_key(&Element::Class(c))
     }
 
@@ -645,14 +645,14 @@ impl Program {
         let decls = std::iter::once(decl).chain(self.augmentacoes.get(&id).into_iter().flatten().copied());
         for d in decls {
             let ast = &self.unit(d.unit).ast;
-            let membros: &[MemberId] = match &ast.decl(d.decl).kind {
+            let members_: &[MemberId] = match &ast.decl(d.decl).kind {
                 ast::DeclKind::Class(c) => &c.members,
                 ast::DeclKind::Mixin(m) => &m.members,
                 ast::DeclKind::Enum(e) => &e.members,
                 ast::DeclKind::ExtensionType(e) => &e.members,
                 _ => &[],
             };
-            out.extend(membros.iter().map(|&m| (d.unit, m)));
+            out.extend(members_.iter().map(|&m| (d.unit, m)));
         }
         out
     }
@@ -674,7 +674,7 @@ impl Program {
         }
     }
 
-    /// `prefixo.nome` no escopo de uma unidade (ver [`Program::lookup_na_unidade`]).
+    /// `prefix.nome` no escopo de uma unidade (ver [`Program::lookup_na_unidade`]).
     pub fn lookup_prefixed_na_unidade(&self, unit: UnitId, prefix: SymbolId, name: SymbolId) -> Option<Binding> {
         self.prefixos_na_unidade(unit).get(&prefix).and_then(|ns| ns.get(&name).copied())
     }
@@ -688,7 +688,7 @@ impl Program {
         }
     }
 
-    /// Resolve `prefixo.nome`.
+    /// Resolve `prefix.nome`.
     pub fn lookup_prefixed(
         &self,
         library: LibraryId,

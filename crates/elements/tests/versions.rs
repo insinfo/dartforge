@@ -11,7 +11,7 @@ use std::fs;
 use std::path::Path;
 use tempfile::tempdir;
 
-fn sdk_falso(dir: &Path) -> SdkLayout {
+fn fake_sdk(dir: &Path) -> SdkLayout {
     let lib_dir = dir.join("lib");
     fs::create_dir_all(lib_dir.join("core")).unwrap();
     fs::write(
@@ -27,11 +27,11 @@ fn sdk_falso(dir: &Path) -> SdkLayout {
     SdkLayout::load(&lib_dir, "dartdevc").unwrap()
 }
 
-fn versao_de(p: &Program, trecho: &str) -> LanguageVersion {
+fn version_of(p: &Program, excerpt: &str) -> LanguageVersion {
     p.libraries
         .iter()
-        .find(|l| l.uri.contains(trecho))
-        .unwrap_or_else(|| panic!("{trecho}"))
+        .find(|l| l.uri.contains(excerpt))
+        .unwrap_or_else(|| panic!("{excerpt}"))
         .features
         .versao()
 }
@@ -41,15 +41,15 @@ fn v(a: u16, b: u16) -> LanguageVersion {
 }
 
 #[test]
-fn sem_marcador_e_sem_pacote_vale_a_corrente() {
+fn no_marker_and_no_package_uses_current() {
     let tmp = tempdir().unwrap();
-    let mut sdk = sdk_falso(tmp.path());
+    let mut sdk = fake_sdk(tmp.path());
     let main = tmp.path().join("main.dart");
     fs::write(&main, "void main() {}").unwrap();
     let (p, d) = load_lenient(&main, &sdk, None, &mut Interner::new());
     assert!(d.is_empty(), "{d:?}");
-    assert_eq!(versao_de(&p, "main.dart"), LanguageVersion::ATUAL);
-    assert_eq!(versao_de(&p, "dart:core"), LanguageVersion::PISO);
+    assert_eq!(version_of(&p, "main.dart"), LanguageVersion::ATUAL);
+    assert_eq!(version_of(&p, "dart:core"), LanguageVersion::PISO);
     assert!(
         p.library(p.entry.unwrap())
             .features
@@ -58,7 +58,7 @@ fn sem_marcador_e_sem_pacote_vale_a_corrente() {
 
     sdk.versao_corrente = v(3, 6);
     let (p, _) = load_lenient(&main, &sdk, None, &mut Interner::new());
-    assert_eq!(versao_de(&p, "main.dart"), v(3, 6));
+    assert_eq!(version_of(&p, "main.dart"), v(3, 6));
     assert!(
         !p.library(p.entry.unwrap())
             .features
@@ -67,9 +67,9 @@ fn sem_marcador_e_sem_pacote_vale_a_corrente() {
 }
 
 #[test]
-fn marcador_vale_mais_que_o_pacote() {
+fn marker_wins_over_package() {
     let tmp = tempdir().unwrap();
-    let sdk = sdk_falso(tmp.path());
+    let sdk = fake_sdk(tmp.path());
     let proj = tmp.path().join("app");
     fs::create_dir_all(proj.join(".dart_tool")).unwrap();
     fs::create_dir_all(proj.join("bin")).unwrap();
@@ -100,15 +100,15 @@ fn marcador_vale_mais_que_o_pacote() {
         &mut Interner::new(),
     );
     assert!(d.is_empty(), "{d:?}");
-    assert_eq!(versao_de(&p, "main.dart"), v(3, 8));
-    assert_eq!(versao_de(&p, "package:app/a.dart"), v(3, 8));
-    assert_eq!(versao_de(&p, "package:app/b.dart"), v(3, 6));
+    assert_eq!(version_of(&p, "main.dart"), v(3, 8));
+    assert_eq!(version_of(&p, "package:app/a.dart"), v(3, 8));
+    assert_eq!(version_of(&p, "package:app/b.dart"), v(3, 6));
 }
 
 #[test]
-fn parte_com_versao_diferente_e_erro() {
+fn part_with_different_version_is_error() {
     let tmp = tempdir().unwrap();
-    let sdk = sdk_falso(tmp.path());
+    let sdk = fake_sdk(tmp.path());
     let main = tmp.path().join("main.dart");
     fs::write(
         &main,
@@ -126,7 +126,7 @@ fn parte_com_versao_diferente_e_erro() {
     )
     .unwrap();
     let (p, d) = load_lenient(&main, &sdk, None, &mut Interner::new());
-    assert_eq!(versao_de(&p, "main.dart"), v(3, 10));
+    assert_eq!(version_of(&p, "main.dart"), v(3, 10));
     // `q.dart` sem marcador fica na corrente (3.13), diferente da biblioteca.
     assert_eq!(d.len(), 1, "{d:?}");
     assert!(
@@ -140,9 +140,9 @@ fn parte_com_versao_diferente_e_erro() {
 }
 
 #[test]
-fn marcador_fora_do_intervalo_e_erro() {
+fn marker_out_of_range_is_error() {
     let tmp = tempdir().unwrap();
-    let sdk = sdk_falso(tmp.path());
+    let sdk = fake_sdk(tmp.path());
     let alto = tmp.path().join("alto.dart");
     fs::write(&alto, "// @dart=3.99\nvoid main() {}").unwrap();
     let (p, d) = load_lenient(&alto, &sdk, None, &mut Interner::new());
@@ -152,10 +152,10 @@ fn marcador_fora_do_intervalo_e_erro() {
         "{}",
         d[0].message
     );
-    assert_eq!(versao_de(&p, "alto.dart"), LanguageVersion::ATUAL);
-    let baixo = tmp.path().join("baixo.dart");
-    fs::write(&baixo, "// @dart=2.9\nvoid main() {}").unwrap();
-    let (_, d) = load_lenient(&baixo, &sdk, None, &mut Interner::new());
+    assert_eq!(version_of(&p, "alto.dart"), LanguageVersion::ATUAL);
+    let low = tmp.path().join("baixo.dart");
+    fs::write(&low, "// @dart=2.9\nvoid main() {}").unwrap();
+    let (_, d) = load_lenient(&low, &sdk, None, &mut Interner::new());
     assert!(
         d.len() == 1 && d[0].message.contains("The language version must be >=2.12.0."),
         "{d:?}"
@@ -163,9 +163,9 @@ fn marcador_fora_do_intervalo_e_erro() {
 }
 
 #[test]
-fn recurso_desligado_pela_versao_e_diagnostico_do_parser() {
+fn feature_disabled_by_version_is_parser_diagnostic() {
     let tmp = tempdir().unwrap();
-    let sdk = sdk_falso(tmp.path());
+    let sdk = fake_sdk(tmp.path());
     let main = tmp.path().join("main.dart");
     fs::write(&main, "// @dart=3.7\nvar l = [?null];\nvoid main() {}").unwrap();
     let (_, d) = load_lenient(&main, &sdk, None, &mut Interner::new());
