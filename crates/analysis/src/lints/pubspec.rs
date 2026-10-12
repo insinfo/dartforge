@@ -13,7 +13,7 @@
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use super::codigos_g as c;
-use super::regras::RelatoDeLint;
+use super::rules::RelatoDeLint;
 use super::CodigoLint;
 use crate::naodart::yaml::{self, No, Valor};
 use dartforge_diagnostics::Span;

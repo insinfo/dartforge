@@ -2,52 +2,52 @@
 //! (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8): o registro das 240 regras
 //! ([`tabela_g`]) e os códigos que elas relatam ([`codigos_g`]), geradas por
 //! `scripts/gerar-tabelas-analise.py`. As regras implementadas estão em
-//! [`regras`] a [`regras10`] (oitenta, as que só olham a árvore e o texto; [`andar`] é o passeio com ancestrais e [`cordas`] relê os literais de string e os comentários); as tabelas servem também à
+//! [`rules`] a [`rules10`] (oitenta, as que só olham a árvore e o texto; [`walk`] é o passeio com ancestrais e [`strings`] relê os literais de string e os comentários); as tabelas servem também à
 //! validação de `linter: rules:` do `analysis_options.yaml`
-//! (`crate::naodart::opcoes`).
+//! (`crate::naodart::options`).
 //!
 //! Escrito sem compilar nem executar (2026-10-05).
 
-pub mod andar;
+pub mod walk;
 pub mod codigos_g;
-pub mod cordas;
-pub mod escopo;
-pub mod regras;
-pub mod regras2;
-pub mod regras3;
-pub mod regras4;
-pub mod regras5;
-pub mod regras6;
-pub mod regras7;
-pub mod regras8;
-pub mod regras10;
-pub mod regras11;
-pub mod regras12;
-pub mod regras13;
-pub mod regras14;
-pub mod regras15;
-pub mod regras16;
-pub mod regras17;
-pub mod regras18;
-pub mod regras19;
-pub mod regras20;
-pub mod regras21;
-pub mod regras22;
-pub mod regras23;
-pub mod regras24;
-pub mod regras25;
-pub mod regras26;
-pub mod regras27;
-pub mod regras28;
-pub mod regras29;
-pub mod regras30;
-pub mod regras31;
-pub mod regras32;
-pub mod regras33;
-pub mod obvio;
+pub mod strings;
+pub mod scope;
+pub mod rules;
+pub mod rules2;
+pub mod rules3;
+pub mod rules4;
+pub mod rules5;
+pub mod rules6;
+pub mod rules7;
+pub mod rules8;
+pub mod rules10;
+pub mod rules11;
+pub mod rules12;
+pub mod rules13;
+pub mod rules14;
+pub mod rules15;
+pub mod rules16;
+pub mod rules17;
+pub mod rules18;
+pub mod rules19;
+pub mod rules20;
+pub mod rules21;
+pub mod rules22;
+pub mod rules23;
+pub mod rules24;
+pub mod rules25;
+pub mod rules26;
+pub mod rules27;
+pub mod rules28;
+pub mod rules29;
+pub mod rules30;
+pub mod rules31;
+pub mod rules32;
+pub mod rules33;
+pub mod obvious;
 pub mod flutter;
 pub mod pubspec;
-pub mod regras9;
+pub mod rules9;
 pub mod regexp_unicode_g;
 pub mod regexp_vm;
 pub mod tabela_g;
@@ -105,7 +105,7 @@ pub fn executar(
     u: crate::Unidade<'_>,
     interner: &dartforge_intern::Interner,
     ligada: &dyn Fn(&str) -> bool,
-) -> Vec<regras::RelatoDeLint> {
+) -> Vec<rules::RelatoDeLint> {
     executar_com(u, interner, ligada, None)
 }
 
@@ -468,40 +468,40 @@ pub fn executar_com(
     interner: &dartforge_intern::Interner,
     ligada: &dyn Fn(&str) -> bool,
     sem: Option<&Semantica<'_>>,
-) -> Vec<regras::RelatoDeLint> {
-    let mut out = regras::executar(u, interner, ligada, sem);
-    out.extend(regras2::executar(u, interner, ligada, sem));
-    out.extend(regras3::executar(u, interner, ligada, sem));
-    out.extend(regras4::executar(u, interner, ligada, sem));
-    out.extend(regras5::executar(u, interner, ligada, sem));
-    out.extend(regras6::executar(u, interner, ligada, sem));
-    out.extend(regras7::executar(u, interner, ligada, sem));
-    out.extend(regras8::executar(u, interner, ligada, sem));
-    out.extend(regras9::executar(u, interner, ligada, sem));
-    out.extend(regras10::executar(u, interner, ligada, sem));
-    out.extend(regras11::executar(u, interner, ligada, sem));
-    out.extend(regras12::executar(u, interner, ligada, sem));
-    out.extend(regras13::executar(u, interner, ligada, sem));
-    out.extend(regras14::executar(u, interner, ligada, sem));
-    out.extend(regras15::executar(u, interner, ligada, sem));
-    out.extend(regras16::executar(u, interner, ligada, sem));
-    out.extend(regras17::executar(u, interner, ligada, sem));
-    out.extend(regras18::executar(u, interner, ligada, sem));
-    out.extend(regras19::executar(u, interner, ligada, sem));
-    out.extend(regras20::executar(u, interner, ligada, sem));
-    out.extend(regras21::executar(u, interner, ligada, sem));
-    out.extend(regras22::executar(u, interner, ligada, sem));
-    out.extend(regras23::executar(u, interner, ligada, sem));
-    out.extend(regras24::executar(u, interner, ligada, sem));
-    out.extend(regras25::executar(u, interner, ligada, sem));
-    out.extend(regras26::executar(u, interner, ligada, sem));
-    out.extend(regras27::executar(u, interner, ligada, sem));
-    out.extend(regras28::executar(u, interner, ligada, sem));
-    out.extend(regras29::executar(u, interner, ligada, sem));
-    out.extend(regras30::executar(u, interner, ligada, sem));
-    out.extend(regras31::executar(u, interner, ligada, sem));
-    out.extend(regras32::executar(u, interner, ligada, sem));
-    out.extend(regras33::executar(u, interner, ligada, sem));
+) -> Vec<rules::RelatoDeLint> {
+    let mut out = rules::executar(u, interner, ligada, sem);
+    out.extend(rules2::executar(u, interner, ligada, sem));
+    out.extend(rules3::executar(u, interner, ligada, sem));
+    out.extend(rules4::executar(u, interner, ligada, sem));
+    out.extend(rules5::executar(u, interner, ligada, sem));
+    out.extend(rules6::executar(u, interner, ligada, sem));
+    out.extend(rules7::executar(u, interner, ligada, sem));
+    out.extend(rules8::executar(u, interner, ligada, sem));
+    out.extend(rules9::executar(u, interner, ligada, sem));
+    out.extend(rules10::executar(u, interner, ligada, sem));
+    out.extend(rules11::executar(u, interner, ligada, sem));
+    out.extend(rules12::executar(u, interner, ligada, sem));
+    out.extend(rules13::executar(u, interner, ligada, sem));
+    out.extend(rules14::executar(u, interner, ligada, sem));
+    out.extend(rules15::executar(u, interner, ligada, sem));
+    out.extend(rules16::executar(u, interner, ligada, sem));
+    out.extend(rules17::executar(u, interner, ligada, sem));
+    out.extend(rules18::executar(u, interner, ligada, sem));
+    out.extend(rules19::executar(u, interner, ligada, sem));
+    out.extend(rules20::executar(u, interner, ligada, sem));
+    out.extend(rules21::executar(u, interner, ligada, sem));
+    out.extend(rules22::executar(u, interner, ligada, sem));
+    out.extend(rules23::executar(u, interner, ligada, sem));
+    out.extend(rules24::executar(u, interner, ligada, sem));
+    out.extend(rules25::executar(u, interner, ligada, sem));
+    out.extend(rules26::executar(u, interner, ligada, sem));
+    out.extend(rules27::executar(u, interner, ligada, sem));
+    out.extend(rules28::executar(u, interner, ligada, sem));
+    out.extend(rules29::executar(u, interner, ligada, sem));
+    out.extend(rules30::executar(u, interner, ligada, sem));
+    out.extend(rules31::executar(u, interner, ligada, sem));
+    out.extend(rules32::executar(u, interner, ligada, sem));
+    out.extend(rules33::executar(u, interner, ligada, sem));
     out.sort_by_key(|r| (r.span.start, r.span.end));
     out
 }

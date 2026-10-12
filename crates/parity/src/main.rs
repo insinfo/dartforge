@@ -16,7 +16,7 @@
 use dartforge_parity::analise::Motor;
 use dartforge_parity::corpus::{self, Grupo};
 use dartforge_parity::oraculo::{self, Meta, Registro};
-use dartforge_parity::placar::Placar;
+use dartforge_parity::scoreboard::Placar;
 use dartforge_parity::projetos::{self, Mutacao, Projeto};
 use dartforge_parity::{Execucao, filtros, rodar_nosso};
 use std::fmt::Write as _;
@@ -134,7 +134,7 @@ fn main() -> ExitCode {
     if brutos.first().is_some_and(|c| c == "saida") {
         let gravar = brutos.iter().any(|x| x == "--gravar");
         let dir = brutos.iter().skip(1).find(|x| !x.starts_with("--")).map(PathBuf::from).unwrap_or_else(|| corpus::raiz_corpus().join("saida-analyze"));
-        let ok = if gravar { dartforge_parity::saida::gravar(&dir) } else { dartforge_parity::saida::comparar(&dir) };
+        let ok = if gravar { dartforge_parity::output::gravar(&dir) } else { dartforge_parity::output::comparar(&dir) };
         return if ok { ExitCode::SUCCESS } else { ExitCode::from(1) };
     }
     let Some(a) = ler_args() else { return uso() };

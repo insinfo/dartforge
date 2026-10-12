@@ -1,6 +1,6 @@
 //! Os validadores de arquivos não-Dart do analyzer
 //! (docs/ANALYZER-ESPECIFICACAO-INFRA.md §7.2 e lote II.10): o
-//! `pubspec.yaml` ([`pubspec`]) e o `analysis_options.yaml` ([`opcoes`])
+//! `pubspec.yaml` ([`pubspec`]) e o `analysis_options.yaml` ([`options`])
 //! sobre o YAML com posições ([`yaml`]). Os
 //! códigos são os das tabelas geradas ([`codigos_g`]): ainda não estão no
 //! catálogo de `crates/diagnostics`, por isso um relato daqui é um
@@ -11,9 +11,9 @@
 use dartforge_diagnostics::{Severidade, Span, TipoErro};
 
 pub mod codigos_g;
-pub mod manifesto;
+pub mod manifest;
 pub mod nomes_g;
-pub mod opcoes;
+pub mod options;
 pub mod pubspec;
 pub mod yaml;
 

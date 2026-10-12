@@ -3,11 +3,11 @@
 //! * [`json`]: o JSON v1 do `dart analyze --format=json`, lido e emitido.
 //! * [`analise`]: o nosso lado — um lote de arquivos vira um programa,
 //!   diagnósticos por arquivo, com código.
-//! * [`ponte`]: códigos para os diagnósticos que ainda saem só com texto.
+//! * [`bridge`]: códigos para os diagnósticos que ainda saem só com texto.
 //! * [`filtros`]: `analysis_options.yaml` e `// ignore:`.
 //! * [`oraculo`]: rodar e gravar o oráculo (SDK 3.6.2 e 3.13.4).
 //! * [`corpus`]: os grupos de `corpus/diagnosticos/`.
-//! * [`placar`]: a comparação por código.
+//! * [`scoreboard`]: a comparação por código.
 //!
 //! Regra de publicação (plano §2.3): sintaxe é publicada sempre; um código
 //! semântico só é publicado se estiver em `crates/analysis/verificados.txt`
@@ -20,10 +20,10 @@ pub mod corpus;
 pub mod filtros;
 pub mod json;
 pub mod oraculo;
-pub mod placar;
-pub mod ponte;
+pub mod scoreboard;
+pub mod bridge;
 pub mod projetos;
-pub mod saida;
+pub mod output;
 
 use analise::{Analise, Motor};
 use oraculo::Registro;
@@ -88,7 +88,7 @@ pub fn diagnosticos_json(analise: &Analise, raiz: &Path, opcoes: &filtros::Opcoe
                 if let Some(codigo) = dartforge_analysis::lints::codigos_g::TODOS.iter().copied().find(|k| k.unico == l.unico)
                     && ligada(codigo.nome)
                 {
-                    relatos.push(dartforge_analysis::lints::regras::RelatoDeLint { codigo, span: l.span, args: l.args.clone() });
+                    relatos.push(dartforge_analysis::lints::rules::RelatoDeLint { codigo, span: l.span, args: l.args.clone() });
                 }
             }
             relatos.sort_by_key(|r| (r.span.start, r.span.end, r.codigo.unico));
@@ -145,7 +145,7 @@ fn relato_em_json(arquivo: &str, linhas: &json::Linhas<'_>, r: &dartforge_analys
 }
 
 /// Os diagnósticos de cada `AndroidManifest.xml` sob `raiz` (o
-/// `ManifestValidator` do analyzer, `dartforge_analysis::naodart::manifesto`),
+/// `ManifestValidator` do analyzer, `dartforge_analysis::naodart::manifest`),
 /// no JSON v1. Só com `analyzer: optional-checks: chrome-os-manifest-checks`
 /// nas opções; pastas ocultas ficam fora.
 pub fn diagnosticos_do_manifesto(raiz: &Path, opcoes: &filtros::Opcoes) -> Vec<json::DiagJson> {
@@ -174,13 +174,13 @@ pub fn diagnosticos_do_manifesto(raiz: &Path, opcoes: &filtros::Opcoes) -> Vec<j
         let Ok(texto) = std::fs::read_to_string(&arquivo) else { continue };
         let linhas = json::Linhas::new(&texto);
         let caminho = arquivo.to_string_lossy();
-        out.extend(dartforge_analysis::naodart::manifesto::validar(&texto).iter().map(|r| relato_em_json(&caminho, &linhas, r)));
+        out.extend(dartforge_analysis::naodart::manifest::validar(&texto).iter().map(|r| relato_em_json(&caminho, &linhas, r)));
     }
     out
 }
 
 /// Os diagnósticos do `analysis_options.yaml` de `raiz`
-/// (`analyzeAnalysisOptions`, `dartforge_analysis::naodart::opcoes`), no JSON
+/// (`analyzeAnalysisOptions`, `dartforge_analysis::naodart::options`), no JSON
 /// v1. Um `include:` é relativo ao arquivo que inclui, ou `package:` pelo
 /// `package_config.json` achado acima da raiz. A restrição de SDK não é
 /// passada: uma regra de lint removida com `since` não é relatada.
@@ -197,7 +197,7 @@ pub fn diagnosticos_das_opcoes(raiz: &Path) -> Vec<json::DiagJson> {
         }
     };
     let raiz_em_texto = raiz.to_string_lossy();
-    let ctx = dartforge_analysis::naodart::opcoes::Contexto {
+    let ctx = dartforge_analysis::naodart::options::Contexto {
         arquivo: &arquivo,
         raiz_do_contexto: raiz_em_texto.as_ref(),
         resolver: &resolver,
@@ -205,7 +205,7 @@ pub fn diagnosticos_das_opcoes(raiz: &Path) -> Vec<json::DiagJson> {
     };
     let linhas = json::Linhas::new(&texto);
     let caminho = arquivo.to_string_lossy();
-    dartforge_analysis::naodart::opcoes::analisar(&texto, &ctx).iter().map(|r| relato_em_json(&caminho, &linhas, r)).collect()
+    dartforge_analysis::naodart::options::analisar(&texto, &ctx).iter().map(|r| relato_em_json(&caminho, &linhas, r)).collect()
 }
 
 /// Os diagnósticos do `pubspec.yaml` de `raiz` (o `PubspecValidator` do

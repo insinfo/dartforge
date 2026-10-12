@@ -8,50 +8,50 @@
 //!   `MemberDuplicateDefinitionVerifier` (`src/error/duplicate_definition_verifier.dart`).
 //! * [`externos`]: inicializadores de campos e variáveis `external`
 //!   (`ErrorVerifier`).
-//! * [`privados`]: declarações privadas nunca referenciadas
+//! * [`private_decls`]: declarações privadas nunca referenciadas
 //!   (`UnusedLocalElementsVerifier`, a parte de biblioteca).
 //! * [`operadores`]: aridade, parâmetros opcionais e retorno de `[]=` em
 //!   métodos `operator` (`ErrorVerifier`).
 //! * [`enums`]: enum sem constantes após augmentations (`ErrorVerifier`).
-//! * [`clausulas`]: cláusulas de herança (`subtype_of_disallowed_type`,
+//! * [`clauses`]: cláusulas de herança (`subtype_of_disallowed_type`,
 //!   erros de mixin, `class_used_as_mixin`) e a porta do `ErrorVerifier`
 //!   que desliga as verificações seguintes.
-//! * [`modificadores`]: `base`/`final`/`interface`/`sealed` usados fora da
+//! * [`modifiers`]: `base`/`final`/`interface`/`sealed` usados fora da
 //!   biblioteca (`ErrorVerifier` e `BaseOrFinalTypeVerifier`).
-//! * [`membros`]: verificações locais de declarações e membros do
+//! * [`members`]: verificações locais de declarações e membros do
 //!   `ErrorVerifier` (parâmetros de tipo em conflito, campos de enum e de
 //!   tipo de extensão, setters, `this.x` fora de construtor, lista de
 //!   inicializadores, `return` em construtor gerador).
-//! * [`nativos`]: `native` (cláusula de classe e corpo) fora do SDK
+//! * [`natives`]: `native` (cláusula de classe e corpo) fora do SDK
 //!   (`ErrorVerifier`).
 
-pub mod a_contexto;
+pub mod a_context;
 pub mod arvore_analyzer;
 pub mod saida;
 pub mod a_doc;
-pub mod c2_sintaticos;
-pub mod clausulas;
-pub mod limites_simples;
-pub mod registros;
-pub mod construtores;
+pub mod c2_syntactic;
+pub mod clauses;
+pub mod simple_bounds;
+pub mod records;
+pub mod constructors;
 pub mod duplicatas;
 pub mod enums;
 pub mod externos;
-pub mod fases;
+pub mod phases;
 pub mod importacoes;
 pub mod inicializacao;
 pub mod lints;
 pub mod locais;
-pub mod membros;
+pub mod members;
 pub mod meta;
-pub mod modificadores;
+pub mod modifiers;
 pub mod naodart;
-pub mod nativos;
+pub mod natives;
 pub mod operadores;
-pub mod privados;
+pub mod private_decls;
 pub mod publicacao;
 pub mod todos;
-pub mod versao_de_linguagem;
+pub mod language_version;
 
 use dartforge_frontend::ast::{Ast, CompilationUnit};
 
