@@ -91,12 +91,42 @@ fn nsm_publica_erro_ate_clear_sem_owner_no_chamador() {
     }).join().unwrap();
 }
 
+/// Os acessos por índice e por bytes das listas tipadas e o `codeUnitAt`
+/// (os caminhos do runtime sob ARC): emprestam o receptor e só lançam
+/// `RangeError`.
+const ACESSOS_TIPADOS: &[&str] = &[
+    "dartforge_nativo_DartForge_typed_getInt8",
+    "dartforge_nativo_DartForge_typed_getUint8",
+    "dartforge_nativo_DartForge_typed_getInt16",
+    "dartforge_nativo_DartForge_typed_getUint16",
+    "dartforge_nativo_DartForge_typed_getInt32",
+    "dartforge_nativo_DartForge_typed_getUint32",
+    "dartforge_nativo_DartForge_typed_getInt64",
+    "dartforge_nativo_DartForge_typed_getUint64",
+    "dartforge_nativo_DartForge_typed_setInt8",
+    "dartforge_nativo_DartForge_typed_setUint8",
+    "dartforge_nativo_DartForge_typed_setInt16",
+    "dartforge_nativo_DartForge_typed_setUint16",
+    "dartforge_nativo_DartForge_typed_setInt32",
+    "dartforge_nativo_DartForge_typed_setUint32",
+    "dartforge_nativo_DartForge_typed_setInt64",
+    "dartforge_nativo_DartForge_typed_setUint64",
+    "dartforge_nativo_DartForge_typed_indexar_int",
+    "dartforge_nativo_DartForge_typed_indexar_double",
+    "dartforge_nativo_TypedData_GetFloat32",
+    "dartforge_nativo_TypedData_GetFloat64",
+    "dartforge_nativo_TypedData_SetFloat32",
+    "dartforge_nativo_TypedData_SetFloat64",
+    "dartforge_nativo_DartForge_string_codeUnitAt",
+];
+
 #[test]
 fn contratos_arc_cobrem_exportacoes_sem_inventar_contratos_para_outras_externs() {
     let auditadas: Vec<_> = NOMES
         .iter()
         .filter(|n| {
             n.starts_with("dartforge_arc_")
+                || ACESSOS_TIPADOS.contains(n)
                 || matches!(
                     **n,
                     "dartforge_gc_global_root"

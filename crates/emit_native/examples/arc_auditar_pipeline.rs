@@ -12,7 +12,7 @@ fn inventariar_externs(modulos: &[dartforge_emit_native::hir::Module]) {
     for f in modulos.iter().flat_map(|m| &m.functions) {
         for (v, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
             let Instruction::CallRuntime { name, args, ret_ty } = inst else { continue };
-            if dartforge_runtime::ownership::contrato(name).is_ok() { continue; }
+            if contrato(name).is_ok() { continue; }
             let tipos: Vec<_> = args.iter().map(|(_, ty)| ty).collect();
             let assinatura = format!("{tipos:?} -> {ret_ty:?} (SSA {ty:?})");
             let e = inventario.entry(name.clone()).or_insert_with(||

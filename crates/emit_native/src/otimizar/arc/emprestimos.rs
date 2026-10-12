@@ -61,7 +61,7 @@ fn primeiro_invalido(
         let chamada = unbox_bool.as_ref().unwrap_or(inst);
         let invalida = match chamada {
             Instruction::CallRuntime { name, .. } => {
-                match dartforge_runtime::ownership::contrato(name) {
+                match super::contrato(name) {
                     Ok(c) => {
                         if c.chama_dart {
                             reentradas.insert(*v);

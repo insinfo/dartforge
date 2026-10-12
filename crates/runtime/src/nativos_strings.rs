@@ -568,6 +568,26 @@ pub extern "C" fn dartforge_texto_novo(len: i64, dois: i64) -> i64 {
     HEAP.with(|heap| heap.borrow_mut().novo_texto(len, dois != 0))
 }
 
+/// [`dartforge_texto_novo`] sob ARC: a string nova (unidades zeradas, ainda
+/// não publicada) com um owner do código, entregue antes de outra coleta.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// let s = dartforge_arc_texto_novo_owned_v1(3, 0);
+/// assert_eq!(dartforge_arc_observar_heap_v1(s), 3);
+/// dartforge_arc_release(s);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_texto_novo_owned_v1(len: i64, dois: i64) -> i64 {
+    let len = usize::try_from(len).unwrap_or(0);
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        let s = heap.novo_texto(len, dois != 0);
+        heap.reter_owner_codigo(s);
+        s
+    })
+}
+
 /// O hash da string `s`, calculado e gravado no cabeçalho (`mapa`): o caminho
 /// lento de `@df.texto_hash`. Não aloca nem lança.
 #[unsafe(no_mangle)]

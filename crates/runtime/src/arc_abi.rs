@@ -282,6 +282,50 @@ pub extern "C" fn dartforge_arc_lista_gravar_dados_v1(lista: i64, dados: i64) ->
     })
 }
 
+/// Lê os bits de um elemento int, double ou bool de uma lista compacta viva.
+///
+/// Confere lista fixa/imutável/expansível, mapa, forma compacta e limites
+/// lógicos; bool sai 0 ou 1. Não aloca, coleta, retém ou executa Dart; a
+/// referência fica emprestada. As guardas Dart de índice já devem ter sido
+/// executadas.
+///
+/// # Panics
+/// Lista/layout/forma/índice inválido; aborta na fronteira C.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// // SAFETY: elementos escalares durante a criação da lista compacta.
+/// let lista = unsafe { dartforge_lista_nova([7].as_ptr(), 1, 8, 1) };
+/// dartforge_arc_retain(lista);
+/// dartforge_arc_lista_gravar_bits_v1(lista, 0, 42, 0x22);
+/// assert_eq!(dartforge_arc_lista_ler_bits_v1(lista, 0), 42);
+/// dartforge_arc_release(lista);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_lista_ler_bits_v1(lista: i64, indice: i64) -> i64 {
+    HEAP.with(|h| {
+        let heap = h.borrow();
+        ler_bits_lista_arc(&heap, lista, indice).expect("leitura ARC escalar inválida")
+    })
+}
+
+fn ler_bits_lista_arc(heap: &Heap, lista: i64, indice: i64) -> Result<i64, &'static str> {
+    use crate::layout::flags;
+    let (dados, comprimento) = armazenamento_lista_auditado(heap, lista)?;
+    let f = heap.cabecalho(dados).flags & (flags::FORMA | flags::ELEMENTO);
+    if ![flags::BRUTO | flags::ELEMENTO_INT, flags::BRUTO | flags::ELEMENTO_DOUBLE,
+        flags::BRUTO | flags::ELEMENTO_BOOL].contains(&f) {
+        return Err("armazenamento não é compacto");
+    }
+    let i = usize::try_from(indice).map_err(|_| "índice negativo")?;
+    if i >= comprimento { return Err("índice fora da lista"); }
+    let bits = heap.palavras(dados)[1 + i];
+    if f == flags::BRUTO | flags::ELEMENTO_BOOL && ![0, 1].contains(&bits) {
+        return Err("booleano não canônico");
+    }
+    Ok(bits)
+}
+
 /// Lê um elemento da lista geral e devolve um owner independente.
 ///
 /// Confere lista fixa/imutável/expansível viva, mapa, representação Ref e

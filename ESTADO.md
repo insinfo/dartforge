@@ -99,21 +99,43 @@ em `bench/desempenho/numerico.dart` passou, em ordem, por:
   confere (comportamento indefinido); o DartForge lança `ArgumentError` e
   fecha o escopo — exercitado 3000 vezes sob GC stress.
 
-O módulo 0 (programa e FFI) passa inteiro. **Próximo erro:** módulo 1,
-`CodeUnits.length`: `df.texto_len` sem contrato. É uma família de
-ajudantes em IR inline sem contrato: `df.texto_*` (7), `df.nucleo_*` (5),
-`df.tipada_*` (6) e `df.identico`. As leituras escalares puras podem ganhar
-contrato emprestado do lado do emissor; `df.texto_alocar` precisa de owner;
-os que devolvem endereço derivado (`nucleo_armazenamento`, `tipada_dados`,
-`tipada_base`) precisam manter o dono vivo enquanto o endereço é usado.
+O módulo 0 (programa e FFI) passa inteiro. No SDK:
+* Ajudantes em IR (`df.texto_*`, `df.nucleo_len*`, `df.tipada_*`,
+  `df.identico`): leituras escalares puras do objeto emprestado ganham
+  contrato do lado do emissor (`otimizar::arc::CONTRATOS_DOS_AJUDANTES`,
+  consultado antes do catálogo do runtime; o resultado `i1:scalar` entrou
+  no gerador). Continuam em linha. `df.tipada_base` empresta a base da
+  visão. O teste `ajudantes_concordam_com_os_efeitos` amarra os contratos
+  aos efeitos.
+* Sem endereços derivados sob ARC: `df.texto_alocar` vira
+  `dartforge_arc_texto_novo_owned_v1`; listas do núcleo leem/gravam
+  elementos compactos por `dartforge_arc_lista_ler_bits_v1` (nova) e
+  `…_gravar_bits_v1` sobre o armazenamento `Ref` emprestado; as voltas N13
+  (que guardariam o armazenamento) ficam desligadas; listas tipadas não têm
+  caminho rápido e o acesso por índice/bytes vai ao intrínseco do runtime
+  (`RangeError`), agora com contrato (`ref:borrow`, `pending-dart`), assim
+  como `DartForge_string_codeUnitAt`.
+* Defeito corrigido: `sdk_fonte.rs` baixa cada função do SDK num módulo à
+  parte e, nas quatro junções, perdia `retornos_ref_dart` e `sitios_arc` —
+  todo retorno Ref do SDK ficava sem a convenção Owned. As junções passam
+  por `lower::juntar_fatos_arc`, também usada no lowering paralelo.
+
+**Próximo erro:** `hexDigitValue`: `dartforge_assertion_error_new` sem
+contrato. É o subsistema de exceções sob ARC: o lowering emite
+`dartforge_exception_throw` (Ref anotado como I64, sem guarda) e nunca o
+`Terminator::Throw` que `saidas.rs` prepara; `catch`/`finally` usam
+`dartforge_exception_peek_ref` (emprestado de uma raiz que o `clear` solta
+logo depois). Os construtores de erro do runtime rodam Dart e precisam de
+variantes Owned por escopo nativo.
 
 ### Evidências (macOS arm64, logs em `target/`)
 
 | verificação | resultado |
 | --- | --- |
-| emissor, unitários incluindo ignorados | 459 passaram (`ffi-handles-emitter-test.log`) |
-| runtime, todos os alvos incluindo ignorados | 227 + integrações + 77 doctests (`ffi-handles-runtime-test.log`) |
+| emissor, unitários incluindo ignorados | 461 + 110 doctests (`arc-ajudantes-emitter-*.log`) |
+| runtime, todos os alvos incluindo ignorados | 227 + integrações + 79 doctests (`arc-ajudantes-runtime-test.log`) |
 | `Handle` AOT, tracing/ARC, normal/GC stress, efeitos conferidos | 8 execuções, saída igual ao Dart (`prova-handles/`) |
+| listas compactas/gerais, tipadas, visões, `ByteData`, strings pela CLI, tracing e ARC, normal/GC stress | 4 execuções, saída igual ao Dart (`prova-ajudantes/`) |
 | `provar-arc-aot.py arc_porta_nativa_owned --debug` | 24 execuções, `sucesso` (`prova-porta-nativa-owned/evidencia.json`) |
 | `memoria_cli` (nativo, sem JIT), incluindo ignorados | 2 passaram (`memoria-cli.log`) |
 | interpolação/lista/`runtimeType` pela CLI, tracing e ARC, GC stress | saída igual ao `dart run` 3.6.2 |

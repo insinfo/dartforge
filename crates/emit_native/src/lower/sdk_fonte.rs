@@ -1560,15 +1560,9 @@ pub fn lower_funcao_ou_recusa(ctx: &Context, module: &mut Module, fid: usize) {
         )),
     };
     match (r, motivo) {
-        (Ok(m), None) => {
-            module.functions.extend(m.functions);
-        module.parametros_escalares_dart.extend(m.parametros_escalares_dart);
-        module.parametros_rti_dart.extend(m.parametros_rti_dart);
-        module.parametros_vetores_dart.extend(m.parametros_vetores_dart);
-        module.retornos_uniformes_arc.extend(m.retornos_uniformes_arc);
-        module.caches_rti_arc.extend(m.caches_rti_arc);
-        module.funcoes_compartilhadas_arc.extend(m.funcoes_compartilhadas_arc);
-        module.funcoes_locais_diretas_arc.extend(m.funcoes_locais_diretas_arc);
+        (Ok(mut m), None) => {
+            module.functions.extend(std::mem::take(&mut m.functions));
+        super::juntar_fatos_arc(module, &mut m);
             module.globais.extend(m.globais);
         }
         (_, Some(motivo)) => {
@@ -1840,14 +1834,8 @@ fn adaptadores_ou_recusa(ctx: &Context, module: &mut Module, gerar: impl FnOnce(
     m.modo_sdk = true;
     let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| gerar(&mut m)));
     if r.is_ok() && m.erros.is_empty() {
-        module.functions.extend(m.functions);
-        module.parametros_escalares_dart.extend(m.parametros_escalares_dart);
-        module.parametros_rti_dart.extend(m.parametros_rti_dart);
-        module.parametros_vetores_dart.extend(m.parametros_vetores_dart);
-        module.retornos_uniformes_arc.extend(m.retornos_uniformes_arc);
-        module.caches_rti_arc.extend(m.caches_rti_arc);
-        module.funcoes_compartilhadas_arc.extend(m.funcoes_compartilhadas_arc);
-        module.funcoes_locais_diretas_arc.extend(m.funcoes_locais_diretas_arc);
+        module.functions.extend(std::mem::take(&mut m.functions));
+        super::juntar_fatos_arc(module, &mut m);
         module.globais.extend(m.globais);
         return;
     }
@@ -1914,15 +1902,9 @@ pub fn lower_getter_late_ou_recusa(
     }));
     let simbolo = super::simbolo_getter_campo_late(ctx, vid);
     let motivo = match r {
-        Ok(m) if m.erros.is_empty() => {
-            module.functions.extend(m.functions);
-        module.parametros_escalares_dart.extend(m.parametros_escalares_dart);
-        module.parametros_rti_dart.extend(m.parametros_rti_dart);
-        module.parametros_vetores_dart.extend(m.parametros_vetores_dart);
-        module.retornos_uniformes_arc.extend(m.retornos_uniformes_arc);
-        module.caches_rti_arc.extend(m.caches_rti_arc);
-        module.funcoes_compartilhadas_arc.extend(m.funcoes_compartilhadas_arc);
-        module.funcoes_locais_diretas_arc.extend(m.funcoes_locais_diretas_arc);
+        Ok(mut m) if m.erros.is_empty() => {
+            module.functions.extend(std::mem::take(&mut m.functions));
+        super::juntar_fatos_arc(module, &mut m);
             module.globais.extend(m.globais);
             return;
         }
@@ -1988,15 +1970,9 @@ pub fn lower_global_ou_recusa(
         m
     }));
     match r {
-        Ok(m) if m.erros.is_empty() => {
-            module.functions.extend(m.functions);
-        module.parametros_escalares_dart.extend(m.parametros_escalares_dart);
-        module.parametros_rti_dart.extend(m.parametros_rti_dart);
-        module.parametros_vetores_dart.extend(m.parametros_vetores_dart);
-        module.retornos_uniformes_arc.extend(m.retornos_uniformes_arc);
-        module.caches_rti_arc.extend(m.caches_rti_arc);
-        module.funcoes_compartilhadas_arc.extend(m.funcoes_compartilhadas_arc);
-        module.funcoes_locais_diretas_arc.extend(m.funcoes_locais_diretas_arc);
+        Ok(mut m) if m.erros.is_empty() => {
+            module.functions.extend(std::mem::take(&mut m.functions));
+        super::juntar_fatos_arc(module, &mut m);
             module.globais.extend(m.globais);
         }
         r => {
@@ -2464,5 +2440,45 @@ pub fn tabelas_das_formas_de_record(ctx: &Context, module: &mut Module) {
             }
         }
         module.tabelas_de_metodos.push((id, format!("df.mt.$registro.{k}"), tabela));
+    }
+}
+
+#[cfg(test)]
+mod testes_arc {
+    use super::*;
+    use dartforge_intern::Interner;
+    use dartforge_types::table::{CoreTypes, TypeTable};
+
+    #[test]
+    fn funcao_baixada_a_parte_conserva_os_fatos_arc() {
+        std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
+            let dir = tempfile::tempdir().unwrap();
+            let entrada = dir.path().join("main.dart");
+            std::fs::write(&entrada, "class C { final String s; C(this.s); }\nString de(C c, int n) => n > 0 ? c.s : 'x';\nvoid main() { print(de(C('a'), 1)); }\n").unwrap();
+            let sdk = crate::sdk_modulo::carregar_sdk_nativo(crate::sdk_testes()).unwrap();
+            let mut interner = Interner::new();
+            let (program, diags) = dartforge_elements::load::load_lenient(&entrada, &sdk, None, &mut interner);
+            assert!(diags.is_empty(), "{diags:?}");
+            let mut table = TypeTable::new();
+            let core = CoreTypes::init(&mut table, &program, &interner);
+            let (mut outline, diags) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
+            let (bodies, diags_corpos) = dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
+            for d in diags.iter().chain(&diags_corpos) {
+                assert!(!dartforge_types::codes::e_erro_de_compilacao(&d.message), "{d:?}");
+            }
+            let te = crate::apagamento::calcular(&program, &outline, &mut table);
+            let mut ctx = Context::new(&program, &interner, &table, &core, &outline, &bodies);
+            ctx.te = te;
+            let fid = program.functions.iter().position(|f| interner.resolve(f.name) == "de").unwrap();
+            for arc in [false, true] {
+                ctx.memoria_arc = arc;
+                let mut m = Module::new();
+                lower_funcao_ou_recusa(&ctx, &mut m, fid);
+                assert!(m.recusados.is_empty(), "{:?}", m.recusados);
+                let simbolo = super::super::simbolo_de(&ctx, fid);
+                assert_eq!(m.retornos_ref_dart.contains(&simbolo), arc);
+                assert_eq!(m.parametros_escalares_dart.get(&simbolo).is_some_and(|s| s.len() == 1), arc);
+            }
+        }).unwrap().join().unwrap();
     }
 }

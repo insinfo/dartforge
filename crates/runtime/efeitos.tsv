@@ -41,6 +41,7 @@ dartforge_arc_release	0	0	0
 dartforge_arc_retain	0	0	0
 dartforge_arc_rti_texto_owned_v1	1	0	0
 dartforge_arc_string_juntar_owned_v1	1	0	0
+dartforge_arc_texto_novo_owned_v1	1	0	0
 dartforge_arc_verificar_abi	0	0	0
 dartforge_area_de_globais	1	1	0
 dartforge_area_de_globais_id	1	1	0
@@ -808,6 +809,7 @@ dartforge_arc_retirar_tipada_v1	0	0	0
 dartforge_arc_alvo_tipada_v1	0	0	0
 dartforge_arc_lista_ref_owned_v1	0	0	0
 dartforge_arc_lista_len_v1	0	0	0
+dartforge_arc_lista_ler_bits_v1	0	0	0
 dartforge_arc_lista_armazenamento_ref_v1	0	0	0
 dartforge_arc_lista_forma_v1	0	0	0
 dartforge_arc_lista_capacidade_v1	0	0	0

@@ -151,7 +151,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             };
             return Some(Indexavel::Nucleo { gravacao });
         }
-        if biblioteca != "dart:typed_data" {
+        // Sob ARC, os caminhos rápidos das listas tipadas usariam o endereço
+        // dos bytes, derivado da lista sem dono que o mantenha vivo: ficam
+        // o despacho e o acesso conferido do runtime.
+        if biblioteca != "dart:typed_data" || self.ctx.memoria_arc {
             return None;
         }
         let (tipo, elemento) = match nome {
@@ -546,7 +549,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `_ImmutableList`, ou os dados da `_GrowableList`): o endereço do
     /// elemento 0 (`a+22`) e a forma dele (`flags & (FORMA | ELEMENTO)`, o
     /// [`codigo_da_forma`]). O chamador sabe que `lista` é lista do runtime.
+    ///
+    /// Sob ARC não há endereço derivado: o primeiro é o armazenamento como
+    /// `Ref` emprestado da lista, e as leituras e gravações dos elementos
+    /// passam pelas entradas auditadas do runtime.
     pub(super) fn armazenamento_da_lista(&mut self, lista: &Operand) -> (Operand, Operand) {
+        if self.ctx.memoria_arc {
+            let rt = |s: &mut Self, nome: &str| s.emit(Instruction::CallRuntime {
+                name: nome.into(), args: vec![(lista.clone(), Type::Ref)],
+                ret_ty: if nome.ends_with("ref_v1") { Type::Ref } else { Type::I64 },
+            }, if nome.ends_with("ref_v1") { Type::Ref } else { Type::I64 });
+            let a = rt(self, "dartforge_arc_lista_armazenamento_ref_v1");
+            let forma = rt(self, "dartforge_arc_lista_forma_v1");
+            return (a, forma);
+        }
         let a = self.ajudante_tipado("df.nucleo_armazenamento", vec![(lista.clone(), Type::Ref)], Type::I64);
         let forma = self.ajudante_tipado("df.nucleo_forma", vec![(a.clone(), Type::I64)], Type::I64);
         let dados = self.emit(Instruction::Add(a, Operand::Constant(Constant::Int(ELEMENTOS_DO_ARMAZENAMENTO))), Type::I64);
@@ -585,6 +601,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// emissor enraíza como qualquer `Ref`), ou os bits do escalar. Em ARC,
     /// a lista geral passa pela leitura conferida que produz um owner.
     fn carregar_na_forma(&mut self, lista: &Operand, dados: &Operand, indice: &Operand, k: i64) -> Operand {
+        if self.ctx.memoria_arc && matches!(k, FORMA_INT | FORMA_DOUBLE | FORMA_BOOL) {
+            let bits = self.emit(Instruction::CallRuntime {
+                name: "dartforge_arc_lista_ler_bits_v1".into(),
+                args: vec![(lista.clone(), Type::Ref), (indice.clone(), Type::I64)],
+                ret_ty: Type::I64,
+            }, Type::I64);
+            return match k {
+                FORMA_DOUBLE => self.emit(Instruction::Bitcast { op: bits, to: Type::F64 }, Type::F64),
+                FORMA_BOOL => self.emit(Instruction::ICmp(ICmpOp::Ne, bits, Operand::Constant(Constant::Int(0))), Type::I1),
+                _ => bits,
+            };
+        }
         match k {
             FORMA_INT => self.emit(
                 Instruction::CargaNativa { endereco: dados.clone(), indice: indice.clone(), tipo: TipoC::I64 },
@@ -698,6 +726,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             _ => (TipoC::I64, valor),
         };
         let (dados, _) = self.elementos_e_forma(lista);
+        if self.ctx.memoria_arc {
+            // O armazenamento emprestado e os bits, pela gravação conferida.
+            let bits = if tipo == TipoC::F64 {
+                self.emit(Instruction::Bitcast { op: valor, to: Type::I64 }, Type::I64)
+            } else {
+                valor
+            };
+            self.emit(Instruction::CallRuntime {
+                name: "dartforge_arc_lista_gravar_bits_v1".into(),
+                args: vec![(dados, Type::Ref), (indice.clone(), Type::I64), (bits, Type::I64),
+                    (Operand::Constant(Constant::Int(codigo_da_forma(repr))), Type::I64)],
+                ret_ty: Type::Void,
+            }, Type::Void);
+            return;
+        }
         self.emit(Instruction::GravacaoNativa { endereco: dados, indice: indice.clone(), tipo, valor }, Type::Void);
     }
 }
@@ -809,9 +852,16 @@ impl FnBuilder<'_, '_> {
 
     /// `this[i]` de uma lista numérica ou visão (o elemento `tc`): em linha
     /// quando `0 <= i < length`, senão o intrínseco `lento` do runtime.
+    /// Sob ARC, só o intrínseco: o endereço dos bytes não tem dono.
     fn indexar_tipada_em_linha(&mut self, this: Operand, i: Operand, tc: TipoC, lento: &str) -> Operand {
         let repr = tc.tipo_hir();
         let i = self.coagir(i, Type::I64);
+        if self.ctx.memoria_arc {
+            return self.emit_call_with_check(
+                Instruction::CallRuntime { name: crate::nativos::simbolo(lento), args: vec![(this, Type::Ref), (i, Type::I64)], ret_ty: repr },
+                repr,
+            );
+        }
         let n = self.ajudante_tipado("df.tipada_len", vec![(this.clone(), Type::Ref)], Type::I64);
         let ok = self.emit(Instruction::ICmp(ICmpOp::Ult, i.clone(), n), Type::I1);
         let rapido = self.new_block();
@@ -853,6 +903,14 @@ impl FnBuilder<'_, '_> {
         let repr = tc.tipo_hir();
         let off = self.coagir(args[0].clone(), Type::I64);
         let valor = if grava { Some(self.coagir(args[1].clone(), repr)) } else { None };
+        // Sob ARC, só o intrínseco: o endereço dos bytes não tem dono.
+        if self.ctx.memoria_arc {
+            let mut a = vec![(this, Type::Ref), (off, Type::I64)];
+            a.extend(valor.map(|x| (x, repr)));
+            let ret = if grava { Type::Void } else { repr };
+            let r = self.emit_call_with_check(Instruction::CallRuntime { name: crate::nativos::simbolo(lento), args: a, ret_ty: ret }, ret);
+            return if grava { Operand::Constant(Constant::Null) } else { r };
+        }
         let bytes = self.ajudante_tipado("df.tipada_bytes", vec![(this.clone(), Type::Ref)], Type::I64);
         let dentro = self.emit(Instruction::ICmp(ICmpOp::Ult, off.clone(), bytes.clone()), Type::I1);
         let cabe_bloco = self.new_block();

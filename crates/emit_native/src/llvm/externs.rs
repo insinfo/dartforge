@@ -255,6 +255,10 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
+        decl: "declare i64 @dartforge_arc_lista_ler_bits_v1(i64, i64) nounwind",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
+    Extern {
         decl: "declare i64 @dartforge_arc_lista_ref_owned_v1(i64, i64) nounwind",
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
@@ -938,6 +942,11 @@ pub const EXTERNS: &[Extern] = &[
     Extern {
         // (len, dois): o caminho lento de `@df.texto_alocar` (P1).
         decl: "declare i64 @dartforge_texto_novo(i64, i64) nounwind",
+        efeitos: ALOCA_SEM_LANCAR,
+    },
+    Extern {
+        // `@df.texto_alocar` sob ARC: a string nova com owner do código.
+        decl: "declare i64 @dartforge_arc_texto_novo_owned_v1(i64, i64) nounwind",
         efeitos: ALOCA_SEM_LANCAR,
     },
     Extern {

@@ -428,17 +428,9 @@ fn baixar_funcoes(ctx: &Context, module: &mut Module, funcoes: &[usize]) {
         }
     });
     let partes = feitos.into_iter().map(|m| m.into_inner().unwrap_or_else(|e| e.into_inner()).expect("pedaço baixado"));
-    for m in partes {
-        module.functions.extend(m.functions);
-        module.parametros_escalares_dart.extend(m.parametros_escalares_dart);
-        module.parametros_rti_dart.extend(m.parametros_rti_dart);
-        module.parametros_vetores_dart.extend(m.parametros_vetores_dart);
-        module.retornos_uniformes_arc.extend(m.retornos_uniformes_arc);
-        module.caches_rti_arc.extend(m.caches_rti_arc);
-        module.funcoes_compartilhadas_arc.extend(m.funcoes_compartilhadas_arc);
-        module.funcoes_locais_diretas_arc.extend(m.funcoes_locais_diretas_arc);
-        module.retornos_ref_dart.extend(m.retornos_ref_dart);
-        module.sitios_arc.extend(m.sitios_arc);
+    for mut m in partes {
+        module.functions.extend(std::mem::take(&mut m.functions));
+        juntar_fatos_arc(module, &mut m);
         module.globais.extend(m.globais);
         module.erros.extend(m.erros);
         module.erros_da_fonte.extend(m.erros_da_fonte);
@@ -470,6 +462,24 @@ fn com_corpo_da_fonte<'c>(ctx: &'c Context) -> &'c std::collections::HashSet<Str
             .map(|(i, _)| simbolo_de(ctx, i))
             .collect()
     })
+}
+
+/// Junta a `destino` os fatos ARC que o lowering de `origem` produziu (por
+/// símbolo e por ID SSA da mesma função): parâmetros escalares/RTI/vetores,
+/// retornos Ref e uniformes, caches RTI, funções compartilhadas e locais
+/// diretas, e sítios de alocação. Um pedaço baixado à parte que perde algum
+/// deles muda a convenção ARC da função em silêncio — o retorno Ref sem
+/// `retornos_ref_dart` deixava de ser Owned.
+pub(crate) fn juntar_fatos_arc(destino: &mut Module, origem: &mut Module) {
+    destino.parametros_escalares_dart.extend(std::mem::take(&mut origem.parametros_escalares_dart));
+    destino.parametros_rti_dart.extend(std::mem::take(&mut origem.parametros_rti_dart));
+    destino.parametros_vetores_dart.extend(std::mem::take(&mut origem.parametros_vetores_dart));
+    destino.retornos_uniformes_arc.extend(std::mem::take(&mut origem.retornos_uniformes_arc));
+    destino.caches_rti_arc.extend(std::mem::take(&mut origem.caches_rti_arc));
+    destino.funcoes_compartilhadas_arc.extend(std::mem::take(&mut origem.funcoes_compartilhadas_arc));
+    destino.funcoes_locais_diretas_arc.extend(std::mem::take(&mut origem.funcoes_locais_diretas_arc));
+    destino.retornos_ref_dart.extend(std::mem::take(&mut origem.retornos_ref_dart));
+    destino.sitios_arc.extend(std::mem::take(&mut origem.sitios_arc));
 }
 
 /// Baixa uma função (de topo, método, construtor) para o módulo.

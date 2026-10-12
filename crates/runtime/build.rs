@@ -252,6 +252,7 @@ fn tabela_de_ownership(manifesto: &std::path::Path, nomes: &[String]) -> String 
             ("i64:scalar", true) => ("i64", "ModoResultado::ScalarI64"),
             ("f64:scalar", true) => ("f64", "ModoResultado::ScalarF64"),
             ("i8:scalar", true) => ("i8", "ModoResultado::ScalarI8"),
+            ("i1:scalar", true) => ("bool", "ModoResultado::ScalarI1"),
             ("u8:scalar", true) => ("u8", "ModoResultado::ScalarI8"),
             ("void:scalar", true) => ("()", "ModoResultado::Void"),
             _ => panic!("ownership.tsv: tipo/contrato não suportado: {s}"),
@@ -371,7 +372,7 @@ pub enum ModoParametro { Borrow, Consume, ConsumeSuccess, ConsumeError, Scalar, 
 /// assert_ne!(ModoResultado::Owned, ModoResultado::Void);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ModoResultado { Owned, BorrowArg(usize), ScalarI64, ScalarF64, ScalarI8, Void }
+pub enum ModoResultado { Owned, BorrowArg(usize), ScalarI64, ScalarF64, ScalarI8, ScalarI1, Void }
 /// Contrato auditado, com resultado disponível somente no sucesso.
 ///
 /// ```

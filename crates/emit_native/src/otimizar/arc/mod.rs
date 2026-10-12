@@ -57,7 +57,7 @@ mod ssa;
 mod quadros;
 mod cleanup_estrangeiro;
 pub use cleanup_estrangeiro::CleanupEstrangeiro;
-pub use contratos::{ContratoChamadaRuntime, contrato_chamada_runtime, produzir_contratos_runtime, produzir_contratos_arc};
+pub use contratos::{CONTRATOS_DOS_AJUDANTES, ContratoChamadaRuntime, contrato, contrato_chamada_runtime, produzir_contratos_runtime, produzir_contratos_arc};
 pub use contratos::produzir_e_verificar_tokens;
 pub use contratos::produzir_parametros_ref_dart;
 pub use contratos::produzir_e_verificar_tokens_dart;

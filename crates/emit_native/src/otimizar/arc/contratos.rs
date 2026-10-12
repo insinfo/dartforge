@@ -6,8 +6,56 @@ use super::{
     EfeitoTokens, Ownership, PlanoEscopos, PlanoTokens, verificar_escopos, verificar_tokens,
 };
 use crate::hir::*;
-use dartforge_runtime::ownership::{ModoParametro, ModoResultado, contrato};
+use dartforge_runtime::ownership::{Contrato, ModoParametro, ModoResultado};
 use std::collections::{HashMap, HashSet, VecDeque};
+
+/// Contratos dos ajudantes `@df.*` do prelúdio que o lowering chama por
+/// `CallRuntime` (`llvm/{caixas,textos,tipados}_ir.rs`). São IR em linha,
+/// fora do catálogo do runtime: leem campos escalares do objeto emprestado
+/// (e, em `@df.texto_gravar`, gravam unidades de uma string ainda não
+/// publicada), sem alocar, reter, lançar ou chamar Dart — o que os efeitos
+/// deles (`EFEITOS_DOS_AJUDANTES`) dizem e o teste
+/// `ajudantes_concordam_com_os_efeitos` confere. `@df.tipada_base` empresta
+/// a base da visão, que ela segura numa aresta imutável. Os que devolvem
+/// endereço derivado do objeto (`@df.tipada_dados`,
+/// `@df.nucleo_armazenamento`, `@df.nucleo_forma`, `@df.palavra_ref`) ficam
+/// de fora: sob ARC o lowering usa as entradas auditadas do runtime.
+pub const CONTRATOS_DOS_AJUDANTES: &[Contrato] = &[
+    Contrato { nome: "df.identico", parametros: &[ModoParametro::Borrow, ModoParametro::Borrow], resultado: ModoResultado::ScalarI1, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.nucleo_len", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.nucleo_len_gravavel", parametros: &[ModoParametro::Borrow, ModoParametro::Scalar], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.texto_gravar", parametros: &[ModoParametro::Borrow, ModoParametro::Scalar, ModoParametro::Scalar], resultado: ModoResultado::Void, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.texto_hash", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.texto_igual", parametros: &[ModoParametro::Borrow, ModoParametro::Borrow], resultado: ModoResultado::ScalarI1, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.texto_igual_a", parametros: &[ModoParametro::Borrow, ModoParametro::Borrow], resultado: ModoResultado::ScalarI1, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.texto_len", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.texto_unidade", parametros: &[ModoParametro::Borrow, ModoParametro::Scalar], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.tipada_base", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::BorrowArg(0), retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.tipada_bytes", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.tipada_cid", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.tipada_deslocamento", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.tipada_len", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.tipada_len_gravavel", parametros: &[ModoParametro::Borrow, ModoParametro::Scalar], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+];
+
+/// O contrato de ownership de `nome`: o de um ajudante em IR
+/// ([`CONTRATOS_DOS_AJUDANTES`]) ou o do catálogo do runtime.
+///
+/// # Erros
+/// Símbolo sem contrato explícito.
+///
+/// ```
+/// use dartforge_emit_native::otimizar::arc::contrato;
+/// assert!(contrato("df.texto_len").is_ok());
+/// assert!(contrato("dartforge_arc_lista_len_v1").is_ok());
+/// assert!(contrato("df.tipada_dados").is_err());
+/// ```
+pub fn contrato(nome: &str) -> Result<&'static Contrato, &'static str> {
+    match CONTRATOS_DOS_AJUDANTES.iter().find(|c| c.nome == nome) {
+        Some(c) => Ok(c),
+        None => dartforge_runtime::ownership::contrato(nome),
+    }
+}
 
 /// Produz contratos dos parâmetros Ref pela convenção de chamadas Dart (§20.1).
 ///
@@ -1156,6 +1204,7 @@ pub fn contrato_chamada_runtime(inst: &Instruction) -> Result<ContratoChamadaRun
         ModoResultado::ScalarI64 => (Type::I64, Ownership::Trivial),
         ModoResultado::ScalarF64 => (Type::F64, Ownership::Trivial),
         ModoResultado::ScalarI8 => (Type::I8, Ownership::Trivial),
+        ModoResultado::ScalarI1 => (Type::I1, Ownership::Trivial),
         ModoResultado::Void => (Type::Void, Ownership::Trivial),
     };
     if *ret_ty != ty {
@@ -1237,6 +1286,35 @@ pub fn contrato_chamada_runtime(inst: &Instruction) -> Result<ContratoChamadaRun
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn ajudantes_concordam_com_os_efeitos() {
+        let mut nomes = HashSet::new();
+        for c in CONTRATOS_DOS_AJUDANTES {
+            assert!(nomes.insert(c.nome), "{} repetido", c.nome);
+            assert!(c.nome.starts_with("df."), "{}", c.nome);
+            assert!(dartforge_runtime::ownership::contrato(c.nome).is_err(), "{} também no runtime", c.nome);
+            let e = crate::llvm::externs::efeitos_de(c.nome);
+            assert!(!e.aloca && !e.lanca && !e.chama_dart, "{}: {e:?}", c.nome);
+            assert!(!c.pode_falhar && !c.chama_dart && !c.retencao_persistente && !c.invalida_borrows);
+            assert!(c.parametros.iter().all(|m| matches!(m, ModoParametro::Borrow | ModoParametro::Scalar)));
+        }
+        // Os de endereço derivado e o que aloca ficam sem contrato.
+        for nome in ["df.tipada_dados", "df.nucleo_armazenamento", "df.nucleo_forma", "df.palavra_ref", "df.texto_alocar"] {
+            assert!(contrato(nome).is_err(), "{nome}");
+        }
+        let rt = |name: &str, args, ret_ty| Instruction::CallRuntime { name: name.into(), args, ret_ty };
+        let texto = rt("df.texto_igual_a", vec![(Operand::Val(ValueId(1)), Type::Ref), (Operand::Constant(Constant::Null), Type::Ref)], Type::I1);
+        let c = contrato_chamada_runtime(&texto).unwrap();
+        assert_eq!(c.resultado, Ownership::Trivial);
+        assert!(!c.efeito.pode_falhar && !c.invalida_borrows);
+        let base = rt("df.tipada_base", vec![(Operand::Val(ValueId(1)), Type::Ref)], Type::Ref);
+        assert_eq!(contrato_chamada_runtime(&base).unwrap().resultado,
+            Ownership::Borrowed { owner: OrigemOwner::Valor(ValueId(1)), escopo: 0 });
+        // A largura errada do resultado é recusada.
+        let errado = rt("df.texto_len", vec![(Operand::Val(ValueId(1)), Type::Ref)], Type::I8);
+        assert!(contrato_chamada_runtime(&errado).is_err());
+    }
 
     #[test]
     fn unbox_empresta_referencia_e_devolve_escalar_falivel_sem_consumo() {
