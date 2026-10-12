@@ -130,8 +130,13 @@ pub(crate) fn corrigir(projeto: &mut Projeto, uri: &str, diagnosticos: &[Diagnos
         match codigo {
             "non_abstract_class_inherits_abstract_member" => {
                 let Some((c, decl)) = classe_com_nome(projeto, unidade, d.span) else { continue };
-                if let Some((titulo, edicao, selecao)) = sobrescritas_ausentes(projeto, c, unidade, decl) {
-                    let a = acao(uri, titulo, "quickfix.create.missingOverrides", vec![edicao], d);
+                if let Some((titulo, edicao, selecao, grupos)) = sobrescritas_ausentes(projeto, c, unidade, decl) {
+                    // Os grupos `<método>:TYPE<i>`/`PARAM<i>` dos parâmetros
+                    // (`writeParameters` com `methodBeingCopied`) e a seleção.
+                    let mut a = acao(uri, titulo, "quickfix.create.missingOverrides", vec![edicao], d);
+                    for (r, n, sugestoes) in grupos {
+                        a = a.com_grupo(0, &[r], n, sugestoes);
+                    }
                     saida.push(match selecao {
                         Some((rel, n)) => a.com_selecao(0, rel, n),
                         None => a,
@@ -508,7 +513,7 @@ fn local_nao_final(projeto: &Projeto, unidade: UnitId, uso: Span) -> Option<(Str
 }
 
 /// O título, a inserção e a seleção relativa do `Create N missing override(s)`.
-type Sobrescritas = (String, (Span, String), Option<(usize, usize)>);
+type Sobrescritas = (String, (Span, String), Option<(usize, usize)>, Vec<Marca>);
 
 /// Um membro a sobrescrever: nome exibido, se é getter/setter e o elemento.
 struct Ausente {
@@ -571,7 +576,7 @@ fn sobrescritas_ausentes(projeto: &mut Projeto, c: ClassId, unidade: UnitId, dec
     }
     let selecao = if n > 1 {
         Some((prefixo.len(), 0))
-    } else if let [s] = textos.as_slice()
+    } else if let [(s, _)] = textos.as_slice()
         && campos.is_empty()
     {
         let corpo = "throw UnimplementedError()";
@@ -588,13 +593,24 @@ fn sobrescritas_ausentes(projeto: &mut Projeto, c: ClassId, unidade: UnitId, dec
     } else {
         None
     };
-    campos.extend(textos);
-    let mut texto = prefixo + &campos.join("\n\n  ");
+    // O texto: os campos, depois as sobrescritas; os grupos dos parâmetros
+    // passam a valer no texto inteiro.
+    let mut texto = prefixo.clone();
+    let mut grupos: Vec<Marca> = Vec::new();
+    let partes: Vec<(String, Vec<Marca>)> = campos.into_iter().map(|c| (c, Vec::new())).chain(textos).collect();
+    for (k, (s, marcas)) in partes.into_iter().enumerate() {
+        if k > 0 {
+            texto.push_str("\n\n  ");
+        }
+        let base = texto.len();
+        grupos.extend(marcas.into_iter().map(|(r, n, sug)| (base + r, n, sug)));
+        texto.push_str(&s);
+    }
     if ultimo.is_none() && linha_unica {
         texto.push('\n');
     }
     let titulo = format!("Create {n} missing override{}", if n == 1 { "" } else { "s" });
-    Some((titulo, (Span { start: posicao, end: posicao }, texto), selecao))
+    Some((titulo, (Span { start: posicao, end: posicao }, texto), selecao, grupos))
 }
 
 /// Os membros sem implementação concreta na cadeia de `c`.
@@ -690,25 +706,59 @@ fn retorno(projeto: &mut Projeto, f: FunctionElementId, mapa: Option<&HashMap<da
 }
 
 /// O texto de uma sobrescrita (`writeOverride` do Dart).
-fn sobrescrita(projeto: &mut Projeto, a: &Ausente, mapa: Option<&HashMap<dartforge_types::TypeParamId, TypeId>>) -> String {
+/// O texto de `writeOverride` e os grupos ligados dos parâmetros (em bytes
+/// do texto).
+fn sobrescrita(projeto: &mut Projeto, a: &Ausente, mapa: Option<&HashMap<dartforge_types::TypeParamId, TypeId>>) -> (String, Vec<Marca>) {
     let nome = a.nome.clone();
     if a.getter {
         let tipo = retorno(projeto, a.funcao, mapa);
-        return format!("@override\n  // TODO: implement {nome}\n  {tipo} get {nome} => throw UnimplementedError();");
+        let tipo = if tipo == "dynamic" { String::new() } else { format!("{tipo} ") };
+        return (format!("@override\n  // TODO: implement {nome}\n  {tipo}get {nome} => throw UnimplementedError();"), Vec::new());
     }
-    let parametros = lista_de_parametros(projeto, a.funcao, mapa);
+    let (parametros, marcas) = lista_de_parametros(projeto, a.funcao, mapa);
+    let deslocar = |base: usize, marcas: Vec<Marca>| marcas.into_iter().map(|(r, n, s)| (base + r, n, s)).collect::<Vec<_>>();
     if a.setter {
-        return format!("@override\n  set {nome}{parametros} {{\n    // TODO: implement {nome}\n  }}");
+        let antes = format!("@override\n  set {nome}");
+        return (format!("{antes}{parametros} {{\n    // TODO: implement {nome}\n  }}"), deslocar(antes.len(), marcas));
     }
     let tipo = retorno(projeto, a.funcao, mapa);
     let operador = if projeto.programa().function(a.funcao).kind == FunctionKind::Operator { "operator " } else { "" };
     let corpo = if tipo == "void" { String::new() } else { "\n    throw UnimplementedError();".to_string() };
-    format!("@override\n  {tipo} {operador}{nome}{parametros} {{\n    // TODO: implement {nome}{corpo}\n  }}")
+    // `writeType` não escreve o retorno `dynamic`.
+    let antes = if tipo == "dynamic" { format!("@override\n  {operador}{nome}") } else { format!("@override\n  {tipo} {operador}{nome}") };
+    (format!("{antes}{parametros} {{\n    // TODO: implement {nome}{corpo}\n  }}"), deslocar(antes.len(), marcas))
 }
 
 /// `<T>(int a, [int b = 0], {required int c})` de `f`, com os tipos como a
 /// classe os vê.
-fn lista_de_parametros(projeto: &mut Projeto, f: FunctionElementId, mapa: Option<&HashMap<dartforge_types::TypeParamId, TypeId>>) -> String {
+/// Um grupo ligado de um texto gerado: posição e comprimento (bytes do
+/// texto) e as sugestões.
+pub(crate) type Marca = (usize, usize, Vec<String>);
+
+/// `addSuperTypesAsSuggestions(type)`: num tipo de interface, o próprio tipo
+/// e os de `allSupertypes` (a ordem de `implementedInterfaces`), como o Dart
+/// os exibe; nos demais, nada.
+pub(crate) fn sugestoes_de_supertipos(projeto: &mut Projeto, t: TypeId) -> Vec<String> {
+    let Type::Interface { class, args, nullable } = projeto.consulta.tabela.get(t).clone() else { return Vec::new() };
+    let mut v = vec![projeto.consulta.formatar(t)];
+    let base = projeto.consulta.tabela.intern(Type::Interface { class, args, nullable: false });
+    for s in crate::criar::todos_os_supertipos(projeto, class) {
+        let consulta = &mut projeto.consulta;
+        if let Some(mut st) = consulta.outline.hierarchy.supertype_of(base, s, &mut consulta.tabela, &consulta.core) {
+            // Os supertipos de `T?` saem anuláveis (`Object?`, `Pattern?`).
+            if nullable && let Type::Interface { class, args, .. } = consulta.tabela.get(st).clone() {
+                st = consulta.tabela.intern(Type::Interface { class, args, nullable: true });
+            }
+            v.push(consulta.formatar(st));
+        }
+    }
+    v
+}
+
+/// `writeParameters(parameters, methodBeingCopied: f)` de `writeOverride`:
+/// o texto e os grupos ligados `TYPE<i>` (com as sugestões de supertipos) e
+/// `PARAM<i>` (só nos não nomeados), em bytes do texto.
+fn lista_de_parametros(projeto: &mut Projeto, f: FunctionElementId, mapa: Option<&HashMap<dartforge_types::TypeParamId, TypeId>>) -> (String, Vec<Marca>) {
     let p = projeto.programa();
     let (unit, ps, tps): (UnitId, Vec<(ParameterKind, bool, Option<String>, Option<String>)>, String) = match p.function(f).node {
         FunctionRef::Function { unit, function } => {
@@ -742,28 +792,75 @@ fn lista_de_parametros(projeto: &mut Projeto, f: FunctionElementId, mapa: Option
     };
     let _ = unit;
     let tipos: Vec<TypeId> = projeto.consulta.outline.functions[f.0 as usize].parameters.iter().map(|q| q.ty).collect();
-    let mut obrigatorios = Vec::new();
-    let mut opcionais = Vec::new();
-    let mut nomeados = Vec::new();
+    // Cada parâmetro: (espécie, texto, marcas relativas ao texto dele).
+    let mut obrigatorios: Vec<(String, Vec<Marca>)> = Vec::new();
+    let mut opcionais: Vec<(String, Vec<Marca>)> = Vec::new();
+    let mut nomeados: Vec<(String, Vec<Marca>)> = Vec::new();
     for (i, (tipo_p, req, nome, padrao)) in ps.into_iter().enumerate() {
+        let mut s = String::new();
+        let mut marcas = Vec::new();
+        if tipo_p == ParameterKind::Named && req {
+            s.push_str("required ");
+        }
         let tipo = tipos.get(i).map_or_else(|| "dynamic".to_string(), |t| formatar(projeto, *t, mapa));
-        let mut s = format!("{tipo} {}", nome.unwrap_or_else(|| format!("p{i}")));
+        let sugestoes = match tipos.get(i) {
+            Some(t) => {
+                let t = match mapa {
+                    Some(m) => dartforge_types::ops::substitute(*t, m, &mut projeto.consulta.tabela),
+                    None => *t,
+                };
+                sugestoes_de_supertipos(projeto, t)
+            }
+            None => Vec::new(),
+        };
+        // `_writeType` não escreve `dynamic` (nem o tipo inválido) num
+        // parâmetro: sem tipo, sem o grupo.
+        let dinamico = tipos.get(i).is_some_and(|t| matches!(projeto.consulta.tabela.get(*t), Type::Dynamic));
+        if !dinamico {
+            marcas.push((s.len(), tipo.len(), sugestoes));
+            s.push_str(&tipo);
+            s.push(' ');
+        }
+        let nome = nome.unwrap_or_else(|| format!("p{i}"));
+        if tipo_p != ParameterKind::Named {
+            marcas.push((s.len(), nome.len(), Vec::new()));
+        }
+        s.push_str(&nome);
         if let Some(v) = padrao {
             s.push_str(&format!(" = {v}"));
         }
         match tipo_p {
-            ParameterKind::Required => obrigatorios.push(s),
-            ParameterKind::Optional => opcionais.push(s),
-            ParameterKind::Named => nomeados.push(if req { format!("required {s}") } else { s }),
+            ParameterKind::Required => obrigatorios.push((s, marcas)),
+            ParameterKind::Optional => opcionais.push((s, marcas)),
+            ParameterKind::Named => nomeados.push((s, marcas)),
         }
     }
-    let mut partes = obrigatorios;
+    let mut texto = format!("{tps}(");
+    let mut todas: Vec<Marca> = Vec::new();
+    let mut juntar = |texto: &mut String, lista: Vec<(String, Vec<Marca>)>, abre: &str, fecha: &str, primeiro: &mut bool| {
+        for (k, (s, marcas)) in lista.into_iter().enumerate() {
+            if !*primeiro {
+                texto.push_str(", ");
+            }
+            *primeiro = false;
+            if k == 0 {
+                texto.push_str(abre);
+            }
+            let base = texto.len();
+            todas.extend(marcas.into_iter().map(|(r, n, sug)| (base + r, n, sug)));
+            texto.push_str(&s);
+        }
+        texto.push_str(fecha);
+    };
+    let mut primeiro = true;
+    juntar(&mut texto, obrigatorios, "", "", &mut primeiro);
     if !opcionais.is_empty() {
-        partes.push(format!("[{}]", opcionais.join(", ")));
+        juntar(&mut texto, opcionais, "[", "]", &mut primeiro);
     }
     if !nomeados.is_empty() {
-        partes.push(format!("{{{}}}", nomeados.join(", ")));
+        juntar(&mut texto, nomeados, "{", "}", &mut primeiro);
     }
-    format!("{tps}({})", partes.join(", "))
+    texto.push(')');
+    (texto, todas)
 }
 

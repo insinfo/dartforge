@@ -595,7 +595,7 @@ enum Membro {
 /// dele, as restrições `on`, as interfaces e os mixins, na ordem do
 /// `InterfacesMerger`; as aplicações de mixin sintéticas se desfazem no
 /// supertipo e nos mixins.
-fn todos_os_supertipos(p: &Projeto, c: ClassId) -> Vec<ClassId> {
+pub(crate) fn todos_os_supertipos(p: &Projeto, c: ClassId) -> Vec<ClassId> {
     fn diretos(p: &Projeto, c: ClassId) -> (Option<ClassId>, Vec<ClassId>, Vec<ClassId>, Vec<ClassId>) {
         let prog = p.programa();
         let cl = prog.class(c);
