@@ -1705,6 +1705,24 @@ pub fn verificar(
             }
         }
 
+        // `verify()` depois dos supertipos diretos
+        // (`inheritance_override.dart:193-204`): a classe concreta (não enum)
+        // que implementa `Enum` por algum supertipo, no nome.
+        if !direto_erro
+            && !consumidora.is_sdk
+            && matches!(classe.kind, ClassKind::Class | ClassKind::MixinApplication)
+            && !classe.modifiers.abstract_
+            && !classe.modifiers.sealed
+            && let DeclKind::Class(d) = &ast_.decl(decl.decl).kind
+        {
+            let mut todos = Vec::new();
+            supertipos(&l, id, &mut todos);
+            if todos.iter().any(|&x| x != id && l.e_enum_do_core(x)) {
+                saida.push((decl.unit, Diagnostic::com_codigo(c::CONCRETE_CLASS_HAS_ENUM_SUPERINTERFACE, d.name.span, [] as [&str; 0])));
+                direto_erro = true;
+            }
+        }
+
         // `_checkMixinOfEnum` (`inheritance_override.dart:742-763`): mixin com
         // campo de instância num enum, no tipo inteiro.
         if classe.kind == ClassKind::Enum {

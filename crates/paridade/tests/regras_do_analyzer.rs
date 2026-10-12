@@ -164,6 +164,32 @@ const CASOS: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
         "class A {\n  int foo = 0;\n  int get g => 0;\n  set s(int _) {}\n  void m() {}\n}\nextension E on A? {\n  void baz() {\n    foo = 0;\n    foo += 1;\n    foo++;\n    s = 1;\n    print(g);\n    m();\n    m;\n    foo ??= 1;\n  }\n}\n",
         &[("unchecked_use_of_nullable_value", 9, 5, 3), ("unchecked_use_of_nullable_value", 10, 5, 3), ("unchecked_use_of_nullable_value", 11, 5, 3), ("unchecked_use_of_nullable_value", 12, 5, 1), ("unchecked_use_of_nullable_value", 13, 11, 1), ("unchecked_use_of_nullable_value", 14, 5, 1), ("unchecked_use_of_nullable_value", 15, 5, 1), ("unchecked_use_of_nullable_value", 16, 5, 3), ("dead_null_aware_expression", 16, 13, 1)],
     ),
+    // FN do corpus (2026-10-12): `Enum` por supertipo, `Fn<int>.foo`,\n`dart:_wasm`, `@docImport` interpolado, hexadecimal negativo e `is Never?`.
+    (
+        "alias_funcao_acesso.dart",
+        "import 'dart:core' as c;\ntypedef Fn<T> = void Function(T);\nvoid bar() {\n  Fn<c.int>.foo;\n  Fn<c.int>.foo = 7;\n  Fn<c.int>.foo += 1;\n  Fn<c.int>.foo();\n  (Fn<c.int>).foo;\n  Fn<c.int>.hashCode;\n}\nextension E on c.Type {\n  c.int get foo => 1;\n  set foo(c.int v) {}\n}\n",
+        &[("undefined_getter", 4, 13, 3), ("undefined_setter", 5, 13, 3), ("undefined_getter", 6, 13, 3), ("undefined_method", 7, 13, 3), ("undefined_getter", 9, 13, 8)],
+    ),
+    (
+        "doc_import_interpolado.dart",
+        "/// @docImport '${'foo'}.dart';\nlibrary;\n",
+        &[("uri_with_interpolation", 1, 16, 15)],
+    ),
+    (
+        "enum_transitivo.dart",
+        "mixin M {}\nabstract class A implements Enum {}\nclass B = Object with M implements A;\nclass C implements A {}\nclass D extends C {}\nabstract class E2 implements A {}\nmixin M2 implements A {}\nclass F with M2 {}\n",
+        &[("concrete_class_has_enum_superinterface", 3, 7, 1), ("concrete_class_has_enum_superinterface", 4, 7, 1), ("concrete_class_has_enum_superinterface", 5, 7, 1), ("concrete_class_has_enum_superinterface", 8, 7, 1)],
+    ),
+    (
+        "hex_negativo.dart",
+        "var a = -0x8000000000000001;\nvar b = -0x8000000000000000;\nvar c = 0xFFFFFFFFFFFFFFFF;\nvar d = -0xFFFFFFFFFFFFFFFF;\nvoid f(Object? y) {\n  if (y is Never?) {}\n}\n",
+        &[("integer_literal_out_of_range", 1, 10, 18), ("integer_literal_out_of_range", 4, 10, 18), ("type_check_with_null", 6, 7, 11)],
+    ),
+    (
+        "wasm_interna.dart",
+        "import 'dart:_wasm';\n",
+        &[("import_internal_library", 1, 8, 12), ("unused_import", 1, 8, 12)],
+    ),
 ];
 
 #[test]

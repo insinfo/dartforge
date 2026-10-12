@@ -244,6 +244,8 @@ pub struct ImportDeDoc {
     pub literal: Span,
     pub adiado: Option<Span>,
     pub configuracoes: Option<Span>,
+    /// A URI tem interpolação (`'${'foo'}.dart'`).
+    pub interpolada: bool,
 }
 
 /// `_parseDocImport`: `@docImport ` em `indice` do conteúdo da linha (que
@@ -271,7 +273,14 @@ fn import_de_doc(conteudo: &str, base: usize, indice: usize) -> Option<ImportDeD
         (Some(a), Some(b)) => Some(mapa(Span { start: a.span.start, end: b.span.end })),
         _ => None,
     };
-    Some(ImportDeDoc { uri: dartforge_elements::load::string_lit_value(uri).map(|s| s.to_string()), literal: mapa(uri.span), adiado, configuracoes })
+    let interpolada = uri.parts.iter().any(|p| matches!(p, dartforge_frontend::ast::StringPart::Interpolation(_)));
+    Some(ImportDeDoc {
+        uri: dartforge_elements::load::string_lit_value(uri).map(|s| s.to_string()),
+        literal: mapa(uri.span),
+        adiado,
+        configuracoes,
+        interpolada,
+    })
 }
 
 /// Os `@docImport` do comentário de documentação da diretiva `library` (os

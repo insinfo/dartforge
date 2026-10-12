@@ -62,6 +62,11 @@ fn valido_como_inteiro(texto: &str, negado: bool) -> bool {
     let hex = texto.starts_with("0x") || texto.starts_with("0X");
     let b = bits(&n);
     if hex {
+        // `int.tryParse` da VM: o hexadecimal positivo vale até 64 bits (dá a
+        // volta); com o `-`, só até `2^63`.
+        if negado {
+            return b < 64 || (b == 64 && (0..63).all(|i| !bit(&n, i)));
+        }
         return b <= 64;
     }
     if b < 64 {

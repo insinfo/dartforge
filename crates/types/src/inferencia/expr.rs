@@ -672,6 +672,30 @@ pub(crate) fn alias_de_tipo_de_funcao(inf: &mut BodyInferrer<'_>, cx: &Corpo, e:
     alvo_do_alias_nomeado(inf, cx, e).is_some_and(|t| matches!(inf.table.get(t), Type::Function { .. }))
 }
 
+/// O acesso `alvo.nome` com `alvo` o literal de tipo instanciado de um alias
+/// de tipo de função (`Fn<int>.foo`, `Fn<int>.foo = 1`): infere o alvo e
+/// relata `UNDEFINED_GETTER_ON_FUNCTION_TYPE` (leitura) ou
+/// `UNDEFINED_SETTER_ON_FUNCTION_TYPE` (escrita) no nome, com o nome do
+/// tipo como escrito. Diz se relatou.
+pub(crate) fn literal_de_tipo_de_funcao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId, nome: ast::Name, leitura: bool) -> bool {
+    let ExprKind::TypeArguments { target: base, .. } = &ast(inf, cx).expr(alvo).kind else { return false };
+    let base = *base;
+    if !alias_de_tipo_de_funcao(inf, cx, base) {
+        return false;
+    }
+    inferir_livre(inf, cx, alvo);
+    let sp_base = inf.span_expr(cx.unit, base);
+    let qualificado = inf.program.unit(cx.unit).source[sp_base.start..sp_base.end].to_string();
+    let texto = inf.interner.resolve(nome.sym).to_string();
+    let codigo = if leitura {
+        dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_GETTER_ON_FUNCTION_TYPE
+    } else {
+        dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_SETTER_ON_FUNCTION_TYPE
+    };
+    inf.aviso_com_codigo(codigo, nome.span, &[&texto, &qualificado]);
+    true
+}
+
 /// `e` nomeia um alias cujo alvo é um parâmetro de tipo (`typedef T<X> = X`).
 pub(crate) fn alias_de_parametro_de_tipo(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId) -> bool {
     alvo_do_alias_nomeado(inf, cx, e).is_some_and(|t| matches!(inf.table.get(t), Type::TypeParameter { .. }))
@@ -2484,6 +2508,12 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: Ex
                 }
             }
         }
+    }
+    // `Fn<int>.foo` com `Fn` alias de tipo de função (3.6.2
+    // `property_element_resolver.dart:459-477`): nenhuma resolução possível,
+    // `UNDEFINED_GETTER_ON_FUNCTION_TYPE` no nome.
+    if literal_de_tipo_de_funcao(inf, cx, target, name, true) {
+        return (inf.table.invalido(inf.core.dynamic_), false);
     }
     // `C.x`: estático, constante de enum ou tear-off de construtor.
     if let Some(rt) = referencia_a_tipo(inf, cx, target) {
@@ -4444,6 +4474,16 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: AssignO
 
 /// `r.x = …`: tipo do setter.
 fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId, target: ExprId, name: ast::Name, null_aware: bool, curto: &mut bool, recv_lido: Option<(TypeId, bool)>) -> TypeId {
+    // `Fn<int>.foo = 1`: o setter sem resolução possível; na composta só o
+    // getter relata (`hasRead`), já na leitura.
+    if let ExprKind::TypeArguments { target: base, .. } = &ast(inf, cx).expr(target).kind
+        && alias_de_tipo_de_funcao(inf, cx, *base)
+    {
+        if recv_lido.is_none() {
+            literal_de_tipo_de_funcao(inf, cx, target, name, false);
+        }
+        return inf.table.invalido(inf.core.dynamic_);
+    }
     let a = ast(inf, cx);
     if let ExprKind::Identifier(p) = &a.expr(target).kind {
         if matches!(resolver_nome(inf, cx, p.sym, false), RefNome::Prefixo) {
@@ -5360,7 +5400,11 @@ fn teste_de_tipo_desnecessario(
         }
         return;
     }
-    if t == inf.core.null && nome_escrito.as_deref() == Some("Null") {
+    // `is Never?` também é `isDartCoreNull` (o `Never?` escrito vira `Null`).
+    let never_anulavel = matches!(&ast(inf, cx).ty(ty).kind, ast::TypeKind::Named { name, .. }
+        if ast(inf, cx).ty(ty).nullable && name.len() == 1 && inf.interner.resolve(name[0].sym) == "Never")
+        && inf.table.canonico(t) == inf.core.null;
+    if (t == inf.core.null && nome_escrito.as_deref() == Some("Null")) || never_anulavel {
         if matches!(ast(inf, cx).expr(value).kind, ExprKind::Null) {
             inf.aviso_com_codigo(codigo, span, &[]);
         } else {

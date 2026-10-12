@@ -267,6 +267,16 @@ impl Motor {
                 }
             }
         }
+        // O resto do que o analyzer enxerga (`libraries.dart`, sem patches):
+        // as internas que nenhum dos perfis acima traz (`dart:_wasm`), para
+        // que `import 'dart:_wasm'` resolva e relate `import_internal_library`.
+        if let Ok(analyzer) = SdkLayout::load_como_analyzer(sdk_lib) {
+            for (nome, lib) in analyzer.libraries {
+                if !sdk.libraries.contains_key(&nome) && lib.path.is_file() {
+                    sdk.libraries.insert(nome, lib);
+                }
+            }
+        }
         // Importação condicional: o analyzer escolhe a configuração cujo
         // `dart.library.x` está nas variáveis declaradas do contexto
         // (`an611:src/dart/analysis/file_state.dart:785-800`), e o `dart
@@ -433,6 +443,12 @@ impl Motor {
             // diretiva `library` com alvo ausente (`URI_DOES_NOT_EXIST_IN_DOC_IMPORT`).
             let arvore = dartforge_analise::Unidade { ast: &unit.ast, unit: &unit.unit, fonte: &unit.source };
             for i in dartforge_analise::a_doc::imports_de_doc_da_biblioteca(arvore) {
+                // A URI interpolada (`DirectiveUriWithInterpolation`, no literal).
+                if i.interpolada {
+                    let d = Diagnostic::com_codigo(codigos::compile_time_error::URI_WITH_INTERPOLATION, i.literal, [] as [&str; 0]);
+                    analise.por(k, d, fase::DIRECTIVES);
+                    continue;
+                }
                 let Some(uri) = i.uri else { continue };
                 // `_reportImportDirectiveErrors`: `dart-ext:` no lugar do alvo ausente.
                 if uri.starts_with("dart-ext:") {
