@@ -48,7 +48,9 @@ impl Parser<'_> {
             let o = self.pos;
             if self.pal(o, "as") {
                 if !self.padrao_unario_ok {
-                    return Err(self.erro_em(ini, "This pattern cannot appear inside a unary pattern."));
+                    return Err(
+                        self.erro_em(ini, "This pattern cannot appear inside a unary pattern.")
+                    );
                 }
                 self.avancar();
                 let type_ = self.tipo_apos_is_as()?;
@@ -62,7 +64,9 @@ impl Parser<'_> {
                 );
             } else if self.op(o, Op::Bang) || self.op(o, Op::Question) {
                 if !self.padrao_unario_ok {
-                    return Err(self.erro_em(ini, "This pattern cannot appear inside a unary pattern."));
+                    return Err(
+                        self.erro_em(ini, "This pattern cannot appear inside a unary pattern.")
+                    );
                 }
                 self.avancar();
                 p = if self.op(o, Op::Bang) {
@@ -132,7 +136,12 @@ impl Parser<'_> {
                         | Op::EqEq
                 )
                 | TipoToken::Reservada(
-                    Keyword::Null | Keyword::False | Keyword::True | Keyword::Var | Keyword::Final | Keyword::Const
+                    Keyword::Null
+                        | Keyword::False
+                        | Keyword::True
+                        | Keyword::Var
+                        | Keyword::Final
+                        | Keyword::Const
                 )
         )
     }
@@ -143,7 +152,11 @@ impl Parser<'_> {
         let ta = self.args_tipo_lt(ini, true);
         let next = ta.map_or(ini, |a| a.ate);
         if self.op(next, Op::LBracket) || self.op(next, Op::LBrace) {
-            let targs = if ta.is_some() { Some(self.args_tipo()?) } else { None };
+            let targs = if ta.is_some() {
+                Some(self.args_tipo()?)
+            } else {
+                None
+            };
             let r = if self.op(self.pos, Op::LBracket) {
                 self.lista_padrao(targs, ctx, ini)?
             } else {
@@ -246,7 +259,10 @@ impl Parser<'_> {
                     self.padrao_unario_ok = true;
                     return self.padrao_variavel(ctx, None);
                 } else if nome == "when" || nome == "as" {
-                    return Err(self.erro_em(primeiro, "A pattern can't refer to an identifier named 'when' or 'as'."));
+                    return Err(self.erro_em(
+                        primeiro,
+                        "A pattern can't refer to an identifier named 'when' or 'as'.",
+                    ));
                 }
             }
         }
@@ -284,17 +300,26 @@ impl Parser<'_> {
         match ctx {
             CtxPadrao::Declaracao => {
                 if let Some(k) = keyword {
-                    return Err(self.erro_em(k, "Variable patterns in declaration context can't specify 'var' or 'final'."));
+                    return Err(self.erro_em(
+                        k,
+                        "Variable patterns in declaration context can't specify 'var' or 'final'.",
+                    ));
                 }
             }
             CtxPadrao::Correspondencia => {
                 if type_.is_some() && keyword.is_some_and(|k| self.kw(k, Keyword::Var)) {
-                    return Err(self.erro_em(keyword.unwrap_or(nome), "Variables can't be declared using both 'var' and a type name."));
+                    return Err(self.erro_em(
+                        keyword.unwrap_or(nome),
+                        "Variables can't be declared using both 'var' and a type name.",
+                    ));
                 }
             }
             CtxPadrao::Atribuicao => {
                 if !nu {
-                    return Err(self.erro_em(nome, "Variable patterns in assignments can't declare variables."));
+                    return Err(self.erro_em(
+                        nome,
+                        "Variable patterns in assignments can't declare variables.",
+                    ));
                 }
             }
         }
@@ -437,7 +462,9 @@ impl Parser<'_> {
                 },
                 c,
             ));
-        } else if (permite_parenteses_nome || !self.op(self.pos, Op::LParen)) && self.op(self.pos + 1, Op::Colon) {
+        } else if (permite_parenteses_nome || !self.op(self.pos, Op::LParen))
+            && self.op(self.pos + 1, Op::Colon)
+        {
             let n = self.espera_ident()?;
             let c = self.avancar();
             nome = Some(self.no(
@@ -451,7 +478,16 @@ impl Parser<'_> {
         let tem_nome = nome.is_some();
         let pattern = self.padrao(ctx)?;
         if tem_nome {
-            return Ok((self.no(No::PatternField { name: nome, pattern }, fi), true));
+            return Ok((
+                self.no(
+                    No::PatternField {
+                        name: nome,
+                        pattern,
+                    },
+                    fi,
+                ),
+                true,
+            ));
         }
         Ok((pattern, false))
     }
@@ -470,7 +506,11 @@ impl Parser<'_> {
                 break;
             }
             let (c, nomeado) = self.campo_padrao(ctx, false)?;
-            let c = if registro && !nomeado { self.campo_sem_nome(c) } else { c };
+            let c = if registro && !nomeado {
+                self.campo_sem_nome(c)
+            } else {
+                c
+            };
             if nomeado {
                 registro = true;
                 valido = true;
@@ -491,7 +531,10 @@ impl Parser<'_> {
         self.funcoes = old;
         if registro {
             if campos.len() == 1 && !valido {
-                return Err(self.erro_em(rp, "A record pattern with exactly one positional field requires a trailing comma."));
+                return Err(self.erro_em(
+                    rp,
+                    "A record pattern with exactly one positional field requires a trailing comma.",
+                ));
             }
             return Ok(self.no(
                 No::RecordPattern {
@@ -519,11 +562,24 @@ impl Parser<'_> {
             return pattern;
         }
         let (a, b) = (self.ini(pattern), self.fim(pattern));
-        self.no_entre(No::PatternField { name: None, pattern }, a, b)
+        self.no_entre(
+            No::PatternField {
+                name: None,
+                pattern,
+            },
+            a,
+            b,
+        )
     }
 
     /// `objectPattern ::= typeName typeArguments? '(' patternFields? ')'`.
-    fn objeto_padrao(&mut self, primeiro: usize, segundo: Option<usize>, com_args: bool, ctx: CtxPadrao) -> R<NoId> {
+    fn objeto_padrao(
+        &mut self,
+        primeiro: usize,
+        segundo: Option<usize>,
+        com_args: bool,
+        ctx: CtxPadrao,
+    ) -> R<NoId> {
         let ini = self.pos;
         let mut import_prefix = None;
         let nome = match segundo {
@@ -534,7 +590,11 @@ impl Parser<'_> {
             None => primeiro,
         };
         self.pos = nome + 1;
-        let type_arguments = if com_args { Some(self.args_tipo()?) } else { None };
+        let type_arguments = if com_args {
+            Some(self.args_tipo()?)
+        } else {
+            None
+        };
         let type_ = self.no(
             No::NamedType {
                 import_prefix,

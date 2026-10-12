@@ -181,7 +181,13 @@ impl Parser<'_> {
 
     /// `computeType(token, required, inDeclaration,
     /// acceptKeywordForSimpleType)` para um tipo que começa em `i`.
-    pub(super) fn tipo_em(&self, i: usize, requerido: bool, decl: bool, aceita_palavra: bool) -> InfoTipo {
+    pub(super) fn tipo_em(
+        &self,
+        i: usize,
+        requerido: bool,
+        decl: bool,
+        aceita_palavra: bool,
+    ) -> InfoTipo {
         let n = i;
         if !self.ref_tipo_valida(n) && !self.op(n, Op::LParen) {
             if self.embutida(n) {
@@ -195,7 +201,9 @@ impl Parser<'_> {
                     }
                 } else if requerido || self.gft(n + 1) {
                     let v = self.txt(n);
-                    if !(matches!(v, "get" | "set" | "factory" | "operator") || (v == "typedef" && self.ident(n + 1))) {
+                    if !(matches!(v, "get" | "set" | "factory" | "operator")
+                        || (v == "typedef" && self.ident(n + 1)))
+                    {
                         let mut c = Complexo::novo(n, None);
                         c.fim = n;
                         self.resto_tipo(&mut c, requerido);
@@ -450,14 +458,17 @@ impl Parser<'_> {
                         || self.pal(depois, "async")
                         || self.pal(depois, "sync")
                         || self.eof(depois);
-                    if get_set && corpo {
-                    } else if self.pal(next, "operator") && self.operador_definivel(depois).is_some() {
-                    } else {
+                    let operador =
+                        self.pal(next, "operator") && self.operador_definivel(depois).is_some();
+                    if !(get_set && corpo) && !operador {
                         return InfoTipo::nenhum(n);
                     }
                 }
-            } else if (self.kw(next, Keyword::This) || self.kw(next, Keyword::Super)) && self.op(next + 1, Op::Dot) {
-            } else if c.recuperado || !(self.op(next, Op::Comma) || self.op(next, Op::Gt) || self.eof(next)) {
+            } else if !((self.kw(next, Keyword::This) || self.kw(next, Keyword::Super))
+                && self.op(next + 1, Op::Dot))
+                && (c.recuperado
+                    || !(self.op(next, Op::Comma) || self.op(next, Op::Gt) || self.eof(next)))
+            {
                 return InfoTipo::nenhum(n);
             }
         }
@@ -541,7 +552,10 @@ impl Parser<'_> {
             }
         } else if self.op(next, Op::LParen) {
             let t = self.tipo_em(next, false, false, false);
-            if !(t.forma == Forma::Complexo && (t.registro || t.registro_no_retorno) && !t.recuperado) {
+            if !(t.forma == Forma::Complexo
+                && (t.registro || t.registro_no_retorno)
+                && !t.recuperado)
+            {
                 return None;
             }
         }
@@ -589,7 +603,9 @@ impl Parser<'_> {
                 }
                 // Recuperação: vírgula ausente.
                 if !(self.ident_puro(next)
-                    && (self.ident_puro(next + 1) || self.op(next + 1, Op::Comma) || self.fecho_tipo(next + 1)))
+                    && (self.ident_puro(next + 1)
+                        || self.op(next + 1, Op::Comma)
+                        || self.fecho_tipo(next + 1)))
                 {
                     break;
                 }
@@ -664,11 +680,11 @@ impl Parser<'_> {
                     next = token + 1;
                 }
             }
-            if self.op(next, Op::Lt) {
-                if let Some(a) = self.args_tipo_em(token, true) {
-                    token = a.ate - 1;
-                    next = token + 1;
-                }
+            if self.op(next, Op::Lt)
+                && let Some(a) = self.args_tipo_em(token, true)
+            {
+                token = a.ate - 1;
+                next = token + 1;
             }
             if self.op(next, Op::Dot) {
                 token = next;
@@ -688,7 +704,8 @@ impl Parser<'_> {
     /// `computeVariablePatternType`.
     pub(super) fn tipo_de_padrao_variavel_em(&self, i: usize, requerido: bool) -> InfoTipo {
         let t = self.tipo_em(i, requerido, false, false);
-        if !t.e_nenhum() && self.ident(t.ate) && (self.pal(t.ate, "as") || self.pal(t.ate, "when")) {
+        if !t.e_nenhum() && self.ident(t.ate) && (self.pal(t.ate, "as") || self.pal(t.ate, "when"))
+        {
             return InfoTipo::nenhum(i);
         }
         t
@@ -709,14 +726,20 @@ impl Parser<'_> {
         t += 1;
         if self.op(t, Op::LParen) {
             let d = self.par(t) + 1;
-            return self.op(d, Op::LBrace) || self.op(d, Op::Arrow) || self.pal(d, "async") || self.pal(d, "sync");
+            return self.op(d, Op::LBrace)
+                || self.op(d, Op::Arrow)
+                || self.pal(d, "async")
+                || self.pal(d, "sync");
         }
         self.op(t, Op::Arrow)
     }
 
     /// `looksLikeFunctionBody`.
     pub(super) fn parece_corpo(&self, i: usize) -> bool {
-        self.op(i, Op::LBrace) || self.op(i, Op::Arrow) || self.pal(i, "async") || self.pal(i, "sync")
+        self.op(i, Op::LBrace)
+            || self.op(i, Op::Arrow)
+            || self.pal(i, "async")
+            || self.pal(i, "sync")
     }
 
     /// `skipOuterPattern`: devolve o último token do padrão externo que
@@ -743,7 +766,9 @@ impl Parser<'_> {
     }
 
     fn pular_resto_objeto(&self, ultimo_nome: usize) -> Option<usize> {
-        let next = self.args_tipo_em(ultimo_nome, false).map_or(ultimo_nome + 1, |a| a.ate);
+        let next = self
+            .args_tipo_em(ultimo_nome, false)
+            .map_or(ultimo_nome + 1, |a| a.ate);
         if !self.op(next, Op::LParen) {
             return None;
         }
@@ -754,61 +779,58 @@ impl Parser<'_> {
     /// `unario` é o contexto `UnaryExpression`.
     pub(super) fn parece_expressao_apos(&self, i: usize, unario: bool) -> bool {
         let t = i + 1;
-        if self.ident(t) {
-            let t = t + 1;
-            if self.op(t, Op::LParen) {
-                let d = self.par(t) + 1;
-                if matches!(
-                    self.tipo(d),
-                    super::TipoToken::Op(
-                        Op::Semicolon | Op::Dot | Op::Comma | Op::DotDot | Op::Question | Op::QuestionDot | Op::RParen
-                    )
-                ) {
-                    return true;
-                }
-                if self.operador_binario(d) {
-                    return true;
-                }
-            } else if self.op(t, Op::Dot) || self.op(t, Op::RParen) || self.op(t, Op::RBracket) {
-                return true;
-            } else if self.op(t, Op::Comma) && unario {
-                return true;
-            } else if self.operador_binario(t) {
-                return true;
-            } else if self.op(t, Op::Semicolon) && unario {
-                return true;
-            }
-        } else if self.kw(t, Keyword::Null) {
+        if self.kw(t, Keyword::Null) {
             return true;
         }
-        false
+        if !self.ident(t) {
+            return false;
+        }
+        let t = t + 1;
+        if self.op(t, Op::LParen) {
+            let d = self.par(t) + 1;
+            return matches!(
+                self.tipo(d),
+                super::TipoToken::Op(
+                    Op::Semicolon
+                        | Op::Dot
+                        | Op::Comma
+                        | Op::DotDot
+                        | Op::Question
+                        | Op::QuestionDot
+                        | Op::RParen
+                )
+            ) || self.operador_binario(d);
+        }
+        self.op(t, Op::Dot)
+            || self.op(t, Op::RParen)
+            || self.op(t, Op::RBracket)
+            || self.operador_binario(t)
+            || (unario && (self.op(t, Op::Comma) || self.op(t, Op::Semicolon)))
     }
 
     /// `type.isBinaryOperator`.
     pub(super) fn operador_binario(&self, i: usize) -> bool {
         use super::TipoToken::Op as O;
-        match self.tipo(i) {
-            O(Op::Gt) => true,
-            O(
-                Op::Plus
-                | Op::Minus
-                | Op::Star
-                | Op::Slash
-                | Op::TildeSlash
-                | Op::Percent
-                | Op::Lt
-                | Op::LtEq
-                | Op::EqEq
-                | Op::LtLt
-                | Op::Amp
-                | Op::Pipe
-                | Op::Caret
-                | Op::AmpAmp
-                | Op::PipePipe
-                | Op::QuestionQuestion,
-            ) => true,
-            _ => false,
-        }
+        matches!(
+            self.tipo(i),
+            O(Op::Gt)
+                | O(Op::Plus
+                    | Op::Minus
+                    | Op::Star
+                    | Op::Slash
+                    | Op::TildeSlash
+                    | Op::Percent
+                    | Op::Lt
+                    | Op::LtEq
+                    | Op::EqEq
+                    | Op::LtLt
+                    | Op::Amp
+                    | Op::Pipe
+                    | Op::Caret
+                    | Op::AmpAmp
+                    | Op::PipePipe
+                    | Op::QuestionQuestion,)
+        )
     }
 
     /// Palavra reservada (`isReservedWord`).
@@ -819,6 +841,10 @@ impl Parser<'_> {
     /// Estilo da palavra em `i`.
     #[allow(dead_code)]
     pub(super) fn estilo_em(&self, i: usize) -> Estilo {
-        if self.ident(i) { estilo(self.txt(i)) } else { Estilo::Nenhum }
+        if self.ident(i) {
+            estilo(self.txt(i))
+        } else {
+            Estilo::Nenhum
+        }
     }
 }

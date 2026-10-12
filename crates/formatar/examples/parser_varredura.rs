@@ -27,7 +27,9 @@ fn coletar(caminho: &Path, saida: &mut Vec<PathBuf>) {
         let mut v: Vec<_> = entradas.flatten().map(|e| e.path()).collect();
         v.sort();
         for p in v {
-            if p.file_name().is_some_and(|n| n == "target" || n == ".dart_tool" || n == ".git") {
+            if p.file_name()
+                .is_some_and(|n| n == "target" || n == ".dart_tool" || n == ".git")
+            {
                 continue;
             }
             coletar(&p, saida);

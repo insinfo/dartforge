@@ -28,6 +28,85 @@ pub(super) enum CtxConst {
     SoNumerico,
 }
 
+/// O primeiro escape inválido de `b` (o texto entre as aspas), como o
+/// `unescapeCodeUnits` do fasta (`quote.dart`).
+fn erro_de_escape(b: &[u8]) -> Option<&'static str> {
+    let n = b.len();
+    let hex = |x: u8| x.is_ascii_hexdigit();
+    let valor = |x: u8| (x as char).to_digit(16).unwrap_or(0);
+    let mut i = 0;
+    while i < n {
+        if b[i] != b'\\' {
+            i += 1;
+            continue;
+        }
+        i += 1;
+        if i == n {
+            return Some("An escape sequence starting with '\\' must be followed by a character.");
+        }
+        match b[i] {
+            b'x' => {
+                if n <= i + 2 || !hex(b[i + 1]) || !hex(b[i + 2]) {
+                    return Some(
+                        "An escape sequence starting with '\\x' must be followed by 2 hexadecimal digits.",
+                    );
+                }
+                i += 2;
+            }
+            b'u' => {
+                if n == i + 1 {
+                    return Some(
+                        "An escape sequence starting with '\\u' must be followed by 4 hexadecimal digits.",
+                    );
+                }
+                let mut code: u32 = 0;
+                if b[i + 1] == b'{' {
+                    i += 1;
+                    let mut fechou = false;
+                    for j in 0..7 {
+                        i += 1;
+                        if i == n {
+                            return Some("Invalid '\\u{...}' escape.");
+                        }
+                        let d = b[i];
+                        if j != 0 && d == b'}' {
+                            fechou = true;
+                            break;
+                        } else if j == 6 || !hex(d) {
+                            return Some("Invalid '\\u{...}' escape.");
+                        }
+                        code = (code << 4) + valor(d);
+                    }
+                    if !fechou {
+                        return Some("Invalid '\\u{...}' escape.");
+                    }
+                } else {
+                    if n <= i + 4 {
+                        return Some(
+                            "An escape sequence starting with '\\u' must be followed by 4 hexadecimal digits.",
+                        );
+                    }
+                    for _ in 0..4 {
+                        i += 1;
+                        if !hex(b[i]) {
+                            return Some(
+                                "An escape sequence starting with '\\u' must be followed by 4 hexadecimal digits.",
+                            );
+                        }
+                        code = (code << 4) + valor(b[i]);
+                    }
+                }
+                if code > 0x10FFFF {
+                    return Some("The escape sequence isn't a valid code point.");
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
 impl Parser<'_> {
     /// `parseExpression`.
     pub(super) fn expressao(&mut self) -> R<NoId> {
@@ -109,7 +188,11 @@ impl Parser<'_> {
     /// `e<T>` sem chamada vira `FunctionReference`.
     fn args_metodo_apos(&mut self, e: NoId, ctx: CtxConst) -> R<(NoId, Option<NoId>)> {
         let ultimo = self.pos - 1;
-        let bang = if self.op(self.pos, Op::Bang) { self.pos } else { ultimo };
+        let bang = if self.op(self.pos, Op::Bang) {
+            self.pos
+        } else {
+            ultimo
+        };
         if self.args_metodo_em(bang).is_none() {
             return Ok((e, None));
         }
@@ -128,8 +211,12 @@ impl Parser<'_> {
         let ta = self.args_tipo()?;
         if !self.op(self.pos, Op::LParen) {
             if ctx != CtxConst::Nenhum {
-                return Err(self.erro_em(self.ini(ta), "This expression isn't a valid constant pattern."));
+                return Err(self.erro_em(
+                    self.ini(ta),
+                    "This expression isn't a valid constant pattern.",
+                ));
             }
+            self.recurso(self.ini(ta), (2, 15), "constructor-tearoffs");
             let ini = self.ini(e);
             let r = self.no(
                 No::FunctionReference {
@@ -151,7 +238,9 @@ impl Parser<'_> {
                 Op::Bang => {
                     if matches!(
                         self.tipo(i + 1),
-                        TipoToken::Op(Op::Dot | Op::Question | Op::LParen | Op::LBracket | Op::QuestionDot)
+                        TipoToken::Op(
+                            Op::Dot | Op::Question | Op::LParen | Op::LBracket | Op::QuestionDot
+                        )
                     ) {
                         SELETOR
                     } else {
@@ -159,9 +248,7 @@ impl Parser<'_> {
                     }
                 }
                 Op::Question => {
-                    if padrao {
-                        SELETOR
-                    } else if self.op(i + 1, Op::LBracket) && !self.pode_ser_condicional(i) {
+                    if padrao || (self.op(i + 1, Op::LBracket) && !self.pode_ser_condicional(i)) {
                         SELETOR
                     } else {
                         CONDICIONAL
@@ -265,13 +352,31 @@ impl Parser<'_> {
     fn atribuivel(&self, e: NoId) -> bool {
         matches!(
             self.arv.no(e),
-            No::SimpleIdentifier { .. } | No::PrefixedIdentifier { .. } | No::PropertyAccess { .. } | No::IndexExpression { .. }
+            No::SimpleIdentifier { .. }
+                | No::PrefixedIdentifier { .. }
+                | No::PropertyAccess { .. }
+                | No::IndexExpression { .. }
         )
     }
 
+    /// `reportErrorIfSuper`: `super` sozinho como operando.
+    pub(super) fn sem_super(&self, e: NoId) -> R<()> {
+        if matches!(self.arv.no(e), No::SuperExpression { .. }) {
+            return Err(self.erro_em(
+                self.ini(e),
+                "Missing selector such as '.identifier' or '[0]'.",
+            ));
+        }
+        Ok(())
+    }
+
     fn atribuicao(&mut self, lhs: NoId, operador: usize, rhs: NoId) -> R<NoId> {
+        self.sem_super(rhs)?;
         if !self.atribuivel(lhs) {
-            return Err(self.erro_em(self.ini(lhs), "Missing selector such as '.identifier' or '[0]'."));
+            return Err(self.erro_em(
+                self.ini(lhs),
+                "Missing selector such as '.identifier' or '[0]'.",
+            ));
         }
         let ini = self.ini(lhs);
         Ok(self.no(
@@ -321,7 +426,9 @@ impl Parser<'_> {
                         return Ok(e);
                     }
                     if ultima_cascata && self.op(self.pos, Op::QuestionDotDot) {
-                        return Err(self.erro("The '?..' cascade operator must be first in the cascade sequence."));
+                        return Err(self.erro(
+                            "The '?..' cascade operator must be first in the cascade sequence.",
+                        ));
                     }
                     ultima_cascata = true;
                     e = self.cascata(e)?;
@@ -334,7 +441,16 @@ impl Parser<'_> {
                     };
                     e = self.atribuicao(e, op_tok, rhs)?;
                 } else if nivel_token == prec::POSFIXO {
-                    if self.op(self.pos, Op::PlusPlus) || self.op(self.pos, Op::MinusMinus) || self.op(self.pos, Op::Bang) {
+                    if self.op(self.pos, Op::PlusPlus)
+                        || self.op(self.pos, Op::MinusMinus)
+                        || self.op(self.pos, Op::Bang)
+                    {
+                        if !self.op(self.pos, Op::Bang) && !self.atribuivel(e) {
+                            return Err(self.erro_em(
+                                self.ini(e),
+                                "Illegal assignment to non-assignable expression.",
+                            ));
+                        }
                         let o = self.avancar();
                         let ini = self.ini(e);
                         e = self.no(
@@ -385,7 +501,9 @@ impl Parser<'_> {
                     }
                     let o = self.consumir_operador();
                     let _ = operador;
-                    let direita = self.precedencia((nivel + 1) as u8, cascatas, CtxConst::Nenhum)?;
+                    let direita =
+                        self.precedencia((nivel + 1) as u8, cascatas, CtxConst::Nenhum)?;
+                    self.sem_super(direita)?;
                     let ini = self.ini(e);
                     e = self.no(
                         No::BinaryExpression {
@@ -441,7 +559,8 @@ impl Parser<'_> {
                 || self.kw(nx, Keyword::Is)
                 || self.pal(nx, "as");
             if !fim_ok {
-                let manter = (self.op(nx, Op::LBrace) || self.pal(nx, "when")) && !self.pode_ser_condicional(nx - 1);
+                let manter = (self.op(nx, Op::LBrace) || self.pal(nx, "when"))
+                    && !self.pode_ser_condicional(nx - 1);
                 if !manter {
                     ti = ti.sem_interrogacao();
                 }
@@ -563,6 +682,7 @@ impl Parser<'_> {
             if self.args_metodo_em(self.pos - 1).is_some() {
                 let ta = self.args_tipo()?;
                 if !self.op(self.pos, Op::LParen) {
+                    self.recurso(self.ini(ta), (2, 15), "constructor-tearoffs");
                     let ini = self.ini(sec);
                     sec = self.no(
                         No::FunctionReference {
@@ -586,7 +706,10 @@ impl Parser<'_> {
             sec = self.atribuicao(sec, o, rhs)?;
         }
         let fim = self.fim(sec);
-        if let No::CascadeExpression { cascade_sections, .. } = &mut self.arv.nos[alvo.0 as usize].no {
+        if let No::CascadeExpression {
+            cascade_sections, ..
+        } = &mut self.arv.nos[alvo.0 as usize].no
+        {
             cascade_sections.push(sec);
             self.arv.nos[alvo.0 as usize].fim = fim as Tk;
             return Ok(alvo);
@@ -606,7 +729,8 @@ impl Parser<'_> {
         let mut e = e;
         let mut targs = targs;
         loop {
-            let mut potencial = self.op(self.pos, Op::Question) && self.op(self.pos + 1, Op::LBracket);
+            let mut potencial =
+                self.op(self.pos, Op::Question) && self.op(self.pos + 1, Op::LBracket);
             if potencial && !verificado && self.pode_ser_condicional(self.pos) {
                 potencial = false;
             }
@@ -704,7 +828,10 @@ impl Parser<'_> {
             }
             No::MethodInvocation { target: None, .. } => {
                 let d = &mut self.arv.nos[direita.0 as usize];
-                if let No::MethodInvocation { target, operator, .. } = &mut d.no {
+                if let No::MethodInvocation {
+                    target, operator, ..
+                } = &mut d.no
+                {
                     *target = receptor;
                     *operator = Some(ponto as Tk);
                 }
@@ -772,6 +899,12 @@ impl Parser<'_> {
             TipoToken::Op(Op::PlusPlus | Op::MinusMinus) => {
                 self.avancar();
                 let operand = self.precedencia(prec::POSFIXO, cascatas, CtxConst::Nenhum)?;
+                if !self.atribuivel(operand) {
+                    return Err(self.erro_em(
+                        self.ini(operand),
+                        "Illegal assignment to non-assignable expression.",
+                    ));
+                }
                 return Ok(self.no(
                     No::PrefixExpression {
                         operator: i as Tk,
@@ -817,6 +950,7 @@ impl Parser<'_> {
                 if explicito {
                     return invalido(self);
                 }
+                self.conferir_numero(i)?;
                 self.avancar();
                 Ok(self.no(No::IntegerLiteral { literal: i as Tk }, i))
             }
@@ -824,6 +958,7 @@ impl Parser<'_> {
                 if explicito {
                     return invalido(self);
                 }
+                self.conferir_numero(i)?;
                 self.avancar();
                 Ok(self.no(No::DoubleLiteral { literal: i as Tk }, i))
             }
@@ -865,13 +1000,19 @@ impl Parser<'_> {
                 }
                 Keyword::Switch if self.padroes => self.expressao_switch(),
                 Keyword::Assert => self.assert_expressao(),
-                _ => Err(self.erro(&format!("Expected an expression, but got '{}'.", self.txt(i)))),
+                _ => Err(self.erro(&format!(
+                    "Expected an expression, but got '{}'.",
+                    self.txt(i)
+                ))),
             },
             TipoToken::Op(Op::LParen) => self.parenteses_funcao_ou_registro(ctx),
             TipoToken::Op(Op::LBracket) => self.lista(None, None),
             TipoToken::Op(Op::LBrace) => self.conjunto_ou_mapa(None, None),
             TipoToken::Op(Op::Lt) => self.colecao_ou_funcao_generica(None),
-            _ => Err(self.erro(&format!("Expected an expression, but got '{}'.", self.txt(i)))),
+            _ => Err(self.erro(&format!(
+                "Expected an expression, but got '{}'.",
+                self.txt(i)
+            ))),
         }
     }
 
@@ -883,7 +1024,10 @@ impl Parser<'_> {
         if self.kw(self.pos, Keyword::New) {
             return self.enviar(ctx, true);
         }
-        Err(self.erro(&format!("Expected an identifier, but got '{}'.", self.txt(self.pos))))
+        Err(self.erro(&format!(
+            "Expected an identifier, but got '{}'.",
+            self.txt(self.pos)
+        )))
     }
 
     /// `parseSendOrFunctionLiteral`.
@@ -905,7 +1049,10 @@ impl Parser<'_> {
     fn enviar(&mut self, ctx: CtxConst, permite_new: bool) -> R<NoId> {
         let i = self.pos;
         if !(self.ident(i) || (permite_new && self.kw(i, Keyword::New))) {
-            return Err(self.erro(&format!("Expected an identifier, but got '{}'.", self.txt(i))));
+            return Err(self.erro(&format!(
+                "Expected an identifier, but got '{}'.",
+                self.txt(i)
+            )));
         }
         if self.ident(i) {
             if self.txt(i) == "await" && self.ident(i + 1) {
@@ -922,7 +1069,9 @@ impl Parser<'_> {
             None
         };
         if ctx == CtxConst::Explicito
-            && !(self.op(self.pos, Op::Dot) || self.op(self.pos, Op::LParen) || self.op(self.pos, Op::Lt))
+            && !(self.op(self.pos, Op::Dot)
+                || self.op(self.pos, Op::LParen)
+                || self.op(self.pos, Op::Lt))
         {
             return Err(self.erro_em(i, "The expression can't be prefixed by 'const'."));
         }
@@ -947,9 +1096,19 @@ impl Parser<'_> {
     fn este_ou_super(&mut self, este: bool) -> R<NoId> {
         let i = self.avancar();
         let mut e = if este {
-            self.no(No::ThisExpression { this_keyword: i as Tk }, i)
+            self.no(
+                No::ThisExpression {
+                    this_keyword: i as Tk,
+                },
+                i,
+            )
         } else {
-            self.no(No::SuperExpression { super_keyword: i as Tk }, i)
+            self.no(
+                No::SuperExpression {
+                    super_keyword: i as Tk,
+                },
+                i,
+            )
         };
         if self.op(self.pos, Op::LParen) {
             let args = self.argumentos()?;
@@ -1000,13 +1159,20 @@ impl Parser<'_> {
         let old = self.funcoes;
         self.funcoes = true;
         let mut args = Vec::new();
+        let mut viu_nomeado = false;
         loop {
             if self.op(self.pos, Op::RParen) {
                 break;
             }
             if self.op(self.pos + 1, Op::Colon) {
+                viu_nomeado = true;
                 args.push(self.expressao_nomeada()?);
             } else {
+                if viu_nomeado && self.versao < (2, 17) {
+                    return Err(
+                        self.erro("Positional arguments must occur before named arguments.")
+                    );
+                }
                 args.push(self.expressao()?);
             }
             if !self.op(self.pos, Op::Comma) {
@@ -1040,7 +1206,13 @@ impl Parser<'_> {
             ini,
         );
         let expression = self.expressao()?;
-        Ok(self.no(No::NamedExpression { name: l, expression }, ini))
+        Ok(self.no(
+            No::NamedExpression {
+                name: l,
+                expression,
+            },
+            ini,
+        ))
     }
 
     /// `parseNewExpression`, `parseImplicitCreationExpression` e o fim de
@@ -1152,7 +1324,11 @@ impl Parser<'_> {
             }
             let tp = self.params_tipo()?;
             let d = self.par(self.pos) + 1;
-            if !(self.op(d, Op::Arrow) || self.op(d, Op::LBrace) || self.pal(d, "async") || self.pal(d, "sync")) {
+            if !(self.op(d, Op::Arrow)
+                || self.op(d, Op::LBrace)
+                || self.pal(d, "async")
+                || self.pal(d, "sync"))
+            {
                 return Err(self.erro_em(d, "Unexpected token."));
             }
             return self.funcao_expressao(Some(tp), lt);
@@ -1223,7 +1399,10 @@ impl Parser<'_> {
                 }
                 break;
             }
-            if campos.is_empty() && self.op(self.pos, Op::Comma) && self.op(self.pos + 1, Op::RParen) {
+            if campos.is_empty()
+                && self.op(self.pos, Op::Comma)
+                && self.op(self.pos + 1, Op::RParen)
+            {
                 virgula_ilegal = true;
                 registro = true;
                 self.avancar();
@@ -1245,14 +1424,29 @@ impl Parser<'_> {
         }
         let rp = self.espera_op(Op::RParen)?;
         if registro {
+            if self.versao < (3, 0) {
+                return Err(self.erro_em(
+                    lp,
+                    "This requires the 'records' language feature to be enabled.",
+                ));
+            }
             if campos.is_empty() && virgula_ilegal {
-                return Err(self.erro_em(rp, "A record literal without fields can't have a trailing comma."));
+                return Err(self.erro_em(
+                    rp,
+                    "A record literal without fields can't have a trailing comma.",
+                ));
             }
             if campos.len() == 1 && !registro_valido {
-                return Err(self.erro_em(rp, "A record literal with exactly one positional field requires a trailing comma."));
+                return Err(self.erro_em(
+                    rp,
+                    "A record literal with exactly one positional field requires a trailing comma.",
+                ));
             }
             if campos.is_empty() && ctx != CtxConst::Nenhum {
-                return Err(self.erro_em(lp, "The empty record literal is not supported as a constant pattern."));
+                return Err(self.erro_em(
+                    lp,
+                    "The empty record literal is not supported as a constant pattern.",
+                ));
             }
             return Ok(self.no(
                 No::RecordLiteral {
@@ -1298,13 +1492,23 @@ impl Parser<'_> {
             return Err(self.erro("Expected a string literal."));
         }
         self.avancar();
-        if !matches!(
+        let cru = self.txt(ini).starts_with('r');
+        let unico = !matches!(
             self.tipo(self.pos),
             TipoToken::InterpolacaoExpressao | TipoToken::InterpolacaoIdentificador
-        ) {
+        );
+        if !cru {
+            self.conferir_escapes(ini, true, unico)?;
+        }
+        if unico {
             return Ok(self.no(No::SimpleStringLiteral { literal: ini as Tk }, ini));
         }
-        let primeiro = self.no(No::InterpolationString { contents: ini as Tk }, ini);
+        let primeiro = self.no(
+            No::InterpolationString {
+                contents: ini as Tk,
+            },
+            ini,
+        );
         let mut elementos = vec![primeiro];
         loop {
             let lb = self.pos;
@@ -1327,10 +1531,20 @@ impl Parser<'_> {
                     let i = self.pos;
                     let expression = if self.kw(i, Keyword::This) || self.pal(i, "this") {
                         self.avancar();
-                        self.no(No::ThisExpression { this_keyword: i as Tk }, i)
+                        self.no(
+                            No::ThisExpression {
+                                this_keyword: i as Tk,
+                            },
+                            i,
+                        )
                     } else {
-                        if !self.ident(i) {
-                            return Err(self.erro("Expected an identifier after '$'."));
+                        if !self.ident(i)
+                            || dartforge_frontend::token::Keyword::from_text(self.txt(i)).is_some()
+                        {
+                            return Err(self.erro(&format!(
+                                "'{}' can't be used as an identifier because it's a keyword.",
+                                self.txt(i)
+                            )));
                         }
                         self.conferir_await_yield(i)?;
                         self.avancar();
@@ -1352,9 +1566,98 @@ impl Parser<'_> {
                 return Err(self.erro("Expected a string."));
             }
             self.avancar();
+            let ultimo = !matches!(
+                self.tipo(self.pos),
+                TipoToken::InterpolacaoExpressao | TipoToken::InterpolacaoIdentificador
+            );
+            self.conferir_escapes(s, false, ultimo)?;
             elementos.push(self.no(No::InterpolationString { contents: s as Tk }, s));
         }
-        Ok(self.no(No::StringInterpolation { elements: elementos }, ini))
+        Ok(self.no(
+            No::StringInterpolation {
+                elements: elementos,
+            },
+            ini,
+        ))
+    }
+
+    /// Literal numérico malformado ou com separadores de dígitos (só no
+    /// Dart 3.7), que o scanner do analyzer recusa.
+    fn conferir_numero(&self, i: usize) -> R<()> {
+        let t = self.txt(i);
+        if t.contains('_') {
+            // `recurso` precisa de `&mut self`; o erro de versão é direto.
+            if self.versao < (3, 6) {
+                return Err(self.erro_em(
+                    i,
+                    "This requires the 'digit-separators' language feature to be enabled.",
+                ));
+            }
+        }
+        let b = t.as_bytes();
+        let hexa = b.len() >= 2 && b[0] == b'0' && (b[1] == b'x' || b[1] == b'X');
+        let digito = |c: u8| {
+            if hexa {
+                c.is_ascii_hexdigit()
+            } else {
+                c.is_ascii_digit()
+            }
+        };
+        for (k, &c) in b.iter().enumerate() {
+            if c != b'_' {
+                continue;
+            }
+            // Cada sequência de `_` precisa de dígitos dos dois lados.
+            let antes = b[..k].iter().rev().find(|&&x| x != b'_').copied();
+            let depois = b[k + 1..].iter().find(|&&x| x != b'_').copied();
+            let ok =
+                antes.is_some_and(|x| digito(x) && !(hexa && k == 2)) && depois.is_some_and(digito);
+            if !ok || (hexa && k <= 2) {
+                return Err(self.erro_em(i, "Digit separators ('_') in a number literal can only be placed between two digits."));
+            }
+        }
+        if b.len() >= 2 && b[0] == b'0' && (b[1] == b'x' || b[1] == b'X') {
+            if b.len() == 2 {
+                return Err(self.erro_em(i, "Hexadecimal digit expected."));
+            }
+            return Ok(());
+        }
+        if let Some(e) = t.find(['e', 'E']) {
+            let resto = t[e + 1..].trim_start_matches(['+', '-']);
+            if resto.is_empty() || !resto.bytes().all(|c| c.is_ascii_digit()) {
+                return Err(self.erro_em(i, "Decimal digit expected."));
+            }
+        }
+        Ok(())
+    }
+
+    /// Escapes inválidos num pedaço de string não crua (`unescape` do
+    /// fasta). `primeiro`/`ultimo` dizem se o pedaço tem as aspas de
+    /// abertura/fechamento.
+    fn conferir_escapes(&self, i: usize, primeiro: bool, ultimo: bool) -> R<()> {
+        let mut t = self.txt(i);
+        if primeiro {
+            for q in ["\"\"\"", "'''", "\"", "'"] {
+                if let Some(r) = t.strip_prefix(q) {
+                    t = r;
+                    if ultimo {
+                        t = t.strip_suffix(q).unwrap_or(t);
+                    }
+                    break;
+                }
+            }
+        } else if ultimo {
+            for q in ["\"\"\"", "'''", "\"", "'"] {
+                if let Some(r) = t.strip_suffix(q) {
+                    t = r;
+                    break;
+                }
+            }
+        }
+        if let Some(m) = erro_de_escape(t.as_bytes()) {
+            return Err(self.erro_em(i, m));
+        }
+        Ok(())
     }
 
     /// `parseLiteralSymbol`.
@@ -1537,7 +1840,10 @@ impl Parser<'_> {
 
     /// `ensureParenthesizedCondition`: `( expressão (case padrão (when
     /// expressão)?)? )`.
-    pub(super) fn condicao_parenteses(&mut self, permite_case: bool) -> R<(usize, NoId, Option<NoId>, usize)> {
+    pub(super) fn condicao_parenteses(
+        &mut self,
+        permite_case: bool,
+    ) -> R<(usize, NoId, Option<NoId>, usize)> {
         let lp = self.espera_op(Op::LParen)?;
         let expression = self.expressao()?;
         let mut case_clause = None;
@@ -1573,7 +1879,13 @@ impl Parser<'_> {
         } else {
             None
         };
-        Ok(self.no(No::GuardedPattern { pattern, when_clause }, ini))
+        Ok(self.no(
+            No::GuardedPattern {
+                pattern,
+                when_clause,
+            },
+            ini,
+        ))
     }
 
     /// `parseSwitchExpression`.

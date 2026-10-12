@@ -31,6 +31,14 @@ impl Decl {
     }
 }
 
+/// Um membro de `switch` antes dos comandos: rótulos, `case`/`default`,
+/// padrão (ou expressão), dois-pontos e início.
+type MembroSwitch = (Vec<NoId>, usize, Option<NoId>, usize, usize);
+
+/// As partes de `assert(...)`: `assert`, `(`, condição, vírgula, mensagem e
+/// `)`.
+pub(super) type PartesAssert = (usize, usize, NoId, Option<usize>, Option<NoId>, usize);
+
 /// O que `parseExpressionStatementOrDeclaration` encontrou num `for`.
 enum InicioFor {
     Expressao,
@@ -94,7 +102,12 @@ impl Parser<'_> {
                 Keyword::For => self.para(None),
                 Keyword::Rethrow => {
                     self.avancar();
-                    let r = self.no(No::RethrowExpression { rethrow_keyword: i as Tk }, i);
+                    let r = self.no(
+                        No::RethrowExpression {
+                            rethrow_keyword: i as Tk,
+                        },
+                        i,
+                    );
                     let s = self.espera_op(Op::Semicolon)?;
                     Ok(self.no(
                         No::ExpressionStatement {
@@ -179,7 +192,10 @@ impl Parser<'_> {
             if self.pal(self.pos, "augment") && self.kw(self.pos + 1, Keyword::Super) {
                 return Err(self.erro("Augmentations aren't supported here."));
             }
-            if self.kw(self.pos, Keyword::Var) || self.kw(self.pos, Keyword::Final) || self.kw(self.pos, Keyword::Const) {
+            if self.kw(self.pos, Keyword::Var)
+                || self.kw(self.pos, Keyword::Final)
+                || self.kw(self.pos, Keyword::Const)
+            {
                 vfc = Some(self.avancar());
             } else if self.pal(self.pos, "late") {
                 late = Some(self.avancar());
@@ -188,7 +204,10 @@ impl Parser<'_> {
                 }
             }
             if self.modificador(self.pos) {
-                return Err(self.erro(&format!("Can't have modifier '{}' here.", self.txt(self.pos))));
+                return Err(self.erro(&format!(
+                    "Can't have modifier '{}' here.",
+                    self.txt(self.pos)
+                )));
             }
         }
         Ok(Decl {
@@ -271,18 +290,28 @@ impl Parser<'_> {
             && self.op(f + 1, Op::Assign)
         {
             if d.late.is_some() {
-                return Err(self.erro_em(d.late.unwrap_or(0), "A pattern variable declaration may not use the `late` keyword."));
+                return Err(self.erro_em(
+                    d.late.unwrap_or(0),
+                    "A pattern variable declaration may not use the `late` keyword.",
+                ));
             }
             return self.declaracao_padrao(d, v);
         }
-        let mut ti = d.ti.unwrap_or_else(|| self.tipo_em(d.antes_tipo, false, false, false));
+        let mut ti =
+            d.ti.unwrap_or_else(|| self.tipo_em(d.antes_tipo, false, false, false));
         if self.parece_funcao_local(ti.ate) {
             if d.vfc.is_some() || d.late.is_some() {
-                return Err(self.erro_em(d.vfc.or(d.late).unwrap_or(0), "Can't have modifier here."));
+                return Err(
+                    self.erro_em(d.vfc.or(d.late).unwrap_or(0), "Can't have modifier here.")
+                );
             }
             return self.funcao_local(d, ti);
         }
-        if d.sem_prefixo() && ti.nulavel() && ti.pode_ser_expressao && self.interrogacao_e_condicional(ti)? {
+        if d.sem_prefixo()
+            && ti.nulavel()
+            && ti.pode_ser_expressao
+            && self.interrogacao_e_condicional(ti)?
+        {
             ti = InfoTipo::nenhum(d.antes_tipo);
         }
         if ti.e_nenhum() && d.sem_prefixo() {
@@ -321,7 +350,10 @@ impl Parser<'_> {
                     return Err(self.erro_em(ti.ate, "Variables must be declared using the keywords 'const', 'final', 'var' or a type name."));
                 }
                 Some(v) if self.kw(v, Keyword::Var) && !ti.e_nenhum() => {
-                    return Err(self.erro_em(v, "Variables can't be declared using both 'var' and a type name."));
+                    return Err(self.erro_em(
+                        v,
+                        "Variables can't be declared using both 'var' and a type name.",
+                    ));
                 }
                 _ => {}
             }
@@ -413,6 +445,7 @@ impl Parser<'_> {
             return Err(self.esperado("("));
         }
         let parameters = self.params_formais(Membro::Local)?;
+        self.sem_parametros_de_campo(Some(parameters))?;
         if self.op(self.pos, Op::Colon) {
             return Err(self.erro("Only constructors can have initializers."));
         }
@@ -437,7 +470,12 @@ impl Parser<'_> {
             },
             ini,
         );
-        Ok(self.no(No::FunctionDeclarationStatement { function_declaration: fd }, ini))
+        Ok(self.no(
+            No::FunctionDeclarationStatement {
+                function_declaration: fd,
+            },
+            ini,
+        ))
     }
 
     /// `parseLabeledStatement`.
@@ -547,7 +585,7 @@ impl Parser<'_> {
     /// Corpo de laço (`loopState = InsideLoop`).
     fn corpo_laco(&mut self) -> R<NoId> {
         let salvo = self.laco;
-        self.laco = Laco::DentroDeLaco;
+        self.laco = Laco::Repeticao;
         let r = self.instrucao();
         self.laco = salvo;
         r
@@ -620,7 +658,10 @@ impl Parser<'_> {
             && (self.op(f + 1, Op::Assign) || self.kw(f + 1, Keyword::In))
         {
             if d.late.is_some() {
-                return Err(self.erro_em(d.late.unwrap_or(0), "A pattern variable declaration may not use the `late` keyword."));
+                return Err(self.erro_em(
+                    d.late.unwrap_or(0),
+                    "A pattern variable declaration may not use the `late` keyword.",
+                ));
             }
             let pattern = self.padrao(CtxPadrao::Declaracao)?;
             return Ok(InicioFor::Padrao(d.meta, v, pattern, d.inicio));
@@ -629,7 +670,11 @@ impl Parser<'_> {
         if let Some(l) = d.late {
             return Err(self.erro_em(l, "Can't have modifier 'late' here."));
         }
-        if d.sem_prefixo() && ti.nulavel() && ti.pode_ser_expressao && self.interrogacao_e_condicional(ti)? {
+        if d.sem_prefixo()
+            && ti.nulavel()
+            && ti.pode_ser_expressao
+            && self.interrogacao_e_condicional(ti)?
+        {
             ti = InfoTipo::nenhum(d.antes_tipo);
         }
         if ti.e_nenhum() && d.sem_prefixo() {
@@ -638,7 +683,9 @@ impl Parser<'_> {
         let next = ti.ate;
         if self.embutida(next) && d.sem_prefixo() && ti.pode_ser_expressao && self.pal(next, "as") {
             let k = next + 1;
-            if !(self.op(k, Op::Assign) || self.op(k, Op::Semicolon) || self.op(k, Op::Comma)) && !self.kw(k, Keyword::In) {
+            if !(self.op(k, Op::Assign) || self.op(k, Op::Semicolon) || self.op(k, Op::Comma))
+                && !self.kw(k, Keyword::In)
+            {
                 return Ok(InicioFor::Expressao);
             }
         }
@@ -671,13 +718,14 @@ impl Parser<'_> {
                         },
                         ini,
                     );
-                    let parts = self.resto_for(await_keyword, ini, |l, c, r, u| No::ForPartsWithPattern {
-                        variables,
-                        left_separator: l,
-                        condition: c,
-                        right_separator: r,
-                        updaters: u,
-                    })?;
+                    let parts =
+                        self.resto_for(await_keyword, ini, |l, c, r, u| No::ForPartsWithPattern {
+                            variables,
+                            left_separator: l,
+                            condition: c,
+                            right_separator: r,
+                            updaters: u,
+                        })?;
                     let rp = self.espera_op(Op::RParen)?;
                     return Ok((lp, parts, rp));
                 }
@@ -698,9 +746,12 @@ impl Parser<'_> {
                 Ok((lp, parts, rp))
             }
             InicioFor::Declaracao(d, type_) => {
-                if self.ident(self.pos) && (self.kw(self.pos + 1, Keyword::In) || self.op(self.pos + 1, Op::Colon)) {
+                if self.ident(self.pos)
+                    && (self.kw(self.pos + 1, Keyword::In) || self.op(self.pos + 1, Op::Colon))
+                {
                     if self.op(self.pos + 1, Op::Colon) {
-                        return Err(self.erro_em(self.pos + 1, "For-in loops use 'in' rather than a colon."));
+                        return Err(self
+                            .erro_em(self.pos + 1, "For-in loops use 'in' rather than a colon."));
                     }
                     let n = self.espera_nome_declarado()?;
                     let ini = d.inicio;
@@ -729,12 +780,14 @@ impl Parser<'_> {
                 }
                 let ini = d.inicio;
                 let variables = self.variaveis(d, type_)?;
-                let parts = self.resto_for(await_keyword, ini, |l, c, r, u| No::ForPartsWithDeclarations {
-                    variables,
-                    left_separator: l,
-                    condition: c,
-                    right_separator: r,
-                    updaters: u,
+                let parts = self.resto_for(await_keyword, ini, |l, c, r, u| {
+                    No::ForPartsWithDeclarations {
+                        variables,
+                        left_separator: l,
+                        condition: c,
+                        right_separator: r,
+                        updaters: u,
+                    }
                 })?;
                 let rp = self.espera_op(Op::RParen)?;
                 Ok((lp, parts, rp))
@@ -751,7 +804,8 @@ impl Parser<'_> {
                         return Err(self.erro("For-in loops use 'in' rather than a colon."));
                     }
                     let Some(identifier) = initialization.filter(|&e| self.e_simples(e)) else {
-                        return Err(self.erro_em(ini, "A for-in loop variable must be a simple identifier."));
+                        return Err(self
+                            .erro_em(ini, "A for-in loop variable must be a simple identifier."));
                     };
                     let in_kw = self.avancar();
                     conferir_await_in(self)?;
@@ -767,12 +821,14 @@ impl Parser<'_> {
                     let rp = self.espera_op(Op::RParen)?;
                     return Ok((lp, parts, rp));
                 }
-                let parts = self.resto_for(await_keyword, ini, |l, c, r, u| No::ForPartsWithExpression {
-                    initialization,
-                    left_separator: l,
-                    condition: c,
-                    right_separator: r,
-                    updaters: u,
+                let parts = self.resto_for(await_keyword, ini, |l, c, r, u| {
+                    No::ForPartsWithExpression {
+                        initialization,
+                        left_separator: l,
+                        condition: c,
+                        right_separator: r,
+                        updaters: u,
+                    }
                 })?;
                 let rp = self.espera_op(Op::RParen)?;
                 Ok((lp, parts, rp))
@@ -788,7 +844,10 @@ impl Parser<'_> {
         montar: impl FnOnce(Tk, Option<NoId>, Tk, Vec<NoId>) -> No,
     ) -> R<NoId> {
         if let Some(a) = await_keyword {
-            return Err(self.erro_em(a, "The keyword 'await' isn't allowed for a normal 'for' statement."));
+            return Err(self.erro_em(
+                a,
+                "The keyword 'await' isn't allowed for a normal 'for' statement.",
+            ));
         }
         let l = self.espera_op(Op::Semicolon)?;
         let condition = if self.op(self.pos, Op::Semicolon) {
@@ -808,8 +867,10 @@ impl Parser<'_> {
             }
             self.avancar();
         }
+        // `endToken` é a última atualização (sem a vírgula final) ou o `;`.
+        let fim = updaters.last().map_or(r, |&u| self.fim(u));
         let no = montar(l as Tk, condition, r as Tk, updaters);
-        Ok(self.no(no, ini))
+        Ok(self.no_entre(no, ini, fim))
     }
 
     /// `parseSwitchStatement` e `parseSwitchBlock`.
@@ -818,7 +879,7 @@ impl Parser<'_> {
         let (lp, expression, _, rp) = self.condicao_parenteses(false)?;
         let salvo = self.laco;
         if self.laco == Laco::Fora {
-            self.laco = Laco::DentroDeSwitch;
+            self.laco = Laco::Switch;
         }
         let lb = self.espera_op(Op::LBrace)?;
         let mut membros = Vec::new();
@@ -827,8 +888,7 @@ impl Parser<'_> {
             if self.eof(self.pos) {
                 return Err(self.esperado("}"));
             }
-            // Membros do grupo: (rótulos, palavra, padrão/expressão, dois-pontos, início).
-            let mut grupo: Vec<(Vec<NoId>, usize, Option<NoId>, usize, usize)> = Vec::new();
+            let mut grupo: Vec<MembroSwitch> = Vec::new();
             let mut peek = self.alem_dos_rotulos(self.pos);
             loop {
                 if self.kw(peek, Keyword::Default) || self.kw(peek, Keyword::Case) {
@@ -858,7 +918,9 @@ impl Parser<'_> {
                         break;
                     }
                     if viu_default {
-                        return Err(self.erro("The default case should be the last case in a switch statement."));
+                        return Err(self.erro(
+                            "The default case should be the last case in a switch statement.",
+                        ));
                     }
                     let k = self.avancar();
                     let e = if self.padroes {
@@ -881,7 +943,9 @@ impl Parser<'_> {
             }
             let mut statements = Vec::new();
             while !self.eof(self.pos) {
-                if self.kw(peek, Keyword::Case) || self.kw(peek, Keyword::Default) || (self.op(peek, Op::RBrace) && peek == self.pos)
+                if self.kw(peek, Keyword::Case)
+                    || self.kw(peek, Keyword::Default)
+                    || (self.op(peek, Op::RBrace) && peek == self.pos)
                 {
                     break;
                 }
@@ -890,7 +954,11 @@ impl Parser<'_> {
             }
             let n = grupo.len();
             for (j, (labels, k, e, c, ini)) in grupo.into_iter().enumerate() {
-                let sts = if j + 1 == n { std::mem::take(&mut statements) } else { Vec::new() };
+                let sts = if j + 1 == n {
+                    std::mem::take(&mut statements)
+                } else {
+                    Vec::new()
+                };
                 let fim = sts.last().map_or(c, |&s| self.fim(s));
                 let no = match e {
                     None => No::SwitchDefault {
@@ -968,7 +1036,8 @@ impl Parser<'_> {
                 if self.op(self.pos, Op::Comma) {
                     comma = Some(self.avancar() as Tk);
                     let s = self.espera_nome_declarado()?;
-                    stack_trace_parameter = Some(self.no(No::CatchClauseParameter { name: s as Tk }, s));
+                    stack_trace_parameter =
+                        Some(self.no(No::CatchClauseParameter { name: s as Tk }, s));
                 }
                 rp = Some(self.espera_op(Op::RParen)? as Tk);
             }
@@ -995,7 +1064,10 @@ impl Parser<'_> {
             (None, None)
         };
         if catch_clauses.is_empty() && finally_block.is_none() {
-            return Err(self.erro_em(t, "A try block must be followed by an 'on', 'catch', or 'finally' clause."));
+            return Err(self.erro_em(
+                t,
+                "A try block must be followed by an 'on', 'catch', or 'finally' clause.",
+            ));
         }
         Ok(self.no(
             No::TryStatement {
@@ -1020,14 +1092,23 @@ impl Parser<'_> {
         };
         if e_break {
             if label.is_none() && self.laco == Laco::Fora {
-                return Err(self.erro_em(k, "A break statement can't be used outside of a loop or switch statement."));
+                return Err(self.erro_em(
+                    k,
+                    "A break statement can't be used outside of a loop or switch statement.",
+                ));
             }
         } else if label.is_some() {
             if self.laco == Laco::Fora {
-                return Err(self.erro_em(k, "A continue statement can't be used outside of a loop or switch statement."));
+                return Err(self.erro_em(
+                    k,
+                    "A continue statement can't be used outside of a loop or switch statement.",
+                ));
             }
-        } else if self.laco != Laco::DentroDeLaco {
-            return Err(self.erro_em(k, "A continue statement can't be used outside of a loop or switch statement."));
+        } else if self.laco != Laco::Repeticao {
+            return Err(self.erro_em(
+                k,
+                "A continue statement can't be used outside of a loop or switch statement.",
+            ));
         }
         let s = self.espera_op(Op::Semicolon)?;
         let no = if e_break {
@@ -1048,7 +1129,7 @@ impl Parser<'_> {
 
     /// `assert ( condição (, mensagem)? ,? )` — as partes comuns a
     /// [`No::AssertStatement`] e [`No::AssertInitializer`].
-    pub(super) fn partes_assert(&mut self) -> R<(usize, usize, NoId, Option<usize>, Option<NoId>, usize)> {
+    pub(super) fn partes_assert(&mut self) -> R<PartesAssert> {
         let a = self.espera_kw(Keyword::Assert)?;
         let lp = self.espera_op(Op::LParen)?;
         let old = self.funcoes;
@@ -1107,9 +1188,9 @@ impl Parser<'_> {
             keyword = Some(self.avancar());
             if self.op(self.pos, Op::Star) {
                 star = Some(self.avancar());
-                self.assinc = Assinc::AssincEstrela;
+                self.assinc = Assinc::Estrela;
             } else {
-                self.assinc = Assinc::Assinc;
+                self.assinc = Assinc::Comum;
             }
         } else if self.pal(self.pos, "sync") {
             keyword = Some(self.avancar());
@@ -1123,7 +1204,11 @@ impl Parser<'_> {
         let ini = keyword.unwrap_or(self.pos);
         if self.pal(self.pos, "native") {
             let n = self.avancar();
-            let string_literal = if self.texto(self.pos) { Some(self.literal_texto()?) } else { None };
+            let string_literal = if self.texto(self.pos) {
+                Some(self.literal_texto()?)
+            } else {
+                None
+            };
             let s = self.espera_op(Op::Semicolon)?;
             return Ok(self.no(
                 No::NativeFunctionBody {

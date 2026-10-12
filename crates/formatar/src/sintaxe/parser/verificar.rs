@@ -50,7 +50,9 @@ pub fn tokens_mut(no: &mut No, f: &mut dyn FnMut(&mut Tk)) {
             ..
         } => t!(export_keyword, semicolon),
         PartDirective {
-            part_keyword, semicolon, ..
+            part_keyword,
+            semicolon,
+            ..
         } => t!(part_keyword, semicolon),
         PartOfDirective {
             part_keyword,
@@ -98,9 +100,13 @@ pub fn tokens_mut(no: &mut No, f: &mut dyn FnMut(&mut Tk)) {
             );
             t!(class_keyword, name, left_bracket, right_bracket);
         }
-        ExtendsClause { extends_keyword, .. } => t!(extends_keyword),
+        ExtendsClause {
+            extends_keyword, ..
+        } => t!(extends_keyword),
         WithClause { with_keyword, .. } => t!(with_keyword),
-        ImplementsClause { implements_keyword, .. } => t!(implements_keyword),
+        ImplementsClause {
+            implements_keyword, ..
+        } => t!(implements_keyword),
         NativeClause { native_keyword, .. } => t!(native_keyword),
         MixinDeclaration {
             augment_keyword,
@@ -298,11 +304,19 @@ pub fn tokens_mut(no: &mut No, f: &mut dyn FnMut(&mut Tk)) {
             o!(this_keyword, period);
             t!(equals);
         }
-        SuperConstructorInvocation { super_keyword, period, .. } => {
+        SuperConstructorInvocation {
+            super_keyword,
+            period,
+            ..
+        } => {
             t!(super_keyword);
             o!(period);
         }
-        RedirectingConstructorInvocation { this_keyword, period, .. } => {
+        RedirectingConstructorInvocation {
+            this_keyword,
+            period,
+            ..
+        } => {
             t!(this_keyword);
             o!(period);
         }
@@ -479,12 +493,16 @@ pub fn tokens_mut(no: &mut No, f: &mut dyn FnMut(&mut Tk)) {
         RecordTypeAnnotationPositionalField { name, .. } => o!(name),
         RecordTypeAnnotationNamedField { name, .. } => t!(name),
         TypeParameter {
-            name, extends_keyword, ..
+            name,
+            extends_keyword,
+            ..
         } => {
             t!(name);
             o!(extends_keyword);
         }
-        Annotation { at_sign, period, .. } => {
+        Annotation {
+            at_sign, period, ..
+        } => {
             t!(at_sign);
             o!(period);
         }
@@ -493,7 +511,9 @@ pub fn tokens_mut(no: &mut No, f: &mut dyn FnMut(&mut Tk)) {
         | PatternVariableDeclarationStatement { semicolon, .. }
         | EmptyStatement { semicolon } => t!(semicolon),
         VariableDeclarationList {
-            late_keyword, keyword, ..
+            late_keyword,
+            keyword,
+            ..
         } => o!(late_keyword, keyword),
         VariableDeclaration { name, equals, .. } => {
             t!(name);
@@ -552,10 +572,15 @@ pub fn tokens_mut(no: &mut No, f: &mut dyn FnMut(&mut Tk)) {
             right_separator,
             ..
         } => t!(left_separator, right_separator),
-        ForEachPartsWithDeclaration { in_keyword, .. } | ForEachPartsWithIdentifier { in_keyword, .. } => {
+        ForEachPartsWithDeclaration { in_keyword, .. }
+        | ForEachPartsWithIdentifier { in_keyword, .. } => {
             t!(in_keyword)
         }
-        ForEachPartsWithPattern { keyword, in_keyword, .. } => t!(keyword, in_keyword),
+        ForEachPartsWithPattern {
+            keyword,
+            in_keyword,
+            ..
+        } => t!(keyword, in_keyword),
         DeclaredIdentifier { keyword, name, .. } => {
             o!(keyword);
             t!(name);
@@ -573,7 +598,13 @@ pub fn tokens_mut(no: &mut No, f: &mut dyn FnMut(&mut Tk)) {
             right_parenthesis,
             semicolon,
             ..
-        } => t!(do_keyword, while_keyword, left_parenthesis, right_parenthesis, semicolon),
+        } => t!(
+            do_keyword,
+            while_keyword,
+            left_parenthesis,
+            right_parenthesis,
+            semicolon
+        ),
         SwitchStatement {
             switch_keyword,
             left_parenthesis,
@@ -589,7 +620,13 @@ pub fn tokens_mut(no: &mut No, f: &mut dyn FnMut(&mut Tk)) {
             left_bracket,
             right_bracket,
             ..
-        } => t!(switch_keyword, left_parenthesis, right_parenthesis, left_bracket, right_bracket),
+        } => t!(
+            switch_keyword,
+            left_parenthesis,
+            right_parenthesis,
+            left_bracket,
+            right_bracket
+        ),
         SwitchCase { keyword, colon, .. }
         | SwitchPatternCase { keyword, colon, .. }
         | SwitchDefault { keyword, colon, .. } => t!(keyword, colon),
@@ -608,7 +645,13 @@ pub fn tokens_mut(no: &mut No, f: &mut dyn FnMut(&mut Tk)) {
             comma,
             right_parenthesis,
             ..
-        } => o!(on_keyword, catch_keyword, left_parenthesis, comma, right_parenthesis),
+        } => o!(
+            on_keyword,
+            catch_keyword,
+            left_parenthesis,
+            comma,
+            right_parenthesis
+        ),
         CatchClauseParameter { name } => t!(name),
         ReturnStatement {
             return_keyword,
@@ -649,7 +692,9 @@ pub fn tokens_mut(no: &mut No, f: &mut dyn FnMut(&mut Tk)) {
             o!(comma);
             t!(right_parenthesis, semicolon);
         }
-        PatternVariableDeclaration { keyword, equals, .. } => t!(keyword, equals),
+        PatternVariableDeclaration {
+            keyword, equals, ..
+        } => t!(keyword, equals),
         AdjacentStrings { .. } => {}
         AsExpression { as_operator, .. } => t!(as_operator),
         AssignmentExpression { operator, .. }
@@ -670,8 +715,12 @@ pub fn tokens_mut(no: &mut No, f: &mut dyn FnMut(&mut Tk)) {
         | NullLiteral { literal }
         | SimpleStringLiteral { literal } => t!(literal),
         CascadeExpression { .. } => {}
-        ConditionalExpression { question, colon, .. } => t!(question, colon),
-        FunctionExpression { .. } | FunctionExpressionInvocation { .. } | FunctionReference { .. } => {}
+        ConditionalExpression {
+            question, colon, ..
+        } => t!(question, colon),
+        FunctionExpression { .. }
+        | FunctionExpressionInvocation { .. }
+        | FunctionReference { .. } => {}
         IndexExpression {
             period,
             question,
@@ -744,7 +793,10 @@ pub fn tokens_mut(no: &mut No, f: &mut dyn FnMut(&mut Tk)) {
         InterpolationString { contents } => t!(contents),
         SuperExpression { super_keyword } => t!(super_keyword),
         ThisExpression { this_keyword } => t!(this_keyword),
-        SymbolLiteral { pound_sign, components } => {
+        SymbolLiteral {
+            pound_sign,
+            components,
+        } => {
             t!(pound_sign);
             for c in components {
                 f(c);
@@ -752,7 +804,9 @@ pub fn tokens_mut(no: &mut No, f: &mut dyn FnMut(&mut Tk)) {
         }
         ThrowExpression { throw_keyword, .. } => t!(throw_keyword),
         SwitchExpressionCase { arrow, .. } => t!(arrow),
-        SpreadElement { spread_operator, .. } => t!(spread_operator),
+        SpreadElement {
+            spread_operator, ..
+        } => t!(spread_operator),
         AssignedVariablePattern { name } => t!(name),
         CastPattern { as_token, .. } => t!(as_token),
         ConstantPattern { const_keyword, .. } => o!(const_keyword),
@@ -808,14 +862,20 @@ pub fn conferir(tokens: &Tokens, arv: &Arvore, fonte: &str) -> Result<(), String
         visto[i] = true;
         let d = arv.dados(id);
         if d.inicio > d.fim {
-            return Err(format!("{}: início {} depois do fim {}", nome_do_no(&d.no), texto(d.inicio as usize), texto(d.fim as usize)));
+            return Err(format!(
+                "{}: início {} depois do fim {}",
+                nome_do_no(&d.no),
+                texto(d.inicio as usize),
+                texto(d.fim as usize)
+            ));
         }
         for t in tokens_do_no(&d.no) {
             let t = t as usize;
             if t >= n {
                 return Err(format!("{}: token fora da lista", nome_do_no(&d.no)));
             }
-            let curinga = matches!(d.no, No::WildcardPattern { keyword: Some(k), .. } if k as usize == t);
+            let curinga =
+                matches!(d.no, No::WildcardPattern { keyword: Some(k), .. } if k as usize == t);
             if !curinga && (t < d.inicio as usize || t > d.fim as usize) {
                 return Err(format!(
                     "{} [{}..{}]: token {} fora do intervalo",
@@ -827,8 +887,15 @@ pub fn conferir(tokens: &Tokens, arv: &Arvore, fonte: &str) -> Result<(), String
             }
             uso[t] += 1;
         }
-        if matches!(d.no, No::DottedName { .. } | No::LibraryIdentifier { .. } | No::SymbolLiteral { .. }) {
-            for p in pontos_ok.iter_mut().take(d.fim as usize + 1).skip(d.inicio as usize) {
+        if matches!(
+            d.no,
+            No::DottedName { .. } | No::LibraryIdentifier { .. } | No::SymbolLiteral { .. }
+        ) {
+            for p in pontos_ok
+                .iter_mut()
+                .take(d.fim as usize + 1)
+                .skip(d.inicio as usize)
+            {
                 *p = true;
             }
         }
@@ -862,7 +929,8 @@ pub fn conferir(tokens: &Tokens, arv: &Arvore, fonte: &str) -> Result<(), String
             return Err(format!("token {} referenciado {} vezes", texto(i), u));
         }
         if u == 0 {
-            let livre = t.tipo == TipoToken::Op(Op::Comma) || (t.tipo == TipoToken::Op(Op::Dot) && pontos_ok[i]);
+            let livre = t.tipo == TipoToken::Op(Op::Comma)
+                || (t.tipo == TipoToken::Op(Op::Dot) && pontos_ok[i]);
             if !livre {
                 return Err(format!("token {} não referenciado", texto(i)));
             }

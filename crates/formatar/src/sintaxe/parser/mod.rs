@@ -1,4 +1,4 @@
-//! Parser de Dart 3.6 que monta a [`Arvore`](super::arvore::Arvore) com as
+//! Parser de Dart 3.6 que monta a [`Arvore`] com as
 //! mesmas formas do `parseString` do analyzer 3.6 (o parser do fasta mais o
 //! `AstBuilder`, sem resolução nem `AstRewriter`).
 //!
@@ -10,21 +10,21 @@
 //! `InstanceCreationExpression` e assim por diante. Os módulos seguem a
 //! divisão da gramática:
 //!
-//! * [`olhar`] — *lookahead* sem efeitos: `computeType`,
+//! * `olhar` — *lookahead* sem efeitos: `computeType`,
 //!   `computeTypeParamOrArg`, `skipOuterPattern` e afins;
-//! * [`tipos`] — anotações de tipo, parâmetros e argumentos de tipo,
+//! * `tipos` — anotações de tipo, parâmetros e argumentos de tipo,
 //!   parâmetros formais e metadata;
-//! * [`expressoes`] — expressões, literais, cascatas e coleções;
-//! * [`instrucoes`] — comandos e declarações locais;
-//! * [`padroes`] — padrões (Dart 3);
-//! * [`declaracoes`] — unidade, diretivas e declarações de topo e de membro;
+//! * `expressoes` — expressões, literais, cascatas e coleções;
+//! * `instrucoes` — comandos e declarações locais;
+//! * `padroes` — padrões (Dart 3);
+//! * `declaracoes` — unidade, diretivas e declarações de topo e de membro;
 //! * [`verificar`] — conferências da árvore (cobertura de tokens, limites) e
 //!   o despejo textual usado para comparar com o analyzer.
 //!
 //! O parser não altera a lista de tokens enquanto trabalha: os `>` que
 //! formam `>>`, `>=`, `>>>`, `>>=` e `>>>=` em contexto de expressão, e os
 //! `[` `]` (`=`) dos nomes de operador `[]`/`[]=`, ficam anotados em
-//! [`Parser::fusoes`] e são fundidos só no fim, com o remapeamento dos
+//! `Parser::fusoes` e são fundidos só no fim, com o remapeamento dos
 //! índices de token dos nós. Assim o *lookahead* e a especulação
 //! (`canParseAsConditional`) trabalham sobre índices estáveis.
 //!
@@ -78,9 +78,9 @@ mod prec {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Assinc {
     Sinc,
-    Assinc,
+    Comum,
     SincEstrela,
-    AssincEstrela,
+    Estrela,
 }
 
 /// Onde estamos em relação a laços (`LoopState` do fasta), para `break` e
@@ -88,8 +88,8 @@ enum Assinc {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Laco {
     Fora,
-    DentroDeSwitch,
-    DentroDeLaco,
+    Switch,
+    Repeticao,
 }
 
 /// Uma fusão de tokens adiada para o fim da análise.
@@ -149,10 +149,17 @@ pub fn analisar_com(fonte: &str, opcoes: OpcoesAnalise) -> Result<(Tokens, Arvor
     let versao = versao_do_comentario(fonte, &tokens).unwrap_or(opcoes.versao);
     let mut p = Parser::novo(fonte, tokens)?;
     p.padroes = versao >= (3, 0);
+    p.versao = versao;
     let raiz = p.unidade()?;
+    if let Some(e) = p.erro_de_versao.take() {
+        return Err(e);
+    }
     p.arv.raiz = Some(raiz);
     let Parser {
-        mut toks, mut arv, fusoes, ..
+        mut toks,
+        mut arv,
+        fusoes,
+        ..
     } = p;
     aplicar_fusoes(&mut toks, &mut arv, &fusoes);
     arv.ligar_pais();
@@ -198,22 +205,27 @@ fn aplicar_fusoes(toks: &mut Tokens, arv: &mut Arvore, fusoes: &[(usize, Fusao)]
     }
     let n = toks.lista.len();
     // `removidos[i]` = quantos tokens antes de `i` (exclusive) somem.
-    let mut some = vec![false; n];
+    // `dono[i]`: para um token absorvido, o primeiro token da fusão.
+    let mut dono: Vec<Option<usize>> = vec![None; n];
     for &(i, f) in fusoes {
         let k = match f {
             Fusao::Maior(a) => a.len(),
             Fusao::Colchetes(k) => k,
         };
-        for s in some.iter_mut().skip(i + 1).take(k - 1) {
-            *s = true;
+        for d in dono.iter_mut().skip(i + 1).take(k - 1) {
+            *d = Some(i);
         }
     }
     let mut novo = vec![0u32; n];
     let mut removidos = 0u32;
     for i in 0..n {
-        novo[i] = i as u32 - removidos;
-        if some[i] {
-            removidos += 1;
+        match dono[i] {
+            // Um nó que termina num token absorvido termina no token fundido.
+            Some(d) => {
+                novo[i] = novo[d];
+                removidos += 1;
+            }
+            None => novo[i] = i as u32 - removidos,
         }
     }
     let mut ordenadas: Vec<(usize, Fusao)> = fusoes.to_vec();
@@ -250,12 +262,11 @@ enum Estilo {
 fn estilo(texto: &str) -> Estilo {
     match texto {
         "abstract" | "as" | "covariant" | "deferred" | "dynamic" | "export" | "extension"
-        | "external" | "factory" | "Function" | "get" | "implements" | "import" | "interface" | "late"
-        | "library" | "mixin" | "operator" | "part" | "required" | "set" | "static" | "typedef" => {
-            Estilo::Embutida
-        }
-        "async" | "await" | "base" | "hide" | "inout" | "native" | "of" | "on" | "out" | "patch" | "sealed"
-        | "show" | "source" | "sync" | "when" | "yield" => Estilo::Pseudo,
+        | "external" | "factory" | "Function" | "get" | "implements" | "import" | "interface"
+        | "late" | "library" | "mixin" | "operator" | "part" | "required" | "set" | "static"
+        | "typedef" => Estilo::Embutida,
+        "async" | "await" | "base" | "hide" | "inout" | "native" | "of" | "on" | "out"
+        | "patch" | "sealed" | "show" | "source" | "sync" | "when" | "yield" => Estilo::Pseudo,
         _ => Estilo::Nenhum,
     }
 }
@@ -275,6 +286,10 @@ pub(crate) struct Parser<'f> {
     funcoes: bool,
     /// `allowPatterns` do fasta (versão >= 3.0).
     padroes: bool,
+    /// Versão da linguagem em vigor.
+    versao: (u32, u32),
+    /// Primeiro uso de recurso acima da versão em vigor.
+    erro_de_versao: Option<ErroSintaxe>,
     profundidade: u32,
     /// `isLastPatternAllowedInsideUnaryPattern` do fasta.
     padrao_unario_ok: bool,
@@ -287,9 +302,8 @@ impl<'f> Parser<'f> {
         let mut pilha: Vec<usize> = Vec::new();
         for (i, t) in toks.lista.iter().enumerate() {
             match t.tipo {
-                TipoToken::Op(Op::LParen | Op::LBracket | Op::LBrace) | TipoToken::InterpolacaoExpressao => {
-                    pilha.push(i)
-                }
+                TipoToken::Op(Op::LParen | Op::LBracket | Op::LBrace)
+                | TipoToken::InterpolacaoExpressao => pilha.push(i),
                 TipoToken::Op(o @ (Op::RParen | Op::RBracket | Op::RBrace)) => {
                     let Some(a) = pilha.pop() else {
                         return Err(erro_token(fonte, t, &format!("Unexpected '{}'.", o.text())));
@@ -315,6 +329,7 @@ impl<'f> Parser<'f> {
         if let Some(&a) = pilha.last() {
             return Err(erro_token(fonte, &toks.lista[a], "Unbalanced bracket."));
         }
+        conferir_lacunas(fonte, &toks)?;
         Ok(Parser {
             fonte,
             toks,
@@ -326,6 +341,8 @@ impl<'f> Parser<'f> {
             laco: Laco::Fora,
             funcoes: true,
             padroes: true,
+            versao: (3, 6),
+            erro_de_versao: None,
             profundidade: 0,
             padrao_unario_ok: false,
         })
@@ -381,7 +398,10 @@ impl<'f> Parser<'f> {
 
     /// `isKeywordOrIdentifier`.
     fn palavra(&self, i: usize) -> bool {
-        matches!(self.tipo(i), TipoToken::Identificador | TipoToken::Reservada(_))
+        matches!(
+            self.tipo(i),
+            TipoToken::Identificador | TipoToken::Reservada(_)
+        )
     }
 
     fn eof(&self, i: usize) -> bool {
@@ -420,7 +440,8 @@ impl<'f> Parser<'f> {
                     if self.op(n, Op::LParen) {
                         let depois = self.par(n) + 1;
                         let this_super = |p: &Self, k: usize| {
-                            (p.kw(k, Keyword::This) || p.kw(k, Keyword::Super)) && p.op(k + 1, Op::Dot)
+                            (p.kw(k, Keyword::This) || p.kw(k, Keyword::Super))
+                                && p.op(k + 1, Op::Dot)
                         };
                         if self.ident(depois) || this_super(self, depois) {
                             return true;
@@ -525,7 +546,11 @@ impl<'f> Parser<'f> {
     }
 
     fn opcional_op(&mut self, o: Op) -> Option<usize> {
-        if self.op(self.pos, o) { Some(self.avancar()) } else { None }
+        if self.op(self.pos, o) {
+            Some(self.avancar())
+        } else {
+            None
+        }
     }
 
     /// `ensureIdentifier` para nomes: um identificador (qualquer estilo).
@@ -533,8 +558,20 @@ impl<'f> Parser<'f> {
         if self.ident(self.pos) {
             Ok(self.avancar())
         } else {
-            Err(self.erro(&format!("Expected an identifier, but got '{}'.", self.txt(self.pos))))
+            Err(self.erro(&format!(
+                "Expected an identifier, but got '{}'.",
+                self.txt(self.pos)
+            )))
         }
+    }
+
+    /// Identificador ou `new` (nas continuações em que o fasta reescreve
+    /// `new` como identificador: `A.new`).
+    fn espera_ident_ou_new(&mut self) -> R<usize> {
+        if self.kw(self.pos, Keyword::New) {
+            return Ok(self.avancar());
+        }
+        self.espera_ident()
     }
 
     /// Nome declarado (variável, parâmetro, função local): além de
@@ -555,6 +592,9 @@ impl<'f> Parser<'f> {
 
     /// Anota a fusão do `>` em `i` com os seguintes, formando `alvo`.
     fn fundir_maior(&mut self, i: usize, alvo: &'static str) {
+        if alvo.starts_with(">>>") {
+            self.recurso(i, (2, 14), "triple-shift");
+        }
         self.fusoes.push((i, Fusao::Maior(alvo)));
     }
 
@@ -573,6 +613,18 @@ impl<'f> Parser<'f> {
         }
         self.pos += n;
         Ok(i)
+    }
+
+    /// Recurso da linguagem que exige a versão `minima`: antes dela o
+    /// analyzer relata `EXPERIMENT_NOT_ENABLED`, que é erro sintático. O
+    /// primeiro erro fica guardado e é devolvido no fim da análise.
+    fn recurso(&mut self, i: usize, minima: (u32, u32), nome: &str) {
+        if self.versao < minima && self.erro_de_versao.is_none() {
+            self.erro_de_versao = Some(self.erro_em(
+                i,
+                &format!("This requires the '{nome}' language feature to be enabled."),
+            ));
+        }
     }
 
     // ------------------------------------------------------------ nós
@@ -609,8 +661,13 @@ impl<'f> Parser<'f> {
         let pos = self.pos;
         let nos = self.arv.nos.len();
         let fusoes = self.fusoes.len();
-        let (assinc, laco, funcoes, prof, unario) =
-            (self.assinc, self.laco, self.funcoes, self.profundidade, self.padrao_unario_ok);
+        let (assinc, laco, funcoes, prof, unario) = (
+            self.assinc,
+            self.laco,
+            self.funcoes,
+            self.profundidade,
+            self.padrao_unario_ok,
+        );
         let r = f(self);
         let alcancado = self.pos;
         self.pos = pos;
@@ -635,6 +692,46 @@ impl<'f> Parser<'f> {
     fn sair(&mut self) {
         self.profundidade -= 1;
     }
+}
+
+/// Entre dois tokens só pode haver brancos e comentários; o scanner do
+/// analyzer relata qualquer outro caractere (`Illegal character`), como o
+/// espaço não separável.
+fn conferir_lacunas(fonte: &str, toks: &Tokens) -> R<()> {
+    let b = fonte.as_bytes();
+    let mut ant = 0usize;
+    if b.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        ant = 3;
+    }
+    for t in &toks.lista {
+        let (c0, c1) = t.comentarios;
+        let mut p = ant;
+        let mut cs = toks.comentarios[c0 as usize..c1 as usize].iter().peekable();
+        while p < t.inicio {
+            if let Some(c) = cs.peek()
+                && c.inicio == p
+            {
+                p = c.fim;
+                cs.next();
+                continue;
+            }
+            if !matches!(b[p], b' ' | b'\t' | b'\n' | b'\r' | 0x0C) {
+                let ch = fonte[p..].chars().next().unwrap_or(' ');
+                return Err(ErroSintaxe {
+                    posicao: p,
+                    comprimento: ch.len_utf8(),
+                    mensagem: format!("Illegal character '{}'.", ch as u32),
+                });
+            }
+            p += 1;
+        }
+        if t.tipo == TipoToken::ScriptTag {
+            ant = t.fim;
+        } else {
+            ant = ant.max(t.fim);
+        }
+    }
+    Ok(())
 }
 
 fn erro_token(_fonte: &str, t: &Token, msg: &str) -> ErroSintaxe {

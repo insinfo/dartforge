@@ -35,8 +35,9 @@ impl Parser<'_> {
     pub(super) fn tipo_ate(&mut self, ate: usize) -> R<NoId> {
         let ini = self.pos;
         let mut tipo: Option<NoId> = None;
-        let gft_inicial =
-            self.pal(self.pos, "Function") && self.pos + 1 < ate && (self.op(self.pos + 1, Op::Lt) || self.op(self.pos + 1, Op::LParen));
+        let gft_inicial = self.pal(self.pos, "Function")
+            && self.pos + 1 < ate
+            && (self.op(self.pos + 1, Op::Lt) || self.op(self.pos + 1, Op::LParen));
         if self.kw(self.pos, Keyword::Void) {
             let v = self.avancar();
             tipo = Some(self.no(
@@ -91,7 +92,10 @@ impl Parser<'_> {
     fn tipo_nomeado(&mut self, ate: usize) -> R<NoId> {
         let ini = self.pos;
         if !self.palavra(self.pos) {
-            return Err(self.erro(&format!("Expected a type, but got '{}'.", self.txt(self.pos))));
+            return Err(self.erro(&format!(
+                "Expected a type, but got '{}'.",
+                self.txt(self.pos)
+            )));
         }
         let mut import_prefix = None;
         if self.op(self.pos + 1, Op::Dot) && self.pos + 2 < ate {
@@ -127,6 +131,9 @@ impl Parser<'_> {
     /// Tipo record (`parseRecordType`).
     fn tipo_registro_no(&mut self, ate: usize) -> R<NoId> {
         let ini = self.pos;
+        if self.versao < (3, 0) {
+            return Err(self.erro("This requires the 'records' language feature to be enabled."));
+        }
         let lp = self.espera_op(Op::LParen)?;
         let mut posicionais = Vec::new();
         let mut nomeados = None;
@@ -135,7 +142,10 @@ impl Parser<'_> {
             if self.op(self.pos, Op::RParen) {
                 break;
             }
-            if posicionais.is_empty() && self.op(self.pos, Op::Comma) && self.op(self.pos + 1, Op::RParen) {
+            if posicionais.is_empty()
+                && self.op(self.pos, Op::Comma)
+                && self.op(self.pos + 1, Op::RParen)
+            {
                 return Err(self.erro("A record type without fields can't have a trailing comma."));
             }
             if self.op(self.pos, Op::LBrace) {
@@ -151,7 +161,11 @@ impl Parser<'_> {
                 None
             };
             posicionais.push(self.no(
-                No::RecordTypeAnnotationPositionalField { metadata, type_, name },
+                No::RecordTypeAnnotationPositionalField {
+                    metadata,
+                    type_,
+                    name,
+                },
                 fi,
             ));
             if !self.op(self.pos, Op::Comma) {
@@ -162,7 +176,10 @@ impl Parser<'_> {
         }
         let rp = self.espera_op(Op::RParen)?;
         if posicionais.len() == 1 && nomeados.is_none() && !virgula {
-            return Err(self.erro_em(rp, "A record type with exactly one positional field requires a trailing comma."));
+            return Err(self.erro_em(
+                rp,
+                "A record type with exactly one positional field requires a trailing comma.",
+            ));
         }
         let question = if self.pos < ate && self.op(self.pos, Op::Question) {
             Some(self.avancar() as u32)
@@ -193,7 +210,14 @@ impl Parser<'_> {
             let metadata = self.metadados()?;
             let type_ = self.tipo_requerido()?;
             let name = self.espera_ident()? as u32;
-            campos.push(self.no(No::RecordTypeAnnotationNamedField { metadata, type_, name }, fi));
+            campos.push(self.no(
+                No::RecordTypeAnnotationNamedField {
+                    metadata,
+                    type_,
+                    name,
+                },
+                fi,
+            ));
             if !self.op(self.pos, Op::Comma) {
                 break;
             }
@@ -201,7 +225,10 @@ impl Parser<'_> {
         }
         let rb = self.espera_op(Op::RBrace)?;
         if campos.is_empty() {
-            return Err(self.erro_em(rb, "The list of named fields in a record type can't be empty."));
+            return Err(self.erro_em(
+                rb,
+                "The list of named fields in a record type can't be empty.",
+            ));
         }
         Ok(self.no(
             No::RecordTypeAnnotationNamedFields {
@@ -217,7 +244,10 @@ impl Parser<'_> {
     pub(super) fn tipo_requerido(&mut self) -> R<NoId> {
         let info = self.tipo_em(self.pos, true, false, false);
         if info.e_nenhum() {
-            return Err(self.erro(&format!("Expected a type, but got '{}'.", self.txt(self.pos))));
+            return Err(self.erro(&format!(
+                "Expected a type, but got '{}'.",
+                self.txt(self.pos)
+            )));
         }
         self.tipo_ate(info.ate)
     }
@@ -318,7 +348,11 @@ impl Parser<'_> {
             }
             if self.op(self.pos, Op::LBracket) || self.op(self.pos, Op::LBrace) {
                 let (abre, fecha, tipo) = if self.op(self.pos, Op::LBracket) {
-                    (Op::LBracket, Op::RBracket, TipoParametro::OpcionalPosicional)
+                    (
+                        Op::LBracket,
+                        Op::RBracket,
+                        TipoParametro::OpcionalPosicional,
+                    )
                 } else {
                     (Op::LBrace, Op::RBrace, TipoParametro::Nomeado)
                 };
@@ -383,11 +417,16 @@ impl Parser<'_> {
                     covariant = Some(self.avancar() as u32);
                 }
                 if self.modificador(self.pos) {
-                    if !em_tipo_funcao && (self.kw(self.pos, Keyword::Var) || self.kw(self.pos, Keyword::Final)) {
+                    if !em_tipo_funcao
+                        && (self.kw(self.pos, Keyword::Var) || self.kw(self.pos, Keyword::Final))
+                    {
                         keyword = Some(self.avancar() as u32);
                     }
                     if self.modificador(self.pos) {
-                        return Err(self.erro(&format!("Can't have modifier '{}' here.", self.txt(self.pos))));
+                        return Err(self.erro(&format!(
+                            "Can't have modifier '{}' here.",
+                            self.txt(self.pos)
+                        )));
                     }
                 }
             }
@@ -395,7 +434,8 @@ impl Parser<'_> {
         let info = self.tipo_em(self.pos, em_tipo_funcao, false, true);
         let mut nx = info.ate;
         let mut info = info;
-        if info.e_nenhum() && (self.op(nx, Op::Dot) || (self.ident(nx) && self.op(nx + 1, Op::Dot))) {
+        if info.e_nenhum() && (self.op(nx, Op::Dot) || (self.ident(nx) && self.op(nx + 1, Op::Dot)))
+        {
             // Recuperação do fasta: tipo prefixado malformado (por exemplo
             // `p.import`), relida com `required`; o erro não é sintático.
             info = self.tipo_em(self.pos, true, false, false);
@@ -429,10 +469,15 @@ impl Parser<'_> {
         }
         let _ = ultimo;
         if funcao_inline && keyword.is_some() {
-            return Err(self.erro("Function-typed parameters can't specify 'const', 'final' or 'var'."));
+            return Err(
+                self.erro("Function-typed parameters can't specify 'const', 'final' or 'var'.")
+            );
         }
         if !info.e_nenhum() && keyword.is_some_and(|k| self.kw(k as usize, Keyword::Var)) {
-            return Err(self.erro_em(keyword.unwrap_or(0) as usize, "Variables can't be declared using both 'var' and a type name."));
+            return Err(self.erro_em(
+                keyword.unwrap_or(0) as usize,
+                "Variables can't be declared using both 'var' and a type name.",
+            ));
         }
         let type_ = if info.e_nenhum() {
             None
@@ -441,6 +486,9 @@ impl Parser<'_> {
         };
         let (this_kw, period) = match this_super {
             Some((t, p)) => {
+                if self.kw(t, Keyword::Super) {
+                    self.recurso(t, (2, 17), "super-parameters");
+                }
                 self.pos = p + 1;
                 (Some(t), Some(p))
             }
@@ -540,9 +588,14 @@ impl Parser<'_> {
                 return Err(self.erro("Non-optional parameters can't have a default value."));
             }
             if tipo == TipoParametro::OpcionalPosicional && self.op(s, Op::Colon) {
-                return Err(self.erro("Positional optional parameters can't use ':' to specify a default value."));
+                return Err(self.erro(
+                    "Positional optional parameters can't use ':' to specify a default value.",
+                ));
             }
-            if matches!(membro, Membro::TipoFuncao | Membro::AliasFuncao | Membro::ParametroFuncao) {
+            if matches!(
+                membro,
+                Membro::TipoFuncao | Membro::AliasFuncao | Membro::ParametroFuncao
+            ) {
                 return Err(self.erro("Can't have a default value in a function type."));
             }
             self.avancar();
@@ -563,6 +616,26 @@ impl Parser<'_> {
         ))
     }
 
+    /// `checkFieldFormalParameters` do `AstBuilder` (métodos e funções
+    /// locais): `this.x` posicional obrigatório fora de construtor.
+    pub(super) fn sem_parametros_de_campo(&self, lista: Option<NoId>) -> R<()> {
+        let Some(l) = lista else {
+            return Ok(());
+        };
+        let No::FormalParameterList { parameters, .. } = self.arv.no(l) else {
+            return Ok(());
+        };
+        for &p in parameters {
+            if matches!(self.arv.no(p), No::FieldFormalParameter { .. }) {
+                return Err(self.erro_em(
+                    self.ini(p),
+                    "Field formal parameters can only be used in a constructor.",
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// `metadata*`.
     pub(super) fn metadados(&mut self) -> R<Vec<NoId>> {
         let mut v = Vec::new();
@@ -580,7 +653,7 @@ impl Parser<'_> {
         let mut name = self.simples(id);
         if self.op(self.pos, Op::Dot) {
             let d = self.avancar();
-            let id2 = self.espera_ident()?;
+            let id2 = self.espera_ident_ou_new()?;
             let s2 = self.simples(id2);
             name = self.no(
                 No::PrefixedIdentifier {
@@ -592,6 +665,9 @@ impl Parser<'_> {
             );
         }
         let com_args_tipo = self.op(self.pos, Op::Lt);
+        if com_args_tipo {
+            self.recurso(self.pos, (2, 14), "generic-metadata");
+        }
         let type_arguments = if com_args_tipo {
             if self.args_tipo_lt(self.pos, false).is_none() {
                 return Err(self.erro("Invalid type arguments in annotation."));
@@ -604,22 +680,27 @@ impl Parser<'_> {
         let mut constructor_name = None;
         if self.op(self.pos, Op::Dot) {
             period = Some(self.avancar() as u32);
-            let c = self.espera_ident()?;
+            let c = self.espera_ident_ou_new()?;
             constructor_name = Some(self.simples(c));
         }
         if com_args_tipo && !self.op(self.pos, Op::LParen) {
-            return Err(self.erro("An annotation with type arguments must be followed by an argument list."));
+            return Err(self
+                .erro("An annotation with type arguments must be followed by an argument list."));
         }
         let mut arguments = None;
         if self.op(self.pos, Op::LParen) {
             if self.tk(self.pos - 1).colado {
                 arguments = Some(self.argumentos()?);
             } else if com_args_tipo {
-                return Err(self.erro("Annotations can't have spaces or comments before the parenthesis."));
+                return Err(
+                    self.erro("Annotations can't have spaces or comments before the parenthesis.")
+                );
             } else {
                 let depois = self.par(self.pos) + 1;
                 if self.kw(depois, Keyword::Class) || self.kw(depois, Keyword::Enum) {
-                    return Err(self.erro("Annotations can't have spaces or comments before the parenthesis."));
+                    return Err(self.erro(
+                        "Annotations can't have spaces or comments before the parenthesis.",
+                    ));
                 }
             }
         }

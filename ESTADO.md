@@ -4354,14 +4354,16 @@ em cache em `target/oraculo-formatar/`), saída byte a byte:
 | --- | --- |
 | `.dart` do repositório (corpus/, examples/, sdk_nativo/, pacotes/…) | 9866/9866 |
 | `lib/` do SDK 3.6.2 | 426/426 |
-| pub cache (340 pacotes) | 27896/27899 |
+| pub cache (340 pacotes) | 27899/27899 |
 
 Os arquivos que o `dart format` recusa (erro de sintaxe) ficam fora do placar. LSP: contra o
 `dart language-server` 3.6.2, 80 arquivos não formatados do corpus com edições idênticas em
 `formatting` (80/80) e em `rangeFormatting`/`onTypeFormatting` (400/400).
 
-Falta: os 3 arquivos do pub cache (símbolo `#[]`, dois testes de metadados do
-`_fe_analyzer_shared`); as correções `--fix*` (não suportadas, o comando recusa); `--selection`; a
+Todo arquivo que o `dart format` aceita sai idêntico (38191/38191), e o parser não recusa nenhum deles;
+a árvore confere nó a nó com a do `parseString` do analyzer 6.11 nos três conjuntos.
+
+Falta: as correções `--fix*` (não suportadas, o comando recusa); `--selection`; a
 mensagem de erro de sintaxe tem o formato do `dart format`, mas o texto do diagnóstico é o do nosso
 parser; o estilo "alto" (padrão do `dart format` a partir do SDK 3.7).
 
