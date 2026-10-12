@@ -481,7 +481,7 @@ impl StringsIdentificador {
 }
 
 /// Início, no fonte, da *string* [`MARCA_FIM_DO_SDK`] (`u32::MAX` sem ela).
-fn inicio_da_marca(programa: &oxc_ast::ast::Program<'_>) -> u32 {
+pub(crate) fn inicio_da_marca(programa: &oxc_ast::ast::Program<'_>) -> u32 {
     use oxc_ast::ast::{Expression, Statement};
     fn em(stmts: &[Statement<'_>]) -> Option<u32> {
         for s in stmts {

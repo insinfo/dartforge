@@ -706,3 +706,15 @@ construtor Dart, vira `t$P(C.nome = function(…) {…}, C);`, com
 `t$P = function(f, c) { f.prototype = c.prototype; }` declarada uma vez
 (`formas.rs`, depois do achatamento). A atribuição acontece antes da chamada,
 como antes. `DARTFORGE_JSPROD_FORMAS=0` desliga.
+
+### 9.9 Receitas fechadas do programa avaliadas uma vez
+
+`t$R("receita")` (o `_Universe.eval` de uma receita fechada) aparecia 73 mil
+vezes no `new_sali`. No programa (depois da marca do fim do SDK), cada receita
+usada duas vezes ou mais vira uma variável `t$T…`, declarada logo depois do
+SDK: `_Universe.eval` devolve o objeto canônico do universo, então avaliar
+uma vez dá o mesmo objeto, e cada uso fica uma variável em vez de uma
+chamada. O SDK fica como está: código dele roda durante a carga, antes da
+declaração. Também em `formas.rs`; `DARTFORGE_JSPROD_RECEITAS_FIXAS=0`
+desliga. A troca do protótipo (§9.8) passou a ser duas trocas pequenas, para
+compor com as de dentro da função.
