@@ -4529,8 +4529,10 @@ restam são `-32001` do servidor do Dart, em imports com prefixo); edição das 
 (métrica nova: `TextEdit`/`SnippetTextEdit` normalizados, com o `insertTextFormat`) 70 → 100% (391); edição das
 correções de título comum 68 → 100% (25); references 96 → 96% e implementation 96 → 96% (respostas idênticas às
 de antes nas 410 posições); mediana de references 269,0 → 1,5 ms (Dart 2,2 e 1,2 nas duas rodadas) e de
-implementation 220,9 → 1,1 ms (Dart 0,8 e 0,6). Os demais recursos ficaram como na tabela, salvo o top-5 do
-completar, 76% na métrica atual do `resumo.py` (sem a regra da lista vazia).
+implementation 220,9 → 1,1 ms (Dart 0,8 e 0,6); com `2efbd7f6` (as posições de locais no disco convertidas uma
+vez por arquivo) o p90 de references caiu de 1872,6 (antes) e 1328,5 ms para 42,8 ms (Dart 173,4; reprise só de
+references/implementation/rename: medianas 2,1/1,4/1,4 ms contra 2,4/1,1/1,6 do Dart). Os demais recursos ficaram
+como na tabela, salvo o top-5 do completar, 76% na métrica atual do `resumo.py` (sem a regra da lista vazia).
 
 | recurso | 2026-10-01 | agora |
 | --- | ---: | ---: |
