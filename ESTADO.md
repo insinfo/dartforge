@@ -1,5 +1,89 @@
 # Estado do DartForge — 2026-10-12
 
+## Nativo no modo padrão (A0): tamanho e desempenho (2026-10-12, noite)
+
+Meta do dono: executáveis menores que os do `dart compile exe` e desempenho
+perto ou acima do Dart, com a saída igual. Commits `78a576ee`, `87843aae`,
+`27df80c1`, `d0cb9da5`, `4e1114aa` e o deste registro. Medido só no macOS
+arm64: o ligador (`-no_exported_symbols`, outliner) é do Mach-O; `nounwind` e
+o contexto em `thread_local` valem no Unix (o Linux não foi medido nesta
+rodada); o Windows fica como era nesses dois.
+
+**Tamanho.** `new_sali/backend` (`aot --optimize`, macOS): **61,9 → 37,8 MB**
+(`dart compile exe`: 26,5 MB). Programas do `bench/desempenho`: 3,46 → 3,20 MB
+(Dart: 5,33 MB; 40% menores). O que entrou, na ordem do ganho no backend:
+
+| mudança | backend |
+| --- | ---: |
+| partida (`3dfe34e7`) | 61,9 MB |
+| `-no_exported_symbols` no executável (árvore de exportação, tabela de símbolos e ligação fraca de ~50 mil símbolos `weak`/externos; `__LINKEDIT` 7,4 → 0,6 MB) | 54,6 MB |
+| `nounwind` nas funções Dart (sem CFI em DWARF; `__eh_frame` 1,43 → 0,23 MB) | 53,1 MB |
+| *machine outliner* do LLVM na LTO do programa grande (`driver::outliner_na_ligacao`; `__text` 44,6 → 30,0 MB) | 38,5 MB |
+| tabela da RTI comprimida (1,37 MB de texto → ~0,26 MB) | 37,3 MB |
+| literal de mapa montado de uma vez, pontos de coleta a menos | ~37,0 MB |
+| contexto em `thread_local` (desempenho; +0,2 MB no grande) | 37,5–37,8 MB |
+
+Medido e descartado: `minsize` no programa grande (38,58 contra 38,51 MB);
+`-machine-outliner-reruns=1` (−0,46 MB, ligação mais lenta; não ligado);
+exceções por tabelas (A1) sem o outliner tiram só 0,7 MB do `__text` e põem
+2 MB de tabelas — a checagem da pendência não é o que pesa. A tabela de
+registro das classes (`df.registrar.programa`, 37 mil chamadas, 440 KB) como
+dados ficaria do mesmo tamanho (~400 KB de tabelas com relocações).
+
+O que resta para ficar abaixo do Dart está no código por função (`__text`
+30 MB contra ~10,7 MB de código do Dart, §1.3 de
+`docs/NATIVO-PRODUCAO-GRANDE.md`): moldura da pilha-sombra, conferência da
+pilha, adaptadores `$c`/`$g`/`$tc`/tear-offs (~12 mil funções), `$async`
+(3,6 MB) e os inicializadores de literais não constantes de folhas
+constantes (`unormdata` ×2, 1,3 MB mesmo com o outliner).
+
+**Desempenho** (`bench/desempenho`, A0/`dart compile exe`, média geométrica):
+
+| medida | antes | depois |
+| --- | ---: | ---: |
+| rodadas separadas (`medir-modos-desempenho.py`, 3 repetições) | 1,231 | 1,094 |
+| base, novo e Dart alternados no mesmo laço (máquina com carga ~15–19) | 1,161 | 0,999 |
+
+Por programa (alternado): chamadas 0,91 → 0,77; coleções 0,64 → 0,64; JSON
+1,96 → 1,27; numérico 0,61 → 0,58; objetos em coleções ~1,7–2,2 (ruído da
+carga; numa repetição só deles 2,23 → 1,87); objetos que escapam 2,41 → 2,24;
+temporários 0,55 → 0,51; textos 1,26 → 1,13; tipados 0,76 → 0,76.
+`bench/comparativo` (A0, ms; Dart 3.6.2 entre parênteses): fib 14–15 → 11–12
+(9–10), árvores 33 → 25–29 (11), textos 79–82 → 73–78 (44–45), JSON 108–110
+→ 103–110 (72–73), numérico igual (~96–107); "olá" 3,46 → 3,22 MB (5,33).
+
+O que mudou no código gerado (todos no modo padrão, fora do ARC):
+* O contexto da thread numa variável `thread_local` do módulo
+  (`sdk_modulo::com_contexto_em_tls`): o prólogo não chama mais a função Rust
+  com quadro; o `fib` passava 1/3 do tempo nela.
+* O marco da conferência da pilha nasce no bloco de entrada (virava alocação
+  dinâmica depois do `df.obter_area` em linha).
+* Objeto recém-alocado sem ponto de coleta desde a alocação: corpo direto e
+  gravação sem barreira; `this` com corpo direto no AOT (sem corpo de fora).
+* Literal de mapa `{k: v, …}` como na VM (`_dartforgePreencherMapa`), em vez
+  de um `[]=` por seletor por entrada; o `hashCode` das chaves passa a rodar
+  depois de todos os valores, como na VM.
+* Texto constante estático, vetores constantes e leitura do vetor de
+  argumentos deixam de ser pontos de coleta.
+* As raízes pelo chamado (`DARTFORGE_RAIZES_NO_CHAMADO=1`) ficam só sob
+  medida: com menos raízes, slots compartilhados retêm valores mortos até o
+  quadro fechar (núcleo `json`: 1,05 milhão de objetos vivos contra 650 mil,
+  pico 121 contra 95 MB). Falta zerar o slot do valor que morre.
+
+Validação: corpus nativo 125/126 (o `33` difere em todos, soquete Unix) em
+tracing desenvolvimento e produção, produção com `DARTFORGE_GC_STRESS=1`,
+desenvolvimento com GC stress, produção com o outliner forçado
+(`DARTFORGE_OUTLINER=1`), ARC e preparado; emissor 476 testes (`--lib`) e
+doctests novos; runtime 226 + integrações + 85 doctests;
+`new_sali/backend` compila e sobe (mesma saída de partida do Dart).
+`compile-native --emit-ir --optimize` agora emite o IR da produção.
+
+Próximos passos, pelo que o perfil mostra: `tlv_get_addr` ainda aparece
+(2–5% em árvores e textos; o Go lê `TPIDRRO_EL0` direto); mapa de `String`
+(`hash_mapa_buscar` 20% do núcleo `textos`, `[]=`/`[]` passam pelos
+adaptadores `$c`); alocação (`arvores` 2,2–2,5× o Dart: varredura dos jovens,
+`memset`); `ordenar_objetos` e `lista_ligada` (2–4×).
+
 ## Retomada de 2026-10-12 (macOS arm64)
 
 ARC continua só com `--memoria=arc`; tracing é o padrão. §§27–34, a

@@ -537,11 +537,13 @@ fn emitir_ir_interno(
     let llvm_ir = if excecoes_por_tabelas && cfg!(unix) { sdk_modulo::com_uwtable(&llvm_ir) } else { llvm_ir };
     // Nas exceções por checagem com a pilha-sombra nada desenrola o código
     // Dart: sem o CFI de cada função (`sdk_modulo::com_nounwind`).
-    let llvm_ir = if !excecoes_por_tabelas && !raizes_por_mapas { sdk_modulo::com_nounwind(&llvm_ir) } else { llvm_ir };
+    // Só nos alvos Itanium: no COFF x64 toda função tem tabela de
+    // desenrolamento de qualquer jeito, e o Windows não foi medido.
+    let llvm_ir = if cfg!(unix) && !excecoes_por_tabelas && !raizes_por_mapas { sdk_modulo::com_nounwind(&llvm_ir) } else { llvm_ir };
     // O contexto da thread numa variável `thread_local` do módulo, no AOT
     // padrão (`sdk_modulo::com_contexto_em_tls`): em linha no programa
     // pequeno, uma chamada no grande.
-    let llvm_ir = if podar && !excecoes_por_tabelas && !raizes_por_mapas && !memoria_arc {
+    let llvm_ir = if cfg!(unix) && podar && !excecoes_por_tabelas && !raizes_por_mapas && !memoria_arc {
         let modo = if grande { sdk_modulo::ContextoEmTls::PorChamada } else { sdk_modulo::ContextoEmTls::EmLinha };
         sdk_modulo::com_contexto_em_tls(&llvm_ir, modo, "df.ctx.tls.programa")
     } else {

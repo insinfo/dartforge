@@ -372,8 +372,9 @@ pub fn emitir_bibliotecas_do_sdk(lib_dir: &Path, producao: bool) -> Result<Vec<B
         }
         let ir = if producao { com_optsize(&ir) } else { ir };
         let ir = if excecoes_por_tabelas && cfg!(unix) { com_uwtable(&ir) } else { ir };
-        let ir = if !excecoes_por_tabelas && !raizes_por_mapas { com_nounwind(&ir) } else { ir };
-        let ir = if producao && !excecoes_por_tabelas && !raizes_por_mapas && !memoria_arc {
+        let ir = if cfg!(unix) && !excecoes_por_tabelas && !raizes_por_mapas { com_nounwind(&ir) } else { ir };
+        // Só no Unix (macOS medido; o Windows não).
+        let ir = if cfg!(unix) && producao && !excecoes_por_tabelas && !raizes_por_mapas && !memoria_arc {
             com_contexto_em_tls(&ir, ContextoEmTls::Livre, "df.ctx.tls")
         } else {
             ir
