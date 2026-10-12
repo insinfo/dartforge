@@ -667,3 +667,22 @@ aparece como supertipo nas regras nunca vira objeto rti.
 
 A tabela custa 130 KB no `new_sali` (os nomes das ~6 mil classes
 mostráveis); ainda assim o arquivo caiu 146 KB.
+
+### 9.6 Construtores (`C.new`, `C.nome`) renomeados
+
+`new C.new(…)` e `(C.new = function(…){…}).prototype = C.prototype` custavam
+`.new` por extenso em 30 mil lugares do `new_sali`: o nome ficava reservado
+porque as fábricas saem como `static ["new"](…)` (chave entre aspas no SDK) e
+porque os *templates* `JS()` do runtime dos *records* citam `#.new`. Agora:
+
+* os nomes JS dos construtores (`new` e os nomeados) entram no conjunto
+  renomeável (`propriedades.rs`), fora das classes de interop;
+* `new` nos *templates* é o construtor Dart (nenhuma propriedade do
+  JavaScript se chama assim), e não reserva;
+* na primeira visita da reserva (antes da compressão), as chaves literais
+  (`static ["new"]()`, `x["foo"]`, `{"a": 1}`) não reservam: a compressão as
+  troca pela forma sem aspas, que o renomeio trata como as outras. A que
+  sobrar entre aspas depois dela reserva, na segunda visita.
+
+O `classGetConstructorType` do DDC lê `'new'` por *string*; se ele estiver
+vivo, a *string* do runtime reserva o nome e nada muda.

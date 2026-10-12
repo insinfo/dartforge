@@ -104,7 +104,15 @@ pub fn calcular(a: &dartforge_emit_js::Analise<'_>, nomes_js: &HashSet<String>, 
     }
     for f in p.functions.iter() {
         let nome = i.resolve(f.name);
-        if nome.is_empty() || matches!(f.kind, FunctionKind::Constructor | FunctionKind::SyntheticConstructor) {
+        if matches!(f.kind, FunctionKind::Constructor | FunctionKind::SyntheticConstructor) {
+            // `C.new`, `C.nome`: propriedade da classe que só o texto cita
+            // (`new C.new(…)`, `C.nome.call(this, …)`).
+            if f.class.is_some_and(|c| !interop[c.0 as usize]) {
+                n.renomeaveis.insert(if nome.is_empty() { "new".to_string() } else { static_member_name(nome) });
+            }
+            continue;
+        }
+        if nome.is_empty() {
             continue;
         }
         let js = if f.class.is_some() && !f.static_ {
@@ -173,7 +181,9 @@ pub fn calcular(a: &dartforge_emit_js::Analise<'_>, nomes_js: &HashSet<String>, 
     for x in ["privateName", "lateFields", "$constCache", "$C"] {
         n.renomeaveis.insert(x.to_string());
     }
-    n.reservados.extend(nomes_js.iter().cloned());
+    // `new` nos *templates* (`#.new = function`, `Object.getPrototypeOf(#).new`)
+    // é o construtor Dart, nunca uma propriedade do JavaScript: renomeado junto.
+    n.reservados.extend(nomes_js.iter().filter(|w| *w != "new").cloned());
     n.reservados.extend(PROTOCOLO_JS.iter().map(|s| s.to_string()));
     n
 }

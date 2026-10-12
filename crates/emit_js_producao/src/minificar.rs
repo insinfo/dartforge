@@ -372,6 +372,11 @@ const JS_COM_NOMES: &[&str] = &["defineProperty", "getOwnPropertyDescriptor", "h
 /// `DARTFORGE_JSPROD_STRINGS=todas` volta à regra antiga (toda *string*).
 struct StringsIdentificador {
     nomes: std::collections::HashSet<String>,
+    /// Antes da compressão, as chaves literais (`static ["new"]()`,
+    /// `x["foo"]`, `{"a": 1}`) não reservam: a compressão as troca pela forma
+    /// sem aspas, que o renomeio trata como as outras. A que sobrar entre
+    /// aspas depois dela reserva (a segunda visita).
+    antes: bool,
     /// Início da marca do fim do SDK no fonte (`u32::MAX` sem marca: tudo é
     /// runtime, a regra antiga).
     fim_sdk: u32,
@@ -415,6 +420,19 @@ impl<'a> oxc_ast_visit::Visit<'a> for StringsIdentificador {
         oxc_ast_visit::walk::walk_new_expression(self, it);
         self.pilha.pop();
     }
+    fn visit_property_key(&mut self, it: &oxc_ast::ast::PropertyKey<'a>) {
+        if self.antes && matches!(it, oxc_ast::ast::PropertyKey::StringLiteral(_)) {
+            return;
+        }
+        oxc_ast_visit::walk::walk_property_key(self, it);
+    }
+    fn visit_computed_member_expression(&mut self, it: &oxc_ast::ast::ComputedMemberExpression<'a>) {
+        if self.antes && matches!(it.expression, oxc_ast::ast::Expression::StringLiteral(_)) {
+            self.visit_expression(&it.object);
+            return;
+        }
+        oxc_ast_visit::walk::walk_computed_member_expression(self, it);
+    }
     fn visit_variable_declarator(&mut self, it: &oxc_ast::ast::VariableDeclarator<'a>) {
         // As `var t$S… = "…"` da deduplicação ficam no topo do arquivo, antes
         // da marca, mas só levam *strings* de dados: as de posição de nome
@@ -446,7 +464,7 @@ impl<'a> oxc_ast_visit::Visit<'a> for StringsIdentificador {
 
 impl StringsIdentificador {
     fn novo(fim_sdk: u32) -> Self {
-        StringsIdentificador { nomes: std::collections::HashSet::new(), fim_sdk, pilha: Vec::new() }
+        StringsIdentificador { nomes: std::collections::HashSet::new(), antes: true, fim_sdk, pilha: Vec::new() }
     }
     fn e_nome(&self, inicio: u32) -> bool {
         inicio < self.fim_sdk || self.pilha.last().copied().unwrap_or(false)
@@ -770,6 +788,7 @@ pub fn minificar_com_propriedades(js: &str, nomes: &crate::propriedades::Nomes) 
         c.treeshake.manual_pure_functions = ["dart.privateName", "dart.fnType", "dart.gFnType", "dart$$privateName", "dart$$fnType", "dart$$gFnType", "t$R"].iter().map(|s| s.to_string()).collect();
         let _ = Minifier::new(MinifierOptions { mangle: None, mangle_properties: None, compress: Some(c) }).minify(&alocador, &mut programa);
     }
+    strings.antes = false;
     strings.visit_program(&programa);
     let mut livres: Vec<&str> = nomes
         .renomeaveis
