@@ -81,10 +81,10 @@ fn codigo_tipado_publicado_chega_ao_editor() {
 #[test]
 fn so_codigos_publicados_e_ignore_respeitado() {
     let mut p = Projeto::novo("tipado-publicados");
-    // `undefined_identifier` não está em `verificados.txt`: não aparece.
-    // O `// ignore:` vale como no `dartforge analyze` (para avisos; erro
-    // não é ignorável), nos dois fluxos.
-    let texto = "void f() {\n  nada;\n  // ignore: unused_local_variable\n  var y = 1;\n  var z = 2;\n  if (1) {}\n}\n";
+    // `unchecked_use_of_nullable_value` não está em `verificados.txt`: não
+    // aparece. O `// ignore:` vale como no `dartforge analyze` (para avisos;
+    // erro não é ignorável), nos dois fluxos.
+    let texto = "void f() {\n  <int?>[].first.isEven;\n  // ignore: unused_local_variable\n  var y = 1;\n  var z = 2;\n  if (1) {}\n}\n";
     p.servidor.pausar_analise_tipada(true);
     let imediata = p.abrir("lib/a.dart", texto);
     assert_eq!(
