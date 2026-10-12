@@ -52,6 +52,8 @@ struct Namespace {
     fixos: HashSet<String>,
     /// O objeto é observado por inteiro: nada dele vira variável.
     escapa: bool,
+    /// Onde escapou primeiro (diagnóstico, `DARTFORGE_JSPROD_ACHATAR_POR`).
+    escapa_em: Option<u32>,
 }
 
 struct Analise<'s> {
@@ -61,6 +63,9 @@ struct Analise<'s> {
     bindings: HashMap<String, u32>,
     /// Todos os identificadores do arquivo (para não colidir).
     identificadores: HashSet<String>,
+    /// As `t$S…` da deduplicação cujo valor não é identificador: como chave
+    /// (`core[t$S5]`) não podem citar um membro achatado.
+    chaves_opacas: HashSet<String>,
 }
 
 /// Se o corpo da função lê `this` (fora das funções e classes aninhadas, que
@@ -124,6 +129,7 @@ impl<'a> Visit<'a> for Analise<'_> {
         self.identificadores.insert(n.to_string());
         if let Some(ns) = self.ns.get_mut(n) {
             ns.escapa = true;
+            ns.escapa_em.get_or_insert(it.span.start);
         }
     }
     fn visit_static_member_expression(&mut self, it: &StaticMemberExpression<'a>) {
@@ -143,9 +149,16 @@ impl<'a> Visit<'a> for Analise<'_> {
                     ns.acessos
                         .push((s.value.to_string(), it.span.start, it.span.end));
                 }
+                // `core["EnumName|get#name"]`: nome que nunca é
+                // identificador, fica propriedade do objeto, que continua
+                // existindo. O mesmo pela `t$S…` da deduplicação.
+                Expression::StringLiteral(_) => {}
+                Expression::Identifier(i) if self.chaves_opacas.contains(i.name.as_str()) => {}
                 // `N[expr]`: o objeto é lido por nome em execução.
                 _ => {
-                    self.ns.get_mut(&n).expect("namespace").escapa = true;
+                    let ns = self.ns.get_mut(&n).expect("namespace");
+                    ns.escapa = true;
+                    ns.escapa_em.get_or_insert(it.span.start);
                     self.visit_expression(&it.expression);
                 }
             }
@@ -293,6 +306,43 @@ fn candidatos(programa: &oxc_ast::ast::Program<'_>) -> Vec<String> {
     out
 }
 
+/// As `var t$S… = "…"` do topo do arquivo (a deduplicação de *strings*) cujo
+/// valor não tem forma de identificador.
+fn chaves_opacas(programa: &oxc_ast::ast::Program<'_>) -> HashSet<String> {
+    struct V(HashSet<String>);
+    impl<'a> Visit<'a> for V {
+        fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
+            if let Some(id) = it.id.get_binding_identifier()
+                && id.name.starts_with("t$S")
+                && let Some(Expression::StringLiteral(l)) = &it.init
+                && !e_identificador(l.value.as_str())
+            {
+                self.0.insert(id.name.to_string());
+            }
+        }
+        fn visit_function_body(&mut self, _it: &oxc_ast::ast::FunctionBody<'a>) {}
+    }
+    let mut v = V(HashSet::new());
+    // Só o topo: o embrulho do arquivo e o corpo dele.
+    for s in &programa.body {
+        if let Statement::ExpressionStatement(e) = s
+            && let Expression::CallExpression(c) = &e.expression
+            && let Expression::ParenthesizedExpression(p) = &c.callee
+            && let Expression::FunctionExpression(f) = &p.expression
+            && let Some(b) = &f.body
+        {
+            for st in &b.statements {
+                if let Statement::VariableDeclaration(d) = st {
+                    for decl in &d.declarations {
+                        v.visit_variable_declarator(decl);
+                    }
+                }
+            }
+        }
+    }
+    v.0
+}
+
 /// Aplica a troca a `fonte` (o arquivo já embrulhado em `(function () {…})();`).
 /// Devolve a fonte nova e quantos membros viraram variável.
 ///
@@ -310,6 +360,7 @@ pub fn aplicar(fonte: &str) -> Result<(String, usize), String> {
         ns: HashMap::new(),
         bindings: HashMap::new(),
         identificadores: HashSet::new(),
+        chaves_opacas: chaves_opacas(&lido.program),
     };
     for n in candidatos(&lido.program) {
         a.ns.insert(n, Namespace::default());
@@ -324,8 +375,23 @@ pub fn aplicar(fonte: &str) -> Result<(String, usize), String> {
     let mut declarados: Vec<String> = Vec::new();
     let mut nomes: Vec<&String> = a.ns.keys().collect();
     nomes.sort();
+    let diag = std::env::var("DARTFORGE_JSPROD_ACHATAR_POR").ok();
     for n in nomes {
         let ns = &a.ns[n];
+        if diag
+            .as_deref()
+            .is_some_and(|d| d.split(',').any(|x| x == n) || (d == "*" && ns.escapa))
+        {
+            let trecho = ns
+                .escapa_em
+                .map(|i| &fonte[i as usize..(i as usize + 120).min(fonte.len())]);
+            eprintln!(
+                "[jsprod] achatar {n}: escapa={} bindings={:?} em {:?}",
+                ns.escapa,
+                a.bindings.get(n),
+                trecho
+            );
+        }
         if ns.escapa || a.bindings.get(n).copied().unwrap_or(0) != 1 {
             continue;
         }
