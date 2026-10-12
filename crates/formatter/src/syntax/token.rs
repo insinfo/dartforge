@@ -12,7 +12,7 @@
 //!   `CLOSE_CURLY_BRACKET`) e o pedaço de texto vira um `STRING` à parte; o
 //!   `SourceVisitor` escreve cada um desses tokens, então eles são separados.
 //! * O lexer do frontend nunca combina `>`; quem compõe `>>`, `>=`, `>>>`,
-//!   `>>=` e `>>>=` é o parser (ver [`Tokens::combinar_maior`]), só em
+//!   `>>=` e `>>>=` é o parser (ver [`Tokens::merge_greater`]), só em
 //!   contexto de expressão, como o parser do fasta faz ao dividir os tokens
 //!   compostos do scanner em contexto de tipo.
 //!
@@ -22,33 +22,33 @@
 
 use dartforge_frontend::token::{Keyword, Kind, Op};
 
-/// Índice de um token em [`Tokens::lista`].
+/// Índice de um token em [`Tokens::list`].
 pub type Tk = u32;
 
 /// Classe do token, no grão de que o formatador precisa.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TipoToken {
+pub enum TokenKind {
     /// Identificador, inclusive os embutidos e contextuais (`abstract`,
     /// `async`, `show`…).
-    Identificador,
+    Identifier,
     /// Palavra reservada.
-    Reservada(Keyword),
+    Reserved(Keyword),
     /// Literal inteiro.
-    Inteiro,
+    Integer,
     /// Literal `double`.
-    Duplo,
+    Double,
     /// Pedaço de string (`STRING` do analyzer): a string inteira quando não
     /// há interpolação, ou um trecho entre interpolações.
-    Texto,
+    Text,
     /// `${` que abre uma interpolação.
-    InterpolacaoExpressao,
+    ExpressionInterpolation,
     /// `$` antes de um identificador interpolado.
-    InterpolacaoIdentificador,
+    IdentifierInterpolation,
     /// Pontuação ou operador simples.
     Op(Op),
     /// `>` composto pelo parser com os seguintes (`>>`, `>=`, `>>>`, `>>=`,
     /// `>>>=`); o texto vem do intervalo.
-    MaiorComposto,
+    ComposedGreater,
     /// `#!...` na primeira linha.
     ScriptTag,
     /// Fim do arquivo.
@@ -57,23 +57,23 @@ pub enum TipoToken {
 
 /// Um comentário entre dois tokens.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Comentario {
-    pub inicio: usize,
-    pub fim: usize,
+pub struct Comment {
+    pub start: usize,
+    pub end: usize,
     /// `//` (o `SINGLE_LINE_COMMENT` do analyzer).
-    pub de_linha: bool,
+    pub is_line: bool,
 }
 
 /// Token com posição em bytes e os comentários que o precedem.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Token {
-    pub tipo: TipoToken,
-    pub inicio: usize,
-    pub fim: usize,
-    /// O próximo token começa em `fim` (sem branco nem comentário).
-    pub colado: bool,
-    /// Faixa em [`Tokens::comentarios`] com os comentários antes deste token.
-    pub comentarios: (u32, u32),
+    pub tipo: TokenKind,
+    pub start: usize,
+    pub end: usize,
+    /// O próximo token começa em `end` (sem branco nem comentário).
+    pub glued: bool,
+    /// Faixa em [`Tokens::comments`] com os comentários antes deste token.
+    pub comments: (u32, u32),
 }
 
 /// Erro de sintaxe detectado ao ler os tokens ou a árvore.
@@ -89,205 +89,205 @@ pub struct ErroSintaxe {
 /// O fluxo de tokens de uma unidade e seus comentários.
 #[derive(Debug, Clone)]
 pub struct Tokens {
-    pub lista: Vec<Token>,
-    pub comentarios: Vec<Comentario>,
+    pub list: Vec<Token>,
+    pub comments: Vec<Comment>,
 }
 
 impl Tokens {
-    /// Lê `fonte` em tokens.
+    /// Lê `source` em tokens.
     ///
     /// ```
-    /// use dartforge_formatter::syntax::token::{Tokens, TipoToken};
-    /// let t = Tokens::ler("a = 'x${b}y'; // fim\n").unwrap();
-    /// let textos: Vec<_> = t.lista.iter().map(|k| &"a = 'x${b}y'; // fim\n"[k.inicio..k.fim]).collect();
+    /// use dartforge_formatter::syntax::token::{Tokens, TokenKind};
+    /// let t = Tokens::ler("a = 'x${b}y'; // end\n").unwrap();
+    /// let textos: Vec<_> = t.list.iter().map(|k| &"a = 'x${b}y'; // end\n"[k.start..k.end]).collect();
     /// assert_eq!(textos, ["a", "=", "'x", "${", "b", "}", "y'", ";", ""]);
-    /// assert_eq!(t.lista.last().unwrap().tipo, TipoToken::Eof);
-    /// assert_eq!(t.comentarios.len(), 1);
+    /// assert_eq!(t.list.last().unwrap().tipo, TokenKind::Eof);
+    /// assert_eq!(t.comments.len(), 1);
     /// ```
     ///
     /// # Erros
     /// Caractere inesperado, string ou comentário de bloco sem fecho, e os
     /// operadores `===`/`!==`, que o scanner do fasta aceita só para relatar
     /// erro.
-    pub fn ler(fonte: &str) -> Result<Tokens, ErroSintaxe> {
-        let brutos = dartforge_frontend::lexer::lex(fonte).map_err(|d| ErroSintaxe {
+    pub fn ler(source: &str) -> Result<Tokens, ErroSintaxe> {
+        let raw_tokens = dartforge_frontend::lexer::lex(source).map_err(|d| ErroSintaxe {
             posicao: d.span.start,
             comprimento: (d.span.end - d.span.start).max(1),
             mensagem: d.message.clone(),
         })?;
-        let mut lista: Vec<Token> = Vec::with_capacity(brutos.len() + 8);
+        let mut list: Vec<Token> = Vec::with_capacity(raw_tokens.len() + 8);
         // Pilha das interpolações abertas, por literal: `true` para `${…}`.
         // O trecho que segue uma interpolação `${…}` começa pela `}`.
-        let mut abertas: Vec<bool> = Vec::new();
-        let novo = |tipo, inicio, fim| Token {
+        let mut open_groups: Vec<bool> = Vec::new();
+        let new = |tipo, start, end| Token {
             tipo,
-            inicio,
-            fim,
-            colado: false,
-            comentarios: (0, 0),
+            start,
+            end,
+            glued: false,
+            comments: (0, 0),
         };
-        for b in &brutos {
-            let (ini, fim) = (b.span.start, b.span.end);
-            let texto = &fonte[ini..fim];
+        for b in &raw_tokens {
+            let (start_, end) = (b.span.start, b.span.end);
+            let texto = &source[start_..end];
             match b.kind {
                 Kind::Ident => {
                     if !texto.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'$') {
                         return Err(ErroSintaxe {
-                            posicao: ini,
-                            comprimento: fim - ini,
+                            posicao: start_,
+                            comprimento: end - start_,
                             mensagem: format!("Unexpected character in '{texto}'."),
                         });
                     }
-                    lista.push(novo(TipoToken::Identificador, ini, fim));
+                    list.push(new(TokenKind::Identifier, start_, end));
                 }
-                Kind::Keyword(k) => lista.push(novo(TipoToken::Reservada(k), ini, fim)),
-                Kind::Int => lista.push(novo(TipoToken::Inteiro, ini, fim)),
-                Kind::Double => lista.push(novo(TipoToken::Duplo, ini, fim)),
+                Kind::Keyword(k) => list.push(new(TokenKind::Reserved(k), start_, end)),
+                Kind::Int => list.push(new(TokenKind::Integer, start_, end)),
+                Kind::Double => list.push(new(TokenKind::Double, start_, end)),
                 Kind::Str(f) => {
                     if f.aberta {
-                        return Err(erro_string(ini, fim));
+                        return Err(string_error(start_, end));
                     }
-                    lista.push(novo(TipoToken::Texto, ini, fim));
+                    list.push(new(TokenKind::Text, start_, end));
                 }
                 Kind::StrBegin(_, interp) | Kind::StrMid(_, interp) => {
-                    let mut i = ini;
-                    let chave = matches!(b.kind, Kind::StrMid(..)) && abertas.pop().unwrap_or(false);
-                    abertas.push(interp == dartforge_frontend::token::Interp::Brace);
-                    if chave {
-                        lista.push(novo(TipoToken::Op(Op::RBrace), i, i + 1));
+                    let mut i = start_;
+                    let key = matches!(b.kind, Kind::StrMid(..)) && open_groups.pop().unwrap_or(false);
+                    open_groups.push(interp == dartforge_frontend::token::Interp::Brace);
+                    if key {
+                        list.push(new(TokenKind::Op(Op::RBrace), i, i + 1));
                         i += 1;
                     }
                     let delim = match interp {
                         dartforge_frontend::token::Interp::Brace => 2,
                         dartforge_frontend::token::Interp::Ident => 1,
                     };
-                    lista.push(novo(TipoToken::Texto, i, fim - delim));
+                    list.push(new(TokenKind::Text, i, end - delim));
                     let tipo = if delim == 2 {
-                        TipoToken::InterpolacaoExpressao
+                        TokenKind::ExpressionInterpolation
                     } else {
-                        TipoToken::InterpolacaoIdentificador
+                        TokenKind::IdentifierInterpolation
                     };
-                    lista.push(novo(tipo, fim - delim, fim));
+                    list.push(new(tipo, end - delim, end));
                 }
                 Kind::StrEnd(f) => {
                     if f.aberta {
-                        return Err(erro_string(ini, fim));
+                        return Err(string_error(start_, end));
                     }
-                    let mut i = ini;
-                    if abertas.pop().unwrap_or(false) {
-                        lista.push(novo(TipoToken::Op(Op::RBrace), i, i + 1));
+                    let mut i = start_;
+                    if open_groups.pop().unwrap_or(false) {
+                        list.push(new(TokenKind::Op(Op::RBrace), i, i + 1));
                         i += 1;
                     }
-                    lista.push(novo(TipoToken::Texto, i, fim));
+                    list.push(new(TokenKind::Text, i, end));
                 }
                 Kind::Op(op) => {
-                    if (op == Op::EqEq || op == Op::BangEq) && fim - ini == 3 {
+                    if (op == Op::EqEq || op == Op::BangEq) && end - start_ == 3 {
                         return Err(ErroSintaxe {
-                            posicao: ini,
+                            posicao: start_,
                             comprimento: 3,
                             mensagem: format!("The '{texto}' operator is not supported."),
                         });
                     }
-                    lista.push(novo(TipoToken::Op(op), ini, fim));
+                    list.push(new(TokenKind::Op(op), start_, end));
                 }
-                Kind::ScriptTag => lista.push(novo(TipoToken::ScriptTag, ini, fim)),
-                Kind::Eof => lista.push(novo(TipoToken::Eof, ini, fim)),
+                Kind::ScriptTag => list.push(new(TokenKind::ScriptTag, start_, end)),
+                Kind::Eof => list.push(new(TokenKind::Eof, start_, end)),
             }
         }
         // Colagem e comentários a partir das posições finais.
-        let mut comentarios = Vec::new();
-        let bytes = fonte.as_bytes();
-        let mut anterior_fim = 0usize;
-        for i in 0..lista.len() {
-            let ini = lista[i].inicio;
-            let c0 = comentarios.len() as u32;
-            let mut p = anterior_fim;
-            while p < ini {
+        let mut comments = Vec::new();
+        let bytes = source.as_bytes();
+        let mut previous_end = 0usize;
+        for i in 0..list.len() {
+            let start_ = list[i].start;
+            let c0 = comments.len() as u32;
+            let mut p = previous_end;
+            while p < start_ {
                 let c = bytes[p];
                 if c == b'/' && bytes.get(p + 1) == Some(&b'/') {
                     let s = p;
-                    while p < ini && bytes[p] != b'\n' && bytes[p] != b'\r' {
+                    while p < start_ && bytes[p] != b'\n' && bytes[p] != b'\r' {
                         p += 1;
                     }
-                    comentarios.push(Comentario {
-                        inicio: s,
-                        fim: p,
-                        de_linha: true,
+                    comments.push(Comment {
+                        start: s,
+                        end: p,
+                        is_line: true,
                     });
                 } else if c == b'/' && bytes.get(p + 1) == Some(&b'*') {
                     let s = p;
                     p += 2;
-                    let mut nivel = 1usize;
-                    while p < bytes.len() && nivel > 0 {
+                    let mut level = 1usize;
+                    while p < bytes.len() && level > 0 {
                         if bytes[p] == b'/' && bytes.get(p + 1) == Some(&b'*') {
-                            nivel += 1;
+                            level += 1;
                             p += 2;
                         } else if bytes[p] == b'*' && bytes.get(p + 1) == Some(&b'/') {
-                            nivel -= 1;
+                            level -= 1;
                             p += 2;
                         } else {
                             p += 1;
                         }
                     }
-                    if nivel > 0 {
+                    if level > 0 {
                         return Err(ErroSintaxe {
                             posicao: s,
                             comprimento: 2,
                             mensagem: "Unterminated multi-line comment.".into(),
                         });
                     }
-                    comentarios.push(Comentario {
-                        inicio: s,
-                        fim: p,
-                        de_linha: false,
+                    comments.push(Comment {
+                        start: s,
+                        end: p,
+                        is_line: false,
                     });
                 } else {
                     p += 1;
                 }
             }
-            lista[i].comentarios = (c0, comentarios.len() as u32);
+            list[i].comments = (c0, comments.len() as u32);
             if i > 0 {
-                lista[i - 1].colado = lista[i - 1].fim == ini;
+                list[i - 1].glued = list[i - 1].end == start_;
             }
-            anterior_fim = lista[i].fim.max(anterior_fim);
+            previous_end = list[i].end.max(previous_end);
         }
-        Ok(Tokens { lista, comentarios })
+        Ok(Tokens { list, comments })
     }
 
     /// Texto do token `t`.
-    pub fn texto<'a>(&self, fonte: &'a str, t: Tk) -> &'a str {
-        let k = &self.lista[t as usize];
-        &fonte[k.inicio..k.fim]
+    pub fn texto<'a>(&self, source: &'a str, t: Tk) -> &'a str {
+        let k = &self.list[t as usize];
+        &source[k.start..k.end]
     }
 
     /// Os comentários que precedem o token `t`.
-    pub fn comentarios_de(&self, t: Tk) -> &[Comentario] {
-        let (a, b) = self.lista[t as usize].comentarios;
-        &self.comentarios[a as usize..b as usize]
+    pub fn comments_of(&self, t: Tk) -> &[Comment] {
+        let (a, b) = self.list[t as usize].comments;
+        &self.comments[a as usize..b as usize]
     }
 
     /// Junta o `>` em `t` com os `>`/`=` colados que o seguem, até formar o
     /// operador `alvo` (`">>"`, `">="`, `">>>"`, `">>="` ou `">>>="`). Só é
     /// chamado pelo parser em contexto de expressão, logo depois de conferir
-    /// com [`Tokens::maior_composto`]. Os tokens absorvidos saem da lista;
+    /// com [`Tokens::composed_greater`]. Os tokens absorvidos saem da lista;
     /// nenhum nó aponta para eles ainda, porque o parser está exatamente em `t`.
-    pub fn combinar_maior(&mut self, t: Tk, alvo: &str) {
+    pub fn merge_greater(&mut self, t: Tk, alvo: &str) {
         let i = t as usize;
         let n = alvo.len();
-        let fim = self.lista[i].inicio + n;
-        let colado_ultimo = self.lista[i + n - 1].colado;
-        self.lista.drain(i + 1..i + n);
-        self.lista[i].fim = fim;
-        self.lista[i].tipo = TipoToken::MaiorComposto;
-        self.lista[i].colado = colado_ultimo;
+        let end = self.list[i].start + n;
+        let glued_last = self.list[i + n - 1].glued;
+        self.list.drain(i + 1..i + n);
+        self.list[i].end = end;
+        self.list[i].tipo = TokenKind::ComposedGreater;
+        self.list[i].glued = glued_last;
     }
 
     /// Se o `>` em `t` começa um operador composto por tokens colados,
     /// devolve o maior deles (`>>>=`, `>>>`, `>>=`, `>>`, `>=`).
-    pub fn maior_composto(&self, t: Tk) -> Option<&'static str> {
+    pub fn composed_greater(&self, t: Tk) -> Option<&'static str> {
         let i = t as usize;
-        let e = |k: usize, op: Op| self.lista.get(i + k).is_some_and(|x| x.tipo == TipoToken::Op(op));
-        let col = |k: usize| self.lista.get(i + k).is_some_and(|x| x.colado);
+        let e = |k: usize, op: Op| self.list.get(i + k).is_some_and(|x| x.tipo == TokenKind::Op(op));
+        let col = |k: usize| self.list.get(i + k).is_some_and(|x| x.glued);
         if !e(0, Op::Gt) || !col(0) {
             return None;
         }
@@ -307,17 +307,17 @@ impl Tokens {
             return Some(">=");
         }
         // `>==`, `>=>` etc. não existem; `>` seguido de `==` é `>=` e `=`.
-        if self.lista.get(i + 1).is_some_and(|x| x.tipo == TipoToken::Op(Op::EqEq)) {
+        if self.list.get(i + 1).is_some_and(|x| x.tipo == TokenKind::Op(Op::EqEq)) {
             return None;
         }
         None
     }
 }
 
-fn erro_string(ini: usize, fim: usize) -> ErroSintaxe {
+fn string_error(start_: usize, end: usize) -> ErroSintaxe {
     ErroSintaxe {
-        posicao: ini,
-        comprimento: (fim - ini).max(1),
+        posicao: start_,
+        comprimento: (end - start_).max(1),
         mensagem: "Unterminated string literal.".into(),
     }
 }

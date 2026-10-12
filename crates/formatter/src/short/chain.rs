@@ -3,107 +3,107 @@
 //! quebras antes de cada `.`, com o tratamento das propriedades iniciais,
 //! das chamadas com argumentos em bloco e da chamada pendurada final.
 
-use super::arena::{RegraId, custo};
+use super::arena::{RuleId, cost};
 use super::arguments::ArgumentListVisitor;
-use super::visitor::Visitante;
-use crate::syntax::tree::{No, NoId};
+use super::visitor::SourceVisitor;
+use crate::syntax::tree::{Node, NodeId};
 
 /// Tipo de seletor (`_MethodSelector`, `_PrefixedSelector`,
 /// `_PropertySelector`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TipoSeletor {
-    Metodo,
-    Prefixado,
-    Propriedade,
+enum SelectorKind {
+    Method,
+    Prefixed,
+    Property,
 }
 
 /// `_Selector`: o nó do seletor e os pós-fixos (`[i]`, `!`, `()`) presos a ele.
 #[derive(Debug, Clone)]
-struct Seletor {
-    tipo: TipoSeletor,
-    no: NoId,
-    posfixos: Vec<NoId>,
+struct Selector {
+    tipo: SelectorKind,
+    node: NodeId,
+    postfixes: Vec<NodeId>,
 }
 
-impl Seletor {
-    fn e_propriedade(&self) -> bool {
-        self.tipo != TipoSeletor::Metodo
+impl Selector {
+    fn is_property(&self) -> bool {
+        self.tipo != SelectorKind::Method
     }
 }
 
 /// `CallChainVisitor`.
 pub struct CallChainVisitor {
-    alvo: NoId,
-    propriedades: Vec<Seletor>,
-    chamadas: Vec<Seletor>,
-    chamadas_bloco: Option<Vec<Seletor>>,
-    pendurada: Option<Seletor>,
-    regra_ativa: bool,
-    span_terminado: bool,
-    regra_propriedades: Option<RegraId>,
+    alvo: NodeId,
+    properties: Vec<Selector>,
+    calls: Vec<Selector>,
+    block_calls: Option<Vec<Selector>>,
+    dangling: Option<Selector>,
+    active_rule: bool,
+    finished_span: bool,
+    properties_rule: Option<RuleId>,
 }
 
 impl CallChainVisitor {
     /// `CallChainVisitor(visitor, node)`.
-    pub fn novo(v: &Visitante, no: NoId) -> CallChainVisitor {
-        let mut chamadas: Vec<Seletor> = Vec::new();
-        let alvo = unwrap_target(v, no, &mut chamadas);
-        let mut propriedades = Vec::new();
-        if matches!(v.no(unwrap_null_assertion(v, alvo)), No::SimpleIdentifier { .. }) {
-            propriedades = chamadas.iter().take_while(|c| c.e_propriedade()).cloned().collect();
+    pub fn new(v: &SourceVisitor, node: NodeId) -> CallChainVisitor {
+        let mut calls: Vec<Selector> = Vec::new();
+        let alvo = unwrap_target(v, node, &mut calls);
+        let mut properties = Vec::new();
+        if matches!(v.node(unwrap_null_assertion(v, alvo)), Node::SimpleIdentifier { .. }) {
+            properties = calls.iter().take_while(|c| c.is_property()).cloned().collect();
         }
-        chamadas.drain(..propriedades.len());
+        calls.drain(..properties.len());
 
-        let mut chamadas_bloco: Option<Vec<Seletor>> = None;
-        let mut pendurada: Option<Seletor> = None;
-        let mut em_bloco = false;
-        let n = chamadas.len();
-        for (i, c) in chamadas.iter().enumerate() {
+        let mut block_calls: Option<Vec<Selector>> = None;
+        let mut dangling: Option<Selector> = None;
+        let mut in_block = false;
+        let n = calls.len();
+        for (i, c) in calls.iter().enumerate() {
             if is_block_call(v, c) {
-                em_bloco = true;
-                chamadas_bloco.get_or_insert_with(Vec::new).push(c.clone());
-            } else if em_bloco {
+                in_block = true;
+                block_calls.get_or_insert_with(Vec::new).push(c.clone());
+            } else if in_block {
                 if i == n - 1 {
-                    pendurada = Some(c.clone());
+                    dangling = Some(c.clone());
                     break;
                 }
-                chamadas_bloco = None;
+                block_calls = None;
                 break;
             }
         }
-        if let Some(bs) = &chamadas_bloco {
+        if let Some(bs) = &block_calls {
             for b in bs {
-                if let Some(p) = chamadas.iter().position(|c| c.no == b.no) {
-                    chamadas.remove(p);
+                if let Some(p) = calls.iter().position(|c| c.node == b.node) {
+                    calls.remove(p);
                 }
             }
         }
-        if let Some(p) = &pendurada
-            && let Some(i) = chamadas.iter().position(|c| c.no == p.no)
+        if let Some(p) = &dangling
+            && let Some(i) = calls.iter().position(|c| c.node == p.node)
         {
-            chamadas.remove(i);
+            calls.remove(i);
         }
         CallChainVisitor {
             alvo,
-            propriedades,
-            chamadas,
-            chamadas_bloco,
-            pendurada,
-            regra_ativa: false,
-            span_terminado: false,
-            regra_propriedades: None,
+            properties,
+            calls,
+            block_calls,
+            dangling,
+            active_rule: false,
+            finished_span: false,
+            properties_rule: None,
         }
     }
 
     /// `visit()`.
-    pub fn visit(mut self, v: &mut Visitante) {
+    pub fn visit(mut self, v: &mut SourceVisitor) {
         v.nest_expression(None, false);
-        v.start_span(custo::NORMAL);
-        let quebra_no_alvo = forces_split(v, self.alvo);
-        if quebra_no_alvo {
-            if self.propriedades.len() > 1 {
-                let r = v.a.regra_posicional(None, self.propriedades.len(), 0, 0);
-                self.regra_propriedades = Some(r);
+        v.start_span(cost::NORMAL);
+        let split_at_target = forces_split(v, self.alvo);
+        if split_at_target {
+            if self.properties.len() > 1 {
+                let r = v.a.positional_rule(None, self.properties.len(), 0, 0);
+                self.properties_rule = Some(r);
                 v.start_lazy_rule(Some(r));
             } else {
                 self.enable_rule(v, true);
@@ -111,45 +111,45 @@ impl CallChainVisitor {
         }
         v.visit(Some(self.alvo));
 
-        if self.propriedades.len() == 1 {
+        if self.properties.len() == 1 {
             v.solo_zero_split();
-            let p = self.propriedades[0].clone();
-            self.escrever(v, &p);
-        } else if self.propriedades.len() > 1 {
-            if !quebra_no_alvo {
-                let r = v.a.regra_posicional(None, self.propriedades.len(), 0, 0);
-                self.regra_propriedades = Some(r);
+            let p = self.properties[0].clone();
+            self.write(v, &p);
+        } else if self.properties.len() > 1 {
+            if !split_at_target {
+                let r = v.a.positional_rule(None, self.properties.len(), 0, 0);
+                self.properties_rule = Some(r);
                 v.start_rule(Some(r));
             }
-            for p in self.propriedades.clone() {
+            for p in self.properties.clone() {
                 let c = v.zero_split();
-                v.a.antes_do_argumento(self.regra_propriedades.expect("regra"), Some(c));
-                self.escrever(v, &p);
+                v.a.before_argument(self.properties_rule.expect("regra"), Some(c));
+                self.write(v, &p);
             }
             v.end_rule();
         }
 
-        if self.chamadas.len() > 1 {
+        if self.calls.len() > 1 {
             v.start_block_argument_nesting();
         }
-        for c in self.chamadas.clone() {
+        for c in self.calls.clone() {
             self.enable_rule(v, false);
             v.zero_split();
-            self.escrever(v, &c);
+            self.write(v, &c);
         }
-        if self.chamadas.len() > 1 {
+        if self.calls.len() > 1 {
             v.end_block_argument_nesting();
         }
 
-        if let Some(bs) = self.chamadas_bloco.clone() {
+        if let Some(bs) = self.block_calls.clone() {
             self.enable_rule(v, false);
             v.zero_split();
             self.disable_rule(v);
             for b in &bs {
-                self.escrever(v, b);
+                self.write(v, b);
             }
-            if let Some(p) = self.pendurada.clone() {
-                self.escrever(v, &p);
+            if let Some(p) = self.dangling.clone() {
+                self.write(v, &p);
             }
         }
 
@@ -159,12 +159,12 @@ impl CallChainVisitor {
     }
 
     /// `_Selector.write(visitor)`.
-    fn escrever(&mut self, v: &mut Visitante, s: &Seletor) {
-        self.escrever_seletor(v, s);
+    fn write(&mut self, v: &mut SourceVisitor, s: &Selector) {
+        self.write_selector(v, s);
         v.nest_expression(None, false);
-        for &p in &s.posfixos {
-            match v.no(p) {
-                No::FunctionExpressionInvocation {
+        for &p in &s.postfixes {
+            match v.node(p) {
+                Node::FunctionExpressionInvocation {
                     type_arguments,
                     argument_list,
                     ..
@@ -173,17 +173,17 @@ impl CallChainVisitor {
                     v.visit(*type_arguments);
                     v.visit_argument_list(*argument_list, true);
                 }
-                No::IndexExpression { .. } => v.finish_index_expression(p),
-                No::PostfixExpression { operator, .. } => v.token(*operator),
+                Node::IndexExpression { .. } => v.finish_index_expression(p),
+                Node::PostfixExpression { operator, .. } => v.token(*operator),
                 _ => {}
             }
         }
         v.unnest();
     }
 
-    fn escrever_seletor(&mut self, v: &mut Visitante, s: &Seletor) {
-        match v.no(s.no) {
-            No::MethodInvocation {
+    fn write_selector(&mut self, v: &mut SourceVisitor, s: &Selector) {
+        match v.node(s.node) {
+            Node::MethodInvocation {
                 operator,
                 method_name,
                 type_arguments,
@@ -191,8 +191,8 @@ impl CallChainVisitor {
                 ..
             } => {
                 v.token_opt(*operator);
-                let nome = match v.no(*method_name) {
-                    No::SimpleIdentifier { token } => *token,
+                let nome = match v.node(*method_name) {
+                    Node::SimpleIdentifier { token } => *token,
                     _ => unreachable!(),
                 };
                 v.token(nome);
@@ -202,11 +202,11 @@ impl CallChainVisitor {
                 v.visit_argument_list(*argument_list, false);
                 v.unnest();
             }
-            No::PrefixedIdentifier { period, identifier, .. } => {
+            Node::PrefixedIdentifier { period, identifier, .. } => {
                 v.token(*period);
                 v.visit(Some(*identifier));
             }
-            No::PropertyAccess {
+            Node::PropertyAccess {
                 operator, property_name, ..
             } => {
                 v.token(*operator);
@@ -217,88 +217,88 @@ impl CallChainVisitor {
     }
 
     /// `_beforeMethodArguments(selector)`.
-    fn before_method_arguments(&mut self, v: &mut Visitante, s: &Seletor) {
-        if self.chamadas_bloco.is_none() && self.chamadas.last().is_some_and(|c| c.no == s.no) {
+    fn before_method_arguments(&mut self, v: &mut SourceVisitor, s: &Selector) {
+        if self.block_calls.is_none() && self.calls.last().is_some_and(|c| c.node == s.node) {
             self.disable_rule(v);
         }
-        if self.propriedades.is_empty()
-            && self.chamadas.len() == 1
-            && self.chamadas_bloco.is_none()
-            && matches!(v.no(self.alvo), No::SimpleIdentifier { .. })
+        if self.properties.is_empty()
+            && self.calls.len() == 1
+            && self.block_calls.is_none()
+            && matches!(v.node(self.alvo), Node::SimpleIdentifier { .. })
         {
             self.end_span(v);
         }
     }
 
-    fn disable_rule(&mut self, v: &mut Visitante) {
-        if !self.regra_ativa {
+    fn disable_rule(&mut self, v: &mut SourceVisitor) {
+        if !self.active_rule {
             return;
         }
         v.end_rule();
-        self.regra_ativa = false;
+        self.active_rule = false;
     }
 
-    fn enable_rule(&mut self, v: &mut Visitante, preguicosa: bool) {
-        if self.regra_ativa {
+    fn enable_rule(&mut self, v: &mut SourceVisitor, lazy: bool) {
+        if self.active_rule {
             return;
         }
-        let r = v.a.regra(custo::NORMAL);
-        if let Some(p) = self.regra_propriedades {
-            v.a.restricoes_de_nomeados(p, r);
+        let r = v.a.rule(cost::NORMAL);
+        if let Some(p) = self.properties_rule {
+            v.a.named_constraints(p, r);
         }
-        if preguicosa {
+        if lazy {
             v.start_lazy_rule(Some(r));
         } else {
             v.start_rule(Some(r));
         }
-        self.regra_ativa = true;
+        self.active_rule = true;
     }
 
-    fn end_span(&mut self, v: &mut Visitante) {
-        if self.span_terminado {
+    fn end_span(&mut self, v: &mut SourceVisitor) {
+        if self.finished_span {
             return;
         }
         v.end_span();
-        self.span_terminado = true;
+        self.finished_span = true;
     }
 }
 
 /// `isBlockCall(visitor)`.
-fn is_block_call(v: &Visitante, s: &Seletor) -> bool {
-    if s.tipo != TipoSeletor::Metodo {
+fn is_block_call(v: &SourceVisitor, s: &Selector) -> bool {
+    if s.tipo != SelectorKind::Method {
         return false;
     }
-    let No::MethodInvocation { argument_list, .. } = v.no(s.no) else {
+    let Node::MethodInvocation { argument_list, .. } = v.node(s.node) else {
         return false;
     };
-    ArgumentListVisitor::novo(v, *argument_list).has_block_arguments()
+    ArgumentListVisitor::new(v, *argument_list).has_block_arguments()
 }
 
 /// `_forcesSplit(expression)`.
-fn forces_split(v: &Visitante, expr: NoId) -> bool {
+fn forces_split(v: &SourceVisitor, expr: NodeId) -> bool {
     let mut e = expr;
-    while let No::ParenthesizedExpression { expression, .. } = v.no(e) {
+    while let Node::ParenthesizedExpression { expression, .. } = v.node(e) {
         e = *expression;
     }
     if v.is_collection_literal(e) {
         return false;
     }
-    if let No::FunctionExpression { body, .. } = v.no(e) {
-        let No::BlockFunctionBody { block, .. } = v.no(*body) else {
+    if let Node::FunctionExpression { body, .. } = v.node(e) {
+        let Node::BlockFunctionBody { block, .. } = v.node(*body) else {
             return false;
         };
-        return match v.no(*block) {
-            No::Block { statements, .. } => statements.is_empty(),
+        return match v.node(*block) {
+            Node::Block { statements, .. } => statements.is_empty(),
             _ => false,
         };
     }
-    let lista = match v.no(e) {
-        No::MethodInvocation { argument_list, .. }
-        | No::InstanceCreationExpression { argument_list, .. }
-        | No::FunctionExpressionInvocation { argument_list, .. } => *argument_list,
+    let list = match v.node(e) {
+        Node::MethodInvocation { argument_list, .. }
+        | Node::InstanceCreationExpression { argument_list, .. }
+        | Node::FunctionExpressionInvocation { argument_list, .. } => *argument_list,
         _ => return true,
     };
-    let No::ArgumentList { arguments, .. } = v.no(lista) else {
+    let Node::ArgumentList { arguments, .. } = v.node(list) else {
         return true;
     };
     let Some(&ultimo) = arguments.last() else {
@@ -308,16 +308,16 @@ fn forces_split(v: &Visitante, expr: NoId) -> bool {
         return false;
     }
     let mut arg = ultimo;
-    if let No::NamedExpression { expression, .. } = v.no(arg) {
+    if let Node::NamedExpression { expression, .. } = v.node(arg) {
         arg = *expression;
     }
     forces_split(v, arg)
 }
 
 /// `_unwrapNullAssertion(expression)`.
-fn unwrap_null_assertion(v: &Visitante, e: NoId) -> NoId {
-    if let No::PostfixExpression { operand, operator } = v.no(e)
-        && v.tk.texto(v.fonte, *operator) == "!"
+fn unwrap_null_assertion(v: &SourceVisitor, e: NodeId) -> NodeId {
+    if let Node::PostfixExpression { operand, operator } = v.node(e)
+        && v.tk.texto(v.source, *operator) == "!"
     {
         return *operand;
     }
@@ -325,36 +325,36 @@ fn unwrap_null_assertion(v: &Visitante, e: NoId) -> NoId {
 }
 
 /// `_unwrapTarget(node, calls)`.
-fn unwrap_target(v: &Visitante, no: NoId, chamadas: &mut Vec<Seletor>) -> NoId {
-    if v.looks_like_static_call(no) {
-        return no;
+fn unwrap_target(v: &SourceVisitor, node: NodeId, calls: &mut Vec<Selector>) -> NodeId {
+    if v.looks_like_static_call(node) {
+        return node;
     }
-    match v.no(no) {
-        No::MethodInvocation { target: Some(t), .. } => unwrap_selector(v, *t, TipoSeletor::Metodo, no, chamadas),
-        No::PropertyAccess { target: Some(t), .. } => unwrap_selector(v, *t, TipoSeletor::Propriedade, no, chamadas),
-        No::PrefixedIdentifier { prefix, .. } => unwrap_selector(v, *prefix, TipoSeletor::Prefixado, no, chamadas),
-        No::IndexExpression { target: Some(t), .. } => unwrap_postfix(v, no, *t, chamadas),
-        No::FunctionExpressionInvocation { function, .. } => unwrap_postfix(v, no, *function, chamadas),
-        No::PostfixExpression { operand, operator } if v.tk.texto(v.fonte, *operator) == "!" => unwrap_postfix(v, no, *operand, chamadas),
-        _ => no,
+    match v.node(node) {
+        Node::MethodInvocation { target: Some(t), .. } => unwrap_selector(v, *t, SelectorKind::Method, node, calls),
+        Node::PropertyAccess { target: Some(t), .. } => unwrap_selector(v, *t, SelectorKind::Property, node, calls),
+        Node::PrefixedIdentifier { prefix, .. } => unwrap_selector(v, *prefix, SelectorKind::Prefixed, node, calls),
+        Node::IndexExpression { target: Some(t), .. } => unwrap_postfix(v, node, *t, calls),
+        Node::FunctionExpressionInvocation { function, .. } => unwrap_postfix(v, node, *function, calls),
+        Node::PostfixExpression { operand, operator } if v.tk.texto(v.source, *operator) == "!" => unwrap_postfix(v, node, *operand, calls),
+        _ => node,
     }
 }
 
-fn unwrap_postfix(v: &Visitante, no: NoId, alvo: NoId, chamadas: &mut Vec<Seletor>) -> NoId {
-    let alvo = unwrap_target(v, alvo, chamadas);
-    if chamadas.is_empty() {
-        return no;
+fn unwrap_postfix(v: &SourceVisitor, node: NodeId, alvo: NodeId, calls: &mut Vec<Selector>) -> NodeId {
+    let alvo = unwrap_target(v, alvo, calls);
+    if calls.is_empty() {
+        return node;
     }
-    chamadas.last_mut().expect("seletor").posfixos.push(no);
+    calls.last_mut().expect("seletor").postfixes.push(node);
     alvo
 }
 
-fn unwrap_selector(v: &Visitante, alvo: NoId, tipo: TipoSeletor, no: NoId, chamadas: &mut Vec<Seletor>) -> NoId {
-    let alvo = unwrap_target(v, alvo, chamadas);
-    chamadas.push(Seletor {
+fn unwrap_selector(v: &SourceVisitor, alvo: NodeId, tipo: SelectorKind, node: NodeId, calls: &mut Vec<Selector>) -> NodeId {
+    let alvo = unwrap_target(v, alvo, calls);
+    calls.push(Selector {
         tipo,
-        no,
-        posfixos: Vec::new(),
+        node,
+        postfixes: Vec::new(),
     });
     alvo
 }

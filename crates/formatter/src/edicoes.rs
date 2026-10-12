@@ -11,10 +11,10 @@
 //! permitidas pelo original (`>>` por `>` `>`, `[]` por `[` `]`) dão a mesma
 //! faixa de brancos.
 
-use crate::syntax::token::{TipoToken, Tokens};
+use crate::syntax::token::{TokenKind, Tokens};
 use dartforge_frontend::token::Op;
 
-/// Uma edição: substituir `fonte[inicio..fim]` (bytes do original) por `texto`.
+/// Uma edição: substituir `source[start..end]` (bytes do original) por `texto`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Edicao {
     pub inicio: usize,
@@ -23,53 +23,53 @@ pub struct Edicao {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Tipo {
-    Comentario { linha: bool },
-    Token(TipoToken),
+enum Type {
+    Comment { line: bool },
+    Token(TokenKind),
 }
 
 #[derive(Debug, Clone, Copy)]
 struct Item {
-    tipo: Tipo,
-    inicio: usize,
-    fim: usize,
+    tipo: Type,
+    start: usize,
+    end: usize,
 }
 
 /// `_iterateAllTokens`: comentários e tokens em ordem, sem o EOF (nem os
 /// comentários antes dele).
-fn itens(t: &Tokens) -> Vec<Item> {
+fn items(t: &Tokens) -> Vec<Item> {
     let mut v = Vec::new();
-    for (i, k) in t.lista.iter().enumerate() {
-        if k.tipo == TipoToken::Eof {
+    for (i, k) in t.list.iter().enumerate() {
+        if k.tipo == TokenKind::Eof {
             break;
         }
-        for c in t.comentarios_de(i as u32) {
+        for c in t.comments_of(i as u32) {
             v.push(Item {
-                tipo: Tipo::Comentario { linha: c.de_linha },
-                inicio: c.inicio,
-                fim: c.fim,
+                tipo: Type::Comment { line: c.is_line },
+                start: c.start,
+                end: c.end,
             });
         }
         v.push(Item {
-            tipo: Tipo::Token(k.tipo),
-            inicio: k.inicio,
-            fim: k.fim,
+            tipo: Type::Token(k.tipo),
+            start: k.start,
+            end: k.end,
         });
     }
     v
 }
 
-fn opcional(i: &Item) -> bool {
-    matches!(i.tipo, Tipo::Token(TipoToken::Op(Op::Comma)) | Tipo::Token(TipoToken::Op(Op::Semicolon)))
+fn optional(i: &Item) -> bool {
+    matches!(i.tipo, Type::Token(TokenKind::Op(Op::Comma)) | Type::Token(TokenKind::Op(Op::Semicolon)))
 }
 
-fn mudanca_valida(s: &str) -> bool {
+fn valid_change(s: &str) -> bool {
     s.chars().all(|c| c.is_whitespace() || matches!(c, ',' | ';' | '<' | '>'))
 }
 
-/// As edições mínimas que levam `original` a `formatado`.
+/// As edições mínimas que levam `original` a `formatted`.
 ///
-/// Com `faixa` (bytes do original), só as edições inteiramente dentro dela,
+/// Com `range` (bytes do original), só as edições inteiramente dentro dela,
 /// como na formatação de trecho. Se os fluxos de tokens divergirem de um jeito
 /// inesperado, devolve uma edição do documento inteiro (sem faixa) ou nenhuma
 /// (com faixa), como o original.
@@ -78,31 +78,31 @@ fn mudanca_valida(s: &str) -> bool {
 /// use dartforge_formatter::edicoes::edicoes_minimas;
 /// let e = edicoes_minimas("main( ){}", "main() {}\n", None);
 /// assert_eq!(e.len(), 3);
-/// assert_eq!((e[0].inicio, e[0].fim, e[0].texto.as_str()), (5, 6, ""));
+/// assert_eq!((e[0].start, e[0].end, e[0].texto.as_str()), (5, 6, ""));
 /// ```
-pub fn edicoes_minimas(original: &str, formatado: &str, faixa: Option<(usize, usize)>) -> Vec<Edicao> {
-    let completa = || {
-        if faixa.is_some() {
+pub fn edicoes_minimas(original: &str, formatted: &str, range: Option<(usize, usize)>) -> Vec<Edicao> {
+    let complete = || {
+        if range.is_some() {
             Vec::new()
         } else {
             vec![Edicao {
                 inicio: 0,
                 fim: original.len(),
-                texto: formatado.to_string(),
+                texto: formatted.to_string(),
             }]
         }
     };
-    let (Ok(ta), Ok(tb)) = (Tokens::ler(original), Tokens::ler(formatado)) else {
-        return completa();
+    let (Ok(ta), Ok(tb)) = (Tokens::ler(original), Tokens::ler(formatted)) else {
+        return complete();
     };
-    let a = itens(&ta);
-    let b = itens(&tb);
-    let texto_a = |i: &Item| &original[i.inicio..i.fim];
-    let texto_b = |i: &Item| &formatado[i.inicio..i.fim];
-    let mut c = Computador {
+    let a = items(&ta);
+    let b = items(&tb);
+    let text_a = |i: &Item| &original[i.start..i.end];
+    let text_b = |i: &Item| &formatted[i.start..i.end];
+    let mut c = EditComputer {
         original,
-        formatado,
-        faixa,
+        formatted,
+        range,
         edicoes: Vec::new(),
     };
     let (mut ia, mut ib) = (0usize, 0usize);
@@ -111,120 +111,120 @@ pub fn edicoes_minimas(original: &str, formatado: &str, faixa: Option<(usize, us
     while ia < a.len() && ib < b.len() {
         let mut tok_a = a[ia];
         let mut tok_b = b[ib];
-        let ini_a = off_a;
-        let mut fim_a = tok_a.inicio;
-        let ini_b = off_b;
-        let mut fim_b = tok_b.inicio;
-        let mut qualquer = false;
-        let mut tem_a = true;
-        let mut tem_b = true;
+        let start_a = off_a;
+        let mut end_a = tok_a.start;
+        let start_b = off_b;
+        let mut end_b = tok_b.start;
+        let mut any = false;
+        let mut has_a = true;
+        let mut has_b = true;
         loop {
-            if !(tem_a && tem_b) {
+            if !(has_a && has_b) {
                 break;
             }
-            let mesmo = tok_a.tipo == tok_b.tipo;
-            if !mesmo {
-                if opcional(&tok_b) {
-                    fim_b = tok_b.fim;
+            let same = tok_a.tipo == tok_b.tipo;
+            if !same {
+                if optional(&tok_b) {
+                    end_b = tok_b.end;
                     ib += 1;
-                    tem_b = ib < b.len();
-                    if tem_b {
+                    has_b = ib < b.len();
+                    if has_b {
                         tok_b = b[ib];
-                        fim_b = tok_b.inicio;
+                        end_b = tok_b.start;
                     }
                     continue;
                 }
-                if opcional(&tok_a) {
-                    fim_a = tok_a.fim;
+                if optional(&tok_a) {
+                    end_a = tok_a.end;
                     ia += 1;
-                    tem_a = ia < a.len();
-                    if tem_a {
+                    has_a = ia < a.len();
+                    if has_a {
                         tok_a = a[ia];
-                        fim_a = tok_a.inicio;
+                        end_a = tok_a.start;
                     }
                     continue;
                 }
-            } else if matches!(tok_a.tipo, Tipo::Comentario { .. }) && texto_a(&tok_a) != texto_b(&tok_b) {
-                fim_a = tok_a.fim;
+            } else if matches!(tok_a.tipo, Type::Comment { .. }) && text_a(&tok_a) != text_b(&tok_b) {
+                end_a = tok_a.end;
                 ia += 1;
-                tem_a = ia < a.len();
-                if tem_a {
+                has_a = ia < a.len();
+                if has_a {
                     tok_a = a[ia];
-                    fim_a = tok_a.inicio;
+                    end_a = tok_a.start;
                 }
-                fim_b = tok_b.fim;
+                end_b = tok_b.end;
                 ib += 1;
-                tem_b = ib < b.len();
-                if tem_b {
+                has_b = ib < b.len();
+                if has_b {
                     tok_b = b[ib];
-                    fim_b = tok_b.inicio;
+                    end_b = tok_b.start;
                 }
-                qualquer = true;
+                any = true;
                 continue;
             }
             break;
         }
-        if !(tem_a && tem_b) {
+        if !(has_a && has_b) {
             // O original não confere os lexemas aqui; o laço externo termina e
             // a sobra cai no recurso de edição completa.
-            if tem_a != tem_b {
-                return completa();
+            if has_a != has_b {
+                return complete();
             }
             break;
         }
-        if texto_a(&tok_a) != texto_b(&tok_b) {
-            return completa();
+        if text_a(&tok_a) != text_b(&tok_b) {
+            return complete();
         }
-        c.adicionar(ini_a, fim_a, ini_b, fim_b, qualquer);
-        off_a = tok_a.fim;
-        off_b = tok_b.fim;
+        c.add(start_a, end_a, start_b, end_b, any);
+        off_a = tok_a.end;
+        off_b = tok_b.end;
         ia += 1;
         ib += 1;
-        if let Some((_, fim)) = faixa
-            && off_a > fim
+        if let Some((_, end)) = range
+            && off_a > end
         {
             return c.edicoes;
         }
     }
     if ia < a.len() || ib < b.len() {
-        return completa();
+        return complete();
     }
-    c.adicionar(off_a, original.len(), off_b, formatado.len(), false);
+    c.add(off_a, original.len(), off_b, formatted.len(), false);
     c.edicoes
 }
 
-struct Computador<'a> {
+struct EditComputer<'a> {
     original: &'a str,
-    formatado: &'a str,
-    faixa: Option<(usize, usize)>,
+    formatted: &'a str,
+    range: Option<(usize, usize)>,
     edicoes: Vec<Edicao>,
 }
 
-impl Computador<'_> {
+impl EditComputer<'_> {
     /// `_addEditFor`.
-    fn adicionar(&mut self, ini_a: usize, fim_a: usize, ini_b: usize, fim_b: usize, qualquer: bool) {
-        let branco_a = &self.original[ini_a..fim_a];
-        let branco_b = &self.formatado[ini_b..fim_b];
-        if let Some((fx_ini, fx_fim)) = self.faixa {
-            if ini_a < fx_ini && fim_a > fx_ini && branco_a.contains('\n') && branco_b.contains('\n') && !branco_a.ends_with('\n') {
-                let oa = branco_a.rfind('\n').expect("quebra") + 1;
-                let ob = branco_b.rfind('\n').expect("quebra") + 1;
-                self.adicionar(ini_a, ini_a + oa, ini_b, ini_b + ob, false);
-                self.adicionar(ini_a + oa, fim_a, ini_b + ob, fim_b, false);
+    fn add(&mut self, start_a: usize, end_a: usize, start_b: usize, end_b: usize, any: bool) {
+        let blank_a = &self.original[start_a..end_a];
+        let blank_b = &self.formatted[start_b..end_b];
+        if let Some((range_start, range_end)) = self.range {
+            if start_a < range_start && end_a > range_start && blank_a.contains('\n') && blank_b.contains('\n') && !blank_a.ends_with('\n') {
+                let oa = blank_a.rfind('\n').expect("quebra") + 1;
+                let ob = blank_b.rfind('\n').expect("quebra") + 1;
+                self.add(start_a, start_a + oa, start_b, start_b + ob, false);
+                self.add(start_a + oa, end_a, start_b + ob, end_b, false);
                 return;
             }
-            if ini_a < fx_ini || fim_a > fx_fim {
+            if start_a < range_start || end_a > range_end {
                 return;
             }
         }
-        if branco_a == branco_b {
+        if blank_a == blank_b {
             return;
         }
         // Prefixo e sufixo comuns, em unidades UTF-16 como no original; nos
         // brancos e comentários comparar por `char` dá o mesmo corte, exceto
         // em pares substitutos parciais, que não ocorrem em texto válido.
-        let va: Vec<char> = branco_a.chars().collect();
-        let vb: Vec<char> = branco_b.chars().collect();
+        let va: Vec<char> = blank_a.chars().collect();
+        let vb: Vec<char> = blank_b.chars().collect();
         let mut p = 0;
         while p < va.len() && p < vb.len() && va[p] == vb[p] {
             p += 1;
@@ -233,13 +233,13 @@ impl Computador<'_> {
         while s < va.len() - p && s < vb.len() - p && va[va.len() - 1 - s] == vb[vb.len() - 1 - s] {
             s += 1;
         }
-        let velho: String = va[p..va.len() - s].iter().collect();
-        let novo: String = vb[p..vb.len() - s].iter().collect();
-        let inicio = ini_a + va[..p].iter().map(|c| c.len_utf8()).sum::<usize>();
-        let fim = fim_a - va[va.len() - s..].iter().map(|c| c.len_utf8()).sum::<usize>();
-        if !qualquer && (!mudanca_valida(&velho) || !mudanca_valida(&novo)) {
+        let old: String = va[p..va.len() - s].iter().collect();
+        let new: String = vb[p..vb.len() - s].iter().collect();
+        let start = start_a + va[..p].iter().map(|c| c.len_utf8()).sum::<usize>();
+        let end = end_a - va[va.len() - s..].iter().map(|c| c.len_utf8()).sum::<usize>();
+        if !any && (!valid_change(&old) || !valid_change(&new)) {
             return;
         }
-        self.edicoes.push(Edicao { inicio, fim, texto: novo });
+        self.edicoes.push(Edicao { inicio: start, fim: end, texto: new });
     }
 }

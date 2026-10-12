@@ -1,5 +1,5 @@
 //! Porte de `short/source_visitor.dart` (`SourceVisitor`): percorre todos os
-//! tokens da árvore e passa ao [`Construtor`] o texto, os espaços, as quebras
+//! tokens da árvore e passa ao [`ChunkBuilder`] o texto, os espaços, as quebras
 //! possíveis e os comentários.
 //!
 //! Cada `visitX` do original virou `visit_x`; os auxiliares mantêm os nomes
@@ -9,19 +9,19 @@
 
 use std::collections::{HashMap, HashSet};
 
-use super::arena::{Arenas, ChunkId, RegraId, custo, recuo};
-use super::builder::{ComentarioFonte, Construtor, TipoComentario};
-use crate::syntax::tree::{Arvore, No, NoId, TipoParametro};
-use crate::syntax::token::{TipoToken, Tk, Tokens};
+use super::arena::{Arenas, ChunkId, RuleId, cost, recuo};
+use super::builder::{SourceComment, ChunkBuilder, CommentKind};
+use crate::syntax::tree::{Tree, Node, NodeId, ParameterKind};
+use crate::syntax::token::{TokenKind, Tk, Tokens};
 use dartforge_frontend::token::{Keyword, Op};
 
 /// Ação entre (ou antes/depois de) nós de uma lista, como as funções passadas
 /// a `visitNodes` no original.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Acao {
-    Nada,
-    Espaco,
-    NovaLinha,
+pub enum Action {
+    Nothing,
+    Space,
+    Newline,
     Split,
     ZeroSplit,
     SplitOrNewline,
@@ -31,166 +31,166 @@ pub enum Acao {
 
 /// Linhas da fonte (`LineInfo`), com a mesma regra do analyzer: `\n`, `\r\n`
 /// e `\r` sozinho terminam linha.
-pub struct InfoLinhas {
-    inicios: Vec<usize>,
+pub struct LineInfo {
+    starts: Vec<usize>,
 }
 
-impl InfoLinhas {
-    pub fn de(fonte: &str) -> InfoLinhas {
-        let b = fonte.as_bytes();
-        let mut inicios = vec![0];
+impl LineInfo {
+    pub fn from(source: &str) -> LineInfo {
+        let b = source.as_bytes();
+        let mut starts = vec![0];
         let mut i = 0;
         while i < b.len() {
             if b[i] == b'\r' {
                 if b.get(i + 1) == Some(&b'\n') {
                     i += 1;
                 }
-                inicios.push(i + 1);
+                starts.push(i + 1);
             } else if b[i] == b'\n' {
-                inicios.push(i + 1);
+                starts.push(i + 1);
             }
             i += 1;
         }
-        InfoLinhas { inicios }
+        LineInfo { starts }
     }
 
     /// Linha (a partir de 1) da posição.
-    pub fn linha(&self, pos: usize) -> i32 {
-        self.inicios.partition_point(|&s| s <= pos) as i32
+    pub fn line(&self, pos: usize) -> i32 {
+        self.starts.partition_point(|&s| s <= pos) as i32
     }
 
     /// Coluna (a partir de 1) da posição.
-    pub fn coluna(&self, pos: usize) -> usize {
-        let l = self.linha(pos) as usize;
-        pos - self.inicios[l - 1] + 1
+    pub fn column(&self, pos: usize) -> usize {
+        let l = self.line(pos) as usize;
+        pos - self.starts[l - 1] + 1
     }
 
     /// Início das linhas (para a primeira quebra).
-    pub fn inicios(&self) -> &[usize] {
-        &self.inicios
+    pub fn starts(&self) -> &[usize] {
+        &self.starts
     }
 }
 
 /// `SourceVisitor`.
-pub struct Visitante<'f> {
-    pub fonte: &'f str,
+pub struct SourceVisitor<'f> {
+    pub source: &'f str,
     pub tk: &'f Tokens,
-    pub arv: &'f Arvore,
-    linhas: InfoLinhas,
+    pub tree_: &'f Tree,
+    lines_: LineInfo,
     pub a: Arenas,
-    pilha: Vec<Construtor>,
+    stack: Vec<ChunkBuilder>,
     ultimo_token: Tk,
-    colecoes: Vec<bool>,
-    regras_de_bloco: HashMap<Tk, RegraId>,
-    chunks_de_bloco: HashMap<Tk, ChunkId>,
-    suprimidos: HashSet<Tk>,
+    collections_: Vec<bool>,
+    block_rules: HashMap<Tk, RuleId>,
+    block_chunks: HashMap<Tk, ChunkId>,
+    suppressed: HashSet<Tk>,
 }
 
-impl<'f> Visitante<'f> {
+impl<'f> SourceVisitor<'f> {
     /// `SourceVisitor(formatter, lineInfo, source)`.
-    pub fn novo(fonte: &'f str, tk: &'f Tokens, arv: &'f Arvore, largura: usize, recuo: i32, fim_de_linha: String) -> Visitante<'f> {
-        let mut a = Arenas::nova(largura, fim_de_linha);
-        let topo = Construtor::topo(&mut a, recuo);
-        Visitante {
-            fonte,
+    pub fn new(source: &'f str, tk: &'f Tokens, tree_: &'f Tree, largura: usize, recuo: i32, line_ending: String) -> SourceVisitor<'f> {
+        let mut a = Arenas::new_arenas(largura, line_ending);
+        let topo = ChunkBuilder::topo(&mut a, recuo);
+        SourceVisitor {
+            source,
             tk,
-            arv,
-            linhas: InfoLinhas::de(fonte),
+            tree_,
+            lines_: LineInfo::from(source),
             a,
-            pilha: vec![topo],
+            stack: vec![topo],
             ultimo_token: 0,
-            colecoes: Vec::new(),
-            regras_de_bloco: HashMap::new(),
-            chunks_de_bloco: HashMap::new(),
-            suprimidos: HashSet::new(),
+            collections_: Vec::new(),
+            block_rules: HashMap::new(),
+            block_chunks: HashMap::new(),
+            suppressed: HashSet::new(),
         }
     }
 
     /// `run(node)`: visita a unidade e devolve os chunks de topo.
-    pub fn executar(mut self, raiz: NoId) -> (Arenas, Vec<ChunkId>) {
-        self.visit(Some(raiz));
+    pub fn run(mut self, root: NodeId) -> (Arenas, Vec<ChunkId>) {
+        self.visit(Some(root));
         // `node.endToken.next`: o EOF (numa unidade vazia, o próprio fim).
-        let eof = self.tk.lista.len() as Tk - 1;
-        let depois = (self.arv.fim(raiz) + 1).min(eof);
-        self.write_preceding_comments_and_newlines(depois);
-        let topo = self.pilha.pop().expect("construtor de topo");
-        let chunks = topo.terminar(&mut self.a);
+        let eof = self.tk.list.len() as Tk - 1;
+        let after = (self.tree_.end(root) + 1).min(eof);
+        self.write_preceding_comments_and_newlines(after);
+        let topo = self.stack.pop().expect("construtor de topo");
+        let chunks = topo.finish(&mut self.a);
         (self.a, chunks)
     }
 
     // ================================================================ tokens
 
-    fn tipo(&self, t: Tk) -> TipoToken {
-        self.tk.lista[t as usize].tipo
+    fn tipo(&self, t: Tk) -> TokenKind {
+        self.tk.list[t as usize].tipo
     }
 
-    fn lexema(&self, t: Tk) -> &'f str {
-        self.tk.texto(self.fonte, t)
+    fn lexeme(&self, t: Tk) -> &'f str {
+        self.tk.texto(self.source, t)
     }
 
-    fn e_op(&self, t: Tk, op: Op) -> bool {
-        self.tipo(t) == TipoToken::Op(op)
+    fn is_op(&self, t: Tk, op: Op) -> bool {
+        self.tipo(t) == TokenKind::Op(op)
     }
 
-    fn tem_comentarios(&self, t: Tk) -> bool {
-        !self.tk.comentarios_de(t).is_empty()
+    fn has_comments(&self, t: Tk) -> bool {
+        !self.tk.comments_of(t).is_empty()
     }
 
-    fn linha_inicio(&self, t: Tk) -> i32 {
-        self.linhas.linha(self.tk.lista[t as usize].inicio)
+    fn start_line(&self, t: Tk) -> i32 {
+        self.lines_.line(self.tk.list[t as usize].start)
     }
 
-    fn linha_fim(&self, t: Tk) -> i32 {
-        let k = &self.tk.lista[t as usize];
-        let mut fim = k.fim;
-        if k.tipo == TipoToken::ScriptTag {
+    fn end_line(&self, t: Tk) -> i32 {
+        let k = &self.tk.list[t as usize];
+        let mut end = k.end;
+        if k.tipo == TokenKind::ScriptTag {
             // O lexema do analyzer inclui a quebra de linha.
-            let b = self.fonte.as_bytes();
-            if b.get(fim) == Some(&b'\r') {
-                fim += 1;
+            let b = self.source.as_bytes();
+            if b.get(end) == Some(&b'\r') {
+                end += 1;
             }
-            if b.get(fim) == Some(&b'\n') {
-                fim += 1;
+            if b.get(end) == Some(&b'\n') {
+                end += 1;
             }
         }
-        self.linhas.linha(fim)
+        self.lines_.line(end)
     }
 
     /// `_linesBeforeNextToken`.
-    fn linhas_antes_do_proximo(&self) -> i32 {
+    fn lines_before_next(&self) -> i32 {
         let anterior = self.ultimo_token;
         let proximo = anterior + 1;
-        let inicio = match self.tk.comentarios_de(proximo).first() {
-            Some(c) => self.linhas.linha(c.inicio),
-            None => self.linha_inicio(proximo),
+        let start = match self.tk.comments_of(proximo).first() {
+            Some(c) => self.lines_.line(c.start),
+            None => self.start_line(proximo),
         };
-        inicio - self.linha_fim(anterior)
+        start - self.end_line(anterior)
     }
 
     // ============================================================= construtor
 
-    fn b(&mut self) -> (&mut Construtor, &mut Arenas) {
-        (self.pilha.last_mut().expect("construtor"), &mut self.a)
+    fn b(&mut self) -> (&mut ChunkBuilder, &mut Arenas) {
+        (self.stack.last_mut().expect("construtor"), &mut self.a)
     }
 
     pub fn space(&mut self) {
-        self.b().0.espaco();
+        self.b().0.space();
     }
 
     pub fn newline(&mut self) {
-        self.b().0.nova_linha(false, false, false);
+        self.b().0.newline(false, false, false);
     }
 
     pub fn two_newlines(&mut self) {
-        self.b().0.nova_linha(true, false, false);
+        self.b().0.newline(true, false, false);
     }
 
-    pub fn write_newline(&mut self, duplo: bool, rente: bool, aninhar: bool) {
-        self.b().0.nova_linha(duplo, rente, aninhar);
+    pub fn write_newline(&mut self, double: bool, flush_left: bool, nest: bool) {
+        self.b().0.newline(double, flush_left, nest);
     }
 
     pub fn split_or_newline(&mut self) {
-        if self.linhas_antes_do_proximo() > 0 {
+        if self.lines_before_next() > 0 {
             self.write_newline(false, false, true);
         } else {
             self.split();
@@ -198,7 +198,7 @@ impl<'f> Visitante<'f> {
     }
 
     pub fn split_or_two_newlines(&mut self) {
-        if self.linhas_antes_do_proximo() > 1 {
+        if self.lines_before_next() > 1 {
             self.two_newlines();
         } else {
             self.split();
@@ -206,31 +206,31 @@ impl<'f> Visitante<'f> {
     }
 
     pub fn one_or_two_newlines(&mut self) {
-        let duplo = self.linhas_antes_do_proximo() > 1;
-        self.write_newline(duplo, false, false);
+        let double = self.lines_before_next() > 1;
+        self.write_newline(double, false, false);
     }
 
     /// `split()`: quebra com espaço na regra atual.
     pub fn split(&mut self) -> ChunkId {
         let (b, a) = self.b();
-        b.quebra(a, true, true)
+        b.split(a, true, true)
     }
 
     /// `zeroSplit()`.
     pub fn zero_split(&mut self) -> ChunkId {
         let (b, a) = self.b();
-        b.quebra(a, true, false)
+        b.split(a, true, false)
     }
 
     /// `builder.split(nest:, space:)`.
-    pub fn builder_split(&mut self, aninhar: bool, espaco: bool) -> ChunkId {
+    pub fn builder_split(&mut self, nest: bool, space: bool) -> ChunkId {
         let (b, a) = self.b();
-        b.quebra(a, aninhar, espaco)
+        b.split(a, nest, space)
     }
 
     /// `soloSplit([cost])`.
-    pub fn solo_split(&mut self, custo: i32) -> RegraId {
-        let r = self.a.regra(custo);
+    pub fn solo_split(&mut self, cost: i32) -> RuleId {
+        let r = self.a.rule(cost);
         self.start_rule(Some(r));
         self.split();
         self.end_rule();
@@ -244,81 +244,81 @@ impl<'f> Visitante<'f> {
         self.end_rule();
     }
 
-    pub fn start_span(&mut self, custo: i32) {
-        self.b().0.iniciar_span(custo);
+    pub fn start_span(&mut self, cost: i32) {
+        self.b().0.start_span_(cost);
     }
 
     pub fn end_span(&mut self) {
         let (b, a) = self.b();
-        b.terminar_span(a);
+        b.end_span_(a);
     }
 
-    pub fn start_rule(&mut self, r: Option<RegraId>) {
+    pub fn start_rule(&mut self, r: Option<RuleId>) {
         let (b, a) = self.b();
-        b.iniciar_regra(a, r);
+        b.start_rule_(a, r);
     }
 
-    pub fn start_lazy_rule(&mut self, r: Option<RegraId>) {
+    pub fn start_lazy_rule(&mut self, r: Option<RuleId>) {
         let (b, a) = self.b();
-        b.iniciar_regra_preguicosa(a, r);
+        b.start_lazy_rule_(a, r);
     }
 
     pub fn end_rule(&mut self) {
-        self.b().0.terminar_regra();
+        self.b().0.end_rule_();
     }
 
-    pub fn current_rule(&self) -> RegraId {
-        self.pilha.last().expect("construtor").regra()
+    pub fn current_rule(&self) -> RuleId {
+        self.stack.last().expect("construtor").rule()
     }
 
     pub fn force_rules(&mut self) {
         let (b, a) = self.b();
-        b.forcar_regras(a);
+        b.force_rules_(a);
     }
 
     pub fn nest_expression(&mut self, recuo: Option<i32>, agora: bool) {
         let (b, a) = self.b();
-        b.aninhar_expressao(a, recuo, agora);
+        b.nest_expression_at(a, recuo, agora);
     }
 
     /// `unnest()` (que por padrão confirma na hora).
     pub fn unnest(&mut self) {
         let (b, a) = self.b();
-        b.desaninhar(a, true);
+        b.unnest_(a, true);
     }
 
     pub fn unnest_later(&mut self) {
         let (b, a) = self.b();
-        b.desaninhar(a, false);
+        b.unnest_(a, false);
     }
 
     pub fn start_block_argument_nesting(&mut self) {
-        self.b().0.iniciar_aninhamento_de_argumento();
+        self.b().0.start_argument_nesting();
     }
 
     pub fn end_block_argument_nesting(&mut self) {
-        self.b().0.terminar_aninhamento_de_argumento();
+        self.b().0.end_argument_nesting();
     }
 
-    fn indent(&mut self, espacos: Option<i32>) {
-        self.b().0.recuar(espacos);
+    fn indent(&mut self, spaces: Option<i32>) {
+        self.b().0.indent(spaces);
     }
 
     fn unindent(&mut self) {
-        self.b().0.desrecuar();
+        self.b().0.unindent_();
     }
 
     /// `builder = builder.startBlock(...)`.
-    fn start_block(&mut self, argumento: Option<ChunkId>, recuar: bool, espaco: bool) {
+    fn start_block(&mut self, argument: Option<ChunkId>, indent: bool, space: bool) {
         let (b, a) = self.b();
-        let filho = b.iniciar_bloco(a, argumento, recuar, espaco);
-        self.pilha.push(filho);
+        let child = b.start_block(a, argument, indent, space);
+        self.stack.push(child);
     }
 
     /// `builder = builder.endBlock(forceSplit:)`.
-    fn end_block(&mut self, forcar: bool) {
-        let filho = self.pilha.pop().expect("bloco");
-        if filho.terminar_bloco(&mut self.a, forcar) {
+    fn end_block(&mut self, force: bool) {
+        let child = self.stack.pop().expect("bloco");
+        if child.end_block(&mut self.a, force) {
             self.force_rules();
         }
     }
@@ -328,7 +328,7 @@ impl<'f> Visitante<'f> {
     /// `token(token)`.
     pub fn token(&mut self, t: Tk) {
         self.write_preceding_comments_and_newlines(t);
-        let texto = self.lexema(t);
+        let texto = self.lexeme(t);
         self.write_text(texto, t);
     }
 
@@ -352,7 +352,7 @@ impl<'f> Visitante<'f> {
         if let Some(t) = t {
             self.write_preceding_comments_and_newlines(t);
             self.space();
-            let texto = self.lexema(t);
+            let texto = self.lexeme(t);
             self.write_text(texto, t);
         }
     }
@@ -362,149 +362,149 @@ impl<'f> Visitante<'f> {
         self.write_text_merge(texto, t, true);
     }
 
-    fn write_text_merge(&mut self, texto: &str, t: Tk, juntar: bool) {
+    fn write_text_merge(&mut self, texto: &str, t: Tk, join: bool) {
         let (b, a) = self.b();
-        b.escrever(a, texto, juntar);
+        b.write(a, texto, join);
         self.ultimo_token = t;
     }
 
     /// `writePrecedingCommentsAndNewlines(token)`.
     pub fn write_preceding_comments_and_newlines(&mut self, t: Tk) -> bool {
-        let comentarios = self.tk.comentarios_de(t);
-        if comentarios.is_empty() {
+        let comments = self.tk.comments_of(t);
+        if comments.is_empty() {
             return false;
         }
-        if self.suprimidos.contains(&t) {
+        if self.suppressed.contains(&t) {
             return false;
         }
         let anterior = if t == 0 { None } else { Some(t - 1) };
-        let mut linha_anterior = anterior.map(|p| self.linha_fim(p)).unwrap_or(1);
-        let linha_token = self.linha_inicio(t);
-        if anterior.is_some_and(|p| self.tipo(p) == TipoToken::ScriptTag) {
-            linha_anterior = linha_token;
+        let mut previous_line = anterior.map(|p| self.end_line(p)).unwrap_or(1);
+        let token_line = self.start_line(t);
+        if anterior.is_some_and(|p| self.tipo(p) == TokenKind::ScriptTag) {
+            previous_line = token_line;
         }
-        let mut lista = Vec::with_capacity(comentarios.len());
-        for (i, c) in comentarios.iter().enumerate() {
-            let linha_c = self.linhas.linha(c.inicio);
+        let mut list = Vec::with_capacity(comments.len());
+        for (i, c) in comments.iter().enumerate() {
+            let line_c = self.lines_.line(c.start);
             if i == 0 && anterior.is_none() {
-                linha_anterior = linha_c;
+                previous_line = line_c;
             }
-            let texto = self.fonte[c.inicio..c.fim].trim();
-            let mut linhas_antes = linha_c - linha_anterior;
-            let mut rente = self.linhas.coluna(c.inicio) == 1;
-            let doc_linha = texto.starts_with("///") && !texto.starts_with("////");
-            if doc_linha {
-                rente = false;
+            let texto = self.source[c.start..c.end].trim();
+            let mut lines_before = line_c - previous_line;
+            let mut flush_left = self.lines_.column(c.start) == 1;
+            let doc_line = texto.starts_with("///") && !texto.starts_with("////");
+            if doc_line {
+                flush_left = false;
                 if i == 0 {
-                    linhas_antes = 2;
+                    lines_before = 2;
                 }
             }
-            let tipo = if doc_linha || (texto.starts_with("/**") && texto != "/**/") {
-                TipoComentario::Doc
-            } else if c.de_linha {
-                TipoComentario::Linha
-            } else if linha_c == linha_anterior || linha_c == linha_token {
-                TipoComentario::BlocoEmLinha
+            let tipo = if doc_line || (texto.starts_with("/**") && texto != "/**/") {
+                CommentKind::Doc
+            } else if c.is_line {
+                CommentKind::Line
+            } else if line_c == previous_line || line_c == token_line {
+                CommentKind::InlineBlock
             } else {
-                TipoComentario::Bloco
+                CommentKind::Block
             };
-            lista.push(ComentarioFonte {
+            list.push(SourceComment {
                 texto: texto.to_string(),
                 tipo,
-                linhas_antes,
-                rente,
+                lines_before,
+                flush_left,
             });
-            linha_anterior = self.linhas.linha(c.fim);
+            previous_line = self.lines_.line(c.end);
         }
-        let token = self.lexema(t);
+        let token = self.lexeme(t);
         let (b, a) = self.b();
-        b.escrever_comentarios(a, &mut lista, linha_token - linha_anterior, token);
-        lista[0].linhas_antes > 0
+        b.write_comments(a, &mut list, token_line - previous_line, token);
+        list[0].lines_before > 0
     }
 
     // ============================================================== consultas
 
-    pub fn no(&self, id: NoId) -> &'f No {
-        self.arv.no(id)
+    pub fn node(&self, id: NodeId) -> &'f Node {
+        self.tree_.node(id)
     }
 
-    fn pai(&self, id: NoId) -> Option<NoId> {
-        self.arv.pai(id)
+    fn parent(&self, id: NodeId) -> Option<NodeId> {
+        self.tree_.parent(id)
     }
 
-    fn pai_e(&self, id: NoId, f: fn(&No) -> bool) -> bool {
-        self.pai(id).is_some_and(|p| f(self.no(p)))
+    fn parent_and(&self, id: NodeId, f: fn(&Node) -> bool) -> bool {
+        self.parent(id).is_some_and(|p| f(self.node(p)))
     }
 
     /// `commaAfter`.
-    pub fn comma_after(&self, id: NoId) -> Option<Tk> {
-        let proximo = self.arv.fim(id) + 1;
-        if self.e_op(proximo, Op::Comma) {
+    pub fn comma_after(&self, id: NodeId) -> Option<Tk> {
+        let proximo = self.tree_.end(id) + 1;
+        if self.is_op(proximo, Op::Comma) {
             return Some(proximo);
         }
-        if self.e_op(proximo, Op::Question) && self.e_op(proximo + 1, Op::Comma) {
+        if self.is_op(proximo, Op::Question) && self.is_op(proximo + 1, Op::Comma) {
             return Some(proximo + 1);
         }
         None
     }
 
-    pub fn has_comma_after(&self, id: NoId) -> bool {
+    pub fn has_comma_after(&self, id: NodeId) -> bool {
         self.comma_after(id).is_some()
     }
 
-    pub fn list_has_comma_after(&self, nos: &[NoId]) -> bool {
-        nos.last().is_some_and(|&n| self.has_comma_after(n))
+    pub fn list_has_comma_after(&self, nodes: &[NodeId]) -> bool {
+        nodes.last().is_some_and(|&n| self.has_comma_after(n))
     }
 
     /// `canSplit(rightBracket)`.
-    fn can_split(&self, nos: &[NoId], direito: Tk) -> bool {
-        !nos.is_empty() || self.tem_comentarios(direito)
+    fn can_split(&self, nodes: &[NodeId], right_: Tk) -> bool {
+        !nodes.is_empty() || self.has_comments(right_)
     }
 
     /// `hasLineCommentBefore` do token.
     fn has_line_comment_before(&self, t: Tk) -> bool {
-        self.tk.comentarios_de(t).iter().any(|c| c.de_linha)
+        self.tk.comments_of(t).iter().any(|c| c.is_line)
     }
 
     /// `beginToken.hasLineCommentBefore` de um nó. Nós anotados com
     /// comentário de documentação começam no próprio comentário no analyzer,
     /// e um token de comentário não tem comentários antes.
-    fn node_has_line_comment_before(&self, id: NoId) -> bool {
-        let inicio = self.arv.inicio(id);
-        if matches!(self.no(id), No::EnumConstantDeclaration { .. }) && self.tem_doc(inicio) {
+    fn node_has_line_comment_before(&self, id: NodeId) -> bool {
+        let start = self.tree_.start(id);
+        if matches!(self.node(id), Node::EnumConstantDeclaration { .. }) && self.has_doc(start) {
             return false;
         }
-        self.has_line_comment_before(inicio)
+        self.has_line_comment_before(start)
     }
 
     /// Se os comentários antes de `t` têm um comentário de documentação
     /// (`findDartDoc`: o último `/**`, ou uma sequência de `///`).
-    fn tem_doc(&self, t: Tk) -> bool {
-        self.tk.comentarios_de(t).iter().any(|c| {
-            let s = &self.fonte[c.inicio..c.fim];
+    fn has_doc(&self, t: Tk) -> bool {
+        self.tk.comments_of(t).iter().any(|c| {
+            let s = &self.source[c.start..c.end];
             s.starts_with("///") || s.starts_with("/**")
         })
     }
 
     /// `containsLineComments([rightBracket])`.
-    fn contains_line_comments(&self, nos: &[NoId], direito: Option<Tk>) -> bool {
-        nos.iter().any(|&n| self.node_has_line_comment_before(n)) || direito.is_some_and(|t| self.has_line_comment_before(t))
+    fn contains_line_comments(&self, nodes: &[NodeId], right_: Option<Tk>) -> bool {
+        nodes.iter().any(|&n| self.node_has_line_comment_before(n)) || right_.is_some_and(|t| self.has_line_comment_before(t))
     }
 
     /// `hasNonEmptyBody`.
-    fn has_non_empty_body(&self, id: NoId) -> bool {
-        let corpo = match self.no(id) {
-            No::MethodDeclaration { body, .. } => Some(*body),
-            No::FunctionDeclarationStatement { function_declaration } => self.corpo_de_declaracao(*function_declaration),
-            No::FunctionDeclaration { .. } => self.corpo_de_declaracao(id),
+    fn has_non_empty_body(&self, id: NodeId) -> bool {
+        let corpo = match self.node(id) {
+            Node::MethodDeclaration { body, .. } => Some(*body),
+            Node::FunctionDeclarationStatement { function_declaration } => self.declaration_body(*function_declaration),
+            Node::FunctionDeclaration { .. } => self.declaration_body(id),
             _ => None,
         };
-        corpo.is_some_and(|c| self.bloco_nao_vazio(c))
+        corpo.is_some_and(|c| self.non_empty_block(c))
     }
 
-    fn corpo_de_declaracao(&self, decl: NoId) -> Option<NoId> {
-        if let No::FunctionDeclaration { function_expression, .. } = self.no(decl)
-            && let No::FunctionExpression { body, .. } = self.no(*function_expression)
+    fn declaration_body(&self, decl: NodeId) -> Option<NodeId> {
+        if let Node::FunctionDeclaration { function_expression, .. } = self.node(decl)
+            && let Node::FunctionExpression { body, .. } = self.node(*function_expression)
         {
             return Some(*body);
         }
@@ -512,42 +512,42 @@ impl<'f> Visitante<'f> {
     }
 
     /// `body is BlockFunctionBody && body.block.statements.isNotEmpty`.
-    fn bloco_nao_vazio(&self, corpo: NoId) -> bool {
-        if let No::BlockFunctionBody { block, .. } = self.no(corpo)
-            && let No::Block { statements, .. } = self.no(*block)
+    fn non_empty_block(&self, corpo: NodeId) -> bool {
+        if let Node::BlockFunctionBody { block, .. } = self.node(corpo)
+            && let Node::Block { statements, .. } = self.node(*block)
         {
             return !statements.is_empty();
         }
         false
     }
 
-    pub fn is_collection_literal(&self, id: NoId) -> bool {
-        matches!(self.no(id), No::ListLiteral { .. } | No::RecordLiteral { .. } | No::SetOrMapLiteral { .. })
+    pub fn is_collection_literal(&self, id: NodeId) -> bool {
+        matches!(self.node(id), Node::ListLiteral { .. } | Node::RecordLiteral { .. } | Node::SetOrMapLiteral { .. })
     }
 
-    fn is_control_flow_element(&self, id: NoId) -> bool {
-        matches!(self.no(id), No::IfElement { .. } | No::ForElement { .. })
+    fn is_control_flow_element(&self, id: NodeId) -> bool {
+        matches!(self.node(id), Node::IfElement { .. } | Node::ForElement { .. })
     }
 
     /// `isFunctionExpressionBody`.
-    fn is_function_expression_body(&self, id: NoId) -> bool {
-        match self.pai(id) {
-            Some(p) if matches!(self.no(p), No::FunctionExpression { .. }) => !self.pai_e(p, |n| matches!(n, No::FunctionDeclaration { .. })),
+    fn is_function_expression_body(&self, id: NodeId) -> bool {
+        match self.parent(id) {
+            Some(p) if matches!(self.node(p), Node::FunctionExpression { .. }) => !self.parent_and(p, |n| matches!(n, Node::FunctionDeclaration { .. })),
             _ => false,
         }
     }
 
     /// `spreadCollectionBracket`.
-    fn spread_collection_bracket(&self, id: NoId) -> Option<Tk> {
-        if let No::SpreadElement { expression, .. } = self.no(id) {
-            match self.no(*expression) {
-                No::ListLiteral {
+    fn spread_collection_bracket(&self, id: NodeId) -> Option<Tk> {
+        if let Node::SpreadElement { expression, .. } = self.node(id) {
+            match self.node(*expression) {
+                Node::ListLiteral {
                     elements,
                     left_bracket,
                     right_bracket,
                     ..
                 }
-                | No::SetOrMapLiteral {
+                | Node::SetOrMapLiteral {
                     elements,
                     left_bracket,
                     right_bracket,
@@ -564,194 +564,194 @@ impl<'f> Visitante<'f> {
     }
 
     /// `isTrailingCommaArgument`.
-    fn is_trailing_comma_argument(&self, id: NoId) -> bool {
-        let mut pai = self.pai(id);
-        if let Some(p) = pai
-            && matches!(self.no(p), No::NamedExpression { .. })
+    fn is_trailing_comma_argument(&self, id: NodeId) -> bool {
+        let mut parent = self.parent(id);
+        if let Some(p) = parent
+            && matches!(self.node(p), Node::NamedExpression { .. })
         {
-            pai = self.pai(p);
+            parent = self.parent(p);
         }
-        match pai.map(|p| self.no(p)) {
-            Some(No::ArgumentList { arguments, .. }) => self.list_has_comma_after(arguments),
+        match parent.map(|p| self.node(p)) {
+            Some(Node::ArgumentList { arguments, .. }) => self.list_has_comma_after(arguments),
             _ => false,
         }
     }
 
     /// `looksLikeStaticCall`.
-    pub fn looks_like_static_call(&self, id: NoId) -> bool {
-        let No::MethodInvocation { target, method_name, .. } = self.no(id) else {
+    pub fn looks_like_static_call(&self, id: NodeId) -> bool {
+        let Node::MethodInvocation { target, method_name, .. } = self.node(id) else {
             return false;
         };
         let Some(mut alvo) = *target else {
             return false;
         };
-        if matches!(self.no(alvo), No::SimpleIdentifier { .. }) && looks_like_class_name(self.nome_simples(*method_name)) {
+        if matches!(self.node(alvo), Node::SimpleIdentifier { .. }) && looks_like_class_name(self.simple_name(*method_name)) {
             return true;
         }
-        if let No::PrefixedIdentifier { identifier, .. } = self.no(alvo) {
+        if let Node::PrefixedIdentifier { identifier, .. } = self.node(alvo) {
             alvo = *identifier;
         }
-        matches!(self.no(alvo), No::SimpleIdentifier { .. }) && looks_like_class_name(self.nome_simples(alvo))
+        matches!(self.node(alvo), Node::SimpleIdentifier { .. }) && looks_like_class_name(self.simple_name(alvo))
     }
 
-    pub fn nome_simples(&self, id: NoId) -> &'f str {
-        match self.no(id) {
-            No::SimpleIdentifier { token } => self.lexema(*token),
+    pub fn simple_name(&self, id: NodeId) -> &'f str {
+        match self.node(id) {
+            Node::SimpleIdentifier { token } => self.lexeme(*token),
             _ => "",
         }
     }
 
     /// `allowInline` da cascata.
-    fn allow_inline(&self, target: NoId, secoes: usize) -> bool {
-        if secoes > 1 {
+    fn allow_inline(&self, target: NodeId, sections: usize) -> bool {
+        if sections > 1 {
             return false;
         }
         !matches!(
-            self.no(target),
-            No::ConditionalExpression { .. } | No::BinaryExpression { .. } | No::PrefixExpression { .. } | No::AwaitExpression { .. }
+            self.node(target),
+            Node::ConditionalExpression { .. } | Node::BinaryExpression { .. } | Node::PrefixExpression { .. } | Node::AwaitExpression { .. }
         )
     }
 
     /// `isMultiline` de `SingleStringLiteral`.
-    pub fn is_multiline_string(&self, id: NoId) -> bool {
-        let primeiro = match self.no(id) {
-            No::SimpleStringLiteral { literal } => *literal,
-            No::StringInterpolation { elements } => match elements.first().map(|e| self.no(*e)) {
-                Some(No::InterpolationString { contents }) => *contents,
+    pub fn is_multiline_string(&self, id: NodeId) -> bool {
+        let first = match self.node(id) {
+            Node::SimpleStringLiteral { literal } => *literal,
+            Node::StringInterpolation { elements } => match elements.first().map(|e| self.node(*e)) {
+                Some(Node::InterpolationString { contents }) => *contents,
                 _ => return false,
             },
             _ => return false,
         };
-        let s = self.lexema(primeiro);
+        let s = self.lexeme(first);
         let s = s.strip_prefix('r').unwrap_or(s);
         s.starts_with("'''") || s.starts_with("\"\"\"")
     }
 
-    fn is_string_literal(&self, id: NoId) -> bool {
+    fn is_string_literal(&self, id: NodeId) -> bool {
         matches!(
-            self.no(id),
-            No::SimpleStringLiteral { .. } | No::StringInterpolation { .. } | No::AdjacentStrings { .. }
+            self.node(id),
+            Node::SimpleStringLiteral { .. } | Node::StringInterpolation { .. } | Node::AdjacentStrings { .. }
         )
     }
 
-    fn named_parts(&self, id: NoId) -> (Tk, Tk, NoId) {
-        let No::NamedExpression { name, expression } = self.no(id) else {
+    fn named_parts(&self, id: NodeId) -> (Tk, Tk, NodeId) {
+        let Node::NamedExpression { name, expression } = self.node(id) else {
             panic!("NamedExpression esperado");
         };
-        let No::Label { label, colon } = self.no(*name) else {
+        let Node::Label { label, colon } = self.node(*name) else {
             panic!("Label esperado");
         };
-        let No::SimpleIdentifier { token } = self.no(*label) else {
+        let Node::SimpleIdentifier { token } = self.node(*label) else {
             panic!("SimpleIdentifier esperado");
         };
         (*token, *colon, *expression)
     }
 
-    fn param_kind(&self, id: NoId) -> TipoParametro {
-        match self.no(id) {
-            No::SimpleFormalParameter { kind, .. }
-            | No::FieldFormalParameter { kind, .. }
-            | No::SuperFormalParameter { kind, .. }
-            | No::FunctionTypedFormalParameter { kind, .. }
-            | No::DefaultFormalParameter { kind, .. } => *kind,
-            _ => TipoParametro::Obrigatorio,
+    fn param_kind(&self, id: NodeId) -> ParameterKind {
+        match self.node(id) {
+            Node::SimpleFormalParameter { kind, .. }
+            | Node::FieldFormalParameter { kind, .. }
+            | Node::SuperFormalParameter { kind, .. }
+            | Node::FunctionTypedFormalParameter { kind, .. }
+            | Node::DefaultFormalParameter { kind, .. } => *kind,
+            _ => ParameterKind::Required,
         }
     }
 
     // ================================================================ visita
 
     /// `visit(node)`.
-    pub fn visit(&mut self, no: Option<NoId>) {
-        if let Some(id) = no {
-            self.aceitar(id);
+    pub fn visit(&mut self, node: Option<NodeId>) {
+        if let Some(id) = node {
+            self.accept(id);
         }
     }
 
-    fn visit_before(&mut self, no: Option<NoId>, antes: Acao) {
-        if let Some(id) = no {
-            self.acao(antes);
-            self.aceitar(id);
+    fn visit_before(&mut self, node: Option<NodeId>, antes: Action) {
+        if let Some(id) = node {
+            self.action(antes);
+            self.accept(id);
         }
     }
 
-    fn visit_after(&mut self, no: Option<NoId>, depois: Acao) {
-        if let Some(id) = no {
-            self.aceitar(id);
-            self.acao(depois);
+    fn visit_after(&mut self, node: Option<NodeId>, after: Action) {
+        if let Some(id) = node {
+            self.accept(id);
+            self.action(after);
         }
     }
 
-    fn acao(&mut self, a: Acao) {
+    fn action(&mut self, a: Action) {
         match a {
-            Acao::Nada => {}
-            Acao::Espaco => self.space(),
-            Acao::NovaLinha => self.newline(),
-            Acao::Split => {
+            Action::Nothing => {}
+            Action::Space => self.space(),
+            Action::Newline => self.newline(),
+            Action::Split => {
                 self.split();
             }
-            Acao::ZeroSplit => {
+            Action::ZeroSplit => {
                 self.zero_split();
             }
-            Acao::SplitOrNewline => self.split_or_newline(),
-            Acao::SplitOrTwoNewlines => self.split_or_two_newlines(),
-            Acao::OneOrTwoNewlines => self.one_or_two_newlines(),
+            Action::SplitOrNewline => self.split_or_newline(),
+            Action::SplitOrTwoNewlines => self.split_or_two_newlines(),
+            Action::OneOrTwoNewlines => self.one_or_two_newlines(),
         }
     }
 
     /// `visitNodes(nodes, before:, between:, after:)`.
-    fn visit_nodes(&mut self, nos: &[NoId], antes: Acao, entre: Acao, depois: Acao) {
-        if nos.is_empty() {
+    fn visit_nodes(&mut self, nodes: &[NodeId], antes: Action, between: Action, after: Action) {
+        if nodes.is_empty() {
             return;
         }
-        self.acao(antes);
-        self.aceitar(nos[0]);
-        for &n in &nos[1..] {
-            self.acao(entre);
-            self.aceitar(n);
+        self.action(antes);
+        self.accept(nodes[0]);
+        for &n in &nodes[1..] {
+            self.action(between);
+            self.accept(n);
         }
-        self.acao(depois);
+        self.action(after);
     }
 
     /// `visitCommaSeparatedNodes(nodes, between:)`.
-    fn visit_comma_separated_nodes(&mut self, nos: &[NoId], entre: Acao) {
-        for (i, &n) in nos.iter().enumerate() {
+    fn visit_comma_separated_nodes(&mut self, nodes: &[NodeId], between: Action) {
+        for (i, &n) in nodes.iter().enumerate() {
             if i > 0 {
-                self.acao(entre);
+                self.action(between);
             }
-            self.aceitar(n);
-            let proximo = self.arv.fim(n) + 1;
-            if self.lexema(proximo) == "," {
+            self.accept(n);
+            let proximo = self.tree_.end(n) + 1;
+            if self.lexeme(proximo) == "," {
                 self.token(proximo);
             }
         }
     }
 
     /// `visitMetadata(metadata)`.
-    fn visit_metadata(&mut self, metadata: &[NoId]) {
-        self.visit_nodes(metadata, Acao::Nada, Acao::NovaLinha, Acao::NovaLinha);
+    fn visit_metadata(&mut self, metadata: &[NodeId]) {
+        self.visit_nodes(metadata, Action::Nothing, Action::Newline, Action::Newline);
     }
 
     /// `_writeCommaAfter(node)`.
-    fn write_comma_after(&mut self, id: NoId) {
+    fn write_comma_after(&mut self, id: NodeId) {
         let c = self.comma_after(id);
         self.token_opt(c);
     }
 
     /// `node.accept(this)`.
-    fn aceitar(&mut self, id: NoId) {
-        let n = self.no(id);
+    fn accept(&mut self, id: NodeId) {
+        let n = self.node(id);
         match n {
-            No::CompilationUnit { .. } => self.visit_compilation_unit(id),
-            No::LibraryDirective { metadata, library_keyword, name2, semicolon } => {
+            Node::CompilationUnit { .. } => self.visit_compilation_unit(id),
+            Node::LibraryDirective { metadata, library_keyword, name2, semicolon } => {
                 self.visit_directive_metadata(id, metadata);
                 self.nest_expression(None, false);
                 self.token(*library_keyword);
-                self.visit_before(*name2, Acao::Espaco);
+                self.visit_before(*name2, Action::Space);
                 self.token(*semicolon);
                 self.unnest();
             }
-            No::ImportDirective { .. } => self.visit_import_directive(id),
-            No::ExportDirective {
+            Node::ImportDirective { .. } => self.visit_import_directive(id),
+            Node::ExportDirective {
                 metadata,
                 export_keyword,
                 uri,
@@ -769,7 +769,7 @@ impl<'f> Visitante<'f> {
                 self.token(*semicolon);
                 self.unnest();
             }
-            No::PartDirective {
+            Node::PartDirective {
                 metadata,
                 part_keyword,
                 uri,
@@ -783,7 +783,7 @@ impl<'f> Visitante<'f> {
                 self.token(*semicolon);
                 self.unnest();
             }
-            No::PartOfDirective {
+            Node::PartOfDirective {
                 metadata,
                 part_keyword,
                 of_keyword,
@@ -802,7 +802,7 @@ impl<'f> Visitante<'f> {
                 self.token(*semicolon);
                 self.unnest();
             }
-            No::Configuration {
+            Node::Configuration {
                 if_keyword,
                 left_parenthesis,
                 name,
@@ -819,7 +819,7 @@ impl<'f> Visitante<'f> {
                     self.nest_expression(None, false);
                     self.space();
                     self.token(*eq);
-                    self.solo_split(custo::NORMAL);
+                    self.solo_split(cost::NORMAL);
                     self.visit(*value);
                     self.unnest();
                 }
@@ -827,69 +827,69 @@ impl<'f> Visitante<'f> {
                 self.space();
                 self.visit(Some(*uri));
             }
-            No::DottedName { components } => {
+            Node::DottedName { components } => {
                 for (i, &c) in components.iter().enumerate() {
                     if i > 0 {
-                        let ponto = self.arv.inicio(c) - 1;
-                        self.token(ponto);
+                        let dot = self.tree_.start(c) - 1;
+                        self.token(dot);
                     }
                     self.visit(Some(c));
                 }
             }
-            No::LibraryIdentifier { components } => {
+            Node::LibraryIdentifier { components } => {
                 self.visit(Some(components[0]));
                 for &c in &components[1..] {
-                    let ponto = self.arv.inicio(c) - 1;
-                    self.token(ponto);
+                    let dot = self.tree_.start(c) - 1;
+                    self.token(dot);
                     self.visit(Some(c));
                 }
             }
-            No::ShowCombinator { keyword, shown_names } => self.visit_combinator(*keyword, shown_names),
-            No::HideCombinator { keyword, hidden_names } => self.visit_combinator(*keyword, hidden_names),
-            No::ClassDeclaration { .. } => self.visit_class_declaration(id),
-            No::ExtendsClause { extends_keyword, superclass } => {
-                self.solo_split(custo::NORMAL);
+            Node::ShowCombinator { keyword, shown_names } => self.visit_combinator(*keyword, shown_names),
+            Node::HideCombinator { keyword, hidden_names } => self.visit_combinator(*keyword, hidden_names),
+            Node::ClassDeclaration { .. } => self.visit_class_declaration(id),
+            Node::ExtendsClause { extends_keyword, superclass } => {
+                self.solo_split(cost::NORMAL);
                 self.token(*extends_keyword);
                 self.space();
                 self.visit(Some(*superclass));
             }
-            No::WithClause { with_keyword, mixin_types } => self.visit_combinator(*with_keyword, mixin_types),
-            No::ImplementsClause {
+            Node::WithClause { with_keyword, mixin_types } => self.visit_combinator(*with_keyword, mixin_types),
+            Node::ImplementsClause {
                 implements_keyword,
                 interfaces,
             } => self.visit_combinator(*implements_keyword, interfaces),
-            No::MixinOnClause {
+            Node::MixinOnClause {
                 on_keyword,
                 superclass_constraints,
             } => self.visit_combinator(*on_keyword, superclass_constraints),
-            No::NativeClause { native_keyword, name } => {
+            Node::NativeClause { native_keyword, name } => {
                 self.token(*native_keyword);
-                self.visit_before(*name, Acao::Espaco);
+                self.visit_before(*name, Action::Space);
             }
-            No::MixinDeclaration { .. } => self.visit_mixin_declaration(id),
-            No::ExtensionDeclaration { .. } => self.visit_extension_declaration(id),
-            No::ExtensionOnClause { .. } => panic!("ExtensionOnClause é visitada pela extensão"),
-            No::ExtensionTypeDeclaration { .. } => self.visit_extension_type_declaration(id),
-            No::RepresentationDeclaration { .. } => self.visit_representation_declaration(id),
-            No::RepresentationConstructorName { period, name } => {
+            Node::MixinDeclaration { .. } => self.visit_mixin_declaration(id),
+            Node::ExtensionDeclaration { .. } => self.visit_extension_declaration(id),
+            Node::ExtensionOnClause { .. } => panic!("ExtensionOnClause é visitada pela extensão"),
+            Node::ExtensionTypeDeclaration { .. } => self.visit_extension_type_declaration(id),
+            Node::RepresentationDeclaration { .. } => self.visit_representation_declaration(id),
+            Node::RepresentationConstructorName { period, name } => {
                 self.token(*period);
                 self.token(*name);
             }
-            No::EnumDeclaration { .. } => self.visit_enum_declaration(id),
-            No::EnumConstantDeclaration { metadata, name, arguments } => {
+            Node::EnumDeclaration { .. } => self.visit_enum_declaration(id),
+            Node::EnumConstantDeclaration { metadata, name, arguments } => {
                 self.visit_metadata(metadata);
                 self.token(*name);
                 if let Some(args) = arguments
-                    && let No::EnumConstantArguments {
+                    && let Node::EnumConstantArguments {
                         type_arguments,
                         constructor_selector,
                         argument_list,
-                    } = self.no(*args)
+                    } = self.node(*args)
                 {
                     self.nest_expression(None, false);
                     self.visit(*type_arguments);
                     if let Some(sel) = constructor_selector
-                        && let No::ConstructorSelector { period, name } = self.no(*sel)
+                        && let Node::ConstructorSelector { period, name } = self.node(*sel)
                     {
                         self.token(*period);
                         self.visit(Some(*name));
@@ -898,11 +898,11 @@ impl<'f> Visitante<'f> {
                     self.unnest();
                 }
             }
-            No::EnumConstantArguments { .. } | No::ConstructorSelector { .. } => {
+            Node::EnumConstantArguments { .. } | Node::ConstructorSelector { .. } => {
                 panic!("visitado pela constante do enum")
             }
-            No::ClassTypeAlias { .. } => self.visit_class_type_alias(id),
-            No::FunctionTypeAlias {
+            Node::ClassTypeAlias { .. } => self.visit_class_type_alias(id),
+            Node::FunctionTypeAlias {
                 metadata,
                 typedef_keyword,
                 return_type,
@@ -916,14 +916,14 @@ impl<'f> Visitante<'f> {
                 self.nest_expression(None, false);
                 self.token(*typedef_keyword);
                 self.space();
-                self.visit_after(*return_type, Acao::Espaco);
+                self.visit_after(*return_type, Action::Space);
                 self.token(*name);
                 self.visit(*type_parameters);
                 self.visit(Some(*parameters));
                 self.token(*semicolon);
                 self.unnest();
             }
-            No::GenericTypeAlias {
+            Node::GenericTypeAlias {
                 metadata,
                 typedef_keyword,
                 name,
@@ -933,7 +933,7 @@ impl<'f> Visitante<'f> {
                 semicolon,
                 ..
             } => {
-                self.visit_nodes(metadata, Acao::Nada, Acao::NovaLinha, Acao::NovaLinha);
+                self.visit_nodes(metadata, Action::Nothing, Action::Newline, Action::Newline);
                 self.nest_expression(None, false);
                 self.visit_generic_type_alias_header(*typedef_keyword, *name, *type_parameters, *equals);
                 self.space();
@@ -941,7 +941,7 @@ impl<'f> Visitante<'f> {
                 self.token(*semicolon);
                 self.unnest();
             }
-            No::FunctionDeclaration {
+            Node::FunctionDeclaration {
                 metadata,
                 external_keyword,
                 return_type,
@@ -950,11 +950,11 @@ impl<'f> Visitante<'f> {
                 function_expression,
                 ..
             } => {
-                let No::FunctionExpression {
+                let Node::FunctionExpression {
                     type_parameters,
                     parameters,
                     body,
-                } = self.no(*function_expression)
+                } = self.node(*function_expression)
                 else {
                     panic!("FunctionExpression esperada");
                 };
@@ -971,7 +971,7 @@ impl<'f> Visitante<'f> {
                     *body,
                 );
             }
-            No::TopLevelVariableDeclaration {
+            Node::TopLevelVariableDeclaration {
                 metadata,
                 external_keyword,
                 variables,
@@ -985,8 +985,8 @@ impl<'f> Visitante<'f> {
                 self.token(*semicolon);
                 self.unnest();
             }
-            No::ConstructorDeclaration { .. } => self.visit_constructor_declaration(id),
-            No::MethodDeclaration {
+            Node::ConstructorDeclaration { .. } => self.visit_constructor_declaration(id),
+            Node::MethodDeclaration {
                 metadata,
                 external_keyword,
                 modifier_keyword,
@@ -1010,7 +1010,7 @@ impl<'f> Visitante<'f> {
                 *parameters,
                 *body,
             ),
-            No::FieldDeclaration {
+            Node::FieldDeclaration {
                 metadata,
                 abstract_keyword,
                 covariant_keyword,
@@ -1030,7 +1030,7 @@ impl<'f> Visitante<'f> {
                 self.token(*semicolon);
                 self.unnest();
             }
-            No::ConstructorFieldInitializer {
+            Node::ConstructorFieldInitializer {
                 this_keyword,
                 period,
                 field_name,
@@ -1044,26 +1044,26 @@ impl<'f> Visitante<'f> {
                 self.visit_assignment(*equals, *expression, false);
                 self.unnest();
             }
-            No::SuperConstructorInvocation {
+            Node::SuperConstructorInvocation {
                 super_keyword: kw,
                 period,
                 constructor_name,
                 argument_list,
             }
-            | No::RedirectingConstructorInvocation {
+            | Node::RedirectingConstructorInvocation {
                 this_keyword: kw,
                 period,
                 constructor_name,
                 argument_list,
             } => {
-                self.start_span(custo::NORMAL);
+                self.start_span(cost::NORMAL);
                 self.token(*kw);
                 self.token_opt(*period);
                 self.visit(*constructor_name);
                 self.visit(Some(*argument_list));
                 self.end_span();
             }
-            No::AssertInitializer {
+            Node::AssertInitializer {
                 assert_keyword,
                 left_parenthesis,
                 condition,
@@ -1084,7 +1084,7 @@ impl<'f> Visitante<'f> {
                 super::arguments::ArgumentListVisitor::for_arguments(self, *left_parenthesis, *right_parenthesis, &args).visit(self);
                 self.unnest();
             }
-            No::BlockFunctionBody { keyword, star, block } => {
+            Node::BlockFunctionBody { keyword, star, block } => {
                 self.space();
                 self.token_opt(*keyword);
                 self.token_opt(*star);
@@ -1093,24 +1093,24 @@ impl<'f> Visitante<'f> {
                 }
                 self.visit(Some(*block));
             }
-            No::ExpressionFunctionBody { .. } => self.visit_expression_function_body(id),
-            No::EmptyFunctionBody { semicolon } | No::EmptyStatement { semicolon } => self.token(*semicolon),
-            No::NativeFunctionBody {
+            Node::ExpressionFunctionBody { .. } => self.visit_expression_function_body(id),
+            Node::EmptyFunctionBody { semicolon } | Node::EmptyStatement { semicolon } => self.token(*semicolon),
+            Node::NativeFunctionBody {
                 native_keyword,
                 string_literal,
                 semicolon,
             } => {
                 self.nest_expression(None, false);
                 self.nest_expression(None, true);
-                self.solo_split(custo::NORMAL);
+                self.solo_split(cost::NORMAL);
                 self.token(*native_keyword);
-                self.visit_before(*string_literal, Acao::Espaco);
+                self.visit_before(*string_literal, Action::Space);
                 self.unnest();
                 self.token(*semicolon);
                 self.unnest();
             }
-            No::FormalParameterList { .. } => self.visit_formal_parameter_list(id, true),
-            No::SimpleFormalParameter {
+            Node::FormalParameterList { .. } => self.visit_formal_parameter_list(id, true),
+            Node::SimpleFormalParameter {
                 metadata,
                 keyword,
                 type_,
@@ -1129,7 +1129,7 @@ impl<'f> Visitante<'f> {
                     v.end_formal_parameter();
                 });
             }
-            No::FieldFormalParameter {
+            Node::FieldFormalParameter {
                 metadata,
                 keyword,
                 type_,
@@ -1141,7 +1141,7 @@ impl<'f> Visitante<'f> {
                 question,
                 ..
             }
-            | No::SuperFormalParameter {
+            | Node::SuperFormalParameter {
                 metadata,
                 keyword,
                 type_,
@@ -1153,7 +1153,7 @@ impl<'f> Visitante<'f> {
                 question,
                 ..
             } => {
-                let e_super = matches!(n, No::SuperFormalParameter { .. });
+                let is_super = matches!(n, Node::SuperFormalParameter { .. });
                 let (keyword, type_, kw, period, name, tps, ps, q) =
                     (*keyword, *type_, *kw, *period, *name, *type_parameters, *parameters, *question);
                 let metadata = metadata.clone();
@@ -1163,8 +1163,8 @@ impl<'f> Visitante<'f> {
                         v.token(k);
                         v.space();
                     }
-                    if e_super {
-                        v.visit_after(type_, Acao::Split);
+                    if is_super {
+                        v.visit_after(type_, Action::Split);
                     } else {
                         v.visit(type_);
                         v.separator_between_type_and_variable(type_, false);
@@ -1178,7 +1178,7 @@ impl<'f> Visitante<'f> {
                     v.end_formal_parameter();
                 });
             }
-            No::FunctionTypedFormalParameter {
+            Node::FunctionTypedFormalParameter {
                 metadata,
                 covariant_keyword,
                 required_keyword,
@@ -1189,7 +1189,7 @@ impl<'f> Visitante<'f> {
                 question,
                 ..
             } => {
-                let (cov, req, rt, name, tps, ps, q) = (
+                let (covariant_, req, rt, name, tps, ps, q) = (
                     *covariant_keyword,
                     *required_keyword,
                     *return_type,
@@ -1201,16 +1201,16 @@ impl<'f> Visitante<'f> {
                 let metadata = metadata.clone();
                 self.visit_parameter_metadata(&metadata, |v| {
                     v.modifier(req);
-                    v.modifier(cov);
-                    v.visit_after(rt, Acao::Espaco);
-                    v.start_span(custo::NORMAL);
+                    v.modifier(covariant_);
+                    v.visit_after(rt, Action::Space);
+                    v.start_span(cost::NORMAL);
                     v.token(name);
                     v.visit_parameter_signature(tps, Some(ps));
                     v.token_opt(q);
                     v.end_span();
                 });
             }
-            No::DefaultFormalParameter {
+            Node::DefaultFormalParameter {
                 parameter,
                 separator,
                 default_value,
@@ -1218,9 +1218,9 @@ impl<'f> Visitante<'f> {
             } => {
                 self.visit(Some(*parameter));
                 if let Some(sep) = separator {
-                    self.start_span(custo::NORMAL);
+                    self.start_span(cost::NORMAL);
                     self.nest_expression(None, false);
-                    if self.e_op(*sep, Op::Assign) {
+                    if self.is_op(*sep, Op::Assign) {
                         self.space();
                     }
                     self.token(*sep);
@@ -1232,17 +1232,17 @@ impl<'f> Visitante<'f> {
                     self.end_span();
                 }
             }
-            No::NamedType {
+            Node::NamedType {
                 import_prefix,
                 name2,
                 type_arguments,
                 question,
             } => {
-                if let Some((prefixo, ponto)) = import_prefix {
-                    self.start_span(custo::NORMAL);
-                    self.token(*prefixo);
+                if let Some((prefix, dot)) = import_prefix {
+                    self.start_span(cost::NORMAL);
+                    self.token(*prefix);
                     self.solo_zero_split();
-                    self.token(*ponto);
+                    self.token(*dot);
                     self.token(*name2);
                     self.end_span();
                 } else {
@@ -1251,7 +1251,7 @@ impl<'f> Visitante<'f> {
                 self.visit(*type_arguments);
                 self.token_opt(*question);
             }
-            No::GenericFunctionType {
+            Node::GenericFunctionType {
                 return_type,
                 function_keyword,
                 type_parameters,
@@ -1261,9 +1261,9 @@ impl<'f> Visitante<'f> {
                 self.visit_generic_function_type(*return_type, *function_keyword, *type_parameters, *parameters);
                 self.token_opt(*question);
             }
-            No::RecordTypeAnnotation { .. } => self.visit_record_type_annotation(id),
-            No::RecordTypeAnnotationNamedFields { .. } => panic!("visitado pelo tipo de registro"),
-            No::RecordTypeAnnotationPositionalField { metadata, type_, name } => {
+            Node::RecordTypeAnnotation { .. } => self.visit_record_type_annotation(id),
+            Node::RecordTypeAnnotationNamedFields { .. } => panic!("visitado pelo tipo de registro"),
+            Node::RecordTypeAnnotationPositionalField { metadata, type_, name } => {
                 let (t, nm) = (*type_, *name);
                 let metadata = metadata.clone();
                 self.visit_parameter_metadata(&metadata, |v| {
@@ -1271,7 +1271,7 @@ impl<'f> Visitante<'f> {
                     v.token_space_before(nm);
                 });
             }
-            No::RecordTypeAnnotationNamedField { metadata, type_, name } => {
+            Node::RecordTypeAnnotationNamedField { metadata, type_, name } => {
                 let (t, nm) = (*type_, *name);
                 let metadata = metadata.clone();
                 self.visit_parameter_metadata(&metadata, |v| {
@@ -1279,17 +1279,17 @@ impl<'f> Visitante<'f> {
                     v.token_space_before(Some(nm));
                 });
             }
-            No::TypeArgumentList {
+            Node::TypeArgumentList {
                 left_bracket,
                 arguments,
                 right_bracket,
             } => self.visit_generic_list(*left_bracket, *right_bracket, arguments),
-            No::TypeParameterList {
+            Node::TypeParameterList {
                 left_bracket,
                 type_parameters,
                 right_bracket,
             } => self.visit_generic_list(*left_bracket, *right_bracket, type_parameters),
-            No::TypeParameter {
+            Node::TypeParameter {
                 metadata,
                 name,
                 extends_keyword,
@@ -1302,14 +1302,14 @@ impl<'f> Visitante<'f> {
                     if let Some(e) = ext {
                         v.write_preceding_comments_and_newlines(e);
                         v.space();
-                        let t = v.lexema(e);
+                        let t = v.lexeme(e);
                         v.write_text(t, e);
                         v.space();
                     }
                     v.visit(bd);
                 });
             }
-            No::Annotation {
+            Node::Annotation {
                 at_sign,
                 name,
                 type_arguments,
@@ -1328,7 +1328,7 @@ impl<'f> Visitante<'f> {
                 }
                 self.unnest();
             }
-            No::Block {
+            Node::Block {
                 left_bracket,
                 statements,
                 right_bracket,
@@ -1343,20 +1343,20 @@ impl<'f> Visitante<'f> {
                 }
                 self.visit_body(*left_bracket, statements, *right_bracket);
             }
-            No::ExpressionStatement { expression, semicolon } => {
+            Node::ExpressionStatement { expression, semicolon } => {
                 self.nest_expression(None, false);
                 self.visit(Some(*expression));
                 self.token_opt(*semicolon);
                 self.unnest();
             }
-            No::VariableDeclarationStatement { variables, semicolon } => {
+            Node::VariableDeclarationStatement { variables, semicolon } => {
                 self.nest_expression(None, false);
                 self.visit(Some(*variables));
                 self.token(*semicolon);
                 self.unnest();
             }
-            No::VariableDeclarationList { .. } => self.visit_variable_declaration_list(id),
-            No::VariableDeclaration {
+            Node::VariableDeclarationList { .. } => self.visit_variable_declaration_list(id),
+            Node::VariableDeclaration {
                 name,
                 equals,
                 initializer,
@@ -1365,18 +1365,18 @@ impl<'f> Visitante<'f> {
                 let Some(init) = initializer else {
                     return;
                 };
-                let multiplas = match self.pai(id).map(|p| self.no(p)) {
-                    Some(No::VariableDeclarationList { variables, .. }) => variables.len() > 1,
+                let multiple = match self.parent(id).map(|p| self.node(p)) {
+                    Some(Node::VariableDeclarationList { variables, .. }) => variables.len() > 1,
                     _ => false,
                 };
-                self.visit_assignment(equals.expect("="), *init, multiplas);
+                self.visit_assignment(equals.expect("="), *init, multiple);
             }
-            No::FunctionDeclarationStatement { function_declaration } => self.visit(Some(*function_declaration)),
-            No::IfStatement { .. } => self.visit_if_statement(id),
-            No::CaseClause { .. } | No::GuardedPattern { .. } | No::WhenClause { .. } => {
+            Node::FunctionDeclarationStatement { function_declaration } => self.visit(Some(*function_declaration)),
+            Node::IfStatement { .. } => self.visit_if_statement(id),
+            Node::CaseClause { .. } | Node::GuardedPattern { .. } | Node::WhenClause { .. } => {
                 panic!("visitado pelo if/case")
             }
-            No::ForStatement {
+            Node::ForStatement {
                 await_keyword,
                 for_keyword,
                 left_parenthesis,
@@ -1396,23 +1396,23 @@ impl<'f> Visitante<'f> {
                 self.unnest();
                 self.visit_loop_body(*body);
             }
-            No::ForPartsWithDeclarations { .. } | No::ForPartsWithExpression { .. } | No::ForPartsWithPattern { .. } => {
+            Node::ForPartsWithDeclarations { .. } | Node::ForPartsWithExpression { .. } | Node::ForPartsWithPattern { .. } => {
                 self.visit_for_parts(id)
             }
-            No::ForEachPartsWithDeclaration {
+            Node::ForEachPartsWithDeclaration {
                 loop_variable,
                 in_keyword,
                 iterable,
             } => {
-                let metadata = match self.no(*loop_variable) {
-                    No::DeclaredIdentifier { metadata, .. } => metadata.clone(),
+                let metadata = match self.node(*loop_variable) {
+                    Node::DeclaredIdentifier { metadata, .. } => metadata.clone(),
                     _ => Vec::new(),
                 };
-                self.visit_nodes(&metadata, Acao::Nada, Acao::Split, Acao::Split);
+                self.visit_nodes(&metadata, Action::Nothing, Action::Split, Action::Split);
                 self.visit(Some(*loop_variable));
                 self.visit_for_each_parts_from_in(*in_keyword, *iterable);
             }
-            No::ForEachPartsWithIdentifier {
+            Node::ForEachPartsWithIdentifier {
                 identifier,
                 in_keyword,
                 iterable,
@@ -1420,7 +1420,7 @@ impl<'f> Visitante<'f> {
                 self.visit(Some(*identifier));
                 self.visit_for_each_parts_from_in(*in_keyword, *iterable);
             }
-            No::ForEachPartsWithPattern {
+            Node::ForEachPartsWithPattern {
                 metadata,
                 keyword,
                 pattern,
@@ -1428,19 +1428,19 @@ impl<'f> Visitante<'f> {
                 iterable,
             } => {
                 self.start_block_argument_nesting();
-                self.visit_nodes(metadata, Acao::Nada, Acao::Split, Acao::Split);
+                self.visit_nodes(metadata, Action::Nothing, Action::Split, Action::Split);
                 self.token(*keyword);
                 self.space();
                 self.visit(Some(*pattern));
                 self.end_block_argument_nesting();
                 self.visit_for_each_parts_from_in(*in_keyword, *iterable);
             }
-            No::DeclaredIdentifier { keyword, type_, name, .. } => {
+            Node::DeclaredIdentifier { keyword, type_, name, .. } => {
                 self.modifier(*keyword);
-                self.visit_after(*type_, Acao::Espaco);
+                self.visit_after(*type_, Action::Space);
                 self.token(*name);
             }
-            No::WhileStatement {
+            Node::WhileStatement {
                 while_keyword,
                 left_parenthesis,
                 condition,
@@ -1457,7 +1457,7 @@ impl<'f> Visitante<'f> {
                 self.unnest();
                 self.visit_loop_body(*body);
             }
-            No::DoStatement {
+            Node::DoStatement {
                 do_keyword,
                 body,
                 while_keyword,
@@ -1482,11 +1482,11 @@ impl<'f> Visitante<'f> {
                 self.token(*semicolon);
                 self.unnest();
             }
-            No::SwitchStatement { .. } => self.visit_switch_statement(id),
-            No::SwitchCase { .. } | No::SwitchPatternCase { .. } | No::SwitchDefault { .. } => {
+            Node::SwitchStatement { .. } => self.visit_switch_statement(id),
+            Node::SwitchCase { .. } | Node::SwitchPatternCase { .. } | Node::SwitchDefault { .. } => {
                 panic!("visitado pelo switch")
             }
-            No::TryStatement {
+            Node::TryStatement {
                 try_keyword,
                 body,
                 catch_clauses,
@@ -1496,17 +1496,17 @@ impl<'f> Visitante<'f> {
                 self.token(*try_keyword);
                 self.space();
                 self.visit(Some(*body));
-                self.visit_nodes(catch_clauses, Acao::Espaco, Acao::Espaco, Acao::Nada);
+                self.visit_nodes(catch_clauses, Action::Space, Action::Space, Action::Nothing);
                 if let Some(f) = finally_keyword {
                     self.write_preceding_comments_and_newlines(*f);
                     self.space();
-                    let t = self.lexema(*f);
+                    let t = self.lexeme(*f);
                     self.write_text(t, *f);
                     self.space();
                 }
                 self.visit(*finally_block);
             }
-            No::CatchClause {
+            Node::CatchClause {
                 on_keyword,
                 exception_type,
                 catch_keyword,
@@ -1536,35 +1536,35 @@ impl<'f> Visitante<'f> {
                 }
                 self.visit(Some(*body));
             }
-            No::CatchClauseParameter { name } => self.token(*name),
-            No::ReturnStatement {
+            Node::CatchClauseParameter { name } => self.token(*name),
+            Node::ReturnStatement {
                 return_keyword,
                 expression,
                 semicolon,
             } => {
                 self.nest_expression(None, false);
                 self.token(*return_keyword);
-                self.visit_before(*expression, Acao::Espaco);
+                self.visit_before(*expression, Action::Space);
                 self.token(*semicolon);
                 self.unnest();
             }
-            No::BreakStatement {
+            Node::BreakStatement {
                 break_keyword: kw,
                 label,
                 semicolon,
             }
-            | No::ContinueStatement {
+            | Node::ContinueStatement {
                 continue_keyword: kw,
                 label,
                 semicolon,
             } => {
                 self.nest_expression(None, false);
                 self.token(*kw);
-                self.visit_before(*label, Acao::Espaco);
+                self.visit_before(*label, Action::Space);
                 self.token(*semicolon);
                 self.unnest();
             }
-            No::YieldStatement {
+            Node::YieldStatement {
                 yield_keyword,
                 star,
                 expression,
@@ -1578,15 +1578,15 @@ impl<'f> Visitante<'f> {
                 self.token(*semicolon);
                 self.unnest();
             }
-            No::LabeledStatement { labels, statement } => {
-                self.visit_nodes(labels, Acao::Nada, Acao::NovaLinha, Acao::NovaLinha);
+            Node::LabeledStatement { labels, statement } => {
+                self.visit_nodes(labels, Action::Nothing, Action::Newline, Action::Newline);
                 self.visit(Some(*statement));
             }
-            No::Label { label, colon } => {
+            Node::Label { label, colon } => {
                 self.visit(Some(*label));
                 self.token(*colon);
             }
-            No::AssertStatement {
+            Node::AssertStatement {
                 assert_keyword,
                 left_parenthesis,
                 condition,
@@ -1609,11 +1609,11 @@ impl<'f> Visitante<'f> {
                 self.token(*semicolon);
                 self.unnest();
             }
-            No::PatternVariableDeclarationStatement { declaration, semicolon } => {
+            Node::PatternVariableDeclarationStatement { declaration, semicolon } => {
                 self.visit(Some(*declaration));
                 self.token(*semicolon);
             }
-            No::PatternVariableDeclaration {
+            Node::PatternVariableDeclaration {
                 metadata,
                 keyword,
                 pattern,
@@ -1628,28 +1628,28 @@ impl<'f> Visitante<'f> {
                 self.visit_assignment(*equals, *expression, false);
                 self.unnest();
             }
-            No::AdjacentStrings { .. } => self.visit_adjacent_strings(id),
-            No::AsExpression {
+            Node::AdjacentStrings { .. } => self.visit_adjacent_strings(id),
+            Node::AsExpression {
                 expression,
                 as_operator: op,
                 type_,
             }
-            | No::CastPattern {
+            | Node::CastPattern {
                 pattern: expression,
                 as_token: op,
                 type_,
             } => {
-                self.start_span(custo::NORMAL);
+                self.start_span(cost::NORMAL);
                 self.nest_expression(None, false);
                 self.visit(Some(*expression));
-                self.solo_split(custo::NORMAL);
+                self.solo_split(cost::NORMAL);
                 self.token(*op);
                 self.space();
                 self.visit(Some(*type_));
                 self.unnest();
                 self.end_span();
             }
-            No::AssignmentExpression {
+            Node::AssignmentExpression {
                 left_hand_side,
                 operator,
                 right_hand_side,
@@ -1659,11 +1659,11 @@ impl<'f> Visitante<'f> {
                 self.visit_assignment(*operator, *right_hand_side, false);
                 self.unnest();
             }
-            No::AwaitExpression {
+            Node::AwaitExpression {
                 await_keyword: kw,
                 expression,
             }
-            | No::ThrowExpression {
+            | Node::ThrowExpression {
                 throw_keyword: kw,
                 expression,
             } => {
@@ -1671,29 +1671,29 @@ impl<'f> Visitante<'f> {
                 self.space();
                 self.visit(Some(*expression));
             }
-            No::BinaryExpression { operator, .. } => {
-                let aninhar = !self.pai_e(id, |p| matches!(p, No::ExpressionFunctionBody { .. }));
-                let prec = precedencia(self.lexema(*operator));
-                self.visit_binary(id, Some(prec), aninhar);
+            Node::BinaryExpression { operator, .. } => {
+                let nest = !self.parent_and(id, |p| matches!(p, Node::ExpressionFunctionBody { .. }));
+                let prec = precedence(self.lexeme(*operator));
+                self.visit_binary(id, Some(prec), nest);
             }
-            No::LogicalAndPattern { .. } | No::LogicalOrPattern { .. } => self.visit_binary(id, None, true),
-            No::BooleanLiteral { literal }
-            | No::DoubleLiteral { literal }
-            | No::IntegerLiteral { literal }
-            | No::NullLiteral { literal } => self.token(*literal),
-            No::CascadeExpression { .. } => self.visit_cascade_expression(id),
-            No::ConditionalExpression { .. } => self.visit_conditional_expression(id),
-            No::FunctionExpression {
+            Node::LogicalAndPattern { .. } | Node::LogicalOrPattern { .. } => self.visit_binary(id, None, true),
+            Node::BooleanLiteral { literal }
+            | Node::DoubleLiteral { literal }
+            | Node::IntegerLiteral { literal }
+            | Node::NullLiteral { literal } => self.token(*literal),
+            Node::CascadeExpression { .. } => self.visit_cascade_expression(id),
+            Node::ConditionalExpression { .. } => self.visit_conditional_expression(id),
+            Node::FunctionExpression {
                 type_parameters,
                 parameters,
                 body,
             } => self.visit_function_body(*type_parameters, *parameters, *body, |_| {}),
-            No::FunctionExpressionInvocation {
+            Node::FunctionExpressionInvocation {
                 function,
                 type_arguments,
                 argument_list,
             } => {
-                self.start_span(custo::NORMAL);
+                self.start_span(cost::NORMAL);
                 self.nest_expression(None, false);
                 self.visit(Some(*function));
                 self.visit(*type_arguments);
@@ -1701,14 +1701,14 @@ impl<'f> Visitante<'f> {
                 self.unnest();
                 self.end_span();
             }
-            No::FunctionReference {
+            Node::FunctionReference {
                 function,
                 type_arguments,
             } => {
                 self.visit(Some(*function));
                 self.visit(*type_arguments);
             }
-            No::IndexExpression { target, period, .. } => {
+            Node::IndexExpression { target, period, .. } => {
                 self.nest_expression(None, false);
                 if target.is_none() && period.is_some() {
                     self.token_opt(*period);
@@ -1718,14 +1718,14 @@ impl<'f> Visitante<'f> {
                 self.finish_index_expression(id);
                 self.unnest();
             }
-            No::InstanceCreationExpression {
+            Node::InstanceCreationExpression {
                 keyword,
                 constructor_name,
                 argument_list,
             } => {
-                self.start_span(custo::NORMAL);
+                self.start_span(cost::NORMAL);
                 self.modifier(*keyword);
-                self.start_span(custo::CONSTRUCTOR_NAME);
+                self.start_span(cost::CONSTRUCTOR_NAME);
                 self.nest_expression(None, false);
                 self.visit(Some(*constructor_name));
                 self.end_span();
@@ -1733,21 +1733,21 @@ impl<'f> Visitante<'f> {
                 self.end_span();
                 self.unnest();
             }
-            No::ConstructorName { type_, period, name } => {
+            Node::ConstructorName { type_, period, name } => {
                 self.visit(Some(*type_));
                 self.token_opt(*period);
                 self.visit(*name);
             }
-            No::IsExpression {
+            Node::IsExpression {
                 expression,
                 is_operator,
                 not_operator,
                 type_,
             } => {
-                self.start_span(custo::NORMAL);
+                self.start_span(cost::NORMAL);
                 self.nest_expression(None, false);
                 self.visit(Some(*expression));
-                self.solo_split(custo::NORMAL);
+                self.solo_split(cost::NORMAL);
                 self.token(*is_operator);
                 self.token_opt(*not_operator);
                 self.space();
@@ -1755,54 +1755,54 @@ impl<'f> Visitante<'f> {
                 self.unnest();
                 self.end_span();
             }
-            No::ListLiteral {
+            Node::ListLiteral {
                 const_keyword,
                 type_arguments,
                 left_bracket,
                 elements,
                 right_bracket,
             } => {
-                let c = if elements.len() <= 1 { custo::SINGLE_ELEMENT_LIST } else { custo::NORMAL };
+                let c = if elements.len() <= 1 { cost::SINGLE_ELEMENT_LIST } else { cost::NORMAL };
                 self.visit_collection_literal(*left_bracket, elements, *right_bracket, *const_keyword, *type_arguments, Some(c), true, false);
             }
-            No::SetOrMapLiteral {
+            Node::SetOrMapLiteral {
                 const_keyword,
                 type_arguments,
                 left_bracket,
                 elements,
                 right_bracket,
             } => self.visit_collection_literal(*left_bracket, elements, *right_bracket, *const_keyword, *type_arguments, None, true, false),
-            No::ListPattern {
+            Node::ListPattern {
                 type_arguments,
                 left_bracket,
                 elements,
                 right_bracket,
             }
-            | No::MapPattern {
+            | Node::MapPattern {
                 type_arguments,
                 left_bracket,
                 elements,
                 right_bracket,
             } => self.visit_collection_literal(*left_bracket, elements, *right_bracket, None, *type_arguments, None, false, false),
-            No::MapLiteralEntry { key, separator, value } | No::MapPatternEntry { key, separator, value } => {
+            Node::MapLiteralEntry { key, separator, value } | Node::MapPatternEntry { key, separator, value } => {
                 self.nest_expression(None, false);
                 self.visit(Some(*key));
                 self.token(*separator);
-                self.solo_split(custo::NORMAL);
+                self.solo_split(cost::NORMAL);
                 self.visit(Some(*value));
                 self.unnest();
             }
-            No::MethodInvocation { .. } => self.visit_method_invocation(id),
-            No::NamedExpression { .. } => {
-                let (nome, dois_pontos, expr) = self.named_parts(id);
-                self.visit_named_node(nome, dois_pontos, expr, None);
+            Node::MethodInvocation { .. } => self.visit_method_invocation(id),
+            Node::NamedExpression { .. } => {
+                let (nome, colon_, expr) = self.named_parts(id);
+                self.visit_named_node(nome, colon_, expr, None);
             }
-            No::ParenthesizedExpression {
+            Node::ParenthesizedExpression {
                 left_parenthesis,
                 expression,
                 right_parenthesis,
             }
-            | No::ParenthesizedPattern {
+            | Node::ParenthesizedPattern {
                 left_parenthesis,
                 pattern: expression,
                 right_parenthesis,
@@ -1813,22 +1813,22 @@ impl<'f> Visitante<'f> {
                 self.unnest();
                 self.token(*right_parenthesis);
             }
-            No::PostfixExpression { operand, operator } => {
+            Node::PostfixExpression { operand, operator } => {
                 self.visit(Some(*operand));
                 self.token(*operator);
             }
-            No::PrefixExpression { operator, operand } => {
+            Node::PrefixExpression { operator, operand } => {
                 self.token(*operator);
-                if let No::PrefixExpression { operator: op2, .. } = self.no(*operand) {
-                    let l = self.lexema(*op2);
+                if let Node::PrefixExpression { operator: op2, .. } = self.node(*operand) {
+                    let l = self.lexeme(*op2);
                     if l == "-" || l == "--" {
                         self.space();
                     }
                 }
                 self.visit(Some(*operand));
             }
-            No::PrefixedIdentifier { .. } => super::chain::CallChainVisitor::novo(self, id).visit(self),
-            No::PropertyAccess {
+            Node::PrefixedIdentifier { .. } => super::chain::CallChainVisitor::new(self, id).visit(self),
+            Node::PropertyAccess {
                 target,
                 operator,
                 property_name,
@@ -1838,9 +1838,9 @@ impl<'f> Visitante<'f> {
                     self.visit(Some(*property_name));
                     return;
                 }
-                super::chain::CallChainVisitor::novo(self, id).visit(self);
+                super::chain::CallChainVisitor::new(self, id).visit(self);
             }
-            No::RecordLiteral {
+            Node::RecordLiteral {
                 const_keyword,
                 left_parenthesis,
                 fields,
@@ -1849,76 +1849,76 @@ impl<'f> Visitante<'f> {
                 self.modifier(*const_keyword);
                 self.visit_collection_literal(*left_parenthesis, fields, *right_parenthesis, None, None, None, false, true);
             }
-            No::RecordPattern {
+            Node::RecordPattern {
                 left_parenthesis,
                 fields,
                 right_parenthesis,
             } => self.visit_collection_literal(*left_parenthesis, fields, *right_parenthesis, None, None, None, false, true),
-            No::RethrowExpression { rethrow_keyword } => self.token(*rethrow_keyword),
-            No::SimpleIdentifier { token } => self.token(*token),
-            No::SimpleStringLiteral { literal } => self.write_string_literal(*literal),
-            No::StringInterpolation { elements } => {
+            Node::RethrowExpression { rethrow_keyword } => self.token(*rethrow_keyword),
+            Node::SimpleIdentifier { token } => self.token(*token),
+            Node::SimpleStringLiteral { literal } => self.write_string_literal(*literal),
+            Node::StringInterpolation { elements } => {
                 for &e in elements {
                     self.visit(Some(e));
                 }
             }
-            No::InterpolationExpression {
+            Node::InterpolationExpression {
                 left_bracket,
                 expression,
                 right_bracket,
             } => {
-                self.b().0.impedir_quebras();
+                self.b().0.prevent_splits();
                 self.token(*left_bracket);
-                self.start_span(custo::NORMAL);
+                self.start_span(cost::NORMAL);
                 self.visit(Some(*expression));
                 self.end_span();
                 self.token_opt(*right_bracket);
-                self.b().0.liberar_quebras();
+                self.b().0.allow_splits();
             }
-            No::InterpolationString { contents } => self.write_string_literal(*contents),
-            No::SuperExpression { super_keyword: kw } | No::ThisExpression { this_keyword: kw } => self.token(*kw),
-            No::SymbolLiteral { pound_sign, components } => {
+            Node::InterpolationString { contents } => self.write_string_literal(*contents),
+            Node::SuperExpression { super_keyword: kw } | Node::ThisExpression { this_keyword: kw } => self.token(*kw),
+            Node::SymbolLiteral { pound_sign, components } => {
                 self.token(*pound_sign);
                 for &c in components {
-                    if c > 0 && self.lexema(c - 1) == "." {
+                    if c > 0 && self.lexeme(c - 1) == "." {
                         self.token(c - 1);
                     }
                     self.token(c);
                 }
             }
-            No::SwitchExpression { .. } => self.visit_switch_expression(id),
-            No::SwitchExpressionCase { .. } => self.visit_switch_expression_case(id),
-            No::ArgumentList { .. } => self.visit_argument_list(id, true),
-            No::SpreadElement {
+            Node::SwitchExpression { .. } => self.visit_switch_expression(id),
+            Node::SwitchExpressionCase { .. } => self.visit_switch_expression_case(id),
+            Node::ArgumentList { .. } => self.visit_argument_list(id, true),
+            Node::SpreadElement {
                 spread_operator,
                 expression,
             } => {
                 self.token(*spread_operator);
                 self.visit(Some(*expression));
             }
-            No::IfElement { .. } => self.visit_if_element(id),
-            No::ForElement { .. } => self.visit_for_element(id),
-            No::AssignedVariablePattern { name } => self.token(*name),
-            No::ConstantPattern {
+            Node::IfElement { .. } => self.visit_if_element(id),
+            Node::ForElement { .. } => self.visit_for_element(id),
+            Node::AssignedVariablePattern { name } => self.token(*name),
+            Node::ConstantPattern {
                 const_keyword,
                 expression,
             } => {
                 self.modifier(*const_keyword);
                 self.visit(Some(*expression));
             }
-            No::DeclaredVariablePattern { keyword, type_, name } | No::WildcardPattern { keyword, type_, name } => {
+            Node::DeclaredVariablePattern { keyword, type_, name } | Node::WildcardPattern { keyword, type_, name } => {
                 self.modifier(*keyword);
                 if let Some(t) = type_ {
                     self.visit(Some(*t));
-                    self.solo_split(custo::NORMAL);
+                    self.solo_split(cost::NORMAL);
                 }
                 self.token(*name);
             }
-            No::NullAssertPattern { pattern, operator } | No::NullCheckPattern { pattern, operator } => {
+            Node::NullAssertPattern { pattern, operator } | Node::NullCheckPattern { pattern, operator } => {
                 self.visit(Some(*pattern));
                 self.token(*operator);
             }
-            No::ObjectPattern {
+            Node::ObjectPattern {
                 type_,
                 left_parenthesis,
                 fields,
@@ -1927,27 +1927,27 @@ impl<'f> Visitante<'f> {
                 self.visit(Some(*type_));
                 self.visit_collection_literal(*left_parenthesis, fields, *right_parenthesis, None, None, None, false, false);
             }
-            No::PatternField { name, pattern } => match name.map(|n| self.no(n)) {
-                Some(No::PatternFieldName { name: Some(nm), colon }) => {
+            Node::PatternField { name, pattern } => match name.map(|n| self.node(n)) {
+                Some(Node::PatternFieldName { name: Some(nm), colon }) => {
                     self.visit_named_node(*nm, *colon, *pattern, None);
                 }
-                Some(No::PatternFieldName { name: None, colon }) => {
+                Some(Node::PatternFieldName { name: None, colon }) => {
                     self.token(*colon);
                     self.visit(Some(*pattern));
                 }
                 _ => self.visit(Some(*pattern)),
             },
-            No::PatternFieldName { .. } => panic!("visitado pelo campo"),
-            No::RelationalPattern { operator, operand } => {
+            Node::PatternFieldName { .. } => panic!("visitado pelo campo"),
+            Node::RelationalPattern { operator, operand } => {
                 self.token(*operator);
                 self.space();
                 self.visit(Some(*operand));
             }
-            No::RestPatternElement { operator, pattern } => {
+            Node::RestPatternElement { operator, pattern } => {
                 self.token(*operator);
                 self.visit(*pattern);
             }
-            No::PatternAssignment {
+            Node::PatternAssignment {
                 pattern,
                 equals,
                 expression,
@@ -1960,69 +1960,69 @@ impl<'f> Visitante<'f> {
 
     // ======================================================== declarações
 
-    fn visit_compilation_unit(&mut self, id: NoId) {
-        let No::CompilationUnit {
+    fn visit_compilation_unit(&mut self, id: NodeId) {
+        let Node::CompilationUnit {
             script_tag,
             directives,
             declarations,
-        } = self.no(id)
+        } = self.node(id)
         else {
             unreachable!()
         };
         if let Some(st) = script_tag {
-            let t = self.lexema(*st).trim();
+            let t = self.lexeme(*st).trim();
             self.write_text(t, *st);
             self.two_newlines();
         }
-        let mut diretivas: &[NoId] = directives;
-        if let Some(&primeira) = diretivas.first()
-            && matches!(self.no(primeira), No::LibraryDirective { .. })
+        let mut directives_: &[NodeId] = directives;
+        if let Some(&first_) = directives_.first()
+            && matches!(self.node(first_), Node::LibraryDirective { .. })
         {
-            self.visit(Some(primeira));
+            self.visit(Some(first_));
             self.two_newlines();
-            diretivas = &diretivas[1..];
+            directives_ = &directives_[1..];
         }
-        self.visit_nodes(diretivas, Acao::Nada, Acao::OneOrTwoNewlines, Acao::Nada);
+        self.visit_nodes(directives_, Action::Nothing, Action::OneOrTwoNewlines, Action::Nothing);
 
-        let mut precisa_dupla = true;
+        let mut needs_double = true;
         for &d in declarations {
-            let tem_corpo = matches!(
-                self.no(d),
-                No::ClassDeclaration { .. } | No::EnumDeclaration { .. } | No::ExtensionDeclaration { .. }
+            let has_body = matches!(
+                self.node(d),
+                Node::ClassDeclaration { .. } | Node::EnumDeclaration { .. } | Node::ExtensionDeclaration { .. }
             );
-            if tem_corpo {
-                precisa_dupla = true;
+            if has_body {
+                needs_double = true;
             }
-            if precisa_dupla {
+            if needs_double {
                 self.two_newlines();
             } else {
                 self.one_or_two_newlines();
             }
             self.visit(Some(d));
-            precisa_dupla = false;
-            if tem_corpo {
-                precisa_dupla = true;
-            } else if matches!(self.no(d), No::FunctionDeclaration { .. })
-                && let Some(corpo) = self.corpo_de_declaracao(d)
-                && matches!(self.no(corpo), No::BlockFunctionBody { .. })
+            needs_double = false;
+            if has_body {
+                needs_double = true;
+            } else if matches!(self.node(d), Node::FunctionDeclaration { .. })
+                && let Some(corpo) = self.declaration_body(d)
+                && matches!(self.node(corpo), Node::BlockFunctionBody { .. })
             {
-                precisa_dupla = self.bloco_nao_vazio(corpo);
+                needs_double = self.non_empty_block(corpo);
             }
         }
     }
 
     /// `_visitDirectiveMetadata(directive)`.
-    fn visit_directive_metadata(&mut self, id: NoId, metadata: &[NoId]) {
-        let primeira = match self.pai(id).map(|p| self.no(p)) {
-            Some(No::CompilationUnit { directives, .. }) => directives.first() == Some(&id),
+    fn visit_directive_metadata(&mut self, id: NodeId, metadata: &[NodeId]) {
+        let first_ = match self.parent(id).map(|p| self.node(p)) {
+            Some(Node::CompilationUnit { directives, .. }) => directives.first() == Some(&id),
             _ => false,
         };
-        let depois = if primeira { Acao::OneOrTwoNewlines } else { Acao::NovaLinha };
-        self.visit_nodes(metadata, Acao::Nada, Acao::NovaLinha, depois);
+        let after = if first_ { Action::OneOrTwoNewlines } else { Action::Newline };
+        self.visit_nodes(metadata, Action::Nothing, Action::Newline, after);
     }
 
-    fn visit_import_directive(&mut self, id: NoId) {
-        let No::ImportDirective {
+    fn visit_import_directive(&mut self, id: NodeId) {
+        let Node::ImportDirective {
             metadata,
             import_keyword,
             uri,
@@ -2032,7 +2032,7 @@ impl<'f> Visitante<'f> {
             prefix,
             combinators,
             semicolon,
-        } = self.no(id)
+        } = self.node(id)
         else {
             unreachable!()
         };
@@ -2041,23 +2041,23 @@ impl<'f> Visitante<'f> {
         self.token(*import_keyword);
         self.space();
         self.visit(Some(*uri));
-        let mut escreveu_config = false;
+        let mut wrote_config = false;
         if let Some(asw) = as_keyword
             && let Some(&c0) = configurations.first()
-            && let No::Configuration { if_keyword, .. } = self.no(c0)
-            && self.tk.lista[*if_keyword as usize].inicio < self.tk.lista[*asw as usize].inicio
+            && let Node::Configuration { if_keyword, .. } = self.node(c0)
+            && self.tk.list[*if_keyword as usize].start < self.tk.list[*asw as usize].start
         {
             self.visit_configurations(configurations);
-            escreveu_config = true;
+            wrote_config = true;
         }
         if let Some(asw) = as_keyword {
-            self.solo_split(custo::NORMAL);
+            self.solo_split(cost::NORMAL);
             self.modifier(*deferred_keyword);
             self.token(*asw);
             self.space();
             self.visit(*prefix);
         }
-        if !escreveu_config {
+        if !wrote_config {
             self.visit_configurations(configurations);
         }
         self.visit_combinators(combinators);
@@ -2065,7 +2065,7 @@ impl<'f> Visitante<'f> {
         self.unnest();
     }
 
-    fn visit_configurations(&mut self, configs: &[NoId]) {
+    fn visit_configurations(&mut self, configs: &[NodeId]) {
         if configs.is_empty() {
             return;
         }
@@ -2077,31 +2077,31 @@ impl<'f> Visitante<'f> {
         self.end_rule();
     }
 
-    fn visit_combinators(&mut self, combinators: &[NoId]) {
-        let r = self.a.regra_combinador();
+    fn visit_combinators(&mut self, combinators: &[NodeId]) {
+        let r = self.a.combinator_rule();
         self.start_rule(Some(r));
-        self.visit_nodes(combinators, Acao::Nada, Acao::Nada, Acao::Nada);
+        self.visit_nodes(combinators, Action::Nothing, Action::Nothing, Action::Nothing);
         self.end_rule();
     }
 
     /// `_visitCombinator(keyword, nodes)`.
-    fn visit_combinator(&mut self, keyword: Tk, nos: &[NoId]) {
-        let regra = self.current_rule();
-        debug_assert!(self.a.e_combinador(regra));
+    fn visit_combinator(&mut self, keyword: Tk, nodes: &[NodeId]) {
+        let rule = self.current_rule();
+        debug_assert!(self.a.is_combinator(rule));
         let c = self.split();
-        self.a.adicionar_combinador(regra, c);
+        self.a.add_combinator(rule, c);
         self.nest_expression(None, false);
         self.token(keyword);
         let c = self.split();
-        self.a.adicionar_nome(regra, c);
-        for (i, &n) in nos.iter().enumerate() {
+        self.a.add_name(rule, c);
+        for (i, &n) in nodes.iter().enumerate() {
             if i > 0 {
                 let c = self.split();
-                self.a.adicionar_nome(regra, c);
+                self.a.add_name(rule, c);
             }
-            self.aceitar(n);
-            let proximo = self.arv.fim(n) + 1;
-            if self.lexema(proximo) == "," {
+            self.accept(n);
+            let proximo = self.tree_.end(n) + 1;
+            if self.lexeme(proximo) == "," {
                 self.token(proximo);
             }
         }
@@ -2109,16 +2109,16 @@ impl<'f> Visitante<'f> {
     }
 
     /// `_visitClauses(withClause, implementsClause)`.
-    fn visit_clauses(&mut self, with: Option<NoId>, implements: Option<NoId>) {
-        let r = self.a.regra_combinador();
+    fn visit_clauses(&mut self, with: Option<NodeId>, implements: Option<NodeId>) {
+        let r = self.a.combinator_rule();
         self.start_rule(Some(r));
         self.visit(with);
         self.visit(implements);
         self.end_rule();
     }
 
-    fn visit_class_declaration(&mut self, id: NoId) {
-        let No::ClassDeclaration {
+    fn visit_class_declaration(&mut self, id: NodeId) {
+        let Node::ClassDeclaration {
             metadata,
             abstract_keyword,
             macro_keyword,
@@ -2138,7 +2138,7 @@ impl<'f> Visitante<'f> {
             members,
             right_bracket,
             ..
-        } = self.no(id)
+        } = self.node(id)
         else {
             unreachable!()
         };
@@ -2157,14 +2157,14 @@ impl<'f> Visitante<'f> {
         self.visit(*type_parameters);
         self.visit(*extends_clause);
         self.visit_clauses(*with_clause, *implements_clause);
-        self.visit_before(*native_clause, Acao::Espaco);
+        self.visit_before(*native_clause, Action::Space);
         self.space();
         self.unnest();
         self.visit_body(*left_bracket, members, *right_bracket);
     }
 
-    fn visit_class_type_alias(&mut self, id: NoId) {
-        let No::ClassTypeAlias {
+    fn visit_class_type_alias(&mut self, id: NodeId) {
+        let Node::ClassTypeAlias {
             metadata,
             abstract_keyword,
             sealed_keyword,
@@ -2181,7 +2181,7 @@ impl<'f> Visitante<'f> {
             implements_clause,
             semicolon,
             ..
-        } = self.no(id)
+        } = self.node(id)
         else {
             unreachable!()
         };
@@ -2206,8 +2206,8 @@ impl<'f> Visitante<'f> {
         self.unnest();
     }
 
-    fn visit_mixin_declaration(&mut self, id: NoId) {
-        let No::MixinDeclaration {
+    fn visit_mixin_declaration(&mut self, id: NodeId) {
+        let Node::MixinDeclaration {
             metadata,
             base_keyword,
             mixin_keyword,
@@ -2219,7 +2219,7 @@ impl<'f> Visitante<'f> {
             members,
             right_bracket,
             ..
-        } = self.no(id)
+        } = self.node(id)
         else {
             unreachable!()
         };
@@ -2230,24 +2230,24 @@ impl<'f> Visitante<'f> {
         self.space();
         self.token(*name);
         self.visit(*type_parameters);
-        let restricoes: &[NoId] = match on_clause.map(|o| self.no(o)) {
-            Some(No::MixinOnClause {
+        let constraints: &[NodeId] = match on_clause.map(|o| self.node(o)) {
+            Some(Node::MixinOnClause {
                 superclass_constraints, ..
             }) => superclass_constraints,
             _ => &[],
         };
         if let Some(o) = on_clause
-            && restricoes.len() == 1
-            && let No::MixinOnClause { on_keyword, .. } = self.no(*o)
+            && constraints.len() == 1
+            && let Node::MixinOnClause { on_keyword, .. } = self.node(*o)
         {
-            self.solo_split(custo::NORMAL);
+            self.solo_split(cost::NORMAL);
             self.token(*on_keyword);
             self.space();
-            self.visit(Some(restricoes[0]));
+            self.visit(Some(constraints[0]));
         }
-        let r = self.a.regra_combinador();
+        let r = self.a.combinator_rule();
         self.start_rule(Some(r));
-        if restricoes.len() > 1 {
+        if constraints.len() > 1 {
             self.visit(*on_clause);
         }
         self.visit(*implements_clause);
@@ -2257,8 +2257,8 @@ impl<'f> Visitante<'f> {
         self.visit_body(*left_bracket, members, *right_bracket);
     }
 
-    fn visit_extension_declaration(&mut self, id: NoId) {
-        let No::ExtensionDeclaration {
+    fn visit_extension_declaration(&mut self, id: NodeId) {
+        let Node::ExtensionDeclaration {
             metadata,
             extension_keyword,
             name,
@@ -2268,7 +2268,7 @@ impl<'f> Visitante<'f> {
             members,
             right_bracket,
             ..
-        } = self.no(id)
+        } = self.node(id)
         else {
             unreachable!()
         };
@@ -2278,9 +2278,9 @@ impl<'f> Visitante<'f> {
         self.token_space_before(*name);
         self.visit(*type_parameters);
         if let Some(o) = on_clause
-            && let No::ExtensionOnClause { on_keyword, extended_type } = self.no(*o)
+            && let Node::ExtensionOnClause { on_keyword, extended_type } = self.node(*o)
         {
-            self.solo_split(custo::NORMAL);
+            self.solo_split(cost::NORMAL);
             self.token(*on_keyword);
             self.space();
             self.visit(Some(*extended_type));
@@ -2290,8 +2290,8 @@ impl<'f> Visitante<'f> {
         self.visit_body(*left_bracket, members, *right_bracket);
     }
 
-    fn visit_extension_type_declaration(&mut self, id: NoId) {
-        let No::ExtensionTypeDeclaration {
+    fn visit_extension_type_declaration(&mut self, id: NodeId) {
+        let Node::ExtensionTypeDeclaration {
             metadata,
             extension_keyword,
             type_keyword,
@@ -2304,7 +2304,7 @@ impl<'f> Visitante<'f> {
             members,
             right_bracket,
             ..
-        } = self.no(id)
+        } = self.node(id)
         else {
             unreachable!()
         };
@@ -2320,7 +2320,7 @@ impl<'f> Visitante<'f> {
         self.visit(*type_parameters);
         self.visit(Some(*representation));
         self.unnest();
-        let r = self.a.regra_combinador();
+        let r = self.a.combinator_rule();
         self.start_rule(Some(r));
         self.visit(*implements_clause);
         self.end_rule();
@@ -2329,29 +2329,29 @@ impl<'f> Visitante<'f> {
         self.visit_body(*left_bracket, members, *right_bracket);
     }
 
-    fn visit_representation_declaration(&mut self, id: NoId) {
-        let No::RepresentationDeclaration {
+    fn visit_representation_declaration(&mut self, id: NodeId) {
+        let Node::RepresentationDeclaration {
             constructor_name,
             left_parenthesis,
             field_metadata,
             field_type,
             field_name,
             right_parenthesis,
-        } = self.no(id)
+        } = self.node(id)
         else {
             unreachable!()
         };
         self.visit(*constructor_name);
         self.token(*left_parenthesis);
-        let regra = self.a.regra_posicional(None, 1, 0, 0);
-        self.start_rule(Some(regra));
+        let rule = self.a.positional_rule(None, 1, 0, 0);
+        self.start_rule(Some(rule));
         let c = self.zero_split();
-        self.a.antes_do_argumento(regra, Some(c));
+        self.a.before_argument(rule, Some(c));
         self.start_block_argument_nesting();
-        self.start_span(custo::NORMAL);
+        self.start_span(cost::NORMAL);
         let (ft, fname) = (*field_type, *field_name);
         self.visit_parameter_metadata(field_metadata, |v| {
-            let r = v.a.regra(custo::PARAMETER_TYPE);
+            let r = v.a.rule(cost::PARAMETER_TYPE);
             v.start_lazy_rule(Some(r));
             v.nest_expression(None, false);
             v.visit(Some(ft));
@@ -2366,8 +2366,8 @@ impl<'f> Visitante<'f> {
         self.token(*right_parenthesis);
     }
 
-    fn visit_enum_declaration(&mut self, id: NoId) {
-        let No::EnumDeclaration {
+    fn visit_enum_declaration(&mut self, id: NodeId) {
+        let Node::EnumDeclaration {
             metadata,
             enum_keyword,
             name,
@@ -2379,7 +2379,7 @@ impl<'f> Visitante<'f> {
             members,
             right_bracket,
             ..
-        } = self.no(id)
+        } = self.node(id)
         else {
             unreachable!()
         };
@@ -2393,22 +2393,22 @@ impl<'f> Visitante<'f> {
         self.space();
         self.unnest();
         self.begin_body(*left_bracket, true);
-        self.visit_comma_separated_nodes(constants, Acao::SplitOrTwoNewlines);
+        self.visit_comma_separated_nodes(constants, Action::SplitOrTwoNewlines);
         let ultima = *constants.last().expect("enum com constantes");
         let virgula_final = self.comma_after(ultima);
         if virgula_final.is_some() {
             self.force_rules();
         }
-        let depois = self.arv.fim(ultima) + 1;
-        let mut ponto_e_virgula = None;
-        if self.e_op(depois, Op::Semicolon) {
-            ponto_e_virgula = Some(depois);
+        let after = self.tree_.end(ultima) + 1;
+        let mut semicolon_ = None;
+        if self.is_op(after, Op::Semicolon) {
+            semicolon_ = Some(after);
         } else if let Some(v) = virgula_final
-            && self.e_op(v + 1, Op::Semicolon)
+            && self.is_op(v + 1, Op::Semicolon)
         {
-            ponto_e_virgula = Some(depois + 1);
+            semicolon_ = Some(after + 1);
         }
-        if let Some(pv) = ponto_e_virgula {
+        if let Some(pv) = semicolon_ {
             if virgula_final.is_some() {
                 self.newline();
             }
@@ -2418,15 +2418,15 @@ impl<'f> Visitante<'f> {
             }
         }
         self.visit_body_contents(members);
-        let forcar = ponto_e_virgula.is_some()
+        let force = semicolon_.is_some()
             || virgula_final.is_some()
             || !members.is_empty()
             || self.contains_line_comments(constants, None);
-        self.end_body(*right_bracket, forcar);
+        self.end_body(*right_bracket, force);
     }
 
-    fn visit_constructor_declaration(&mut self, id: NoId) {
-        let No::ConstructorDeclaration {
+    fn visit_constructor_declaration(&mut self, id: NodeId) {
+        let Node::ConstructorDeclaration {
             metadata,
             external_keyword,
             const_keyword,
@@ -2439,7 +2439,7 @@ impl<'f> Visitante<'f> {
             redirected_constructor,
             body,
             ..
-        } = self.no(id)
+        } = self.node(id)
         else {
             unreachable!()
         };
@@ -2457,46 +2457,46 @@ impl<'f> Visitante<'f> {
             self.nest_expression(None, false);
         }
         let redir = *redirected_constructor;
-        let tem_inicializadores = !initializers.is_empty();
+        let has_initializers = !initializers.is_empty();
         self.visit_function_body(None, Some(*parameters), *body, |v| {
             if redir.is_some() {
                 v.visit_constructor_redirects(id);
                 v.unnest();
-            } else if tem_inicializadores {
+            } else if has_initializers {
                 v.visit_constructor_initializers(id);
                 v.end_rule();
             }
         });
     }
 
-    fn visit_constructor_redirects(&mut self, id: NoId) {
-        let No::ConstructorDeclaration {
+    fn visit_constructor_redirects(&mut self, id: NodeId) {
+        let Node::ConstructorDeclaration {
             separator,
             initializers,
             redirected_constructor,
             ..
-        } = self.no(id)
+        } = self.node(id)
         else {
             unreachable!()
         };
         self.token_space_before(*separator);
-        self.solo_split(custo::NORMAL);
-        self.visit_comma_separated_nodes(initializers, Acao::Espaco);
+        self.solo_split(cost::NORMAL);
+        self.visit_comma_separated_nodes(initializers, Action::Space);
         self.visit(*redirected_constructor);
     }
 
-    fn visit_constructor_initializers(&mut self, id: NoId) {
-        let No::ConstructorDeclaration {
+    fn visit_constructor_initializers(&mut self, id: NodeId) {
+        let Node::ConstructorDeclaration {
             parameters,
             separator,
             initializers,
             ..
-        } = self.no(id)
+        } = self.node(id)
         else {
             unreachable!()
         };
-        let params: &[NoId] = match self.no(*parameters) {
-            No::FormalParameterList { parameters, .. } => parameters,
+        let params: &[NodeId] = match self.node(*parameters) {
+            Node::FormalParameterList { parameters, .. } => parameters,
             _ => &[],
         };
         let virgula_final = self.list_has_comma_after(params);
@@ -2506,12 +2506,12 @@ impl<'f> Visitante<'f> {
             if initializers.len() > 1 {
                 let ultimo = *params.last().expect("parâmetro");
                 let k = self.param_kind(ultimo);
-                let enchimento = if k == TipoParametro::Nomeado || k == TipoParametro::OpcionalPosicional {
+                let padding = if k == ParameterKind::Named || k == ParameterKind::OptionalPositional {
                     " "
                 } else {
                     "  "
                 };
-                self.write_text(enchimento, sep);
+                self.write_text(padding, sep);
             }
             self.token(sep);
             self.space();
@@ -2523,13 +2523,13 @@ impl<'f> Visitante<'f> {
             self.space();
             self.indent(Some(2));
         }
-        for (i, &ini) in initializers.iter().enumerate() {
+        for (i, &start_) in initializers.iter().enumerate() {
             if i > 0 {
-                let virgula = self.arv.inicio(ini) - 1;
+                let virgula = self.tree_.start(start_) - 1;
                 self.token(virgula);
                 self.newline();
             }
-            self.aceitar(ini);
+            self.accept(start_);
         }
         self.unindent();
         if !virgula_final {
@@ -2541,31 +2541,31 @@ impl<'f> Visitante<'f> {
     #[allow(clippy::too_many_arguments)]
     fn visit_function_or_method_declaration(
         &mut self,
-        metadata: &[NoId],
+        metadata: &[NodeId],
         external_keyword: Option<Tk>,
         property_keyword: Option<Tk>,
         modifier_keyword: Option<Tk>,
         operator_keyword: Option<Tk>,
         name: Tk,
-        return_type: Option<NoId>,
-        type_parameters: Option<NoId>,
-        formal_parameters: Option<NoId>,
-        body: NoId,
+        return_type: Option<NodeId>,
+        type_parameters: Option<NodeId>,
+        formal_parameters: Option<NodeId>,
+        body: NodeId,
     ) {
         self.visit_metadata(metadata);
         self.nest_expression(None, false);
-        self.start_span(custo::NORMAL);
+        self.start_span(cost::NORMAL);
         self.modifier(external_keyword);
         self.modifier(modifier_keyword);
         if let Some(rt) = return_type {
             self.visit(Some(rt));
-            self.solo_split(custo::NORMAL);
+            self.solo_split(cost::NORMAL);
         }
         self.modifier(property_keyword);
         self.modifier(operator_keyword);
         self.token(name);
         self.end_span();
-        let expr = matches!(self.no(body), No::ExpressionFunctionBody { .. });
+        let expr = matches!(self.node(body), Node::ExpressionFunctionBody { .. });
         self.visit_function_body(type_parameters, formal_parameters, body, |v| {
             if !expr {
                 v.unnest();
@@ -2577,15 +2577,15 @@ impl<'f> Visitante<'f> {
     }
 
     /// `_visitFunctionBody(typeParameters, parameters, body, beforeBody)`.
-    fn visit_function_body(&mut self, type_parameters: Option<NoId>, parameters: Option<NoId>, body: NoId, antes_do_corpo: impl FnOnce(&mut Self)) {
-        let expr = matches!(self.no(body), No::ExpressionFunctionBody { .. });
+    fn visit_function_body(&mut self, type_parameters: Option<NodeId>, parameters: Option<NodeId>, body: NodeId, before_body: impl FnOnce(&mut Self)) {
+        let expr = matches!(self.node(body), Node::ExpressionFunctionBody { .. });
         if expr {
             self.nest_expression(None, false);
-            let r = self.a.regra(custo::ARROW);
+            let r = self.a.rule(cost::ARROW);
             self.start_lazy_rule(Some(r));
         }
         self.visit_parameter_signature(type_parameters, parameters);
-        antes_do_corpo(self);
+        before_body(self);
         self.visit(Some(body));
         if expr {
             self.unnest();
@@ -2593,7 +2593,7 @@ impl<'f> Visitante<'f> {
     }
 
     /// `_visitParameterSignature(typeParameters, parameters)`.
-    fn visit_parameter_signature(&mut self, type_parameters: Option<NoId>, parameters: Option<NoId>) {
+    fn visit_parameter_signature(&mut self, type_parameters: Option<NodeId>, parameters: Option<NodeId>) {
         self.nest_expression(None, false);
         self.visit(type_parameters);
         if let Some(p) = parameters {
@@ -2602,14 +2602,14 @@ impl<'f> Visitante<'f> {
         self.unnest();
     }
 
-    fn visit_expression_function_body(&mut self, id: NoId) {
-        let No::ExpressionFunctionBody {
+    fn visit_expression_function_body(&mut self, id: NodeId) {
+        let Node::ExpressionFunctionBody {
             keyword,
             star,
             function_definition,
             expression,
             semicolon,
-        } = self.no(id)
+        } = self.node(id)
         else {
             unreachable!()
         };
@@ -2619,35 +2619,35 @@ impl<'f> Visitante<'f> {
         if keyword.is_some() || star.is_some() {
             self.space();
         }
-        let corpo_de_funcao = self.is_function_expression_body(id);
-        if corpo_de_funcao {
-            self.start_span(custo::NORMAL);
+        let function_body = self.is_function_expression_body(id);
+        if function_body {
+            self.start_span(cost::NORMAL);
         }
         self.token(*function_definition);
         self.split();
-        let binaria = matches!(self.no(*expression), No::BinaryExpression { .. });
-        if !binaria {
+        let binary = matches!(self.node(*expression), Node::BinaryExpression { .. });
+        if !binary {
             self.end_rule();
         }
-        if corpo_de_funcao {
+        if function_body {
             self.end_span();
         }
-        let mut arg_com_virgula = false;
-        if let Some(p) = self.pai(id)
-            && matches!(self.no(p), No::FunctionExpression { .. })
+        let mut arg_with_comma = false;
+        if let Some(p) = self.parent(id)
+            && matches!(self.node(p), Node::FunctionExpression { .. })
         {
-            arg_com_virgula = self.is_trailing_comma_argument(p);
+            arg_with_comma = self.is_trailing_comma_argument(p);
         }
-        if !arg_com_virgula {
+        if !arg_with_comma {
             self.start_block_argument_nesting();
         }
-        self.start_span(custo::NORMAL);
+        self.start_span(cost::NORMAL);
         self.visit(Some(*expression));
         self.end_span();
-        if !arg_com_virgula {
+        if !arg_with_comma {
             self.end_block_argument_nesting();
         }
-        if binaria {
+        if binary {
             self.end_rule();
         }
         self.token_opt(*semicolon);
@@ -2656,20 +2656,20 @@ impl<'f> Visitante<'f> {
     // ============================================================ parâmetros
 
     /// `visitFormalParameterList(node, nestExpression:)`.
-    fn visit_formal_parameter_list(&mut self, id: NoId, aninhar: bool) {
-        let No::FormalParameterList {
+    fn visit_formal_parameter_list(&mut self, id: NodeId, nest: bool) {
+        let Node::FormalParameterList {
             left_parenthesis,
             parameters,
             left_delimiter,
             right_delimiter,
             right_parenthesis,
-        } = self.no(id)
+        } = self.node(id)
         else {
             unreachable!()
         };
         if parameters.is_empty() {
             self.token(*left_parenthesis);
-            if self.tem_comentarios(*right_parenthesis) {
+            if self.has_comments(*right_parenthesis) {
                 self.solo_zero_split();
             }
             self.token(*right_parenthesis);
@@ -2679,61 +2679,61 @@ impl<'f> Visitante<'f> {
             self.visit_trailing_comma_parameter_list(id);
             return;
         }
-        let obrigatorios: Vec<NoId> = parameters
+        let required_count: Vec<NodeId> = parameters
             .iter()
             .copied()
-            .filter(|&p| !matches!(self.no(p), No::DefaultFormalParameter { .. }))
+            .filter(|&p| !matches!(self.node(p), Node::DefaultFormalParameter { .. }))
             .collect();
-        let opcionais: Vec<NoId> = parameters
+        let optionals: Vec<NodeId> = parameters
             .iter()
             .copied()
-            .filter(|&p| matches!(self.no(p), No::DefaultFormalParameter { .. }))
+            .filter(|&p| matches!(self.node(p), Node::DefaultFormalParameter { .. }))
             .collect();
-        if aninhar {
+        if nest {
             self.nest_expression(None, false);
         }
         self.token(*left_parenthesis);
-        let mut regra = None;
-        if !obrigatorios.is_empty() {
-            let r = self.a.regra_posicional(None, obrigatorios.len(), 0, 0);
-            regra = Some(r);
+        let mut rule = None;
+        if !required_count.is_empty() {
+            let r = self.a.positional_rule(None, required_count.len(), 0, 0);
+            rule = Some(r);
             self.start_rule(Some(r));
             if self.is_function_expression_body(id) {
-                self.a.antes_do_argumento(r, None);
+                self.a.before_argument(r, None);
             } else {
                 let c = self.zero_split();
-                self.a.antes_do_argumento(r, Some(c));
+                self.a.before_argument(r, Some(c));
             }
             self.start_block_argument_nesting();
-            self.start_span(custo::NORMAL);
-            for (i, &p) in obrigatorios.iter().enumerate() {
+            self.start_span(cost::NORMAL);
+            for (i, &p) in required_count.iter().enumerate() {
                 self.visit(Some(p));
                 self.write_comma_after(p);
-                if i + 1 != obrigatorios.len() {
+                if i + 1 != required_count.len() {
                     let c = self.split();
-                    self.a.antes_do_argumento(r, Some(c));
+                    self.a.before_argument(r, Some(c));
                 }
             }
             self.end_block_argument_nesting();
             self.end_span();
             self.end_rule();
         }
-        if !opcionais.is_empty() {
-            let nomeada = self.a.regra_nomeada(None, 0, 0);
-            if let Some(r) = regra {
-                self.a.restricoes_de_nomeados(r, nomeada);
+        if !optionals.is_empty() {
+            let named_ = self.a.named_rule(None, 0, 0);
+            if let Some(r) = rule {
+                self.a.named_constraints(r, named_);
             }
-            self.start_rule(Some(nomeada));
+            self.start_rule(Some(named_));
             self.start_block_argument_nesting();
-            let c = self.builder_split(true, !obrigatorios.is_empty());
-            self.a.antes_do_argumento(nomeada, Some(c));
+            let c = self.builder_split(true, !required_count.is_empty());
+            self.a.before_argument(named_, Some(c));
             self.token_opt(*left_delimiter);
-            for (i, &p) in opcionais.iter().enumerate() {
+            for (i, &p) in optionals.iter().enumerate() {
                 self.visit(Some(p));
                 self.write_comma_after(p);
-                if i + 1 != opcionais.len() {
+                if i + 1 != optionals.len() {
                     let c = self.split();
-                    self.a.antes_do_argumento(nomeada, Some(c));
+                    self.a.before_argument(named_, Some(c));
                 }
             }
             self.end_block_argument_nesting();
@@ -2741,36 +2741,36 @@ impl<'f> Visitante<'f> {
             self.token_opt(*right_delimiter);
         }
         self.token(*right_parenthesis);
-        if aninhar {
+        if nest {
             self.unnest();
         }
     }
 
     /// `_visitTrailingCommaParameterList(parameters)`.
-    fn visit_trailing_comma_parameter_list(&mut self, id: NoId) {
-        let No::FormalParameterList {
+    fn visit_trailing_comma_parameter_list(&mut self, id: NodeId) {
+        let Node::FormalParameterList {
             left_parenthesis,
             parameters,
             left_delimiter,
             right_delimiter,
             right_parenthesis,
-        } = self.no(id)
+        } = self.node(id)
         else {
             unreachable!()
         };
-        let dura = self.a.regra_dura();
-        self.start_rule(Some(dura));
+        let hard = self.a.hard_rule();
+        self.start_rule(Some(hard));
         self.token(*left_parenthesis);
-        let mut ultimo_obrigatorio = None;
+        let mut last_required = None;
         for (i, &p) in parameters.iter().enumerate() {
-            if matches!(self.no(p), No::DefaultFormalParameter { .. }) {
+            if matches!(self.node(p), Node::DefaultFormalParameter { .. }) {
                 if i > 0 {
-                    ultimo_obrigatorio = Some(parameters[i - 1]);
+                    last_required = Some(parameters[i - 1]);
                 }
                 break;
             }
         }
-        if matches!(self.no(parameters[0]), No::DefaultFormalParameter { .. }) {
+        if matches!(self.node(parameters[0]), Node::DefaultFormalParameter { .. }) {
             self.token_opt(*left_delimiter);
         }
         self.start_block(None, true, false);
@@ -2778,48 +2778,48 @@ impl<'f> Visitante<'f> {
             self.write_newline(false, false, false);
             self.visit(Some(p));
             self.write_comma_after(p);
-            if Some(p) == ultimo_obrigatorio {
+            if Some(p) == last_required {
                 self.space();
                 self.token_opt(*left_delimiter);
-                ultimo_obrigatorio = None;
+                last_required = None;
             }
         }
-        let primeiro_delim = right_delimiter.unwrap_or(*right_parenthesis);
-        if self.tem_comentarios(primeiro_delim) {
+        let first_delim = right_delimiter.unwrap_or(*right_parenthesis);
+        if self.has_comments(first_delim) {
             self.write_newline(false, false, false);
-            self.write_preceding_comments_and_newlines(primeiro_delim);
+            self.write_preceding_comments_and_newlines(first_delim);
         }
         self.end_block(true);
         self.end_rule();
-        let t = self.lexema(primeiro_delim);
-        self.write_text(t, primeiro_delim);
-        if primeiro_delim != *right_parenthesis {
+        let t = self.lexeme(first_delim);
+        self.write_text(t, first_delim);
+        if first_delim != *right_parenthesis {
             self.token(*right_parenthesis);
         }
     }
 
     /// `_beginFormalParameter(node)`.
-    fn begin_formal_parameter(&mut self, id: NoId) {
-        let r = self.a.regra(custo::PARAMETER_TYPE);
+    fn begin_formal_parameter(&mut self, id: NodeId) {
+        let r = self.a.rule(cost::PARAMETER_TYPE);
         self.start_lazy_rule(Some(r));
         self.nest_expression(None, false);
-        let (req, cov) = match self.no(id) {
-            No::SimpleFormalParameter {
+        let (req, covariant_) = match self.node(id) {
+            Node::SimpleFormalParameter {
                 required_keyword,
                 covariant_keyword,
                 ..
             }
-            | No::FieldFormalParameter {
+            | Node::FieldFormalParameter {
                 required_keyword,
                 covariant_keyword,
                 ..
             }
-            | No::SuperFormalParameter {
+            | Node::SuperFormalParameter {
                 required_keyword,
                 covariant_keyword,
                 ..
             }
-            | No::FunctionTypedFormalParameter {
+            | Node::FunctionTypedFormalParameter {
                 required_keyword,
                 covariant_keyword,
                 ..
@@ -2827,7 +2827,7 @@ impl<'f> Visitante<'f> {
             _ => (None, None),
         };
         self.modifier(req);
-        self.modifier(cov);
+        self.modifier(covariant_);
     }
 
     /// `_endFormalParameter(node)`.
@@ -2837,44 +2837,44 @@ impl<'f> Visitante<'f> {
     }
 
     /// `visitParameterMetadata(metadata, visitParameter)`.
-    fn visit_parameter_metadata(&mut self, metadata: &[NoId], visitar: impl FnOnce(&mut Self)) {
+    fn visit_parameter_metadata(&mut self, metadata: &[NodeId], visit: impl FnOnce(&mut Self)) {
         if metadata.is_empty() {
-            visitar(self);
+            visit(self);
             return;
         }
         self.start_lazy_rule(None);
-        self.visit_nodes(metadata, Acao::Nada, Acao::Split, Acao::Split);
-        visitar(self);
+        self.visit_nodes(metadata, Action::Nothing, Action::Split, Action::Split);
+        visit(self);
         self.end_rule();
     }
 
     /// `_separatorBetweenTypeAndVariable(type, isSolo:)`.
-    fn separator_between_type_and_variable(&mut self, tipo: Option<NoId>, solo: bool) {
+    fn separator_between_type_and_variable(&mut self, tipo: Option<NodeId>, solo: bool) {
         let Some(t) = tipo else {
             return;
         };
-        let tipo_bloco = match self.no(t) {
-            No::GenericFunctionType { parameters, .. } => match self.no(*parameters) {
-                No::FormalParameterList { parameters, .. } => !parameters.is_empty() && self.list_has_comma_after(parameters),
+        let block_type = match self.node(t) {
+            Node::GenericFunctionType { parameters, .. } => match self.node(*parameters) {
+                Node::FormalParameterList { parameters, .. } => !parameters.is_empty() && self.list_has_comma_after(parameters),
                 _ => false,
             },
-            No::RecordTypeAnnotation { .. } => true,
+            Node::RecordTypeAnnotation { .. } => true,
             _ => false,
         };
-        if tipo_bloco {
+        if block_type {
             self.space();
         } else if solo {
-            self.solo_split(custo::NORMAL);
+            self.solo_split(cost::NORMAL);
         } else {
             self.split();
         }
     }
 
     /// `_visitGenericFunctionType`.
-    fn visit_generic_function_type(&mut self, return_type: Option<NoId>, function_keyword: Tk, type_parameters: Option<NoId>, parameters: NoId) {
+    fn visit_generic_function_type(&mut self, return_type: Option<NodeId>, function_keyword: Tk, type_parameters: Option<NodeId>, parameters: NodeId) {
         self.start_lazy_rule(None);
         self.nest_expression(None, false);
-        self.visit_after(return_type, Acao::Split);
+        self.visit_after(return_type, Action::Split);
         self.token(function_keyword);
         self.unnest();
         self.end_rule();
@@ -2882,7 +2882,7 @@ impl<'f> Visitante<'f> {
     }
 
     /// `_visitGenericTypeAliasHeader`.
-    fn visit_generic_type_alias_header(&mut self, typedef_keyword: Tk, name: Tk, type_parameters: Option<NoId>, equals: Tk) {
+    fn visit_generic_type_alias_header(&mut self, typedef_keyword: Tk, name: Tk, type_parameters: Option<NodeId>, equals: Tk) {
         self.token(typedef_keyword);
         self.space();
         self.start_rule(None);
@@ -2893,28 +2893,28 @@ impl<'f> Visitante<'f> {
         self.end_rule();
     }
 
-    fn visit_record_type_annotation(&mut self, id: NoId) {
-        let No::RecordTypeAnnotation {
+    fn visit_record_type_annotation(&mut self, id: NodeId) {
+        let Node::RecordTypeAnnotation {
             left_parenthesis,
             positional_fields,
             named_fields,
             right_parenthesis,
             question,
-        } = self.no(id)
+        } = self.node(id)
         else {
             unreachable!()
         };
         if positional_fields.is_empty() && named_fields.is_none() {
             self.token(*left_parenthesis);
-            if self.tem_comentarios(*right_parenthesis) {
+            if self.has_comments(*right_parenthesis) {
                 self.solo_zero_split();
             }
             self.token(*right_parenthesis);
             self.token_opt(*question);
             return;
         }
-        let nomeados = named_fields.map(|n| match self.no(n) {
-            No::RecordTypeAnnotationNamedFields {
+        let named_args = named_fields.map(|n| match self.node(n) {
+            Node::RecordTypeAnnotationNamedFields {
                 left_bracket,
                 fields,
                 right_bracket,
@@ -2924,7 +2924,7 @@ impl<'f> Visitante<'f> {
         self.token(*left_parenthesis);
         self.start_rule(None);
         if positional_fields.is_empty()
-            && let Some((lb, _, _)) = nomeados
+            && let Some((lb, _, _)) = named_args
         {
             self.token(lb);
         }
@@ -2934,60 +2934,60 @@ impl<'f> Visitante<'f> {
             self.visit(Some(f));
             self.write_comma_after(f);
         }
-        let mut primeiro_fecho = *right_parenthesis;
-        if let Some((lb, campos, rb)) = nomeados {
+        let mut first_closer = *right_parenthesis;
+        if let Some((lb, fields_, rb)) = named_args {
             if !positional_fields.is_empty() {
                 self.space();
                 self.token(lb);
             }
-            for (i, &f) in campos.iter().enumerate() {
+            for (i, &f) in fields_.iter().enumerate() {
                 self.builder_split(false, i != 0);
                 self.visit(Some(f));
                 self.write_comma_after(f);
             }
-            primeiro_fecho = rb;
+            first_closer = rb;
         }
-        if self.tem_comentarios(primeiro_fecho) {
+        if self.has_comments(first_closer) {
             self.newline();
-            self.write_preceding_comments_and_newlines(primeiro_fecho);
+            self.write_preceding_comments_and_newlines(first_closer);
         }
-        let forcar = match nomeados {
+        let force = match named_args {
             None => positional_fields.len() > 1 && self.has_comma_after(*positional_fields.last().expect("campo")),
-            Some((_, campos, _)) => campos.last().is_some_and(|&c| self.has_comma_after(c)),
+            Some((_, fields_, _)) => fields_.last().is_some_and(|&c| self.has_comma_after(c)),
         };
-        self.end_block(forcar);
+        self.end_block(force);
         self.end_rule();
-        let t = self.lexema(primeiro_fecho);
-        self.write_text(t, primeiro_fecho);
-        if nomeados.is_some() {
+        let t = self.lexeme(first_closer);
+        self.write_text(t, first_closer);
+        if named_args.is_some() {
             self.token(*right_parenthesis);
         }
         self.token_opt(*question);
     }
 
     /// `_visitGenericList(leftBracket, rightBracket, nodes)`.
-    fn visit_generic_list(&mut self, esquerdo: Tk, direito: Tk, nos: &[NoId]) {
-        let regra = self.a.regra_argumento_de_tipo();
-        self.start_lazy_rule(Some(regra));
-        self.start_span(custo::NORMAL);
+    fn visit_generic_list(&mut self, left_side: Tk, right_: Tk, nodes: &[NodeId]) {
+        let rule = self.a.type_argument_rule();
+        self.start_lazy_rule(Some(rule));
+        self.start_span(cost::NORMAL);
         self.nest_expression(None, false);
-        self.token(esquerdo);
+        self.token(left_side);
         let c = self.zero_split();
-        self.a.antes_do_argumento(regra, Some(c));
+        self.a.before_argument(rule, Some(c));
         self.start_block_argument_nesting();
-        for (i, &n) in nos.iter().enumerate() {
+        for (i, &n) in nodes.iter().enumerate() {
             self.visit(Some(n));
-            if i + 1 != nos.len() {
-                let mut virgula = self.arv.fim(n) + 1;
-                if self.lexema(virgula) == "?" {
+            if i + 1 != nodes.len() {
+                let mut virgula = self.tree_.end(n) + 1;
+                if self.lexeme(virgula) == "?" {
                     virgula += 1;
                 }
                 self.token(virgula);
                 let c = self.split();
-                self.a.antes_do_argumento(regra, Some(c));
+                self.a.before_argument(rule, Some(c));
             }
         }
-        self.token(direito);
+        self.token(right_);
         self.end_block_argument_nesting();
         self.unnest();
         self.end_span();
@@ -2997,10 +2997,10 @@ impl<'f> Visitante<'f> {
     // ============================================================ instruções
 
     /// `_visitLoopBody(body)`.
-    fn visit_loop_body(&mut self, corpo: NoId) {
-        match self.no(corpo) {
-            No::EmptyStatement { .. } => self.visit(Some(corpo)),
-            No::Block { .. } => {
+    fn visit_loop_body(&mut self, corpo: NodeId) {
+        match self.node(corpo) {
+            Node::EmptyStatement { .. } => self.visit(Some(corpo)),
+            Node::Block { .. } => {
                 self.space();
                 self.visit(Some(corpo));
             }
@@ -3015,9 +3015,9 @@ impl<'f> Visitante<'f> {
         }
     }
 
-    fn visit_for_parts(&mut self, id: NoId) {
-        let (left_separator, condition, right_separator, updaters) = match self.no(id) {
-            No::ForPartsWithDeclarations {
+    fn visit_for_parts(&mut self, id: NodeId) {
+        let (left_separator, condition, right_separator, updaters) = match self.node(id) {
+            Node::ForPartsWithDeclarations {
                 variables,
                 left_separator,
                 condition,
@@ -3026,24 +3026,24 @@ impl<'f> Visitante<'f> {
             } => {
                 self.nest_expression(None, false);
                 self.start_rule(None);
-                if let No::VariableDeclarationList {
+                if let Node::VariableDeclarationList {
                     metadata,
                     keyword,
                     type_,
                     variables: vars,
                     ..
-                } = self.no(*variables)
+                } = self.node(*variables)
                 {
-                    self.visit_nodes(metadata, Acao::Nada, Acao::Split, Acao::Split);
+                    self.visit_nodes(metadata, Action::Nothing, Action::Split, Action::Split);
                     self.modifier(*keyword);
-                    self.visit_after(*type_, Acao::Espaco);
-                    self.visit_comma_separated_nodes(vars, Acao::Split);
+                    self.visit_after(*type_, Action::Space);
+                    self.visit_comma_separated_nodes(vars, Action::Split);
                 }
                 self.end_rule();
                 self.unnest();
                 (*left_separator, *condition, *right_separator, updaters)
             }
-            No::ForPartsWithExpression {
+            Node::ForPartsWithExpression {
                 initialization,
                 left_separator,
                 condition,
@@ -3053,7 +3053,7 @@ impl<'f> Visitante<'f> {
                 self.visit(*initialization);
                 (*left_separator, *condition, *right_separator, updaters)
             }
-            No::ForPartsWithPattern {
+            Node::ForPartsWithPattern {
                 variables,
                 left_separator,
                 condition,
@@ -3062,15 +3062,15 @@ impl<'f> Visitante<'f> {
             } => {
                 self.start_block_argument_nesting();
                 self.nest_expression(None, false);
-                if let No::PatternVariableDeclaration {
+                if let Node::PatternVariableDeclaration {
                     metadata,
                     keyword,
                     pattern,
                     equals,
                     expression,
-                } = self.no(*variables)
+                } = self.node(*variables)
                 {
-                    self.visit_nodes(metadata, Acao::Nada, Acao::Split, Acao::Split);
+                    self.visit_nodes(metadata, Action::Nothing, Action::Split, Action::Split);
                     self.token(*keyword);
                     self.space();
                     self.visit(Some(*pattern));
@@ -3091,20 +3091,20 @@ impl<'f> Visitante<'f> {
         if !updaters.is_empty() {
             self.split();
             self.start_rule(None);
-            self.visit_comma_separated_nodes(updaters, Acao::Split);
+            self.visit_comma_separated_nodes(updaters, Action::Split);
             self.end_rule();
         }
     }
 
-    fn visit_for_each_parts_from_in(&mut self, in_keyword: Tk, iterable: NoId) {
-        self.solo_split(custo::NORMAL);
+    fn visit_for_each_parts_from_in(&mut self, in_keyword: Tk, iterable: NodeId) {
+        self.solo_split(cost::NORMAL);
         self.token(in_keyword);
         self.space();
         self.visit(Some(iterable));
     }
 
-    fn visit_if_statement(&mut self, id: NoId) {
-        let No::IfStatement {
+    fn visit_if_statement(&mut self, id: NodeId) {
+        let Node::IfStatement {
             if_keyword,
             left_parenthesis,
             expression,
@@ -3113,20 +3113,20 @@ impl<'f> Visitante<'f> {
             then_statement,
             else_keyword,
             else_statement,
-        } = self.no(id)
+        } = self.node(id)
         else {
             unreachable!()
         };
         self.visit_if_condition(*if_keyword, *left_parenthesis, *expression, *case_clause, *right_parenthesis);
-        let tem_else = else_statement.is_some();
-        let visitar_clausula = |v: &mut Self, clausula: NoId| {
-            if matches!(v.no(clausula), No::Block { .. } | No::IfStatement { .. }) {
+        let has_else = else_statement.is_some();
+        let visit_clause = |v: &mut Self, clausula: NodeId| {
+            if matches!(v.node(clausula), Node::Block { .. } | Node::IfStatement { .. }) {
                 v.space();
                 v.visit(Some(clausula));
             } else {
                 v.indent(None);
                 v.start_rule(None);
-                if tem_else {
+                if has_else {
                     v.write_newline(false, false, false);
                 } else {
                     v.builder_split(false, true);
@@ -3136,20 +3136,20 @@ impl<'f> Visitante<'f> {
                 v.unindent();
             }
         };
-        visitar_clausula(self, *then_statement);
-        if let Some(senao) = else_statement {
-            if matches!(self.no(*then_statement), No::Block { .. }) {
+        visit_clause(self, *then_statement);
+        if let Some(else_) = else_statement {
+            if matches!(self.node(*then_statement), Node::Block { .. }) {
                 self.space();
             } else {
                 self.newline();
             }
             self.token_opt(*else_keyword);
-            visitar_clausula(self, *senao);
+            visit_clause(self, *else_);
         }
     }
 
     /// `_visitIfCondition`.
-    fn visit_if_condition(&mut self, if_keyword: Tk, left_parenthesis: Tk, condition: NoId, case_clause: Option<NoId>, right_parenthesis: Tk) {
+    fn visit_if_condition(&mut self, if_keyword: Tk, left_parenthesis: Tk, condition: NodeId, case_clause: Option<NodeId>, right_parenthesis: Tk) {
         self.nest_expression(None, false);
         self.token(if_keyword);
         self.space();
@@ -3157,18 +3157,18 @@ impl<'f> Visitante<'f> {
         match case_clause {
             None => self.visit(Some(condition)),
             Some(cc) => {
-                let No::CaseClause {
+                let Node::CaseClause {
                     case_keyword,
                     guarded_pattern,
-                } = self.no(cc)
+                } = self.node(cc)
                 else {
                     unreachable!()
                 };
-                let No::GuardedPattern { pattern, when_clause } = self.no(*guarded_pattern) else {
+                let Node::GuardedPattern { pattern, when_clause } = self.node(*guarded_pattern) else {
                     unreachable!()
                 };
-                let regra_case = self.a.regra(custo::NORMAL);
-                self.start_rule(Some(regra_case));
+                let case_rule = self.a.rule(cost::NORMAL);
+                self.start_rule(Some(case_rule));
                 self.visit(Some(condition));
                 self.split();
                 self.token(*case_keyword);
@@ -3195,8 +3195,8 @@ impl<'f> Visitante<'f> {
         self.unnest();
     }
 
-    fn visit_when_clause(&mut self, w: NoId) {
-        let No::WhenClause { when_keyword, expression } = self.no(w) else {
+    fn visit_when_clause(&mut self, w: NodeId) {
+        let Node::WhenClause { when_keyword, expression } = self.node(w) else {
             unreachable!()
         };
         self.token(*when_keyword);
@@ -3204,8 +3204,8 @@ impl<'f> Visitante<'f> {
         self.visit(Some(*expression));
     }
 
-    fn visit_switch_statement(&mut self, id: NoId) {
-        let No::SwitchStatement {
+    fn visit_switch_statement(&mut self, id: NodeId) {
+        let Node::SwitchStatement {
             switch_keyword,
             left_parenthesis,
             expression,
@@ -3213,29 +3213,29 @@ impl<'f> Visitante<'f> {
             left_bracket,
             members,
             right_bracket,
-        } = self.no(id)
+        } = self.node(id)
         else {
             unreachable!()
         };
         self.visit_switch_value(*switch_keyword, *left_parenthesis, *expression, *right_parenthesis);
         self.begin_body(*left_bracket, false);
         for &m in members {
-            let (labels, keyword, colon, statements) = match self.no(m) {
-                No::SwitchCase {
+            let (labels, keyword, colon, statements) = match self.node(m) {
+                Node::SwitchCase {
                     labels,
                     keyword,
                     colon,
                     statements,
                     ..
                 }
-                | No::SwitchPatternCase {
+                | Node::SwitchPatternCase {
                     labels,
                     keyword,
                     colon,
                     statements,
                     ..
                 }
-                | No::SwitchDefault {
+                | Node::SwitchDefault {
                     labels,
                     keyword,
                     colon,
@@ -3243,16 +3243,16 @@ impl<'f> Visitante<'f> {
                 } => (labels, *keyword, *colon, statements),
                 _ => unreachable!(),
             };
-            self.visit_nodes(labels, Acao::Nada, Acao::NovaLinha, Acao::NovaLinha);
+            self.visit_nodes(labels, Action::Nothing, Action::Newline, Action::Newline);
             self.token(keyword);
-            match self.no(m) {
-                No::SwitchCase { expression, .. } => {
+            match self.node(m) {
+                Node::SwitchCase { expression, .. } => {
                     self.space();
                     self.visit(Some(*expression));
                 }
-                No::SwitchPatternCase { guarded_pattern, .. } => {
+                Node::SwitchPatternCase { guarded_pattern, .. } => {
                     self.space();
-                    let No::GuardedPattern { pattern, when_clause } = self.no(*guarded_pattern) else {
+                    let Node::GuardedPattern { pattern, when_clause } = self.node(*guarded_pattern) else {
                         unreachable!()
                     };
                     match when_clause {
@@ -3280,7 +3280,7 @@ impl<'f> Visitante<'f> {
             if !statements.is_empty() {
                 self.indent(None);
                 self.newline();
-                self.visit_nodes(statements, Acao::Nada, Acao::OneOrTwoNewlines, Acao::Nada);
+                self.visit_nodes(statements, Action::Nothing, Action::OneOrTwoNewlines, Action::Nothing);
                 self.unindent();
                 self.one_or_two_newlines();
             } else {
@@ -3294,7 +3294,7 @@ impl<'f> Visitante<'f> {
     }
 
     /// `_visitSwitchValue`.
-    fn visit_switch_value(&mut self, switch_keyword: Tk, left_parenthesis: Tk, value: NoId, right_parenthesis: Tk) {
+    fn visit_switch_value(&mut self, switch_keyword: Tk, left_parenthesis: Tk, value: NodeId, right_parenthesis: Tk) {
         self.nest_expression(None, false);
         self.token(switch_keyword);
         self.space();
@@ -3306,8 +3306,8 @@ impl<'f> Visitante<'f> {
         self.unnest();
     }
 
-    fn visit_switch_expression(&mut self, id: NoId) {
-        let No::SwitchExpression {
+    fn visit_switch_expression(&mut self, id: NodeId) {
+        let Node::SwitchExpression {
             switch_keyword,
             left_parenthesis,
             expression,
@@ -3315,7 +3315,7 @@ impl<'f> Visitante<'f> {
             left_bracket,
             cases,
             right_bracket,
-        } = self.no(id)
+        } = self.node(id)
         else {
             unreachable!()
         };
@@ -3329,30 +3329,30 @@ impl<'f> Visitante<'f> {
         self.visit_switch_value(*switch_keyword, *left_parenthesis, *expression, *right_parenthesis);
         self.token(*left_bracket);
         self.start_block(None, true, !cases.is_empty());
-        self.visit_comma_separated_nodes(cases, Acao::Split);
+        self.visit_comma_separated_nodes(cases, Action::Split);
         let virgula_final = cases.last().is_some_and(|&c| self.comma_after(c).is_some());
-        let forcar = self.contains_line_comments(cases, Some(*right_bracket));
-        self.end_body(*right_bracket, virgula_final || forcar);
+        let force = self.contains_line_comments(cases, Some(*right_bracket));
+        self.end_body(*right_bracket, virgula_final || force);
     }
 
-    fn visit_switch_expression_case(&mut self, id: NoId) {
-        let No::SwitchExpressionCase {
+    fn visit_switch_expression_case(&mut self, id: NodeId) {
+        let Node::SwitchExpressionCase {
             guarded_pattern,
             arrow,
             expression,
-        } = self.no(id)
+        } = self.node(id)
         else {
             unreachable!()
         };
-        let No::GuardedPattern { pattern, when_clause } = self.no(*guarded_pattern) else {
+        let Node::GuardedPattern { pattern, when_clause } = self.node(*guarded_pattern) else {
             unreachable!()
         };
-        let mut ramos = Vec::new();
+        let mut branches = Vec::new();
         let mut ops = Vec::new();
-        self.achatar_ou(*pattern, &mut ramos, &mut ops);
+        self.flatten_or(*pattern, &mut branches, &mut ops);
         self.start_lazy_rule(None);
-        for i in 0..ramos.len() - 1 {
-            self.visit(Some(ramos[i]));
+        for i in 0..branches.len() - 1 {
+            self.visit(Some(branches[i]));
             self.space();
             self.token(ops[i]);
             self.split();
@@ -3362,7 +3362,7 @@ impl<'f> Visitante<'f> {
             self.start_lazy_rule(None);
             self.nest_expression(Some(recuo::BLOCK), false);
         }
-        self.visit(ramos.last().copied());
+        self.visit(branches.last().copied());
         if let Some(w) = when_clause {
             self.split();
             self.start_block_argument_nesting();
@@ -3381,64 +3381,64 @@ impl<'f> Visitante<'f> {
         self.unnest();
     }
 
-    fn achatar_ou(&self, p: NoId, ramos: &mut Vec<NoId>, ops: &mut Vec<Tk>) {
-        if let No::LogicalOrPattern {
+    fn flatten_or(&self, p: NodeId, branches: &mut Vec<NodeId>, ops: &mut Vec<Tk>) {
+        if let Node::LogicalOrPattern {
             left_operand,
             operator,
             right_operand,
-        } = self.no(p)
+        } = self.node(p)
         {
-            self.achatar_ou(*left_operand, ramos, ops);
+            self.flatten_or(*left_operand, branches, ops);
             ops.push(*operator);
-            self.achatar_ou(*right_operand, ramos, ops);
+            self.flatten_or(*right_operand, branches, ops);
         } else {
-            ramos.push(p);
+            branches.push(p);
         }
     }
 
     /// `_splitEmptyBlock(node)`.
-    fn split_empty_block(&self, id: NoId) -> bool {
-        let Some(p) = self.pai(id) else {
+    fn split_empty_block(&self, id: NodeId) -> bool {
+        let Some(p) = self.parent(id) else {
             return false;
         };
-        if let No::IfStatement {
+        if let Node::IfStatement {
             else_statement,
             then_statement,
             ..
-        } = self.no(p)
+        } = self.node(p)
         {
             return else_statement.is_some() && *then_statement == id;
         }
-        if matches!(self.no(p), No::CatchClause { .. })
-            && let Some(avo) = self.pai(p)
-            && let No::TryStatement {
+        if matches!(self.node(p), Node::CatchClause { .. })
+            && let Some(avo) = self.parent(p)
+            && let Node::TryStatement {
                 finally_block,
                 catch_clauses,
                 ..
-            } = self.no(avo)
+            } = self.node(avo)
         {
-            let ultimo_corpo = catch_clauses.last().and_then(|c| match self.no(*c) {
-                No::CatchClause { body, .. } => Some(*body),
+            let last_body = catch_clauses.last().and_then(|c| match self.node(*c) {
+                Node::CatchClause { body, .. } => Some(*body),
                 _ => None,
             });
-            return finally_block.is_some() || Some(id) != ultimo_corpo;
+            return finally_block.is_some() || Some(id) != last_body;
         }
         false
     }
 
-    fn visit_variable_declaration_list(&mut self, id: NoId) {
-        let No::VariableDeclarationList {
+    fn visit_variable_declaration_list(&mut self, id: NodeId) {
+        let Node::VariableDeclarationList {
             metadata,
             late_keyword,
             keyword,
             type_,
             variables,
-        } = self.no(id)
+        } = self.node(id)
         else {
             unreachable!()
         };
         self.visit_metadata(metadata);
-        self.start_span(custo::NORMAL);
+        self.start_span(cost::NORMAL);
         self.modifier(*late_keyword);
         self.modifier(*keyword);
         self.visit(*type_);
@@ -3448,7 +3448,7 @@ impl<'f> Visitante<'f> {
         if variables.len() > 1 {
             self.start_block_argument_nesting();
         }
-        self.visit_comma_separated_nodes(variables, Acao::Split);
+        self.visit_comma_separated_nodes(variables, Action::Split);
         if variables.len() > 1 {
             self.end_block_argument_nesting();
         }
@@ -3457,54 +3457,54 @@ impl<'f> Visitante<'f> {
 
     // ============================================================ expressões
 
-    fn visit_adjacent_strings(&mut self, id: NoId) {
-        let No::AdjacentStrings { strings } = self.no(id) else {
+    fn visit_adjacent_strings(&mut self, id: NodeId) {
+        let Node::AdjacentStrings { strings } = self.node(id) else {
             unreachable!()
         };
-        let mut aninhar = true;
-        if let Some(p) = self.pai(id) {
-            match self.no(p) {
-                No::ArgumentList { arguments, .. } => {
-                    aninhar = false;
+        let mut nest = true;
+        if let Some(p) = self.parent(id) {
+            match self.node(p) {
+                Node::ArgumentList { arguments, .. } => {
+                    nest = false;
                     for &arg in arguments {
                         if arg == id {
                             continue;
                         }
                         if self.is_string_literal(arg) {
-                            aninhar = true;
+                            nest = true;
                             break;
                         }
                     }
                 }
-                No::AssertInitializer { condition, message, .. } | No::AssertStatement { condition, message, .. } => {
-                    aninhar = false;
+                Node::AssertInitializer { condition, message, .. } | Node::AssertStatement { condition, message, .. } => {
+                    nest = false;
                     if *condition != id && self.is_string_literal(*condition) {
-                        aninhar = true;
+                        nest = true;
                     }
                     if let Some(m) = message
                         && *m != id
                         && self.is_string_literal(*m)
                     {
-                        aninhar = true;
+                        nest = true;
                     }
                 }
-                No::VariableDeclaration { .. } => aninhar = false,
-                No::AssignmentExpression { right_hand_side, .. }
-                    if *right_hand_side == id && self.pai_e(p, |n| matches!(n, No::ExpressionStatement { .. })) =>
+                Node::VariableDeclaration { .. } => nest = false,
+                Node::AssignmentExpression { right_hand_side, .. }
+                    if *right_hand_side == id && self.parent_and(p, |n| matches!(n, Node::ExpressionStatement { .. })) =>
                 {
-                    aninhar = false
+                    nest = false
                 }
-                No::NamedExpression { .. } | No::ExpressionFunctionBody { .. } => aninhar = false,
+                Node::NamedExpression { .. } | Node::ExpressionFunctionBody { .. } => nest = false,
                 _ => {}
             }
         }
-        self.start_span(custo::NORMAL);
+        self.start_span(cost::NORMAL);
         self.start_rule(None);
-        if aninhar {
+        if nest {
             self.nest_expression(None, false);
         }
-        self.visit_nodes(strings, Acao::Nada, Acao::SplitOrNewline, Acao::Nada);
-        if aninhar {
+        self.visit_nodes(strings, Action::Nothing, Action::SplitOrNewline, Action::Nothing);
+        if nest {
             self.unnest();
         }
         self.end_rule();
@@ -3512,18 +3512,18 @@ impl<'f> Visitante<'f> {
     }
 
     /// `visitArgumentList(node, nestExpression:)`.
-    pub fn visit_argument_list(&mut self, id: NoId, aninhar: bool) {
-        let No::ArgumentList {
+    pub fn visit_argument_list(&mut self, id: NodeId, nest: bool) {
+        let Node::ArgumentList {
             left_parenthesis,
             arguments,
             right_parenthesis,
-        } = self.no(id)
+        } = self.node(id)
         else {
             unreachable!()
         };
         if arguments.is_empty() {
             self.token(*left_parenthesis);
-            if self.tem_comentarios(*right_parenthesis) {
+            if self.has_comments(*right_parenthesis) {
                 self.solo_zero_split();
             }
             self.token(*right_parenthesis);
@@ -3533,20 +3533,20 @@ impl<'f> Visitante<'f> {
             self.visit_collection_literal(*left_parenthesis, arguments, *right_parenthesis, None, None, None, false, false);
             return;
         }
-        if aninhar {
+        if nest {
             self.nest_expression(None, false);
         }
-        super::arguments::ArgumentListVisitor::novo(self, id).visit(self);
-        if aninhar {
+        super::arguments::ArgumentListVisitor::new(self, id).visit(self);
+        if nest {
             self.unnest();
         }
     }
 
-    fn visit_cascade_expression(&mut self, id: NoId) {
-        let No::CascadeExpression {
+    fn visit_cascade_expression(&mut self, id: NodeId) {
+        let Node::CascadeExpression {
             target,
             cascade_sections,
-        } = self.no(id)
+        } = self.node(id)
         else {
             unreachable!()
         };
@@ -3554,77 +3554,77 @@ impl<'f> Visitante<'f> {
             self.visit_split_cascade(*target, cascade_sections);
             return;
         }
-        let mut quebra_com_alvo = true;
+        let mut split_with_target = true;
         if self.is_collection_literal(*target) {
-            quebra_com_alvo = false;
+            split_with_target = false;
         } else {
-            match self.no(*target) {
-                No::MethodInvocation { argument_list, .. }
-                | No::FunctionExpressionInvocation { argument_list, .. }
-                | No::InstanceCreationExpression { argument_list, .. } => {
-                    if let No::ArgumentList { arguments, .. } = self.no(*argument_list) {
-                        quebra_com_alvo = !self.list_has_comma_after(arguments);
+            match self.node(*target) {
+                Node::MethodInvocation { argument_list, .. }
+                | Node::FunctionExpressionInvocation { argument_list, .. }
+                | Node::InstanceCreationExpression { argument_list, .. } => {
+                    if let Node::ArgumentList { arguments, .. } = self.node(*argument_list) {
+                        split_with_target = !self.list_has_comma_after(arguments);
                     }
                 }
                 _ => {}
             }
         }
         let inline = self.allow_inline(*target, cascade_sections.len());
-        if quebra_com_alvo {
-            let r = if inline { self.a.regra(custo::NORMAL) } else { self.a.regra_dura() };
+        if split_with_target {
+            let r = if inline { self.a.rule(cost::NORMAL) } else { self.a.hard_rule() };
             self.start_lazy_rule(Some(r));
         }
         self.visit(Some(*target));
         self.nest_expression(Some(recuo::CASCADE), true);
         self.start_block_argument_nesting();
-        if !quebra_com_alvo {
-            let r = if inline { self.a.regra(custo::NORMAL) } else { self.a.regra_dura() };
+        if !split_with_target {
+            let r = if inline { self.a.rule(cost::NORMAL) } else { self.a.hard_rule() };
             self.start_rule(Some(r));
         }
         self.zero_split();
-        if !quebra_com_alvo {
+        if !split_with_target {
             self.end_rule();
         }
-        self.visit_nodes(cascade_sections, Acao::Nada, Acao::ZeroSplit, Acao::Nada);
-        if quebra_com_alvo {
+        self.visit_nodes(cascade_sections, Action::Nothing, Action::ZeroSplit, Action::Nothing);
+        if split_with_target {
             self.end_rule();
         }
         self.end_block_argument_nesting();
         self.unnest();
     }
 
-    fn visit_split_cascade(&mut self, target: NoId, secoes: &[NoId]) {
-        let dura = self.a.regra_dura();
-        self.start_lazy_rule(Some(dura));
+    fn visit_split_cascade(&mut self, target: NodeId, sections: &[NodeId]) {
+        let hard = self.a.hard_rule();
+        self.start_lazy_rule(Some(hard));
         self.visit(Some(target));
         self.nest_expression(Some(recuo::CASCADE), true);
         self.start_block_argument_nesting();
-        let primeiro = self.arv.inicio(secoes[0]);
-        self.write_preceding_comments_and_newlines(primeiro);
-        self.suprimidos.insert(primeiro);
+        let first = self.tree_.start(sections[0]);
+        self.write_preceding_comments_and_newlines(first);
+        self.suppressed.insert(first);
         self.start_block(None, false, false);
-        for &s in &secoes[..secoes.len() - 1] {
+        for &s in &sections[..sections.len() - 1] {
             self.newline();
             self.visit(Some(s));
         }
-        let ultimo = self.arv.inicio(*secoes.last().expect("seção"));
+        let ultimo = self.tree_.start(*sections.last().expect("seção"));
         self.write_preceding_comments_and_newlines(ultimo);
-        self.suprimidos.insert(ultimo);
+        self.suppressed.insert(ultimo);
         self.end_block(true);
-        self.visit(secoes.last().copied());
+        self.visit(sections.last().copied());
         self.end_rule();
         self.end_block_argument_nesting();
         self.unnest();
     }
 
-    fn visit_conditional_expression(&mut self, id: NoId) {
-        let No::ConditionalExpression {
+    fn visit_conditional_expression(&mut self, id: NodeId) {
+        let Node::ConditionalExpression {
             condition,
             question,
             then_expression,
             colon,
             else_expression,
-        } = self.no(id)
+        } = self.node(id)
         else {
             unreachable!()
         };
@@ -3634,7 +3634,7 @@ impl<'f> Visitante<'f> {
         self.nest_expression(Some(recuo::BLOCK), true);
         self.start_block_argument_nesting();
         self.unnest();
-        self.start_span(custo::NORMAL);
+        self.start_span(cost::NORMAL);
         self.split();
         self.token(*question);
         self.space();
@@ -3645,7 +3645,7 @@ impl<'f> Visitante<'f> {
         self.token(*colon);
         self.space();
         self.visit(Some(*else_expression));
-        if self.pai_e(id, |p| matches!(p, No::ConditionalExpression { .. })) {
+        if self.parent_and(id, |p| matches!(p, Node::ConditionalExpression { .. })) {
             self.force_rules();
         }
         self.end_rule();
@@ -3655,24 +3655,24 @@ impl<'f> Visitante<'f> {
     }
 
     /// `finishIndexExpression(node)`.
-    pub fn finish_index_expression(&mut self, id: NoId) {
-        let No::IndexExpression {
+    pub fn finish_index_expression(&mut self, id: NodeId) {
+        let Node::IndexExpression {
             target,
             question,
             left_bracket,
             index,
             right_bracket,
             ..
-        } = self.no(id)
+        } = self.node(id)
         else {
             unreachable!()
         };
         if let Some(t) = target
-            && matches!(self.no(*t), No::IndexExpression { .. })
+            && matches!(self.node(*t), Node::IndexExpression { .. })
         {
             self.solo_zero_split();
         }
-        self.start_span(custo::INDEX);
+        self.start_span(cost::INDEX);
         self.token_opt(*question);
         self.token(*left_bracket);
         self.solo_zero_split();
@@ -3681,22 +3681,22 @@ impl<'f> Visitante<'f> {
         self.end_span();
     }
 
-    fn visit_method_invocation(&mut self, id: NoId) {
-        let No::MethodInvocation {
+    fn visit_method_invocation(&mut self, id: NodeId) {
+        let Node::MethodInvocation {
             target,
             operator,
             method_name,
             type_arguments,
             argument_list,
-        } = self.no(id)
+        } = self.node(id)
         else {
             unreachable!()
         };
         if target.is_none() || self.looks_like_static_call(id) {
             self.nest_expression(None, false);
-            self.start_span(custo::NORMAL);
+            self.start_span(cost::NORMAL);
             if target.is_some() {
-                self.start_span(custo::CONSTRUCTOR_NAME);
+                self.start_span(cost::CONSTRUCTOR_NAME);
                 self.visit(*target);
                 self.solo_zero_split();
             }
@@ -3713,162 +3713,162 @@ impl<'f> Visitante<'f> {
             self.unnest();
             return;
         }
-        super::chain::CallChainVisitor::novo(self, id).visit(self);
+        super::chain::CallChainVisitor::new(self, id).visit(self);
     }
 
     /// `visitNamedNode(name, colon, node, [rule])`.
-    pub fn visit_named_node(&mut self, nome: Tk, dois_pontos: Tk, no: NoId, regra: Option<RegraId>) {
+    pub fn visit_named_node(&mut self, nome: Tk, colon_: Tk, node: NodeId, rule: Option<RuleId>) {
         self.nest_expression(None, false);
-        self.start_span(custo::NORMAL);
+        self.start_span(cost::NORMAL);
         self.token(nome);
-        self.token(dois_pontos);
-        if matches!(self.no(no), No::ListLiteral { .. } | No::SetOrMapLiteral { .. } | No::RecordLiteral { .. }) {
+        self.token(colon_);
+        if matches!(self.node(node), Node::ListLiteral { .. } | Node::SetOrMapLiteral { .. } | Node::RecordLiteral { .. }) {
             self.space();
         } else {
-            let r = self.solo_split(custo::NORMAL);
-            if let Some(nomeada) = regra {
-                self.a.restringir_quando_quebra(r, nomeada);
+            let r = self.solo_split(cost::NORMAL);
+            if let Some(named_) = rule {
+                self.a.constrain_when_split(r, named_);
             }
         }
-        self.visit(Some(no));
+        self.visit(Some(node));
         self.end_span();
         self.unnest();
     }
 
     /// `_visitAssignment(equalsOperator, rightHandSide, nest:)`.
-    fn visit_assignment(&mut self, igual: Tk, direito: NoId, aninhar: bool) {
+    fn visit_assignment(&mut self, equals_: Tk, right_: NodeId, nest: bool) {
         self.space();
-        self.token(igual);
-        if aninhar {
+        self.token(equals_);
+        if nest {
             self.nest_expression(None, true);
         }
-        let c = self.assignment_cost(direito);
+        let c = self.assignment_cost(right_);
         self.solo_split(c);
-        self.start_span(custo::NORMAL);
-        self.visit(Some(direito));
+        self.start_span(cost::NORMAL);
+        self.visit(Some(right_));
         self.end_span();
-        if aninhar {
+        if nest {
             self.unnest();
         }
     }
 
     /// `_assignmentCost(rightHandSide)`.
-    fn assignment_cost(&self, direito: NoId) -> i32 {
-        match self.no(direito) {
-            No::ListLiteral { .. } | No::SetOrMapLiteral { .. } | No::CascadeExpression { .. } => custo::ASSIGN_BLOCK,
-            _ => custo::ASSIGN,
+    fn assignment_cost(&self, right_: NodeId) -> i32 {
+        match self.node(right_) {
+            Node::ListLiteral { .. } | Node::SetOrMapLiteral { .. } | Node::CascadeExpression { .. } => cost::ASSIGN_BLOCK,
+            _ => cost::ASSIGN,
         }
     }
 
     /// `_visitBinary(node, destructure, precedence:, nest:)`.
-    fn visit_binary(&mut self, id: NoId, precedencia_alvo: Option<u8>, aninhar: bool) {
-        self.start_span(custo::NORMAL);
-        if aninhar {
+    fn visit_binary(&mut self, id: NodeId, target_precedence: Option<u8>, nest: bool) {
+        self.start_span(cost::NORMAL);
+        if nest {
             self.nest_expression(None, false);
         }
         self.start_lazy_rule(None);
         self.start_block_argument_nesting();
-        let e_padrao_e = matches!(self.no(id), No::LogicalAndPattern { .. });
-        let e_padrao_ou = matches!(self.no(id), No::LogicalOrPattern { .. });
-        self.percorrer_binario(id, precedencia_alvo, e_padrao_e, e_padrao_ou);
+        let is_pattern_and = matches!(self.node(id), Node::LogicalAndPattern { .. });
+        let is_pattern_or = matches!(self.node(id), Node::LogicalOrPattern { .. });
+        self.walk_binary(id, target_precedence, is_pattern_and, is_pattern_or);
         self.end_block_argument_nesting();
-        if aninhar {
+        if nest {
             self.unnest();
         }
         self.end_span();
         self.end_rule();
     }
 
-    fn percorrer_binario(&mut self, e: NoId, prec: Option<u8>, padrao_e: bool, padrao_ou: bool) {
-        let partes = match self.no(e) {
-            No::BinaryExpression {
+    fn walk_binary(&mut self, e: NodeId, prec: Option<u8>, pattern_and: bool, pattern_or: bool) {
+        let parts_ = match self.node(e) {
+            Node::BinaryExpression {
                 left_operand,
                 operator,
                 right_operand,
-            } if !padrao_e && !padrao_ou => Some((*left_operand, *operator, *right_operand)),
-            No::LogicalAndPattern {
+            } if !pattern_and && !pattern_or => Some((*left_operand, *operator, *right_operand)),
+            Node::LogicalAndPattern {
                 left_operand,
                 operator,
                 right_operand,
-            } if padrao_e => Some((*left_operand, *operator, *right_operand)),
-            No::LogicalOrPattern {
+            } if pattern_and => Some((*left_operand, *operator, *right_operand)),
+            Node::LogicalOrPattern {
                 left_operand,
                 operator,
                 right_operand,
-            } if padrao_ou => Some((*left_operand, *operator, *right_operand)),
+            } if pattern_or => Some((*left_operand, *operator, *right_operand)),
             _ => None,
         };
-        let Some((esq, op, dir)) = partes else {
+        let Some((left, op, dir)) = parts_ else {
             self.visit(Some(e));
             return;
         };
         if let Some(p) = prec
-            && precedencia(self.lexema(op)) != p
+            && precedence(self.lexeme(op)) != p
         {
             self.visit(Some(e));
             return;
         }
-        self.percorrer_binario(esq, prec, padrao_e, padrao_ou);
+        self.walk_binary(left, prec, pattern_and, pattern_or);
         self.space();
         self.token(op);
         self.split();
-        self.percorrer_binario(dir, prec, padrao_e, padrao_ou);
+        self.walk_binary(dir, prec, pattern_and, pattern_or);
     }
 
-    fn visit_if_element(&mut self, id: NoId) {
-        let mut elementos = Vec::new();
-        let mut atual = Some(id);
-        while let Some(n) = atual {
-            if let No::IfElement { else_element, .. } = self.no(n) {
-                elementos.push(n);
-                atual = *else_element;
+    fn visit_if_element(&mut self, id: NodeId) {
+        let mut elements_ = Vec::new();
+        let mut current = Some(id);
+        while let Some(n) = current {
+            if let Node::IfElement { else_element, .. } = self.node(n) {
+                elements_.push(n);
+                current = *else_element;
             } else {
                 break;
             }
         }
-        let regra_spread = self.a.regra(custo::NORMAL);
-        let mut spreads: Vec<NoId> = Vec::new();
-        for &el in &elementos {
-            let No::IfElement { then_element, .. } = self.no(el) else {
+        let spread_rule = self.a.rule(cost::NORMAL);
+        let mut spreads: Vec<NodeId> = Vec::new();
+        for &el in &elements_ {
+            let Node::IfElement { then_element, .. } = self.node(el) else {
                 unreachable!()
             };
-            if let Some(colchete) = self.spread_collection_bracket(*then_element) {
+            if let Some(bracket) = self.spread_collection_bracket(*then_element) {
                 spreads.push(el);
-                self.before_block(colchete, regra_spread, None);
+                self.before_block(bracket, spread_rule, None);
             }
         }
-        let ultimo = *elementos.last().expect("if");
-        let ultimo_else = match self.no(ultimo) {
-            No::IfElement { else_element, .. } => *else_element,
+        let ultimo = *elements_.last().expect("if");
+        let ultimo_else = match self.node(ultimo) {
+            Node::IfElement { else_element, .. } => *else_element,
             _ => None,
         };
         if let Some(le) = ultimo_else
-            && let Some(colchete) = self.spread_collection_bracket(le)
+            && let Some(bracket) = self.spread_collection_bracket(le)
         {
             spreads.push(le);
-            self.before_block(colchete, regra_spread, None);
+            self.before_block(bracket, spread_rule, None);
         }
 
-        let visitar_filho = |v: &mut Self, elemento: NoId, filho: NoId, spreads: &[NoId]| {
+        let visit_child = |v: &mut Self, element: NodeId, child: NodeId, spreads: &[NodeId]| {
             v.nest_expression(Some(2), true);
-            let e_spread = spreads.contains(&elemento);
-            if e_spread {
+            let is_spread = spreads.contains(&element);
+            if is_spread {
                 v.space();
             } else {
                 v.split();
                 v.start_block_argument_nesting();
             }
-            v.visit(Some(filho));
-            if !e_spread {
+            v.visit(Some(child));
+            if !is_spread {
                 v.end_block_argument_nesting();
             }
             v.unnest();
         };
 
         self.start_lazy_rule(None);
-        let mut fluxo_interno = false;
-        for &el in &elementos {
-            let No::IfElement {
+        let mut inner_flow = false;
+        for &el in &elements_ {
+            let Node::IfElement {
                 if_keyword,
                 left_parenthesis,
                 expression,
@@ -3877,14 +3877,14 @@ impl<'f> Visitante<'f> {
                 then_element,
                 else_keyword,
                 else_element,
-            } = self.no(el)
+            } = self.node(el)
             else {
                 unreachable!()
             };
             self.visit_if_condition(*if_keyword, *left_parenthesis, *expression, *case_clause, *right_parenthesis);
-            visitar_filho(self, el, *then_element, &spreads);
+            visit_child(self, el, *then_element, &spreads);
             if self.is_control_flow_element(*then_element) {
-                fluxo_interno = true;
+                inner_flow = true;
             }
             if else_element.is_some() {
                 if spreads.contains(&el) {
@@ -3899,30 +3899,30 @@ impl<'f> Visitante<'f> {
             }
         }
         if let Some(le) = ultimo_else {
-            visitar_filho(self, le, le, &spreads);
+            visit_child(self, le, le, &spreads);
             if self.is_control_flow_element(le) {
-                fluxo_interno = true;
+                inner_flow = true;
             }
         }
-        if fluxo_interno {
+        if inner_flow {
             self.force_rules();
         }
         self.end_rule();
     }
 
-    fn visit_for_element(&mut self, id: NoId) {
-        let No::ForElement {
+    fn visit_for_element(&mut self, id: NodeId) {
+        let Node::ForElement {
             await_keyword,
             for_keyword,
             left_parenthesis,
             for_loop_parts,
             right_parenthesis,
             body,
-        } = self.no(id)
+        } = self.node(id)
         else {
             unreachable!()
         };
-        let corpo_spread = self.spread_collection_bracket(*body).is_some();
+        let spread_body = self.spread_collection_bracket(*body).is_some();
         self.nest_expression(None, false);
         self.modifier(*await_keyword);
         self.token(*for_keyword);
@@ -3935,14 +3935,14 @@ impl<'f> Visitante<'f> {
         self.end_rule();
         self.unnest();
         self.nest_expression(Some(recuo::BLOCK), true);
-        if corpo_spread {
+        if spread_body {
             self.space();
         } else {
             self.split();
             self.start_block_argument_nesting();
         }
         self.visit(Some(*body));
-        if !corpo_spread {
+        if !spread_body {
             self.end_block_argument_nesting();
         }
         self.unnest();
@@ -3955,10 +3955,10 @@ impl<'f> Visitante<'f> {
     // ============================================================= coleções
 
     /// `beforeBlock(token, rule, [previousChunk])`.
-    pub fn before_block(&mut self, t: Tk, regra: RegraId, anterior: Option<ChunkId>) {
-        self.regras_de_bloco.insert(t, regra);
+    pub fn before_block(&mut self, t: Tk, rule: RuleId, anterior: Option<ChunkId>) {
+        self.block_rules.insert(t, rule);
         if let Some(c) = anterior {
-            self.chunks_de_bloco.insert(t, c);
+            self.block_chunks.insert(t, c);
         }
     }
 
@@ -3966,34 +3966,34 @@ impl<'f> Visitante<'f> {
     #[allow(clippy::too_many_arguments)]
     pub fn visit_collection_literal(
         &mut self,
-        esquerdo: Tk,
-        elementos: &[NoId],
-        direito: Tk,
+        left_side: Tk,
+        elements_: &[NodeId],
+        right_: Tk,
         const_keyword: Option<Tk>,
-        type_arguments: Option<NoId>,
-        custo_opt: Option<i32>,
-        dividir_externa: bool,
-        e_registro: bool,
+        type_arguments: Option<NodeId>,
+        cost_opt: Option<i32>,
+        split_outer: bool,
+        is_record: bool,
     ) {
-        let _ = custo_opt;
+        let _ = cost_opt;
         self.modifier(const_keyword);
         if let Some(ta) = type_arguments
-            && let No::TypeArgumentList {
+            && let Node::TypeArgumentList {
                 left_bracket,
                 arguments,
                 right_bracket,
-            } = self.no(ta)
+            } = self.node(ta)
         {
-            self.start_span(custo::NORMAL);
+            self.start_span(cost::NORMAL);
             self.nest_expression(None, false);
             self.token(*left_bracket);
-            let r = self.a.regra(custo::TYPE_ARGUMENT);
+            let r = self.a.rule(cost::TYPE_ARGUMENT);
             self.start_rule(Some(r));
             for (i, &arg) in arguments.iter().enumerate() {
                 self.visit(Some(arg));
                 if i + 1 != arguments.len() {
-                    let mut virgula = self.arv.fim(arg) + 1;
-                    if self.lexema(virgula) == "?" {
+                    let mut virgula = self.tree_.end(arg) + 1;
+                    if self.lexeme(virgula) == "?" {
                         virgula += 1;
                     }
                     self.token(virgula);
@@ -4005,88 +4005,88 @@ impl<'f> Visitante<'f> {
             self.unnest();
             self.end_span();
         }
-        if elementos.is_empty() {
-            self.visit_body(esquerdo, elementos, direito);
+        if elements_.is_empty() {
+            self.visit_body(left_side, elements_, right_);
             return;
         }
-        if dividir_externa {
-            for c in self.colecoes.iter_mut() {
+        if split_outer {
+            for c in self.collections_.iter_mut() {
                 *c = true;
             }
-            self.colecoes.push(false);
+            self.collections_.push(false);
         }
-        self.begin_body(esquerdo, false);
-        if self.contains_line_comments(elementos, Some(direito)) {
-            let mut regra_linha = self.a.regra_argumento_de_tipo();
-            self.start_lazy_rule(Some(regra_linha));
-            for &el in elementos {
-                let inicio = self.arv.inicio(el);
-                if self.linha_fim(inicio - 1) != self.linha_inicio(inicio) {
+        self.begin_body(left_side, false);
+        if self.contains_line_comments(elements_, Some(right_)) {
+            let mut line_rule = self.a.type_argument_rule();
+            self.start_lazy_rule(Some(line_rule));
+            for &el in elements_ {
+                let start = self.tree_.start(el);
+                if self.end_line(start - 1) != self.start_line(start) {
                     self.one_or_two_newlines();
                     self.end_rule();
-                    regra_linha = self.a.regra_argumento_de_tipo();
-                    self.start_lazy_rule(Some(regra_linha));
+                    line_rule = self.a.type_argument_rule();
+                    self.start_lazy_rule(Some(line_rule));
                 } else {
                     let c = self.split();
-                    self.a.antes_do_argumento(regra_linha, Some(c));
+                    self.a.before_argument(line_rule, Some(c));
                 }
                 self.visit(Some(el));
                 self.write_comma_after(el);
             }
             self.end_rule();
         } else {
-            for (i, &el) in elementos.iter().enumerate() {
+            for (i, &el) in elements_.iter().enumerate() {
                 self.builder_split(false, i != 0);
                 self.visit(Some(el));
                 self.write_comma_after(el);
             }
         }
-        let mut forcar = false;
-        if dividir_externa {
-            forcar = self.colecoes.pop().expect("coleção");
+        let mut force = false;
+        if split_outer {
+            force = self.collections_.pop().expect("coleção");
         }
-        let registro_unico = e_registro && elementos.len() == 1;
-        if self.list_has_comma_after(elementos) && !registro_unico {
-            forcar = true;
+        let single_record = is_record && elements_.len() == 1;
+        if self.list_has_comma_after(elements_) && !single_record {
+            force = true;
         }
-        self.end_body(direito, forcar);
+        self.end_body(right_, force);
     }
 
     /// `_beginBody(leftBracket, space:)`.
-    fn begin_body(&mut self, esquerdo: Tk, espaco: bool) {
-        self.token(esquerdo);
-        let regra = self.regras_de_bloco.get(&esquerdo).copied();
-        self.start_rule(regra);
-        let anterior = self.chunks_de_bloco.get(&esquerdo).copied();
-        self.start_block(anterior, true, espaco);
+    fn begin_body(&mut self, left_side: Tk, space: bool) {
+        self.token(left_side);
+        let rule = self.block_rules.get(&left_side).copied();
+        self.start_rule(rule);
+        let anterior = self.block_chunks.get(&left_side).copied();
+        self.start_block(anterior, true, space);
     }
 
     /// `_endBody(rightBracket, forceSplit:)`.
-    fn end_body(&mut self, direito: Tk, forcar: bool) {
-        let nova_linha = self.write_preceding_comments_and_newlines(direito);
-        self.end_block(nova_linha || forcar);
+    fn end_body(&mut self, right_: Tk, force: bool) {
+        let newline = self.write_preceding_comments_and_newlines(right_);
+        self.end_block(newline || force);
         self.end_rule();
-        let t = self.lexema(direito);
-        self.write_text(t, direito);
+        let t = self.lexeme(right_);
+        self.write_text(t, right_);
     }
 
     /// `_visitBody(leftBracket, nodes, rightBracket)`.
-    fn visit_body(&mut self, esquerdo: Tk, nos: &[NoId], direito: Tk) {
-        if !self.can_split(nos, direito) {
-            self.token(esquerdo);
-            self.token(direito);
+    fn visit_body(&mut self, left_side: Tk, nodes: &[NodeId], right_: Tk) {
+        if !self.can_split(nodes, right_) {
+            self.token(left_side);
+            self.token(right_);
             return;
         }
-        self.begin_body(esquerdo, false);
-        self.visit_body_contents(nos);
-        self.end_body(direito, !nos.is_empty());
+        self.begin_body(left_side, false);
+        self.visit_body_contents(nodes);
+        self.end_body(right_, !nodes.is_empty());
     }
 
     /// `_visitBodyContents(nodes)`.
-    fn visit_body_contents(&mut self, nos: &[NoId]) {
-        for (i, &n) in nos.iter().enumerate() {
+    fn visit_body_contents(&mut self, nodes: &[NodeId]) {
+        for (i, &n) in nodes.iter().enumerate() {
             self.visit(Some(n));
-            if i + 1 != nos.len() {
+            if i + 1 != nodes.len() {
                 if self.has_non_empty_body(n) {
                     self.two_newlines();
                 } else {
@@ -4101,27 +4101,27 @@ impl<'f> Visitante<'f> {
     /// `_writeStringLiteral(string)`.
     fn write_string_literal(&mut self, t: Tk) {
         self.write_preceding_comments_and_newlines(t);
-        let lexema = self.lexema(t);
-        let linhas = dividir_linhas(lexema);
-        if linhas.len() > 1 {
-            self.write_string_first_line(linhas[0], t);
+        let lexeme = self.lexeme(t);
+        let lines_ = split_lines(lexeme);
+        if lines_.len() > 1 {
+            self.write_string_first_line(lines_[0], t);
         } else {
-            self.write_text(linhas[0], t);
+            self.write_text(lines_[0], t);
         }
-        for linha in &linhas[1..] {
+        for line in &lines_[1..] {
             self.write_newline(false, true, true);
-            self.write_text_merge(linha, t, false);
+            self.write_text_merge(line, t, false);
         }
     }
 
     /// `_writeStringFirstLine(line, string)`.
-    fn write_string_first_line(&mut self, linha: &str, t: Tk) {
-        let b = linha.as_bytes();
-        let inicio_aspas = usize::from(linha.starts_with('r'));
-        let fim_aspas = inicio_aspas + 3;
+    fn write_string_first_line(&mut self, line: &str, t: Tk) {
+        let b = line.as_bytes();
+        let quote_start = usize::from(line.starts_with('r'));
+        let quote_end = quote_start + 3;
         let mut barras = 0;
-        if b.len() > fim_aspas && (linha[inicio_aspas..].starts_with("'''") || linha[inicio_aspas..].starts_with("\"\"\"")) {
-            let mut cursor = fim_aspas;
+        if b.len() > quote_end && (line[quote_start..].starts_with("'''") || line[quote_start..].starts_with("\"\"\"")) {
+            let mut cursor = quote_end;
             loop {
                 let mut c = b[cursor];
                 if c == b'\\' {
@@ -4141,7 +4141,7 @@ impl<'f> Visitante<'f> {
                 }
             }
             if cursor == b.len() {
-                let mut texto = linha[..fim_aspas].to_string();
+                let mut texto = line[..quote_end].to_string();
                 if barras > 0 {
                     texto.push('\\');
                     barras -= 1;
@@ -4154,30 +4154,30 @@ impl<'f> Visitante<'f> {
                 return;
             }
         }
-        self.write_text(linha, t);
+        self.write_text(line, t);
     }
 }
 
 /// Divide um lexema nas quebras `\r\n`, `\r` e `\n` (`_lineTerminatorRE`).
-fn dividir_linhas(s: &str) -> Vec<&str> {
+fn split_lines(s: &str) -> Vec<&str> {
     let b = s.as_bytes();
     let mut v = Vec::new();
-    let mut inicio = 0;
+    let mut start = 0;
     let mut i = 0;
     while i < b.len() {
         if b[i] == b'\r' {
-            v.push(&s[inicio..i]);
+            v.push(&s[start..i]);
             if b.get(i + 1) == Some(&b'\n') {
                 i += 1;
             }
-            inicio = i + 1;
+            start = i + 1;
         } else if b[i] == b'\n' {
-            v.push(&s[inicio..i]);
-            inicio = i + 1;
+            v.push(&s[start..i]);
+            start = i + 1;
         }
         i += 1;
     }
-    v.push(&s[inicio..]);
+    v.push(&s[start..]);
     v
 }
 
@@ -4188,10 +4188,10 @@ pub fn looks_like_class_name(nome: &str) -> bool {
     }
     let b = nome.as_bytes();
     let mut i = 0;
-    let Some(&primeiro) = b.first() else {
+    let Some(&first) = b.first() else {
         return false;
     };
-    let mut c = primeiro;
+    let mut c = first;
     i += 1;
     if c == b'_' {
         if b.len() == 1 {
@@ -4207,7 +4207,7 @@ pub fn looks_like_class_name(nome: &str) -> bool {
 }
 
 /// Precedência de um operador binário (`TokenType.precedence`).
-pub fn precedencia(op: &str) -> u8 {
+pub fn precedence(op: &str) -> u8 {
     match op {
         "??" => 4,
         "||" => 5,
@@ -4225,6 +4225,6 @@ pub fn precedencia(op: &str) -> u8 {
 }
 
 #[allow(dead_code)]
-fn _usa(k: Keyword) -> Keyword {
+fn _uses(k: Keyword) -> Keyword {
     k
 }

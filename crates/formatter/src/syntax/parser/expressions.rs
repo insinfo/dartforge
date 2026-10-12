@@ -13,27 +13,27 @@
 
 use dartforge_frontend::token::{Keyword, Op};
 
-use super::super::tree::{No, NoId};
-use super::super::token::{TipoToken, Tk};
-use super::patterns::CtxPadrao;
-use super::types::Membro;
-use super::{Assinc, Parser, R, prec};
+use super::super::tree::{Node, NodeId};
+use super::super::token::{TokenKind, Tk};
+use super::patterns::PatternCtx;
+use super::types::MemberKind;
+use super::{AsyncKind, Parser, R, prec};
 
 /// `ConstantPatternContext` do fasta.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum CtxConst {
-    Nenhum,
-    Implicito,
-    Explicito,
-    SoNumerico,
+pub(super) enum ConstCtx {
+    NoneKind,
+    Implicit,
+    Explicit,
+    NumericOnly,
 }
 
 /// O primeiro escape inválido de `b` (o texto entre as aspas), como o
 /// `unescapeCodeUnits` do fasta (`quote.dart`).
-fn erro_de_escape(b: &[u8]) -> Option<&'static str> {
+fn escape_error(b: &[u8]) -> Option<&'static str> {
     let n = b.len();
     let hex = |x: u8| x.is_ascii_hexdigit();
-    let valor = |x: u8| (x as char).to_digit(16).unwrap_or(0);
+    let value = |x: u8| (x as char).to_digit(16).unwrap_or(0);
     let mut i = 0;
     while i < n {
         if b[i] != b'\\' {
@@ -62,7 +62,7 @@ fn erro_de_escape(b: &[u8]) -> Option<&'static str> {
                 let mut code: u32 = 0;
                 if b[i + 1] == b'{' {
                     i += 1;
-                    let mut fechou = false;
+                    let mut closed = false;
                     for j in 0..7 {
                         i += 1;
                         if i == n {
@@ -70,14 +70,14 @@ fn erro_de_escape(b: &[u8]) -> Option<&'static str> {
                         }
                         let d = b[i];
                         if j != 0 && d == b'}' {
-                            fechou = true;
+                            closed = true;
                             break;
                         } else if j == 6 || !hex(d) {
                             return Some("Invalid '\\u{...}' escape.");
                         }
-                        code = (code << 4) + valor(d);
+                        code = (code << 4) + value(d);
                     }
-                    if !fechou {
+                    if !closed {
                         return Some("Invalid '\\u{...}' escape.");
                     }
                 } else {
@@ -93,7 +93,7 @@ fn erro_de_escape(b: &[u8]) -> Option<&'static str> {
                                 "An escape sequence starting with '\\u' must be followed by 4 hexadecimal digits.",
                             );
                         }
-                        code = (code << 4) + valor(b[i]);
+                        code = (code << 4) + value(b[i]);
                     }
                 }
                 if code > 0x10FFFF {
@@ -109,121 +109,121 @@ fn erro_de_escape(b: &[u8]) -> Option<&'static str> {
 
 impl Parser<'_> {
     /// `parseExpression`.
-    pub(super) fn expressao(&mut self) -> R<NoId> {
-        self.entrar()?;
-        let r = self.expressao_interna();
+    pub(super) fn expression(&mut self) -> R<NodeId> {
+        self.enter_()?;
+        let r = self.inner_expression();
         self.sair();
         r
     }
 
-    fn expressao_interna(&mut self) -> R<NoId> {
-        if self.padroes
-            && let Some(f) = self.pular_padrao_externo(self.pos)
+    fn inner_expression(&mut self) -> R<NodeId> {
+        if self.patterns_
+            && let Some(f) = self.skip_outer_pattern(self.pos)
             && self.op(f + 1, Op::Assign)
         {
-            return self.atribuicao_padrao();
+            return self.pattern_assignment();
         }
         if self.kw(self.pos, Keyword::Throw) {
-            return self.lancar(true);
+            return self.throw_(true);
         }
-        self.precedencia(prec::ATRIBUICAO, true, CtxConst::Nenhum)
+        self.precedence(prec::ASSIGNMENT, true, ConstCtx::NoneKind)
     }
 
     /// `parseExpressionWithoutCascade`.
-    pub(super) fn expressao_sem_cascata(&mut self) -> R<NoId> {
+    pub(super) fn expression_without_cascade(&mut self) -> R<NodeId> {
         if self.kw(self.pos, Keyword::Throw) {
-            return self.lancar(false);
+            return self.throw_(false);
         }
-        self.entrar()?;
-        let r = self.precedencia(prec::ATRIBUICAO, false, CtxConst::Nenhum);
+        self.enter_()?;
+        let r = self.precedence(prec::ASSIGNMENT, false, ConstCtx::NoneKind);
         self.sair();
         r
     }
 
     /// `parsePatternAssignment`.
-    fn atribuicao_padrao(&mut self) -> R<NoId> {
-        let pattern = self.padrao(CtxPadrao::Atribuicao)?;
-        let ini = self.ini(pattern);
-        let equals = self.espera_op(Op::Assign)?;
-        let expression = self.expressao()?;
-        Ok(self.no(
-            No::PatternAssignment {
+    fn pattern_assignment(&mut self) -> R<NodeId> {
+        let pattern = self.pattern(PatternCtx::Assignment)?;
+        let start_ = self.start_(pattern);
+        let equals = self.expect_op(Op::Assign)?;
+        let expression = self.expression()?;
+        Ok(self.node(
+            Node::PatternAssignment {
                 pattern,
                 equals: equals as Tk,
                 expression,
             },
-            ini,
+            start_,
         ))
     }
 
     /// `parseThrowExpression`.
-    fn lancar(&mut self, cascatas: bool) -> R<NoId> {
-        let ini = self.avancar();
+    fn throw_(&mut self, cascades: bool) -> R<NodeId> {
+        let start_ = self.advance();
         if self.op(self.pos, Op::Semicolon) {
-            return Err(self.erro("Missing expression after 'throw'."));
+            return Err(self.error("Missing expression after 'throw'."));
         }
-        let expression = if cascatas {
-            self.expressao()?
+        let expression = if cascades {
+            self.expression()?
         } else {
-            self.expressao_sem_cascata()?
+            self.expression_without_cascade()?
         };
-        Ok(self.no(
-            No::ThrowExpression {
-                throw_keyword: ini as Tk,
+        Ok(self.node(
+            Node::ThrowExpression {
+                throw_keyword: start_ as Tk,
                 expression,
             },
-            ini,
+            start_,
         ))
     }
 
     /// `parsePrecedenceExpression`.
-    pub(super) fn precedencia(&mut self, nivel: u8, cascatas: bool, ctx: CtxConst) -> R<NoId> {
-        let e = self.unario(cascatas, ctx)?;
-        let (e, targs) = self.args_metodo_apos(e, ctx)?;
-        self.laco_precedencia(nivel, cascatas, targs, e, ctx)
+    pub(super) fn precedence(&mut self, level: u8, cascades: bool, ctx: ConstCtx) -> R<NodeId> {
+        let e = self.unary(cascades, ctx)?;
+        let (e, targs) = self.method_args_after(e, ctx)?;
+        self.precedence_loop(level, cascades, targs, e, ctx)
     }
 
     /// Argumentos de tipo de método depois de uma expressão (com `!`
     /// opcional): `e<T>(...)` deixa os argumentos pendentes para a chamada;
     /// `e<T>` sem chamada vira `FunctionReference`.
-    fn args_metodo_apos(&mut self, e: NoId, ctx: CtxConst) -> R<(NoId, Option<NoId>)> {
+    fn method_args_after(&mut self, e: NodeId, ctx: ConstCtx) -> R<(NodeId, Option<NodeId>)> {
         let ultimo = self.pos - 1;
         let bang = if self.op(self.pos, Op::Bang) {
             self.pos
         } else {
             ultimo
         };
-        if self.args_metodo_em(bang).is_none() {
+        if self.method_args_at(bang).is_none() {
             return Ok((e, None));
         }
         let mut e = e;
         if bang == self.pos {
-            let b = self.avancar();
-            let ini = self.ini(e);
-            e = self.no(
-                No::PostfixExpression {
+            let b = self.advance();
+            let start_ = self.start_(e);
+            e = self.node(
+                Node::PostfixExpression {
                     operand: e,
                     operator: b as Tk,
                 },
-                ini,
+                start_,
             );
         }
-        let ta = self.args_tipo()?;
+        let ta = self.type_args()?;
         if !self.op(self.pos, Op::LParen) {
-            if ctx != CtxConst::Nenhum {
-                return Err(self.erro_em(
-                    self.ini(ta),
+            if ctx != ConstCtx::NoneKind {
+                return Err(self.error_at(
+                    self.start_(ta),
                     "This expression isn't a valid constant pattern.",
                 ));
             }
-            self.recurso(self.ini(ta), (2, 15), "constructor-tearoffs");
-            let ini = self.ini(e);
-            let r = self.no(
-                No::FunctionReference {
+            self.feature(self.start_(ta), (2, 15), "constructor-tearoffs");
+            let start_ = self.start_(e);
+            let r = self.node(
+                Node::FunctionReference {
                     function: e,
                     type_arguments: Some(ta),
                 },
-                ini,
+                start_,
             );
             return Ok((r, None));
         }
@@ -231,49 +231,49 @@ impl Parser<'_> {
     }
 
     /// Precedência do token `i` (`_computePrecedence`).
-    pub(super) fn precedencia_em(&mut self, i: usize, padrao: bool) -> u8 {
+    pub(super) fn precedence_at(&mut self, i: usize, pattern: bool) -> u8 {
         use prec::*;
         match self.tipo(i) {
-            TipoToken::Op(o) => match o {
+            TokenKind::Op(o) => match o {
                 Op::Bang => {
                     if matches!(
                         self.tipo(i + 1),
-                        TipoToken::Op(
+                        TokenKind::Op(
                             Op::Dot | Op::Question | Op::LParen | Op::LBracket | Op::QuestionDot
                         )
                     ) {
-                        SELETOR
+                        SELECTOR
                     } else {
-                        POSFIXO
+                        POSTFIX
                     }
                 }
                 Op::Question => {
-                    if padrao || (self.op(i + 1, Op::LBracket) && !self.pode_ser_condicional(i)) {
-                        SELETOR
+                    if pattern || (self.op(i + 1, Op::LBracket) && !self.could_be_conditional(i)) {
+                        SELECTOR
                     } else {
-                        CONDICIONAL
+                        CONDITIONAL
                     }
                 }
-                Op::Gt => match self.toks.maior_composto(i as Tk) {
-                    Some(">>" | ">>>") => DESLOCAMENTO,
-                    Some(">>=" | ">>>=") => ATRIBUICAO,
-                    _ => RELACIONAL,
+                Op::Gt => match self.toks.composed_greater(i as Tk) {
+                    Some(">>" | ">>>") => SHIFT,
+                    Some(">>=" | ">>>=") => ASSIGNMENT,
+                    _ => RELATIONAL,
                 },
-                Op::LParen | Op::LBracket | Op::Dot | Op::QuestionDot => SELETOR,
-                Op::PlusPlus | Op::MinusMinus => POSFIXO,
-                Op::Tilde => PREFIXO,
-                Op::Star | Op::Slash | Op::TildeSlash | Op::Percent => MULTIPLICATIVA,
-                Op::Plus | Op::Minus => ADITIVA,
-                Op::LtLt => DESLOCAMENTO,
-                Op::Amp => BIT_E,
-                Op::Caret => BIT_XOU,
-                Op::Pipe => BIT_OU,
-                Op::Lt | Op::LtEq => RELACIONAL,
-                Op::EqEq | Op::BangEq => IGUALDADE,
+                Op::LParen | Op::LBracket | Op::Dot | Op::QuestionDot => SELECTOR,
+                Op::PlusPlus | Op::MinusMinus => POSTFIX,
+                Op::Tilde => PREFIX,
+                Op::Star | Op::Slash | Op::TildeSlash | Op::Percent => MULTIPLICATIVE,
+                Op::Plus | Op::Minus => ADDITIVE,
+                Op::LtLt => SHIFT,
+                Op::Amp => BIT_AND,
+                Op::Caret => BIT_XOR,
+                Op::Pipe => BIT_OR,
+                Op::Lt | Op::LtEq => RELATIONAL,
+                Op::EqEq | Op::BangEq => EQUALITY,
                 Op::AmpAmp => E,
-                Op::PipePipe => OU,
-                Op::QuestionQuestion => SE_NULO,
-                Op::DotDot | Op::QuestionDotDot => CASCATA,
+                Op::PipePipe => OR,
+                Op::QuestionQuestion => IF_NULL,
+                Op::DotDot | Op::QuestionDotDot => CASCADE,
                 Op::Assign
                 | Op::PlusAssign
                 | Op::MinusAssign
@@ -285,19 +285,19 @@ impl Parser<'_> {
                 | Op::AmpAssign
                 | Op::PipeAssign
                 | Op::CaretAssign
-                | Op::QuestionQuestionAssign => ATRIBUICAO,
+                | Op::QuestionQuestionAssign => ASSIGNMENT,
                 _ => 0,
             },
-            TipoToken::Reservada(Keyword::Is) => RELACIONAL,
-            TipoToken::Identificador if self.txt(i) == "as" => RELACIONAL,
+            TokenKind::Reserved(Keyword::Is) => RELATIONAL,
+            TokenKind::Identifier if self.txt(i) == "as" => RELATIONAL,
             _ => 0,
         }
     }
 
     /// Operador de atribuição em `i` e quantos tokens ocupa.
-    fn op_atribuicao_em(&self, i: usize) -> Option<usize> {
+    fn assignment_op_at(&self, i: usize) -> Option<usize> {
         match self.tipo(i) {
-            TipoToken::Op(
+            TokenKind::Op(
                 Op::Assign
                 | Op::PlusAssign
                 | Op::MinusAssign
@@ -311,7 +311,7 @@ impl Parser<'_> {
                 | Op::CaretAssign
                 | Op::QuestionQuestionAssign,
             ) => Some(1),
-            TipoToken::Op(Op::Gt) => match self.toks.maior_composto(i as Tk) {
+            TokenKind::Op(Op::Gt) => match self.toks.composed_greater(i as Tk) {
                 Some(">>=") => Some(3),
                 Some(">>>=") => Some(4),
                 _ => None,
@@ -321,12 +321,12 @@ impl Parser<'_> {
     }
 
     /// Consome o operador composto ou simples em `self.pos`.
-    fn consumir_operador(&mut self) -> usize {
+    fn consume_operator(&mut self) -> usize {
         let i = self.pos;
         if self.op(i, Op::Gt)
-            && let Some(a) = self.toks.maior_composto(i as Tk)
+            && let Some(a) = self.toks.composed_greater(i as Tk)
         {
-            self.fundir_maior(i, a);
+            self.merge_greater_at(i, a);
             self.pos += a.len();
             return i;
         }
@@ -335,214 +335,214 @@ impl Parser<'_> {
     }
 
     /// `canParseAsConditional`: `?` em `q` inicia um condicional válido.
-    pub(super) fn pode_ser_condicional(&mut self, q: usize) -> bool {
-        self.sondar(|p| {
+    pub(super) fn could_be_conditional(&mut self, q: usize) -> bool {
+        self.probe(|p| {
             p.pos = q + 1;
-            p.expressao_sem_cascata()?;
+            p.expression_without_cascade()?;
             if !p.op(p.pos, Op::Colon) {
-                return Err(p.erro("Expected ':'."));
+                return Err(p.error("Expected ':'."));
             }
             p.pos += 1;
-            p.expressao_sem_cascata()
+            p.expression_without_cascade()
         })
         .is_some()
     }
 
     /// `isAssignable` do analyzer.
-    fn atribuivel(&self, e: NoId) -> bool {
+    fn assignable(&self, e: NodeId) -> bool {
         matches!(
-            self.arv.no(e),
-            No::SimpleIdentifier { .. }
-                | No::PrefixedIdentifier { .. }
-                | No::PropertyAccess { .. }
-                | No::IndexExpression { .. }
+            self.tree_.node(e),
+            Node::SimpleIdentifier { .. }
+                | Node::PrefixedIdentifier { .. }
+                | Node::PropertyAccess { .. }
+                | Node::IndexExpression { .. }
         )
     }
 
     /// `reportErrorIfSuper`: `super` sozinho como operando.
-    pub(super) fn sem_super(&self, e: NoId) -> R<()> {
-        if matches!(self.arv.no(e), No::SuperExpression { .. }) {
-            return Err(self.erro_em(
-                self.ini(e),
+    pub(super) fn without_super(&self, e: NodeId) -> R<()> {
+        if matches!(self.tree_.node(e), Node::SuperExpression { .. }) {
+            return Err(self.error_at(
+                self.start_(e),
                 "Missing selector such as '.identifier' or '[0]'.",
             ));
         }
         Ok(())
     }
 
-    fn atribuicao(&mut self, lhs: NoId, operador: usize, rhs: NoId) -> R<NoId> {
-        self.sem_super(rhs)?;
-        if !self.atribuivel(lhs) {
-            return Err(self.erro_em(
-                self.ini(lhs),
+    fn assignment(&mut self, lhs: NodeId, operator_: usize, rhs: NodeId) -> R<NodeId> {
+        self.without_super(rhs)?;
+        if !self.assignable(lhs) {
+            return Err(self.error_at(
+                self.start_(lhs),
                 "Missing selector such as '.identifier' or '[0]'.",
             ));
         }
-        let ini = self.ini(lhs);
-        Ok(self.no(
-            No::AssignmentExpression {
+        let start_ = self.start_(lhs);
+        Ok(self.node(
+            Node::AssignmentExpression {
                 left_hand_side: lhs,
-                operator: operador as Tk,
+                operator: operator_ as Tk,
                 right_hand_side: rhs,
             },
-            ini,
+            start_,
         ))
     }
 
     /// `_parsePrecedenceExpressionLoop`.
-    fn laco_precedencia(
+    fn precedence_loop(
         &mut self,
-        nivel_min: u8,
-        cascatas: bool,
-        mut targs: Option<NoId>,
-        mut e: NoId,
-        ctx: CtxConst,
-    ) -> R<NoId> {
+        min_level: u8,
+        cascades: bool,
+        mut targs: Option<NodeId>,
+        mut e: NodeId,
+        ctx: ConstCtx,
+    ) -> R<NodeId> {
         let mut ctx = ctx;
-        let mut nivel_token = self.precedencia_em(self.pos, false);
-        if ctx != CtxConst::Nenhum {
+        let mut token_level = self.precedence_at(self.pos, false);
+        if ctx != ConstCtx::NoneKind {
             if self.op(self.pos, Op::Bang) {
-                if nivel_token == prec::POSFIXO || self.op(self.pos + 1, Op::Question) {
+                if token_level == prec::POSTFIX || self.op(self.pos + 1, Op::Question) {
                     return Ok(e);
                 }
-            } else if self.pal(self.pos, "as") {
+            } else if self.word(self.pos, "as") {
                 return Ok(e);
             }
-            if nivel_min <= nivel_token && nivel_token < prec::SELETOR {
-                if ctx == CtxConst::Explicito || nivel_token <= prec::MULTIPLICATIVA {
-                    return Err(self.erro("This expression isn't a valid constant pattern."));
+            if min_level <= token_level && token_level < prec::SELECTOR {
+                if ctx == ConstCtx::Explicit || token_level <= prec::MULTIPLICATIVE {
+                    return Err(self.error("This expression isn't a valid constant pattern."));
                 }
-                ctx = CtxConst::Nenhum;
+                ctx = ConstCtx::NoneKind;
             }
         }
-        let mut nivel = nivel_token as i32;
-        while nivel >= nivel_min as i32 {
-            let mut ultimo_binario: i32 = -1;
-            let mut ultima_cascata = false;
-            while nivel_token as i32 == nivel {
-                let operador = self.pos;
-                if nivel_token == prec::CASCATA {
-                    if !cascatas {
+        let mut level = token_level as i32;
+        while level >= min_level as i32 {
+            let mut last_binary: i32 = -1;
+            let mut last_cascade = false;
+            while token_level as i32 == level {
+                let operator_ = self.pos;
+                if token_level == prec::CASCADE {
+                    if !cascades {
                         return Ok(e);
                     }
-                    if ultima_cascata && self.op(self.pos, Op::QuestionDotDot) {
-                        return Err(self.erro(
+                    if last_cascade && self.op(self.pos, Op::QuestionDotDot) {
+                        return Err(self.error(
                             "The '?..' cascade operator must be first in the cascade sequence.",
                         ));
                     }
-                    ultima_cascata = true;
-                    e = self.cascata(e)?;
-                } else if nivel_token == prec::ATRIBUICAO {
-                    let op_tok = self.consumir_operador();
+                    last_cascade = true;
+                    e = self.cascade(e)?;
+                } else if token_level == prec::ASSIGNMENT {
+                    let op_tok = self.consume_operator();
                     let rhs = if self.kw(self.pos, Keyword::Throw) {
-                        self.lancar(false)?
+                        self.throw_(false)?
                     } else {
-                        self.precedencia(nivel as u8, cascatas, CtxConst::Nenhum)?
+                        self.precedence(level as u8, cascades, ConstCtx::NoneKind)?
                     };
-                    e = self.atribuicao(e, op_tok, rhs)?;
-                } else if nivel_token == prec::POSFIXO {
+                    e = self.assignment(e, op_tok, rhs)?;
+                } else if token_level == prec::POSTFIX {
                     if self.op(self.pos, Op::PlusPlus)
                         || self.op(self.pos, Op::MinusMinus)
                         || self.op(self.pos, Op::Bang)
                     {
-                        if !self.op(self.pos, Op::Bang) && !self.atribuivel(e) {
-                            return Err(self.erro_em(
-                                self.ini(e),
+                        if !self.op(self.pos, Op::Bang) && !self.assignable(e) {
+                            return Err(self.error_at(
+                                self.start_(e),
                                 "Illegal assignment to non-assignable expression.",
                             ));
                         }
-                        let o = self.avancar();
-                        let ini = self.ini(e);
-                        e = self.no(
-                            No::PostfixExpression {
+                        let o = self.advance();
+                        let start_ = self.start_(e);
+                        e = self.node(
+                            Node::PostfixExpression {
                                 operand: e,
                                 operator: o as Tk,
                             },
-                            ini,
+                            start_,
                         );
                     }
-                } else if nivel_token == prec::SELETOR {
+                } else if token_level == prec::SELECTOR {
                     if self.op(self.pos, Op::Dot) || self.op(self.pos, Op::QuestionDot) {
-                        let ponto = self.avancar();
-                        let direita = self.primario_continuacao(ctx)?;
-                        e = self.ponto(Some(e), ponto, direita)?;
-                        let (e2, t2) = self.args_metodo_apos(e, ctx)?;
+                        let dot = self.advance();
+                        let right = self.primary_continuation(ctx)?;
+                        e = self.dot(Some(e), dot, right)?;
+                        let (e2, t2) = self.method_args_after(e, ctx)?;
                         e = e2;
                         targs = t2;
                     } else if self.op(self.pos, Op::LParen) || self.op(self.pos, Op::LBracket) {
-                        e = self.args_ou_indice(e, targs.take(), false)?;
+                        e = self.args_or_index(e, targs.take(), false)?;
                     } else if self.op(self.pos, Op::Question) {
-                        e = self.args_ou_indice(e, targs.take(), true)?;
+                        e = self.args_or_index(e, targs.take(), true)?;
                     } else if self.op(self.pos, Op::Bang) {
-                        let o = self.avancar();
-                        let ini = self.ini(e);
-                        e = self.no(
-                            No::PostfixExpression {
+                        let o = self.advance();
+                        let start_ = self.start_(e);
+                        e = self.node(
+                            Node::PostfixExpression {
                                 operand: e,
                                 operator: o as Tk,
                             },
-                            ini,
+                            start_,
                         );
                     } else {
-                        return Err(self.erro("Unexpected token."));
+                        return Err(self.error("Unexpected token."));
                     }
                 } else if self.kw(self.pos, Keyword::Is) {
-                    e = self.is_resto(e)?;
-                } else if self.pal(self.pos, "as") {
-                    e = self.as_resto(e)?;
+                    e = self.is_rest(e)?;
+                } else if self.word(self.pos, "as") {
+                    e = self.as_rest(e)?;
                 } else if self.op(self.pos, Op::Question) {
-                    e = self.condicional_resto(e)?;
+                    e = self.conditional_rest(e)?;
                 } else {
-                    if nivel == prec::IGUALDADE as i32 || nivel == prec::RELACIONAL as i32 {
-                        if ultimo_binario == nivel {
-                            return Err(self.erro("An equality expression can't be an operand of another equality expression."));
+                    if level == prec::EQUALITY as i32 || level == prec::RELATIONAL as i32 {
+                        if last_binary == level {
+                            return Err(self.error("An equality expression can't be an operand of another equality expression."));
                         }
-                        ultimo_binario = nivel;
+                        last_binary = level;
                     }
-                    let o = self.consumir_operador();
-                    let _ = operador;
-                    let direita =
-                        self.precedencia((nivel + 1) as u8, cascatas, CtxConst::Nenhum)?;
-                    self.sem_super(direita)?;
-                    let ini = self.ini(e);
-                    e = self.no(
-                        No::BinaryExpression {
+                    let o = self.consume_operator();
+                    let _ = operator_;
+                    let right =
+                        self.precedence((level + 1) as u8, cascades, ConstCtx::NoneKind)?;
+                    self.without_super(right)?;
+                    let start_ = self.start_(e);
+                    e = self.node(
+                        Node::BinaryExpression {
                             left_operand: e,
                             operator: o as Tk,
-                            right_operand: direita,
+                            right_operand: right,
                         },
-                        ini,
+                        start_,
                     );
                 }
-                nivel_token = self.precedencia_em(self.pos, false);
-                if ctx != CtxConst::Nenhum {
+                token_level = self.precedence_at(self.pos, false);
+                if ctx != ConstCtx::NoneKind {
                     if self.op(self.pos, Op::Bang) {
-                        if nivel_token == prec::POSFIXO || self.op(self.pos + 1, Op::Question) {
+                        if token_level == prec::POSTFIX || self.op(self.pos + 1, Op::Question) {
                             return Ok(e);
                         }
-                    } else if self.pal(self.pos, "as") {
+                    } else if self.word(self.pos, "as") {
                         return Ok(e);
                     }
                 }
             }
-            nivel -= 1;
+            level -= 1;
         }
         Ok(e)
     }
 
     /// `computeTypeAfterIsOrAs` seguido do tipo.
-    pub(super) fn tipo_apos_is_as(&mut self) -> R<NoId> {
+    pub(super) fn type_after_is_as(&mut self) -> R<NodeId> {
         let i = self.pos;
-        let mut ti = self.tipo_em(i, true, false, false);
-        if ti.e_nenhum() {
-            return Err(self.erro(&format!("Expected a type, but got '{}'.", self.txt(i))));
+        let mut ti = self.type_at(i, true, false, false);
+        if ti.is_none() {
+            return Err(self.error(&format!("Expected a type, but got '{}'.", self.txt(i))));
         }
-        if ti.nulavel() {
-            let nx = ti.ate;
-            let fim_ok = self.eof(nx)
+        if ti.nullable() {
+            let nx = ti.end_index;
+            let end_ok = self.eof(nx)
                 || matches!(
                     self.tipo(nx),
-                    TipoToken::Op(
+                    TokenKind::Op(
                         Op::RParen
                             | Op::RBrace
                             | Op::RBracket
@@ -557,95 +557,95 @@ impl Parser<'_> {
                     )
                 )
                 || self.kw(nx, Keyword::Is)
-                || self.pal(nx, "as");
-            if !fim_ok {
-                let manter = (self.op(nx, Op::LBrace) || self.pal(nx, "when"))
-                    && !self.pode_ser_condicional(nx - 1);
+                || self.word(nx, "as");
+            if !end_ok {
+                let manter = (self.op(nx, Op::LBrace) || self.word(nx, "when"))
+                    && !self.could_be_conditional(nx - 1);
                 if !manter {
-                    ti = ti.sem_interrogacao();
+                    ti = ti.without_question();
                 }
             }
         }
-        if self.kw(i, Keyword::Void) && ti.ate == i + 1 {
-            return Err(self.erro_em(i, "The type 'void' can't be used here."));
+        if self.kw(i, Keyword::Void) && ti.end_index == i + 1 {
+            return Err(self.error_at(i, "The type 'void' can't be used here."));
         }
-        self.tipo_ate(ti.ate)
+        self.type_until(ti.end_index)
     }
 
-    fn sem_is_as_encadeado(&self) -> R<()> {
-        if self.kw(self.pos, Keyword::Is) || self.pal(self.pos, "as") {
-            return Err(self.erro("Unexpected token."));
+    fn no_chained_is_as(&self) -> R<()> {
+        if self.kw(self.pos, Keyword::Is) || self.word(self.pos, "as") {
+            return Err(self.error("Unexpected token."));
         }
         Ok(())
     }
 
     /// `parseIsOperatorRest`.
-    fn is_resto(&mut self, e: NoId) -> R<NoId> {
-        let is = self.avancar();
-        let not = self.opcional_op(Op::Bang).map(|b| b as Tk);
-        let type_ = self.tipo_apos_is_as()?;
-        let ini = self.ini(e);
-        let r = self.no(
-            No::IsExpression {
+    fn is_rest(&mut self, e: NodeId) -> R<NodeId> {
+        let is = self.advance();
+        let not = self.optional_op(Op::Bang).map(|b| b as Tk);
+        let type_ = self.type_after_is_as()?;
+        let start_ = self.start_(e);
+        let r = self.node(
+            Node::IsExpression {
                 expression: e,
                 is_operator: is as Tk,
                 not_operator: not,
                 type_,
             },
-            ini,
+            start_,
         );
-        self.sem_is_as_encadeado()?;
+        self.no_chained_is_as()?;
         Ok(r)
     }
 
     /// `parseAsOperatorRest`.
-    fn as_resto(&mut self, e: NoId) -> R<NoId> {
-        let a = self.avancar();
-        let type_ = self.tipo_apos_is_as()?;
-        let ini = self.ini(e);
-        let r = self.no(
-            No::AsExpression {
+    fn as_rest(&mut self, e: NodeId) -> R<NodeId> {
+        let a = self.advance();
+        let type_ = self.type_after_is_as()?;
+        let start_ = self.start_(e);
+        let r = self.node(
+            Node::AsExpression {
                 expression: e,
                 as_operator: a as Tk,
                 type_,
             },
-            ini,
+            start_,
         );
-        self.sem_is_as_encadeado()?;
+        self.no_chained_is_as()?;
         Ok(r)
     }
 
     /// `parseConditionalExpressionRest`.
-    fn condicional_resto(&mut self, c: NoId) -> R<NoId> {
-        let q = self.avancar();
-        let then_expression = self.expressao_sem_cascata()?;
-        let colon = self.espera_op(Op::Colon)?;
-        let else_expression = self.expressao_sem_cascata()?;
-        let ini = self.ini(c);
-        Ok(self.no(
-            No::ConditionalExpression {
+    fn conditional_rest(&mut self, c: NodeId) -> R<NodeId> {
+        let q = self.advance();
+        let then_expression = self.expression_without_cascade()?;
+        let colon = self.expect_op(Op::Colon)?;
+        let else_expression = self.expression_without_cascade()?;
+        let start_ = self.start_(c);
+        Ok(self.node(
+            Node::ConditionalExpression {
                 condition: c,
                 question: q as Tk,
                 then_expression,
                 colon: colon as Tk,
                 else_expression,
             },
-            ini,
+            start_,
         ))
     }
 
     /// `parseCascadeExpression`.
-    fn cascata(&mut self, alvo: NoId) -> R<NoId> {
-        let op_c = self.avancar();
+    fn cascade(&mut self, alvo: NodeId) -> R<NodeId> {
+        let op_c = self.advance();
         let mut sec = if self.op(self.pos, Op::LBracket) {
-            let lb = self.avancar();
-            let old = self.funcoes;
-            self.funcoes = true;
-            let index = self.expressao()?;
-            self.funcoes = old;
-            let rb = self.espera_op(Op::RBracket)?;
-            let s = self.no(
-                No::IndexExpression {
+            let lb = self.advance();
+            let old = self.functions;
+            self.functions = true;
+            let index = self.expression()?;
+            self.functions = old;
+            let rb = self.expect_op(Op::RBracket)?;
+            let s = self.node(
+                Node::IndexExpression {
                     target: None,
                     period: Some(op_c as Tk),
                     question: None,
@@ -655,100 +655,100 @@ impl Parser<'_> {
                 },
                 op_c,
             );
-            let (s, t) = self.args_metodo_apos(s, CtxConst::Nenhum)?;
-            self.args_ou_indice(s, t, false)?
+            let (s, t) = self.method_args_after(s, ConstCtx::NoneKind)?;
+            self.args_or_index(s, t, false)?
         } else {
-            let d = self.enviar(CtxConst::Nenhum, true)?;
-            self.ponto(None, op_c, d)?
+            let d = self.send(ConstCtx::NoneKind, true)?;
+            self.dot(None, op_c, d)?
         };
         loop {
-            let marca = self.pos;
+            let mark = self.pos;
             if self.op(self.pos, Op::Dot) || self.op(self.pos, Op::QuestionDot) {
-                let p = self.avancar();
-                let d = self.enviar(CtxConst::Nenhum, true)?;
-                sec = self.ponto(Some(sec), p, d)?;
+                let p = self.advance();
+                let d = self.send(ConstCtx::NoneKind, true)?;
+                sec = self.dot(Some(sec), p, d)?;
             } else if self.op(self.pos, Op::Bang) {
-                let b = self.avancar();
-                let ini = self.ini(sec);
-                sec = self.no(
-                    No::PostfixExpression {
+                let b = self.advance();
+                let start_ = self.start_(sec);
+                sec = self.node(
+                    Node::PostfixExpression {
                         operand: sec,
                         operator: b as Tk,
                     },
-                    ini,
+                    start_,
                 );
             }
             let mut targs = None;
-            if self.args_metodo_em(self.pos - 1).is_some() {
-                let ta = self.args_tipo()?;
+            if self.method_args_at(self.pos - 1).is_some() {
+                let ta = self.type_args()?;
                 if !self.op(self.pos, Op::LParen) {
-                    self.recurso(self.ini(ta), (2, 15), "constructor-tearoffs");
-                    let ini = self.ini(sec);
-                    sec = self.no(
-                        No::FunctionReference {
+                    self.feature(self.start_(ta), (2, 15), "constructor-tearoffs");
+                    let start_ = self.start_(sec);
+                    sec = self.node(
+                        Node::FunctionReference {
                             function: sec,
                             type_arguments: Some(ta),
                         },
-                        ini,
+                        start_,
                     );
                 } else {
                     targs = Some(ta);
                 }
             }
-            sec = self.args_ou_indice(sec, targs, false)?;
-            if self.pos == marca {
+            sec = self.args_or_index(sec, targs, false)?;
+            if self.pos == mark {
                 break;
             }
         }
-        if self.op_atribuicao_em(self.pos).is_some() {
-            let o = self.consumir_operador();
-            let rhs = self.expressao_sem_cascata()?;
-            sec = self.atribuicao(sec, o, rhs)?;
+        if self.assignment_op_at(self.pos).is_some() {
+            let o = self.consume_operator();
+            let rhs = self.expression_without_cascade()?;
+            sec = self.assignment(sec, o, rhs)?;
         }
-        let fim = self.fim(sec);
-        if let No::CascadeExpression {
+        let end = self.end(sec);
+        if let Node::CascadeExpression {
             cascade_sections, ..
-        } = &mut self.arv.nos[alvo.0 as usize].no
+        } = &mut self.tree_.nodes[alvo.0 as usize].node
         {
             cascade_sections.push(sec);
-            self.arv.nos[alvo.0 as usize].fim = fim as Tk;
+            self.tree_.nodes[alvo.0 as usize].end = end as Tk;
             return Ok(alvo);
         }
-        let ini = self.ini(alvo);
-        Ok(self.no(
-            No::CascadeExpression {
+        let start_ = self.start_(alvo);
+        Ok(self.node(
+            Node::CascadeExpression {
                 target: alvo,
                 cascade_sections: vec![sec],
             },
-            ini,
+            start_,
         ))
     }
 
     /// `parseArgumentOrIndexStar`.
-    fn args_ou_indice(&mut self, e: NoId, targs: Option<NoId>, verificado: bool) -> R<NoId> {
+    fn args_or_index(&mut self, e: NodeId, targs: Option<NodeId>, checked: bool) -> R<NodeId> {
         let mut e = e;
         let mut targs = targs;
         loop {
-            let mut potencial =
+            let mut potential =
                 self.op(self.pos, Op::Question) && self.op(self.pos + 1, Op::LBracket);
-            if potencial && !verificado && self.pode_ser_condicional(self.pos) {
-                potencial = false;
+            if potential && !checked && self.could_be_conditional(self.pos) {
+                potential = false;
             }
-            if self.op(self.pos, Op::LBracket) || potencial {
+            if self.op(self.pos, Op::LBracket) || potential {
                 let question = if self.op(self.pos, Op::Question) {
-                    Some(self.avancar() as Tk)
+                    Some(self.advance() as Tk)
                 } else {
                     None
                 };
-                let lb = self.avancar();
-                let old = self.funcoes;
-                self.funcoes = true;
-                let index = self.expressao()?;
-                self.funcoes = old;
-                let rb = self.espera_op(Op::RBracket)?;
-                let ini = self.ini(e);
-                e = self.no(
-                    No::IndexExpression {
+                let lb = self.advance();
+                let old = self.functions;
+                self.functions = true;
+                let index = self.expression()?;
+                self.functions = old;
+                let rb = self.expect_op(Op::RBracket)?;
+                let start_ = self.start_(e);
+                e = self.node(
+                    Node::IndexExpression {
                         target: Some(e),
                         period: None,
                         question,
@@ -756,15 +756,15 @@ impl Parser<'_> {
                         index,
                         right_bracket: rb as Tk,
                     },
-                    ini,
+                    start_,
                 );
-                let (e2, t2) = self.args_metodo_apos(e, CtxConst::Nenhum)?;
+                let (e2, t2) = self.method_args_after(e, ConstCtx::NoneKind)?;
                 e = e2;
                 targs = t2;
             } else if self.op(self.pos, Op::LParen) {
-                let args = self.argumentos()?;
-                e = self.invocacao(e, targs.take(), args);
-                let (e2, t2) = self.args_metodo_apos(e, CtxConst::Nenhum)?;
+                let args = self.arguments_()?;
+                e = self.invocation(e, targs.take(), args);
+                let (e2, t2) = self.method_args_after(e, ConstCtx::NoneKind)?;
                 e = e2;
                 targs = t2;
             } else {
@@ -775,86 +775,86 @@ impl Parser<'_> {
     }
 
     /// `doInvocation`.
-    fn invocacao(&mut self, receptor: NoId, targs: Option<NoId>, args: NoId) -> NoId {
-        let ini = self.ini(receptor);
-        if self.e_simples(receptor) {
-            return self.no(
-                No::MethodInvocation {
+    fn invocation(&mut self, receptor: NodeId, targs: Option<NodeId>, args: NodeId) -> NodeId {
+        let start_ = self.start_(receptor);
+        if self.is_simple(receptor) {
+            return self.node(
+                Node::MethodInvocation {
                     target: None,
                     operator: None,
                     method_name: receptor,
                     type_arguments: targs,
                     argument_list: args,
                 },
-                ini,
+                start_,
             );
         }
-        self.no(
-            No::FunctionExpressionInvocation {
+        self.node(
+            Node::FunctionExpressionInvocation {
                 function: receptor,
                 type_arguments: targs,
                 argument_list: args,
             },
-            ini,
+            start_,
         )
     }
 
     /// `doDotExpression`: `receptor` é `None` numa seção de cascata.
-    fn ponto(&mut self, receptor: Option<NoId>, ponto: usize, direita: NoId) -> R<NoId> {
-        let ini = receptor.map_or(ponto, |r| self.ini(r));
-        match self.arv.no(direita) {
-            No::SimpleIdentifier { .. } => {
+    fn dot(&mut self, receptor: Option<NodeId>, dot: usize, right: NodeId) -> R<NodeId> {
+        let start_ = receptor.map_or(dot, |r| self.start_(r));
+        match self.tree_.node(right) {
+            Node::SimpleIdentifier { .. } => {
                 if let Some(r) = receptor
-                    && self.e_simples(r)
-                    && self.op(ponto, Op::Dot)
+                    && self.is_simple(r)
+                    && self.op(dot, Op::Dot)
                 {
-                    return Ok(self.no(
-                        No::PrefixedIdentifier {
+                    return Ok(self.node(
+                        Node::PrefixedIdentifier {
                             prefix: r,
-                            period: ponto as Tk,
-                            identifier: direita,
+                            period: dot as Tk,
+                            identifier: right,
                         },
-                        ini,
+                        start_,
                     ));
                 }
-                Ok(self.no(
-                    No::PropertyAccess {
+                Ok(self.node(
+                    Node::PropertyAccess {
                         target: receptor,
-                        operator: ponto as Tk,
-                        property_name: direita,
+                        operator: dot as Tk,
+                        property_name: right,
                     },
-                    ini,
+                    start_,
                 ))
             }
-            No::MethodInvocation { target: None, .. } => {
-                let d = &mut self.arv.nos[direita.0 as usize];
-                if let No::MethodInvocation {
+            Node::MethodInvocation { target: None, .. } => {
+                let d = &mut self.tree_.nodes[right.0 as usize];
+                if let Node::MethodInvocation {
                     target, operator, ..
-                } = &mut d.no
+                } = &mut d.node
                 {
                     *target = receptor;
-                    *operator = Some(ponto as Tk);
+                    *operator = Some(dot as Tk);
                 }
-                d.inicio = ini as Tk;
-                Ok(direita)
+                d.start = start_ as Tk;
+                Ok(right)
             }
-            _ => Err(self.erro_em(self.ini(direita), "Expected an identifier.")),
+            _ => Err(self.error_at(self.start_(right), "Expected an identifier.")),
         }
     }
 
     /// `parseUnaryExpression`.
-    fn unario(&mut self, cascatas: bool, ctx: CtxConst) -> R<NoId> {
+    fn unary(&mut self, cascades: bool, ctx: ConstCtx) -> R<NodeId> {
         let i = self.pos;
-        if self.pal(i, "await") {
+        if self.word(i, "await") {
             // Fora de corpo `async`, o fasta relata `AwaitNotAsync`, que no
             // analyzer não é erro sintático, e monta o `AwaitExpression`.
-            if self.assinc == Assinc::Sinc && !self.parece_expressao_apos(i, true) {
-                return self.primario(ctx);
+            if self.async_kind == AsyncKind::SyncKind && !self.looks_like_expression_after(i, true) {
+                return self.primary(ctx);
             }
-            self.avancar();
-            let expression = self.precedencia(prec::POSFIXO, cascatas, CtxConst::Nenhum)?;
-            return Ok(self.no(
-                No::AwaitExpression {
+            self.advance();
+            let expression = self.precedence(prec::POSTFIX, cascades, ConstCtx::NoneKind)?;
+            return Ok(self.node(
+                Node::AwaitExpression {
                     await_keyword: i as Tk,
                     expression,
                 },
@@ -862,51 +862,51 @@ impl Parser<'_> {
             ));
         }
         match self.tipo(i) {
-            TipoToken::Op(Op::Plus) => return Err(self.erro("'+' is not a prefix operator.")),
-            TipoToken::Op(Op::Bang | Op::Tilde) => {
-                if ctx != CtxConst::Nenhum {
-                    return Err(self.erro("This expression isn't a valid constant pattern."));
+            TokenKind::Op(Op::Plus) => return Err(self.error("'+' is not a prefix operator.")),
+            TokenKind::Op(Op::Bang | Op::Tilde) => {
+                if ctx != ConstCtx::NoneKind {
+                    return Err(self.error("This expression isn't a valid constant pattern."));
                 }
-                self.avancar();
-                let operand = self.precedencia(prec::POSFIXO, cascatas, CtxConst::Nenhum)?;
-                return Ok(self.no(
-                    No::PrefixExpression {
+                self.advance();
+                let operand = self.precedence(prec::POSTFIX, cascades, ConstCtx::NoneKind)?;
+                return Ok(self.node(
+                    Node::PrefixExpression {
                         operator: i as Tk,
                         operand,
                     },
                     i,
                 ));
             }
-            TipoToken::Op(Op::Minus) => {
-                if ctx == CtxConst::Explicito {
-                    return Err(self.erro("The expression can't be prefixed by 'const'."));
+            TokenKind::Op(Op::Minus) => {
+                if ctx == ConstCtx::Explicit {
+                    return Err(self.error("The expression can't be prefixed by 'const'."));
                 }
-                self.avancar();
-                let c = if ctx != CtxConst::Nenhum {
-                    CtxConst::SoNumerico
+                self.advance();
+                let c = if ctx != ConstCtx::NoneKind {
+                    ConstCtx::NumericOnly
                 } else {
-                    CtxConst::Nenhum
+                    ConstCtx::NoneKind
                 };
-                let operand = self.precedencia(prec::POSFIXO, cascatas, c)?;
-                return Ok(self.no(
-                    No::PrefixExpression {
+                let operand = self.precedence(prec::POSTFIX, cascades, c)?;
+                return Ok(self.node(
+                    Node::PrefixExpression {
                         operator: i as Tk,
                         operand,
                     },
                     i,
                 ));
             }
-            TipoToken::Op(Op::PlusPlus | Op::MinusMinus) => {
-                self.avancar();
-                let operand = self.precedencia(prec::POSFIXO, cascatas, CtxConst::Nenhum)?;
-                if !self.atribuivel(operand) {
-                    return Err(self.erro_em(
-                        self.ini(operand),
+            TokenKind::Op(Op::PlusPlus | Op::MinusMinus) => {
+                self.advance();
+                let operand = self.precedence(prec::POSTFIX, cascades, ConstCtx::NoneKind)?;
+                if !self.assignable(operand) {
+                    return Err(self.error_at(
+                        self.start_(operand),
                         "Illegal assignment to non-assignable expression.",
                     ));
                 }
-                return Ok(self.no(
-                    No::PrefixExpression {
+                return Ok(self.node(
+                    Node::PrefixExpression {
                         operator: i as Tk,
                         operand,
                     },
@@ -922,94 +922,94 @@ impl Parser<'_> {
             }
             if self.ident(id)
                 && self.op(id + 1, Op::Lt)
-                && let Some(a) = self.args_tipo_em(id, false)
-                && self.op(a.ate, Op::Dot)
-                && (self.ident(a.ate + 1) || self.kw(a.ate + 1, Keyword::New))
-                && self.op(a.ate + 2, Op::LParen)
+                && let Some(a) = self.type_args_at(id, false)
+                && self.op(a.end_index, Op::Dot)
+                && (self.ident(a.end_index + 1) || self.kw(a.end_index + 1, Keyword::New))
+                && self.op(a.end_index + 2, Op::LParen)
             {
-                return self.criacao(None);
+                return self.creation(None);
             }
         }
-        self.primario(ctx)
+        self.primary(ctx)
     }
 
     /// `parsePrimary` no contexto de expressão.
-    fn primario(&mut self, ctx: CtxConst) -> R<NoId> {
+    fn primary(&mut self, ctx: ConstCtx) -> R<NodeId> {
         let i = self.pos;
-        let explicito = ctx == CtxConst::Explicito;
-        let numerico = ctx == CtxConst::SoNumerico;
-        let invalido = |p: &Self| Err(p.erro("This expression isn't a valid constant pattern."));
+        let explicit = ctx == ConstCtx::Explicit;
+        let numeric = ctx == ConstCtx::NumericOnly;
+        let invalid = |p: &Self| Err(p.error("This expression isn't a valid constant pattern."));
         match self.tipo(i) {
-            TipoToken::Identificador => {
-                if numerico {
-                    return invalido(self);
+            TokenKind::Identifier => {
+                if numeric {
+                    return invalid(self);
                 }
-                self.enviar_ou_funcao(ctx)
+                self.send_or_function(ctx)
             }
-            TipoToken::Inteiro => {
-                if explicito {
-                    return invalido(self);
+            TokenKind::Integer => {
+                if explicit {
+                    return invalid(self);
                 }
-                self.conferir_numero(i)?;
-                self.avancar();
-                Ok(self.no(No::IntegerLiteral { literal: i as Tk }, i))
+                self.check_number(i)?;
+                self.advance();
+                Ok(self.node(Node::IntegerLiteral { literal: i as Tk }, i))
             }
-            TipoToken::Duplo => {
-                if explicito {
-                    return invalido(self);
+            TokenKind::Double => {
+                if explicit {
+                    return invalid(self);
                 }
-                self.conferir_numero(i)?;
-                self.avancar();
-                Ok(self.no(No::DoubleLiteral { literal: i as Tk }, i))
+                self.check_number(i)?;
+                self.advance();
+                Ok(self.node(Node::DoubleLiteral { literal: i as Tk }, i))
             }
-            TipoToken::Texto => {
-                if explicito || numerico {
-                    return invalido(self);
+            TokenKind::Text => {
+                if explicit || numeric {
+                    return invalid(self);
                 }
-                self.literal_texto()
+                self.string_literal()
             }
-            TipoToken::Op(Op::Hash) => {
-                if explicito || numerico {
-                    return invalido(self);
+            TokenKind::Op(Op::Hash) => {
+                if explicit || numeric {
+                    return invalid(self);
                 }
-                self.simbolo()
+                self.symbol()
             }
-            TipoToken::Reservada(k) => match k {
+            TokenKind::Reserved(k) => match k {
                 Keyword::True | Keyword::False => {
-                    if explicito || numerico {
-                        return invalido(self);
+                    if explicit || numeric {
+                        return invalid(self);
                     }
-                    self.avancar();
-                    Ok(self.no(No::BooleanLiteral { literal: i as Tk }, i))
+                    self.advance();
+                    Ok(self.node(Node::BooleanLiteral { literal: i as Tk }, i))
                 }
                 Keyword::Null => {
-                    if explicito || numerico {
-                        return invalido(self);
+                    if explicit || numeric {
+                        return invalid(self);
                     }
-                    self.avancar();
-                    Ok(self.no(No::NullLiteral { literal: i as Tk }, i))
+                    self.advance();
+                    Ok(self.node(Node::NullLiteral { literal: i as Tk }, i))
                 }
-                Keyword::This => self.este_ou_super(true),
-                Keyword::Super => self.este_ou_super(false),
-                Keyword::New => self.criacao(Some(i)),
+                Keyword::This => self.this_or_super(true),
+                Keyword::Super => self.this_or_super(false),
+                Keyword::New => self.creation(Some(i)),
                 Keyword::Const => {
-                    if explicito {
-                        return Err(self.erro("Duplicate 'const' keyword."));
+                    if explicit {
+                        return Err(self.error("Duplicate 'const' keyword."));
                     }
-                    self.expressao_const()
+                    self.const_expression()
                 }
-                Keyword::Switch if self.padroes => self.expressao_switch(),
-                Keyword::Assert => self.assert_expressao(),
-                _ => Err(self.erro(&format!(
+                Keyword::Switch if self.patterns_ => self.switch_expression(),
+                Keyword::Assert => self.assert_expression(),
+                _ => Err(self.error(&format!(
                     "Expected an expression, but got '{}'.",
                     self.txt(i)
                 ))),
             },
-            TipoToken::Op(Op::LParen) => self.parenteses_funcao_ou_registro(ctx),
-            TipoToken::Op(Op::LBracket) => self.lista(None, None),
-            TipoToken::Op(Op::LBrace) => self.conjunto_ou_mapa(None, None),
-            TipoToken::Op(Op::Lt) => self.colecao_ou_funcao_generica(None),
-            _ => Err(self.erro(&format!(
+            TokenKind::Op(Op::LParen) => self.parenthesized_function_or_record(ctx),
+            TokenKind::Op(Op::LBracket) => self.list(None, None),
+            TokenKind::Op(Op::LBrace) => self.set_or_map(None, None),
+            TokenKind::Op(Op::Lt) => self.collection_or_generic_function(None),
+            _ => Err(self.error(&format!(
                 "Expected an expression, but got '{}'.",
                 self.txt(i)
             ))),
@@ -1017,69 +1017,69 @@ impl Parser<'_> {
     }
 
     /// `parsePrimary` depois de `.`/`?.` (`expressionContinuation`).
-    fn primario_continuacao(&mut self, ctx: CtxConst) -> R<NoId> {
+    fn primary_continuation(&mut self, ctx: ConstCtx) -> R<NodeId> {
         if self.ident(self.pos) {
-            return self.enviar_ou_funcao(ctx);
+            return self.send_or_function(ctx);
         }
         if self.kw(self.pos, Keyword::New) {
-            return self.enviar(ctx, true);
+            return self.send(ctx, true);
         }
-        Err(self.erro(&format!(
+        Err(self.error(&format!(
             "Expected an identifier, but got '{}'.",
             self.txt(self.pos)
         )))
     }
 
     /// `parseSendOrFunctionLiteral`.
-    fn enviar_ou_funcao(&mut self, ctx: CtxConst) -> R<NoId> {
-        if self.funcoes {
-            let ti = self.tipo_em(self.pos, false, false, false);
-            let nome = ti.ate;
+    fn send_or_function(&mut self, ctx: ConstCtx) -> R<NodeId> {
+        if self.functions {
+            let ti = self.type_at(self.pos, false, false, false);
+            let nome = ti.end_index;
             if self.ident(nome) {
-                let nx = self.args_tipo_em(nome, false).map_or(nome + 1, |a| a.ate);
-                if self.op(nx, Op::LParen) && self.parece_corpo(self.par(nx) + 1) {
-                    return Err(self.erro_em(nome, "A function expression can't have a name."));
+                let nx = self.type_args_at(nome, false).map_or(nome + 1, |a| a.end_index);
+                if self.op(nx, Op::LParen) && self.looks_like_body(self.pair(nx) + 1) {
+                    return Err(self.error_at(nome, "A function expression can't have a name."));
                 }
             }
         }
-        self.enviar(ctx, false)
+        self.send(ctx, false)
     }
 
     /// `parseSend`.
-    fn enviar(&mut self, ctx: CtxConst, permite_new: bool) -> R<NoId> {
+    fn send(&mut self, ctx: ConstCtx, allows_new: bool) -> R<NodeId> {
         let i = self.pos;
-        if !(self.ident(i) || (permite_new && self.kw(i, Keyword::New))) {
-            return Err(self.erro(&format!(
+        if !(self.ident(i) || (allows_new && self.kw(i, Keyword::New))) {
+            return Err(self.error(&format!(
                 "Expected an identifier, but got '{}'.",
                 self.txt(i)
             )));
         }
         if self.ident(i) {
             if self.txt(i) == "await" && self.ident(i + 1) {
-                return Err(self.erro_em(i, "Unexpected 'await'."));
+                return Err(self.error_at(i, "Unexpected 'await'."));
             }
-            self.conferir_await_yield(i)?;
+            self.check_await_yield(i)?;
         }
-        self.avancar();
-        let tp = self.args_tipo_em(i, false);
-        let depois = tp.map_or(i + 1, |a| a.ate);
-        let targs = if self.op(depois, Op::LParen) && tp.is_some_and(|a| !a.recuperado) {
-            Some(self.args_tipo()?)
+        self.advance();
+        let tp = self.type_args_at(i, false);
+        let after = tp.map_or(i + 1, |a| a.end_index);
+        let targs = if self.op(after, Op::LParen) && tp.is_some_and(|a| !a.recovered) {
+            Some(self.type_args()?)
         } else {
             None
         };
-        if ctx == CtxConst::Explicito
+        if ctx == ConstCtx::Explicit
             && !(self.op(self.pos, Op::Dot)
                 || self.op(self.pos, Op::LParen)
                 || self.op(self.pos, Op::Lt))
         {
-            return Err(self.erro_em(i, "The expression can't be prefixed by 'const'."));
+            return Err(self.error_at(i, "The expression can't be prefixed by 'const'."));
         }
-        let nome = self.simples(i);
+        let nome = self.simple(i);
         if self.op(self.pos, Op::LParen) {
-            let args = self.argumentos()?;
-            return Ok(self.no(
-                No::MethodInvocation {
+            let args = self.arguments_()?;
+            return Ok(self.node(
+                Node::MethodInvocation {
                     target: None,
                     operator: None,
                     method_name: nome,
@@ -1093,35 +1093,35 @@ impl Parser<'_> {
     }
 
     /// `parseThisExpression`/`parseSuperExpression`.
-    fn este_ou_super(&mut self, este: bool) -> R<NoId> {
-        let i = self.avancar();
-        let mut e = if este {
-            self.no(
-                No::ThisExpression {
+    fn this_or_super(&mut self, this_: bool) -> R<NodeId> {
+        let i = self.advance();
+        let mut e = if this_ {
+            self.node(
+                Node::ThisExpression {
                     this_keyword: i as Tk,
                 },
                 i,
             )
         } else {
-            self.no(
-                No::SuperExpression {
+            self.node(
+                Node::SuperExpression {
                     super_keyword: i as Tk,
                 },
                 i,
             )
         };
         if self.op(self.pos, Op::LParen) {
-            let args = self.argumentos()?;
-            e = self.no(
-                No::FunctionExpressionInvocation {
+            let args = self.arguments_()?;
+            e = self.node(
+                Node::FunctionExpressionInvocation {
                     function: e,
                     type_arguments: None,
                     argument_list: args,
                 },
                 i,
             );
-        } else if !este && self.op(self.pos, Op::QuestionDot) {
-            return Err(self.erro("The operator '?.' cannot be used with 'super'."));
+        } else if !this_ && self.op(self.pos, Op::QuestionDot) {
+            return Err(self.error("The operator '?.' cannot be used with 'super'."));
         }
         Ok(e)
     }
@@ -1129,21 +1129,21 @@ impl Parser<'_> {
     /// `assert(...)` como expressão: o `AstBuilder` monta uma invocação de
     /// função chamada `assert` (o erro `AssertAsExpression` não tem código
     /// no analyzer).
-    fn assert_expressao(&mut self) -> R<NoId> {
-        let (a, lp, condition, _comma, message, rp) = self.partes_assert()?;
-        let function = self.simples(a);
+    fn assert_expression(&mut self) -> R<NodeId> {
+        let (a, lp, condition, _comma, message, rp) = self.assert_parts()?;
+        let function = self.simple(a);
         let mut arguments = vec![condition];
         arguments.extend(message);
-        let argument_list = self.no(
-            No::ArgumentList {
+        let argument_list = self.node(
+            Node::ArgumentList {
                 left_parenthesis: lp as Tk,
                 arguments,
                 right_parenthesis: rp as Tk,
             },
             lp,
         );
-        Ok(self.no(
-            No::FunctionExpressionInvocation {
+        Ok(self.node(
+            Node::FunctionExpressionInvocation {
                 function,
                 type_arguments: None,
                 argument_list,
@@ -1153,372 +1153,372 @@ impl Parser<'_> {
     }
 
     /// `parseArgumentsRest`.
-    pub(super) fn argumentos(&mut self) -> R<NoId> {
-        let ini = self.pos;
-        let lp = self.espera_op(Op::LParen)?;
-        let old = self.funcoes;
-        self.funcoes = true;
+    pub(super) fn arguments_(&mut self) -> R<NodeId> {
+        let start_ = self.pos;
+        let lp = self.expect_op(Op::LParen)?;
+        let old = self.functions;
+        self.functions = true;
         let mut args = Vec::new();
-        let mut viu_nomeado = false;
+        let mut saw_named = false;
         loop {
             if self.op(self.pos, Op::RParen) {
                 break;
             }
             if self.op(self.pos + 1, Op::Colon) {
-                viu_nomeado = true;
-                args.push(self.expressao_nomeada()?);
+                saw_named = true;
+                args.push(self.named_expression()?);
             } else {
-                if viu_nomeado && self.versao < (2, 17) {
+                if saw_named && self.version < (2, 17) {
                     return Err(
-                        self.erro("Positional arguments must occur before named arguments.")
+                        self.error("Positional arguments must occur before named arguments.")
                     );
                 }
-                args.push(self.expressao()?);
+                args.push(self.expression()?);
             }
             if !self.op(self.pos, Op::Comma) {
                 break;
             }
-            self.avancar();
+            self.advance();
         }
-        let rp = self.espera_op(Op::RParen)?;
-        self.funcoes = old;
-        Ok(self.no(
-            No::ArgumentList {
+        let rp = self.expect_op(Op::RParen)?;
+        self.functions = old;
+        Ok(self.node(
+            Node::ArgumentList {
                 left_parenthesis: lp as Tk,
                 arguments: args,
                 right_parenthesis: rp as Tk,
             },
-            ini,
+            start_,
         ))
     }
 
     /// `nome: expressão` (argumento nomeado ou campo de record).
-    fn expressao_nomeada(&mut self) -> R<NoId> {
-        let ini = self.pos;
-        let n = self.espera_ident()?;
-        let label = self.simples(n);
-        let colon = self.espera_op(Op::Colon)?;
-        let l = self.no(
-            No::Label {
+    fn named_expression(&mut self) -> R<NodeId> {
+        let start_ = self.pos;
+        let n = self.expect_ident()?;
+        let label = self.simple(n);
+        let colon = self.expect_op(Op::Colon)?;
+        let l = self.node(
+            Node::Label {
                 label,
                 colon: colon as Tk,
             },
-            ini,
+            start_,
         );
-        let expression = self.expressao()?;
-        Ok(self.no(
-            No::NamedExpression {
+        let expression = self.expression()?;
+        Ok(self.node(
+            Node::NamedExpression {
                 name: l,
                 expression,
             },
-            ini,
+            start_,
         ))
     }
 
     /// `parseNewExpression`, `parseImplicitCreationExpression` e o fim de
-    /// `parseConstExpression`: `palavra? ConstructorName argumentos`.
-    fn criacao(&mut self, palavra: Option<usize>) -> R<NoId> {
-        let ini = palavra.unwrap_or(self.pos);
-        if palavra.is_some() {
-            self.avancar();
+    /// `parseConstExpression`: `word_? ConstructorName arguments_`.
+    fn creation(&mut self, word_: Option<usize>) -> R<NodeId> {
+        let start_ = word_.unwrap_or(self.pos);
+        if word_.is_some() {
+            self.advance();
         }
-        let constructor_name = self.nome_construtor()?;
+        let constructor_name = self.constructor_name_()?;
         if !self.op(self.pos, Op::LParen) {
-            return Err(self.esperado("("));
+            return Err(self.expected("("));
         }
-        let argument_list = self.argumentos()?;
-        Ok(self.no(
-            No::InstanceCreationExpression {
-                keyword: palavra.map(|p| p as Tk),
+        let argument_list = self.arguments_()?;
+        Ok(self.node(
+            Node::InstanceCreationExpression {
+                keyword: word_.map(|p| p as Tk),
                 constructor_name,
                 argument_list,
             },
-            ini,
+            start_,
         ))
     }
 
     /// `parseConstructorReference`.
-    pub(super) fn nome_construtor(&mut self) -> R<NoId> {
-        let ini = self.pos;
-        let a = self.espera_ident()?;
-        let mut prefixo = None;
+    pub(super) fn constructor_name_(&mut self) -> R<NodeId> {
+        let start_ = self.pos;
+        let a = self.expect_ident()?;
+        let mut prefix = None;
         let mut nome = a;
         if self.op(self.pos, Op::Dot) {
-            let d = self.avancar();
+            let d = self.advance();
             if !(self.ident(self.pos) || self.kw(self.pos, Keyword::New)) {
-                return Err(self.erro("Expected an identifier."));
+                return Err(self.error("Expected an identifier."));
             }
-            nome = self.avancar();
-            prefixo = Some((a as Tk, d as Tk));
+            nome = self.advance();
+            prefix = Some((a as Tk, d as Tk));
         }
         let type_arguments = if self.op(self.pos, Op::Lt) {
-            if self.args_tipo_lt(self.pos, false).is_none() {
-                return Err(self.erro("Invalid type arguments."));
+            if self.type_args_lt(self.pos, false).is_none() {
+                return Err(self.error("Invalid type arguments."));
             }
-            Some(self.args_tipo()?)
+            Some(self.type_args()?)
         } else {
             None
         };
-        let tipo = self.no(
-            No::NamedType {
-                import_prefix: prefixo,
+        let tipo = self.node(
+            Node::NamedType {
+                import_prefix: prefix,
                 name2: nome as Tk,
                 type_arguments,
                 question: None,
             },
-            ini,
+            start_,
         );
         let mut period = None;
         let mut name = None;
         if self.op(self.pos, Op::Dot) {
-            period = Some(self.avancar() as Tk);
+            period = Some(self.advance() as Tk);
             if !(self.ident(self.pos) || self.kw(self.pos, Keyword::New)) {
-                return Err(self.erro("Expected an identifier."));
+                return Err(self.error("Expected an identifier."));
             }
-            let n = self.avancar();
-            name = Some(self.simples(n));
+            let n = self.advance();
+            name = Some(self.simple(n));
         }
-        Ok(self.no(
-            No::ConstructorName {
+        Ok(self.node(
+            Node::ConstructorName {
                 type_: tipo,
                 period,
                 name,
             },
-            ini,
+            start_,
         ))
     }
 
     /// `parseConstExpression`.
-    fn expressao_const(&mut self) -> R<NoId> {
+    fn const_expression(&mut self) -> R<NodeId> {
         let c = self.pos;
         match self.tipo(c + 1) {
-            TipoToken::Op(Op::LBracket) => {
-                self.avancar();
-                self.lista(Some(c), None)
+            TokenKind::Op(Op::LBracket) => {
+                self.advance();
+                self.list(Some(c), None)
             }
-            TipoToken::Op(Op::LParen) => {
-                self.avancar();
-                self.parenteses_ou_registro(Some(c), CtxConst::Nenhum)
+            TokenKind::Op(Op::LParen) => {
+                self.advance();
+                self.parenthesized_or_record(Some(c), ConstCtx::NoneKind)
             }
-            TipoToken::Op(Op::LBrace) => {
-                self.avancar();
-                self.conjunto_ou_mapa(Some(c), None)
+            TokenKind::Op(Op::LBrace) => {
+                self.advance();
+                self.set_or_map(Some(c), None)
             }
-            TipoToken::Op(Op::Lt) => {
-                self.avancar();
-                self.colecao_ou_funcao_generica(Some(c))
+            TokenKind::Op(Op::Lt) => {
+                self.advance();
+                self.collection_or_generic_function(Some(c))
             }
-            _ => self.criacao(Some(c)),
+            _ => self.creation(Some(c)),
         }
     }
 
     /// `parseLiteralListSetMapOrFunction`.
-    fn colecao_ou_funcao_generica(&mut self, constante: Option<usize>) -> R<NoId> {
+    fn collection_or_generic_function(&mut self, constant: Option<usize>) -> R<NodeId> {
         let lt = self.pos;
-        let Some(info) = self.args_tipo_lt(lt, true) else {
-            return Err(self.erro("Expected type arguments."));
+        let Some(info) = self.type_args_lt(lt, true) else {
+            return Err(self.error("Expected type arguments."));
         };
-        if self.op(info.ate, Op::LParen) {
-            if constante.is_some() {
-                return Err(self.erro_em(constante.unwrap_or(lt), "Unexpected 'const'."));
+        if self.op(info.end_index, Op::LParen) {
+            if constant.is_some() {
+                return Err(self.error_at(constant.unwrap_or(lt), "Unexpected 'const'."));
             }
-            let tp = self.params_tipo()?;
-            let d = self.par(self.pos) + 1;
+            let tp = self.type_params()?;
+            let d = self.pair(self.pos) + 1;
             if !(self.op(d, Op::Arrow)
                 || self.op(d, Op::LBrace)
-                || self.pal(d, "async")
-                || self.pal(d, "sync"))
+                || self.word(d, "async")
+                || self.word(d, "sync"))
             {
-                return Err(self.erro_em(d, "Unexpected token."));
+                return Err(self.error_at(d, "Unexpected token."));
             }
-            return self.funcao_expressao(Some(tp), lt);
+            return self.function_expression_(Some(tp), lt);
         }
-        let ta = self.args_tipo()?;
+        let ta = self.type_args()?;
         if self.op(self.pos, Op::LBrace) {
-            return self.conjunto_ou_mapa(constante, Some(ta));
+            return self.set_or_map(constant, Some(ta));
         }
         if self.op(self.pos, Op::LBracket) {
-            return self.lista(constante, Some(ta));
+            return self.list(constant, Some(ta));
         }
-        Err(self.esperado("["))
+        Err(self.expected("["))
     }
 
     /// Expressão de função (`parseFunctionExpression`) a partir dos
     /// parâmetros formais.
-    fn funcao_expressao(&mut self, type_parameters: Option<NoId>, ini: usize) -> R<NoId> {
-        let parameters = self.params_formais(Membro::Local)?;
-        let body = self.corpo_funcao(true, false)?;
-        Ok(self.no(
-            No::FunctionExpression {
+    fn function_expression_(&mut self, type_parameters: Option<NodeId>, start_: usize) -> R<NodeId> {
+        let parameters = self.formal_params(MemberKind::Local)?;
+        let body = self.function_body_(true, false)?;
+        Ok(self.node(
+            Node::FunctionExpression {
                 type_parameters,
                 parameters: Some(parameters),
                 body,
             },
-            ini,
+            start_,
         ))
     }
 
     /// `parseParenthesizedExpressionFunctionLiteralOrRecordLiteral`.
-    fn parenteses_funcao_ou_registro(&mut self, ctx: CtxConst) -> R<NoId> {
-        let abre = self.pos;
-        if self.funcoes {
-            let nx = self.par(abre) + 1;
-            let funcao = if self.op(nx, Op::Arrow) || self.op(nx, Op::LBrace) {
+    fn parenthesized_function_or_record(&mut self, ctx: ConstCtx) -> R<NodeId> {
+        let opens = self.pos;
+        if self.functions {
+            let nx = self.pair(opens) + 1;
+            let function = if self.op(nx, Op::Arrow) || self.op(nx, Op::LBrace) {
                 true
-            } else if self.palavra(nx) {
-                self.pal(nx, "async")
-                    || self.pal(nx, "sync")
+            } else if self.word_(nx) {
+                self.word(nx, "async")
+                    || self.word(nx, "sync")
                     || self.op(nx + 1, Op::Arrow)
                     || self.op(nx + 1, Op::LBrace)
             } else {
                 false
             };
-            if funcao {
-                return self.funcao_expressao(None, abre);
+            if function {
+                return self.function_expression_(None, opens);
             }
         }
-        let old = self.funcoes;
-        self.funcoes = true;
-        let r = self.parenteses_ou_registro(None, ctx);
-        self.funcoes = old;
+        let old = self.functions;
+        self.functions = true;
+        let r = self.parenthesized_or_record(None, ctx);
+        self.functions = old;
         r
     }
 
     /// `parseParenthesizedExpressionOrRecordLiteral`.
-    fn parenteses_ou_registro(&mut self, constante: Option<usize>, ctx: CtxConst) -> R<NoId> {
-        let ini = constante.unwrap_or(self.pos);
-        let lp = self.espera_op(Op::LParen)?;
-        let mut campos = Vec::new();
-        let mut registro = constante.is_some();
-        let mut registro_valido = false;
-        let mut virgula_ilegal = false;
+    fn parenthesized_or_record(&mut self, constant: Option<usize>, ctx: ConstCtx) -> R<NodeId> {
+        let start_ = constant.unwrap_or(self.pos);
+        let lp = self.expect_op(Op::LParen)?;
+        let mut fields_ = Vec::new();
+        let mut record = constant.is_some();
+        let mut valid_record = false;
+        let mut illegal_comma = false;
         loop {
             if self.op(self.pos, Op::RParen) {
-                if campos.is_empty() {
-                    registro = true;
+                if fields_.is_empty() {
+                    record = true;
                 }
                 break;
             }
-            if campos.is_empty()
+            if fields_.is_empty()
                 && self.op(self.pos, Op::Comma)
                 && self.op(self.pos + 1, Op::RParen)
             {
-                virgula_ilegal = true;
-                registro = true;
-                self.avancar();
+                illegal_comma = true;
+                record = true;
+                self.advance();
                 break;
             }
             if self.op(self.pos + 1, Op::Colon) {
-                registro = true;
-                registro_valido = true;
-                campos.push(self.expressao_nomeada()?);
+                record = true;
+                valid_record = true;
+                fields_.push(self.named_expression()?);
             } else {
-                campos.push(self.expressao()?);
+                fields_.push(self.expression()?);
             }
             if !self.op(self.pos, Op::Comma) {
                 break;
             }
-            self.avancar();
-            registro = true;
-            registro_valido = true;
+            self.advance();
+            record = true;
+            valid_record = true;
         }
-        let rp = self.espera_op(Op::RParen)?;
-        if registro {
-            if self.versao < (3, 0) {
-                return Err(self.erro_em(
+        let rp = self.expect_op(Op::RParen)?;
+        if record {
+            if self.version < (3, 0) {
+                return Err(self.error_at(
                     lp,
                     "This requires the 'records' language feature to be enabled.",
                 ));
             }
-            if campos.is_empty() && virgula_ilegal {
-                return Err(self.erro_em(
+            if fields_.is_empty() && illegal_comma {
+                return Err(self.error_at(
                     rp,
                     "A record literal without fields can't have a trailing comma.",
                 ));
             }
-            if campos.len() == 1 && !registro_valido {
-                return Err(self.erro_em(
+            if fields_.len() == 1 && !valid_record {
+                return Err(self.error_at(
                     rp,
                     "A record literal with exactly one positional field requires a trailing comma.",
                 ));
             }
-            if campos.is_empty() && ctx != CtxConst::Nenhum {
-                return Err(self.erro_em(
+            if fields_.is_empty() && ctx != ConstCtx::NoneKind {
+                return Err(self.error_at(
                     lp,
                     "The empty record literal is not supported as a constant pattern.",
                 ));
             }
-            return Ok(self.no(
-                No::RecordLiteral {
-                    const_keyword: constante.map(|c| c as Tk),
+            return Ok(self.node(
+                Node::RecordLiteral {
+                    const_keyword: constant.map(|c| c as Tk),
                     left_parenthesis: lp as Tk,
-                    fields: campos,
+                    fields: fields_,
                     right_parenthesis: rp as Tk,
                 },
-                ini,
+                start_,
             ));
         }
-        let expression = campos[0];
-        Ok(self.no(
-            No::ParenthesizedExpression {
+        let expression = fields_[0];
+        Ok(self.node(
+            Node::ParenthesizedExpression {
                 left_parenthesis: lp as Tk,
                 expression,
                 right_parenthesis: rp as Tk,
             },
-            ini,
+            start_,
         ))
     }
 
     /// `parseLiteralString`: literais adjacentes viram `AdjacentStrings`.
-    pub(super) fn literal_texto(&mut self) -> R<NoId> {
-        let ini = self.pos;
-        let old = self.funcoes;
-        self.funcoes = true;
-        let mut partes = vec![self.texto_unico()?];
+    pub(super) fn string_literal(&mut self) -> R<NodeId> {
+        let start_ = self.pos;
+        let old = self.functions;
+        self.functions = true;
+        let mut parts_ = vec![self.single_text()?];
         while self.texto(self.pos) {
-            partes.push(self.texto_unico()?);
+            parts_.push(self.single_text()?);
         }
-        self.funcoes = old;
-        if partes.len() == 1 {
-            return Ok(partes[0]);
+        self.functions = old;
+        if parts_.len() == 1 {
+            return Ok(parts_[0]);
         }
-        Ok(self.no(No::AdjacentStrings { strings: partes }, ini))
+        Ok(self.node(Node::AdjacentStrings { strings: parts_ }, start_))
     }
 
     /// `parseSingleLiteralString`.
-    fn texto_unico(&mut self) -> R<NoId> {
-        let ini = self.pos;
-        if !self.texto(ini) {
-            return Err(self.erro("Expected a string literal."));
+    fn single_text(&mut self) -> R<NodeId> {
+        let start_ = self.pos;
+        if !self.texto(start_) {
+            return Err(self.error("Expected a string literal."));
         }
-        self.avancar();
-        let cru = self.txt(ini).starts_with('r');
-        let unico = !matches!(
+        self.advance();
+        let raw_ = self.txt(start_).starts_with('r');
+        let single = !matches!(
             self.tipo(self.pos),
-            TipoToken::InterpolacaoExpressao | TipoToken::InterpolacaoIdentificador
+            TokenKind::ExpressionInterpolation | TokenKind::IdentifierInterpolation
         );
-        if !cru {
-            self.conferir_escapes(ini, true, unico)?;
+        if !raw_ {
+            self.check_escapes(start_, true, single)?;
         }
-        if unico {
-            return Ok(self.no(No::SimpleStringLiteral { literal: ini as Tk }, ini));
+        if single {
+            return Ok(self.node(Node::SimpleStringLiteral { literal: start_ as Tk }, start_));
         }
-        let primeiro = self.no(
-            No::InterpolationString {
-                contents: ini as Tk,
+        let first = self.node(
+            Node::InterpolationString {
+                contents: start_ as Tk,
             },
-            ini,
+            start_,
         );
-        let mut elementos = vec![primeiro];
+        let mut elements_ = vec![first];
         loop {
             let lb = self.pos;
             match self.tipo(lb) {
-                TipoToken::InterpolacaoExpressao => {
-                    self.avancar();
-                    let expression = self.expressao()?;
-                    let rb = self.espera_op(Op::RBrace)?;
-                    elementos.push(self.no(
-                        No::InterpolationExpression {
+                TokenKind::ExpressionInterpolation => {
+                    self.advance();
+                    let expression = self.expression()?;
+                    let rb = self.expect_op(Op::RBrace)?;
+                    elements_.push(self.node(
+                        Node::InterpolationExpression {
                             left_bracket: lb as Tk,
                             expression,
                             right_bracket: Some(rb as Tk),
@@ -1526,13 +1526,13 @@ impl Parser<'_> {
                         lb,
                     ));
                 }
-                TipoToken::InterpolacaoIdentificador => {
-                    self.avancar();
+                TokenKind::IdentifierInterpolation => {
+                    self.advance();
                     let i = self.pos;
-                    let expression = if self.kw(i, Keyword::This) || self.pal(i, "this") {
-                        self.avancar();
-                        self.no(
-                            No::ThisExpression {
+                    let expression = if self.kw(i, Keyword::This) || self.word(i, "this") {
+                        self.advance();
+                        self.node(
+                            Node::ThisExpression {
                                 this_keyword: i as Tk,
                             },
                             i,
@@ -1541,17 +1541,17 @@ impl Parser<'_> {
                         if !self.ident(i)
                             || dartforge_frontend::token::Keyword::from_text(self.txt(i)).is_some()
                         {
-                            return Err(self.erro(&format!(
+                            return Err(self.error(&format!(
                                 "'{}' can't be used as an identifier because it's a keyword.",
                                 self.txt(i)
                             )));
                         }
-                        self.conferir_await_yield(i)?;
-                        self.avancar();
-                        self.simples(i)
+                        self.check_await_yield(i)?;
+                        self.advance();
+                        self.simple(i)
                     };
-                    elementos.push(self.no(
-                        No::InterpolationExpression {
+                    elements_.push(self.node(
+                        Node::InterpolationExpression {
                             left_bracket: lb as Tk,
                             expression,
                             right_bracket: None,
@@ -1563,32 +1563,32 @@ impl Parser<'_> {
             }
             let s = self.pos;
             if !self.texto(s) {
-                return Err(self.erro("Expected a string."));
+                return Err(self.error("Expected a string."));
             }
-            self.avancar();
+            self.advance();
             let ultimo = !matches!(
                 self.tipo(self.pos),
-                TipoToken::InterpolacaoExpressao | TipoToken::InterpolacaoIdentificador
+                TokenKind::ExpressionInterpolation | TokenKind::IdentifierInterpolation
             );
-            self.conferir_escapes(s, false, ultimo)?;
-            elementos.push(self.no(No::InterpolationString { contents: s as Tk }, s));
+            self.check_escapes(s, false, ultimo)?;
+            elements_.push(self.node(Node::InterpolationString { contents: s as Tk }, s));
         }
-        Ok(self.no(
-            No::StringInterpolation {
-                elements: elementos,
+        Ok(self.node(
+            Node::StringInterpolation {
+                elements: elements_,
             },
-            ini,
+            start_,
         ))
     }
 
     /// Literal numérico malformado ou com separadores de dígitos (só no
     /// Dart 3.7), que o scanner do analyzer recusa.
-    fn conferir_numero(&self, i: usize) -> R<()> {
+    fn check_number(&self, i: usize) -> R<()> {
         let t = self.txt(i);
         if t.contains('_') {
-            // `recurso` precisa de `&mut self`; o erro de versão é direto.
-            if self.versao < (3, 6) {
-                return Err(self.erro_em(
+            // `feature` precisa de `&mut self`; o erro de versão é direto.
+            if self.version < (3, 6) {
+                return Err(self.error_at(
                     i,
                     "This requires the 'digit-separators' language feature to be enabled.",
                 ));
@@ -1596,7 +1596,7 @@ impl Parser<'_> {
         }
         let b = t.as_bytes();
         let hexa = b.len() >= 2 && b[0] == b'0' && (b[1] == b'x' || b[1] == b'X');
-        let digito = |c: u8| {
+        let digit = |c: u8| {
             if hexa {
                 c.is_ascii_hexdigit()
             } else {
@@ -1609,34 +1609,34 @@ impl Parser<'_> {
             }
             // Cada sequência de `_` precisa de dígitos dos dois lados.
             let antes = b[..k].iter().rev().find(|&&x| x != b'_').copied();
-            let depois = b[k + 1..].iter().find(|&&x| x != b'_').copied();
+            let after = b[k + 1..].iter().find(|&&x| x != b'_').copied();
             let ok =
-                antes.is_some_and(|x| digito(x) && !(hexa && k == 2)) && depois.is_some_and(digito);
+                antes.is_some_and(|x| digit(x) && !(hexa && k == 2)) && after.is_some_and(digit);
             if !ok || (hexa && k <= 2) {
-                return Err(self.erro_em(i, "Digit separators ('_') in a number literal can only be placed between two digits."));
+                return Err(self.error_at(i, "Digit separators ('_') in a number literal can only be placed between two digits."));
             }
         }
         if b.len() >= 2 && b[0] == b'0' && (b[1] == b'x' || b[1] == b'X') {
             if b.len() == 2 {
-                return Err(self.erro_em(i, "Hexadecimal digit expected."));
+                return Err(self.error_at(i, "Hexadecimal digit expected."));
             }
             return Ok(());
         }
         if let Some(e) = t.find(['e', 'E']) {
-            let resto = t[e + 1..].trim_start_matches(['+', '-']);
-            if resto.is_empty() || !resto.bytes().all(|c| c.is_ascii_digit()) {
-                return Err(self.erro_em(i, "Decimal digit expected."));
+            let rest = t[e + 1..].trim_start_matches(['+', '-']);
+            if rest.is_empty() || !rest.bytes().all(|c| c.is_ascii_digit()) {
+                return Err(self.error_at(i, "Decimal digit expected."));
             }
         }
         Ok(())
     }
 
     /// Escapes inválidos num pedaço de string não crua (`unescape` do
-    /// fasta). `primeiro`/`ultimo` dizem se o pedaço tem as aspas de
+    /// fasta). `first`/`ultimo` dizem se o pedaço tem as aspas de
     /// abertura/fechamento.
-    fn conferir_escapes(&self, i: usize, primeiro: bool, ultimo: bool) -> R<()> {
+    fn check_escapes(&self, i: usize, first: bool, ultimo: bool) -> R<()> {
         let mut t = self.txt(i);
-        if primeiro {
+        if first {
             for q in ["\"\"\"", "'''", "\"", "'"] {
                 if let Some(r) = t.strip_prefix(q) {
                     t = r;
@@ -1654,123 +1654,123 @@ impl Parser<'_> {
                 }
             }
         }
-        if let Some(m) = erro_de_escape(t.as_bytes()) {
-            return Err(self.erro_em(i, m));
+        if let Some(m) = escape_error(t.as_bytes()) {
+            return Err(self.error_at(i, m));
         }
         Ok(())
     }
 
     /// `parseLiteralSymbol`.
-    fn simbolo(&mut self) -> R<NoId> {
-        let h = self.avancar();
-        let mut componentes = Vec::new();
-        if self.operador_definivel(self.pos).is_some() {
-            componentes.push(self.consumir_operador_definivel()? as Tk);
+    fn symbol(&mut self) -> R<NodeId> {
+        let h = self.advance();
+        let mut components_ = Vec::new();
+        if self.user_definable_operator(self.pos).is_some() {
+            components_.push(self.consume_user_definable_operator()? as Tk);
         } else if self.kw(self.pos, Keyword::Void) {
-            componentes.push(self.avancar() as Tk);
+            components_.push(self.advance() as Tk);
         } else {
-            componentes.push(self.espera_ident()? as Tk);
+            components_.push(self.expect_ident()? as Tk);
             while self.op(self.pos, Op::Dot) {
-                self.avancar();
-                if !self.palavra(self.pos) {
-                    return Err(self.erro("Expected an identifier."));
+                self.advance();
+                if !self.word_(self.pos) {
+                    return Err(self.error("Expected an identifier."));
                 }
-                componentes.push(self.avancar() as Tk);
+                components_.push(self.advance() as Tk);
             }
         }
-        Ok(self.no(
-            No::SymbolLiteral {
+        Ok(self.node(
+            Node::SymbolLiteral {
                 pound_sign: h as Tk,
-                components: componentes,
+                components: components_,
             },
             h,
         ))
     }
 
     /// `parseLiteralListSuffix`.
-    fn lista(&mut self, constante: Option<usize>, targs: Option<NoId>) -> R<NoId> {
-        let ini = constante.or(targs.map(|t| self.ini(t))).unwrap_or(self.pos);
-        let lb = self.espera_op(Op::LBracket)?;
-        let old = self.funcoes;
-        self.funcoes = true;
-        let mut elementos = Vec::new();
+    fn list(&mut self, constant: Option<usize>, targs: Option<NodeId>) -> R<NodeId> {
+        let start_ = constant.or(targs.map(|t| self.start_(t))).unwrap_or(self.pos);
+        let lb = self.expect_op(Op::LBracket)?;
+        let old = self.functions;
+        self.functions = true;
+        let mut elements_ = Vec::new();
         loop {
             if self.op(self.pos, Op::RBracket) {
                 break;
             }
-            elementos.push(self.elemento(false)?);
+            elements_.push(self.element(false)?);
             if !self.op(self.pos, Op::Comma) {
                 break;
             }
-            self.avancar();
+            self.advance();
         }
-        let rb = self.espera_op(Op::RBracket)?;
-        self.funcoes = old;
-        Ok(self.no(
-            No::ListLiteral {
-                const_keyword: constante.map(|c| c as Tk),
+        let rb = self.expect_op(Op::RBracket)?;
+        self.functions = old;
+        Ok(self.node(
+            Node::ListLiteral {
+                const_keyword: constant.map(|c| c as Tk),
                 type_arguments: targs,
                 left_bracket: lb as Tk,
-                elements: elementos,
+                elements: elements_,
                 right_bracket: rb as Tk,
             },
-            ini,
+            start_,
         ))
     }
 
     /// `parseLiteralSetOrMapSuffix`.
-    fn conjunto_ou_mapa(&mut self, constante: Option<usize>, targs: Option<NoId>) -> R<NoId> {
-        let ini = constante.or(targs.map(|t| self.ini(t))).unwrap_or(self.pos);
-        let lb = self.espera_op(Op::LBrace)?;
-        let old = self.funcoes;
-        self.funcoes = true;
-        let mut elementos = Vec::new();
+    fn set_or_map(&mut self, constant: Option<usize>, targs: Option<NodeId>) -> R<NodeId> {
+        let start_ = constant.or(targs.map(|t| self.start_(t))).unwrap_or(self.pos);
+        let lb = self.expect_op(Op::LBrace)?;
+        let old = self.functions;
+        self.functions = true;
+        let mut elements_ = Vec::new();
         loop {
             if self.op(self.pos, Op::RBrace) {
                 break;
             }
-            elementos.push(self.elemento(true)?);
+            elements_.push(self.element(true)?);
             if !self.op(self.pos, Op::Comma) {
                 break;
             }
-            self.avancar();
+            self.advance();
         }
-        let rb = self.espera_op(Op::RBrace)?;
-        self.funcoes = old;
-        Ok(self.no(
-            No::SetOrMapLiteral {
-                const_keyword: constante.map(|c| c as Tk),
+        let rb = self.expect_op(Op::RBrace)?;
+        self.functions = old;
+        Ok(self.node(
+            Node::SetOrMapLiteral {
+                const_keyword: constant.map(|c| c as Tk),
                 type_arguments: targs,
                 left_bracket: lb as Tk,
-                elements: elementos,
+                elements: elements_,
                 right_bracket: rb as Tk,
             },
-            ini,
+            start_,
         ))
     }
 
     /// Um elemento de coleção (`computeLiteralEntry` e passos seguintes).
-    fn elemento(&mut self, mapa: bool) -> R<NoId> {
-        self.entrar()?;
-        let r = self.elemento_interno(mapa);
+    fn element(&mut self, map: bool) -> R<NodeId> {
+        self.enter_()?;
+        let r = self.inner_element(map);
         self.sair();
         r
     }
 
-    fn elemento_interno(&mut self, mapa: bool) -> R<NoId> {
+    fn inner_element(&mut self, map: bool) -> R<NodeId> {
         let i = self.pos;
         if self.kw(i, Keyword::If) {
-            self.avancar();
-            let (lp, expression, case_clause, rp) = self.condicao_parenteses(self.padroes)?;
-            let then_element = self.elemento(mapa)?;
+            self.advance();
+            let (lp, expression, case_clause, rp) = self.parenthesized_condition(self.patterns_)?;
+            let then_element = self.element(map)?;
             let (else_keyword, else_element) = if self.kw(self.pos, Keyword::Else) {
-                let e = self.avancar();
-                (Some(e as Tk), Some(self.elemento(mapa)?))
+                let e = self.advance();
+                (Some(e as Tk), Some(self.element(map)?))
             } else {
                 (None, None)
             };
-            return Ok(self.no(
-                No::IfElement {
+            return Ok(self.node(
+                Node::IfElement {
                     if_keyword: i as Tk,
                     left_parenthesis: lp as Tk,
                     expression,
@@ -1783,17 +1783,17 @@ impl Parser<'_> {
                 i,
             ));
         }
-        if self.kw(i, Keyword::For) || (self.pal(i, "await") && self.kw(i + 1, Keyword::For)) {
-            let await_keyword = if self.pal(i, "await") {
-                Some(self.avancar() as Tk)
+        if self.kw(i, Keyword::For) || (self.word(i, "await") && self.kw(i + 1, Keyword::For)) {
+            let await_keyword = if self.word(i, "await") {
+                Some(self.advance() as Tk)
             } else {
                 None
             };
-            let f = self.avancar();
-            let (lp, for_loop_parts, rp) = self.partes_for(await_keyword.map(|a| a as usize))?;
-            let body = self.elemento(mapa)?;
-            return Ok(self.no(
-                No::ForElement {
+            let f = self.advance();
+            let (lp, for_loop_parts, rp) = self.for_parts(await_keyword.map(|a| a as usize))?;
+            let body = self.element(map)?;
+            return Ok(self.node(
+                Node::ForElement {
                     await_keyword,
                     for_keyword: f as Tk,
                     left_parenthesis: lp as Tk,
@@ -1805,10 +1805,10 @@ impl Parser<'_> {
             ));
         }
         if self.op(i, Op::Ellipsis) || self.op(i, Op::EllipsisQuestion) {
-            self.avancar();
-            let expression = self.expressao()?;
-            return Ok(self.no(
-                No::SpreadElement {
+            self.advance();
+            let expression = self.expression()?;
+            return Ok(self.node(
+                Node::SpreadElement {
                     spread_operator: i as Tk,
                     expression,
                 },
@@ -1816,23 +1816,23 @@ impl Parser<'_> {
             ));
         }
         if self.op(i, Op::Question) {
-            return Err(self.erro("Null-aware elements aren't supported in Dart 3.6."));
+            return Err(self.error("Null-aware elements aren't supported in Dart 3.6."));
         }
-        let e = self.expressao()?;
-        if mapa && self.op(self.pos, Op::Colon) {
-            let s = self.avancar();
+        let e = self.expression()?;
+        if map && self.op(self.pos, Op::Colon) {
+            let s = self.advance();
             if self.op(self.pos, Op::Question) {
-                return Err(self.erro("Null-aware elements aren't supported in Dart 3.6."));
+                return Err(self.error("Null-aware elements aren't supported in Dart 3.6."));
             }
-            let value = self.expressao()?;
-            let ini = self.ini(e);
-            return Ok(self.no(
-                No::MapLiteralEntry {
+            let value = self.expression()?;
+            let start_ = self.start_(e);
+            return Ok(self.node(
+                Node::MapLiteralEntry {
                     key: e,
                     separator: s as Tk,
                     value,
                 },
-                ini,
+                start_,
             ));
         }
         Ok(e)
@@ -1840,37 +1840,37 @@ impl Parser<'_> {
 
     /// `ensureParenthesizedCondition`: `( expressão (case padrão (when
     /// expressão)?)? )`.
-    pub(super) fn condicao_parenteses(
+    pub(super) fn parenthesized_condition(
         &mut self,
-        permite_case: bool,
-    ) -> R<(usize, NoId, Option<NoId>, usize)> {
-        let lp = self.espera_op(Op::LParen)?;
-        let expression = self.expressao()?;
+        allows_case: bool,
+    ) -> R<(usize, NodeId, Option<NodeId>, usize)> {
+        let lp = self.expect_op(Op::LParen)?;
+        let expression = self.expression()?;
         let mut case_clause = None;
-        if permite_case && self.kw(self.pos, Keyword::Case) {
-            let c = self.avancar();
-            let guarded_pattern = self.padrao_guardado()?;
-            case_clause = Some(self.no(
-                No::CaseClause {
+        if allows_case && self.kw(self.pos, Keyword::Case) {
+            let c = self.advance();
+            let guarded_pattern = self.guarded_pattern_()?;
+            case_clause = Some(self.node(
+                Node::CaseClause {
                     case_keyword: c as Tk,
                     guarded_pattern,
                 },
                 c,
             ));
         }
-        let rp = self.espera_op(Op::RParen)?;
+        let rp = self.expect_op(Op::RParen)?;
         Ok((lp, expression, case_clause, rp))
     }
 
-    /// Padrão com `when` opcional ([`No::GuardedPattern`]).
-    pub(super) fn padrao_guardado(&mut self) -> R<NoId> {
-        let pattern = self.padrao(CtxPadrao::Correspondencia)?;
-        let ini = self.ini(pattern);
-        let when_clause = if self.pal(self.pos, "when") {
-            let w = self.avancar();
-            let expression = self.expressao()?;
-            Some(self.no(
-                No::WhenClause {
+    /// Padrão com `when` opcional ([`Node::GuardedPattern`]).
+    pub(super) fn guarded_pattern_(&mut self) -> R<NodeId> {
+        let pattern = self.pattern(PatternCtx::Matching)?;
+        let start_ = self.start_(pattern);
+        let when_clause = if self.word(self.pos, "when") {
+            let w = self.advance();
+            let expression = self.expression()?;
+            Some(self.node(
+                Node::WhenClause {
                     when_keyword: w as Tk,
                     expression,
                 },
@@ -1879,62 +1879,62 @@ impl Parser<'_> {
         } else {
             None
         };
-        Ok(self.no(
-            No::GuardedPattern {
+        Ok(self.node(
+            Node::GuardedPattern {
                 pattern,
                 when_clause,
             },
-            ini,
+            start_,
         ))
     }
 
     /// `parseSwitchExpression`.
-    fn expressao_switch(&mut self) -> R<NoId> {
-        let sw = self.avancar();
-        let old = self.funcoes;
-        self.funcoes = true;
-        let (lp, expression, _, rp) = self.condicao_parenteses(false)?;
-        let lb = self.espera_op(Op::LBrace)?;
-        let mut casos = Vec::new();
+    fn switch_expression(&mut self) -> R<NodeId> {
+        let sw = self.advance();
+        let old = self.functions;
+        self.functions = true;
+        let (lp, expression, _, rp) = self.parenthesized_condition(false)?;
+        let lb = self.expect_op(Op::LBrace)?;
+        let mut cases_ = Vec::new();
         if !self.op(self.pos, Op::RBrace) {
-            self.funcoes = false;
+            self.functions = false;
             loop {
                 if self.kw(self.pos, Keyword::Default) || self.kw(self.pos, Keyword::Case) {
-                    return Err(self.erro("'default'/'case' can't be used in a switch expression."));
+                    return Err(self.error("'default'/'case' can't be used in a switch expression."));
                 }
-                let guarded_pattern = self.padrao_guardado()?;
-                let ci = self.ini(guarded_pattern);
-                let arrow = self.espera_op(Op::Arrow)?;
-                self.funcoes = true;
-                let e = self.expressao()?;
-                self.funcoes = false;
-                casos.push(self.no(
-                    No::SwitchExpressionCase {
+                let guarded_pattern = self.guarded_pattern_()?;
+                let ci = self.start_(guarded_pattern);
+                let arrow = self.expect_op(Op::Arrow)?;
+                self.functions = true;
+                let e = self.expression()?;
+                self.functions = false;
+                cases_.push(self.node(
+                    Node::SwitchExpressionCase {
                         guarded_pattern,
                         arrow: arrow as Tk,
                         expression: e,
                     },
                     ci,
                 ));
-                let virgula = self.opcional_op(Op::Comma).is_some();
+                let virgula = self.optional_op(Op::Comma).is_some();
                 if self.op(self.pos, Op::RBrace) {
                     break;
                 }
                 if !virgula {
-                    return Err(self.esperado(","));
+                    return Err(self.expected(","));
                 }
             }
         }
-        let rb = self.espera_op(Op::RBrace)?;
-        self.funcoes = old;
-        Ok(self.no(
-            No::SwitchExpression {
+        let rb = self.expect_op(Op::RBrace)?;
+        self.functions = old;
+        Ok(self.node(
+            Node::SwitchExpression {
                 switch_keyword: sw as Tk,
                 left_parenthesis: lp as Tk,
                 expression,
                 right_parenthesis: rp as Tk,
                 left_bracket: lb as Tk,
-                cases: casos,
+                cases: cases_,
                 right_bracket: rb as Tk,
             },
             sw,
@@ -1943,12 +1943,12 @@ impl Parser<'_> {
 
     /// Expressão de padrão constante (`parsePrecedenceExpression` com
     /// `EQUALITY_PRECEDENCE`), usada pelos padrões.
-    pub(super) fn expressao_padrao_constante(&mut self, ctx: CtxConst) -> R<NoId> {
-        self.precedencia(prec::IGUALDADE, false, ctx)
+    pub(super) fn constant_pattern_expression(&mut self, ctx: ConstCtx) -> R<NodeId> {
+        self.precedence(prec::EQUALITY, false, ctx)
     }
 
     /// Operando de padrão relacional (`BITWISE_OR_PRECEDENCE`).
-    pub(super) fn operando_relacional(&mut self) -> R<NoId> {
-        self.precedencia(prec::BIT_OU, false, CtxConst::Nenhum)
+    pub(super) fn relational_operand(&mut self) -> R<NodeId> {
+        self.precedence(prec::BIT_OR, false, ConstCtx::NoneKind)
     }
 }

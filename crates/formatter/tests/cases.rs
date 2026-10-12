@@ -1,59 +1,59 @@
-//! Casos fixos do formatador: cada `tests/casos/<nome>.dart` formatado tem de
-//! ser igual, byte a byte, a `<nome>.esperado`, gerado com
+//! Casos fixos do formatador: cada `tests/cases_/<nome>.dart` formatado tem de
+//! ser igual, byte a byte, a `<nome>.expected`, gerado com
 //! `dart format -o show --summary none` do SDK 3.6.2. Para (re)gerar um
-//! esperado: `dart format -o show --summary none casos/x.dart > casos/x.esperado`.
+//! esperado: `dart format -o show --summary none cases_/x.dart > cases_/x.expected`.
 
 use std::path::Path;
 
 use dartforge_formatter::{Opcoes, formatar};
 
 #[test]
-fn casos_iguais_ao_dart_format() {
+fn cases_match_dart_format() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/cases");
-    let mut nomes: Vec<_> = std::fs::read_dir(&dir)
+    let mut names: Vec<_> = std::fs::read_dir(&dir)
         .expect("tests/cases")
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| p.extension().is_some_and(|e| e == "dart"))
         .collect();
-    nomes.sort();
-    assert!(!nomes.is_empty());
-    let mut falhas = Vec::new();
-    for p in &nomes {
-        let fonte = std::fs::read_to_string(p).expect("caso");
-        let esperado = std::fs::read_to_string(p.with_extension("expected")).expect("esperado");
-        match formatar(&fonte, &Opcoes::default()) {
-            Ok(saida) if saida == esperado => {}
-            Ok(saida) => {
-                let linha = saida
+    names.sort();
+    assert!(!names.is_empty());
+    let mut failures = Vec::new();
+    for p in &names {
+        let source = std::fs::read_to_string(p).expect("caso");
+        let expected = std::fs::read_to_string(p.with_extension("expected")).expect("esperado");
+        match formatar(&source, &Opcoes::default()) {
+            Ok(output) if output == expected => {}
+            Ok(output) => {
+                let line = output
                     .lines()
-                    .zip(esperado.lines())
+                    .zip(expected.lines())
                     .position(|(a, b)| a != b)
-                    .unwrap_or(saida.lines().count().min(esperado.lines().count()));
-                falhas.push(format!(
+                    .unwrap_or(output.lines().count().min(expected.lines().count()));
+                failures.push(format!(
                     "{}: difere na linha {}:\n  nosso:    {:?}\n  esperado: {:?}",
                     p.display(),
-                    linha + 1,
-                    saida.lines().nth(linha).unwrap_or(""),
-                    esperado.lines().nth(linha).unwrap_or("")
+                    line + 1,
+                    output.lines().nth(line).unwrap_or(""),
+                    expected.lines().nth(line).unwrap_or("")
                 ));
             }
-            Err(e) => falhas.push(format!("{}: erro {e}", p.display())),
+            Err(e) => failures.push(format!("{}: erro {e}", p.display())),
         }
     }
-    assert!(falhas.is_empty(), "{}", falhas.join("\n"));
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 #[test]
-fn erro_de_sintaxe_e_recusado() {
+fn syntax_error_is_rejected() {
     assert!(formatar("void main( {", &Opcoes::default()).is_err());
 }
 
 #[test]
-fn largura_de_linha_configuravel() {
+fn configurable_line_length() {
     let o = Opcoes {
         largura: 20,
         ..Opcoes::default()
     };
-    let saida = formatar("void main(){var x=[1,2,3,];print(x);}", &o).unwrap();
-    assert_eq!(saida, "void main() {\n  var x = [\n    1,\n    2,\n    3,\n  ];\n  print(x);\n}\n");
+    let output = formatar("void main(){var x=[1,2,3,];print(x);}", &o).unwrap();
+    assert_eq!(output, "void main() {\n  var x = [\n    1,\n    2,\n    3,\n  ];\n  print(x);\n}\n");
 }

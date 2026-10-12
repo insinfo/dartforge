@@ -3,45 +3,45 @@
 //! `parseMetadata` do fasta, com os nós do `AstBuilder`).
 //!
 //! Os tipos são lidos em duas etapas, como no fasta: o *lookahead*
-//! ([`Parser::tipo_em`]) decide a extensão do tipo e se o `?` final é dele;
-//! [`Parser::tipo_ate`] lê a gramática até essa fronteira.
+//! ([`Parser::type_at`]) decide a extensão do tipo e se o `?` final é dele;
+//! [`Parser::type_until`] lê a gramática até essa fronteira.
 
 use dartforge_frontend::token::{Keyword, Op};
 
-use super::super::tree::{No, NoId, TipoParametro};
+use super::super::tree::{Node, NodeId, ParameterKind};
 use super::{Parser, R};
 
 /// Contexto da lista de parâmetros (`MemberKind` do fasta), no grão que
 /// muda a leitura.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Membro {
+pub(super) enum MemberKind {
     /// Parâmetros de `Function(...)`: nomes opcionais, tipos obrigatórios.
-    TipoFuncao,
+    FunctionType,
     /// Parâmetros de um parâmetro com tipo de função (`void f(int x)`).
-    ParametroFuncao,
+    FunctionParameter,
     /// `typedef void F(int x);`.
-    AliasFuncao,
+    FunctionAlias,
     Local,
-    MetodoInstancia,
-    MetodoEstatico,
-    FuncaoTopo,
-    Fabrica,
-    Extensao,
+    InstanceMethod,
+    StaticMethod,
+    TopLevelFunction,
+    Factory,
+    Extension,
 }
 
 impl Parser<'_> {
-    /// Lê um tipo que termina exatamente antes de `ate` (calculado por
-    /// [`Parser::tipo_em`]).
-    pub(super) fn tipo_ate(&mut self, ate: usize) -> R<NoId> {
-        let ini = self.pos;
-        let mut tipo: Option<NoId> = None;
-        let gft_inicial = self.pal(self.pos, "Function")
-            && self.pos + 1 < ate
+    /// Lê um tipo que termina exatamente antes de `end_index` (calculado por
+    /// [`Parser::type_at`]).
+    pub(super) fn type_until(&mut self, end_index: usize) -> R<NodeId> {
+        let start_ = self.pos;
+        let mut tipo: Option<NodeId> = None;
+        let gft_inicial = self.word(self.pos, "Function")
+            && self.pos + 1 < end_index
             && (self.op(self.pos + 1, Op::Lt) || self.op(self.pos + 1, Op::LParen));
         if self.kw(self.pos, Keyword::Void) {
-            let v = self.avancar();
-            tipo = Some(self.no(
-                No::NamedType {
+            let v = self.advance();
+            tipo = Some(self.node(
+                Node::NamedType {
                     import_prefix: None,
                     name2: v as u32,
                     type_arguments: None,
@@ -51,117 +51,117 @@ impl Parser<'_> {
             ));
         } else if gft_inicial {
         } else if self.op(self.pos, Op::LParen) {
-            tipo = Some(self.tipo_registro_no(ate)?);
+            tipo = Some(self.record_type_node(end_index)?);
         } else {
-            tipo = Some(self.tipo_nomeado(ate)?);
+            tipo = Some(self.named_type_(end_index)?);
         }
-        while self.pos < ate && self.pal(self.pos, "Function") {
-            let f = self.avancar();
+        while self.pos < end_index && self.word(self.pos, "Function") {
+            let f = self.advance();
             let type_parameters = if self.op(self.pos, Op::Lt) {
-                Some(self.params_tipo()?)
+                Some(self.type_params()?)
             } else {
                 None
             };
             if !self.op(self.pos, Op::LParen) {
-                return Err(self.esperado("("));
+                return Err(self.expected("("));
             }
-            let parameters = self.params_formais(Membro::TipoFuncao)?;
-            let question = if self.pos < ate && self.op(self.pos, Op::Question) {
-                Some(self.avancar() as u32)
+            let parameters = self.formal_params(MemberKind::FunctionType)?;
+            let question = if self.pos < end_index && self.op(self.pos, Op::Question) {
+                Some(self.advance() as u32)
             } else {
                 None
             };
-            tipo = Some(self.no(
-                No::GenericFunctionType {
+            tipo = Some(self.node(
+                Node::GenericFunctionType {
                     return_type: tipo,
                     function_keyword: f as u32,
                     type_parameters,
                     parameters,
                     question,
                 },
-                ini,
+                start_,
             ));
         }
-        if self.pos != ate {
-            return Err(self.erro("Unexpected token in type."));
+        if self.pos != end_index {
+            return Err(self.error("Unexpected token in type."));
         }
-        tipo.ok_or_else(|| self.erro("Expected a type."))
+        tipo.ok_or_else(|| self.error("Expected a type."))
     }
 
-    /// `prefixo.Nome<args>?`.
-    fn tipo_nomeado(&mut self, ate: usize) -> R<NoId> {
-        let ini = self.pos;
-        if !self.palavra(self.pos) {
-            return Err(self.erro(&format!(
+    /// `prefix.Nome<args>?`.
+    fn named_type_(&mut self, end_index: usize) -> R<NodeId> {
+        let start_ = self.pos;
+        if !self.word_(self.pos) {
+            return Err(self.error(&format!(
                 "Expected a type, but got '{}'.",
                 self.txt(self.pos)
             )));
         }
         let mut import_prefix = None;
-        if self.op(self.pos + 1, Op::Dot) && self.pos + 2 < ate {
-            let p = self.avancar();
-            let d = self.avancar();
+        if self.op(self.pos + 1, Op::Dot) && self.pos + 2 < end_index {
+            let p = self.advance();
+            let d = self.advance();
             import_prefix = Some((p as u32, d as u32));
         }
-        if !self.palavra(self.pos) {
-            return Err(self.erro("Expected a type name."));
+        if !self.word_(self.pos) {
+            return Err(self.error("Expected a type name."));
         }
-        let nome = self.avancar();
-        let type_arguments = if self.pos < ate && self.op(self.pos, Op::Lt) {
-            Some(self.args_tipo()?)
+        let nome = self.advance();
+        let type_arguments = if self.pos < end_index && self.op(self.pos, Op::Lt) {
+            Some(self.type_args()?)
         } else {
             None
         };
-        let question = if self.pos < ate && self.op(self.pos, Op::Question) {
-            Some(self.avancar() as u32)
+        let question = if self.pos < end_index && self.op(self.pos, Op::Question) {
+            Some(self.advance() as u32)
         } else {
             None
         };
-        Ok(self.no(
-            No::NamedType {
+        Ok(self.node(
+            Node::NamedType {
                 import_prefix,
                 name2: nome as u32,
                 type_arguments,
                 question,
             },
-            ini,
+            start_,
         ))
     }
 
     /// Tipo record (`parseRecordType`).
-    fn tipo_registro_no(&mut self, ate: usize) -> R<NoId> {
-        let ini = self.pos;
-        if self.versao < (3, 0) {
-            return Err(self.erro("This requires the 'records' language feature to be enabled."));
+    fn record_type_node(&mut self, end_index: usize) -> R<NodeId> {
+        let start_ = self.pos;
+        if self.version < (3, 0) {
+            return Err(self.error("This requires the 'records' language feature to be enabled."));
         }
-        let lp = self.espera_op(Op::LParen)?;
-        let mut posicionais = Vec::new();
-        let mut nomeados = None;
+        let lp = self.expect_op(Op::LParen)?;
+        let mut positionals = Vec::new();
+        let mut named_args = None;
         let mut virgula = false;
         loop {
             if self.op(self.pos, Op::RParen) {
                 break;
             }
-            if posicionais.is_empty()
+            if positionals.is_empty()
                 && self.op(self.pos, Op::Comma)
                 && self.op(self.pos + 1, Op::RParen)
             {
-                return Err(self.erro("A record type without fields can't have a trailing comma."));
+                return Err(self.error("A record type without fields can't have a trailing comma."));
             }
             if self.op(self.pos, Op::LBrace) {
-                nomeados = Some(self.campos_nomeados_registro()?);
+                named_args = Some(self.record_named_fields()?);
                 break;
             }
             let fi = self.pos;
-            let metadata = self.metadados()?;
-            let type_ = self.tipo_requerido()?;
+            let metadata = self.metadata_()?;
+            let type_ = self.required_type()?;
             let name = if self.ident(self.pos) {
-                Some(self.avancar() as u32)
+                Some(self.advance() as u32)
             } else {
                 None
             };
-            posicionais.push(self.no(
-                No::RecordTypeAnnotationPositionalField {
+            positionals.push(self.node(
+                Node::RecordTypeAnnotationPositionalField {
                     metadata,
                     type_,
                     name,
@@ -171,47 +171,47 @@ impl Parser<'_> {
             if !self.op(self.pos, Op::Comma) {
                 break;
             }
-            self.avancar();
+            self.advance();
             virgula = true;
         }
-        let rp = self.espera_op(Op::RParen)?;
-        if posicionais.len() == 1 && nomeados.is_none() && !virgula {
-            return Err(self.erro_em(
+        let rp = self.expect_op(Op::RParen)?;
+        if positionals.len() == 1 && named_args.is_none() && !virgula {
+            return Err(self.error_at(
                 rp,
                 "A record type with exactly one positional field requires a trailing comma.",
             ));
         }
-        let question = if self.pos < ate && self.op(self.pos, Op::Question) {
-            Some(self.avancar() as u32)
+        let question = if self.pos < end_index && self.op(self.pos, Op::Question) {
+            Some(self.advance() as u32)
         } else {
             None
         };
-        Ok(self.no(
-            No::RecordTypeAnnotation {
+        Ok(self.node(
+            Node::RecordTypeAnnotation {
                 left_parenthesis: lp as u32,
-                positional_fields: posicionais,
-                named_fields: nomeados,
+                positional_fields: positionals,
+                named_fields: named_args,
                 right_parenthesis: rp as u32,
                 question,
             },
-            ini,
+            start_,
         ))
     }
 
-    fn campos_nomeados_registro(&mut self) -> R<NoId> {
-        let ini = self.pos;
-        let lb = self.espera_op(Op::LBrace)?;
-        let mut campos = Vec::new();
+    fn record_named_fields(&mut self) -> R<NodeId> {
+        let start_ = self.pos;
+        let lb = self.expect_op(Op::LBrace)?;
+        let mut fields_ = Vec::new();
         loop {
             if self.op(self.pos, Op::RBrace) {
                 break;
             }
             let fi = self.pos;
-            let metadata = self.metadados()?;
-            let type_ = self.tipo_requerido()?;
-            let name = self.espera_ident()? as u32;
-            campos.push(self.no(
-                No::RecordTypeAnnotationNamedField {
+            let metadata = self.metadata_()?;
+            let type_ = self.required_type()?;
+            let name = self.expect_ident()? as u32;
+            fields_.push(self.node(
+                Node::RecordTypeAnnotationNamedField {
                     metadata,
                     type_,
                     name,
@@ -221,97 +221,97 @@ impl Parser<'_> {
             if !self.op(self.pos, Op::Comma) {
                 break;
             }
-            self.avancar();
+            self.advance();
         }
-        let rb = self.espera_op(Op::RBrace)?;
-        if campos.is_empty() {
-            return Err(self.erro_em(
+        let rb = self.expect_op(Op::RBrace)?;
+        if fields_.is_empty() {
+            return Err(self.error_at(
                 rb,
                 "The list of named fields in a record type can't be empty.",
             ));
         }
-        Ok(self.no(
-            No::RecordTypeAnnotationNamedFields {
+        Ok(self.node(
+            Node::RecordTypeAnnotationNamedFields {
                 left_bracket: lb as u32,
-                fields: campos,
+                fields: fields_,
                 right_bracket: rb as u32,
             },
-            ini,
+            start_,
         ))
     }
 
     /// `computeType(required: true)` seguido de `parseType`.
-    pub(super) fn tipo_requerido(&mut self) -> R<NoId> {
-        let info = self.tipo_em(self.pos, true, false, false);
-        if info.e_nenhum() {
-            return Err(self.erro(&format!(
+    pub(super) fn required_type(&mut self) -> R<NodeId> {
+        let info = self.type_at(self.pos, true, false, false);
+        if info.is_none() {
+            return Err(self.error(&format!(
                 "Expected a type, but got '{}'.",
                 self.txt(self.pos)
             )));
         }
-        self.tipo_ate(info.ate)
+        self.type_until(info.end_index)
     }
 
     /// Tipo que não pode ser `void` nem record/função onde só cabe um
-    /// [`No::NamedType`] (`extends`, `with`, `implements`, `on`).
-    pub(super) fn tipo_nomeado_requerido(&mut self) -> R<NoId> {
+    /// [`Node::NamedType`] (`extends`, `with`, `implements`, `on`).
+    pub(super) fn required_named_type(&mut self) -> R<NodeId> {
         let i = self.pos;
-        let t = self.tipo_requerido()?;
-        if !matches!(self.arv.no(t), No::NamedType { .. }) || self.kw(i, Keyword::Void) {
-            return Err(self.erro_em(i, "Expected a class name."));
+        let t = self.required_type()?;
+        if !matches!(self.tree_.node(t), Node::NamedType { .. }) || self.kw(i, Keyword::Void) {
+            return Err(self.error_at(i, "Expected a class name."));
         }
         Ok(t)
     }
 
     /// `<` tipos `>`.
-    pub(super) fn args_tipo(&mut self) -> R<NoId> {
-        let ini = self.pos;
-        let lt = self.espera_op(Op::Lt)?;
+    pub(super) fn type_args(&mut self) -> R<NodeId> {
+        let start_ = self.pos;
+        let lt = self.expect_op(Op::Lt)?;
         let mut args = Vec::new();
         loop {
-            args.push(self.tipo_requerido()?);
+            args.push(self.required_type()?);
             if !self.op(self.pos, Op::Comma) {
                 break;
             }
-            self.avancar();
+            self.advance();
         }
-        let gt = self.espera_op(Op::Gt)?;
-        Ok(self.no(
-            No::TypeArgumentList {
+        let gt = self.expect_op(Op::Gt)?;
+        Ok(self.node(
+            Node::TypeArgumentList {
                 left_bracket: lt as u32,
                 arguments: args,
                 right_bracket: gt as u32,
             },
-            ini,
+            start_,
         ))
     }
 
     /// `<` parâmetros de tipo `>`.
-    pub(super) fn params_tipo(&mut self) -> R<NoId> {
-        let ini = self.pos;
-        if self.args_tipo_lt(self.pos, true).is_none() {
-            return Err(self.erro("Invalid type parameters."));
+    pub(super) fn type_params(&mut self) -> R<NodeId> {
+        let start_ = self.pos;
+        if self.type_args_lt(self.pos, true).is_none() {
+            return Err(self.error("Invalid type parameters."));
         }
-        let lt = self.espera_op(Op::Lt)?;
+        let lt = self.expect_op(Op::Lt)?;
         let mut params = Vec::new();
         loop {
             let pi = self.pos;
-            let metadata = self.metadados()?;
+            let metadata = self.metadata_()?;
             if matches!(self.txt(self.pos), "in" | "out" | "inout") && self.ident(self.pos + 1) {
-                return Err(self.erro("Variance modifiers aren't supported."));
+                return Err(self.error("Variance modifiers aren't supported."));
             }
             if !self.ident(self.pos) {
-                return Err(self.erro("Expected a type variable name."));
+                return Err(self.error("Expected a type variable name."));
             }
-            let name = self.avancar() as u32;
+            let name = self.advance() as u32;
             let (extends_keyword, bound) = if self.kw(self.pos, Keyword::Extends) {
-                let e = self.avancar() as u32;
-                (Some(e), Some(self.tipo_requerido()?))
+                let e = self.advance() as u32;
+                (Some(e), Some(self.required_type()?))
             } else {
                 (None, None)
             };
-            params.push(self.no(
-                No::TypeParameter {
+            params.push(self.node(
+                Node::TypeParameter {
                     metadata,
                     name,
                     extends_keyword,
@@ -322,23 +322,23 @@ impl Parser<'_> {
             if !self.op(self.pos, Op::Comma) {
                 break;
             }
-            self.avancar();
+            self.advance();
         }
-        let gt = self.espera_op(Op::Gt)?;
-        Ok(self.no(
-            No::TypeParameterList {
+        let gt = self.expect_op(Op::Gt)?;
+        Ok(self.node(
+            Node::TypeParameterList {
                 left_bracket: lt as u32,
                 type_parameters: params,
                 right_bracket: gt as u32,
             },
-            ini,
+            start_,
         ))
     }
 
     /// Lista de parâmetros formais (`parseFormalParametersRest`).
-    pub(super) fn params_formais(&mut self, membro: Membro) -> R<NoId> {
-        let ini = self.pos;
-        let lp = self.espera_op(Op::LParen)?;
+    pub(super) fn formal_params(&mut self, membro: MemberKind) -> R<NodeId> {
+        let start_ = self.pos;
+        let lp = self.expect_op(Op::LParen)?;
         let mut params = Vec::new();
         let mut ld = None;
         let mut rd = None;
@@ -347,83 +347,83 @@ impl Parser<'_> {
                 break;
             }
             if self.op(self.pos, Op::LBracket) || self.op(self.pos, Op::LBrace) {
-                let (abre, fecha, tipo) = if self.op(self.pos, Op::LBracket) {
+                let (opens, closer, tipo) = if self.op(self.pos, Op::LBracket) {
                     (
                         Op::LBracket,
                         Op::RBracket,
-                        TipoParametro::OpcionalPosicional,
+                        ParameterKind::OptionalPositional,
                     )
                 } else {
-                    (Op::LBrace, Op::RBrace, TipoParametro::Nomeado)
+                    (Op::LBrace, Op::RBrace, ParameterKind::Named)
                 };
-                ld = Some(self.espera_op(abre)? as u32);
+                ld = Some(self.expect_op(opens)? as u32);
                 let antes = params.len();
                 loop {
-                    if self.op(self.pos, fecha) {
+                    if self.op(self.pos, closer) {
                         break;
                     }
                     params.push(self.param_formal(tipo, membro)?);
                     if !self.op(self.pos, Op::Comma) {
                         break;
                     }
-                    self.avancar();
+                    self.advance();
                 }
                 if params.len() == antes {
-                    return Err(self.erro("Optional parameter lists can't be empty."));
+                    return Err(self.error("Optional parameter lists can't be empty."));
                 }
-                rd = Some(self.espera_op(fecha)? as u32);
+                rd = Some(self.expect_op(closer)? as u32);
                 break;
             }
-            params.push(self.param_formal(TipoParametro::Obrigatorio, membro)?);
+            params.push(self.param_formal(ParameterKind::Required, membro)?);
             if !self.op(self.pos, Op::Comma) {
                 break;
             }
-            self.avancar();
+            self.advance();
         }
-        let rp = self.espera_op(Op::RParen)?;
-        Ok(self.no(
-            No::FormalParameterList {
+        let rp = self.expect_op(Op::RParen)?;
+        Ok(self.node(
+            Node::FormalParameterList {
                 left_parenthesis: lp as u32,
                 parameters: params,
                 left_delimiter: ld,
                 right_delimiter: rd,
                 right_parenthesis: rp as u32,
             },
-            ini,
+            start_,
         ))
     }
 
     /// Um parâmetro formal (`parseFormalParameter`), já embrulhado em
-    /// [`No::DefaultFormalParameter`] quando opcional.
-    fn param_formal(&mut self, tipo: TipoParametro, membro: Membro) -> R<NoId> {
-        let ini = self.pos;
-        let metadata = self.metadados()?;
-        let em_tipo_funcao = membro == Membro::TipoFuncao;
+    /// [`Node::DefaultFormalParameter`] quando opcional.
+    fn param_formal(&mut self, tipo: ParameterKind, membro: MemberKind) -> R<NodeId> {
+        let start_ = self.pos;
+        let metadata = self.metadata_()?;
+        let in_function_type = membro == MemberKind::FunctionType;
         let mut required = None;
         let mut covariant = None;
         let mut keyword = None;
-        if self.modificador(self.pos) {
-            if self.pal(self.pos, "required") && tipo == TipoParametro::Nomeado {
-                required = Some(self.avancar() as u32);
+        if self.modifier(self.pos) {
+            if self.word(self.pos, "required") && tipo == ParameterKind::Named {
+                required = Some(self.advance() as u32);
             }
-            if self.modificador(self.pos) {
-                if self.pal(self.pos, "covariant") {
+            if self.modifier(self.pos) {
+                if self.word(self.pos, "covariant") {
                     if matches!(
                         membro,
-                        Membro::MetodoEstatico | Membro::FuncaoTopo | Membro::Extensao
+                        MemberKind::StaticMethod | MemberKind::TopLevelFunction | MemberKind::Extension
                     ) {
-                        return Err(self.erro("Can't have modifier 'covariant' here."));
+                        return Err(self.error("Can't have modifier 'covariant' here."));
                     }
-                    covariant = Some(self.avancar() as u32);
+                    covariant = Some(self.advance() as u32);
                 }
-                if self.modificador(self.pos) {
-                    if !em_tipo_funcao
+                if self.modifier(self.pos) {
+                    if !in_function_type
                         && (self.kw(self.pos, Keyword::Var) || self.kw(self.pos, Keyword::Final))
                     {
-                        keyword = Some(self.avancar() as u32);
+                        keyword = Some(self.advance() as u32);
                     }
-                    if self.modificador(self.pos) {
-                        return Err(self.erro(&format!(
+                    if self.modifier(self.pos) {
+                        return Err(self.error(&format!(
                             "Can't have modifier '{}' here.",
                             self.txt(self.pos)
                         )));
@@ -431,23 +431,23 @@ impl Parser<'_> {
                 }
             }
         }
-        let info = self.tipo_em(self.pos, em_tipo_funcao, false, true);
-        let mut nx = info.ate;
+        let info = self.type_at(self.pos, in_function_type, false, true);
+        let mut nx = info.end_index;
         let mut info = info;
-        if info.e_nenhum() && (self.op(nx, Op::Dot) || (self.ident(nx) && self.op(nx + 1, Op::Dot)))
+        if info.is_none() && (self.op(nx, Op::Dot) || (self.ident(nx) && self.op(nx + 1, Op::Dot)))
         {
             // Recuperação do fasta: tipo prefixado malformado (por exemplo
             // `p.import`), relida com `required`; o erro não é sintático.
-            info = self.tipo_em(self.pos, true, false, false);
-            nx = info.ate;
+            info = self.type_at(self.pos, true, false, false);
+            nx = info.end_index;
         }
         let mut this_super: Option<(usize, usize)> = None;
-        if !em_tipo_funcao && (self.kw(nx, Keyword::This) || self.kw(nx, Keyword::Super)) {
+        if !in_function_type && (self.kw(nx, Keyword::This) || self.kw(nx, Keyword::Super)) {
             if self.op(nx + 1, Op::Dot) {
                 this_super = Some((nx, nx + 1));
                 nx += 2;
             } else {
-                return Err(self.erro_em(nx, "Expected '.' after 'this' or 'super'."));
+                return Err(self.error_at(nx, "Expected '.' after 'this' or 'super'."));
             }
         }
         let mut ultimo = nx;
@@ -457,69 +457,69 @@ impl Parser<'_> {
         } else {
             ultimo = ultimo.wrapping_sub(1);
         }
-        let mut funcao_inline = false;
+        let mut inline_function = false;
         if self.op(nx, Op::Lt) {
-            if let Some(a) = self.args_tipo_lt(nx, false)
-                && self.op(a.ate, Op::LParen)
+            if let Some(a) = self.type_args_lt(nx, false)
+                && self.op(a.end_index, Op::LParen)
             {
-                funcao_inline = true;
+                inline_function = true;
             }
         } else if self.op(nx, Op::LParen) {
-            funcao_inline = true;
+            inline_function = true;
         }
         let _ = ultimo;
-        if funcao_inline && keyword.is_some() {
+        if inline_function && keyword.is_some() {
             return Err(
-                self.erro("Function-typed parameters can't specify 'const', 'final' or 'var'.")
+                self.error("Function-typed parameters can't specify 'const', 'final' or 'var'.")
             );
         }
-        if !info.e_nenhum() && keyword.is_some_and(|k| self.kw(k as usize, Keyword::Var)) {
-            return Err(self.erro_em(
+        if !info.is_none() && keyword.is_some_and(|k| self.kw(k as usize, Keyword::Var)) {
+            return Err(self.error_at(
                 keyword.unwrap_or(0) as usize,
                 "Variables can't be declared using both 'var' and a type name.",
             ));
         }
-        let type_ = if info.e_nenhum() {
+        let type_ = if info.is_none() {
             None
         } else {
-            Some(self.tipo_ate(info.ate)?)
+            Some(self.type_until(info.end_index)?)
         };
         let (this_kw, period) = match this_super {
             Some((t, p)) => {
                 if self.kw(t, Keyword::Super) {
-                    self.recurso(t, (2, 17), "super-parameters");
+                    self.feature(t, (2, 17), "super-parameters");
                 }
                 self.pos = p + 1;
                 (Some(t), Some(p))
             }
             None => (None, None),
         };
-        let nomeado = tipo == TipoParametro::Nomeado;
-        let nome = if em_tipo_funcao && !nomeado && !self.palavra(self.pos) && !funcao_inline {
+        let named = tipo == ParameterKind::Named;
+        let nome = if in_function_type && !named && !self.word_(self.pos) && !inline_function {
             None
         } else {
-            let n = self.espera_ident()?;
+            let n = self.expect_ident()?;
             if this_kw.is_none() {
-                self.conferir_await_yield(n)?;
+                self.check_await_yield(n)?;
             }
             Some(n)
         };
-        let (type_parameters, parameters, question) = if funcao_inline {
+        let (type_parameters, parameters, question) = if inline_function {
             let tp = if self.op(self.pos, Op::Lt) {
-                Some(self.params_tipo()?)
+                Some(self.type_params()?)
             } else {
                 None
             };
-            let ps = self.params_formais(Membro::ParametroFuncao)?;
-            let q = self.opcional_op(Op::Question).map(|q| q as u32);
+            let ps = self.formal_params(MemberKind::FunctionParameter)?;
+            let q = self.optional_op(Op::Question).map(|q| q as u32);
             (tp, Some(ps), q)
         } else {
             (None, None, None)
         };
-        let parametro = if let Some(t) = this_kw {
-            let name = nome.ok_or_else(|| self.erro("Expected a name."))? as u32;
-            let no = if self.kw(t, Keyword::This) {
-                No::FieldFormalParameter {
+        let parameter_ = if let Some(t) = this_kw {
+            let name = nome.ok_or_else(|| self.error("Expected a name."))? as u32;
+            let node = if self.kw(t, Keyword::This) {
+                Node::FieldFormalParameter {
                     metadata,
                     covariant_keyword: covariant,
                     required_keyword: required,
@@ -534,7 +534,7 @@ impl Parser<'_> {
                     kind: tipo,
                 }
             } else {
-                No::SuperFormalParameter {
+                Node::SuperFormalParameter {
                     metadata,
                     covariant_keyword: covariant,
                     required_keyword: required,
@@ -549,26 +549,26 @@ impl Parser<'_> {
                     kind: tipo,
                 }
             };
-            self.no(no, ini)
-        } else if funcao_inline {
-            let name = nome.ok_or_else(|| self.erro("Expected a name."))? as u32;
-            self.no(
-                No::FunctionTypedFormalParameter {
+            self.node(node, start_)
+        } else if inline_function {
+            let name = nome.ok_or_else(|| self.error("Expected a name."))? as u32;
+            self.node(
+                Node::FunctionTypedFormalParameter {
                     metadata,
                     covariant_keyword: covariant,
                     required_keyword: required,
                     return_type: type_,
                     name,
                     type_parameters,
-                    parameters: parameters.unwrap_or(NoId(0)),
+                    parameters: parameters.unwrap_or(NodeId(0)),
                     question,
                     kind: tipo,
                 },
-                ini,
+                start_,
             )
         } else {
-            self.no(
-                No::SimpleFormalParameter {
+            self.node(
+                Node::SimpleFormalParameter {
                     metadata,
                     covariant_keyword: covariant,
                     required_keyword: required,
@@ -577,58 +577,58 @@ impl Parser<'_> {
                     name: nome.map(|n| n as u32),
                     kind: tipo,
                 },
-                ini,
+                start_,
             )
         };
         let mut separator = None;
         let mut default_value = None;
         if self.op(self.pos, Op::Assign) || self.op(self.pos, Op::Colon) {
             let s = self.pos;
-            if tipo == TipoParametro::Obrigatorio {
-                return Err(self.erro("Non-optional parameters can't have a default value."));
+            if tipo == ParameterKind::Required {
+                return Err(self.error("Non-optional parameters can't have a default value."));
             }
-            if tipo == TipoParametro::OpcionalPosicional && self.op(s, Op::Colon) {
-                return Err(self.erro(
+            if tipo == ParameterKind::OptionalPositional && self.op(s, Op::Colon) {
+                return Err(self.error(
                     "Positional optional parameters can't use ':' to specify a default value.",
                 ));
             }
             if matches!(
                 membro,
-                Membro::TipoFuncao | Membro::AliasFuncao | Membro::ParametroFuncao
+                MemberKind::FunctionType | MemberKind::FunctionAlias | MemberKind::FunctionParameter
             ) {
-                return Err(self.erro("Can't have a default value in a function type."));
+                return Err(self.error("Can't have a default value in a function type."));
             }
-            self.avancar();
+            self.advance();
             separator = Some(s as u32);
-            default_value = Some(self.expressao()?);
+            default_value = Some(self.expression()?);
         }
-        if tipo == TipoParametro::Obrigatorio {
-            return Ok(parametro);
+        if tipo == ParameterKind::Required {
+            return Ok(parameter_);
         }
-        Ok(self.no(
-            No::DefaultFormalParameter {
-                parameter: parametro,
+        Ok(self.node(
+            Node::DefaultFormalParameter {
+                parameter: parameter_,
                 separator,
                 default_value,
                 kind: tipo,
             },
-            ini,
+            start_,
         ))
     }
 
     /// `checkFieldFormalParameters` do `AstBuilder` (métodos e funções
     /// locais): `this.x` posicional obrigatório fora de construtor.
-    pub(super) fn sem_parametros_de_campo(&self, lista: Option<NoId>) -> R<()> {
-        let Some(l) = lista else {
+    pub(super) fn without_field_parameters(&self, list: Option<NodeId>) -> R<()> {
+        let Some(l) = list else {
             return Ok(());
         };
-        let No::FormalParameterList { parameters, .. } = self.arv.no(l) else {
+        let Node::FormalParameterList { parameters, .. } = self.tree_.node(l) else {
             return Ok(());
         };
         for &p in parameters {
-            if matches!(self.arv.no(p), No::FieldFormalParameter { .. }) {
-                return Err(self.erro_em(
-                    self.ini(p),
+            if matches!(self.tree_.node(p), Node::FieldFormalParameter { .. }) {
+                return Err(self.error_at(
+                    self.start_(p),
                     "Field formal parameters can only be used in a constructor.",
                 ));
             }
@@ -637,26 +637,26 @@ impl Parser<'_> {
     }
 
     /// `metadata*`.
-    pub(super) fn metadados(&mut self) -> R<Vec<NoId>> {
+    pub(super) fn metadata_(&mut self) -> R<Vec<NodeId>> {
         let mut v = Vec::new();
         while self.op(self.pos, Op::At) {
-            v.push(self.anotacao()?);
+            v.push(self.annotation()?);
         }
         Ok(v)
     }
 
     /// Uma anotação (`parseMetadata`).
-    fn anotacao(&mut self) -> R<NoId> {
-        let ini = self.pos;
-        let at = self.espera_op(Op::At)?;
-        let id = self.espera_ident()?;
-        let mut name = self.simples(id);
+    fn annotation(&mut self) -> R<NodeId> {
+        let start_ = self.pos;
+        let at = self.expect_op(Op::At)?;
+        let id = self.expect_ident()?;
+        let mut name = self.simple(id);
         if self.op(self.pos, Op::Dot) {
-            let d = self.avancar();
-            let id2 = self.espera_ident_ou_new()?;
-            let s2 = self.simples(id2);
-            name = self.no(
-                No::PrefixedIdentifier {
+            let d = self.advance();
+            let id2 = self.expect_ident_or_new()?;
+            let s2 = self.simple(id2);
+            name = self.node(
+                Node::PrefixedIdentifier {
                     prefix: name,
                     period: d as u32,
                     identifier: s2,
@@ -664,48 +664,48 @@ impl Parser<'_> {
                 id,
             );
         }
-        let com_args_tipo = self.op(self.pos, Op::Lt);
-        if com_args_tipo {
-            self.recurso(self.pos, (2, 14), "generic-metadata");
+        let with_type_args = self.op(self.pos, Op::Lt);
+        if with_type_args {
+            self.feature(self.pos, (2, 14), "generic-metadata");
         }
-        let type_arguments = if com_args_tipo {
-            if self.args_tipo_lt(self.pos, false).is_none() {
-                return Err(self.erro("Invalid type arguments in annotation."));
+        let type_arguments = if with_type_args {
+            if self.type_args_lt(self.pos, false).is_none() {
+                return Err(self.error("Invalid type arguments in annotation."));
             }
-            Some(self.args_tipo()?)
+            Some(self.type_args()?)
         } else {
             None
         };
         let mut period = None;
         let mut constructor_name = None;
         if self.op(self.pos, Op::Dot) {
-            period = Some(self.avancar() as u32);
-            let c = self.espera_ident_ou_new()?;
-            constructor_name = Some(self.simples(c));
+            period = Some(self.advance() as u32);
+            let c = self.expect_ident_or_new()?;
+            constructor_name = Some(self.simple(c));
         }
-        if com_args_tipo && !self.op(self.pos, Op::LParen) {
+        if with_type_args && !self.op(self.pos, Op::LParen) {
             return Err(self
-                .erro("An annotation with type arguments must be followed by an argument list."));
+                .error("An annotation with type arguments must be followed by an argument list."));
         }
         let mut arguments = None;
         if self.op(self.pos, Op::LParen) {
-            if self.tk(self.pos - 1).colado {
-                arguments = Some(self.argumentos()?);
-            } else if com_args_tipo {
+            if self.tk(self.pos - 1).glued {
+                arguments = Some(self.arguments_()?);
+            } else if with_type_args {
                 return Err(
-                    self.erro("Annotations can't have spaces or comments before the parenthesis.")
+                    self.error("Annotations can't have spaces or comments before the parenthesis.")
                 );
             } else {
-                let depois = self.par(self.pos) + 1;
-                if self.kw(depois, Keyword::Class) || self.kw(depois, Keyword::Enum) {
-                    return Err(self.erro(
+                let after = self.pair(self.pos) + 1;
+                if self.kw(after, Keyword::Class) || self.kw(after, Keyword::Enum) {
+                    return Err(self.error(
                         "Annotations can't have spaces or comments before the parenthesis.",
                     ));
                 }
             }
         }
-        Ok(self.no(
-            No::Annotation {
+        Ok(self.node(
+            Node::Annotation {
                 at_sign: at as u32,
                 name,
                 type_arguments,
@@ -713,7 +713,7 @@ impl Parser<'_> {
                 constructor_name,
                 arguments,
             },
-            ini,
+            start_,
         ))
     }
 }

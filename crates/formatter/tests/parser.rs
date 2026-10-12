@@ -2,77 +2,77 @@
 //! nos casos em que o `dart_style` as distingue, a cobertura de tokens e os
 //! erros que o analyzer relata como sintáticos.
 
-use dartforge_formatter::syntax::tree::{Arvore, No, NoId};
-use dartforge_formatter::syntax::parser::{OpcoesAnalise, analisar, analisar_com, verify};
+use dartforge_formatter::syntax::tree::{Tree, Node, NodeId};
+use dartforge_formatter::syntax::parser::{ParseOptions, parse, parse_with, verify};
 use dartforge_formatter::syntax::token::Tokens;
 
-/// Analisa `fonte`, confere a cobertura e devolve tokens e árvore.
-fn ler(fonte: &str) -> (Tokens, Arvore) {
-    let (t, a) = analisar(fonte).unwrap_or_else(|e| panic!("{fonte:?}: {e:?}"));
-    verify::conferir(&t, &a, fonte).unwrap_or_else(|e| panic!("{fonte:?}: {e}"));
+/// Analisa `source`, confere a cobertura e devolve tokens e árvore.
+fn ler(source: &str) -> (Tokens, Tree) {
+    let (t, a) = parse(source).unwrap_or_else(|e| panic!("{source:?}: {e:?}"));
+    verify::check(&t, &a, source).unwrap_or_else(|e| panic!("{source:?}: {e}"));
     (t, a)
 }
 
-/// Renderiza a subárvore de `id` como `Tipo(filhos...)`; identificadores e
+/// Renderiza a subárvore de `id` como `Type(children...)`; identificadores e
 /// literais simples viram o próprio texto.
-fn render(fonte: &str, t: &Tokens, a: &Arvore, id: NoId) -> String {
-    let texto = |tk: u32| t.texto(fonte, tk).to_string();
-    match a.no(id) {
-        No::SimpleIdentifier { token } => return texto(*token),
-        No::IntegerLiteral { literal }
-        | No::SimpleStringLiteral { literal }
-        | No::BooleanLiteral { literal } => {
+fn render(source: &str, t: &Tokens, a: &Tree, id: NodeId) -> String {
+    let texto = |tk: u32| t.texto(source, tk).to_string();
+    match a.node(id) {
+        Node::SimpleIdentifier { token } => return texto(*token),
+        Node::IntegerLiteral { literal }
+        | Node::SimpleStringLiteral { literal }
+        | Node::BooleanLiteral { literal } => {
             return texto(*literal);
         }
         _ => {}
     }
-    let mut filhos = Vec::new();
-    a.no(id)
-        .filhos(&mut |f| filhos.push(render(fonte, t, a, f)));
-    format!("{}({})", verify::nome_do_no(a.no(id)), filhos.join(", "))
+    let mut children = Vec::new();
+    a.node(id)
+        .children(&mut |f| children.push(render(source, t, a, f)));
+    format!("{}({})", verify::node_name(a.node(id)), children.join(", "))
 }
 
 /// A expressão de `f() { return <expr>; }`.
 fn expr(e: &str) -> String {
-    let fonte = format!("f() {{ return {e}; }}");
-    let (t, a) = ler(&fonte);
+    let source = format!("f() {{ return {e}; }}");
+    let (t, a) = ler(&source);
     let id = a
-        .nos
+        .nodes
         .iter()
-        .position(|d| matches!(d.no, No::ReturnStatement { .. }))
+        .position(|d| matches!(d.node, Node::ReturnStatement { .. }))
         .expect("comando return");
-    let No::ReturnStatement { expression, .. } = a.nos[id].no else {
+    let Node::ReturnStatement { expression, .. } = a.nodes[id].node else {
         unreachable!()
     };
-    render(&fonte, &t, &a, expression.expect("expressão"))
+    render(&source, &t, &a, expression.expect("expressão"))
 }
 
-/// A primeira declaração de topo de `fonte`, renderizada.
-fn decl(fonte: &str) -> String {
-    let (t, a) = ler(fonte);
-    let No::CompilationUnit { declarations, .. } = a.no(a.raiz.unwrap()) else {
+/// A primeira declaração de topo de `source`, renderizada.
+fn decl(source: &str) -> String {
+    let (t, a) = ler(source);
+    let Node::CompilationUnit { declarations, .. } = a.node(a.root.unwrap()) else {
         unreachable!()
     };
-    render(fonte, &t, &a, declarations[0])
+    render(source, &t, &a, declarations[0])
 }
 
-/// O primeiro nó do tipo `nome` em `fonte`, renderizado.
-fn primeiro(fonte: &str, nome: &str) -> String {
-    let (t, a) = ler(fonte);
+/// O primeiro nó do tipo `nome` em `source`, renderizado.
+fn first(source: &str, nome: &str) -> String {
+    let (t, a) = ler(source);
     let i = a
-        .nos
+        .nodes
         .iter()
-        .position(|d| verify::nome_do_no(&d.no) == nome)
-        .unwrap_or_else(|| panic!("sem {nome} em {fonte:?}"));
-    render(fonte, &t, &a, NoId(i as u32))
+        .position(|d| verify::node_name(&d.node) == nome)
+        .unwrap_or_else(|| panic!("sem {nome} em {source:?}"));
+    render(source, &t, &a, NodeId(i as u32))
 }
 
-fn recusa(fonte: &str) {
-    assert!(analisar(fonte).is_err(), "deveria recusar {fonte:?}");
+fn rejection(source: &str) {
+    assert!(parse(source).is_err(), "deveria recusar {source:?}");
 }
 
 #[test]
-fn invocacoes_de_metodo() {
+fn method_invocations() {
     assert_eq!(expr("foo()"), "MethodInvocation(foo, ArgumentList())");
     assert_eq!(
         expr("a.foo(1)"),
@@ -97,7 +97,7 @@ fn invocacoes_de_metodo() {
 }
 
 #[test]
-fn invocacoes_de_expressao_de_funcao() {
+fn function_expression_invocations() {
     assert_eq!(
         expr("a()()"),
         "FunctionExpressionInvocation(MethodInvocation(a, ArgumentList()), ArgumentList())"
@@ -121,7 +121,7 @@ fn invocacoes_de_expressao_de_funcao() {
 }
 
 #[test]
-fn criacao_de_instancias() {
+fn instance_creation() {
     assert_eq!(
         expr("new A()"),
         "InstanceCreationExpression(ConstructorName(NamedType()), ArgumentList())"
@@ -169,21 +169,21 @@ fn identificadores_prefixados_e_acessos() {
 }
 
 #[test]
-fn indice_com_interrogacao() {
-    let fonte = "f() { return a?[i]; }";
-    let (t, a) = ler(fonte);
+fn index_with_question() {
+    let source = "f() { return a?[i]; }";
+    let (t, a) = ler(source);
     let ix = a
-        .nos
+        .nodes
         .iter()
-        .find(|d| matches!(d.no, No::IndexExpression { .. }))
+        .find(|d| matches!(d.node, Node::IndexExpression { .. }))
         .unwrap();
-    let No::IndexExpression {
+    let Node::IndexExpression {
         question, period, ..
-    } = ix.no
+    } = ix.node
     else {
         unreachable!()
     };
-    assert_eq!(t.texto(fonte, question.unwrap()), "?");
+    assert_eq!(t.texto(source, question.unwrap()), "?");
     assert!(period.is_none());
     // `a ? [b] : c` é condicional.
     assert_eq!(
@@ -193,7 +193,7 @@ fn indice_com_interrogacao() {
 }
 
 #[test]
-fn cascatas() {
+fn cascades() {
     assert_eq!(
         expr("x..a..b()..c[0] = 1"),
         "CascadeExpression(x, PropertyAccess(a), MethodInvocation(b, ArgumentList()), \
@@ -214,18 +214,18 @@ fn cascatas() {
     assert_eq!(expr("x?..a"), "CascadeExpression(x, PropertyAccess(a))");
     assert_eq!(expr("x..[0]"), "CascadeExpression(x, IndexExpression(0))");
     // A seção sem alvo começa no operador.
-    let fonte = "f() { return x..a; }";
-    let (t, a) = ler(fonte);
+    let source = "f() { return x..a; }";
+    let (t, a) = ler(source);
     let pa = a
-        .nos
+        .nodes
         .iter()
-        .find(|d| matches!(d.no, No::PropertyAccess { .. }))
+        .find(|d| matches!(d.node, Node::PropertyAccess { .. }))
         .unwrap();
-    assert_eq!(t.texto(fonte, pa.inicio), "..");
+    assert_eq!(t.texto(source, pa.start), "..");
 }
 
 #[test]
-fn referencias_de_funcao_e_relacionais() {
+fn function_references_and_relationals() {
     assert_eq!(
         expr("List<int>"),
         "FunctionReference(List, TypeArgumentList(NamedType()))"
@@ -250,15 +250,15 @@ fn referencias_de_funcao_e_relacionais() {
 }
 
 #[test]
-fn operadores_compostos_de_maior() {
-    let fonte = "f() { a >> b >>> c; x >>= 1; y >= 2; }";
-    let (t, a) = ler(fonte);
+fn composed_greater_operators() {
+    let source = "f() { a >> b >>> c; x >>= 1; y >= 2; }";
+    let (t, a) = ler(source);
     let ops: Vec<&str> =
-        a.nos
+        a.nodes
             .iter()
-            .filter_map(|d| match d.no {
-                No::BinaryExpression { operator, .. }
-                | No::AssignmentExpression { operator, .. } => Some(t.texto(fonte, operator)),
+            .filter_map(|d| match d.node {
+                Node::BinaryExpression { operator, .. }
+                | Node::AssignmentExpression { operator, .. } => Some(t.texto(source, operator)),
                 _ => None,
             })
             .collect();
@@ -266,16 +266,16 @@ fn operadores_compostos_de_maior() {
     // Em tipo, os `>` ficam separados.
     let (t, a) = ler("List<List<int>> x;");
     let gts = t
-        .lista
+        .list
         .iter()
-        .filter(|k| &"List<List<int>> x;"[k.inicio..k.fim] == ">")
+        .filter(|k| &"List<List<int>> x;"[k.start..k.end] == ">")
         .count();
     assert_eq!(gts, 2);
-    assert!(a.raiz.is_some());
+    assert!(a.root.is_some());
 }
 
 #[test]
-fn literais_de_string() {
+fn string_literals() {
     assert_eq!(expr("'a'"), "'a'");
     assert_eq!(
         expr("'a${b}c$d'"),
@@ -287,13 +287,13 @@ fn literais_de_string() {
         expr("'$this'"),
         "StringInterpolation(InterpolationString(), InterpolationExpression(ThisExpression()), InterpolationString())"
     );
-    recusa("var s = '$class';");
-    recusa("var s = '\\x4';");
-    recusa("var s = '\\u{110000}';");
+    rejection("var s = '$class';");
+    rejection("var s = '\\x4';");
+    rejection("var s = '\\u{110000}';");
 }
 
 #[test]
-fn records_e_parenteses() {
+fn records_and_parentheses() {
     assert_eq!(expr("(a)"), "ParenthesizedExpression(a)");
     assert_eq!(expr("(a,)"), "RecordLiteral(a)");
     assert_eq!(
@@ -302,12 +302,12 @@ fn records_e_parenteses() {
     );
     assert_eq!(expr("const (1, 2)"), "RecordLiteral(1, 2)");
     assert_eq!(expr("()"), "RecordLiteral()");
-    recusa("var x = const (1);");
-    recusa("var x = (,);");
+    rejection("var x = const (1);");
+    rejection("var x = (,);");
 }
 
 #[test]
-fn colecoes_e_elementos() {
+fn collections_and_elements() {
     assert_eq!(
         expr("[...a, ...?b]"),
         "ListLiteral(SpreadElement(a), SpreadElement(b))"
@@ -331,11 +331,11 @@ fn colecoes_e_elementos() {
         "SetOrMapLiteral(ForElement(ForPartsWithDeclarations(VariableDeclarationList(VariableDeclaration(0)), \
          BinaryExpression(i, n), PostfixExpression(i)), MapLiteralEntry(i, i)))"
     );
-    recusa("var x = [?a];");
+    rejection("var x = [?a];");
 }
 
 #[test]
-fn funcoes() {
+fn functions() {
     assert_eq!(
         expr("(a) => a"),
         "FunctionExpression(FormalParameterList(SimpleFormalParameter()), ExpressionFunctionBody(a))"
@@ -350,29 +350,29 @@ fn funcoes() {
         "FunctionDeclaration(NamedType(), FunctionExpression(FormalParameterList(), ExpressionFunctionBody(0)))"
     );
     assert_eq!(
-        primeiro("f() { void g() {} }", "FunctionDeclarationStatement"),
+        first("f() { void g() {} }", "FunctionDeclarationStatement"),
         "FunctionDeclarationStatement(FunctionDeclaration(NamedType(), FunctionExpression(FormalParameterList(), \
          BlockFunctionBody(Block()))))"
     );
     // O `;` do `=>`: presente em declarações, ausente em closures.
-    let fonte = "f() => () => 1;";
-    let (_, a) = ler(fonte);
-    let corpos: Vec<bool> = a
-        .nos
+    let source = "f() => () => 1;";
+    let (_, a) = ler(source);
+    let bodies: Vec<bool> = a
+        .nodes
         .iter()
-        .filter_map(|d| match d.no {
-            No::ExpressionFunctionBody { semicolon, .. } => Some(semicolon.is_some()),
+        .filter_map(|d| match d.node {
+            Node::ExpressionFunctionBody { semicolon, .. } => Some(semicolon.is_some()),
             _ => None,
         })
         .collect();
-    assert_eq!(corpos, [false, true]);
-    recusa("f() { var x = g() {}; }");
+    assert_eq!(bodies, [false, true]);
+    rejection("f() { var x = g() {}; }");
 }
 
 #[test]
-fn parametros_formais() {
+fn formal_parameters_() {
     assert_eq!(
-        primeiro(
+        first(
             "f(int a, {b = 1, required int c, this.d}) {}",
             "FormalParameterList"
         ),
@@ -380,78 +380,78 @@ fn parametros_formais() {
          DefaultFormalParameter(SimpleFormalParameter(NamedType())), DefaultFormalParameter(FieldFormalParameter()))"
     );
     assert_eq!(
-        primeiro(
+        first(
             "class A { A(super.x, void f(int y)?); }",
             "ConstructorDeclaration"
         ),
         "ConstructorDeclaration(A, FormalParameterList(SuperFormalParameter(), FunctionTypedFormalParameter(NamedType(), \
          FormalParameterList(SimpleFormalParameter(NamedType())))), EmptyFunctionBody())"
     );
-    let fonte = "f([a]) {}\ng({b}) {}";
-    let (_, a) = ler(fonte);
-    let tipos: Vec<String> =
-        a.nos
+    let source = "f([a]) {}\ng({b}) {}";
+    let (_, a) = ler(source);
+    let types_: Vec<String> =
+        a.nodes
             .iter()
-            .filter_map(|d| match d.no {
-                No::SimpleFormalParameter { kind, .. }
-                | No::DefaultFormalParameter { kind, .. } => Some(format!("{kind:?}")),
+            .filter_map(|d| match d.node {
+                Node::SimpleFormalParameter { kind, .. }
+                | Node::DefaultFormalParameter { kind, .. } => Some(format!("{kind:?}")),
                 _ => None,
             })
             .collect();
     assert_eq!(
-        tipos,
+        types_,
         [
-            "OpcionalPosicional",
-            "OpcionalPosicional",
-            "Nomeado",
-            "Nomeado"
+            "OptionalPositional",
+            "OptionalPositional",
+            "Named",
+            "Named"
         ]
     );
-    recusa("f(a = 1) {}");
-    recusa("f([a], {b}) {}");
-    recusa("f([a : 1]) {}");
+    rejection("f(a = 1) {}");
+    rejection("f([a], {b}) {}");
+    rejection("f([a : 1]) {}");
 }
 
 #[test]
-fn tipos() {
+fn types_() {
     assert_eq!(
         decl("p.List<int>? x;"),
         "TopLevelVariableDeclaration(VariableDeclarationList(NamedType(TypeArgumentList(NamedType())), VariableDeclaration()))"
     );
     assert_eq!(
-        primeiro("int Function(int)? f;", "GenericFunctionType"),
+        first("int Function(int)? f;", "GenericFunctionType"),
         "GenericFunctionType(NamedType(), FormalParameterList(SimpleFormalParameter(NamedType())))"
     );
     assert_eq!(
-        primeiro("(int, {String s}) r;", "RecordTypeAnnotation"),
+        first("(int, {String s}) r;", "RecordTypeAnnotation"),
         "RecordTypeAnnotation(RecordTypeAnnotationPositionalField(NamedType()), \
          RecordTypeAnnotationNamedFields(RecordTypeAnnotationNamedField(NamedType())))"
     );
-    recusa("(int) r;");
+    rejection("(int) r;");
 }
 
 #[test]
-fn padroes() {
-    let fonte = "f(o) { switch (o) { case [var a, ...] when a > 0: case {'k': _} || (1, :var b): case Foo(x: > 0): \
+fn patterns_() {
+    let source = "f(o) { switch (o) { case [var a, ...] when a > 0: case {'k': _} || (1, :var b): case Foo(x: > 0): \
                  case int? _: case const [1] as Object: case -1: default: } }";
-    let (t, a) = ler(fonte);
-    let nomes: Vec<String> = a
-        .nos
+    let (t, a) = ler(source);
+    let names: Vec<String> = a
+        .nodes
         .iter()
-        .filter_map(|d| match d.no {
-            No::SwitchPatternCase {
+        .filter_map(|d| match d.node {
+            Node::SwitchPatternCase {
                 guarded_pattern, ..
             } => {
-                let No::GuardedPattern { pattern, .. } = a.no(guarded_pattern) else {
+                let Node::GuardedPattern { pattern, .. } = a.node(guarded_pattern) else {
                     unreachable!()
                 };
-                Some(render(fonte, &t, &a, *pattern))
+                Some(render(source, &t, &a, *pattern))
             }
             _ => None,
         })
         .collect();
     assert_eq!(
-        nomes,
+        names,
         [
             "ListPattern(DeclaredVariablePattern(), RestPatternElement())",
             "LogicalOrPattern(MapPattern(MapPatternEntry('k', WildcardPattern())), \
@@ -463,7 +463,7 @@ fn padroes() {
         ]
     );
     assert_eq!(
-        primeiro(
+        first(
             "f() { var (a, b) = (1, 2); }",
             "PatternVariableDeclarationStatement"
         ),
@@ -476,22 +476,22 @@ fn padroes() {
          RecordLiteral(b, a))"
     );
     // `WildcardPatternImpl.beginToken` ignora o `var`.
-    let fonte = "f(o) { if (o case var _) {} }";
-    let (t, a) = ler(fonte);
+    let source = "f(o) { if (o case var _) {} }";
+    let (t, a) = ler(source);
     let w = a
-        .nos
+        .nodes
         .iter()
-        .find(|d| matches!(d.no, No::WildcardPattern { .. }))
+        .find(|d| matches!(d.node, Node::WildcardPattern { .. }))
         .unwrap();
-    assert_eq!(t.texto(fonte, w.inicio), "_");
-    recusa("f(o) { if (o case 1 + 2) {} }");
-    recusa("f(o) { if (o case a? as int?) {} }");
+    assert_eq!(t.texto(source, w.start), "_");
+    rejection("f(o) { if (o case 1 + 2) {} }");
+    rejection("f(o) { if (o case a? as int?) {} }");
 }
 
 #[test]
-fn comandos() {
+fn statements_() {
     assert_eq!(
-        primeiro(
+        first(
             "f() { a: for (final x in y) { break a; } }",
             "LabeledStatement"
         ),
@@ -499,14 +499,14 @@ fn comandos() {
          Block(BreakStatement(a))))"
     );
     assert_eq!(
-        primeiro(
+        first(
             "f() { try {} on E catch (e, s) {} finally {} }",
             "TryStatement"
         ),
         "TryStatement(Block(), CatchClause(NamedType(), CatchClauseParameter(), CatchClauseParameter(), Block()), Block())"
     );
     assert_eq!(
-        primeiro(
+        first(
             "f() { switch (x) { l: case 1: case 2: g(); default: } }",
             "SwitchStatement"
         ),
@@ -515,32 +515,32 @@ fn comandos() {
          SwitchDefault())"
     );
     assert_eq!(
-        primeiro("f() { assert(a, 'm'); }", "AssertStatement"),
+        first("f() { assert(a, 'm'); }", "AssertStatement"),
         "AssertStatement(a, 'm')"
     );
     assert_eq!(
-        primeiro("f() { throw e; }", "ExpressionStatement"),
+        first("f() { throw e; }", "ExpressionStatement"),
         "ExpressionStatement(ThrowExpression(e))"
     );
     assert_eq!(
-        primeiro("f() { int? x = 1; }", "VariableDeclarationStatement"),
+        first("f() { int? x = 1; }", "VariableDeclarationStatement"),
         "VariableDeclarationStatement(VariableDeclarationList(NamedType(), VariableDeclaration(1)))"
     );
     // `a ? b : c;` não é declaração de `a?`.
     assert_eq!(
-        primeiro("f() { a ? b : c; }", "ExpressionStatement"),
+        first("f() { a ? b : c; }", "ExpressionStatement"),
         "ExpressionStatement(ConditionalExpression(a, b, c))"
     );
-    recusa("f() { break; }");
-    recusa("f() { switch (x) { case 1: continue; } }");
-    recusa("f() { try {} }");
+    rejection("f() { break; }");
+    rejection("f() { switch (x) { case 1: continue; } }");
+    rejection("f() { try {} }");
 }
 
 #[test]
-fn assert_como_expressao() {
+fn assert_as_expression() {
     // O `AstBuilder` monta `assert(...)` fora de comando como invocação.
     assert_eq!(
-        primeiro(
+        first(
             "f() { var x = assert(true); }",
             "FunctionExpressionInvocation"
         ),
@@ -549,27 +549,27 @@ fn assert_como_expressao() {
 }
 
 #[test]
-fn async_e_geradores() {
+fn async_and_generators() {
     assert_eq!(
-        primeiro("f() async { await x; }", "AwaitExpression"),
+        first("f() async { await x; }", "AwaitExpression"),
         "AwaitExpression(x)"
     );
     // Fora de `async`, `await` seguido de expressão vira `AwaitExpression`
     // (o erro do analyzer não é sintático); sozinho é identificador.
     assert_eq!(
-        primeiro("f() { await g(); }", "AwaitExpression"),
+        first("f() { await g(); }", "AwaitExpression"),
         "AwaitExpression(MethodInvocation(g, ArgumentList()))"
     );
     assert_eq!(expr("await"), "await");
     assert_eq!(
-        primeiro("f() sync* { yield* g(); }", "YieldStatement"),
+        first("f() sync* { yield* g(); }", "YieldStatement"),
         "YieldStatement(MethodInvocation(g, ArgumentList()))"
     );
-    recusa("f() async { var await = 1; }");
+    rejection("f() async { var await = 1; }");
 }
 
 #[test]
-fn declaracoes() {
+fn declarations_() {
     assert_eq!(
         decl(
             "abstract base class A<T> extends B with C implements D { A(this.x) : super(); int x = 0; }"
@@ -623,22 +623,22 @@ fn declaracoes() {
          SimpleFormalParameter()), BlockFunctionBody(Block())), MethodDeclaration(NamedType(), FormalParameterList(\
          SimpleFormalParameter()), ExpressionFunctionBody(true)), FieldDeclaration(VariableDeclarationList(VariableDeclaration(1))))"
     );
-    recusa("class A { const A() {} }");
-    recusa("class A { const factory A() { return A(); } }");
-    recusa("class A { static abstract int x; }");
+    rejection("class A { const A() {} }");
+    rejection("class A { const factory A() { return A(); } }");
+    rejection("class A { static abstract int x; }");
 }
 
 #[test]
-fn diretivas() {
-    let fonte = "library a.b;\nimport 'x.dart' if (dart.library.io) 'y.dart' deferred as p show A, B hide C;\n\
+fn directives_() {
+    let source = "library a.b;\nimport 'x.dart' if (dart.library.io) 'y.dart' deferred as p show A, B hide C;\n\
                  export 'z.dart';\npart 'w.dart';\n";
-    let (t, a) = ler(fonte);
-    let No::CompilationUnit { directives, .. } = a.no(a.raiz.unwrap()) else {
+    let (t, a) = ler(source);
+    let Node::CompilationUnit { directives, .. } = a.node(a.root.unwrap()) else {
         unreachable!()
     };
     let d: Vec<String> = directives
         .iter()
-        .map(|&d| render(fonte, &t, &a, d))
+        .map(|&d| render(source, &t, &a, d))
         .collect();
     assert_eq!(
         d,
@@ -649,78 +649,78 @@ fn diretivas() {
             "PartDirective('w.dart')",
         ]
     );
-    recusa("class A {}\nimport 'a.dart';");
-    recusa("import 'a.dart' deferred;");
+    rejection("class A {}\nimport 'a.dart';");
+    rejection("import 'a.dart' deferred;");
 }
 
 #[test]
-fn anotacoes() {
+fn annotations() {
     assert_eq!(
-        primeiro("@A.new(10)\nvoid f() {}", "Annotation"),
+        first("@A.new(10)\nvoid f() {}", "Annotation"),
         "Annotation(PrefixedIdentifier(A, new), ArgumentList(10))"
     );
     assert_eq!(
-        primeiro("@p.A<int>.b(1)\nvoid f() {}", "Annotation"),
+        first("@p.A<int>.b(1)\nvoid f() {}", "Annotation"),
         "Annotation(PrefixedIdentifier(p, A), TypeArgumentList(NamedType()), b, ArgumentList(1))"
     );
     // Sem colagem, o `(` não é argumento da anotação: é um tipo record.
     assert_eq!(
-        primeiro("@a (int, int) f() => (1, 2);", "FunctionDeclaration"),
+        first("@a (int, int) f() => (1, 2);", "FunctionDeclaration"),
         "FunctionDeclaration(Annotation(a), RecordTypeAnnotation(RecordTypeAnnotationPositionalField(NamedType()), \
          RecordTypeAnnotationPositionalField(NamedType())), FunctionExpression(FormalParameterList(), ExpressionFunctionBody(RecordLiteral(1, 2))))"
     );
 }
 
 #[test]
-fn simbolos_e_nomes_de_operador_fundidos() {
+fn symbols_and_merged_operator_names() {
     // O analyzer tem um único token `[]`/`[]=`; o nó termina nele.
-    let fonte = "f() => g(#[], [n]);";
-    let (t, a) = ler(fonte);
+    let source = "f() => g(#[], [n]);";
+    let (t, a) = ler(source);
     let s = a
-        .nos
+        .nodes
         .iter()
-        .find(|d| matches!(d.no, No::SymbolLiteral { .. }))
+        .find(|d| matches!(d.node, Node::SymbolLiteral { .. }))
         .unwrap();
-    assert_eq!(t.texto(fonte, s.fim), "[]");
-    let No::SymbolLiteral { components, .. } = &s.no else {
+    assert_eq!(t.texto(source, s.end), "[]");
+    let Node::SymbolLiteral { components, .. } = &s.node else {
         unreachable!()
     };
-    assert_eq!(t.texto(fonte, components[0]), "[]");
+    assert_eq!(t.texto(source, components[0]), "[]");
     assert_eq!(expr("#a.b.c"), "SymbolLiteral()");
-    let fonte = "class A { operator []=(i, v) {} operator >>(o) => 0; }";
-    let (t, a) = ler(fonte);
-    let nomes: Vec<&str> = a
-        .nos
+    let source = "class A { operator []=(i, v) {} operator >>(o) => 0; }";
+    let (t, a) = ler(source);
+    let names: Vec<&str> = a
+        .nodes
         .iter()
-        .filter_map(|d| match d.no {
-            No::MethodDeclaration { name, .. } => Some(t.texto(fonte, name)),
+        .filter_map(|d| match d.node {
+            Node::MethodDeclaration { name, .. } => Some(t.texto(source, name)),
             _ => None,
         })
         .collect();
-    assert_eq!(nomes, ["[]=", ">>"]);
+    assert_eq!(names, ["[]=", ">>"]);
 }
 
 #[test]
-fn erros_sintaticos() {
-    recusa("f() { a == b == c; }");
-    recusa("f() { a < b < c; }");
-    recusa("f() { x is int is int; }");
-    recusa("f() { x as int as int; }");
-    recusa("f() { a + b = 1; }");
-    recusa("f() { a++ ++; }");
-    recusa("f( {}");
-    recusa("var x = 1_;");
-    recusa("var x = 0x;");
-    recusa("var x = 1e;");
-    recusa("var a\u{a0}= 1;");
-    recusa("macro class A {}");
+fn syntax_errors() {
+    rejection("f() { a == b == c; }");
+    rejection("f() { a < b < c; }");
+    rejection("f() { x is int is int; }");
+    rejection("f() { x as int as int; }");
+    rejection("f() { a + b = 1; }");
+    rejection("f() { a++ ++; }");
+    rejection("f( {}");
+    rejection("var x = 1_;");
+    rejection("var x = 0x;");
+    rejection("var x = 1e;");
+    rejection("var a\u{a0}= 1;");
+    rejection("macro class A {}");
 }
 
 #[test]
-fn erros_que_o_analyzer_nao_trata_como_sintaticos() {
+fn errors_the_analyzer_does_not_treat_as_syntactic() {
     // Relatados pelo fasta, mas com código de erro não sintático no
     // analyzer: o `dart format` aceita.
-    for fonte in [
+    for source in [
         "f({_a}) {}",
         "const x;",
         "f() sync* { return 1; }",
@@ -733,51 +733,51 @@ fn erros_que_o_analyzer_nao_trata_como_sintaticos() {
         "f() native;",
         "var x = 1_000;",
     ] {
-        ler(fonte);
+        ler(source);
     }
 }
 
 #[test]
-fn versao_da_linguagem() {
+fn language_version() {
     // Antes do 3.0, `case` lê uma expressão: `SwitchCase`.
-    let fonte = "f(x) { switch (x) { case 1: break; } }";
-    let (t, a) = analisar_com(fonte, OpcoesAnalise { versao: (2, 19) }).unwrap();
-    verify::conferir(&t, &a, fonte).unwrap();
-    assert!(a.nos.iter().any(|d| matches!(d.no, No::SwitchCase { .. })));
+    let source = "f(x) { switch (x) { case 1: break; } }";
+    let (t, a) = parse_with(source, ParseOptions { version: (2, 19) }).unwrap();
+    verify::check(&t, &a, source).unwrap();
+    assert!(a.nodes.iter().any(|d| matches!(d.node, Node::SwitchCase { .. })));
     // O comentário `// @dart=` vence a versão pedida.
-    let fonte = "// @dart=2.19\nf(x) { switch (x) { case 1: break; } }";
-    let (_, a) = analisar(fonte).unwrap();
-    assert!(a.nos.iter().any(|d| matches!(d.no, No::SwitchCase { .. })));
-    assert!(analisar("// @dart=2.19\nvar r = (1, 2);").is_err());
-    assert!(analisar("// @dart=3.5\nvar x = 1_000;").is_err());
+    let source = "// @dart=2.19\nf(x) { switch (x) { case 1: break; } }";
+    let (_, a) = parse(source).unwrap();
+    assert!(a.nodes.iter().any(|d| matches!(d.node, Node::SwitchCase { .. })));
+    assert!(parse("// @dart=2.19\nvar r = (1, 2);").is_err());
+    assert!(parse("// @dart=3.5\nvar x = 1_000;").is_err());
 }
 
 #[test]
-fn inicio_e_fim_das_declaracoes_ignoram_comentarios() {
-    let fonte = "/// doc\n@a\nclass A {}\n// x\nvoid f() {}";
-    let (t, a) = ler(fonte);
-    let No::CompilationUnit { declarations, .. } = a.no(a.raiz.unwrap()) else {
+fn declaration_start_and_end_ignore_comments() {
+    let source = "/// doc\n@a\nclass A {}\n// x\nvoid f() {}";
+    let (t, a) = ler(source);
+    let Node::CompilationUnit { declarations, .. } = a.node(a.root.unwrap()) else {
         unreachable!()
     };
-    assert_eq!(t.texto(fonte, a.inicio(declarations[0])), "@");
-    assert_eq!(t.texto(fonte, a.inicio(declarations[1])), "void");
-    assert_eq!(t.texto(fonte, a.fim(declarations[1])), "}");
+    assert_eq!(t.texto(source, a.start(declarations[0])), "@");
+    assert_eq!(t.texto(source, a.start(declarations[1])), "void");
+    assert_eq!(t.texto(source, a.end(declarations[1])), "}");
 }
 
 #[test]
-fn desempenho_arquivo_grande() {
-    let mut fonte = String::new();
+fn large_file_performance() {
+    let mut source = String::new();
     for i in 0..2000 {
-        fonte.push_str(&format!(
+        source.push_str(&format!(
             "class C{i} extends B with M {{\n  final Map<String, List<int>> m = {{'a': [1, 2]}};\n  \
              int f(int x, {{String? y}}) => x > 0 ? (g(x - 1).h<int>()..k = 2) : -x;\n  \
              void g() {{ for (var e in m.entries) {{ if (e case MapEntry(:var key)) print('$key ${{e.value}}'); }} }}\n}}\n"
         ));
     }
-    let inicio = std::time::Instant::now();
-    let (t, a) = analisar(&fonte).unwrap();
-    let tempo = inicio.elapsed();
-    verify::conferir(&t, &a, &fonte).unwrap();
+    let start = std::time::Instant::now();
+    let (t, a) = parse(&source).unwrap();
+    let tempo = start.elapsed();
+    verify::check(&t, &a, &source).unwrap();
     // 10 mil linhas; o limite é folgado para o perfil de testes sem otimização.
     assert!(tempo.as_secs_f64() < 5.0, "{tempo:?}");
 }

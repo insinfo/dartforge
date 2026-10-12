@@ -5,121 +5,121 @@
 use std::collections::HashMap;
 
 use super::arena::{Arenas, ChunkId};
-use super::splitter::DivisorDeLinhas;
+use super::splitter::LineSplitter;
 
 /// `FormatResult`.
 #[derive(Debug, Clone)]
-pub struct Resultado {
+pub struct WriteResult {
     pub texto: String,
-    pub custo: i32,
+    pub cost: i32,
 }
 
 /// Cache de blocos formatados, por (chunk, coluna).
-pub type CacheDeBlocos = HashMap<(ChunkId, i32), Resultado>;
+pub type BlockCache = HashMap<(ChunkId, i32), WriteResult>;
 
 /// `LineWriter`.
-pub struct EscritorDeLinhas<'c> {
-    saida: String,
+pub struct LineWriter<'c> {
+    output: String,
     chunks: Vec<ChunkId>,
-    recuo_do_bloco: i32,
-    cache: &'c mut CacheDeBlocos,
+    block_indent: i32,
+    cache: &'c mut BlockCache,
 }
 
 /// `formatBlock(chunk, column)`.
-pub fn formatar_bloco(a: &mut Arenas, cache: &mut CacheDeBlocos, chunk: ChunkId, coluna: i32) -> Resultado {
-    if let Some(r) = cache.get(&(chunk, coluna)) {
+pub fn format_block(a: &mut Arenas, cache: &mut BlockCache, chunk: ChunkId, column: i32) -> WriteResult {
+    if let Some(r) = cache.get(&(chunk, column)) {
         return r.clone();
     }
-    let filhos = a.chunks[chunk as usize].bloco.as_ref().expect("bloco").filhos.clone();
+    let children = a.chunks[chunk as usize].block.as_ref().expect("bloco").children.clone();
     let r = {
-        let mut escritor = EscritorDeLinhas {
-            saida: String::new(),
-            chunks: filhos,
-            recuo_do_bloco: coluna,
+        let mut writer = LineWriter {
+            output: String::new(),
+            chunks: children,
+            block_indent: column,
             cache,
         };
-        escritor.escrever_linhas(a, false)
+        writer.write_lines(a, false)
     };
-    cache.insert((chunk, coluna), r.clone());
+    cache.insert((chunk, column), r.clone());
     r
 }
 
-impl<'c> EscritorDeLinhas<'c> {
+impl<'c> LineWriter<'c> {
     /// O escritor de topo.
-    pub fn novo(chunks: Vec<ChunkId>, cache: &'c mut CacheDeBlocos) -> EscritorDeLinhas<'c> {
-        EscritorDeLinhas {
-            saida: String::new(),
+    pub fn new(chunks: Vec<ChunkId>, cache: &'c mut BlockCache) -> LineWriter<'c> {
+        LineWriter {
+            output: String::new(),
             chunks,
-            recuo_do_bloco: 0,
+            block_indent: 0,
             cache,
         }
     }
 
     /// `writeLines(isCompilationUnit:)`.
-    pub fn escrever_linhas(&mut self, a: &mut Arenas, unidade: bool) -> Resultado {
-        let mut custo_total = 0;
-        let mut inicio = 0;
+    pub fn write_lines(&mut self, a: &mut Arenas, unit: bool) -> WriteResult {
+        let mut total_cost = 0;
+        let mut start = 0;
         for i in 0..self.chunks.len() {
             let c = self.chunks[i];
-            if !a.chunks[c as usize].divisivel {
+            if !a.chunks[c as usize].splittable {
                 continue;
             }
-            custo_total += self.completar_linha(a, inicio, i);
-            inicio = i;
+            total_cost += self.complete_line(a, start, i);
+            start = i;
         }
-        if inicio < self.chunks.len() {
-            custo_total += self.completar_linha(a, inicio, self.chunks.len());
+        if start < self.chunks.len() {
+            total_cost += self.complete_line(a, start, self.chunks.len());
         }
-        if unidade {
-            self.saida.push_str(&a.fim_de_linha);
+        if unit {
+            self.output.push_str(&a.line_ending);
         }
-        Resultado {
-            texto: std::mem::take(&mut self.saida),
-            custo: custo_total,
+        WriteResult {
+            texto: std::mem::take(&mut self.output),
+            cost: total_cost,
         }
     }
 
-    fn completar_linha(&mut self, a: &mut Arenas, inicio: usize, fim: usize) -> i32 {
-        let chunks: Vec<ChunkId> = self.chunks[inicio..fim].to_vec();
-        let quebras = DivisorDeLinhas::novo(a, chunks.clone(), self.recuo_do_bloco).aplicar(a, self.cache);
+    fn complete_line(&mut self, a: &mut Arenas, start: usize, end: usize) -> i32 {
+        let chunks: Vec<ChunkId> = self.chunks[start..end].to_vec();
+        let splits = LineSplitter::new(a, chunks.clone(), self.block_indent).apply(a, self.cache);
         for (i, &c) in chunks.iter().enumerate() {
-            if a.chunks[c as usize].bloco.is_some() {
-                if !quebras.quebra_em(i) {
-                    self.escrever_sem_quebras(a, c);
+            if a.chunks[c as usize].block.is_some() {
+                if !splits.should_split_at(i) {
+                    self.write_without_splits(a, c);
                 } else {
-                    self.saida.push_str(&a.fim_de_linha);
-                    let bloco = formatar_bloco(a, self.cache, c, quebras.coluna(i));
-                    self.saida.push_str(&bloco.texto);
+                    self.output.push_str(&a.line_ending);
+                    let block = format_block(a, self.cache, c, splits.column(i));
+                    self.output.push_str(&block.texto);
                 }
             }
-            if quebras.quebra_em(i) {
-                if !self.saida.is_empty() {
-                    self.saida.push_str(&a.fim_de_linha);
-                    if a.chunks[c as usize].duplo {
-                        self.saida.push_str(&a.fim_de_linha);
+            if splits.should_split_at(i) {
+                if !self.output.is_empty() {
+                    self.output.push_str(&a.line_ending);
+                    if a.chunks[c as usize].double {
+                        self.output.push_str(&a.line_ending);
                     }
                 }
-                for _ in 0..quebras.coluna(i) {
-                    self.saida.push(' ');
+                for _ in 0..splits.column(i) {
+                    self.output.push(' ');
                 }
-            } else if a.chunks[c as usize].espaco {
-                self.saida.push(' ');
+            } else if a.chunks[c as usize].space {
+                self.output.push(' ');
             }
-            self.saida.push_str(&a.chunks[c as usize].texto);
+            self.output.push_str(&a.chunks[c as usize].texto);
         }
-        quebras.custo
+        splits.cost
     }
 
-    fn escrever_sem_quebras(&mut self, a: &Arenas, bloco: ChunkId) {
-        let filhos = a.chunks[bloco as usize].bloco.as_ref().expect("bloco").filhos.clone();
-        for c in filhos {
-            if a.chunks[c as usize].espaco {
-                self.saida.push(' ');
+    fn write_without_splits(&mut self, a: &Arenas, block: ChunkId) {
+        let children = a.chunks[block as usize].block.as_ref().expect("bloco").children.clone();
+        for c in children {
+            if a.chunks[c as usize].space {
+                self.output.push(' ');
             }
-            if a.chunks[c as usize].bloco.is_some() {
-                self.escrever_sem_quebras(a, c);
+            if a.chunks[c as usize].block.is_some() {
+                self.write_without_splits(a, c);
             }
-            self.saida.push_str(&a.chunks[c as usize].texto);
+            self.output.push_str(&a.chunks[c as usize].texto);
         }
     }
 }

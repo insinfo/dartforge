@@ -5,105 +5,105 @@
 //! Os nomes das variantes e dos campos são os das classes e getters do
 //! analyzer (em `snake_case`), para que o porte do `SourceVisitor` possa ser
 //! conferido linha a linha contra o original. Cada nó guarda os índices dos
-//! seus tokens ([`Tk`]) e dos filhos ([`NoId`]); o pai, o primeiro e o último
-//! token ficam em [`NoDados`].
+//! seus tokens ([`Tk`]) e dos filhos ([`NodeId`]); o pai, o primeiro e o último
+//! token ficam em [`NodeData`].
 //!
 //! Formas que o parser do analyzer (fasta + `AstBuilder`, sem resolução)
 //! produz e que o formatador distingue:
 //!
-//! * `foo()` e `a.foo()` são [`No::MethodInvocation`]; `a()()` e `(a)()` são
-//!   [`No::FunctionExpressionInvocation`]; `new A()`, `const A()` e
-//!   `A<T>.nome()` são [`No::InstanceCreationExpression`].
-//! * `a.b` com `a` identificador simples é [`No::PrefixedIdentifier`];
+//! * `foo()` e `a.foo()` são [`Node::MethodInvocation`]; `a()()` e `(a)()` são
+//!   [`Node::FunctionExpressionInvocation`]; `new A()`, `const A()` e
+//!   `A<T>.nome()` são [`Node::InstanceCreationExpression`].
+//! * `a.b` com `a` identificador simples é [`Node::PrefixedIdentifier`];
 //!   qualquer outro acesso (`a.b.c`, `a?.b`, `(a).b`, `this.x`) é
-//!   [`No::PropertyAccess`].
+//!   [`Node::PropertyAccess`].
 //! * Numa cascata, cada seção é a expressão com o alvo vazio: `..a` é
 //!   `PropertyAccess(target: None, operator: ..)`, `..f()` é
 //!   `MethodInvocation(target: None)`, `..[0]` é `IndexExpression(target:
 //!   None, period: ..)`.
-//! * `List<int>` em posição de expressão é [`No::FunctionReference`].
+//! * `List<int>` em posição de expressão é [`Node::FunctionReference`].
 //! * Parâmetros dentro de `[...]`/`{...}` são sempre embrulhados em
-//!   [`No::DefaultFormalParameter`], com ou sem valor padrão.
+//!   [`Node::DefaultFormalParameter`], com ou sem valor padrão.
 
 use super::token::Tk;
 
-/// Índice de um nó em [`Arvore::nos`].
+/// Índice de um nó em [`Tree::nodes`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct NoId(pub u32);
+pub struct NodeId(pub u32);
 
 /// Tipo de parâmetro formal, pela posição na lista.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TipoParametro {
+pub enum ParameterKind {
     /// Posicional obrigatório.
-    Obrigatorio,
+    Required,
     /// Posicional opcional (`[...]`).
-    OpcionalPosicional,
+    OptionalPositional,
     /// Nomeado (`{...}`), obrigatório ou não.
-    Nomeado,
+    Named,
 }
 
 /// Um nó da árvore e suas ligações.
 #[derive(Debug, Clone)]
-pub struct NoDados {
-    pub no: No,
-    pub pai: Option<NoId>,
+pub struct NodeData {
+    pub node: Node,
+    pub parent: Option<NodeId>,
     /// `beginToken` do analyzer (sem o comentário de documentação).
-    pub inicio: Tk,
+    pub start: Tk,
     /// `endToken` do analyzer.
-    pub fim: Tk,
+    pub end: Tk,
 }
 
 /// A árvore de uma unidade de compilação; a raiz é o último nó criado.
 #[derive(Debug, Clone, Default)]
-pub struct Arvore {
-    pub nos: Vec<NoDados>,
-    pub raiz: Option<NoId>,
+pub struct Tree {
+    pub nodes: Vec<NodeData>,
+    pub root: Option<NodeId>,
 }
 
-impl Arvore {
+impl Tree {
     /// O nó `id`.
-    pub fn no(&self, id: NoId) -> &No {
-        &self.nos[id.0 as usize].no
+    pub fn node(&self, id: NodeId) -> &Node {
+        &self.nodes[id.0 as usize].node
     }
 
     /// Os dados de ligação de `id`.
-    pub fn dados(&self, id: NoId) -> &NoDados {
-        &self.nos[id.0 as usize]
+    pub fn data(&self, id: NodeId) -> &NodeData {
+        &self.nodes[id.0 as usize]
     }
 
     /// O pai de `id`.
-    pub fn pai(&self, id: NoId) -> Option<NoId> {
-        self.nos[id.0 as usize].pai
+    pub fn parent(&self, id: NodeId) -> Option<NodeId> {
+        self.nodes[id.0 as usize].parent
     }
 
     /// `beginToken`.
-    pub fn inicio(&self, id: NoId) -> Tk {
-        self.nos[id.0 as usize].inicio
+    pub fn start(&self, id: NodeId) -> Tk {
+        self.nodes[id.0 as usize].start
     }
 
     /// `endToken`.
-    pub fn fim(&self, id: NoId) -> Tk {
-        self.nos[id.0 as usize].fim
+    pub fn end(&self, id: NodeId) -> Tk {
+        self.nodes[id.0 as usize].end
     }
 
     /// Acrescenta um nó (sem pai ainda) e devolve seu índice.
-    pub fn novo(&mut self, no: No, inicio: Tk, fim: Tk) -> NoId {
-        self.nos.push(NoDados {
-            no,
-            pai: None,
-            inicio,
-            fim,
+    pub fn new(&mut self, node: Node, start: Tk, end: Tk) -> NodeId {
+        self.nodes.push(NodeData {
+            node,
+            parent: None,
+            start,
+            end,
         });
-        NoId(self.nos.len() as u32 - 1)
+        NodeId(self.nodes.len() as u32 - 1)
     }
 
     /// Preenche o pai de todos os nós a partir dos filhos de cada um.
-    pub fn ligar_pais(&mut self) {
-        for i in 0..self.nos.len() {
-            let mut filhos = Vec::new();
-            self.nos[i].no.filhos(&mut |f| filhos.push(f));
-            for f in filhos {
-                self.nos[f.0 as usize].pai = Some(NoId(i as u32));
+    pub fn link_parents(&mut self) {
+        for i in 0..self.nodes.len() {
+            let mut children = Vec::new();
+            self.nodes[i].node.children(&mut |f| children.push(f));
+            for f in children {
+                self.nodes[f.0 as usize].parent = Some(NodeId(i as u32));
             }
         }
     }
@@ -111,91 +111,91 @@ impl Arvore {
 
 /// Os nós do AST do analyzer que o formatador visita.
 ///
-/// Campos `Option<Tk>` são tokens opcionais; `Vec<NoId>` são `NodeList`s.
-/// `metadata` são as anotações ([`No::Annotation`]) do nó.
+/// Campos `Option<Tk>` são tokens opcionais; `Vec<NodeId>` são `NodeList`s.
+/// `metadata` são as anotações ([`Node::Annotation`]) do nó.
 #[derive(Debug, Clone)]
-pub enum No {
+pub enum Node {
     // ---------------------------------------------------------------- unidade
     CompilationUnit {
         script_tag: Option<Tk>,
-        directives: Vec<NoId>,
-        declarations: Vec<NoId>,
+        directives: Vec<NodeId>,
+        declarations: Vec<NodeId>,
     },
 
     // -------------------------------------------------------------- diretivas
     LibraryDirective {
-        metadata: Vec<NoId>,
+        metadata: Vec<NodeId>,
         library_keyword: Tk,
-        /// [`No::LibraryIdentifier`]; ausente em `library;`.
-        name2: Option<NoId>,
+        /// [`Node::LibraryIdentifier`]; ausente em `library;`.
+        name2: Option<NodeId>,
         semicolon: Tk,
     },
     ImportDirective {
-        metadata: Vec<NoId>,
+        metadata: Vec<NodeId>,
         import_keyword: Tk,
         /// Literal de string.
-        uri: NoId,
-        configurations: Vec<NoId>,
+        uri: NodeId,
+        configurations: Vec<NodeId>,
         deferred_keyword: Option<Tk>,
         as_keyword: Option<Tk>,
-        /// [`No::SimpleIdentifier`].
-        prefix: Option<NoId>,
-        combinators: Vec<NoId>,
+        /// [`Node::SimpleIdentifier`].
+        prefix: Option<NodeId>,
+        combinators: Vec<NodeId>,
         semicolon: Tk,
     },
     ExportDirective {
-        metadata: Vec<NoId>,
+        metadata: Vec<NodeId>,
         export_keyword: Tk,
-        uri: NoId,
-        configurations: Vec<NoId>,
-        combinators: Vec<NoId>,
+        uri: NodeId,
+        configurations: Vec<NodeId>,
+        combinators: Vec<NodeId>,
         semicolon: Tk,
     },
     PartDirective {
-        metadata: Vec<NoId>,
+        metadata: Vec<NodeId>,
         part_keyword: Tk,
-        uri: NoId,
+        uri: NodeId,
         semicolon: Tk,
     },
     PartOfDirective {
-        metadata: Vec<NoId>,
+        metadata: Vec<NodeId>,
         part_keyword: Tk,
         of_keyword: Tk,
-        /// [`No::LibraryIdentifier`] em `part of a.b;`.
-        library_name: Option<NoId>,
+        /// [`Node::LibraryIdentifier`] em `part of a.b;`.
+        library_name: Option<NodeId>,
         /// Literal de string em `part of 'a.dart';`.
-        uri: Option<NoId>,
+        uri: Option<NodeId>,
         semicolon: Tk,
     },
     Configuration {
         if_keyword: Tk,
         left_parenthesis: Tk,
-        /// [`No::DottedName`].
-        name: NoId,
+        /// [`Node::DottedName`].
+        name: NodeId,
         equal_token: Option<Tk>,
-        value: Option<NoId>,
+        value: Option<NodeId>,
         right_parenthesis: Tk,
-        uri: NoId,
+        uri: NodeId,
     },
     DottedName {
-        /// [`No::SimpleIdentifier`]s; os `.` ficam entre eles no fluxo.
-        components: Vec<NoId>,
+        /// [`Node::SimpleIdentifier`]s; os `.` ficam entre eles no fluxo.
+        components: Vec<NodeId>,
     },
     LibraryIdentifier {
-        components: Vec<NoId>,
+        components: Vec<NodeId>,
     },
     ShowCombinator {
         keyword: Tk,
-        shown_names: Vec<NoId>,
+        shown_names: Vec<NodeId>,
     },
     HideCombinator {
         keyword: Tk,
-        hidden_names: Vec<NoId>,
+        hidden_names: Vec<NodeId>,
     },
 
     // ------------------------------------------------------------ declarações
     ClassDeclaration {
-        metadata: Vec<NoId>,
+        metadata: Vec<NodeId>,
         augment_keyword: Option<Tk>,
         abstract_keyword: Option<Tk>,
         macro_keyword: Option<Tk>,
@@ -206,87 +206,87 @@ pub enum No {
         mixin_keyword: Option<Tk>,
         class_keyword: Tk,
         name: Tk,
-        type_parameters: Option<NoId>,
-        extends_clause: Option<NoId>,
-        with_clause: Option<NoId>,
-        implements_clause: Option<NoId>,
-        native_clause: Option<NoId>,
+        type_parameters: Option<NodeId>,
+        extends_clause: Option<NodeId>,
+        with_clause: Option<NodeId>,
+        implements_clause: Option<NodeId>,
+        native_clause: Option<NodeId>,
         left_bracket: Tk,
-        members: Vec<NoId>,
+        members: Vec<NodeId>,
         right_bracket: Tk,
     },
     ExtendsClause {
         extends_keyword: Tk,
-        /// [`No::NamedType`].
-        superclass: NoId,
+        /// [`Node::NamedType`].
+        superclass: NodeId,
     },
     WithClause {
         with_keyword: Tk,
-        mixin_types: Vec<NoId>,
+        mixin_types: Vec<NodeId>,
     },
     ImplementsClause {
         implements_keyword: Tk,
-        interfaces: Vec<NoId>,
+        interfaces: Vec<NodeId>,
     },
     NativeClause {
         native_keyword: Tk,
-        name: Option<NoId>,
+        name: Option<NodeId>,
     },
     MixinDeclaration {
-        metadata: Vec<NoId>,
+        metadata: Vec<NodeId>,
         augment_keyword: Option<Tk>,
         base_keyword: Option<Tk>,
         mixin_keyword: Tk,
         name: Tk,
-        type_parameters: Option<NoId>,
-        /// [`No::MixinOnClause`].
-        on_clause: Option<NoId>,
-        implements_clause: Option<NoId>,
+        type_parameters: Option<NodeId>,
+        /// [`Node::MixinOnClause`].
+        on_clause: Option<NodeId>,
+        implements_clause: Option<NodeId>,
         left_bracket: Tk,
-        members: Vec<NoId>,
+        members: Vec<NodeId>,
         right_bracket: Tk,
     },
     MixinOnClause {
         on_keyword: Tk,
-        superclass_constraints: Vec<NoId>,
+        superclass_constraints: Vec<NodeId>,
     },
     ExtensionDeclaration {
-        metadata: Vec<NoId>,
+        metadata: Vec<NodeId>,
         augment_keyword: Option<Tk>,
         extension_keyword: Tk,
         name: Option<Tk>,
-        type_parameters: Option<NoId>,
-        /// [`No::ExtensionOnClause`]; ausente só com erro.
-        on_clause: Option<NoId>,
+        type_parameters: Option<NodeId>,
+        /// [`Node::ExtensionOnClause`]; ausente só com erro.
+        on_clause: Option<NodeId>,
         left_bracket: Tk,
-        members: Vec<NoId>,
+        members: Vec<NodeId>,
         right_bracket: Tk,
     },
     ExtensionOnClause {
         on_keyword: Tk,
-        extended_type: NoId,
+        extended_type: NodeId,
     },
     ExtensionTypeDeclaration {
-        metadata: Vec<NoId>,
+        metadata: Vec<NodeId>,
         augment_keyword: Option<Tk>,
         extension_keyword: Tk,
         type_keyword: Tk,
         const_keyword: Option<Tk>,
         name: Tk,
-        type_parameters: Option<NoId>,
-        /// [`No::RepresentationDeclaration`].
-        representation: NoId,
-        implements_clause: Option<NoId>,
+        type_parameters: Option<NodeId>,
+        /// [`Node::RepresentationDeclaration`].
+        representation: NodeId,
+        implements_clause: Option<NodeId>,
         left_bracket: Tk,
-        members: Vec<NoId>,
+        members: Vec<NodeId>,
         right_bracket: Tk,
     },
     RepresentationDeclaration {
-        /// [`No::RepresentationConstructorName`].
-        constructor_name: Option<NoId>,
+        /// [`Node::RepresentationConstructorName`].
+        constructor_name: Option<NodeId>,
         left_parenthesis: Tk,
-        field_metadata: Vec<NoId>,
-        field_type: NoId,
+        field_metadata: Vec<NodeId>,
+        field_type: NodeId,
         field_name: Tk,
         right_parenthesis: Tk,
     },
@@ -295,41 +295,41 @@ pub enum No {
         name: Tk,
     },
     EnumDeclaration {
-        metadata: Vec<NoId>,
+        metadata: Vec<NodeId>,
         augment_keyword: Option<Tk>,
         enum_keyword: Tk,
         name: Tk,
-        type_parameters: Option<NoId>,
-        with_clause: Option<NoId>,
-        implements_clause: Option<NoId>,
+        type_parameters: Option<NodeId>,
+        with_clause: Option<NodeId>,
+        implements_clause: Option<NodeId>,
         left_bracket: Tk,
-        /// [`No::EnumConstantDeclaration`]s.
-        constants: Vec<NoId>,
+        /// [`Node::EnumConstantDeclaration`]s.
+        constants: Vec<NodeId>,
         /// O `;` depois das constantes, se houver.
         semicolon: Option<Tk>,
-        members: Vec<NoId>,
+        members: Vec<NodeId>,
         right_bracket: Tk,
     },
     EnumConstantDeclaration {
-        metadata: Vec<NoId>,
+        metadata: Vec<NodeId>,
         name: Tk,
-        /// [`No::EnumConstantArguments`].
-        arguments: Option<NoId>,
+        /// [`Node::EnumConstantArguments`].
+        arguments: Option<NodeId>,
     },
     EnumConstantArguments {
-        type_arguments: Option<NoId>,
-        /// [`No::ConstructorSelector`].
-        constructor_selector: Option<NoId>,
-        argument_list: NoId,
+        type_arguments: Option<NodeId>,
+        /// [`Node::ConstructorSelector`].
+        constructor_selector: Option<NodeId>,
+        argument_list: NodeId,
     },
     ConstructorSelector {
         period: Tk,
-        /// [`No::SimpleIdentifier`].
-        name: NoId,
+        /// [`Node::SimpleIdentifier`].
+        name: NodeId,
     },
     /// `class A = B with C;` (o "typedef_keyword" do analyzer é o `class`).
     ClassTypeAlias {
-        metadata: Vec<NoId>,
+        metadata: Vec<NodeId>,
         augment_keyword: Option<Tk>,
         abstract_keyword: Option<Tk>,
         macro_keyword: Option<Tk>,
@@ -340,126 +340,126 @@ pub enum No {
         mixin_keyword: Option<Tk>,
         typedef_keyword: Tk,
         name: Tk,
-        type_parameters: Option<NoId>,
+        type_parameters: Option<NodeId>,
         equals: Tk,
-        superclass: NoId,
-        with_clause: Option<NoId>,
-        implements_clause: Option<NoId>,
+        superclass: NodeId,
+        with_clause: Option<NodeId>,
+        implements_clause: Option<NodeId>,
         semicolon: Tk,
     },
     /// `typedef int F(int a);` (sintaxe antiga).
     FunctionTypeAlias {
-        metadata: Vec<NoId>,
+        metadata: Vec<NodeId>,
         augment_keyword: Option<Tk>,
         typedef_keyword: Tk,
-        return_type: Option<NoId>,
+        return_type: Option<NodeId>,
         name: Tk,
-        type_parameters: Option<NoId>,
-        parameters: NoId,
+        type_parameters: Option<NodeId>,
+        parameters: NodeId,
         semicolon: Tk,
     },
     /// `typedef F = int Function(int);`
     GenericTypeAlias {
-        metadata: Vec<NoId>,
+        metadata: Vec<NodeId>,
         augment_keyword: Option<Tk>,
         typedef_keyword: Tk,
         name: Tk,
-        type_parameters: Option<NoId>,
+        type_parameters: Option<NodeId>,
         equals: Tk,
-        type_: NoId,
+        type_: NodeId,
         semicolon: Tk,
     },
     FunctionDeclaration {
-        metadata: Vec<NoId>,
+        metadata: Vec<NodeId>,
         augment_keyword: Option<Tk>,
         external_keyword: Option<Tk>,
-        return_type: Option<NoId>,
+        return_type: Option<NodeId>,
         /// `get` ou `set`.
         property_keyword: Option<Tk>,
         name: Tk,
-        /// [`No::FunctionExpression`].
-        function_expression: NoId,
+        /// [`Node::FunctionExpression`].
+        function_expression: NodeId,
     },
     TopLevelVariableDeclaration {
-        metadata: Vec<NoId>,
+        metadata: Vec<NodeId>,
         augment_keyword: Option<Tk>,
         external_keyword: Option<Tk>,
-        /// [`No::VariableDeclarationList`].
-        variables: NoId,
+        /// [`Node::VariableDeclarationList`].
+        variables: NodeId,
         semicolon: Tk,
     },
 
     // ---------------------------------------------------------------- membros
     ConstructorDeclaration {
-        metadata: Vec<NoId>,
+        metadata: Vec<NodeId>,
         augment_keyword: Option<Tk>,
         external_keyword: Option<Tk>,
         const_keyword: Option<Tk>,
         factory_keyword: Option<Tk>,
-        /// [`No::SimpleIdentifier`] com o nome da classe.
-        return_type: NoId,
+        /// [`Node::SimpleIdentifier`] com o nome da classe.
+        return_type: NodeId,
         period: Option<Tk>,
         name: Option<Tk>,
-        parameters: NoId,
+        parameters: NodeId,
         /// `:` antes dos inicializadores ou `=` do redirecionamento.
         separator: Option<Tk>,
-        initializers: Vec<NoId>,
-        /// [`No::ConstructorName`] de `factory A() = B;`.
-        redirected_constructor: Option<NoId>,
-        body: NoId,
+        initializers: Vec<NodeId>,
+        /// [`Node::ConstructorName`] de `factory A() = B;`.
+        redirected_constructor: Option<NodeId>,
+        body: NodeId,
     },
     MethodDeclaration {
-        metadata: Vec<NoId>,
+        metadata: Vec<NodeId>,
         augment_keyword: Option<Tk>,
         external_keyword: Option<Tk>,
         /// `static` ou `abstract`.
         modifier_keyword: Option<Tk>,
-        return_type: Option<NoId>,
+        return_type: Option<NodeId>,
         property_keyword: Option<Tk>,
         operator_keyword: Option<Tk>,
         name: Tk,
-        type_parameters: Option<NoId>,
+        type_parameters: Option<NodeId>,
         /// Ausente em getters.
-        parameters: Option<NoId>,
-        body: NoId,
+        parameters: Option<NodeId>,
+        body: NodeId,
     },
     FieldDeclaration {
-        metadata: Vec<NoId>,
+        metadata: Vec<NodeId>,
         augment_keyword: Option<Tk>,
         abstract_keyword: Option<Tk>,
         covariant_keyword: Option<Tk>,
         external_keyword: Option<Tk>,
         static_keyword: Option<Tk>,
-        /// [`No::VariableDeclarationList`].
-        fields: NoId,
+        /// [`Node::VariableDeclarationList`].
+        fields: NodeId,
         semicolon: Tk,
     },
     ConstructorFieldInitializer {
         this_keyword: Option<Tk>,
         period: Option<Tk>,
-        /// [`No::SimpleIdentifier`].
-        field_name: NoId,
+        /// [`Node::SimpleIdentifier`].
+        field_name: NodeId,
         equals: Tk,
-        expression: NoId,
+        expression: NodeId,
     },
     SuperConstructorInvocation {
         super_keyword: Tk,
         period: Option<Tk>,
-        constructor_name: Option<NoId>,
-        argument_list: NoId,
+        constructor_name: Option<NodeId>,
+        argument_list: NodeId,
     },
     RedirectingConstructorInvocation {
         this_keyword: Tk,
         period: Option<Tk>,
-        constructor_name: Option<NoId>,
-        argument_list: NoId,
+        constructor_name: Option<NodeId>,
+        argument_list: NodeId,
     },
     AssertInitializer {
         assert_keyword: Tk,
         left_parenthesis: Tk,
-        condition: NoId,
+        condition: NodeId,
         comma: Option<Tk>,
-        message: Option<NoId>,
+        message: Option<NodeId>,
         right_parenthesis: Tk,
     },
 
@@ -468,14 +468,14 @@ pub enum No {
         /// `async` ou `sync`.
         keyword: Option<Tk>,
         star: Option<Tk>,
-        /// [`No::Block`].
-        block: NoId,
+        /// [`Node::Block`].
+        block: NodeId,
     },
     ExpressionFunctionBody {
         keyword: Option<Tk>,
         star: Option<Tk>,
         function_definition: Tk,
-        expression: NoId,
+        expression: NodeId,
         semicolon: Option<Tk>,
     },
     EmptyFunctionBody {
@@ -483,365 +483,365 @@ pub enum No {
     },
     NativeFunctionBody {
         native_keyword: Tk,
-        string_literal: Option<NoId>,
+        string_literal: Option<NodeId>,
         semicolon: Tk,
     },
 
     // ----------------------------------------------------------- parâmetros
     FormalParameterList {
         left_parenthesis: Tk,
-        parameters: Vec<NoId>,
+        parameters: Vec<NodeId>,
         left_delimiter: Option<Tk>,
         right_delimiter: Option<Tk>,
         right_parenthesis: Tk,
     },
     SimpleFormalParameter {
-        metadata: Vec<NoId>,
+        metadata: Vec<NodeId>,
         covariant_keyword: Option<Tk>,
         required_keyword: Option<Tk>,
         /// `final`, `const` ou `var`.
         keyword: Option<Tk>,
-        type_: Option<NoId>,
+        type_: Option<NodeId>,
         name: Option<Tk>,
-        kind: TipoParametro,
+        kind: ParameterKind,
     },
     FieldFormalParameter {
-        metadata: Vec<NoId>,
+        metadata: Vec<NodeId>,
         covariant_keyword: Option<Tk>,
         required_keyword: Option<Tk>,
         keyword: Option<Tk>,
-        type_: Option<NoId>,
+        type_: Option<NodeId>,
         this_keyword: Tk,
         period: Tk,
         name: Tk,
-        type_parameters: Option<NoId>,
-        parameters: Option<NoId>,
+        type_parameters: Option<NodeId>,
+        parameters: Option<NodeId>,
         question: Option<Tk>,
-        kind: TipoParametro,
+        kind: ParameterKind,
     },
     SuperFormalParameter {
-        metadata: Vec<NoId>,
+        metadata: Vec<NodeId>,
         covariant_keyword: Option<Tk>,
         required_keyword: Option<Tk>,
         keyword: Option<Tk>,
-        type_: Option<NoId>,
+        type_: Option<NodeId>,
         super_keyword: Tk,
         period: Tk,
         name: Tk,
-        type_parameters: Option<NoId>,
-        parameters: Option<NoId>,
+        type_parameters: Option<NodeId>,
+        parameters: Option<NodeId>,
         question: Option<Tk>,
-        kind: TipoParametro,
+        kind: ParameterKind,
     },
     FunctionTypedFormalParameter {
-        metadata: Vec<NoId>,
+        metadata: Vec<NodeId>,
         covariant_keyword: Option<Tk>,
         required_keyword: Option<Tk>,
-        return_type: Option<NoId>,
+        return_type: Option<NodeId>,
         name: Tk,
-        type_parameters: Option<NoId>,
-        parameters: NoId,
+        type_parameters: Option<NodeId>,
+        parameters: NodeId,
         question: Option<Tk>,
-        kind: TipoParametro,
+        kind: ParameterKind,
     },
     DefaultFormalParameter {
-        parameter: NoId,
+        parameter: NodeId,
         /// `=` ou `:`.
         separator: Option<Tk>,
-        default_value: Option<NoId>,
-        kind: TipoParametro,
+        default_value: Option<NodeId>,
+        kind: ParameterKind,
     },
 
     // ---------------------------------------------------------------- tipos
     NamedType {
-        /// `prefixo` e `.` de `p.Tipo`.
+        /// `prefix` e `.` de `p.Type`.
         import_prefix: Option<(Tk, Tk)>,
         name2: Tk,
-        type_arguments: Option<NoId>,
+        type_arguments: Option<NodeId>,
         question: Option<Tk>,
     },
     GenericFunctionType {
-        return_type: Option<NoId>,
+        return_type: Option<NodeId>,
         function_keyword: Tk,
-        type_parameters: Option<NoId>,
-        parameters: NoId,
+        type_parameters: Option<NodeId>,
+        parameters: NodeId,
         question: Option<Tk>,
     },
     RecordTypeAnnotation {
         left_parenthesis: Tk,
-        positional_fields: Vec<NoId>,
-        /// [`No::RecordTypeAnnotationNamedFields`].
-        named_fields: Option<NoId>,
+        positional_fields: Vec<NodeId>,
+        /// [`Node::RecordTypeAnnotationNamedFields`].
+        named_fields: Option<NodeId>,
         right_parenthesis: Tk,
         question: Option<Tk>,
     },
     RecordTypeAnnotationNamedFields {
         left_bracket: Tk,
-        fields: Vec<NoId>,
+        fields: Vec<NodeId>,
         right_bracket: Tk,
     },
     RecordTypeAnnotationPositionalField {
-        metadata: Vec<NoId>,
-        type_: NoId,
+        metadata: Vec<NodeId>,
+        type_: NodeId,
         name: Option<Tk>,
     },
     RecordTypeAnnotationNamedField {
-        metadata: Vec<NoId>,
-        type_: NoId,
+        metadata: Vec<NodeId>,
+        type_: NodeId,
         name: Tk,
     },
     TypeArgumentList {
         left_bracket: Tk,
-        arguments: Vec<NoId>,
+        arguments: Vec<NodeId>,
         right_bracket: Tk,
     },
     TypeParameterList {
         left_bracket: Tk,
-        type_parameters: Vec<NoId>,
+        type_parameters: Vec<NodeId>,
         right_bracket: Tk,
     },
     TypeParameter {
-        metadata: Vec<NoId>,
+        metadata: Vec<NodeId>,
         name: Tk,
         extends_keyword: Option<Tk>,
-        bound: Option<NoId>,
+        bound: Option<NodeId>,
     },
 
     // ----------------------------------------------------------- anotações
     Annotation {
         at_sign: Tk,
-        /// [`No::SimpleIdentifier`] ou [`No::PrefixedIdentifier`].
-        name: NoId,
-        type_arguments: Option<NoId>,
+        /// [`Node::SimpleIdentifier`] ou [`Node::PrefixedIdentifier`].
+        name: NodeId,
+        type_arguments: Option<NodeId>,
         period: Option<Tk>,
-        constructor_name: Option<NoId>,
-        arguments: Option<NoId>,
+        constructor_name: Option<NodeId>,
+        arguments: Option<NodeId>,
     },
 
     // ----------------------------------------------------------- instruções
     Block {
         left_bracket: Tk,
-        statements: Vec<NoId>,
+        statements: Vec<NodeId>,
         right_bracket: Tk,
     },
     ExpressionStatement {
-        expression: NoId,
+        expression: NodeId,
         /// Ausente só no corpo `=>`... nunca em código válido.
         semicolon: Option<Tk>,
     },
     VariableDeclarationStatement {
-        variables: NoId,
+        variables: NodeId,
         semicolon: Tk,
     },
     VariableDeclarationList {
         /// Anotações de declarações locais; vazio em campos e variáveis de
         /// topo (lá elas ficam na declaração).
-        metadata: Vec<NoId>,
+        metadata: Vec<NodeId>,
         late_keyword: Option<Tk>,
         /// `final`, `const` ou `var`.
         keyword: Option<Tk>,
-        type_: Option<NoId>,
-        /// [`No::VariableDeclaration`]s.
-        variables: Vec<NoId>,
+        type_: Option<NodeId>,
+        /// [`Node::VariableDeclaration`]s.
+        variables: Vec<NodeId>,
     },
     VariableDeclaration {
         name: Tk,
         equals: Option<Tk>,
-        initializer: Option<NoId>,
+        initializer: Option<NodeId>,
     },
     FunctionDeclarationStatement {
-        function_declaration: NoId,
+        function_declaration: NodeId,
     },
     IfStatement {
         if_keyword: Tk,
         left_parenthesis: Tk,
-        expression: NoId,
-        /// [`No::CaseClause`] de `if (x case P)`.
-        case_clause: Option<NoId>,
+        expression: NodeId,
+        /// [`Node::CaseClause`] de `if (x case P)`.
+        case_clause: Option<NodeId>,
         right_parenthesis: Tk,
-        then_statement: NoId,
+        then_statement: NodeId,
         else_keyword: Option<Tk>,
-        else_statement: Option<NoId>,
+        else_statement: Option<NodeId>,
     },
     CaseClause {
         case_keyword: Tk,
-        /// [`No::GuardedPattern`].
-        guarded_pattern: NoId,
+        /// [`Node::GuardedPattern`].
+        guarded_pattern: NodeId,
     },
     GuardedPattern {
-        pattern: NoId,
-        /// [`No::WhenClause`].
-        when_clause: Option<NoId>,
+        pattern: NodeId,
+        /// [`Node::WhenClause`].
+        when_clause: Option<NodeId>,
     },
     WhenClause {
         when_keyword: Tk,
-        expression: NoId,
+        expression: NodeId,
     },
     ForStatement {
         await_keyword: Option<Tk>,
         for_keyword: Tk,
         left_parenthesis: Tk,
-        for_loop_parts: NoId,
+        for_loop_parts: NodeId,
         right_parenthesis: Tk,
-        body: NoId,
+        body: NodeId,
     },
     ForPartsWithDeclarations {
-        /// [`No::VariableDeclarationList`].
-        variables: NoId,
+        /// [`Node::VariableDeclarationList`].
+        variables: NodeId,
         left_separator: Tk,
-        condition: Option<NoId>,
+        condition: Option<NodeId>,
         right_separator: Tk,
-        updaters: Vec<NoId>,
+        updaters: Vec<NodeId>,
     },
     ForPartsWithExpression {
-        initialization: Option<NoId>,
+        initialization: Option<NodeId>,
         left_separator: Tk,
-        condition: Option<NoId>,
+        condition: Option<NodeId>,
         right_separator: Tk,
-        updaters: Vec<NoId>,
+        updaters: Vec<NodeId>,
     },
     ForPartsWithPattern {
-        /// [`No::PatternVariableDeclaration`].
-        variables: NoId,
+        /// [`Node::PatternVariableDeclaration`].
+        variables: NodeId,
         left_separator: Tk,
-        condition: Option<NoId>,
+        condition: Option<NodeId>,
         right_separator: Tk,
-        updaters: Vec<NoId>,
+        updaters: Vec<NodeId>,
     },
     ForEachPartsWithDeclaration {
-        /// [`No::DeclaredIdentifier`].
-        loop_variable: NoId,
+        /// [`Node::DeclaredIdentifier`].
+        loop_variable: NodeId,
         in_keyword: Tk,
-        iterable: NoId,
+        iterable: NodeId,
     },
     ForEachPartsWithIdentifier {
-        /// [`No::SimpleIdentifier`].
-        identifier: NoId,
+        /// [`Node::SimpleIdentifier`].
+        identifier: NodeId,
         in_keyword: Tk,
-        iterable: NoId,
+        iterable: NodeId,
     },
     ForEachPartsWithPattern {
-        metadata: Vec<NoId>,
+        metadata: Vec<NodeId>,
         /// `var` ou `final`.
         keyword: Tk,
-        pattern: NoId,
+        pattern: NodeId,
         in_keyword: Tk,
-        iterable: NoId,
+        iterable: NodeId,
     },
     DeclaredIdentifier {
-        metadata: Vec<NoId>,
+        metadata: Vec<NodeId>,
         keyword: Option<Tk>,
-        type_: Option<NoId>,
+        type_: Option<NodeId>,
         name: Tk,
     },
     WhileStatement {
         while_keyword: Tk,
         left_parenthesis: Tk,
-        condition: NoId,
+        condition: NodeId,
         right_parenthesis: Tk,
-        body: NoId,
+        body: NodeId,
     },
     DoStatement {
         do_keyword: Tk,
-        body: NoId,
+        body: NodeId,
         while_keyword: Tk,
         left_parenthesis: Tk,
-        condition: NoId,
+        condition: NodeId,
         right_parenthesis: Tk,
         semicolon: Tk,
     },
     SwitchStatement {
         switch_keyword: Tk,
         left_parenthesis: Tk,
-        expression: NoId,
+        expression: NodeId,
         right_parenthesis: Tk,
         left_bracket: Tk,
-        /// [`No::SwitchCase`], [`No::SwitchPatternCase`] e
-        /// [`No::SwitchDefault`].
-        members: Vec<NoId>,
+        /// [`Node::SwitchCase`], [`Node::SwitchPatternCase`] e
+        /// [`Node::SwitchDefault`].
+        members: Vec<NodeId>,
         right_bracket: Tk,
     },
     /// `case expr:` em biblioteca sem padrões (não ocorre em 3.6).
     SwitchCase {
-        labels: Vec<NoId>,
+        labels: Vec<NodeId>,
         keyword: Tk,
-        expression: NoId,
+        expression: NodeId,
         colon: Tk,
-        statements: Vec<NoId>,
+        statements: Vec<NodeId>,
     },
     SwitchPatternCase {
-        labels: Vec<NoId>,
+        labels: Vec<NodeId>,
         keyword: Tk,
-        guarded_pattern: NoId,
+        guarded_pattern: NodeId,
         colon: Tk,
-        statements: Vec<NoId>,
+        statements: Vec<NodeId>,
     },
     SwitchDefault {
-        labels: Vec<NoId>,
+        labels: Vec<NodeId>,
         keyword: Tk,
         colon: Tk,
-        statements: Vec<NoId>,
+        statements: Vec<NodeId>,
     },
     TryStatement {
         try_keyword: Tk,
-        body: NoId,
-        catch_clauses: Vec<NoId>,
+        body: NodeId,
+        catch_clauses: Vec<NodeId>,
         finally_keyword: Option<Tk>,
-        finally_block: Option<NoId>,
+        finally_block: Option<NodeId>,
     },
     CatchClause {
         on_keyword: Option<Tk>,
-        exception_type: Option<NoId>,
+        exception_type: Option<NodeId>,
         catch_keyword: Option<Tk>,
         left_parenthesis: Option<Tk>,
-        /// [`No::CatchClauseParameter`].
-        exception_parameter: Option<NoId>,
+        /// [`Node::CatchClauseParameter`].
+        exception_parameter: Option<NodeId>,
         comma: Option<Tk>,
-        stack_trace_parameter: Option<NoId>,
+        stack_trace_parameter: Option<NodeId>,
         right_parenthesis: Option<Tk>,
-        body: NoId,
+        body: NodeId,
     },
     CatchClauseParameter {
         name: Tk,
     },
     ReturnStatement {
         return_keyword: Tk,
-        expression: Option<NoId>,
+        expression: Option<NodeId>,
         semicolon: Tk,
     },
     BreakStatement {
         break_keyword: Tk,
-        /// [`No::SimpleIdentifier`].
-        label: Option<NoId>,
+        /// [`Node::SimpleIdentifier`].
+        label: Option<NodeId>,
         semicolon: Tk,
     },
     ContinueStatement {
         continue_keyword: Tk,
-        label: Option<NoId>,
+        label: Option<NodeId>,
         semicolon: Tk,
     },
     YieldStatement {
         yield_keyword: Tk,
         star: Option<Tk>,
-        expression: NoId,
+        expression: NodeId,
         semicolon: Tk,
     },
     LabeledStatement {
-        /// [`No::Label`]s.
-        labels: Vec<NoId>,
-        statement: NoId,
+        /// [`Node::Label`]s.
+        labels: Vec<NodeId>,
+        statement: NodeId,
     },
     Label {
-        /// [`No::SimpleIdentifier`].
-        label: NoId,
+        /// [`Node::SimpleIdentifier`].
+        label: NodeId,
         colon: Tk,
     },
     AssertStatement {
         assert_keyword: Tk,
         left_parenthesis: Tk,
-        condition: NoId,
+        condition: NodeId,
         comma: Option<Tk>,
-        message: Option<NoId>,
+        message: Option<NodeId>,
         right_parenthesis: Tk,
         semicolon: Tk,
     },
@@ -849,55 +849,55 @@ pub enum No {
         semicolon: Tk,
     },
     PatternVariableDeclarationStatement {
-        /// [`No::PatternVariableDeclaration`].
-        declaration: NoId,
+        /// [`Node::PatternVariableDeclaration`].
+        declaration: NodeId,
         semicolon: Tk,
     },
     PatternVariableDeclaration {
-        metadata: Vec<NoId>,
+        metadata: Vec<NodeId>,
         /// `var` ou `final`.
         keyword: Tk,
-        pattern: NoId,
+        pattern: NodeId,
         equals: Tk,
-        expression: NoId,
+        expression: NodeId,
     },
 
     // ---------------------------------------------------------- expressões
     AdjacentStrings {
-        strings: Vec<NoId>,
+        strings: Vec<NodeId>,
     },
     AsExpression {
-        expression: NoId,
+        expression: NodeId,
         as_operator: Tk,
-        type_: NoId,
+        type_: NodeId,
     },
     AssignmentExpression {
-        left_hand_side: NoId,
+        left_hand_side: NodeId,
         operator: Tk,
-        right_hand_side: NoId,
+        right_hand_side: NodeId,
     },
     AwaitExpression {
         await_keyword: Tk,
-        expression: NoId,
+        expression: NodeId,
     },
     BinaryExpression {
-        left_operand: NoId,
+        left_operand: NodeId,
         operator: Tk,
-        right_operand: NoId,
+        right_operand: NodeId,
     },
     BooleanLiteral {
         literal: Tk,
     },
     CascadeExpression {
-        target: NoId,
-        cascade_sections: Vec<NoId>,
+        target: NodeId,
+        cascade_sections: Vec<NodeId>,
     },
     ConditionalExpression {
-        condition: NoId,
+        condition: NodeId,
         question: Tk,
-        then_expression: NoId,
+        then_expression: NodeId,
         colon: Tk,
-        else_expression: NoId,
+        else_expression: NodeId,
     },
     DoubleLiteral {
         literal: Tk,
@@ -909,112 +909,112 @@ pub enum No {
         literal: Tk,
     },
     FunctionExpression {
-        type_parameters: Option<NoId>,
-        parameters: Option<NoId>,
-        body: NoId,
+        type_parameters: Option<NodeId>,
+        parameters: Option<NodeId>,
+        body: NodeId,
     },
     FunctionExpressionInvocation {
-        function: NoId,
-        type_arguments: Option<NoId>,
-        argument_list: NoId,
+        function: NodeId,
+        type_arguments: Option<NodeId>,
+        argument_list: NodeId,
     },
     FunctionReference {
-        function: NoId,
-        type_arguments: Option<NoId>,
+        function: NodeId,
+        type_arguments: Option<NodeId>,
     },
     IndexExpression {
-        target: Option<NoId>,
+        target: Option<NodeId>,
         /// `..` ou `?..` quando é seção de cascata.
         period: Option<Tk>,
         /// `?` de `a?[i]`.
         question: Option<Tk>,
         left_bracket: Tk,
-        index: NoId,
+        index: NodeId,
         right_bracket: Tk,
     },
     InstanceCreationExpression {
         /// `new` ou `const`.
         keyword: Option<Tk>,
-        /// [`No::ConstructorName`].
-        constructor_name: NoId,
-        argument_list: NoId,
+        /// [`Node::ConstructorName`].
+        constructor_name: NodeId,
+        argument_list: NodeId,
     },
     ConstructorName {
-        /// [`No::NamedType`].
-        type_: NoId,
+        /// [`Node::NamedType`].
+        type_: NodeId,
         period: Option<Tk>,
-        /// [`No::SimpleIdentifier`].
-        name: Option<NoId>,
+        /// [`Node::SimpleIdentifier`].
+        name: Option<NodeId>,
     },
     IsExpression {
-        expression: NoId,
+        expression: NodeId,
         is_operator: Tk,
         not_operator: Option<Tk>,
-        type_: NoId,
+        type_: NodeId,
     },
     ListLiteral {
         const_keyword: Option<Tk>,
-        type_arguments: Option<NoId>,
+        type_arguments: Option<NodeId>,
         left_bracket: Tk,
-        elements: Vec<NoId>,
+        elements: Vec<NodeId>,
         right_bracket: Tk,
     },
     SetOrMapLiteral {
         const_keyword: Option<Tk>,
-        type_arguments: Option<NoId>,
+        type_arguments: Option<NodeId>,
         left_bracket: Tk,
-        elements: Vec<NoId>,
+        elements: Vec<NodeId>,
         right_bracket: Tk,
     },
     MapLiteralEntry {
-        key: NoId,
+        key: NodeId,
         separator: Tk,
-        value: NoId,
+        value: NodeId,
     },
     MethodInvocation {
-        target: Option<NoId>,
+        target: Option<NodeId>,
         /// `.`, `?.`, `..` ou `?..`.
         operator: Option<Tk>,
-        /// [`No::SimpleIdentifier`].
-        method_name: NoId,
-        type_arguments: Option<NoId>,
-        argument_list: NoId,
+        /// [`Node::SimpleIdentifier`].
+        method_name: NodeId,
+        type_arguments: Option<NodeId>,
+        argument_list: NodeId,
     },
     NamedExpression {
-        /// [`No::Label`].
-        name: NoId,
-        expression: NoId,
+        /// [`Node::Label`].
+        name: NodeId,
+        expression: NodeId,
     },
     ParenthesizedExpression {
         left_parenthesis: Tk,
-        expression: NoId,
+        expression: NodeId,
         right_parenthesis: Tk,
     },
     PostfixExpression {
-        operand: NoId,
+        operand: NodeId,
         operator: Tk,
     },
     PrefixExpression {
         operator: Tk,
-        operand: NoId,
+        operand: NodeId,
     },
     PrefixedIdentifier {
-        /// [`No::SimpleIdentifier`].
-        prefix: NoId,
+        /// [`Node::SimpleIdentifier`].
+        prefix: NodeId,
         period: Tk,
-        /// [`No::SimpleIdentifier`].
-        identifier: NoId,
+        /// [`Node::SimpleIdentifier`].
+        identifier: NodeId,
     },
     PropertyAccess {
-        target: Option<NoId>,
+        target: Option<NodeId>,
         operator: Tk,
-        /// [`No::SimpleIdentifier`].
-        property_name: NoId,
+        /// [`Node::SimpleIdentifier`].
+        property_name: NodeId,
     },
     RecordLiteral {
         const_keyword: Option<Tk>,
         left_parenthesis: Tk,
-        fields: Vec<NoId>,
+        fields: Vec<NodeId>,
         right_parenthesis: Tk,
     },
     RethrowExpression {
@@ -1027,14 +1027,14 @@ pub enum No {
         literal: Tk,
     },
     StringInterpolation {
-        /// [`No::InterpolationString`] e [`No::InterpolationExpression`]
+        /// [`Node::InterpolationString`] e [`Node::InterpolationExpression`]
         /// alternados, começando e terminando em texto.
-        elements: Vec<NoId>,
+        elements: Vec<NodeId>,
     },
     InterpolationExpression {
         /// `${` ou `$`.
         left_bracket: Tk,
-        expression: NoId,
+        expression: NodeId,
         right_bracket: Option<Tk>,
     },
     InterpolationString {
@@ -1053,26 +1053,26 @@ pub enum No {
     },
     ThrowExpression {
         throw_keyword: Tk,
-        expression: NoId,
+        expression: NodeId,
     },
     SwitchExpression {
         switch_keyword: Tk,
         left_parenthesis: Tk,
-        expression: NoId,
+        expression: NodeId,
         right_parenthesis: Tk,
         left_bracket: Tk,
-        /// [`No::SwitchExpressionCase`]s.
-        cases: Vec<NoId>,
+        /// [`Node::SwitchExpressionCase`]s.
+        cases: Vec<NodeId>,
         right_bracket: Tk,
     },
     SwitchExpressionCase {
-        guarded_pattern: NoId,
+        guarded_pattern: NodeId,
         arrow: Tk,
-        expression: NoId,
+        expression: NodeId,
     },
     ArgumentList {
         left_parenthesis: Tk,
-        arguments: Vec<NoId>,
+        arguments: Vec<NodeId>,
         right_parenthesis: Tk,
     },
 
@@ -1080,25 +1080,25 @@ pub enum No {
     SpreadElement {
         /// `...` ou `...?`.
         spread_operator: Tk,
-        expression: NoId,
+        expression: NodeId,
     },
     IfElement {
         if_keyword: Tk,
         left_parenthesis: Tk,
-        expression: NoId,
-        case_clause: Option<NoId>,
+        expression: NodeId,
+        case_clause: Option<NodeId>,
         right_parenthesis: Tk,
-        then_element: NoId,
+        then_element: NodeId,
         else_keyword: Option<Tk>,
-        else_element: Option<NoId>,
+        else_element: Option<NodeId>,
     },
     ForElement {
         await_keyword: Option<Tk>,
         for_keyword: Tk,
         left_parenthesis: Tk,
-        for_loop_parts: NoId,
+        for_loop_parts: NodeId,
         right_parenthesis: Tk,
-        body: NoId,
+        body: NodeId,
     },
 
     // -------------------------------------------------------------- padrões
@@ -1106,71 +1106,71 @@ pub enum No {
         name: Tk,
     },
     CastPattern {
-        pattern: NoId,
+        pattern: NodeId,
         as_token: Tk,
-        type_: NoId,
+        type_: NodeId,
     },
     ConstantPattern {
         const_keyword: Option<Tk>,
-        expression: NoId,
+        expression: NodeId,
     },
     DeclaredVariablePattern {
         keyword: Option<Tk>,
-        type_: Option<NoId>,
+        type_: Option<NodeId>,
         name: Tk,
     },
     ListPattern {
-        type_arguments: Option<NoId>,
+        type_arguments: Option<NodeId>,
         left_bracket: Tk,
-        elements: Vec<NoId>,
+        elements: Vec<NodeId>,
         right_bracket: Tk,
     },
     LogicalAndPattern {
-        left_operand: NoId,
+        left_operand: NodeId,
         operator: Tk,
-        right_operand: NoId,
+        right_operand: NodeId,
     },
     LogicalOrPattern {
-        left_operand: NoId,
+        left_operand: NodeId,
         operator: Tk,
-        right_operand: NoId,
+        right_operand: NodeId,
     },
     MapPattern {
-        type_arguments: Option<NoId>,
+        type_arguments: Option<NodeId>,
         left_bracket: Tk,
-        elements: Vec<NoId>,
+        elements: Vec<NodeId>,
         right_bracket: Tk,
     },
     MapPatternEntry {
-        key: NoId,
+        key: NodeId,
         separator: Tk,
-        value: NoId,
+        value: NodeId,
     },
     NullAssertPattern {
-        pattern: NoId,
+        pattern: NodeId,
         operator: Tk,
     },
     NullCheckPattern {
-        pattern: NoId,
+        pattern: NodeId,
         operator: Tk,
     },
     ObjectPattern {
-        /// [`No::NamedType`].
-        type_: NoId,
+        /// [`Node::NamedType`].
+        type_: NodeId,
         left_parenthesis: Tk,
-        /// [`No::PatternField`]s.
-        fields: Vec<NoId>,
+        /// [`Node::PatternField`]s.
+        fields: Vec<NodeId>,
         right_parenthesis: Tk,
     },
     ParenthesizedPattern {
         left_parenthesis: Tk,
-        pattern: NoId,
+        pattern: NodeId,
         right_parenthesis: Tk,
     },
     PatternField {
-        /// [`No::PatternFieldName`].
-        name: Option<NoId>,
-        pattern: NoId,
+        /// [`Node::PatternFieldName`].
+        name: Option<NodeId>,
+        pattern: NodeId,
     },
     PatternFieldName {
         name: Option<Tk>,
@@ -1178,51 +1178,51 @@ pub enum No {
     },
     RecordPattern {
         left_parenthesis: Tk,
-        fields: Vec<NoId>,
+        fields: Vec<NodeId>,
         right_parenthesis: Tk,
     },
     RelationalPattern {
         operator: Tk,
-        operand: NoId,
+        operand: NodeId,
     },
     RestPatternElement {
         operator: Tk,
-        pattern: Option<NoId>,
+        pattern: Option<NodeId>,
     },
     WildcardPattern {
         keyword: Option<Tk>,
-        type_: Option<NoId>,
+        type_: Option<NodeId>,
         name: Tk,
     },
     PatternAssignment {
-        pattern: NoId,
+        pattern: NodeId,
         equals: Tk,
-        expression: NoId,
+        expression: NodeId,
     },
 }
 
-impl No {
+impl Node {
     /// Chama `f` para cada filho, na ordem do texto.
-    pub fn filhos(&self, f: &mut dyn FnMut(NoId)) {
-        let um = |o: &Option<NoId>, f: &mut dyn FnMut(NoId)| {
+    pub fn children(&self, f: &mut dyn FnMut(NodeId)) {
+        let one = |o: &Option<NodeId>, f: &mut dyn FnMut(NodeId)| {
             if let Some(n) = o {
                 f(*n);
             }
         };
-        let todos = |v: &Vec<NoId>, f: &mut dyn FnMut(NoId)| {
+        let all = |v: &Vec<NodeId>, f: &mut dyn FnMut(NodeId)| {
             for n in v {
                 f(*n);
             }
         };
-        use No::*;
+        use Node::*;
         match self {
             CompilationUnit { directives, declarations, .. } => {
-                todos(directives, f);
-                todos(declarations, f);
+                all(directives, f);
+                all(declarations, f);
             }
             LibraryDirective { metadata, name2, .. } => {
-                todos(metadata, f);
-                um(name2, f);
+                all(metadata, f);
+                one(name2, f);
             }
             ImportDirective {
                 metadata,
@@ -1232,11 +1232,11 @@ impl No {
                 combinators,
                 ..
             } => {
-                todos(metadata, f);
+                all(metadata, f);
                 f(*uri);
-                todos(configurations, f);
-                um(prefix, f);
-                todos(combinators, f);
+                all(configurations, f);
+                one(prefix, f);
+                all(combinators, f);
             }
             ExportDirective {
                 metadata,
@@ -1245,13 +1245,13 @@ impl No {
                 combinators,
                 ..
             } => {
-                todos(metadata, f);
+                all(metadata, f);
                 f(*uri);
-                todos(configurations, f);
-                todos(combinators, f);
+                all(configurations, f);
+                all(combinators, f);
             }
             PartDirective { metadata, uri, .. } => {
-                todos(metadata, f);
+                all(metadata, f);
                 f(*uri);
             }
             PartOfDirective {
@@ -1260,17 +1260,17 @@ impl No {
                 uri,
                 ..
             } => {
-                todos(metadata, f);
-                um(library_name, f);
-                um(uri, f);
+                all(metadata, f);
+                one(library_name, f);
+                one(uri, f);
             }
             Configuration { name, value, uri, .. } => {
                 f(*name);
-                um(value, f);
+                one(value, f);
                 f(*uri);
             }
-            DottedName { components } | LibraryIdentifier { components } => todos(components, f),
-            ShowCombinator { shown_names: v, .. } | HideCombinator { hidden_names: v, .. } => todos(v, f),
+            DottedName { components } | LibraryIdentifier { components } => all(components, f),
+            ShowCombinator { shown_names: v, .. } | HideCombinator { hidden_names: v, .. } => all(v, f),
             ClassDeclaration {
                 metadata,
                 type_parameters,
@@ -1281,13 +1281,13 @@ impl No {
                 members,
                 ..
             } => {
-                todos(metadata, f);
-                um(type_parameters, f);
-                um(extends_clause, f);
-                um(with_clause, f);
-                um(implements_clause, f);
-                um(native_clause, f);
-                todos(members, f);
+                all(metadata, f);
+                one(type_parameters, f);
+                one(extends_clause, f);
+                one(with_clause, f);
+                one(implements_clause, f);
+                one(native_clause, f);
+                all(members, f);
             }
             ExtendsClause { superclass, .. } => f(*superclass),
             WithClause { mixin_types: v, .. }
@@ -1295,8 +1295,8 @@ impl No {
             | MixinOnClause {
                 superclass_constraints: v,
                 ..
-            } => todos(v, f),
-            NativeClause { name, .. } => um(name, f),
+            } => all(v, f),
+            NativeClause { name, .. } => one(name, f),
             MixinDeclaration {
                 metadata,
                 type_parameters,
@@ -1305,11 +1305,11 @@ impl No {
                 members,
                 ..
             } => {
-                todos(metadata, f);
-                um(type_parameters, f);
-                um(on_clause, f);
-                um(implements_clause, f);
-                todos(members, f);
+                all(metadata, f);
+                one(type_parameters, f);
+                one(on_clause, f);
+                one(implements_clause, f);
+                all(members, f);
             }
             ExtensionDeclaration {
                 metadata,
@@ -1318,10 +1318,10 @@ impl No {
                 members,
                 ..
             } => {
-                todos(metadata, f);
-                um(type_parameters, f);
-                um(on_clause, f);
-                todos(members, f);
+                all(metadata, f);
+                one(type_parameters, f);
+                one(on_clause, f);
+                all(members, f);
             }
             ExtensionOnClause { extended_type, .. } => f(*extended_type),
             ExtensionTypeDeclaration {
@@ -1332,11 +1332,11 @@ impl No {
                 members,
                 ..
             } => {
-                todos(metadata, f);
-                um(type_parameters, f);
+                all(metadata, f);
+                one(type_parameters, f);
                 f(*representation);
-                um(implements_clause, f);
-                todos(members, f);
+                one(implements_clause, f);
+                all(members, f);
             }
             RepresentationDeclaration {
                 constructor_name,
@@ -1344,8 +1344,8 @@ impl No {
                 field_type,
                 ..
             } => {
-                um(constructor_name, f);
-                todos(field_metadata, f);
+                one(constructor_name, f);
+                all(field_metadata, f);
                 f(*field_type);
             }
             RepresentationConstructorName { .. } => {}
@@ -1358,24 +1358,24 @@ impl No {
                 members,
                 ..
             } => {
-                todos(metadata, f);
-                um(type_parameters, f);
-                um(with_clause, f);
-                um(implements_clause, f);
-                todos(constants, f);
-                todos(members, f);
+                all(metadata, f);
+                one(type_parameters, f);
+                one(with_clause, f);
+                one(implements_clause, f);
+                all(constants, f);
+                all(members, f);
             }
             EnumConstantDeclaration { metadata, arguments, .. } => {
-                todos(metadata, f);
-                um(arguments, f);
+                all(metadata, f);
+                one(arguments, f);
             }
             EnumConstantArguments {
                 type_arguments,
                 constructor_selector,
                 argument_list,
             } => {
-                um(type_arguments, f);
-                um(constructor_selector, f);
+                one(type_arguments, f);
+                one(constructor_selector, f);
                 f(*argument_list);
             }
             ConstructorSelector { name, .. } => f(*name),
@@ -1387,11 +1387,11 @@ impl No {
                 implements_clause,
                 ..
             } => {
-                todos(metadata, f);
-                um(type_parameters, f);
+                all(metadata, f);
+                one(type_parameters, f);
                 f(*superclass);
-                um(with_clause, f);
-                um(implements_clause, f);
+                one(with_clause, f);
+                one(implements_clause, f);
             }
             FunctionTypeAlias {
                 metadata,
@@ -1400,9 +1400,9 @@ impl No {
                 parameters,
                 ..
             } => {
-                todos(metadata, f);
-                um(return_type, f);
-                um(type_parameters, f);
+                all(metadata, f);
+                one(return_type, f);
+                one(type_parameters, f);
                 f(*parameters);
             }
             GenericTypeAlias {
@@ -1411,8 +1411,8 @@ impl No {
                 type_,
                 ..
             } => {
-                todos(metadata, f);
-                um(type_parameters, f);
+                all(metadata, f);
+                one(type_parameters, f);
                 f(*type_);
             }
             FunctionDeclaration {
@@ -1421,12 +1421,12 @@ impl No {
                 function_expression,
                 ..
             } => {
-                todos(metadata, f);
-                um(return_type, f);
+                all(metadata, f);
+                one(return_type, f);
                 f(*function_expression);
             }
             TopLevelVariableDeclaration { metadata, variables, .. } => {
-                todos(metadata, f);
+                all(metadata, f);
                 f(*variables);
             }
             ConstructorDeclaration {
@@ -1438,11 +1438,11 @@ impl No {
                 body,
                 ..
             } => {
-                todos(metadata, f);
+                all(metadata, f);
                 f(*return_type);
                 f(*parameters);
-                todos(initializers, f);
-                um(redirected_constructor, f);
+                all(initializers, f);
+                one(redirected_constructor, f);
                 f(*body);
             }
             MethodDeclaration {
@@ -1453,14 +1453,14 @@ impl No {
                 body,
                 ..
             } => {
-                todos(metadata, f);
-                um(return_type, f);
-                um(type_parameters, f);
-                um(parameters, f);
+                all(metadata, f);
+                one(return_type, f);
+                one(type_parameters, f);
+                one(parameters, f);
                 f(*body);
             }
             FieldDeclaration { metadata, fields, .. } => {
-                todos(metadata, f);
+                all(metadata, f);
                 f(*fields);
             }
             ConstructorFieldInitializer { field_name, expression, .. } => {
@@ -1477,21 +1477,21 @@ impl No {
                 argument_list,
                 ..
             } => {
-                um(constructor_name, f);
+                one(constructor_name, f);
                 f(*argument_list);
             }
             AssertInitializer { condition, message, .. } | AssertStatement { condition, message, .. } => {
                 f(*condition);
-                um(message, f);
+                one(message, f);
             }
             BlockFunctionBody { block, .. } => f(*block),
             ExpressionFunctionBody { expression, .. } => f(*expression),
             EmptyFunctionBody { .. } => {}
-            NativeFunctionBody { string_literal, .. } => um(string_literal, f),
-            FormalParameterList { parameters, .. } => todos(parameters, f),
+            NativeFunctionBody { string_literal, .. } => one(string_literal, f),
+            FormalParameterList { parameters, .. } => all(parameters, f),
             SimpleFormalParameter { metadata, type_, .. } => {
-                todos(metadata, f);
-                um(type_, f);
+                all(metadata, f);
+                one(type_, f);
             }
             FieldFormalParameter {
                 metadata,
@@ -1507,10 +1507,10 @@ impl No {
                 parameters,
                 ..
             } => {
-                todos(metadata, f);
-                um(type_, f);
-                um(type_parameters, f);
-                um(parameters, f);
+                all(metadata, f);
+                one(type_, f);
+                one(type_parameters, f);
+                one(parameters, f);
             }
             FunctionTypedFormalParameter {
                 metadata,
@@ -1519,9 +1519,9 @@ impl No {
                 parameters,
                 ..
             } => {
-                todos(metadata, f);
-                um(return_type, f);
-                um(type_parameters, f);
+                all(metadata, f);
+                one(return_type, f);
+                one(type_parameters, f);
                 f(*parameters);
             }
             DefaultFormalParameter {
@@ -1530,17 +1530,17 @@ impl No {
                 ..
             } => {
                 f(*parameter);
-                um(default_value, f);
+                one(default_value, f);
             }
-            NamedType { type_arguments, .. } => um(type_arguments, f),
+            NamedType { type_arguments, .. } => one(type_arguments, f),
             GenericFunctionType {
                 return_type,
                 type_parameters,
                 parameters,
                 ..
             } => {
-                um(return_type, f);
-                um(type_parameters, f);
+                one(return_type, f);
+                one(type_parameters, f);
                 f(*parameters);
             }
             RecordTypeAnnotation {
@@ -1548,22 +1548,22 @@ impl No {
                 named_fields,
                 ..
             } => {
-                todos(positional_fields, f);
-                um(named_fields, f);
+                all(positional_fields, f);
+                one(named_fields, f);
             }
-            RecordTypeAnnotationNamedFields { fields, .. } => todos(fields, f),
+            RecordTypeAnnotationNamedFields { fields, .. } => all(fields, f),
             RecordTypeAnnotationPositionalField { metadata, type_, .. }
             | RecordTypeAnnotationNamedField { metadata, type_, .. } => {
-                todos(metadata, f);
+                all(metadata, f);
                 f(*type_);
             }
             TypeArgumentList { arguments: v, .. }
             | TypeParameterList {
                 type_parameters: v, ..
-            } => todos(v, f),
+            } => all(v, f),
             TypeParameter { metadata, bound, .. } => {
-                todos(metadata, f);
-                um(bound, f);
+                all(metadata, f);
+                one(bound, f);
             }
             Annotation {
                 name,
@@ -1573,11 +1573,11 @@ impl No {
                 ..
             } => {
                 f(*name);
-                um(type_arguments, f);
-                um(constructor_name, f);
-                um(arguments, f);
+                one(type_arguments, f);
+                one(constructor_name, f);
+                one(arguments, f);
             }
-            Block { statements, .. } => todos(statements, f),
+            Block { statements, .. } => all(statements, f),
             ExpressionStatement { expression, .. } => f(*expression),
             VariableDeclarationStatement { variables, .. } => f(*variables),
             VariableDeclarationList {
@@ -1586,11 +1586,11 @@ impl No {
                 variables,
                 ..
             } => {
-                todos(metadata, f);
-                um(type_, f);
-                todos(variables, f);
+                all(metadata, f);
+                one(type_, f);
+                all(variables, f);
             }
-            VariableDeclaration { initializer, .. } => um(initializer, f),
+            VariableDeclaration { initializer, .. } => one(initializer, f),
             FunctionDeclarationStatement { function_declaration } => f(*function_declaration),
             IfStatement {
                 expression,
@@ -1600,14 +1600,14 @@ impl No {
                 ..
             } => {
                 f(*expression);
-                um(case_clause, f);
+                one(case_clause, f);
                 f(*then_statement);
-                um(else_statement, f);
+                one(else_statement, f);
             }
             CaseClause { guarded_pattern, .. } => f(*guarded_pattern),
             GuardedPattern { pattern, when_clause } => {
                 f(*pattern);
-                um(when_clause, f);
+                one(when_clause, f);
             }
             WhenClause { expression, .. } => f(*expression),
             ForStatement {
@@ -1632,8 +1632,8 @@ impl No {
                 ..
             } => {
                 f(*variables);
-                um(condition, f);
-                todos(updaters, f);
+                one(condition, f);
+                all(updaters, f);
             }
             ForPartsWithExpression {
                 initialization,
@@ -1641,9 +1641,9 @@ impl No {
                 updaters,
                 ..
             } => {
-                um(initialization, f);
-                um(condition, f);
-                todos(updaters, f);
+                one(initialization, f);
+                one(condition, f);
+                all(updaters, f);
             }
             ForEachPartsWithDeclaration {
                 loop_variable,
@@ -1663,13 +1663,13 @@ impl No {
                 iterable,
                 ..
             } => {
-                todos(metadata, f);
+                all(metadata, f);
                 f(*pattern);
                 f(*iterable);
             }
             DeclaredIdentifier { metadata, type_, .. } => {
-                todos(metadata, f);
-                um(type_, f);
+                all(metadata, f);
+                one(type_, f);
             }
             WhileStatement { condition, body, .. } => {
                 f(*condition);
@@ -1681,7 +1681,7 @@ impl No {
             }
             SwitchStatement { expression, members, .. } => {
                 f(*expression);
-                todos(members, f);
+                all(members, f);
             }
             SwitchCase {
                 labels,
@@ -1689,9 +1689,9 @@ impl No {
                 statements,
                 ..
             } => {
-                todos(labels, f);
+                all(labels, f);
                 f(*expression);
-                todos(statements, f);
+                all(statements, f);
             }
             SwitchPatternCase {
                 labels,
@@ -1699,13 +1699,13 @@ impl No {
                 statements,
                 ..
             } => {
-                todos(labels, f);
+                all(labels, f);
                 f(*guarded_pattern);
-                todos(statements, f);
+                all(statements, f);
             }
             SwitchDefault { labels, statements, .. } => {
-                todos(labels, f);
-                todos(statements, f);
+                all(labels, f);
+                all(statements, f);
             }
             TryStatement {
                 body,
@@ -1714,8 +1714,8 @@ impl No {
                 ..
             } => {
                 f(*body);
-                todos(catch_clauses, f);
-                um(finally_block, f);
+                all(catch_clauses, f);
+                one(finally_block, f);
             }
             CatchClause {
                 exception_type,
@@ -1724,17 +1724,17 @@ impl No {
                 body,
                 ..
             } => {
-                um(exception_type, f);
-                um(exception_parameter, f);
-                um(stack_trace_parameter, f);
+                one(exception_type, f);
+                one(exception_parameter, f);
+                one(stack_trace_parameter, f);
                 f(*body);
             }
             CatchClauseParameter { .. } => {}
-            ReturnStatement { expression, .. } => um(expression, f),
-            BreakStatement { label, .. } | ContinueStatement { label, .. } => um(label, f),
+            ReturnStatement { expression, .. } => one(expression, f),
+            BreakStatement { label, .. } | ContinueStatement { label, .. } => one(label, f),
             YieldStatement { expression, .. } => f(*expression),
             LabeledStatement { labels, statement } => {
-                todos(labels, f);
+                all(labels, f);
                 f(*statement);
             }
             Label { label, .. } => f(*label),
@@ -1746,11 +1746,11 @@ impl No {
                 expression,
                 ..
             } => {
-                todos(metadata, f);
+                all(metadata, f);
                 f(*pattern);
                 f(*expression);
             }
-            AdjacentStrings { strings } => todos(strings, f),
+            AdjacentStrings { strings } => all(strings, f),
             AsExpression { expression, type_, .. } | IsExpression { expression, type_, .. } => {
                 f(*expression);
                 f(*type_);
@@ -1788,7 +1788,7 @@ impl No {
                 cascade_sections,
             } => {
                 f(*target);
-                todos(cascade_sections, f);
+                all(cascade_sections, f);
             }
             ConditionalExpression {
                 condition,
@@ -1805,8 +1805,8 @@ impl No {
                 parameters,
                 body,
             } => {
-                um(type_parameters, f);
-                um(parameters, f);
+                one(type_parameters, f);
+                one(parameters, f);
                 f(*body);
             }
             FunctionExpressionInvocation {
@@ -1815,7 +1815,7 @@ impl No {
                 argument_list,
             } => {
                 f(*function);
-                um(type_arguments, f);
+                one(type_arguments, f);
                 f(*argument_list);
             }
             FunctionReference {
@@ -1823,10 +1823,10 @@ impl No {
                 type_arguments,
             } => {
                 f(*function);
-                um(type_arguments, f);
+                one(type_arguments, f);
             }
             IndexExpression { target, index, .. } => {
-                um(target, f);
+                one(target, f);
                 f(*index);
             }
             InstanceCreationExpression {
@@ -1839,7 +1839,7 @@ impl No {
             }
             ConstructorName { type_, name, .. } => {
                 f(*type_);
-                um(name, f);
+                one(name, f);
             }
             ListLiteral {
                 type_arguments,
@@ -1861,8 +1861,8 @@ impl No {
                 elements,
                 ..
             } => {
-                um(type_arguments, f);
-                todos(elements, f);
+                one(type_arguments, f);
+                all(elements, f);
             }
             MapLiteralEntry { key, value, .. } | MapPatternEntry { key, value, .. } => {
                 f(*key);
@@ -1875,9 +1875,9 @@ impl No {
                 argument_list,
                 ..
             } => {
-                um(target, f);
+                one(target, f);
                 f(*method_name);
-                um(type_arguments, f);
+                one(type_arguments, f);
                 f(*argument_list);
             }
             NamedExpression { name, expression } => {
@@ -1893,17 +1893,17 @@ impl No {
             PropertyAccess {
                 target, property_name, ..
             } => {
-                um(target, f);
+                one(target, f);
                 f(*property_name);
             }
-            RecordLiteral { fields, .. } | RecordPattern { fields, .. } => todos(fields, f),
+            RecordLiteral { fields, .. } | RecordPattern { fields, .. } => all(fields, f),
             RethrowExpression { .. } | SimpleIdentifier { .. } | SimpleStringLiteral { .. } => {}
-            StringInterpolation { elements } => todos(elements, f),
+            StringInterpolation { elements } => all(elements, f),
             InterpolationExpression { expression, .. } => f(*expression),
             InterpolationString { .. } | SuperExpression { .. } | ThisExpression { .. } | SymbolLiteral { .. } => {}
             SwitchExpression { expression, cases, .. } => {
                 f(*expression);
-                todos(cases, f);
+                all(cases, f);
             }
             SwitchExpressionCase {
                 guarded_pattern,
@@ -1913,7 +1913,7 @@ impl No {
                 f(*guarded_pattern);
                 f(*expression);
             }
-            ArgumentList { arguments, .. } => todos(arguments, f),
+            ArgumentList { arguments, .. } => all(arguments, f),
             SpreadElement { expression, .. } => f(*expression),
             IfElement {
                 expression,
@@ -1923,9 +1923,9 @@ impl No {
                 ..
             } => {
                 f(*expression);
-                um(case_clause, f);
+                one(case_clause, f);
                 f(*then_element);
-                um(else_element, f);
+                one(else_element, f);
             }
             AssignedVariablePattern { .. } => {}
             CastPattern { pattern, type_, .. } => {
@@ -1933,21 +1933,21 @@ impl No {
                 f(*type_);
             }
             ConstantPattern { expression, .. } => f(*expression),
-            DeclaredVariablePattern { type_, .. } | WildcardPattern { type_, .. } => um(type_, f),
+            DeclaredVariablePattern { type_, .. } | WildcardPattern { type_, .. } => one(type_, f),
             NullAssertPattern { pattern, .. }
             | NullCheckPattern { pattern, .. }
             | ParenthesizedPattern { pattern, .. } => f(*pattern),
             ObjectPattern { type_, fields, .. } => {
                 f(*type_);
-                todos(fields, f);
+                all(fields, f);
             }
             PatternField { name, pattern } => {
-                um(name, f);
+                one(name, f);
                 f(*pattern);
             }
             PatternFieldName { .. } => {}
             RelationalPattern { operand, .. } => f(*operand),
-            RestPatternElement { pattern, .. } => um(pattern, f),
+            RestPatternElement { pattern, .. } => one(pattern, f),
             PatternAssignment { pattern, expression, .. } => {
                 f(*pattern);
                 f(*expression);

@@ -2,9 +2,9 @@
 //! `dart format` do SDK 3.6.2.
 //!
 //! * [`arena`]: regras, chunks, spans e níveis de aninhamento.
-//! * [`construtor`]: o `ChunkBuilder`.
-//! * [`escritor`] e [`divisor`]: o `LineWriter` e o `LineSplitter`.
-//! * [`visitante`]: o `SourceVisitor`, com [`argumentos`]
+//! * [`builder`]: o `ChunkBuilder`.
+//! * [`writer`] e [`divisor`]: o `LineWriter` e o `LineSplitter`.
+//! * [`visitor`]: o `SourceVisitor`, com [`arguments_`]
 //!   (`ArgumentListVisitor`) e [`cadeia`] (`CallChainVisitor`).
 //!
 //! Os métodos do visitante mantêm os nomes do original (`visit_binary_expression`

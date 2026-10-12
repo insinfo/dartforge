@@ -1,4 +1,4 @@
-//! Parser de Dart 3.6 que monta a [`Arvore`] com as
+//! Parser de Dart 3.6 que monta a [`Tree`] com as
 //! mesmas formas do `parseString` do analyzer 3.6 (o parser do fasta mais o
 //! `AstBuilder`, sem resolução nem `AstRewriter`).
 //!
@@ -12,19 +12,19 @@
 //!
 //! * `olhar` — *lookahead* sem efeitos: `computeType`,
 //!   `computeTypeParamOrArg`, `skipOuterPattern` e afins;
-//! * `tipos` — anotações de tipo, parâmetros e argumentos de tipo,
+//! * `types_` — anotações de tipo, parâmetros e argumentos de tipo,
 //!   parâmetros formais e metadata;
 //! * `expressoes` — expressões, literais, cascatas e coleções;
 //! * `instrucoes` — comandos e declarações locais;
-//! * `padroes` — padrões (Dart 3);
-//! * `declaracoes` — unidade, diretivas e declarações de topo e de membro;
+//! * `patterns_` — padrões (Dart 3);
+//! * `declarations_` — unidade, diretivas e declarações de topo e de membro;
 //! * [`verificar`] — conferências da árvore (cobertura de tokens, limites) e
 //!   o despejo textual usado para comparar com o analyzer.
 //!
 //! O parser não altera a lista de tokens enquanto trabalha: os `>` que
 //! formam `>>`, `>=`, `>>>`, `>>=` e `>>>=` em contexto de expressão, e os
 //! `[` `]` (`=`) dos nomes de operador `[]`/`[]=`, ficam anotados em
-//! `Parser::fusoes` e são fundidos só no fim, com o remapeamento dos
+//! `Parser::merges` e são fundidos só no fim, com o remapeamento dos
 //! índices de token dos nós. Assim o *lookahead* e a especulação
 //! (`canParseAsConditional`) trabalham sobre índices estáveis.
 //!
@@ -42,8 +42,8 @@ pub mod verify;
 
 use dartforge_frontend::token::{Keyword, Op};
 
-use super::tree::{Arvore, No, NoId};
-use super::token::{ErroSintaxe, TipoToken, Tk, Token, Tokens};
+use super::tree::{Tree, Node, NodeId};
+use super::token::{ErroSintaxe, TokenKind, Tk, Token, Tokens};
 
 /// Resultado das funções do parser.
 type R<T> = Result<T, ErroSintaxe>;
@@ -51,372 +51,372 @@ type R<T> = Result<T, ErroSintaxe>;
 /// Profundidade máxima de aninhamento de expressões e comandos, como os 500
 /// do fasta (`expressionDepth`/`statementDepth`), que relata
 /// `StackOverflow` além disso.
-const PROFUNDIDADE_MAXIMA: u32 = 500;
+const MAX_DEPTH: u32 = 500;
 
 /// Precedências do fasta (`token.dart`).
 mod prec {
-    pub const ATRIBUICAO: u8 = 1;
-    pub const CASCATA: u8 = 2;
-    pub const CONDICIONAL: u8 = 3;
-    pub const SE_NULO: u8 = 4;
-    pub const OU: u8 = 5;
+    pub const ASSIGNMENT: u8 = 1;
+    pub const CASCADE: u8 = 2;
+    pub const CONDITIONAL: u8 = 3;
+    pub const IF_NULL: u8 = 4;
+    pub const OR: u8 = 5;
     pub const E: u8 = 6;
-    pub const IGUALDADE: u8 = 7;
-    pub const RELACIONAL: u8 = 8;
-    pub const BIT_OU: u8 = 9;
-    pub const BIT_XOU: u8 = 10;
-    pub const BIT_E: u8 = 11;
-    pub const DESLOCAMENTO: u8 = 12;
-    pub const ADITIVA: u8 = 13;
-    pub const MULTIPLICATIVA: u8 = 14;
-    pub const PREFIXO: u8 = 15;
-    pub const POSFIXO: u8 = 16;
-    pub const SELETOR: u8 = 17;
+    pub const EQUALITY: u8 = 7;
+    pub const RELATIONAL: u8 = 8;
+    pub const BIT_OR: u8 = 9;
+    pub const BIT_XOR: u8 = 10;
+    pub const BIT_AND: u8 = 11;
+    pub const SHIFT: u8 = 12;
+    pub const ADDITIVE: u8 = 13;
+    pub const MULTIPLICATIVE: u8 = 14;
+    pub const PREFIX: u8 = 15;
+    pub const POSTFIX: u8 = 16;
+    pub const SELECTOR: u8 = 17;
 }
 
 /// Estado `async` do corpo em análise (`AsyncModifier` do fasta).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Assinc {
-    Sinc,
-    Comum,
-    SincEstrela,
-    Estrela,
+enum AsyncKind {
+    SyncKind,
+    Plain,
+    SyncStar,
+    Star,
 }
 
 /// Onde estamos em relação a laços (`LoopState` do fasta), para `break` e
 /// `continue`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Laco {
+enum LoopState {
     Fora,
     Switch,
-    Repeticao,
+    Repetition,
 }
 
 /// Uma fusão de tokens adiada para o fim da análise.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Fusao {
-    /// `>` composto ([`Tokens::combinar_maior`]).
-    Maior(&'static str),
+enum Merge {
+    /// `>` composto ([`Tokens::merge_greater`]).
+    Greater(&'static str),
     /// `[` `]` ou `[` `]` `=` colados: o token `INDEX`/`INDEX_EQ` do scanner
     /// do analyzer, com `n` tokens nossos.
-    Colchetes(usize),
+    Brackets(usize),
 }
 
 /// Opções de análise.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct OpcoesAnalise {
+pub struct ParseOptions {
     /// Versão da linguagem (maior, menor). Antes de 3.0 não há padrões: os
-    /// `case` de `switch` são expressões ([`No::SwitchCase`]). Um comentário
+    /// `case` de `switch` são expressões ([`Node::SwitchCase`]). Um comentário
     /// `// @dart=X.Y` antes da primeira declaração tem precedência, como no
     /// scanner do analyzer.
-    pub versao: (u32, u32),
+    pub version: (u32, u32),
 }
 
-impl Default for OpcoesAnalise {
+impl Default for ParseOptions {
     fn default() -> Self {
-        OpcoesAnalise { versao: (3, 6) }
+        ParseOptions { version: (3, 6) }
     }
 }
 
-/// Lê `fonte` inteira como unidade de compilação, na versão 3.6 da linguagem.
+/// Lê `source` inteira como unidade de compilação, na versão 3.6 da linguagem.
 ///
 /// ```
-/// use dartforge_formatter::syntax::tree::No;
-/// use dartforge_formatter::syntax::parser::analisar;
-/// let (_tokens, arvore) = analisar("main() => a.b();").unwrap();
-/// let raiz = arvore.raiz.unwrap();
-/// assert!(matches!(arvore.no(raiz), No::CompilationUnit { .. }));
+/// use dartforge_formatter::syntax::tree::Node;
+/// use dartforge_formatter::syntax::parser::parse;
+/// let (_tokens, tree) = parse("main() => a.b();").unwrap();
+/// let root = tree.root.unwrap();
+/// assert!(matches!(tree.node(root), Node::CompilationUnit { .. }));
 /// ```
 ///
 /// # Erros
 /// O primeiro erro de sintaxe encontrado.
-pub fn analisar(fonte: &str) -> Result<(Tokens, Arvore), ErroSintaxe> {
-    analisar_com(fonte, OpcoesAnalise::default())
+pub fn parse(source: &str) -> Result<(Tokens, Tree), ErroSintaxe> {
+    parse_with(source, ParseOptions::default())
 }
 
-/// Como [`analisar`], com a versão da linguagem explícita.
+/// Como [`parse`], com a versão da linguagem explícita.
 ///
 /// ```
-/// use dartforge_formatter::syntax::parser::{analisar_com, OpcoesAnalise};
-/// let fonte = "f(x) { switch (x) { case 1: break; } }";
-/// assert!(analisar_com(fonte, OpcoesAnalise { versao: (2, 19) }).is_ok());
+/// use dartforge_formatter::syntax::parser::{parse_with, ParseOptions};
+/// let source = "f(x) { switch (x) { case 1: break; } }";
+/// assert!(parse_with(source, ParseOptions { version: (2, 19) }).is_ok());
 /// ```
 ///
 /// # Erros
 /// O primeiro erro de sintaxe encontrado.
-pub fn analisar_com(fonte: &str, opcoes: OpcoesAnalise) -> Result<(Tokens, Arvore), ErroSintaxe> {
-    let tokens = Tokens::ler(fonte)?;
-    let versao = versao_do_comentario(fonte, &tokens).unwrap_or(opcoes.versao);
-    let mut p = Parser::novo(fonte, tokens)?;
-    p.padroes = versao >= (3, 0);
-    p.versao = versao;
-    let raiz = p.unidade()?;
-    if let Some(e) = p.erro_de_versao.take() {
+pub fn parse_with(source: &str, options: ParseOptions) -> Result<(Tokens, Tree), ErroSintaxe> {
+    let tokens = Tokens::ler(source)?;
+    let version = comment_version(source, &tokens).unwrap_or(options.version);
+    let mut p = Parser::new(source, tokens)?;
+    p.patterns_ = version >= (3, 0);
+    p.version = version;
+    let root = p.unit()?;
+    if let Some(e) = p.version_error.take() {
         return Err(e);
     }
-    p.arv.raiz = Some(raiz);
+    p.tree_.root = Some(root);
     let Parser {
         mut toks,
-        mut arv,
-        fusoes,
+        mut tree_,
+        merges,
         ..
     } = p;
-    aplicar_fusoes(&mut toks, &mut arv, &fusoes);
-    arv.ligar_pais();
-    Ok((toks, arv))
+    apply_merges(&mut toks, &mut tree_, &merges);
+    tree_.link_parents();
+    Ok((toks, tree_))
 }
 
 /// O `// @dart = X.Y` antes do primeiro token (`LanguageVersionToken` do
 /// scanner).
-fn versao_do_comentario(fonte: &str, tokens: &Tokens) -> Option<(u32, u32)> {
-    let primeiro = tokens.lista.first()?;
-    let alvo = if primeiro.tipo == TipoToken::ScriptTag {
-        tokens.lista.get(1)?
+fn comment_version(source: &str, tokens: &Tokens) -> Option<(u32, u32)> {
+    let first = tokens.list.first()?;
+    let alvo = if first.tipo == TokenKind::ScriptTag {
+        tokens.list.get(1)?
     } else {
-        primeiro
+        first
     };
-    let (a, b) = alvo.comentarios;
-    for c in &tokens.comentarios[a as usize..b as usize] {
-        if !c.de_linha {
+    let (a, b) = alvo.comments;
+    for c in &tokens.comments[a as usize..b as usize] {
+        if !c.is_line {
             continue;
         }
-        let texto = &fonte[c.inicio + 2..c.fim];
+        let texto = &source[c.start + 2..c.end];
         let t = texto.trim_start();
-        let Some(resto) = t.strip_prefix("@dart") else {
+        let Some(rest) = t.strip_prefix("@dart") else {
             continue;
         };
-        let resto = resto.trim_start();
-        let Some(resto) = resto.strip_prefix('=') else {
+        let rest = rest.trim_start();
+        let Some(rest) = rest.strip_prefix('=') else {
             continue;
         };
-        let resto = resto.trim();
-        let mut partes = resto.splitn(2, '.');
-        let maior = partes.next()?.parse().ok()?;
-        let menor = partes.next()?.parse().ok()?;
-        return Some((maior, menor));
+        let rest = rest.trim();
+        let mut parts_ = rest.splitn(2, '.');
+        let greater = parts_.next()?.parse().ok()?;
+        let smaller = parts_.next()?.parse().ok()?;
+        return Some((greater, smaller));
     }
     None
 }
 
 /// Aplica as fusões adiadas e remapeia os índices de token da árvore.
-fn aplicar_fusoes(toks: &mut Tokens, arv: &mut Arvore, fusoes: &[(usize, Fusao)]) {
-    if fusoes.is_empty() {
+fn apply_merges(toks: &mut Tokens, tree_: &mut Tree, merges: &[(usize, Merge)]) {
+    if merges.is_empty() {
         return;
     }
-    let n = toks.lista.len();
-    // `removidos[i]` = quantos tokens antes de `i` (exclusive) somem.
-    // `dono[i]`: para um token absorvido, o primeiro token da fusão.
-    let mut dono: Vec<Option<usize>> = vec![None; n];
-    for &(i, f) in fusoes {
+    let n = toks.list.len();
+    // `removed[i]` = quantos tokens antes de `i` (exclusive) somem.
+    // `owner[i]`: para um token absorvido, o primeiro token da fusão.
+    let mut owner: Vec<Option<usize>> = vec![None; n];
+    for &(i, f) in merges {
         let k = match f {
-            Fusao::Maior(a) => a.len(),
-            Fusao::Colchetes(k) => k,
+            Merge::Greater(a) => a.len(),
+            Merge::Brackets(k) => k,
         };
-        for d in dono.iter_mut().skip(i + 1).take(k - 1) {
+        for d in owner.iter_mut().skip(i + 1).take(k - 1) {
             *d = Some(i);
         }
     }
-    let mut novo = vec![0u32; n];
-    let mut removidos = 0u32;
+    let mut new = vec![0u32; n];
+    let mut removed = 0u32;
     for i in 0..n {
-        match dono[i] {
+        match owner[i] {
             // Um nó que termina num token absorvido termina no token fundido.
             Some(d) => {
-                novo[i] = novo[d];
-                removidos += 1;
+                new[i] = new[d];
+                removed += 1;
             }
-            None => novo[i] = i as u32 - removidos,
+            None => new[i] = i as u32 - removed,
         }
     }
-    let mut ordenadas: Vec<(usize, Fusao)> = fusoes.to_vec();
-    ordenadas.sort_by_key(|f| std::cmp::Reverse(f.0));
-    for (i, f) in ordenadas {
+    let mut sorted: Vec<(usize, Merge)> = merges.to_vec();
+    sorted.sort_by_key(|f| std::cmp::Reverse(f.0));
+    for (i, f) in sorted {
         match f {
-            Fusao::Maior(a) => toks.combinar_maior(i as Tk, a),
-            Fusao::Colchetes(k) => {
-                let fim = toks.lista[i + k - 1].fim;
-                let colado = toks.lista[i + k - 1].colado;
-                toks.lista.drain(i + 1..i + k);
-                toks.lista[i].fim = fim;
-                toks.lista[i].colado = colado;
+            Merge::Greater(a) => toks.merge_greater(i as Tk, a),
+            Merge::Brackets(k) => {
+                let end = toks.list[i + k - 1].end;
+                let glued = toks.list[i + k - 1].glued;
+                toks.list.drain(i + 1..i + k);
+                toks.list[i].end = end;
+                toks.list[i].glued = glued;
             }
         }
     }
-    let mapa = |t: &mut Tk| *t = novo[*t as usize];
-    for d in &mut arv.nos {
-        d.inicio = novo[d.inicio as usize];
-        d.fim = novo[d.fim as usize];
-        verify::tokens_mut(&mut d.no, &mut |t| mapa(t));
+    let map = |t: &mut Tk| *t = new[*t as usize];
+    for d in &mut tree_.nodes {
+        d.start = new[d.start as usize];
+        d.end = new[d.end as usize];
+        verify::tokens_mut(&mut d.node, &mut |t| map(t));
     }
 }
 
 /// Classe de palavra do fasta para identificadores embutidos e
 /// pseudo-palavras (`KeywordStyle`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Estilo {
-    Embutida,
+enum WordStyle {
+    BuiltIn,
     Pseudo,
-    Nenhum,
+    NoneKind,
 }
 
-fn estilo(texto: &str) -> Estilo {
+fn word_style(texto: &str) -> WordStyle {
     match texto {
         "abstract" | "as" | "covariant" | "deferred" | "dynamic" | "export" | "extension"
         | "external" | "factory" | "Function" | "get" | "implements" | "import" | "interface"
         | "late" | "library" | "mixin" | "operator" | "part" | "required" | "set" | "static"
-        | "typedef" => Estilo::Embutida,
+        | "typedef" => WordStyle::BuiltIn,
         "async" | "await" | "base" | "hide" | "inout" | "native" | "of" | "on" | "out"
-        | "patch" | "sealed" | "show" | "source" | "sync" | "when" | "yield" => Estilo::Pseudo,
-        _ => Estilo::Nenhum,
+        | "patch" | "sealed" | "show" | "source" | "sync" | "when" | "yield" => WordStyle::Pseudo,
+        _ => WordStyle::NoneKind,
     }
 }
 
 /// O cursor e o estado do parser.
 pub(crate) struct Parser<'f> {
-    fonte: &'f str,
+    source: &'f str,
     toks: Tokens,
     /// Para cada `(`, `[`, `{` e `${`, o índice do fecho correspondente.
-    pares: Vec<u32>,
+    pairs: Vec<u32>,
     pos: usize,
-    arv: Arvore,
-    fusoes: Vec<(usize, Fusao)>,
-    assinc: Assinc,
-    laco: Laco,
+    tree_: Tree,
+    merges: Vec<(usize, Merge)>,
+    async_kind: AsyncKind,
+    loop_: LoopState,
     /// `mayParseFunctionExpressions` do fasta.
-    funcoes: bool,
+    functions: bool,
     /// `allowPatterns` do fasta (versão >= 3.0).
-    padroes: bool,
+    patterns_: bool,
     /// Versão da linguagem em vigor.
-    versao: (u32, u32),
+    version: (u32, u32),
     /// Primeiro uso de recurso acima da versão em vigor.
-    erro_de_versao: Option<ErroSintaxe>,
-    profundidade: u32,
+    version_error: Option<ErroSintaxe>,
+    depth: u32,
     /// `isLastPatternAllowedInsideUnaryPattern` do fasta.
-    padrao_unario_ok: bool,
+    unary_pattern_ok: bool,
 }
 
 impl<'f> Parser<'f> {
-    fn novo(fonte: &'f str, toks: Tokens) -> R<Parser<'f>> {
-        let n = toks.lista.len();
-        let mut pares = vec![u32::MAX; n];
-        let mut pilha: Vec<usize> = Vec::new();
-        for (i, t) in toks.lista.iter().enumerate() {
+    fn new(source: &'f str, toks: Tokens) -> R<Parser<'f>> {
+        let n = toks.list.len();
+        let mut pairs = vec![u32::MAX; n];
+        let mut stack: Vec<usize> = Vec::new();
+        for (i, t) in toks.list.iter().enumerate() {
             match t.tipo {
-                TipoToken::Op(Op::LParen | Op::LBracket | Op::LBrace)
-                | TipoToken::InterpolacaoExpressao => pilha.push(i),
-                TipoToken::Op(o @ (Op::RParen | Op::RBracket | Op::RBrace)) => {
-                    let Some(a) = pilha.pop() else {
-                        return Err(erro_token(fonte, t, &format!("Unexpected '{}'.", o.text())));
+                TokenKind::Op(Op::LParen | Op::LBracket | Op::LBrace)
+                | TokenKind::ExpressionInterpolation => stack.push(i),
+                TokenKind::Op(o @ (Op::RParen | Op::RBracket | Op::RBrace)) => {
+                    let Some(a) = stack.pop() else {
+                        return Err(token_error(source, t, &format!("Unexpected '{}'.", o.text())));
                     };
-                    let esperado = match toks.lista[a].tipo {
-                        TipoToken::Op(Op::LParen) => Op::RParen,
-                        TipoToken::Op(Op::LBracket) => Op::RBracket,
+                    let expected = match toks.list[a].tipo {
+                        TokenKind::Op(Op::LParen) => Op::RParen,
+                        TokenKind::Op(Op::LBracket) => Op::RBracket,
                         _ => Op::RBrace,
                     };
-                    if esperado != o {
-                        return Err(erro_token(
-                            fonte,
-                            &toks.lista[a],
-                            &format!("Expected '{}' to match.", esperado.text()),
+                    if expected != o {
+                        return Err(token_error(
+                            source,
+                            &toks.list[a],
+                            &format!("Expected '{}' to match.", expected.text()),
                         ));
                     }
-                    pares[a] = i as u32;
-                    pares[i] = a as u32;
+                    pairs[a] = i as u32;
+                    pairs[i] = a as u32;
                 }
                 _ => {}
             }
         }
-        if let Some(&a) = pilha.last() {
-            return Err(erro_token(fonte, &toks.lista[a], "Unbalanced bracket."));
+        if let Some(&a) = stack.last() {
+            return Err(token_error(source, &toks.list[a], "Unbalanced bracket."));
         }
-        conferir_lacunas(fonte, &toks)?;
+        check_gaps(source, &toks)?;
         Ok(Parser {
-            fonte,
+            source,
             toks,
-            pares,
+            pairs,
             pos: 0,
-            arv: Arvore::default(),
-            fusoes: Vec::new(),
-            assinc: Assinc::Sinc,
-            laco: Laco::Fora,
-            funcoes: true,
-            padroes: true,
-            versao: (3, 6),
-            erro_de_versao: None,
-            profundidade: 0,
-            padrao_unario_ok: false,
+            tree_: Tree::default(),
+            merges: Vec::new(),
+            async_kind: AsyncKind::SyncKind,
+            loop_: LoopState::Fora,
+            functions: true,
+            patterns_: true,
+            version: (3, 6),
+            version_error: None,
+            depth: 0,
+            unary_pattern_ok: false,
         })
     }
 
     // ------------------------------------------------------------ tokens
 
     fn tk(&self, i: usize) -> &Token {
-        let n = self.toks.lista.len();
-        &self.toks.lista[i.min(n - 1)]
+        let n = self.toks.list.len();
+        &self.toks.list[i.min(n - 1)]
     }
 
-    fn tipo(&self, i: usize) -> TipoToken {
+    fn tipo(&self, i: usize) -> TokenKind {
         self.tk(i).tipo
     }
 
     fn txt(&self, i: usize) -> &'f str {
         let t = self.tk(i);
-        &self.fonte[t.inicio..t.fim]
+        &self.source[t.start..t.end]
     }
 
     fn op(&self, i: usize, o: Op) -> bool {
-        self.tipo(i) == TipoToken::Op(o)
+        self.tipo(i) == TokenKind::Op(o)
     }
 
     fn kw(&self, i: usize, k: Keyword) -> bool {
-        self.tipo(i) == TipoToken::Reservada(k)
+        self.tipo(i) == TokenKind::Reserved(k)
     }
 
     /// `isIdentifier` do fasta: identificador comum, embutido ou pseudo.
     fn ident(&self, i: usize) -> bool {
-        self.tipo(i) == TipoToken::Identificador
+        self.tipo(i) == TokenKind::Identifier
     }
 
     /// `kind == IDENTIFIER_TOKEN`: identificador que não é embutido nem
     /// pseudo-palavra.
     fn ident_puro(&self, i: usize) -> bool {
-        self.ident(i) && estilo(self.txt(i)) == Estilo::Nenhum
+        self.ident(i) && word_style(self.txt(i)) == WordStyle::NoneKind
     }
 
-    fn embutida(&self, i: usize) -> bool {
-        self.ident(i) && estilo(self.txt(i)) == Estilo::Embutida
+    fn built_in(&self, i: usize) -> bool {
+        self.ident(i) && word_style(self.txt(i)) == WordStyle::BuiltIn
     }
 
     fn pseudo(&self, i: usize) -> bool {
-        self.ident(i) && estilo(self.txt(i)) == Estilo::Pseudo
+        self.ident(i) && word_style(self.txt(i)) == WordStyle::Pseudo
     }
 
     /// Identificador com o texto `s` (palavras contextuais).
-    fn pal(&self, i: usize, s: &str) -> bool {
+    fn word(&self, i: usize, s: &str) -> bool {
         self.ident(i) && self.txt(i) == s
     }
 
     /// `isKeywordOrIdentifier`.
-    fn palavra(&self, i: usize) -> bool {
+    fn word_(&self, i: usize) -> bool {
         matches!(
             self.tipo(i),
-            TipoToken::Identificador | TipoToken::Reservada(_)
+            TokenKind::Identifier | TokenKind::Reserved(_)
         )
     }
 
     fn eof(&self, i: usize) -> bool {
-        self.tipo(i) == TipoToken::Eof
+        self.tipo(i) == TokenKind::Eof
     }
 
     fn texto(&self, i: usize) -> bool {
-        self.tipo(i) == TipoToken::Texto
+        self.tipo(i) == TokenKind::Text
     }
 
     /// Fecho do grupo aberto em `i`.
-    fn par(&self, i: usize) -> usize {
-        let p = self.pares.get(i).copied().unwrap_or(u32::MAX);
+    fn pair(&self, i: usize) -> usize {
+        let p = self.pairs.get(i).copied().unwrap_or(u32::MAX);
         if p == u32::MAX {
-            self.toks.lista.len() - 1
+            self.toks.list.len() - 1
         } else {
             p as usize
         }
@@ -425,29 +425,29 @@ impl<'f> Parser<'f> {
     /// `isModifier` do fasta (`modifier_context.dart`): os embutidos só são
     /// modificadores antes de outra palavra (ou de um tipo record seguido de
     /// nome).
-    fn modificador(&self, i: usize) -> bool {
+    fn modifier(&self, i: usize) -> bool {
         let t = self.txt(i);
         match self.tipo(i) {
-            TipoToken::Reservada(Keyword::Const | Keyword::Final | Keyword::Var) => true,
-            TipoToken::Identificador
+            TokenKind::Reserved(Keyword::Const | Keyword::Final | Keyword::Var) => true,
+            TokenKind::Identifier
                 if matches!(
                     t,
                     "abstract" | "covariant" | "external" | "late" | "required" | "static"
                 ) =>
             {
                 let n = i + 1;
-                if !self.palavra(n) || self.kw(n, Keyword::In) {
+                if !self.word_(n) || self.kw(n, Keyword::In) {
                     if self.op(n, Op::LParen) {
-                        let depois = self.par(n) + 1;
+                        let after = self.pair(n) + 1;
                         let this_super = |p: &Self, k: usize| {
                             (p.kw(k, Keyword::This) || p.kw(k, Keyword::Super))
                                 && p.op(k + 1, Op::Dot)
                         };
-                        if self.ident(depois) || this_super(self, depois) {
+                        if self.ident(after) || this_super(self, after) {
                             return true;
                         }
-                        if self.op(depois, Op::Question)
-                            && (self.ident(depois + 1) || this_super(self, depois + 1))
+                        if self.op(after, Op::Question)
+                            && (self.ident(after + 1) || this_super(self, after + 1))
                         {
                             return true;
                         }
@@ -462,9 +462,9 @@ impl<'f> Parser<'f> {
 
     /// Operador definível pelo usuário começando em `i` e quantos tokens
     /// nossos ele ocupa (`isUserDefinableOperator`).
-    fn operador_definivel(&self, i: usize) -> Option<usize> {
+    fn user_definable_operator(&self, i: usize) -> Option<usize> {
         match self.tipo(i) {
-            TipoToken::Op(
+            TokenKind::Op(
                 Op::EqEq
                 | Op::Lt
                 | Op::LtEq
@@ -480,15 +480,15 @@ impl<'f> Parser<'f> {
                 | Op::LtLt
                 | Op::Tilde,
             ) => Some(1),
-            TipoToken::Op(Op::Gt) => match self.toks.maior_composto(i as Tk) {
+            TokenKind::Op(Op::Gt) => match self.toks.composed_greater(i as Tk) {
                 None => Some(1),
                 Some(">>") => Some(2),
                 Some(">=") => Some(2),
                 Some(">>>") => Some(3),
                 Some(_) => None,
             },
-            TipoToken::Op(Op::LBracket) if self.op(i + 1, Op::RBracket) && self.tk(i).colado => {
-                if self.op(i + 2, Op::Assign) && self.tk(i + 1).colado {
+            TokenKind::Op(Op::LBracket) if self.op(i + 1, Op::RBracket) && self.tk(i).glued => {
+                if self.op(i + 2, Op::Assign) && self.tk(i + 1).glued {
                     Some(3)
                 } else {
                     Some(2)
@@ -500,65 +500,65 @@ impl<'f> Parser<'f> {
 
     // ------------------------------------------------------------ erros
 
-    fn erro_em(&self, i: usize, msg: &str) -> ErroSintaxe {
-        erro_token(self.fonte, self.tk(i), msg)
+    fn error_at(&self, i: usize, msg: &str) -> ErroSintaxe {
+        token_error(self.source, self.tk(i), msg)
     }
 
-    fn erro(&self, msg: &str) -> ErroSintaxe {
-        self.erro_em(self.pos, msg)
+    fn error(&self, msg: &str) -> ErroSintaxe {
+        self.error_at(self.pos, msg)
     }
 
-    fn esperado(&self, o: &str) -> ErroSintaxe {
-        let achado = self.txt(self.pos);
-        self.erro(&format!("Expected '{o}' before '{achado}'."))
+    fn expected(&self, o: &str) -> ErroSintaxe {
+        let found = self.txt(self.pos);
+        self.error(&format!("Expected '{o}' before '{found}'."))
     }
 
     // ------------------------------------------------------------ cursor
 
-    fn avancar(&mut self) -> usize {
+    fn advance(&mut self) -> usize {
         let i = self.pos;
         self.pos += 1;
         i
     }
 
-    fn espera_op(&mut self, o: Op) -> R<usize> {
+    fn expect_op(&mut self, o: Op) -> R<usize> {
         if self.op(self.pos, o) {
-            Ok(self.avancar())
+            Ok(self.advance())
         } else {
-            Err(self.esperado(o.text()))
+            Err(self.expected(o.text()))
         }
     }
 
-    fn espera_kw(&mut self, k: Keyword) -> R<usize> {
+    fn expect_kw(&mut self, k: Keyword) -> R<usize> {
         if self.kw(self.pos, k) {
-            Ok(self.avancar())
+            Ok(self.advance())
         } else {
-            Err(self.esperado(k.text()))
+            Err(self.expected(k.text()))
         }
     }
 
-    fn espera_pal(&mut self, s: &str) -> R<usize> {
-        if self.pal(self.pos, s) {
-            Ok(self.avancar())
+    fn expect_word(&mut self, s: &str) -> R<usize> {
+        if self.word(self.pos, s) {
+            Ok(self.advance())
         } else {
-            Err(self.esperado(s))
+            Err(self.expected(s))
         }
     }
 
-    fn opcional_op(&mut self, o: Op) -> Option<usize> {
+    fn optional_op(&mut self, o: Op) -> Option<usize> {
         if self.op(self.pos, o) {
-            Some(self.avancar())
+            Some(self.advance())
         } else {
             None
         }
     }
 
     /// `ensureIdentifier` para nomes: um identificador (qualquer estilo).
-    fn espera_ident(&mut self) -> R<usize> {
+    fn expect_ident(&mut self) -> R<usize> {
         if self.ident(self.pos) {
-            Ok(self.avancar())
+            Ok(self.advance())
         } else {
-            Err(self.erro(&format!(
+            Err(self.error(&format!(
                 "Expected an identifier, but got '{}'.",
                 self.txt(self.pos)
             )))
@@ -567,49 +567,49 @@ impl<'f> Parser<'f> {
 
     /// Identificador ou `new` (nas continuações em que o fasta reescreve
     /// `new` como identificador: `A.new`).
-    fn espera_ident_ou_new(&mut self) -> R<usize> {
+    fn expect_ident_or_new(&mut self) -> R<usize> {
         if self.kw(self.pos, Keyword::New) {
-            return Ok(self.avancar());
+            return Ok(self.advance());
         }
-        self.espera_ident()
+        self.expect_ident()
     }
 
     /// Nome declarado (variável, parâmetro, função local): além de
     /// identificador, `await`/`yield` não valem fora de corpo síncrono comum
     /// (`checkAsyncAwaitYieldAsIdentifier`).
-    fn espera_nome_declarado(&mut self) -> R<usize> {
-        let i = self.espera_ident()?;
-        self.conferir_await_yield(i)?;
+    fn expect_declared_name(&mut self) -> R<usize> {
+        let i = self.expect_ident()?;
+        self.check_await_yield(i)?;
         Ok(i)
     }
 
-    fn conferir_await_yield(&self, i: usize) -> R<()> {
-        if self.assinc != Assinc::Sinc && matches!(self.txt(i), "await" | "yield") {
-            return Err(self.erro_em(i, "'await' and 'yield' can't be used as identifiers here."));
+    fn check_await_yield(&self, i: usize) -> R<()> {
+        if self.async_kind != AsyncKind::SyncKind && matches!(self.txt(i), "await" | "yield") {
+            return Err(self.error_at(i, "'await' and 'yield' can't be used as identifiers here."));
         }
         Ok(())
     }
 
     /// Anota a fusão do `>` em `i` com os seguintes, formando `alvo`.
-    fn fundir_maior(&mut self, i: usize, alvo: &'static str) {
+    fn merge_greater_at(&mut self, i: usize, alvo: &'static str) {
         if alvo.starts_with(">>>") {
-            self.recurso(i, (2, 14), "triple-shift");
+            self.feature(i, (2, 14), "triple-shift");
         }
-        self.fusoes.push((i, Fusao::Maior(alvo)));
+        self.merges.push((i, Merge::Greater(alvo)));
     }
 
     /// Consome um operador definível pelo usuário (nome de `operator` ou de
     /// símbolo `#`), anotando as fusões necessárias; devolve o token.
-    fn consumir_operador_definivel(&mut self) -> R<usize> {
+    fn consume_user_definable_operator(&mut self) -> R<usize> {
         let i = self.pos;
-        let Some(n) = self.operador_definivel(i) else {
-            return Err(self.erro("Expected an operator."));
+        let Some(n) = self.user_definable_operator(i) else {
+            return Err(self.error("Expected an operator."));
         };
         if self.op(i, Op::Gt) && n > 1 {
-            let alvo = self.toks.maior_composto(i as Tk).unwrap_or(">");
-            self.fundir_maior(i, alvo);
+            let alvo = self.toks.composed_greater(i as Tk).unwrap_or(">");
+            self.merge_greater_at(i, alvo);
         } else if self.op(i, Op::LBracket) {
-            self.fusoes.push((i, Fusao::Colchetes(n)));
+            self.merges.push((i, Merge::Brackets(n)));
         }
         self.pos += n;
         Ok(i)
@@ -618,9 +618,9 @@ impl<'f> Parser<'f> {
     /// Recurso da linguagem que exige a versão `minima`: antes dela o
     /// analyzer relata `EXPERIMENT_NOT_ENABLED`, que é erro sintático. O
     /// primeiro erro fica guardado e é devolvido no fim da análise.
-    fn recurso(&mut self, i: usize, minima: (u32, u32), nome: &str) {
-        if self.versao < minima && self.erro_de_versao.is_none() {
-            self.erro_de_versao = Some(self.erro_em(
+    fn feature(&mut self, i: usize, minima: (u32, u32), nome: &str) {
+        if self.version < minima && self.version_error.is_none() {
+            self.version_error = Some(self.error_at(
                 i,
                 &format!("This requires the '{nome}' language feature to be enabled."),
             ));
@@ -629,94 +629,94 @@ impl<'f> Parser<'f> {
 
     // ------------------------------------------------------------ nós
 
-    /// Cria o nó `no` de `ini` até o último token consumido.
-    fn no(&mut self, no: No, ini: usize) -> NoId {
-        let fim = self.pos.saturating_sub(1).max(ini);
-        self.arv.novo(no, ini as Tk, fim as Tk)
+    /// Cria o nó `node` de `start_` até o último token consumido.
+    fn node(&mut self, node: Node, start_: usize) -> NodeId {
+        let end = self.pos.saturating_sub(1).max(start_);
+        self.tree_.new(node, start_ as Tk, end as Tk)
     }
 
-    fn no_entre(&mut self, no: No, ini: usize, fim: usize) -> NoId {
-        self.arv.novo(no, ini as Tk, fim as Tk)
+    fn node_between(&mut self, node: Node, start_: usize, end: usize) -> NodeId {
+        self.tree_.new(node, start_ as Tk, end as Tk)
     }
 
-    fn ini(&self, id: NoId) -> usize {
-        self.arv.inicio(id) as usize
+    fn start_(&self, id: NodeId) -> usize {
+        self.tree_.start(id) as usize
     }
 
-    fn fim(&self, id: NoId) -> usize {
-        self.arv.fim(id) as usize
+    fn end(&self, id: NodeId) -> usize {
+        self.tree_.end(id) as usize
     }
 
-    fn simples(&mut self, i: usize) -> NoId {
-        self.no_entre(No::SimpleIdentifier { token: i as Tk }, i, i)
+    fn simple(&mut self, i: usize) -> NodeId {
+        self.node_between(Node::SimpleIdentifier { token: i as Tk }, i, i)
     }
 
-    fn e_simples(&self, id: NoId) -> bool {
-        matches!(self.arv.no(id), No::SimpleIdentifier { .. })
+    fn is_simple(&self, id: NodeId) -> bool {
+        matches!(self.tree_.node(id), Node::SimpleIdentifier { .. })
     }
 
     /// Roda `f` como sonda: devolve a posição alcançada se `f` teve sucesso
     /// e desfaz todo efeito (nós, fusões, cursor e estado).
-    fn sondar<T>(&mut self, f: impl FnOnce(&mut Self) -> R<T>) -> Option<usize> {
+    fn probe<T>(&mut self, f: impl FnOnce(&mut Self) -> R<T>) -> Option<usize> {
         let pos = self.pos;
-        let nos = self.arv.nos.len();
-        let fusoes = self.fusoes.len();
-        let (assinc, laco, funcoes, prof, unario) = (
-            self.assinc,
-            self.laco,
-            self.funcoes,
-            self.profundidade,
-            self.padrao_unario_ok,
+        let nodes = self.tree_.nodes.len();
+        let merges = self.merges.len();
+        let (async_kind, loop_, functions, prof, unary) = (
+            self.async_kind,
+            self.loop_,
+            self.functions,
+            self.depth,
+            self.unary_pattern_ok,
         );
         let r = f(self);
-        let alcancado = self.pos;
+        let reached = self.pos;
         self.pos = pos;
-        self.arv.nos.truncate(nos);
-        self.fusoes.truncate(fusoes);
-        self.assinc = assinc;
-        self.laco = laco;
-        self.funcoes = funcoes;
-        self.profundidade = prof;
-        self.padrao_unario_ok = unario;
-        r.ok().map(|_| alcancado)
+        self.tree_.nodes.truncate(nodes);
+        self.merges.truncate(merges);
+        self.async_kind = async_kind;
+        self.loop_ = loop_;
+        self.functions = functions;
+        self.depth = prof;
+        self.unary_pattern_ok = unary;
+        r.ok().map(|_| reached)
     }
 
-    fn entrar(&mut self) -> R<()> {
-        self.profundidade += 1;
-        if self.profundidade > PROFUNDIDADE_MAXIMA {
-            return Err(self.erro("The file has too many nested expressions or statements."));
+    fn enter_(&mut self) -> R<()> {
+        self.depth += 1;
+        if self.depth > MAX_DEPTH {
+            return Err(self.error("The file has too many nested expressions or statements."));
         }
         Ok(())
     }
 
     fn sair(&mut self) {
-        self.profundidade -= 1;
+        self.depth -= 1;
     }
 }
 
 /// Entre dois tokens só pode haver brancos e comentários; o scanner do
 /// analyzer relata qualquer outro caractere (`Illegal character`), como o
 /// espaço não separável.
-fn conferir_lacunas(fonte: &str, toks: &Tokens) -> R<()> {
-    let b = fonte.as_bytes();
+fn check_gaps(source: &str, toks: &Tokens) -> R<()> {
+    let b = source.as_bytes();
     let mut ant = 0usize;
     if b.starts_with(&[0xEF, 0xBB, 0xBF]) {
         ant = 3;
     }
-    for t in &toks.lista {
-        let (c0, c1) = t.comentarios;
+    for t in &toks.list {
+        let (c0, c1) = t.comments;
         let mut p = ant;
-        let mut cs = toks.comentarios[c0 as usize..c1 as usize].iter().peekable();
-        while p < t.inicio {
+        let mut cs = toks.comments[c0 as usize..c1 as usize].iter().peekable();
+        while p < t.start {
             if let Some(c) = cs.peek()
-                && c.inicio == p
+                && c.start == p
             {
-                p = c.fim;
+                p = c.end;
                 cs.next();
                 continue;
             }
             if !matches!(b[p], b' ' | b'\t' | b'\n' | b'\r' | 0x0C) {
-                let ch = fonte[p..].chars().next().unwrap_or(' ');
+                let ch = source[p..].chars().next().unwrap_or(' ');
                 return Err(ErroSintaxe {
                     posicao: p,
                     comprimento: ch.len_utf8(),
@@ -725,19 +725,19 @@ fn conferir_lacunas(fonte: &str, toks: &Tokens) -> R<()> {
             }
             p += 1;
         }
-        if t.tipo == TipoToken::ScriptTag {
-            ant = t.fim;
+        if t.tipo == TokenKind::ScriptTag {
+            ant = t.end;
         } else {
-            ant = ant.max(t.fim);
+            ant = ant.max(t.end);
         }
     }
     Ok(())
 }
 
-fn erro_token(_fonte: &str, t: &Token, msg: &str) -> ErroSintaxe {
+fn token_error(_source: &str, t: &Token, msg: &str) -> ErroSintaxe {
     ErroSintaxe {
-        posicao: t.inicio,
-        comprimento: (t.fim - t.inicio).max(1),
+        posicao: t.start,
+        comprimento: (t.end - t.start).max(1),
         mensagem: msg.to_string(),
     }
 }

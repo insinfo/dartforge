@@ -4,439 +4,439 @@
 //!
 //! O original troca o `builder` do visitante pelo de um bloco filho em
 //! `startBlock` e volta ao pai em `endBlock`. Aqui os construtores vivem numa
-//! pilha no visitante; [`Construtor::bloco`] lembra o chunk de bloco cujos
+//! pilha no visitante; [`ChunkBuilder::block`] lembra o chunk de bloco cujos
 //! filhos este construtor escreve, e `endBlock` move a lista para lá.
 
-use super::arena::{Arenas, ChunkId, NinhoId, RegraId, custo, recuo};
+use super::arena::{Arenas, ChunkId, NestingId, RuleId, cost, recuo};
 
 /// Tipo de comentário (`CommentType`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TipoComentario {
+pub enum CommentKind {
     Doc,
-    Linha,
-    Bloco,
-    BlocoEmLinha,
+    Line,
+    Block,
+    InlineBlock,
 }
 
 /// Comentário pronto para escrita (`SourceComment`).
 #[derive(Debug, Clone)]
-pub struct ComentarioFonte {
+pub struct SourceComment {
     pub texto: String,
-    pub tipo: TipoComentario,
-    pub linhas_antes: i32,
-    pub rente: bool,
+    pub tipo: CommentKind,
+    pub lines_before: i32,
+    pub flush_left: bool,
 }
 
 /// `NestingBuilder`.
 #[derive(Debug, Clone)]
-struct Aninhamento {
-    pilha: Vec<i32>,
-    pendente: Option<NinhoId>,
-    atual: NinhoId,
+struct NestingStack {
+    stack: Vec<i32>,
+    pending: Option<NestingId>,
+    current: NestingId,
 }
 
-impl Aninhamento {
+impl NestingStack {
     fn recuo(&self) -> i32 {
-        *self.pilha.last().expect("pilha de recuo")
+        *self.stack.last().expect("pilha de recuo")
     }
 
-    fn corrente(&self) -> NinhoId {
-        self.pendente.unwrap_or(self.atual)
+    fn corrente(&self) -> NestingId {
+        self.pending.unwrap_or(self.current)
     }
 
-    fn aninhar(&mut self, a: &mut Arenas, recuo: i32) {
-        let base = self.pendente.unwrap_or(self.atual);
-        self.pendente = Some(a.aninhar(base, recuo));
+    fn nest(&mut self, a: &mut Arenas, recuo: i32) {
+        let base = self.pending.unwrap_or(self.current);
+        self.pending = Some(a.nest(base, recuo));
     }
 
-    fn desaninhar(&mut self, a: &Arenas) {
-        let base = self.pendente.unwrap_or(self.atual);
-        self.pendente = a.ninhos[base as usize].pai;
-        debug_assert!(self.pendente.is_some(), "unnest sem nest");
+    fn unnest_(&mut self, a: &Arenas) {
+        let base = self.pending.unwrap_or(self.current);
+        self.pending = a.nestings[base as usize].parent;
+        debug_assert!(self.pending.is_some(), "unnest sem nest");
     }
 
-    fn confirmar(&mut self) {
-        if let Some(p) = self.pendente.take() {
-            self.atual = p;
+    fn commit(&mut self) {
+        if let Some(p) = self.pending.take() {
+            self.current = p;
         }
     }
 }
 
 /// `ChunkBuilder`.
 #[derive(Debug)]
-pub struct Construtor {
+pub struct ChunkBuilder {
     /// O chunk de bloco cujos filhos este construtor escreve; `None` no
     /// construtor de topo.
-    pub bloco: Option<ChunkId>,
+    pub block: Option<ChunkId>,
     pub chunks: Vec<ChunkId>,
-    novas_linhas_pendentes: u8,
-    espaco_pendente: bool,
-    aninhado_pendente: bool,
-    rente_pendente: bool,
-    apos_comentario: bool,
-    regras: Vec<RegraId>,
-    regras_duras: Vec<RegraId>,
-    regras_preguicosas: Vec<RegraId>,
-    spans_abertos: Vec<(usize, i32)>,
-    aninhamento: Aninhamento,
-    aninhamento_de_argumento: Vec<NinhoId>,
-    impedir_quebra: i32,
+    pending_newlines: u8,
+    pending_space: bool,
+    pending_nested: bool,
+    pending_flush_left: bool,
+    after_comment: bool,
+    rules: Vec<RuleId>,
+    hard_rules: Vec<RuleId>,
+    lazy_rules_: Vec<RuleId>,
+    open_spans: Vec<(usize, i32)>,
+    nesting: NestingStack,
+    argument_nesting: Vec<NestingId>,
+    prevent_split: i32,
 }
 
-fn termina_com_ident(texto: &str) -> bool {
+fn ends_with_ident(texto: &str) -> bool {
     texto.as_bytes().last().is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_')
 }
 
-fn comentario_de_metodo_generico(c: &ComentarioFonte) -> bool {
+fn is_generic_method_comment(c: &SourceComment) -> bool {
     c.texto.starts_with("/*<") || c.texto.starts_with("/*=")
 }
 
-impl Construtor {
-    fn base(a: &mut Arenas, bloco: Option<ChunkId>) -> Construtor {
-        let raiz = a.novo_ninho_raiz();
-        let mut c = Construtor {
-            bloco,
+impl ChunkBuilder {
+    fn base(a: &mut Arenas, block: Option<ChunkId>) -> ChunkBuilder {
+        let root = a.new_root_nesting();
+        let mut c = ChunkBuilder {
+            block,
             chunks: Vec::new(),
-            novas_linhas_pendentes: 0,
-            espaco_pendente: false,
-            aninhado_pendente: false,
-            rente_pendente: false,
-            apos_comentario: false,
-            regras: Vec::new(),
-            regras_duras: Vec::new(),
-            regras_preguicosas: Vec::new(),
-            spans_abertos: Vec::new(),
-            aninhamento: Aninhamento {
-                pilha: vec![0],
-                pendente: None,
-                atual: raiz,
+            pending_newlines: 0,
+            pending_space: false,
+            pending_nested: false,
+            pending_flush_left: false,
+            after_comment: false,
+            rules: Vec::new(),
+            hard_rules: Vec::new(),
+            lazy_rules_: Vec::new(),
+            open_spans: Vec::new(),
+            nesting: NestingStack {
+                stack: vec![0],
+                pending: None,
+                current: root,
             },
-            aninhamento_de_argumento: Vec::new(),
-            impedir_quebra: 0,
+            argument_nesting: Vec::new(),
+            prevent_split: 0,
         };
-        c.iniciar_aninhamento_de_argumento();
+        c.start_argument_nesting();
         c
     }
 
     /// `ChunkBuilder(formatter, source)`: o construtor de topo.
-    pub fn topo(a: &mut Arenas, recuo_inicial: i32) -> Construtor {
-        let mut c = Construtor::base(a, None);
+    pub fn topo(a: &mut Arenas, initial_indent: i32) -> ChunkBuilder {
+        let mut c = ChunkBuilder::base(a, None);
         // `indent(_formatter.indent)` antes de `startBlockArgumentNesting`.
-        c.aninhamento.pilha.push(recuo_inicial);
+        c.nesting.stack.push(initial_indent);
         c
     }
 
     /// A regra mais interna (`rule`).
-    pub fn regra(&self) -> RegraId {
-        *self.regras.last().expect("regra ativa")
+    pub fn rule(&self) -> RuleId {
+        *self.rules.last().expect("regra ativa")
     }
 
     /// `write(string, mergeEmptySplits:)`.
-    pub fn escrever(&mut self, a: &mut Arenas, texto: &str, juntar_vazias: bool) {
-        self.emitir_branco_pendente(a, false, juntar_vazias);
-        self.escrever_texto(a, texto, None);
-        let preguicosas = std::mem::take(&mut self.regras_preguicosas);
-        for r in preguicosas {
-            self.ativar_regra(a, r);
+    pub fn write(&mut self, a: &mut Arenas, texto: &str, merge_empty: bool) {
+        self.emit_pending_whitespace(a, false, merge_empty);
+        self.write_text(a, texto, None);
+        let lazy_rules = std::mem::take(&mut self.lazy_rules_);
+        for r in lazy_rules {
+            self.activate_rule(a, r);
         }
-        self.aninhamento.confirmar();
-        self.apos_comentario = false;
+        self.nesting.commit();
+        self.after_comment = false;
     }
 
     /// `writeNewline(isDouble:, flushLeft:, nest:)`.
-    pub fn nova_linha(&mut self, duplo: bool, rente: bool, aninhar: bool) {
-        self.novas_linhas_pendentes = if duplo { 2 } else { 1 };
-        self.rente_pendente = rente;
-        self.aninhado_pendente = aninhar;
+    pub fn newline(&mut self, double: bool, flush_left: bool, nest: bool) {
+        self.pending_newlines = if double { 2 } else { 1 };
+        self.pending_flush_left = flush_left;
+        self.pending_nested = nest;
     }
 
     /// `writeSpace()`.
-    pub fn espaco(&mut self) {
-        self.espaco_pendente = true;
+    pub fn space(&mut self) {
+        self.pending_space = true;
     }
 
     /// `split(nest:, space:)`.
-    pub fn quebra(&mut self, a: &mut Arenas, aninhar: bool, espaco: bool) -> ChunkId {
-        if self.impedir_quebra > 0 {
-            self.novas_linhas_pendentes = 0;
-            self.aninhado_pendente = false;
-            if espaco {
-                self.espaco_pendente = true;
+    pub fn split(&mut self, a: &mut Arenas, nest: bool, space: bool) -> ChunkId {
+        if self.prevent_split > 0 {
+            self.pending_newlines = 0;
+            self.pending_nested = false;
+            if space {
+                self.pending_space = true;
             }
             return a.chunk_falso();
         }
-        if self.novas_linhas_pendentes > 0 {
+        if self.pending_newlines > 0 {
             return a.chunk_falso();
         }
-        self.escrever_quebra(a, false, false, aninhar, espaco, true)
+        self.write_split(a, false, false, nest, space, true)
     }
 
     /// `writeComments(comments, linesBeforeToken, token)`.
-    pub fn escrever_comentarios(&mut self, a: &mut Arenas, comentarios: &mut [ComentarioFonte], linhas_antes_do_token: i32, token: &str) {
-        if self.novas_linhas_pendentes == 2 && comentarios[0].linhas_antes < 2 {
-            if linhas_antes_do_token > 1 {
-                self.nova_linha(false, false, false);
+    pub fn write_comments(&mut self, a: &mut Arenas, comments: &mut [SourceComment], lines_before_token: i32, token: &str) {
+        if self.pending_newlines == 2 && comments[0].lines_before < 2 {
+            if lines_before_token > 1 {
+                self.newline(false, false, false);
             } else {
-                for c in comentarios.iter().skip(1) {
-                    if c.linhas_antes > 1 {
-                        self.nova_linha(false, false, false);
+                for c in comments.iter().skip(1) {
+                    if c.lines_before > 1 {
+                        self.newline(false, false, false);
                         break;
                     }
                 }
             }
         }
 
-        if self.apos_comentario && self.novas_linhas_pendentes > 0 {
-            comentarios[0].linhas_antes = 1;
-            self.novas_linhas_pendentes = 0;
+        if self.after_comment && self.pending_newlines > 0 {
+            comments[0].lines_before = 1;
+            self.pending_newlines = 0;
         }
 
-        if linhas_antes_do_token == 0
-            && i32::from(self.novas_linhas_pendentes) > comentarios[0].linhas_antes
-            && comentarios.iter().all(|c| c.tipo == TipoComentario::BlocoEmLinha)
+        if lines_before_token == 0
+            && i32::from(self.pending_newlines) > comments[0].lines_before
+            && comments.iter().all(|c| c.tipo == CommentKind::InlineBlock)
         {
-            comentarios[0].linhas_antes = i32::from(self.novas_linhas_pendentes);
+            comments[0].lines_before = i32::from(self.pending_newlines);
         }
 
-        for i in 0..comentarios.len() {
-            let comentario = comentarios[i].clone();
-            let chunk = self.chunk_para_comentario(a, &comentario, token);
+        for i in 0..comments.len() {
+            let comment = comments[i].clone();
+            let chunk = self.chunk_for_comment(a, &comment, token);
             if let Some(chunk) = chunk {
-                self.espaco_pendente = self.precisa_espaco_antes(a, &comentario, chunk);
+                self.pending_space = self.needs_space_before(a, &comment, chunk);
                 let ultimo = *self.chunks.last().expect("chunk");
-                if self.espaco_pendente && chunk != ultimo {
-                    a.atualizar_quebra(ultimo, None, false, Some(true));
+                if self.pending_space && chunk != ultimo {
+                    a.update_split(ultimo, None, false, Some(true));
                 }
             } else {
-                if self.novas_linhas_pendentes == 0 {
-                    if comentario.linhas_antes > 0 && (self.apos_comentario || comentario.tipo != TipoComentario::BlocoEmLinha) {
-                        let duplo = self.precisa_linha_em_branco(a, &comentario);
-                        self.nova_linha(duplo, comentario.rente, true);
+                if self.pending_newlines == 0 {
+                    if comment.lines_before > 0 && (self.after_comment || comment.tipo != CommentKind::InlineBlock) {
+                        let double = self.needs_blank_line(a, &comment);
+                        self.newline(double, comment.flush_left, true);
                     } else if let Some(&ultimo) = self.chunks.last() {
-                        self.espaco_pendente = self.precisa_espaco_antes(a, &comentario, ultimo);
+                        self.pending_space = self.needs_space_before(a, &comment, ultimo);
                     }
                 } else {
-                    self.rente_pendente = comentario.rente;
+                    self.pending_flush_left = comment.flush_left;
                 }
-                let duplo = self.precisa_linha_em_branco(a, &comentario);
-                self.emitir_branco_pendente(a, duplo, true);
+                let double = self.needs_blank_line(a, &comment);
+                self.emit_pending_whitespace(a, double, true);
             }
 
-            self.escrever_texto(a, &comentario.texto, chunk);
+            self.write_text(a, &comment.texto, chunk);
 
-            let mut linhas_depois;
-            if i < comentarios.len() - 1 {
-                linhas_depois = comentarios[i + 1].linhas_antes;
+            let mut lines_after;
+            if i < comments.len() - 1 {
+                lines_after = comments[i + 1].lines_before;
             } else {
-                linhas_depois = linhas_antes_do_token;
-                if linhas_depois == 0 && comentarios.last().expect("comentário").texto.contains('\n') {
-                    linhas_depois = 1;
+                lines_after = lines_before_token;
+                if lines_after == 0 && comments.last().expect("comentário").texto.contains('\n') {
+                    lines_after = 1;
                 }
             }
-            if linhas_depois > 0 {
-                let duplo = self.novas_linhas_pendentes == 2 || linhas_depois > 1;
-                self.nova_linha(duplo, false, true);
+            if lines_after > 0 {
+                let double = self.pending_newlines == 2 || lines_after > 1;
+                self.newline(double, false, true);
             }
         }
 
-        let ultimo = comentarios.last().expect("comentário").clone();
-        self.espaco_pendente = self.precisa_espaco_depois(a, &ultimo, token);
-        self.apos_comentario = true;
+        let ultimo = comments.last().expect("comentário").clone();
+        self.pending_space = self.needs_space_after(a, &ultimo, token);
+        self.after_comment = true;
     }
 
     /// `indent([spaces])`.
-    pub fn recuar(&mut self, espacos: Option<i32>) {
-        let e = espacos.unwrap_or(recuo::BLOCK);
-        debug_assert!(self.aninhamento.pendente.is_none());
-        let topo = self.aninhamento.recuo();
-        self.aninhamento.pilha.push(topo + e);
+    pub fn indent(&mut self, spaces: Option<i32>) {
+        let e = spaces.unwrap_or(recuo::BLOCK);
+        debug_assert!(self.nesting.pending.is_none());
+        let topo = self.nesting.recuo();
+        self.nesting.stack.push(topo + e);
     }
 
     /// `unindent()`.
-    pub fn desrecuar(&mut self) {
-        debug_assert!(self.aninhamento.pendente.is_none());
-        self.aninhamento.pilha.pop();
-        debug_assert!(!self.aninhamento.pilha.is_empty());
+    pub fn unindent_(&mut self) {
+        debug_assert!(self.nesting.pending.is_none());
+        self.nesting.stack.pop();
+        debug_assert!(!self.nesting.stack.is_empty());
     }
 
     /// `startSpan([cost])`.
-    pub fn iniciar_span(&mut self, custo: i32) {
-        self.spans_abertos.push((self.chunks.len(), custo));
+    pub fn start_span_(&mut self, cost: i32) {
+        self.open_spans.push((self.chunks.len(), cost));
     }
 
     /// `endSpan()`.
-    pub fn terminar_span(&mut self, a: &mut Arenas) {
-        let (inicio, custo) = self.spans_abertos.pop().expect("span aberto");
-        let fim = self.chunks.len();
-        if inicio == fim {
+    pub fn end_span_(&mut self, a: &mut Arenas) {
+        let (start, cost) = self.open_spans.pop().expect("span aberto");
+        let end = self.chunks.len();
+        if start == end {
             return;
         }
-        let span = a.novo_span(custo);
-        for i in inicio..fim {
+        let span = a.new_span(cost);
+        for i in start..end {
             let c = self.chunks[i];
-            let r = a.chunks[c as usize].regra;
-            if !a.endurecida(r) {
+            let r = a.chunks[c as usize].rule;
+            if !a.is_hardened(r) {
                 a.chunks[c as usize].spans.push(span);
             }
         }
     }
 
     /// `startRule([rule])`.
-    pub fn iniciar_regra(&mut self, a: &mut Arenas, regra: Option<RegraId>) {
-        let r = regra.unwrap_or_else(|| a.regra(custo::NORMAL));
-        let preguicosas = std::mem::take(&mut self.regras_preguicosas);
-        for p in preguicosas {
-            self.ativar_regra(a, p);
+    pub fn start_rule_(&mut self, a: &mut Arenas, rule: Option<RuleId>) {
+        let r = rule.unwrap_or_else(|| a.rule(cost::NORMAL));
+        let lazy_rules = std::mem::take(&mut self.lazy_rules_);
+        for p in lazy_rules {
+            self.activate_rule(a, p);
         }
-        self.ativar_regra(a, r);
+        self.activate_rule(a, r);
     }
 
-    fn ativar_regra(&mut self, a: &mut Arenas, r: RegraId) {
-        for &externa in &self.regras {
-            if !a.quebra_com_internas(externa) {
+    fn activate_rule(&mut self, a: &mut Arenas, r: RuleId) {
+        for &outer in &self.rules {
+            if !a.splits_with_inner(outer) {
                 continue;
             }
-            a.restringir_quando_quebra(r, externa);
+            a.constrain_when_split(r, outer);
         }
-        self.regras.push(r);
+        self.rules.push(r);
     }
 
     /// `startLazyRule([rule])`.
-    pub fn iniciar_regra_preguicosa(&mut self, a: &mut Arenas, regra: Option<RegraId>) {
-        let r = regra.unwrap_or_else(|| a.regra(custo::NORMAL));
-        self.regras_preguicosas.push(r);
+    pub fn start_lazy_rule_(&mut self, a: &mut Arenas, rule: Option<RuleId>) {
+        let r = rule.unwrap_or_else(|| a.rule(cost::NORMAL));
+        self.lazy_rules_.push(r);
     }
 
     /// `endRule()`.
-    pub fn terminar_regra(&mut self) {
-        if !self.regras_preguicosas.is_empty() {
-            self.regras_preguicosas.pop();
+    pub fn end_rule_(&mut self) {
+        if !self.lazy_rules_.is_empty() {
+            self.lazy_rules_.pop();
         } else {
-            self.regras.pop();
+            self.rules.pop();
         }
     }
 
     /// `forceRules()`.
-    pub fn forcar_regras(&mut self, a: &Arenas) {
-        self.tratar_quebra_dura(a);
+    pub fn force_rules_(&mut self, a: &Arenas) {
+        self.handle_hard_split(a);
     }
 
     /// `nestExpression(indent:, now:)`.
-    pub fn aninhar_expressao(&mut self, a: &mut Arenas, recuo: Option<i32>, agora: bool) {
-        self.aninhamento.aninhar(a, recuo.unwrap_or(recuo::EXPRESSION));
+    pub fn nest_expression_at(&mut self, a: &mut Arenas, recuo: Option<i32>, agora: bool) {
+        self.nesting.nest(a, recuo.unwrap_or(recuo::EXPRESSION));
         if agora {
-            self.aninhamento.confirmar();
+            self.nesting.commit();
         }
     }
 
     /// `unnest(now:)`.
-    pub fn desaninhar(&mut self, a: &Arenas, agora: bool) {
-        self.aninhamento.desaninhar(a);
+    pub fn unnest_(&mut self, a: &Arenas, agora: bool) {
+        self.nesting.unnest_(a);
         if agora {
-            self.aninhamento.confirmar();
+            self.nesting.commit();
         }
     }
 
     /// `startBlockArgumentNesting()`.
-    pub fn iniciar_aninhamento_de_argumento(&mut self) {
-        self.aninhamento_de_argumento.push(self.aninhamento.corrente());
+    pub fn start_argument_nesting(&mut self) {
+        self.argument_nesting.push(self.nesting.corrente());
     }
 
     /// `endBlockArgumentNesting()`.
-    pub fn terminar_aninhamento_de_argumento(&mut self) {
-        self.aninhamento_de_argumento.pop();
+    pub fn end_argument_nesting(&mut self) {
+        self.argument_nesting.pop();
     }
 
     /// `startBlock(argumentChunk:, indent:, space:)`: cria o chunk de bloco
     /// aqui e devolve o construtor dos filhos.
-    pub fn iniciar_bloco(&mut self, a: &mut Arenas, argumento: Option<ChunkId>, recuar: bool, espaco: bool) -> Construtor {
-        let regra = *self.regras.last().expect("regra do bloco");
-        let ninho = *self.aninhamento_de_argumento.last().expect("aninhamento de argumento");
-        let chunk = a.novo_bloco(argumento, regra, self.aninhamento.recuo(), ninho, espaco, self.rente_pendente);
+    pub fn start_block(&mut self, a: &mut Arenas, argument: Option<ChunkId>, indent: bool, space: bool) -> ChunkBuilder {
+        let rule = *self.rules.last().expect("regra do bloco");
+        let nesting_ = *self.argument_nesting.last().expect("aninhamento de argumento");
+        let chunk = a.new_block(argument, rule, self.nesting.recuo(), nesting_, space, self.pending_flush_left);
         self.chunks.push(chunk);
-        self.rente_pendente = false;
+        self.pending_flush_left = false;
 
-        let mut filho = Construtor::base(a, Some(chunk));
-        if recuar {
-            filho.recuar(None);
+        let mut child = ChunkBuilder::base(a, Some(chunk));
+        if indent {
+            child.indent(None);
         }
-        let dura = a.regra_dura();
-        filho.iniciar_regra(a, Some(dura));
-        filho.quebra(a, false, espaco);
-        filho
+        let hard = a.hard_rule();
+        child.start_rule_(a, Some(hard));
+        child.split(a, false, space);
+        child
     }
 
     /// `endBlock(forceSplit:)`, primeira metade: fecha os filhos, move-os
     /// para o chunk de bloco e diz se o pai deve forçar as regras.
-    pub fn terminar_bloco(mut self, a: &mut Arenas, forcar: bool) -> bool {
-        self.dividir_chunks(a);
-        let mut forcar = forcar || self.aninhado_pendente;
-        if !forcar {
-            let mut comprimento = 0usize;
-            let primeira = self.regras.first().copied();
+    pub fn end_block(mut self, a: &mut Arenas, force: bool) -> bool {
+        self.divide_chunks(a);
+        let mut force = force || self.pending_nested;
+        if !force {
+            let mut length = 0usize;
+            let first_ = self.rules.first().copied();
             for &c in &self.chunks {
-                comprimento += a.chunks[c as usize].comprimento() + a.comprimento_bloco(c);
-                if comprimento > a.largura {
-                    forcar = true;
+                length += a.chunks[c as usize].length() + a.block_length(c);
+                if length > a.largura {
+                    force = true;
                     break;
                 }
-                let r = a.chunks[c as usize].regra;
-                if a.endurecida(r) && Some(r) != primeira {
-                    forcar = true;
+                let r = a.chunks[c as usize].rule;
+                if a.is_hardened(r) && Some(r) != first_ {
+                    force = true;
                     break;
                 }
             }
         }
-        let bloco = self.bloco.expect("endBlock fora de bloco");
-        if let Some(b) = &mut a.chunks[bloco as usize].bloco {
-            b.filhos = std::mem::take(&mut self.chunks);
+        let block = self.block.expect("endBlock fora de bloco");
+        if let Some(b) = &mut a.chunks[block as usize].block {
+            b.children = std::mem::take(&mut self.chunks);
         }
-        forcar
+        force
     }
 
     /// `end()`: divide os chunks de topo e devolve a lista.
-    pub fn terminar(mut self, a: &mut Arenas) -> Vec<ChunkId> {
-        debug_assert!(self.regras.is_empty());
-        self.dividir_chunks(a);
+    pub fn finish(mut self, a: &mut Arenas) -> Vec<ChunkId> {
+        debug_assert!(self.rules.is_empty());
+        self.divide_chunks(a);
         self.chunks
     }
 
     /// `preventSplit()`.
-    pub fn impedir_quebras(&mut self) {
-        self.impedir_quebra += 1;
+    pub fn prevent_splits(&mut self) {
+        self.prevent_split += 1;
     }
 
     /// `endPreventSplit()`.
-    pub fn liberar_quebras(&mut self) {
-        self.impedir_quebra -= 1;
-        debug_assert!(self.impedir_quebra >= 0);
+    pub fn allow_splits(&mut self) {
+        self.prevent_split -= 1;
+        debug_assert!(self.prevent_split >= 0);
     }
 
-    fn emitir_branco_pendente(&mut self, a: &mut Arenas, duplo: bool, juntar_vazias: bool) {
-        if self.novas_linhas_pendentes == 0 {
+    fn emit_pending_whitespace(&mut self, a: &mut Arenas, double: bool, merge_empty: bool) {
+        if self.pending_newlines == 0 {
             return;
         }
-        let duplo = duplo || self.novas_linhas_pendentes == 2;
-        let aninhar = self.aninhado_pendente;
-        self.escrever_quebra(a, true, duplo, aninhar, false, juntar_vazias);
+        let double = double || self.pending_newlines == 2;
+        let nest = self.pending_nested;
+        self.write_split(a, true, double, nest, false, merge_empty);
     }
 
-    fn chunk_para_comentario(&self, a: &Arenas, c: &ComentarioFonte, token: &str) -> Option<ChunkId> {
+    fn chunk_for_comment(&self, a: &Arenas, c: &SourceComment, token: &str) -> Option<ChunkId> {
         if self.chunks.is_empty() {
             return None;
         }
-        if c.linhas_antes != 0 {
+        if c.lines_before != 0 {
             return None;
         }
-        if c.tipo == TipoComentario::Doc || c.tipo == TipoComentario::Bloco {
+        if c.tipo == CommentKind::Doc || c.tipo == CommentKind::Block {
             return None;
         }
         let mut chunk = *self.chunks.last().expect("chunk");
-        if a.chunks[chunk as usize].texto.is_empty() && self.chunks.len() > 1 && (!comentario_de_metodo_generico(c) || token != "(") {
+        if a.chunks[chunk as usize].texto.is_empty() && self.chunks.len() > 1 && (!is_generic_method_comment(c) || token != "(") {
             chunk = self.chunks[self.chunks.len() - 2];
         }
         let texto = &a.chunks[chunk as usize].texto;
-        if texto.ends_with(',') && c.tipo == TipoComentario::BlocoEmLinha {
+        if texto.ends_with(',') && c.tipo == CommentKind::InlineBlock {
             return None;
         }
         if texto.ends_with('(') || texto.ends_with('[') || (texto.ends_with('{') && !texto.ends_with("${")) {
@@ -445,36 +445,36 @@ impl Construtor {
         Some(chunk)
     }
 
-    fn precisa_espaco_antes(&self, a: &Arenas, c: &ComentarioFonte, chunk: ChunkId) -> bool {
+    fn needs_space_before(&self, a: &Arenas, c: &SourceComment, chunk: ChunkId) -> bool {
         let texto = &a.chunks[chunk as usize].texto;
         if texto.is_empty() {
             return false;
         }
-        if c.tipo == TipoComentario::Linha {
+        if c.tipo == CommentKind::Line {
             return true;
         }
-        if comentario_de_metodo_generico(c) && termina_com_ident(texto) {
+        if is_generic_method_comment(c) && ends_with_ident(texto) {
             return false;
         }
         !texto.ends_with('(') && !texto.ends_with('[') && !texto.ends_with('{')
     }
 
-    fn precisa_espaco_depois(&self, a: &Arenas, c: &ComentarioFonte, token: &str) -> bool {
+    fn needs_space_after(&self, a: &Arenas, c: &SourceComment, token: &str) -> bool {
         let ultimo = *self.chunks.last().expect("chunk");
         if a.chunks[ultimo as usize].texto.is_empty() {
             return false;
         }
-        if self.novas_linhas_pendentes > 0 {
+        if self.pending_newlines > 0 {
             return false;
         }
-        if comentario_de_metodo_generico(c) && token == "(" {
+        if is_generic_method_comment(c) && token == "(" {
             return false;
         }
         !matches!(token, ")" | "]" | "}" | "," | ";" | "")
     }
 
-    fn precisa_linha_em_branco(&self, a: &Arenas, c: &ComentarioFonte) -> bool {
-        if c.linhas_antes < 2 {
+    fn needs_blank_line(&self, a: &Arenas, c: &SourceComment) -> bool {
+        if c.lines_before < 2 {
             return false;
         }
         let Some(&ultimo) = self.chunks.last() else {
@@ -487,119 +487,119 @@ impl Construtor {
         true
     }
 
-    fn escrever_quebra(&mut self, a: &mut Arenas, dura: bool, duplo: bool, aninhar: bool, espaco: bool, juntar_vazias: bool) -> ChunkId {
+    fn write_split(&mut self, a: &mut Arenas, hard: bool, double: bool, nest: bool, space: bool, merge_empty: bool) -> ChunkId {
         let chunk;
-        let ultimo_vazio = self.chunks.last().is_some_and(|&c| a.chunks[c as usize].texto.is_empty());
-        if juntar_vazias && ultimo_vazio {
+        let last_empty = self.chunks.last().is_some_and(|&c| a.chunks[c as usize].texto.is_empty());
+        if merge_empty && last_empty {
             chunk = *self.chunks.last().expect("chunk");
-            let mut duplo = duplo;
-            if duplo && self.chunks.len() > 1 && a.chunks[self.chunks[self.chunks.len() - 2] as usize].texto.ends_with('{') {
-                duplo = false;
+            let mut double = double;
+            if double && self.chunks.len() > 1 && a.chunks[self.chunks[self.chunks.len() - 2] as usize].texto.ends_with('{') {
+                double = false;
             }
-            let r = a.chunks[chunk as usize].regra;
-            a.endurecer(r);
-            a.atualizar_quebra(chunk, Some(self.rente_pendente), duplo, None);
+            let r = a.chunks[chunk as usize].rule;
+            a.harden(r);
+            a.update_split(chunk, Some(self.pending_flush_left), double, None);
         } else {
-            let ninho = if aninhar { self.aninhamento.atual } else { a.novo_ninho_raiz() };
-            chunk = self.iniciar_chunk(a, ninho, dura, duplo, espaco);
+            let nesting_ = if nest { self.nesting.current } else { a.new_root_nesting() };
+            chunk = self.start_chunk(a, nesting_, hard, double, space);
         }
-        let r = a.chunks[chunk as usize].regra;
-        if a.endurecida(r) {
-            self.tratar_quebra_dura(a);
+        let r = a.chunks[chunk as usize].rule;
+        if a.is_hardened(r) {
+            self.handle_hard_split(a);
         }
-        self.novas_linhas_pendentes = 0;
-        self.aninhado_pendente = false;
+        self.pending_newlines = 0;
+        self.pending_nested = false;
         chunk
     }
 
-    fn escrever_texto(&mut self, a: &mut Arenas, texto: &str, chunk: Option<ChunkId>) {
+    fn write_text(&mut self, a: &mut Arenas, texto: &str, chunk: Option<ChunkId>) {
         let chunk = match chunk {
             Some(c) => c,
             None => {
                 if self.chunks.is_empty() {
-                    let n = a.novo_ninho_raiz();
-                    self.iniciar_chunk(a, n, true, false, false);
+                    let n = a.new_root_nesting();
+                    self.start_chunk(a, n, true, false, false);
                 }
                 *self.chunks.last().expect("chunk")
             }
         };
-        if self.espaco_pendente && !a.chunks[chunk as usize].texto.is_empty() {
-            a.acrescentar(chunk, " ");
+        if self.pending_space && !a.chunks[chunk as usize].texto.is_empty() {
+            a.append(chunk, " ");
         }
-        self.espaco_pendente = false;
-        a.acrescentar(chunk, texto);
+        self.pending_space = false;
+        a.append(chunk, texto);
     }
 
-    fn iniciar_chunk(&mut self, a: &mut Arenas, ninho: NinhoId, dura: bool, duplo: bool, espaco: bool) -> ChunkId {
-        let regra = if dura { a.regra_dura() } else { *self.regras.last().expect("regra ativa") };
-        let c = a.novo_chunk(regra, self.aninhamento.recuo(), ninho, espaco, self.rente_pendente, duplo);
+    fn start_chunk(&mut self, a: &mut Arenas, nesting_: NestingId, hard: bool, double: bool, space: bool) -> ChunkId {
+        let rule = if hard { a.hard_rule() } else { *self.rules.last().expect("regra ativa") };
+        let c = a.new_chunk(rule, self.nesting.recuo(), nesting_, space, self.pending_flush_left, double);
         self.chunks.push(c);
-        self.rente_pendente = false;
+        self.pending_flush_left = false;
         c
     }
 
-    fn dividir_chunks(&mut self, a: &mut Arenas) {
-        self.endurecer_regras(a);
+    fn divide_chunks(&mut self, a: &mut Arenas) {
+        self.harden_rules(a);
         for (i, &c) in self.chunks.iter().enumerate() {
-            if !self.pode_dividir(a, i, c) {
-                a.chunks[c as usize].divisivel = false;
+            if !self.can_divide(a, i, c) {
+                a.chunks[c as usize].splittable = false;
             }
         }
     }
 
-    fn pode_dividir(&self, a: &Arenas, i: usize, c: ChunkId) -> bool {
+    fn can_divide(&self, a: &Arenas, i: usize, c: ChunkId) -> bool {
         if i == 0 {
             return false;
         }
         let ch = &a.chunks[c as usize];
-        if !a.endurecida(ch.regra) {
+        if !a.is_hardened(ch.rule) {
             return false;
         }
-        if a.aninhado(ch.ninho) {
+        if a.is_nested(ch.nesting_) {
             return false;
         }
-        if ch.bloco.is_some() {
+        if ch.block.is_some() {
             return false;
         }
         true
     }
 
-    fn tratar_quebra_dura(&mut self, a: &Arenas) {
-        let Some(&ultima) = self.regras.last() else {
+    fn handle_hard_split(&mut self, a: &Arenas) {
+        let Some(&ultima) = self.rules.last() else {
             return;
         };
-        if !a.quebra_com_internas(ultima) {
+        if !a.splits_with_inner(ultima) {
             return;
         }
-        if !self.regras_duras.contains(&ultima) {
-            self.regras_duras.push(ultima);
+        if !self.hard_rules.contains(&ultima) {
+            self.hard_rules.push(ultima);
         }
     }
 
-    fn endurecer_regras(&mut self, a: &mut Arenas) {
-        if self.regras_duras.is_empty() {
+    fn harden_rules(&mut self, a: &mut Arenas) {
+        if self.hard_rules.is_empty() {
             return;
         }
-        fn percorrer(a: &mut Arenas, r: RegraId) {
-            a.endurecer(r);
+        fn walk(a: &mut Arenas, r: RuleId) {
+            a.harden(r);
             let mut i = 0;
-            while let Some(outra) = a.restrita(r, i) {
+            while let Some(other) = a.constrained(r, i) {
                 i += 1;
-                if outra == r {
+                if other == r {
                     continue;
                 }
-                let total = a.valor_total(r);
-                if !a.endurecida(outra) && a.restringe(r, total, outra) == Some(a.valor_total(outra)) {
-                    percorrer(a, outra);
+                let total = a.full_value(r);
+                if !a.is_hardened(other) && a.constrains(r, total, other) == Some(a.full_value(other)) {
+                    walk(a, other);
                 }
             }
         }
-        for &r in &self.regras_duras.clone() {
-            percorrer(a, r);
+        for &r in &self.hard_rules.clone() {
+            walk(a, r);
         }
         for &c in &self.chunks {
-            let r = a.chunks[c as usize].regra;
-            if a.endurecida(r) {
+            let r = a.chunks[c as usize].rule;
+            if a.is_hardened(r) {
                 a.chunks[c as usize].spans.clear();
             }
         }

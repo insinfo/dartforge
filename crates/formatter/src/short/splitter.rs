@@ -8,59 +8,59 @@
 
 use std::collections::HashSet;
 
-use super::arena::{Arenas, ChunkId, DEVE_QUEBRAR, NAO_QUEBRA, RegraId, recuo};
-use super::writer::{CacheDeBlocos, formatar_bloco};
+use super::arena::{Arenas, ChunkId, MUST_SPLIT, UNSPLIT, RuleId, recuo};
+use super::writer::{BlockCache, format_block};
 
-const MAX_TENTATIVAS: usize = 5000;
+const MAX_ATTEMPTS: usize = 5000;
 
 /// `SplitSet`.
 #[derive(Debug, Clone)]
-pub struct Quebras {
-    colunas: Vec<i32>,
-    pub custo: i32,
+pub struct Splits {
+    columns: Vec<i32>,
+    pub cost: i32,
 }
 
-impl Quebras {
+impl Splits {
     /// `shouldSplitAt(index)`.
-    pub fn quebra_em(&self, i: usize) -> bool {
-        i < self.colunas.len() && self.colunas[i] != -1
+    pub fn should_split_at(&self, i: usize) -> bool {
+        i < self.columns.len() && self.columns[i] != -1
     }
 
     /// `getColumn(index)`.
-    pub fn coluna(&self, i: usize) -> i32 {
-        self.colunas[i]
+    pub fn column(&self, i: usize) -> i32 {
+        self.columns[i]
     }
 }
 
 /// `RuleSet`: valores por índice de regra.
 #[derive(Debug, Clone)]
-struct Valores(Vec<Option<i32>>);
+struct RuleValues(Vec<Option<i32>>);
 
-impl Valores {
-    fn indice(a: &Arenas, r: RegraId) -> Option<usize> {
-        a.regras[r as usize].indice
+impl RuleValues {
+    fn index(a: &Arenas, r: RuleId) -> Option<usize> {
+        a.rules[r as usize].index
     }
 
-    fn contem(&self, a: &Arenas, r: RegraId) -> bool {
-        if a.endurecida(r) {
+    fn contains_rule(&self, a: &Arenas, r: RuleId) -> bool {
+        if a.is_hardened(r) {
             return true;
         }
-        Self::indice(a, r).and_then(|i| self.0.get(i).copied().flatten()).is_some()
+        Self::index(a, r).and_then(|i| self.0.get(i).copied().flatten()).is_some()
     }
 
-    fn valor(&self, a: &Arenas, r: RegraId) -> i32 {
-        if a.endurecida(r) {
-            return a.valor_total(r);
+    fn value(&self, a: &Arenas, r: RuleId) -> i32 {
+        if a.is_hardened(r) {
+            return a.full_value(r);
         }
-        Self::indice(a, r).and_then(|i| self.0.get(i).copied().flatten()).unwrap_or(NAO_QUEBRA)
+        Self::index(a, r).and_then(|i| self.0.get(i).copied().flatten()).unwrap_or(UNSPLIT)
     }
 
-    fn bruto(&self, a: &Arenas, r: RegraId) -> Option<i32> {
-        Self::indice(a, r).and_then(|i| self.0.get(i).copied().flatten())
+    fn raw(&self, a: &Arenas, r: RuleId) -> Option<i32> {
+        Self::index(a, r).and_then(|i| self.0.get(i).copied().flatten())
     }
 
-    fn definir(&mut self, a: &Arenas, r: RegraId, v: i32) {
-        if let Some(i) = Self::indice(a, r)
+    fn set_value(&mut self, a: &Arenas, r: RuleId, v: i32) {
+        if let Some(i) = Self::index(a, r)
             && i < self.0.len()
         {
             self.0[i] = Some(v);
@@ -68,51 +68,51 @@ impl Valores {
     }
 
     /// `tryBind(rules, rule, value, onSplitRule)`.
-    fn tentar_ligar(&mut self, a: &Arenas, r: RegraId, valor: i32, ao_quebrar: &mut dyn FnMut(RegraId)) -> bool {
-        debug_assert!(!a.endurecida(r));
-        self.definir(a, r, valor);
+    fn try_bind(&mut self, a: &Arenas, r: RuleId, value: i32, on_split: &mut dyn FnMut(RuleId)) -> bool {
+        debug_assert!(!a.is_hardened(r));
+        self.set_value(a, r, value);
         let mut i = 0;
-        while let Some(outra) = a.restrita(r, i) {
+        while let Some(other) = a.constrained(r, i) {
             i += 1;
-            let outro_valor = if a.endurecida(outra) {
-                Some(a.valor_total(outra))
+            let other_value = if a.is_hardened(other) {
+                Some(a.full_value(other))
             } else {
-                self.bruto(a, outra)
+                self.raw(a, other)
             };
-            let restricao = a.restringe(r, valor, outra);
-            match outro_valor {
+            let constraint = a.constrains(r, value, other);
+            match other_value {
                 None => {
-                    if restricao == Some(DEVE_QUEBRAR) {
-                        if a.num_valores(outra) == 2 {
-                            if !self.tentar_ligar(a, outra, 1, ao_quebrar) {
+                    if constraint == Some(MUST_SPLIT) {
+                        if a.num_values(other) == 2 {
+                            if !self.try_bind(a, other, 1, on_split) {
                                 return false;
                             }
                         } else {
-                            ao_quebrar(outra);
+                            on_split(other);
                         }
-                    } else if let Some(c) = restricao {
-                        if !self.tentar_ligar(a, outra, c, ao_quebrar) {
+                    } else if let Some(c) = constraint {
+                        if !self.try_bind(a, other, c, on_split) {
                             return false;
                         }
                     }
                 }
                 Some(ov) => {
-                    if restricao == Some(DEVE_QUEBRAR) {
-                        if ov == NAO_QUEBRA {
+                    if constraint == Some(MUST_SPLIT) {
+                        if ov == UNSPLIT {
                             return false;
                         }
-                    } else if let Some(c) = restricao
+                    } else if let Some(c) = constraint
                         && ov != c
                     {
                         return false;
                     }
-                    let inversa = a.restringe(outra, ov, r);
-                    if inversa == Some(DEVE_QUEBRAR) {
-                        if valor == NAO_QUEBRA {
+                    let inverse = a.constrains(other, ov, r);
+                    if inverse == Some(MUST_SPLIT) {
+                        if value == UNSPLIT {
                             return false;
                         }
-                    } else if let Some(c) = inversa
-                        && valor != c
+                    } else if let Some(c) = inverse
+                        && value != c
                     {
                         return false;
                     }
@@ -124,275 +124,275 @@ impl Valores {
 }
 
 /// `LineSplitter`.
-pub struct DivisorDeLinhas {
+pub struct LineSplitter {
     chunks: Vec<ChunkId>,
-    regras: Vec<RegraId>,
-    recuo_do_bloco: i32,
+    rules: Vec<RuleId>,
+    block_indent: i32,
 }
 
 /// `SolveState`.
 struct Estado {
-    valores: Valores,
-    quebras: Quebras,
-    excesso: i32,
-    completo: bool,
-    vivas: Vec<RegraId>,
-    vivas_set: HashSet<RegraId>,
-    restricoes: Option<Vec<(RegraId, i32)>>,
-    ligadas: Option<HashSet<RegraId>>,
-    soltas: Option<HashSet<RegraId>>,
-    restricoes_soltas: Option<Vec<(RegraId, Vec<i32>)>>,
-    ligadas_em_linhas_soltas: Option<Vec<RegraId>>,
+    values: RuleValues,
+    splits: Splits,
+    overflow: i32,
+    full: bool,
+    live: Vec<RuleId>,
+    live_set: HashSet<RuleId>,
+    constraints: Option<Vec<(RuleId, i32)>>,
+    bound: Option<HashSet<RuleId>>,
+    unbound: Option<HashSet<RuleId>>,
+    unbound_constraints: Option<Vec<(RuleId, Vec<i32>)>>,
+    bound_in_unbound_lines: Option<Vec<RuleId>>,
 }
 
-impl DivisorDeLinhas {
+impl LineSplitter {
     /// `LineSplitter(writer, chunks, blockIndentation)`.
-    pub fn novo(a: &mut Arenas, chunks: Vec<ChunkId>, recuo_do_bloco: i32) -> DivisorDeLinhas {
-        let mut regras: Vec<RegraId> = Vec::new();
-        let mut vistas = HashSet::new();
+    pub fn new(a: &mut Arenas, chunks: Vec<ChunkId>, block_indent: i32) -> LineSplitter {
+        let mut rules: Vec<RuleId> = Vec::new();
+        let mut seen = HashSet::new();
         for &c in &chunks {
-            let r = a.chunks[c as usize].regra;
-            if vistas.insert(r) {
-                regras.push(r);
+            let r = a.chunks[c as usize].rule;
+            if seen.insert(r) {
+                rules.push(r);
             }
         }
-        for (i, &r) in regras.iter().enumerate() {
-            a.regras[r as usize].indice = Some(i);
+        for (i, &r) in rules.iter().enumerate() {
+            a.rules[r as usize].index = Some(i);
         }
-        for &r in &regras {
-            a.esquecer_nao_usadas(r);
+        for &r in &rules {
+            a.forget_unused(r);
         }
-        DivisorDeLinhas {
+        LineSplitter {
             chunks,
-            regras,
-            recuo_do_bloco,
+            rules,
+            block_indent,
         }
     }
 
     /// `apply()`.
-    pub fn aplicar(&self, a: &mut Arenas, cache: &mut CacheDeBlocos) -> Quebras {
-        let mut fila = Fila { itens: Vec::new() };
-        let inicial = self.novo_estado(a, cache, Valores(vec![None; self.regras.len()]));
-        let mut melhor_idx;
-        let mut estados: Vec<Estado> = vec![inicial];
-        melhor_idx = 0usize;
-        fila.adicionar(self, a, &mut estados, 0);
+    pub fn apply(&self, a: &mut Arenas, cache: &mut BlockCache) -> Splits {
+        let mut queue = Queue { items: Vec::new() };
+        let initial = self.new_state(a, cache, RuleValues(vec![None; self.rules.len()]));
+        let mut best_idx;
+        let mut states: Vec<Estado> = vec![initial];
+        best_idx = 0usize;
+        queue.add(self, a, &mut states, 0);
 
-        let mut tentativas = 0;
-        while !fila.itens.is_empty() {
-            let atual = fila.remover_primeiro(self, a, &mut estados);
-            if self.melhor_que(&estados[atual], &estados[melhor_idx]) {
-                melhor_idx = atual;
-                if estados[melhor_idx].excesso == 0 {
+        let mut attempts = 0;
+        while !queue.items.is_empty() {
+            let current = queue.remove_first(self, a, &mut states);
+            if self.better_than(&states[current], &states[best_idx]) {
+                best_idx = current;
+                if states[best_idx].overflow == 0 {
                     break;
                 }
             }
-            let ultrapassou = tentativas > MAX_TENTATIVAS;
-            tentativas += 1;
-            if ultrapassou {
+            let exceeded = attempts > MAX_ATTEMPTS;
+            attempts += 1;
+            if exceeded {
                 break;
             }
-            self.expandir(a, cache, &mut estados, &mut fila, atual);
+            self.expand(a, cache, &mut states, &mut queue, current);
         }
-        estados.swap_remove(melhor_idx).quebras
+        states.swap_remove(best_idx).splits
     }
 
-    fn melhor_que(&self, e: &Estado, outro: &Estado) -> bool {
-        if !e.completo {
+    fn better_than(&self, e: &Estado, other_: &Estado) -> bool {
+        if !e.full {
             return false;
         }
-        if e.excesso != outro.excesso {
-            return e.excesso < outro.excesso;
+        if e.overflow != other_.overflow {
+            return e.overflow < other_.overflow;
         }
-        e.quebras.custo < outro.quebras.custo
+        e.splits.cost < other_.splits.cost
     }
 
-    fn novo_estado(&self, a: &mut Arenas, cache: &mut CacheDeBlocos, valores: Valores) -> Estado {
+    fn new_state(&self, a: &mut Arenas, cache: &mut BlockCache, values: RuleValues) -> Estado {
         let mut e = Estado {
-            valores,
-            quebras: Quebras {
-                colunas: Vec::new(),
-                custo: 0,
+            values,
+            splits: Splits {
+                columns: Vec::new(),
+                cost: 0,
             },
-            excesso: 0,
-            completo: true,
-            vivas: Vec::new(),
-            vivas_set: HashSet::new(),
-            restricoes: None,
-            ligadas: None,
-            soltas: None,
-            restricoes_soltas: None,
-            ligadas_em_linhas_soltas: None,
+            overflow: 0,
+            full: true,
+            live: Vec::new(),
+            live_set: HashSet::new(),
+            constraints: None,
+            bound: None,
+            unbound: None,
+            unbound_constraints: None,
+            bound_in_unbound_lines: None,
         };
-        self.calcular_quebras(a, &mut e);
-        self.calcular_custo(a, cache, &mut e);
+        self.compute_splits(a, &mut e);
+        self.compute_cost(a, cache, &mut e);
         e
     }
 
-    fn calcular_quebras(&self, a: &mut Arenas, e: &mut Estado) {
-        let mut usados = Vec::new();
+    fn compute_splits(&self, a: &mut Arenas, e: &mut Estado) {
+        let mut used = Vec::new();
         for &c in &self.chunks {
-            let r = a.chunks[c as usize].regra;
-            if a.quebra(r, e.valores.valor(a, r), c) {
-                let n = a.chunks[c as usize].ninho;
-                if a.marcar_ninho(n) {
-                    usados.push(n);
-                    a.limpar_total(n);
+            let r = a.chunks[c as usize].rule;
+            if a.split(r, e.values.value(a, r), c) {
+                let n = a.chunks[c as usize].nesting_;
+                if a.mark_nesting(n) {
+                    used.push(n);
+                    a.clear_total(n);
                 }
             }
         }
-        for &n in &usados {
-            a.atualizar_total(n);
+        for &n in &used {
+            a.update_total(n);
         }
-        for &n in &usados {
-            a.desmarcar_ninho(n);
+        for &n in &used {
+            a.unmark_nesting(n);
         }
-        let mut colunas = vec![-1; self.chunks.len()];
+        let mut columns = vec![-1; self.chunks.len()];
         for (i, &c) in self.chunks.iter().enumerate() {
-            let r = a.chunks[c as usize].regra;
-            if a.quebra(r, e.valores.valor(a, r), c) {
+            let r = a.chunks[c as usize].rule;
+            if a.split(r, e.values.value(a, r), c) {
                 let mut col = 0;
                 let ch = &a.chunks[c as usize];
-                if !ch.rente {
-                    col = self.recuo_do_bloco + ch.recuo;
-                    col += a.total_ninho(ch.ninho);
-                    let valores = &e.valores;
-                    if a.recua_bloco(c, &|r| valores.valor(a, r)) {
+                if !ch.flush_left {
+                    col = self.block_indent + ch.recuo;
+                    col += a.nesting_total(ch.nesting_);
+                    let values = &e.values;
+                    if a.indents_block(c, &|r| values.value(a, r)) {
                         col += recuo::EXPRESSION;
                     }
                 }
-                colunas[i] = col;
+                columns[i] = col;
             }
         }
-        e.quebras = Quebras { colunas, custo: 0 };
+        e.splits = Splits { columns, cost: 0 };
     }
 
-    fn calcular_custo(&self, a: &mut Arenas, cache: &mut CacheDeBlocos, e: &mut Estado) {
-        let mut custo = 0;
-        let mut comprimento: i64 = 0;
-        let mut achou_regras = false;
-        let mut inicio = 0usize;
+    fn compute_cost(&self, a: &mut Arenas, cache: &mut BlockCache, e: &mut Estado) {
+        let mut cost = 0;
+        let mut length: i64 = 0;
+        let mut found_rules = false;
+        let mut start = 0usize;
         let largura = a.largura as i64;
 
-        let mut spans_quebrados = Vec::new();
-        let mut ninho_anterior = None;
+        let mut split_spans = Vec::new();
+        let mut previous_nesting = None;
 
-        let fim_de_linha = |a: &mut Arenas, e: &mut Estado, fim: usize, comprimento: i64, inicio: &mut usize, achou: &mut bool| {
-            if comprimento > largura {
-                e.excesso += (comprimento - largura) as i32;
-                if !*achou {
-                    for i in *inicio..fim {
-                        let r = a.chunks[self.chunks[i] as usize].regra;
-                        if adicionar_vivas(a, e, r) {
-                            *achou = true;
+        let line_ending = |a: &mut Arenas, e: &mut Estado, end: usize, length: i64, start: &mut usize, found_it: &mut bool| {
+            if length > largura {
+                e.overflow += (length - largura) as i32;
+                if !*found_it {
+                    for i in *start..end {
+                        let r = a.chunks[self.chunks[i] as usize].rule;
+                        if add_live_rules(a, e, r) {
+                            *found_it = true;
                         }
                     }
                 }
             }
-            *inicio = fim;
+            *start = end;
         };
 
         for i in 0..self.chunks.len() {
             let c = self.chunks[i];
-            if e.quebras.quebra_em(i) {
-                fim_de_linha(a, e, i, comprimento, &mut inicio, &mut achou_regras);
+            if e.splits.should_split_at(i) {
+                line_ending(a, e, i, length, &mut start, &mut found_rules);
                 let spans = a.chunks[c as usize].spans.clone();
                 for s in spans {
-                    if a.marcar_span(s) {
-                        spans_quebrados.push(s);
-                        custo += a.spans[s as usize].custo;
+                    if a.mark_span(s) {
+                        split_spans.push(s);
+                        cost += a.spans[s as usize].cost;
                     }
                 }
-                let ninho = a.chunks[c as usize].ninho;
-                let total = a.total_ninho(ninho);
-                if let Some(ant) = ninho_anterior
+                let nesting_ = a.chunks[c as usize].nesting_;
+                let total = a.nesting_total(nesting_);
+                if let Some(ant) = previous_nesting
                     && total != 0
-                    && total == a.total_ninho(ant)
-                    && ninho != ant
+                    && total == a.nesting_total(ant)
+                    && nesting_ != ant
                 {
-                    e.excesso += 10000;
+                    e.overflow += 10000;
                 }
-                ninho_anterior = Some(ninho);
-                comprimento = e.quebras.coluna(i) as i64;
-            } else if a.chunks[c as usize].espaco {
-                comprimento += 1;
+                previous_nesting = Some(nesting_);
+                length = e.splits.column(i) as i64;
+            } else if a.chunks[c as usize].space {
+                length += 1;
             }
-            if a.chunks[c as usize].bloco.is_some() {
-                if e.quebras.quebra_em(i) {
-                    custo += formatar_bloco(a, cache, c, e.quebras.coluna(i)).custo;
+            if a.chunks[c as usize].block.is_some() {
+                if e.splits.should_split_at(i) {
+                    cost += format_block(a, cache, c, e.splits.column(i)).cost;
                 } else {
-                    comprimento += a.comprimento_bloco(c) as i64;
+                    length += a.block_length(c) as i64;
                 }
             }
-            comprimento += a.chunks[c as usize].comp_texto as i64;
+            length += a.chunks[c as usize].text_len as i64;
         }
 
-        for (i, &r) in self.regras.iter().enumerate() {
-            if let Some(v) = e.valores.0[i]
-                && v != NAO_QUEBRA
+        for (i, &r) in self.rules.iter().enumerate() {
+            if let Some(v) = e.values.0[i]
+                && v != UNSPLIT
             {
-                custo += a.custo(r);
+                cost += a.cost(r);
             }
         }
 
-        for s in spans_quebrados {
-            a.desmarcar_span(s);
+        for s in split_spans {
+            a.unmark_span(s);
         }
 
-        fim_de_linha(a, e, self.chunks.len(), comprimento, &mut inicio, &mut achou_regras);
-        e.quebras.custo = custo;
+        line_ending(a, e, self.chunks.len(), length, &mut start, &mut found_rules);
+        e.splits.cost = cost;
     }
 
     /// `expand()`.
-    fn expandir(&self, a: &mut Arenas, cache: &mut CacheDeBlocos, estados: &mut Vec<Estado>, fila: &mut Fila, atual: usize) {
-        let mut sem_quebra = estados[atual].valores.clone();
-        let mut tentadas = 0;
-        for &r in &self.regras {
-            if estados[atual].vivas_set.contains(&r) {
-                for valor in 1..a.num_valores(r) {
-                    let mut ligadas = sem_quebra.clone();
-                    let mut devem: Option<Vec<RegraId>> = None;
-                    let valido = ligadas.tentar_ligar(a, r, valor, &mut |x| devem.get_or_insert_with(Vec::new).push(x));
-                    if !valido {
+    fn expand(&self, a: &mut Arenas, cache: &mut BlockCache, states: &mut Vec<Estado>, queue: &mut Queue, current: usize) {
+        let mut no_split = states[current].values.clone();
+        let mut attempted = 0;
+        for &r in &self.rules {
+            if states[current].live_set.contains(&r) {
+                for value in 1..a.num_values(r) {
+                    let mut bound = no_split.clone();
+                    let mut must: Option<Vec<RuleId>> = None;
+                    let valid = bound.try_bind(a, r, value, &mut |x| must.get_or_insert_with(Vec::new).push(x));
+                    if !valid {
                         continue;
                     }
-                    let mut novo = self.novo_estado(a, cache, ligadas);
-                    if let Some(devem) = devem {
-                        novo.completo = false;
-                        for x in devem {
-                            if novo.vivas_set.insert(x) {
-                                novo.vivas.push(x);
+                    let mut new = self.new_state(a, cache, bound);
+                    if let Some(must) = must {
+                        new.full = false;
+                        for x in must {
+                            if new.live_set.insert(x) {
+                                new.live.push(x);
                             }
                         }
                     }
-                    estados.push(novo);
-                    let id = estados.len() - 1;
-                    fila.adicionar(self, a, estados, id);
+                    states.push(new);
+                    let id = states.len() - 1;
+                    queue.add(self, a, states, id);
                 }
-                tentadas += 1;
-                if tentadas == estados[atual].vivas.len() {
+                attempted += 1;
+                if attempted == states[current].live.len() {
                     break;
                 }
             }
-            if !estados[atual].valores.contem(a, r) && !sem_quebra.tentar_ligar(a, r, 0, &mut |_| {}) {
+            if !states[current].values.contains_rule(a, r) && !no_split.try_bind(a, r, 0, &mut |_| {}) {
                 break;
             }
         }
     }
 
-    fn valor(&self, a: &Arenas, e: &Estado, r: RegraId) -> i32 {
-        e.valores.valor(a, r)
+    fn value(&self, a: &Arenas, e: &Estado, r: RuleId) -> i32 {
+        e.values.value(a, r)
     }
 
-    /// `compareOverlap(other)`: `<0` se `e` vence, `>0` se `outro` vence, `0`
+    /// `compareOverlap(other)`: `<0` se `e` vence, `>0` se `other_` vence, `0`
     /// se não se sobrepõem.
-    fn comparar_sobreposicao(&self, a: &mut Arenas, estados: &mut [Estado], e: usize, outro: usize) -> i32 {
-        if !self.sobrepoe(a, estados, e, outro) {
+    fn compare_overlap(&self, a: &mut Arenas, states: &mut [Estado], e: usize, other_: usize) -> i32 {
+        if !self.overlaps(a, states, e, other_) {
             return 0;
         }
-        for &r in &self.regras {
-            let v = self.valor(a, &estados[e], r);
-            let ov = self.valor(a, &estados[outro], r);
+        for &r in &self.rules {
+            let v = self.value(a, &states[e], r);
+            let ov = self.value(a, &states[other_], r);
             if v != ov {
                 return if v < ov { -1 } else { 1 };
             }
@@ -400,11 +400,11 @@ impl DivisorDeLinhas {
         panic!("estados repetidos no divisor de linhas");
     }
 
-    fn sobrepoe(&self, a: &mut Arenas, estados: &mut [Estado], e: usize, outro: usize) -> bool {
-        self.preparar_ligadas_em_linhas(a, &mut estados[e]);
-        self.preparar_ligadas_em_linhas(a, &mut estados[outro]);
-        let le = estados[e].ligadas_em_linhas_soltas.as_ref().expect("preparado");
-        let lo = estados[outro].ligadas_em_linhas_soltas.as_ref().expect("preparado");
+    fn overlaps(&self, a: &mut Arenas, states: &mut [Estado], e: usize, other_: usize) -> bool {
+        self.prepare_bound_in_lines(a, &mut states[e]);
+        self.prepare_bound_in_lines(a, &mut states[other_]);
+        let le = states[e].bound_in_unbound_lines.as_ref().expect("preparado");
+        let lo = states[other_].bound_in_unbound_lines.as_ref().expect("preparado");
         if le.len() != lo.len() {
             return false;
         }
@@ -412,15 +412,15 @@ impl DivisorDeLinhas {
             if !lo.contains(&r) {
                 return false;
             }
-            if self.valor(a, &estados[e], r) != self.valor(a, &estados[outro], r) {
+            if self.value(a, &states[e], r) != self.value(a, &states[other_], r) {
                 return false;
             }
         }
 
-        self.preparar_restricoes(a, &mut estados[e]);
-        self.preparar_restricoes(a, &mut estados[outro]);
-        let re = estados[e].restricoes.as_ref().expect("preparado");
-        let ro = estados[outro].restricoes.as_ref().expect("preparado");
+        self.prepare_constraints(a, &mut states[e]);
+        self.prepare_constraints(a, &mut states[other_]);
+        let re = states[e].constraints.as_ref().expect("preparado");
+        let ro = states[other_].constraints.as_ref().expect("preparado");
         if re.len() != ro.len() {
             return false;
         }
@@ -430,22 +430,22 @@ impl DivisorDeLinhas {
             }
         }
 
-        self.preparar_restricoes_soltas(a, &mut estados[e]);
-        self.preparar_restricoes_soltas(a, &mut estados[outro]);
-        let se = estados[e].restricoes_soltas.as_ref().expect("preparado");
-        let so = estados[outro].restricoes_soltas.as_ref().expect("preparado");
-        if se.len() != so.len() {
+        self.prepare_unbound_constraints(a, &mut states[e]);
+        self.prepare_unbound_constraints(a, &mut states[other_]);
+        let if_ = states[e].unbound_constraints.as_ref().expect("preparado");
+        let so = states[other_].unbound_constraints.as_ref().expect("preparado");
+        if if_.len() != so.len() {
             return false;
         }
-        for (r, proibidos) in se {
-            let Some((_, outros)) = so.iter().find(|(o, _)| o == r) else {
+        for (r, forbidden) in if_ {
+            let Some((_, others)) = so.iter().find(|(o, _)| o == r) else {
                 return false;
             };
-            if proibidos.len() != outros.len() {
+            if forbidden.len() != others.len() {
                 return false;
             }
-            for v in proibidos {
-                if !outros.contains(v) {
+            for v in forbidden {
+                if !others.contains(v) {
                     return false;
                 }
             }
@@ -453,157 +453,157 @@ impl DivisorDeLinhas {
         true
     }
 
-    fn preparar_ligadas_em_linhas(&self, a: &Arenas, e: &mut Estado) {
-        if e.ligadas_em_linhas_soltas.is_some() {
+    fn prepare_bound_in_lines(&self, a: &Arenas, e: &mut Estado) {
+        if e.bound_in_unbound_lines.is_some() {
             return;
         }
-        let mut regras: Vec<RegraId> = Vec::new();
-        let mut na_linha: Vec<RegraId> = Vec::new();
-        let mut tem_solta = false;
-        let juntar = |regras: &mut Vec<RegraId>, na_linha: &Vec<RegraId>| {
-            for &r in na_linha {
-                if !regras.contains(&r) {
-                    regras.push(r);
+        let mut rules: Vec<RuleId> = Vec::new();
+        let mut on_line: Vec<RuleId> = Vec::new();
+        let mut has_unbound = false;
+        let join = |rules: &mut Vec<RuleId>, on_line: &Vec<RuleId>| {
+            for &r in on_line {
+                if !rules.contains(&r) {
+                    rules.push(r);
                 }
             }
         };
         for (i, &c) in self.chunks.iter().enumerate() {
-            if e.quebras.quebra_em(i) {
-                if tem_solta {
-                    juntar(&mut regras, &na_linha);
+            if e.splits.should_split_at(i) {
+                if has_unbound {
+                    join(&mut rules, &on_line);
                 }
-                na_linha.clear();
-                tem_solta = false;
+                on_line.clear();
+                has_unbound = false;
             }
-            let r = a.chunks[c as usize].regra;
-            if e.valores.contem(a, r) {
-                if !na_linha.contains(&r) {
-                    na_linha.push(r);
+            let r = a.chunks[c as usize].rule;
+            if e.values.contains_rule(a, r) {
+                if !on_line.contains(&r) {
+                    on_line.push(r);
                 }
             } else {
-                tem_solta = true;
+                has_unbound = true;
             }
         }
-        if tem_solta {
-            juntar(&mut regras, &na_linha);
+        if has_unbound {
+            join(&mut rules, &on_line);
         }
-        e.ligadas_em_linhas_soltas = Some(regras);
+        e.bound_in_unbound_lines = Some(rules);
     }
 
-    fn preparar_restricoes(&self, a: &Arenas, e: &mut Estado) {
-        if e.restricoes.is_some() {
+    fn prepare_constraints(&self, a: &Arenas, e: &mut Estado) {
+        if e.constraints.is_some() {
             return;
         }
-        let mut ligadas = HashSet::new();
-        let mut soltas = HashSet::new();
-        let mut ordem_ligadas = Vec::new();
-        for &r in &self.regras {
-            if e.valores.contem(a, r) {
-                ligadas.insert(r);
-                ordem_ligadas.push(r);
+        let mut bound = HashSet::new();
+        let mut unbound = HashSet::new();
+        let mut bound_order = Vec::new();
+        for &r in &self.rules {
+            if e.values.contains_rule(a, r) {
+                bound.insert(r);
+                bound_order.push(r);
             } else {
-                soltas.insert(r);
+                unbound.insert(r);
             }
         }
-        let mut restricoes: Vec<(RegraId, i32)> = Vec::new();
-        for &l in &ordem_ligadas {
+        let mut constraints: Vec<(RuleId, i32)> = Vec::new();
+        for &l in &bound_order {
             let mut i = 0;
-            while let Some(s) = a.restrita(l, i) {
+            while let Some(s) = a.constrained(l, i) {
                 i += 1;
-                if !soltas.contains(&s) {
+                if !unbound.contains(&s) {
                     continue;
                 }
-                let v = e.valores.valor(a, l);
-                if let Some(c) = a.restringe(l, v, s) {
-                    if let Some(x) = restricoes.iter_mut().find(|(o, _)| *o == s) {
+                let v = e.values.value(a, l);
+                if let Some(c) = a.constrains(l, v, s) {
+                    if let Some(x) = constraints.iter_mut().find(|(o, _)| *o == s) {
                         x.1 = c;
                     } else {
-                        restricoes.push((s, c));
+                        constraints.push((s, c));
                     }
                 }
             }
         }
-        e.restricoes = Some(restricoes);
-        e.ligadas = Some(ligadas);
-        e.soltas = Some(soltas);
+        e.constraints = Some(constraints);
+        e.bound = Some(bound);
+        e.unbound = Some(unbound);
     }
 
-    fn preparar_restricoes_soltas(&self, a: &Arenas, e: &mut Estado) {
-        if e.restricoes_soltas.is_some() {
+    fn prepare_unbound_constraints(&self, a: &Arenas, e: &mut Estado) {
+        if e.unbound_constraints.is_some() {
             return;
         }
-        let ligadas = e.ligadas.as_ref().expect("restrições preparadas");
-        let soltas = e.soltas.as_ref().expect("restrições preparadas");
-        let mut resultado: Vec<(RegraId, Vec<i32>)> = Vec::new();
+        let bound = e.bound.as_ref().expect("restrições preparadas");
+        let unbound = e.unbound.as_ref().expect("restrições preparadas");
+        let mut result: Vec<(RuleId, Vec<i32>)> = Vec::new();
         // `_unboundRules` é um conjunto em ordem de inserção: a ordem das
         // regras do divisor.
-        for &s in self.regras.iter().filter(|r| soltas.contains(r)) {
-            let mut proibidos: Option<Vec<i32>> = None;
+        for &s in self.rules.iter().filter(|r| unbound.contains(r)) {
+            let mut forbidden: Option<Vec<i32>> = None;
             let mut i = 0;
-            while let Some(l) = a.restrita(s, i) {
+            while let Some(l) = a.constrained(s, i) {
                 i += 1;
-                if !ligadas.contains(&l) {
+                if !bound.contains(&l) {
                     continue;
                 }
-                let valor_ligada = e.valores.valor(a, l);
-                for v in 0..a.num_valores(s) {
-                    let Some(c) = a.restringe(s, v, l) else {
+                let bound_value = e.values.value(a, l);
+                for v in 0..a.num_values(s) {
+                    let Some(c) = a.constrains(s, v, l) else {
                         continue;
                     };
-                    if c == valor_ligada {
+                    if c == bound_value {
                         continue;
                     }
-                    if c == DEVE_QUEBRAR && valor_ligada != NAO_QUEBRA {
+                    if c == MUST_SPLIT && bound_value != UNSPLIT {
                         continue;
                     }
-                    let p = proibidos.get_or_insert_with(Vec::new);
+                    let p = forbidden.get_or_insert_with(Vec::new);
                     if !p.contains(&v) {
                         p.push(v);
                     }
                 }
             }
-            if let Some(p) = proibidos {
-                resultado.push((s, p));
+            if let Some(p) = forbidden {
+                result.push((s, p));
             }
         }
-        e.restricoes_soltas = Some(resultado);
+        e.unbound_constraints = Some(result);
     }
 }
 
 /// `_addLiveRules(rule)`.
-fn adicionar_vivas(a: &mut Arenas, e: &mut Estado, r: RegraId) -> bool {
-    let mut adicionou = false;
-    for x in a.todas_restritas(r) {
-        if e.valores.contem(a, x) {
+fn add_live_rules(a: &mut Arenas, e: &mut Estado, r: RuleId) -> bool {
+    let mut added = false;
+    for x in a.all_constrained(r) {
+        if e.values.contains_rule(a, x) {
             continue;
         }
-        if e.vivas_set.insert(x) {
-            e.vivas.push(x);
+        if e.live_set.insert(x) {
+            e.live.push(x);
         }
-        adicionou = true;
+        added = true;
     }
-    adicionou
+    added
 }
 
-/// `SolveStateQueue`: heap binário de índices em `estados`.
-struct Fila {
-    itens: Vec<usize>,
+/// `SolveStateQueue`: heap binário de índices em `states`.
+struct Queue {
+    items: Vec<usize>,
 }
 
-impl Fila {
-    fn comparar_pontos(estados: &[Estado], x: usize, y: usize) -> i32 {
-        let (cx, cy) = (estados[x].quebras.custo, estados[y].quebras.custo);
+impl Queue {
+    fn compare_scores(states: &[Estado], x: usize, y: usize) -> i32 {
+        let (cx, cy) = (states[x].splits.cost, states[y].splits.cost);
         if cx != cy {
             return if cx < cy { -1 } else { 1 };
         }
-        let (ox, oy) = (estados[x].excesso, estados[y].excesso);
+        let (ox, oy) = (states[x].overflow, states[y].overflow);
         ox.cmp(&oy) as i32
     }
 
-    fn comparar_regras(d: &DivisorDeLinhas, a: &Arenas, estados: &[Estado], x: usize, y: usize) -> i32 {
-        for &r in &d.regras {
-            let vx = d.valor(a, &estados[x], r);
-            let vy = d.valor(a, &estados[y], r);
+    fn compare_rules(d: &LineSplitter, a: &Arenas, states: &[Estado], x: usize, y: usize) -> i32 {
+        for &r in &d.rules {
+            let vx = d.value(a, &states[x], r);
+            let vy = d.value(a, &states[y], r);
             if vx != vy {
                 return if vx < vy { -1 } else { 1 };
             }
@@ -611,57 +611,57 @@ impl Fila {
         panic!("estados repetidos na fila do divisor");
     }
 
-    fn comparar(d: &DivisorDeLinhas, a: &Arenas, estados: &[Estado], x: usize, y: usize) -> i32 {
-        let c = Self::comparar_pontos(estados, x, y);
+    fn compare(d: &LineSplitter, a: &Arenas, states: &[Estado], x: usize, y: usize) -> i32 {
+        let c = Self::compare_scores(states, x, y);
         if c != 0 {
             return c;
         }
-        Self::comparar_regras(d, a, estados, x, y)
+        Self::compare_rules(d, a, states, x, y)
     }
 
-    fn adicionar(&mut self, d: &DivisorDeLinhas, a: &mut Arenas, estados: &mut [Estado], e: usize) {
-        if self.tentar_sobrepor(d, a, estados, e) {
+    fn add(&mut self, d: &LineSplitter, a: &mut Arenas, states: &mut [Estado], e: usize) {
+        if self.try_overlap(d, a, states, e) {
             return;
         }
-        self.itens.push(e);
-        let n = self.itens.len() - 1;
-        self.subir(d, a, estados, e, n);
+        self.items.push(e);
+        let n = self.items.len() - 1;
+        self.sift_up(d, a, states, e, n);
     }
 
-    fn remover_primeiro(&mut self, d: &DivisorDeLinhas, a: &Arenas, estados: &mut [Estado]) -> usize {
-        let resultado = self.itens[0];
-        let ultimo = self.itens.pop().expect("fila não vazia");
-        if !self.itens.is_empty() {
-            self.descer(d, a, estados, ultimo, 0);
+    fn remove_first(&mut self, d: &LineSplitter, a: &Arenas, states: &mut [Estado]) -> usize {
+        let result = self.items[0];
+        let ultimo = self.items.pop().expect("fila não vazia");
+        if !self.items.is_empty() {
+            self.sift_down(d, a, states, ultimo, 0);
         }
-        resultado
+        result
     }
 
-    fn tentar_sobrepor(&mut self, d: &DivisorDeLinhas, a: &mut Arenas, estados: &mut [Estado], e: usize) -> bool {
-        let n = self.itens.len();
+    fn try_overlap(&mut self, d: &LineSplitter, a: &mut Arenas, states: &mut [Estado], e: usize) -> bool {
+        let n = self.items.len();
         if n == 0 {
             return false;
         }
         let mut posicao = 1usize;
         loop {
-            let indice = posicao - 1;
-            let enfileirado = self.itens[indice];
-            let mut comparacao = Self::comparar_pontos(estados, enfileirado, e);
-            if comparacao == 0 {
-                let sobre = d.comparar_sobreposicao(a, estados, enfileirado, e);
-                if sobre < 0 {
+            let index = posicao - 1;
+            let enqueued = self.items[index];
+            let mut comparison = Self::compare_scores(states, enqueued, e);
+            if comparison == 0 {
+                let over = d.compare_overlap(a, states, enqueued, e);
+                if over < 0 {
                     return true;
-                } else if sobre > 0 {
-                    self.itens[indice] = e;
+                } else if over > 0 {
+                    self.items[index] = e;
                     return true;
                 } else {
-                    comparacao = Self::comparar_regras(d, a, estados, enfileirado, e);
+                    comparison = Self::compare_rules(d, a, states, enqueued, e);
                 }
             }
-            if comparacao < 0 {
-                let esquerda = posicao * 2;
-                if esquerda <= n {
-                    posicao = esquerda;
+            if comparison < 0 {
+                let left_ = posicao * 2;
+                if left_ <= n {
+                    posicao = left_;
                     continue;
                 }
             }
@@ -681,47 +681,47 @@ impl Fila {
         false
     }
 
-    fn subir(&mut self, d: &DivisorDeLinhas, a: &Arenas, estados: &[Estado], e: usize, mut indice: usize) {
-        while indice > 0 {
-            let pai_i = (indice - 1) / 2;
-            let pai = self.itens[pai_i];
-            if Self::comparar(d, a, estados, e, pai) > 0 {
+    fn sift_up(&mut self, d: &LineSplitter, a: &Arenas, states: &[Estado], e: usize, mut index: usize) {
+        while index > 0 {
+            let parent_i = (index - 1) / 2;
+            let parent = self.items[parent_i];
+            if Self::compare(d, a, states, e, parent) > 0 {
                 break;
             }
-            self.itens[indice] = pai;
-            indice = pai_i;
+            self.items[index] = parent;
+            index = parent_i;
         }
-        self.itens[indice] = e;
+        self.items[index] = e;
     }
 
-    fn descer(&mut self, d: &DivisorDeLinhas, a: &Arenas, estados: &[Estado], e: usize, mut indice: usize) {
-        let n = self.itens.len();
-        let mut direita = indice * 2 + 2;
-        while direita < n {
-            let esquerda = direita - 1;
-            let fe = self.itens[esquerda];
-            let fd = self.itens[direita];
-            let (menor_i, menor) = if Self::comparar(d, a, estados, fe, fd) < 0 {
-                (esquerda, fe)
+    fn sift_down(&mut self, d: &LineSplitter, a: &Arenas, states: &[Estado], e: usize, mut index: usize) {
+        let n = self.items.len();
+        let mut right = index * 2 + 2;
+        while right < n {
+            let left_ = right - 1;
+            let fe = self.items[left_];
+            let fd = self.items[right];
+            let (min_i, smaller) = if Self::compare(d, a, states, fe, fd) < 0 {
+                (left_, fe)
             } else {
-                (direita, fd)
+                (right, fd)
             };
-            if Self::comparar(d, a, estados, e, menor) <= 0 {
-                self.itens[indice] = e;
+            if Self::compare(d, a, states, e, smaller) <= 0 {
+                self.items[index] = e;
                 return;
             }
-            self.itens[indice] = menor;
-            indice = menor_i;
-            direita = indice * 2 + 2;
+            self.items[index] = smaller;
+            index = min_i;
+            right = index * 2 + 2;
         }
-        let esquerda = direita - 1;
-        if esquerda < n {
-            let filho = self.itens[esquerda];
-            if Self::comparar(d, a, estados, e, filho) > 0 {
-                self.itens[indice] = filho;
-                indice = esquerda;
+        let left_ = right - 1;
+        if left_ < n {
+            let child = self.items[left_];
+            if Self::compare(d, a, states, e, child) > 0 {
+                self.items[index] = child;
+                index = left_;
             }
         }
-        self.itens[indice] = e;
+        self.items[index] = e;
     }
 }

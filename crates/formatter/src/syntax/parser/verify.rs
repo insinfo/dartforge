@@ -1,32 +1,32 @@
 //! Conferências da árvore produzida pelo parser e despejo textual.
 //!
-//! * [`tokens_mut`]/[`tokens_do_no`] enumeram os campos de token de cada nó
+//! * [`tokens_mut`]/[`tokens_of_node`] enumeram os campos de token de cada nó
 //!   (o equivalente dos `childEntities` que são tokens no analyzer).
-//! * [`conferir`] verifica a cobertura: todo token (menos o fim do arquivo,
+//! * [`check`] verifica a cobertura: todo token (menos o fim do arquivo,
 //!   as vírgulas e os `.` entre componentes de nomes qualificados e
-//!   símbolos) é referenciado por exatamente um nó; `inicio <= fim`; e o
+//!   símbolos) é referenciado por exatamente um nó; `start <= end`; e o
 //!   intervalo de cada filho fica dentro do intervalo do pai.
-//! * [`despejar`] escreve a árvore no mesmo formato do despejo feito com o
+//! * [`dump`] escreve a árvore no mesmo formato do despejo feito com o
 //!   analyzer, para comparar nó a nó: uma linha por nó em pré-ordem com a
 //!   profundidade, o tipo, os offsets (em bytes) do primeiro e do último
 //!   token e os offsets dos tokens próprios.
 
 use dartforge_frontend::token::Op;
 
-use super::super::tree::{Arvore, No, NoId, TipoParametro};
-use super::super::token::{TipoToken, Tk, Tokens};
+use super::super::tree::{Tree, Node, NodeId, ParameterKind};
+use super::super::token::{TokenKind, Tk, Tokens};
 
-/// Chama `f` para cada campo de token de `no` (mutável), na ordem dos
+/// Chama `f` para cada campo de token de `node` (mutável), na ordem dos
 /// campos.
-pub fn tokens_mut(no: &mut No, f: &mut dyn FnMut(&mut Tk)) {
+pub fn tokens_mut(node: &mut Node, f: &mut dyn FnMut(&mut Tk)) {
     macro_rules! t {
         ($($x:expr),*) => {{ $( f($x); )* }};
     }
     macro_rules! o {
         ($($x:expr),*) => {{ $( if let Some(v) = $x { f(v); } )* }};
     }
-    use No::*;
-    match no {
+    use Node::*;
+    match node {
         CompilationUnit { script_tag, .. } => o!(script_tag),
         LibraryDirective {
             library_keyword,
@@ -823,17 +823,17 @@ pub fn tokens_mut(no: &mut No, f: &mut dyn FnMut(&mut Tk)) {
     }
 }
 
-/// Os tokens próprios de `no`, na ordem dos campos.
-pub fn tokens_do_no(no: &No) -> Vec<Tk> {
-    let mut c = no.clone();
+/// Os tokens próprios de `node`, na ordem dos campos.
+pub fn tokens_of_node(node: &Node) -> Vec<Tk> {
+    let mut c = node.clone();
     let mut v = Vec::new();
     tokens_mut(&mut c, &mut |t| v.push(*t));
     v
 }
 
 /// Nome da variante (o nome da classe do analyzer).
-pub fn nome_do_no(no: &No) -> String {
-    let s = format!("{no:?}");
+pub fn node_name(node: &Node) -> String {
+    let s = format!("{node:?}");
     s.split([' ', '{', '(']).next().unwrap_or("").to_string()
 }
 
@@ -841,96 +841,96 @@ pub fn nome_do_no(no: &No) -> String {
 ///
 /// # Erros
 /// A primeira inconsistência encontrada, descrita em texto.
-pub fn conferir(tokens: &Tokens, arv: &Arvore, fonte: &str) -> Result<(), String> {
-    let n = tokens.lista.len();
-    let mut uso = vec![0u32; n];
-    let mut visto = vec![false; arv.nos.len()];
-    let mut pontos_ok = vec![false; n];
-    let Some(raiz) = arv.raiz else {
+pub fn check(tokens: &Tokens, tree_: &Tree, source: &str) -> Result<(), String> {
+    let n = tokens.list.len();
+    let mut usage = vec![0u32; n];
+    let mut visto = vec![false; tree_.nodes.len()];
+    let mut dots_ok = vec![false; n];
+    let Some(root) = tree_.root else {
         return Err("árvore sem raiz".into());
     };
-    let mut pilha = vec![raiz];
+    let mut stack = vec![root];
     let texto = |i: usize| -> String {
-        let t = &tokens.lista[i];
-        format!("'{}'@{}", &fonte[t.inicio..t.fim], t.inicio)
+        let t = &tokens.list[i];
+        format!("'{}'@{}", &source[t.start..t.end], t.start)
     };
-    while let Some(id) = pilha.pop() {
+    while let Some(id) = stack.pop() {
         let i = id.0 as usize;
         if visto[i] {
-            return Err(format!("nó {} visitado duas vezes", nome_do_no(arv.no(id))));
+            return Err(format!("nó {} visitado duas vezes", node_name(tree_.node(id))));
         }
         visto[i] = true;
-        let d = arv.dados(id);
-        if d.inicio > d.fim {
+        let d = tree_.data(id);
+        if d.start > d.end {
             return Err(format!(
                 "{}: início {} depois do fim {}",
-                nome_do_no(&d.no),
-                texto(d.inicio as usize),
-                texto(d.fim as usize)
+                node_name(&d.node),
+                texto(d.start as usize),
+                texto(d.end as usize)
             ));
         }
-        for t in tokens_do_no(&d.no) {
+        for t in tokens_of_node(&d.node) {
             let t = t as usize;
             if t >= n {
-                return Err(format!("{}: token fora da lista", nome_do_no(&d.no)));
+                return Err(format!("{}: token fora da lista", node_name(&d.node)));
             }
-            let curinga =
-                matches!(d.no, No::WildcardPattern { keyword: Some(k), .. } if k as usize == t);
-            if !curinga && (t < d.inicio as usize || t > d.fim as usize) {
+            let wildcard =
+                matches!(d.node, Node::WildcardPattern { keyword: Some(k), .. } if k as usize == t);
+            if !wildcard && (t < d.start as usize || t > d.end as usize) {
                 return Err(format!(
                     "{} [{}..{}]: token {} fora do intervalo",
-                    nome_do_no(&d.no),
-                    texto(d.inicio as usize),
-                    texto(d.fim as usize),
+                    node_name(&d.node),
+                    texto(d.start as usize),
+                    texto(d.end as usize),
                     texto(t)
                 ));
             }
-            uso[t] += 1;
+            usage[t] += 1;
         }
         if matches!(
-            d.no,
-            No::DottedName { .. } | No::LibraryIdentifier { .. } | No::SymbolLiteral { .. }
+            d.node,
+            Node::DottedName { .. } | Node::LibraryIdentifier { .. } | Node::SymbolLiteral { .. }
         ) {
-            for p in pontos_ok
+            for p in dots_ok
                 .iter_mut()
-                .take(d.fim as usize + 1)
-                .skip(d.inicio as usize)
+                .take(d.end as usize + 1)
+                .skip(d.start as usize)
             {
                 *p = true;
             }
         }
-        let mut filhos = Vec::new();
-        d.no.filhos(&mut |f| filhos.push(f));
-        for f in filhos {
-            let fd = arv.dados(f);
-            if fd.inicio < d.inicio || fd.fim > d.fim {
+        let mut children = Vec::new();
+        d.node.children(&mut |f| children.push(f));
+        for f in children {
+            let fd = tree_.data(f);
+            if fd.start < d.start || fd.end > d.end {
                 return Err(format!(
                     "{} [{}..{}] fora de {} [{}..{}]",
-                    nome_do_no(&fd.no),
-                    texto(fd.inicio as usize),
-                    texto(fd.fim as usize),
-                    nome_do_no(&d.no),
-                    texto(d.inicio as usize),
-                    texto(d.fim as usize)
+                    node_name(&fd.node),
+                    texto(fd.start as usize),
+                    texto(fd.end as usize),
+                    node_name(&d.node),
+                    texto(d.start as usize),
+                    texto(d.end as usize)
                 ));
             }
-            if fd.pai != Some(id) {
-                return Err(format!("{}: pai incorreto", nome_do_no(&fd.no)));
+            if fd.parent != Some(id) {
+                return Err(format!("{}: pai incorreto", node_name(&fd.node)));
             }
-            pilha.push(f);
+            stack.push(f);
         }
     }
-    for (i, &u) in uso.iter().enumerate() {
-        let t = &tokens.lista[i];
-        if t.tipo == TipoToken::Eof {
+    for (i, &u) in usage.iter().enumerate() {
+        let t = &tokens.list[i];
+        if t.tipo == TokenKind::Eof {
             continue;
         }
         if u > 1 {
             return Err(format!("token {} referenciado {} vezes", texto(i), u));
         }
         if u == 0 {
-            let livre = t.tipo == TipoToken::Op(Op::Comma)
-                || (t.tipo == TipoToken::Op(Op::Dot) && pontos_ok[i]);
+            let livre = t.tipo == TokenKind::Op(Op::Comma)
+                || (t.tipo == TokenKind::Op(Op::Dot) && dots_ok[i]);
             if !livre {
                 return Err(format!("token {} não referenciado", texto(i)));
             }
@@ -940,30 +940,30 @@ pub fn conferir(tokens: &Tokens, arv: &Arvore, fonte: &str) -> Result<(), String
 }
 
 /// Despeja a árvore no formato do oráculo (ver o módulo).
-pub fn despejar(tokens: &Tokens, arv: &Arvore) -> String {
+pub fn dump(tokens: &Tokens, tree_: &Tree) -> String {
     let mut s = String::new();
-    if let Some(r) = arv.raiz {
-        despejar_no(tokens, arv, r, 0, &mut s);
+    if let Some(r) = tree_.root {
+        dump_node(tokens, tree_, r, 0, &mut s);
     }
     s
 }
 
-fn despejar_no(tokens: &Tokens, arv: &Arvore, id: NoId, prof: usize, s: &mut String) {
+fn dump_node(tokens: &Tokens, tree_: &Tree, id: NodeId, prof: usize, s: &mut String) {
     use std::fmt::Write;
-    let d = arv.dados(id);
-    let off = |t: Tk| tokens.lista[t as usize].inicio;
-    let mut toks: Vec<usize> = tokens_do_no(&d.no).into_iter().map(off).collect();
+    let d = tree_.data(id);
+    let off = |t: Tk| tokens.list[t as usize].start;
+    let mut toks: Vec<usize> = tokens_of_node(&d.node).into_iter().map(off).collect();
     toks.sort_unstable();
-    let lista: Vec<String> = toks.iter().map(|t| t.to_string()).collect();
-    let tipo = match &d.no {
-        No::SimpleFormalParameter { kind, .. }
-        | No::FieldFormalParameter { kind, .. }
-        | No::SuperFormalParameter { kind, .. }
-        | No::FunctionTypedFormalParameter { kind, .. }
-        | No::DefaultFormalParameter { kind, .. } => match kind {
-            TipoParametro::Obrigatorio => " k=R",
-            TipoParametro::OpcionalPosicional => " k=P",
-            TipoParametro::Nomeado => " k=N",
+    let list: Vec<String> = toks.iter().map(|t| t.to_string()).collect();
+    let tipo = match &d.node {
+        Node::SimpleFormalParameter { kind, .. }
+        | Node::FieldFormalParameter { kind, .. }
+        | Node::SuperFormalParameter { kind, .. }
+        | Node::FunctionTypedFormalParameter { kind, .. }
+        | Node::DefaultFormalParameter { kind, .. } => match kind {
+            ParameterKind::Required => " k=R",
+            ParameterKind::OptionalPositional => " k=P",
+            ParameterKind::Named => " k=N",
         },
         _ => "",
     };
@@ -971,16 +971,16 @@ fn despejar_no(tokens: &Tokens, arv: &Arvore, id: NoId, prof: usize, s: &mut Str
         s,
         "{} {} {} {} {}{}",
         prof,
-        nome_do_no(&d.no),
-        off(d.inicio),
-        off(d.fim),
-        lista.join(","),
+        node_name(&d.node),
+        off(d.start),
+        off(d.end),
+        list.join(","),
         tipo
     );
-    let mut filhos = Vec::new();
-    d.no.filhos(&mut |f| filhos.push(f));
-    filhos.sort_by_key(|&f| off(arv.inicio(f)));
-    for f in filhos {
-        despejar_no(tokens, arv, f, prof + 1, s);
+    let mut children = Vec::new();
+    d.node.children(&mut |f| children.push(f));
+    children.sort_by_key(|&f| off(tree_.start(f)));
+    for f in children {
+        dump_node(tokens, tree_, f, prof + 1, s);
     }
 }

@@ -4,127 +4,127 @@
 
 use dartforge_frontend::token::{Keyword, Op};
 
-use super::super::tree::{No, NoId};
-use super::super::token::{TipoToken, Tk};
-use super::expressions::CtxConst;
-use super::lookahead::{Forma, InfoTipo};
+use super::super::tree::{Node, NodeId};
+use super::super::token::{TokenKind, Tk};
+use super::expressions::ConstCtx;
+use super::lookahead::{Shape, TypeInfo};
 use super::{Parser, R};
 
 /// `PatternContext` do fasta.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum CtxPadrao {
+pub(super) enum PatternCtx {
     /// Declaração (`var (a, b) = ...`): identificadores declaram variáveis.
-    Declaracao,
+    Declaration,
     /// `case`, `if-case` e `switch` como expressão: identificadores são
     /// constantes.
-    Correspondencia,
+    Matching,
     /// Atribuição por padrão: identificadores são variáveis existentes.
-    Atribuicao,
+    Assignment,
 }
 
 impl Parser<'_> {
     /// `parsePattern`.
-    pub(super) fn padrao(&mut self, ctx: CtxPadrao) -> R<NoId> {
-        self.padrao_prec(ctx, 1)
+    pub(super) fn pattern(&mut self, ctx: PatternCtx) -> R<NodeId> {
+        self.pattern_prec(ctx, 1)
     }
 
-    fn padrao_prec(&mut self, ctx: CtxPadrao, precedencia: u8) -> R<NoId> {
-        self.entrar()?;
-        let r = self.padrao_prec_interno(ctx, precedencia);
+    fn pattern_prec(&mut self, ctx: PatternCtx, precedence: u8) -> R<NodeId> {
+        self.enter_()?;
+        let r = self.inner_pattern_prec(ctx, precedence);
         self.sair();
         r
     }
 
-    fn padrao_prec_interno(&mut self, ctx: CtxPadrao, precedencia: u8) -> R<NoId> {
-        let mut p = self.padrao_primario(ctx)?;
+    fn inner_pattern_prec(&mut self, ctx: PatternCtx, precedence: u8) -> R<NodeId> {
+        let mut p = self.primary_pattern(ctx)?;
         // O início dos padrões compostos é o do operando esquerdo (que pode
         // não ser o primeiro token: ver `WildcardPattern`).
-        let ini = self.ini(p);
+        let start_ = self.start_(p);
         loop {
-            let nivel = self.precedencia_em(self.pos, true);
-            if nivel < precedencia {
+            let level = self.precedence_at(self.pos, true);
+            if level < precedence {
                 break;
             }
             let o = self.pos;
-            if self.pal(o, "as") {
-                if !self.padrao_unario_ok {
+            if self.word(o, "as") {
+                if !self.unary_pattern_ok {
                     return Err(
-                        self.erro_em(ini, "This pattern cannot appear inside a unary pattern.")
+                        self.error_at(start_, "This pattern cannot appear inside a unary pattern.")
                     );
                 }
-                self.avancar();
-                let type_ = self.tipo_apos_is_as()?;
-                p = self.no(
-                    No::CastPattern {
+                self.advance();
+                let type_ = self.type_after_is_as()?;
+                p = self.node(
+                    Node::CastPattern {
                         pattern: p,
                         as_token: o as Tk,
                         type_,
                     },
-                    ini,
+                    start_,
                 );
             } else if self.op(o, Op::Bang) || self.op(o, Op::Question) {
-                if !self.padrao_unario_ok {
+                if !self.unary_pattern_ok {
                     return Err(
-                        self.erro_em(ini, "This pattern cannot appear inside a unary pattern.")
+                        self.error_at(start_, "This pattern cannot appear inside a unary pattern.")
                     );
                 }
-                self.avancar();
+                self.advance();
                 p = if self.op(o, Op::Bang) {
-                    self.no(
-                        No::NullAssertPattern {
+                    self.node(
+                        Node::NullAssertPattern {
                             pattern: p,
                             operator: o as Tk,
                         },
-                        ini,
+                        start_,
                     )
                 } else {
-                    self.no(
-                        No::NullCheckPattern {
+                    self.node(
+                        Node::NullCheckPattern {
                             pattern: p,
                             operator: o as Tk,
                         },
-                        ini,
+                        start_,
                     )
                 };
             } else if self.op(o, Op::AmpAmp) || self.op(o, Op::PipePipe) {
-                self.avancar();
-                let direita = self.padrao_prec(ctx, nivel + 1)?;
+                self.advance();
+                let right = self.pattern_prec(ctx, level + 1)?;
                 p = if self.op(o, Op::AmpAmp) {
-                    self.no(
-                        No::LogicalAndPattern {
+                    self.node(
+                        Node::LogicalAndPattern {
                             left_operand: p,
                             operator: o as Tk,
-                            right_operand: direita,
+                            right_operand: right,
                         },
-                        ini,
+                        start_,
                     )
                 } else {
-                    self.no(
-                        No::LogicalOrPattern {
+                    self.node(
+                        Node::LogicalOrPattern {
                             left_operand: p,
                             operator: o as Tk,
-                            right_operand: direita,
+                            right_operand: right,
                         },
-                        ini,
+                        start_,
                     )
                 };
             } else {
                 break;
             }
-            self.padrao_unario_ok = false;
+            self.unary_pattern_ok = false;
         }
         Ok(p)
     }
 
     /// `looksLikePatternStart`.
-    fn parece_inicio_padrao(&self, i: usize) -> bool {
+    fn looks_like_pattern_start(&self, i: usize) -> bool {
         matches!(
             self.tipo(i),
-            TipoToken::Identificador
-                | TipoToken::Duplo
-                | TipoToken::Inteiro
-                | TipoToken::Texto
-                | TipoToken::Op(
+            TokenKind::Identifier
+                | TokenKind::Double
+                | TokenKind::Integer
+                | TokenKind::Text
+                | TokenKind::Op(
                     Op::Hash
                         | Op::LBrace
                         | Op::LParen
@@ -135,7 +135,7 @@ impl Parser<'_> {
                         | Op::BangEq
                         | Op::EqEq
                 )
-                | TipoToken::Reservada(
+                | TokenKind::Reserved(
                     Keyword::Null
                         | Keyword::False
                         | Keyword::True
@@ -147,43 +147,43 @@ impl Parser<'_> {
     }
 
     /// `parsePrimaryPattern`.
-    fn padrao_primario(&mut self, ctx: CtxPadrao) -> R<NoId> {
-        let ini = self.pos;
-        let ta = self.args_tipo_lt(ini, true);
-        let next = ta.map_or(ini, |a| a.ate);
+    fn primary_pattern(&mut self, ctx: PatternCtx) -> R<NodeId> {
+        let start_ = self.pos;
+        let ta = self.type_args_lt(start_, true);
+        let next = ta.map_or(start_, |a| a.end_index);
         if self.op(next, Op::LBracket) || self.op(next, Op::LBrace) {
             let targs = if ta.is_some() {
-                Some(self.args_tipo()?)
+                Some(self.type_args()?)
             } else {
                 None
             };
             let r = if self.op(self.pos, Op::LBracket) {
-                self.lista_padrao(targs, ctx, ini)?
+                self.list_pattern(targs, ctx, start_)?
             } else {
-                self.mapa_padrao(targs, ctx, ini)?
+                self.map_pattern(targs, ctx, start_)?
             };
-            self.padrao_unario_ok = true;
+            self.unary_pattern_ok = true;
             return Ok(r);
         }
-        let i = ini;
+        let i = start_;
         if self.kw(i, Keyword::Var) || self.kw(i, Keyword::Final) {
-            self.padrao_unario_ok = true;
-            return self.padrao_variavel(ctx, None);
+            self.unary_pattern_ok = true;
+            return self.variable_pattern(ctx, None);
         }
         if self.op(i, Op::LParen) {
-            let depois = self.par(i) + 1;
-            if self.ident(depois) || (self.op(depois, Op::Question) && self.ident(depois + 1)) {
-                let ti = self.tipo_de_padrao_variavel_em(i, true);
-                if ti.forma == Forma::Complexo && ti.registro && !ti.recuperado {
-                    self.padrao_unario_ok = true;
-                    return self.padrao_variavel(ctx, Some(ti));
+            let after = self.pair(i) + 1;
+            if self.ident(after) || (self.op(after, Op::Question) && self.ident(after + 1)) {
+                let ti = self.variable_pattern_type_at(i, true);
+                if ti.shape == Shape::Complex && ti.record && !ti.recovered {
+                    self.unary_pattern_ok = true;
+                    return self.variable_pattern(ctx, Some(ti));
                 }
             }
             let r = if self.op(i + 1, Op::RParen) {
-                let lp = self.avancar();
-                let rp = self.avancar();
-                self.no(
-                    No::RecordPattern {
+                let lp = self.advance();
+                let rp = self.advance();
+                self.node(
+                    Node::RecordPattern {
                         left_parenthesis: lp as Tk,
                         fields: Vec::new(),
                         right_parenthesis: rp as Tk,
@@ -191,85 +191,85 @@ impl Parser<'_> {
                     lp,
                 )
             } else {
-                self.parenteses_ou_registro_padrao(ctx)?
+                self.parenthesized_or_record_pattern(ctx)?
             };
-            self.padrao_unario_ok = true;
+            self.unary_pattern_ok = true;
             return Ok(r);
         }
         if self.kw(i, Keyword::Const) {
-            self.avancar();
-            let expression = self.expressao_padrao_constante(CtxConst::Explicito)?;
-            self.padrao_unario_ok = true;
-            return Ok(self.no(
-                No::ConstantPattern {
+            self.advance();
+            let expression = self.constant_pattern_expression(ConstCtx::Explicit)?;
+            self.unary_pattern_ok = true;
+            return Ok(self.node(
+                Node::ConstantPattern {
                     const_keyword: Some(i as Tk),
                     expression,
                 },
                 i,
             ));
         }
-        let relacional = match self.tipo(i) {
-            TipoToken::Op(Op::Lt | Op::LtEq | Op::EqEq | Op::BangEq) => true,
-            TipoToken::Op(Op::Gt) => matches!(self.toks.maior_composto(i as Tk), None | Some(">=")),
+        let relational = match self.tipo(i) {
+            TokenKind::Op(Op::Lt | Op::LtEq | Op::EqEq | Op::BangEq) => true,
+            TokenKind::Op(Op::Gt) => matches!(self.toks.composed_greater(i as Tk), None | Some(">=")),
             _ => false,
         };
-        if relacional {
-            let o = if self.op(i, Op::Gt) && self.toks.maior_composto(i as Tk) == Some(">=") {
-                self.fundir_maior(i, ">=");
+        if relational {
+            let o = if self.op(i, Op::Gt) && self.toks.composed_greater(i as Tk) == Some(">=") {
+                self.merge_greater_at(i, ">=");
                 self.pos += 2;
                 i
             } else {
-                self.avancar()
+                self.advance()
             };
-            let operand = self.operando_relacional()?;
-            self.padrao_unario_ok = false;
-            return Ok(self.no(
-                No::RelationalPattern {
+            let operand = self.relational_operand()?;
+            self.unary_pattern_ok = false;
+            return Ok(self.node(
+                Node::RelationalPattern {
                     operator: o as Tk,
                     operand,
                 },
                 i,
             ));
         }
-        let ti = self.tipo_de_padrao_variavel_em(i, false);
-        if !ti.e_nenhum() {
-            self.padrao_unario_ok = true;
-            return self.padrao_variavel(ctx, Some(ti));
+        let ti = self.variable_pattern_type_at(i, false);
+        if !ti.is_none() {
+            self.unary_pattern_ok = true;
+            return self.variable_pattern(ctx, Some(ti));
         }
         if self.ident(i) {
-            let primeiro = i;
+            let first = i;
             let mut token = i;
-            let mut segundo = None;
+            let mut second = None;
             if self.op(i + 1, Op::Dot) {
                 if !self.ident(i + 2) {
-                    return Err(self.erro_em(i + 2, "Expected an identifier."));
+                    return Err(self.error_at(i + 2, "Expected an identifier."));
                 }
-                segundo = Some(i + 2);
+                second = Some(i + 2);
                 token = i + 2;
             }
-            let potencial = self.args_tipo_em(token, false);
-            let depois = potencial.map_or(token + 1, |a| a.ate);
-            if self.op(depois, Op::LParen) && !potencial.is_some_and(|a| a.recuperado) {
-                let r = self.objeto_padrao(primeiro, segundo, potencial.is_some(), ctx)?;
-                self.padrao_unario_ok = true;
+            let potential = self.type_args_at(token, false);
+            let after = potential.map_or(token + 1, |a| a.end_index);
+            if self.op(after, Op::LParen) && !potential.is_some_and(|a| a.recovered) {
+                let r = self.object_pattern(first, second, potential.is_some(), ctx)?;
+                self.unary_pattern_ok = true;
                 return Ok(r);
-            } else if segundo.is_none() {
-                let nome = self.txt(primeiro);
-                if ctx != CtxPadrao::Correspondencia || nome == "_" {
-                    self.padrao_unario_ok = true;
-                    return self.padrao_variavel(ctx, None);
+            } else if second.is_none() {
+                let nome = self.txt(first);
+                if ctx != PatternCtx::Matching || nome == "_" {
+                    self.unary_pattern_ok = true;
+                    return self.variable_pattern(ctx, None);
                 } else if nome == "when" || nome == "as" {
-                    return Err(self.erro_em(
-                        primeiro,
+                    return Err(self.error_at(
+                        first,
                         "A pattern can't refer to an identifier named 'when' or 'as'.",
                     ));
                 }
             }
         }
-        let expression = self.expressao_padrao_constante(CtxConst::Implicito)?;
-        self.padrao_unario_ok = true;
-        Ok(self.no(
-            No::ConstantPattern {
+        let expression = self.constant_pattern_expression(ConstCtx::Implicit)?;
+        self.unary_pattern_ok = true;
+        Ok(self.node(
+            Node::ConstantPattern {
                 const_keyword: None,
                 expression,
             },
@@ -278,45 +278,45 @@ impl Parser<'_> {
     }
 
     /// `parseVariablePattern`.
-    fn padrao_variavel(&mut self, ctx: CtxPadrao, info: Option<InfoTipo>) -> R<NoId> {
-        let ini = self.pos;
+    fn variable_pattern(&mut self, ctx: PatternCtx, info: Option<TypeInfo>) -> R<NodeId> {
+        let start_ = self.pos;
         let mut keyword = None;
         let mut type_ = None;
         let mut nu = false;
-        if let Some(ti) = info.filter(|t| !t.e_nenhum()) {
-            type_ = Some(self.tipo_ate(ti.ate)?);
+        if let Some(ti) = info.filter(|t| !t.is_none()) {
+            type_ = Some(self.type_until(ti.end_index)?);
         } else if self.kw(self.pos, Keyword::Var) || self.kw(self.pos, Keyword::Final) {
-            keyword = Some(self.avancar());
-            let parenteses = self.op(self.pos, Op::LParen);
-            let ti = self.tipo_de_padrao_variavel_em(self.pos, parenteses);
-            if !ti.e_nenhum() {
-                type_ = Some(self.tipo_ate(ti.ate)?);
+            keyword = Some(self.advance());
+            let parenthesized = self.op(self.pos, Op::LParen);
+            let ti = self.variable_pattern_type_at(self.pos, parenthesized);
+            if !ti.is_none() {
+                type_ = Some(self.type_until(ti.end_index)?);
             }
         } else {
             nu = true;
         }
-        let nome = self.espera_ident()?;
+        let nome = self.expect_ident()?;
         let texto = self.txt(nome);
         match ctx {
-            CtxPadrao::Declaracao => {
+            PatternCtx::Declaration => {
                 if let Some(k) = keyword {
-                    return Err(self.erro_em(
+                    return Err(self.error_at(
                         k,
                         "Variable patterns in declaration context can't specify 'var' or 'final'.",
                     ));
                 }
             }
-            CtxPadrao::Correspondencia => {
+            PatternCtx::Matching => {
                 if type_.is_some() && keyword.is_some_and(|k| self.kw(k, Keyword::Var)) {
-                    return Err(self.erro_em(
+                    return Err(self.error_at(
                         keyword.unwrap_or(nome),
                         "Variables can't be declared using both 'var' and a type name.",
                     ));
                 }
             }
-            CtxPadrao::Atribuicao => {
+            PatternCtx::Assignment => {
                 if !nu {
-                    return Err(self.erro_em(
+                    return Err(self.error_at(
                         nome,
                         "Variable patterns in assignments can't declare variables.",
                     ));
@@ -326,43 +326,43 @@ impl Parser<'_> {
         if texto == "_" {
             // `WildcardPatternImpl.beginToken` é `type?.beginToken ?? name`:
             // o `var`/`final` fica fora do intervalo do nó.
-            let ini = type_.map_or(nome, |t| self.ini(t));
-            return Ok(self.no(
-                No::WildcardPattern {
+            let start_ = type_.map_or(nome, |t| self.start_(t));
+            return Ok(self.node(
+                Node::WildcardPattern {
                     keyword: keyword.map(|k| k as Tk),
                     type_,
                     name: nome as Tk,
                 },
-                ini,
+                start_,
             ));
         }
         if texto == "when" || texto == "as" {
-            return Err(self.erro_em(nome, "A variable pattern can't be named 'when' or 'as'."));
+            return Err(self.error_at(nome, "A variable pattern can't be named 'when' or 'as'."));
         }
-        self.conferir_await_yield(nome)?;
-        if ctx == CtxPadrao::Atribuicao && nu {
-            return Ok(self.no(No::AssignedVariablePattern { name: nome as Tk }, ini));
+        self.check_await_yield(nome)?;
+        if ctx == PatternCtx::Assignment && nu {
+            return Ok(self.node(Node::AssignedVariablePattern { name: nome as Tk }, start_));
         }
-        Ok(self.no(
-            No::DeclaredVariablePattern {
+        Ok(self.node(
+            Node::DeclaredVariablePattern {
                 keyword: keyword.map(|k| k as Tk),
                 type_,
                 name: nome as Tk,
             },
-            ini,
+            start_,
         ))
     }
 
     /// `...` com subpadrão opcional.
-    fn resto_padrao(&mut self, ctx: CtxPadrao) -> R<NoId> {
-        let o = self.avancar();
-        let pattern = if self.parece_inicio_padrao(self.pos) {
-            Some(self.padrao(ctx)?)
+    fn pattern_rest(&mut self, ctx: PatternCtx) -> R<NodeId> {
+        let o = self.advance();
+        let pattern = if self.looks_like_pattern_start(self.pos) {
+            Some(self.pattern(ctx)?)
         } else {
             None
         };
-        Ok(self.no(
-            No::RestPatternElement {
+        Ok(self.node(
+            Node::RestPatternElement {
                 operator: o as Tk,
                 pattern,
             },
@@ -371,55 +371,55 @@ impl Parser<'_> {
     }
 
     /// `parseListPatternSuffix`.
-    fn lista_padrao(&mut self, targs: Option<NoId>, ctx: CtxPadrao, ini: usize) -> R<NoId> {
-        let lb = self.espera_op(Op::LBracket)?;
-        let old = self.funcoes;
-        self.funcoes = true;
-        let mut elementos = Vec::new();
+    fn list_pattern(&mut self, targs: Option<NodeId>, ctx: PatternCtx, start_: usize) -> R<NodeId> {
+        let lb = self.expect_op(Op::LBracket)?;
+        let old = self.functions;
+        self.functions = true;
+        let mut elements_ = Vec::new();
         loop {
             if self.op(self.pos, Op::RBracket) {
                 break;
             }
             if self.op(self.pos, Op::Ellipsis) {
-                elementos.push(self.resto_padrao(ctx)?);
+                elements_.push(self.pattern_rest(ctx)?);
             } else {
-                elementos.push(self.padrao(ctx)?);
+                elements_.push(self.pattern(ctx)?);
             }
             if !self.op(self.pos, Op::Comma) {
                 break;
             }
-            self.avancar();
+            self.advance();
         }
-        let rb = self.espera_op(Op::RBracket)?;
-        self.funcoes = old;
-        Ok(self.no(
-            No::ListPattern {
+        let rb = self.expect_op(Op::RBracket)?;
+        self.functions = old;
+        Ok(self.node(
+            Node::ListPattern {
                 type_arguments: targs,
                 left_bracket: lb as Tk,
-                elements: elementos,
+                elements: elements_,
                 right_bracket: rb as Tk,
             },
-            ini,
+            start_,
         ))
     }
 
     /// `parseMapPatternSuffix`.
-    fn mapa_padrao(&mut self, targs: Option<NoId>, ctx: CtxPadrao, ini: usize) -> R<NoId> {
-        let lb = self.espera_op(Op::LBrace)?;
-        let old = self.funcoes;
-        self.funcoes = true;
-        let mut elementos = Vec::new();
+    fn map_pattern(&mut self, targs: Option<NodeId>, ctx: PatternCtx, start_: usize) -> R<NodeId> {
+        let lb = self.expect_op(Op::LBrace)?;
+        let old = self.functions;
+        self.functions = true;
+        let mut elements_ = Vec::new();
         if !self.op(self.pos, Op::RBrace) {
             loop {
                 if self.op(self.pos, Op::Ellipsis) {
-                    elementos.push(self.resto_padrao(ctx)?);
+                    elements_.push(self.pattern_rest(ctx)?);
                 } else {
-                    let key = self.expressao()?;
-                    let s = self.espera_op(Op::Colon)?;
-                    let value = self.padrao(ctx)?;
-                    let ki = self.ini(key);
-                    elementos.push(self.no(
-                        No::MapPatternEntry {
+                    let key = self.expression()?;
+                    let s = self.expect_op(Op::Colon)?;
+                    let value = self.pattern(ctx)?;
+                    let ki = self.start_(key);
+                    elements_.push(self.node(
+                        Node::MapPatternEntry {
                             key,
                             separator: s as Tk,
                             value,
@@ -427,60 +427,60 @@ impl Parser<'_> {
                         ki,
                     ));
                 }
-                let virgula = self.opcional_op(Op::Comma).is_some();
+                let virgula = self.optional_op(Op::Comma).is_some();
                 if self.op(self.pos, Op::RBrace) {
                     break;
                 }
                 if !virgula {
-                    return Err(self.esperado("}"));
+                    return Err(self.expected("}"));
                 }
             }
         }
-        let rb = self.espera_op(Op::RBrace)?;
-        self.funcoes = old;
-        Ok(self.no(
-            No::MapPattern {
+        let rb = self.expect_op(Op::RBrace)?;
+        self.functions = old;
+        Ok(self.node(
+            Node::MapPattern {
                 type_arguments: targs,
                 left_bracket: lb as Tk,
-                elements: elementos,
+                elements: elements_,
                 right_bracket: rb as Tk,
             },
-            ini,
+            start_,
         ))
     }
 
     /// Campo de padrão com nome opcional (`(nome)? :`).
-    fn campo_padrao(&mut self, ctx: CtxPadrao, permite_parenteses_nome: bool) -> R<(NoId, bool)> {
+    fn pattern_field(&mut self, ctx: PatternCtx, allows_parenthesized_name: bool) -> R<(NodeId, bool)> {
         let fi = self.pos;
         let mut nome = None;
         if self.op(self.pos, Op::Colon) {
-            let c = self.avancar();
-            nome = Some(self.no(
-                No::PatternFieldName {
+            let c = self.advance();
+            nome = Some(self.node(
+                Node::PatternFieldName {
                     name: None,
                     colon: c as Tk,
                 },
                 c,
             ));
-        } else if (permite_parenteses_nome || !self.op(self.pos, Op::LParen))
+        } else if (allows_parenthesized_name || !self.op(self.pos, Op::LParen))
             && self.op(self.pos + 1, Op::Colon)
         {
-            let n = self.espera_ident()?;
-            let c = self.avancar();
-            nome = Some(self.no(
-                No::PatternFieldName {
+            let n = self.expect_ident()?;
+            let c = self.advance();
+            nome = Some(self.node(
+                Node::PatternFieldName {
                     name: Some(n as Tk),
                     colon: c as Tk,
                 },
                 n,
             ));
         }
-        let tem_nome = nome.is_some();
-        let pattern = self.padrao(ctx)?;
-        if tem_nome {
+        let has_name = nome.is_some();
+        let pattern = self.pattern(ctx)?;
+        if has_name {
             return Ok((
-                self.no(
-                    No::PatternField {
+                self.node(
+                    Node::PatternField {
                         name: nome,
                         pattern,
                     },
@@ -493,77 +493,77 @@ impl Parser<'_> {
     }
 
     /// `parseParenthesizedPatternOrRecordPattern`.
-    fn parenteses_ou_registro_padrao(&mut self, ctx: CtxPadrao) -> R<NoId> {
-        let ini = self.pos;
-        let lp = self.espera_op(Op::LParen)?;
-        let old = self.funcoes;
-        self.funcoes = true;
-        let mut campos: Vec<NoId> = Vec::new();
-        let mut registro = false;
-        let mut valido = false;
+    fn parenthesized_or_record_pattern(&mut self, ctx: PatternCtx) -> R<NodeId> {
+        let start_ = self.pos;
+        let lp = self.expect_op(Op::LParen)?;
+        let old = self.functions;
+        self.functions = true;
+        let mut fields_: Vec<NodeId> = Vec::new();
+        let mut record = false;
+        let mut valid = false;
         loop {
-            if (!campos.is_empty() || registro) && self.op(self.pos, Op::RParen) {
+            if (!fields_.is_empty() || record) && self.op(self.pos, Op::RParen) {
                 break;
             }
-            let (c, nomeado) = self.campo_padrao(ctx, false)?;
-            let c = if registro && !nomeado {
-                self.campo_sem_nome(c)
+            let (c, named) = self.pattern_field(ctx, false)?;
+            let c = if record && !named {
+                self.unnamed_field(c)
             } else {
                 c
             };
-            if nomeado {
-                registro = true;
-                valido = true;
+            if named {
+                record = true;
+                valid = true;
             }
-            campos.push(c);
+            fields_.push(c);
             if !self.op(self.pos, Op::Comma) {
                 break;
             }
-            if !registro {
-                let ultimo = campos.len() - 1;
-                campos[ultimo] = self.campo_sem_nome(campos[ultimo]);
+            if !record {
+                let ultimo = fields_.len() - 1;
+                fields_[ultimo] = self.unnamed_field(fields_[ultimo]);
             }
-            registro = true;
-            valido = true;
-            self.avancar();
+            record = true;
+            valid = true;
+            self.advance();
         }
-        let rp = self.espera_op(Op::RParen)?;
-        self.funcoes = old;
-        if registro {
-            if campos.len() == 1 && !valido {
-                return Err(self.erro_em(
+        let rp = self.expect_op(Op::RParen)?;
+        self.functions = old;
+        if record {
+            if fields_.len() == 1 && !valid {
+                return Err(self.error_at(
                     rp,
                     "A record pattern with exactly one positional field requires a trailing comma.",
                 ));
             }
-            return Ok(self.no(
-                No::RecordPattern {
+            return Ok(self.node(
+                Node::RecordPattern {
                     left_parenthesis: lp as Tk,
-                    fields: campos,
+                    fields: fields_,
                     right_parenthesis: rp as Tk,
                 },
-                ini,
+                start_,
             ));
         }
-        let pattern = campos[0];
-        Ok(self.no(
-            No::ParenthesizedPattern {
+        let pattern = fields_[0];
+        Ok(self.node(
+            Node::ParenthesizedPattern {
                 left_parenthesis: lp as Tk,
                 pattern,
                 right_parenthesis: rp as Tk,
             },
-            ini,
+            start_,
         ))
     }
 
-    /// Embrulha um padrão posicional em [`No::PatternField`] sem nome.
-    fn campo_sem_nome(&mut self, pattern: NoId) -> NoId {
-        if matches!(self.arv.no(pattern), No::PatternField { .. }) {
+    /// Embrulha um padrão posicional em [`Node::PatternField`] sem nome.
+    fn unnamed_field(&mut self, pattern: NodeId) -> NodeId {
+        if matches!(self.tree_.node(pattern), Node::PatternField { .. }) {
             return pattern;
         }
-        let (a, b) = (self.ini(pattern), self.fim(pattern));
-        self.no_entre(
-            No::PatternField {
+        let (a, b) = (self.start_(pattern), self.end(pattern));
+        self.node_between(
+            Node::PatternField {
                 name: None,
                 pattern,
             },
@@ -573,63 +573,63 @@ impl Parser<'_> {
     }
 
     /// `objectPattern ::= typeName typeArguments? '(' patternFields? ')'`.
-    fn objeto_padrao(
+    fn object_pattern(
         &mut self,
-        primeiro: usize,
-        segundo: Option<usize>,
-        com_args: bool,
-        ctx: CtxPadrao,
-    ) -> R<NoId> {
-        let ini = self.pos;
+        first: usize,
+        second: Option<usize>,
+        with_args: bool,
+        ctx: PatternCtx,
+    ) -> R<NodeId> {
+        let start_ = self.pos;
         let mut import_prefix = None;
-        let nome = match segundo {
+        let nome = match second {
             Some(s) => {
-                import_prefix = Some((primeiro as Tk, (primeiro + 1) as Tk));
+                import_prefix = Some((first as Tk, (first + 1) as Tk));
                 s
             }
-            None => primeiro,
+            None => first,
         };
         self.pos = nome + 1;
-        let type_arguments = if com_args {
-            Some(self.args_tipo()?)
+        let type_arguments = if with_args {
+            Some(self.type_args()?)
         } else {
             None
         };
-        let type_ = self.no(
-            No::NamedType {
+        let type_ = self.node(
+            Node::NamedType {
                 import_prefix,
                 name2: nome as Tk,
                 type_arguments,
                 question: None,
             },
-            ini,
+            start_,
         );
-        let lp = self.espera_op(Op::LParen)?;
-        let old = self.funcoes;
-        self.funcoes = true;
-        let mut campos = Vec::new();
+        let lp = self.expect_op(Op::LParen)?;
+        let old = self.functions;
+        self.functions = true;
+        let mut fields_ = Vec::new();
         loop {
             if self.op(self.pos, Op::RParen) {
                 break;
             }
-            let (c, _) = self.campo_padrao(ctx, true)?;
-            let c = self.campo_sem_nome(c);
-            campos.push(c);
+            let (c, _) = self.pattern_field(ctx, true)?;
+            let c = self.unnamed_field(c);
+            fields_.push(c);
             if !self.op(self.pos, Op::Comma) {
                 break;
             }
-            self.avancar();
+            self.advance();
         }
-        let rp = self.espera_op(Op::RParen)?;
-        self.funcoes = old;
-        Ok(self.no(
-            No::ObjectPattern {
+        let rp = self.expect_op(Op::RParen)?;
+        self.functions = old;
+        Ok(self.node(
+            Node::ObjectPattern {
                 type_,
                 left_parenthesis: lp as Tk,
-                fields: campos,
+                fields: fields_,
                 right_parenthesis: rp as Tk,
             },
-            ini,
+            start_,
         ))
     }
 }

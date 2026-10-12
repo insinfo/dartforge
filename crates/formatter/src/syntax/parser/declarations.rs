@@ -7,31 +7,31 @@
 
 use dartforge_frontend::token::{Keyword, Op};
 
-use super::super::tree::{No, NoId};
-use super::super::token::{TipoToken, Tk};
-use super::lookahead::Forma;
-use super::types::Membro;
+use super::super::tree::{Node, NodeId};
+use super::super::token::{TokenKind, Tk};
+use super::lookahead::Shape;
+use super::types::MemberKind;
 use super::{Parser, R};
 
 /// `DirectiveState` do fasta.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Estado {
-    Desconhecido,
+    Unknown,
     Script,
-    Biblioteca,
+    Library,
     ImportExport,
-    Parte,
-    ParteDe,
-    Declaracoes,
+    Part,
+    PartOf,
+    Declarations,
 }
 
 /// `DeclarationKind` dos membros.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Corpo {
-    Classe,
+enum Body {
+    Class,
     Mixin,
-    Extensao,
-    TipoExtensao,
+    Extension,
+    ExtensionType,
     Enum,
 }
 
@@ -62,10 +62,10 @@ fn tk(o: Option<usize>) -> Option<Tk> {
 
 impl Parser<'_> {
     /// `parseUnit`.
-    pub(super) fn unidade(&mut self) -> R<NoId> {
-        let mut estado = Estado::Desconhecido;
+    pub(super) fn unit(&mut self) -> R<NodeId> {
+        let mut estado = Estado::Unknown;
         let mut script_tag = None;
-        if self.tipo(0) == TipoToken::ScriptTag {
+        if self.tipo(0) == TokenKind::ScriptTag {
             script_tag = Some(0);
             estado = Estado::Script;
             self.pos = 1;
@@ -73,16 +73,16 @@ impl Parser<'_> {
         let mut directives = Vec::new();
         let mut declarations = Vec::new();
         while !self.eof(self.pos) {
-            let (diretiva, id) = self.declaracao_topo(&mut estado)?;
-            if diretiva {
+            let (directive, id) = self.top_level_declaration(&mut estado)?;
+            if directive {
                 directives.push(id);
             } else {
                 declarations.push(id);
             }
         }
         let eof = self.pos;
-        Ok(self.no_entre(
-            No::CompilationUnit {
+        Ok(self.node_between(
+            Node::CompilationUnit {
                 script_tag,
                 directives,
                 declarations,
@@ -92,7 +92,7 @@ impl Parser<'_> {
         ))
     }
 
-    fn palavra_de_topo(&self, i: usize) -> bool {
+    fn top_level_word(&self, i: usize) -> bool {
         self.kw(i, Keyword::Class)
             || self.kw(i, Keyword::Enum)
             || (self.ident(i)
@@ -102,44 +102,44 @@ impl Parser<'_> {
                 ))
     }
 
-    fn marcar_declaracao(estado: &mut Estado) {
-        if *estado != Estado::ParteDe {
-            *estado = Estado::Declaracoes;
+    fn mark_declaration(estado: &mut Estado) {
+        if *estado != Estado::PartOf {
+            *estado = Estado::Declarations;
         }
     }
 
     /// `parseTopLevelDeclarationImpl`.
-    fn declaracao_topo(&mut self, estado: &mut Estado) -> R<(bool, NoId)> {
-        let ini = self.pos;
-        let meta = self.metadados()?;
+    fn top_level_declaration(&mut self, estado: &mut Estado) -> R<(bool, NodeId)> {
+        let start_ = self.pos;
+        let meta = self.metadata_()?;
         let next = self.pos;
-        if self.palavra_de_topo(next) {
-            return self.declaracao_palavra(ini, meta, next, next, [None; 4], estado);
+        if self.top_level_word(next) {
+            return self.word_declaration(start_, meta, next, next, [None; 4], estado);
         }
-        let comeco = next;
+        let beginning = next;
         let mut k = next;
-        if self.modificador(next) {
-            let seguinte_classe = |p: &Self, i: usize| {
-                p.kw(i, Keyword::Class) || p.pal(i, "mixin") || p.kw(i, Keyword::Enum)
+        if self.modifier(next) {
+            let next_class = |p: &Self, i: usize| {
+                p.kw(i, Keyword::Class) || p.word(i, "mixin") || p.kw(i, Keyword::Enum)
             };
             if self.kw(next, Keyword::Var)
-                || self.pal(next, "late")
-                || (self.kw(next, Keyword::Final) && !seguinte_classe(self, next + 1))
+                || self.word(next, "late")
+                || (self.kw(next, Keyword::Final) && !next_class(self, next + 1))
                 || (self.kw(next, Keyword::Const) && !self.kw(next + 1, Keyword::Class))
             {
-                Self::marcar_declaracao(estado);
-                return Ok((false, self.membro_topo(ini, meta)?));
+                Self::mark_declaration(estado);
+                return Ok((false, self.membro_topo(start_, meta)?));
             }
-            while self.modificador(k) {
+            while self.modifier(k) {
                 k += 1;
             }
         }
         let mut extras: [Option<usize>; 4] = [None; 4]; // macro, sealed, base, interface
-        let mut inicio_mods = comeco;
-        if self.pal(k, "macro") && self.kw(k + 1, Keyword::Class) {
+        let mut modifiers_start = beginning;
+        if self.word(k, "macro") && self.kw(k + 1, Keyword::Class) {
             // O experimento `macros` não está ligado no 3.6: o `AstBuilder`
             // relata `EXPERIMENT_NOT_ENABLED`, que é erro sintático.
-            return Err(self.erro_em(
+            return Err(self.error_at(
                 k,
                 "This requires the 'macros' language feature to be enabled.",
             ));
@@ -147,143 +147,143 @@ impl Parser<'_> {
         if false {
             extras[0] = Some(k);
             k += 1;
-        } else if self.pal(k, "sealed") {
+        } else if self.word(k, "sealed") {
             extras[1] = Some(k);
             if self.kw(k + 1, Keyword::Class)
-                || self.pal(k + 1, "mixin")
+                || self.word(k + 1, "mixin")
                 || self.kw(k + 1, Keyword::Enum)
             {
                 k += 1;
-            } else if self.pal(k + 1, "abstract") && self.kw(k + 2, Keyword::Class) {
-                inicio_mods = k + 1;
+            } else if self.word(k + 1, "abstract") && self.kw(k + 2, Keyword::Class) {
+                modifiers_start = k + 1;
                 k += 2;
             }
-        } else if self.pal(k, "base") {
+        } else if self.word(k, "base") {
             extras[2] = Some(k);
             if self.kw(k + 1, Keyword::Class)
-                || self.pal(k + 1, "mixin")
+                || self.word(k + 1, "mixin")
                 || self.kw(k + 1, Keyword::Enum)
             {
                 k += 1;
             }
-        } else if self.pal(k, "interface") {
+        } else if self.word(k, "interface") {
             extras[3] = Some(k);
             if self.kw(k + 1, Keyword::Class)
-                || self.pal(k + 1, "mixin")
+                || self.word(k + 1, "mixin")
                 || self.kw(k + 1, Keyword::Enum)
             {
                 k += 1;
             }
         }
-        if self.palavra_de_topo(k) {
-            return self.declaracao_palavra(ini, meta, inicio_mods, k, extras, estado);
+        if self.top_level_word(k) {
+            return self.word_declaration(start_, meta, modifiers_start, k, extras, estado);
         }
-        if self.palavra(k) || k != comeco || self.op(k, Op::LParen) {
-            Self::marcar_declaracao(estado);
-            return Ok((false, self.membro_topo(ini, meta)?));
+        if self.word_(k) || k != beginning || self.op(k, Op::LParen) {
+            Self::mark_declaration(estado);
+            return Ok((false, self.membro_topo(start_, meta)?));
         }
-        Err(self.erro_em(
+        Err(self.error_at(
             k,
             &format!("Expected a declaration, but got '{}'.", self.txt(k)),
         ))
     }
 
-    /// Modificadores de `inicio` até `fim` (exclusivo) aceitos numa
+    /// Modificadores de `start` até `end` (exclusivo) aceitos numa
     /// declaração de palavra-chave de topo.
-    fn mods_de_topo(&mut self, inicio: usize, fim: usize, permitidos: &[&str]) -> R<Mods> {
+    fn top_level_modifiers(&mut self, start: usize, end: usize, allowed: &[&str]) -> R<Mods> {
         let salvo = self.pos;
-        self.pos = inicio;
+        self.pos = start;
         let mut m = Mods::default();
-        let r = self.coletar_modificadores(&mut m);
-        let alcancado = self.pos;
+        let r = self.collect_modifiers(&mut m);
+        let reached = self.pos;
         self.pos = salvo;
         r?;
-        for i in inicio..alcancado {
-            if !permitidos.contains(&self.txt(i)) {
+        for i in start..reached {
+            if !allowed.contains(&self.txt(i)) {
                 return Err(
-                    self.erro_em(i, &format!("Can't have modifier '{}' here.", self.txt(i)))
+                    self.error_at(i, &format!("Can't have modifier '{}' here.", self.txt(i)))
                 );
             }
         }
-        if alcancado != fim {
-            return Err(self.erro_em(alcancado, "Unexpected token."));
+        if reached != end {
+            return Err(self.error_at(reached, "Unexpected token."));
         }
         Ok(m)
     }
 
     /// `parseTopLevelKeywordDeclaration`.
-    fn declaracao_palavra(
+    fn word_declaration(
         &mut self,
-        ini: usize,
-        meta: Vec<NoId>,
-        inicio_mods: usize,
+        start_: usize,
+        meta: Vec<NodeId>,
+        modifiers_start: usize,
         kw: usize,
         extras: [Option<usize>; 4],
         estado: &mut Estado,
-    ) -> R<(bool, NoId)> {
+    ) -> R<(bool, NodeId)> {
         let [macro_, sealed, base, interface] = extras;
-        if self.versao < (3, 0)
+        if self.version < (3, 0)
             && let Some(x) = sealed.or(base).or(interface)
         {
-            return Err(self.erro_em(
+            return Err(self.error_at(
                 x,
                 "This requires the 'class-modifiers' language feature to be enabled.",
             ));
         }
         // Os modificadores reconhecidos à parte ficam entre os comuns.
-        let fim_mods = [macro_, sealed, base, interface]
+        let modifiers_end = [macro_, sealed, base, interface]
             .into_iter()
             .flatten()
             .min()
             .unwrap_or(kw)
-            .max(inicio_mods);
+            .max(modifiers_start);
         let texto = self.txt(kw);
         if self.kw(kw, Keyword::Class) {
-            Self::marcar_declaracao(estado);
-            let m = self.mods_de_topo(inicio_mods, fim_mods, &["abstract", "augment", "final"])?;
+            Self::mark_declaration(estado);
+            let m = self.top_level_modifiers(modifiers_start, modifiers_end, &["abstract", "augment", "final"])?;
             self.pos = kw;
-            return Ok((false, self.classe(ini, meta, m, extras, None)?));
+            return Ok((false, self.class(start_, meta, m, extras, None)?));
         }
         if self.kw(kw, Keyword::Enum) {
-            Self::marcar_declaracao(estado);
+            Self::mark_declaration(estado);
             if base.is_some() || sealed.is_some() || interface.is_some() {
-                return Err(self.erro_em(
+                return Err(self.error_at(
                     kw,
                     "Enums can't be declared to be 'base', 'sealed' or 'interface'.",
                 ));
             }
-            let m = self.mods_de_topo(inicio_mods, fim_mods, &["augment"])?;
+            let m = self.top_level_modifiers(modifiers_start, modifiers_end, &["augment"])?;
             self.pos = kw;
-            return Ok((false, self.enumeracao(ini, meta, m)?));
+            return Ok((false, self.enumeration(start_, meta, m)?));
         }
         let nv = kw + 1;
-        let mut typedef_registro = false;
+        let mut record_typedef = false;
         if texto == "typedef" && self.op(nv, Op::LParen) {
-            let f = self.par(nv) + 1;
+            let f = self.pair(nv) + 1;
             if self.ident(f) || (self.op(f, Op::Question) && self.ident(f + 1)) {
-                let t = self.tipo_em(nv, false, false, false);
-                if t.forma == Forma::Complexo && t.registro {
-                    typedef_registro = true;
+                let t = self.type_at(nv, false, false, false);
+                if t.shape == Shape::Complex && t.record {
+                    record_typedef = true;
                 }
             }
         }
-        let membro = |p: &mut Self, estado: &mut Estado, meta: Vec<NoId>| -> R<(bool, NoId)> {
-            Self::marcar_declaracao(estado);
-            p.pos = inicio_mods;
-            Ok((false, p.membro_topo(ini, meta)?))
+        let membro = |p: &mut Self, estado: &mut Estado, meta: Vec<NodeId>| -> R<(bool, NodeId)> {
+            Self::mark_declaration(estado);
+            p.pos = modifiers_start;
+            Ok((false, p.membro_topo(start_, meta)?))
         };
-        if (self.op(nv, Op::LParen) || self.op(nv, Op::Dot)) && !typedef_registro {
+        if (self.op(nv, Op::LParen) || self.op(nv, Op::Dot)) && !record_typedef {
             return membro(self, estado, meta);
         }
         if self.op(nv, Op::Lt) {
             if texto == "extension"
-                && let Some(a) = self.args_tipo_lt(nv, true)
-                && self.pal(a.ate, "on")
+                && let Some(a) = self.type_args_lt(nv, true)
+                && self.word(a.end_index, "on")
             {
-                Self::marcar_declaracao(estado);
-                let m = self.mods_de_topo(inicio_mods, kw, &["augment"])?;
+                Self::mark_declaration(estado);
+                let m = self.top_level_modifiers(modifiers_start, kw, &["augment"])?;
                 self.pos = kw;
-                return Ok((false, self.extensao(ini, meta, m)?));
+                return Ok((false, self.extension(start_, meta, m)?));
             }
             return membro(self, estado, meta);
         }
@@ -292,155 +292,155 @@ impl Parser<'_> {
             || interface.is_some()
             || macro_.is_some()
         {
-            return Err(self.erro_em(kw, "Unexpected modifier."));
+            return Err(self.error_at(kw, "Unexpected modifier."));
         }
         match texto {
             "import" | "export" | "part" | "library" => {
-                self.mods_de_topo(inicio_mods, kw, &[])?;
+                self.top_level_modifiers(modifiers_start, kw, &[])?;
                 self.pos = kw;
                 let d = match texto {
                     "import" => {
-                        self.conferir_import_export(estado, kw)?;
-                        self.importar(ini, meta)?
+                        self.check_import_export(estado, kw)?;
+                        self.import(start_, meta)?
                     }
                     "export" => {
-                        self.conferir_import_export(estado, kw)?;
-                        self.exportar(ini, meta)?
+                        self.check_import_export(estado, kw)?;
+                        self.export(start_, meta)?
                     }
-                    "part" => self.parte(ini, meta, estado)?,
+                    "part" => self.part(start_, meta, estado)?,
                     _ => {
-                        if *estado < Estado::Biblioteca {
-                            *estado = Estado::Biblioteca;
+                        if *estado < Estado::Library {
+                            *estado = Estado::Library;
                         } else {
-                            return Err(self.erro_em(
+                            return Err(self.error_at(
                                 kw,
                                 "The library directive must appear before all other directives.",
                             ));
                         }
-                        self.biblioteca(ini, meta)?
+                        self.library(start_, meta)?
                     }
                 };
                 Ok((true, d))
             }
             "typedef" => {
-                Self::marcar_declaracao(estado);
-                let m = self.mods_de_topo(inicio_mods, kw, &["augment"])?;
+                Self::mark_declaration(estado);
+                let m = self.top_level_modifiers(modifiers_start, kw, &["augment"])?;
                 self.pos = kw;
-                Ok((false, self.alias(ini, meta, m)?))
+                Ok((false, self.alias(start_, meta, m)?))
             }
             "mixin" => {
                 if self.kw(nv, Keyword::Class) {
-                    Self::marcar_declaracao(estado);
+                    Self::mark_declaration(estado);
                     if sealed.is_some() || interface.is_some() {
-                        return Err(self.erro_em(
+                        return Err(self.error_at(
                             kw,
                             "A mixin class can't be declared 'sealed' or 'interface'.",
                         ));
                     }
-                    let m = self.mods_de_topo(inicio_mods, fim_mods, &["abstract", "augment"])?;
+                    let m = self.top_level_modifiers(modifiers_start, modifiers_end, &["abstract", "augment"])?;
                     self.pos = nv;
-                    return Ok((false, self.classe(ini, meta, m, extras, Some(kw))?));
+                    return Ok((false, self.class(start_, meta, m, extras, Some(kw))?));
                 }
-                Self::marcar_declaracao(estado);
-                let m = self.mods_de_topo(inicio_mods, fim_mods, &["augment"])?;
+                Self::mark_declaration(estado);
+                let m = self.top_level_modifiers(modifiers_start, modifiers_end, &["augment"])?;
                 self.pos = kw;
-                Ok((false, self.mixin(ini, meta, m, base)?))
+                Ok((false, self.mixin(start_, meta, m, base)?))
             }
             "extension" => {
-                Self::marcar_declaracao(estado);
-                let m = self.mods_de_topo(inicio_mods, kw, &["augment"])?;
+                Self::mark_declaration(estado);
+                let m = self.top_level_modifiers(modifiers_start, kw, &["augment"])?;
                 self.pos = kw;
-                Ok((false, self.extensao(ini, meta, m)?))
+                Ok((false, self.extension(start_, meta, m)?))
             }
-            _ => Err(self.erro_em(kw, "Unexpected token.")),
+            _ => Err(self.error_at(kw, "Unexpected token.")),
         }
     }
 
-    fn conferir_import_export(&self, estado: &mut Estado, kw: usize) -> R<()> {
+    fn check_import_export(&self, estado: &mut Estado, kw: usize) -> R<()> {
         match *estado {
-            Estado::Desconhecido | Estado::Script | Estado::Biblioteca | Estado::ImportExport => {
+            Estado::Unknown | Estado::Script | Estado::Library | Estado::ImportExport => {
                 *estado = Estado::ImportExport;
                 Ok(())
             }
-            Estado::Parte => Err(self.erro_em(
+            Estado::Part => Err(self.error_at(
                 kw,
                 "Import and export directives must come before part directives.",
             )),
-            Estado::ParteDe => Err(self.erro_em(
+            Estado::PartOf => Err(self.error_at(
                 kw,
                 "The part-of directive must be the only directive in a part.",
             )),
-            Estado::Declaracoes => {
-                Err(self.erro_em(kw, "Directives must appear before any declarations."))
+            Estado::Declarations => {
+                Err(self.error_at(kw, "Directives must appear before any declarations."))
             }
         }
     }
 
     /// URI: um literal de string (`ensureLiteralString`).
-    fn uri(&mut self) -> R<NoId> {
+    fn uri(&mut self) -> R<NodeId> {
         if !self.texto(self.pos) {
-            return Err(self.erro("Expected a string literal."));
+            return Err(self.error("Expected a string literal."));
         }
-        self.literal_texto()
+        self.string_literal()
     }
 
     /// `parseLibraryName`.
-    fn biblioteca(&mut self, ini: usize, metadata: Vec<NoId>) -> R<NoId> {
-        let l = self.avancar();
+    fn library(&mut self, start_: usize, metadata: Vec<NodeId>) -> R<NodeId> {
+        let l = self.advance();
         let name2 = if self.op(self.pos, Op::Semicolon) {
-            self.recurso(l, (2, 19), "unnamed-libraries");
+            self.feature(l, (2, 19), "unnamed-libraries");
             None
         } else {
-            Some(self.nome_qualificado(true)?)
+            Some(self.qualified_name(true)?)
         };
-        let s = self.espera_op(Op::Semicolon)?;
-        Ok(self.no(
-            No::LibraryDirective {
+        let s = self.expect_op(Op::Semicolon)?;
+        Ok(self.node(
+            Node::LibraryDirective {
                 metadata,
                 library_keyword: l as Tk,
                 name2,
                 semicolon: s as Tk,
             },
-            ini,
+            start_,
         ))
     }
 
-    /// `a.b.c` como [`No::LibraryIdentifier`] (ou [`No::DottedName`]).
-    fn nome_qualificado(&mut self, biblioteca: bool) -> R<NoId> {
-        let ini = self.pos;
+    /// `a.b.c` como [`Node::LibraryIdentifier`] (ou [`Node::DottedName`]).
+    fn qualified_name(&mut self, library: bool) -> R<NodeId> {
+        let start_ = self.pos;
         let mut components = Vec::new();
         loop {
-            let i = self.espera_ident()?;
-            components.push(self.simples(i));
+            let i = self.expect_ident()?;
+            components.push(self.simple(i));
             if !self.op(self.pos, Op::Dot) {
                 break;
             }
-            self.avancar();
+            self.advance();
         }
-        let no = if biblioteca {
-            No::LibraryIdentifier { components }
+        let node = if library {
+            Node::LibraryIdentifier { components }
         } else {
-            No::DottedName { components }
+            Node::DottedName { components }
         };
-        Ok(self.no(no, ini))
+        Ok(self.node(node, start_))
     }
 
     /// `parseConditionalUriStar`.
-    fn configuracoes(&mut self, v: &mut Vec<NoId>) -> R<()> {
+    fn configurations_(&mut self, v: &mut Vec<NodeId>) -> R<()> {
         while self.kw(self.pos, Keyword::If) {
-            let i = self.avancar();
-            let lp = self.espera_op(Op::LParen)?;
-            let name = self.nome_qualificado(false)?;
+            let i = self.advance();
+            let lp = self.expect_op(Op::LParen)?;
+            let name = self.qualified_name(false)?;
             let (equal_token, value) = if self.op(self.pos, Op::EqEq) {
-                let e = self.avancar();
+                let e = self.advance();
                 (Some(e as Tk), Some(self.uri()?))
             } else {
                 (None, None)
             };
-            let rp = self.espera_op(Op::RParen)?;
+            let rp = self.expect_op(Op::RParen)?;
             let uri = self.uri()?;
-            v.push(self.no(
-                No::Configuration {
+            v.push(self.node(
+                Node::Configuration {
                     if_keyword: i as Tk,
                     left_parenthesis: lp as Tk,
                     name,
@@ -456,31 +456,31 @@ impl Parser<'_> {
     }
 
     /// `parseCombinatorStar`.
-    fn combinadores(&mut self, v: &mut Vec<NoId>) -> R<bool> {
+    fn combinators_(&mut self, v: &mut Vec<NodeId>) -> R<bool> {
         let mut algum = false;
-        while self.pal(self.pos, "show") || self.pal(self.pos, "hide") {
-            let k = self.avancar();
-            let mut nomes = Vec::new();
+        while self.word(self.pos, "show") || self.word(self.pos, "hide") {
+            let k = self.advance();
+            let mut names = Vec::new();
             loop {
-                let n = self.espera_ident()?;
-                nomes.push(self.simples(n));
+                let n = self.expect_ident()?;
+                names.push(self.simple(n));
                 if !self.op(self.pos, Op::Comma) {
                     break;
                 }
-                self.avancar();
+                self.advance();
             }
-            let no = if self.txt(k) == "show" {
-                No::ShowCombinator {
+            let node = if self.txt(k) == "show" {
+                Node::ShowCombinator {
                     keyword: k as Tk,
-                    shown_names: nomes,
+                    shown_names: names,
                 }
             } else {
-                No::HideCombinator {
+                Node::HideCombinator {
                     keyword: k as Tk,
-                    hidden_names: nomes,
+                    hidden_names: names,
                 }
             };
-            v.push(self.no(no, k));
+            v.push(self.node(node, k));
             algum = true;
         }
         Ok(algum)
@@ -488,10 +488,10 @@ impl Parser<'_> {
 
     /// `parseImport` com a recuperação de cláusulas fora de ordem
     /// (`parseImportRecovery`) nos casos que o fasta aceita sem erro.
-    fn importar(&mut self, ini: usize, metadata: Vec<NoId>) -> R<NoId> {
-        let i = self.avancar();
-        if self.pal(self.pos, "augment") {
-            return Err(self.erro("Augmentation imports aren't supported."));
+    fn import(&mut self, start_: usize, metadata: Vec<NodeId>) -> R<NodeId> {
+        let i = self.advance();
+        if self.word(self.pos, "augment") {
+            return Err(self.error("Augmentation imports aren't supported."));
         }
         let uri = self.uri()?;
         let mut configurations = Vec::new();
@@ -499,59 +499,59 @@ impl Parser<'_> {
         let mut deferred_keyword = None;
         let mut as_keyword = None;
         let mut prefix = None;
-        let mut tem_combinador = false;
+        let mut has_combinator = false;
         loop {
-            let inicio = self.pos;
-            self.configuracoes(&mut configurations)?;
-            if self.pal(self.pos, "deferred") && !self.pal(self.pos + 1, "as") {
+            let start = self.pos;
+            self.configurations_(&mut configurations)?;
+            if self.word(self.pos, "deferred") && !self.word(self.pos + 1, "as") {
                 if deferred_keyword.is_some() {
                     return Err(
-                        self.erro("An import directive can only have one 'deferred' keyword.")
+                        self.error("An import directive can only have one 'deferred' keyword.")
                     );
                 }
-                deferred_keyword = Some(self.avancar() as Tk);
-            } else if self.pal(self.pos, "as")
-                || (self.pal(self.pos, "deferred") && self.pal(self.pos + 1, "as"))
+                deferred_keyword = Some(self.advance() as Tk);
+            } else if self.word(self.pos, "as")
+                || (self.word(self.pos, "deferred") && self.word(self.pos + 1, "as"))
             {
-                if self.pal(self.pos, "deferred") {
+                if self.word(self.pos, "deferred") {
                     if deferred_keyword.is_some() {
                         return Err(
-                            self.erro("An import directive can only have one 'deferred' keyword.")
+                            self.error("An import directive can only have one 'deferred' keyword.")
                         );
                     }
                     if as_keyword.is_some() {
-                        return Err(self.erro("The deferred keyword should come immediately before the prefix ('as' clause)."));
+                        return Err(self.error("The deferred keyword should come immediately before the prefix ('as' clause)."));
                     }
-                    deferred_keyword = Some(self.avancar() as Tk);
+                    deferred_keyword = Some(self.advance() as Tk);
                 }
                 if as_keyword.is_some() {
                     return Err(
-                        self.erro("An import directive can only have one prefix ('as' clause).")
+                        self.error("An import directive can only have one prefix ('as' clause).")
                     );
                 }
-                if tem_combinador {
-                    return Err(self.erro(
+                if has_combinator {
+                    return Err(self.error(
                         "The prefix ('as' clause) should come before any show/hide combinators.",
                     ));
                 }
-                as_keyword = Some(self.avancar() as Tk);
-                let n = self.espera_ident()?;
-                prefix = Some(self.simples(n));
+                as_keyword = Some(self.advance() as Tk);
+                let n = self.expect_ident()?;
+                prefix = Some(self.simple(n));
             }
-            tem_combinador |= self.combinadores(&mut combinators)?;
+            has_combinator |= self.combinators_(&mut combinators)?;
             if self.op(self.pos, Op::Semicolon) {
                 break;
             }
-            if self.pos == inicio {
-                return Err(self.esperado(";"));
+            if self.pos == start {
+                return Err(self.expected(";"));
             }
         }
         if deferred_keyword.is_some() && as_keyword.is_none() {
-            return Err(self.erro("Deferred imports should have a prefix."));
+            return Err(self.error("Deferred imports should have a prefix."));
         }
-        let s = self.avancar();
-        Ok(self.no(
-            No::ImportDirective {
+        let s = self.advance();
+        Ok(self.node(
+            Node::ImportDirective {
                 metadata,
                 import_keyword: i as Tk,
                 uri,
@@ -562,21 +562,21 @@ impl Parser<'_> {
                 combinators,
                 semicolon: s as Tk,
             },
-            ini,
+            start_,
         ))
     }
 
     /// `parseExport`.
-    fn exportar(&mut self, ini: usize, metadata: Vec<NoId>) -> R<NoId> {
-        let e = self.avancar();
+    fn export(&mut self, start_: usize, metadata: Vec<NodeId>) -> R<NodeId> {
+        let e = self.advance();
         let uri = self.uri()?;
         let mut configurations = Vec::new();
-        self.configuracoes(&mut configurations)?;
+        self.configurations_(&mut configurations)?;
         let mut combinators = Vec::new();
-        self.combinadores(&mut combinators)?;
-        let s = self.espera_op(Op::Semicolon)?;
-        Ok(self.no(
-            No::ExportDirective {
+        self.combinators_(&mut combinators)?;
+        let s = self.expect_op(Op::Semicolon)?;
+        Ok(self.node(
+            Node::ExportDirective {
                 metadata,
                 export_keyword: e as Tk,
                 uri,
@@ -584,30 +584,30 @@ impl Parser<'_> {
                 combinators,
                 semicolon: s as Tk,
             },
-            ini,
+            start_,
         ))
     }
 
     /// `parsePartOrPartOf`.
-    fn parte(&mut self, ini: usize, metadata: Vec<NoId>, estado: &mut Estado) -> R<NoId> {
-        let p = self.avancar();
-        if self.pal(self.pos, "of") {
-            if *estado != Estado::Desconhecido {
-                return Err(self.erro_em(
+    fn part(&mut self, start_: usize, metadata: Vec<NodeId>, estado: &mut Estado) -> R<NodeId> {
+        let p = self.advance();
+        if self.word(self.pos, "of") {
+            if *estado != Estado::Unknown {
+                return Err(self.error_at(
                     p,
                     "The part-of directive must be the only directive in a part.",
                 ));
             }
-            *estado = Estado::ParteDe;
-            let o = self.avancar();
+            *estado = Estado::PartOf;
+            let o = self.advance();
             let (library_name, uri) = if self.ident(self.pos) {
-                (Some(self.nome_qualificado(true)?), None)
+                (Some(self.qualified_name(true)?), None)
             } else {
                 (None, Some(self.uri()?))
             };
-            let s = self.espera_op(Op::Semicolon)?;
-            return Ok(self.no(
-                No::PartOfDirective {
+            let s = self.expect_op(Op::Semicolon)?;
+            return Ok(self.node(
+                Node::PartOfDirective {
                     metadata,
                     part_keyword: p as Tk,
                     of_keyword: o as Tk,
@@ -615,51 +615,51 @@ impl Parser<'_> {
                     uri,
                     semicolon: s as Tk,
                 },
-                ini,
+                start_,
             ));
         }
         match *estado {
-            Estado::ParteDe => {
-                return Err(self.erro_em(
+            Estado::PartOf => {
+                return Err(self.error_at(
                     p,
                     "The part-of directive must be the only directive in a part.",
                 ));
             }
-            Estado::Declaracoes => {
-                return Err(self.erro_em(p, "Directives must appear before any declarations."));
+            Estado::Declarations => {
+                return Err(self.error_at(p, "Directives must appear before any declarations."));
             }
-            _ => *estado = Estado::Parte,
+            _ => *estado = Estado::Part,
         }
         let uri = self.uri()?;
         if self.kw(self.pos, Keyword::If) {
-            return Err(self.erro("Part directives can't have configurations."));
+            return Err(self.error("Part directives can't have configurations."));
         }
-        let s = self.espera_op(Op::Semicolon)?;
-        Ok(self.no(
-            No::PartDirective {
+        let s = self.expect_op(Op::Semicolon)?;
+        Ok(self.node(
+            Node::PartDirective {
                 metadata,
                 part_keyword: p as Tk,
                 uri,
                 semicolon: s as Tk,
             },
-            ini,
+            start_,
         ))
     }
 
     /// Port de `ModifierContext._parseModifiers`: lê modificadores em
     /// qualquer ordem, com os erros de ordem e conflito do fasta.
-    fn coletar_modificadores(&mut self, m: &mut Mods) -> R<()> {
-        while self.modificador(self.pos) {
+    fn collect_modifiers(&mut self, m: &mut Mods) -> R<()> {
+        while self.modifier(self.pos) {
             let i = self.pos;
             let fora = |p: &Self| {
-                Err(p.erro_em(i, &format!("The modifier '{}' is out of order.", p.txt(i))))
+                Err(p.error_at(i, &format!("The modifier '{}' is out of order.", p.txt(i))))
             };
-            let conflito =
-                |p: &Self| Err(p.erro_em(i, &format!("Conflicting modifier '{}'.", p.txt(i))));
+            let conflict =
+                |p: &Self| Err(p.error_at(i, &format!("Conflicting modifier '{}'.", p.txt(i))));
             match self.txt(i) {
                 "abstract" => {
                     if m.abstract_.is_some() {
-                        return conflito(self);
+                        return conflict(self);
                     }
                     if m.vfc().is_some() || m.covariant.is_some() {
                         return fora(self);
@@ -668,7 +668,7 @@ impl Parser<'_> {
                 }
                 "augment" => {
                     if m.augment.is_some() || m.external.is_some() {
-                        return conflito(self);
+                        return conflict(self);
                     }
                     if m.vfc().is_some()
                         || m.abstract_.is_some()
@@ -682,13 +682,13 @@ impl Parser<'_> {
                 }
                 "const" => {
                     if m.vfc().is_some() || m.covariant.is_some() || m.late.is_some() {
-                        return conflito(self);
+                        return conflict(self);
                     }
                     m.const_ = Some(i);
                 }
                 "covariant" => {
                     if m.const_.is_some() || m.covariant.is_some() || m.static_.is_some() {
-                        return conflito(self);
+                        return conflict(self);
                     }
                     if m.var.is_some() || m.final_.is_some() || m.late.is_some() {
                         return fora(self);
@@ -697,7 +697,7 @@ impl Parser<'_> {
                 }
                 "external" => {
                     if m.external.is_some() || m.augment.is_some() {
-                        return conflito(self);
+                        return conflict(self);
                     }
                     if m.const_.is_some()
                         || m.static_.is_some()
@@ -711,13 +711,13 @@ impl Parser<'_> {
                 }
                 "final" => {
                     if m.vfc().is_some() {
-                        return conflito(self);
+                        return conflict(self);
                     }
                     m.final_ = Some(i);
                 }
                 "late" => {
                     if m.late.is_some() || m.const_.is_some() {
-                        return conflito(self);
+                        return conflict(self);
                     }
                     if m.var.is_some() || m.final_.is_some() {
                         return fora(self);
@@ -726,7 +726,7 @@ impl Parser<'_> {
                 }
                 "required" => {
                     if m.required.is_some() {
-                        return conflito(self);
+                        return conflict(self);
                     }
                     if m.const_.is_some()
                         || m.covariant.is_some()
@@ -739,7 +739,7 @@ impl Parser<'_> {
                 }
                 "static" => {
                     if m.covariant.is_some() || m.static_.is_some() {
-                        return conflito(self);
+                        return conflict(self);
                     }
                     if m.vfc().is_some() || m.late.is_some() {
                         return fora(self);
@@ -748,58 +748,58 @@ impl Parser<'_> {
                 }
                 "var" => {
                     if m.vfc().is_some() {
-                        return conflito(self);
+                        return conflict(self);
                     }
                     m.var = Some(i);
                 }
-                _ => return Err(self.erro_em(i, "Unexpected modifier.")),
+                _ => return Err(self.error_at(i, "Unexpected modifier.")),
             }
-            self.avancar();
+            self.advance();
         }
         Ok(())
     }
 
     /// `parseClassOrNamedMixinApplication`; `self.pos` está no `class`.
-    fn classe(
+    fn class(
         &mut self,
-        ini: usize,
-        metadata: Vec<NoId>,
+        start_: usize,
+        metadata: Vec<NodeId>,
         m: Mods,
         extras: [Option<usize>; 4],
         mixin: Option<usize>,
-    ) -> R<NoId> {
+    ) -> R<NodeId> {
         let [macro_, sealed, base, interface] = extras;
-        if self.versao < (3, 0) && (m.final_.is_some() || mixin.is_some()) {
+        if self.version < (3, 0) && (m.final_.is_some() || mixin.is_some()) {
             return Err(
-                self.erro("This requires the 'class-modifiers' language feature to be enabled.")
+                self.error("This requires the 'class-modifiers' language feature to be enabled.")
             );
         }
-        let c = self.espera_kw(Keyword::Class)?;
-        let name = self.espera_ident()?;
+        let c = self.expect_kw(Keyword::Class)?;
+        let name = self.expect_ident()?;
         let type_parameters = if self.op(self.pos, Op::Lt) {
-            Some(self.params_tipo()?)
+            Some(self.type_params()?)
         } else {
             None
         };
         if m.abstract_.is_some() {
             if sealed.is_some() {
-                return Err(self.erro_em(sealed.unwrap_or(c), "A 'sealed' class can't be marked 'abstract' because it's already implicitly abstract."));
+                return Err(self.error_at(sealed.unwrap_or(c), "A 'sealed' class can't be marked 'abstract' because it's already implicitly abstract."));
             }
             if m.final_.is_some() && (base.is_some() || interface.is_some()) {
-                return Err(self.erro_em(c, "An 'abstract' class can't be declared as both 'final' and 'base' or 'interface'."));
+                return Err(self.error_at(c, "An 'abstract' class can't be declared as both 'final' and 'base' or 'interface'."));
             }
         }
         if self.op(self.pos, Op::Assign) {
-            let equals = self.avancar();
-            let superclass = self.tipo_nomeado_requerido()?;
+            let equals = self.advance();
+            let superclass = self.required_named_type()?;
             if !self.kw(self.pos, Keyword::With) {
-                return Err(self.esperado("with"));
+                return Err(self.expected("with"));
             }
-            let with_clause = Some(self.clausula_lista(Keyword::With)?);
-            let implements_clause = self.clausula_implements()?;
-            let s = self.espera_op(Op::Semicolon)?;
-            return Ok(self.no(
-                No::ClassTypeAlias {
+            let with_clause = Some(self.list_clause(Keyword::With)?);
+            let implements_clause = self.implements_clause_()?;
+            let s = self.expect_op(Op::Semicolon)?;
+            return Ok(self.node(
+                Node::ClassTypeAlias {
                     metadata,
                     augment_keyword: tk(m.augment),
                     abstract_keyword: tk(m.abstract_),
@@ -818,17 +818,17 @@ impl Parser<'_> {
                     implements_clause,
                     semicolon: s as Tk,
                 },
-                ini,
+                start_,
             ));
         }
         let extends_clause = if self.kw(self.pos, Keyword::Extends) {
-            let e = self.avancar();
-            let superclass = self.tipo_nomeado_requerido()?;
+            let e = self.advance();
+            let superclass = self.required_named_type()?;
             if self.op(self.pos, Op::Comma) {
-                return Err(self.erro("Each class definition can have at most one extends clause."));
+                return Err(self.error("Each class definition can have at most one extends clause."));
             }
-            Some(self.no(
-                No::ExtendsClause {
+            Some(self.node(
+                Node::ExtendsClause {
                     extends_keyword: e as Tk,
                     superclass,
                 },
@@ -838,20 +838,20 @@ impl Parser<'_> {
             None
         };
         let with_clause = if self.kw(self.pos, Keyword::With) {
-            Some(self.clausula_lista(Keyword::With)?)
+            Some(self.list_clause(Keyword::With)?)
         } else {
             None
         };
-        let implements_clause = self.clausula_implements()?;
-        let native_clause = if self.pal(self.pos, "native") {
-            let n = self.avancar();
+        let implements_clause = self.implements_clause_()?;
+        let native_clause = if self.word(self.pos, "native") {
+            let n = self.advance();
             let name = if self.texto(self.pos) {
-                Some(self.literal_texto()?)
+                Some(self.string_literal()?)
             } else {
                 None
             };
-            Some(self.no(
-                No::NativeClause {
+            Some(self.node(
+                Node::NativeClause {
                     native_keyword: n as Tk,
                     name,
                 },
@@ -861,9 +861,9 @@ impl Parser<'_> {
             None
         };
         let nome = self.txt(name);
-        let (lb, members, rb) = self.corpo_classe(Corpo::Classe, nome)?;
-        Ok(self.no(
-            No::ClassDeclaration {
+        let (lb, members, rb) = self.class_body(Body::Class, nome)?;
+        Ok(self.node(
+            Node::ClassDeclaration {
                 metadata,
                 augment_keyword: tk(m.augment),
                 abstract_keyword: tk(m.abstract_),
@@ -884,110 +884,110 @@ impl Parser<'_> {
                 members,
                 right_bracket: rb as Tk,
             },
-            ini,
+            start_,
         ))
     }
 
-    /// `with T, U` ([`No::WithClause`]).
-    fn clausula_lista(&mut self, _k: Keyword) -> R<NoId> {
-        let w = self.avancar();
-        let mut tipos = Vec::new();
+    /// `with T, U` ([`Node::WithClause`]).
+    fn list_clause(&mut self, _k: Keyword) -> R<NodeId> {
+        let w = self.advance();
+        let mut types_ = Vec::new();
         loop {
-            tipos.push(self.tipo_nomeado_requerido()?);
+            types_.push(self.required_named_type()?);
             if !self.op(self.pos, Op::Comma) {
                 break;
             }
-            self.avancar();
+            self.advance();
         }
-        Ok(self.no(
-            No::WithClause {
+        Ok(self.node(
+            Node::WithClause {
                 with_keyword: w as Tk,
-                mixin_types: tipos,
+                mixin_types: types_,
             },
             w,
         ))
     }
 
     /// `implements T, U` opcional.
-    fn clausula_implements(&mut self) -> R<Option<NoId>> {
-        if !self.pal(self.pos, "implements") {
+    fn implements_clause_(&mut self) -> R<Option<NodeId>> {
+        if !self.word(self.pos, "implements") {
             return Ok(None);
         }
-        let i = self.avancar();
-        let mut tipos = Vec::new();
+        let i = self.advance();
+        let mut types_ = Vec::new();
         loop {
-            tipos.push(self.tipo_nomeado_requerido()?);
+            types_.push(self.required_named_type()?);
             if !self.op(self.pos, Op::Comma) {
                 break;
             }
-            self.avancar();
+            self.advance();
         }
-        Ok(Some(self.no(
-            No::ImplementsClause {
+        Ok(Some(self.node(
+            Node::ImplementsClause {
                 implements_keyword: i as Tk,
-                interfaces: tipos,
+                interfaces: types_,
             },
             i,
         )))
     }
 
     /// `{ membros }`.
-    fn corpo_classe(&mut self, corpo: Corpo, nome: &str) -> R<(usize, Vec<NoId>, usize)> {
+    fn class_body(&mut self, corpo: Body, nome: &str) -> R<(usize, Vec<NodeId>, usize)> {
         if !self.op(self.pos, Op::LBrace) {
-            return Err(self.esperado("{"));
+            return Err(self.expected("{"));
         }
-        let lb = self.avancar();
+        let lb = self.advance();
         let mut membros = Vec::new();
         while !self.op(self.pos, Op::RBrace) {
             if self.eof(self.pos) {
-                return Err(self.esperado("}"));
+                return Err(self.expected("}"));
             }
             membros.push(self.membro(corpo, nome)?);
         }
-        let rb = self.avancar();
+        let rb = self.advance();
         Ok((lb, membros, rb))
     }
 
     /// `parseMixin`; `self.pos` está no `mixin`.
-    fn mixin(&mut self, ini: usize, metadata: Vec<NoId>, m: Mods, base: Option<usize>) -> R<NoId> {
+    fn mixin(&mut self, start_: usize, metadata: Vec<NodeId>, m: Mods, base: Option<usize>) -> R<NodeId> {
         if m.final_.is_some() {
-            return Err(self.erro_em(
-                m.final_.unwrap_or(ini),
+            return Err(self.error_at(
+                m.final_.unwrap_or(start_),
                 "A mixin can't be declared 'final'.",
             ));
         }
-        let mk = self.avancar();
-        let name = self.espera_ident()?;
+        let mk = self.advance();
+        let name = self.expect_ident()?;
         let type_parameters = if self.op(self.pos, Op::Lt) {
-            Some(self.params_tipo()?)
+            Some(self.type_params()?)
         } else {
             None
         };
-        let on_clause = if self.pal(self.pos, "on") {
-            let o = self.avancar();
-            let mut tipos = Vec::new();
+        let on_clause = if self.word(self.pos, "on") {
+            let o = self.advance();
+            let mut types_ = Vec::new();
             loop {
-                tipos.push(self.tipo_nomeado_requerido()?);
+                types_.push(self.required_named_type()?);
                 if !self.op(self.pos, Op::Comma) {
                     break;
                 }
-                self.avancar();
+                self.advance();
             }
-            Some(self.no(
-                No::MixinOnClause {
+            Some(self.node(
+                Node::MixinOnClause {
                     on_keyword: o as Tk,
-                    superclass_constraints: tipos,
+                    superclass_constraints: types_,
                 },
                 o,
             ))
         } else {
             None
         };
-        let implements_clause = self.clausula_implements()?;
+        let implements_clause = self.implements_clause_()?;
         let nome = self.txt(name);
-        let (lb, members, rb) = self.corpo_classe(Corpo::Mixin, nome)?;
-        Ok(self.no(
-            No::MixinDeclaration {
+        let (lb, members, rb) = self.class_body(Body::Mixin, nome)?;
+        Ok(self.node(
+            Node::MixinDeclaration {
                 metadata,
                 augment_keyword: tk(m.augment),
                 base_keyword: tk(base),
@@ -1000,44 +1000,44 @@ impl Parser<'_> {
                 members,
                 right_bracket: rb as Tk,
             },
-            ini,
+            start_,
         ))
     }
 
     /// `parseExtension`; `self.pos` está no `extension`.
-    fn extensao(&mut self, ini: usize, metadata: Vec<NoId>, m: Mods) -> R<NoId> {
-        let e = self.avancar();
-        self.recurso(e, (2, 6), "extension-methods");
-        if self.pal(self.pos, "type")
-            && !self.pal(self.pos + 1, "on")
+    fn extension(&mut self, start_: usize, metadata: Vec<NodeId>, m: Mods) -> R<NodeId> {
+        let e = self.advance();
+        self.feature(e, (2, 6), "extension-methods");
+        if self.word(self.pos, "type")
+            && !self.word(self.pos + 1, "on")
             && !self.op(self.pos + 1, Op::Lt)
-            || self.pal(self.pos, "type") && self.kw(self.pos + 1, Keyword::Const)
+            || self.word(self.pos, "type") && self.kw(self.pos + 1, Keyword::Const)
         {
-            return self.tipo_extensao(ini, metadata, m, e);
+            return self.extension_type(start_, metadata, m, e);
         }
-        let name = if self.ident(self.pos) && !self.pal(self.pos, "on") {
-            Some(self.avancar())
+        let name = if self.ident(self.pos) && !self.word(self.pos, "on") {
+            Some(self.advance())
         } else {
             None
         };
         let type_parameters = if self.op(self.pos, Op::Lt) {
-            Some(self.params_tipo()?)
+            Some(self.type_params()?)
         } else {
             None
         };
-        let o = self.espera_pal("on")?;
-        let extended_type = self.tipo_requerido()?;
-        let on_clause = Some(self.no(
-            No::ExtensionOnClause {
+        let o = self.expect_word("on")?;
+        let extended_type = self.required_type()?;
+        let on_clause = Some(self.node(
+            Node::ExtensionOnClause {
                 on_keyword: o as Tk,
                 extended_type,
             },
             o,
         ));
         let nome = name.map_or("", |n| self.txt(n));
-        let (lb, members, rb) = self.corpo_classe(Corpo::Extensao, nome)?;
-        Ok(self.no(
-            No::ExtensionDeclaration {
+        let (lb, members, rb) = self.class_body(Body::Extension, nome)?;
+        Ok(self.node(
+            Node::ExtensionDeclaration {
                 metadata,
                 augment_keyword: tk(m.augment),
                 extension_keyword: e as Tk,
@@ -1048,38 +1048,38 @@ impl Parser<'_> {
                 members,
                 right_bracket: rb as Tk,
             },
-            ini,
+            start_,
         ))
     }
 
     /// `parseExtensionTypeDeclaration`.
-    fn tipo_extensao(&mut self, ini: usize, metadata: Vec<NoId>, m: Mods, e: usize) -> R<NoId> {
-        if self.versao < (3, 3) {
+    fn extension_type(&mut self, start_: usize, metadata: Vec<NodeId>, m: Mods, e: usize) -> R<NodeId> {
+        if self.version < (3, 3) {
             return Err(
-                self.erro("This requires the 'inline-class' language feature to be enabled.")
+                self.error("This requires the 'inline-class' language feature to be enabled.")
             );
         }
-        let t = self.avancar();
+        let t = self.advance();
         let const_keyword = if self.kw(self.pos, Keyword::Const) {
-            Some(self.avancar() as Tk)
+            Some(self.advance() as Tk)
         } else {
             None
         };
-        let name = self.espera_ident()?;
+        let name = self.expect_ident()?;
         let type_parameters = if self.op(self.pos, Op::Lt) {
-            Some(self.params_tipo()?)
+            Some(self.type_params()?)
         } else {
             None
         };
         let ri = self.pos;
         let constructor_name = if self.op(self.pos, Op::Dot) {
-            let p = self.avancar();
+            let p = self.advance();
             if !(self.ident(self.pos) || self.kw(self.pos, Keyword::New)) {
-                return Err(self.erro("Expected an identifier."));
+                return Err(self.error("Expected an identifier."));
             }
-            let n = self.avancar();
-            Some(self.no(
-                No::RepresentationConstructorName {
+            let n = self.advance();
+            Some(self.node(
+                Node::RepresentationConstructorName {
                     period: p as Tk,
                     name: n as Tk,
                 },
@@ -1088,29 +1088,29 @@ impl Parser<'_> {
         } else {
             None
         };
-        let lp = self.espera_op(Op::LParen)?;
-        let field_metadata = self.metadados()?;
-        if self.modificador(self.pos) {
-            return Err(self.erro("Representation fields can't have modifiers."));
+        let lp = self.expect_op(Op::LParen)?;
+        let field_metadata = self.metadata_()?;
+        if self.modifier(self.pos) {
+            return Err(self.error("Representation fields can't have modifiers."));
         }
-        let ti = self.tipo_em(self.pos, false, false, true);
-        if ti.e_nenhum() {
-            return Err(self.erro("Expected a representation type."));
+        let ti = self.type_at(self.pos, false, false, true);
+        if ti.is_none() {
+            return Err(self.error("Expected a representation type."));
         }
-        let field_type = self.tipo_ate(ti.ate)?;
-        let field_name = self.espera_ident()?;
+        let field_type = self.type_until(ti.end_index)?;
+        let field_name = self.expect_ident()?;
         if self.op(self.pos, Op::Comma) {
-            return Err(self.erro("The representation field can't have a trailing comma."));
+            return Err(self.error("The representation field can't have a trailing comma."));
         }
         if self.txt(field_name) == self.txt(name) {
-            return Err(self.erro_em(
+            return Err(self.error_at(
                 field_name,
                 "A class member can't have the same name as the enclosing class.",
             ));
         }
-        let rp = self.espera_op(Op::RParen)?;
-        let representation = self.no(
-            No::RepresentationDeclaration {
+        let rp = self.expect_op(Op::RParen)?;
+        let representation = self.node(
+            Node::RepresentationDeclaration {
                 constructor_name,
                 left_parenthesis: lp as Tk,
                 field_metadata,
@@ -1120,11 +1120,11 @@ impl Parser<'_> {
             },
             ri,
         );
-        let implements_clause = self.clausula_implements()?;
+        let implements_clause = self.implements_clause_()?;
         let nome = self.txt(name);
-        let (lb, members, rb) = self.corpo_classe(Corpo::TipoExtensao, nome)?;
-        Ok(self.no(
-            No::ExtensionTypeDeclaration {
+        let (lb, members, rb) = self.class_body(Body::ExtensionType, nome)?;
+        Ok(self.node(
+            Node::ExtensionTypeDeclaration {
                 metadata,
                 augment_keyword: tk(m.augment),
                 extension_keyword: e as Tk,
@@ -1138,38 +1138,38 @@ impl Parser<'_> {
                 members,
                 right_bracket: rb as Tk,
             },
-            ini,
+            start_,
         ))
     }
 
     /// `parseEnum`; `self.pos` está no `enum`.
-    fn enumeracao(&mut self, ini: usize, metadata: Vec<NoId>, m: Mods) -> R<NoId> {
-        let e = self.avancar();
-        let name = self.espera_ident()?;
+    fn enumeration(&mut self, start_: usize, metadata: Vec<NodeId>, m: Mods) -> R<NodeId> {
+        let e = self.advance();
+        let name = self.expect_ident()?;
         let type_parameters = if self.op(self.pos, Op::Lt) {
-            Some(self.params_tipo()?)
+            Some(self.type_params()?)
         } else {
             None
         };
         let with_clause = if self.kw(self.pos, Keyword::With) {
-            Some(self.clausula_lista(Keyword::With)?)
+            Some(self.list_clause(Keyword::With)?)
         } else {
             None
         };
-        let implements_clause = self.clausula_implements()?;
-        let lb = self.espera_op(Op::LBrace)?;
+        let implements_clause = self.implements_clause_()?;
+        let lb = self.expect_op(Op::LBrace)?;
         let mut constants = Vec::new();
         loop {
             if self.op(self.pos, Op::RBrace) || self.op(self.pos, Op::Semicolon) {
                 break;
             }
-            constants.push(self.constante_enum()?);
+            constants.push(self.enum_constant()?);
             if self.op(self.pos, Op::Comma) {
-                self.avancar();
+                self.advance();
             } else if self.op(self.pos, Op::RBrace) || self.op(self.pos, Op::Semicolon) {
                 break;
             } else {
-                return Err(self.esperado("}"));
+                return Err(self.expected("}"));
             }
         }
         if type_parameters.is_some()
@@ -1177,23 +1177,23 @@ impl Parser<'_> {
             || implements_clause.is_some()
             || self.op(self.pos, Op::Semicolon)
         {
-            self.recurso(e, (2, 17), "enhanced-enums");
+            self.feature(e, (2, 17), "enhanced-enums");
         }
         let mut semicolon = None;
         let mut members = Vec::new();
         if self.op(self.pos, Op::Semicolon) {
-            semicolon = Some(self.avancar() as Tk);
+            semicolon = Some(self.advance() as Tk);
             let nome = self.txt(name);
             while !self.op(self.pos, Op::RBrace) {
                 if self.eof(self.pos) {
-                    return Err(self.esperado("}"));
+                    return Err(self.expected("}"));
                 }
-                members.push(self.membro(Corpo::Enum, nome)?);
+                members.push(self.membro(Body::Enum, nome)?);
             }
         }
-        let rb = self.espera_op(Op::RBrace)?;
-        Ok(self.no(
-            No::EnumDeclaration {
+        let rb = self.expect_op(Op::RBrace)?;
+        Ok(self.node(
+            Node::EnumDeclaration {
                 metadata,
                 augment_keyword: tk(m.augment),
                 enum_keyword: e as Tk,
@@ -1207,36 +1207,36 @@ impl Parser<'_> {
                 members,
                 right_bracket: rb as Tk,
             },
-            ini,
+            start_,
         ))
     }
 
     /// `parseEnumElement`.
-    fn constante_enum(&mut self) -> R<NoId> {
-        let ini = self.pos;
-        let metadata = self.metadados()?;
-        if self.pal(self.pos, "augment") && self.ident(self.pos + 1) {
-            return Err(self.erro("Augmentations aren't supported here."));
+    fn enum_constant(&mut self) -> R<NodeId> {
+        let start_ = self.pos;
+        let metadata = self.metadata_()?;
+        if self.word(self.pos, "augment") && self.ident(self.pos + 1) {
+            return Err(self.error("Augmentations aren't supported here."));
         }
-        let name = self.espera_ident()?;
+        let name = self.expect_ident()?;
         let ai = self.pos;
         let type_arguments = if self.op(self.pos, Op::Lt) {
-            if self.args_tipo_em(name, false).is_none() {
-                return Err(self.erro("Invalid type arguments."));
+            if self.type_args_at(name, false).is_none() {
+                return Err(self.error("Invalid type arguments."));
             }
-            Some(self.args_tipo()?)
+            Some(self.type_args()?)
         } else {
             None
         };
         let constructor_selector = if self.op(self.pos, Op::Dot) {
-            let p = self.avancar();
+            let p = self.advance();
             if !(self.ident(self.pos) || self.kw(self.pos, Keyword::New)) {
-                return Err(self.erro("Expected an identifier."));
+                return Err(self.error("Expected an identifier."));
             }
-            let n = self.avancar();
-            let s = self.simples(n);
-            Some(self.no(
-                No::ConstructorSelector {
+            let n = self.advance();
+            let s = self.simple(n);
+            Some(self.node(
+                Node::ConstructorSelector {
                     period: p as Tk,
                     name: s,
                 },
@@ -1249,13 +1249,13 @@ impl Parser<'_> {
             || type_arguments.is_some()
             || constructor_selector.is_some()
         {
-            self.recurso(ai, (2, 17), "enhanced-enums");
+            self.feature(ai, (2, 17), "enhanced-enums");
             if !self.op(self.pos, Op::LParen) {
-                return Err(self.esperado("("));
+                return Err(self.expected("("));
             }
-            let argument_list = self.argumentos()?;
-            Some(self.no(
-                No::EnumConstantArguments {
+            let argument_list = self.arguments_()?;
+            Some(self.node(
+                Node::EnumConstantArguments {
                     type_arguments,
                     constructor_selector,
                     argument_list,
@@ -1265,34 +1265,34 @@ impl Parser<'_> {
         } else {
             None
         };
-        Ok(self.no(
-            No::EnumConstantDeclaration {
+        Ok(self.node(
+            Node::EnumConstantDeclaration {
                 metadata,
                 name: name as Tk,
                 arguments,
             },
-            ini,
+            start_,
         ))
     }
 
     /// `parseTypedef`; `self.pos` está no `typedef`.
-    fn alias(&mut self, ini: usize, metadata: Vec<NoId>, m: Mods) -> R<NoId> {
-        let td = self.avancar();
-        let ti = self.tipo_em(self.pos, false, false, false);
-        let nx = ti.ate;
-        let depois = self.args_tipo_em(nx, true).map_or(nx + 1, |a| a.ate);
-        if ti.e_nenhum() && self.op(depois, Op::Assign) {
+    fn alias(&mut self, start_: usize, metadata: Vec<NodeId>, m: Mods) -> R<NodeId> {
+        let td = self.advance();
+        let ti = self.type_at(self.pos, false, false, false);
+        let nx = ti.end_index;
+        let after = self.type_args_at(nx, true).map_or(nx + 1, |a| a.end_index);
+        if ti.is_none() && self.op(after, Op::Assign) {
             if !self.ident(self.pos) {
-                return Err(self.erro("Expected an identifier."));
+                return Err(self.error("Expected an identifier."));
             }
-            let name = self.avancar();
+            let name = self.advance();
             let type_parameters = if self.op(self.pos, Op::Lt) {
-                Some(self.params_tipo()?)
+                Some(self.type_params()?)
             } else {
                 None
             };
-            if self.embutida(name) {
-                return Err(self.erro_em(
+            if self.built_in(name) {
+                return Err(self.error_at(
                     name,
                     &format!(
                         "'{}' can't be used as an identifier because it's a keyword.",
@@ -1300,14 +1300,14 @@ impl Parser<'_> {
                     ),
                 ));
             }
-            let equals = self.espera_op(Op::Assign)?;
-            let type_ = self.tipo_requerido()?;
-            if !matches!(self.arv.no(type_), No::GenericFunctionType { .. }) {
-                self.recurso(equals, (2, 13), "nonfunction-type-aliases");
+            let equals = self.expect_op(Op::Assign)?;
+            let type_ = self.required_type()?;
+            if !matches!(self.tree_.node(type_), Node::GenericFunctionType { .. }) {
+                self.feature(equals, (2, 13), "nonfunction-type-aliases");
             }
-            let s = self.espera_op(Op::Semicolon)?;
-            return Ok(self.no(
-                No::GenericTypeAlias {
+            let s = self.expect_op(Op::Semicolon)?;
+            return Ok(self.node(
+                Node::GenericTypeAlias {
                     metadata,
                     augment_keyword: tk(m.augment),
                     typedef_keyword: td as Tk,
@@ -1317,17 +1317,17 @@ impl Parser<'_> {
                     type_,
                     semicolon: s as Tk,
                 },
-                ini,
+                start_,
             ));
         }
-        let return_type = if ti.e_nenhum() {
+        let return_type = if ti.is_none() {
             None
         } else {
-            Some(self.tipo_ate(ti.ate)?)
+            Some(self.type_until(ti.end_index)?)
         };
-        let name = self.espera_ident()?;
-        if self.embutida(name) {
-            return Err(self.erro_em(
+        let name = self.expect_ident()?;
+        if self.built_in(name) {
+            return Err(self.error_at(
                 name,
                 &format!(
                     "'{}' can't be used as an identifier because it's a keyword.",
@@ -1336,17 +1336,17 @@ impl Parser<'_> {
             ));
         }
         let type_parameters = if self.op(self.pos, Op::Lt) {
-            Some(self.params_tipo()?)
+            Some(self.type_params()?)
         } else {
             None
         };
         if !self.op(self.pos, Op::LParen) {
-            return Err(self.esperado("("));
+            return Err(self.expected("("));
         }
-        let parameters = self.params_formais(Membro::AliasFuncao)?;
-        let s = self.espera_op(Op::Semicolon)?;
-        Ok(self.no(
-            No::FunctionTypeAlias {
+        let parameters = self.formal_params(MemberKind::FunctionAlias)?;
+        let s = self.expect_op(Op::Semicolon)?;
+        Ok(self.node(
+            Node::FunctionTypeAlias {
                 metadata,
                 augment_keyword: tk(m.augment),
                 typedef_keyword: td as Tk,
@@ -1356,24 +1356,24 @@ impl Parser<'_> {
                 parameters,
                 semicolon: s as Tk,
             },
-            ini,
+            start_,
         ))
     }
 
     /// `indicatesMethodOrField`.
-    fn indica_metodo_ou_campo(&self, i: usize) -> bool {
+    fn indicates_method_or_field(&self, i: usize) -> bool {
         matches!(
             self.tipo(i),
-            TipoToken::Op(
+            TokenKind::Op(
                 Op::Semicolon | Op::Assign | Op::LParen | Op::LBrace | Op::Arrow | Op::Lt
             )
         )
     }
 
     /// `parseTopLevelMemberImpl`.
-    fn membro_topo(&mut self, ini: usize, metadata: Vec<NoId>) -> R<NoId> {
+    fn membro_topo(&mut self, start_: usize, metadata: Vec<NodeId>) -> R<NodeId> {
         let mut m = Mods::default();
-        self.coletar_modificadores(&mut m)?;
+        self.collect_modifiers(&mut m)?;
         for (x, nome) in [
             (m.abstract_, "abstract"),
             (m.covariant, "covariant"),
@@ -1381,103 +1381,103 @@ impl Parser<'_> {
             (m.static_, "static"),
         ] {
             if let Some(i) = x {
-                return Err(self.erro_em(i, &format!("Can't have modifier '{nome}' here.")));
+                return Err(self.error_at(i, &format!("Can't have modifier '{nome}' here.")));
             }
         }
         if m.vfc().is_some()
-            && let Some(f) = self.pular_padrao_externo(self.pos)
+            && let Some(f) = self.skip_outer_pattern(self.pos)
             && self.op(f + 1, Op::Assign)
         {
-            return Err(self.erro(
+            return Err(self.error(
                 "Pattern variable declarations aren't allowed outside of functions or methods.",
             ));
         }
-        let ti = self.tipo_em(self.pos, false, true, false);
-        let mut nx = ti.ate;
+        let ti = self.type_at(self.pos, false, true, false);
+        let mut nx = ti.end_index;
         let mut prop = None;
-        if (self.pal(nx, "get") || self.pal(nx, "set")) && self.ident(nx + 1) {
+        if (self.word(nx, "get") || self.word(nx, "set")) && self.ident(nx + 1) {
             prop = Some(nx);
             nx += 1;
         }
-        if ti.e_nenhum()
+        if ti.is_none()
             && m.vfc().is_none()
-            && self.reservada(nx + 1)
-            && self.indica_metodo_ou_campo(nx + 2)
+            && self.reserved(nx + 1)
+            && self.indicates_method_or_field(nx + 2)
         {
-            return Err(self.erro_em(nx + 1, "Expected an identifier."));
+            return Err(self.error_at(nx + 1, "Expected an identifier."));
         }
         if !self.ident_puro(nx) {
             let v = self.txt(nx);
             if v == "factory" || v == "operator" {
                 if prop.is_none()
-                    && !self.indica_metodo_ou_campo(nx + 1)
+                    && !self.indicates_method_or_field(nx + 1)
                     && !self.op(nx + 1, Op::Comma)
                 {
-                    return Err(self.erro_em(
+                    return Err(self.error_at(
                         nx,
                         "Top-level declarations can't be factories or operators.",
                     ));
                 }
             } else if !self.ident(nx) {
-                return Err(self.erro_em(
+                return Err(self.error_at(
                     nx,
                     &format!("Expected an identifier, but got '{}'.", self.txt(nx)),
                 ));
             }
         }
-        let depois = nx + 1;
+        let after = nx + 1;
         if prop.is_some()
             || matches!(
-                self.tipo(depois),
-                TipoToken::Op(Op::LParen | Op::LBrace | Op::Lt | Op::Dot | Op::Arrow)
+                self.tipo(after),
+                TokenKind::Op(Op::LParen | Op::LBrace | Op::Lt | Op::Dot | Op::Arrow)
             )
         {
             if let Some(v) = m.vfc().or(m.late) {
-                return Err(self.erro_em(
+                return Err(self.error_at(
                     v,
                     "Functions can't be declared 'var', 'final', 'const' or 'late'.",
                 ));
             }
-            let return_type = if ti.e_nenhum() {
+            let return_type = if ti.is_none() {
                 None
             } else {
-                Some(self.tipo_ate(ti.ate)?)
+                Some(self.type_until(ti.end_index)?)
             };
             if prop.is_some() {
-                self.avancar();
+                self.advance();
             }
-            let name = self.espera_ident()?;
+            let name = self.expect_ident()?;
             let getter = prop.is_some_and(|p| self.txt(p) == "get");
             let fi = self.pos;
             let type_parameters = if prop.is_none() && self.op(self.pos, Op::Lt) {
-                Some(self.params_tipo()?)
+                Some(self.type_params()?)
             } else {
                 None
             };
             let parameters = if self.op(self.pos, Op::LParen) {
                 if getter {
-                    return Err(self.erro("Getters must be declared without a parameter list."));
+                    return Err(self.error("Getters must be declared without a parameter list."));
                 }
-                Some(self.params_formais(Membro::FuncaoTopo)?)
+                Some(self.formal_params(MemberKind::TopLevelFunction)?)
             } else if getter {
                 None
             } else {
-                return Err(self.erro("Functions must have an explicit list of parameters."));
+                return Err(self.error("Functions must have an explicit list of parameters."));
             };
             if m.external.is_some() && !self.op(self.pos, Op::Semicolon) {
-                return Err(self.erro("An external or native method can't have a body."));
+                return Err(self.error("An external or native method can't have a body."));
             }
-            let body = self.corpo_funcao(false, m.external.is_some())?;
-            let fe = self.no(
-                No::FunctionExpression {
+            let body = self.function_body_(false, m.external.is_some())?;
+            let fe = self.node(
+                Node::FunctionExpression {
                     type_parameters,
                     parameters,
                     body,
                 },
                 fi,
             );
-            return Ok(self.no(
-                No::FunctionDeclaration {
+            return Ok(self.node(
+                Node::FunctionDeclaration {
                     metadata,
                     augment_keyword: tk(m.augment),
                     external_keyword: tk(m.external),
@@ -1486,84 +1486,84 @@ impl Parser<'_> {
                     name: name as Tk,
                     function_expression: fe,
                 },
-                ini,
+                start_,
             ));
         }
         if prop.is_some() {
-            return Err(self.erro_em(nx, "Unexpected 'get'/'set'."));
+            return Err(self.error_at(nx, "Unexpected 'get'/'set'."));
         }
-        let fields = self.campos(&m, ti, None)?;
-        let s = self.espera_op(Op::Semicolon)?;
-        Ok(self.no(
-            No::TopLevelVariableDeclaration {
+        let fields = self.fields_(&m, ti, None)?;
+        let s = self.expect_op(Op::Semicolon)?;
+        Ok(self.node(
+            Node::TopLevelVariableDeclaration {
                 metadata,
                 augment_keyword: tk(m.augment),
                 external_keyword: tk(m.external),
                 variables: fields,
                 semicolon: s as Tk,
             },
-            ini,
+            start_,
         ))
     }
 
-    /// `parseFields` até antes do `;`: o [`No::VariableDeclarationList`].
-    fn campos(
+    /// `parseFields` até antes do `;`: o [`Node::VariableDeclarationList`].
+    fn fields_(
         &mut self,
         m: &Mods,
-        ti: super::lookahead::InfoTipo,
-        nome_classe: Option<&str>,
-    ) -> R<NoId> {
+        ti: super::lookahead::TypeInfo,
+        class_name: Option<&str>,
+    ) -> R<NodeId> {
         if let Some(c) = m.covariant
             && m.late.is_none()
             && m.final_.is_some()
         {
-            return Err(self.erro_em(
+            return Err(self.error_at(
                 c,
                 "Members can't be declared to be both 'final' and 'covariant'.",
             ));
         }
-        if ti.e_nenhum() {
+        if ti.is_none() {
             if m.vfc().is_none() {
-                return Err(self.erro_em(ti.ate, "Variables must be declared using the keywords 'const', 'final', 'var' or a type name."));
+                return Err(self.error_at(ti.end_index, "Variables must be declared using the keywords 'const', 'final', 'var' or a type name."));
             }
         } else if let Some(v) = m.var {
-            return Err(self.erro_em(
+            return Err(self.error_at(
                 v,
                 "Variables can't be declared using both 'var' and a type name.",
             ));
         }
         if let (Some(a), Some(_)) = (m.abstract_, m.external) {
-            return Err(self.erro_em(
+            return Err(self.error_at(
                 a,
                 "Fields can't be declared both 'abstract' and 'external'.",
             ));
         }
         if let (Some(a), Some(_)) = (m.abstract_, m.static_) {
-            return Err(self.erro_em(a, "Static fields can't be declared 'abstract'."));
+            return Err(self.error_at(a, "Static fields can't be declared 'abstract'."));
         }
         let li = self.pos;
-        let type_ = if ti.e_nenhum() {
+        let type_ = if ti.is_none() {
             None
         } else {
-            Some(self.tipo_ate(ti.ate)?)
+            Some(self.type_until(ti.end_index)?)
         };
         let mut vars = Vec::new();
         loop {
-            let n = self.espera_ident()?;
-            if nome_classe.is_some_and(|c| c == self.txt(n)) {
-                return Err(self.erro_em(
+            let n = self.expect_ident()?;
+            if class_name.is_some_and(|c| c == self.txt(n)) {
+                return Err(self.error_at(
                     n,
                     "A class member can't have the same name as the enclosing class.",
                 ));
             }
             let (equals, initializer) = if self.op(self.pos, Op::Assign) {
-                let e = self.avancar();
-                (Some(e as Tk), Some(self.expressao()?))
+                let e = self.advance();
+                (Some(e as Tk), Some(self.expression()?))
             } else {
                 (None, None)
             };
-            vars.push(self.no(
-                No::VariableDeclaration {
+            vars.push(self.node(
+                Node::VariableDeclaration {
                     name: n as Tk,
                     equals,
                     initializer,
@@ -1573,45 +1573,45 @@ impl Parser<'_> {
             if !self.op(self.pos, Op::Comma) {
                 break;
             }
-            self.avancar();
+            self.advance();
         }
-        let ini = [m.late, m.vfc()]
+        let start_ = [m.late, m.vfc()]
             .into_iter()
             .flatten()
             .min()
             .unwrap_or(li)
             .min(li);
-        Ok(self.no(
-            No::VariableDeclarationList {
+        Ok(self.node(
+            Node::VariableDeclarationList {
                 metadata: Vec::new(),
                 late_keyword: tk(m.late),
                 keyword: tk(m.vfc()),
                 type_,
                 variables: vars,
             },
-            ini,
+            start_,
         ))
     }
 
     /// `parseClassOrMixinOrExtensionOrEnumMemberImpl`.
-    fn membro(&mut self, corpo: Corpo, nome_classe: &str) -> R<NoId> {
-        let ini = self.pos;
-        let metadata = self.metadados()?;
+    fn membro(&mut self, corpo: Body, class_name: &str) -> R<NodeId> {
+        let start_ = self.pos;
+        let metadata = self.metadata_()?;
         let mut m = Mods::default();
-        self.coletar_modificadores(&mut m)?;
+        self.collect_modifiers(&mut m)?;
         if let Some(r) = m.required {
-            return Err(self.erro_em(r, "Can't have modifier 'required' here."));
+            return Err(self.error_at(r, "Can't have modifier 'required' here."));
         }
         if m.vfc().is_some()
-            && let Some(f) = self.pular_padrao_externo(self.pos)
+            && let Some(f) = self.skip_outer_pattern(self.pos)
             && self.op(f + 1, Op::Assign)
         {
-            return Err(self.erro(
+            return Err(self.error(
                 "Pattern variable declarations aren't allowed outside of functions or methods.",
             ));
         }
-        let ti = self.tipo_em(self.pos, false, true, false);
-        let mut nx = ti.ate;
+        let ti = self.type_at(self.pos, false, true, false);
+        let mut nx = ti.end_index;
         let mut get_set = None;
         if !self.ident_puro(nx) {
             let v = self.txt(nx);
@@ -1619,84 +1619,84 @@ impl Parser<'_> {
                 if self.ident(nx + 1) {
                     get_set = Some(nx);
                     nx += 1;
-                } else if self.reservada(nx + 1) && self.indica_metodo_ou_campo(nx + 2) {
-                    return Err(self.erro_em(nx + 1, "Expected an identifier."));
+                } else if self.reserved(nx + 1) && self.indicates_method_or_field(nx + 2) {
+                    return Err(self.error_at(nx + 1, "Expected an identifier."));
                 }
             } else if v == "factory" && self.ident(nx) {
                 let n2 = nx + 1;
-                if self.ident(n2) || self.modificador(n2) {
-                    if !ti.e_nenhum() {
+                if self.ident(n2) || self.modifier(n2) {
+                    if !ti.is_none() {
                         return Err(
-                            self.erro_em(nx, "Factory constructors cannot have a return type.")
+                            self.error_at(nx, "Factory constructors cannot have a return type.")
                         );
                     }
                     if m.abstract_.is_some() {
                         return Err(
-                            self.erro("Members of classes can't be declared to be 'abstract'.")
+                            self.error("Members of classes can't be declared to be 'abstract'.")
                         );
                     }
-                    return self.fabrica(ini, metadata, m, nx, corpo);
+                    return self.factory(start_, metadata, m, nx, corpo);
                 }
             } else if v == "operator" && self.ident(nx) {
                 let n2 = nx + 1;
-                if self.operador_definivel(n2).is_some() && self.args_tipo_em(nx, false).is_none() {
-                    return self.metodo(ini, metadata, m, ti, None, nx, corpo, nome_classe);
+                if self.user_definable_operator(n2).is_some() && self.type_args_at(nx, false).is_none() {
+                    return self.method(start_, metadata, m, ti, None, nx, corpo, class_name);
                 } else if !self.op(n2, Op::Assign)
                     && !self.op(n2, Op::Lt)
-                    && !self.palavra(n2)
+                    && !self.word_(n2)
                     && !self.op(n2, Op::LParen)
                     && !self.op(n2, Op::Semicolon)
                 {
-                    return Err(self.erro_em(n2, "Invalid operator."));
+                    return Err(self.error_at(n2, "Invalid operator."));
                 }
             } else if !self.ident(nx)
-                || (v == "typedef" && ti.e_nenhum() && ini == self.pos && self.ident(nx + 1))
+                || (v == "typedef" && ti.is_none() && start_ == self.pos && self.ident(nx + 1))
             {
-                return Err(self.erro_em(
+                return Err(self.error_at(
                     nx,
                     &format!("Expected a class member, but got '{}'.", self.txt(nx)),
                 ));
             }
-        } else if ti.e_nenhum() && m.vfc().is_none() {
+        } else if ti.is_none() && m.vfc().is_none() {
             let n2 = nx + 1;
-            if self.operador_definivel(n2).is_some()
+            if self.user_definable_operator(n2).is_some()
                 && !self.op(n2, Op::LBracket)
                 && (self.op(n2 + 1, Op::LParen)
                     || self.op(n2 + 1, Op::LBrace)
                     || self.op(n2 + 1, Op::Arrow))
             {
-                return Err(self.erro_em(
+                return Err(self.error_at(
                     n2,
                     "Operator declarations must be preceded by the keyword 'operator'.",
                 ));
-            } else if self.reservada(n2) && self.indica_metodo_ou_campo(n2 + 1) {
-                return Err(self.erro_em(n2, "Expected an identifier."));
+            } else if self.reserved(n2) && self.indicates_method_or_field(n2 + 1) {
+                return Err(self.error_at(n2, "Expected an identifier."));
             }
         }
-        let depois = nx + 1;
+        let after = nx + 1;
         if get_set.is_some()
             || matches!(
-                self.tipo(depois),
-                TipoToken::Op(Op::LParen | Op::LBrace | Op::Lt | Op::Dot | Op::Arrow)
+                self.tipo(after),
+                TokenKind::Op(Op::LParen | Op::LBrace | Op::Lt | Op::Dot | Op::Arrow)
             )
         {
-            return self.metodo(ini, metadata, m, ti, get_set, nx, corpo, nome_classe);
+            return self.method(start_, metadata, m, ti, get_set, nx, corpo, class_name);
         }
         if get_set.is_some() {
-            return Err(self.erro("Unexpected 'get'/'set'."));
+            return Err(self.error("Unexpected 'get'/'set'."));
         }
-        if corpo == Corpo::Extensao {
+        if corpo == Body::Extension {
             if m.abstract_.is_some() {
-                return Err(self.erro("Extensions can't declare abstract members."));
+                return Err(self.error("Extensions can't declare abstract members."));
             }
             if m.static_.is_none() && m.external.is_none() {
-                return Err(self.erro_em(nx, "Extensions can't declare instance fields."));
+                return Err(self.error_at(nx, "Extensions can't declare instance fields."));
             }
         }
-        let fields = self.campos(&m, ti, Some(nome_classe))?;
-        let s = self.espera_op(Op::Semicolon)?;
-        Ok(self.no(
-            No::FieldDeclaration {
+        let fields = self.fields_(&m, ti, Some(class_name))?;
+        let s = self.expect_op(Op::Semicolon)?;
+        Ok(self.node(
+            Node::FieldDeclaration {
                 metadata,
                 augment_keyword: tk(m.augment),
                 abstract_keyword: tk(m.abstract_),
@@ -1706,189 +1706,189 @@ impl Parser<'_> {
                 fields,
                 semicolon: s as Tk,
             },
-            ini,
+            start_,
         ))
     }
 
     /// `parseMethod`: métodos, getters, setters, operadores e construtores
     /// não-fábrica. `nome` é o índice do nome (ou do `operator`).
     #[allow(clippy::too_many_arguments)]
-    fn metodo(
+    fn method(
         &mut self,
-        ini: usize,
-        metadata: Vec<NoId>,
+        start_: usize,
+        metadata: Vec<NodeId>,
         m: Mods,
-        ti: super::lookahead::InfoTipo,
+        ti: super::lookahead::TypeInfo,
         get_set: Option<usize>,
         nome: usize,
-        corpo: Corpo,
-        nome_classe: &str,
-    ) -> R<NoId> {
+        corpo: Body,
+        class_name: &str,
+    ) -> R<NodeId> {
         if let Some(a) = m.abstract_ {
-            return Err(self.erro_em(a, "Members of classes can't be declared to be 'abstract'."));
+            return Err(self.error_at(a, "Members of classes can't be declared to be 'abstract'."));
         }
         if let Some(l) = m.late {
-            return Err(self.erro_em(l, "Can't have modifier 'late' here."));
+            return Err(self.error_at(l, "Can't have modifier 'late' here."));
         }
-        let operador = get_set.is_none()
-            && self.pal(nome, "operator")
-            && self.operador_definivel(nome + 1).is_some()
-            && self.args_tipo_em(nome, false).is_none();
-        if m.static_.is_some() && operador {
-            return Err(self.erro("Operators can't be static."));
+        let operator_ = get_set.is_none()
+            && self.word(nome, "operator")
+            && self.user_definable_operator(nome + 1).is_some()
+            && self.type_args_at(nome, false).is_none();
+        if m.static_.is_some() && operator_ {
+            return Err(self.error("Operators can't be static."));
         }
         if m.static_.is_none()
             && let Some(c) = m.covariant
             && get_set.is_none_or(|g| self.txt(g) == "get")
         {
-            return Err(self.erro_em(
+            return Err(self.error_at(
                 c,
                 "Getters, setters and methods can't be declared to be 'covariant'.",
             ));
         }
         if let Some(v) = m.var.or(m.final_) {
-            return Err(self.erro_em(v, "Methods can't be declared 'var' or 'final'."));
+            return Err(self.error_at(v, "Methods can't be declared 'var' or 'final'."));
         }
         if m.const_.is_some() && get_set.is_some() {
-            return Err(self.erro("Getters and setters can't be 'const'."));
+            return Err(self.error("Getters and setters can't be 'const'."));
         }
-        let return_type = if ti.e_nenhum() {
+        let return_type = if ti.is_none() {
             None
         } else {
-            Some(self.tipo_ate(ti.ate)?)
+            Some(self.type_until(ti.end_index)?)
         };
         if get_set.is_some() {
-            self.avancar();
+            self.advance();
         }
         let mut operator_keyword = None;
         let mut period = None;
-        let mut nome2 = None;
-        let name = if operador {
-            operator_keyword = Some(self.avancar() as Tk);
-            self.consumir_operador_definivel()?
+        let mut name2 = None;
+        let name = if operator_ {
+            operator_keyword = Some(self.advance() as Tk);
+            self.consume_user_definable_operator()?
         } else {
-            let n = self.espera_ident()?;
+            let n = self.expect_ident()?;
             if self.op(self.pos, Op::Dot) {
-                period = Some(self.avancar());
+                period = Some(self.advance());
                 if !(self.ident(self.pos) || self.kw(self.pos, Keyword::New)) {
-                    return Err(self.erro("Expected an identifier."));
+                    return Err(self.error("Expected an identifier."));
                 }
-                nome2 = Some(self.avancar());
+                name2 = Some(self.advance());
             }
             n
         };
         let fi = self.pos;
-        if operador && self.op(self.pos, Op::Lt) {
-            return Err(self.erro("Types parameters aren't allowed when defining an operator."));
+        if operator_ && self.op(self.pos, Op::Lt) {
+            return Err(self.error("Types parameters aren't allowed when defining an operator."));
         }
         let getter = get_set.is_some_and(|g| self.txt(g) == "get")
             && period.is_none()
             && !self.op(self.pos, Op::Colon);
         let type_parameters = if get_set.is_none() && self.op(self.pos, Op::Lt) {
-            Some(self.params_tipo()?)
+            Some(self.type_params()?)
         } else {
             None
         };
         let membro = match (corpo, m.static_.is_some()) {
-            (Corpo::Extensao | Corpo::TipoExtensao, _) => Membro::Extensao,
-            (_, true) => Membro::MetodoEstatico,
-            _ => Membro::MetodoInstancia,
+            (Body::Extension | Body::ExtensionType, _) => MemberKind::Extension,
+            (_, true) => MemberKind::StaticMethod,
+            _ => MemberKind::InstanceMethod,
         };
         let parameters = if self.op(self.pos, Op::LParen) {
             if getter {
-                return Err(self.erro("Getters must be declared without a parameter list."));
+                return Err(self.error("Getters must be declared without a parameter list."));
             }
-            Some(self.params_formais(membro)?)
+            Some(self.formal_params(membro)?)
         } else if getter {
             None
         } else {
-            return Err(self.erro("Methods must have an explicit list of parameters."));
+            return Err(self.error("Methods must have an explicit list of parameters."));
         };
         let mut separator = None;
         let mut initializers = Vec::new();
         if self.op(self.pos, Op::Colon) {
-            separator = Some(self.avancar() as Tk);
-            initializers = self.inicializadores()?;
+            separator = Some(self.advance() as Tk);
+            initializers = self.initializers()?;
         }
-        let corpo_no = self.pos;
+        let body_node = self.pos;
         if m.external.is_some()
             && !self.op(self.pos, Op::Semicolon)
-            && !self.pal(self.pos, "async")
-            && !self.pal(self.pos, "sync")
+            && !self.word(self.pos, "async")
+            && !self.word(self.pos, "sync")
         {
-            return Err(self.erro("An external or native method can't have a body."));
+            return Err(self.error("An external or native method can't have a body."));
         }
         if self.op(self.pos, Op::Assign) {
-            return Err(self.erro("Only factory constructor can specify '=' redirection."));
+            return Err(self.error("Only factory constructor can specify '=' redirection."));
         }
         // `allowAbstract` do fasta exige corpo síncrono comum.
-        let assinc = self.pal(self.pos, "async") || self.pal(self.pos, "sync");
-        if assinc && m.external.is_none() {
+        let async_kind = self.word(self.pos, "async") || self.word(self.pos, "sync");
+        if async_kind && m.external.is_none() {
             let d = if self.op(self.pos + 1, Op::Star) {
                 self.pos + 2
             } else {
                 self.pos + 1
             };
             if self.op(d, Op::Semicolon) {
-                return Err(self.erro_em(d, "A function body must be provided."));
+                return Err(self.error_at(d, "A function body must be provided."));
             }
         }
-        let body = self.corpo_funcao(false, m.static_.is_none() || m.external.is_some())?;
-        let construtor =
-            period.is_some() || separator.is_some() || (self.txt(name) == nome_classe && !operador);
-        if construtor && get_set.is_none() {
+        let body = self.function_body_(false, m.static_.is_none() || m.external.is_some())?;
+        let builder =
+            period.is_some() || separator.is_some() || (self.txt(name) == class_name && !operator_);
+        if builder && get_set.is_none() {
             if let Some(s) = m.static_ {
-                return Err(self.erro_em(s, "Constructors can't be static."));
+                return Err(self.error_at(s, "Constructors can't be static."));
             }
-            if !ti.e_nenhum() {
-                return Err(self.erro_em(
-                    self.ini(return_type.unwrap_or(NoId(0))),
+            if !ti.is_none() {
+                return Err(self.error_at(
+                    self.start_(return_type.unwrap_or(NodeId(0))),
                     "Constructors can't have a return type.",
                 ));
             }
-            if self.txt(name) != nome_classe {
-                return Err(self.erro_em(
+            if self.txt(name) != class_name {
+                return Err(self.error_at(
                     name,
                     "The name of a constructor must match the name of the enclosing class.",
                 ));
             }
             if separator.is_some() && m.external.is_some() {
-                return Err(self.erro("An external constructor can't have any initializers."));
+                return Err(self.error("An external constructor can't have any initializers."));
             }
             if type_parameters.is_some() {
-                return Err(self.erro_em(fi, "Constructors can't have type parameters."));
+                return Err(self.error_at(fi, "Constructors can't have type parameters."));
             }
-            if m.const_.is_some() && !matches!(self.arv.no(body), No::EmptyFunctionBody { .. }) {
-                return Err(self.erro_em(corpo_no, "Const constructors can't have a body."));
+            if m.const_.is_some() && !matches!(self.tree_.node(body), Node::EmptyFunctionBody { .. }) {
+                return Err(self.error_at(body_node, "Const constructors can't have a body."));
             }
             if m.external.is_some()
-                && let Some(No::FormalParameterList { parameters, .. }) =
-                    parameters.map(|l| self.arv.no(l))
+                && let Some(Node::FormalParameterList { parameters, .. }) =
+                    parameters.map(|l| self.tree_.node(l))
                 && parameters.iter().any(|&p| {
-                    let p = match self.arv.no(p) {
-                        No::DefaultFormalParameter { parameter, .. } => *parameter,
+                    let p = match self.tree_.node(p) {
+                        Node::DefaultFormalParameter { parameter, .. } => *parameter,
                         _ => p,
                     };
-                    matches!(self.arv.no(p), No::FieldFormalParameter { .. })
+                    matches!(self.tree_.node(p), Node::FieldFormalParameter { .. })
                 })
             {
-                return Err(self.erro_em(name, "An external constructor can't initialize fields."));
+                return Err(self.error_at(name, "An external constructor can't initialize fields."));
             }
-            if matches!(corpo, Corpo::Mixin | Corpo::Extensao) {
-                return Err(self.erro_em(name, "Mixins and extensions can't declare constructors."));
+            if matches!(corpo, Body::Mixin | Body::Extension) {
+                return Err(self.error_at(name, "Mixins and extensions can't declare constructors."));
             }
             if matches!(
-                self.arv.no(body),
-                No::BlockFunctionBody { .. } | No::ExpressionFunctionBody { .. }
+                self.tree_.node(body),
+                Node::BlockFunctionBody { .. } | Node::ExpressionFunctionBody { .. }
             ) && initializers
                 .iter()
-                .any(|&i| matches!(self.arv.no(i), No::RedirectingConstructorInvocation { .. }))
+                .any(|&i| matches!(self.tree_.node(i), Node::RedirectingConstructorInvocation { .. }))
             {
-                return Err(self.erro_em(corpo_no, "Redirecting constructors can't have a body."));
+                return Err(self.error_at(body_node, "Redirecting constructors can't have a body."));
             }
-            let return_type = self.simples(name);
-            return Ok(self.no(
-                No::ConstructorDeclaration {
+            let return_type = self.simple(name);
+            return Ok(self.node(
+                Node::ConstructorDeclaration {
                     metadata,
                     augment_keyword: tk(m.augment),
                     external_keyword: tk(m.external),
@@ -1896,34 +1896,34 @@ impl Parser<'_> {
                     factory_keyword: None,
                     return_type,
                     period: tk(period),
-                    name: tk(nome2),
-                    parameters: parameters.unwrap_or(NoId(0)),
+                    name: tk(name2),
+                    parameters: parameters.unwrap_or(NodeId(0)),
                     separator,
                     initializers,
                     redirected_constructor: None,
                     body,
                 },
-                ini,
+                start_,
             ));
         }
-        if construtor {
-            return Err(self.erro_em(
+        if builder {
+            return Err(self.error_at(
                 name,
                 "A class member can't have the same name as the enclosing class.",
             ));
         }
-        self.sem_parametros_de_campo(parameters)?;
+        self.without_field_parameters(parameters)?;
         if m.const_.is_some() {
-            return Err(self.erro("Methods can't be declared 'const'."));
+            return Err(self.error("Methods can't be declared 'const'."));
         }
-        if corpo == Corpo::Extensao
-            && matches!(self.arv.no(body), No::EmptyFunctionBody { .. })
+        if corpo == Body::Extension
+            && matches!(self.tree_.node(body), Node::EmptyFunctionBody { .. })
             && m.external.is_none()
         {
-            return Err(self.erro_em(name, "Extensions can't declare abstract members."));
+            return Err(self.error_at(name, "Extensions can't declare abstract members."));
         }
-        Ok(self.no(
-            No::MethodDeclaration {
+        Ok(self.node(
+            Node::MethodDeclaration {
                 metadata,
                 augment_keyword: tk(m.augment),
                 external_keyword: tk(m.external),
@@ -1936,74 +1936,74 @@ impl Parser<'_> {
                 parameters,
                 body,
             },
-            ini,
+            start_,
         ))
     }
 
     /// `parseFactoryMethod`; `f` é o índice do `factory`.
-    fn fabrica(
+    fn factory(
         &mut self,
-        ini: usize,
-        metadata: Vec<NoId>,
+        start_: usize,
+        metadata: Vec<NodeId>,
         m: Mods,
         f: usize,
-        corpo: Corpo,
-    ) -> R<NoId> {
+        corpo: Body,
+    ) -> R<NodeId> {
         self.pos = f + 1;
-        if !self.ref_tipo_valida(self.pos) {
-            return Err(self.erro("Modifiers must come before 'factory'."));
+        if !self.valid_type_ref(self.pos) {
+            return Err(self.error("Modifiers must come before 'factory'."));
         }
         if let Some(x) = m.static_.or(m.covariant) {
-            return Err(self.erro_em(x, "Can't have this modifier on a factory."));
+            return Err(self.error_at(x, "Can't have this modifier on a factory."));
         }
         if let Some(v) = m.var.or(m.final_) {
-            return Err(self.erro_em(v, "Can't have this modifier on a factory."));
+            return Err(self.error_at(v, "Can't have this modifier on a factory."));
         }
-        if matches!(corpo, Corpo::Mixin | Corpo::Extensao) {
-            return Err(self.erro_em(f, "Mixins and extensions can't declare constructors."));
+        if matches!(corpo, Body::Mixin | Body::Extension) {
+            return Err(self.error_at(f, "Mixins and extensions can't declare constructors."));
         }
-        let name = self.espera_ident()?;
-        let (period, nome2) = if self.op(self.pos, Op::Dot) {
-            let p = self.avancar();
+        let name = self.expect_ident()?;
+        let (period, name2) = if self.op(self.pos, Op::Dot) {
+            let p = self.advance();
             if !(self.ident(self.pos) || self.kw(self.pos, Keyword::New)) {
-                return Err(self.erro("Expected an identifier."));
+                return Err(self.error("Expected an identifier."));
             }
-            (Some(p), Some(self.avancar()))
+            (Some(p), Some(self.advance()))
         } else {
             (None, None)
         };
         if self.op(self.pos, Op::Lt) {
-            return Err(self.erro("Constructors can't have type parameters."));
+            return Err(self.error("Constructors can't have type parameters."));
         }
         if !self.op(self.pos, Op::LParen) {
-            return Err(self.esperado("("));
+            return Err(self.expected("("));
         }
-        let parameters = self.params_formais(Membro::Fabrica)?;
+        let parameters = self.formal_params(MemberKind::Factory)?;
         let mut separator = None;
         let mut redirected_constructor = None;
         let body = if self.op(self.pos, Op::Assign) {
             if m.external.is_some() {
-                return Err(self.erro("A redirecting factory can't be external."));
+                return Err(self.error("A redirecting factory can't be external."));
             }
-            separator = Some(self.avancar() as Tk);
-            redirected_constructor = Some(self.nome_construtor()?);
-            let s = self.espera_op(Op::Semicolon)?;
-            self.no(No::EmptyFunctionBody { semicolon: s as Tk }, s)
+            separator = Some(self.advance() as Tk);
+            redirected_constructor = Some(self.constructor_name_()?);
+            let s = self.expect_op(Op::Semicolon)?;
+            self.node(Node::EmptyFunctionBody { semicolon: s as Tk }, s)
         } else if m.external.is_some() {
             if !self.op(self.pos, Op::Semicolon) {
-                return Err(self.erro("External factories can't have a body."));
+                return Err(self.error("External factories can't have a body."));
             }
-            self.corpo_funcao(false, true)?
+            self.function_body_(false, true)?
         } else {
-            if m.const_.is_some() && !self.pal(self.pos, "native") {
+            if m.const_.is_some() && !self.word(self.pos, "native") {
                 return Err(self
-                    .erro("Only redirecting factory constructors can be declared to be 'const'."));
+                    .error("Only redirecting factory constructors can be declared to be 'const'."));
             }
-            self.corpo_funcao(false, false)?
+            self.function_body_(false, false)?
         };
-        let return_type = self.simples(name);
-        Ok(self.no(
-            No::ConstructorDeclaration {
+        let return_type = self.simple(name);
+        Ok(self.node(
+            Node::ConstructorDeclaration {
                 metadata,
                 augment_keyword: tk(m.augment),
                 external_keyword: tk(m.external),
@@ -2011,58 +2011,58 @@ impl Parser<'_> {
                 factory_keyword: Some(f as Tk),
                 return_type,
                 period: tk(period),
-                name: tk(nome2),
+                name: tk(name2),
                 parameters,
                 separator,
                 initializers: Vec::new(),
                 redirected_constructor,
                 body,
             },
-            ini,
+            start_,
         ))
     }
 
     /// `parseInitializers` (depois do `:`).
-    fn inicializadores(&mut self) -> R<Vec<NoId>> {
-        let old = self.funcoes;
-        self.funcoes = false;
+    fn initializers(&mut self) -> R<Vec<NodeId>> {
+        let old = self.functions;
+        self.functions = false;
         let mut v = Vec::new();
         loop {
-            v.push(self.inicializador()?);
+            v.push(self.initializer()?);
             if !self.op(self.pos, Op::Comma) {
                 break;
             }
-            self.avancar();
+            self.advance();
         }
-        self.funcoes = old;
+        self.functions = old;
         Ok(v)
     }
 
     /// O lado direito de `campo = ...` (o resto de `parseExpression` depois
     /// do `=` de uma atribuição).
-    fn direita_inicializador(&mut self) -> R<NoId> {
+    fn initializer_right(&mut self) -> R<NodeId> {
         if self.kw(self.pos, Keyword::Throw) {
-            return self.expressao_sem_cascata();
+            return self.expression_without_cascade();
         }
-        self.entrar()?;
-        let r = self.precedencia(
-            super::prec::ATRIBUICAO,
+        self.enter_()?;
+        let r = self.precedence(
+            super::prec::ASSIGNMENT,
             true,
-            super::expressions::CtxConst::Nenhum,
+            super::expressions::ConstCtx::NoneKind,
         );
         self.sair();
         let r = r?;
-        self.sem_super(r)?;
+        self.without_super(r)?;
         Ok(r)
     }
 
     /// `parseInitializer`.
-    fn inicializador(&mut self) -> R<NoId> {
+    fn initializer(&mut self) -> R<NodeId> {
         let i = self.pos;
         if self.kw(i, Keyword::Assert) {
-            let (a, lp, condition, comma, message, rp) = self.partes_assert()?;
-            return Ok(self.no(
-                No::AssertInitializer {
+            let (a, lp, condition, comma, message, rp) = self.assert_parts()?;
+            return Ok(self.node(
+                Node::AssertInitializer {
                     assert_keyword: a as Tk,
                     left_parenthesis: lp as Tk,
                     condition,
@@ -2074,23 +2074,23 @@ impl Parser<'_> {
             ));
         }
         if self.kw(i, Keyword::Super) {
-            self.avancar();
+            self.advance();
             let (period, constructor_name) = if self.op(self.pos, Op::Dot) {
-                let p = self.avancar();
+                let p = self.advance();
                 if !(self.ident(self.pos) || self.kw(self.pos, Keyword::New)) {
-                    return Err(self.erro("Expected an identifier."));
+                    return Err(self.error("Expected an identifier."));
                 }
-                let n = self.avancar();
-                (Some(p as Tk), Some(self.simples(n)))
+                let n = self.advance();
+                (Some(p as Tk), Some(self.simple(n)))
             } else {
                 (None, None)
             };
             if !self.op(self.pos, Op::LParen) {
-                return Err(self.esperado("("));
+                return Err(self.expected("("));
             }
-            let argument_list = self.argumentos()?;
-            return Ok(self.no(
-                No::SuperConstructorInvocation {
+            let argument_list = self.arguments_()?;
+            return Ok(self.node(
+                Node::SuperConstructorInvocation {
                     super_keyword: i as Tk,
                     period,
                     constructor_name,
@@ -2100,23 +2100,23 @@ impl Parser<'_> {
             ));
         }
         if self.kw(i, Keyword::This) {
-            self.avancar();
+            self.advance();
             let mut period = None;
             let mut nome = None;
             if self.op(self.pos, Op::Dot) {
-                period = Some(self.avancar());
+                period = Some(self.advance());
                 if !(self.ident(self.pos)
                     || (self.kw(self.pos, Keyword::New) && self.op(self.pos + 1, Op::LParen)))
                 {
-                    return Err(self.erro("Expected an identifier."));
+                    return Err(self.error("Expected an identifier."));
                 }
-                nome = Some(self.avancar());
+                nome = Some(self.advance());
                 if self.op(self.pos, Op::Assign) {
-                    let field_name = self.simples(nome.unwrap_or(0));
-                    let eq = self.avancar();
-                    let expression = self.direita_inicializador()?;
-                    return Ok(self.no(
-                        No::ConstructorFieldInitializer {
+                    let field_name = self.simple(nome.unwrap_or(0));
+                    let eq = self.advance();
+                    let expression = self.initializer_right()?;
+                    return Ok(self.node(
+                        Node::ConstructorFieldInitializer {
                             this_keyword: Some(i as Tk),
                             period: tk(period),
                             field_name,
@@ -2128,10 +2128,10 @@ impl Parser<'_> {
                 }
             }
             if self.op(self.pos, Op::LParen) {
-                let constructor_name = nome.map(|n| self.simples(n));
-                let argument_list = self.argumentos()?;
-                return Ok(self.no(
-                    No::RedirectingConstructorInvocation {
+                let constructor_name = nome.map(|n| self.simple(n));
+                let argument_list = self.arguments_()?;
+                return Ok(self.node(
+                    Node::RedirectingConstructorInvocation {
                         this_keyword: i as Tk,
                         period: tk(period),
                         constructor_name,
@@ -2140,15 +2140,15 @@ impl Parser<'_> {
                     i,
                 ));
             }
-            return Err(self.esperado("."));
+            return Err(self.expected("."));
         }
         if self.ident(i) && self.op(i + 1, Op::Assign) {
-            self.avancar();
-            let field_name = self.simples(i);
-            let eq = self.avancar();
-            let expression = self.direita_inicializador()?;
-            return Ok(self.no(
-                No::ConstructorFieldInitializer {
+            self.advance();
+            let field_name = self.simple(i);
+            let eq = self.advance();
+            let expression = self.initializer_right()?;
+            return Ok(self.node(
+                Node::ConstructorFieldInitializer {
                     this_keyword: None,
                     period: None,
                     field_name,
@@ -2158,6 +2158,6 @@ impl Parser<'_> {
                 i,
             ));
         }
-        Err(self.erro("Expected an initializer."))
+        Err(self.error("Expected an initializer."))
     }
 }
