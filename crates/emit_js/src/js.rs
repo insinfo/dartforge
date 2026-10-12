@@ -1,6 +1,6 @@
-//! Texto JavaScript: expressões com precedência e escrita indentada.
+//! JavaScript text: expressions with precedence, and indented writing.
 
-/// Precedências (maior liga mais forte).
+/// Precedences (higher binds tighter).
 pub const P_PRIMARY: u8 = 20;
 pub const P_NEW: u8 = 19;
 pub const P_UNARY: u8 = 17;
@@ -19,9 +19,9 @@ pub const P_ASSIGN: u8 = 3;
 pub const P_YIELD: u8 = 2;
 pub const P_COMMA: u8 = 1;
 
-/// Contadores de medição (exemplo `memoria`): quantos `Js` foram construídos,
-/// quantos bytes carregam, quantas vezes `at` emprestou o texto, quantas
-/// precisou de parênteses e quantos nomes/literais foram formatados.
+/// Measurement counters (the `memory_emit_js` example): how many `Js` values were built,
+/// how many bytes they carry, how many times `at` borrowed the text, how many
+/// times it needed parentheses, and how many names/literals were formatted.
 pub static JS_CONSTRUIDOS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 pub static JS_BYTES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 pub static AT_EMPRESTIMOS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
@@ -29,11 +29,11 @@ pub static AT_PARENS: std::sync::atomic::AtomicUsize = std::sync::atomic::Atomic
 pub static NOMES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 #[inline]
-fn conta(c: &std::sync::atomic::AtomicUsize, n: usize) {
+fn bump(c: &std::sync::atomic::AtomicUsize, n: usize) {
     c.fetch_add(n, std::sync::atomic::Ordering::Relaxed);
 }
 
-/// Expressão JS já escrita, com a precedência do operador mais externo.
+/// An already written JS expression, with the precedence of its outermost operator.
 #[derive(Clone, Debug)]
 pub struct Js {
     pub code: String,
@@ -43,29 +43,29 @@ pub struct Js {
 impl Js {
     pub fn new(code: impl Into<String>, prec: u8) -> Js {
         let code = code.into();
-        conta(&JS_CONSTRUIDOS, 1);
-        conta(&JS_BYTES, code.len());
+        bump(&JS_CONSTRUIDOS, 1);
+        bump(&JS_BYTES, code.len());
         Js { code, prec }
     }
     pub fn prim(code: impl Into<String>) -> Js {
         Js::new(code, P_PRIMARY)
     }
-    /// Texto com parênteses se a precedência for menor que `min`. Empresta o
-    /// texto no caso comum (sem parênteses): quem o interpola num `format!`
-    /// não paga uma cópia por filho.
+    /// The text, parenthesized if the precedence is lower than `min`. Borrows
+    /// the text in the common case (no parentheses): whoever interpolates it in
+    /// a `format!` does not pay for a copy per child.
     pub fn at(&self, min: u8) -> std::borrow::Cow<'_, str> {
         if self.prec < min {
-            conta(&AT_PARENS, 1);
+            bump(&AT_PARENS, 1);
             std::borrow::Cow::Owned(format!("({})", self.code))
         } else {
-            conta(&AT_EMPRESTIMOS, 1);
+            bump(&AT_EMPRESTIMOS, 1);
             std::borrow::Cow::Borrowed(&self.code)
         }
     }
-    /// Como [`Js::at`], consumindo o `Js`: devolve o próprio texto sem copiar.
+    /// Like [`Js::at`], consuming the `Js`: returns the text itself without copying.
     pub fn into_at(self, min: u8) -> String {
         if self.prec < min {
-            conta(&AT_PARENS, 1);
+            bump(&AT_PARENS, 1);
             format!("({})", self.code)
         } else {
             self.code
@@ -76,7 +76,7 @@ impl Js {
     }
 }
 
-/// Literal de string JS a partir de unidades UTF-16 (surrogates soltos viram `\uXXXX`).
+/// JS string literal from UTF-16 code units (lone surrogates become `\uXXXX`).
 pub fn string_literal_units(units: impl Iterator<Item = u16>) -> String {
     let mut out = String::with_capacity(16);
     out.push('"');
@@ -117,20 +117,20 @@ pub fn string_literal_units(units: impl Iterator<Item = u16>) -> String {
 }
 
 pub fn string_literal(s: &str) -> String {
-    conta(&NOMES, 1);
+    bump(&NOMES, 1);
     string_literal_units(s.encode_utf16())
 }
 
-/// Escritor com indentação.
+/// Writer with indentation.
 pub struct Writer {
     pub out: String,
     pub indent: usize,
 }
 
 impl Default for Writer {
-    /// Buffer com 1 KiB de partida: um corpo de função cresce sem realocar
-    /// nas primeiras dezenas de linhas (o `String` vazio realoca a cada
-    /// dobra: 8, 16, 32… bytes).
+    /// Buffer with 1 KiB to start: a function body grows without reallocating
+    /// over its first few dozen lines (an empty `String` reallocates at every
+    /// doubling: 8, 16, 32… bytes).
     fn default() -> Self {
         Writer { out: String::with_capacity(1024), indent: 0 }
     }
@@ -155,31 +155,32 @@ impl Writer {
     pub fn push_raw(&mut self, s: &str) {
         self.out.push_str(s);
     }
-    /// Escreve a indentação da linha corrente (usado pelas macros `linha!`,
-    /// `abre!` e `fecha!`, que formatam direto no buffer).
-    pub fn recuo(&mut self) {
+    /// Writes the indentation of the current line (used by the `linha!`,
+    /// `abre!` and `fecha!` macros, which format straight into the buffer).
+    pub fn write_indent(&mut self) {
         for _ in 0..self.indent {
             self.out.push_str("  ");
         }
     }
-    pub fn fim_de_linha(&mut self) {
+    /// Ends the current line.
+    pub fn end_line(&mut self) {
         self.out.push('\n');
     }
 }
 
-/// `linha!(w, "…{}", x)` escreve a linha formatando **dentro** do buffer do
-/// [`Writer`], sem a `String` intermediária que `w.line(&format!(…))` aloca.
+/// `linha!(w, "…{}", x)` writes the line, formatting **inside** the buffer of
+/// the [`Writer`], without the intermediate `String` that `w.line(&format!(…))` allocates.
 #[macro_export]
 macro_rules! linha {
     ($w:expr, $($a:tt)*) => {{
         use std::fmt::Write as _;
-        $w.recuo();
+        $w.write_indent();
         let _ = write!($w.out, $($a)*);
-        $w.fim_de_linha();
+        $w.end_line();
     }};
 }
 
-/// Como [`linha!`], abrindo um bloco (indenta as linhas seguintes).
+/// Like [`linha!`], opening a block (indents the following lines).
 #[macro_export]
 macro_rules! abre {
     ($w:expr, $($a:tt)*) => {{
@@ -188,7 +189,7 @@ macro_rules! abre {
     }};
 }
 
-/// Como [`linha!`], fechando o bloco aberto.
+/// Like [`linha!`], closing the open block.
 #[macro_export]
 macro_rules! fecha {
     ($w:expr, $($a:tt)*) => {{
@@ -197,8 +198,8 @@ macro_rules! fecha {
     }};
 }
 
-/// Palavras reservadas do JS e nomes que o módulo usa; identificadores Dart
-/// iguais a estes recebem `$` no fim.
+/// JS reserved words and names the module uses; Dart identifiers equal to
+/// these get a `$` appended.
 pub fn is_reserved(name: &str) -> bool {
     matches!(
         name,
@@ -221,9 +222,9 @@ pub fn is_reserved(name: &str) -> bool {
     )
 }
 
-/// Identificador JS para um nome Dart de variável/função local.
+/// JS identifier for the Dart name of a local variable/function.
 pub fn ident(name: &str) -> String {
-    conta(&NOMES, 1);
+    bump(&NOMES, 1);
     if is_reserved(name) || name.starts_with("t$") || name.starts_with("L$") {
         format!("{name}$")
     } else {
@@ -231,9 +232,9 @@ pub fn ident(name: &str) -> String {
     }
 }
 
-/// Nome de propriedade JS: identificador direto ou `['...']`.
+/// JS property access: a plain identifier or `['...']`.
 pub fn prop_access(name: &str) -> String {
-    conta(&NOMES, 1);
+    bump(&NOMES, 1);
     if is_js_ident(name) {
         format!(".{name}")
     } else {
@@ -258,9 +259,9 @@ pub fn is_js_ident(name: &str) -> bool {
         )
 }
 
-/// Chave de propriedade em literal de objeto ou em membro de classe.
+/// Property key in an object literal or a class member.
 pub fn prop_key(name: &str) -> String {
-    conta(&NOMES, 1);
+    bump(&NOMES, 1);
     if is_js_ident(name) {
         name.to_string()
     } else {

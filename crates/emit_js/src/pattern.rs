@@ -1,4 +1,4 @@
-//! Padrões: condições JS com ligações por efeito colateral.
+//! Patterns: JS conditions with bindings made by side effect.
 
 use crate::body::FnEmitter;
 use crate::js::{self, Js, P_AND, P_OR, P_PRIMARY};
@@ -7,8 +7,9 @@ use dartforge_frontend::ast::{self, BinaryOp, PatternKind};
 use dartforge_intern::SymbolId;
 
 impl<'m, 'a> FnEmitter<'m, 'a> {
-    /// Condição JS que testa `value_js` (tipo `vty`) contra o padrão, ligando
-    /// variáveis (`(x = v, true)`); `binds` recebe (símbolo, tipo) a declarar.
+    /// JS condition that tests `value_js` (of type `vty`) against the pattern,
+    /// binding variables (`(x = v, true)`); `binds` receives the (symbol, type)
+    /// pairs to declare.
     pub fn pattern_cond(&mut self, p: ast::PatternId, value_js: &str, vty: &Ty, binds: &mut Vec<(SymbolId, Ty, String)>, irrefutable: bool) -> String {
         let pat = self.ast().pattern(p);
         let v = Js::prim(value_js.to_string());
@@ -25,7 +26,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 None => "true".into(),
             },
             PatternKind::Variable { ty, name, final_, var_ } if !irrefutable && ty.is_none() && !*final_ && !*var_ && !matches!(self.resolve_ident(name.sym), crate::expr::IdentTarget::Unknown) => {
-                // Identificador solto em contexto de casamento: padrão constante.
+                // Bare identifier in a matching context: a constant pattern.
                 let (c, cty) = self.emit_identifier_value(name.sym);
                 self.emit_equals(&c, &cty, &v, vty).code
             }
@@ -46,7 +47,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     None if self.pattern_assign => match self.lookup_local(name.sym) {
                         Some(l) => l.js.clone(),
                         None => {
-                            // Atribuição a não-local: usa o nome como alvo simples.
+                            // Assignment to a non-local: use the name as a simple target.
                             let (js, _) = self.emit_assign_to_name(name.sym);
                             js
                         }
@@ -68,10 +69,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 self.emit_equals(&c, &cty, &v, vty).code
             }
             PatternKind::Relational { op, value } => {
-                // `== .x` / `!= .x` (3.10): o atalho usa o tipo do valor casado.
+                // `== .x` / `!= .x` (3.10): the shorthand uses the type of the matched value.
                 let (c, cty) = if matches!(op, BinaryOp::Eq | BinaryOp::NotEq) {
-                    let casado = vty.clone();
-                    self.com_contexto_de_atalho(*value, &casado, |s| s.emit_expr(*value, None))
+                    let matched = vty.clone();
+                    self.com_contexto_de_atalho(*value, &matched, |s| s.emit_expr(*value, None))
                 } else {
                     self.emit_expr(*value, None)
                 };
@@ -198,7 +199,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 join_and(conds)
             }
             PatternKind::Record { fields } => {
-                // Tipo do record: do valor, ou forma com Object?.
+                // Record type: from the value, or a shape of Object?.
                 let (pos_tys, named_tys): (Vec<Ty>, Vec<(String, Ty)>) = match &vty.non_null() {
                     Ty::Record { pos, named, .. } => (pos.clone(), named.clone()),
                     _ => {
@@ -256,7 +257,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    /// Nome do campo de um `PatternField` (`nome:` explícito ou `:x` inferido).
+    /// Field name of a `PatternField` (explicit `name:` or inferred `:x`).
     pub fn pattern_field_name(&self, f: &ast::PatternField) -> Option<String> {
         if let Some(n) = f.name {
             return Some(self.name(n.sym).to_string());
@@ -289,7 +290,7 @@ fn join_and(conds: Vec<String>) -> String {
 }
 
 fn paren_cond(c: &str) -> String {
-    // Parênteses quando a condição tem operadores de baixa precedência.
+    // Parentheses when the condition has low-precedence operators.
     if c.contains("||") || c.contains(" ? ") || c.contains(", ") {
         format!("({c})")
     } else {

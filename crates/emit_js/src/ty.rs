@@ -1,11 +1,11 @@
-//! Tipos do emissor: representação própria, independente da `TypeTable`, para
-//! poder construir tipos livremente durante a emissão (a tabela é imutável aqui).
+//! Emitter types: an own representation, independent of the `TypeTable`, so
+//! that types can be built freely during emission (the table is immutable here).
 
 use dartforge_elements::model::ClassId;
 use std::collections::HashMap;
 
-/// Parâmetro de tipo: `id` único (o da `TypeTable` para os do outline; ids
-/// altos para os que o emissor cria em closures genéricas).
+/// Type parameter: a unique `id` (the `TypeTable` one for outline parameters;
+/// high ids for the ones the emitter creates in generic closures).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TyParam {
     pub id: u32,
@@ -29,13 +29,13 @@ pub enum Ty {
         ret: Box<Ty>,
         pos: Vec<Ty>,
         opt: Vec<Ty>,
-        /// `(nome, tipo, required)`, ordenados por nome.
+        /// `(name, type, required)`, sorted by name.
         named: Vec<(String, Ty, bool)>,
         nullable: bool,
     },
     Record {
         pos: Vec<Ty>,
-        /// Ordenados por nome.
+        /// Sorted by name.
         named: Vec<(String, Ty)>,
         nullable: bool,
     },
@@ -108,7 +108,7 @@ impl Ty {
             _ => false,
         }
     }
-    /// Substitui parâmetros de tipo pelo mapa.
+    /// Substitutes type parameters using the map.
     pub fn subst(&self, map: &HashMap<u32, Ty>) -> Ty {
         if map.is_empty() {
             return self.clone();
@@ -145,13 +145,13 @@ impl Ty {
             Ty::FutureOr { arg, nullable } => Ty::FutureOr { arg: Box::new(arg.subst(map)), nullable: *nullable },
         }
     }
-    /// Como [`Ty::subst`], consumindo o tipo: com mapa vazio devolve o
-    /// próprio valor em vez de clonar a árvore inteira.
+    /// Like [`Ty::subst`], consuming the type: with an empty map it returns
+    /// the value itself instead of cloning the whole tree.
     pub fn subst_prop(self, map: &HashMap<u32, Ty>) -> Ty {
         if map.is_empty() { self } else { self.subst(map) }
     }
 
-    /// Coleta ids de parâmetros de tipo usados.
+    /// Collects the ids of the type parameters used.
     pub fn collect_params(&self, out: &mut Vec<u32>) {
         match self {
             Ty::Dynamic | Ty::Void | Ty::Never | Ty::Null => {}
@@ -162,7 +162,7 @@ impl Ty {
                 opt.iter().for_each(|a| a.collect_params(out));
                 named.iter().for_each(|(_, t, _)| t.collect_params(out));
                 type_params.iter().for_each(|p| p.bound.collect_params(out));
-                // Os próprios parâmetros do tipo de função são ligados; removidos.
+                // The function type's own parameters are bound; remove them.
                 out.retain(|id| !type_params.iter().any(|p| p.id == *id));
             }
             Ty::Record { pos, named, .. } => {
@@ -183,10 +183,10 @@ impl Ty {
         !v.is_empty()
     }
 
-    /// Verdadeiro se **nenhum** `Ty::Param` aparece na árvore, inclusive os
-    /// ligados por um tipo de função. Não aloca (ao contrário de
-    /// [`Ty::mentions_params`]) e é conservador: serve para decidir se o
-    /// resultado de uma conversão depende do ambiente de tipos em execução.
+    /// True if **no** `Ty::Param` appears in the tree, including the ones
+    /// bound by a function type. Does not allocate (unlike
+    /// [`Ty::mentions_params`]) and is conservative: it decides whether the
+    /// result of a conversion depends on the runtime type environment.
     pub fn sem_parametros(&self) -> bool {
         match self {
             Ty::Dynamic | Ty::Void | Ty::Never | Ty::Null => true,
