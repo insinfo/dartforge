@@ -1,5 +1,7 @@
 // Comparativo entre linguagens (RELATORIO-COMPARATIVO-NATIVO.md): os mesmos
-// quatro núcleos em cada uma; `scripts/comparar-linguagens.py` compila e mede.
+// cinco núcleos em cada uma; `scripts/comparar-linguagens.py` compila e mede.
+import 'dart:convert';
+
 class No {
   final No? esq, dir;
   No(this.esq, this.dir);
@@ -18,6 +20,19 @@ int textos(int n) {
   for (var i = 0; i < n; i++) { final k = 'k${i % 5000}'; m[k] = (m[k] ?? 0) + i; }
   var s = 0; m.forEach((_, v) { s += v % 1000; }); return s;
 }
+int json(int n) {
+  final dados = [
+    for (var i = 0; i < n; i++)
+      {'id': i, 'nome': 'item$i', 'tags': ['a${i % 7}', 'b${i % 13}'], 'ativo': i % 2 == 0, 'nivel': i % 100}
+  ];
+  final lidos = jsonDecode(jsonEncode(dados)) as List;
+  var s = 0;
+  for (final o in lidos) {
+    final m = o as Map<String, dynamic>;
+    s += (m['id'] as int) + (m['nome'] as String).length + (m['tags'] as List).length + ((m['ativo'] as bool) ? 1 : 0) + (m['nivel'] as int);
+  }
+  return s;
+}
 void medir(String nome, int Function() f) {
   var r = 0; final t = <int>[];
   for (var i = 0; i < 4; i++) { final sw = Stopwatch()..start(); r = f(); t.add(sw.elapsedMilliseconds); }
@@ -28,4 +43,5 @@ void main() {
   medir('arvores', () => arvores(14));
   medir('numerico', () => numerico(30000000));
   medir('textos', () => textos(1000000));
+  medir('json', () => json(50000));
 }

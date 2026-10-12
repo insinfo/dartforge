@@ -1,5 +1,5 @@
 // Comparativo entre linguagens (RELATORIO-COMPARATIVO-NATIVO.md): os mesmos
-// quatro núcleos em cada uma; `scripts/comparar-linguagens.py` compila e mede.
+// cinco núcleos em cada uma; `scripts/comparar-linguagens.py` compila e mede.
 import Foundation
 
 final class No {
@@ -39,6 +39,21 @@ func textos(_ n: Int) -> Int {
     return s
 }
 
+func json(_ n: Int) -> Int {
+    var dados: [[String: Any]] = []
+    dados.reserveCapacity(n)
+    for i in 0..<n {
+        dados.append(["id": i, "nome": "item\(i)", "tags": ["a\(i % 7)", "b\(i % 13)"], "ativo": i % 2 == 0, "nivel": i % 100])
+    }
+    let texto = try! JSONSerialization.data(withJSONObject: dados)
+    let lidos = try! JSONSerialization.jsonObject(with: texto) as! [[String: Any]]
+    var s = 0
+    for m in lidos {
+        s += (m["id"] as! Int) + (m["nome"] as! String).count + (m["tags"] as! [Any]).count + ((m["ativo"] as! Bool) ? 1 : 0) + (m["nivel"] as! Int)
+    }
+    return s
+}
+
 func medir(_ nome: String, _ f: () -> Int) {
     var r = 0
     var t: [String] = []
@@ -54,3 +69,4 @@ medir("fib") { fib(32) }
 medir("arvores") { arvores(14) }
 medir("numerico") { numerico(30000000) }
 medir("textos") { textos(1000000) }
+medir("json") { json(50000) }

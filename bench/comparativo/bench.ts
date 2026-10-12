@@ -1,5 +1,5 @@
 // Comparativo entre linguagens (RELATORIO-COMPARATIVO-NATIVO.md): os mesmos
-// quatro núcleos em cada uma; `scripts/comparar-linguagens.py` compila e mede.
+// cinco núcleos em cada uma; `scripts/comparar-linguagens.py` compila e mede.
 class No {
   esq: No | null; dir: No | null;
   constructor(e: No | null, d: No | null) { this.esq = e; this.dir = d; }
@@ -18,6 +18,19 @@ function textos(n: number): number {
   for (let i = 0; i < n; i++) { const k = "k" + (i % 5000); m.set(k, (m.get(k) ?? 0) + i); }
   let s = 0; m.forEach((v) => { s += v % 1000; }); return s;
 }
+interface Item { id: number; nome: string; tags: string[]; ativo: boolean; nivel: number }
+function json(n: number): number {
+  const dados: Item[] = [];
+  for (let i = 0; i < n; i++) dados.push({ id: i, nome: "item" + i, tags: ["a" + (i % 7), "b" + (i % 13)], ativo: i % 2 === 0, nivel: i % 100 });
+  const lidos: Item[] = JSON.parse(JSON.stringify(dados));
+  let s = 0;
+  for (const m of lidos) {
+    let ativo = 0;
+    if (m.ativo) ativo = 1;
+    s += m.id + m.nome.length + m.tags.length + ativo + m.nivel;
+  }
+  return s;
+}
 function medir(nome: string, f: () => number) {
   let r = 0; const t: number[] = [];
   for (let i = 0; i < 4; i++) { const t0 = Date.now(); r = f(); t.push(Date.now() - t0); }
@@ -27,3 +40,4 @@ medir("fib", () => fib(32));
 medir("arvores", () => arvores(14));
 medir("numerico", () => numerico(30000000));
 medir("textos", () => textos(1000000));
+medir("json", () => json(50000));
