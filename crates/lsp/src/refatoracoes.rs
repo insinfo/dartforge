@@ -405,8 +405,37 @@ impl<'p> Contexto<'p> {
     pub(crate) fn elemento_do_identificador(&self, n: usize, estatico: bool) -> Elem {
         match self.arvore.nos[n].marca {
             Marca::Expr(x) => self.elemento(x, estatico),
-            _ => Elem::Nenhum,
+            _ => self.elemento_de_combinador(n).unwrap_or(Elem::Nenhum),
         }
+    }
+
+    /// O elemento de um nome de `show`/`hide` (o `element` que o analyzer
+    /// dá ao identificador do combinador): o nome no namespace exportado da
+    /// biblioteca que a diretiva importa ou exporta.
+    fn elemento_de_combinador(&self, n: usize) -> Option<Elem> {
+        let c = self.pai(n).filter(|&p| matches!(self.especie(p), "ShowCombinator" | "HideCombinator"))?;
+        self.pai(c)?;
+        let prog = self.p.programa();
+        let u = prog.unit(self.unidade);
+        let (ini, fim) = (self.arvore.nos[n].inicio, self.arvore.nos[n].fim);
+        // A diretiva que contém o nome.
+        let d = u.unit.directives.iter().position(|x| x.span.start <= ini && fim <= x.span.end)?;
+        let lib = prog.library(u.library);
+        let alvo = lib
+            .imports
+            .iter()
+            .filter(|i| i.unit == self.unidade && i.directive == d)
+            .map(|i| i.library)
+            .chain(lib.exports.iter().filter(|e| e.unit == self.unidade && e.directive == d).map(|e| e.library))
+            .next()?;
+        let sym = self.p.consulta.nomes.lookup(self.texto_do_no(n))?;
+        let b = prog.library(alvo).exported.get(&sym)?;
+        Some(match b.getter.or(b.setter)? {
+            Element::Function(f) if prog.function(f).kind == FunctionKind::ImplicitAccessor => Elem::Variavel,
+            Element::Function(f) => Elem::Funcao(f),
+            Element::Variable(_) => Elem::Variavel,
+            _ => Elem::Outro,
+        })
     }
 
     /// O `declaredElement` de uma `FunctionDeclaration`/`MethodDeclaration`.

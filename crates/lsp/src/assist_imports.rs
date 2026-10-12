@@ -32,10 +32,13 @@ impl Contexto<'_> {
             return None;
         }
         let imp = prog.library(unidade.library).imports.iter().find(|i| i.unit == self.unidade && i.directive == indice)?;
-        let mut nomes: Vec<String> = dartforge_analise::importacoes::nomes_usados_do_import(prog, self.unidade, indice, &self.p.consulta.nomes)?
-            .into_iter()
-            .map(|s| self.p.nome(s).to_string())
-            .collect();
+        let mut nomes: Vec<String> = match imp.prefix {
+            None => dartforge_analise::importacoes::nomes_usados_do_import(prog, self.unidade, indice, &self.p.consulta.nomes)?
+                .into_iter()
+                .map(|s| self.p.nome(s).to_string())
+                .collect(),
+            Some(prefixo) => self.nomes_usados_pelo_prefixo(imp.library, prefixo),
+        };
         // `_addImplicitExtensionName`: a extensão do membro resolvido (método,
         // propriedade, operador, índice, `call`), se o namespace do import a
         // tem sob o nome dela; o import com prefixo indexa por `p.x`.
@@ -65,6 +68,72 @@ impl Contexto<'_> {
             diagnostico: None,
             criar_arquivo: None, ligado: Default::default(),
         })
+    }
+
+    /// Os nomes que a unidade usa de um import com prefixo: o servidor do
+    /// Dart 3.6.2 (conferido no oráculo) compara cada nome com o namespace
+    /// do import sem o prefixo (`namespace[nome] == elemento`), então entram
+    /// os `p.x` cujo elemento é o que a biblioteca exporta sob `x`.
+    fn nomes_usados_pelo_prefixo(&self, biblioteca: dartforge_elements::model::LibraryId, prefixo: dartforge_intern::SymbolId) -> Vec<String> {
+        use dartforge_frontend::ast::{ExprKind, TypeKind};
+        let prog = self.p.programa();
+        let exportado = &prog.library(biblioteca).exported;
+        let do_import = |s: dartforge_intern::SymbolId, e: Element| exportado.get(&s).is_some_and(|b| b.getter == Some(e) || b.setter == Some(e));
+        let mut nomes = Vec::new();
+        for (i, x) in self.ast.exprs.iter().enumerate() {
+            let n = match &x.kind {
+                ExprKind::Identifier(n) | ExprKind::Property { name: n, .. } => *n,
+                _ => continue,
+            };
+            if let Some(Resolved::Element(e)) = self.corpos.get_resolved(dartforge_frontend::ast::ExprId(i as u32))
+                && do_import(n.sym, *e)
+            {
+                nomes.push(self.p.nome(n.sym).to_string());
+            }
+        }
+        let lib = prog.unit(self.unidade).library;
+        for ty in &self.ast.types {
+            let TypeKind::Named { name, .. } = &ty.kind else { continue };
+            let n = match &name[..] {
+                [pr, n] | [pr, n, _] if pr.sym == prefixo => *n,
+                [n] | [n, _] => *n,
+                _ => continue,
+            };
+            let vinculo = match &name[..] {
+                [pr, _] | [pr, _, _] if pr.sym == prefixo => prog.lookup_prefixed(lib, prefixo, n.sym),
+                _ => prog.lookup(lib, n.sym),
+            };
+            if let Some(g) = vinculo.and_then(|b| b.getter)
+                && do_import(n.sym, g)
+            {
+                nomes.push(self.p.nome(n.sym).to_string());
+            }
+        }
+        // O nome da classe num construtor (o `returnType`, que resolve para
+        // a classe).
+        for m in &self.ast.members {
+            if let dartforge_frontend::ast::MemberKind::Constructor(k) = &m.kind
+                && let Some(g) = prog.lookup(lib, k.class_name.sym).and_then(|b| b.getter)
+                && do_import(k.class_name.sym, g)
+            {
+                nomes.push(self.p.nome(k.class_name.sym).to_string());
+            }
+        }
+        // As referências `[x]`/`[p.x]` da documentação (o visitor desce nos
+        // `CommentReference`).
+        for c in self.p.comentarios_da_unidade(self.unidade).iter() {
+            for r in &c.referencias {
+                for i in 0..r.len() {
+                    let Some(s) = self.p.consulta.nomes.lookup(&r[i].1) else { continue };
+                    if let Some((crate::projeto::Alvo::Topo(e), _)) = self.p.resolver_referencia_doc(self.unidade, c.span, &r[..=i])
+                        && do_import(s, e)
+                    {
+                        nomes.push(r[i].1.clone());
+                    }
+                }
+            }
+        }
+        nomes
     }
 
     /// A diretiva de import do nó da seleção (o literal da URI sobe para ela)

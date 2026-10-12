@@ -57,12 +57,29 @@ impl Projeto {
         let _ = fim;
 
         // A expressão de função mais interna que contém o cursor.
+        // O trecho de cada função conta com os metadados da declaração dona
+        // (`@override` antes de um método: o `getEnclosingFunctionBody` do
+        // Dart sobe da anotação ao método).
+        let trecho = |i: usize, f: &ast::Function| -> Span {
+            let dono = ast
+                .members
+                .iter()
+                .find(|m| matches!(m.kind, ast::MemberKind::Method(x) if x.0 as usize == i))
+                .map(|m| m.span)
+                .or_else(|| ast.decls.iter().find(|d| matches!(d.kind, ast::DeclKind::Function(x) if x.0 as usize == i)).map(|d| d.span));
+            match dono {
+                Some(s) if s.start < f.span.start => Span { start: s.start, end: f.span.end },
+                _ => f.span,
+            }
+        };
         let interna = ast
             .functions
             .iter()
             .enumerate()
-            .filter(|(_, f)| f.span.start <= offset && offset <= f.span.end)
-            .min_by_key(|(_, f)| f.span.end - f.span.start);
+            .map(|(i, f)| (i, f, trecho(i, f)))
+            .filter(|(_, _, s)| s.start <= offset && offset <= s.end)
+            .min_by_key(|(_, _, s)| s.end - s.start)
+            .map(|(i, f, _)| (i, f));
 
         // `Convert to async function body`: `assist_funcoes` (o produtor do Dart).
 
