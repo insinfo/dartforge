@@ -1110,10 +1110,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // N13: `List<E>` só termina sozinho se o comprimento não muda
                 // nas voltas — nenhum chamado no corpo — e a lista for do
                 // runtime, o que só a execução diz (as voltas são duplicadas).
-                // Sob ARC não: as voltas guardariam o armazenamento lido antes
-                // delas, sem dono que o mantenha.
+                // Sob ARC, a preparação segura a lista em cada acesso pelo
+                // armazenamento lido antes das voltas (`otimizar/arc/derivados.rs`).
                 if crescente
-                    && !self.ctx.memoria_arc
                     && estrita
                     && passo <= 1 << 60
                     && local_fixo(*target)

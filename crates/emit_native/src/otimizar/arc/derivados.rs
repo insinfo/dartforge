@@ -90,11 +90,16 @@ fn manter_vivo(lista: ValueId) -> Instruction {
 }
 
 /// Pode trocar o armazenamento de uma lista do núcleo (chama Dart ou o
-/// runtime sem contrato que o exclua).
+/// runtime sem contrato que o exclua). O ponto seguro não troca: as
+/// mensagens de controle (pausa, ping, kill) não rodam Dart do programa, e
+/// o kill sai do laço pela pendência, antes do próximo acesso. Limpar a
+/// pendência só solta a exceção: a lista segue segura pelo `manter_vivo`.
 fn barreira(inst: &Instruction) -> bool {
     match inst {
         Instruction::CallRuntime { name, .. } => {
+            let base = name.strip_prefix(super::PREFIXO_ESCOPO_NATIVO).unwrap_or(name);
             name != MANTER_VIVO
+                && !matches!(base, "dartforge_ponto_seguro" | "dartforge_exception_clear")
                 && super::contrato(name).map_or(true, |c| c.invalida_borrows || c.chama_dart)
         }
         Instruction::CallStatic { .. }
@@ -228,7 +233,15 @@ pub(super) fn verificar(f: &Function) -> Result<(), String> {
                 return Err(format!("v{}: acesso por endereço derivado sem manter v{} viva em {}", v.0, o.lista.0, f.symbol));
             }
             if o.nucleo && !estado.contains(&o.raiz) {
-                return Err(format!("v{}: barreira entre a leitura do armazenamento de v{} e o acesso em {}", v.0, o.lista.0, f.symbol));
+                let barreiras: Vec<String> = f.blocks.iter().flat_map(|b| &b.instructions)
+                    .filter(|(_, inst, _)| barreira(inst))
+                    .map(|(x, inst, _)| format!("v{} {}", x.0, match inst {
+                        Instruction::CallRuntime { name, .. } => name.clone(),
+                        Instruction::CallStatic { symbol, .. } => symbol.clone(),
+                        outra => format!("{outra:?}").chars().take(40).collect(),
+                    }))
+                    .collect();
+                return Err(format!("v{}: barreira entre a leitura do armazenamento de v{} e o acesso em {} (barreiras: {barreiras:?})", v.0, o.lista.0, f.symbol));
             }
         }
         let mut escapa = None;
@@ -319,5 +332,39 @@ mod testes {
         ]);
         manter_vivas(&mut f).unwrap();
         assert_eq!(f.blocks[0].instructions.len(), 6);
+    }
+
+    /// O armazenamento lido antes das voltas (N13): o ponto seguro no corpo
+    /// não o invalida; uma chamada no corpo, sim (pela aresta de volta).
+    #[test]
+    fn armazenamento_lido_antes_do_laco_atravessa_o_ponto_seguro() {
+        let laco = |corpo: Instruction| Function {
+            symbol: "f".into(),
+            name: "f".into(),
+            depuracao: None,
+            params: vec![(ValueId(0), "l".into(), Type::Ref), (ValueId(1), "i".into(), Type::I64)],
+            return_ty: Type::Void,
+            blocks: vec![
+                BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![(ValueId(2), rt("df.nucleo_armazenamento", vec![(val(0), Type::Ref)], Type::I64), Type::I64)],
+                    terminator: Terminator::Branch(BlockId(1)),
+                },
+                BasicBlock {
+                    id: BlockId(1),
+                    instructions: vec![
+                        (ValueId(3), Instruction::CargaNativa { endereco: val(2), indice: val(1), tipo: TipoC::I64 }, Type::I64),
+                        (ValueId(4), corpo, Type::Void),
+                        (ValueId(5), Instruction::ICmp(ICmpOp::Slt, val(3), val(1)), Type::I1),
+                    ],
+                    terminator: Terminator::CondBranch { cond: val(5), then_block: BlockId(1), else_block: BlockId(2) },
+                },
+                BasicBlock { id: BlockId(2), instructions: vec![], terminator: Terminator::Return(None) },
+            ],
+        };
+        let mut f = laco(rt("df.arc.escopo.dartforge_ponto_seguro", vec![], Type::Void));
+        manter_vivas(&mut f).unwrap();
+        let mut f = laco(Instruction::CallStatic { symbol: "g".into(), args: vec![], ret_ty: Type::Void });
+        assert!(manter_vivas(&mut f).unwrap_err().contains("barreira"));
     }
 }

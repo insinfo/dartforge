@@ -578,9 +578,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// O endereço do elemento 0 e a forma: os conferidos antes das voltas de
     /// N13 (forma conhecida na emissão), ou lidos em linha.
+    ///
+    /// Com a preparação ARC, o armazenamento é relido em cada acesso: o
+    /// caminho lento do `[]` (dentro das voltas) é uma chamada, e um
+    /// armazenamento lido antes delas não teria quem o segurasse
+    /// (`otimizar/arc/derivados.rs`). A forma conferida antes vale.
     fn elementos_e_forma(&mut self, lista: &Operand) -> (Operand, Result<i64, Operand>) {
         if let Some(f) = &self.fixa_do_acesso {
-            return (f.dados.clone(), Ok(f.forma));
+            let forma = f.forma;
+            if self.ctx.memoria_arc && crate::alvo::arc_preparado().unwrap_or(false) {
+                let (dados, _) = self.armazenamento_da_lista(lista);
+                return (dados, Ok(forma));
+            }
+            return (f.dados.clone(), Ok(forma));
         }
         let (dados, forma) = self.armazenamento_da_lista(lista);
         (dados, Err(forma))

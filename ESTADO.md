@@ -345,7 +345,15 @@ com agentes compilando ao lado): **ARC/A0 2,748, ARCP/A0 5,225**. Maiores
 custos do ARCP: `chamadas/formas` 23×, `closures` 17×, `lista_leitura` 16×,
 `arvores` 14×, `mapa` 14×, `lista_add` 13×, `ordenar_objetos` 12×,
 `mapa_str_objeto` 12×; `json` 7–10×. No legado: `arvores` 16×,
-`lista_leitura` 16×, `lista_add` 10×. `lista_leitura` (15×) espera N13 sob ARC; `chamadas/closures`
+`lista_leitura` 16×, `lista_add` 10×.
+
+As voltas N13 voltaram sob ARC. O ponto seguro e a limpeza da pendência
+não contam como barreira do armazenamento (as mensagens de controle não
+rodam Dart do programa; limpar só solta a exceção). Na preparação, o
+caminho lento do `[]` dentro das voltas rápidas é uma chamada; então, com
+a preparação, cada acesso relê o armazenamento (a forma conferida antes
+das voltas vale). `lista_leitura`: legado 20,2 → 1,28 ms (o A0), ARCP
+20,2 → 6,2. `lista_leitura` (15×) espera N13 sob ARC; `chamadas/closures`
 (17×) e `formas` (23×) passam pela invocação uniforme.
 
 **Próximo passo:** tokens do código fora do hash (contador na tabela ARC),
