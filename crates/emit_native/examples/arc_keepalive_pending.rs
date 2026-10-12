@@ -1,7 +1,10 @@
-//! Prova AOT de keepalive somente na aresta normal de uma guarda pending.
+//! Prova AOT de keepalive e cleanup ao redor de uma guarda pending.
 //! Usa o getter auditado de record e uma pendência real pré-carregada no
-//! caminho de erro; o getter atual não lança por si mesmo. Não confundir
-//! esta prova do desvio com uma exceção originada dentro do getter.
+//! caminho de erro; o getter não lança por si mesmo e o catálogo o declara
+//! sem pendência (efeitos `0 0 0`, conferidos), então a guarda é um desvio
+//! comum sobre a flag: a cópia Owned do resultado vem logo após o getter e
+//! o caminho de erro solta o receiver e a cópia. Não confundir esta prova
+//! do desvio com uma exceção originada dentro do getter.
 //! O harness LLVM prepara o record, observa endereços sem raízes e confere
 //! identidade da exceção, sobrevivência Owned e morte após a última liberação.
 //! Tracing executa o mesmo corpo com tokens explícitos, sem mudar seu fluxo
@@ -83,9 +86,9 @@ fn modulo() -> Result<Module, String> {
     plano.tokens.retorno = RetornoTokens::Owned;
     let mut planos = HashMap::from([("ler_record".into(), plano)]);
     let produzido = preparar_arc_modulo_dart(&mut m, &mut planos)?;
-    if produzido != (1, 1) || planos["ler_record"].classes[&ValueId(2)] != Ownership::Owned {
+    if produzido != (1, 2) || planos["ler_record"].classes[&ValueId(2)] != Ownership::Owned {
         return Err(format!(
-            "keepalive/cleanup esperado (1, 1), encontrado {produzido:?}"
+            "keepalive/cleanup esperado (1, 2), encontrado {produzido:?}"
         ));
     }
     let preparado = format!("{m:?}/{planos:?}");
@@ -242,36 +245,24 @@ mod testes {
     use super::*;
 
     #[test]
-    fn copia_esta_na_aresta_normal_e_cleanup_no_erro() {
+    fn copia_segue_o_getter_e_o_erro_solta_receiver_e_copia() {
         let m = modulo().unwrap();
         let f = &m.functions[0];
-        assert!(f.blocks[0].instructions.iter().all(|(_, i, _)| !matches!(
-            i,
-            Instruction::ArcCopy {
-                value: Operand::Val(ValueId(6))
-            }
-        )));
+        let entrada = &f.blocks[0].instructions;
+        let getter = entrada.iter().position(|(v, _, _)| *v == ValueId(6)).unwrap();
         assert!(matches!(
-            f.blocks.last().unwrap().instructions[0],
-            (
-                ValueId(2),
-                Instruction::ArcCopy {
-                    value: Operand::Val(ValueId(6))
-                },
-                Type::Ref
-            )
+            entrada[getter + 1],
+            (ValueId(2), Instruction::ArcCopy { value: Operand::Val(ValueId(6)) }, Type::Ref)
         ));
-        assert!(f.blocks[1].instructions.iter().any(|(_, i, _)| matches!(
-            i,
-            Instruction::ArcDrop {
-                value: Operand::Val(ValueId(1))
-            }
-        )));
-        assert!(
-            f.blocks[1]
-                .instructions
-                .iter()
-                .all(|(_, i, _)| !matches!(i, Instruction::ArcCopy { .. }))
-        );
+        let Terminator::CondBranch { then_block, .. } = f.blocks[0].terminator else {
+            panic!("guarda pending ausente");
+        };
+        let erro = f.blocks.iter().find(|b| b.id == then_block).unwrap();
+        let soltos: Vec<_> = erro.instructions.iter().filter_map(|(_, i, _)| match i {
+            Instruction::ArcDrop { value: Operand::Val(v) } => Some(*v),
+            _ => None,
+        }).collect();
+        assert_eq!(soltos, [ValueId(1), ValueId(2)]);
+        assert!(erro.instructions.iter().all(|(_, i, _)| !matches!(i, Instruction::ArcCopy { .. })));
     }
 }
