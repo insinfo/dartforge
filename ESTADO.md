@@ -4385,7 +4385,7 @@ microbenchmark só valem presos a um núcleo P).
 | **ARC** (`--memoria=arc`) | ARC puro correto: corpus 238/238 com auditoria, `--gc-stress`, ciclos em toda drenagem e JIT × AOT; grafos aleatórios contra oráculo (3000 sementes); efêmeros pelo ponto fixo | desempenho: ARC/A0 = 2,000274 em 55beeb34 (árvores 12,82×, lista ligada 5,28×); gate reprovado. Metadados por página já disponíveis; análise, provas, políticas e integração dos §§27–34 continuam incompletas. Evidência: `bench/resultados/2026-10-10-modos-55beeb34-windows` |
 | **JS desenvolvimento** (`crates/emit_js`, contrato do DDC) | corpus diferencial **238/238** byte a byte contra `dart run` (medido hoje, 60 s); `limitless_ui` 26/26 no e2e; `new_sali/frontend` com os 11 passos do fluxo iguais ao oficial | — |
 | **JS produção** (`crates/emit_js_producao`) | corpus `--producao` 238/238; `new_sali` 12.082.759 bytes, `limitless_ui` 6.693.718 bytes (brutos) | piso de ~1 MB enquanto o runtime for o `dart_sdk.js` do DDC: compilar o SDK pela nossa trilha (PLANO passo 4); precisão do mundo fechado, minificação, *code splitting* (`docs/JS-PRODUCAO.md` §6) |
-| **Analisador** (`crates/analise`, `types`) | placar **22.955/23.012** (99,8%, posição exata), FP 0, posição errada 0, mensagem errada 10, FN 57 (2026-10-12, macOS); projetos reais sem diagnóstico a mais (10 projetos, 567 mutações; 209 pacotes do pub-cache sem FP de código publicado); CLI e LSP publicam **477** códigos de `verificados.txt` | os 57 FN e as 10 mensagens (variância, limites F, `Null?`); os 13 códigos com FP nos pacotes do pub-cache (`unchecked_use_of_nullable_value`, `unused_import`, `argument_type_not_assignable`…) fora de `verificados.txt`; caixa do caminho no macOS (o mesmo arquivo por dois caminhos de caixa diferente vira duas bibliotecas) |
+| **Analisador** (`crates/analise`, `types`) | placar **22.965/23.012** (99,8%, posição exata), FP 0, posição errada 0, mensagem errada 10, FN 47 (2026-10-12, macOS); projetos reais sem diagnóstico a mais (10 projetos, 567 mutações; 209 pacotes do pub-cache sem FP de código publicado); CLI e LSP publicam **477** códigos de `verificados.txt` | os 47 FN e as 10 mensagens (variância, limites F, `Null?`); os 13 códigos com FP nos pacotes do pub-cache (`unchecked_use_of_nullable_value`, `unused_import`, `argument_type_not_assignable`…) fora de `verificados.txt`; caixa do caminho no macOS (o mesmo arquivo por dois caminhos de caixa diferente vira duas bibliotecas) |
 | **LSP** (`crates/lsp`) | oráculo contra o `dart language-server` 3.6.2 (`r6`): símbolos, dobras, tokens, correções, hover, rename, highlight, selectionRange e workspace/symbol 100%; formatação (`formatting`, `rangeFormatting`, `onTypeFormatting`) pelo porte do `dart_style`, edições idênticas às do Dart; references 96%, implementation 96%, completar top-1/top-5 97%, assistências 98% (títulos; o resto são erros -32001 do próprio Dart) e 100% (edição, com `SnippetTextEdit`; reprise macOS 2026-10-12); latência mediana de references/implementation 1,5/1,1 ms (Dart 1,2/0,6; eram 269/221 ms) | nomes declarados dos parâmetros de tipo de função nos `Create …` (`p1`); incremental I5–I6 (dependem do motor em `crates/types`/`paridade`) |
 | **Geração de código e ngdart** (`crates/build`, `dartforge serve`) | builders pelo executor nativo; `limitless_ui` e `new_sali/frontend` pela nossa trilha | compilador de visões do ngdart (§2.0) |
 
@@ -4393,8 +4393,8 @@ microbenchmark só valem presos a um núcleo P).
 
 | medida | antes | agora |
 | --- | ---: | ---: |
-| Placar (posição exata) | 22.920/23.012 | **22.955/23.012** (99,8%) |
-| FP / posição errada / mensagem errada / FN | 0 / 16 / 17 / 76 | **0 / 0 / 10 / 57** |
+| Placar (posição exata) | 22.920/23.012 | **22.965/23.012** (99,8%) |
+| FP / posição errada / mensagem errada / FN | 0 / 16 / 17 / 76 | **0 / 0 / 10 / 47** |
 | Projetos do proprietário e de 2024 (10, `projetos`): FP | 429 (cópias com `pub get`) | **0** |
 | Mutações desses projetos (567): FP | 122 | **7** (nenhum de código publicado) |
 | Pacotes do pub-cache (209): FP / mensagem errada | 46 / 33 | **35 / 2** (nenhum de código publicado) |
@@ -4411,7 +4411,7 @@ o SDK 3.6.2. Achados: FP nos projetos reais por anotação de FFI por alias de `
 privada usada só em `case`, anotação de diretiva, falso `top_level_cycle` de campos `late`; FP de
 arquivo único (partes sem a biblioteca no lote, padrão de `super.x` sem corpos da superclasse); `/x.dart`
 numa biblioteca de `lib/`; promoção por condição guardada antes da 2.15; captura de escrita em função
-local. Os 310 códigos novos de `verificados.txt` são os sem erro emitido no corpus e nesses projetos.
+local. Os 310 códigos novos de `verificados.txt` são os sem erro emitido no corpus (no placar de 22.954) e nesses projetos.
 
 ### Formatador (`dart format`)
 
