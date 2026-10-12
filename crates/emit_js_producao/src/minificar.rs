@@ -401,7 +401,9 @@ impl<'a> oxc_ast_visit::Visit<'a> for StringsIdentificador {
         oxc_ast_visit::walk::walk_template_literal(self, it);
     }
     fn visit_call_expression(&mut self, it: &oxc_ast::ast::CallExpression<'a>) {
-        let contexto = chamada_de_nomes(&it.callee);
+        // `dart.bind(o, "m")` não reserva: a *string* é reescrita junto com a
+        // propriedade (`reescrever_ligacoes`).
+        let contexto = chamada_de_nomes(&it.callee) && !e_ligacao(&it.callee);
         // O contexto vale para os argumentos e o que está dentro deles
         // (`() => ["a"]` das assinaturas estáticas, `[…]` do
         // `defineExtensionMethods`), até a próxima chamada, `new` ou corpo de
@@ -591,6 +593,47 @@ fn e_identificador(v: &str) -> bool {
 
 /// Se as *strings* nos argumentos de uma chamada a `callee` são nomes de
 /// propriedade (ver [`StringsIdentificador`]).
+/// `dart.bind`/`dart.bindCall` (ou achatadas): o *tearoff*, que lê o método
+/// e a assinatura pelo nome da propriedade.
+fn e_ligacao(callee: &oxc_ast::ast::Expression<'_>) -> bool {
+    use oxc_ast::ast::Expression;
+    let nome = match callee {
+        Expression::StaticMemberExpression(m) if matches!(&m.object, Expression::Identifier(o) if o.name == "dart") => Some(m.property.name.as_str()),
+        Expression::Identifier(i) => crate::achatar::membro(i.name.as_str(), "dart"),
+        _ => None,
+    };
+    matches!(nome, Some("bind" | "bindCall"))
+}
+
+/// Depois do renomeio de propriedades, a *string* do nome nos `dart.bind(o,
+/// "m")` do programa passa a ser o nome novo da propriedade: o `bind` lê
+/// `o[nome]` e a assinatura `sig[nome]`, e as duas foram renomeadas
+/// (`docs/JS-PRODUCAO-TAMANHO.md` §9.7). O igual de *tearoffs* compara
+/// receptor e método, não o nome.
+fn reescrever_ligacoes<'a>(programa: &mut oxc_ast::ast::Program<'a>, mapa: &std::collections::HashMap<String, String>, alocador: &'a oxc_allocator::Allocator) {
+    use oxc_ast_visit::VisitMut;
+    struct R<'m, 'a> {
+        mapa: &'m std::collections::HashMap<String, String>,
+        alocador: &'a oxc_allocator::Allocator,
+    }
+    impl<'a> VisitMut<'a> for R<'_, 'a> {
+        fn visit_call_expression(&mut self, it: &mut oxc_ast::ast::CallExpression<'a>) {
+            if e_ligacao(&it.callee) {
+                for a in it.arguments.iter_mut().skip(1) {
+                    if let oxc_ast::ast::Argument::StringLiteral(l) = a
+                        && let Some(novo) = self.mapa.get(l.value.as_str())
+                    {
+                        l.value = (&*self.alocador.alloc_str(novo)).into();
+                        l.raw = None;
+                    }
+                }
+            }
+            oxc_ast_visit::walk_mut::walk_call_expression(self, it);
+        }
+    }
+    R { mapa, alocador }.visit_program(programa);
+}
+
 fn chamada_de_nomes(callee: &oxc_ast::ast::Expression<'_>) -> bool {
     use oxc_ast::ast::Expression;
     match callee {
@@ -848,8 +891,9 @@ pub fn minificar_com_propriedades(js: &str, nomes: &crate::propriedades::Nomes) 
         }
         let mut pm = oxc_minifier::PropertyMangler::new_in(o, &alocador);
         pm.collect(&programa);
-        pm.assign();
+        let mapa: std::collections::HashMap<String, String> = pm.assign().iter().map(|(a, b)| (a.as_str().to_string(), b.as_str().to_string())).collect();
         pm.rewrite(&mut programa);
+        reescrever_ligacoes(&mut programa, &mapa, &alocador);
     }
     let opcoes = MinifierOptions {
         mangle: Some(oxc_minifier::MangleOptions { top_level: Some(true), ..oxc_minifier::MangleOptions::default() }),

@@ -402,6 +402,16 @@ pub fn aplicar(fonte: &str) -> Result<(String, usize), String> {
                 membros.insert(x.as_str());
             }
         }
+        if diag.is_some() {
+            let mut usos: HashMap<&str, usize> = HashMap::new();
+            for (x, _, _) in &ns.acessos {
+                *usos.entry(x.as_str()).or_default() += 1;
+            }
+            let mortos: Vec<&&str> = membros.iter().filter(|x| usos.get(**x).copied().unwrap_or(0) <= 1).collect();
+            if !mortos.is_empty() {
+                eprintln!("[jsprod] achatar {n}: {} membro(s) só escrito(s): {:?}", mortos.len(), mortos.iter().take(8).collect::<Vec<_>>());
+            }
+        }
         let mut ordenados: Vec<&&str> = membros.iter().collect();
         ordenados.sort();
         declarados.extend(ordenados.iter().map(|x| format!("{n}{SEPARADOR}{x}")));

@@ -686,3 +686,12 @@ porque os *templates* `JS()` do runtime dos *records* citam `#.new`. Agora:
 
 O `classGetConstructorType` do DDC lê `'new'` por *string*; se ele estiver
 vivo, a *string* do runtime reserva o nome e nada muda.
+
+### 9.7 O nome do `dart.bind` renomeado junto
+
+O *tearoff* `dart.bind(o, "m")` lê o método (`o[m]`) e a assinatura
+(`sig[m]`) pelo nome da propriedade, e as duas já são renomeadas. Então a
+*string* do `bind` (e do `bindCall`) do programa não reserva o nome: depois do
+renomeio, `minificar::reescrever_ligacoes` troca o valor dela pelo nome novo.
+No `new_sali` isso solta os `_handleEvent_N` dos *templates* do ngdart, que
+ficavam por extenso. A deduplicação continua sem tocar nessas *strings*.
