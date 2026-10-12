@@ -398,9 +398,15 @@ pub(crate) fn corrigir(projeto: &mut Projeto, uri: &str, diagnosticos: &[Diagnos
                 let cx = crate::refatoracoes::Contexto::novo(projeto, unidade);
                 if let Some(c) = crate::inserir::criar_construtor(&cx, d.span) {
                     let destino = crate::refatoracoes::Contexto::novo(projeto, c.unidade);
+                    let (s, t) = c.edicao.clone();
                     if let Some(uri_destino) = projeto.uri_da_unidade(c.unidade)
-                        && let Some(a) = acao_com_imports(&destino, &uri_destino, format!("Create constructor '{}'", c.nome), "quickfix.create.constructor", vec![c.edicao], &c.importar, d)
+                        && let Some(mut a) = acao_com_imports(&destino, &uri_destino, format!("Create constructor '{}'", c.nome), "quickfix.create.constructor", vec![c.edicao], &c.importar, d)
                     {
+                        if let Some((base, e)) = &c.marcas
+                            && let Some(i) = a.edicoes.iter().position(|x| x.span == s && x.texto == t)
+                        {
+                            a = a.com_escrita_em(i, *base, e);
+                        }
                         saida.push(a);
                     }
                 }

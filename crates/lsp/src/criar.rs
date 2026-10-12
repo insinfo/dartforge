@@ -1180,8 +1180,11 @@ impl Projeto {
                         return None;
                     }
                     c?
-                } else if let Some(k) = cx.classe_nomeada(a) {
-                    k
+                } else if cx.classe_nomeada(a).is_some() {
+                    // `K.x` com `K` uma classe: o `staticType` do nome não é
+                    // um tipo de interface (ou é o `Type` do SDK), e o
+                    // `CreateGetter`/`CreateSetter` do Dart não oferece nada.
+                    return None;
                 } else {
                     match self.consulta.tabela.get(cx.tipo_do_no(a)?) {
                         Type::Interface { class, .. } => *class,
@@ -1569,6 +1572,11 @@ impl Projeto {
                 (alvo_qualificado(cx, node)?, None)
             }
         };
+        // O nome de uma classe como alvo (`K.m()`): o `staticType` dele no
+        // analyzer é nulo, e o Dart não oferece o membro de extensão.
+        if cx.classe_nomeada(alvo).is_some() {
+            return None;
+        }
         let tipo_alvo = cx.tipo_do_no(alvo)?;
         if matches!(self.consulta.tabela.get(tipo_alvo), Type::Dynamic) || matches!(self.consulta.tabela.exibicao(tipo_alvo), Some(dartforge_types::table::Exibicao::Invalido)) {
             return None;

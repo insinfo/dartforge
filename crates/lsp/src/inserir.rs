@@ -279,6 +279,8 @@ pub(crate) struct Construtor {
     pub(crate) unidade: UnitId,
     pub(crate) edicao: (Span, String),
     pub(crate) importar: BTreeSet<LibraryId>,
+    /// Os grupos ligados da declaração e o offset dela no texto da edição.
+    pub(crate) marcas: Option<(usize, crate::snippets::Escrita)>,
 }
 
 /// `CreateConstructor._proposeFromConstructorName` (o caminho do
@@ -312,9 +314,15 @@ pub(crate) fn criar_construtor(cx: &Contexto<'_>, erro: Span) -> Option<Construt
     // O ponto de inserção (para o escritor de tipos) antes de escrever.
     let (offset, _) = destino.inserir_no_membro(conteiner, Filtro::Construtor { construtores_primeiro }, "")?;
     let mut escritor = Escritor::novo(&destino, offset);
-    let parametros = cx.parametros_para_argumentos(lista, &mut escritor);
+    // O grupo `NAME` no nome do construtor (`_write`,
+    // `constructorNameGroupName`) e os dos parâmetros
+    // (`writeParametersMatchingArguments`).
     let nome_da_classe = cx.p.nome(c.name).to_string();
-    let membro = format!("{nome_da_classe}.{}({parametros});", cx.texto_do_no(node));
-    let (offset, texto) = destino.inserir_no_membro(conteiner, Filtro::Construtor { construtores_primeiro }, &membro)?;
-    Some(Construtor { nome, unidade: decl.unit, edicao: (Span { start: offset, end: offset }, texto), importar: escritor.importar })
+    let mut e = crate::snippets::Escrita::default();
+    e.escrever(&format!("{nome_da_classe}.")).ligado("NAME", cx.texto_do_no(node), &[]).escrever("(");
+    cx.parametros_para_argumentos_em(lista, &mut escritor, &mut e);
+    e.escrever(");");
+    let (offset, texto) = destino.inserir_no_membro(conteiner, Filtro::Construtor { construtores_primeiro }, &e.texto)?;
+    let marcas = texto.find(&e.texto).map(|k| (k, e));
+    Some(Construtor { nome, unidade: decl.unit, edicao: (Span { start: offset, end: offset }, texto), importar: escritor.importar, marcas })
 }
