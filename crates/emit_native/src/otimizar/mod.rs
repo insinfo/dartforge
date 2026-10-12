@@ -180,7 +180,12 @@ pub fn otimizar(module: &mut Module) {
             } else {
                 inline::inlining(f, &copias)
             };
-            if mudou { limpar(f, &nao_lancam); }
+            // O corpo embutido de uma função local direta deixa o local que
+            // ela recebia por endereço só com `Load`/`Store`: promovível.
+            if mudou {
+                mem2reg::promover(f);
+                limpar(f, &nao_lancam);
+            }
             mudou
         });
         if memoria_arc { module.sitios_arc.extend(atualizadas.into_inner().unwrap()); }

@@ -270,13 +270,14 @@ e corrigiu:
   novo `bytes:native`), `rti_tupla_juntar` (`1 0 0`), `lista_de_tabela`
   (`1 0 0`), `double_modulo` (`0 0 0`), `df.num_para_double`.
 
-Pendências do corpus: locais Ref em memória capturados por funções locais
-diretas (`54`, `58`, `gc_d14`: a preparação não tem produtor para `Alloca`
-Ref lido e gravado por `Load`/`Store`); `33` imprime `null` como o tracing
+Depois, os locais Ref capturados por funções locais diretas: o inlining
+deixava o local só com `Load`/`Store` sem promovê-lo (o mem2reg agora roda
+após cada inlining que muda a função), e um ramo morto com `null == 0` não
+era dobrado (`GetField` sobre `null`). O corpus fica com 125 de 126 iguais
+ao Dart, no preparado e no tracing; o `33` imprime `null` nos dois modos
 (anterior ao ARC, soquete Unix no macOS).
 
-**Próximo passo:** produtor de locais Ref em memória (ou capturá-los em
-células sob a opção); rastro simbólico (`dartforge_rastro_entrar` sem
+**Próximo passo:** rastro simbólico (`dartforge_rastro_entrar` sem
 contrato) e o modelo por tabelas com a preparação; depois §§27–34 e o gate
 ARC >= A0.
 
@@ -284,11 +285,12 @@ ARC >= A0.
 
 | verificação | resultado |
 | --- | --- |
-| emissor, unitários incluindo ignorados | 478 + 110 doctests |
+| emissor, unitários incluindo ignorados | 480 + 110 doctests |
 | quatro programas de prova com programa e SDK preparados (`DARTFORGE_ARC_PREPARADO=1`), com/sem `conferir`, `DARTFORGE_ARC_CONFERIR=1`, normal/GC stress | 16 execuções, saída igual ao Dart (`p6-*`) |
 | os mesmos em tracing e ARC legado, com `conferir`, normal/GC stress | 16 execuções, saída igual ao Dart (`r6-*`) |
 | provas AOT do CI (`provar-arc-aot.py`, 8 exemplos) | todas `sucesso` (`prova6-*.log`) |
-| corpus nativo com programa e SDK preparados, `DARTFORGE_ARC_CONFERIR=1` | 122 de 126 iguais ao Dart (`corpus-preparado2/resumo.tsv`; pendências acima) |
+| corpus nativo com programa e SDK preparados, `DARTFORGE_ARC_CONFERIR=1` | 125 de 126 iguais ao Dart (`corpus3-prep/resumo.tsv`) |
+| corpus nativo em tracing, mesmo binário | 125 de 126 iguais (`corpus3-tracing/resumo.tsv`; o `33` difere nos dois) |
 | marcas rebaixadas (`41`, `122`, `gc_d02`, `95` do corpus) com `conferir`, tracing/ARC legado/preparado, normal/GC stress | 24 execuções iguais (`corpus-conferir/`) |
 | quatro programas de prova, tracing/ARC legado/preparado, `conferir`, normal/GC stress | 24 execuções iguais (`r7-*`) |
 | runtime, todos os alvos incluindo ignorados | 227 + integrações + 83 doctests (`lote5-runtime.log`) |

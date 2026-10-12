@@ -289,3 +289,78 @@ fn switch_constante_remove_so_a_entrada_phi_da_aresta_eliminada() {
         assert_eq!(incoming.contains(&(BlockId(0), c(7))), esperado == BlockId(2));
     }
 }
+
+/// O local que uma função pequena recebia por endereço (a captura de uma
+/// função local direta) fica só com `Load`/`Store` depois do inlining e é
+/// promovido.
+#[test]
+fn local_recebido_por_endereco_some_depois_do_inlining() {
+    let v = ValueId;
+    let inc = Function {
+        symbol: "inc".into(),
+        name: "inc".into(),
+        depuracao: None,
+        params: vec![(v(0), "p".into(), Type::Ptr)],
+        return_ty: Type::Void,
+        blocks: vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![
+                (v(1), Instruction::Load { ptr: Operand::Val(v(0)), ty: Type::I64 }, Type::I64),
+                (v(2), Instruction::Add(Operand::Val(v(1)), c(1)), Type::I64),
+                (v(3), Instruction::Store { ptr: Operand::Val(v(0)), val: Operand::Val(v(2)) }, Type::Void),
+            ],
+            terminator: Terminator::Return(None),
+        }],
+    };
+    let g = Function {
+        symbol: "g".into(),
+        name: "g".into(),
+        depuracao: None,
+        params: vec![],
+        return_ty: Type::I64,
+        blocks: vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![
+                (v(0), Instruction::Alloca(Type::I64), Type::Ptr),
+                (v(1), Instruction::Store { ptr: Operand::Val(v(0)), val: c(5) }, Type::Void),
+                (v(2), Instruction::CallStatic { symbol: "inc".into(), args: vec![Operand::Val(v(0))], ret_ty: Type::Void }, Type::Void),
+                (v(3), Instruction::Load { ptr: Operand::Val(v(0)), ty: Type::I64 }, Type::I64),
+            ],
+            terminator: Terminator::Return(Some(Operand::Val(v(3)))),
+        }],
+    };
+    let mut m = Module { functions: vec![g, inc], ..Default::default() };
+    otimizar(&mut m);
+    let texto = format!("{:?}", m.functions[0].blocks);
+    assert!(!texto.contains("Alloca") && !texto.contains("Load") && !texto.contains("CallStatic"), "{texto}");
+}
+
+/// `null == 0` (o handle de null) é constante: o ramo morto sai.
+#[test]
+fn comparacao_de_null_constante_dobra() {
+    let v = ValueId;
+    let f = Function {
+        symbol: "h".into(),
+        name: "h".into(),
+        depuracao: None,
+        params: vec![],
+        return_ty: Type::I64,
+        blocks: vec![
+            BasicBlock {
+                id: BlockId(0),
+                instructions: vec![(v(0), Instruction::ICmp(ICmpOp::Eq, Operand::Constant(Constant::Null), c(0)), Type::I1)],
+                terminator: Terminator::CondBranch { cond: Operand::Val(v(0)), then_block: BlockId(1), else_block: BlockId(2) },
+            },
+            BasicBlock { id: BlockId(1), instructions: vec![], terminator: Terminator::Return(Some(c(1))) },
+            BasicBlock {
+                id: BlockId(2),
+                instructions: vec![(v(1), Instruction::GetField { object: Operand::Constant(Constant::Null), index: 0 }, Type::I64)],
+                terminator: Terminator::Return(Some(Operand::Val(v(1)))),
+            },
+        ],
+    };
+    let mut m = Module { functions: vec![f], ..Default::default() };
+    otimizar(&mut m);
+    let texto = format!("{:?}", m.functions[0].blocks);
+    assert!(!texto.contains("GetField") && m.functions[0].blocks.len() == 1, "{texto}");
+}

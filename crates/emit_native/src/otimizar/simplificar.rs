@@ -82,6 +82,15 @@ pub fn dobrar_constantes(func: &mut Function) -> bool {
                             [(Operand::Val(obj), Type::Ref)] => classes.get(obj).map(|&cid| Operand::Constant(Constant::Int(cid))),
                             _ => None,
                         },
+                    // `x == null` com `x` também constante: o handle de null é 0.
+                    Instruction::ICmp(op @ (ICmpOp::Eq | ICmpOp::Ne), a, c)
+                        if matches!((a, c), (Operand::Constant(Constant::Null), _) | (_, Operand::Constant(Constant::Null)))
+                            && [a, c].iter().all(|o| matches!(o, Operand::Constant(Constant::Null)) || inteiro(o).is_some()) =>
+                    {
+                        let bits = |o: &Operand| inteiro(o).unwrap_or(0);
+                        let igual = bits(a) == bits(c);
+                        Some(Operand::Constant(Constant::Bool(if *op == ICmpOp::Eq { igual } else { !igual })))
+                    }
                     Instruction::ICmp(op, a, c) => match (inteiro(a), inteiro(c)) {
                         (Some(x), Some(y)) => Some(match op {
                             ICmpOp::Eq => x == y,
