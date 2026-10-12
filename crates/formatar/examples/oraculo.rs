@@ -8,7 +8,8 @@
 //! ```
 //!
 //! Sem caminhos, usa o corpus padrão: os `.dart` do repositório (menos
-//! `target/` e `references/`) e a `lib/` do SDK. As referências do Dart ficam
+//! `target/` e `references/`), a `lib/` do SDK e, se existir, o pub cache
+//! (`~/tools/dart/pub-cache/hosted/pub.dev`). As referências do Dart ficam
 //! em cache por conteúdo (FNV-1a de 64 bits) em `target/oraculo-formatar/`:
 //! `<hash>.out` com a saída, `<hash>.err` quando o `dart format` recusa o
 //! arquivo. O `dart format -o json` roda em lotes, em paralelo.
@@ -126,10 +127,15 @@ fn main() {
         }
     }
     let conjuntos: Vec<(String, Vec<PathBuf>)> = if caminhos.is_empty() {
-        vec![
+        let mut v = vec![
             ("repositório".into(), vec![raiz_repo.clone()]),
             ("sdk/lib".into(), vec![PathBuf::from(format!("{casa}/tools/dart/3.6.2/dart-sdk/lib"))]),
-        ]
+        ];
+        let pub_cache = PathBuf::from(format!("{casa}/tools/dart/pub-cache/hosted/pub.dev"));
+        if pub_cache.is_dir() {
+            v.push(("pub-cache".into(), vec![pub_cache]));
+        }
+        v
     } else {
         vec![("selecionados".into(), caminhos)]
     };

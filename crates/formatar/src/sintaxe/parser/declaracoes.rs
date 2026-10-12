@@ -747,9 +747,19 @@ impl Parser<'_> {
             None
         };
         let implements_clause = self.clausula_implements()?;
-        if self.pal(self.pos, "native") {
-            return Err(self.erro("Native clause can only be used in the SDK and code that is loaded through native extensions."));
-        }
+        let native_clause = if self.pal(self.pos, "native") {
+            let n = self.avancar();
+            let name = if self.texto(self.pos) { Some(self.literal_texto()?) } else { None };
+            Some(self.no(
+                No::NativeClause {
+                    native_keyword: n as Tk,
+                    name,
+                },
+                n,
+            ))
+        } else {
+            None
+        };
         let nome = self.txt(name);
         let (lb, members, rb) = self.corpo_classe(Corpo::Classe, nome)?;
         Ok(self.no(
@@ -769,7 +779,7 @@ impl Parser<'_> {
                 extends_clause,
                 with_clause,
                 implements_clause,
-                native_clause: None,
+                native_clause,
                 left_bracket: lb as Tk,
                 members,
                 right_bracket: rb as Tk,
@@ -951,7 +961,10 @@ impl Parser<'_> {
         let ri = self.pos;
         let constructor_name = if self.op(self.pos, Op::Dot) {
             let p = self.avancar();
-            let n = self.espera_ident()?;
+            if !(self.ident(self.pos) || self.kw(self.pos, Keyword::New)) {
+                return Err(self.erro("Expected an identifier."));
+            }
+            let n = self.avancar();
             Some(self.no(
                 No::RepresentationConstructorName {
                     period: p as Tk,
@@ -1273,9 +1286,6 @@ impl Parser<'_> {
             } else {
                 return Err(self.erro("Functions must have an explicit list of parameters."));
             };
-            if prop.is_some_and(|p| self.txt(p) == "set") && (self.pal(self.pos, "async") || self.pal(self.pos, "sync")) {
-                return Err(self.erro("Setters can't use 'async', 'async*', or 'sync*'."));
-            }
             if m.external.is_some() && !self.op(self.pos, Op::Semicolon) {
                 return Err(self.erro("An external or native method can't have a body."));
             }
@@ -1304,7 +1314,7 @@ impl Parser<'_> {
         if prop.is_some() {
             return Err(self.erro_em(nx, "Unexpected 'get'/'set'."));
         }
-        let fields = self.campos(&m, ti, true, None)?;
+        let fields = self.campos(&m, ti, None)?;
         let s = self.espera_op(Op::Semicolon)?;
         Ok(self.no(
             No::TopLevelVariableDeclaration {
@@ -1319,7 +1329,7 @@ impl Parser<'_> {
     }
 
     /// `parseFields` até antes do `;`: o [`No::VariableDeclarationList`].
-    fn campos(&mut self, m: &Mods, ti: super::olhar::InfoTipo, topo: bool, nome_classe: Option<&str>) -> R<NoId> {
+    fn campos(&mut self, m: &Mods, ti: super::olhar::InfoTipo, nome_classe: Option<&str>) -> R<NoId> {
         if let Some(c) = m.covariant
             && m.late.is_none()
             && m.final_.is_some()
@@ -1352,12 +1362,6 @@ impl Parser<'_> {
                 let e = self.avancar();
                 (Some(e as Tk), Some(self.expressao()?))
             } else {
-                if m.const_.is_some() {
-                    return Err(self.erro_em(n, "The const variable must be initialized."));
-                }
-                if topo && m.final_.is_some() && m.late.is_none() && m.abstract_.is_none() && m.external.is_none() {
-                    return Err(self.erro_em(n, "The final variable must be initialized."));
-                }
                 (None, None)
             };
             vars.push(self.no(
@@ -1466,14 +1470,9 @@ impl Parser<'_> {
                     return Err(self.erro_em(nx, "Extensions can't declare instance fields."));
                 }
             }
-            Corpo::TipoExtensao => {
-                if m.static_.is_none() && m.external.is_none() {
-                    return Err(self.erro_em(nx, "Extension types can't declare instance fields."));
-                }
-            }
             _ => {}
         }
-        let fields = self.campos(&m, ti, false, Some(nome_classe))?;
+        let fields = self.campos(&m, ti, Some(nome_classe))?;
         let s = self.espera_op(Op::Semicolon)?;
         Ok(self.no(
             No::FieldDeclaration {
@@ -1510,7 +1509,10 @@ impl Parser<'_> {
         if let Some(l) = m.late {
             return Err(self.erro_em(l, "Can't have modifier 'late' here."));
         }
-        let operador = get_set.is_none() && self.pal(nome, "operator") && self.operador_definivel(nome + 1).is_some();
+        let operador = get_set.is_none()
+            && self.pal(nome, "operator")
+            && self.operador_definivel(nome + 1).is_some()
+            && self.args_tipo_em(nome, false).is_none();
         if m.static_.is_some() && operador {
             return Err(self.erro("Operators can't be static."));
         }
@@ -1579,9 +1581,6 @@ impl Parser<'_> {
             separator = Some(self.avancar() as Tk);
             initializers = self.inicializadores()?;
         }
-        if get_set.is_some_and(|g| self.txt(g) == "set") && (self.pal(self.pos, "async") || self.pal(self.pos, "sync")) {
-            return Err(self.erro("Setters can't use 'async', 'async*', or 'sync*'."));
-        }
         let corpo_no = self.pos;
         if m.external.is_some() && !self.op(self.pos, Op::Semicolon) && !self.pal(self.pos, "async") && !self.pal(self.pos, "sync") {
             return Err(self.erro("An external or native method can't have a body."));
@@ -1641,7 +1640,7 @@ impl Parser<'_> {
         if m.const_.is_some() {
             return Err(self.erro("Methods can't be declared 'const'."));
         }
-        if matches!(corpo, Corpo::Extensao | Corpo::TipoExtensao)
+        if corpo == Corpo::Extensao
             && matches!(self.arv.no(body), No::EmptyFunctionBody { .. })
             && m.external.is_none()
         {
@@ -1697,9 +1696,6 @@ impl Parser<'_> {
             return Err(self.esperado("("));
         }
         let parameters = self.params_formais(Membro::Fabrica)?;
-        if self.pal(self.pos, "async") || self.pal(self.pos, "sync") {
-            return Err(self.erro("Factory bodies can't use 'async', 'async*', or 'sync*'."));
-        }
         let mut separator = None;
         let mut redirected_constructor = None;
         let body = if self.op(self.pos, Op::Assign) {

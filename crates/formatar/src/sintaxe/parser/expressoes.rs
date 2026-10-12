@@ -63,8 +63,8 @@ impl Parser<'_> {
 
     /// `parsePatternAssignment`.
     fn atribuicao_padrao(&mut self) -> R<NoId> {
-        let ini = self.pos;
         let pattern = self.padrao(CtxPadrao::Atribuicao)?;
+        let ini = self.ini(pattern);
         let equals = self.espera_op(Op::Assign)?;
         let expression = self.expressao()?;
         Ok(self.no(
@@ -382,9 +382,6 @@ impl Parser<'_> {
                             return Err(self.erro("An equality expression can't be an operand of another equality expression."));
                         }
                         ultimo_binario = nivel;
-                    }
-                    if nivel_token == prec::PREFIXO {
-                        return Err(self.erro("Unexpected token."));
                     }
                     let o = self.consumir_operador();
                     let _ = operador;
@@ -722,17 +719,13 @@ impl Parser<'_> {
     fn unario(&mut self, cascatas: bool, ctx: CtxConst) -> R<NoId> {
         let i = self.pos;
         if self.pal(i, "await") {
-            if self.assinc == Assinc::Sinc {
-                if !self.parece_expressao_apos(i, true) {
-                    return self.primario(ctx);
-                }
-                return Err(self.erro("The 'await' expression can only be used in an 'async' function."));
+            // Fora de corpo `async`, o fasta relata `AwaitNotAsync`, que no
+            // analyzer não é erro sintático, e monta o `AwaitExpression`.
+            if self.assinc == Assinc::Sinc && !self.parece_expressao_apos(i, true) {
+                return self.primario(ctx);
             }
             self.avancar();
             let expression = self.precedencia(prec::POSFIXO, cascatas, CtxConst::Nenhum)?;
-            if !matches!(self.assinc, Assinc::Assinc | Assinc::AssincEstrela) {
-                return Err(self.erro_em(i, "The 'await' expression can only be used in an 'async' function."));
-            }
             return Ok(self.no(
                 No::AwaitExpression {
                     await_keyword: i as Tk,
@@ -871,7 +864,7 @@ impl Parser<'_> {
                     self.expressao_const()
                 }
                 Keyword::Switch if self.padroes => self.expressao_switch(),
-                Keyword::Assert => Err(self.erro("'assert' can't be used as an expression.")),
+                Keyword::Assert => self.assert_expressao(),
                 _ => Err(self.erro(&format!("Expected an expression, but got '{}'.", self.txt(i)))),
             },
             TipoToken::Op(Op::LParen) => self.parenteses_funcao_ou_registro(ctx),
@@ -972,6 +965,32 @@ impl Parser<'_> {
             return Err(self.erro("The operator '?.' cannot be used with 'super'."));
         }
         Ok(e)
+    }
+
+    /// `assert(...)` como expressão: o `AstBuilder` monta uma invocação de
+    /// função chamada `assert` (o erro `AssertAsExpression` não tem código
+    /// no analyzer).
+    fn assert_expressao(&mut self) -> R<NoId> {
+        let (a, lp, condition, _comma, message, rp) = self.partes_assert()?;
+        let function = self.simples(a);
+        let mut arguments = vec![condition];
+        arguments.extend(message);
+        let argument_list = self.no(
+            No::ArgumentList {
+                left_parenthesis: lp as Tk,
+                arguments,
+                right_parenthesis: rp as Tk,
+            },
+            lp,
+        );
+        Ok(self.no(
+            No::FunctionExpressionInvocation {
+                function,
+                type_arguments: None,
+                argument_list,
+            },
+            a,
+        ))
     }
 
     /// `parseArgumentsRest`.
@@ -1306,7 +1325,7 @@ impl Parser<'_> {
                 TipoToken::InterpolacaoIdentificador => {
                     self.avancar();
                     let i = self.pos;
-                    let expression = if self.kw(i, Keyword::This) {
+                    let expression = if self.kw(i, Keyword::This) || self.pal(i, "this") {
                         self.avancar();
                         self.no(No::ThisExpression { this_keyword: i as Tk }, i)
                     } else {
@@ -1539,8 +1558,8 @@ impl Parser<'_> {
 
     /// Padrão com `when` opcional ([`No::GuardedPattern`]).
     pub(super) fn padrao_guardado(&mut self) -> R<NoId> {
-        let ini = self.pos;
         let pattern = self.padrao(CtxPadrao::Correspondencia)?;
+        let ini = self.ini(pattern);
         let when_clause = if self.pal(self.pos, "when") {
             let w = self.avancar();
             let expression = self.expressao()?;
@@ -1571,8 +1590,8 @@ impl Parser<'_> {
                 if self.kw(self.pos, Keyword::Default) || self.kw(self.pos, Keyword::Case) {
                     return Err(self.erro("'default'/'case' can't be used in a switch expression."));
                 }
-                let ci = self.pos;
                 let guarded_pattern = self.padrao_guardado()?;
+                let ci = self.ini(guarded_pattern);
                 let arrow = self.espera_op(Op::Arrow)?;
                 self.funcoes = true;
                 let e = self.expressao()?;

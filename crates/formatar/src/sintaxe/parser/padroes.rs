@@ -36,8 +36,10 @@ impl Parser<'_> {
     }
 
     fn padrao_prec_interno(&mut self, ctx: CtxPadrao, precedencia: u8) -> R<NoId> {
-        let ini = self.pos;
         let mut p = self.padrao_primario(ctx)?;
+        // O início dos padrões compostos é o do operando esquerdo (que pode
+        // não ser o primeiro token: ver `WildcardPattern`).
+        let ini = self.ini(p);
         loop {
             let nivel = self.precedencia_em(self.pos, true);
             if nivel < precedencia {
@@ -297,6 +299,9 @@ impl Parser<'_> {
             }
         }
         if texto == "_" {
+            // `WildcardPatternImpl.beginToken` é `type?.beginToken ?? name`:
+            // o `var`/`final` fica fora do intervalo do nó.
+            let ini = type_.map_or(nome, |t| self.ini(t));
             return Ok(self.no(
                 No::WildcardPattern {
                     keyword: keyword.map(|k| k as Tk),

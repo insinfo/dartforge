@@ -27,7 +27,6 @@ pub(super) enum Membro {
     FuncaoTopo,
     Fabrica,
     Extensao,
-    Primario,
 }
 
 impl Parser<'_> {
@@ -260,7 +259,7 @@ impl Parser<'_> {
     /// `<` parâmetros de tipo `>`.
     pub(super) fn params_tipo(&mut self) -> R<NoId> {
         let ini = self.pos;
-        if self.args_tipo_lt(self.pos, true).is_none_or(|a| a.recuperado) {
+        if self.args_tipo_lt(self.pos, true).is_none() {
             return Err(self.erro("Invalid type parameters."));
         }
         let lt = self.espera_op(Op::Lt)?;
@@ -377,7 +376,7 @@ impl Parser<'_> {
                 if self.pal(self.pos, "covariant") {
                     if matches!(
                         membro,
-                        Membro::MetodoEstatico | Membro::FuncaoTopo | Membro::Extensao | Membro::Primario
+                        Membro::MetodoEstatico | Membro::FuncaoTopo | Membro::Extensao
                     ) {
                         return Err(self.erro("Can't have modifier 'covariant' here."));
                     }
@@ -395,8 +394,12 @@ impl Parser<'_> {
         }
         let info = self.tipo_em(self.pos, em_tipo_funcao, false, true);
         let mut nx = info.ate;
+        let mut info = info;
         if info.e_nenhum() && (self.op(nx, Op::Dot) || (self.ident(nx) && self.op(nx + 1, Op::Dot))) {
-            return Err(self.erro_em(nx, "Invalid type."));
+            // Recuperação do fasta: tipo prefixado malformado (por exemplo
+            // `p.import`), relida com `required`; o erro não é sintático.
+            info = self.tipo_em(self.pos, true, false, false);
+            nx = info.ate;
         }
         let mut this_super: Option<(usize, usize)> = None;
         if !em_tipo_funcao && (self.kw(nx, Keyword::This) || self.kw(nx, Keyword::Super)) {
@@ -451,9 +454,6 @@ impl Parser<'_> {
             if this_kw.is_none() {
                 self.conferir_await_yield(n)?;
             }
-            if nomeado && self.txt(n).starts_with('_') {
-                return Err(self.erro_em(n, "Named parameters can't start with an underscore."));
-            }
             Some(n)
         };
         let (type_parameters, parameters, question) = if funcao_inline {
@@ -464,9 +464,6 @@ impl Parser<'_> {
             };
             let ps = self.params_formais(Membro::ParametroFuncao)?;
             let q = self.opcional_op(Op::Question).map(|q| q as u32);
-            if em_tipo_funcao {
-                return Err(self.erro("Inline function types aren't allowed in function types."));
-            }
             (tp, Some(ps), q)
         } else {
             (None, None, None)

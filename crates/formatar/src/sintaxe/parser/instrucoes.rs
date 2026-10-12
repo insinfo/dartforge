@@ -482,23 +482,12 @@ impl Parser<'_> {
         ))
     }
 
-    fn gerador(&self) -> bool {
-        matches!(self.assinc, Assinc::SincEstrela | Assinc::AssincEstrela)
-    }
-
-    fn assincrono(&self) -> bool {
-        matches!(self.assinc, Assinc::Assinc | Assinc::AssincEstrela)
-    }
-
     /// `parseReturnStatement`.
     fn retorno(&mut self) -> R<NoId> {
         let r = self.avancar();
         let expression = if self.op(self.pos, Op::Semicolon) {
             None
         } else {
-            if self.gerador() {
-                return Err(self.erro_em(r, "Generators can't return values."));
-            }
             Some(self.expressao()?)
         };
         let s = self.espera_op(Op::Semicolon)?;
@@ -518,9 +507,6 @@ impl Parser<'_> {
         let star = self.opcional_op(Op::Star).map(|s| s as Tk);
         let expression = self.expressao()?;
         let s = self.espera_op(Op::Semicolon)?;
-        if !self.gerador() {
-            return Err(self.erro_em(y, "Yield statements must be in a generator method."));
-        }
         Ok(self.no(
             No::YieldStatement {
                 yield_keyword: y as Tk,
@@ -668,14 +654,8 @@ impl Parser<'_> {
     /// O cabeçalho `( ... )` de `for` em comandos e coleções.
     pub(super) fn partes_for(&mut self, await_keyword: Option<usize>) -> R<(usize, NoId, usize)> {
         let lp = self.espera_op(Op::LParen)?;
-        let conferir_await_in = |p: &Self| -> R<()> {
-            if let Some(a) = await_keyword
-                && !p.assincrono()
-            {
-                return Err(p.erro_em(a, "The asynchronous for-in can only be used in functions marked with 'async' or 'async*'."));
-            }
-            Ok(())
-        };
+        // `AwaitForNotAsync` não é erro sintático no analyzer.
+        let conferir_await_in = |_: &Self| -> R<()> { Ok(()) };
         match self.inicio_for()? {
             InicioFor::Padrao(meta, keyword, pattern, ini) => {
                 if self.op(self.pos, Op::Assign) {
@@ -1141,11 +1121,18 @@ impl Parser<'_> {
             }
         }
         let ini = keyword.unwrap_or(self.pos);
-        if self.assinc != Assinc::Sinc && self.op(self.pos, Op::Semicolon) {
-            return Err(self.erro("Abstract methods can't use 'async', 'async*', or 'sync*'."));
-        }
         if self.pal(self.pos, "native") {
-            return Err(self.erro("Native clause can only be used in the SDK and code that is loaded through native extensions."));
+            let n = self.avancar();
+            let string_literal = if self.texto(self.pos) { Some(self.literal_texto()?) } else { None };
+            let s = self.espera_op(Op::Semicolon)?;
+            return Ok(self.no(
+                No::NativeFunctionBody {
+                    native_keyword: n as Tk,
+                    string_literal,
+                    semicolon: s as Tk,
+                },
+                n,
+            ));
         }
         if self.op(self.pos, Op::Semicolon) {
             if !permite_abstrato {
@@ -1162,9 +1149,6 @@ impl Parser<'_> {
             } else {
                 Some(self.espera_op(Op::Semicolon)? as Tk)
             };
-            if self.gerador() {
-                return Err(self.erro_em(a, "Generators can't return values."));
-            }
             return Ok(self.no(
                 No::ExpressionFunctionBody {
                     keyword: keyword.map(|k| k as Tk),

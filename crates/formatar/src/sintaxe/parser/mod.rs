@@ -249,7 +249,7 @@ enum Estilo {
 
 fn estilo(texto: &str) -> Estilo {
     match texto {
-        "abstract" | "as" | "augment" | "covariant" | "deferred" | "dynamic" | "export" | "extension"
+        "abstract" | "as" | "covariant" | "deferred" | "dynamic" | "export" | "extension"
         | "external" | "factory" | "Function" | "get" | "implements" | "import" | "interface" | "late"
         | "library" | "mixin" | "operator" | "part" | "required" | "set" | "static" | "typedef" => {
             Estilo::Embutida
@@ -412,7 +412,7 @@ impl<'f> Parser<'f> {
             TipoToken::Identificador
                 if matches!(
                     t,
-                    "abstract" | "augment" | "covariant" | "external" | "late" | "required" | "static"
+                    "abstract" | "covariant" | "external" | "late" | "required" | "static"
                 ) =>
             {
                 let n = i + 1;

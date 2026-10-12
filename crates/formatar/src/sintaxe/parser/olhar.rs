@@ -40,8 +40,6 @@ pub(super) struct InfoTipo {
     pub antes_interrogacao: Option<usize>,
     /// `couldBeExpression`.
     pub pode_ser_expressao: bool,
-    /// `isFunctionType` (há `Function` com parâmetros).
-    pub funcao: bool,
     /// `isRecordType`.
     pub registro: bool,
     /// `gftReturnTypeHasRecordType`.
@@ -56,7 +54,6 @@ impl InfoTipo {
             ate: i,
             antes_interrogacao: None,
             pode_ser_expressao: false,
-            funcao: false,
             registro: false,
             registro_no_retorno: false,
             recuperado: false,
@@ -139,7 +136,6 @@ impl Complexo {
             ate: self.fim + 1,
             antes_interrogacao: self.antes_interrogacao,
             pode_ser_expressao: self.args.is_none() && self.inicios_funcao == 0,
-            funcao: self.retorno_gft.is_some(),
             registro: self.registro,
             registro_no_retorno: self.registro_no_retorno,
             recuperado: self.recuperado,
@@ -313,6 +309,21 @@ impl Parser<'_> {
                 if !requerido && !self.parece_nome(c.fim + 1) && c.retorno_gft.is_none() {
                     return InfoTipo::nenhum(i);
                 }
+                return c.info();
+            }
+            if requerido {
+                // `identifier . non-identifier` (recuperação): o tipo prefixado
+                // usa a palavra seguinte, se houver.
+                let mut c = Complexo::novo(n, None);
+                let mut t = nx - 1;
+                if self.palavra(nx) {
+                    t = nx;
+                }
+                let tp = self.args_tipo_em(t, decl);
+                c.args = tp;
+                c.fim = tp.map_or(t, |a| a.ate - 1);
+                self.resto_tipo(&mut c, requerido);
+                c.recuperado = true;
                 return c.info();
             }
             return InfoTipo::nenhum(i);

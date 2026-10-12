@@ -815,7 +815,8 @@ pub fn conferir(tokens: &Tokens, arv: &Arvore, fonte: &str) -> Result<(), String
             if t >= n {
                 return Err(format!("{}: token fora da lista", nome_do_no(&d.no)));
             }
-            if t < d.inicio as usize || t > d.fim as usize {
+            let curinga = matches!(d.no, No::WildcardPattern { keyword: Some(k), .. } if k as usize == t);
+            if !curinga && (t < d.inicio as usize || t > d.fim as usize) {
                 return Err(format!(
                     "{} [{}..{}]: token {} fora do intervalo",
                     nome_do_no(&d.no),
