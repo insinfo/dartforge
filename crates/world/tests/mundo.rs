@@ -1,4 +1,4 @@
-//! O mundo fechado sobre um programa real (`tests/programas/casos.dart`),
+//! O mundo fechado sobre um programa real (`tests/programs/cases.dart`),
 //! com asserções pelo nome do elemento. Compila contra o SDK: `--ignored`.
 
 use dartforge_elements::model::{ClassId, Element, FunctionElementId, Program, VariableId};
@@ -75,7 +75,7 @@ impl Caso<'_> {
 #[test]
 #[ignore = "compila contra o SDK; rodar com --ignored"]
 fn casos_do_mundo_fechado() {
-    let arquivo = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/programas/casos.dart");
+    let arquivo = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/programs/cases.dart");
     let (r, _) = dartforge_emit_js::compilar_com(&arquivo, None, None, &Default::default(), |a| {
         let e = Entrada { program: a.program, interner: a.interner, table: a.table, outline: a.outline, bodies: a.bodies };
         let mut raizes = Raizes::default();

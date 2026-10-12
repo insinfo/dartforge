@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn programas_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/programas")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/programs")
 }
 
 fn dart_run(arquivo: &Path) -> String {
@@ -53,11 +53,11 @@ fn verifica(nome: &str) {
 
 #[test]
 fn p1_basico() {
-    verifica("p1_basico");
+    verifica("p1_basic");
 }
 #[test]
 fn p2_funcoes() {
-    verifica("p2_funcoes");
+    verifica("p2_functions");
 }
 #[test]
 fn p3_classes() {
@@ -65,11 +65,11 @@ fn p3_classes() {
 }
 #[test]
 fn p4_colecoes() {
-    verifica("p4_colecoes");
+    verifica("p4_collections");
 }
 #[test]
 fn p5_excecoes() {
-    verifica("p5_excecoes");
+    verifica("p5_exceptions");
 }
 #[test]
 fn p6_async() {
@@ -77,30 +77,30 @@ fn p6_async() {
 }
 #[test]
 fn p7_dinamico() {
-    verifica("p7_dinamico");
+    verifica("p7_dynamic");
 }
 #[test]
 fn p7_padroes() {
-    verifica("p7_padroes");
+    verifica("p7_patterns");
 }
 #[test]
 fn p7_bibliotecas() {
-    verifica("p7_bibliotecas/main");
+    verifica("p7_libraries/main");
 }
 #[test]
 fn p3_genericas() {
-    verifica("p3_genericas");
+    verifica("p3_generics");
 }
 #[test]
-fn p8_nosuchmethod_ordem() {
-    verifica("p8_nosuchmethod_ordem");
+fn p8_nosuchmethod_order() {
+    verifica("p8_nosuchmethod_order");
 }
 
 /// Identificador resolvido pelo escopo léxico (a resolução da inferência
 /// comum): a declaração de topo vence o membro herdado homônimo.
 #[test]
 fn p9_escopo_lexico() {
-    verifica("p9_escopo_lexico");
+    verifica("p9_lexical_scope");
 }
 
 /// Argumentos de tipo reificados vindos da inferência comum: instanciação de
@@ -109,5 +109,5 @@ fn p9_escopo_lexico() {
 /// (docs/INFERENCIA-JS-ALINHAMENTO.md §4). Antes, 12 linhas divergiam da VM.
 #[test]
 fn p10_tipos_reificados() {
-    verifica("p10_tipos_reificados");
+    verifica("p10_reified_types");
 }

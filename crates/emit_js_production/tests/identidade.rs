@@ -15,9 +15,9 @@ use std::path::{Path, PathBuf};
 
 fn programas() -> Vec<PathBuf> {
     let raiz = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let mut v: Vec<PathBuf> = ["p1_basico", "p2_funcoes", "p3_classes", "p3_genericas", "p4_colecoes", "p5_excecoes", "p6_async", "p7_dinamico", "p7_padroes", "p7_bibliotecas/main", "p8_nosuchmethod_ordem"]
+    let mut v: Vec<PathBuf> = ["p1_basic", "p2_functions", "p3_classes", "p3_generics", "p4_collections", "p5_exceptions", "p6_async", "p7_dynamic", "p7_patterns", "p7_libraries/main", "p8_nosuchmethod_order"]
         .iter()
-        .map(|n| raiz.join(format!("crates/emit_js/tests/programas/{n}.dart")))
+        .map(|n| raiz.join(format!("crates/emit_js/tests/programs/{n}.dart")))
         .collect();
     for n in ["51_mixins", "57_nosuchmethod", "90_dynamic_chamadas", "207_factory_redirecionada_tearoff", "209_js_interop/main", "212_rti_de_superclasse_generica"] {
         let p = raiz.join(format!("corpus/js/{n}.dart"));

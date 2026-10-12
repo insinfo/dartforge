@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 fn programas() -> Vec<PathBuf> {
     let raiz = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let mut v = vec![raiz.join("tests/programas/p8_nosuchmethod_ordem.dart")];
+    let mut v = vec![raiz.join("tests/programs/p8_nosuchmethod_order.dart")];
     let corpus = raiz.join("../../corpus/js/57_nosuchmethod.dart");
     if corpus.is_file() {
         v.push(corpus);
@@ -53,9 +53,9 @@ fn emissao_com_nosuchmethod_e_identica_byte_a_byte() {
 #[test]
 #[ignore = "compila programas reais contra o SDK; rodar com --ignored"]
 fn encaminhadores_saem_na_ordem_do_cfe() {
-    let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/programas/p8_nosuchmethod_ordem.dart");
+    let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/programs/p8_nosuchmethod_order.dart");
     let modulos = emitir(&p);
-    let texto = &modulos.iter().find(|(c, _)| c.ends_with("p8_nosuchmethod_ordem.js")).expect("módulo do programa").1;
+    let texto = &modulos.iter().find(|(c, _)| c.ends_with("p8_nosuchmethod_order.js")).expect("módulo do programa").1;
     let classe = &texto[texto.find("class Fantasma").expect("classe Fantasma")..];
     let esperado = [
         "incrementa() {",
