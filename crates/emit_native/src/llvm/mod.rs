@@ -3884,8 +3884,8 @@ impl<'a> LlvmEmitter<'a> {
     /// módulo, ou do SDK da fonte (`df.dart$3a…`) — cujos operandos chegam
     /// sem conversão que aloque (o tipo do parâmetro, nenhum texto
     /// constante). Só na pilha-sombra da memória por rastreamento: as raízes
-    /// por mapas e o ARC seguem a regra de sempre. `DARTFORGE_RAIZES_NO_CHAMADO=0`
-    /// desliga (medida).
+    /// por mapas e o ARC seguem a regra de sempre. Só com
+    /// `DARTFORGE_RAIZES_NO_CHAMADO=1` ([`raizes_no_chamado`]).
     fn chamado_enraiza_os_argumentos(&self, inst: &Instruction) -> bool {
         if self.mapas || self.module.memoria_arc || !raizes_no_chamado() {
             return false;
@@ -4075,10 +4075,16 @@ const FOLHAS_DO_MAPA: &[&str] = &[
 ];
 
 /// A regra das raízes pelo chamado (`LlvmEmitter::chamado_enraiza_os_argumentos`)
-/// está ligada: `DARTFORGE_RAIZES_NO_CHAMADO=0` a desliga (medida).
+/// está ligada: `DARTFORGE_RAIZES_NO_CHAMADO=1` (medida; desligada por
+/// padrão). Ela tira ~8% das gravações de raiz do new_sali/backend, mas
+/// muda a coloração dos slots: um slot compartilhado guarda o último valor
+/// até ser reusado ou o quadro fechar, e com menos valores enraizados o
+/// valor morto fica mais tempo — o núcleo `json` do `bench/comparativo`
+/// terminava com 1,05 milhão de objetos vivos em vez de 650 mil (pico de
+/// 121 contra 95 MB). Falta zerar o slot do valor que morre antes de ligar.
 fn raizes_no_chamado() -> bool {
     static LIGADA: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *LIGADA.get_or_init(|| !std::env::var("DARTFORGE_RAIZES_NO_CHAMADO").is_ok_and(|v| v == "0"))
+    *LIGADA.get_or_init(|| std::env::var("DARTFORGE_RAIZES_NO_CHAMADO").is_ok_and(|v| v == "1"))
 }
 
 /// Raízes por mapas: a chamada da linha pode coletar — a indireta, e a
