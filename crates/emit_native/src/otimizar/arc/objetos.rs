@@ -108,6 +108,56 @@ pub(super) fn preparar(
                 }, Type::Ref));
                 continue;
             }
+            // A leitura escalar da célula: os bits do campo 0 pela entrada
+            // auditada (que recusa um campo Ref) e a volta à representação,
+            // o inverso da escrita abaixo.
+            if let Instruction::CellGet { cell } = inst
+                && matches!(ty, Type::I64 | Type::F64 | Type::I1 | Type::I8)
+            {
+                if tipo(cell) != Some(Type::Ref) {
+                    return Err(format!("célula ARC em {} v{} exige receiver Ref", f.symbol, v.0));
+                }
+                let bits = if *ty == Type::I64 { *v } else { id()? };
+                instructions.push((bits, Instruction::CallRuntime {
+                    name: "dartforge_arc_ler_campo_escalar_v1".into(),
+                    args: vec![(cell.clone(), Type::Ref), (Operand::Constant(Constant::Int(0)), Type::I64)],
+                    ret_ty: Type::I64,
+                }, Type::I64));
+                match ty {
+                    Type::F64 => instructions.push((*v, Instruction::Bitcast { op: Operand::Val(bits), to: Type::F64 }, Type::F64)),
+                    Type::I1 | Type::I8 => instructions.push((*v, Instruction::Trunc { op: Operand::Val(bits), from: Type::I64, to: *ty }, *ty)),
+                    _ => {}
+                }
+                continue;
+            }
+            // A escrita da célula (campo 0) pelas entradas auditadas de campo,
+            // na representação do valor; o runtime confere a marca do mapa.
+            if let Instruction::CellSet { cell, value } = inst {
+                if tipo(cell) != Some(Type::Ref) || *ty != Type::Void {
+                    return Err(format!("célula ARC em {} v{} exige receiver Ref", f.symbol, v.0));
+                }
+                let (nome, valor, repr) = match tipo(value) {
+                    Some(Type::Ref) => ("dartforge_arc_gravar_campo_ref_v1", value.clone(), Type::Ref),
+                    Some(Type::I64) => ("dartforge_arc_gravar_campo_escalar_v1", value.clone(), Type::I64),
+                    Some(t @ (Type::F64 | Type::I1 | Type::I8)) => {
+                        let bits = id()?;
+                        let conversao = if t == Type::F64 {
+                            Instruction::Bitcast { op: value.clone(), to: Type::I64 }
+                        } else {
+                            Instruction::ZExt { op: value.clone(), from: t, to: Type::I64 }
+                        };
+                        instructions.push((bits, conversao, Type::I64));
+                        ("dartforge_arc_gravar_campo_escalar_v1", Operand::Val(bits), Type::I64)
+                    }
+                    _ => return Err(format!("célula ARC em {} v{}: valor sem representação", f.symbol, v.0)),
+                };
+                instructions.push((*v, Instruction::CallRuntime {
+                    name: nome.into(),
+                    args: vec![(cell.clone(), Type::Ref), (Operand::Constant(Constant::Int(0)), Type::I64), (valor, repr)],
+                    ret_ty: Type::Void,
+                }, Type::Void));
+                continue;
+            }
             if let Instruction::EnvGet { env, index } = inst
                 && *ty == Type::Ref
             {
@@ -122,6 +172,29 @@ pub(super) fn preparar(
                         (Operand::Constant(Constant::Int(indice)), Type::I64)],
                     ret_ty: Type::Ref,
                 }, Type::Ref));
+                continue;
+            }
+            // A captura escalar: os bits pela entrada auditada (que recusa
+            // uma captura Ref) e a volta à representação gravada.
+            if let Instruction::EnvGet { env, index } = inst
+                && matches!(ty, Type::I64 | Type::F64 | Type::I1 | Type::I8)
+            {
+                if tipo(env) != Some(Type::Ref) {
+                    return Err(format!("captura ARC em {} v{} exige ambiente Ref", f.symbol, v.0));
+                }
+                let indice = i64::try_from(*index).map_err(|_|
+                    format!("captura ARC em {} v{}: índice fora da ABI", f.symbol, v.0))?;
+                let bits = if *ty == Type::I64 { *v } else { id()? };
+                instructions.push((bits, Instruction::CallRuntime {
+                    name: "dartforge_arc_env_escalar_v1".into(),
+                    args: vec![(env.clone(), Type::Ref), (Operand::Constant(Constant::Int(indice)), Type::I64)],
+                    ret_ty: Type::I64,
+                }, Type::I64));
+                match ty {
+                    Type::F64 => instructions.push((*v, Instruction::Bitcast { op: Operand::Val(bits), to: Type::F64 }, Type::F64)),
+                    Type::I1 | Type::I8 => instructions.push((*v, Instruction::Trunc { op: Operand::Val(bits), from: Type::I64, to: *ty }, *ty)),
+                    _ => {}
+                }
                 continue;
             }
             let closure = match inst {
@@ -785,6 +858,49 @@ mod testes {
             let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
             assert!(ir.contains("@dartforge_arc_ler_campo_ref_v1(i64 %v0, i64 0)"));
             assert!(ir.contains("call void @dartforge_arc_retain("));
+        }
+    }
+
+    #[test]
+    fn leitura_escalar_de_celula_le_os_bits_auditados_e_volta_a_representacao() {
+        for ty in [Type::I64, Type::F64, Type::I1] {
+            let (mut m, mut planos) = modulo();
+            let f = &mut m.functions[0];
+            f.params.truncate(1);
+            f.return_ty = ty;
+            f.blocks[0].instructions = vec![(ValueId(1), Instruction::CellGet { cell: Operand::Val(ValueId(0)) }, ty)];
+            f.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(1))));
+            planos.get_mut("objeto").unwrap().tokens.retorno = RetornoTokens::Trivial;
+            preparar_arc_modulo_dart(&mut m, &mut planos).unwrap();
+            let ops = &m.functions[0].blocks[0].instructions;
+            assert!(matches!(&ops[0].1, Instruction::CallRuntime { name, ret_ty: Type::I64, .. }
+                if name == "dartforge_arc_ler_campo_escalar_v1"));
+            assert_eq!(ops.last().unwrap().0, ValueId(1));
+            assert_eq!(ops.last().unwrap().2, ty);
+            assert_eq!(planos["objeto"].classes[&ValueId(1)], Ownership::Trivial);
+            let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+            assert!(ir.contains("@dartforge_arc_ler_campo_escalar_v1(i64 %v0, i64 0)"), "{ir}");
+        }
+    }
+
+    #[test]
+    fn captura_escalar_le_os_bits_auditados_e_volta_a_representacao() {
+        for ty in [Type::I64, Type::F64, Type::I8] {
+            let (mut m, mut planos) = modulo();
+            let f = &mut m.functions[0];
+            f.params.truncate(1);
+            f.return_ty = ty;
+            f.blocks[0].instructions = vec![(ValueId(1), Instruction::EnvGet { env: Operand::Val(ValueId(0)), index: 2 }, ty)];
+            f.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(1))));
+            planos.get_mut("objeto").unwrap().tokens.retorno = RetornoTokens::Trivial;
+            preparar_arc_modulo_dart(&mut m, &mut planos).unwrap();
+            let ops = &m.functions[0].blocks[0].instructions;
+            assert!(matches!(&ops[0].1, Instruction::CallRuntime { name, ret_ty: Type::I64, .. }
+                if name == "dartforge_arc_env_escalar_v1"));
+            assert_eq!((ops.last().unwrap().0, ops.last().unwrap().2), (ValueId(1), ty));
+            assert_eq!(planos["objeto"].classes[&ValueId(1)], Ownership::Trivial);
+            let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+            assert!(ir.contains("@dartforge_arc_env_escalar_v1(i64 %v0, i64 2)"), "{ir}");
         }
     }
 

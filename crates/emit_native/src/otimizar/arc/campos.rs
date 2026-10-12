@@ -851,14 +851,13 @@ mod testes {
                 m.functions[0].blocks.push(BasicBlock { id: BlockId(2), instructions: vec![], terminator: Terminator::Return(None) });
             }
             if caso == 4 {
-                let antes = format!("{m:?}/{planos:?}");
-                let erro = preparar_arc_modulo_dart(&mut m, &mut planos).unwrap_err();
-                assert!(erro.contains("token anterior ainda disponível"), "{erro}");
-                assert_eq!(antes, format!("{m:?}/{planos:?}"));
-                super::preparar(&mut m.functions[0], &m.layouts_campos_arc,
-                    planos.get_mut("campos").unwrap(), None, &HashSet::new()).unwrap();
-                assert!(m.functions[0].blocks[1].instructions.iter().any(|(_, i, _)|
-                    matches!(i, Instruction::CallRuntime { name, .. } if name == super::LER_ESCALAR)));
+                // O objeto da volta anterior morre na aresta de volta, antes
+                // de o Phi receber o novo: a preparação solta o token ali, e
+                // a leitura do campo continua conferida.
+                preparar_arc_modulo_dart(&mut m, &mut planos).unwrap();
+                let insts: Vec<_> = m.functions[0].blocks.iter().flat_map(|b| &b.instructions).collect();
+                assert!(insts.iter().any(|(_, i, _)| matches!(i, Instruction::CallRuntime { name, .. } if name == super::LER_ESCALAR)));
+                assert!(insts.iter().any(|(_, i, _)| matches!(i, Instruction::ArcDrop { .. })));
                 continue;
             }
             let resultado = preparar_arc_modulo_dart(&mut m, &mut planos);

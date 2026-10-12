@@ -34,6 +34,36 @@ pub(super) fn preparar(f: &mut Function) -> Result<(), String> {
             *name = owned.into();
             continue;
         }
+        // Os acessos físicos por índice (o quadro de `lower/async_sm.rs`, os
+        // campos de record, o `name` de enum, o campo por índice dinâmico):
+        // as entradas auditadas, que conferem o objeto, o índice e o mapa do
+        // campo (a leitura escalar recusa um campo Ref). A marca da gravação
+        // é a representação estática do valor.
+        if name == "dartforge_object_get" {
+            if *ty != *ret_ty || !matches!(ret_ty, Type::I64 | Type::Ref)
+                || !matches!(args.as_slice(), [(_, Type::Ref), (_, Type::I64)])
+            {
+                return Err(format!("leitura de campo ARC em {} v{}: ABI incompatível", f.symbol, v.0));
+            }
+            // Ref: um empréstimo do receiver, sem retenção.
+            *name = if *ret_ty == Type::Ref { "dartforge_arc_ler_campo_ref_v1" } else { "dartforge_arc_ler_campo_escalar_v1" }.into();
+            continue;
+        }
+        if name == "dartforge_object_set" {
+            let [(objeto, Type::Ref), (indice, Type::I64), (valor, Type::I64),
+                (Operand::Constant(Constant::Int(marca @ (0 | 1))), Type::I8)] = args.as_slice()
+            else {
+                return Err(format!("gravação de campo ARC em {} v{}: ABI ou marca incompatível", f.symbol, v.0));
+            };
+            let (nome, repr) = if *marca == 1 {
+                ("dartforge_arc_gravar_campo_ref_v1", Type::Ref)
+            } else {
+                ("dartforge_arc_gravar_campo_escalar_v1", Type::I64)
+            };
+            *args = vec![(objeto.clone(), Type::Ref), (indice.clone(), Type::I64), (valor.clone(), repr)];
+            *name = nome.into();
+            continue;
+        }
         // A string nova (`@df.texto_alocar`) com owner do código.
         if name == "df.texto_alocar" {
             let [(len, Type::I64), (Operand::Constant(Constant::Bool(dois)), Type::I1)] = args.as_slice() else {
@@ -141,7 +171,7 @@ pub(super) fn preparar(f: &mut Function) -> Result<(), String> {
         // Uma função do runtime que devolve um objeto vivo sem owner do
         // código: o thunk Owned genérico (escopo nativo, guarda, retain).
         if *ret_ty == Type::Ref && owned_generico(name) && super::contrato(name).is_err() {
-            if *ty != Type::Ref || args.iter().any(|(_, t)| !matches!(t, Type::Ref | Type::I64 | Type::F64 | Type::I8 | Type::I1)) {
+            if *ty != Type::Ref || args.iter().any(|(_, t)| !matches!(t, Type::Ref | Type::I64 | Type::F64 | Type::I8 | Type::I1 | Type::Ptr)) {
                 return Err(format!("thunk Owned em {} v{}: ABI incompatível", f.symbol, v.0));
             }
             *name = format!("{}{name}", super::PREFIXO_OWNED_GENERICO);
@@ -170,6 +200,8 @@ fn owned_generico(nome: &str) -> bool {
             "dartforge_collection_mark_unmodifiable"
                 | "dartforge_constante_canonica"
                 | "dartforge_encaminhar_nsm"
+                | "dartforge_lista_de_tabela"
+                | "dartforge_lista_de_tabela_g"
                 | "dartforge_rastro_texto"
                 | "dartforge_string_concat"
                 | "dartforge_to_string_bool"

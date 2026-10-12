@@ -232,6 +232,7 @@ pub(super) fn preparar_com_variantes(
     super::seletores::preparar(&mut preparadas);
     super::layouts::verificar(&trabalho)?;
     produzir_parametros_escalares_do_lowering(&trabalho, &mut novos)?;
+    super::locais::produzir_enderecos(&trabalho, &mut novos)?;
     super::vetores::produzir(&trabalho, &mut novos)?;
     super::vetores::preparar_leituras(&trabalho, &mut preparadas)?;
     super::caches_rti::produzir(&trabalho, &mut novos)?;
@@ -1261,7 +1262,8 @@ mod testes {
             }
             let mut planos = HashMap::from([("leitura_ref".into(), p)]);
             let antes = format!("{m:?}/{planos:?}");
-            if caso != 0 {
+            // O acesso físico cru (caso 2) vira a mesma leitura auditada.
+            if caso == 1 || caso == 3 {
                 assert!(preparar_arc_modulo_dart(&mut m, &mut planos).is_err());
                 assert_eq!(format!("{m:?}/{planos:?}"), antes);
             } else {

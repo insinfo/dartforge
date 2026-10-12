@@ -106,6 +106,10 @@ pub fn vivacidade_classificada(
     }
     let mut ids: Vec<ValueId> = classes.keys().copied().collect();
     ids.sort_by_key(|v| v.0);
+    // As definições locais de tipo Ref (uma trivial dessas é null, constante
+    // ou um Phi delas); parâmetros não entram.
+    let tipos_ref: HashSet<ValueId> = f.blocks.iter().flat_map(|b| &b.instructions)
+        .filter(|(_, _, t)| *t == Type::Ref).map(|(v, _, _)| *v).collect();
     let mut referencias = HashSet::new();
     let mut emprestimos = HashMap::new();
     for id in ids {
@@ -130,6 +134,11 @@ pub fn vivacidade_classificada(
                         ));
                     }
                     OrigemOwner::Chamador => {}
+                    // Emprestado de um valor trivial (null ou constante
+                    // permanente, inclusive por um Phi só de nulls): nada a
+                    // manter vivo.
+                    OrigemOwner::Valor(owner) if classes.get(&owner) == Some(&Ownership::Trivial)
+                        && tipos_ref.contains(&owner) => {}
                     OrigemOwner::Valor(owner) => {
                         emprestimos.insert(id, owner);
                     }

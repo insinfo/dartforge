@@ -87,6 +87,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Corpo do getter preguiçoso de um valor de enum: cria o objeto
     /// canônico na primeira leitura.
     pub fn lower_valor_de_enum(&mut self, vid: VariableId) {
+        // O getter devolve o valor como as funções Dart: Ref é Owned.
+        if self.ctx.memoria_arc {
+            self.retornos_ref_dart.insert(self.func.symbol.clone());
+        }
         let var = &self.ctx.program.variables[vid.0 as usize];
         let VariableRef::EnumConstant { unit, decl, index } = var.node else {
             return;
@@ -266,6 +270,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// `toString()` padrão de um enum: `Enum.valor`.
     pub fn lower_to_string_de_enum(&mut self, cid: ClassId) {
+        // Corpo chamado como função Dart (pelo `toString$c` e pelo
+        // despacho): o retorno Ref é Owned.
+        if self.ctx.memoria_arc {
+            self.retornos_ref_dart.insert(self.func.symbol.clone());
+        }
         let this = Operand::Val(self.add_param("this".to_string(), Type::Ref));
         let nome = self.ctx.symbol_name(self.ctx.program.classes[cid.0 as usize].name).to_string();
         let prefixo = self.emit(Instruction::Const(Constant::String(format!("{nome}."))), Type::Ref);

@@ -1,7 +1,7 @@
 //! Contratos de locais escalares privados da ativação, sem aliases ou escape.
 //! Campos, locais Ref e endereços importados exigem outros produtores.
 
-use super::{EfeitoTokens, Ownership, PlanoTokens};
+use super::{EfeitoTokens, Ownership, PlanoFuncaoDart, PlanoTokens};
 use crate::hir::*;
 use crate::otimizar::{
     cfg::Cfg,
@@ -19,7 +19,143 @@ pub(super) fn produzir(
         classes.insert(v, Ownership::Trivial);
         plano.instrucoes.insert(v, EfeitoTokens::default());
     }
+    for p in plano.enderecos_recebidos.keys() {
+        classes.insert(*p, Ownership::Trivial);
+    }
     Ok(locais)
+}
+
+/// Representações sem handle de um local privado: escalares e vetores SIMD.
+fn escalar(t: &Type) -> bool {
+    matches!(t, Type::I1 | Type::I8 | Type::I64 | Type::F64) || t.e_vetor()
+}
+
+/// Captura por endereço das funções locais diretas (`lower/funcoes_diretas.rs`):
+/// o parâmetro `Ptr` da direta aponta o `alloca` escalar de quem a declara,
+/// que existe enquanto ela roda. O tipo de cada parâmetro vem dos usos dele
+/// (leitura, gravação, repasse a outra direta) e dos endereços que os
+/// chamadores cedem, em ponto fixo. Grava nos planos os endereços recebidos
+/// e, por chamada, os cedidos; `analisar` confere cada corpo contra eles.
+///
+/// # Erros
+/// Tipos divergentes para o mesmo parâmetro, ou chamada que passa a um
+/// parâmetro escalar algo que não é um local escalar do mesmo tipo.
+pub(super) fn produzir_enderecos(
+    m: &Module,
+    planos: &mut HashMap<String, PlanoFuncaoDart>,
+) -> Result<(), String> {
+    let diretas = &m.funcoes_locais_diretas_arc;
+    if diretas.is_empty() {
+        return Ok(());
+    }
+    let por_simbolo: HashMap<&str, &Function> =
+        m.functions.iter().map(|f| (f.symbol.as_str(), f)).collect();
+    // (direta, posição do parâmetro Ptr) → tipo do local apontado.
+    let mut tipos: HashMap<(&str, usize), Type> = HashMap::new();
+    let ptr_de = |simbolo: &str, i: usize| {
+        diretas.contains(simbolo)
+            && por_simbolo.get(simbolo).is_some_and(|g| g.params.get(i).is_some_and(|p| p.2 == Type::Ptr))
+    };
+    // Endereços de locais escalares visíveis em `f`: os allocas dele e, numa
+    // direta, os parâmetros já tipados.
+    let enderecos = |f: &Function, tipos: &HashMap<(&str, usize), Type>| -> HashMap<ValueId, Type> {
+        let mut e: HashMap<ValueId, Type> = f.blocks.first().into_iter()
+            .flat_map(|b| &b.instructions)
+            .filter_map(|(v, inst, ty)| match inst {
+                Instruction::Alloca(t) if escalar(t) && *ty == Type::Ptr => Some((*v, *t)),
+                _ => None,
+            })
+            .collect();
+        for (i, (v, _, _)) in f.params.iter().enumerate() {
+            if let Some(t) = tipos.get(&(f.symbol.as_str(), i)) {
+                e.insert(*v, *t);
+            }
+        }
+        e
+    };
+    fn definir<'a>(tipos: &mut HashMap<(&'a str, usize), Type>, chave: (&'a str, usize), t: Type) -> Result<bool, String> {
+        match tipos.get(&chave) {
+            Some(atual) if *atual != t => Err(format!(
+                "captura por endereço em {}: parâmetro {} lido como {atual:?} e {t:?}",
+                chave.0, chave.1
+            )),
+            Some(_) => Ok(false),
+            None => {
+                tipos.insert(chave, t);
+                Ok(true)
+            }
+        }
+    }
+    loop {
+        let mut mudou = false;
+        for f in &m.functions {
+            let tipos_valores: HashMap<ValueId, Type> = f.params.iter().map(|(v, _, t)| (*v, *t))
+                .chain(f.blocks.iter().flat_map(|b| &b.instructions).map(|(v, _, t)| (*v, *t)))
+                .collect();
+            let visiveis = enderecos(f, &tipos);
+            let parametro = |v: &ValueId| f.params.iter().position(|(p, _, t)| p == v && *t == Type::Ptr);
+            for (_, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
+                match inst {
+                    Instruction::Load { ptr: Operand::Val(p), ty } if diretas.contains(&f.symbol) => {
+                        if let Some(i) = parametro(p) {
+                            mudou |= definir(&mut tipos, (f.symbol.as_str(), i), *ty)?;
+                        }
+                    }
+                    Instruction::Store { ptr: Operand::Val(p), val: Operand::Val(x) } if diretas.contains(&f.symbol) => {
+                        if let (Some(i), Some(t)) = (parametro(p), tipos_valores.get(x)) {
+                            mudou |= definir(&mut tipos, (f.symbol.as_str(), i), *t)?;
+                        }
+                    }
+                    Instruction::CallStatic { symbol, args, .. } if diretas.contains(symbol) => {
+                        for (j, a) in args.iter().enumerate() {
+                            let Operand::Val(a) = a else { continue };
+                            if !ptr_de(symbol, j) {
+                                continue;
+                            }
+                            // O chamador cede um local de tipo conhecido; um
+                            // parâmetro repassado herda o tipo do callee.
+                            if let Some(t) = visiveis.get(a) {
+                                mudou |= definir(&mut tipos, (symbol.as_str(), j), *t)?;
+                            } else if let (Some(i), Some(t)) = (parametro(a).filter(|_| diretas.contains(&f.symbol)), tipos.get(&(symbol.as_str(), j)).copied()) {
+                                mudou |= definir(&mut tipos, (f.symbol.as_str(), i), t)?;
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if !mudou {
+            break;
+        }
+    }
+    for f in &m.functions {
+        let visiveis = enderecos(f, &tipos);
+        let plano = planos.get_mut(&f.symbol).ok_or_else(|| format!("função Dart sem plano: {}", f.symbol))?;
+        for (i, (v, _, _)) in f.params.iter().enumerate() {
+            if let Some(t) = tipos.get(&(f.symbol.as_str(), i)).filter(|t| escalar(t)) {
+                plano.tokens.enderecos_recebidos.insert(*v, *t);
+            }
+        }
+        for (v, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
+            let Instruction::CallStatic { symbol, args, .. } = inst else { continue };
+            let mut cedidos = Vec::new();
+            for (j, a) in args.iter().enumerate() {
+                let Some(t) = tipos.get(&(symbol.as_str(), j)).filter(|t| escalar(t)) else { continue };
+                if !matches!(a, Operand::Val(a) if visiveis.get(a) == Some(t)) {
+                    return Err(format!(
+                        "captura por endereço em {}: v{} passa ao parâmetro {j} de {symbol} algo que não é local {t:?}",
+                        f.symbol, v.0
+                    ));
+                }
+                cedidos.push((j, *t));
+            }
+            if !cedidos.is_empty() {
+                plano.tokens.enderecos_cedidos.insert(*v, cedidos);
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Reconstrói o contrato no corpo atual sem completar metadados ausentes.
@@ -36,6 +172,11 @@ pub(super) fn verificar(
             return Err(format!("v{}: local escalar sem contrato completo", v.0));
         }
     }
+    for p in plano.enderecos_recebidos.keys() {
+        if classes.get(p) != Some(&Ownership::Trivial) {
+            return Err(format!("v{}: endereço capturado sem contrato Trivial", p.0));
+        }
+    }
     verificar_valores(f, &locais, classes)
 }
 
@@ -47,7 +188,7 @@ fn analisar(
     let mut locais = HashMap::new();
     for (bi, b) in f.blocks.iter().enumerate() {
         for (v, inst, ty) in &b.instructions {
-            if let Instruction::Alloca(t @ (Type::I1 | Type::I8 | Type::I64 | Type::F64)) = inst {
+            if let Instruction::Alloca(t) = inst && escalar(t) {
                 if bi != 0 || *ty != Type::Ptr {
                     return Err(format!(
                         "v{}: local escalar exige alloca Ptr na entrada",
@@ -58,7 +199,23 @@ fn analisar(
             }
         }
     }
+    // Endereços recebidos de quem declara a função direta: escalares, já
+    // inicializados, com as mesmas regras de uso de um alloca próprio.
+    let mut recebidos = HashSet::new();
+    for (p, t) in &plano.enderecos_recebidos {
+        if !f.params.iter().any(|(v, _, ty)| v == p && *ty == Type::Ptr)
+            || !escalar(t)
+        {
+            return Err(format!("v{}: endereço capturado exige parâmetro Ptr escalar", p.0));
+        }
+        locais.insert(*p, *t);
+        recebidos.insert(*p);
+    }
+    let mut cedidos_vistos = HashSet::new();
     if locais.is_empty() {
+        if let Some(v) = plano.enderecos_cedidos.keys().min_by_key(|v| v.0) {
+            return Err(format!("v{}: chamada cede endereço sem local escalar", v.0));
+        }
         return Ok((locais, HashSet::new()));
     }
     super::ssa::verificar(f)?;
@@ -81,8 +238,23 @@ fn analisar(
     for b in &f.blocks {
         for (v, inst, ty) in &b.instructions {
             let mut permitido = None;
+            let mut cedidos: Vec<ValueId> = Vec::new();
             let mut esperado = None;
             match inst {
+                Instruction::CallStatic { args, .. } if plano.enderecos_cedidos.contains_key(v) => {
+                    cedidos_vistos.insert(*v);
+                    for (i, t) in &plano.enderecos_cedidos[v] {
+                        match args.get(*i).and_then(local) {
+                            Some(p) if locais[&p] == *t && !cedidos.contains(&p) => cedidos.push(p),
+                            _ => {
+                                return Err(format!(
+                                    "v{}: argumento {i} não cede um local escalar {t:?} distinto",
+                                    v.0
+                                ));
+                            }
+                        }
+                    }
+                }
                 Instruction::Alloca(_) if locais.contains_key(v) => esperado = Some(Type::Ptr),
                 Instruction::Load { ptr, ty: lido } => {
                     if let Some(p) = local(ptr) {
@@ -121,15 +293,16 @@ fn analisar(
             }
             // Apenas o operando ptr de Load/Store pode usar o endereço. Uma
             // segunda ocorrência (p.ex. Store como valor) também é escape.
+            // Uma chamada a função direta pode ceder cada local uma vez.
             let mut usos = 0;
             let mut inesperado = false;
             operandos(inst, &mut |op| {
                 if let Some(p) = local(op) {
                     usos += 1;
-                    inesperado |= permitido != Some(p);
+                    inesperado |= permitido != Some(p) && !cedidos.contains(&p);
                 }
             });
-            if inesperado || usos != usize::from(permitido.is_some()) {
+            if inesperado || usos != usize::from(permitido.is_some()) + cedidos.len() {
                 return Err(format!(
                     "v{}: endereço de local escalar escapa ou tem alias",
                     v.0
@@ -159,6 +332,9 @@ fn analisar(
             ));
         }
     }
+    if let Some(v) = plano.enderecos_cedidos.keys().filter(|v| !cedidos_vistos.contains(v)).min_by_key(|v| v.0) {
+        return Err(format!("v{}: endereços cedidos fora de uma chamada direta", v.0));
+    }
     let cfg = Cfg::novo(f);
     let universo: HashSet<_> = locais.keys().copied().collect();
     // Análise must: a interseção preserva apenas inicializações presentes
@@ -185,7 +361,7 @@ fn analisar(
         let mut mudou = false;
         for &bi in &cfg.rpo {
             let mut entrada = if bi == 0 {
-                HashSet::new()
+                recebidos.clone()
             } else {
                 universo.clone()
             };
@@ -229,6 +405,19 @@ fn analisar(
                             "v{}: local escalar não inicializado em todos os caminhos",
                             v.0
                         ));
+                    }
+                }
+                // A função direta pode ler o local cedido: como uma leitura.
+                Instruction::CallStatic { args, .. } if plano.enderecos_cedidos.contains_key(v) => {
+                    for (i, _) in &plano.enderecos_cedidos[v] {
+                        if let Some(p) = args.get(*i).and_then(local)
+                            && !estado.contains(&p)
+                        {
+                            return Err(format!(
+                                "v{}: local escalar cedido não inicializado em todos os caminhos",
+                                v.0
+                            ));
+                        }
                     }
                 }
                 _ => {}
@@ -717,6 +906,62 @@ mod testes {
             );
             assert_eq!(classes, antes);
             assert!(plano.instrucoes.is_empty());
+        }
+    }
+
+    #[test]
+    fn captura_por_endereco_liga_o_local_do_chamador_ao_parametro_da_direta() {
+        use crate::otimizar::arc::{PlanoFuncaoDart, preparar_arc_modulo_dart};
+        let val = |n| Operand::Val(ValueId(n));
+        for caso in 0..4 {
+            let mut m = Module::new();
+            m.memoria_arc = true;
+            if caso != 3 {
+                m.funcoes_locais_diretas_arc.insert("direta".into());
+            }
+            let local = if caso == 1 { Type::F64 } else { Type::I64 };
+            let mut fora = vec![
+                (ValueId(0), Instruction::Alloca(local), Type::Ptr),
+                (ValueId(1), Instruction::Store { ptr: val(0), val: Operand::Constant(if caso == 1 {
+                    Constant::Double(1.0) } else { Constant::Int(1) }) }, Type::Void),
+                (ValueId(2), Instruction::CallStatic { symbol: "direta".into(), args: vec![val(0)], ret_ty: Type::Void }, Type::Void),
+            ];
+            if caso == 2 {
+                // Cedido antes da primeira gravação.
+                fora.swap(1, 2);
+            }
+            m.functions.push(Function {
+                symbol: "fora".into(), name: "fora".into(), depuracao: None, params: vec![],
+                return_ty: Type::Void,
+                blocks: vec![BasicBlock { id: BlockId(0), instructions: fora, terminator: Terminator::Return(None) }],
+            });
+            m.functions.push(Function {
+                symbol: "direta".into(), name: "direta".into(), depuracao: None,
+                params: vec![(ValueId(0), "x".into(), Type::Ptr)], return_ty: Type::Void,
+                blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
+                    (ValueId(1), Instruction::Load { ptr: val(0), ty: Type::I64 }, Type::I64),
+                    (ValueId(2), Instruction::Add(val(1), Operand::Constant(Constant::Int(1))), Type::I64),
+                    (ValueId(3), Instruction::Store { ptr: val(0), val: val(2) }, Type::Void),
+                ], terminator: Terminator::Return(None) }],
+            });
+            let mut planos: HashMap<String, PlanoFuncaoDart> =
+                ["fora", "direta"].map(|s| (s.to_string(), PlanoFuncaoDart::default())).into();
+            let antes = format!("{m:?}");
+            let resultado = preparar_arc_modulo_dart(&mut m, &mut planos);
+            if caso != 0 {
+                let erro = resultado.unwrap_err();
+                assert!(match caso {
+                    1 => erro.contains("lido como"),
+                    2 => erro.contains("cedido não inicializado"),
+                    _ => erro.contains("escapa"),
+                }, "{caso}: {erro}");
+                assert_eq!(format!("{m:?}"), antes);
+                continue;
+            }
+            resultado.unwrap();
+            assert_eq!(planos["direta"].tokens.enderecos_recebidos, HashMap::from([(ValueId(0), Type::I64)]));
+            assert_eq!(planos["direta"].classes[&ValueId(0)], Ownership::Trivial);
+            assert_eq!(planos["fora"].tokens.enderecos_cedidos, HashMap::from([(ValueId(2), vec![(0, Type::I64)])]));
         }
     }
 }

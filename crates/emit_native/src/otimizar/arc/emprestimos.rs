@@ -399,6 +399,10 @@ pub(super) fn proteger(
                 plano.classes.remove(v);
             }
         }
+        // Um Phi que passou a receber owner precisa de cópia das outras
+        // entradas (literais, empréstimos) na aresta.
+        let classes = plano.classes.clone();
+        copias += super::phis::copiar_com_classes(f, plano, &classes)?;
         super::produzir_contratos_arc(f, &mut plano.classes, &mut plano.tokens)?;
     }
     Ok(copias)

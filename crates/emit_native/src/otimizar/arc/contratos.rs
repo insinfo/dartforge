@@ -101,7 +101,9 @@ fn contrato_owned_generico(base: &str, args: &[(Operand, Type)]) -> Result<Contr
         match (ty, op) {
             (Type::Ref, Operand::Val(_) | Operand::Constant(Constant::Null)) => {}
             (Type::Ref, _) => return Err(format!("{base}: argumento Ref {n} exige SSA ou null")),
-            (Type::I64 | Type::F64 | Type::I8 | Type::I1, Operand::Val(_)) => {}
+            // Ptr: dados constantes do módulo (a tabela de um literal); um
+            // endereço de local escalar não sai da função (`locais.rs`).
+            (Type::I64 | Type::F64 | Type::I8 | Type::I1 | Type::Ptr, Operand::Val(_)) => {}
             (Type::I64 | Type::I8, Operand::Constant(Constant::Int(_) | Constant::Bool(_))) => {}
             (Type::I1, Operand::Constant(Constant::Bool(_))) => {}
             (Type::F64, Operand::Constant(Constant::Double(_))) => {}
@@ -903,8 +905,8 @@ fn produzir_phi(
                     }
                     _ => {
                         return Err(format!(
-                            "Phi v{}: entrada não é owned/null; copie o empréstimo na aresta",
-                            v.0
+                            "Phi v{} em {}: entrada não é owned/null; copie o empréstimo na aresta",
+                            v.0, f.symbol
                         ));
                     }
                 }

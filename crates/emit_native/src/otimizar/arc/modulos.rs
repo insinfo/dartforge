@@ -224,6 +224,9 @@ pub fn preparar_arc_modulos_dart(
             if m.retornos_ref_dart.contains(simbolo) {
                 conjunto.retornos_ref_dart.insert(privado.clone());
             }
+            if m.funcoes_locais_diretas_arc.contains(simbolo) {
+                conjunto.funcoes_locais_diretas_arc.insert(privado.clone());
+            }
             if m.retornos_uniformes_arc.contains(simbolo) {
                 conjunto.retornos_uniformes_arc.insert(privado.clone());
             }

@@ -364,7 +364,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 .name
                 .map_or_else(|| "arg".to_string(), |n| self.ctx.symbol_name(n.sym).to_string());
             let ty = reprs.as_ref().map_or(Type::Ref, |r| r[i]);
-            let vid = b.add_param(nome, ty);
+            let vid = b.add_param_dart(nome, ty);
             if let Some(n) = p.name {
                 b.declarar_variavel(n.sym, n.span.start as usize, ty, Operand::Val(vid));
             }

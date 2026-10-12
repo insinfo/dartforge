@@ -441,6 +441,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             b.rastro.corpo_async = Some(crate::hir::CorpoAsyncDoRastro { entrada: format!("{simbolo_corpo}$ent"), esperas });
         }
+        if self.ctx.memoria_arc {
+            // Corpo Dart chamado pela entrada: o retorno Ref é Owned.
+            b.retornos_ref_dart.insert(simbolo_corpo.clone());
+        }
         self.absorver(b);
 
         // --- entrada uniforme do corpo: ([iterador,] código, resultado) --

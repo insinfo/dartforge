@@ -790,6 +790,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.retornos_uniformes_arc.insert(self.func.symbol.clone());
     }
 
+    /// Um parâmetro na representação do tipo Dart (de closure, função local
+    /// ou captura por valor): sob ARC, a representação escalar é fato
+    /// escalar, como em `declarar_parametros`.
+    pub(super) fn add_param_dart(&mut self, name: String, ty: Type) -> ValueId {
+        let v = self.add_param(name, ty);
+        if self.ctx.memoria_arc && matches!(ty, Type::I64 | Type::F64 | Type::I1 | Type::I8) {
+            self.parametros_escalares_dart.entry(self.func.symbol.clone()).or_default().insert(v);
+        }
+        v
+    }
+
     /// Declara um ID do universo RTI, sem inferir referência pela largura.
     /// O chamador deve passar somente IDs canônicos nativos de tipos/tuplas.
     pub fn add_param_rti(&mut self, name: String) -> ValueId {
@@ -912,6 +923,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 Terminator::Return(Some(op))
             }
+            // `set x(v) => expr;` numa função void: a expressão já foi
+            // avaliada e o valor dela é descartado (o LLVM emite `ret void`).
+            Terminator::Return(Some(_)) => Terminator::Return(None),
             t => t,
         };
         self.terminated_blocks.insert(self.current_block);
@@ -1393,6 +1407,34 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.terminate(Terminator::Branch(juncao));
         self.set_block(juncao);
         self.emit(Instruction::Phi { incoming: vec![(negar, n), (dividir, q)], ty: Type::I64 }, Type::I64)
+    }
+
+    /// `a % b` de `int` com divisor variável, em linha depois do guarda do
+    /// zero: o resto truncado mais `|b|` quando ele é negativo, o que dá o
+    /// valor em `[0, |b|)` do Dart (`Integer::ArithmeticOp`, kMOD). `b == -1`
+    /// dá sempre 0 e evita o `srem` de `i64::MIN` por `-1`, indefinido no
+    /// LLVM; `|i64::MIN|` dá `i64::MIN`, que somado dá o mesmo que subtraído.
+    pub fn emit_modulo(&mut self, lop: Operand, rop: Operand) -> Operand {
+        self.exigir_divisor(&rop);
+        let int = |c| Operand::Constant(Constant::Int(c));
+        let menos_um = self.emit(Instruction::ICmp(ICmpOp::Eq, rop.clone(), int(-1)), Type::I1);
+        let zero = self.new_block();
+        let resto = self.new_block();
+        let juncao = self.new_block();
+        self.terminate(Terminator::CondBranch { cond: menos_um, then_block: zero, else_block: resto });
+        self.set_block(zero);
+        self.terminate(Terminator::Branch(juncao));
+        self.set_block(resto);
+        let r = self.emit(Instruction::SRem(lop, rop.clone()), Type::I64);
+        let sinal_b = self.emit(Instruction::AShr(rop.clone(), int(63)), Type::I64);
+        let invertido = self.emit(Instruction::Xor(rop, sinal_b.clone()), Type::I64);
+        let modulo_b = self.emit(Instruction::Sub(invertido, sinal_b), Type::I64);
+        let sinal_r = self.emit(Instruction::AShr(r.clone(), int(63)), Type::I64);
+        let ajuste = self.emit(Instruction::And(sinal_r, modulo_b), Type::I64);
+        let valor = self.emit(Instruction::Add(r, ajuste), Type::I64);
+        self.terminate(Terminator::Branch(juncao));
+        self.set_block(juncao);
+        self.emit(Instruction::Phi { incoming: vec![(zero, int(0)), (resto, valor)], ty: Type::I64 }, Type::I64)
     }
 
     /// Divisor inteiro zero (`~/` e `%` de `int`) lança

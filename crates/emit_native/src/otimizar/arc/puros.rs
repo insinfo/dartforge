@@ -14,7 +14,8 @@ pub(super) fn conferir(
     // Constantes escalares/null e literais permanentes não produzem
     // token. A variante da constante determina seu tipo semântico.
     let puro = match inst {
-        Instruction::ConstArray(_) => Some(Type::Ptr),
+        // Dados constantes do módulo: palavras ou endereços de funções.
+        Instruction::ConstArray(_) | Instruction::TabelaDeFuncoes(_) => Some(Type::Ptr),
         Instruction::Const(Constant::Int(_)) => Some(Type::I64),
         Instruction::Const(Constant::Double(_)) => Some(Type::F64),
         Instruction::Const(Constant::Bool(_)) => Some(Type::I1),
@@ -56,6 +57,13 @@ pub(super) fn conferir(
         // Gravar um escalar comprovado (`conferir_origens`) numa global não-Ref.
         Instruction::StoreGlobal { ty: Type::I1 | Type::I8 | Type::I64 | Type::F64, raiz: None, .. } => Some(Type::Void),
         Instruction::ZExt { to, .. } | Instruction::Trunc { to, .. } => Some(*to),
+        // A leitura das pistas de uma caixa SIMD viva (classes finais do SDK,
+        // só a caixa do runtime as implementa): o empréstimo da caixa é usado
+        // na instrução e o vetor não guarda handle.
+        Instruction::Unbox { to, .. } if to.e_vetor() => Some(*to),
+        // A aritmética e as conversões SIMD sobre vetores e escalares sem
+        // caixa; ler e gravar por endereço exigem prova de proveniência.
+        Instruction::Simd { op, .. } if !matches!(op, OpSimd::Carrega | OpSimd::Grava) => Some(*ty),
         _ => None,
     };
     if let Some(esperado) = puro {
@@ -137,6 +145,11 @@ pub(super) fn conferir(
             | Instruction::FMul(a, b)
             | Instruction::FDiv(a, b) => !numerico(a) || !numerico(b),
             Instruction::FNeg(op) | Instruction::DoubleToInt(op) => !numerico(op),
+            Instruction::Unbox { op, .. } => !matches!(op, Operand::Val(v) if tipos.get(v) == Some(&Type::Ref)),
+            Instruction::Simd { args, .. } => args.iter().any(|op| match op {
+                Operand::Val(v) => !tipos.get(v).is_some_and(|t| matches!(t, Type::I1 | Type::I8 | Type::I64 | Type::F64) || t.e_vetor()),
+                Operand::Constant(c) => !matches!(c, Constant::Int(_) | Constant::Double(_) | Constant::Bool(_)),
+            }),
             Instruction::StoreGlobal { val, ty: gravado, .. } => match val {
                 Operand::Val(v) => tipos.get(v) != Some(gravado),
                 Operand::Constant(Constant::Int(_)) => !matches!(gravado, Type::I64 | Type::I8),
@@ -174,6 +187,11 @@ pub(super) fn conferir_origens(
         if let Instruction::Box { op: Operand::Val(origem), from } = inst
             && from.e_vetor() && classes.get(origem) != Some(&Ownership::Trivial) {
             return Err(format!("v{}: caixa SIMD exige origem Trivial em {}", v.0, f.symbol));
+        }
+        if let Instruction::Simd { args, .. } = inst
+            && args.iter().any(|op| matches!(op, Operand::Val(o) if classes.get(o) != Some(&Ownership::Trivial)))
+        {
+            return Err(format!("v{}: operação SIMD exige origens Trivial em {}", v.0, f.symbol));
         }
         let operandos = match inst {
             Instruction::Bitcast {

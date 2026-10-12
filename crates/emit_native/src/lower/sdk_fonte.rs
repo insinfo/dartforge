@@ -1636,7 +1636,14 @@ pub fn lower_padroes_do_sdk(ctx: &Context, module: &mut Module) {
                 b
             }));
             match r {
-                Ok(b) if b.erros.is_empty() => b.finalizar(module),
+                Ok(mut b) if b.erros.is_empty() => {
+                    // Corpo Dart chamado pelo módulo do parâmetro: o retorno
+                    // Ref é Owned.
+                    if ctx.memoria_arc {
+                        b.retornos_ref_dart.insert(simbolo.clone());
+                    }
+                    b.finalizar(module);
+                }
                 Ok(b) => {
                     let motivo = b.erros[0].clone();
                     module.functions.push(padrao_recusado(ctx, unit, &simbolo, &motivo));

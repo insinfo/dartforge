@@ -74,6 +74,13 @@ pub struct PlanoTokens {
     /// Papéis nativos de pares quadro/índice de uma família fechada verificada.
     /// Não é um owner Ref nem substitui o certificado de unwind estrangeiro.
     pub quadros_compartilhados: Option<super::ContratoQuadrosCompartilhadosCfg>,
+    /// Parâmetros `Ptr` de função local direta que recebem o endereço de um
+    /// local escalar de quem a declara (captura por endereço), com o tipo
+    /// dele; inicializado na entrada (`locais::produzir_enderecos`).
+    pub enderecos_recebidos: HashMap<ValueId, Type>,
+    /// Chamada a função local direta → posição e tipo dos endereços de locais
+    /// escalares que ela cede ao callee.
+    pub enderecos_cedidos: HashMap<ValueId, Vec<(usize, Type)>>,
 }
 
 fn propria(inst: &Instruction) -> bool {
@@ -665,11 +672,15 @@ fn analisar_tokens(
                 (RetornoTokens::Trivial, Some(Operand::Constant(c)))
                     if !matches!(c, Constant::String(_) | Constant::StringWtf8(_)) => {}
                 _ => {
+                    let classe = match valor {
+                        Some(Operand::Val(v)) => format!("v{} {:?}", v.0, classes.get(v)),
+                        outro => format!("{outro:?}"),
+                    };
                     return Err(erro_fluxo(
                         f,
                         &pais,
                         i,
-                        "retorno não satisfaz a convenção de tokens".into(),
+                        format!("retorno não satisfaz a convenção de tokens {:?} ({classe})", plano.retorno),
                     ));
                 }
             }
@@ -759,11 +770,11 @@ fn analisar_tokens(
                     }
                 }
                 aplicar(&consumidos, classes, &mut r)?;
-                for &v in &produzidos {
-                    produzir(v, classes, &mut r)?;
-                }
                 // Resultados Phi nascem no destino. Tokens transferidos já
                 // saíram de r; nenhum dos dois recebe drop no predecessor.
+                // Os mortos saem antes das produções: o valor antigo de um
+                // Phi de laço que não volta para ele (foi copiado na aresta)
+                // é morto aqui, e o novo nasce com o mesmo ID.
                 let erro = invoke.is_some_and(|v| tabelas.invocacoes.get(&v)
                     .or_else(|| plano.pendencias.get(&v)) == Some(&destino.id));
                 if limpar_arestas && !erro && !tabelas.pousos.contains(&destino.id) {
@@ -786,10 +797,13 @@ fn analisar_tokens(
                         }
                     }
                     let mut mortos: Vec<_> = r.iter().copied()
-                        .filter(|v| !usados.contains(v) && !produzidos.contains(v)).collect();
+                        .filter(|v| !usados.contains(v) && (!produzidos.contains(v) || !consumidos.contains(v))).collect();
                     mortos.sort_unstable_by_key(|v| v.0);
                     for v in &mortos { r.remove(v); }
                     if !mortos.is_empty() { arestas.insert((b.id, destino.id), mortos); }
+                }
+                for &v in &produzidos {
+                    produzir(v, classes, &mut r)?;
                 }
                 Ok(r)
             })()
@@ -803,12 +817,16 @@ fn analisar_tokens(
             })?;
             match &entradas[s] {
                 Some(anterior) if *anterior != proxima => {
+                    let mut so_antes: Vec<_> = anterior.difference(&proxima).map(|v| v.0).collect();
+                    let mut so_agora: Vec<_> = proxima.difference(anterior).map(|v| v.0).collect();
+                    so_antes.sort_unstable();
+                    so_agora.sort_unstable();
                     return Err(erro_fluxo(
                         f,
                         &pais,
                         i,
                         format!(
-                            "junção b{} com tokens diferentes; caminho anterior {:?}",
+                            "junção b{} com tokens diferentes (só antes {so_antes:?}, só agora {so_agora:?}); caminho anterior {:?}",
                             destino.id.0,
                             caminho(f, &pais, s)
                         ),

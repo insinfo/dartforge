@@ -186,7 +186,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let nome_p = self.ctx.symbol_name(c.sym).to_string();
             let local = match c.passagem {
                 Passagem::Valor => {
-                    let v = b.add_param(nome_p, c.ty);
+                    let v = b.add_param_dart(nome_p, c.ty);
                     Local { modo: Modo::Valor(Operand::Val(v)), ty: c.ty, tipo_estatico: c.local.tipo_estatico, finalizavel: c.local.finalizavel, escopo: 0, offset: c.local.offset, late: None }
                 }
                 Passagem::Endereco => {
@@ -239,7 +239,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         b.abrir_escopo();
         for (i, p) in params.iter().enumerate() {
             let nome_p = p.name.map_or_else(|| "arg".to_string(), |n| self.ctx.symbol_name(n.sym).to_string());
-            let v = b.add_param(nome_p, direta.reprs[i]);
+            let v = b.add_param_dart(nome_p, direta.reprs[i]);
             if let Some(n) = p.name {
                 b.declarar_variavel(n.sym, n.span.start as usize, direta.reprs[i], Operand::Val(v));
             }
@@ -259,6 +259,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         if self.ctx.memoria_arc {
             self.funcoes_locais_diretas_arc.insert(b.func.symbol.clone());
+            // Corpo Dart: o retorno Ref é Owned, como o de uma função.
+            if b.func.return_ty == Type::Ref {
+                b.retornos_ref_dart.insert(b.func.symbol.clone());
+            }
         }
         self.absorver(b);
     }

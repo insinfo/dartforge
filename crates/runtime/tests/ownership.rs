@@ -268,6 +268,7 @@ const NATIVOS_ESCALARES: &[&str] = &[
     "dartforge_nativo_Process_GetExitCode",
     "dartforge_nativo_Process_KillPid",
     "dartforge_nativo_Process_Pid",
+    "dartforge_nativo_Process_Start",
     "dartforge_nativo_Random_initialSeed",
     "dartforge_nativo_RawSocketOption_GetOptionValue",
     "dartforge_nativo_SecureRandom_getBytes",
@@ -355,6 +356,8 @@ const NATIVOS_SEM_RESULTADO: &[&str] = &[
     "dartforge_nativo_GrowableList_setData",
     "dartforge_nativo_GrowableList_setIndexed",
     "dartforge_nativo_Isolate_sendOOB",
+    "dartforge_nativo_Isolate_spawnFunction",
+    "dartforge_nativo_Isolate_spawnUri",
     "dartforge_nativo_List_setIndexed",
     "dartforge_nativo_Process_ClearSignalHandler",
     "dartforge_nativo_Process_SetExitCode",
@@ -401,6 +404,10 @@ fn contratos_arc_cobrem_exportacoes_sem_inventar_contratos_para_outras_externs()
                         | "dartforge_exception_capturavel"
                         | "dartforge_membro_recusado"
                         | "dartforge_args_casam"
+                        | "dartforge_late_field_initialized"
+                        | "dartforge_late_field_initializing"
+                        | "dartforge_late_field_mark_initialized"
+                        | "dartforge_late_field_set_initializing"
                         | "dartforge_arg_indice"
                         | "dartforge_rti_definir"
                         | "dartforge_rti_receita"

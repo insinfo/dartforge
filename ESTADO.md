@@ -166,15 +166,59 @@ avançou pelo `dart:core` (módulo 2). O que entrou:
   demais só são chamadas pelo SDK compilado à parte e ficam conferidas
   pela leitura da implementação.
 
-**Próximo erro:** `_iterablePartsToStrings` (`dart:core`): token
-indisponível numa aresta de laço (`b86 -> b71`, v379).
+Depois, até o fim do SDK (16 módulos):
+* Phis (`arc/phis.rs`): a entrada owned lida depois da junção, inclusive
+  por outro Phi adiante (entrada de Phi conta como uso no predecessor) e
+  quando ela própria é um Phi; o mesmo token em dois Phis da mesma aresta
+  (troca `r0, r1 = r1, r0`); Phi devolvido de triviais por outro Phi; o
+  critério “precisa de owner” espelha o produtor (classes `Borrowed` cruas
+  idênticas nas entradas diretas; o empréstimo do chamador fica preso ao
+  parâmetro que o traz) e exige que o owner do empréstimo domine o Phi
+  (o cabeçalho de laço que carrega um alias de valor do corpo).
+* Saídas por guarda (`arc/saidas.rs`): o trampolim vazio até um tratador é
+  copiado por guarda, e um tratador com instruções ganha um trampolim por
+  guarda; a aresta normal recebe o cleanup do caminho.
+* Captura por endereço das funções locais diretas: `PlanoTokens` ganha
+  `enderecos_recebidos` (parâmetro `Ptr` → tipo do local) e
+  `enderecos_cedidos` (chamada → posições); os tipos saem de um ponto fixo
+  no módulo (`locais::produzir_enderecos`), conferindo tipo, inicialização
+  antes da chamada e ausência de alias. Locais SIMD entram no produtor.
+* Leituras e escritas físicas por índice: `CellGet` escalar e
+  `dartforge_object_get/set` (quadro assíncrono, record, enum, campo por
+  índice) vão às entradas auditadas `ler/gravar_campo_*_v1`; captura
+  escalar por `dartforge_arc_env_escalar_v1` (nova, confere classe e mapa).
+* `Unbox` SIMD e as operações `Simd` (exceto `Carrega`/`Grava`, que leem
+  por endereço) são puras, com origens Trivial; `TabelaDeFuncoes` é dado
+  constante. O thunk Owned genérico aceita `Ptr` (tabelas constantes) e
+  cobre `lista_de_tabela(_g)`.
+* Convenção Owned também para corpos `async`/`sync*`, funções de valor
+  padrão, getters `late`, valores e `toString` de enum. `=> expr` numa
+  função void devolve vazio (o LLVM já emitia `ret void`).
+* `%` com divisor variável é emitido em linha depois do guarda do zero
+  (`emit_modulo`, como `~/`), sem chamar o native que lança — vale também
+  para o tracing.
+* Contratos de `Isolate_spawnFunction`, `Isolate_spawnUri` e
+  `Process_Start` (o gerador do lote aceita atributos entre `no_mangle` e a
+  assinatura).
+
+`arc_auditar_pipeline` termina com `Preparação conjunta com SDK da fonte:
+Ok((21945, 240417))` (cópias, drops). É a preparação conjunta em memória,
+ainda **não publicada** na CLI: nenhum binário AOT roda com ela, e as
+entradas novas (`env_escalar`, trampolins, captura por endereço) só têm
+testes unitários e de preparação.
+
+**Próximo passo:** publicar a preparação conjunta na CLI (`arc_preparado`
+com o SDK da fonte) e provar programas AOT com ela; depois §§27–34 e o gate
+ARC >= A0.
 
 ### Evidências (macOS arm64, logs em `target/`)
 
 | verificação | resultado |
 | --- | --- |
-| emissor, unitários incluindo ignorados | 467 + 110 doctests (`arc-lote3-emitter-*.log`) |
-| runtime, todos os alvos incluindo ignorados | 227 + integrações + 82 doctests (`arc-lote3-runtime-test.log`) |
+| emissor, unitários incluindo ignorados | 475 + 110 doctests (`lote5-emit-*.log`) |
+| runtime, todos os alvos incluindo ignorados | 227 + integrações + 83 doctests (`lote5-runtime.log`) |
+| `%` variável, setter `=>`, `late`, enums, `sync*`/`async`, captura escalar e por endereço, records, SIMD, `try`/`finally`, com e sem `DARTFORGE_EFEITOS=conferir`, tracing/ARC, normal/GC stress | 8 execuções, saída igual ao Dart (`prova-lote5/`) |
+| programas anteriores (`ajudantes`, `efeitos`, `handles`) refeitos com conferir, tracing/ARC, normal/GC stress | 12 execuções, saída igual ao Dart (`r5-*`) |
 | `Handle` AOT, tracing/ARC, normal/GC stress, efeitos conferidos | 8 execuções, saída igual ao Dart (`prova-handles/`) |
 | listas compactas/gerais, tipadas, visões, `ByteData`, strings pela CLI, tracing e ARC, normal/GC stress | 4 execuções, saída igual ao Dart (`prova-ajudantes/`) |
 | efeitos rebaixados, exceções, records, nomeados, `is`, com `DARTFORGE_EFEITOS=conferir`, tracing/ARC, normal/GC stress | 12 execuções (três programas), saída igual ao Dart |

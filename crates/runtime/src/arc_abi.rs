@@ -872,6 +872,40 @@ pub extern "C" fn dartforge_arc_env_ref_v1(env: i64, indice: i64) -> i64 {
         .expect("contrato de captura Ref ARC violado"))
 }
 
+/// Copia os bits de uma captura escalar de um ambiente, conferindo seu mapa.
+///
+/// Exige ambiente vivo da classe CONTEXTO, índice válido e campo não marcado
+/// Ref. Os bits seguem a representação com que a captura foi gravada; a
+/// conversão (`double`, `bool`) fica com o chamador. Não retém, aloca,
+/// coleta, executa Dart ou altera a exceção pendente.
+///
+/// # Panics
+/// Classe, índice ou representação inválida; aborta no limite C.
+///
+/// ```
+/// use dartforge_runtime::{abi::*, layout::cid};
+/// let env = dartforge_arc_objeto_owned_v1(i64::from(cid::CONTEXTO), 1);
+/// dartforge_arc_gravar_campo_escalar_v1(env, 0, 42);
+/// assert_eq!(dartforge_arc_env_escalar_v1(env, 0), 42);
+/// dartforge_arc_release(env);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_env_escalar_v1(env: i64, indice: i64) -> i64 {
+    HEAP.with(|heap| env_escalar_auditado(&heap.borrow(), env, indice)
+        .expect("contrato de captura escalar ARC violado"))
+}
+
+fn env_escalar_auditado(heap: &Heap, env: i64, indice: i64) -> Result<i64, &'static str> {
+    let objeto = heap.objeto(env).ok_or("receiver não é ambiente vivo")?;
+    if objeto.class_id != i64::from(crate::layout::cid::CONTEXTO) {
+        return Err("receiver não é ambiente");
+    }
+    let indice = usize::try_from(indice).map_err(|_| "índice negativo")?;
+    let (bits, referencia) = objeto.get(indice).ok_or("índice fora do ambiente")?;
+    if referencia { return Err("captura é referência gerenciada"); }
+    Ok(bits)
+}
+
 fn env_ref_auditado(heap: &Heap, env: i64, indice: i64) -> Result<i64, &'static str> {
     let objeto = heap.objeto(env).ok_or("receiver não é ambiente vivo")?;
     if objeto.class_id != i64::from(crate::layout::cid::CONTEXTO) {

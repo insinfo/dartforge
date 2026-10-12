@@ -105,13 +105,29 @@ pub(super) fn separar_saidas_compartilhadas(f: &mut Function, plano: &mut PlanoF
     let reservados = |id: &BlockId| plano.tabelas.pousos.contains(id)
         || plano.tabelas.invocacoes.values().any(|b| b == id)
         || plano.escopos.arestas.keys().any(|(a, b)| a == id || b == id);
+    // Também o trampolim vazio até um tratador (`Branch`): a aresta normal da
+    // cópia até ele recebe o cleanup do seu caminho.
+    let trampolim = |b: &BasicBlock| b.instructions.is_empty()
+        && matches!(b.terminator, Terminator::Branch(d) if !reservados(&d));
     let alvos: Vec<BlockId> = f.blocks.iter().filter(|b| {
-        matches!(b.terminator, Terminator::Return(_) | Terminator::Unreachable)
+        (matches!(b.terminator, Terminator::Return(_) | Terminator::Unreachable) || trampolim(b))
             && !b.instructions.iter().any(|(_, i, _)| matches!(i, Instruction::Phi { .. }))
             && predecessores.get(&b.id).is_some_and(|ps| ps.len() > 1)
             && !reservados(&b.id)
     }).map(|b| b.id).collect();
-    if alvos.is_empty() {
+    // Um tratador (bloco com instruções, alvo de guardas e de outros
+    // caminhos): cada guarda ganha um trampolim vazio até ele, separado abaixo.
+    let guardas_de = |alvo: BlockId, f: &Function| -> Vec<BlockId> {
+        predecessores.get(&alvo).into_iter().flatten().copied()
+            .filter(|p| f.blocks.iter().find(|b| b.id == *p).and_then(guarda) == Some(alvo))
+            .collect()
+    };
+    let tratadores: Vec<BlockId> = f.blocks.iter().filter(|b| {
+        !alvos.contains(&b.id)
+            && !reservados(&b.id)
+            && predecessores.get(&b.id).is_some_and(|ps| ps.len() > 1)
+    }).map(|b| b.id).filter(|t| !guardas_de(*t, f).is_empty()).collect();
+    if alvos.is_empty() && tratadores.is_empty() {
         return Ok(0);
     }
     let mut valor = super::arestas::proximo_valor(f, plano);
@@ -153,6 +169,16 @@ pub(super) fn separar_saidas_compartilhadas(f: &mut Function, plano: &mut PlanoF
             if let Terminator::Return(Some(Operand::Val(x))) = &mut terminador && let Some(y) = novos.get(x) {
                 *x = *y;
             }
+            // Os Phis do destino do trampolim recebem a mesma entrada pela cópia.
+            if let Terminator::Branch(destino) = terminador {
+                for (_, inst, _) in f.blocks.iter_mut().filter(|b| b.id == destino).flat_map(|b| &mut b.instructions) {
+                    if let Instruction::Phi { incoming, .. } = inst
+                        && let Some(op) = incoming.iter().find(|(de, _)| *de == alvo).map(|(_, op)| op.clone())
+                    {
+                        incoming.push((id, op));
+                    }
+                }
+            }
             f.blocks.push(BasicBlock { id, instructions: instrucoes, terminator: terminador });
             if let Some(classe) = plano.tabelas.saidas.get(&alvo).cloned() {
                 plano.tabelas.saidas.insert(id, classe);
@@ -167,6 +193,30 @@ pub(super) fn separar_saidas_compartilhadas(f: &mut Function, plano: &mut PlanoF
             // A saída pending registrada da chamada da guarda segue a cópia.
             if let Some((chamada, _, _)) = b.instructions.len().checked_sub(3).map(|k| &b.instructions[k])
                 && plano.tokens.pendencias.get(chamada) == Some(&alvo)
+            {
+                plano.tokens.pendencias.insert(*chamada, id);
+            }
+            copias += 1;
+        }
+    }
+    for tratador in tratadores {
+        for p in guardas_de(tratador, f) {
+            let id = BlockId(u32::try_from(bloco).map_err(|_| "IDs de bloco esgotados ao separar saídas")?);
+            bloco += 1;
+            for (_, inst, _) in f.blocks.iter_mut().filter(|b| b.id == tratador).flat_map(|b| &mut b.instructions) {
+                if let Instruction::Phi { incoming, .. } = inst {
+                    for (de, _) in incoming.iter_mut().filter(|(de, _)| *de == p) {
+                        *de = id;
+                    }
+                }
+            }
+            f.blocks.push(BasicBlock { id, instructions: Vec::new(), terminator: Terminator::Branch(tratador) });
+            let b = f.blocks.iter_mut().find(|b| b.id == p).expect("guarda existe");
+            if let Terminator::CondBranch { then_block, .. } = &mut b.terminator {
+                *then_block = id;
+            }
+            if let Some((chamada, _, _)) = b.instructions.len().checked_sub(3).map(|k| &b.instructions[k])
+                && plano.tokens.pendencias.get(chamada) == Some(&tratador)
             {
                 plano.tokens.pendencias.insert(*chamada, id);
             }
@@ -669,5 +719,48 @@ mod testes_saidas_compartilhadas {
         let mut plano = PlanoFuncaoDart::default();
         plano.tabelas.pousos.insert(BlockId(9));
         assert_eq!(separar_saidas_compartilhadas(&mut g, &mut plano).unwrap(), 0);
+    }
+
+    #[test]
+    fn tratador_compartilhado_ganha_um_trampolim_por_guarda() {
+        let val = |n| Operand::Val(ValueId(n));
+        let guarda = |p: u32, c: u32, segue: u32| BasicBlock {
+            id: BlockId(p),
+            instructions: vec![
+                (ValueId(c), Instruction::CallStatic { symbol: "g".into(), args: vec![], ret_ty: Type::Ref }, Type::Ref),
+                (ValueId(c + 1), Instruction::CallRuntime { name: "dartforge_exception_pending".into(), args: vec![], ret_ty: Type::I8 }, Type::I8),
+                (ValueId(c + 2), Instruction::ICmp(ICmpOp::Ne, val(c + 1), Operand::Constant(Constant::Int(0))), Type::I1),
+            ],
+            terminator: Terminator::CondBranch { cond: val(c + 2), then_block: BlockId(9), else_block: BlockId(segue) },
+        };
+        let mut f = Function { symbol: "f".into(), name: "f".into(), depuracao: None, params: vec![], return_ty: Type::Ref,
+            blocks: vec![
+                guarda(0, 1, 1),
+                guarda(1, 4, 2),
+                BasicBlock { id: BlockId(2), instructions: vec![], terminator: Terminator::Return(Some(val(4))) },
+                // O tratador: um Phi pelas guardas e o `clear` da pendência.
+                BasicBlock { id: BlockId(9), instructions: vec![
+                    (ValueId(20), Instruction::Phi { incoming: vec![
+                        (BlockId(0), Operand::Constant(Constant::Int(1))),
+                        (BlockId(1), Operand::Constant(Constant::Int(2)))], ty: Type::I64 }, Type::I64),
+                    (ValueId(21), Instruction::CallRuntime { name: "dartforge_exception_clear".into(), args: vec![], ret_ty: Type::Void }, Type::Void),
+                ], terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))) },
+            ] };
+        let mut plano = PlanoFuncaoDart::default();
+        plano.tokens.pendencias.insert(ValueId(1), BlockId(9));
+        plano.tokens.pendencias.insert(ValueId(4), BlockId(9));
+        assert_eq!(separar_saidas_compartilhadas(&mut f, &mut plano).unwrap(), 2);
+        for (g, chamada, constante) in [(0, 1, 1), (1, 4, 2)] {
+            let Terminator::CondBranch { then_block: t, .. } = f.blocks[g].terminator else { unreachable!() };
+            let trampolim = f.blocks.iter().find(|x| x.id == t).unwrap();
+            assert!(trampolim.instructions.is_empty());
+            assert!(matches!(trampolim.terminator, Terminator::Branch(BlockId(9))));
+            assert_eq!(plano.tokens.pendencias[&ValueId(chamada)], t);
+            let Instruction::Phi { incoming, .. } = &f.blocks[3].instructions[0].1 else { unreachable!() };
+            assert!(incoming.contains(&(t, Operand::Constant(Constant::Int(constante)))));
+        }
+        super::super::ssa::verificar(&f).unwrap();
+        // Idempotente: o tratador agora só tem trampolins como predecessores.
+        assert_eq!(separar_saidas_compartilhadas(&mut f, &mut plano).unwrap(), 0);
     }
 }

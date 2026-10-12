@@ -64,6 +64,7 @@ dartforge_unbox_int	ref:borrow	i64:scalar	0	1	pending-dart
 dartforge_unbox_double	ref:borrow	f64:scalar	0	1	pending-dart
 dartforge_unbox_bool	ref:borrow	u8:scalar	0	1	pending-dart
 dartforge_arc_env_ref_v1	ref:borrow,i64:scalar	ref:borrow(0)	0	0	normal
+dartforge_arc_env_escalar_v1	ref:borrow,i64:scalar	i64:scalar	0	0	normal
 dartforge_arc_ler_campo_late_ref_v1	ref:borrow,i64:scalar	ref:borrow(0)	0	0	normal
 dartforge_arc_socket_recvfrom_owned_v1	ref:borrow	ref:owned	0	1	pending-dart
 dartforge_value_class	ref:borrow	i64:scalar	0	0	normal
@@ -286,6 +287,7 @@ dartforge_nativo_Platform_NumberOfProcessors	-	i64:scalar	0	1	pending
 dartforge_nativo_Process_GetExitCode	-	i64:scalar	0	1	pending
 dartforge_nativo_Process_KillPid	i64:scalar,i64:scalar	u8:scalar	0	1	pending
 dartforge_nativo_Process_Pid	ref:borrow	i64:scalar	1	1	pending
+dartforge_nativo_Process_Start	ref:borrow,ref:borrow,ref:borrow,ref:borrow,ref:borrow,ref:borrow,i64:scalar,ref:borrow,ref:borrow,ref:borrow,ref:borrow,ref:borrow	u8:scalar	1	1	pending-dart
 dartforge_nativo_Random_initialSeed	-	i64:scalar	0	1	pending
 dartforge_nativo_RawSocketOption_GetOptionValue	i64:scalar	i64:scalar	0	1	pending-dart
 dartforge_nativo_SecureRandom_getBytes	i64:scalar	i64:scalar	0	1	pending
@@ -371,6 +373,8 @@ dartforge_nativo_Filter_Process	ref:borrow,ref:borrow,i64:scalar,i64:scalar	void
 dartforge_nativo_GrowableList_setData	ref:borrow,ref:borrow	void:scalar	1	1	pending
 dartforge_nativo_GrowableList_setIndexed	ref:borrow,i64:scalar,ref:borrow	void:scalar	1	1	pending-dart
 dartforge_nativo_Isolate_sendOOB	ref:borrow,ref:borrow	void:scalar	1	1	pending-dart
+dartforge_nativo_Isolate_spawnFunction	ref:borrow,ref:borrow,ref:borrow,ref:borrow,u8:scalar,u8:scalar,ref:borrow,ref:borrow,ref:borrow,ref:borrow	void:scalar	1	1	pending-dart
+dartforge_nativo_Isolate_spawnUri	ref:borrow,ref:borrow,ref:borrow,ref:borrow,u8:scalar,ref:borrow,ref:borrow,u8:scalar,ref:borrow,ref:borrow,ref:borrow,ref:borrow	void:scalar	1	1	pending
 dartforge_nativo_List_setIndexed	ref:borrow,i64:scalar,ref:borrow	void:scalar	1	1	pending-dart
 dartforge_nativo_Process_ClearSignalHandler	i64:scalar	void:scalar	0	1	pending
 dartforge_nativo_Process_SetExitCode	i64:scalar	void:scalar	0	1	pending
@@ -394,3 +398,8 @@ dartforge_membro_recusado	ref:borrow	void:scalar	0	0	normal
 # Leituras dos vetores constantes da ABI uniforme (descritor e assinatura).
 dartforge_args_casam	vetor:native,vetor:native	u8:scalar	0	0	normal
 dartforge_arg_indice	vetor:native,i64:scalar	i64:scalar	0	0	normal
+# Estado de campos `late` (tabela lateral do heap; não aloca nem lança).
+dartforge_late_field_initialized	ref:borrow,i64:scalar	u8:scalar	0	0	normal
+dartforge_late_field_initializing	ref:borrow,i64:scalar	u8:scalar	0	0	normal
+dartforge_late_field_mark_initialized	ref:borrow,i64:scalar	void:scalar	0	0	normal
+dartforge_late_field_set_initializing	ref:borrow,i64:scalar,u8:scalar	void:scalar	0	0	normal

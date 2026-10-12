@@ -889,6 +889,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Corpo único do getter de um campo `late` com inicializador. O estado
     /// vive por objeto, inclusive quando o valor atribuído é `null`.
     pub fn lower_getter_campo_late(&mut self, obj: Operand, vid: VariableId, span: Span) {
+        // Corpo Dart chamado pelo leitor do campo: o retorno Ref é Owned.
+        if self.ctx.memoria_arc {
+            self.retornos_ref_dart.insert(self.func.symbol.clone());
+        }
         let Some(init) = self.variable_initializer_em(vid) else { unreachable!("getter late sem initializer") };
         let dartforge_elements::model::VariableRef::Field { unit, .. } = self.ctx.program.variables[vid.0 as usize].node else {
             unreachable!("getter late sem campo")

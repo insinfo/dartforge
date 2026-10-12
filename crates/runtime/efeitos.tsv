@@ -118,10 +118,10 @@ dartforge_iteravel_get_bits	1	1	1
 dartforge_iteravel_get_ref	1	1	1
 dartforge_laco_de_eventos	1	1	1
 dartforge_late_error_new	1	1	1
-dartforge_late_field_initialized	1	1	0
-dartforge_late_field_initializing	1	1	0
-dartforge_late_field_mark_initialized	1	1	0
-dartforge_late_field_set_initializing	1	1	0
+dartforge_late_field_initialized	0	0	0
+dartforge_late_field_initializing	0	0	0
+dartforge_late_field_mark_initialized	0	0	0
+dartforge_late_field_set_initializing	0	0	0
 dartforge_lembrar	0	0	0
 dartforge_liberar_isolados	1	1	0
 dartforge_lista_acrescentar	1	0	0
@@ -796,6 +796,7 @@ dartforge_value_class	0	0	0
 dartforge_view_nova	1	1	0
 dartforge_view_nova_t	1	1	0
 dartforge_arc_env_ref_v1	0	0	0
+dartforge_arc_env_escalar_v1	0	0	0
 dartforge_arc_contexto_closure_v1	0	0	0
 dartforge_arc_registrar_retorno_owned_v1	0	0	0
 dartforge_arc_retirar_retorno_owned_v1	0	0	0

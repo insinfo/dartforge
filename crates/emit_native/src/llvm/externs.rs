@@ -207,6 +207,10 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
+        decl: "declare i64 @dartforge_arc_env_escalar_v1(i64, i64) nounwind",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
+    Extern {
         decl: "declare i64 @dartforge_arc_contexto_closure_v1(i64) nounwind",
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
@@ -370,11 +374,11 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare i8 @dartforge_late_field_initialized(i64, i64)",
-        efeitos: CONSERVADOR,
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
         decl: "declare void @dartforge_late_field_mark_initialized(i64, i64)",
-        efeitos: CONSERVADOR,
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
         decl: "declare i64 @dartforge_tearoff(i64)",
@@ -694,11 +698,11 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare i8 @dartforge_late_field_initializing(i64, i64)",
-        efeitos: CONSERVADOR,
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
         decl: "declare void @dartforge_late_field_set_initializing(i64, i64, i8)",
-        efeitos: CONSERVADOR,
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
         decl: "declare i64 @dartforge_no_such_method_error_new(i64)",
