@@ -364,7 +364,7 @@ fn carregar_projeto_com(
     );
     // Documentos abertos sob a raiz que ainda não existem no disco.
     for aberto in documentos.uris() {
-        if let Some(c) = Url::parse(aberto).ok().and_then(|u| u.to_file_path().ok())
+        if let Some(c) = arquivo_da_uri(aberto)
             && c.starts_with(&raiz)
             && c.extension().is_some_and(|e| e == "dart")
             && !candidatos.contains(&c)

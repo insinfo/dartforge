@@ -137,7 +137,9 @@ impl AnalisadorSemantico {
         let mut gerador = Construtor::nova();
         for aberto in documentos.uris() {
             let Some(fonte) = documentos.get(aberto) else { continue };
-            let Some(arquivo) = Url::parse(aberto).ok().and_then(|u| u.to_file_path().ok()) else { continue };
+            // O caminho canônico (a caixa do disco num sistema de arquivos
+            // que não distingue caixa), o mesmo de `arquivo_da_uri`.
+            let Some(arquivo) = crate::projeto::arquivo_da_uri(aberto) else { continue };
             if arquivo.extension().is_some_and(|e| e == "dart") {
                 gerador.por(arquivo, fonte.to_owned(), "lsp", vec![]);
             }
@@ -252,7 +254,7 @@ fn referencias_em(projeto: &crate::projeto::Projeto, uri: &str, offset: usize) -
 /// nos textos vigentes (os outros arquivos vêm do disco). Uma parte entra
 /// pela biblioteca dona.
 pub(crate) fn carregar(sdk: &SdkLayout, uri: &str, texto: &str, documentos: Option<&DocumentStore>) -> Option<(Program, Interner, UnitId)> {
-    let caminho = Url::parse(uri).ok()?.to_file_path().ok()?;
+    let caminho = crate::projeto::arquivo_da_uri(uri)?;
     if caminho.extension().is_none_or(|e| e != "dart") { return None; }
     let mut gerador = documentos.map_or_else(Construtor::nova, AnalisadorSemantico::abertos);
     // A chamada direta da trait também usa o texto recebido, mesmo sem

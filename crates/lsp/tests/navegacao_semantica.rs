@@ -511,3 +511,28 @@ fn simbolos_do_workspace_incluem_arquivos_fechados_do_projeto() {
     let r = p.requisitar("workspace/symbol", json!({"query": "cR"}));
     assert_eq!(do_projeto(&r), vec!["CarregadorRemoto"]);
 }
+
+/// Num sistema de arquivos que não distingue caixa (macOS, Windows), o
+/// editor pode mandar a URI com outra caixa que a do disco: a unidade do
+/// documento continua achada (o caminho canônico em toda carga). Onde a
+/// caixa conta, o teste não se aplica.
+#[test]
+fn uri_com_outra_caixa_que_a_do_disco() {
+    let mut p = Projeto::novo("nav-caixa");
+    let texto = "void f() {\n  var s = 'a';\n  var n = s.length;\n}\n";
+    p.gravar("lib/a.dart", texto);
+    let real = p.caminho("lib/a.dart");
+    let outra = std::path::PathBuf::from(real.to_string_lossy().replace("/lib/a.dart", "/LIB/a.dart"));
+    if !outra.exists() {
+        return;
+    }
+    let uri = url::Url::from_file_path(&outra).unwrap().to_string();
+    p.servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+        "textDocument":{"uri":uri,"languageId":"dart","version":1,"text":texto}
+    }}));
+    p.servidor.bombear();
+    // O membro pelo tipo do receptor só sai da análise semântica.
+    let (l, c) = onde(texto, "length", 0);
+    let r = p.requisitar("textDocument/hover", json!({"textDocument": {"uri": uri}, "position": {"line": l, "character": c + 1}}));
+    assert!(r["result"]["contents"].to_string().contains("int get length"), "{r}");
+}
