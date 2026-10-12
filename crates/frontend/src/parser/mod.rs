@@ -123,10 +123,10 @@ pub struct Parsed {
 /// unidade inteira foi aceita pela gramática.
 ///
 /// ```
-/// let mut nomes = dartforge_intern::Interner::new();
-/// let saida = dartforge_frontend::parser::parse("void main() { print('oi'); }", &mut nomes);
-/// assert!(saida.diagnostics.is_empty(), "{:?}", saida.diagnostics);
-/// assert_eq!(saida.unit.declarations.len(), 1);
+/// let mut names = dartforge_intern::Interner::new();
+/// let output = dartforge_frontend::parser::parse("void main() { print('oi'); }", &mut names);
+/// assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+/// assert_eq!(output.unit.declarations.len(), 1);
 /// ```
 pub fn parse(source: &str, interner: &mut Interner) -> Parsed {
     parse_com(source, interner, LibraryFeatures::atual())
@@ -138,7 +138,7 @@ pub fn parse(source: &str, interner: &mut Interner) -> Parsed {
 /// **diverge** entre versões (`factory() {}`, `var`/`final` em parâmetro) a
 /// versão decide.
 pub fn parse_com(source: &str, interner: &mut Interner, features: LibraryFeatures) -> Parsed {
-    parse_lexed_com(source, lexer::lex(source), interner, features)
+    parse_lexed_with(source, lexer::lex(source), interner, features)
 }
 
 /// Os erros do scanner do fasta que não interrompem a leitura (o token
@@ -148,21 +148,21 @@ pub fn parse_com(source: &str, interner: &mut Interner, features: LibraryFeature
 /// dígito e `MISSING_HEX_DIGIT` no último caractere de um `0x` sem dígito
 /// hexadecimal (`fe:scanner/errors.dart`, `translateErrorToken`). Todos com
 /// comprimento 1.
-fn erros_recuperaveis_do_scanner(source: &str, tokens: &[Token]) -> Vec<Diagnostic> {
+fn recoverable_scanner_errors(source: &str, tokens: &[Token]) -> Vec<Diagnostic> {
     use crate::token::{Kind, Op};
-    let mut saida = Vec::new();
-    let um = |inicio: usize| Span { start: inicio, end: inicio + 1 };
+    let mut output = Vec::new();
+    let one = |start_offset: usize| Span { start: start_offset, end: start_offset + 1 };
     for t in tokens {
-        let lexema = &source[t.span.start..t.span.end];
+        let lexeme = &source[t.span.start..t.span.end];
         match t.kind {
-            Kind::Op(Op::EqEq | Op::BangEq) if lexema.len() == 3 => {
-                saida.push(Diagnostic::com_codigo(dartforge_diagnostics::codigos::scanner::UNSUPPORTED_OPERATOR, um(t.span.start), [lexema]));
+            Kind::Op(Op::EqEq | Op::BangEq) if lexeme.len() == 3 => {
+                output.push(Diagnostic::com_codigo(dartforge_diagnostics::codigos::scanner::UNSUPPORTED_OPERATOR, one(t.span.start), [lexeme]));
             }
             Kind::Double => {
-                if let Some(i) = lexema.find(['e', 'E']) {
-                    let expoente = &lexema[i + 1..];
-                    if !expoente.bytes().any(|b| b.is_ascii_digit()) {
-                        saida.push(Diagnostic::com_codigo(dartforge_diagnostics::codigos::scanner::MISSING_DIGIT, um(t.span.end - 1), Vec::<&str>::new()));
+                if let Some(i) = lexeme.find(['e', 'E']) {
+                    let exponent = &lexeme[i + 1..];
+                    if !exponent.bytes().any(|b| b.is_ascii_digit()) {
+                        output.push(Diagnostic::com_codigo(dartforge_diagnostics::codigos::scanner::MISSING_DIGIT, one(t.span.end - 1), Vec::<&str>::new()));
                     }
                 }
             }
@@ -173,26 +173,26 @@ fn erros_recuperaveis_do_scanner(source: &str, tokens: &[Token]) -> Vec<Diagnost
                 while ultimo > 0 && !source.is_char_boundary(ultimo) {
                     ultimo -= 1;
                 }
-                saida.push(Diagnostic::com_codigo(dartforge_diagnostics::codigos::scanner::UNTERMINATED_STRING_LITERAL, um(ultimo), Vec::<&str>::new()));
+                output.push(Diagnostic::com_codigo(dartforge_diagnostics::codigos::scanner::UNTERMINATED_STRING_LITERAL, one(ultimo), Vec::<&str>::new()));
             }
             // `NonAsciiIdentifierToken`: cada caractere fora do
             // identificador ASCII, com o ponto de código.
-            Kind::Ident if !lexema.chars().all(crate::lexer::caractere_de_identificador) => {
-                for (i, ch) in lexema.char_indices() {
-                    if !crate::lexer::caractere_de_identificador(ch) {
-                        let inicio = t.span.start + i;
+            Kind::Ident if !lexeme.chars().all(crate::lexer::identifier_char) => {
+                for (i, ch) in lexeme.char_indices() {
+                    if !crate::lexer::identifier_char(ch) {
+                        let start_offset = t.span.start + i;
                         let n = (ch as u32).to_string();
-                        saida.push(Diagnostic::com_codigo(
+                        output.push(Diagnostic::com_codigo(
                             dartforge_diagnostics::codigos::scanner::ILLEGAL_CHARACTER,
-                            Span { start: inicio, end: inicio + ch.len_utf8() },
+                            Span { start: start_offset, end: start_offset + ch.len_utf8() },
                             [n.as_str()],
                         ));
                     }
                 }
             }
             Kind::Int => {
-                if (lexema.starts_with("0x") || lexema.starts_with("0X")) && !lexema[2..].bytes().any(|b| b.is_ascii_hexdigit()) {
-                    saida.push(Diagnostic::com_codigo(dartforge_diagnostics::codigos::scanner::MISSING_HEX_DIGIT, um(t.span.end - 1), Vec::<&str>::new()));
+                if (lexeme.starts_with("0x") || lexeme.starts_with("0X")) && !lexeme[2..].bytes().any(|b| b.is_ascii_hexdigit()) {
+                    output.push(Diagnostic::com_codigo(dartforge_diagnostics::codigos::scanner::MISSING_HEX_DIGIT, one(t.span.end - 1), Vec::<&str>::new()));
                 }
             }
             _ => {}
@@ -201,24 +201,24 @@ fn erros_recuperaveis_do_scanner(source: &str, tokens: &[Token]) -> Vec<Diagnost
     // Entre os tokens só há espaço e comentário, mais o que o scanner pulou
     // (controle ASCII, espaço não ASCII) e o comentário de bloco sem fecho
     // (`UNTERMINATED_MULTI_LINE_COMMENT` no último caractere, `errors.dart:39-44`).
-    let mut fim_anterior = 0usize;
+    let mut previous_end = 0usize;
     for t in tokens {
-        lacuna(source, fim_anterior, t.span.start, &mut saida);
-        fim_anterior = fim_anterior.max(t.span.end);
+        lacuna(source, previous_end, t.span.start, &mut output);
+        previous_end = previous_end.max(t.span.end);
     }
-    saida
+    output
 }
 
-/// Os erros do scanner no trecho `[de, ate)` entre dois tokens.
-fn lacuna(source: &str, de: usize, ate: usize, saida: &mut Vec<Diagnostic>) {
-    if de >= ate {
+/// Os erros do scanner no trecho `[de, until)` entre dois tokens.
+fn lacuna(source: &str, de: usize, until: usize, output: &mut Vec<Diagnostic>) {
+    if de >= until {
         return;
     }
     let bytes = source.as_bytes();
     let mut i = de;
-    while i < ate {
+    while i < until {
         if bytes[i..].starts_with(b"//") {
-            while i < ate && bytes[i] != b'\n' {
+            while i < until && bytes[i] != b'\n' {
                 i += 1;
             }
             continue;
@@ -238,19 +238,19 @@ fn lacuna(source: &str, de: usize, ate: usize, saida: &mut Vec<Diagnostic>) {
                 }
             }
             if prof != 0 {
-                let fim = bytes.len().saturating_sub(1);
-                saida.push(Diagnostic::com_codigo(
+                let end_offset = bytes.len().saturating_sub(1);
+                output.push(Diagnostic::com_codigo(
                     dartforge_diagnostics::codigos::scanner::UNTERMINATED_MULTI_LINE_COMMENT,
-                    Span { start: fim, end: fim + 1 },
+                    Span { start: end_offset, end: end_offset + 1 },
                     Vec::<&str>::new(),
                 ));
             }
             continue;
         }
         let Some(ch) = source[i..].chars().next() else { break };
-        if !ch.is_ascii_whitespace() && crate::lexer::caractere_pulado(ch) {
+        if !ch.is_ascii_whitespace() && crate::lexer::skipped_char(ch) {
             let n = (ch as u32).to_string();
-            saida.push(Diagnostic::com_codigo(
+            output.push(Diagnostic::com_codigo(
                 dartforge_diagnostics::codigos::scanner::ILLEGAL_CHARACTER,
                 Span { start: i, end: i + ch.len_utf8() },
                 [n.as_str()],
@@ -268,11 +268,11 @@ pub fn parse_lexed(
     tokens: Result<Vec<Token>, Diagnostic>,
     interner: &mut Interner,
 ) -> Parsed {
-    parse_lexed_com(source, tokens, interner, LibraryFeatures::atual())
+    parse_lexed_with(source, tokens, interner, LibraryFeatures::atual())
 }
 
 /// [`parse_lexed`] com os recursos da biblioteca; ver [`parse_com`].
-pub fn parse_lexed_com(
+pub fn parse_lexed_with(
     source: &str,
     tokens: Result<Vec<Token>, Diagnostic>,
     interner: &mut Interner,
@@ -291,43 +291,43 @@ pub fn parse_lexed_com(
             };
         }
     };
-    let mut do_scanner = erros_recuperaveis_do_scanner(source, &tokens);
+    let mut from_scanner = recoverable_scanner_errors(source, &tokens);
     // Os fechos que faltam (e o erro de cada um), como o scanner do fasta.
-    let (tokens, de_grupo, mut fechos) = crate::grouping::agrupar(source, tokens);
-    for f in &mut fechos {
-        f.erro += do_scanner.len();
+    let (tokens, group_of, mut closers) = crate::grouping::group_tokens(source, tokens);
+    for f in &mut closers {
+        f.erro += from_scanner.len();
     }
-    do_scanner.extend(de_grupo);
+    from_scanner.extend(group_of);
     // A leitura, no modo do 3.13.4 ou não. A árvore de algumas construções
     // diverge entre as referências (`factory new()`: construtor no 3.13.4,
     // campo `factory` no 3.6.2), e a referência só se sabe no fim da unidade
     // (a sintaxe nova pode vir depois): a unidade que divergiu e terminou na
     // referência 3.13 é lida de novo no modo 3.13.
-    let ler = |interner: &mut Interner, modo_313: bool| {
+    let ler = |interner: &mut Interner, mode_313: bool| {
         let mut parser = Parser::new(source, tokens.clone(), interner);
-        parser.fechos_sinteticos = fechos.clone();
+        parser.synthetic_closers = closers.clone();
         parser.features = features;
-        parser.modo_313 = modo_313;
-        parser.diagnostics.extend(do_scanner.iter().cloned());
+        parser.mode_313 = mode_313;
+        parser.diagnostics.extend(from_scanner.iter().cloned());
         let unit = parser.parse_compilation_unit();
-        let refazer = !modo_313 && parser.divergiu_313 && parser.sintaxe_nova;
-        (unit, parser.ast, parser.diagnostics, parser.pulados, parser.sintaxe_nova, parser.so_3_6, parser.so_3_13, refazer)
+        let redo = !mode_313 && parser.diverged_313 && parser.new_syntax;
+        (unit, parser.ast, parser.diagnostics, parser.pulados, parser.new_syntax, parser.so_3_6, parser.so_3_13, redo)
     };
-    let mut leitura = ler(interner, features.versao() > LanguageVersion::PISO);
-    if leitura.7 {
-        leitura = ler(interner, true);
+    let mut reading = ler(interner, features.versao() > LanguageVersion::PISO);
+    if reading.7 {
+        reading = ler(interner, true);
     }
-    let (unit, mut ast, diagnosticos, pulados, sintaxe_nova, so_3_6, so_3_13, _) = leitura;
+    let (unit, mut ast, diags, pulados, new_syntax, so_3_6, so_3_13, _) = reading;
     // A árvore devolvida vive muito (um editor a retém por arquivo aberto) e
     // as arenas cresceram em potências de dois: no `new_sali` a folga era
     // 29 MiB de 132 MiB. Uma realocação por arena aqui é mais barata do que
     // reter a folga pela vida inteira da unidade.
     ast.shrink_to_fit();
     let referencia =
-        if features.versao() > LanguageVersion::PISO || sintaxe_nova { Referencia::V3_13 } else { Referencia::V3_6 };
+        if features.versao() > LanguageVersion::PISO || new_syntax { Referencia::V3_13 } else { Referencia::V3_6 };
     // Os diagnósticos que só a outra referência relata saem agora, que se
     // sabe qual é a desta unidade.
-    let mut diagnostics = diagnosticos;
+    let mut diagnostics = diags;
     let fora = if referencia == Referencia::V3_13 { &so_3_6 } else { &so_3_13 };
     if !fora.is_empty() {
         diagnostics.retain(|d| !d.code.is_some_and(|c| fora.contains(&(c, d.span))));
@@ -343,12 +343,12 @@ pub fn parse_lexed_com(
 
 /// Uma reescrita do fluxo de tokens, para as tentativas a desfazerem.
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum Emenda {
+pub(crate) enum Splice {
     /// `n` tokens inseridos em `em`.
-    Insercao { em: usize, n: usize },
-    /// O fecho sintético `fecho` saiu de `de` (onde era `token`, em `em`)
-    /// para `para`; o erro dele tinha `span_do_erro`.
-    Movimento { de: usize, para: usize, token: Token, fecho: usize, em: usize, span_do_erro: Option<Span> },
+    Insertion { em: usize, n: usize },
+    /// O fecho sintético `closer` saiu de `de` (onde era `token`, em `em`)
+    /// para `to`; o erro dele tinha `error_span`.
+    Move { de: usize, to: usize, token: Token, closer: usize, em: usize, error_span: Option<Span> },
 }
 
 /// Cursor sobre os tokens de uma unidade mais as arenas em construção.
@@ -381,62 +381,62 @@ pub struct Parser<'s, 'i> {
     pub(crate) features: LibraryFeatures,
     /// Lendo a lista de parâmetros de um construtor primário (Dart 3.13):
     /// `var`/`final` declaram campo e nomeado privado declarante é permitido.
-    pub(crate) em_construtor_primario: bool,
+    pub(crate) in_primary_constructor: bool,
     /// Lendo a representação de um extension type (que relata o `var` da
-    /// representação à parte, em `parse_representacao`).
-    pub(crate) em_representacao: bool,
+    /// representação à parte, em `parse_representation`).
+    pub(crate) in_representation: bool,
     /// O token que abre o corpo (`{` ou `=>`) de cada parte `this` de
     /// construtor primário, pelo início do `this`: a elaboração, que sabe se
     /// o construtor é `const`, relata ali os erros de corpo do analyzer.
-    pub(crate) corpos_primarios: std::collections::HashMap<usize, Span>,
+    pub(crate) primary_bodies: std::collections::HashMap<usize, Span>,
     /// As reinserções de tokens no fluxo (o `rewriter.insertToken` do
     /// fasta), como `(índice, quantidade)`, na ordem em que foram feitas:
     /// as tentativas especulativas as desfazem ao recuar
-    /// ([`Parser::desfazer_emendas`]).
-    pub(crate) emendas: Vec<Emenda>,
-    /// Os fechos sintéticos do scanner ([`crate::grouping::agrupar`]);
+    /// ([`Parser::undo_splices`]).
+    pub(crate) splices: Vec<Splice>,
+    /// Os fechos sintéticos do scanner ([`crate::grouping::group_tokens`]);
     /// o `erro` de cada um é o índice em `diagnostics`.
-    pub(crate) fechos_sinteticos: Vec<crate::grouping::FechoSintetico>,
-    /// Numa tentativa de `operador_por_extenso` (o `_currentlyRecovering` do
+    pub(crate) synthetic_closers: Vec<crate::grouping::SyntheticCloser>,
+    /// Numa tentativa de `spelled_out_operator` (o `_currentlyRecovering` do
     /// fasta): não se tenta outra dentro dela.
-    pub(crate) recuperando_operador: bool,
+    pub(crate) recovering_operator: bool,
     /// A declaração cujos membros estão sendo lidos (o `DeclarationKind` do
     /// fasta): decide os erros próprios de extension e mixin.
-    pub(crate) dono: DonoDeMembros,
+    pub(crate) owner: MemberOwner,
     /// O dono da próxima lista de parâmetros formais (o `MemberKind` do
     /// fasta), posto por quem a lê logo antes; a lista o consome (as listas
-    /// aninhadas, de parâmetro-função, são `Outro`).
-    pub(crate) params_de: modifiers::DonoDeParametros,
+    /// aninhadas, de parâmetro-função, são `Other`).
+    pub(crate) params_owner: modifiers::ParameterOwner,
     /// O nome da declaração cujo membro está sendo lido (`None` no topo):
     /// campo, getter ou setter com ele é `MEMBER_WITH_CLASS_NAME`.
-    pub(crate) nome_envolvente: Option<&'s str>,
+    pub(crate) enclosing_name: Option<&'s str>,
     /// O `PatternContext` do fasta do padrão em leitura.
-    pub(crate) contexto_padrao: patterns::ContextoDePadrao,
+    pub(crate) default_context: patterns::PatternContext,
     /// O `DirectiveState` do fasta (`directive_context.dart`).
-    pub(crate) estado_diretivas: EstadoDiretivas,
+    pub(crate) directive_state: DirectiveState,
     /// Numa tentativa especulativa de `recover_member`: o `;` que falta não
     /// é inserido diante de qualquer token (a tentativa só vinga com
     /// membro bem terminado).
-    pub(crate) especulando: bool,
+    pub(crate) speculating: bool,
     /// O lugar do nome sintético da classe/mixin em leitura (recuperação de
-    /// `nome_de_declaracao`), onde vai o erro de corpo ausente.
-    pub(crate) nome_sintetico: Option<dartforge_diagnostics::Span>,
+    /// `declaration_name`), onde vai o erro de corpo ausente.
+    pub(crate) synthetic_name: Option<dartforge_diagnostics::Span>,
     /// A unidade usa sintaxe de um recurso desligado que o analyzer 3.6.2
     /// não conhece: a referência dela é o 3.13.4 ([`Parsed::referencia`]).
-    pub(crate) sintaxe_nova: bool,
+    pub(crate) new_syntax: bool,
     /// Lê as construções em que a árvore do 3.6.2 e a do 3.13.4 divergem
     /// pelo caminho do 3.13.4 (`factory new()`): a unidade com versão acima
     /// do piso, ou a segunda leitura de uma unidade que terminou na
-    /// referência 3.13 ([`Self::divergiu_313`]).
-    pub(crate) modo_313: bool,
-    /// A leitura fora do [`Self::modo_313`] passou por uma construção em que
+    /// referência 3.13 ([`Self::diverged_313`]).
+    pub(crate) mode_313: bool,
+    /// A leitura fora do [`Self::mode_313`] passou por uma construção em que
     /// as árvores divergem: se a unidade terminar na referência 3.13, ela é
     /// lida de novo no modo 3.13.
-    pub(crate) divergiu_313: bool,
+    pub(crate) diverged_313: bool,
     /// Lendo os elementos de um literal de lista: o elemento comum não lê
-    /// `: valor` (`parseLiteralListSuffix` lê as entradas com
+    /// `: value` (`parseLiteralListSuffix` lê as entradas com
     /// `parseExpression`); só o null-aware `?k: v` vira entrada.
-    pub(crate) em_lista: bool,
+    pub(crate) in_list: bool,
     /// Os diagnósticos (código e lugar) que só o analyzer 3.6.2 relata; saem
     /// da lista se a referência da unidade acabar sendo o 3.13.4. Guardados
     /// por código e lugar, não por índice: as tentativas especulativas
@@ -448,25 +448,25 @@ pub struct Parser<'s, 'i> {
     /// construtor ou o padrão e a guarda de um caso de `switch` expressão,
     /// onde `nome(…) {` e `nome(…) =>` não são função literal nomeada (o
     /// `{` é o corpo do construtor e o `=>` é o do caso).
-    pub(crate) sem_funcao_nomeada: bool,
+    pub(crate) without_named_function: bool,
 }
 
 /// `DirectiveState` (`directive_context.dart`), na ordem do enum do fasta.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum EstadoDiretivas {
-    Nenhum,
+pub(crate) enum DirectiveState {
+    NoneFound,
     Script,
     Library,
     ImportExport,
     Part,
     PartOf,
-    Declaracoes,
+    Declarations,
 }
 
 /// O `DeclarationKind` do fasta para os membros em leitura.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum DonoDeMembros {
-    Classe,
+pub(crate) enum MemberOwner {
+    Class,
     Mixin,
     Enum,
     Extension,
@@ -493,26 +493,26 @@ impl<'s, 'i> Parser<'s, 'i> {
             scratch_args: Vec::new(),
             scratch_parts: Vec::new(),
             features: LibraryFeatures::atual(),
-            em_construtor_primario: false,
-            em_representacao: false,
-            corpos_primarios: std::collections::HashMap::new(),
-            emendas: Vec::new(),
-            fechos_sinteticos: Vec::new(),
-            recuperando_operador: false,
-            dono: DonoDeMembros::Classe,
-            params_de: modifiers::DonoDeParametros::Outro,
-            nome_envolvente: None,
-            contexto_padrao: patterns::ContextoDePadrao::Correspondencia,
-            estado_diretivas: EstadoDiretivas::Nenhum,
-            especulando: false,
-            nome_sintetico: None,
-            sintaxe_nova: false,
-            modo_313: false,
-            divergiu_313: false,
-            em_lista: false,
+            in_primary_constructor: false,
+            in_representation: false,
+            primary_bodies: std::collections::HashMap::new(),
+            splices: Vec::new(),
+            synthetic_closers: Vec::new(),
+            recovering_operator: false,
+            owner: MemberOwner::Class,
+            params_owner: modifiers::ParameterOwner::Other,
+            enclosing_name: None,
+            default_context: patterns::PatternContext::Matching,
+            directive_state: DirectiveState::NoneFound,
+            speculating: false,
+            synthetic_name: None,
+            new_syntax: false,
+            mode_313: false,
+            diverged_313: false,
+            in_list: false,
             so_3_6: Vec::new(),
             so_3_13: Vec::new(),
-            sem_funcao_nomeada: false,
+            without_named_function: false,
         }
     }
 
@@ -636,7 +636,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         if self.at_op(op) {
             Ok(self.advance())
         } else {
-            Err(self.erro_esperado(op.text()))
+            Err(self.expected_error(op.text()))
         }
     }
 
@@ -644,7 +644,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         if self.at_kw(kw) {
             Ok(self.advance())
         } else {
-            Err(self.erro_esperado(kw.text()))
+            Err(self.expected_error(kw.text()))
         }
     }
 
@@ -653,7 +653,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         if self.at_ident(text) {
             Ok(self.advance())
         } else {
-            Err(self.erro_esperado(text))
+            Err(self.expected_error(text))
         }
     }
 
@@ -662,7 +662,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         if self.at_identifier() {
             Ok(self.identifier())
         } else {
-            Err(self.erro_identificador())
+            Err(self.identifier_error())
         }
     }
 
@@ -689,20 +689,20 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// Span do início dado até o fim do último token consumido.
     /// Reinsere no cursor cópias dos tokens de `indices`, nessa ordem (o
     /// `rewriter.insertToken` do fasta): são os próximos a serem lidos.
-    pub(crate) fn reinjetar(&mut self, indices: &[usize]) {
-        let copias: Vec<Token> = indices.iter().map(|&i| Token { glued: false, ..self.tokens[i] }).collect();
-        let n = copias.len();
-        self.tokens.splice(self.pos..self.pos, copias);
-        self.emendas.push(Emenda::Insercao { em: self.pos, n });
+    pub(crate) fn reinject(&mut self, indices: &[usize]) {
+        let copies: Vec<Token> = indices.iter().map(|&i| Token { glued: false, ..self.tokens[i] }).collect();
+        let n = copies.len();
+        self.tokens.splice(self.pos..self.pos, copies);
+        self.splices.push(Splice::Insertion { em: self.pos, n });
     }
 
     /// `rewriter.moveSynthetic` (`token_stream_rewriter.dart:80`): se o fecho
     /// do abridor em `abre` é sintético, ele (e o erro do scanner dele) vai
     /// para o cursor, na posição do token corrente, e é o próximo a ser lido.
-    pub(crate) fn mover_fecho_sintetico(&mut self, abre: usize) -> bool {
-        let Some(inicio) = self.tokens.get(abre).map(|t| t.span.start) else { return false };
-        let Some(k) = self.fechos_sinteticos.iter().position(|f| f.abre == inicio) else { return false };
-        let f = self.fechos_sinteticos[k];
+    pub(crate) fn move_synthetic_closer(&mut self, abre: usize) -> bool {
+        let Some(start_offset) = self.tokens.get(abre).map(|t| t.span.start) else { return false };
+        let Some(k) = self.synthetic_closers.iter().position(|f| f.abre == start_offset) else { return false };
+        let f = self.synthetic_closers[k];
         let Some(j) = (self.pos..self.tokens.len())
             .find(|&j| self.tokens[j].span.start == f.em && self.tokens[j].span.end == f.em && self.tokens[j].kind != Kind::Eof)
         else {
@@ -714,28 +714,28 @@ impl<'s, 'i> Parser<'s, 'i> {
         let token = self.tokens.remove(j);
         let novo = self.tokens[self.pos].span.start;
         self.tokens.insert(self.pos, Token { span: Span { start: novo, end: novo }, ..token });
-        let span_do_erro = self.diagnostics.get(f.erro).map(|d| d.span);
+        let error_span = self.diagnostics.get(f.erro).map(|d| d.span);
         if let Some(d) = self.diagnostics.get_mut(f.erro) {
             d.span = Span { start: novo, end: novo + 1 };
         }
-        self.fechos_sinteticos[k].em = novo;
-        self.emendas.push(Emenda::Movimento { de: j, para: self.pos, token, fecho: k, em: f.em, span_do_erro });
+        self.synthetic_closers[k].em = novo;
+        self.splices.push(Splice::Move { de: j, to: self.pos, token, closer: k, em: f.em, error_span });
         true
     }
 
-    /// Desfaz as emendas feitas depois que havia `marca` delas.
-    pub(crate) fn desfazer_emendas(&mut self, marca: usize) {
-        while self.emendas.len() > marca {
-            match self.emendas.pop().expect("emenda") {
-                Emenda::Insercao { em, n } => {
+    /// Desfaz as emendas feitas depois que havia `mark` delas.
+    pub(crate) fn undo_splices(&mut self, mark: usize) {
+        while self.splices.len() > mark {
+            match self.splices.pop().expect("emenda") {
+                Splice::Insertion { em, n } => {
                     self.tokens.drain(em..em + n);
                 }
-                Emenda::Movimento { de, para, token, fecho, em, span_do_erro } => {
-                    self.tokens.remove(para);
+                Splice::Move { de, to, token, closer, em, error_span } => {
+                    self.tokens.remove(to);
                     self.tokens.insert(de, token);
-                    self.fechos_sinteticos[fecho].em = em;
-                    let erro = self.fechos_sinteticos[fecho].erro;
-                    if let (Some(d), Some(s)) = (self.diagnostics.get_mut(erro), span_do_erro) {
+                    self.synthetic_closers[closer].em = em;
+                    let erro = self.synthetic_closers[closer].erro;
+                    if let (Some(d), Some(s)) = (self.diagnostics.get_mut(erro), error_span) {
                         d.span = s;
                     }
                 }
@@ -766,38 +766,38 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     // -- Diagnósticos ---------------------------------------------------
 
-    /// Registra o diagnóstico `codigo` (do `ParserErrorCode`/`ScannerErrorCode`
+    /// Registra o diagnóstico `code` (do `ParserErrorCode`/`ScannerErrorCode`
     /// do analyzer, mensagem oficial em inglês) em `span` e devolve o marcador.
-    pub(crate) fn erro_em(&mut self, codigo: Codigo, span: Span, args: &[&str]) -> ParseError {
-        self.diagnostics.push(Diagnostic::com_codigo(codigo, span, args.iter().copied()));
+    pub(crate) fn error_at(&mut self, code: Codigo, span: Span, args: &[&str]) -> ParseError {
+        self.diagnostics.push(Diagnostic::com_codigo(code, span, args.iter().copied()));
         ParseError
     }
 
-    /// `codigo` no token corrente — onde o fasta reporta o que falta ou sobra.
-    pub(crate) fn erro(&mut self, codigo: Codigo, args: &[&str]) -> ParseError {
+    /// `code` no token corrente — onde o fasta reporta o que falta ou sobra.
+    pub(crate) fn erro(&mut self, code: Codigo, args: &[&str]) -> ParseError {
         // `findNonZeroLengthToken`: o erro num fecho sintético vai para o
         // primeiro token de verdade depois dele.
         let i = (self.pos..self.tokens.len())
             .find(|&i| self.tokens[i].span.start < self.tokens[i].span.end || self.tokens[i].kind == Kind::Eof)
             .unwrap_or(self.pos);
         let span = if i == self.pos { self.span() } else { self.tokens[i].span };
-        self.erro_em(codigo, span, args)
+        self.error_at(code, span, args)
     }
 
     /// `EXPECTED_TOKEN`, no lugar em que o analyzer o põe: `;` que falta vai no
     /// token **anterior** (`ensureSemicolon` do fasta); fecho `)`/`]`/`}` que
     /// falta no fim do arquivo é erro do scanner, no fim, com comprimento 1
     /// (`translateErrorToken`); o resto, no token corrente.
-    pub(crate) fn erro_esperado(&mut self, texto: &str) -> ParseError {
+    pub(crate) fn expected_error(&mut self, texto: &str) -> ParseError {
         if texto == ";" && self.pos > 0 {
             // `findPreviousNonZeroLengthToken`: os sintéticos não contam.
             let anterior = (0..self.pos).rev().find(|&i| self.tokens[i].span.start < self.tokens[i].span.end).unwrap_or(self.pos - 1);
             let span = self.tokens[anterior].span;
-            return self.erro_em(codigos::parser::EXPECTED_TOKEN, span, &[";"]);
+            return self.error_at(codigos::parser::EXPECTED_TOKEN, span, &[";"]);
         }
         if matches!(texto, ")" | "]" | "}") && self.kind() == Kind::Eof {
             let s = self.span().start;
-            return self.erro_em(codigos::scanner::EXPECTED_TOKEN, Span { start: s, end: s + 1 }, &[texto]);
+            return self.error_at(codigos::scanner::EXPECTED_TOKEN, Span { start: s, end: s + 1 }, &[texto]);
         }
         // Um `>` que o scanner do fasta lê junto do seguinte (`>=`, `>>`,
         // `>>=`…) é um token só lá: o erro cobre a composição inteira.
@@ -806,62 +806,62 @@ impl<'s, 'i> Parser<'s, 'i> {
             && c.len() > 1
         {
             let s = self.span().start;
-            let fim = self.peek_at(c.len() - 1).span.end;
-            return self.erro_em(codigos::parser::EXPECTED_TOKEN, Span { start: s, end: fim }, &[texto]);
+            let end_offset = self.peek_at(c.len() - 1).span.end;
+            return self.error_at(codigos::parser::EXPECTED_TOKEN, Span { start: s, end: end_offset }, &[texto]);
         }
         self.erro(codigos::parser::EXPECTED_TOKEN, &[texto])
     }
 
-    /// Como [`Parser::erro_em`], sem repetir um diagnóstico igual (código e
+    /// Como [`Parser::error_at`], sem repetir um diagnóstico igual (código e
     /// intervalo) já registrado: o analyzer não relata duas vezes o mesmo
     /// erro no mesmo lugar (o fasta às vezes o pede duas vezes, como o
     /// `INVALID_CONSTANT_CONST_PREFIX` de `const 1 + 2`).
-    pub(crate) fn erro_unico(&mut self, codigo: Codigo, span: Span, args: &[&str]) {
-        if !self.diagnostics.iter().any(|d| d.code == Some(codigo) && d.span == span) {
-            self.erro_em(codigo, span, args);
+    pub(crate) fn single_error(&mut self, code: Codigo, span: Span, args: &[&str]) {
+        if !self.diagnostics.iter().any(|d| d.code == Some(code) && d.span == span) {
+            self.error_at(code, span, args);
         }
     }
 
     /// `ensureSemicolon` do fasta: sem `;`, `EXPECTED_TOKEN` (`;`) no último
     /// token lido e a análise segue como se ele estivesse ali (o fasta
     /// insere um `;` sintético), sem pular nada.
-    pub(crate) fn garantir_ponto_e_virgula(&mut self) -> PResult<()> {
+    pub(crate) fn ensure_semicolon(&mut self) -> PResult<()> {
         if !self.eat_op(Op::Semicolon) {
-            self.erro_esperado(";");
+            self.expected_error(";");
         }
         Ok(())
     }
 
-    /// `ensureSemicolon` sem a prudência de [`Parser::garantir_ponto_e_virgula`]:
+    /// `ensureSemicolon` sem a prudência de [`Parser::ensure_semicolon`]:
     /// para onde a construção acabou num token certo (nome, URI, prefixo), o
     /// `;` que falta é relatado no último token lido e a análise segue no
     /// token corrente, qualquer que seja.
-    pub(crate) fn garantir_ponto_e_virgula_forcado(&mut self) {
+    pub(crate) fn ensure_semicolon_forced(&mut self) {
         if !self.eat_op(Op::Semicolon) {
-            self.erro_esperado(";");
+            self.expected_error(";");
         }
     }
 
     /// Registra como pulados os tokens de `de` até o cursor (o que uma
     /// recuperação acabou de descartar), juntando com o trecho anterior
     /// quando são contíguos ou se sobrepõem.
-    pub(crate) fn registrar_pulado(&mut self, de: usize) {
+    pub(crate) fn record_skipped(&mut self, de: usize) {
         if self.pos <= de || de >= self.tokens.len() {
             return;
         }
-        let inicio = self.tokens[de].span.start;
-        let fim = self.tokens[self.pos - 1].span.end;
-        if fim <= inicio {
+        let start_offset = self.tokens[de].span.start;
+        let end_offset = self.tokens[self.pos - 1].span.end;
+        if end_offset <= start_offset {
             return;
         }
         if let Some(ultimo) = self.pulados.last_mut() {
-            if inicio <= ultimo.end && ultimo.start <= fim {
-                ultimo.start = ultimo.start.min(inicio);
-                ultimo.end = ultimo.end.max(fim);
+            if start_offset <= ultimo.end && ultimo.start <= end_offset {
+                ultimo.start = ultimo.start.min(start_offset);
+                ultimo.end = ultimo.end.max(end_offset);
                 return;
             }
         }
-        self.pulados.push(Span { start: inicio, end: fim });
+        self.pulados.push(Span { start: start_offset, end: end_offset });
     }
 
     /// `ensureCloseParen` do fasta: o `)` que fecha o `(` na posição absoluta
@@ -869,44 +869,44 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// corrente e o cursor pula para depois do `)` casado — o que fica no
     /// meio não é lido, como no fasta. Sem `)` casado (fim de arquivo), o
     /// erro de sempre.
-    pub(crate) fn garantir_fecha_parenteses(&mut self, abre: usize) -> PResult<()> {
+    pub(crate) fn ensure_close_paren(&mut self, abre: usize) -> PResult<()> {
         if self.eat_op(Op::RParen) {
             return Ok(());
         }
         // `ensureCloseParen`: o `)` sintético fora do lugar vem para cá (o
         // erro é o do scanner).
-        if self.mover_fecho_sintetico(abre) {
+        if self.move_synthetic_closer(abre) {
             self.advance();
             return Ok(());
         }
         match self.matching_close(abre) {
-            Some(fecha) if fecha >= self.pos && self.kind_of(fecha) == Kind::Op(Op::RParen) && !self.at_eof() => {
-                self.erro_esperado(")");
+            Some(closes) if closes >= self.pos && self.kind_of(closes) == Kind::Op(Op::RParen) && !self.at_eof() => {
+                self.expected_error(")");
                 let de = self.pos;
-                self.pos = fecha;
-                self.registrar_pulado(de);
-                self.pos = fecha + 1;
+                self.pos = closes;
+                self.record_skipped(de);
+                self.pos = closes + 1;
                 Ok(())
             }
-            _ => Err(self.erro_esperado(")")),
+            _ => Err(self.expected_error(")")),
         }
     }
 
     /// Faltou um comando: `MISSING_STATEMENT` no token corrente, precedido de
     /// `EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD` se ele é uma palavra reservada
     /// (o fasta tenta o comando de expressão e tropeça no identificador).
-    pub(crate) fn erro_statement(&mut self) -> ParseError {
+    pub(crate) fn statement_error(&mut self) -> ParseError {
         if let Kind::Keyword(_) = self.kind() {
             let texto = self.text().to_string();
             let span = self.span();
-            self.erro_em(codigos::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, span, &[&texto]);
+            self.error_at(codigos::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, span, &[&texto]);
         }
         self.erro(codigos::parser::MISSING_STATEMENT, &[])
     }
 
     /// Faltou um identificador: `MISSING_IDENTIFIER` no token corrente, ou
     /// `EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD` se ele é uma palavra reservada.
-    pub(crate) fn erro_identificador(&mut self) -> ParseError {
+    pub(crate) fn identifier_error(&mut self) -> ParseError {
         if let Kind::Keyword(_) = self.kind() {
             let texto = self.text().to_string();
             return self.erro(codigos::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, &[&texto]);
@@ -919,44 +919,44 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// Os argumentos são `[recurso, versão que o 3.6.2 escreve, versão que o
     /// 3.13.4 escreve]`: o molde usa o segundo, e a variante 3.13 do código
     /// troca-o pelo terceiro (`Diagnostic::na_referencia`).
-    pub(crate) fn exigir(&mut self, f: Feature, span: Span) {
+    pub(crate) fn require(&mut self, f: Feature, span: Span) {
         if !self.features.tem(f) {
             if Feature::DESCONHECIDOS_NO_3_6.contains(&f) {
-                self.sintaxe_nova = true;
+                self.new_syntax = true;
             }
             // `EXPERIMENT_NOT_ENABLED` (com a versão em que o recurso liga) ou
             // `EXPERIMENT_NOT_ENABLED_OFF_BY_DEFAULT` (experimento sem versão).
-            match f.habilitado_em() {
+            match f.enabled_in() {
                 Some(v) => {
                     let nova = format!("{v}.0");
-                    let antiga = f.versao_relatada_no_3_6().map_or_else(|| nova.clone(), |a| format!("{a}.0"));
-                    self.erro_em(codigos::parser::EXPERIMENT_NOT_ENABLED, span, &[f.nome(), &antiga, &nova]);
+                    let old = f.version_reported_in_3_6().map_or_else(|| nova.clone(), |a| format!("{a}.0"));
+                    self.error_at(codigos::parser::EXPERIMENT_NOT_ENABLED, span, &[f.nome(), &old, &nova]);
                 }
                 None => {
-                    self.erro_em(codigos::parser::EXPERIMENT_NOT_ENABLED_OFF_BY_DEFAULT, span, &[f.nome()]);
+                    self.error_at(codigos::parser::EXPERIMENT_NOT_ENABLED_OFF_BY_DEFAULT, span, &[f.nome()]);
                 }
             }
         }
     }
 
-    /// Como [`Parser::exigir`], para os recursos que o analyzer confere ao
+    /// Como [`Parser::require`], para os recursos que o analyzer confere ao
     /// montar a árvore (`AstBuilder`), não no parser do fasta: a correção
     /// leva a versão como `x.y` (`3.13`), não `x.y.0`. São o corpo `;`, os
     /// membros `this`/`new` e o `final` declarante (medido no oráculo 3.13.4).
-    pub(crate) fn exigir_no_ast(&mut self, f: Feature, span: Span) {
+    pub(crate) fn require_in_ast(&mut self, f: Feature, span: Span) {
         if self.features.tem(f) {
             return;
         }
-        match f.habilitado_em() {
+        match f.enabled_in() {
             Some(v) => {
                 if Feature::DESCONHECIDOS_NO_3_6.contains(&f) {
-                    self.sintaxe_nova = true;
+                    self.new_syntax = true;
                 }
                 let nova = v.to_string();
-                let antiga = f.versao_relatada_no_3_6().map_or_else(|| nova.clone(), |a| a.to_string());
-                self.erro_em(codigos::parser::EXPERIMENT_NOT_ENABLED, span, &[f.nome(), &antiga, &nova]);
+                let old = f.version_reported_in_3_6().map_or_else(|| nova.clone(), |a| a.to_string());
+                self.error_at(codigos::parser::EXPERIMENT_NOT_ENABLED, span, &[f.nome(), &old, &nova]);
             }
-            None => self.exigir(f, span),
+            None => self.require(f, span),
         }
     }
 

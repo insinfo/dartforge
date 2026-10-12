@@ -229,14 +229,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn utf8_comum_sai_sem_copia() {
+    fn plain_utf8_comes_out_without_copy() {
         let s = DartStr::from("olá");
         assert_eq!(s.as_str(), Some("olá"));
         assert_eq!(s.utf16_len(), 3);
     }
 
     #[test]
-    fn par_de_surrogates_vira_escalar() {
+    fn surrogate_pair_becomes_scalar() {
         let mut b = DartStrBuilder::default();
         assert!(b.push_code_point(0xD83D));
         assert!(b.push_code_point(0xDC6D));
@@ -247,7 +247,7 @@ mod tests {
     }
 
     #[test]
-    fn surrogate_solto_e_guardado_e_medido() {
+    fn lone_surrogate_is_kept_and_measured() {
         let mut b = DartStrBuilder::default();
         assert!(b.push_code_point(0xD800));
         b.push_char('-');
@@ -263,7 +263,7 @@ mod tests {
     }
 
     #[test]
-    fn alto_seguido_de_texto_nao_funde() {
+    fn high_followed_by_text_does_not_merge() {
         let mut b = DartStrBuilder::default();
         assert!(b.push_code_point(0xD800));
         b.push_str("x");
@@ -272,7 +272,7 @@ mod tests {
     }
 
     #[test]
-    fn fora_do_unicode_e_recusado() {
+    fn outside_unicode_is_rejected() {
         let mut b = DartStrBuilder::default();
         assert!(!b.push_code_point(0x110000));
         assert!(b.finish().is_empty());

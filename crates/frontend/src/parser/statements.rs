@@ -13,8 +13,8 @@
 //! * `{` é bloco, salvo quando o `}` correspondente é seguido de `=`
 //!   (atribuição por padrão de mapa, que é uma expressão);
 //! * `var`/`final` seguidos de `(`, `[` ou `{` começam uma declaração por
-//!   padrão; `late`, `final`, `const`, `var` e `tipo nome` começam uma
-//!   declaração de variáveis; `tipo? nome(...)` seguido de `{`, `=>`, `async`
+//!   padrão; `late`, `final`, `const`, `var` e `kind nome` começam uma
+//!   declaração de variáveis; `kind? nome(...)` seguido de `{`, `=>`, `async`
 //!   ou `sync` é função local — a diferença para a chamada `nome(args);` é só
 //!   o que vem depois do `)`;
 //! * `await` e `yield` só são especiais em corpos `async`/geradores, mas
@@ -57,20 +57,20 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     /// `{ stmts }` com as chaves, recuperando de statements malformados.
     pub(crate) fn parse_block(&mut self) -> PResult<StmtId> {
-        self.parse_block_com(false)
+        self.parse_block_with(false)
     }
 
     /// O bloco de um corpo de função (`parseFunctionBody`), cujo laço relata
     /// o comando sem progresso pelo último token lido.
-    pub(crate) fn parse_block_de_corpo(&mut self) -> PResult<StmtId> {
-        self.parse_block_com(true)
+    pub(crate) fn parse_body_block(&mut self) -> PResult<StmtId> {
+        self.parse_block_with(true)
     }
 
-    fn parse_block_com(&mut self, corpo: bool) -> PResult<StmtId> {
+    fn parse_block_with(&mut self, body_node: bool) -> PResult<StmtId> {
         let start = self.expect_op(Op::LBrace)?.span;
-        let stmts = self.parse_statement_list_com(false, corpo);
+        let stmts = self.parse_statement_list_with(false, body_node);
         if !self.at_op(Op::RBrace) {
-            return Err(self.erro_esperado("}"));
+            return Err(self.expected_error("}"));
         }
         self.advance();
         Ok(self.push_stmt(start, StmtKind::Block(stmts.into_boxed_slice())))
@@ -92,7 +92,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         {
             let final_ = self.at_kw(Keyword::Final);
             self.advance();
-            let pattern = self.parse_pattern_em(super::patterns::ContextoDePadrao::Declaracao)?;
+            let pattern = self.parse_pattern_in(super::patterns::PatternContext::Declaration)?;
             // `for (var (a, b) = e; c; u)`: com `=`, o padrão é a
             // inicialização de um `for` clássico
             // (`parseForStatement`, `handleForInitializerPatternVariableAssignment`).
@@ -116,13 +116,13 @@ impl<'s, 'i> Parser<'s, 'i> {
             let mut final_ = false;
             let mut var_ = false;
             let mut const_ = false;
-            let mut palavra_const = None;
+            let mut const_word = None;
             if self.eat_kw(Keyword::Final) {
                 final_ = true;
             } else if self.eat_kw(Keyword::Var) {
                 var_ = true;
             } else if self.at_kw(Keyword::Const) {
-                palavra_const = Some(self.peek().span);
+                const_word = Some(self.peek().span);
                 self.advance();
                 const_ = true;
             }
@@ -142,7 +142,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                         var_,
                         ty,
                         name,
-                        const_: palavra_const,
+                        const_: const_word,
                     },
                     iterable,
                 });
@@ -192,10 +192,10 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// Statements até `}`/fim (ou até o próximo `case`/`default` quando
     /// `in_switch`), com recuperação por statement.
     fn parse_statement_list(&mut self, in_switch: bool) -> Vec<StmtId> {
-        self.parse_statement_list_com(in_switch, false)
+        self.parse_statement_list_with(in_switch, false)
     }
 
-    fn parse_statement_list_com(&mut self, in_switch: bool, corpo: bool) -> Vec<StmtId> {
+    fn parse_statement_list_with(&mut self, in_switch: bool, body_node: bool) -> Vec<StmtId> {
         let mut stmts = Vec::new();
         loop {
             if self.at_eof() || self.at_op(Op::RBrace) {
@@ -204,7 +204,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             if in_switch && self.at_switch_case_start() {
                 break;
             }
-            let inicio_do_comando = self.pos;
+            let statement_start = self.pos;
             match self.parse_statement() {
                 Ok(id) => {
                     stmts.push(id);
@@ -212,15 +212,15 @@ impl<'s, 'i> Parser<'s, 'i> {
                     // sem progresso, `UNEXPECTED_TOKEN` e o token é pulado. No
                     // corpo de função o texto é o do último token lido (o `;`
                     // sintético do comando); nos outros, o do token pulado.
-                    if self.pos == inicio_do_comando && !self.at_eof() {
-                        let texto = if corpo { ";".to_string() } else { self.text().to_string() };
+                    if self.pos == statement_start && !self.at_eof() {
+                        let texto = if body_node { ";".to_string() } else { self.text().to_string() };
                         self.erro(codigos::parser::UNEXPECTED_TOKEN, &[&texto]);
                         self.advance();
                     }
                 }
                 Err(ParseError) => {
                     self.synchronize_statement(in_switch);
-                    self.registrar_pulado(inicio_do_comando);
+                    self.record_skipped(statement_start);
                 }
             }
         }
@@ -320,7 +320,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             // identificador sintético (`MISSING_IDENTIFIER` no token) e o `;`
             // que falta no token anterior, sem consumir o `}`.
             Kind::Op(Op::RBrace) | Kind::Eof => self.parse_expression_statement(start),
-            Kind::ScriptTag => Err(self.erro_statement()),
+            Kind::ScriptTag => Err(self.statement_error()),
             Kind::Keyword(kw) => self.parse_keyword_statement(start, kw),
             Kind::Ident => self.parse_identifier_statement(start),
             _ => self.parse_expression_statement(start),
@@ -455,7 +455,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         if self.in_generator || self.in_async {
             return true;
         }
-        self.parece_expressao_apos_await(self.pos, false)
+        self.looks_like_expression_after_await(self.pos, false)
     }
 
     /// Statement de expressão `e;`.
@@ -464,20 +464,20 @@ impl<'s, 'i> Parser<'s, 'i> {
         // `handleExpressionStatement` (`ast_builder.dart:4253`): `super;` e
         // atribuição a alvo não atribuível (este, além do
         // `MISSING_ASSIGNABLE_SELECTOR` da atribuição).
-        self.conferir_super_solto(expr);
+        self.check_stray_super(expr);
         // `handleExpressionStatement`: o comando que é só uma palavra
         // reservada usada como nome é `MISSING_STATEMENT` nela.
         if let crate::ast::ExprKind::Identifier(n) = self.ast.expr(expr).kind
             && n.span.start < n.span.end
             && crate::token::Keyword::from_text(&self.source[n.span.start..n.span.end]).is_some()
         {
-            self.erro_em(codigos::parser::MISSING_STATEMENT, n.span, &[]);
+            self.error_at(codigos::parser::MISSING_STATEMENT, n.span, &[]);
         }
         if let crate::ast::ExprKind::Assign { target, .. } = self.ast.expr(expr).kind
-            && !self.e_atribuivel(target)
+            && !self.is_assignable(target)
         {
             let span = self.ast.expr(target).span;
-            self.erro_em(codigos::parser::ILLEGAL_ASSIGNMENT_TO_NON_ASSIGNABLE, span, &[]);
+            self.error_at(codigos::parser::ILLEGAL_ASSIGNMENT_TO_NON_ASSIGNABLE, span, &[]);
         }
         self.expect_semicolon()?;
         Ok(self.push_stmt(start, StmtKind::Expression(expr)))
@@ -509,7 +509,7 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     // -- Declarações locais -----------------------------------------------
 
-    /// `late? (final | var | const)? tipo? nome (= e)? (, nome (= e)?)* ;`
+    /// `late? (final | var | const)? kind? nome (= e)? (, nome (= e)?)* ;`
     /// ou, com `var`/`final` seguido de `(`/`[`/`{`, uma declaração por padrão.
     fn parse_local_declaration(&mut self, start: Span) -> PResult<StmtId> {
         if (self.at_kw(Keyword::Var) || self.at_kw(Keyword::Final))
@@ -555,7 +555,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     fn parse_pattern_variables(&mut self, start: Span) -> PResult<StmtId> {
         let final_ = self.at_kw(Keyword::Final);
         self.advance();
-        let pattern = self.parse_pattern_em(super::patterns::ContextoDePadrao::Declaracao)?;
+        let pattern = self.parse_pattern_in(super::patterns::PatternContext::Declaration)?;
         self.expect_op(Op::Assign)?;
         let value = self.parse_expression()?;
         self.expect_semicolon()?;
@@ -596,7 +596,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         let mut variables = Vec::new();
         loop {
             let name = self.expect_identifier()?;
-            self.conferir_await_yield_como_nome(name.span);
+            self.check_await_yield_as_name(name.span);
             let initializer = self.parse_initializer_opt()?;
             variables.push(Variable { name, initializer });
             if !self.eat_op(Op::Comma) {
@@ -605,7 +605,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
         list.variables = variables.into_boxed_slice();
         if !self.at_op(Op::Semicolon)
-            && let Some(s) = self.prefixo_sem_ponto_e_virgula(start, &list)
+            && let Some(s) = self.prefix_without_semicolon(start, &list)
         {
             return Ok(s);
         }
@@ -622,54 +622,54 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// expressão é `x.` com um identificador sintético e voltam o `await` e
     /// o nome. Os modificadores, o `?`, os argumentos de tipo e o
     /// inicializador já lidos se perdem, como lá.
-    fn prefixo_sem_ponto_e_virgula(&mut self, start: Span, list: &VariableList) -> Option<StmtId> {
-        let [variavel] = &*list.variables else {
+    fn prefix_without_semicolon(&mut self, start: Span, list: &VariableList) -> Option<StmtId> {
+        let [variable] = &*list.variables else {
             return None;
         };
         let crate::ast::TypeKind::Named { name, .. } = &self.ast.ty(list.ty?).kind else {
             return None;
         };
-        let [prefixo, nome] = **name else {
+        let [prefix, nome] = **name else {
             return None;
         };
-        let indice = |p: &Self, span: Span| (0..p.pos).rev().find(|&i| p.tokens[i].span == span);
-        let i_tipo = indice(self, nome.span)?;
-        let i_var = indice(self, variavel.name.span)?;
-        let (membro, reinjetados) = if self.text_of(i_tipo) == "await" {
-            let s = self.tokens[i_tipo].span.start;
-            (self.name_from("", Span { start: s, end: s }), vec![i_tipo, i_var])
-        } else if self.e_identificador_puro(i_var) || self.text_of(i_var) == "await" {
+        let index = |p: &Self, span: Span| (0..p.pos).rev().find(|&i| p.tokens[i].span == span);
+        let i_type = index(self, nome.span)?;
+        let i_var = index(self, variable.name.span)?;
+        let (member, reinjected) = if self.text_of(i_type) == "await" {
+            let s = self.tokens[i_type].span.start;
+            (self.name_from("", Span { start: s, end: s }), vec![i_type, i_var])
+        } else if self.is_plain_identifier(i_var) || self.text_of(i_var) == "await" {
             (nome, vec![i_var])
         } else {
             return None;
         };
-        self.erro_esperado(";");
-        let alvo = self.ast.push_expr(Expr {
-            span: prefixo.span,
-            kind: ExprKind::Identifier(prefixo),
+        self.expected_error(";");
+        let target_expr = self.ast.push_expr(Expr {
+            span: prefix.span,
+            kind: ExprKind::Identifier(prefix),
         });
         let expr = self.ast.push_expr(Expr {
             span: Span {
-                start: prefixo.span.start,
-                end: membro.span.end,
+                start: prefix.span.start,
+                end: member.span.end,
             },
             kind: ExprKind::Property {
-                target: alvo,
-                name: membro,
+                target: target_expr,
+                name: member,
                 null_aware: false,
             },
         });
         let s = self.push_stmt(start, StmtKind::Expression(expr));
-        self.reinjetar(&reinjetados);
+        self.reinject(&reinjected);
         Some(s)
     }
 
     /// `checkAsyncAwaitYieldAsIdentifier` (`identifier_context_impl.dart:1387`):
     /// fora de corpo síncrono comum, `await`/`yield` como nome declarado é
     /// `ASYNC_KEYWORD_USED_AS_IDENTIFIER`.
-    pub(crate) fn conferir_await_yield_como_nome(&mut self, nome: Span) {
+    pub(crate) fn check_await_yield_as_name(&mut self, nome: Span) {
         if (self.in_async || self.in_generator) && matches!(&self.source[nome.start..nome.end], "await" | "yield") {
-            self.erro_em(codigos::parser::ASYNC_KEYWORD_USED_AS_IDENTIFIER, nome, &[]);
+            self.error_at(codigos::parser::ASYNC_KEYWORD_USED_AS_IDENTIFIER, nome, &[]);
         }
     }
 
@@ -682,7 +682,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// `nome<T>(params) corpo` após o tipo de retorno opcional.
+    /// `nome<T>(params) body_node` após o tipo de retorno opcional.
     fn parse_local_function(
         &mut self,
         start: Span,
@@ -724,7 +724,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 guard = Some(self.parse_expression()?);
             }
         }
-        self.garantir_fecha_parenteses(abre)?;
+        self.ensure_close_paren(abre)?;
         let then = self.parse_statement()?;
         let else_ = if self.eat_kw(Keyword::Else) {
             Some(self.parse_statement()?)
@@ -800,7 +800,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         let abre = self.pos;
         self.expect_op(Op::LParen)?;
         let condition = self.parse_expression()?;
-        self.garantir_fecha_parenteses(abre)?;
+        self.ensure_close_paren(abre)?;
         let body = self.parse_statement()?;
         Ok(self.push_stmt(start, StmtKind::While { condition, body }))
     }
@@ -812,7 +812,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         let abre = self.pos;
         self.expect_op(Op::LParen)?;
         let condition = self.parse_expression()?;
-        self.garantir_fecha_parenteses(abre)?;
+        self.ensure_close_paren(abre)?;
         self.expect_semicolon()?;
         Ok(self.push_stmt(start, StmtKind::DoWhile { body, condition }))
     }
@@ -827,12 +827,12 @@ impl<'s, 'i> Parser<'s, 'i> {
         let abre = self.pos;
         self.expect_op(Op::LParen)?;
         let value = self.parse_expression()?;
-        self.garantir_fecha_parenteses(abre)?;
+        self.ensure_close_paren(abre)?;
         // `ensureBlock(…, switchStatement)`: sem `{`, o erro no `)` e um
         // corpo vazio sintético; o que vem depois é a próxima instrução.
         if !self.at_op(Op::LBrace) {
-            let fecha = self.tokens[self.pos - 1].span;
-            self.erro_em(codigos::parser::EXPECTED_SWITCH_STATEMENT_BODY, fecha, &[]);
+            let closes = self.tokens[self.pos - 1].span;
+            self.error_at(codigos::parser::EXPECTED_SWITCH_STATEMENT_BODY, closes, &[]);
             return Ok(self.push_stmt(start, StmtKind::Switch { value, cases: Vec::new().into_boxed_slice() }));
         }
         let close = self.matching_close(self.pos);
@@ -857,7 +857,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 
     fn parse_switch_cases(&mut self, cases: &mut Vec<SwitchCase>) -> PResult<()> {
-        let mut viu_default = false;
+        let mut saw_default = false;
         // O `default` mais recente (início da palavra): o `parseSwitchBlock`
         // (`parser_impl.dart:8975-9030`) o mantém depois do grupo dele e o
         // passa ao `endSwitchCase` de cada grupo seguinte; o `AstBuilder`
@@ -875,12 +875,12 @@ impl<'s, 'i> Parser<'s, 'i> {
             // `parseSwitchCase` (`parser_impl.dart:9044`): `case` depois de
             // `default` é `SWITCH_HAS_CASE_AFTER_DEFAULT_CASE` no `case`;
             // outro `default`, `SWITCH_HAS_MULTIPLE_DEFAULT_CASES`.
-            if viu_default && self.at_kw(Keyword::Case) {
+            if saw_default && self.at_kw(Keyword::Case) {
                 self.erro(codigos::parser::SWITCH_HAS_CASE_AFTER_DEFAULT_CASE, &[]);
-            } else if viu_default && self.at_kw(Keyword::Default) {
+            } else if saw_default && self.at_kw(Keyword::Default) {
                 self.erro(codigos::parser::SWITCH_HAS_MULTIPLE_DEFAULT_CASES, &[]);
             }
-            viu_default |= self.at_kw(Keyword::Default);
+            saw_default |= self.at_kw(Keyword::Default);
             if self.at_kw(Keyword::Default) {
                 ultimo_default = Some(self.span().start);
             }
@@ -888,9 +888,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                 // Antes da 3.0 (`allowPatterns` falso), o `case` leva uma
                 // expressão (`parseSwitchCase`: `parseExpression`).
                 let pattern = if self.features.versao() < crate::features::LanguageVersion::new(3, 0) {
-                    let inicio = self.span();
+                    let start_offset = self.span();
                     let e = self.parse_expression()?;
-                    self.push_pattern(inicio, crate::ast::PatternKind::Constant(e))
+                    self.push_pattern(start_offset, crate::ast::PatternKind::Constant(e))
                 } else {
                     self.parse_pattern()?
                 };
@@ -899,24 +899,24 @@ impl<'s, 'i> Parser<'s, 'i> {
                 } else {
                     None
                 };
-                self.garantir_dois_pontos();
+                self.ensure_colon();
                 (Some(pattern), guard)
             } else if self.eat_kw(Keyword::Default) {
-                self.garantir_dois_pontos();
+                self.ensure_colon();
                 (None, None)
             } else {
                 return Err(self.erro(codigos::parser::EXPECTED_CASE_OR_DEFAULT, &[]));
             };
             // Fim de um grupo de `case` depois de um `default`: o próximo
             // membro (depois dos rótulos) não é `case` nem `default`.
-            let fim_de_grupo_apos_default = pattern.is_some() && ultimo_default.is_some() && {
+            let group_end_after_default = pattern.is_some() && ultimo_default.is_some() && {
                 let mut k = 0;
                 while self.at_identifier_at(k) && self.at_op_at(k + 1, Op::Colon) {
                     k += 2;
                 }
                 !matches!(self.kind_at(k), Kind::Keyword(Keyword::Case | Keyword::Default))
             };
-            if let (true, Some(d)) = (fim_de_grupo_apos_default, ultimo_default) {
+            if let (true, Some(d)) = (group_end_after_default, ultimo_default) {
                 cases.push(SwitchCase {
                     span: self.span_from(case_start),
                     labels: labels.into_boxed_slice(),
@@ -925,9 +925,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                     body: Box::default(),
                 });
                 let body = self.parse_statement_list(true);
-                let fim = self.last_end().max(d);
+                let end_offset = self.last_end().max(d);
                 cases.push(SwitchCase {
-                    span: Span { start: d, end: fim },
+                    span: Span { start: d, end: end_offset },
                     labels: Box::default(),
                     pattern: None,
                     guard: None,
@@ -951,19 +951,19 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `ensureBlock(token, kind)` de um `try`/`catch`/`finally`: sem `{`, o
     /// `EXPECTED_*_BODY` no token anterior e um bloco vazio sintético no
     /// lugar do seguinte.
-    fn bloco_exigido(&mut self, codigo: dartforge_diagnostics::Codigo) -> PResult<StmtId> {
+    fn required_block(&mut self, code: dartforge_diagnostics::Codigo) -> PResult<StmtId> {
         if self.at_op(Op::LBrace) {
             return self.parse_block();
         }
         let anterior = self.tokens[self.pos.saturating_sub(1)].span;
-        self.erro_em(codigo, anterior, &[]);
-        let aqui = self.span().start;
-        Ok(self.ast.push_stmt(crate::ast::Stmt { span: Span { start: aqui, end: aqui }, kind: StmtKind::Block(Vec::new().into_boxed_slice()) }))
+        self.error_at(code, anterior, &[]);
+        let here = self.span().start;
+        Ok(self.ast.push_stmt(crate::ast::Stmt { span: Span { start: here, end: here }, kind: StmtKind::Block(Vec::new().into_boxed_slice()) }))
     }
 
     fn parse_try(&mut self, start: Span) -> PResult<StmtId> {
         self.advance();
-        let body = self.bloco_exigido(codigos::parser::EXPECTED_TRY_STATEMENT_BODY)?;
+        let body = self.required_block(codigos::parser::EXPECTED_TRY_STATEMENT_BODY)?;
         let mut catches = Vec::new();
         loop {
             let clause_start = self.span();
@@ -982,7 +982,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             } else {
                 break;
             }
-            let body = self.bloco_exigido(codigos::parser::EXPECTED_CATCH_CLAUSE_BODY)?;
+            let body = self.required_block(codigos::parser::EXPECTED_CATCH_CLAUSE_BODY)?;
             catches.push(CatchClause {
                 span: self.span_from(clause_start),
                 on_type,
@@ -992,7 +992,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             });
         }
         let finally_ = if self.eat_kw(Keyword::Finally) {
-            Some(self.bloco_exigido(codigos::parser::EXPECTED_FINALLY_CLAUSE_BODY)?)
+            Some(self.required_block(codigos::parser::EXPECTED_FINALLY_CLAUSE_BODY)?)
         } else {
             None
         };
@@ -1026,7 +1026,7 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     /// `yield e;` / `yield* e;`
     fn parse_yield(&mut self, start: Span) -> PResult<StmtId> {
-        let palavra = self.span();
+        let word = self.span();
         self.advance();
         let star = self.eat_op(Op::Star);
         let value = self.parse_expression()?;
@@ -1036,7 +1036,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         // `*`); o comando continua na árvore, e o resolvedor relata de novo
         // (`c2_sintaticos`).
         if !self.in_generator {
-            self.erro_em(codigos::compile_time_error::YIELD_IN_NON_GENERATOR, palavra, &[]);
+            self.error_at(codigos::compile_time_error::YIELD_IN_NON_GENERATOR, word, &[]);
         }
         Ok(self.push_stmt(start, StmtKind::Yield { star, value }))
     }
@@ -1055,13 +1055,13 @@ impl<'s, 'i> Parser<'s, 'i> {
         // `parseAssert` (`parser_impl.dart`): sobra antes do `)` casado é
         // `UNEXPECTED_TOKEN` no primeiro token dela, e o resto é pulado.
         if !self.at_op(Op::RParen)
-            && let Some(fecha) = self.matching_close(abre)
-            && fecha > self.pos
-            && self.kind_of(fecha) == Kind::Op(Op::RParen)
+            && let Some(closes) = self.matching_close(abre)
+            && closes > self.pos
+            && self.kind_of(closes) == Kind::Op(Op::RParen)
         {
             let texto = self.text().to_string();
             self.erro(codigos::parser::UNEXPECTED_TOKEN, &[&texto]);
-            self.pos = fecha;
+            self.pos = closes;
         }
         self.expect_op(Op::RParen)?;
         self.expect_semicolon()?;
@@ -1124,7 +1124,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// Em `pos` começa `tipo identificador` de uma declaração local?
+    /// Em `pos` começa `kind identifier` de uma declaração local?
     ///
     /// Pré-filtra as formas que nunca são tipo (para não pagar o lookahead
     /// completo em todo statement de expressão), aplica as regras do SDK que
@@ -1141,7 +1141,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 // `looksLikeAwaitExpression` de `parseStatementX`).
                 if self.text_of(pos) == "yield"
                     || self.text_of(pos) == "await"
-                        && (self.in_async || self.in_generator || self.parece_expressao_apos_await(pos, false))
+                        && (self.in_async || self.in_generator || self.looks_like_expression_after_await(pos, false))
                 {
                     return false;
                 }
@@ -1226,7 +1226,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 
     /// Em `q` há `?` após um tipo simples; o que segue é uma expressão
-    /// condicional (`a ? b : c`) em vez de `tipo? nome`?
+    /// condicional (`a ? b : c`) em vez de `kind? nome`?
     ///
     /// Segue o SDK: só é declaração quando o identificador seguinte é
     /// seguido de `;`, `,`, `)`, `in`, fim, ou de `=` cuja expressão não é
@@ -1259,7 +1259,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// e profundidade. Serve para decidir uma ambiguidade olhando adiante.
     pub(crate) fn speculate<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
         let pos = self.pos;
-        let emendas = self.emendas.len();
+        let splices = self.splices.len();
         let depth = self.depth;
         let diagnostics = self.diagnostics.len();
         let exprs = self.ast.exprs.len();
@@ -1273,7 +1273,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         let in_generator = self.in_generator;
         let in_type_args = self.in_type_args;
         let result = f(self);
-        self.desfazer_emendas(emendas);
+        self.undo_splices(splices);
         self.pos = pos;
         self.depth = depth;
         self.diagnostics.truncate(diagnostics);
@@ -1296,7 +1296,7 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     /// `ensureColon`: o `:` que falta é `EXPECTED_TOKEN` no token seguinte
     /// (`rewriteAndRecover`) e um `:` sintético segue no lugar.
-    fn garantir_dois_pontos(&mut self) {
+    fn ensure_colon(&mut self) {
         if !self.eat_op(Op::Colon) {
             self.erro(codigos::parser::EXPECTED_TOKEN, &[":"]);
         }
@@ -1304,7 +1304,7 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     /// `ensureSemicolon` do fasta: o `;` que falta é relatado e inserido.
     fn expect_semicolon(&mut self) -> PResult<()> {
-        self.garantir_ponto_e_virgula()
+        self.ensure_semicolon()
     }
 
     fn push_stmt(&mut self, start: Span, kind: StmtKind) -> StmtId {
@@ -1377,7 +1377,7 @@ mod tests {
     /// anulável, não uma condicional, mesmo com `? :` no inicializador); uma
     /// condicional de verdade continua expressão.
     #[test]
-    fn tipo_de_funcao_depois_de_tipo_anulavel() {
+    fn function_type_after_nullable_type() {
         let out = ok("int? Function(int) talvez = (x) => x > 0 ? x : null;");
         assert!(matches!(out.kind(), StmtKind::Variables(_)), "{:?}", out.kind());
         let out = ok("String? Function<T>(T) g = h;");
@@ -1389,7 +1389,7 @@ mod tests {
     }
 
     #[test]
-    fn bloco_vazio_e_statement_vazio() {
+    fn empty_block_and_empty_statement() {
         let out = ok("{}");
         assert!(matches!(out.kind(), StmtKind::Block(s) if s.is_empty()));
         let out = ok(";");
@@ -1426,7 +1426,7 @@ mod tests {
     }
 
     #[test]
-    fn rotulos() {
+    fn labels_() {
         let out = ok("a: b: {}");
         let StmtKind::Labeled { labels, body } = out.kind() else {
             panic!()
@@ -1455,7 +1455,7 @@ mod tests {
     }
 
     #[test]
-    fn for_classico_vazio_e_await_for() {
+    fn empty_classic_for_and_await_for() {
         let out = ok("for (;;) ;");
         assert!(matches!(out.kind(), StmtKind::For { await_: false, .. }));
         let out = ok("await for (;;) {}");
@@ -1498,7 +1498,7 @@ mod tests {
     }
 
     #[test]
-    fn variaveis_locais_sem_tipo_nem_inicializador() {
+    fn local_variables_without_type_or_initializer() {
         let out = ok("late final x;");
         let StmtKind::Variables(list) = out.kind() else {
             panic!()
@@ -1522,18 +1522,18 @@ mod tests {
     }
 
     #[test]
-    fn switch_sem_expressoes_falha_cedo_mas_recupera_na_chave() {
+    fn switch_without_expressions_fails_early_but_recovers_at_brace() {
         // Sem `case`/`default` o corpo é inválido; o parser pula até a `}`.
         let out = stmt("switch (x) { break; }");
         // `x` exige o módulo de expressões; se ele ainda é stub o teste
-        // panica, e isso é esperado (ver módulo `dependentes`).
+        // panica, e isso é esperado (ver módulo `dependents`).
         assert!(out.result.is_ok());
         assert_eq!(out.diagnostics.len(), 1);
         assert!(out.at_eof);
     }
 
     #[test]
-    fn recuperacao_em_bloco() {
+    fn recovery_in_block() {
         // `)` no começo: comando de expressão com identificador sintético
         // (`;` que falta no `{`, `MISSING_IDENTIFIER` no `)`) e, sem
         // progresso, `UNEXPECTED_TOKEN` no `)`, que é pulado; depois o `;`
@@ -1565,7 +1565,7 @@ mod tests {
     }
 
     #[test]
-    fn palavras_reservadas_que_nao_comecam_statement() {
+    fn reserved_words_that_do_not_start_statement() {
         // Comando de expressão com a palavra como nome (`MISSING_STATEMENT`
         // do `handleExpressionStatement`), como no fasta.
         for src in ["case 1:", "class A {}", "finally {}"] {
@@ -1578,7 +1578,7 @@ mod tests {
     }
 
     #[test]
-    fn limite_de_profundidade() {
+    fn depth_limit() {
         let depth = super::super::MAX_DEPTH as usize + 10;
         let src = format!("{}{}", "{".repeat(depth), "}".repeat(depth));
         let out = stmt(&src);
@@ -1589,7 +1589,7 @@ mod tests {
     }
 
     #[test]
-    fn lookahead_de_funcao_local() {
+    fn local_function_lookahead() {
         let lookahead = |src: &str| {
             let mut names = Interner::new();
             let tokens = crate::lexer::lex(src).unwrap();
@@ -1610,13 +1610,13 @@ mod tests {
     //
     // Enquanto esses módulos forem stubs `todo!()`, estes testes panicam com
     // "not yet implemented"; passam a valer quando os módulos existirem.
-    mod dependentes {
+    mod dependents {
         use super::*;
 
         /// Regressões do corpus: função local com retorno anulável, campo
         /// `operator`, padrão de objeto em `for-in`, vírgula final em `for`.
         #[test]
-        fn funcao_local_com_retorno_nulavel() {
+        fn local_function_with_nullable_return() {
             for src in [
                 "Object? convert(Object? o) { return o; }",
                 "Object? anything() => _inscrutable(0);",
@@ -1634,7 +1634,7 @@ mod tests {
         }
 
         #[test]
-        fn for_in_com_padrao_de_objeto_e_virgula_final() {
+        fn for_in_with_object_pattern_and_trailing_comma() {
             for src in [
                 "for (final MapEntry(key: k, value: v) in m.entries) {}",
                 "for (final MapEntry(key: String k, value: Object? v) in m.entries) {}",
@@ -1658,7 +1658,7 @@ mod tests {
         }
 
         #[test]
-        fn if_else_e_if_case() {
+        fn if_else_and_if_case() {
             let out = ok("if (a) b(); else { c(); }");
             assert!(matches!(
                 out.kind(),
@@ -1686,7 +1686,7 @@ mod tests {
         }
 
         #[test]
-        fn while_e_do() {
+        fn while_and_do() {
             let out = ok("while (true) { break; }");
             assert!(matches!(out.kind(), StmtKind::While { .. }));
             let out = ok("do { x++; } while (x < 10);");
@@ -1694,7 +1694,7 @@ mod tests {
         }
 
         #[test]
-        fn for_classico() {
+        fn classic_for() {
             let out = ok("for (var i = 0, n = x.length; i < n; i++) {}");
             let StmtKind::For {
                 init: Some(ForInit::Variables(list)),
@@ -1832,7 +1832,7 @@ mod tests {
         }
 
         #[test]
-        fn try_com_on() {
+        fn try_with_on() {
             let out =
                 ok("try {} on FormatException catch (e) {} on int {} catch (e, st) {} finally {}");
             let StmtKind::Try { catches, .. } = out.kind() else {
@@ -1865,7 +1865,7 @@ mod tests {
         }
 
         #[test]
-        fn declaracoes_de_variaveis() {
+        fn variable_declarations() {
             let out = ok("int x = 1, y;");
             let StmtKind::Variables(list) = out.kind() else {
                 panic!()
@@ -1900,7 +1900,7 @@ mod tests {
         }
 
         #[test]
-        fn declaracoes_por_padrao() {
+        fn pattern_declarations() {
             let out = ok("var (a, b) = pair;");
             assert!(matches!(
                 out.kind(),
@@ -1940,7 +1940,7 @@ mod tests {
         }
 
         #[test]
-        fn statements_de_expressao() {
+        fn expression_statements() {
             for src in [
                 "x = 1;",
                 "f(a, b);",
@@ -1975,7 +1975,7 @@ mod tests {
         }
 
         #[test]
-        fn bloco_com_varios_statements() {
+        fn block_with_several_statements() {
             let out = ok("{ int x = 1; x++; if (x > 1) return; }");
             assert!(matches!(out.kind(), StmtKind::Block(s) if s.len() == 3));
         }

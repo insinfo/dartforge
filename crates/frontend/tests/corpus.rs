@@ -6,60 +6,60 @@
 //! `references/pub` na raiz do workspace.
 use std::path::{Path, PathBuf};
 
-fn coletar(dir: &Path, saida: &mut Vec<PathBuf>) {
-    let Ok(entradas) = std::fs::read_dir(dir) else {
+fn collect(dir: &Path, output: &mut Vec<PathBuf>) {
+    let Ok(inputs) = std::fs::read_dir(dir) else {
         return;
     };
-    for entrada in entradas.flatten() {
-        let caminho = entrada.path();
-        if caminho.is_dir() {
-            coletar(&caminho, saida);
-        } else if caminho.extension().is_some_and(|e| e == "dart") {
-            saida.push(caminho);
+    for input in inputs.flatten() {
+        let path = input.path();
+        if path.is_dir() {
+            collect(&path, output);
+        } else if path.extension().is_some_and(|e| e == "dart") {
+            output.push(path);
         }
     }
 }
 
-/// A versão de linguagem do pacote dono de `arquivo`: o `x.y` do limite
+/// A versão de linguagem do pacote dono de `file`: o `x.y` do limite
 /// inferior de `sdk:` no `pubspec.yaml` mais próximo (`^3.8.0`,
 /// `'>=3.8.0 <4.0.0'`), como o `languageVersion` que o `pub get` grava.
-fn versao_do_pacote(arquivo: &Path) -> Option<dartforge_frontend::LanguageVersion> {
-    let pubspec = arquivo
+fn package_version(file: &Path) -> Option<dartforge_frontend::LanguageVersion> {
+    let pubspec = file
         .ancestors()
         .skip(1)
         .map(|d| d.join("pubspec.yaml"))
         .find(|p| p.is_file())?;
     let texto = std::fs::read_to_string(pubspec).ok()?;
-    let linha = texto.lines().find(|l| l.trim_start().starts_with("sdk:"))?;
-    let valor = linha
+    let line = texto.lines().find(|l| l.trim_start().starts_with("sdk:"))?;
+    let value = line
         .trim_start()
         .trim_start_matches("sdk:")
         .trim()
         .trim_matches(['\'', '"']);
-    let inferior = valor
+    let inferior = value
         .trim_start_matches('^')
         .trim_start_matches(">=")
         .trim();
     let mut partes = inferior.split(['.', ' ']);
-    let maior: u16 = partes.next()?.parse().ok()?;
-    let menor: u16 = partes.next()?.parse().ok()?;
-    Some(dartforge_frontend::LanguageVersion::new(maior, menor))
+    let greater: u16 = partes.next()?.parse().ok()?;
+    let less: u16 = partes.next()?.parse().ok()?;
+    Some(dartforge_frontend::LanguageVersion::new(greater, less))
 }
 
-/// `por_pacote`: a versão de cada arquivo sem marcador vem do pubspec do
+/// `by_package`: a versão de cada arquivo sem marcador vem do pubspec do
 /// pacote. No SDK não: as bibliotecas `dart:` são lidas na versão corrente
 /// do SDK, mesmo com o `pubspec.yaml` de desenvolvimento que algumas pastas
 /// trazem (`_internal/js_runtime`: `sdk: '>=2.2.2'`).
-fn medir(raiz: &Path, por_pacote: bool) -> (usize, usize, Vec<String>) {
-    let mut arquivos = Vec::new();
-    coletar(raiz, &mut arquivos);
-    arquivos.sort();
-    let mut nomes = dartforge_intern::Interner::new();
+fn measure(root: &Path, by_package: bool) -> (usize, usize, Vec<String>) {
+    let mut files = Vec::new();
+    collect(root, &mut files);
+    files.sort();
+    let mut names = dartforge_intern::Interner::new();
     let mut total = 0;
-    let mut aceitos = 0;
-    let mut falhas = Vec::new();
-    for arquivo in &arquivos {
-        let Ok(fonte) = std::fs::read_to_string(arquivo) else {
+    let mut accepted = 0;
+    let mut failures = Vec::new();
+    for file in &files {
+        let Ok(fonte) = std::fs::read_to_string(file) else {
             continue;
         };
         total += 1;
@@ -68,68 +68,68 @@ fn medir(raiz: &Path, por_pacote: bool) -> (usize, usize, Vec<String>) {
         // de `environment: sdk:` no pubspec; senão o piso 3.6 (o SDK).
         let versao = dartforge_frontend::features::marcador_versao(&fonte)
             .map(|m| m.0)
-            .or_else(|| if por_pacote { versao_do_pacote(arquivo) } else { None })
+            .or_else(|| if by_package { package_version(file) } else { None })
             .unwrap_or(dartforge_frontend::LanguageVersion::PISO);
         let features = dartforge_frontend::LibraryFeatures::new(versao, &[]);
-        let saida = dartforge_frontend::parser::parse_com(&fonte, &mut nomes, features);
-        if saida.diagnostics.is_empty() {
-            aceitos += 1;
+        let output = dartforge_frontend::parser::parse_com(&fonte, &mut names, features);
+        if output.diagnostics.is_empty() {
+            accepted += 1;
         } else {
-            let d = &saida.diagnostics[0];
-            let linha = fonte[..d.span.start.min(fonte.len())].matches('\n').count() + 1;
-            falhas.push(format!("{}:{}: {}", arquivo.display(), linha, d.message));
+            let d = &output.diagnostics[0];
+            let line = fonte[..d.span.start.min(fonte.len())].matches('\n').count() + 1;
+            failures.push(format!("{}:{}: {}", file.display(), line, d.message));
         }
     }
-    (aceitos, total, falhas)
+    (accepted, total, failures)
 }
 
 #[test]
 #[ignore = "depende do SDK 3.6.2 e do corpus em references/pub"]
-fn sdk_lib_inteiro_e_aceito() {
+fn whole_sdk_lib_is_accepted() {
     let sdk = std::env::var("DARTFORGE_SDK_LIB").unwrap_or("C:/tools/dartsdk-3.6.2/lib".into());
-    let (aceitos, total, falhas) = medir(Path::new(&sdk), false);
+    let (accepted, total, failures) = measure(Path::new(&sdk), false);
     assert!(total > 0, "SDK não encontrado em {sdk}");
     assert_eq!(
-        aceitos,
+        accepted,
         total,
         "arquivos do SDK recusados:\n{}",
-        falhas.join("\n")
+        failures.join("\n")
     );
 }
 
 #[test]
 #[ignore = "depende do SDK 3.6.2 e do corpus em references/pub"]
-fn corpus_pub_inteiro_e_aceito() {
+fn whole_pub_corpus_is_accepted() {
     // `DARTFORGE_PUB_CORPUS` aponta outro clone (numa worktree, o do checkout
     // principal: `references/` fica fora do git).
-    let raiz = std::env::var("DARTFORGE_PUB_CORPUS")
+    let root = std::env::var("DARTFORGE_PUB_CORPUS")
         .map(PathBuf::from)
         .unwrap_or_else(|_| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../references/pub"));
-    let (aceitos, total, falhas) = medir(&raiz, true);
-    assert!(total > 0, "corpus não encontrado em {}", raiz.display());
+    let (accepted, total, failures) = measure(&root, true);
+    assert!(total > 0, "corpus não encontrado em {}", root.display());
     assert_eq!(
-        aceitos,
+        accepted,
         total,
         "arquivos do corpus recusados:\n{}",
-        falhas.join("\n")
+        failures.join("\n")
     );
 }
 
 #[test]
 #[ignore = "depende do SDK 3.6.2"]
-fn sdk_lib_inteiro_lexa() {
+fn whole_sdk_lib_lexes() {
     let sdk = std::env::var("DARTFORGE_SDK_LIB").unwrap_or("C:/tools/dartsdk-3.6.2/lib".into());
-    let mut arquivos = Vec::new();
-    coletar(Path::new(&sdk), &mut arquivos);
-    let mut falhas = Vec::new();
-    for arquivo in &arquivos {
-        let Ok(fonte) = std::fs::read_to_string(arquivo) else {
+    let mut files = Vec::new();
+    collect(Path::new(&sdk), &mut files);
+    let mut failures = Vec::new();
+    for file in &files {
+        let Ok(fonte) = std::fs::read_to_string(file) else {
             continue;
         };
         if let Err(d) = dartforge_frontend::lexer::lex(&fonte) {
-            let linha = fonte[..d.span.start.min(fonte.len())].matches('\n').count() + 1;
-            falhas.push(format!("{}:{}: {}", arquivo.display(), linha, d.message));
+            let line = fonte[..d.span.start.min(fonte.len())].matches('\n').count() + 1;
+            failures.push(format!("{}:{}: {}", file.display(), line, d.message));
         }
     }
-    assert!(falhas.is_empty(), "{}", falhas.join("\n"));
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

@@ -892,7 +892,7 @@ fn features_da_unidade(
         Versao::Sdk => LibraryFeatures::piso(),
         Versao::Biblioteca { config, corrente, experimentos } => {
             let (padrao, marcador) = versao_propria(fonte, uri, path, config, corrente, diagnostics);
-            LibraryFeatures::para_biblioteca(marcador.map(|m| m.0), padrao, corrente, experimentos)
+            LibraryFeatures::for_library(marcador.map(|m| m.0), padrao, corrente, experimentos)
         }
         Versao::Parte { da_biblioteca, config, corrente } => {
             let (padrao, marcador) = versao_propria(fonte, uri, path, config, corrente, diagnostics);
@@ -1041,7 +1041,7 @@ fn load_unit(
         program.libraries[lib_id.0 as usize].features = features;
     }
     let t = std::time::Instant::now();
-    let parsed = dartforge_frontend::parser::parse_lexed_com(&source, tokens, interner, features);
+    let parsed = dartforge_frontend::parser::parse_lexed_with(&source, tokens, interner, features);
     program.tempos.parse += t.elapsed();
     for mut d in parsed.diagnostics {
         d.message = format!("{}:{}: {}", path.display(), d.span.start, d.message);

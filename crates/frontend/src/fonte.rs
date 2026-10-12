@@ -30,15 +30,15 @@ pub fn pular_brancos(b: &[u8], mut i: usize) -> usize {
                 i += 1;
             }
         } else if b[i.min(b.len())..].starts_with(b"/*") {
-            let mut nivel = 0usize;
+            let mut level = 0usize;
             while i < b.len() {
                 if b[i..].starts_with(b"/*") {
-                    nivel += 1;
+                    level += 1;
                     i += 2;
                 } else if b[i..].starts_with(b"*/") {
-                    nivel -= 1;
+                    level -= 1;
                     i += 2;
-                    if nivel == 0 {
+                    if level == 0 {
                         break;
                     }
                 } else {
@@ -51,24 +51,24 @@ pub fn pular_brancos(b: &[u8], mut i: usize) -> usize {
     }
 }
 
-fn parte_de_identificador(c: u8) -> bool {
+fn identifier_part(c: u8) -> bool {
     c.is_ascii_alphanumeric() || c == b'_' || c == b'$'
 }
 
 /// A fonte, a partir de `i`, começa com a palavra `p` inteira.
 pub fn palavra_em(fonte: &str, i: usize, p: &str) -> bool {
     let b = fonte.as_bytes();
-    b.get(i..).is_some_and(|r| r.starts_with(p.as_bytes())) && !b.get(i + p.len()).is_some_and(|&c| parte_de_identificador(c))
+    b.get(i..).is_some_and(|r| r.starts_with(p.as_bytes())) && !b.get(i + p.len()).is_some_and(|&c| identifier_part(c))
 }
 
 /// O fim do nó `FunctionTypedFormalParameter`/`FieldFormalParameter` com
 /// lista (sem o valor padrão do `DefaultFormalParameter` que o envolve): o
 /// `)` que fecha a lista que começa depois do nome (e dos parâmetros de
 /// tipo), e o `?` que o siga.
-pub fn fim_do_parametro_funcao(fonte: &str, depois_do_nome: usize) -> usize {
+pub fn fim_do_parametro_funcao(fonte: &str, after_name: usize) -> usize {
     let b = fonte.as_bytes();
-    let mut i = depois_do_nome;
-    let mut nivel = 0usize;
+    let mut i = after_name;
+    let mut level = 0usize;
     while i < b.len() {
         let j = pular_brancos(b, i);
         if j != i {
@@ -76,10 +76,10 @@ pub fn fim_do_parametro_funcao(fonte: &str, depois_do_nome: usize) -> usize {
             continue;
         }
         match b[i] {
-            b'(' | b'[' | b'{' | b'<' => nivel += 1,
+            b'(' | b'[' | b'{' | b'<' => level += 1,
             b')' | b']' | b'}' | b'>' => {
-                nivel = nivel.saturating_sub(1);
-                if nivel == 0 && b[i] == b')' {
+                level = level.saturating_sub(1);
+                if level == 0 && b[i] == b')' {
                     let k = pular_brancos(b, i + 1);
                     return if b.get(k) == Some(&b'?') { k + 1 } else { i + 1 };
                 }
@@ -104,54 +104,54 @@ pub fn fim_do_parametro_funcao(fonte: &str, depois_do_nome: usize) -> usize {
 /// O texto do tipo `t`.
 pub fn de_tipo(a: &Ast, fonte: &str, interner: &Interner, t: TypeId) -> String {
     let mut f = Impressor::novo(a, fonte, interner);
-    f.tipo(t);
-    f.saida
+    f.kind(t);
+    f.output
 }
 
 /// O texto da expressão `e`.
 pub fn de_expr(a: &Ast, fonte: &str, interner: &Interner, e: ExprId) -> String {
     let mut f = Impressor::novo(a, fonte, interner);
     f.expr(e);
-    f.saida
+    f.output
 }
 
 /// O texto da instrução `s`.
-pub fn de_stmt(a: &Ast, fonte: &str, interner: &Interner, s: StmtId) -> String {
+pub fn from_stmt(a: &Ast, fonte: &str, interner: &Interner, s: StmtId) -> String {
     let mut f = Impressor::novo(a, fonte, interner);
     f.stmt(s);
-    f.saida
+    f.output
 }
 
 /// O texto do padrão `p`.
 pub fn de_padrao(a: &Ast, fonte: &str, interner: &Interner, p: PatternId) -> String {
     let mut f = Impressor::novo(a, fonte, interner);
     f.padrao(p);
-    f.saida
+    f.output
 }
 
 /// O texto da anotação `m`.
-pub fn de_anotacao(a: &Ast, fonte: &str, interner: &Interner, m: &Annotation) -> String {
+pub fn from_annotation(a: &Ast, fonte: &str, interner: &Interner, m: &Annotation) -> String {
     let mut f = Impressor::novo(a, fonte, interner);
-    f.anotacao(m);
-    f.saida
+    f.annotation(m);
+    f.output
 }
 
 /// O texto da lista de parâmetros de tipo `ps` (o `TypeParameterList`;
 /// vazio sem nenhum).
 pub fn de_parametros_de_tipo(a: &Ast, fonte: &str, interner: &Interner, ps: &[TypeParameter]) -> String {
     let mut f = Impressor::novo(a, fonte, interner);
-    f.parametros_de_tipo(ps);
-    f.saida
+    f.type_parameters_(ps);
+    f.output
 }
 
 /// O texto da lista de parâmetros `ps` (o `FormalParameterList`).
 pub fn de_parametros(a: &Ast, fonte: &str, interner: &Interner, ps: &[Parameter]) -> String {
     let mut f = Impressor::novo(a, fonte, interner);
-    f.parametros(ps);
-    f.saida
+    f.parameters_(ps);
+    f.output
 }
 
-fn lexema_binario(op: BinaryOp) -> &'static str {
+fn binary_lexeme(op: BinaryOp) -> &'static str {
     match op {
         BinaryOp::Add => "+",
         BinaryOp::Sub => "-",
@@ -182,35 +182,35 @@ struct Impressor<'a> {
     a: &'a Ast,
     fonte: &'a str,
     interner: &'a Interner,
-    saida: String,
+    output: String,
     /// O operador da seção de cascata em impressão (`..` ou `?..`): o
     /// `CascadeTarget` sai como ele.
-    cascata: &'static str,
+    cascade: &'static str,
 }
 
 impl<'a> Impressor<'a> {
     fn novo(a: &'a Ast, fonte: &'a str, interner: &'a Interner) -> Self {
-        Impressor { a, fonte, interner, saida: String::new(), cascata: ".." }
+        Impressor { a, fonte, interner, output: String::new(), cascade: ".." }
     }
 
     fn w(&mut self, s: &str) {
-        self.saida.push_str(s);
+        self.output.push_str(s);
     }
 
     fn nome(&mut self, n: crate::ast::Name) {
         let s = self.interner.resolve(n.sym);
-        self.saida.push_str(s);
+        self.output.push_str(s);
     }
 
-    fn trecho(&mut self, s: crate::Span) {
+    fn excerpt(&mut self, s: crate::Span) {
         let t = self.fonte.get(s.start..s.end).unwrap_or("");
-        self.saida.push_str(t);
+        self.output.push_str(t);
     }
 
     /// `_visitNodeList(metadata, separator: ' ', suffix: ' ')`.
     fn metadata(&mut self, ms: &[Annotation]) {
         for m in ms {
-            self.anotacao(m);
+            self.annotation(m);
             self.w(" ");
         }
     }
@@ -227,7 +227,7 @@ impl<'a> Impressor<'a> {
     // Tipos
     // -----------------------------------------------------------------
 
-    fn argumentos_de_tipo(&mut self, ts: &[TypeId]) {
+    fn type_arguments_(&mut self, ts: &[TypeId]) {
         if ts.is_empty() {
             return;
         }
@@ -236,12 +236,12 @@ impl<'a> Impressor<'a> {
             if k > 0 {
                 self.w(", ");
             }
-            self.tipo(t);
+            self.kind(t);
         }
         self.w(">");
     }
 
-    fn parametros_de_tipo(&mut self, ps: &[TypeParameter]) {
+    fn type_parameters_(&mut self, ps: &[TypeParameter]) {
         if ps.is_empty() {
             return;
         }
@@ -252,19 +252,19 @@ impl<'a> Impressor<'a> {
             }
             self.metadata(&p.metadata);
             if let Some((_, s)) = p.variance {
-                self.trecho(s);
+                self.excerpt(s);
                 self.w(" ");
             }
             self.nome(p.name);
             if let Some(b) = p.bound {
                 self.w(" extends ");
-                self.tipo(b);
+                self.kind(b);
             }
         }
         self.w(">");
     }
 
-    fn tipo(&mut self, t: TypeId) {
+    fn kind(&mut self, t: TypeId) {
         let a = self.a;
         let ty = a.ty(t);
         match &ty.kind {
@@ -275,16 +275,16 @@ impl<'a> Impressor<'a> {
                     }
                     self.nome(*n);
                 }
-                self.argumentos_de_tipo(args);
+                self.type_arguments_(args);
             }
             TypeKind::Void => self.w("void"),
             TypeKind::Function { return_type, type_params, parameters } => {
                 if let Some(r) = return_type {
-                    self.tipo(*r);
+                    self.kind(*r);
                 }
                 self.w(" Function");
-                self.parametros_de_tipo(type_params);
-                self.parametros(parameters);
+                self.type_parameters_(type_params);
+                self.parameters_(parameters);
             }
             TypeKind::Record { positional, named } => {
                 self.w("(");
@@ -292,19 +292,19 @@ impl<'a> Impressor<'a> {
                     if k > 0 {
                         self.w(", ");
                     }
-                    self.tipo(p);
+                    self.kind(p);
                     // O nome do campo posicional: o identificador que o
                     // parser consumiu logo depois do tipo.
                     let b = self.fonte.as_bytes();
                     let i = pular_brancos(b, a.ty(p).span.end);
-                    if b.get(i).is_some_and(|&c| parte_de_identificador(c) && !c.is_ascii_digit()) {
+                    if b.get(i).is_some_and(|&c| identifier_part(c) && !c.is_ascii_digit()) {
                         let mut j = i;
-                        while j < b.len() && parte_de_identificador(b[j]) {
+                        while j < b.len() && identifier_part(b[j]) {
                             j += 1;
                         }
                         self.w(" ");
                         let nome = &self.fonte[i..j];
-                        self.saida.push_str(nome);
+                        self.output.push_str(nome);
                     }
                 }
                 if !named.is_empty() {
@@ -316,7 +316,7 @@ impl<'a> Impressor<'a> {
                         if k > 0 {
                             self.w(", ");
                         }
-                        self.tipo(*t);
+                        self.kind(*t);
                         self.w(" ");
                         self.nome(*n);
                     }
@@ -335,31 +335,31 @@ impl<'a> Impressor<'a> {
     // -----------------------------------------------------------------
 
     /// `visitFormalParameterList`.
-    fn parametros(&mut self, ps: &[Parameter]) {
+    fn parameters_(&mut self, ps: &[Parameter]) {
         self.w("(");
-        let mut fim_do_grupo: Option<&'static str> = None;
+        let mut group_end: Option<&'static str> = None;
         for (k, p) in ps.iter().enumerate() {
             if k > 0 {
                 self.w(", ");
             }
-            if fim_do_grupo.is_none() && p.kind != ParameterKind::Required {
+            if group_end.is_none() && p.kind != ParameterKind::Required {
                 if p.kind == ParameterKind::Named {
-                    fim_do_grupo = Some("}");
+                    group_end = Some("}");
                     self.w("{");
                 } else {
-                    fim_do_grupo = Some("]");
+                    group_end = Some("]");
                     self.w("[");
                 }
             }
-            self.parametro(p);
+            self.parameter(p);
         }
-        if let Some(g) = fim_do_grupo {
+        if let Some(g) = group_end {
             self.w(g);
         }
         self.w(")");
     }
 
-    fn parametro(&mut self, p: &Parameter) {
+    fn parameter(&mut self, p: &Parameter) {
         self.metadata(&p.metadata);
         if p.required {
             self.w("required ");
@@ -367,8 +367,8 @@ impl<'a> Impressor<'a> {
         if p.covariant {
             self.w("covariant ");
         }
-        let funcao = p.function_parameters.is_some();
-        if p.this_ || p.super_ || !funcao {
+        let function = p.function_parameters.is_some();
+        if p.this_ || p.super_ || !function {
             // `keyword`: o `FunctionTypedFormalParameter` não o tem.
             if p.final_ {
                 self.w("final ");
@@ -380,33 +380,33 @@ impl<'a> Impressor<'a> {
         }
         if p.this_ || p.super_ {
             if let Some(t) = p.ty {
-                self.tipo(t);
+                self.kind(t);
                 self.w(" ");
             }
             self.w(if p.this_ { "this." } else { "super." });
             if let Some(n) = p.name {
                 self.nome(n);
             }
-            self.parametros_de_tipo(&p.function_type_params);
+            self.type_parameters_(&p.function_type_params);
             if let Some(fs) = &p.function_parameters {
-                self.parametros(fs);
+                self.parameters_(fs);
             }
         } else if let Some(fs) = &p.function_parameters {
             if let Some(t) = p.ty {
-                self.tipo(t);
+                self.kind(t);
                 self.w(" ");
             }
             if let Some(n) = p.name {
                 self.nome(n);
             }
-            self.parametros_de_tipo(&p.function_type_params);
-            self.parametros(fs);
+            self.type_parameters_(&p.function_type_params);
+            self.parameters_(fs);
             if p.function_nullable {
                 self.w("?");
             }
         } else {
             if let Some(t) = p.ty {
-                self.tipo(t);
+                self.kind(t);
             }
             if p.ty.is_some() && p.name.is_some() {
                 self.w(" ");
@@ -417,10 +417,10 @@ impl<'a> Impressor<'a> {
         }
         // `visitDefaultFormalParameter`: o separador escrito.
         if let Some(v) = p.default_value {
-            let inicio = self.a.expr(v).span.start;
+            let start_offset = self.a.expr(v).span.start;
             let b = self.fonte.as_bytes();
             // O separador é o último `=` ou `:` antes do valor.
-            let mut i = inicio;
+            let mut i = start_offset;
             let mut sep = b'=';
             while i > p.span.start {
                 i -= 1;
@@ -441,19 +441,19 @@ impl<'a> Impressor<'a> {
 
     /// `visitAnnotation`: `@`, o nome (com o prefixo), os argumentos de
     /// tipo, `.construtor` e os argumentos.
-    fn anotacao(&mut self, m: &Annotation) {
+    fn annotation(&mut self, m: &Annotation) {
         self.w("@");
         // Os argumentos de tipo vêm depois das partes escritas antes deles.
         let antes = match m.type_args.first() {
             Some(&t) => {
-                let ini = self.a.ty(t).span.start;
-                m.name.iter().filter(|n| n.span.end <= ini).count()
+                let start_ = self.a.ty(t).span.start;
+                m.name.iter().filter(|n| n.span.end <= start_).count()
             }
             None => m.name.len(),
         };
         for (k, n) in m.name.iter().enumerate() {
             if k == antes {
-                self.argumentos_de_tipo(&m.type_args);
+                self.type_arguments_(&m.type_args);
             }
             if k > 0 {
                 self.w(".");
@@ -461,18 +461,18 @@ impl<'a> Impressor<'a> {
             self.nome(*n);
         }
         if antes >= m.name.len() {
-            self.argumentos_de_tipo(&m.type_args);
+            self.type_arguments_(&m.type_args);
         }
         if let Some(args) = &m.arguments {
-            self.argumentos(args, false);
+            self.arguments_(args, false);
         }
     }
 
-    /// `visitArgumentList`; `com_tipos` imprime antes os argumentos de tipo
+    /// `visitArgumentList`; `with_types` imprime antes os argumentos de tipo
     /// da invocação.
-    fn argumentos(&mut self, args: &Arguments, com_tipos: bool) {
-        if com_tipos {
-            self.argumentos_de_tipo(&args.type_args);
+    fn arguments_(&mut self, args: &Arguments, with_types: bool) {
+        if with_types {
+            self.type_arguments_(&args.type_args);
         }
         self.w("(");
         for (k, x) in args.args.iter().enumerate() {
@@ -480,7 +480,7 @@ impl<'a> Impressor<'a> {
                 self.w(", ");
             }
             if let Some(n) = x.name {
-                // `visitNamedExpression`: o rótulo `nome:` e ` valor`.
+                // `visitNamedExpression`: o rótulo `nome:` e ` value`.
                 self.nome(n);
                 self.w(": ");
             }
@@ -497,7 +497,7 @@ impl<'a> Impressor<'a> {
         let a = self.a;
         let x = a.expr(e);
         match &x.kind {
-            ExprKind::Int(s) | ExprKind::Double(s) => self.trecho(*s),
+            ExprKind::Int(s) | ExprKind::Double(s) => self.excerpt(*s),
             ExprKind::Bool(v) => self.w(if *v { "true" } else { "false" }),
             ExprKind::Null => self.w("null"),
             ExprKind::String(s) => self.string(s),
@@ -522,28 +522,28 @@ impl<'a> Impressor<'a> {
                 if *const_ {
                     self.w("const ");
                 }
-                self.argumentos_de_tipo(type_args);
+                self.type_arguments_(type_args);
                 self.w("[");
-                self.elementos(elements);
+                self.elements_(elements);
                 self.w("]");
             }
             ExprKind::SetOrMap { const_, type_args, elements } => {
                 if *const_ {
                     self.w("const ");
                 }
-                self.argumentos_de_tipo(type_args);
+                self.type_arguments_(type_args);
                 self.w("{");
-                self.elementos(elements);
+                self.elements_(elements);
                 self.w("}");
             }
             ExprKind::Record { positional, named, .. } => {
                 // `visitRecordLiteral`: os campos na ordem escrita, sem o
                 // `const` e sem a vírgula final.
-                let mut campos: Vec<(usize, Option<crate::ast::Name>, ExprId)> = positional.iter().map(|&p| (a.expr(p).span.start, None, p)).collect();
-                campos.extend(named.iter().map(|&(n, v)| (n.span.start, Some(n), v)));
-                campos.sort_by_key(|c| c.0);
+                let mut fields_: Vec<(usize, Option<crate::ast::Name>, ExprId)> = positional.iter().map(|&p| (a.expr(p).span.start, None, p)).collect();
+                fields_.extend(named.iter().map(|&(n, v)| (n.span.start, Some(n), v)));
+                fields_.sort_by_key(|c| c.0);
                 self.w("(");
-                for (k, (_, n, v)) in campos.into_iter().enumerate() {
+                for (k, (_, n, v)) in fields_.into_iter().enumerate() {
                     if k > 0 {
                         self.w(", ");
                     }
@@ -561,17 +561,17 @@ impl<'a> Impressor<'a> {
                     Some(CreationKeyword::Const) => self.w("const "),
                     None => {}
                 }
-                self.tipo(*ty);
+                self.kind(*ty);
                 if let Some(c) = constructor {
                     self.w(".");
                     self.nome(*c);
                 }
-                self.argumentos(arguments, false);
+                self.arguments_(arguments, false);
             }
-            ExprKind::FunctionExpression(f) => self.funcao(*f, false),
+            ExprKind::FunctionExpression(f) => self.function(*f, false),
             ExprKind::Property { target, name, null_aware } => {
                 if matches!(a.expr(*target).kind, ExprKind::CascadeTarget) {
-                    self.w(self.cascata);
+                    self.w(self.cascade);
                 } else {
                     self.expr(*target);
                     self.w(if *null_aware { "?." } else { "." });
@@ -580,7 +580,7 @@ impl<'a> Impressor<'a> {
             }
             ExprKind::Index { target, index, null_aware } => {
                 if matches!(a.expr(*target).kind, ExprKind::CascadeTarget) {
-                    self.w(self.cascata);
+                    self.w(self.cascade);
                 } else {
                     self.expr(*target);
                     if *null_aware {
@@ -593,14 +593,14 @@ impl<'a> Impressor<'a> {
             }
             ExprKind::Call { target, arguments } => {
                 self.expr(*target);
-                self.argumentos(arguments, true);
+                self.arguments_(arguments, true);
             }
             ExprKind::TypeArguments { target, type_args } => {
                 self.expr(*target);
-                self.argumentos_de_tipo(type_args);
+                self.type_arguments_(type_args);
             }
             ExprKind::Unary { op, operand } => {
-                let (pre, lexema) = match op {
+                let (pre, lexeme) = match op {
                     UnaryOp::Neg => (true, "-"),
                     UnaryOp::Not => (true, "!"),
                     UnaryOp::BitNot => (true, "~"),
@@ -613,17 +613,17 @@ impl<'a> Impressor<'a> {
                 // Os operandos escritos já respeitam a precedência (os
                 // parênteses estão na árvore): o `_writeOperand` não acrescenta.
                 if pre {
-                    self.w(lexema);
+                    self.w(lexeme);
                     self.expr(*operand);
                 } else {
                     self.expr(*operand);
-                    self.w(lexema);
+                    self.w(lexeme);
                 }
             }
             ExprKind::Binary { op, left, right } => {
                 self.expr(*left);
                 self.w(" ");
-                self.w(lexema_binario(*op));
+                self.w(binary_lexeme(*op));
                 self.w(" ");
                 self.expr(*right);
             }
@@ -637,12 +637,12 @@ impl<'a> Impressor<'a> {
             ExprKind::Is { value, ty, negated } => {
                 self.expr(*value);
                 self.w(if *negated { " is! " } else { " is " });
-                self.tipo(*ty);
+                self.kind(*ty);
             }
             ExprKind::As { value, ty } => {
                 self.expr(*value);
                 self.w(" as ");
-                self.tipo(*ty);
+                self.kind(*ty);
             }
             ExprKind::Assign { op, target, value } => {
                 self.expr(*target);
@@ -650,7 +650,7 @@ impl<'a> Impressor<'a> {
                 match op {
                     AssignOp::Assign => self.w("="),
                     AssignOp::Compound(b) => {
-                        self.w(lexema_binario(*b));
+                        self.w(binary_lexeme(*b));
                         self.w("=");
                     }
                 }
@@ -664,14 +664,14 @@ impl<'a> Impressor<'a> {
             }
             ExprKind::Cascade { target, sections, null_aware } => {
                 self.expr(*target);
-                let antes = self.cascata;
+                let antes = self.cascade;
                 for (k, &s) in sections.iter().enumerate() {
-                    self.cascata = if k == 0 && *null_aware { "?.." } else { ".." };
+                    self.cascade = if k == 0 && *null_aware { "?.." } else { ".." };
                     self.expr(s);
                 }
-                self.cascata = antes;
+                self.cascade = antes;
             }
-            ExprKind::CascadeTarget => self.w(self.cascata),
+            ExprKind::CascadeTarget => self.w(self.cascade),
             ExprKind::Await(i) => {
                 self.w("await ");
                 self.expr(*i);
@@ -717,51 +717,51 @@ impl<'a> Impressor<'a> {
     fn string(&mut self, s: &StringLit) {
         let a = self.a;
         let b = self.fonte.as_bytes();
-        let fim = s.span.end.min(b.len());
-        let mut interpolacoes = s.parts.iter().filter_map(|p| match p {
+        let end_offset = s.span.end.min(b.len());
+        let mut interpolations = s.parts.iter().filter_map(|p| match p {
             crate::ast::StringPart::Interpolation(e) => Some(*e),
             crate::ast::StringPart::Text(_) => None,
         });
         let mut i = s.span.start;
-        let mut primeiro = true;
-        while i < fim {
+        let mut first = true;
+        while i < end_offset {
             let j = pular_brancos(b, i);
-            if j >= fim {
+            if j >= end_offset {
                 break;
             }
             i = j;
-            if !primeiro {
+            if !first {
                 self.w(" ");
             }
-            primeiro = false;
-            let cru = b[i] == b'r';
-            let mut ini = i;
-            if cru {
+            first = false;
+            let raw = b[i] == b'r';
+            let mut start_ = i;
+            if raw {
                 i += 1;
             }
             let q = b[i];
-            let tripla = b[i..].starts_with(&[q, q, q]);
-            let n = if tripla { 3 } else { 1 };
+            let triple = b[i..].starts_with(&[q, q, q]);
+            let n = if triple { 3 } else { 1 };
             i += n;
             loop {
-                if i >= fim {
-                    self.saida.push_str(&self.fonte[ini..fim]);
+                if i >= end_offset {
+                    self.output.push_str(&self.fonte[start_..end_offset]);
                     return;
                 }
-                if b[i] == q && (!tripla || b[i..].starts_with(&[q, q, q])) {
+                if b[i] == q && (!triple || b[i..].starts_with(&[q, q, q])) {
                     i += n;
-                    self.saida.push_str(&self.fonte[ini..i]);
+                    self.output.push_str(&self.fonte[start_..i]);
                     break;
                 }
-                if !cru && b[i] == b'\\' {
+                if !raw && b[i] == b'\\' {
                     i += 2;
                     continue;
                 }
-                if !cru && b[i] == b'$' && i + 1 < fim {
+                if !raw && b[i] == b'$' && i + 1 < end_offset {
                     if b[i + 1] == b'{' {
-                        self.saida.push_str(&self.fonte[ini..i]);
+                        self.output.push_str(&self.fonte[start_..i]);
                         self.w("${");
-                        if let Some(e) = interpolacoes.next() {
+                        if let Some(e) = interpolations.next() {
                             self.expr(e);
                             // Até o `}` que fecha, depois da expressão.
                             let k = pular_brancos(b, a.expr(e).span.end);
@@ -770,19 +770,19 @@ impl<'a> Impressor<'a> {
                             i += 2;
                         }
                         self.w("}");
-                        ini = i;
+                        start_ = i;
                         continue;
                     }
-                    if parte_de_identificador(b[i + 1]) && !b[i + 1].is_ascii_digit() && b[i + 1] != b'$' {
-                        self.saida.push_str(&self.fonte[ini..i]);
+                    if identifier_part(b[i + 1]) && !b[i + 1].is_ascii_digit() && b[i + 1] != b'$' {
+                        self.output.push_str(&self.fonte[start_..i]);
                         self.w("$");
-                        if let Some(e) = interpolacoes.next() {
+                        if let Some(e) = interpolations.next() {
                             self.expr(e);
                             i = a.expr(e).span.end;
                         } else {
                             i += 1;
                         }
-                        ini = i;
+                        start_ = i;
                         continue;
                     }
                 }
@@ -791,16 +791,16 @@ impl<'a> Impressor<'a> {
         }
     }
 
-    fn elementos(&mut self, es: &[CollectionElement]) {
+    fn elements_(&mut self, es: &[CollectionElement]) {
         for (k, e) in es.iter().enumerate() {
             if k > 0 {
                 self.w(", ");
             }
-            self.elemento(e);
+            self.element(e);
         }
     }
 
-    fn elemento(&mut self, e: &CollectionElement) {
+    fn element(&mut self, e: &CollectionElement) {
         match e {
             CollectionElement::Expression(x) => self.expr(*x),
             CollectionElement::NullAwareExpression(x) => {
@@ -829,10 +829,10 @@ impl<'a> Impressor<'a> {
                     }
                 }
                 self.w(") ");
-                self.elemento(then);
+                self.element(then);
                 if let Some(x) = else_ {
                     self.w(" else ");
-                    self.elemento(x);
+                    self.element(x);
                 }
             }
             CollectionElement::For { await_, init, condition, updates, body } => {
@@ -840,23 +840,23 @@ impl<'a> Impressor<'a> {
                     self.w("await ");
                 }
                 self.w("for (");
-                self.partes_do_for(init.as_ref(), *condition, updates);
+                self.for_parts(init.as_ref(), *condition, updates);
                 self.w(") ");
-                self.elemento(body);
+                self.element(body);
             }
             CollectionElement::ForIn { await_, target, iterable, body } => {
                 if *await_ {
                     self.w("await ");
                 }
                 self.w("for (");
-                self.partes_do_for_in(target, *iterable);
+                self.for_in_parts(target, *iterable);
                 self.w(") ");
-                self.elemento(body);
+                self.element(body);
             }
         }
     }
 
-    fn partes_do_for(&mut self, init: Option<&ForInit>, condition: Option<ExprId>, updates: &[ExprId]) {
+    fn for_parts(&mut self, init: Option<&ForInit>, condition: Option<ExprId>, updates: &[ExprId]) {
         if let Some(ForInit::Pattern { final_, pattern, value }) = init {
             // `visitForPartsWithPattern`.
             self.w(if *final_ { "final " } else { "var " });
@@ -877,7 +877,7 @@ impl<'a> Impressor<'a> {
             return;
         }
         match init {
-            Some(ForInit::Variables(l)) => self.lista_de_variaveis(l),
+            Some(ForInit::Variables(l)) => self.variable_list(l),
             Some(ForInit::Expression(e)) => self.expr(*e),
             _ => {}
         }
@@ -893,7 +893,7 @@ impl<'a> Impressor<'a> {
         }
     }
 
-    fn partes_do_for_in(&mut self, target: &ForInTarget, iterable: ExprId) {
+    fn for_in_parts(&mut self, target: &ForInTarget, iterable: ExprId) {
         match target {
             ForInTarget::Declared { metadata, final_, var_, ty, name, const_ } => {
                 self.metadata(metadata);
@@ -905,7 +905,7 @@ impl<'a> Impressor<'a> {
                     self.w("const ");
                 }
                 if let Some(t) = ty {
-                    self.tipo(*t);
+                    self.kind(*t);
                     self.w(" ");
                 }
                 self.nome(*name);
@@ -921,7 +921,7 @@ impl<'a> Impressor<'a> {
     }
 
     /// `visitVariableDeclarationList` (sem a metadata, que o chamador põe).
-    fn lista_de_variaveis(&mut self, l: &VariableList) {
+    fn variable_list(&mut self, l: &VariableList) {
         if l.late {
             self.w("late ");
         }
@@ -933,7 +933,7 @@ impl<'a> Impressor<'a> {
             self.w("var ");
         }
         if let Some(t) = l.ty {
-            self.tipo(t);
+            self.kind(t);
             self.w(" ");
         }
         for (k, v) in l.variables.iter().enumerate() {
@@ -948,20 +948,20 @@ impl<'a> Impressor<'a> {
         }
     }
 
-    /// `visitFunctionExpression` (`declarada`: o corpo `=> e` de uma
+    /// `visitFunctionExpression` (`declared`: o corpo `=> e` de uma
     /// declaração termina em `;`).
-    fn funcao(&mut self, f: FunctionId, declarada: bool) {
+    fn function(&mut self, f: FunctionId, declared: bool) {
         let a = self.a;
         let g = a.function(f);
-        self.parametros_de_tipo(&g.type_params);
+        self.type_parameters_(&g.type_params);
         if let Some(ps) = &g.parameters {
-            self.parametros(ps);
+            self.parameters_(ps);
         }
         // `_visitFunctionBody`.
         if !matches!(g.body, FunctionBody::Empty) {
             self.w(" ");
         }
-        let modificador = match g.modifier {
+        let modifier = match g.modifier {
             AsyncModifier::None => "",
             AsyncModifier::Async => "async ",
             AsyncModifier::AsyncStar => "async* ",
@@ -969,14 +969,14 @@ impl<'a> Impressor<'a> {
         };
         match &g.body {
             FunctionBody::Block(s) => {
-                self.w(modificador);
+                self.w(modifier);
                 self.stmt(*s);
             }
             FunctionBody::Expression(e) => {
-                self.w(modificador);
+                self.w(modifier);
                 self.w("=> ");
                 self.expr(*e);
-                if declarada {
+                if declared {
                     self.w(";");
                 }
             }
@@ -1011,7 +1011,7 @@ impl<'a> Impressor<'a> {
             }
             StmtKind::Variables(l) => {
                 self.metadata_local(s);
-                self.lista_de_variaveis(l);
+                self.variable_list(l);
                 self.w(";");
             }
             StmtKind::PatternVariables { final_, pattern, value } => {
@@ -1030,13 +1030,13 @@ impl<'a> Impressor<'a> {
                     self.w("external ");
                 }
                 if let Some(r) = g.return_type {
-                    self.tipo(r);
+                    self.kind(r);
                     self.w(" ");
                 }
                 if let Some(n) = g.name {
                     self.nome(n);
                 }
-                self.funcao(*f, true);
+                self.function(*f, true);
             }
             StmtKind::Expression(e) => {
                 self.expr(*e);
@@ -1065,7 +1065,7 @@ impl<'a> Impressor<'a> {
                     self.w("await ");
                 }
                 self.w("for (");
-                self.partes_do_for(init.as_ref(), *condition, updates);
+                self.for_parts(init.as_ref(), *condition, updates);
                 self.w(") ");
                 self.stmt(*body);
             }
@@ -1074,7 +1074,7 @@ impl<'a> Impressor<'a> {
                     self.w("await ");
                 }
                 self.w("for (");
-                self.partes_do_for_in(target, *iterable);
+                self.for_in_parts(target, *iterable);
                 self.w(") ");
                 self.stmt(*body);
             }
@@ -1180,7 +1180,7 @@ impl<'a> Impressor<'a> {
     fn catch(&mut self, c: &CatchClause) {
         if let Some(t) = c.on_type {
             self.w("on ");
-            self.tipo(t);
+            self.kind(t);
         }
         if c.exception.is_some() {
             if c.on_type.is_some() {
@@ -1217,7 +1217,7 @@ impl<'a> Impressor<'a> {
                     self.w("final ");
                 }
                 if let Some(t) = ty {
-                    self.tipo(*t);
+                    self.kind(*t);
                     self.w(" ");
                 }
                 self.w("_");
@@ -1229,7 +1229,7 @@ impl<'a> Impressor<'a> {
                     self.w("var ");
                 }
                 if let Some(t) = ty {
-                    self.tipo(*t);
+                    self.kind(*t);
                     self.w(" ");
                 }
                 self.nome(*name);
@@ -1237,15 +1237,15 @@ impl<'a> Impressor<'a> {
             PatternKind::Constant(e) => {
                 // `visitConstantPattern`: o `const` do padrão, quando a
                 // expressão não o imprime ela mesma.
-                let antes = self.saida.len();
-                let escrito = palavra_em(self.fonte, pt.span.start, "const");
+                let antes = self.output.len();
+                let written = palavra_em(self.fonte, pt.span.start, "const");
                 self.expr(*e);
-                if escrito && !self.saida[antes..].starts_with("const ") {
-                    self.saida.insert_str(antes, "const ");
+                if written && !self.output[antes..].starts_with("const ") {
+                    self.output.insert_str(antes, "const ");
                 }
             }
             PatternKind::Relational { op, value } => {
-                self.w(lexema_binario(*op));
+                self.w(binary_lexeme(*op));
                 self.w(" ");
                 self.expr(*value);
             }
@@ -1270,7 +1270,7 @@ impl<'a> Impressor<'a> {
             PatternKind::Cast { pattern, ty } => {
                 self.padrao(*pattern);
                 self.w(" as ");
-                self.tipo(*ty);
+                self.kind(*ty);
             }
             PatternKind::Parenthesized(i) => {
                 self.w("(");
@@ -1278,7 +1278,7 @@ impl<'a> Impressor<'a> {
                 self.w(")");
             }
             PatternKind::List { type_args, elements } => {
-                self.argumentos_de_tipo(type_args);
+                self.type_arguments_(type_args);
                 self.w("[");
                 for (k, e) in elements.iter().enumerate() {
                     if k > 0 {
@@ -1297,7 +1297,7 @@ impl<'a> Impressor<'a> {
                 self.w("]");
             }
             PatternKind::Map { type_args, entries, rest } => {
-                self.argumentos_de_tipo(type_args);
+                self.type_arguments_(type_args);
                 self.w("{");
                 for (k, e) in entries.iter().enumerate() {
                     if k > 0 {
@@ -1317,16 +1317,16 @@ impl<'a> Impressor<'a> {
             }
             PatternKind::Record { fields } => {
                 self.w("(");
-                self.campos(fields);
+                self.fields_(fields);
                 if fields.len() == 1 {
                     self.w(",");
                 }
                 self.w(")");
             }
             PatternKind::Object { ty, fields } => {
-                self.tipo(*ty);
+                self.kind(*ty);
                 self.w("(");
-                self.campos(fields);
+                self.fields_(fields);
                 self.w(")");
             }
         }
@@ -1334,7 +1334,7 @@ impl<'a> Impressor<'a> {
 
     /// `visitPatternField`: `nome: p`, `: p` (o nome inferido do padrão)
     /// ou só `p`.
-    fn campos(&mut self, fields: &[crate::ast::PatternField]) {
+    fn fields_(&mut self, fields: &[crate::ast::PatternField]) {
         let a = self.a;
         for (k, f) in fields.iter().enumerate() {
             if k > 0 {
@@ -1342,8 +1342,8 @@ impl<'a> Impressor<'a> {
             }
             if let Some(n) = f.name {
                 let sp = a.pattern(f.pattern).span;
-                let inferido = n.span.start >= sp.start && n.span.end <= sp.end;
-                if !inferido {
+                let inferred = n.span.start >= sp.start && n.span.end <= sp.end;
+                if !inferred {
                     self.nome(n);
                 }
                 self.w(": ");
@@ -1358,13 +1358,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn brancos_e_comentarios() {
+    fn whitespace_and_comments() {
         let b = b"  /* a /* b */ c */ // x\n  y";
         assert_eq!(pular_brancos(b, 0), b.len() - 1);
     }
 
     #[test]
-    fn palavra_inteira() {
+    fn whole_word() {
         assert!(palavra_em("var x", 0, "var"));
         assert!(!palavra_em("variavel", 0, "var"));
     }

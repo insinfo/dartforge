@@ -10,8 +10,8 @@ use dartforge_intern::Interner;
 /// A referência da unidade numa biblioteca 3.6 e, já na forma dela, cada
 /// diagnóstico: código, trecho, mensagem e correção.
 fn ler(fonte: &str) -> (Referencia, Vec<(&'static str, String, String, String)>) {
-    let mut nomes = Interner::new();
-    let lido = parse_com(fonte, &mut nomes, LibraryFeatures::piso());
+    let mut names = Interner::new();
+    let lido = parse_com(fonte, &mut names, LibraryFeatures::piso());
     let referencia = lido.referencia;
     let mut v: Vec<_> = lido
         .diagnostics
@@ -29,7 +29,7 @@ fn ler(fonte: &str) -> (Referencia, Vec<(&'static str, String, String, String)>)
 /// c01: `null-aware-elements` o 3.6.2 conhece (sem versão de lançamento), e
 /// escreve `3.6.0` na correção; o arquivo continua dele.
 #[test]
-fn elemento_nulo_fica_com_o_3_6() {
+fn null_element_stays_with_3_6() {
     let (referencia, v) = ler("void f(int? a) {\n  var x = [?a];\n  print(x);\n}\n");
     assert_eq!(referencia, Referencia::V3_6);
     assert_eq!(v.len(), 1, "{v:?}");
@@ -40,7 +40,7 @@ fn elemento_nulo_fica_com_o_3_6() {
 
 /// c08 e c18: sintaxe que o 3.6.2 não conhece passa o arquivo para o 3.13.4.
 #[test]
-fn sintaxe_desconhecida_passa_para_o_3_13() {
+fn unknown_syntax_falls_to_3_13() {
     let (referencia, v) = ler("enum E { a, b }\n\nvoid f() {\n  E e = .a;\n  print(e);\n}\n");
     assert_eq!(referencia, Referencia::V3_13);
     assert_eq!(v.len(), 1, "{v:?}");
@@ -53,7 +53,7 @@ fn sintaxe_desconhecida_passa_para_o_3_13() {
 
 /// c02: o `final` do campo de representação, no texto do 3.6.2.
 #[test]
-fn modificador_de_representacao_no_3_6() {
+fn representation_modifier_in_3_6() {
     let (referencia, v) = ler("extension type E(final int i) {}\n");
     assert_eq!(referencia, Referencia::V3_6);
     assert_eq!(v, [("representation_field_modifier", "final".to_string(), "Representation fields can't have modifiers.".to_string(), "Try removing the modifier.".to_string())]);
@@ -74,14 +74,14 @@ fn modificador_de_representacao_no_3_6() {
 /// modificador sai com o texto novo, o tipo que falta vai para o nome e o
 /// modificador de `G` não sai.
 #[test]
-fn representacao_com_var_no_3_13() {
+fn representation_with_var_in_3_13() {
     let fonte = "extension type E(var int i) {}\n\nextension type F(final i) {}\n\nextension type G(final int i, final int j) {}\n";
     let (referencia, v) = ler(fonte);
     assert_eq!(referencia, Referencia::V3_13);
     let nova = "Representation fields can't have the modifier 'var'.";
-    let resumo: Vec<(&str, &str, &str)> = v.iter().map(|d| (d.0, d.1.as_str(), d.2.as_str())).collect();
+    let summary: Vec<(&str, &str, &str)> = v.iter().map(|d| (d.0, d.1.as_str(), d.2.as_str())).collect();
     assert_eq!(
-        resumo,
+        summary,
         [
             ("expected_representation_type", "i", "Expected a representation type."),
             ("experiment_not_enabled", "var", "This requires the 'primary-constructors' language feature to be enabled."),
@@ -90,39 +90,39 @@ fn representacao_com_var_no_3_13() {
             ("representation_field_modifier", "var", nova),
         ]
     );
-    let recurso = v.iter().find(|d| d.0 == "experiment_not_enabled").unwrap();
-    assert!(recurso.3.contains("to 3.13 or higher"), "{}", recurso.3);
+    let feature = v.iter().find(|d| d.0 == "experiment_not_enabled").unwrap();
+    assert!(feature.3.contains("to 3.13 or higher"), "{}", feature.3);
 }
 
 /// Acima da 3.6 a referência é sempre o 3.13.4.
 #[test]
-fn biblioteca_nova_e_do_3_13() {
-    let mut nomes = Interner::new();
-    let lido = parse_com("void main() {}\n", &mut nomes, LibraryFeatures::atual());
+fn new_library_is_from_3_13() {
+    let mut names = Interner::new();
+    let lido = parse_com("void main() {}\n", &mut names, LibraryFeatures::atual());
     assert_eq!(lido.referencia, Referencia::V3_13);
-    let lido = parse_com("void main() {}\n", &mut nomes, LibraryFeatures::piso());
+    let lido = parse_com("void main() {}\n", &mut names, LibraryFeatures::piso());
     assert_eq!(lido.referencia, Referencia::V3_6);
 }
 
 /// `named_function_expression` (docs/ANALYZER-ESPECIFICACAO.md, família E):
 /// os exemplos do oráculo vivo 3.6.2, com a posição do nome.
 #[test]
-fn funcao_literal_com_nome() {
-    let nomeadas = |fonte: &str| -> Vec<(usize, usize)> {
-        let mut nomes = Interner::new();
-        parse_com(fonte, &mut nomes, LibraryFeatures::piso())
+fn function_literal_with_name() {
+    let named_ones = |fonte: &str| -> Vec<(usize, usize)> {
+        let mut names = Interner::new();
+        parse_com(fonte, &mut names, LibraryFeatures::piso())
             .diagnostics
             .iter()
             .filter(|d| d.code.is_some_and(|c| c.info().nome == "named_function_expression"))
             .map(|d| (d.span.start, d.span.end - d.span.start))
             .collect()
     };
-    assert_eq!(nomeadas("f() { var f = void g() {}; }\n"), [(19, 1)]);
-    assert_eq!(nomeadas("f() { var f = g() {}; }\n"), [(14, 1)]);
-    assert_eq!(nomeadas("f() { var f = int g<T>() => 1; }\n"), [(18, 1)]);
+    assert_eq!(named_ones("f() { var f = void g() {}; }\n"), [(19, 1)]);
+    assert_eq!(named_ones("f() { var f = g() {}; }\n"), [(14, 1)]);
+    assert_eq!(named_ones("f() { var f = int g<T>() => 1; }\n"), [(18, 1)]);
     // Chamada comum, função local e inicializador de construtor: nada.
-    assert!(nomeadas("f() { g(); h() {} var x = g(); }\n").is_empty());
-    assert!(nomeadas("class A {\n  int x;\n  A() : x = g() {}\n}\nint g() => 0;\n").is_empty());
+    assert!(named_ones("f() { g(); h() {} var x = g(); }\n").is_empty());
+    assert!(named_ones("class A {\n  int x;\n  A() : x = g() {}\n}\nint g() => 0;\n").is_empty());
     // A guarda de um caso de `switch` expressão.
-    assert!(nomeadas("int f(int o) => switch (o) { _ when g(o) => 1, _ => 0 };\nbool g(int o) => true;\n").is_empty());
+    assert!(named_ones("int f(int o) => switch (o) { _ when g(o) => 1, _ => 0 };\nbool g(int o) => true;\n").is_empty());
 }

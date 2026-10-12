@@ -7,60 +7,60 @@
 //! alocações e tempo. A referência que este número enfrenta está no PLANO.md:
 //! o LSP do Dart chega a ~6 GB e o `webdev` a ~10 GB neste mesmo projeto.
 #[global_allocator]
-static ALOCADOR: dartforge_instrument::CountingAllocator = dartforge_instrument::CountingAllocator;
+static ALLOCATOR: dartforge_instrument::CountingAllocator = dartforge_instrument::CountingAllocator;
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-fn coletar(dir: &Path, saida: &mut Vec<PathBuf>) {
-    let Ok(entradas) = std::fs::read_dir(dir) else {
+fn collect(dir: &Path, output: &mut Vec<PathBuf>) {
+    let Ok(inputs) = std::fs::read_dir(dir) else {
         return;
     };
-    for entrada in entradas.flatten() {
-        let caminho = entrada.path();
-        if caminho.is_dir() {
-            if caminho
+    for input in inputs.flatten() {
+        let path = input.path();
+        if path.is_dir() {
+            if path
                 .file_name()
                 .is_some_and(|n| n == ".dart_tool" || n == "build")
             {
                 continue;
             }
-            coletar(&caminho, saida);
-        } else if caminho.extension().is_some_and(|e| e == "dart") {
-            saida.push(caminho);
+            collect(&path, output);
+        } else if path.extension().is_some_and(|e| e == "dart") {
+            output.push(path);
         }
     }
 }
 
 fn main() {
-    let mut arquivos = Vec::new();
-    for raiz in std::env::args().skip(1) {
-        coletar(Path::new(&raiz), &mut arquivos);
+    let mut files = Vec::new();
+    for root in std::env::args().skip(1) {
+        collect(Path::new(&root), &mut files);
     }
-    arquivos.sort();
-    let inicio = Instant::now();
+    files.sort();
+    let start_offset = Instant::now();
     let base = dartforge_instrument::live_bytes();
     dartforge_instrument::reset_peak();
-    let alocacoes_base = dartforge_instrument::allocation_count();
-    let mut nomes = dartforge_intern::Interner::new();
-    let mut retidas = Vec::with_capacity(arquivos.len());
+    let base_allocations = dartforge_instrument::allocation_count();
+    let mut names = dartforge_intern::Interner::new();
+    let mut retained = Vec::with_capacity(files.len());
     let mut bytes_fonte = 0usize;
-    let mut recusados = 0usize;
-    let mut tokens_total = 0usize;
-    for arquivo in &arquivos {
-        let Ok(fonte) = std::fs::read_to_string(arquivo) else {
+    let mut rejected = 0usize;
+    let mut total_tokens = 0usize;
+    for file in &files {
+        let Ok(fonte) = std::fs::read_to_string(file) else {
             continue;
         };
         bytes_fonte += fonte.len();
-        let saida = dartforge_frontend::parser::parse(&fonte, &mut nomes);
-        if !saida.diagnostics.is_empty() {
-            recusados += 1;
+        let output = dartforge_frontend::parser::parse(&fonte, &mut names);
+        if !output.diagnostics.is_empty() {
+            rejected += 1;
         }
-        tokens_total += saida.ast.exprs.len();
+        total_tokens += output.ast.exprs.len();
         // Fonte e árvore ficam vivas, como num editor com o projeto aberto.
-        retidas.push((fonte, saida));
+        retained.push((fonte, output));
     }
-    let tempo = inicio.elapsed();
+    let tempo = start_offset.elapsed();
     // Onde os bytes estão: cada arena, contagem × tamanho do nó (capacidade
     // reservada à parte, porque `Vec` cresce em potências de dois).
     {
@@ -68,8 +68,8 @@ fn main() {
         use std::mem::size_of;
         let mut n = [0usize; 7];
         let mut cap = [0usize; 7];
-        for (_, saida) in &retidas {
-            let a = &saida.ast;
+        for (_, output) in &retained {
+            let a = &output.ast;
             for (i, (len, c)) in [
                 (a.exprs.len(), a.exprs.capacity()),
                 (a.stmts.len(), a.stmts.capacity()),
@@ -95,7 +95,7 @@ fn main() {
             size_of::<Member>(),
             size_of::<Function>(),
         ];
-        let nomes = [
+        let names = [
             "exprs",
             "stmts",
             "types",
@@ -106,16 +106,16 @@ fn main() {
         ];
         let mut total = 0usize;
         for i in 0..7 {
-            let usado = n[i] * tam[i];
-            let reservado = cap[i] * tam[i];
-            total += reservado;
+            let used = n[i] * tam[i];
+            let reserved = cap[i] * tam[i];
+            total += reserved;
             println!(
                 "  {:<10} {:>8} nós × {:>3} B = {:>7.2} MiB usados, {:>7.2} MiB reservados",
-                nomes[i],
+                names[i],
                 n[i],
                 tam[i],
-                usado as f64 / 1048576.0,
-                reservado as f64 / 1048576.0
+                used as f64 / 1048576.0,
+                reserved as f64 / 1048576.0
             );
         }
         println!(
@@ -125,8 +125,8 @@ fn main() {
         // Histograma de variantes de expressão, com o que cada uma carrega
         // fora da arena (bytes de `Vec`/`Box`), para cortar onde há volume.
         let mut hist: std::collections::BTreeMap<&'static str, (usize, usize)> = Default::default();
-        for (_, saida) in &retidas {
-            for e in &saida.ast.exprs {
+        for (_, output) in &retained {
+            for e in &output.ast.exprs {
                 let (nome, fora) = match &e.kind {
                     ExprKind::Int(_) => ("Int", 0),
                     ExprKind::Double(_) => ("Double", 0),
@@ -205,15 +205,15 @@ fn main() {
                     }
                     ExprKind::DotShorthand { .. } => ("DotShorthand", 0),
                 };
-                let entrada = hist.entry(nome).or_default();
-                entrada.0 += 1;
-                entrada.1 += fora;
+                let input = hist.entry(nome).or_default();
+                input.0 += 1;
+                input.1 += fora;
             }
         }
-        let mut ordem: Vec<_> = hist.into_iter().collect();
-        ordem.sort_by_key(|(_, (n, _))| std::cmp::Reverse(*n));
+        let mut order: Vec<_> = hist.into_iter().collect();
+        order.sort_by_key(|(_, (n, _))| std::cmp::Reverse(*n));
         println!("  variantes de expressão (contagem, bytes fora da arena):");
-        for (nome, (n, fora)) in ordem.iter().take(14) {
+        for (nome, (n, fora)) in order.iter().take(14) {
             println!(
                 "    {:<18} {:>8}  {:>7.2} MiB fora",
                 nome,
@@ -222,33 +222,33 @@ fn main() {
             );
         }
     }
-    let vivos = dartforge_instrument::live_bytes() - base;
+    let live = dartforge_instrument::live_bytes() - base;
     let pico = dartforge_instrument::peak_bytes() - base;
-    let alocacoes = dartforge_instrument::allocation_count() - alocacoes_base;
+    let allocations_ = dartforge_instrument::allocation_count() - base_allocations;
     let mib = |b: usize| b as f64 / (1024.0 * 1024.0);
     println!(
         "arquivos: {} ({} recusados pelo parser)",
-        retidas.len(),
-        recusados
+        retained.len(),
+        rejected
     );
     println!("fonte: {:.2} MiB", mib(bytes_fonte));
     println!(
         "vivo com tudo retido: {:.2} MiB ({:.2}x a fonte)",
-        mib(vivos),
-        vivos as f64 / bytes_fonte as f64
+        mib(live),
+        live as f64 / bytes_fonte as f64
     );
     println!("pico: {:.2} MiB", mib(pico));
     println!(
-        "nós de expressão: {tokens_total}; símbolos internados: {} ({:.2} MiB)",
-        nomes.len(),
-        mib(nomes.payload_bytes())
+        "nós de expressão: {total_tokens}; símbolos internados: {} ({:.2} MiB)",
+        names.len(),
+        mib(names.payload_bytes())
     );
     println!(
-        "alocações: {alocacoes}; tempo: {:.0} ms ({:.1} MiB/s)",
+        "alocações: {allocations_}; tempo: {:.0} ms ({:.1} MiB/s)",
         tempo.as_secs_f64() * 1e3,
         mib(bytes_fonte) / tempo.as_secs_f64()
     );
-    drop(retidas);
+    drop(retained);
     println!(
         "após descartar tudo: {} bytes acima da base",
         dartforge_instrument::live_bytes().saturating_sub(base)

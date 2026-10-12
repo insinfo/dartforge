@@ -6,30 +6,30 @@ use dartforge_frontend::{LanguageVersion, LibraryFeatures};
 use dartforge_intern::Interner;
 
 fn na(versao: (u16, u16), fonte: &str) -> (Parsed, Interner) {
-    let mut nomes = Interner::new();
+    let mut names = Interner::new();
     let f = LibraryFeatures::new(LanguageVersion::new(versao.0, versao.1), &[]);
-    let p = parse_com(fonte, &mut nomes, f);
-    (p, nomes)
+    let p = parse_com(fonte, &mut names, f);
+    (p, names)
 }
 
-fn mensagens(p: &Parsed) -> Vec<String> {
+fn messages(p: &Parsed) -> Vec<String> {
     p.diagnostics.iter().map(|d| d.message.clone()).collect()
 }
 
 #[test]
-fn nomeado_privado_so_com_this_e_na_312() {
+fn private_named_only_with_this_and_in_312() {
     let fonte = "class P { final int _x; P({required this._x}); }";
-    let (p, nomes) = na((3, 12), fonte);
-    assert!(p.diagnostics.is_empty(), "{:?}", mensagens(&p));
+    let (p, names) = na((3, 12), fonte);
+    assert!(p.diagnostics.is_empty(), "{:?}", messages(&p));
     let DeclKind::Class(c) = &p.ast.decl(p.unit.declarations[0]).kind else {
         panic!()
     };
     let MemberKind::Constructor(k) = &p.ast.member(c.members[1]).kind else {
         panic!()
     };
-    let par = &k.parameters[0];
-    assert_eq!(nomes.resolve(par.name.unwrap().sym), "_x");
-    assert_eq!(nomes.resolve(par.nome_externo().unwrap().sym), "x");
+    let pair = &k.parameters[0];
+    assert_eq!(names.resolve(pair.name.unwrap().sym), "_x");
+    assert_eq!(names.resolve(pair.nome_externo().unwrap().sym), "x");
 
     let (p, _) = na((3, 11), fonte);
     assert_eq!(p.diagnostics.len(), 1);
@@ -39,7 +39,7 @@ fn nomeado_privado_so_com_this_e_na_312() {
             .contains("This requires the 'private-named-parameters' language feature to be enabled.")
     );
 
-    for (fonte, trecho) in [
+    for (fonte, excerpt) in [
         (
             "void f({int _x = 0}) {}",
             "Named parameters can't start with an underscore.",
@@ -63,20 +63,20 @@ fn nomeado_privado_so_com_this_e_na_312() {
     ] {
         let (p, _) = na((3, 13), fonte);
         assert!(
-            mensagens(&p).iter().any(|m| m.contains(trecho)),
+            messages(&p).iter().any(|m| m.contains(excerpt)),
             "{fonte}: {:?}",
-            mensagens(&p)
+            messages(&p)
         );
     }
 }
 
 #[test]
-fn final_e_var_em_parametro_comum_so_ate_a_312() {
+fn final_and_var_in_plain_parameter_only_up_to_312() {
     let fonte = "void f(final int x, var y) {} var g = (final z) => z;";
     let (p, _) = na((3, 12), fonte);
-    assert!(p.diagnostics.is_empty(), "{:?}", mensagens(&p));
+    assert!(p.diagnostics.is_empty(), "{:?}", messages(&p));
     let (p, _) = na((3, 13), fonte);
-    assert_eq!(p.diagnostics.len(), 3, "{:?}", mensagens(&p));
+    assert_eq!(p.diagnostics.len(), 3, "{:?}", messages(&p));
     assert!(
         p.diagnostics[0]
             .message
@@ -84,28 +84,28 @@ fn final_e_var_em_parametro_comum_so_ate_a_312() {
     );
     // Tipo de função não tem parâmetro declarante nem esse erro.
     let (p, _) = na((3, 13), "typedef F = void Function(int x);");
-    assert!(p.diagnostics.is_empty(), "{:?}", mensagens(&p));
+    assert!(p.diagnostics.is_empty(), "{:?}", messages(&p));
 }
 
 #[test]
-fn atalho_de_ponto_na_310() {
+fn dot_shorthand_in_310() {
     use dartforge_frontend::ast::{ExprKind, StmtKind};
     let fonte = "void main() { Cor c = .vermelho; var p = const .new(1); int i = .parse('4').abs(); switch (c) { case .azul: break; } }";
-    let (p, nomes) = na((3, 10), fonte);
-    assert!(p.diagnostics.is_empty(), "{:?}", mensagens(&p));
-    let atalhos: Vec<(String, bool)> = p
+    let (p, names) = na((3, 10), fonte);
+    assert!(p.diagnostics.is_empty(), "{:?}", messages(&p));
+    let shorthands: Vec<(String, bool)> = p
         .ast
         .exprs
         .iter()
         .filter_map(|e| match &e.kind {
             ExprKind::DotShorthand { name, const_ } => {
-                Some((nomes.resolve(name.sym).to_string(), *const_))
+                Some((names.resolve(name.sym).to_string(), *const_))
             }
             _ => None,
         })
         .collect();
     assert_eq!(
-        atalhos,
+        shorthands,
         vec![
             ("vermelho".into(), false),
             ("new".into(), true),
@@ -115,14 +115,14 @@ fn atalho_de_ponto_na_310() {
     );
     // A cadeia `.parse('4').abs()` tem o atalho na raiz.
     let init = p.ast.stmts.iter().find_map(|s| match &s.kind {
-        StmtKind::Variables(v) if nomes.resolve(v.variables[0].name.sym) == "i" => {
+        StmtKind::Variables(v) if names.resolve(v.variables[0].name.sym) == "i" => {
             v.variables[0].initializer
         }
         _ => None,
     });
-    let raiz = p.ast.raiz_de_atalho(init.unwrap()).unwrap();
+    let root = p.ast.raiz_de_atalho(init.unwrap()).unwrap();
     assert!(matches!(
-        p.ast.expr(raiz).kind,
+        p.ast.expr(root).kind,
         ExprKind::DotShorthand { .. }
     ));
 
@@ -135,15 +135,15 @@ fn atalho_de_ponto_na_310() {
     );
     let (p, _) = na((3, 10), "var x = const .zero;");
     assert!(
-        mensagens(&p).iter().any(|m| m.contains("Expected to find '('.")),
+        messages(&p).iter().any(|m| m.contains("Expected to find '('.")),
         "{:?}",
-        mensagens(&p)
+        messages(&p)
     );
 }
 
 /// Os membros de uma classe elaborada, como texto: `campo final int x`,
-/// `ctor nome(params) inits corpo`.
-fn membros(p: &Parsed, nomes: &Interner, i: usize) -> Vec<String> {
+/// `ctor nome(params) inits body_node`.
+fn members_(p: &Parsed, names: &Interner, i: usize) -> Vec<String> {
     let DeclKind::Class(c) = &p.ast.decl(p.unit.declarations[i]).kind else {
         panic!("não é classe")
     };
@@ -155,7 +155,7 @@ fn membros(p: &Parsed, nomes: &Interner, i: usize) -> Vec<String> {
                 if v.final_ { " final" } else { "" },
                 if v.covariant { " covariant" } else { "" },
                 if v.ty.is_some() { " T" } else { "" },
-                nomes.resolve(v.variables[0].name.sym)
+                names.resolve(v.variables[0].name.sym)
             ),
             MemberKind::Constructor(k) => {
                 let ps: Vec<String> = k
@@ -165,7 +165,7 @@ fn membros(p: &Parsed, nomes: &Interner, i: usize) -> Vec<String> {
                         format!(
                             "{}{}",
                             if q.this_ { "this." } else { "" },
-                            nomes.resolve(q.name.unwrap().sym)
+                            names.resolve(q.name.unwrap().sym)
                         )
                     })
                     .collect();
@@ -174,7 +174,7 @@ fn membros(p: &Parsed, nomes: &Interner, i: usize) -> Vec<String> {
                     if k.const_ { " const" } else { "" },
                     if k.factory { " factory" } else { "" },
                     k.name
-                        .map(|n| nomes.resolve(n.sym).to_string())
+                        .map(|n| names.resolve(n.sym).to_string())
                         .unwrap_or_default(),
                     ps.join(", "),
                     k.initializers.len()
@@ -182,24 +182,24 @@ fn membros(p: &Parsed, nomes: &Interner, i: usize) -> Vec<String> {
             }
             MemberKind::Method(f) => format!(
                 "metodo {}",
-                nomes.resolve(p.ast.function(*f).name.unwrap().sym)
+                names.resolve(p.ast.function(*f).name.unwrap().sym)
             ),
         })
         .collect()
 }
 
 #[test]
-fn construtor_primario_e_elaborado_na_arvore() {
+fn primary_constructor_is_elaborated_in_tree() {
     let fonte = "class P(var int x, final int y, String cru, [covariant var z = 1]) {\n\
                  final up = cru;\n\
                  this : assert(x > 0) { print(cru); }\n\
                  }\n\
                  class const K.c(final int v);\n\
                  class Vazia;";
-    let (p, nomes) = na((3, 13), fonte);
-    assert!(p.diagnostics.is_empty(), "{:?}", mensagens(&p));
+    let (p, names) = na((3, 13), fonte);
+    assert!(p.diagnostics.is_empty(), "{:?}", messages(&p));
     assert_eq!(
-        membros(&p, &nomes, 0),
+        members_(&p, &names, 0),
         vec![
             "campo T x",
             "campo final T y",
@@ -213,28 +213,28 @@ fn construtor_primario_e_elaborado_na_arvore() {
     };
     assert_eq!(c.primary_constructor, Some(c.members[4]));
     assert_eq!(
-        membros(&p, &nomes, 1),
+        members_(&p, &names, 1),
         vec!["campo final T v", "ctor const c(this.v) inits=0"]
     );
-    assert!(membros(&p, &nomes, 2).is_empty());
+    assert!(members_(&p, &names, 2).is_empty());
 
     let (p, _) = na((3, 12), "class P(var int x);");
     assert!(
-        mensagens(&p)
+        messages(&p)
             .iter()
             .any(|m| m.contains("This requires the 'primary-constructors' language feature to be enabled.")),
         "{:?}",
-        mensagens(&p)
+        messages(&p)
     );
 }
 
 #[test]
-fn new_e_factory_sem_o_nome_da_classe() {
+fn new_and_factory_without_class_name() {
     let fonte = "class Q { int a; new(this.a); new zero() : a = 0; factory um() => Q(1); factory Q.dois() => Q(2); factory() => Q(3); }";
-    let (p, nomes) = na((3, 13), fonte);
-    assert!(p.diagnostics.is_empty(), "{:?}", mensagens(&p));
+    let (p, names) = na((3, 13), fonte);
+    assert!(p.diagnostics.is_empty(), "{:?}", messages(&p));
     assert_eq!(
-        membros(&p, &nomes, 0),
+        members_(&p, &names, 0),
         vec![
             "campo T a",
             "ctor (this.a) inits=0",
@@ -245,17 +245,17 @@ fn new_e_factory_sem_o_nome_da_classe() {
         ]
     );
     // Antes da 3.13, `factory()` é método.
-    let (p, nomes) = na((3, 12), "class F { int factory() => 1; }");
-    assert!(p.diagnostics.is_empty(), "{:?}", mensagens(&p));
-    assert_eq!(membros(&p, &nomes, 0), vec!["metodo factory"]);
+    let (p, names) = na((3, 12), "class F { int factory() => 1; }");
+    assert!(p.diagnostics.is_empty(), "{:?}", messages(&p));
+    assert_eq!(members_(&p, &names, 0), vec!["metodo factory"]);
     // `factory C(` com o nome da classe continua o construtor sem nome.
-    let (p, nomes) = na((3, 13), "class C { factory C() => C._(); C._(); }");
-    assert_eq!(membros(&p, &nomes, 0)[0], "ctor factory () inits=0");
+    let (p, names) = na((3, 13), "class C { factory C() => C._(); C._(); }");
+    assert_eq!(members_(&p, &names, 0)[0], "ctor factory () inits=0");
 }
 
 #[test]
-fn erros_do_construtor_primario() {
-    for (fonte, trecho) in [
+fn primary_constructor_errors() {
+    for (fonte, excerpt) in [
         // Mensagens oficiais do analyzer 3.13.4 (oráculo gravado).
         (
             "class C { this {} }",
@@ -282,9 +282,9 @@ fn erros_do_construtor_primario() {
     ] {
         let (p, _) = na((3, 13), fonte);
         assert!(
-            mensagens(&p).iter().any(|m| m.contains(trecho)),
+            messages(&p).iter().any(|m| m.contains(excerpt)),
             "{fonte}: {:?}",
-            mensagens(&p)
+            messages(&p)
         );
     }
 }
@@ -292,7 +292,7 @@ fn erros_do_construtor_primario() {
 #[test]
 fn null_aware_so_na_38() {
     let (p, _) = na((3, 7), "var l = [?a, 'k': ?b];");
-    assert_eq!(p.diagnostics.len(), 2, "{:?}", mensagens(&p));
+    assert_eq!(p.diagnostics.len(), 2, "{:?}", messages(&p));
     let (p, _) = na((3, 8), "var l = {?a: 1, 'k': ?b, ?c: ?d};");
-    assert!(p.diagnostics.is_empty(), "{:?}", mensagens(&p));
+    assert!(p.diagnostics.is_empty(), "{:?}", messages(&p));
 }

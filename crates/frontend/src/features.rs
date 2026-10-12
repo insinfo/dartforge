@@ -14,7 +14,7 @@
 pub use dartforge_diagnostics::Referencia;
 use dartforge_diagnostics::Span;
 
-/// Versão de linguagem `maior.menor` (a de patch não existe para a linguagem).
+/// Versão de linguagem `greater.less` (a de patch não existe para a linguagem).
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
 )]
@@ -154,7 +154,7 @@ impl Feature {
 
     /// `enabledIn` do `experimental_features.yaml`: a versão de linguagem a
     /// partir da qual o recurso vale sem sinal nenhum. `None` = experimento.
-    pub const fn habilitado_em(self) -> Option<LanguageVersion> {
+    pub const fn enabled_in(self) -> Option<LanguageVersion> {
         match self {
             Feature::WildcardVariables | Feature::InferenceUsingBounds => {
                 Some(LanguageVersion::new(3, 7))
@@ -180,10 +180,10 @@ impl Feature {
         [Feature::DotShorthands, Feature::PrivateNamedParameters, Feature::PrimaryConstructors];
 
     /// A versão que o analyzer 3.6.2 escreve na correção de
-    /// `experiment_not_enabled`, quando não é a de [`Feature::habilitado_em`]:
+    /// `experiment_not_enabled`, quando não é a de [`Feature::enabled_in`]:
     /// `releaseVersion ?? 3.6.0`, e no `experiments.g.dart` do 3.6.2 estes
     /// recursos ainda não tinham versão de lançamento (T2 §1.2).
-    pub const fn versao_relatada_no_3_6(self) -> Option<LanguageVersion> {
+    pub const fn version_reported_in_3_6(self) -> Option<LanguageVersion> {
         match self {
             Feature::NullAwareElements | Feature::WildcardVariables | Feature::InferenceUsingBounds => {
                 Some(LanguageVersion::PISO)
@@ -219,11 +219,11 @@ impl LibraryFeatures {
     /// Quem chama decide se os experimentos valem para a biblioteca: pela
     /// regra da proposta de versionamento (`:159`), só para as que **não**
     /// têm marcador e cuja versão padrão é a corrente. Ver
-    /// [`LibraryFeatures::para_biblioteca`].
+    /// [`LibraryFeatures::for_library`].
     pub fn new(versao: LanguageVersion, experimentos: &[Feature]) -> Self {
         let mut bits = 0;
         for f in Feature::TODOS {
-            if f.habilitado_em().is_some_and(|v| versao >= v) {
+            if f.enabled_in().is_some_and(|v| versao >= v) {
                 bits |= f.bit();
             }
         }
@@ -233,18 +233,18 @@ impl LibraryFeatures {
         LibraryFeatures { versao, bits }
     }
 
-    /// A regra inteira de uma biblioteca: `marcador` é a versão do
+    /// A regra inteira de uma biblioteca: `marker` é a versão do
     /// `// @dart = x.y`, se houver; `padrao` a do pacote (ou a corrente, fora
     /// de pacote); `corrente` a da ferramenta; `experimentos`, os pedidos por
     /// `--enable-experiment`, que só valem sem marcador e com o padrão igual
     /// à corrente.
-    pub fn para_biblioteca(
-        marcador: Option<LanguageVersion>,
+    pub fn for_library(
+        marker: Option<LanguageVersion>,
         padrao: LanguageVersion,
         corrente: LanguageVersion,
         experimentos: &[Feature],
     ) -> Self {
-        match marcador {
+        match marker {
             Some(v) => LibraryFeatures::new(v, &[]),
             None if padrao == corrente => LibraryFeatures::new(padrao, experimentos),
             None => LibraryFeatures::new(padrao, &[]),
@@ -272,8 +272,8 @@ impl LibraryFeatures {
     }
 
     /// Mensagem do diagnóstico de recurso desligado.
-    pub fn mensagem_desligado(self, f: Feature) -> String {
-        match f.habilitado_em() {
+    pub fn disabled_message(self, f: Feature) -> String {
+        match f.enabled_in() {
             Some(v) => format!(
                 "o recurso '{}' exige a versão de linguagem {v} ou superior (esta biblioteca está na {})",
                 f.nome(),
@@ -323,21 +323,21 @@ pub fn marcador_versao(fonte: &str) -> Option<(LanguageVersion, Span)> {
             i += 1;
         }
         if b[i..].starts_with(b"//") {
-            let inicio = i;
-            let mut fim = i;
-            while fim < b.len() && b[fim] != b'\n' && b[fim] != b'\r' {
-                fim += 1;
+            let start_offset = i;
+            let mut end_offset = i;
+            while end_offset < b.len() && b[end_offset] != b'\n' && b[end_offset] != b'\r' {
+                end_offset += 1;
             }
-            if let Some(v) = versao_do_comentario(&b[inicio..fim]) {
+            if let Some(v) = comment_version(&b[start_offset..end_offset]) {
                 return Some((
                     v,
                     Span {
-                        start: inicio,
-                        end: fim,
+                        start: start_offset,
+                        end: end_offset,
                     },
                 ));
             }
-            i = fim;
+            i = end_offset;
         } else if b[i..].starts_with(b"/*") {
             // Comentário de bloco, aninhado como no lexer.
             let mut prof = 0usize;
@@ -365,22 +365,22 @@ pub fn marcador_versao(fonte: &str) -> Option<(LanguageVersion, Span)> {
 }
 
 /// `// @dart = x.y` (sem o `\n`), com a gramática do CFE; senão `None`.
-fn versao_do_comentario(linha: &[u8]) -> Option<LanguageVersion> {
-    let mut r = linha.strip_prefix(b"//")?;
+fn comment_version(line: &[u8]) -> Option<LanguageVersion> {
+    let mut r = line.strip_prefix(b"//")?;
     if r.first() == Some(&b'/') {
         return None; // `///` é documentação
     }
-    let espacos = |r: &mut &[u8]| {
+    let spaces = |r: &mut &[u8]| {
         while r.first() == Some(&b' ') {
             *r = &r[1..];
         }
     };
-    espacos(&mut r);
+    spaces(&mut r);
     r = r.strip_prefix(b"@dart")?;
-    espacos(&mut r);
+    spaces(&mut r);
     r = r.strip_prefix(b"=")?;
-    espacos(&mut r);
-    let digitos = |r: &mut &[u8]| -> Option<u16> {
+    spaces(&mut r);
+    let digits_ = |r: &mut &[u8]| -> Option<u16> {
         let n = r.iter().take_while(|c| c.is_ascii_digit()).count();
         if n == 0 {
             return None;
@@ -389,10 +389,10 @@ fn versao_do_comentario(linha: &[u8]) -> Option<LanguageVersion> {
         *r = &r[n..];
         v
     };
-    let major = digitos(&mut r)?;
+    let major = digits_(&mut r)?;
     r = r.strip_prefix(b".")?;
-    let minor = digitos(&mut r)?;
-    espacos(&mut r);
+    let minor = digits_(&mut r)?;
+    spaces(&mut r);
     r.is_empty().then_some(LanguageVersion::new(major, minor))
 }
 
@@ -405,7 +405,7 @@ mod testes {
     }
 
     #[test]
-    fn marcador_simples_e_com_espacos() {
+    fn simple_marker_and_with_spaces() {
         assert_eq!(
             marcador_versao("// @dart=3.6\nvoid main() {}").map(|m| m.0),
             Some(v(3, 6))
@@ -423,7 +423,7 @@ mod testes {
     }
 
     #[test]
-    fn marcador_depois_de_script_e_comentarios() {
+    fn marker_after_script_and_comments() {
         let f = "#!/usr/bin/env dart\n// licença\n/* bloco\n// @dart=2.1 não conta */\n// @dart=3.8\nimport 'x.dart';";
         assert_eq!(marcador_versao(f).map(|m| m.0), Some(v(3, 8)));
         assert_eq!(
@@ -433,7 +433,7 @@ mod testes {
     }
 
     #[test]
-    fn so_o_primeiro_vale_e_so_antes_do_primeiro_token() {
+    fn only_the_first_counts_and_only_before_the_first_token() {
         assert_eq!(
             marcador_versao("// @dart=3.6\n// @dart=3.13\n").map(|m| m.0),
             Some(v(3, 6))
@@ -442,7 +442,7 @@ mod testes {
     }
 
     #[test]
-    fn formas_que_nao_sao_marcador() {
+    fn forms_that_are_not_markers() {
         for f in [
             "/// @dart=3.6\n",      // documentação
             "// @dart=3.6 extra\n", // lixo depois da versão
@@ -463,15 +463,15 @@ mod testes {
     }
 
     #[test]
-    fn recursos_pela_versao() {
+    fn features_by_version() {
         let f36 = LibraryFeatures::new(v(3, 6), &[]);
         // Os posteriores ao piso estão desligados na 3.6; os anteriores
         // (2.13, 2.14, 3.0), ligados.
-        let antigos = [Feature::NonfunctionTypeAliases, Feature::GenericMetadata, Feature::ClassModifiers, Feature::SealedClass];
-        assert!(Feature::TODOS.iter().filter(|f| !antigos.contains(f)).all(|f| !f36.tem(*f)));
-        assert!(antigos.iter().all(|f| f36.tem(*f)));
+        let old_ones = [Feature::NonfunctionTypeAliases, Feature::GenericMetadata, Feature::ClassModifiers, Feature::SealedClass];
+        assert!(Feature::TODOS.iter().filter(|f| !old_ones.contains(f)).all(|f| !f36.tem(*f)));
+        assert!(old_ones.iter().all(|f| f36.tem(*f)));
         let f212 = LibraryFeatures::new(v(2, 12), &[]);
-        assert!(antigos.iter().all(|f| !f212.tem(*f)));
+        assert!(old_ones.iter().all(|f| !f212.tem(*f)));
         let f214 = LibraryFeatures::new(v(2, 14), &[]);
         assert!(f214.tem(Feature::GenericMetadata) && f214.tem(Feature::NonfunctionTypeAliases) && !f214.tem(Feature::ClassModifiers));
         let f310 = LibraryFeatures::new(v(3, 10), &[]);
@@ -496,20 +496,20 @@ mod testes {
     }
 
     #[test]
-    fn experimentos_so_sem_marcador_e_na_versao_corrente() {
+    fn experiments_only_without_marker_and_in_current_version() {
         let atual = LanguageVersion::ATUAL;
         let exp = [Feature::Macros];
-        assert!(LibraryFeatures::para_biblioteca(None, atual, atual, &exp).tem(Feature::Macros));
+        assert!(LibraryFeatures::for_library(None, atual, atual, &exp).tem(Feature::Macros));
         assert!(
-            !LibraryFeatures::para_biblioteca(Some(atual), atual, atual, &exp).tem(Feature::Macros)
+            !LibraryFeatures::for_library(Some(atual), atual, atual, &exp).tem(Feature::Macros)
         );
-        assert!(!LibraryFeatures::para_biblioteca(None, v(3, 6), atual, &exp).tem(Feature::Macros));
+        assert!(!LibraryFeatures::for_library(None, v(3, 6), atual, &exp).tem(Feature::Macros));
     }
 
     /// A tabela transcrita confere com o `experimental_features.yaml` do SDK,
     /// quando o clone de referência existe (`references/` fica fora do git).
     #[test]
-    fn tabela_confere_com_o_yaml_do_sdk() {
+    fn table_matches_the_sdk_yaml() {
         let yaml = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../references/dart-sdk/tools/experimental_features.yaml");
         let Ok(texto) = std::fs::read_to_string(&yaml) else {
@@ -518,16 +518,16 @@ mod testes {
         };
         for f in Feature::TODOS {
             let cab = format!("\n  {}:\n", f.nome());
-            let inicio = texto
+            let start_offset = texto
                 .find(&cab)
                 .unwrap_or_else(|| panic!("{} fora do yaml", f.nome()))
                 + cab.len();
-            let bloco: String = texto[inicio..]
+            let block: String = texto[start_offset..]
                 .lines()
                 .take_while(|l| l.starts_with("    ") || l.is_empty())
                 .collect::<Vec<_>>()
                 .join("\n");
-            let habilitado = bloco
+            let enabled = block
                 .lines()
                 .find_map(|l| l.trim().strip_prefix("enabledIn:"))
                 .map(|s| {
@@ -538,7 +538,7 @@ mod testes {
                         p.next().unwrap().parse().unwrap(),
                     )
                 });
-            assert_eq!(habilitado, f.habilitado_em(), "{}", f.nome());
+            assert_eq!(enabled, f.enabled_in(), "{}", f.nome());
         }
     }
 }

@@ -13,7 +13,7 @@
 //!   correspondência (`case x:`) a linguagem lê como referência a uma
 //!   constante. O parser não sabe em que contexto está (o mesmo `case` serve
 //!   a `switch` e `if case`), então a fase seguinte decide pelo contexto.
-//! * `tipo identificador` (`int x`, `List<int> xs`, `a.B c`, `(int, int) p`) é
+//! * `kind identifier` (`int x`, `List<int> xs`, `a.B c`, `(int, int) p`) é
 //!   variável tipada; `int _` é [`PatternKind::Wildcard`] tipado. Como no SDK,
 //!   `TIPO as`/`TIPO when` **não** é variável chamada `as`/`when`: `Foo as Bar`
 //!   é o padrão `Foo` convertido para `Bar`, e `x when g` termina o padrão em
@@ -40,44 +40,44 @@ use crate::token::{Keyword, Kind, Op};
 use dartforge_diagnostics::{Span, codigos};
 
 /// Onde termina a cadeia `a.b.c` de um padrão `const`
-/// ([`Parser::cadeia_de_envio`]).
-enum Envio {
-    Invocacao,
-    Erro(usize),
-    Aberto,
+/// ([`Parser::send_chain`]).
+enum SendKind {
+    Invocation,
+    Error(usize),
+    Open,
 }
 
 /// `PatternContext` do fasta: onde o padrão aparece.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ContextoDePadrao {
+pub(crate) enum PatternContext {
     /// `var (a, b) = e;`, `for (final (a, b) in e)`.
-    Declaracao,
+    Declaration,
     /// `case p`, `if (e case p)`, `switch` como expressão.
-    Correspondencia,
+    Matching,
     /// `(a, b) = e`.
-    Atribuicao,
+    Assignment,
 }
 
 /// `ConstantPatternContext` do fasta.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ContextoConstante {
+enum ConstContext {
     /// Fora de padrão constante.
-    Nenhum,
+    NoneFound,
     /// Padrão constante sem `const`.
-    Implicito,
+    Implicit,
     /// Padrão constante com `const`.
-    Explicito,
+    Explicit,
     /// Operando de `-` num padrão constante: só literal numérico.
-    SoNumerico,
+    NumericOnly,
 }
 
 impl<'s, 'i> Parser<'s, 'i> {
     /// Um padrão de nível mais externo no contexto `ctx`.
-    pub(crate) fn parse_pattern_em(&mut self, ctx: ContextoDePadrao) -> PResult<PatternId> {
-        let salvo = self.contexto_padrao;
-        self.contexto_padrao = ctx;
+    pub(crate) fn parse_pattern_in(&mut self, ctx: PatternContext) -> PResult<PatternId> {
+        let salvo = self.default_context;
+        self.default_context = ctx;
         let r = self.parse_pattern();
-        self.contexto_padrao = salvo;
+        self.default_context = salvo;
         r
     }
 
@@ -88,47 +88,47 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// identificador solto) em atribuição, `PATTERN_ASSIGNMENT_DECLARES_VARIABLE`
     /// no nome; o nome `when`/`as`, `ILLEGAL_PATTERN_VARIABLE_NAME` (ou
     /// `ILLEGAL_PATTERN_ASSIGNMENT_VARIABLE_NAME`, solto em atribuição).
-    fn conferir_padrao_de_variavel(&mut self, palavra: Option<Span>, var_: bool, tipado: bool, nome: Name) {
-        let solto = palavra.is_none() && !tipado;
+    fn check_variable_pattern(&mut self, word: Option<Span>, var_: bool, typed: bool, nome: Name) {
+        let stray = word.is_none() && !typed;
         // Solto num contexto refutável é padrão constante
         // (`parsePrimaryPattern`): `when`/`as` ali é
         // `ILLEGAL_PATTERN_IDENTIFIER_NAME`.
-        if solto && self.contexto_padrao == ContextoDePadrao::Correspondencia {
+        if stray && self.default_context == PatternContext::Matching {
             let texto = &self.source[nome.span.start..nome.span.end];
             if matches!(texto, "when" | "as") {
                 let texto = texto.to_string();
-                self.erro_em(codigos::parser::ILLEGAL_PATTERN_IDENTIFIER_NAME, nome.span, &[&texto]);
+                self.error_at(codigos::parser::ILLEGAL_PATTERN_IDENTIFIER_NAME, nome.span, &[&texto]);
             }
             return;
         }
-        match self.contexto_padrao {
-            ContextoDePadrao::Declaracao => {
-                if let Some(p) = palavra {
-                    self.erro_em(codigos::parser::VARIABLE_PATTERN_KEYWORD_IN_DECLARATION_CONTEXT, p, &[]);
+        match self.default_context {
+            PatternContext::Declaration => {
+                if let Some(p) = word {
+                    self.error_at(codigos::parser::VARIABLE_PATTERN_KEYWORD_IN_DECLARATION_CONTEXT, p, &[]);
                 }
             }
-            ContextoDePadrao::Correspondencia => {
-                if let (Some(p), true, true) = (palavra, var_, tipado) {
-                    self.erro_em(codigos::parser::VAR_AND_TYPE, p, &[]);
+            PatternContext::Matching => {
+                if let (Some(p), true, true) = (word, var_, typed) {
+                    self.error_at(codigos::parser::VAR_AND_TYPE, p, &[]);
                 }
             }
-            ContextoDePadrao::Atribuicao => {
-                if !solto {
+            PatternContext::Assignment => {
+                if !stray {
                     let texto = self.source[nome.span.start..nome.span.end].to_string();
                     let texto = if texto.is_empty() { "(unnamed)".to_string() } else { texto };
-                    self.erro_em(codigos::parser::PATTERN_ASSIGNMENT_DECLARES_VARIABLE, nome.span, &[&texto]);
+                    self.error_at(codigos::parser::PATTERN_ASSIGNMENT_DECLARES_VARIABLE, nome.span, &[&texto]);
                 }
             }
         }
         let texto = &self.source[nome.span.start..nome.span.end];
         if matches!(texto, "when" | "as") {
             let texto = texto.to_string();
-            let codigo = if self.contexto_padrao == ContextoDePadrao::Atribuicao && solto {
+            let code = if self.default_context == PatternContext::Assignment && stray {
                 codigos::parser::ILLEGAL_PATTERN_ASSIGNMENT_VARIABLE_NAME
             } else {
                 codigos::parser::ILLEGAL_PATTERN_VARIABLE_NAME
             };
-            self.erro_em(codigo, nome.span, &[&texto]);
+            self.error_at(code, nome.span, &[&texto]);
         }
     }
 
@@ -251,25 +251,25 @@ impl<'s, 'i> Parser<'s, 'i> {
         // `isLastPatternAllowedInsideUnaryPattern` do fasta: um padrão
         // relacional ou unário dentro de outro unário (`_ as int as num`,
         // `> 1?`) é `INVALID_INSIDE_UNARY_PATTERN`, do início ao último token.
-        let mut permitido = !matches!(
+        let mut allowed = !matches!(
             self.ast.pattern(pattern).kind,
             PatternKind::Relational { .. }
         );
         loop {
-            if !permitido
+            if !allowed
                 && (self.at_op(Op::Question) || self.at_op(Op::Bang) || self.at_ident("as"))
             {
-                let fim = self.tokens[self.pos - 1].span.end;
-                self.erro_em(
+                let end_offset = self.tokens[self.pos - 1].span.end;
+                self.error_at(
                     codigos::parser::INVALID_INSIDE_UNARY_PATTERN,
                     Span {
                         start: start.start,
-                        end: fim,
+                        end: end_offset,
                     },
                     &[],
                 );
             }
-            permitido = false;
+            allowed = false;
             if self.eat_op(Op::Question) {
                 pattern = self.push_pattern(start, PatternKind::NullCheck(pattern));
             } else if self.eat_op(Op::Bang) {
@@ -277,7 +277,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             } else if self.eat_ident("as") {
                 // `computeTypeAfterIsOrAs` + `ensureTypeNotVoid`, como na
                 // expressão `as`: sem tipo, `EXPECTED_TYPE_NAME` e um vazio.
-                let ty = self.tipo_depois_de_is_ou_as()?;
+                let ty = self.type_after_is_or_as()?;
                 pattern = self.push_pattern(start, PatternKind::Cast { pattern, ty });
             } else {
                 return Ok(pattern);
@@ -315,7 +315,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             Kind::Keyword(Keyword::Void) if self.variable_pattern_type_end(self.pos).is_some() => {
                 let ty = self.parse_type()?;
                 let name = self.expect_identifier()?;
-                self.conferir_padrao_de_variavel(None, false, true, name);
+                self.check_variable_pattern(None, false, true, name);
                 Ok(self.finish_variable(start, false, false, Some(ty), name))
             }
             Kind::Ident => self.parse_identifier_pattern(start),
@@ -355,9 +355,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                     self.advance();
                     BinaryOp::GtEq
                 }
-                _ => return Err(self.erro_identificador()),
+                _ => return Err(self.identifier_error()),
             },
-            _ => return Err(self.erro_identificador()),
+            _ => return Err(self.identifier_error()),
         };
         self.advance();
         let value = self.parse_bitwise_or_expression()?;
@@ -371,19 +371,19 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// recuperar e relata o que sobra (`INVALID_CONSTANT_PATTERN_*`,
     /// `INVALID_CONSTANT_CONST_PREFIX`). A árvore é a da expressão lida.
     fn parse_constant_pattern(&mut self, start: Span) -> PResult<PatternId> {
-        let explicito = self.at_kw(Keyword::Const);
-        let ctx = if explicito {
-            ContextoConstante::Explicito
+        let explicit = self.at_kw(Keyword::Const);
+        let ctx = if explicit {
+            ConstContext::Explicit
         } else {
-            ContextoConstante::Implicito
+            ConstContext::Implicit
         };
-        let inicio = self.span();
-        let expr = if explicito {
-            self.padrao_const_explicito()?
+        let start_offset = self.span();
+        let expr = if explicit {
+            self.explicit_const_pattern()?
         } else {
-            self.padrao_const_unario(ctx)?
+            self.unary_const_pattern(ctx)?
         };
-        let expr = self.padrao_const_binario(inicio, expr, ctx)?;
+        let expr = self.binary_const_pattern(start_offset, expr, ctx)?;
         Ok(self.push_pattern(start, PatternKind::Constant(expr)))
     }
 
@@ -392,40 +392,40 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// com `const`, `INVALID_CONSTANT_CONST_PREFIX` no último token lido;
     /// sem, `INVALID_CONSTANT_PATTERN_BINARY` no operador — e a expressão
     /// continua sem contexto. `as` e o `!` final ficam para o padrão.
-    fn padrao_const_binario(
+    fn binary_const_pattern(
         &mut self,
-        inicio: Span,
+        start_offset: Span,
         expr: ExprId,
-        ctx: ContextoConstante,
+        ctx: ConstContext,
     ) -> PResult<ExprId> {
-        let Some((_, texto, span)) = self.operador_binario_de_padrao() else {
+        let Some((_, texto, span)) = self.pattern_binary_operator() else {
             return Ok(expr);
         };
-        if ctx == ContextoConstante::Explicito {
+        if ctx == ConstContext::Explicit {
             let ultimo = self.tokens[self.pos - 1].span;
-            self.erro_unico(codigos::parser::INVALID_CONSTANT_CONST_PREFIX, ultimo, &[]);
+            self.single_error(codigos::parser::INVALID_CONSTANT_CONST_PREFIX, ultimo, &[]);
         } else {
-            self.erro_em(
+            self.error_at(
                 codigos::parser::INVALID_CONSTANT_PATTERN_BINARY,
                 span,
                 &[texto],
             );
         }
-        self.parse_binary_rest(inicio, expr, super::expressions::LEVEL_EQUALITY)
+        self.parse_binary_rest(start_offset, expr, super::expressions::LEVEL_EQUALITY)
     }
 
     /// `const` seguido do resto: as formas que a gramática aceita
     /// (`const [..]`, `const {..}`, `const <T>…`, `const (..)`, `const
     /// C(..)`) são lidas com o `const`; as outras, sem ele, com o erro do
     /// `parsePrimary`/`parseSend` do fasta.
-    fn padrao_const_explicito(&mut self) -> PResult<ExprId> {
-        let depois = self.pos + 1;
-        match self.kind_of(depois) {
+    fn explicit_const_pattern(&mut self) -> PResult<ExprId> {
+        let after = self.pos + 1;
+        match self.kind_of(after) {
             Kind::Op(Op::LBracket | Op::LBrace | Op::Lt) => self.parse_unary(true),
             Kind::Op(Op::LParen) => {
-                if self.kind_of(depois + 1) == Kind::Op(Op::RParen) {
-                    let abre = self.tokens[depois].span;
-                    self.erro_em(
+                if self.kind_of(after + 1) == Kind::Op(Op::RParen) {
+                    let abre = self.tokens[after].span;
+                    self.error_at(
                         codigos::parser::INVALID_CONSTANT_PATTERN_EMPTY_RECORD_LITERAL,
                         abre,
                         &[],
@@ -434,21 +434,21 @@ impl<'s, 'i> Parser<'s, 'i> {
                 // `parsePrecedenceExpression` depois do `const`: o `(` é o
                 // primário, sem o `const` de record.
                 self.advance();
-                let inicio = self.span();
-                let e = self.parse_parenthesized_or_record(inicio, false, true)?;
-                self.parse_selectors_em(inicio, e, true, false)
+                let start_offset = self.span();
+                let e = self.parse_parenthesized_or_record(start_offset, false, true)?;
+                self.parse_selectors_at(start_offset, e, true, false)
             }
             Kind::Keyword(Keyword::Const) => {
-                let segundo = self.tokens[depois].span;
-                self.erro_em(
+                let second = self.tokens[after].span;
+                self.error_at(
                     codigos::parser::INVALID_CONSTANT_PATTERN_DUPLICATE_CONST,
-                    segundo,
+                    second,
                     &[],
                 );
                 self.advance();
                 self.parse_unary(true)
             }
-            Kind::Ident if self.text_of(depois) == "await" => {
+            Kind::Ident if self.text_of(after) == "await" => {
                 // `await` é prefixo (`parseUnaryExpression`), sem o erro.
                 self.advance();
                 self.parse_unary(false)
@@ -457,15 +457,15 @@ impl<'s, 'i> Parser<'s, 'i> {
                 // `parseSend` em cada identificador da cadeia `a.b.c`: o que
                 // não é seguido de `.`, `(` ou `<` (uma invocação constante
                 // ainda pode vir) leva o erro.
-                match self.cadeia_de_envio(depois) {
-                    Envio::Invocacao => self.parse_unary(true),
-                    Envio::Erro(fim) => {
-                        let span = self.tokens[fim].span;
-                        self.erro_em(codigos::parser::INVALID_CONSTANT_CONST_PREFIX, span, &[]);
+                match self.send_chain(after) {
+                    SendKind::Invocation => self.parse_unary(true),
+                    SendKind::Error(end_offset) => {
+                        let span = self.tokens[end_offset].span;
+                        self.error_at(codigos::parser::INVALID_CONSTANT_CONST_PREFIX, span, &[]);
                         self.advance();
                         self.parse_unary(true)
                     }
-                    Envio::Aberto => {
+                    SendKind::Open => {
                         self.advance();
                         self.parse_unary(true)
                     }
@@ -473,7 +473,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             _ => {
                 self.advance();
-                self.padrao_const_unario(ContextoConstante::Explicito)
+                self.unary_const_pattern(ConstContext::Explicit)
             }
         }
     }
@@ -484,33 +484,33 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// de tipo dele) que não é seguido de `.`, `(` nem `<`, onde o erro é
     /// relatado; ou em `<` que não abre invocação (o erro, se houver, é o
     /// dos argumentos de tipo sem `(`).
-    fn cadeia_de_envio(&self, mut pos: usize) -> Envio {
+    fn send_chain(&self, mut pos: usize) -> SendKind {
         loop {
             if self.kind_of(pos) != Kind::Ident {
-                return Envio::Aberto;
+                return SendKind::Open;
             }
-            let prox = pos + 1;
-            match self.kind_of(prox) {
-                Kind::Op(Op::Dot) => pos = prox + 1,
-                Kind::Op(Op::LParen) => return Envio::Invocacao,
+            let next_ = pos + 1;
+            match self.kind_of(next_) {
+                Kind::Op(Op::Dot) => pos = next_ + 1,
+                Kind::Op(Op::LParen) => return SendKind::Invocation,
                 Kind::Op(Op::Lt) => {
-                    let Some(depois) = self.skip_type_arguments(prox) else {
-                        return Envio::Aberto;
+                    let Some(after) = self.skip_type_arguments(next_) else {
+                        return SendKind::Open;
                     };
-                    let invoca = self.kind_of(depois) == Kind::Op(Op::LParen)
-                        || (self.kind_of(depois) == Kind::Op(Op::Dot)
+                    let invokes = self.kind_of(after) == Kind::Op(Op::LParen)
+                        || (self.kind_of(after) == Kind::Op(Op::Dot)
                             && matches!(
-                                self.kind_of(depois + 1),
+                                self.kind_of(after + 1),
                                 Kind::Ident | Kind::Keyword(Keyword::New)
                             )
-                            && self.kind_of(depois + 2) == Kind::Op(Op::LParen));
-                    return if invoca {
-                        Envio::Invocacao
+                            && self.kind_of(after + 2) == Kind::Op(Op::LParen));
+                    return if invokes {
+                        SendKind::Invocation
                     } else {
-                        Envio::Aberto
+                        SendKind::Open
                     };
                 }
-                _ => return Envio::Erro(pos),
+                _ => return SendKind::Error(pos),
             }
         }
     }
@@ -519,11 +519,11 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// constante: `!`/`~` não são aceitos (`INVALID_CONSTANT_PATTERN_UNARY`),
     /// `-` só nega literal numérico (`INVALID_CONSTANT_PATTERN_NEGATION`), e
     /// com `const` nenhum literal nem `-` é aceito.
-    fn padrao_const_unario(&mut self, ctx: ContextoConstante) -> PResult<ExprId> {
+    fn unary_const_pattern(&mut self, ctx: ConstContext) -> PResult<ExprId> {
         let start = self.span();
         match self.kind() {
             Kind::Op(op @ (Op::Bang | Op::Tilde)) => {
-                if ctx != ContextoConstante::Nenhum {
+                if ctx != ConstContext::NoneFound {
                     self.erro(
                         codigos::parser::INVALID_CONSTANT_PATTERN_UNARY,
                         &[op.text()],
@@ -539,16 +539,16 @@ impl<'s, 'i> Parser<'s, 'i> {
                 Ok(self.push(start, ExprKind::Unary { op, operand }))
             }
             Kind::Op(Op::Minus) => {
-                let mut interno = ctx;
-                if ctx == ContextoConstante::Explicito {
+                let mut inner = ctx;
+                if ctx == ConstContext::Explicit {
                     self.erro(codigos::parser::INVALID_CONSTANT_CONST_PREFIX, &[]);
-                    interno = ContextoConstante::Nenhum;
+                    inner = ConstContext::NoneFound;
                 }
                 self.advance();
-                let operand = if interno == ContextoConstante::Nenhum {
+                let operand = if inner == ConstContext::NoneFound {
                     self.parse_unary(false)?
                 } else {
-                    self.padrao_const_unario(ContextoConstante::SoNumerico)?
+                    self.unary_const_pattern(ConstContext::NumericOnly)?
                 };
                 Ok(self.push(
                     start,
@@ -560,7 +560,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             Kind::Op(Op::PlusPlus | Op::MinusMinus) => self.parse_unary(false),
             Kind::Ident if self.text() == "await" => self.parse_unary(false),
-            _ if ctx == ContextoConstante::Nenhum => self.parse_unary(false),
+            _ if ctx == ConstContext::NoneFound => self.parse_unary(false),
             kind => {
                 let literal = matches!(
                     kind,
@@ -570,13 +570,13 @@ impl<'s, 'i> Parser<'s, 'i> {
                         | Kind::Keyword(Keyword::True | Keyword::False | Keyword::Null)
                 );
                 match (ctx, kind) {
-                    (ContextoConstante::Explicito, Kind::Int | Kind::Double) => {
+                    (ConstContext::Explicit, Kind::Int | Kind::Double) => {
                         self.erro(codigos::parser::INVALID_CONSTANT_CONST_PREFIX, &[]);
                     }
-                    (ContextoConstante::Explicito, _) if literal => {
+                    (ConstContext::Explicit, _) if literal => {
                         self.erro(codigos::parser::INVALID_CONSTANT_CONST_PREFIX, &[]);
                     }
-                    (ContextoConstante::SoNumerico, Kind::Ident) => {
+                    (ConstContext::NumericOnly, Kind::Ident) => {
                         // `parsePrimary` de cada identificador da cadeia
                         // (`-p.x`: os dois), no nível de fora dos grupos.
                         self.erro(codigos::parser::INVALID_CONSTANT_PATTERN_NEGATION, &[]);
@@ -595,7 +595,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                                     if prof == 0 && self.kind_of(i + 1) == Kind::Ident =>
                                 {
                                     let span = self.tokens[i + 1].span;
-                                    self.erro_em(
+                                    self.error_at(
                                         codigos::parser::INVALID_CONSTANT_PATTERN_NEGATION,
                                         span,
                                         &[],
@@ -606,10 +606,10 @@ impl<'s, 'i> Parser<'s, 'i> {
                         }
                         return Ok(expr);
                     }
-                    (ContextoConstante::SoNumerico, _) if literal => {
+                    (ConstContext::NumericOnly, _) if literal => {
                         // A string inteira (com interpolações) é o token do fasta.
-                        let span = self.span_da_string_ou_token();
-                        self.erro_em(
+                        let span = self.string_or_token_span();
+                        self.error_at(
                             codigos::parser::INVALID_CONSTANT_PATTERN_NEGATION,
                             span,
                             &[],
@@ -624,7 +624,7 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     /// O intervalo do token corrente; numa string com interpolação, até o
     /// fim dela.
-    fn span_da_string_ou_token(&self) -> Span {
+    fn string_or_token_span(&self) -> Span {
         let s = self.span();
         if let Kind::StrBegin(..) = self.kind() {
             let mut i = self.pos + 1;
@@ -654,7 +654,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     fn parse_variable_pattern(&mut self, start: Span) -> PResult<PatternId> {
         let final_ = self.at_kw(Keyword::Final);
         let var_ = !final_;
-        let palavra = self.advance().span;
+        let word = self.advance().span;
         // `var int x` (erro: `VAR_AND_TYPE` em correspondência) também lê
         // o tipo, como `computeVariablePatternType` do fasta.
         let ty = if self.variable_pattern_type_end(self.pos).is_some() {
@@ -663,7 +663,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             None
         };
         let name = self.expect_identifier()?;
-        self.conferir_padrao_de_variavel(Some(palavra), var_, ty.is_some(), name);
+        self.check_variable_pattern(Some(word), var_, ty.is_some(), name);
         Ok(self.finish_variable(start, final_, var_, ty, name))
     }
 
@@ -679,7 +679,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         if self.variable_pattern_type_end(pos).is_some() {
             let ty = self.parse_type()?;
             let name = self.expect_identifier()?;
-            self.conferir_padrao_de_variavel(None, false, true, name);
+            self.check_variable_pattern(None, false, true, name);
             return Ok(self.finish_variable(start, false, false, Some(ty), name));
         }
         if self.object_pattern_paren(pos).is_some() {
@@ -687,7 +687,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
         // `await e` num contexto refutável: o identificador solto vai para o
         // padrão constante (`parsePrecedenceExpression`), que lê o `await`.
-        if self.text() == "await" && (self.in_async || self.parece_expressao_apos_await(pos, true)) && self.contexto_padrao == ContextoDePadrao::Correspondencia {
+        if self.text() == "await" && (self.in_async || self.looks_like_expression_after_await(pos, true)) && self.default_context == PatternContext::Matching {
             return self.parse_constant_pattern(start);
         }
         // `a--`/`a++`: o fasta lê a `unaryExpression` inteira como padrão
@@ -702,14 +702,14 @@ impl<'s, 'i> Parser<'s, 'i> {
         // constante no fasta, e o operador vira `INVALID_CONSTANT_PATTERN_BINARY`.
         {
             self.advance();
-            let binario = self.operador_binario_de_padrao().is_some();
+            let binary = self.pattern_binary_operator().is_some();
             self.pos = pos;
-            if binario {
+            if binary {
                 return self.parse_constant_pattern(start);
             }
         }
         let name = self.identifier();
-        self.conferir_padrao_de_variavel(None, false, false, name);
+        self.check_variable_pattern(None, false, false, name);
         Ok(self.finish_variable(start, false, false, None, name))
     }
 
@@ -736,7 +736,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         )
     }
 
-    /// `Nome<T>(campos)` / `p.Nome(campos)`, com o `(` garantido por
+    /// `Nome<T>(fields_)` / `p.Nome(fields_)`, com o `(` garantido por
     /// [`Parser::object_pattern_paren`].
     fn parse_object_pattern(&mut self, start: Span) -> PResult<PatternId> {
         let mut name = vec![self.identifier()];
@@ -783,7 +783,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         // campo, o laço para e o `ensureCloseParen` pula até o `)` casado.
         let first = self.parse_pattern_field()?;
         if first.name.is_none() && !self.at_op(Op::Comma) {
-            self.garantir_fecha_parenteses(abre)?;
+            self.ensure_close_paren(abre)?;
             return Ok(self.push_pattern(start, PatternKind::Parenthesized(first.pattern)));
         }
         let mut fields = vec![first];
@@ -793,7 +793,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             fields.push(self.parse_pattern_field()?);
         }
-        self.garantir_fecha_parenteses(abre)?;
+        self.ensure_close_paren(abre)?;
         Ok(self.push_pattern(
             start,
             PatternKind::Record {
@@ -856,7 +856,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 | PatternKind::Parenthesized(inner) => current = *inner,
                 _ => {
                     let span = self.ast.pattern(pattern).span;
-                    return Err(self.erro_em(codigos::parser::MISSING_IDENTIFIER, span, &[]));
+                    return Err(self.error_at(codigos::parser::MISSING_IDENTIFIER, span, &[]));
                 }
             }
         }
@@ -930,7 +930,7 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     // -- Lookaheads -------------------------------------------------------
 
-    /// Se em `pos` há `tipo identificador` de padrão de variável, a posição
+    /// Se em `pos` há `kind identifier` de padrão de variável, a posição
     /// do identificador. Aplica a regra do SDK de que `TIPO as`/`TIPO when`
     /// não é variável, e pré-filtra as formas que nunca são tipo antes de
     /// consultar [`Parser::looks_like_type_then_identifier`].
@@ -1017,9 +1017,9 @@ mod tests {
     use dartforge_intern::Interner;
 
     /// `(código, texto do intervalo)` dos diagnósticos de uma unidade.
-    fn erros_da_unidade(fonte: &str) -> Vec<(String, String)> {
-        let mut nomes = Interner::new();
-        let out = crate::parser::parse(fonte, &mut nomes);
+    fn unit_errors(fonte: &str) -> Vec<(String, String)> {
+        let mut names = Interner::new();
+        let out = crate::parser::parse(fonte, &mut names);
         out.diagnostics
             .iter()
             .map(|d| {
@@ -1036,22 +1036,22 @@ mod tests {
     /// Padrões constantes com a recuperação do fasta (conferidos com o
     /// `dart analyze` 3.6.2).
     #[test]
-    fn padroes_constantes_com_os_erros_do_fasta() {
-        let caso = |p: &str| {
-            erros_da_unidade(&format!(
+    fn constant_patterns_with_fasta_errors() {
+        let case_ = |p: &str| {
+            unit_errors(&format!(
                 "void f(Object o) {{ switch (o) {{ case {p}: break; }} }}"
             ))
         };
         let e = |c: &str, t: &str| vec![(c.to_string(), t.to_string())];
-        assert_eq!(caso("const 1 + 2"), e("invalid_constant_const_prefix", "1"));
-        assert_eq!(caso("const a"), e("invalid_constant_const_prefix", "a"));
-        assert_eq!(caso("const A.b"), e("invalid_constant_const_prefix", "b"));
-        assert_eq!(caso("const A.n()"), vec![]);
-        assert_eq!(caso("const A<int>.new()"), vec![]);
-        assert_eq!(caso("const -1"), e("invalid_constant_const_prefix", "-"));
-        assert_eq!(caso("-a"), e("invalid_constant_pattern_negation", "a"));
+        assert_eq!(case_("const 1 + 2"), e("invalid_constant_const_prefix", "1"));
+        assert_eq!(case_("const a"), e("invalid_constant_const_prefix", "a"));
+        assert_eq!(case_("const A.b"), e("invalid_constant_const_prefix", "b"));
+        assert_eq!(case_("const A.n()"), vec![]);
+        assert_eq!(case_("const A<int>.new()"), vec![]);
+        assert_eq!(case_("const -1"), e("invalid_constant_const_prefix", "-"));
+        assert_eq!(case_("-a"), e("invalid_constant_pattern_negation", "a"));
         assert_eq!(
-            caso("-p.v"),
+            case_("-p.v"),
             vec![
                 (
                     "invalid_constant_pattern_negation".to_string(),
@@ -1063,54 +1063,54 @@ mod tests {
                 )
             ]
         );
-        assert_eq!(caso("!true"), e("invalid_constant_pattern_unary", "!"));
-        assert_eq!(caso("1 >> 2"), e("invalid_constant_pattern_binary", ">>"));
-        assert_eq!(caso("1 is int"), e("invalid_constant_pattern_binary", "is"));
-        assert_eq!(caso("a + 1"), e("invalid_constant_pattern_binary", "+"));
+        assert_eq!(case_("!true"), e("invalid_constant_pattern_unary", "!"));
+        assert_eq!(case_("1 >> 2"), e("invalid_constant_pattern_binary", ">>"));
+        assert_eq!(case_("1 is int"), e("invalid_constant_pattern_binary", "is"));
+        assert_eq!(case_("a + 1"), e("invalid_constant_pattern_binary", "+"));
         assert_eq!(
-            caso("const const A()"),
+            case_("const const A()"),
             e("invalid_constant_pattern_duplicate_const", "const")
         );
         assert_eq!(
-            caso("const ()"),
+            case_("const ()"),
             e("invalid_constant_pattern_empty_record_literal", "(")
         );
         // `const (e)`: expressão entre parênteses, sem o erro de record.
-        assert_eq!(caso("const (b * 2)"), vec![]);
-        assert_eq!(caso("const (1, 2)"), vec![]);
-        assert_eq!(caso("A<int>"), e("invalid_constant_pattern_generic", "<"));
+        assert_eq!(case_("const (b * 2)"), vec![]);
+        assert_eq!(case_("const (1, 2)"), vec![]);
+        assert_eq!(case_("A<int>"), e("invalid_constant_pattern_generic", "<"));
         assert_eq!(
-            caso("_ as int as num"),
+            case_("_ as int as num"),
             e("invalid_inside_unary_pattern", "_ as int")
         );
-        assert_eq!(caso("> 1?"), e("invalid_inside_unary_pattern", "> 1"));
+        assert_eq!(case_("> 1?"), e("invalid_inside_unary_pattern", "> 1"));
     }
 
     /// `parseInitializers` desliga `mayParseFunctionExpressions`: `(v == null) {`
     /// num inicializador é expressão seguida do corpo; dentro de argumentos
     /// a função literal volta.
     #[test]
-    fn inicializador_sem_funcao_literal() {
+    fn initializer_without_function_literal() {
         assert_eq!(
-            erros_da_unidade("class A { bool b; A(Object? v, {bool? c}) : b = c ?? (v == null) { print(1); } }"),
+            unit_errors("class A { bool b; A(Object? v, {bool? c}) : b = c ?? (v == null) { print(1); } }"),
             vec![]
         );
-        assert_eq!(erros_da_unidade("class A { var f; A() : f = g((x) { return x; }) {} }"), vec![]);
+        assert_eq!(unit_errors("class A { var f; A() : f = g((x) { return x; }) {} }"), vec![]);
     }
 
     /// `ensureCloseParen`: o `)` que falta é relatado no token corrente e o
     /// resto até o `)` casado é pulado; os comandos seguintes continuam.
     #[test]
-    fn fecha_parenteses_como_o_fasta() {
+    fn closes_parens_like_fasta() {
         assert_eq!(
-            erros_da_unidade("void f(x) { if (x case == 1 < 2) {} if (x case == 1 == 2) {} }"),
+            unit_errors("void f(x) { if (x case == 1 < 2) {} if (x case == 1 == 2) {} }"),
             vec![
                 ("expected_token".to_string(), "<".to_string()),
                 ("expected_token".to_string(), "==".to_string())
             ]
         );
         assert_eq!(
-            erros_da_unidade("void f() { g(1 2); }"),
+            unit_errors("void f() { g(1 2); }"),
             vec![("expected_token".to_string(), "2".to_string())]
         );
     }
@@ -1180,13 +1180,13 @@ mod tests {
     // -- Independentes de outros módulos ------------------------------------
 
     #[test]
-    fn variavel_anulavel_com_verificacao_de_nulo() {
+    fn nullable_variable_with_null_check() {
         // `case (1, int? x?)` (tests/language/patterns/flow_analysis).
         let out = ok("int? x?");
-        let PatternKind::NullCheck(dentro) = out.kind() else {
+        let PatternKind::NullCheck(inside) = out.kind() else {
             panic!("{:?}", out.kind())
         };
-        assert_eq!(out.var_name(*dentro), "x");
+        assert_eq!(out.var_name(*inside), "x");
         let out = ok("(0, int? x?)");
         assert!(
             matches!(out.kind(), PatternKind::Record { .. }),
@@ -1198,7 +1198,7 @@ mod tests {
     }
 
     #[test]
-    fn incremento_pos_fixo_e_padrao_constante() {
+    fn postfix_increment_and_constant_pattern() {
         // `if (x case a--)`: constante (não constante), não variável `a`.
         let out = ok("a--");
         assert!(
@@ -1209,7 +1209,7 @@ mod tests {
     }
 
     #[test]
-    fn curinga_e_variaveis() {
+    fn wildcard_and_variables() {
         let out = ok("_");
         assert!(matches!(out.kind(), PatternKind::Wildcard { ty: None }));
         let out = ok("x");
@@ -1248,7 +1248,7 @@ mod tests {
     }
 
     #[test]
-    fn identificador_para_antes_de_when() {
+    fn identifier_stops_before_when() {
         let out = pattern("x when x > 0");
         assert!(out.result.is_ok() && out.diagnostics.is_empty());
         assert_eq!(out.var_name(out.result.unwrap()), "x");
@@ -1266,7 +1266,7 @@ mod tests {
     }
 
     #[test]
-    fn unarios_posfixos() {
+    fn postfix_unaries() {
         let out = ok("x?");
         let PatternKind::NullCheck(inner) = out.kind() else {
             panic!()
@@ -1284,7 +1284,7 @@ mod tests {
     }
 
     #[test]
-    fn logicos_com_precedencia_e_associatividade() {
+    fn logical_with_precedence_and_associativity() {
         let out = ok("a || b && c");
         let PatternKind::Or(l, r) = out.kind() else {
             panic!()
@@ -1307,7 +1307,7 @@ mod tests {
     }
 
     #[test]
-    fn parenteses_e_records() {
+    fn parens_and_records() {
         let out = ok("(x)");
         assert!(matches!(out.kind(), PatternKind::Parenthesized(_)));
         let out = ok("()");
@@ -1345,7 +1345,7 @@ mod tests {
     }
 
     #[test]
-    fn nome_inferido_atravessa_unarios() {
+    fn inferred_name_goes_through_unaries() {
         let out = ok("(:x?, :var y!, :final z)");
         let PatternKind::Record { fields } = out.kind() else {
             panic!()
@@ -1363,7 +1363,7 @@ mod tests {
     }
 
     #[test]
-    fn listas() {
+    fn lists() {
         let out = ok("[]");
         assert!(matches!(out.kind(), PatternKind::List { elements, .. } if elements.is_empty()));
         let out = ok("[a, b]");
@@ -1397,7 +1397,7 @@ mod tests {
     }
 
     #[test]
-    fn mapas_sem_chaves_de_expressao() {
+    fn maps_without_expression_keys() {
         let out = ok("{}");
         assert!(
             matches!(out.kind(), PatternKind::Map { entries, rest: false, .. } if entries.is_empty())
@@ -1407,7 +1407,7 @@ mod tests {
     }
 
     #[test]
-    fn objetos() {
+    fn objects() {
         let out = ok("Foo()");
         let PatternKind::Object { ty, fields } = out.kind() else {
             panic!()
@@ -1437,7 +1437,7 @@ mod tests {
     }
 
     #[test]
-    fn erros() {
+    fn errors() {
         // `parsePrimaryPattern`: padrão constante, com o identificador
         // sintético da expressão.
         let out = pattern(")");
@@ -1452,7 +1452,7 @@ mod tests {
     }
 
     #[test]
-    fn lookahead_de_declaracao_por_padrao() {
+    fn pattern_declaration_lookahead() {
         assert!(lookahead("var (a, b) = e;", |p| p.looks_like_pattern_declaration(0)));
         assert!(lookahead("final [a, b] = e;", |p| p.looks_like_pattern_declaration(0)));
         assert!(lookahead("final {'k': v} = e;", |p| p
@@ -1467,7 +1467,7 @@ mod tests {
     }
 
     #[test]
-    fn lookahead_de_atribuicao_por_padrao() {
+    fn pattern_assignment_lookahead() {
         assert!(lookahead("(a, b) = (b, a);", |p| p.looks_like_pattern_assignment(0)));
         assert!(lookahead("[x, y] = list;", |p| p.looks_like_pattern_assignment(0)));
         assert!(lookahead("{'k': v} = map;", |p| p.looks_like_pattern_assignment(0)));
@@ -1482,7 +1482,7 @@ mod tests {
     }
 
     #[test]
-    fn limite_de_profundidade() {
+    fn depth_limit() {
         let depth = super::super::MAX_DEPTH as usize + 10;
         let src = format!("{}x{}", "(".repeat(depth), ")".repeat(depth));
         let out = pattern(&src);
@@ -1497,11 +1497,11 @@ mod tests {
     // -- Dependentes de expressions.rs / types.rs ---------------------------
     //
     // Panicam com "not yet implemented" enquanto esses módulos forem stubs.
-    mod dependentes {
+    mod dependents {
         use super::*;
 
         #[test]
-        fn constantes() {
+        fn constants_() {
             for src in [
                 "1",
                 "-1",
@@ -1520,7 +1520,7 @@ mod tests {
         }
 
         #[test]
-        fn relacionais() {
+        fn relationals() {
             let out = ok("== 1");
             assert!(matches!(
                 out.kind(),
@@ -1574,7 +1574,7 @@ mod tests {
         }
 
         #[test]
-        fn variaveis_tipadas() {
+        fn typed_variables() {
             let out = ok("int x");
             assert!(matches!(
                 out.kind(),
@@ -1624,7 +1624,7 @@ mod tests {
         }
 
         #[test]
-        fn cast_e_tipo_seguido_de_as() {
+        fn cast_and_type_followed_by_as() {
             let out = ok("x as int");
             assert!(matches!(out.kind(), PatternKind::Cast { .. }));
             // `Foo as Bar` é o padrão `Foo` convertido, não variável `as`.
@@ -1638,7 +1638,7 @@ mod tests {
         }
 
         #[test]
-        fn colecoes_tipadas_e_mapas() {
+        fn typed_collections_and_maps() {
             let out = ok("<int>[a, b]");
             assert!(
                 matches!(out.kind(), PatternKind::List { type_args, .. } if type_args.len() == 1)
@@ -1663,7 +1663,7 @@ mod tests {
         }
 
         #[test]
-        fn objetos_genericos_e_constantes_qualificadas() {
+        fn generic_objects_and_qualified_constants() {
             let out = ok("Foo<int>(x: 0)");
             let PatternKind::Object { ty, fields } = out.kind() else {
                 panic!()

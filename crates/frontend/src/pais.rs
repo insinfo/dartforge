@@ -25,47 +25,47 @@ use crate::ast::{
 /// membros, das constantes de enum, da representação de tipo de extensão,
 /// dos parâmetros de tipo, dos parâmetros (também os de tipos `Function` e
 /// os aninhados), das declarações locais e das variáveis de `for-in`.
-pub fn todas_as_anotacoes<'a>(a: &'a Ast, unidade: &'a CompilationUnit) -> Vec<&'a Annotation> {
+pub fn todas_as_anotacoes<'a>(a: &'a Ast, unit: &'a CompilationUnit) -> Vec<&'a Annotation> {
     let mut v: Vec<&'a Annotation> = Vec::new();
-    fn parametros<'a>(ps: &'a [Parameter], v: &mut Vec<&'a Annotation>) {
+    fn parameters_<'a>(ps: &'a [Parameter], v: &mut Vec<&'a Annotation>) {
         for p in ps {
             v.extend(p.metadata.iter());
             for t in p.function_type_params.iter() {
                 v.extend(t.metadata.iter());
             }
             if let Some(fs) = &p.function_parameters {
-                parametros(fs, v);
+                parameters_(fs, v);
             }
         }
     }
-    fn tipos<'a>(ts: &'a [TypeParameter], v: &mut Vec<&'a Annotation>) {
+    fn types_<'a>(ts: &'a [TypeParameter], v: &mut Vec<&'a Annotation>) {
         for t in ts {
             v.extend(t.metadata.iter());
         }
     }
-    for d in unidade.directives.iter() {
+    for d in unit.directives.iter() {
         v.extend(d.metadata.iter());
     }
     for d in a.decls.iter() {
         v.extend(d.metadata.iter());
         match &d.kind {
-            DeclKind::Class(x) => tipos(&x.type_params, &mut v),
-            DeclKind::Mixin(x) => tipos(&x.type_params, &mut v),
+            DeclKind::Class(x) => types_(&x.type_params, &mut v),
+            DeclKind::Mixin(x) => types_(&x.type_params, &mut v),
             DeclKind::Enum(x) => {
-                tipos(&x.type_params, &mut v);
+                types_(&x.type_params, &mut v);
                 for c in x.constants.iter() {
                     v.extend(c.metadata.iter());
                 }
             }
-            DeclKind::Extension(x) => tipos(&x.type_params, &mut v),
+            DeclKind::Extension(x) => types_(&x.type_params, &mut v),
             DeclKind::ExtensionType(x) => {
-                tipos(&x.type_params, &mut v);
+                types_(&x.type_params, &mut v);
                 v.extend(x.representation_metadata.iter());
             }
             DeclKind::Typedef(t) => {
-                tipos(&t.type_params, &mut v);
+                types_(&t.type_params, &mut v);
                 if let TypedefKind::Legacy { parameters, .. } = &t.kind {
-                    parametros(parameters, &mut v);
+                    parameters_(parameters, &mut v);
                 }
             }
             DeclKind::Function(_) | DeclKind::Variables(_) => {}
@@ -74,19 +74,19 @@ pub fn todas_as_anotacoes<'a>(a: &'a Ast, unidade: &'a CompilationUnit) -> Vec<&
     for m in a.members.iter() {
         v.extend(m.metadata.iter());
         if let MemberKind::Constructor(k) = &m.kind {
-            parametros(&k.parameters, &mut v);
+            parameters_(&k.parameters, &mut v);
         }
     }
     for f in a.functions.iter() {
-        tipos(&f.type_params, &mut v);
+        types_(&f.type_params, &mut v);
         if let Some(ps) = &f.parameters {
-            parametros(ps, &mut v);
+            parameters_(ps, &mut v);
         }
     }
     for t in a.types.iter() {
         if let TypeKind::Function { type_params, parameters, .. } = &t.kind {
-            tipos(type_params, &mut v);
-            parametros(parameters, &mut v);
+            types_(type_params, &mut v);
+            parameters_(parameters, &mut v);
         }
     }
     for (_, ms) in a.metadados_locais.iter() {
@@ -99,26 +99,26 @@ pub fn todas_as_anotacoes<'a>(a: &'a Ast, unidade: &'a CompilationUnit) -> Vec<&
     }
     for e in a.exprs.iter() {
         if let ExprKind::List { elements, .. } | ExprKind::SetOrMap { elements, .. } = &e.kind {
-            fn de_elemento<'a>(el: &'a CollectionElement, v: &mut Vec<&'a Annotation>) {
+            fn from_element<'a>(el: &'a CollectionElement, v: &mut Vec<&'a Annotation>) {
                 match el {
                     CollectionElement::ForIn { target, body, .. } => {
                         if let ForInTarget::Declared { metadata, .. } = target {
                             v.extend(metadata.iter());
                         }
-                        de_elemento(body, v);
+                        from_element(body, v);
                     }
-                    CollectionElement::For { body, .. } => de_elemento(body, v),
+                    CollectionElement::For { body, .. } => from_element(body, v),
                     CollectionElement::If { then, else_, .. } => {
-                        de_elemento(then, v);
+                        from_element(then, v);
                         if let Some(x) = else_ {
-                            de_elemento(x, v);
+                            from_element(x, v);
                         }
                     }
                     _ => {}
                 }
             }
             for el in elements.iter() {
-                de_elemento(el, &mut v);
+                from_element(el, &mut v);
             }
         }
     }
@@ -139,10 +139,10 @@ pub enum Pai {
     /// Argumento de constante de enum (`EnumConstantArguments`).
     ConstanteDeEnum,
     /// Inicializador de variável de uma lista (`const` escrito ou não).
-    Variavel { constante: bool },
+    Variavel { constant: bool },
     /// Expressão de um padrão constante (`const` escrito ou não) ou do
     /// `case` antigo (constante).
-    PadraoConstante { constante: bool },
+    PadraoConstante { constant: bool },
 }
 
 /// Os pais das expressões de uma unidade, por `ExprId`.
@@ -151,11 +151,11 @@ pub struct Pais {
 }
 
 impl Pais {
-    /// `antes_de_3`: a biblioteca é de antes da 3.0 (o `case e:` do
+    /// `before_3`: a biblioteca é de antes da 3.0 (o `case e:` do
     /// `switch` é o `SwitchCase` antigo, contexto constante).
-    pub fn novo(a: &Ast, unidade: &CompilationUnit, fonte: &str, antes_de_3: bool) -> Pais {
-        let mut p = Construtor { a, fonte, pais: vec![Pai::Fronteira; a.exprs.len()] };
-        p.tudo(unidade, antes_de_3);
+    pub fn novo(a: &Ast, unit: &CompilationUnit, fonte: &str, before_3: bool) -> Pais {
+        let mut p = Constructor { a, fonte, pais: vec![Pai::Fronteira; a.exprs.len()] };
+        p.everything(unit, before_3);
         Pais { pais: p.pais }
     }
 
@@ -171,14 +171,14 @@ impl Pais {
             match atual {
                 Pai::Fronteira => return false,
                 Pai::Anotacao | Pai::ConstanteDeEnum => return true,
-                Pai::Variavel { constante } | Pai::PadraoConstante { constante } => return constante,
+                Pai::Variavel { constant } | Pai::PadraoConstante { constant } => return constant,
                 Pai::Expr(p) => {
-                    let constante = match &a.expr(p).kind {
+                    let constant = match &a.expr(p).kind {
                         ExprKind::InstanceCreation { keyword, .. } => *keyword == Some(CreationKeyword::Const),
                         ExprKind::List { const_, .. } | ExprKind::SetOrMap { const_, .. } | ExprKind::Record { const_, .. } => *const_,
                         _ => false,
                     };
-                    if constante {
+                    if constant {
                         return true;
                     }
                     atual = self.pai(p);
@@ -189,66 +189,66 @@ impl Pais {
     }
 }
 
-struct Construtor<'a> {
+struct Constructor<'a> {
     a: &'a Ast,
     fonte: &'a str,
     pais: Vec<Pai>,
 }
 
-impl Construtor<'_> {
-    fn por(&mut self, filho: ExprId, pai: Pai) {
-        if let Some(x) = self.pais.get_mut(filho.0 as usize) {
+impl Constructor<'_> {
+    fn por(&mut self, child: ExprId, pai: Pai) {
+        if let Some(x) = self.pais.get_mut(child.0 as usize) {
             *x = pai;
         }
     }
 
-    fn argumentos(&mut self, args: &Arguments, pai: Pai) {
+    fn arguments_(&mut self, args: &Arguments, pai: Pai) {
         for x in args.args.iter() {
             self.por(x.value, pai);
         }
     }
 
-    fn anotacoes(&mut self, ms: &[Annotation]) {
+    fn annotations(&mut self, ms: &[Annotation]) {
         for m in ms {
             if let Some(args) = &m.arguments {
-                self.argumentos(args, Pai::Anotacao);
+                self.arguments_(args, Pai::Anotacao);
             }
         }
     }
 
-    fn parametros_de_tipo(&mut self, ps: &[TypeParameter]) {
+    fn type_parameters_(&mut self, ps: &[TypeParameter]) {
         for p in ps {
-            self.anotacoes(&p.metadata);
+            self.annotations(&p.metadata);
         }
     }
 
-    fn parametros(&mut self, ps: &[Parameter]) {
+    fn parameters_(&mut self, ps: &[Parameter]) {
         for p in ps {
-            self.anotacoes(&p.metadata);
-            self.parametros_de_tipo(&p.function_type_params);
+            self.annotations(&p.metadata);
+            self.type_parameters_(&p.function_type_params);
             if let Some(fs) = &p.function_parameters {
-                self.parametros(fs);
+                self.parameters_(fs);
             }
         }
     }
 
-    fn lista(&mut self, l: &VariableList) {
+    fn list(&mut self, l: &VariableList) {
         for v in l.variables.iter() {
             if let Some(i) = v.initializer {
-                self.por(i, Pai::Variavel { constante: l.const_ });
+                self.por(i, Pai::Variavel { constant: l.const_ });
             }
         }
     }
 
-    /// Os elementos de coleção do literal `dono`.
-    fn elementos(&mut self, dono: ExprId, es: &[CollectionElement]) {
+    /// Os elementos de coleção do literal `owner`.
+    fn elements_(&mut self, owner: ExprId, es: &[CollectionElement]) {
         for e in es {
-            self.elemento(dono, e);
+            self.element(owner, e);
         }
     }
 
-    fn elemento(&mut self, dono: ExprId, e: &CollectionElement) {
-        let pai = Pai::Expr(dono);
+    fn element(&mut self, owner: ExprId, e: &CollectionElement) {
+        let pai = Pai::Expr(owner);
         match e {
             CollectionElement::Expression(x) => self.por(*x, pai),
             // `NullAwareElement` não é atravessado.
@@ -262,40 +262,40 @@ impl Construtor<'_> {
                 // A condição é filha do `IfElement`; o padrão e a guarda,
                 // não.
                 self.por(*condition, pai);
-                self.elemento(dono, then);
+                self.element(owner, then);
                 if let Some(x) = else_ {
-                    self.elemento(dono, x);
+                    self.element(owner, x);
                 }
             }
             CollectionElement::For { init, body, .. } => {
                 // As partes do laço são filhas do `ForParts…`: fronteira; a
                 // lista de variáveis delas, pela própria regra.
                 if let Some(ForInit::Variables(l)) = init {
-                    self.lista(l);
+                    self.list(l);
                 }
-                self.elemento(dono, body);
+                self.element(owner, body);
             }
             CollectionElement::ForIn { target, body, .. } => {
                 if let ForInTarget::Declared { metadata, .. } = target {
-                    self.anotacoes(metadata);
+                    self.annotations(metadata);
                 }
-                self.elemento(dono, body);
+                self.element(owner, body);
             }
         }
     }
 
-    fn padrao_constante(&mut self, p: PatternId, case_antigo: bool) {
+    fn constant_pattern(&mut self, p: PatternId, old_case: bool) {
         let pt = self.a.pattern(p);
         if let PatternKind::Constant(e) = &pt.kind {
-            let escrito = crate::fonte::palavra_em(self.fonte, pt.span.start, "const");
-            self.por(*e, Pai::PadraoConstante { constante: escrito || case_antigo });
+            let written = crate::fonte::palavra_em(self.fonte, pt.span.start, "const");
+            self.por(*e, Pai::PadraoConstante { constant: written || old_case });
         }
     }
 
-    fn tudo(&mut self, unidade: &CompilationUnit, antes_de_3: bool) {
+    fn everything(&mut self, unit: &CompilationUnit, before_3: bool) {
         let a = self.a;
-        for d in unidade.directives.iter() {
-            self.anotacoes(&d.metadata);
+        for d in unit.directives.iter() {
+            self.annotations(&d.metadata);
         }
         // Os filhos de cada expressão.
         for (k, e) in a.exprs.iter().enumerate() {
@@ -303,7 +303,7 @@ impl Construtor<'_> {
             let pai = Pai::Expr(id);
             match &e.kind {
                 ExprKind::Parenthesized(x) | ExprKind::Await(x) | ExprKind::Throw(x) => self.por(*x, pai),
-                ExprKind::List { elements, .. } | ExprKind::SetOrMap { elements, .. } => self.elementos(id, elements),
+                ExprKind::List { elements, .. } | ExprKind::SetOrMap { elements, .. } => self.elements_(id, elements),
                 ExprKind::Record { positional, named, .. } => {
                     for &x in positional.iter() {
                         self.por(x, pai);
@@ -312,7 +312,7 @@ impl Construtor<'_> {
                         self.por(*x, pai);
                     }
                 }
-                ExprKind::InstanceCreation { arguments, .. } => self.argumentos(arguments, pai),
+                ExprKind::InstanceCreation { arguments, .. } => self.arguments_(arguments, pai),
                 ExprKind::Property { target, .. } | ExprKind::TypeArguments { target, .. } => self.por(*target, pai),
                 ExprKind::Index { target, index, .. } => {
                     self.por(*target, pai);
@@ -320,7 +320,7 @@ impl Construtor<'_> {
                 }
                 ExprKind::Call { target, arguments } => {
                     self.por(*target, pai);
-                    self.argumentos(arguments, pai);
+                    self.arguments_(arguments, pai);
                 }
                 ExprKind::Unary { operand, .. } => self.por(*operand, pai),
                 ExprKind::Binary { left, right, .. } => {
@@ -355,15 +355,15 @@ impl Construtor<'_> {
         // Os padrões constantes (em qualquer lugar: `case`, `if-case`,
         // declaração, atribuição, subpadrão).
         for k in 0..a.patterns.len() {
-            self.padrao_constante(PatternId(k as u32), false);
+            self.constant_pattern(PatternId(k as u32), false);
         }
         // O `case e:` antigo de `switch` (antes da 3.0): `SwitchCase`.
-        if antes_de_3 {
+        if before_3 {
             for s in a.stmts.iter() {
                 if let StmtKind::Switch { cases, .. } = &s.kind {
                     for c in cases.iter() {
                         if let Some(p) = c.pattern {
-                            self.padrao_constante(p, true);
+                            self.constant_pattern(p, true);
                         }
                     }
                 }
@@ -371,62 +371,62 @@ impl Construtor<'_> {
         }
         // As declarações.
         for d in a.decls.iter() {
-            self.anotacoes(&d.metadata);
+            self.annotations(&d.metadata);
             match &d.kind {
-                DeclKind::Class(x) => self.parametros_de_tipo(&x.type_params),
-                DeclKind::Mixin(x) => self.parametros_de_tipo(&x.type_params),
+                DeclKind::Class(x) => self.type_parameters_(&x.type_params),
+                DeclKind::Mixin(x) => self.type_parameters_(&x.type_params),
                 DeclKind::Enum(x) => {
-                    self.parametros_de_tipo(&x.type_params);
+                    self.type_parameters_(&x.type_params);
                     for c in x.constants.iter() {
-                        self.anotacoes(&c.metadata);
+                        self.annotations(&c.metadata);
                         if let Some(args) = &c.arguments {
-                            self.argumentos(args, Pai::ConstanteDeEnum);
+                            self.arguments_(args, Pai::ConstanteDeEnum);
                         }
                     }
                 }
-                DeclKind::Extension(x) => self.parametros_de_tipo(&x.type_params),
+                DeclKind::Extension(x) => self.type_parameters_(&x.type_params),
                 DeclKind::ExtensionType(x) => {
-                    self.parametros_de_tipo(&x.type_params);
-                    self.anotacoes(&x.representation_metadata);
+                    self.type_parameters_(&x.type_params);
+                    self.annotations(&x.representation_metadata);
                 }
                 DeclKind::Typedef(t) => {
-                    self.parametros_de_tipo(&t.type_params);
+                    self.type_parameters_(&t.type_params);
                     if let TypedefKind::Legacy { parameters, .. } = &t.kind {
-                        self.parametros(parameters);
+                        self.parameters_(parameters);
                     }
                 }
                 DeclKind::Function(_) => {}
-                DeclKind::Variables(l) => self.lista(l),
+                DeclKind::Variables(l) => self.list(l),
             }
         }
         for m in a.members.iter() {
-            self.anotacoes(&m.metadata);
+            self.annotations(&m.metadata);
             match &m.kind {
-                MemberKind::Field(l) => self.lista(l),
-                MemberKind::Constructor(k) => self.parametros(&k.parameters),
+                MemberKind::Field(l) => self.list(l),
+                MemberKind::Constructor(k) => self.parameters_(&k.parameters),
                 MemberKind::Method(_) => {}
             }
         }
         for f in a.functions.iter() {
-            self.parametros_de_tipo(&f.type_params);
+            self.type_parameters_(&f.type_params);
             if let Some(ps) = &f.parameters {
-                self.parametros(ps);
+                self.parameters_(ps);
             }
         }
         for t in a.types.iter() {
             if let TypeKind::Function { type_params, parameters, .. } = &t.kind {
-                self.parametros_de_tipo(type_params);
-                self.parametros(parameters);
+                self.type_parameters_(type_params);
+                self.parameters_(parameters);
             }
         }
         for (_, ms) in a.metadados_locais.iter() {
-            self.anotacoes(ms);
+            self.annotations(ms);
         }
         for s in a.stmts.iter() {
             match &s.kind {
-                StmtKind::Variables(l) => self.lista(l),
-                StmtKind::For { init: Some(ForInit::Variables(l)), .. } => self.lista(l),
-                StmtKind::ForIn { target: ForInTarget::Declared { metadata, .. }, .. } => self.anotacoes(metadata),
+                StmtKind::Variables(l) => self.list(l),
+                StmtKind::For { init: Some(ForInit::Variables(l)), .. } => self.list(l),
+                StmtKind::ForIn { target: ForInTarget::Declared { metadata, .. }, .. } => self.annotations(metadata),
                 _ => {}
             }
         }

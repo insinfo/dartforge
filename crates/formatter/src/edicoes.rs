@@ -78,7 +78,7 @@ fn valid_change(s: &str) -> bool {
 /// use dartforge_formatter::edicoes::edicoes_minimas;
 /// let e = edicoes_minimas("main( ){}", "main() {}\n", None);
 /// assert_eq!(e.len(), 3);
-/// assert_eq!((e[0].start, e[0].end, e[0].texto.as_str()), (5, 6, ""));
+/// assert_eq!((e[0].inicio, e[0].fim, e[0].texto.as_str()), (5, 6, ""));
 /// ```
 pub fn edicoes_minimas(original: &str, formatted: &str, range: Option<(usize, usize)>) -> Vec<Edicao> {
     let complete = || {

@@ -21,37 +21,37 @@ use dartforge_diagnostics::{Diagnostic, Span, codigos};
 
 /// O `kind` de um `BeginToken`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Grupo {
-    Parenteses,
-    Colchetes,
-    Chaves,
-    Menor,
-    Interpolacao,
+enum Group {
+    Parens,
+    Brackets,
+    Braces,
+    Less,
+    Interpolation,
 }
 
-impl Grupo {
+impl Group {
     /// `closeBraceInfoFor`.
-    fn fecho(self) -> (Op, &'static str) {
+    fn closer(self) -> (Op, &'static str) {
         match self {
-            Grupo::Parenteses => (Op::RParen, ")"),
-            Grupo::Colchetes => (Op::RBracket, "]"),
-            Grupo::Chaves | Grupo::Interpolacao => (Op::RBrace, "}"),
-            Grupo::Menor => (Op::Gt, ">"),
+            Group::Parens => (Op::RParen, ")"),
+            Group::Brackets => (Op::RBracket, "]"),
+            Group::Braces | Group::Interpolation => (Op::RBrace, "}"),
+            Group::Less => (Op::Gt, ">"),
         }
     }
 }
 
 /// O que uma chamada do `bigSwitch` faz com a pilha.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Efeito {
-    Nada,
-    Abre(Grupo),
+enum GroupEffect {
+    Nothing,
+    Opens(Group),
     /// `appendEndGroup` com o `openKind` (para `}`, também a interpolação).
-    Fecha(Grupo),
+    Closes(Group),
     /// `appendGt`, `appendGtGt`, `appendGtGtGt`.
-    Maior(u8),
+    Greater(u8),
     /// `discardOpenLt`: `;`, os tokens que começam com `=`, `this`.
-    DescartaMenor,
+    DiscardLt,
 }
 
 /// Um token nosso visto como chamadas do `bigSwitch`.
@@ -60,16 +60,16 @@ struct Passo {
     /// Chamadas de espaço em branco e comentário antes do token.
     trivia: u32,
     /// Chamadas do próprio token (0 quando é a continuação de outro).
-    chamadas: u32,
-    primeiro: Efeito,
+    calls: u32,
+    first: GroupEffect,
     /// O efeito da segunda chamada (a continuação da string depois da `}`
     /// de uma interpolação, que pode abrir outra).
-    segundo: Efeito,
+    second: GroupEffect,
 }
 
 /// Chamadas do `bigSwitch` no trecho entre dois tokens: cada caractere de
 /// espaço em branco (seguido dos espaços que vierem) e cada comentário.
-fn chamadas_de_trivia(texto: &str) -> u32 {
+fn trivia_calls(texto: &str) -> u32 {
     let b = texto.as_bytes();
     let mut i = 0;
     let mut n = 0;
@@ -90,15 +90,15 @@ fn chamadas_de_trivia(texto: &str) -> u32 {
             }
             b'/' if b.get(i + 1) == Some(&b'*') => {
                 n += 1;
-                let mut nivel = 0usize;
+                let mut level = 0usize;
                 while i < b.len() {
                     if b[i] == b'/' && b.get(i + 1) == Some(&b'*') {
-                        nivel += 1;
+                        level += 1;
                         i += 2;
                     } else if b[i] == b'*' && b.get(i + 1) == Some(&b'/') {
-                        nivel -= 1;
+                        level -= 1;
                         i += 2;
-                        if nivel == 0 {
+                        if level == 0 {
                             break;
                         }
                     } else {
@@ -112,44 +112,44 @@ fn chamadas_de_trivia(texto: &str) -> u32 {
     n
 }
 
-fn passos(source: &str, tokens: &[Token]) -> Vec<Passo> {
-    let mut saida = Vec::with_capacity(tokens.len());
+fn steps(source: &str, tokens: &[Token]) -> Vec<Passo> {
+    let mut output = Vec::with_capacity(tokens.len());
     // A interpolação do último trecho de cada string aberta.
-    let mut trechos: Vec<Interp> = Vec::new();
-    let mut fim_anterior = 0usize;
+    let mut excerpts: Vec<Interp> = Vec::new();
+    let mut previous_end = 0usize;
     let mut i = 0;
     while i < tokens.len() {
         let t = tokens[i];
-        let trivia = chamadas_de_trivia(source.get(fim_anterior..t.span.start).unwrap_or(""));
-        fim_anterior = t.span.end;
+        let trivia = trivia_calls(source.get(previous_end..t.span.start).unwrap_or(""));
+        previous_end = t.span.end;
         let texto = &source[t.span.start..t.span.end];
-        let mut p = Passo { trivia, chamadas: 1, primeiro: Efeito::Nada, segundo: Efeito::Nada };
+        let mut p = Passo { trivia, calls: 1, first: GroupEffect::Nothing, second: GroupEffect::Nothing };
         match t.kind {
             Kind::StrBegin(_, interp) => {
-                trechos.push(interp);
+                excerpts.push(interp);
                 if interp == Interp::Brace {
-                    p.primeiro = Efeito::Abre(Grupo::Interpolacao);
+                    p.first = GroupEffect::Opens(Group::Interpolation);
                 }
             }
             Kind::StrMid(..) | Kind::StrEnd(_) => {
-                let anterior = trechos.pop();
+                let anterior = excerpts.pop();
                 let nova = match t.kind {
                     Kind::StrMid(_, interp) => Some(interp),
                     _ => None,
                 };
-                let abre = if nova == Some(Interp::Brace) { Efeito::Abre(Grupo::Interpolacao) } else { Efeito::Nada };
+                let abre = if nova == Some(Interp::Brace) { GroupEffect::Opens(Group::Interpolation) } else { GroupEffect::Nothing };
                 if anterior == Some(Interp::Brace) {
                     // A `}` e a continuação da string: duas chamadas.
-                    p.primeiro = Efeito::Fecha(Grupo::Interpolacao);
-                    p.chamadas = 2;
-                    p.segundo = abre;
+                    p.first = GroupEffect::Closes(Group::Interpolation);
+                    p.calls = 2;
+                    p.second = abre;
                 } else {
                     // Depois de `$nome`, a mesma chamada do `tokenizeString`.
-                    p.chamadas = 0;
-                    p.primeiro = abre;
+                    p.calls = 0;
+                    p.first = abre;
                 }
                 if let Some(interp) = nova {
-                    trechos.push(interp);
+                    excerpts.push(interp);
                 }
             }
             Kind::Ident
@@ -157,33 +157,33 @@ fn passos(source: &str, tokens: &[Token]) -> Vec<Passo> {
                     && matches!(tokens[i - 1].kind, Kind::StrBegin(_, Interp::Ident) | Kind::StrMid(_, Interp::Ident))
                     && tokens[i - 1].span.end == t.span.start =>
             {
-                p.chamadas = 0;
+                p.calls = 0;
             }
-            Kind::Keyword(Keyword::This) => p.primeiro = Efeito::DescartaMenor,
+            Kind::Keyword(Keyword::This) => p.first = GroupEffect::DiscardLt,
             Kind::Op(op) => match op {
-                Op::LParen => p.primeiro = Efeito::Abre(Grupo::Parenteses),
-                Op::LBrace => p.primeiro = Efeito::Abre(Grupo::Chaves),
-                Op::Lt => p.primeiro = Efeito::Abre(Grupo::Menor),
-                Op::RParen => p.primeiro = Efeito::Fecha(Grupo::Parenteses),
-                Op::RBracket => p.primeiro = Efeito::Fecha(Grupo::Colchetes),
-                Op::RBrace => p.primeiro = Efeito::Fecha(Grupo::Chaves),
-                Op::Semicolon => p.primeiro = Efeito::DescartaMenor,
+                Op::LParen => p.first = GroupEffect::Opens(Group::Parens),
+                Op::LBrace => p.first = GroupEffect::Opens(Group::Braces),
+                Op::Lt => p.first = GroupEffect::Opens(Group::Less),
+                Op::RParen => p.first = GroupEffect::Closes(Group::Parens),
+                Op::RBracket => p.first = GroupEffect::Closes(Group::Brackets),
+                Op::RBrace => p.first = GroupEffect::Closes(Group::Braces),
+                Op::Semicolon => p.first = GroupEffect::DiscardLt,
                 Op::LBracket => {
                     // `[]` e `[]=` são o token de índice, sem grupo.
                     if t.glued && tokens.get(i + 1).is_some_and(|n| n.kind == Kind::Op(Op::RBracket)) {
-                        saida.push(p);
+                        output.push(p);
                         let mut j = i + 1;
-                        let colado_igual = tokens[j].glued && tokens.get(j + 1).is_some_and(|n| n.kind == Kind::Op(Op::Assign));
-                        let ate = if colado_igual { j + 1 } else { j };
-                        while j <= ate {
-                            saida.push(Passo { trivia: 0, chamadas: 0, primeiro: Efeito::Nada, segundo: Efeito::Nada });
-                            fim_anterior = tokens[j].span.end;
+                        let glued_equals = tokens[j].glued && tokens.get(j + 1).is_some_and(|n| n.kind == Kind::Op(Op::Assign));
+                        let until = if glued_equals { j + 1 } else { j };
+                        while j <= until {
+                            output.push(Passo { trivia: 0, calls: 0, first: GroupEffect::Nothing, second: GroupEffect::Nothing });
+                            previous_end = tokens[j].span.end;
                             j += 1;
                         }
-                        i = ate + 1;
+                        i = until + 1;
                         continue;
                     }
-                    p.primeiro = Efeito::Abre(Grupo::Colchetes);
+                    p.first = GroupEffect::Opens(Group::Brackets);
                 }
                 Op::Gt => {
                     // `>`, `>>`, `>>>` e, colados a um `=`, `>=`, `>>=`,
@@ -193,156 +193,156 @@ fn passos(source: &str, tokens: &[Token]) -> Vec<Passo> {
                         n += 1;
                     }
                     let ultimo = i + n - 1;
-                    let seguinte = tokens.get(ultimo + 1).filter(|_| tokens[ultimo].glued);
-                    let igual = seguinte.filter(|x| source[x.span.start..x.span.end].starts_with('='));
-                    p.primeiro = if igual.is_some() { Efeito::Nada } else { Efeito::Maior(n as u8) };
-                    saida.push(p);
+                    let following = tokens.get(ultimo + 1).filter(|_| tokens[ultimo].glued);
+                    let equals_ = following.filter(|x| source[x.span.start..x.span.end].starts_with('='));
+                    p.first = if equals_.is_some() { GroupEffect::Nothing } else { GroupEffect::Greater(n as u8) };
+                    output.push(p);
                     for k in i + 1..=ultimo {
-                        saida.push(Passo { trivia: 0, chamadas: 0, primeiro: Efeito::Nada, segundo: Efeito::Nada });
-                        fim_anterior = tokens[k].span.end;
+                        output.push(Passo { trivia: 0, calls: 0, first: GroupEffect::Nothing, second: GroupEffect::Nothing });
+                        previous_end = tokens[k].span.end;
                     }
                     i = ultimo + 1;
-                    if let Some(x) = igual {
+                    if let Some(x) = equals_ {
                         // O resto do token depois do `=` que o `>` levou.
-                        let resto = &source[x.span.start + 1..x.span.end];
-                        let efeito = if resto.starts_with('=') {
-                            Efeito::DescartaMenor
-                        } else if resto.starts_with('>') {
-                            Efeito::Maior(1)
+                        let rest = &source[x.span.start + 1..x.span.end];
+                        let effect = if rest.starts_with('=') {
+                            GroupEffect::DiscardLt
+                        } else if rest.starts_with('>') {
+                            GroupEffect::Greater(1)
                         } else {
-                            Efeito::Nada
+                            GroupEffect::Nothing
                         };
-                        saida.push(Passo { trivia: 0, chamadas: u32::from(!resto.is_empty()), primeiro: efeito, segundo: Efeito::Nada });
-                        fim_anterior = x.span.end;
+                        output.push(Passo { trivia: 0, calls: u32::from(!rest.is_empty()), first: effect, second: GroupEffect::Nothing });
+                        previous_end = x.span.end;
                         i += 1;
                     }
                     continue;
                 }
-                _ if texto.starts_with('=') => p.primeiro = Efeito::DescartaMenor,
+                _ if texto.starts_with('=') => p.first = GroupEffect::DiscardLt,
                 _ => {}
             },
             _ => {}
         }
-        saida.push(p);
+        output.push(p);
         i += 1;
     }
-    saida
+    output
 }
 
 /// O resultado de um `discardBeginGroupUntil`.
-enum Busca {
+enum GroupSearch {
     /// O grupo do topo é o esperado (depois de descartar os `<`).
-    Direto,
+    Direct,
     /// Achado mais abaixo: a altura da pilha com ele no topo.
-    Abaixo(usize),
+    Below(usize),
     /// Não há abridor da espécie: a pilha volta ao que era.
-    Nenhum,
+    NoneFound,
 }
 
-fn descartar_menor(pilha: &mut Vec<(Grupo, usize)>) {
-    while pilha.last().is_some_and(|g| g.0 == Grupo::Menor) {
-        pilha.pop();
+fn discard_less(stack: &mut Vec<(Group, usize)>) {
+    while stack.last().is_some_and(|g| g.0 == Group::Less) {
+        stack.pop();
     }
 }
 
-fn casa(fecho: Grupo, abridor: Grupo) -> bool {
+fn matches_here(closer: Group, opener: Group) -> bool {
     // A `}` de uma interpolação é uma `}` comum para o scanner (`openKind`
     // `{`), que aceita o `{` e o `${`.
-    match fecho {
-        Grupo::Chaves | Grupo::Interpolacao => matches!(abridor, Grupo::Chaves | Grupo::Interpolacao),
-        _ => fecho == abridor,
+    match closer {
+        Group::Braces | Group::Interpolation => matches!(opener, Group::Braces | Group::Interpolation),
+        _ => closer == opener,
     }
 }
 
 /// O laço do `discardBeginGroupUntil`, sem decidir a recuperação. Deixa a
 /// pilha como o fasta a deixa: sem os `<` do topo no caso direto.
-fn buscar(pilha: &mut Vec<(Grupo, usize)>, fecho: Grupo) -> Busca {
-    let original = pilha.clone();
-    let mut primeiro = true;
+fn search(stack: &mut Vec<(Group, usize)>, closer: Group) -> GroupSearch {
+    let original = stack.clone();
+    let mut first = true;
     loop {
-        descartar_menor(pilha);
-        let Some(&(topo, _)) = pilha.last() else { break };
-        if casa(fecho, topo) {
-            if primeiro {
-                return Busca::Direto;
+        discard_less(stack);
+        let Some(&(topo, _)) = stack.last() else { break };
+        if matches_here(closer, topo) {
+            if first {
+                return GroupSearch::Direct;
             }
-            return Busca::Abaixo(pilha.len());
+            return GroupSearch::Below(stack.len());
         }
-        primeiro = false;
-        pilha.pop();
-        if pilha.is_empty() {
+        first = false;
+        stack.pop();
+        if stack.is_empty() {
             break;
         }
     }
-    *pilha = original;
-    Busca::Nenhum
+    *stack = original;
+    GroupSearch::NoneFound
 }
 
-fn aplicar_maior(pilha: &mut Vec<(Grupo, usize)>, n: u8) {
+fn apply_greater(stack: &mut Vec<(Group, usize)>, n: u8) {
     for _ in 0..n {
-        if pilha.last().is_some_and(|g| g.0 == Grupo::Menor) {
-            pilha.pop();
+        if stack.last().is_some_and(|g| g.0 == Group::Less) {
+            stack.pop();
         } else {
             break;
         }
     }
 }
 
-/// O `recoveryOptionTokenizer` de uma opção, a partir do passo `desde`:
+/// O `recoveryOptionTokenizer` de uma opção, a partir do passo `since`:
 /// as recuperações contadas em no máximo 101 chamadas do `bigSwitch`.
-fn simular(passos: &[Passo], desde: usize, pilha: &mut Vec<(Grupo, usize)>, mut recuperacoes: usize) -> usize {
-    let mut iteracoes = 0u32;
+fn simular(steps: &[Passo], since: usize, stack: &mut Vec<(Group, usize)>, mut recoveries: usize) -> usize {
+    let mut iterations = 0u32;
     // O último passo é o `Eof`, que o laço não lê.
-    for p in passos.iter().take(passos.len().saturating_sub(1)).skip(desde) {
-        iteracoes += p.trivia;
-        if iteracoes > 100 {
-            return recuperacoes;
+    for p in steps.iter().take(steps.len().saturating_sub(1)).skip(since) {
+        iterations += p.trivia;
+        if iterations > 100 {
+            return recoveries;
         }
-        if p.chamadas == 0 {
-            efeito_simulado(p.primeiro, pilha, &mut recuperacoes);
+        if p.calls == 0 {
+            simulated_effect(p.first, stack, &mut recoveries);
             continue;
         }
-        iteracoes += 1;
-        efeito_simulado(p.primeiro, pilha, &mut recuperacoes);
-        if iteracoes > 100 {
-            return recuperacoes;
+        iterations += 1;
+        simulated_effect(p.first, stack, &mut recoveries);
+        if iterations > 100 {
+            return recoveries;
         }
-        if p.chamadas == 2 {
-            iteracoes += 1;
-            efeito_simulado(p.segundo, pilha, &mut recuperacoes);
-            if iteracoes > 100 {
-                return recuperacoes;
+        if p.calls == 2 {
+            iterations += 1;
+            simulated_effect(p.second, stack, &mut recoveries);
+            if iterations > 100 {
+                return recoveries;
             }
         }
     }
-    recuperacoes
+    recoveries
 }
 
-fn efeito_simulado(efeito: Efeito, pilha: &mut Vec<(Grupo, usize)>, recuperacoes: &mut usize) {
-    match efeito {
-        Efeito::Nada => {}
-        Efeito::Abre(g) => {
-            if !matches!(g, Grupo::Menor | Grupo::Parenteses) {
-                descartar_menor(pilha);
+fn simulated_effect(effect: GroupEffect, stack: &mut Vec<(Group, usize)>, recoveries: &mut usize) {
+    match effect {
+        GroupEffect::Nothing => {}
+        GroupEffect::Opens(g) => {
+            if !matches!(g, Group::Less | Group::Parens) {
+                discard_less(stack);
             }
-            pilha.push((g, 0));
+            stack.push((g, 0));
         }
-        Efeito::DescartaMenor => descartar_menor(pilha),
-        Efeito::Maior(n) => aplicar_maior(pilha, n),
-        Efeito::Fecha(g) => {
-            let altura = pilha.len();
-            match buscar(pilha, g) {
-                Busca::Direto => {
-                    pilha.pop();
+        GroupEffect::DiscardLt => discard_less(stack),
+        GroupEffect::Greater(n) => apply_greater(stack, n),
+        GroupEffect::Closes(g) => {
+            let height = stack.len();
+            match search(stack, g) {
+                GroupSearch::Direct => {
+                    stack.pop();
                 }
-                Busca::Abaixo(h) => {
-                    *recuperacoes += 1;
+                GroupSearch::Below(h) => {
+                    *recoveries += 1;
                     // `insertSyntheticClosers`: um `unmatchedBeginGroup` por
                     // entrada acima da achada, os `<` inclusive.
-                    *recuperacoes += altura - h;
-                    pilha.pop();
+                    *recoveries += height - h;
+                    stack.pop();
                 }
-                Busca::Nenhum => *recuperacoes += 1,
+                GroupSearch::NoneFound => *recoveries += 1,
             }
         }
     }
@@ -350,7 +350,7 @@ fn efeito_simulado(efeito: Efeito, pilha: &mut Vec<(Grupo, usize)>, recuperacoes
 
 /// Um fecho sintético: o `endGroup` de um abridor que o scanner não casou.
 #[derive(Debug, Clone, Copy)]
-pub struct FechoSintetico {
+pub struct SyntheticCloser {
     /// O início do abridor.
     pub abre: usize,
     /// Onde o fecho está (o `charOffset` do `SyntheticToken`).
@@ -361,73 +361,73 @@ pub struct FechoSintetico {
 
 /// Os tokens com os fechos sintéticos inseridos, os erros do scanner e os
 /// fechos (para o `moveSynthetic` do parser).
-pub fn agrupar(source: &str, tokens: Vec<Token>) -> (Vec<Token>, Vec<Diagnostic>, Vec<FechoSintetico>) {
-    let passos = passos(source, &tokens);
-    debug_assert_eq!(passos.len(), tokens.len());
-    let mut pilha: Vec<(Grupo, usize)> = Vec::new();
+pub fn group_tokens(source: &str, tokens: Vec<Token>) -> (Vec<Token>, Vec<Diagnostic>, Vec<SyntheticCloser>) {
+    let steps = steps(source, &tokens);
+    debug_assert_eq!(steps.len(), tokens.len());
+    let mut stack: Vec<(Group, usize)> = Vec::new();
     // (antes do token de índice, token sintético)
-    let mut insercoes: Vec<(usize, Token)> = Vec::new();
-    let mut erros = Vec::new();
-    let mut fechos: Vec<FechoSintetico> = Vec::new();
-    let sintetico = |op: Op, em: usize| Token { kind: Kind::Op(op), span: Span { start: em, end: em }, glued: false };
-    let nao_casado = |g: Grupo, abridor: usize, em: usize, antes: usize, insercoes: &mut Vec<(usize, Token)>, erros: &mut Vec<Diagnostic>, fechos: &mut Vec<FechoSintetico>| {
-        let (op, texto) = g.fecho();
-        insercoes.push((antes, sintetico(op, em)));
-        fechos.push(FechoSintetico { abre: tokens[abridor].span.start, em, erro: erros.len() });
-        erros.push(Diagnostic::com_codigo(codigos::scanner::EXPECTED_TOKEN, Span { start: em, end: em + 1 }, [texto]));
+    let mut insertions: Vec<(usize, Token)> = Vec::new();
+    let mut errors = Vec::new();
+    let mut closers: Vec<SyntheticCloser> = Vec::new();
+    let synthetic = |op: Op, em: usize| Token { kind: Kind::Op(op), span: Span { start: em, end: em }, glued: false };
+    let unmatched = |g: Group, opener: usize, em: usize, antes: usize, insertions: &mut Vec<(usize, Token)>, errors: &mut Vec<Diagnostic>, closers: &mut Vec<SyntheticCloser>| {
+        let (op, texto) = g.closer();
+        insertions.push((antes, synthetic(op, em)));
+        closers.push(SyntheticCloser { abre: tokens[opener].span.start, em, erro: errors.len() });
+        errors.push(Diagnostic::com_codigo(codigos::scanner::EXPECTED_TOKEN, Span { start: em, end: em + 1 }, [texto]));
     };
-    for (i, (t, p)) in tokens.iter().zip(&passos).enumerate() {
+    for (i, (t, p)) in tokens.iter().zip(&steps).enumerate() {
         if t.kind == Kind::Eof {
             // `appendEofToken`.
-            descartar_menor(&mut pilha);
-            while let Some((g, abridor)) = pilha.pop() {
-                nao_casado(g, abridor, t.span.start, i, &mut insercoes, &mut erros, &mut fechos);
+            discard_less(&mut stack);
+            while let Some((g, opener)) = stack.pop() {
+                unmatched(g, opener, t.span.start, i, &mut insertions, &mut errors, &mut closers);
             }
             break;
         }
-        for (k, efeito) in [p.primeiro, p.segundo].into_iter().enumerate() {
-            if k == 1 && p.chamadas < 2 {
+        for (k, effect) in [p.first, p.second].into_iter().enumerate() {
+            if k == 1 && p.calls < 2 {
                 break;
             }
-            match efeito {
-                Efeito::Nada => {}
-                Efeito::Abre(g) => {
-                    if !matches!(g, Grupo::Menor | Grupo::Parenteses) {
-                        descartar_menor(&mut pilha);
+            match effect {
+                GroupEffect::Nothing => {}
+                GroupEffect::Opens(g) => {
+                    if !matches!(g, Group::Less | Group::Parens) {
+                        discard_less(&mut stack);
                     }
-                    pilha.push((g, i));
+                    stack.push((g, i));
                 }
-                Efeito::DescartaMenor => descartar_menor(&mut pilha),
-                Efeito::Maior(n) => aplicar_maior(&mut pilha, n),
-                Efeito::Fecha(g) => {
-                    let original = pilha.clone();
-                    match buscar(&mut pilha, g) {
-                        Busca::Direto => {
-                            pilha.pop();
+                GroupEffect::DiscardLt => discard_less(&mut stack),
+                GroupEffect::Greater(n) => apply_greater(&mut stack, n),
+                GroupEffect::Closes(g) => {
+                    let original = stack.clone();
+                    match search(&mut stack, g) {
+                        GroupSearch::Direct => {
+                            stack.pop();
                         }
-                        Busca::Nenhum => {}
-                        Busca::Abaixo(h) => {
-                            let interpolacao_no_meio = original[h..].iter().any(|e| e.0 == Grupo::Interpolacao);
-                            let opcao1 = {
-                                let mut s = pilha.clone();
+                        GroupSearch::NoneFound => {}
+                        GroupSearch::Below(h) => {
+                            let interpolation_in_middle = original[h..].iter().any(|e| e.0 == Group::Interpolation);
+                            let option1 = {
+                                let mut s = stack.clone();
                                 s.pop();
-                                let r = simular(&passos, i + 1, &mut s, original.len() - h);
+                                let r = simular(&steps, i + 1, &mut s, original.len() - h);
                                 r + s.len()
                             };
-                            let opcao2 = {
+                            let option2 = {
                                 let mut s = original.clone();
-                                let r = simular(&passos, i + 1, &mut s, 0);
+                                let r = simular(&steps, i + 1, &mut s, 0);
                                 r + s.len() + 1
                             };
-                            let fecho_de_interpolacao = g == Grupo::Interpolacao;
-                            if !fecho_de_interpolacao && (opcao2 < opcao1 || interpolacao_no_meio) {
+                            let interpolation_closer = g == Group::Interpolation;
+                            if !interpolation_closer && (option2 < option1 || interpolation_in_middle) {
                                 // Opção 2: o fecho fica como token comum.
-                                pilha = original;
+                                stack = original;
                             } else {
-                                for &(e, abridor) in original[h..].iter().rev() {
-                                    nao_casado(e, abridor, t.span.start, i, &mut insercoes, &mut erros, &mut fechos);
+                                for &(e, opener) in original[h..].iter().rev() {
+                                    unmatched(e, opener, t.span.start, i, &mut insertions, &mut errors, &mut closers);
                                 }
-                                pilha.pop();
+                                stack.pop();
                             }
                         }
                     }
@@ -435,73 +435,73 @@ pub fn agrupar(source: &str, tokens: Vec<Token>) -> (Vec<Token>, Vec<Diagnostic>
             }
         }
     }
-    if insercoes.is_empty() {
-        return (tokens, erros, fechos);
+    if insertions.is_empty() {
+        return (tokens, errors, closers);
     }
-    let mut saida = Vec::with_capacity(tokens.len() + insercoes.len());
-    let mut proxima = insercoes.into_iter().peekable();
+    let mut output = Vec::with_capacity(tokens.len() + insertions.len());
+    let mut next = insertions.into_iter().peekable();
     for (i, t) in tokens.into_iter().enumerate() {
-        while let Some((_, s)) = proxima.next_if(|(antes, _)| *antes == i) {
-            saida.push(s);
+        while let Some((_, s)) = next.next_if(|(antes, _)| *antes == i) {
+            output.push(s);
         }
-        saida.push(t);
+        output.push(t);
     }
-    (saida, erros, fechos)
+    (output, errors, closers)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn fechos(src: &str) -> (Vec<String>, Vec<(usize, String)>) {
+    fn closers(src: &str) -> (Vec<String>, Vec<(usize, String)>) {
         let tokens = crate::lexer::lex(src).unwrap();
-        let (t, e, _) = agrupar(src, tokens);
-        let sinteticos = t
+        let (t, e, _) = group_tokens(src, tokens);
+        let synthetics = t
             .iter()
             .filter(|t| t.span.start == t.span.end && t.kind != Kind::Eof)
             .map(|t| format!("{:?}@{}", t.kind, t.span.start))
             .collect();
-        let erros = e.iter().map(|d| (d.span.start, d.message.clone())).collect();
-        (sinteticos, erros)
+        let errors = e.iter().map(|d| (d.span.start, d.message.clone())).collect();
+        (synthetics, errors)
     }
 
     #[test]
-    fn parenteses_aberto_antes_da_chave() {
+    fn open_paren_before_brace() {
         let src = "void m() {\n  f(1, \n}\n";
-        let (s, e) = fechos(src);
-        let chave = src.rfind('}').unwrap();
-        assert_eq!(s, vec![format!("Op(RParen)@{chave}")]);
-        assert_eq!(e, vec![(chave, "Expected to find ')'.".to_string())]);
+        let (s, e) = closers(src);
+        let key = src.rfind('}').unwrap();
+        assert_eq!(s, vec![format!("Op(RParen)@{key}")]);
+        assert_eq!(e, vec![(key, "Expected to find ')'.".to_string())]);
     }
 
     #[test]
-    fn menor_aberto_tambem_ganha_fecho() {
+    fn open_less_also_gets_closer() {
         // O `insertSyntheticClosers` olha o abridor achado, não o `<`.
         let src = "void m() {\n  f(a < b, 1\n}\n";
-        let (s, _) = fechos(src);
-        let chave = src.rfind('}').unwrap();
-        assert_eq!(s, vec![format!("Op(Gt)@{chave}"), format!("Op(RParen)@{chave}")]);
+        let (s, _) = closers(src);
+        let key = src.rfind('}').unwrap();
+        assert_eq!(s, vec![format!("Op(Gt)@{key}"), format!("Op(RParen)@{key}")]);
     }
 
     #[test]
-    fn colchete_com_parenteses_dentro() {
+    fn bracket_with_parens_inside() {
         let src = "void n() {\n  [1, (2]\n}\n";
-        let (s, _) = fechos(src);
-        let colchete = src.find(']').unwrap();
-        assert_eq!(s, vec![format!("Op(RParen)@{colchete}")]);
+        let (s, _) = closers(src);
+        let bracket = src.find(']').unwrap();
+        assert_eq!(s, vec![format!("Op(RParen)@{bracket}")]);
     }
 
     #[test]
-    fn fim_do_arquivo_fecha_tudo() {
+    fn end_of_file_closes_everything() {
         let src = "void m() {\n  f(1";
-        let (s, e) = fechos(src);
+        let (s, e) = closers(src);
         assert_eq!(s, vec![format!("Op(RParen)@{}", src.len()), format!("Op(RBrace)@{}", src.len())]);
         assert_eq!(e.len(), 2);
     }
 
     #[test]
-    fn indice_e_genericos_nao_abrem_grupo() {
-        let (s, e) = fechos("operator []=(i, v) {}\nList<List<int>> x = [];\nvar y = a < b;\n");
+    fn index_and_generics_do_not_open_group() {
+        let (s, e) = closers("operator []=(i, v) {}\nList<List<int>> x = [];\nvar y = a < b;\n");
         assert!(s.is_empty() && e.is_empty(), "{s:?} {e:?}");
     }
 }

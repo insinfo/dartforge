@@ -9,7 +9,7 @@
 
 use crate::Span;
 
-fn parte_de_identificador(c: u8) -> bool {
+fn identifier_part(c: u8) -> bool {
     c.is_ascii_alphanumeric() || c == b'_' || c == b'$'
 }
 
@@ -21,7 +21,7 @@ pub struct Comentarios {
 impl Comentarios {
     pub fn de(fonte: &str) -> Comentarios {
         let mut spans = Vec::new();
-        varrer(fonte.as_bytes(), 0, false, &mut spans);
+        sweep(fonte.as_bytes(), 0, false, &mut spans);
         Comentarios { spans }
     }
 
@@ -33,17 +33,17 @@ impl Comentarios {
     /// com brancos entre eles e até `pos`, em ordem.
     pub fn antes_de(&self, fonte: &str, pos: usize) -> Vec<Span> {
         let b = fonte.as_bytes();
-        let so_brancos = |de: usize, ate: usize| b.get(de..ate).is_some_and(|t| t.iter().all(u8::is_ascii_whitespace));
+        let only_whitespace = |de: usize, until: usize| b.get(de..until).is_some_and(|t| t.iter().all(u8::is_ascii_whitespace));
         let mut k = self.spans.partition_point(|s| s.end <= pos);
-        let mut limite = pos;
+        let mut limit = pos;
         let mut v = Vec::new();
         while k > 0 {
             let s = self.spans[k - 1];
-            if !so_brancos(s.end, limite) {
+            if !only_whitespace(s.end, limit) {
                 break;
             }
             v.push(s);
-            limite = s.start;
+            limit = s.start;
             k -= 1;
         }
         v.reverse();
@@ -55,27 +55,27 @@ impl Comentarios {
     /// depois dele.
     pub fn dart_doc(&self, fonte: &str, pos: usize) -> Option<Span> {
         let mut doc: Option<Span> = None;
-        let mut multilinha = false;
+        let mut multiline = false;
         for s in self.antes_de(fonte, pos) {
-            let lexema = &fonte[s.start..s.end];
-            if lexema.starts_with("///") {
-                if !multilinha {
+            let lexeme = &fonte[s.start..s.end];
+            if lexeme.starts_with("///") {
+                if !multiline {
                     doc = Some(s);
-                    multilinha = true;
+                    multiline = true;
                 }
-            } else if lexema.starts_with("/**") {
+            } else if lexeme.starts_with("/**") {
                 doc = Some(s);
-                multilinha = false;
+                multiline = false;
             }
         }
         doc
     }
 }
 
-/// Varre código a partir de `i`; com `ate_chave`, para depois do `}` que
+/// Varre código a partir de `i`; com `until_brace`, para depois do `}` que
 /// fecha a interpolação (devolve a posição depois dele).
-fn varrer(b: &[u8], mut i: usize, ate_chave: bool, saida: &mut Vec<Span>) -> usize {
-    let mut nivel = 0usize;
+fn sweep(b: &[u8], mut i: usize, until_brace: bool, output: &mut Vec<Span>) -> usize {
+    let mut level = 0usize;
     while i < b.len() {
         let c = b[i];
         if c.is_ascii_whitespace() {
@@ -83,56 +83,56 @@ fn varrer(b: &[u8], mut i: usize, ate_chave: bool, saida: &mut Vec<Span>) -> usi
             continue;
         }
         if c == b'/' && b.get(i + 1) == Some(&b'/') {
-            let ini = i;
+            let start_ = i;
             while i < b.len() && b[i] != b'\n' && b[i] != b'\r' {
                 i += 1;
             }
-            saida.push(Span { start: ini, end: i });
+            output.push(Span { start: start_, end: i });
             continue;
         }
         if c == b'/' && b.get(i + 1) == Some(&b'*') {
             // Os comentários de bloco aninham.
-            let ini = i;
-            let mut profundidade = 0usize;
+            let start_ = i;
+            let mut depth = 0usize;
             while i < b.len() {
                 if b[i..].starts_with(b"/*") {
-                    profundidade += 1;
+                    depth += 1;
                     i += 2;
                 } else if b[i..].starts_with(b"*/") {
-                    profundidade -= 1;
+                    depth -= 1;
                     i += 2;
-                    if profundidade == 0 {
+                    if depth == 0 {
                         break;
                     }
                 } else {
                     i += 1;
                 }
             }
-            saida.push(Span { start: ini, end: i });
+            output.push(Span { start: start_, end: i });
             continue;
         }
-        if ate_chave {
+        if until_brace {
             if c == b'{' {
-                nivel += 1;
+                level += 1;
             } else if c == b'}' {
-                if nivel == 0 {
+                if level == 0 {
                     return i + 1;
                 }
-                nivel -= 1;
+                level -= 1;
             }
         }
         if c == b'\'' || c == b'"' {
-            i = string(b, i, false, saida);
+            i = string(b, i, false, output);
             continue;
         }
-        if parte_de_identificador(c) {
-            let ini = i;
-            while i < b.len() && parte_de_identificador(b[i]) {
+        if identifier_part(c) {
+            let start_ = i;
+            while i < b.len() && identifier_part(b[i]) {
                 i += 1;
             }
             // `r'…'`: a string crua.
-            if &b[ini..i] == b"r" && matches!(b.get(i), Some(b'\'') | Some(b'"')) {
-                i = string(b, i, true, saida);
+            if &b[start_..i] == b"r" && matches!(b.get(i), Some(b'\'') | Some(b'"')) {
+                i = string(b, i, true, output);
             }
             continue;
         }
@@ -142,25 +142,25 @@ fn varrer(b: &[u8], mut i: usize, ate_chave: bool, saida: &mut Vec<Span>) -> usi
 }
 
 /// Varre a string que começa na aspa em `i`; devolve a posição depois dela.
-fn string(b: &[u8], mut i: usize, cru: bool, saida: &mut Vec<Span>) -> usize {
+fn string(b: &[u8], mut i: usize, raw: bool, output: &mut Vec<Span>) -> usize {
     let q = b[i];
-    let tripla = b[i..].starts_with(&[q, q, q]);
-    let n = if tripla { 3 } else { 1 };
+    let triple = b[i..].starts_with(&[q, q, q]);
+    let n = if triple { 3 } else { 1 };
     i += n;
     while i < b.len() {
-        if b[i] == q && (!tripla || b[i..].starts_with(&[q, q, q])) {
+        if b[i] == q && (!triple || b[i..].starts_with(&[q, q, q])) {
             return i + n;
         }
         // A string simples não passa da linha.
-        if !tripla && (b[i] == b'\n' || b[i] == b'\r') {
+        if !triple && (b[i] == b'\n' || b[i] == b'\r') {
             return i;
         }
-        if !cru && b[i] == b'\\' {
+        if !raw && b[i] == b'\\' {
             i += 2;
             continue;
         }
-        if !cru && b[i] == b'$' && b.get(i + 1) == Some(&b'{') {
-            i = varrer(b, i + 2, true, saida);
+        if !raw && b[i] == b'$' && b.get(i + 1) == Some(&b'{') {
+            i = sweep(b, i + 2, true, output);
             continue;
         }
         i += 1;
@@ -173,15 +173,15 @@ mod testes {
     use super::*;
 
     #[test]
-    fn strings_nao_tem_comentarios() {
+    fn strings_have_no_comments() {
         let f = "var a = '// nao'; /* sim */ var b = \"${x /* sim2 */}\"; // fim\n";
         let c = Comentarios::de(f);
-        let textos: Vec<&str> = c.todos().iter().map(|s| &f[s.start..s.end]).collect();
-        assert_eq!(textos, vec!["/* sim */", "/* sim2 */", "// fim"]);
+        let texts: Vec<&str> = c.todos().iter().map(|s| &f[s.start..s.end]).collect();
+        assert_eq!(texts, vec!["/* sim */", "/* sim2 */", "// fim"]);
     }
 
     #[test]
-    fn dart_doc_como_o_parser() {
+    fn dart_doc_like_the_parser() {
         let f = "/** a */\n// b\n/// c\n/// d\nclass A {}\n";
         let c = Comentarios::de(f);
         let pos = f.find("class").unwrap();

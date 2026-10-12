@@ -344,7 +344,7 @@ pub struct StrFlags {
     /// simples, fim do arquivo): o `unterminatedString` do scanner do fasta
     /// põe o fecho sintético e segue, e o erro
     /// (`UNTERMINATED_STRING_LITERAL`) sai deste token
-    /// (`parser::erros_recuperaveis_do_scanner`). Só o último trecho a tem.
+    /// (`parser::recoverable_scanner_errors`). Só o último trecho a tem.
     pub aberta: bool,
 }
 

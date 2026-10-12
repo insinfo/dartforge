@@ -173,7 +173,7 @@ pub struct CompilationUnit {
     pub declarations: Vec<DeclId>,
 }
 
-/// Anotação `@nome`, `@nome.membro`, `@p.Nome<T>.ctor(args)`.
+/// Anotação `@nome`, `@nome.member`, `@p.Nome<T>.ctor(args)`.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Annotation {
     pub span: Span,
@@ -391,7 +391,7 @@ pub enum Variance {
 
 impl Variance {
     /// O modificador pelo texto.
-    pub fn do_texto(texto: &str) -> Option<Variance> {
+    pub fn from_text_(texto: &str) -> Option<Variance> {
         match texto {
             "in" => Some(Variance::In),
             "out" => Some(Variance::Out),
@@ -424,7 +424,7 @@ pub struct TypeParameter {
     pub variance: Option<(Variance, Span)>,
 }
 
-/// Lista `tipo a = 1, b;` com os modificadores comuns.
+/// Lista `kind a = 1, b;` com os modificadores comuns.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct VariableList {
     pub external: bool,
@@ -479,7 +479,7 @@ pub struct Constructor {
     /// `initializers` como [`Initializer::Redirect`].
     pub redirect: Option<RedirectTarget>,
     pub body: FunctionBody,
-    /// `this : inits { corpo }` (Dart 3.13): a parte de corpo de um
+    /// `this : inits { body_node }` (Dart 3.13): a parte de corpo de um
     /// construtor primário, antes da elaboração. Depois dela só sobra onde é
     /// erro (sem cabeçalho primário, ou repetida).
     pub parte_primaria: bool,

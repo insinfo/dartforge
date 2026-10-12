@@ -19,36 +19,36 @@ use crate::token::{Interp, Kind, Op};
 
 /// Estilo de uma palavra-chave do fasta (`KeywordStyle`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Estilo {
+pub(crate) enum WordStyle {
     /// Palavra reservada: nunca é identificador.
-    Reservada,
+    Reserved,
     /// Identificador embutido (`isBuiltIn`): identificador, mas não nome de
     /// tipo nem de declaração.
-    Embutida,
+    BuiltIn,
     /// Pseudo-palavra (`isPseudo`): identificador em qualquer lugar.
     Pseudo,
 }
 
 /// O estilo da palavra `texto` pelas tabelas de `token.dart`, ou `None` se
 /// não for palavra-chave do fasta.
-pub(crate) fn estilo(texto: &str) -> Option<Estilo> {
+pub(crate) fn word_style(texto: &str) -> Option<WordStyle> {
     Some(match texto {
         "assert" | "break" | "case" | "catch" | "class" | "const" | "continue" | "default"
         | "do" | "else" | "enum" | "extends" | "false" | "final" | "finally" | "for" | "if"
         | "in" | "is" | "new" | "null" | "rethrow" | "return" | "super" | "switch" | "this"
-        | "throw" | "true" | "try" | "var" | "void" | "while" | "with" => Estilo::Reservada,
+        | "throw" | "true" | "try" | "var" | "void" | "while" | "with" => WordStyle::Reserved,
         "abstract" | "as" | "augment" | "covariant" | "deferred" | "dynamic" | "export"
         | "extension" | "external" | "factory" | "Function" | "get" | "implements" | "import"
         | "interface" | "late" | "library" | "mixin" | "operator" | "part" | "required" | "set"
-        | "static" | "typedef" => Estilo::Embutida,
+        | "static" | "typedef" => WordStyle::BuiltIn,
         "async" | "await" | "base" | "hide" | "inout" | "native" | "of" | "on" | "out"
-        | "patch" | "sealed" | "show" | "source" | "sync" | "when" | "yield" => Estilo::Pseudo,
+        | "patch" | "sealed" | "show" | "source" | "sync" | "when" | "yield" => WordStyle::Pseudo,
         _ => return None,
     })
 }
 
 /// `isModifier` de `token.dart`.
-pub(crate) fn e_modificador(texto: &str) -> bool {
+pub(crate) fn is_modifier(texto: &str) -> bool {
     matches!(
         texto,
         "abstract"
@@ -65,7 +65,7 @@ pub(crate) fn e_modificador(texto: &str) -> bool {
 }
 
 /// `isTopLevelKeyword` de `token.dart`.
-pub(crate) fn e_palavra_de_topo(texto: &str) -> bool {
+pub(crate) fn is_top_level_word(texto: &str) -> bool {
     matches!(
         texto,
         "class"
@@ -81,14 +81,14 @@ pub(crate) fn e_palavra_de_topo(texto: &str) -> bool {
 }
 
 /// `isVariance` de `type_info_impl.dart`: `in`, `inout` ou `out`.
-pub(crate) fn e_variancia(texto: &str) -> bool {
+pub(crate) fn is_variance(texto: &str) -> bool {
     matches!(texto, "in" | "inout" | "out")
 }
 
 impl<'s, 'i> Parser<'s, 'i> {
     /// O texto do token na posição absoluta `pos`, se ele é palavra ou
     /// identificador (senão vazio).
-    fn palavra_de(&self, pos: usize) -> &'s str {
+    fn word_of(&self, pos: usize) -> &'s str {
         match self.kind_of(pos) {
             Kind::Ident | Kind::Keyword(_) => self.text_of(pos),
             _ => "",
@@ -96,47 +96,47 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 
     /// O estilo fasta do token na posição absoluta `pos`.
-    pub(crate) fn estilo_de(&self, pos: usize) -> Option<Estilo> {
+    pub(crate) fn word_style_of(&self, pos: usize) -> Option<WordStyle> {
         match self.kind_of(pos) {
-            Kind::Ident | Kind::Keyword(_) => estilo(self.text_of(pos)),
+            Kind::Ident | Kind::Keyword(_) => word_style(self.text_of(pos)),
             _ => None,
         }
     }
 
     /// `token.kind == IDENTIFIER_TOKEN` do fasta: identificador que não é
     /// palavra-chave de estilo nenhum.
-    pub(crate) fn e_identificador_puro(&self, pos: usize) -> bool {
-        self.kind_of(pos) == Kind::Ident && estilo(self.text_of(pos)).is_none()
+    pub(crate) fn is_plain_identifier(&self, pos: usize) -> bool {
+        self.kind_of(pos) == Kind::Ident && word_style(self.text_of(pos)).is_none()
     }
 
     /// `isKeywordOrIdentifier` do fasta.
-    pub(crate) fn e_palavra_ou_identificador(&self, pos: usize) -> bool {
+    pub(crate) fn is_word_or_identifier(&self, pos: usize) -> bool {
         matches!(self.kind_of(pos), Kind::Ident | Kind::Keyword(_))
     }
 
     /// `looksLikeStartOfNextTopLevelDeclaration` (`identifier_context_impl.dart`).
-    pub(crate) fn parece_inicio_de_topo(&self, pos: usize) -> bool {
-        let t = self.palavra_de(pos);
-        e_palavra_de_topo(t)
+    pub(crate) fn looks_like_top_level_start(&self, pos: usize) -> bool {
+        let t = self.word_of(pos);
+        is_top_level_word(t)
             || matches!(t, "const" | "get" | "final" | "set" | "var" | "void")
             || self.kind_of(pos) == Kind::Eof
     }
 
     /// `looksLikeStartOfNextClassMember` (`identifier_context_impl.dart`).
-    pub(crate) fn parece_inicio_de_membro(&self, pos: usize) -> bool {
-        let t = self.palavra_de(pos);
-        e_modificador(t)
+    pub(crate) fn looks_like_member_start(&self, pos: usize) -> bool {
+        let t = self.word_of(pos);
+        is_modifier(t)
             || self.kind_of(pos) == Kind::Op(Op::At)
             || matches!(t, "get" | "set" | "void")
             || self.kind_of(pos) == Kind::Eof
     }
 
     /// `looksLikeStatementStart` (`identifier_context.dart`).
-    pub(crate) fn parece_inicio_de_comando(&self, pos: usize) -> bool {
+    pub(crate) fn looks_like_statement_start(&self, pos: usize) -> bool {
         let t = if self.kind_of(pos) == Kind::Ident {
             ""
         } else {
-            self.palavra_de(pos)
+            self.word_of(pos)
         };
         matches!(
             t,
@@ -158,10 +158,10 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 
     /// `looksLikeExpressionStart` (`identifier_context.dart`).
-    pub(crate) fn parece_inicio_de_expressao(&self, pos: usize) -> bool {
+    pub(crate) fn looks_like_expression_start(&self, pos: usize) -> bool {
         match self.kind_of(pos) {
             Kind::Ident | Kind::Int | Kind::Double | Kind::Str(_) | Kind::StrBegin(..) => true,
-            Kind::Keyword(_) => !self.parece_inicio_de_comando(pos),
+            Kind::Keyword(_) => !self.looks_like_statement_start(pos),
             Kind::Op(op) => matches!(
                 op,
                 Op::Hash
@@ -182,18 +182,18 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `looksLikeTypeParamOrArg` (`type_info_impl.dart`): em declaração, um
     /// identificador puro seguido de identificador puro, `,` ou `>` parece
     /// mais um parâmetro de tipo depois de uma vírgula que falta.
-    pub(crate) fn parece_param_ou_arg_de_tipo(&self, em_declaracao: bool, pos: usize) -> bool {
-        em_declaracao
-            && self.e_identificador_puro(pos)
-            && (self.e_identificador_puro(pos + 1)
+    pub(crate) fn looks_like_type_param_or_arg(&self, in_declaration: bool, pos: usize) -> bool {
+        in_declaration
+            && self.is_plain_identifier(pos)
+            && (self.is_plain_identifier(pos + 1)
                 || matches!(self.kind_of(pos + 1), Kind::Op(Op::Comma | Op::Gt)))
     }
 
     /// `isValidNonRecordTypeReference` (`type_info.dart`).
-    pub(crate) fn e_referencia_de_tipo_valida(&self, pos: usize) -> bool {
+    pub(crate) fn is_valid_type_reference(&self, pos: usize) -> bool {
         match self.kind_of(pos) {
-            Kind::Ident => match estilo(self.text_of(pos)) {
-                None | Some(Estilo::Pseudo) => true,
+            Kind::Ident => match word_style(self.text_of(pos)) {
+                None | Some(WordStyle::Pseudo) => true,
                 Some(_) => {
                     matches!(self.text_of(pos), "dynamic" | "Function")
                         || self.kind_of(pos + 1) == Kind::Op(Op::Dot)
@@ -213,10 +213,10 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// e os fechos `)`/`]`/`}` descartam os `<` abertos no topo. O lexer do
     /// DartForge separa `>=`, `>>` e `>>>`; o fasta os lê inteiros, e `>=`
     /// não fecha grupo — por isso um `>` colado a `=` não fecha aqui.
-    pub(crate) fn fim_do_grupo_lt(&self, lt: usize) -> Option<usize> {
+    pub(crate) fn lt_group_end(&self, lt: usize) -> Option<usize> {
         // Pilha de abridores: `<`, `(`, `[`, `{`, com a posição.
-        let mut pilha: Vec<(Op, usize)> = Vec::new();
-        let descartar_lt = |p: &mut Vec<(Op, usize)>| {
+        let mut stack: Vec<(Op, usize)> = Vec::new();
+        let discard_lt = |p: &mut Vec<(Op, usize)>| {
             while p.last().is_some_and(|(a, _)| *a == Op::Lt) {
                 p.pop();
             }
@@ -224,7 +224,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         for i in 0..self.tokens.len() {
             let t = self.tokens[i];
             match t.kind {
-                Kind::Op(Op::Lt) | Kind::Op(Op::LParen) => pilha.push((
+                Kind::Op(Op::Lt) | Kind::Op(Op::LParen) => stack.push((
                     if t.kind == Kind::Op(Op::Lt) {
                         Op::Lt
                     } else {
@@ -233,17 +233,17 @@ impl<'s, 'i> Parser<'s, 'i> {
                     i,
                 )),
                 Kind::Op(o @ (Op::LBrace | Op::LBracket)) => {
-                    descartar_lt(&mut pilha);
-                    pilha.push((o, i));
+                    discard_lt(&mut stack);
+                    stack.push((o, i));
                 }
                 // `${`: a interpolação fecha dentro do próprio token de string.
                 Kind::StrBegin(_, Interp::Brace) | Kind::StrMid(_, Interp::Brace) => {
-                    descartar_lt(&mut pilha)
+                    discard_lt(&mut stack)
                 }
                 Kind::Op(Op::Gt) => {
                     let ge = t.glued && self.kind_of(i + 1) == Kind::Op(Op::Assign);
-                    if !ge && let Some(&(Op::Lt, abre)) = pilha.last() {
-                        pilha.pop();
+                    if !ge && let Some(&(Op::Lt, abre)) = stack.last() {
+                        stack.pop();
                         if abre == lt {
                             return Some(i);
                         }
@@ -252,31 +252,31 @@ impl<'s, 'i> Parser<'s, 'i> {
                 Kind::Op(o @ (Op::RParen | Op::RBracket | Op::RBrace)) => {
                     // `discardBeginGroupUntil`: sem abridor correspondente, o
                     // fecho é ignorado e a pilha fica como estava.
-                    let quer = match o {
+                    let wants = match o {
                         Op::RParen => Op::LParen,
                         Op::RBracket => Op::LBracket,
                         _ => Op::LBrace,
                     };
-                    if let Some(k) = pilha.iter().rposition(|(a, _)| *a == quer) {
-                        pilha.truncate(k);
+                    if let Some(k) = stack.iter().rposition(|(a, _)| *a == wants) {
+                        stack.truncate(k);
                     }
                 }
                 Kind::Op(Op::Semicolon | Op::Assign | Op::EqEq | Op::Arrow) => {
                     // `>=` chega como `>` colado a `=`: o `=` ali não é
                     // token do fasta.
-                    let parte_de_ge = t.kind == Kind::Op(Op::Assign)
+                    let part_of_ge = t.kind == Kind::Op(Op::Assign)
                         && i > 0
                         && self.tokens[i - 1].glued
                         && self.tokens[i - 1].kind == Kind::Op(Op::Gt);
-                    if !parte_de_ge {
-                        descartar_lt(&mut pilha);
+                    if !part_of_ge {
+                        discard_lt(&mut stack);
                     }
                 }
-                Kind::Keyword(crate::token::Keyword::This) => descartar_lt(&mut pilha),
+                Kind::Keyword(crate::token::Keyword::This) => discard_lt(&mut stack),
                 Kind::Eof => break,
                 _ => {}
             }
-            if i >= lt && pilha.iter().all(|(_, p)| *p != lt) {
+            if i >= lt && stack.iter().all(|(_, p)| *p != lt) {
                 return None;
             }
         }

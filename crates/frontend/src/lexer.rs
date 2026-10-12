@@ -49,7 +49,7 @@ struct Lexer<'s> {
 /// erro (a string não terminada sai com [`StrFlags::aberta`], o caractere
 /// inesperado entra num identificador ou é pulado, o comentário de bloco
 /// aberto vai até o fim), e os erros saem no parser
-/// (`parser::erros_recuperaveis_do_scanner`).
+/// (`parser::recoverable_scanner_errors`).
 pub fn lex(source: &str) -> Result<Vec<Token>, Diagnostic> {
     let mut lexer = Lexer {
         source,
@@ -170,7 +170,7 @@ impl<'s> Lexer<'s> {
                 // caractere fora de string ou comentário é o `unexpected` do
                 // scanner do fasta, que não para.
                 let ch = self.source[start..].chars().next().unwrap_or('\u{FFFD}');
-                self.inesperado(start, ch);
+                self.unexpected(start, ch);
                 continue;
             }
             self.operator(start);
@@ -212,7 +212,7 @@ impl<'s> Lexer<'s> {
         }
         // Sem o fecho, o comentário vai até o fim do arquivo e o
         // `UNTERMINATED_MULTI_LINE_COMMENT` sai no parser
-        // (`parser::erros_recuperaveis_do_scanner`).
+        // (`parser::recoverable_scanner_errors`).
         let _ = (start, depth);
         Ok(())
     }
@@ -224,10 +224,10 @@ impl<'s> Lexer<'s> {
     /// `1e_3`) — o parser relata `UNEXPECTED_SEPARATOR_IN_NUMBER`. `3._14` é
     /// `3`, `.` e o identificador `_14`, como lá.
     fn number(&mut self, start: usize) {
-        let digito = |b: u8| b.is_ascii_digit();
+        let digit = |b: u8| b.is_ascii_digit();
         // `tokenizeHex`: `0x`/`0X` sempre abre o hexadecimal; sem dígito, o
         // token sintético vale 0 e o `MISSING_HEX_DIGIT` sai no último
-        // caractere (`parser::erros_recuperaveis_do_scanner`).
+        // caractere (`parser::recoverable_scanner_errors`).
         if self.at(0) == b'0' && matches!(self.at(1), b'x' | b'X') {
             self.pos += 2;
             while self.at(0).is_ascii_hexdigit() || self.at(0) == b'_' {
@@ -239,21 +239,21 @@ impl<'s> Lexer<'s> {
         if self.at(0) == b'.' {
             // `.5`: parte fracionária direto.
             self.pos += 1;
-            self.fracao(start);
+            self.fraction(start);
             return;
         }
-        while digito(self.at(0)) || self.at(0) == b'_' {
+        while digit(self.at(0)) || self.at(0) == b'_' {
             self.pos += 1;
         }
         if matches!(self.at(0), b'e' | b'E') {
             // `tokenizeFractionPart` a partir do `e`: sem dígito no expoente,
             // o token `double` vai até o `e` (ou o sinal) e o
             // `MISSING_DIGIT` sai no último caractere dele.
-            self.fracao(start);
+            self.fraction(start);
             return;
-        } else if self.at(0) == b'.' && digito(self.at(1)) {
+        } else if self.at(0) == b'.' && digit(self.at(1)) {
             self.pos += 1;
-            self.fracao(start);
+            self.fraction(start);
             return;
         }
         self.push(Kind::Int, start);
@@ -261,7 +261,7 @@ impl<'s> Lexer<'s> {
 
     /// `tokenizeFractionPart`: dígitos e `_`, expoente opcional; o token é
     /// sempre `double`.
-    fn fracao(&mut self, start: usize) {
+    fn fraction(&mut self, start: usize) {
         while self.at(0).is_ascii_digit() || self.at(0) == b'_' {
             self.pos += 1;
         }
@@ -441,7 +441,7 @@ impl<'s> Lexer<'s> {
             ("...", Op::Ellipsis),
             // `tokenizeEquals`/`tokenizeExclamation`: `===` e `!==` são
             // operadores com a precedência da igualdade e o erro
-            // `UNSUPPORTED_OPERATOR` (`parser::erros_recuperaveis_do_scanner`).
+            // `UNSUPPORTED_OPERATOR` (`parser::recoverable_scanner_errors`).
             ("===", Op::EqEq),
             ("!==", Op::BangEq),
             ("?..", Op::QuestionDotDot),
@@ -501,7 +501,7 @@ impl<'s> Lexer<'s> {
             }
         }
         let ch = self.source[start..].chars().next().unwrap_or('\u{FFFD}');
-        self.inesperado(start, ch);
+        self.unexpected(start, ch);
     }
 
     /// `unexpected` (`abstract_scanner.dart:2020-2048`) com o
@@ -510,32 +510,32 @@ impl<'s> Lexer<'s> {
     /// outro vira parte de um identificador, junto do identificador colado
     /// antes (um `Ident`, não palavra-chave) e dos caracteres de
     /// identificador ASCII depois. O `ILLEGAL_CHARACTER` de cada um sai no
-    /// parser (`parser::erros_recuperaveis_do_scanner`).
-    fn inesperado(&mut self, start: usize, ch: char) {
+    /// parser (`parser::recoverable_scanner_errors`).
+    fn unexpected(&mut self, start: usize, ch: char) {
         self.pos += ch.len_utf8();
-        if caractere_pulado(ch) {
+        if skipped_char(ch) {
             self.unglue();
             return;
         }
-        let mut inicio = start;
+        let mut start_offset = start;
         if let Some(t) = self.tokens.last()
             && t.kind == Kind::Ident
             && t.span.end == start
         {
-            inicio = t.span.start;
+            start_offset = t.span.start;
             self.tokens.pop();
         }
         while self.pos < self.bytes.len() && is_ident_part(self.bytes[self.pos]) {
             self.pos += 1;
         }
-        self.push(Kind::Ident, inicio);
+        self.push(Kind::Ident, start_offset);
     }
 }
 
 /// O caractere inesperado que o scanner do fasta só pula (o erro sem token):
 /// controle ASCII (`AsciiControlCharacterToken`) e os espaços não ASCII
 /// (`NonAsciiWhitespaceToken`). Os outros viram `NonAsciiIdentifierToken`.
-pub(crate) fn caractere_pulado(ch: char) -> bool {
+pub(crate) fn skipped_char(ch: char) -> bool {
     (ch as u32) < 0x1f
         || matches!(
             ch as u32,
@@ -554,7 +554,7 @@ pub(crate) fn caractere_pulado(ch: char) -> bool {
 
 /// O caractere que entra num identificador sem erro (`_isIdentifierChar`
 /// com o `$`).
-pub(crate) fn caractere_de_identificador(ch: char) -> bool {
+pub(crate) fn identifier_char(ch: char) -> bool {
     ch.is_ascii_alphanumeric() || ch == '_' || ch == '$'
 }
 
@@ -708,7 +708,7 @@ mod tests {
     }
 
     #[test]
-    fn palavras_reservadas_e_identificadores() {
+    fn reserved_words_and_identifiers() {
         assert_eq!(
             kinds("class abstract _x $y"),
             [
@@ -722,7 +722,7 @@ mod tests {
     }
 
     #[test]
-    fn numeros() {
+    fn numbers() {
         assert_eq!(kinds("1 0x1F 1.5 1e3 1.5e-3 1.foo"), {
             let mut v = vec![
                 Kind::Int,
@@ -737,7 +737,7 @@ mod tests {
     }
 
     #[test]
-    fn maior_nunca_se_combina() {
+    fn greater_never_combines() {
         let tokens = lex("List<List<int>> x; a >>> b; a > b").unwrap();
         let gts: Vec<_> = tokens
             .iter()
@@ -748,7 +748,7 @@ mod tests {
     }
 
     #[test]
-    fn string_simples_e_crua() {
+    fn simple_and_raw_string() {
         let tokens = lex(r##"'a' r"b\n" '''c
 d''' "e" "##)
         .unwrap();
@@ -776,7 +776,7 @@ d''' "e" "##)
     }
 
     #[test]
-    fn interpolacao_por_nome_e_por_chaves() {
+    fn interpolation_by_name_and_by_braces() {
         let source = r#"'a $b c ${d + {1}.length} e'"#;
         let tokens = lex(source).unwrap();
         let kinds: Vec<_> = tokens.iter().map(|t| t.kind).collect();
@@ -809,7 +809,7 @@ d''' "e" "##)
     }
 
     #[test]
-    fn interpolacao_aninhada_em_string() {
+    fn nested_interpolation_in_string() {
         let source = r#""${'${x}'}""#;
         let tokens = lex(source).unwrap();
         let kinds: Vec<_> = tokens.iter().map(|t| t.kind).collect();
@@ -821,7 +821,7 @@ d''' "e" "##)
     }
 
     #[test]
-    fn erros_lexicos_nao_interrompem() {
+    fn lexical_errors_do_not_stop() {
         // A string sem fecho acaba na quebra de linha ou no fim do arquivo.
         let t = lex("'abc").unwrap();
         assert!(matches!(t[0].kind, Kind::Str(StrFlags { aberta: true, .. })));
@@ -836,12 +836,12 @@ d''' "e" "##)
         // O caractere inesperado entra no identificador; o de controle some.
         let s = "pisk\u{f8}de `x \u{1}y";
         let t = lex(s).unwrap();
-        let textos: Vec<_> = t.iter().map(|k| k.text(s)).collect();
-        assert_eq!(textos, ["pisk\u{f8}de", "`x", "y", ""]);
+        let texts: Vec<_> = t.iter().map(|k| k.text(s)).collect();
+        assert_eq!(texts, ["pisk\u{f8}de", "`x", "y", ""]);
     }
 
     #[test]
-    fn operadores_longos() {
+    fn long_operators() {
         assert_eq!(
             kinds("...? ~/= <<= ??= ... ?.. ?. .. => ~/"),
             [
