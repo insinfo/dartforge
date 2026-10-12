@@ -1,6 +1,6 @@
-//! Emissão de JavaScript no contrato de módulos do DDC (docs/EMISSAO-DDC.md).
+//! JavaScript emission in the DDC module contract (docs/EMISSAO-DDC.md).
 //!
-//! Um módulo ES6 por biblioteca do usuário, ligando contra `dart_sdk.js`.
+//! One ES6 module per user library, linking against `dart_sdk.js`.
 #![allow(clippy::too_many_arguments, clippy::collapsible_if, clippy::collapsible_else_if)]
 
 pub mod body;
@@ -15,18 +15,18 @@ pub mod pattern;
 pub mod sdk_proprio;
 pub mod tipo_extensao;
 
-/// A propriedade de um nome privado (ou de um armazenamento de campo,
-/// `C.x`/`_#C#x`) de uma biblioteca do programa no perfil de produção
-/// ([`module::ModState::private_sym`]): o nome com `.`/`#` trocados por
-/// `$` e o rótulo da biblioteca no fim. Armazenamento começa com `$`.
+/// The property of a private name (or of a field storage, `C.x`/`_#C#x`) of a
+/// program library in the production profile ([`module::ModState::private_sym`]):
+/// the name with `.`/`#` replaced by `$` and the library tag at the end. Storage
+/// starts with `$`.
 pub fn nome_privado_de_producao(name: &str, lib: dartforge_elements::model::LibraryId) -> String {
-    let seguro: String = name.chars().map(|c| if c == '.' || c == '#' { '$' } else { c }).collect();
-    let prefixo = if seguro.starts_with('_') { "" } else { "$" };
-    format!("{prefixo}{seguro}{}", tag_de_receita(lib))
+    let safe: String = name.chars().map(|c| if c == '.' || c == '#' { '$' } else { c }).collect();
+    let prefix = if safe.starts_with('_') { "" } else { "$" };
+    format!("{prefix}{safe}{}", tag_de_receita(lib))
 }
 
-/// O nome Dart de uma propriedade de [`nome_privado_de_producao`] (sem o
-/// rótulo), quando o texto tem a forma dela.
+/// The Dart name of a [`nome_privado_de_producao`] property (without the tag),
+/// when the text has its shape.
 pub fn nome_dart_de_privado(s: &str) -> Option<&str> {
     if !s.starts_with('_') {
         return None;
@@ -35,9 +35,9 @@ pub fn nome_dart_de_privado(s: &str) -> Option<&str> {
     (!base.is_empty() && !tag.is_empty() && tag.bytes().all(|c| c.is_ascii_digit() || c.is_ascii_lowercase())).then_some(base)
 }
 
-/// Classes que recebem os ids de uma letra nas receitas rti do modo SDK
-/// ([`ids_de_receita`]): as que mais aparecem em qualquer programa.
-const CLASSES_FREQUENTES: &[(&str, &str)] = &[
+/// Classes that get the one-letter ids in the rti recipes of SDK mode
+/// ([`ids_de_receita`]): the ones that show up most in any program.
+const FREQUENT_CLASSES: &[(&str, &str)] = &[
     ("dart:core", "int"),
     ("dart:core", "String"),
     ("dart:core", "bool"),
@@ -87,19 +87,13 @@ const CLASSES_FREQUENTES: &[(&str, &str)] = &[
     ("dart:collection", "MapBase"),
 ];
 
-/// O id curto de cada classe (índice: `ClassId`) nas receitas rti do modo
-/// SDK (`Ctx::class_recipe`, `docs/JS-PRODUCAO-TAMANHO.md` §9.5): primeiro as
-/// [`CLASSES_FREQUENTES`], depois as outras na ordem do programa, cada uma
-/// com o próximo nome da sequência `a`, `b`, …, `$`, `aa`, `ba`… (a primeira
-/// letra entre 54, as seguintes entre 64). Função só do programa: o
-/// emissor, o verificador e a tabela de nomes chegam ao mesmo id.
-/// Primeiro caractere de um id de receita ([`ids_de_receita`]).
+/// First character of a recipe id ([`ids_de_receita`]).
 pub const ID_PRIMEIRA: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_$";
-/// Caracteres seguintes de um id de receita.
+/// Following characters of a recipe id.
 pub const ID_OUTRAS: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_$0123456789";
 
-/// O número de ordem de um id de [`ids_de_receita`] (o inverso da
-/// numeração): `a` é 0, `$` é 53, `aa` é 54.
+/// The ordinal of an id from [`ids_de_receita`] (the inverse of the numbering):
+/// `a` is 0, `$` is 53, `aa` is 54.
 ///
 /// ```
 /// assert_eq!(dartforge_emit_js::numero_de_id("a"), Some(0));
@@ -109,57 +103,63 @@ pub const ID_OUTRAS: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVW
 /// ```
 pub fn numero_de_id(id: &str) -> Option<usize> {
     let b = id.as_bytes();
-    let primeiro = *b.first()?;
-    let mut n = ID_PRIMEIRA.iter().position(|c| *c == primeiro)?;
-    let mut peso = ID_PRIMEIRA.len();
+    let first = *b.first()?;
+    let mut n = ID_PRIMEIRA.iter().position(|c| *c == first)?;
+    let mut weight = ID_PRIMEIRA.len();
     for c in &b[1..] {
-        n += (ID_OUTRAS.iter().position(|x| x == c)? + 1) * peso;
-        peso *= ID_OUTRAS.len();
+        n += (ID_OUTRAS.iter().position(|x| x == c)? + 1) * weight;
+        weight *= ID_OUTRAS.len();
     }
     Some(n)
 }
 
+/// The short id of each class (index: `ClassId`) in the rti recipes of SDK mode
+/// (`Ctx::class_recipe`, `docs/JS-PRODUCAO-TAMANHO.md` §9.5): first the
+/// [`FREQUENT_CLASSES`], then the others in program order, each one with the
+/// next name of the sequence `a`, `b`, …, `$`, `aa`, `ba`… (the first letter out
+/// of 54, the following ones out of 64). A function of the program only: the
+/// emitter, the checker and the name table arrive at the same id.
 pub fn ids_de_receita(program: &dartforge_elements::model::Program, interner: &dartforge_intern::Interner) -> Vec<String> {
     use dartforge_elements::model::{ClassId, Element};
-    const PRIMEIRA: &[u8] = ID_PRIMEIRA;
-    const OUTRAS: &[u8] = ID_OUTRAS;
-    let nome = |mut n: usize| -> String {
-        let mut s = vec![PRIMEIRA[n % PRIMEIRA.len()]];
-        n /= PRIMEIRA.len();
+    const FIRST: &[u8] = ID_PRIMEIRA;
+    const OTHERS: &[u8] = ID_OUTRAS;
+    let name = |mut n: usize| -> String {
+        let mut s = vec![FIRST[n % FIRST.len()]];
+        n /= FIRST.len();
         while n > 0 {
             n -= 1;
-            s.push(OUTRAS[n % OUTRAS.len()]);
-            n /= OUTRAS.len();
+            s.push(OTHERS[n % OTHERS.len()]);
+            n /= OTHERS.len();
         }
         String::from_utf8(s).unwrap_or_default()
     };
-    let mut ordem: Vec<ClassId> = Vec::with_capacity(program.classes.len());
-    let mut visto = vec![false; program.classes.len()];
-    for (uri, n) in CLASSES_FREQUENTES {
+    let mut order: Vec<ClassId> = Vec::with_capacity(program.classes.len());
+    let mut seen = vec![false; program.classes.len()];
+    for (uri, n) in FREQUENT_CLASSES {
         let Some(lib) = program.libraries.iter().position(|l| l.uri == *uri) else { continue };
         let Some(sym) = interner.lookup(n) else { continue };
         if let Some(Element::Class(c)) = program.library(dartforge_elements::model::LibraryId(lib as u32)).declared.get(&sym).and_then(|b| b.getter)
-            && !visto[c.0 as usize]
+            && !seen[c.0 as usize]
         {
-            visto[c.0 as usize] = true;
-            ordem.push(c);
+            seen[c.0 as usize] = true;
+            order.push(c);
         }
     }
-    for (i, v) in visto.iter().enumerate() {
+    for (i, v) in seen.iter().enumerate() {
         if !v {
-            ordem.push(ClassId(i as u32));
+            order.push(ClassId(i as u32));
         }
     }
     let mut out = vec![String::new(); program.classes.len()];
-    for (k, c) in ordem.into_iter().enumerate() {
-        out[c.0 as usize] = nome(k);
+    for (k, c) in order.into_iter().enumerate() {
+        out[c.0 as usize] = name(k);
     }
     out
 }
 
-/// Rótulo curto da biblioteca nas receitas rti do perfil de produção
-/// (`Ctx::class_recipe` no modo SDK): `$` + o id em base 36. Começa com
-/// `$`, que nenhum identificador de biblioteca do SDK usa.
+/// Short library tag in the rti recipes of the production profile
+/// (`Ctx::class_recipe` in SDK mode): `$` + the id in base 36. It starts with
+/// `$`, which no SDK library identifier uses.
 pub fn tag_de_receita(lib: dartforge_elements::model::LibraryId) -> String {
     let mut n = lib.0;
     let mut d: Vec<u8> = Vec::new();
@@ -176,8 +176,8 @@ pub fn tag_de_receita(lib: dartforge_elements::model::LibraryId) -> String {
 }
 pub mod ty;
 
-/// Opções de linguagem (`--versao-linguagem`, `--enable-experiment`) de quem chama
-/// [`compilar_com`]; ver `docs/VERSOES-LINGUAGEM.md`.
+/// Language options (`--language-version`, `--enable-experiment`) of the caller of
+/// [`compilar_com`]; see `docs/VERSOES-LINGUAGEM.md`.
 pub use dartforge_elements::sdk::Linguagem;
 
 use dartforge_diagnostics::Diagnostic;
@@ -187,14 +187,14 @@ use dartforge_types::resolve::OutlineTypes;
 use dartforge_types::resolved::BodyTypes;
 use dartforge_types::table::{CoreTypes, TypeTable};
 
-/// Resultado da emissão: módulos (nome de arquivo, texto) e o `main.mjs`.
+/// Emission result: the modules (file name, text) and `main.mjs`.
 pub struct Emitido {
     pub modulos: Vec<(String, String)>,
     pub entrada: String,
 }
 
-/// O programa analisado (elementos, outline, corpos), entregue a quem compila
-/// no perfil de produção para calcular o mundo fechado antes de emitir.
+/// The analyzed program (elements, outline, bodies), handed to callers compiling
+/// in the production profile so they can compute the closed world before emitting.
 pub struct Analise<'a> {
     pub program: &'a Program,
     pub interner: &'a Interner,
@@ -205,69 +205,69 @@ pub struct Analise<'a> {
 }
 
 impl<'a> Analise<'a> {
-    /// Contexto de emissão sem filtro (para consultas: interop, nomes JS).
+    /// Emission context without a filter (for queries: interop, JS names).
     pub fn ctx(&self) -> ctx::Ctx<'a> {
         ctx::Ctx::new(self.program, self.interner, self.table, self.core, self.outline, self.bodies)
     }
 
-    /// Emite o programa. `filtro: None` é exatamente [`emitir_programa`].
-    pub fn emitir<'b>(&'b self, filtro: Option<&'b dyn filtro::Vivos>) -> Result<Emitido, String> {
+    /// Emits the program. `filter: None` is exactly [`emit_program`].
+    pub fn emitir<'b>(&'b self, filter: Option<&'b dyn filtro::Vivos>) -> Result<Emitido, String> {
         let mut ctx: ctx::Ctx<'b> = ctx::Ctx::new(self.program, self.interner, self.table, self.core, self.outline, self.bodies);
-        ctx.filtro = filtro;
+        ctx.filtro = filter;
         module::emitir_com_cache(&ctx, None, None).map_err(|ds| ds.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("\n"))
     }
 
-    /// Emite o programa **e o SDK** pela nossa trilha (o modo SDK,
-    /// [`sdk_proprio`]; `docs/JS-PRODUCAO-SDK-PROPRIO.md`). Os corpos do SDK
-    /// têm de ter sido inferidos ([`compilar_com_opcoes`] com `inferir_sdk`).
+    /// Emits the program **and the SDK** through our own pipeline (SDK mode,
+    /// [`sdk_proprio`]; `docs/JS-PRODUCAO-SDK-PROPRIO.md`). The SDK bodies must
+    /// have been inferred ([`compilar_com_opcoes`] with `infer_sdk`).
     ///
-    /// # Erros
+    /// # Errors
     ///
-    /// Os erros de linguagem achados na emissão, um por linha.
-    pub fn emitir_com_sdk<'b>(&'b self, filtro: Option<&'b dyn filtro::Vivos>) -> Result<EmitidoComSdk, String> {
+    /// The language errors found during emission, one per line.
+    pub fn emitir_com_sdk<'b>(&'b self, filter: Option<&'b dyn filtro::Vivos>) -> Result<EmitidoComSdk, String> {
         let mut ctx: ctx::Ctx<'b> = ctx::Ctx::new(self.program, self.interner, self.table, self.core, self.outline, self.bodies);
-        ctx.filtro = filtro;
-        let modo = sdk_proprio::ModoSdk::novo(&ctx);
-        ctx.sdk = Some(Box::new(modo));
-        let juntar = |ds: Vec<Diagnostic>| ds.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("\n");
-        let emitido = module::emitir_com_cache(&ctx, None, None).map_err(juntar)?;
+        ctx.filtro = filter;
+        let mode = sdk_proprio::ModoSdk::novo(&ctx);
+        ctx.sdk = Some(Box::new(mode));
+        let join = |ds: Vec<Diagnostic>| ds.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("\n");
+        let emitted = module::emitir_com_cache(&ctx, None, None).map_err(join)?;
         let (sdk, mut dartx) = sdk_proprio::emitir_modulo_sdk(&ctx);
-        let erros = std::mem::take(&mut *ctx.erros.borrow_mut());
-        if !erros.is_empty() {
-            return Err(juntar(erros));
+        let errors = std::mem::take(&mut *ctx.erros.borrow_mut());
+        if !errors.is_empty() {
+            return Err(join(errors));
         }
-        // Os símbolos `dartx` que os módulos do programa citam no prelúdio
-        // (`var $x = dartx.x;`), para o *bootstrap* criar cada um uma vez.
-        for (_, t) in &emitido.modulos {
-            for linha in t.lines() {
-                let Some(r) = linha.strip_prefix("var $") else { continue };
-                let Some((_, valor)) = r.split_once(" = dartx") else { continue };
-                let valor = valor.trim_end_matches(';');
-                if let Some(n) = valor.strip_prefix('.') {
+        // The `dartx` symbols that the program modules reference in the prelude
+        // (`var $x = dartx.x;`), so the *bootstrap* creates each of them once.
+        for (_, t) in &emitted.modulos {
+            for line in t.lines() {
+                let Some(r) = line.strip_prefix("var $") else { continue };
+                let Some((_, value)) = r.split_once(" = dartx") else { continue };
+                let value = value.trim_end_matches(';');
+                if let Some(n) = value.strip_prefix('.') {
                     dartx.insert(n.to_string());
-                } else if let Some(n) = valor.strip_prefix("[\"").and_then(|x| x.strip_suffix("\"]")) {
+                } else if let Some(n) = value.strip_prefix("[\"").and_then(|x| x.strip_suffix("\"]")) {
                     dartx.insert(n.replace("\\\\", "\\").replace("\\\"", "\""));
                 }
             }
         }
-        let tardios = sdk.contains("dart.lateFields(") || emitido.modulos.iter().any(|(_, t)| t.contains("dart.lateFields("));
-        let bootstrap = sdk_proprio::bootstrap(&ctx, &dartx, tardios);
-        Ok(EmitidoComSdk { emitido, sdk, bootstrap })
+        let late = sdk.contains("dart.lateFields(") || emitted.modulos.iter().any(|(_, t)| t.contains("dart.lateFields("));
+        let bootstrap = sdk_proprio::bootstrap(&ctx, &dartx, late);
+        Ok(EmitidoComSdk { emitido: emitted, sdk, bootstrap })
     }
 }
 
-/// O programa e o SDK emitidos pela nossa trilha ([`Analise::emitir_com_sdk`]).
+/// The program and the SDK emitted through our own pipeline ([`Analise::emitir_com_sdk`]).
 pub struct EmitidoComSdk {
-    /// Os módulos do programa, como em [`Analise::emitir`].
+    /// The program modules, as in [`Analise::emitir`].
     pub emitido: Emitido,
-    /// O módulo do SDK (sem o *bootstrap*).
+    /// The SDK module (without the *bootstrap*).
     pub sdk: String,
-    /// O *bootstrap*: `dart`, os namespaces, `dartx` e os seus símbolos.
+    /// The *bootstrap*: `dart`, the namespaces, `dartx` and its symbols.
     pub bootstrap: String,
 }
 
-/// Emite um módulo por biblioteca não-SDK do programa e o `main.mjs`.
-pub fn emitir_programa(
+/// Emits one module per non-SDK library of the program, plus `main.mjs`.
+pub fn emit_program(
     program: &Program,
     interner: &Interner,
     table: &TypeTable,
@@ -278,8 +278,8 @@ pub fn emitir_programa(
     emitir_programa_com_cache(program, interner, table, core, outline, bodies, None)
 }
 
-/// Como [`emitir_programa`], guardando os fragmentos emitidos para que a
-/// próxima compilação reuse o que não mudou.
+/// Like [`emit_program`], keeping the emitted fragments so the next compilation
+/// reuses what did not change.
 pub fn emitir_programa_com_cache(
     program: &Program,
     interner: &Interner,
@@ -293,29 +293,29 @@ pub fn emitir_programa_com_cache(
     module::emitir_com_cache(&ctx, None, cache)
 }
 
-/// Emite só os módulos que contêm alguma das bibliotecas dadas, para a sessão
-/// residente (`dartforge dev`): o JS de uma biblioteca que não mudou e cujas
-/// dependências não mudaram de API continua valendo.
+/// Emits only the modules that contain one of the given libraries, for the
+/// resident session (`dartforge dev`): the JS of a library that did not change,
+/// and whose dependencies did not change their API, is still valid.
 ///
-/// `Emitido::modulos` traz apenas os módulos emitidos; `Emitido::entrada`
-/// (o `main.mjs`) vem sempre, porque é barato e depende só da entrada.
-/// Devolve também quanto custou montar o contexto de emissão.
-pub fn emitir_modulos(
+/// `Emitido::modulos` carries only the emitted modules; `Emitido::entrada` (the
+/// `main.mjs`) always comes, because it is cheap and depends only on the entry
+/// point. Also returns how long building the emission context took.
+pub fn emit_modules(
     program: &Program,
     interner: &Interner,
     table: &TypeTable,
     core: &CoreTypes,
     outline: &OutlineTypes,
     bodies: &BodyTypes,
-    bibliotecas: &[dartforge_elements::model::LibraryId],
+    libraries: &[dartforge_elements::model::LibraryId],
 ) -> Result<(Emitido, std::time::Duration), Vec<Diagnostic>> {
-    emitir_modulos_com_cache(program, interner, table, core, outline, bodies, bibliotecas, None)
+    emitir_modulos_com_cache(program, interner, table, core, outline, bodies, libraries, None)
 }
 
-/// Como [`emitir_modulos`], reusando os fragmentos (texto por classe e por
-/// biblioteca) já emitidos. A sessão invalida os das bibliotecas alteradas
-/// antes de chamar: é o que faz uma edição reemitir uma classe em vez das
-/// 1.343 de um módulo com 345 bibliotecas em ciclo.
+/// Like [`emit_modules`], reusing the fragments (text per class and per library)
+/// already emitted. The session invalidates those of the changed libraries before
+/// calling: that is what makes an edit re-emit one class instead of the 1,343 of a
+/// module with 345 libraries in a cycle.
 #[allow(clippy::too_many_arguments)]
 pub fn emitir_modulos_com_cache(
     program: &Program,
@@ -324,70 +324,70 @@ pub fn emitir_modulos_com_cache(
     core: &CoreTypes,
     outline: &OutlineTypes,
     bodies: &BodyTypes,
-    bibliotecas: &[dartforge_elements::model::LibraryId],
+    libraries: &[dartforge_elements::model::LibraryId],
     cache: Option<&std::cell::RefCell<module::CacheFragmentos>>,
 ) -> Result<(Emitido, std::time::Duration), Vec<Diagnostic>> {
     let t = std::time::Instant::now();
     let ctx = ctx::Ctx::new(program, interner, table, core, outline, bodies);
-    let contexto = t.elapsed();
-    let so: std::collections::HashSet<u32> = bibliotecas.iter().map(|l| l.0).collect();
-    module::emitir_com_cache(&ctx, Some(&so), cache).map(|e| (e, contexto))
+    let context = t.elapsed();
+    let only: std::collections::HashSet<u32> = libraries.iter().map(|l| l.0).collect();
+    module::emitir_com_cache(&ctx, Some(&only), cache).map(|e| (e, context))
 }
 
-/// Tempos por fase e contagens de uma compilação (`dartforge compile-js --timings`).
+/// Per-phase timings and counts of a compilation (`dartforge compile-js --timings`).
 #[derive(Debug, Default, Clone)]
 pub struct Relatorio {
-    /// `(fase, duração)` na ordem em que as fases correram.
-    pub fases: Vec<(&'static str, std::time::Duration)>,
-    /// Unidades (`.dart`) do SDK, patches incluídos.
-    pub unidades_sdk: usize,
-    /// Unidades do usuário e de pacotes.
-    pub unidades_usuario: usize,
-    pub bibliotecas: usize,
-    /// Fontes Dart vindas da geração em memória, não do disco.
-    pub fontes_geradas: usize,
-    pub avisos_outline: usize,
-    pub avisos_corpos: usize,
-    pub modulos: usize,
-    /// `"lido"`, `"construído"` ou `""` (desligado/indisponível).
+    /// `(phase, duration)` in the order the phases ran.
+    pub phases: Vec<(&'static str, std::time::Duration)>,
+    /// SDK units (`.dart`), patches included.
+    pub sdk_units: usize,
+    /// User and package units.
+    pub user_units: usize,
+    pub libraries: usize,
+    /// Dart sources that came from in-memory generation, not from disk.
+    pub generated_sources: usize,
+    pub outline_warnings: usize,
+    pub body_warnings: usize,
+    pub modules: usize,
+    /// `"read"`, `"built"` or `""` (disabled/unavailable).
     pub sdk_cache: &'static str,
-    /// Sub-fases de `load_lenient` (impressas sob "carregar programa").
-    pub carga: dartforge_elements::model::TemposCarga,
+    /// Sub-phases of `load_lenient` (printed under "load program").
+    pub load: dartforge_elements::model::TemposCarga,
 }
 
 impl Relatorio {
-    /// Registra uma fase medida a partir de `inicio`.
-    pub fn fase(&mut self, nome: &'static str, inicio: std::time::Instant) {
-        self.fases.push((nome, inicio.elapsed()));
+    /// Records a phase measured from `start`.
+    pub fn fase(&mut self, name: &'static str, start: std::time::Instant) {
+        self.phases.push((name, start.elapsed()));
     }
 
-    /// Texto de uma linha por fase, com o total.
+    /// One line of text per phase, with the total.
     pub fn texto(&self) -> String {
         let mut out = String::new();
         let mut total = std::time::Duration::ZERO;
         let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
-        for (nome, d) in &self.fases {
-            out.push_str(&format!("{nome:<24}{:>9.1} ms\n", ms(*d)));
+        for (name, d) in &self.phases {
+            out.push_str(&format!("{name:<24}{:>9.1} ms\n", ms(*d)));
             total += *d;
-            if *nome == "carregar programa" {
-                let c = &self.carga;
+            if *name == "load program" {
+                let c = &self.load;
                 let sub = [
-                    ("leitura+lex paralelos", c.leitura_lex_paralelo),
-                    ("leitura+lex em série", c.leitura),
+                    ("parallel read+lex", c.leitura_lex_paralelo),
+                    ("serial read+lex", c.leitura),
                     ("parse", c.parse),
-                    ("SDK do cache", c.sdk_cache),
-                    ("diretivas/URIs", c.diretivas),
-                    ("outline: declarações", c.outline_declaracoes),
+                    ("SDK from cache", c.sdk_cache),
+                    ("directives/URIs", c.diretivas),
+                    ("outline: declarations", c.outline_declaracoes),
                     ("outline: reexports", c.outline_reexports),
-                    ("outline: escopos", c.outline_escopos),
-                    ("outline: supertipos", c.outline_supertipos),
+                    ("outline: scopes", c.outline_escopos),
+                    ("outline: supertypes", c.outline_supertipos),
                 ];
                 for (n, d) in sub {
                     out.push_str(&format!("  {n:<22}{:>9.1} ms\n", ms(d)));
                 }
                 out.push_str(&format!(
-                    "  {:<22}{:>9} arquivos, {:.2} MiB, {} ondas\n",
-                    "lidos",
+                    "  {:<22}{:>9} files, {:.2} MiB, {} waves\n",
+                    "read",
                     c.arquivos_lidos,
                     c.bytes_lidos as f64 / 1_048_576.0,
                     c.ondas
@@ -396,69 +396,69 @@ impl Relatorio {
         }
         out.push_str(&format!("{:<24}{:>9.1} ms\n", "total", total.as_secs_f64() * 1000.0));
         out.push_str(&format!(
-            "unidades: {} SDK + {} usuário/pacotes; {} bibliotecas; {} módulos; avisos: {} outline + {} corpos; cache do SDK: {}\n",
-            self.unidades_sdk, self.unidades_usuario, self.bibliotecas, self.modulos, self.avisos_outline, self.avisos_corpos,
-            if self.sdk_cache.is_empty() { "não usado" } else { self.sdk_cache }
+            "units: {} SDK + {} user/packages; {} libraries; {} modules; warnings: {} outline + {} bodies; SDK cache: {}\n",
+            self.sdk_units, self.user_units, self.libraries, self.modules, self.outline_warnings, self.body_warnings,
+            if self.sdk_cache.is_empty() { "not used" } else { self.sdk_cache }
         ));
         out
     }
 }
 
-/// Roda o pipeline inteiro (elementos → outline → corpos → emissão) para uma entrada.
+/// Runs the whole pipeline (elements → outline → bodies → emission) for an entry point.
 ///
-/// `sdk_lib` é o `lib/` do SDK (descoberto pelo `PATH` quando `None`).
+/// `sdk_lib` is the SDK's `lib/` (discovered through `PATH` when `None`).
 pub fn compilar(
-    entrada: &std::path::Path,
+    entry: &std::path::Path,
     sdk_lib: Option<&std::path::Path>,
     packages: Option<&std::path::Path>,
 ) -> Result<Emitido, String> {
-    compilar_com_relatorio(entrada, sdk_lib, packages, &Default::default()).map(|(e, _)| e)
+    compile_with_report(entry, sdk_lib, packages, &Default::default()).map(|(e, _)| e)
 }
 
-/// Como [`compilar`], devolvendo também o [`Relatorio`] de tempos por fase.
-/// `package_config.json` do projeto, pelo caminho dado ou descoberto a partir
-/// da entrada.
-fn configuracao_de_pacotes(
-    entrada: &std::path::Path,
+/// The project's `package_config.json`, from the given path or discovered from the
+/// entry point.
+fn package_config(
+    entry: &std::path::Path,
     packages: Option<&std::path::Path>,
 ) -> Option<dartforge_elements::config::PackageConfig> {
     packages
         .map(|p| p.to_path_buf())
-        .or_else(|| dartforge_elements::config::PackageConfig::discover(entrada))
+        .or_else(|| dartforge_elements::config::PackageConfig::discover(entry))
         .and_then(|p| dartforge_elements::config::PackageConfig::load(&p).ok())
 }
 
-/// `DARTFORGE_GERADOS_PKGS=a,b` restringe a geração a esses pacotes — serve
-/// para comparar com o disco sem mudar mais nada.
-fn filtro_de_pacotes() -> Option<std::collections::HashSet<String>> {
+/// `DARTFORGE_GERADOS_PKGS=a,b` restricts generation to those packages — useful
+/// for comparing against the disk without changing anything else.
+fn package_filter() -> Option<std::collections::HashSet<String>> {
     std::env::var("DARTFORGE_GERADOS_PKGS")
         .ok()
         .map(|v| v.split(',').map(|s| s.trim().to_string()).collect())
 }
 
-pub fn compilar_com_relatorio(
-    entrada: &std::path::Path,
+/// Like [`compilar`], also returning the per-phase timing [`Relatorio`].
+pub fn compile_with_report(
+    entry: &std::path::Path,
     sdk_lib: Option<&std::path::Path>,
     packages: Option<&std::path::Path>,
-    linguagem: &dartforge_elements::sdk::Linguagem,
+    language: &dartforge_elements::sdk::Linguagem,
 ) -> Result<(Emitido, Relatorio), String> {
-    compilar_com_relatorio_e_gerador(entrada, sdk_lib, packages, linguagem, None)
+    compilar_com_relatorio_e_gerador(entry, sdk_lib, packages, language, None)
 }
 
-/// Quem produz as fontes geradas (o motor de build, `crates/build`) a partir
-/// do programa carregado sem elas — o `BuildStep.resolver` numa passada.
+/// Whoever produces the generated sources (the build engine, `crates/build`) from
+/// the program loaded without them — the `BuildStep.resolver` in one pass.
 pub type Gerador<'a> = &'a dyn Fn(
     &dartforge_elements::model::Program,
     &Interner,
 ) -> Result<std::sync::Arc<dartforge_elements::gerado::Geracao>, String>;
 
-/// Localiza a API Dart usada pelo executor de macros, sem consultá-la em
-/// programas que não aplicam macros.
-fn api_de_macros(entrada: &std::path::Path) -> Option<std::path::PathBuf> {
+/// Locates the Dart API used by the macro executor, without looking it up for
+/// programs that do not apply macros.
+fn macros_api(entry: &std::path::Path) -> Option<std::path::PathBuf> {
     if let Some(p) = std::env::var_os("DARTFORGE_MACROS_API").map(std::path::PathBuf::from) {
         return p.join("pubspec.yaml").is_file().then_some(p);
     }
-    let bases = [std::env::current_exe().ok(), std::env::current_dir().ok(), Some(entrada.to_path_buf())];
+    let bases = [std::env::current_exe().ok(), std::env::current_dir().ok(), Some(entry.to_path_buf())];
     for base in bases.into_iter().flatten() {
         for dir in base.ancestors() {
             let p = dir.join("packages/macros");
@@ -468,62 +468,62 @@ fn api_de_macros(entrada: &std::path::Path) -> Option<std::path::PathBuf> {
     None
 }
 
-/// Como [`compilar_com_relatorio`], com o gerador de fontes do projeto.
+/// Like [`compile_with_report`], with the project's source generator.
 pub fn compilar_com_relatorio_e_gerador(
-    entrada: &std::path::Path,
+    entry: &std::path::Path,
     sdk_lib: Option<&std::path::Path>,
     packages: Option<&std::path::Path>,
-    linguagem: &dartforge_elements::sdk::Linguagem,
-    gerador: Option<Gerador<'_>>,
+    language: &dartforge_elements::sdk::Linguagem,
+    generator: Option<Gerador<'_>>,
 ) -> Result<(Emitido, Relatorio), String> {
-    let (emitido, mut rel) = compilar_com_gerador(entrada, sdk_lib, packages, linguagem, gerador, |a| {
-        emitir_programa(a.program, a.interner, a.table, a.core, a.outline, a.bodies)
+    let (emitted, mut rel) = compile_with_generator(entry, sdk_lib, packages, language, generator, |a| {
+        emit_program(a.program, a.interner, a.table, a.core, a.outline, a.bodies)
             .map_err(|ds| ds.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("\n"))
     })?;
-    rel.modulos = emitido.modulos.len();
-    Ok((emitido, rel))
+    rel.modules = emitted.modulos.len();
+    Ok((emitted, rel))
 }
 
-/// O pipeline inteiro até a inferência de corpos; a emissão é de quem chama
-/// (`fim`), que recebe o programa analisado. O perfil de produção calcula o
-/// mundo fechado aqui dentro, antes de emitir (`crates/emit_js_production`).
+/// The whole pipeline up to body inference; emission is up to the caller
+/// (`finish`), which receives the analyzed program. The production profile
+/// computes the closed world in there, before emitting (`crates/emit_js_production`).
 pub fn compilar_com<R>(
-    entrada: &std::path::Path,
+    entry: &std::path::Path,
     sdk_lib: Option<&std::path::Path>,
     packages: Option<&std::path::Path>,
-    linguagem: &dartforge_elements::sdk::Linguagem,
-    fim: impl FnOnce(&Analise<'_>) -> Result<R, String>,
+    language: &dartforge_elements::sdk::Linguagem,
+    finish: impl FnOnce(&Analise<'_>) -> Result<R, String>,
 ) -> Result<(R, Relatorio), String> {
-    compilar_com_gerador(entrada, sdk_lib, packages, linguagem, None, fim)
+    compile_with_generator(entry, sdk_lib, packages, language, None, finish)
 }
 
-/// Como [`compilar_com`], com o gerador de fontes (o motor de build).
-pub fn compilar_com_gerador<R>(
-    entrada: &std::path::Path,
+/// Like [`compilar_com`], with the source generator (the build engine).
+pub fn compile_with_generator<R>(
+    entry: &std::path::Path,
     sdk_lib: Option<&std::path::Path>,
     packages: Option<&std::path::Path>,
-    linguagem: &dartforge_elements::sdk::Linguagem,
-    gerador: Option<Gerador<'_>>,
-    fim: impl FnOnce(&Analise<'_>) -> Result<R, String>,
+    language: &dartforge_elements::sdk::Linguagem,
+    generator: Option<Gerador<'_>>,
+    finish: impl FnOnce(&Analise<'_>) -> Result<R, String>,
 ) -> Result<(R, Relatorio), String> {
-    compilar_com_opcoes(entrada, sdk_lib, packages, linguagem, gerador, false, fim)
+    compilar_com_opcoes(entry, sdk_lib, packages, language, generator, false, finish)
 }
 
-/// Como [`compilar_com_gerador`]; com `inferir_sdk`, os corpos das
-/// bibliotecas do SDK também são inferidos — o que o modo SDK
-/// ([`Analise::emitir_com_sdk`]) e o mundo fechado com o SDK precisam.
+/// Like [`compile_with_generator`]; with `infer_sdk`, the bodies of the SDK
+/// libraries are inferred as well — which SDK mode ([`Analise::emitir_com_sdk`])
+/// and the closed world with the SDK need.
 ///
-/// # Erros
+/// # Errors
 ///
-/// Os mesmos de [`compilar_com_gerador`].
+/// The same as [`compile_with_generator`].
 pub fn compilar_com_opcoes<R>(
-    entrada: &std::path::Path,
+    entry: &std::path::Path,
     sdk_lib: Option<&std::path::Path>,
     packages: Option<&std::path::Path>,
-    linguagem: &dartforge_elements::sdk::Linguagem,
-    gerador: Option<Gerador<'_>>,
-    inferir_sdk: bool,
-    fim: impl FnOnce(&Analise<'_>) -> Result<R, String>,
+    language: &dartforge_elements::sdk::Linguagem,
+    generator: Option<Gerador<'_>>,
+    infer_sdk: bool,
+    finish: impl FnOnce(&Analise<'_>) -> Result<R, String>,
 ) -> Result<(R, Relatorio), String> {
     use dartforge_elements::sdk::SdkLayout;
     use std::time::Instant;
@@ -534,169 +534,171 @@ pub fn compilar_com_opcoes<R>(
         None => SdkLayout::discover().unwrap_or_else(|| std::path::PathBuf::from("C:/tools/dartsdk-3.6.2/lib")),
     };
     let mut sdk = SdkLayout::load(&sdk_dir, "dartdevc")?;
-    linguagem.aplicar(&mut sdk);
-    rel.fase("layout do SDK", t);
-    // Cache do SDK analisado (`target/dartforge/sdk-<hash>.bin`); a primeira
-    // compilação o constrói. `DARTFORGE_SDK_CACHE=0` desliga.
+    language.aplicar(&mut sdk);
+    rel.fase("SDK layout", t);
+    // Cache of the analyzed SDK (`target/dartforge/sdk-<hash>.bin`); the first
+    // compilation builds it. `DARTFORGE_SDK_CACHE=0` turns it off.
     let t = Instant::now();
     let cache = if std::env::var("DARTFORGE_SDK_CACHE").is_ok_and(|v| v == "0") {
         None
     } else {
         match dartforge_elements::SdkCache::abrir_ou_construir(&sdk, "dartdevc") {
-            Ok((c, aberto)) => {
-                rel.sdk_cache = if aberto { "lido" } else { "construído" };
+            Ok((c, opened)) => {
+                rel.sdk_cache = if opened { "read" } else { "built" };
                 Some(c)
             }
             Err(e) => {
-                eprintln!("aviso: cache do SDK indisponível ({e}); lendo o SDK dos arquivos");
+                eprintln!("warning: SDK cache unavailable ({e}); reading the SDK from files");
                 None
             }
         }
     };
-    rel.fase("cache do SDK", t);
+    rel.fase("SDK cache", t);
     let t = Instant::now();
     let mut interner = Interner::new();
-    // Fontes geradas em memória. Com `gerador` (o motor de build, ligado
-    // pelo `compile-js` quando o projeto usa `build_runner`), a geração vem
-    // dele. `DARTFORGE_GERADOS` fica um ciclo como sinônimo:
-    // `build_runner` = só o apoio (o que o `build_runner` já escreveu — é
-    // como se verifica que ler de memória dá o mesmo JS que ler do disco),
-    // `ng` = o motor (o padrão quando há gerador), `nenhum` = desliga.
-    let modo = std::env::var("DARTFORGE_GERADOS").ok();
-    let gerados = match (modo.as_deref(), gerador) {
+    // In-memory generated sources. With `generator` (the build engine, wired in
+    // by `compile-js` when the project uses `build_runner`), generation comes from
+    // it. `DARTFORGE_GERADOS` stays for one cycle as a synonym:
+    // `build_runner` = support only (what `build_runner` already wrote — this is
+    // how we verify that reading from memory gives the same JS as reading from
+    // disk), `ng` = the engine (the default when there is a generator), `nenhum` =
+    // off.
+    let mode = std::env::var("DARTFORGE_GERADOS").ok();
+    let generated = match (mode.as_deref(), generator) {
         (Some("nenhum"), _) => None,
         (Some("ng"), None) => {
-            return Err("DARTFORGE_GERADOS=ng exige o motor de build: o projeto não usa build_runner".into());
+            return Err("DARTFORGE_GERADOS=ng requires the build engine: the project does not use build_runner".into());
         }
         (Some("ng") | None, Some(g)) => {
-            // Fase 1: carregar o projeto sem os gerados, só para o motor ter
-            // banco semântico — é o `BuildStep.resolver` do `package:build`.
-            // A carga é tolerante: os `.template.dart` que faltam viram
-            // diagnóstico e o resto do programa fica de pé.
-            let t_fase1 = Instant::now();
-            let mut nomes_fase1 = Interner::new();
-            let (programa, _) = dartforge_elements::load::load_lenient(entrada, &sdk, packages, &mut nomes_fase1);
-            rel.fase("motor: carga de resolução", t_fase1);
-            let t_motor = Instant::now();
-            let g = g(&programa, &nomes_fase1)?;
-            rel.fase("motor de build", t_motor);
+            // Phase 1: load the project without the generated sources, only so
+            // the engine has a semantic database — this is the
+            // `BuildStep.resolver` of `package:build`. Loading is lenient: the
+            // missing `.template.dart` files become diagnostics and the rest of
+            // the program stays standing.
+            let t_phase1 = Instant::now();
+            let mut names_phase1 = Interner::new();
+            let (program, _) = dartforge_elements::load::load_lenient(entry, &sdk, packages, &mut names_phase1);
+            rel.fase("engine: resolution load", t_phase1);
+            let t_engine = Instant::now();
+            let g = g(&program, &names_phase1)?;
+            rel.fase("build engine", t_engine);
             Some(g)
         }
         (Some("build_runner"), _) => {
-            let cfg = configuracao_de_pacotes(entrada, packages);
+            let cfg = package_config(entry, packages);
             cfg.map(|c| {
                 dartforge_elements::gerado::do_build_runner(
                     &c,
                     &[".template.dart", ".css.shim.dart"],
-                    filtro_de_pacotes().as_ref(),
+                    package_filter().as_ref(),
                 )
             })
         }
         _ => None,
     };
-    if let Some(g) = &gerados {
-        rel.fontes_geradas = g.len();
+    if let Some(g) = &generated {
+        rel.generated_sources = g.len();
         if std::env::var("DARTFORGE_GERADOS_DEBUG").is_ok() {
             let mut v: Vec<String> = g.caminhos().map(|p| p.display().to_string()).collect();
             v.sort();
-            eprintln!("geração: {} fontes", v.len());
+            eprintln!("generation: {} sources", v.len());
             for c in v.iter().take(3) { eprintln!("  {c}"); }
             for c in v.iter().filter(|c| c.contains("limitless")).take(3) { eprintln!("  L {c}"); }
         }
     }
-    let gerados_das_macros = gerados.clone();
+    let generated_for_macros = generated.clone();
     let (program, elements_diags) = dartforge_elements::load::load_lenient_gerados(
-        entrada,
+        entry,
         &sdk,
         packages,
         &mut interner,
         cache,
         None,
-        gerados,
+        generated,
     );
-    rel.fase("carregar programa", t);
-    rel.carga = program.tempos.clone();
-    // Partes do SDK têm URI `file:///…/lib/core/int.dart`; o que decide é a biblioteca.
-    rel.unidades_sdk = program.units.iter().filter(|u| program.library(u.library).is_sdk).count();
-    rel.unidades_usuario = program.units.len() - rel.unidades_sdk;
-    rel.bibliotecas = program.libraries.len();
-    // Nenhuma fase falha em silêncio: diagnósticos de carregamento (arquivo ou
-    // pacote não encontrado, sintaxe) abortam; os de tipos são avisos por
-    // enquanto, porque a inferência ainda tem lacunas e o emissor recua para
-    // despacho dinâmico onde o tipo é desconhecido.
+    rel.fase("load program", t);
+    rel.load = program.tempos.clone();
+    // Parts of the SDK have URI `file:///…/lib/core/int.dart`; what decides is the library.
+    rel.sdk_units = program.units.iter().filter(|u| program.library(u.library).is_sdk).count();
+    rel.user_units = program.units.len() - rel.sdk_units;
+    rel.libraries = program.libraries.len();
+    // No phase fails silently: load diagnostics (file or package not found,
+    // syntax) abort; type diagnostics are warnings for now, because inference
+    // still has gaps and the emitter falls back to dynamic dispatch where the
+    // type is unknown.
     if !elements_diags.is_empty() {
         for d in &elements_diags {
-            eprintln!("erro: {d}");
+            eprintln!("error: {d}");
         }
-        return Err(format!("{} erro(s) ao carregar o programa", elements_diags.len()));
+        return Err(format!("{} error(s) loading the program", elements_diags.len()));
     }
-    // Macros (docs/MACROS-PROTOCOLO.md): só se o programa declara alguma
-    // classe `macro` — sem aplicação pendente não iniciamos executor. Por
-    // padrão a VM Dart executa a nossa API; com `DARTFORGE_MACROS_NATIVO` (um
-    // `dartforge` com a feature `nativo`) o executor é o nativo (D4). O
-    // hospedeiro recarrega a augmentation diretamente da memória.
+    // Macros (docs/MACROS-PROTOCOLO.md): only if the program declares some
+    // `macro` class — without a pending application we do not start an executor.
+    // By default the Dart VM runs our API; with `DARTFORGE_MACROS_NATIVO` (a
+    // `dartforge` built with the `nativo` feature) the executor is the native one
+    // (D4). The host reloads the augmentation straight from memory.
     let program = if dartforge_macros_host::tem_macros(&program) {
         let t = Instant::now();
-        let pendentes = dartforge_macros_host::aplicacoes_pendentes(&program, &interner);
-        let mut vm = if pendentes.is_empty() {
+        let pending = dartforge_macros_host::aplicacoes_pendentes(&program, &interner);
+        let mut vm = if pending.is_empty() {
             None
         } else {
-            let api = api_de_macros(entrada).ok_or(
-                "API de macros ausente: defina DARTFORGE_MACROS_API para packages/macros"
+            let api = macros_api(entry).ok_or(
+                "macros API missing: set DARTFORGE_MACROS_API to packages/macros"
             )?;
             let dart = std::env::var_os("DARTFORGE_MACROS_DART")
                 .map(std::path::PathBuf::from)
                 .unwrap_or_else(|| {
                     let exe = if cfg!(windows) { "dart.exe" } else { "dart" };
-                    let no_sdk = sdk.root.parent().unwrap_or(&sdk.root).join("bin").join(exe);
-                    if no_sdk.is_file() { no_sdk } else { std::path::PathBuf::from(exe) }
+                    let in_sdk = sdk.root.parent().unwrap_or(&sdk.root).join("bin").join(exe);
+                    if in_sdk.is_file() { in_sdk } else { std::path::PathBuf::from(exe) }
                 });
             let cfg = dartforge_macros_host::vm::ConfigDaVm {
                 dart,
                 api,
-                trabalho: entrada.parent().unwrap_or(std::path::Path::new("."))
+                trabalho: entry.parent().unwrap_or(std::path::Path::new("."))
                     .join(".dart_tool/dartforge/macros"),
             };
-            let pacotes = packages.map(std::path::Path::to_path_buf)
-                .or_else(|| dartforge_elements::config::PackageConfig::discover(entrada));
-            // Executor nativo (D4): o bootstrap compilado pelo `compile-native`
-            // do `dartforge` indicado, sem VM Dart.
+            let package_config_path = packages.map(std::path::Path::to_path_buf)
+                .or_else(|| dartforge_elements::config::PackageConfig::discover(entry));
+            // Native executor (D4): the bootstrap compiled by `compile-native` of
+            // the given `dartforge`, with no Dart VM.
             match std::env::var_os("DARTFORGE_MACROS_NATIVO") {
-                Some(compilador) => {
-                    let nativa = dartforge_macros_host::nativo::ConfigNativa {
-                        compilador: std::path::PathBuf::from(compilador),
+                Some(compiler) => {
+                    let native = dartforge_macros_host::nativo::ConfigNativa {
+                        compilador: std::path::PathBuf::from(compiler),
                         sdk_lib: sdk.root.clone(),
                         api: cfg.api.clone(),
                         trabalho: cfg.trabalho.join("nativo"),
                     };
-                    Some(dartforge_macros_host::nativo::iniciar(&nativa, &pendentes, pacotes.as_deref())?)
+                    Some(dartforge_macros_host::nativo::iniciar(&native, &pending, package_config_path.as_deref())?)
                 }
-                None => Some(dartforge_macros_host::vm::iniciar(&cfg, &pendentes, pacotes.as_deref())?),
+                None => Some(dartforge_macros_host::vm::iniciar(&cfg, &pending, package_config_path.as_deref())?),
             }
         };
-        let mut indisponivel = dartforge_macros_host::executor::Indisponivel::default();
+        let mut unavailable = dartforge_macros_host::executor::Indisponivel::default();
         let executor: &mut dyn dartforge_macros_host::executor::ExecutorMacros = match vm.as_mut() {
             Some(vm) => vm,
-            None => &mut indisponivel,
+            None => &mut unavailable,
         };
-        // Recarga por diferença: entre uma aplicação e a seguinte só a
-        // augmentation de macro muda; as outras unidades são reaproveitadas.
-        let mut carregar = |i: &mut Interner, g, u: &mut dartforge_elements::unidades::CacheUnidades| {
-            dartforge_elements::load::load_lenient_gerados(entrada, &sdk, packages, i, None, Some(u), g)
+        // Incremental reload: between one application and the next only the macro
+        // augmentation changes; the other units are reused.
+        let mut reload = |i: &mut Interner, g, u: &mut dartforge_elements::unidades::CacheUnidades| {
+            dartforge_elements::load::load_lenient_gerados(entry, &sdk, packages, i, None, Some(u), g)
         };
-        match dartforge_macros_host::aplicar_incremental(program, &mut interner, gerados_das_macros, &mut carregar, executor, None) {
+        match dartforge_macros_host::aplicar_incremental(program, &mut interner, generated_for_macros, &mut reload, executor, None) {
             Ok(s) => {
                 for a in &s.avisos {
-                    eprintln!("aviso: {a}");
+                    eprintln!("warning: {a}");
                 }
                 rel.fase("macros", t);
                 s.program
             }
             Err(ds) => {
                 for d in &ds {
-                    eprintln!("erro: {d}");
+                    eprintln!("error: {d}");
                 }
-                return Err(format!("{} erro(s) nas macros", ds.len()));
+                return Err(format!("{} error(s) in macros", ds.len()));
             }
         }
     } else {
@@ -706,47 +708,47 @@ pub fn compilar_com_opcoes<R>(
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &program, &interner);
     let (mut outline, outline_diags) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
-    rel.fase("outline (tipos)", t);
+    rel.fase("outline (types)", t);
     let t = Instant::now();
-    let (bodies, body_diags) = if inferir_sdk {
-        let todas: Vec<dartforge_elements::model::LibraryId> =
+    let (bodies, body_diags) = if infer_sdk {
+        let all: Vec<dartforge_elements::model::LibraryId> =
             (0..program.libraries.len() as u32).map(dartforge_elements::model::LibraryId).collect();
-        dartforge_types::infer_bodies_das_bibliotecas(&program, &interner, &mut table, &core, &mut outline, &todas)
+        dartforge_types::infer_bodies_das_bibliotecas(&program, &interner, &mut table, &core, &mut outline, &all)
     } else {
         dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline)
     };
-    rel.fase("inferência de corpos", t);
-    // Erros de linguagem dos recursos 3.7–3.13 (docs/VERSOES-LINGUAGEM.md
-    // §3) e leitura de local não definitivamente atribuído abortam como os
-    // de carga (`codes::e_erro_de_compilacao`); o resto de `types` é aviso.
-    let erros: Vec<&dartforge_diagnostics::Diagnostic> = outline_diags
+    rel.fase("body inference", t);
+    // Language errors of the 3.7–3.13 features (docs/VERSOES-LINGUAGEM.md §3)
+    // and reads of locals that are not definitely assigned abort like load errors
+    // (`codes::e_erro_de_compilacao`); the rest of `types` is a warning.
+    let errors: Vec<&dartforge_diagnostics::Diagnostic> = outline_diags
         .iter()
         .chain(body_diags.iter())
         .filter(|d| dartforge_types::codes::e_erro_de_compilacao(&d.message))
         .collect();
-    if !erros.is_empty() {
-        for d in &erros {
-            eprintln!("erro: {d}");
+    if !errors.is_empty() {
+        for d in &errors {
+            eprintln!("error: {d}");
         }
-        return Err(format!("{} erro(s) de compilação", erros.len()));
+        return Err(format!("{} compilation error(s)", errors.len()));
     }
-    rel.avisos_outline = outline_diags.len();
-    rel.avisos_corpos = body_diags.len();
-    let avisos = outline_diags.len() + body_diags.len();
-    if avisos > 0 {
-        let limite = std::env::var("DARTFORGE_AVISOS").ok().and_then(|v| v.parse().ok()).unwrap_or(20usize);
-        for d in outline_diags.iter().chain(body_diags.iter()).take(limite) {
-            eprintln!("aviso: {d}");
+    rel.outline_warnings = outline_diags.len();
+    rel.body_warnings = body_diags.len();
+    let warnings = outline_diags.len() + body_diags.len();
+    if warnings > 0 {
+        let limit = std::env::var("DARTFORGE_AVISOS").ok().and_then(|v| v.parse().ok()).unwrap_or(20usize);
+        for d in outline_diags.iter().chain(body_diags.iter()).take(limit) {
+            eprintln!("warning: {d}");
         }
-        eprintln!("({avisos} aviso(s) de tipos; DARTFORGE_AVISOS=N mostra mais)");
+        eprintln!("({warnings} type warning(s); DARTFORGE_AVISOS=N shows more)");
         if std::env::var("DARTFORGE_AVISOS_RESUMO").is_ok() {
-            // Mensagens mais frequentes (sem a posição).
-            let mut contagem: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+            // Most frequent messages (without the position).
+            let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
             for d in outline_diags.iter().chain(body_diags.iter()) {
-                *contagem.entry(d.message.clone()).or_default() += 1;
+                *counts.entry(d.message.clone()).or_default() += 1;
             }
-            let mut v: Vec<(String, usize)> = contagem.into_iter().collect();
-            // Empate na contagem desempata pela mensagem (o `HashMap` não tem ordem).
+            let mut v: Vec<(String, usize)> = counts.into_iter().collect();
+            // Ties in the count are broken by the message (the `HashMap` has no order).
             v.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
             for (m, n) in v.iter().take(30) {
                 eprintln!("{n:6}  {m}");
@@ -754,72 +756,72 @@ pub fn compilar_com_opcoes<R>(
         }
     }
     let t = Instant::now();
-    let emitido = fim(&Analise { program: &program, interner: &interner, table: &table, core: &core, outline: &outline, bodies: &bodies })?;
-    rel.fase("emissão", t);
+    let emitted = finish(&Analise { program: &program, interner: &interner, table: &table, core: &core, outline: &outline, bodies: &bodies })?;
+    rel.fase("emission", t);
     let t = Instant::now();
     drop(bodies);
     drop(outline);
     drop(table);
     drop(program);
     drop(interner);
-    rel.fase("liberar memória", t);
-    Ok((emitido, rel))
+    rel.fase("free memory", t);
+    Ok((emitted, rel))
 }
 
-/// Grava `texto` em `p` só se o conteúdo atual for diferente (timestamp
-/// intacto quando nada mudou: o Vite/HMR não recarrega). Devolve se gravou.
-fn gravar_se_mudou(p: &std::path::Path, texto: &str, comparar: bool) -> Result<bool, String> {
-    if !comparar {
-        std::fs::write(p, texto).map_err(|e| format!("{}: {e}", p.display()))?;
+/// Writes `text` to `p` only if the current content is different (timestamp left
+/// intact when nothing changed: Vite/HMR does not reload). Returns whether it wrote.
+fn write_if_changed(p: &std::path::Path, text: &str, compare: bool) -> Result<bool, String> {
+    if !compare {
+        std::fs::write(p, text).map_err(|e| format!("{}: {e}", p.display()))?;
         return Ok(true);
     }
-    if let Ok(atual) = std::fs::read(p) {
-        if atual == texto.as_bytes() {
+    if let Ok(current) = std::fs::read(p) {
+        if current == text.as_bytes() {
             return Ok(false);
         }
     }
-    std::fs::write(p, texto).map_err(|e| format!("{}: {e}", p.display()))?;
+    std::fs::write(p, text).map_err(|e| format!("{}: {e}", p.display()))?;
     Ok(true)
 }
 
-/// Escreve os módulos e o `main.mjs` em `dir` e copia o `dart_sdk.js`.
+/// Writes the modules and `main.mjs` into `dir` and copies `dart_sdk.js`.
 ///
-/// Devolve quantos arquivos foram de fato gravados (os idênticos ao que já
-/// estava no disco não são reescritos).
+/// Returns how many files were actually written (those identical to what was
+/// already on disk are not rewritten).
 pub fn escrever(emitido: &Emitido, dir: &std::path::Path, dart_sdk_js: &std::path::Path) -> Result<usize, String> {
     escrever_opcoes(emitido, dir, dart_sdk_js, true)
 }
 
-/// Como [`escrever`], podendo pular a comparação com o arquivo em disco.
+/// Like [`escrever`], optionally skipping the comparison with the file on disk.
 ///
-/// A sessão residente (`dartforge dev`) já sabe, pelo texto da compilação
-/// anterior que mantém em memória, quais módulos mudaram: reler o arquivo
-/// para comparar custaria uma leitura de megabytes por módulo grande.
+/// The resident session (`dartforge dev`) already knows which modules changed,
+/// from the text of the previous compilation that it keeps in memory: re-reading
+/// the file to compare would cost a read of megabytes per large module.
 pub fn escrever_opcoes(
     emitido: &Emitido,
     dir: &std::path::Path,
     dart_sdk_js: &std::path::Path,
-    comparar: bool,
+    compare: bool,
 ) -> Result<usize, String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let mut escritos = 0usize;
+    let mut written = 0usize;
     for (path, text) in &emitido.modulos {
         let p = dir.join(path);
         if let Some(parent) = p.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
         }
-        escritos += usize::from(gravar_se_mudou(&p, text, comparar)?);
+        written += usize::from(write_if_changed(&p, text, compare)?);
     }
-    escritos += usize::from(gravar_se_mudou(&dir.join("main.mjs"), &emitido.entrada, true)?);
+    written += usize::from(write_if_changed(&dir.join("main.mjs"), &emitido.entrada, true)?);
     let dest = dir.join("dart_sdk.js");
     if !dest.exists() {
         std::fs::copy(dart_sdk_js, &dest)
             .map_err(|e| format!("{} → {}: {e}", dart_sdk_js.display(), dest.display()))?;
     }
-    Ok(escritos)
+    Ok(written)
 }
 
-/// Caminho do `dart_sdk.js` gerado por `scripts/gerar-dart-sdk.ps1`.
+/// Path of the `dart_sdk.js` generated by `scripts/gerar-dart-sdk.ps1`.
 pub fn dart_sdk_js_padrao() -> std::path::PathBuf {
     if let Ok(p) = std::env::var("DARTFORGE_DART_SDK_JS") {
         return std::path::PathBuf::from(p);

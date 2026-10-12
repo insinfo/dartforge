@@ -1,5 +1,8 @@
-//! Depuração: mostra como um construtor do SDK foi resolvido.
-//! `cargo run -p dartforge-emit-js --example depura -- <arquivo.dart> Classe nome`
+//! Debugging: shows how an SDK constructor was resolved.
+//! `cargo run -p dartforge-emit-js --example debug_ctor -- <file.dart> Class name`
+//!
+//! With `--tipos` instead of the class name, prints the declared and inferred types
+//! of the program's top-level variables.
 use dartforge_elements::load::load_lenient;
 use dartforge_elements::model::{Element, FunctionRef};
 use dartforge_elements::sdk::SdkLayout;
@@ -10,7 +13,7 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let entry = std::path::PathBuf::from(&args[0]);
     if args.get(1).map(|s| s.as_str()) == Some("--tipos") {
-        tipos(&entry);
+        types(&entry);
         return;
     }
     let sdk = SdkLayout::load(std::path::Path::new("C:/tools/dartsdk-3.6.2/lib"), "dartdevc").unwrap();
@@ -25,7 +28,7 @@ fn main() {
     for (i, c) in program.classes.iter().enumerate() {
         if interner.resolve(c.name) == class_name {
             let lib = program.library(c.library);
-            println!("classe {} em {} (id {i}) supertype_class={:?} mixins={:?}", class_name, lib.uri, c.supertype_class, c.mixin_classes);
+            println!("class {} in {} (id {i}) supertype_class={:?} mixins={:?}", class_name, lib.uri, c.supertype_class, c.mixin_classes);
             for (sym, fid) in &c.static_members { let f = program.function(*fid); println!("  static {} kind={:?} node={:?}", interner.resolve(*sym), f.kind, f.node); }
             for (sym, fid) in &c.constructors {
                 let f = program.function(*fid);
@@ -44,7 +47,7 @@ fn main() {
                             if let dartforge_frontend::ast::TypeKind::Named { name, .. } = &t.kind {
                                 let sym = name[0].sym;
                                 let b = program.lookup(u.library, sym);
-                                println!("    alvo {:?} lookup={:?}", interner.resolve(sym), b.map(|b| matches!(b.getter, Some(Element::Class(_)))));
+                                println!("    target {:?} lookup={:?}", interner.resolve(sym), b.map(|b| matches!(b.getter, Some(Element::Class(_)))));
                             }
                         }
                     }
@@ -55,7 +58,7 @@ fn main() {
 }
 
 #[allow(dead_code)]
-fn tipos(entry: &std::path::Path) {
+fn types(entry: &std::path::Path) {
     let sdk = SdkLayout::load(std::path::Path::new("C:/tools/dartsdk-3.6.2/lib"), "dartdevc").unwrap();
     let mut interner = Interner::new();
     let (program, _) = load_lenient(entry, &sdk, None, &mut interner);

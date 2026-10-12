@@ -241,7 +241,7 @@ pub fn emitir_com_cache(
     }
     let _ = main_async;
     if let Some(c) = &ctx.conferencia {
-        c.borrow().relatar();
+        c.borrow().report();
     }
     let erros = std::mem::take(&mut *ctx.erros.borrow_mut());
     if !erros.is_empty() {
@@ -1149,7 +1149,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     let is_mixin = class.kind == ClassKind::Mixin;
     if class.kind == ClassKind::ExtensionType && !ctx.is_js_class(c) {
         // Tipo de extensão apagado: objeto de apoio com funções estáticas.
-        crate::tipo_extensao::emit_tipo_extensao(ctx, m, c, w);
+        crate::tipo_extensao::emit_extension_type(ctx, m, c, w);
         return;
     }
     if ctx.is_js_class(c) {
@@ -2050,7 +2050,7 @@ fn emit_js_interop_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                     // (`_emitLibraryProcedures`, compiler.dart:3527).
                     let sym = ctor.name.map(|n| n.sym).or(ctx.empty_sym);
                     if let Some(fid) = sym.and_then(|s| class.constructors.get(&s).copied()) {
-                        let texto = crate::tipo_extensao::texto_de_construtor(ctx, m, c, unit, ctor, fid);
+                        let texto = crate::tipo_extensao::constructor_text(ctx, m, c, unit, ctor, fid);
                         for line in texto.lines() {
                             cw.line(line);
                         }
