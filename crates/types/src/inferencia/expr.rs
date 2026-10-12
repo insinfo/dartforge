@@ -2741,7 +2741,10 @@ fn acesso_estatico(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, rt: Re
             }
         },
         RefTipo::Classe(c, targs) => {
-            if let Some(m) = inf.membro_estatico(c, name.sym, false) {
+            // O nome privado de outra biblioteca não é achado (`Enum2._A` fora
+            // da biblioteca do enum: `undefined_enum_constant`).
+            let visivel = !inf.interner.resolve(name.sym).starts_with('_') || inf.program.class(c).library == cx.lib;
+            if let Some(m) = inf.membro_estatico(c, name.sym, false).filter(|_| visivel) {
                 if instancia_explicita {
                     avisar_instanciacao_estatica(inf, cx, e, name);
                     return inf.core.dynamic_;
@@ -2753,7 +2756,8 @@ fn acesso_estatico(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, rt: Re
             tearoff_de_construtor(inf, cx, e, c, args, name, true, false)
         }
         RefTipo::Alias(c, args, td) => {
-            if let Some(m) = inf.membro_estatico(c, name.sym, false) {
+            let visivel = !inf.interner.resolve(name.sym).starts_with('_') || inf.program.class(c).library == cx.lib;
+            if let Some(m) = inf.membro_estatico(c, name.sym, false).filter(|_| visivel) {
                 if instancia_explicita {
                     avisar_instanciacao_estatica(inf, cx, e, name);
                     return inf.core.dynamic_;
@@ -4552,6 +4556,16 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
         };
         return match m {
             Some(m) => {
+                // O setter estático privado de outra biblioteca: achado, mas
+                // inacessível (`PRIVATE_SETTER`, 3.6.2
+                // `property_element_resolver.dart:710-719`).
+                if let RefTipo::Classe(c, _) | RefTipo::Alias(c, _, _) = &rt
+                    && inf.interner.resolve(name.sym).starts_with('_')
+                    && inf.program.class(*c).library != cx.lib
+                {
+                    let texto = inf.interner.resolve(name.sym).to_string();
+                    inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::PRIVATE_SETTER, name.span, &[&texto]);
+                }
                 resolver(inf, cx, alvo, m.resolved.clone());
                 m.tipo
             }

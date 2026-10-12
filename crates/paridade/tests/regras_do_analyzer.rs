@@ -242,6 +242,17 @@ const CASOS: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
         "import 'privado_lib.dart';\nimport 'privado_lib.dart' as p;\nmain() {\n  new Class._constructor();\n  new p.Class._constructor();\n  Class();\n}\n",
         &[("new_with_undefined_constructor", 4, 13, 12), ("new_with_undefined_constructor", 5, 15, 12)],
     ),
+    // Membro estático privado de outra biblioteca (2026-10-12).
+    (
+        "privado_estatico_lib.dart",
+        "enum E2 { _A, b }\nclass C { static int _s = 0; static void _m() {} static int get pub => _s; }\n",
+        &[("unused_field", 1, 11, 2), ("unused_element", 2, 42, 2)],
+    ),
+    (
+        "privado_estatico_uso.dart",
+        "import 'privado_estatico_lib.dart';\nvoid f() {\n  print(E2._A);\n  print(C._s);\n  C._m();\n  C._s = 1;\n  print(C.pub);\n}\nvoid g() {\n  C._s += 1;\n  C._s++;\n}\n",
+        &[("undefined_enum_constant", 3, 12, 2), ("undefined_getter", 4, 11, 2), ("undefined_method", 5, 5, 2), ("private_setter", 6, 5, 2), ("private_setter", 10, 5, 2), ("undefined_getter", 10, 5, 2), ("private_setter", 11, 5, 2), ("undefined_getter", 11, 5, 2)],
+    ),
 ];
 
 #[test]
