@@ -837,7 +837,9 @@ pub fn verificar(
                     Some(d.name),
                     &d.type_params,
                     &d.members,
-                    d.constants.iter().map(|k| k.name.sym).collect(),
+                    // O `values` implícito também é membro
+                    // (`ConflictTypeParameterValues<values>`).
+                    d.constants.iter().map(|k| k.name.sym).chain(nomes.lookup("values")).collect(),
                 ),
                 DeclKind::Extension(d) => (
                     Container::Extensao,
@@ -851,7 +853,9 @@ pub fn verificar(
                     Some(d.name),
                     &d.type_params,
                     &d.members,
-                    vec![d.representation_name.sym],
+                    // O construtor primário nomeado (`extension type A<T>.T(…)`)
+                    // é membro como os outros construtores.
+                    std::iter::once(d.representation_name.sym).chain(d.constructor.map(|n| n.sym)).collect(),
                 ),
                 DeclKind::Function(f) => {
                     let f = ast_.function(*f);

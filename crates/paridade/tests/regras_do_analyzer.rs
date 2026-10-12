@@ -264,6 +264,17 @@ const CASOS: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
         "void f(Never? x, Null y, void Function()? z) {\n  x();\n  y();\n  z();\n  null();\n  y(1, 2);\n  print(1);\n}\n",
         &[("unchecked_use_of_nullable_value", 2, 3, 1), ("invalid_use_of_null_value", 3, 3, 1), ("unchecked_use_of_nullable_value", 4, 3, 1), ("invalid_use_of_null_value", 5, 3, 4), ("invalid_use_of_null_value", 6, 3, 1)],
     ),
+    // `values` e o construtor primário nomeado como membros; `A.new(…)` sem nome (2026-10-12).
+    (
+        "conflito_variavel_de_tipo.dart",
+        "enum E<values> { a }\nenum F<a> { a }\nextension type A<T>.T(int it) {}\nextension type B<U>.named(int it) {}\nextension type C<it>(int it) {}\n",
+        &[("conflicting_type_variable_and_member", 1, 8, 6), ("conflicting_type_variable_and_member", 2, 8, 1), ("conflicting_type_variable_and_member", 3, 18, 1), ("conflicting_type_variable_and_member", 5, 18, 2)],
+    ),
+    (
+        "primario_new.dart",
+        "extension type A.new(int it) {\n  A(this.it);\n}\n",
+        &[("duplicate_constructor", 2, 3, 1)],
+    ),
 ];
 
 #[test]

@@ -661,7 +661,8 @@ fn membros_da_unidade(rel: &mut Relato<'_>, u: &Unidade<'_>) -> (Vec<Contexto>, 
                 ctx.membros = x.members.clone();
             }
             DeclKind::ExtensionType(x) => {
-                ctx.construtores.insert(x.constructor.map(|n| rel.nome(n)).unwrap_or_default());
+                // `A.new(int it)` é o construtor sem nome.
+                ctx.construtores.insert(x.constructor.map(|n| rel.nome(n)).filter(|n| n != "new").unwrap_or_default());
                 if let Some(n) = x.constructor {
                     let nome = rel.nome(n);
                     if nome != "new" {
