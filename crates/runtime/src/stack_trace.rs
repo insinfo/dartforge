@@ -1,109 +1,105 @@
-// O rastro no formato da VM (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
-// §13.14): a tabela endereço → (função, linha, coluna) que cada imagem
-// compilada com `--rastro=simbolico` registra na partida, os endereços de
-// retorno guardados no `throw` e a simbolização, feita só quando o texto é
-// pedido (`toString`, a exceção não capturada).
+// The stack trace in the VM's format (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
+// §13.14): the address → (function, line, column) table that each image compiled
+// with `--rastro=simbolico` registers at startup, the return addresses stored at
+// `throw` and the symbolization, done only when the text is requested (`toString`,
+// the uncaught exception).
 //
-// A entrada da tabela (`emit_native/src/llvm/rastro.rs`) tem 12 bytes: o
-// rótulo e o registro da função, cada um como deslocamento a partir do
-// próprio campo, e uma palavra. Os dois bits baixos do campo do registro (o
-// registro é alinhado em 4) dizem a espécie: 0, um ponto de chamada (a
-// palavra é `linha << 12 | coluna`; as entradas com o mesmo rótulo são os
-// quadros embutidos, de dentro para fora); 1, a identidade de uma função
-// pela entrada uniforme das closures dela (a palavra é o token); 2, o
-// `await` de cada estado de um corpo `async`, na ordem; 3, o elo de uma
-// closure com quem espera (`posição << 2 | direto << 1 | célula`). O
-// registro da função é o deslocamento até a url, um byte de marcas e o
-// nome, os textos terminados em zero.
+// A table entry (`emit_native/src/llvm/rastro.rs`) has 12 bytes: the label and the
+// function record, each as an offset from its own field, and a word. The two low
+// bits of the record field (the record is aligned to 4) say the kind: 0, a call
+// site (the word is `line << 12 | column`; entries with the same label are the
+// inlined frames, from the inside out); 1, the identity of a function through the
+// uniform entry of its closures (the word is the token); 2, the `await` of each
+// state of an `async` body, in order; 3, the link of a closure with its awaiter
+// (`position << 2 | direct << 1 | cell`). The function record is the offset to the
+// url, one byte of marks and the name, the strings NUL-terminated.
 //
-// **A cadeia de quem espera** (o `AsyncAwareStackUnwinder` da VM,
-// `runtime/vm/stack_trace.cc`). O corpo `async` retomado e o
-// `_FutureListener.handleValue` empurram o quadro ou o ouvinte na pilha do
-// rastro (`dartforge_rastro_entrar`); no `throw`, o percurso dos quadros de
-// máquina casa cada quadro marcado com a entrada dele e, achado o primeiro
-// corpo `async` já suspenso (ou o ouvinte), segue a cadeia pelo heap:
-// quadro → `Completer` → `_Future` → `_FutureListener` → a closure que
-// espera, pelos elos das capturas marcadas `@pragma('vm:awaiter-link')`, até
-// o quadro do próximo corpo suspenso. Cada um sai como
-// `<asynchronous suspension>` seguido do quadro dele, na posição do `await`.
-// Os ramos de stream também (`UnwindFrameToStreamController`): o corpo
-// `async*` vai ao controlador dele (`_AsyncStarStreamController.controller`),
-// e o controlador inscrito, ao `onData` da inscrição; o `await for` segue o
-// `_Future` do `moveNext` pelo `_StreamIterator` do tear-off `_onData`, e o
-// `yield*`, o `asyncStarBody` do controlador de destino pelo `addStreamFuture`.
+// **The awaiter chain** (the VM's `AsyncAwareStackUnwinder`,
+// `runtime/vm/stack_trace.cc`). The resumed `async` body and
+// `_FutureListener.handleValue` push the frame or the listener onto the stack-trace
+// stack (`dartforge_rastro_entrar`); at `throw`, the walk of the machine frames
+// matches each marked frame with its entry and, once the first already suspended
+// `async` body (or the listener) is found, follows the chain through the heap:
+// frame → `Completer` → `_Future` → `_FutureListener` → the awaiting closure,
+// through the links of the captures marked `@pragma('vm:awaiter-link')`, up to the
+// frame of the next suspended body. Each one comes out as `<asynchronous
+// suspension>` followed by its frame, at the position of the `await`. The stream
+// branches too (`UnwindFrameToStreamController`): the `async*` body goes to its
+// controller (`_AsyncStarStreamController.controller`), and a subscribed controller,
+// to the subscription's `onData`; `await for` follows the `_Future` of `moveNext`
+// through the `_StreamIterator` of the `_onData` tear-off, and `yield*`, the
+// `asyncStarBody` of the destination controller through `addStreamFuture`.
 //
-// Fragmento do runtime: sem `use` (os fragmentos são um programa só).
-// Escrito sem compilar nem executar (2026-10-05).
+// A runtime fragment: no `use` (the fragments are a single program).
+// Written without compiling or running (2026-10-05).
 
-/// As seções do rastro registradas, `(começo, end)`.
+/// The registered stack-trace sections, `(start, end)`.
 static TRACE_SECTIONS: std::sync::Mutex<Vec<(usize, usize)>> = std::sync::Mutex::new(Vec::new());
-/// Alguma imagem registrou a tabela: o `throw` guarda os endereços.
+/// Some image registered the table: `throw` stores the addresses.
 static HAS_TRACE_TABLE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-/// O que as seções dizem, e a geração das seções com que foi montado:
-/// montado no primeiro pedido, refeito quando uma seção entra ou sai.
+/// What the sections say, and the generation of the sections it was built with:
+/// built on the first request, rebuilt when a section comes in or goes out.
 static TRACE_INDEX: std::sync::RwLock<(usize, TraceIndex)> =
     std::sync::RwLock::new((0, TraceIndex { points: Vec::new(), functions: Vec::new() }));
-/// A geração das seções: cresce a cada registro e a cada retirada (o JIT
-/// retira a seção do objeto que solta). Começa em 1: o índice vazio é a
-/// geração 0.
+/// The generation of the sections: grows on every registration and every removal
+/// (the JIT removes the section of the object it releases). Starts at 1: the empty
+/// index is generation 0.
 static TRACE_GENERATION: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(1);
-/// Os campos do `dart:async` que a cadeia de quem espera lê:
-/// `(id da classe, "Classe.campo", posição)`.
+/// The `dart:async` fields that the awaiter chain reads:
+/// `(class id, "Class.field", position)`.
 static TRACE_FIELDS: std::sync::Mutex<Vec<(i64, String, usize)>> = std::sync::Mutex::new(Vec::new());
 
-/// Quantos quadros o rastro guarda (os pares ficam em campos de um objeto,
-/// até 2¹⁶ por objeto).
+/// How many frames the stack trace keeps (the pairs live in fields of an object,
+/// up to 2¹⁶ per object).
 const FRAMES_IN_TRACE: usize = 1024;
 
-/// O texto de hoje, sem tabela ou sem quadro Dart.
+/// Today's text, without a table or without a Dart frame.
 const TRACE_WITHOUT_TABLE: &str = "#0      main (dart:native)\n";
 
-/// As marcas do registro de uma função (`emit_native/src/hir.rs`,
-/// `marcas_do_rastro`).
+/// The marks of a function record (`emit_native/src/hir.rs`, `marcas_do_rastro`).
 const ASYNC_BODY_MARK: u8 = 1;
 const HIDDEN_MARK: u8 = 2;
 const LISTEN_MARK: u8 = 4;
-/// O corpo é de um gerador `async*` (com [`ASYNC_BODY_MARK`]): o quadro
-/// dele na pilha já foi suspenso (`WasPreviouslySuspended` do gerador).
+/// The body belongs to an `async*` generator (with [`ASYNC_BODY_MARK`]): its frame
+/// on the stack has already been suspended (the generator's `WasPreviouslySuspended`).
 const ASYNC_GENERATOR_MARK: u8 = 8;
 
-/// Os estados de `_StreamController` e de `_BufferingStreamSubscription`
+/// The states of `_StreamController` and of `_BufferingStreamSubscription`
 /// (`stream_controller.dart`, `stream_impl.dart`).
 const CONTROLLER_SUBSCRIBED: i64 = 1;
 const SUBSCRIPTION_MASK: i64 = 3;
 const CONTROLLER_ADD_STREAM: i64 = 8;
 const SUBSCRIPTION_WITH_ERROR: i64 = 1 << 5;
 
-/// As espécies de tear-off que o percurso reconhece (o `Owner` da função
-/// implícita na VM): o `_onData` de um `_StreamIterator` e o `_add` de um
+/// The kinds of tear-off that the walk recognizes (the `Owner` of the implicit
+/// function in the VM): the `_onData` of a `_StreamIterator` and the `_add` of a
 /// `_StreamController`.
 const ITERATOR_ON_DATA_TEAROFF: i64 = 1;
 const CONTROLLER_ADD_TEAROFF: i64 = 2;
 
-/// As entradas dos tear-offs reconhecidos: `(input, espécie)`.
+/// The entries of the recognized tear-offs: `(input, kind)`.
 static TRACE_TEAROFFS: std::sync::Mutex<Vec<(usize, i64)>> = std::sync::Mutex::new(Vec::new());
 
-/// O id de classe do quadro de uma função `async` (`lower/async_sm.rs`,
-/// `ASYNC_FRAME_ID`): `[estado, completer, body, …]`.
+/// The class id of the frame of an `async` function (`lower/async_sm.rs`,
+/// `ASYNC_FRAME_ID`): `[state, completer, body, …]`.
 const ASYNC_FRAME_ID: i64 = 0x3FFF_FF00;
 
-/// Os estados de `_FutureListener` (`future_impl.dart`).
+/// The states of `_FutureListener` (`future_impl.dart`).
 const LISTENER_THEN: i64 = 1;
 const LISTENER_CATCH_ERROR: i64 = 2;
 const LISTENER_WHEN_COMPLETE: i64 = 8;
 const LISTENER_AWAIT: i64 = 16;
 
-/// A distância máxima entre o endereço gravado por
-/// `dartforge_rastro_entrar` (um local dela) e o topo da pilha do quadro que
-/// a chamou.
+/// The maximum distance between the address written by `dartforge_rastro_entrar` (a
+/// local of it) and the stack top of the frame that called it.
 const STACK_WINDOW: usize = 16 * 1024;
 
-/// Os pares guardados de um quadro da cadeia de quem espera (os de um quadro
-/// síncrono são `(ret, começo)`, com os bits altos limpos).
+/// The stored pairs of a frame of the awaiter chain (those of a synchronous frame
+/// are `(ret, start)`, with the high bits clear).
 const PAIR_WAIT: u64 = 1 << 62;
 const PAIR_LISTENER: u64 = 1 << 61;
 
-/// Um ponto de chamada, já com os endereços absolutos.
+/// A call site, already with absolute addresses.
 #[derive(Clone, Copy)]
 struct TracePoint {
     label_name: usize,
@@ -111,36 +107,36 @@ struct TracePoint {
     line_column: u32,
 }
 
-/// Uma função conhecida pela entrada uniforme das closures dela.
+/// A function known through the uniform entry of its closures.
 #[derive(Clone, Default)]
 struct TraceFunction {
     rec: usize,
     token: u32,
-    /// A posição do `await` de cada estado (o índice `k − 1`).
+    /// The position of the `await` of each state (index `k − 1`).
     waits: Vec<u32>,
-    /// O elo com quem espera: `(posição, direct, célula)`.
+    /// The link with the awaiter: `(position, direct, cell)`.
     link: Option<(usize, bool, bool)>,
 }
 
-/// As seções lidas.
+/// The parsed sections.
 struct TraceIndex {
-    /// Os pontos de chamada pelo rótulo; os do mesmo rótulo, na ordem da
-    /// seção, são a cadeia de quadros embutidos.
+    /// The call sites by label; those with the same label, in section order, are
+    /// the chain of inlined frames.
     points: Vec<TracePoint>,
-    /// As funções pela entrada, em ordem.
+    /// The functions by entry, in order.
     functions: Vec<(usize, TraceFunction)>,
 }
 
 impl TraceIndex {
-    /// A cadeia do quadro de `ret` (o maior rótulo abaixo dele, dentro da
-    /// função que começa em `start`), de dentro para fora; vazia sem ponto.
+    /// The chain of the frame of `ret` (the largest label below it, within the
+    /// function that starts at `start`), from the inside out; empty without a site.
     fn chain(&self, ret: u64, start: u64) -> &[TracePoint] {
         let r = ret as usize;
         let k = self.points.partition_point(|p| p.label_name < r);
         let Some(last_one) = k.checked_sub(1) else { return &[] };
         let label_name = self.points[last_one].label_name;
-        // A função do quadro: o rótulo tem de estar nela. Sem o começo (o
-        // desenrolador não o deu), só um rótulo próximo.
+        // The frame's function: the label must be in it. Without the start (the
+        // unwinder did not give it), only a nearby label.
         if (start != 0 && label_name < start as usize) || (start == 0 && r - label_name > 1 << 16) {
             return &[];
         }
@@ -156,16 +152,16 @@ impl TraceIndex {
     }
 }
 
-/// Um quadro do rastro guardado.
+/// A frame of the stored stack trace.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TraceFrame {
-    /// O endereço de retorno e o começo da função.
+    /// The return address and the start of the function.
     Sync(u64, u64),
     /// `<asynchronous suspension>`.
     Gap,
-    /// Quem espera num `await`: a entrada do corpo e o estado.
+    /// The awaiter in an `await`: the body's entry and the state.
     Wait(u64, i64),
-    /// A closure que escuta um `Future`: a entrada dela.
+    /// The closure that listens to a `Future`: its entry.
     Listener(u64),
 }
 
@@ -191,24 +187,24 @@ fn pair_frame((a, b): (u64, u64)) -> TraceFrame {
 }
 
 thread_local! {
-    /// Os pares do último `throw` desta thread (veja [`frame_pair`]), de
-    /// dentro para fora; vazio sem tabela.
+    /// The pairs of this thread's last `throw` (see [`frame_pair`]), from the
+    /// inside out; empty without a table.
     static THROW_RETURNS: std::cell::RefCell<Vec<(u64, u64)>> = const { std::cell::RefCell::new(Vec::new()) };
-    /// A pilha do rastro: `(tipo, value, endereço)` empurrado por
-    /// `dartforge_rastro_entrar` — o quadro de um corpo `async` (tipo 0) ou
-    /// o ouvinte de `handleValue` (tipo 1) e um endereço da pilha de máquina
-    /// logo abaixo do quadro que chamou.
+    /// The stack-trace stack: `(type, value, address)` pushed by
+    /// `dartforge_rastro_entrar` — the frame of an `async` body (type 0) or the
+    /// `handleValue` listener (type 1) and a machine-stack address right below the
+    /// calling frame.
     static TRACE_STACK: std::cell::RefCell<Vec<(i64, i64, usize)>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
-/// O registro da tabela do rastro de uma imagem: o módulo compilado com
-/// `--rastro=simbolico` chama isto na partida com o começo e o fim da seção
-/// (`dfpcl`; as sentinelas `.dfpcl$a`/`$z` no COFF). Idempotente por seção;
-/// não aloca no heap do coletor nem lança.
+/// The registration of an image's stack-trace table: the module compiled with
+/// `--rastro=simbolico` calls this at startup with the start and the end of the
+/// section (`dfpcl`; the `.dfpcl$a`/`$z` sentinels in COFF). Idempotent per
+/// section; neither allocates on the collector's heap nor throws.
 ///
 /// # Safety
-/// `[start, end)` é a seção do rastro de uma imagem carregada, que fica
-/// carregada até o fim do processo.
+/// `[start, end)` is the stack-trace section of a loaded image, which stays loaded
+/// until the end of the process.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_registrar_rastro(start: *const u8, end: *const u8) {
     let (start, end) = (start as usize, end as usize);
@@ -224,8 +220,8 @@ pub unsafe extern "C" fn dartforge_registrar_rastro(start: *const u8, end: *cons
     HAS_TRACE_TABLE.store(true, std::sync::atomic::Ordering::Release);
 }
 
-/// Retira a seção do rastro registrada com `start` (o objeto do JIT que a
-/// sessão solta, numa recarga). Não aloca no heap do coletor nem lança.
+/// Removes the stack-trace section registered with `start` (the JIT object that the
+/// session releases, on a reload). Neither allocates on the collector's heap nor throws.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_desregistrar_rastro(start: *const u8) {
     let start = start as usize;
@@ -237,19 +233,19 @@ pub extern "C" fn dartforge_desregistrar_rastro(start: *const u8) {
     }
 }
 
-/// A posição de um campo do `dart:async` que a cadeia de quem espera lê
-/// (`"Classe.campo"`, `n` bytes em `name`). Idempotente; não aloca no heap
-/// do coletor nem lança.
+/// The position of a `dart:async` field that the awaiter chain reads
+/// (`"Class.field"`, `n` bytes at `name`). Idempotent; neither allocates on the
+/// collector's heap nor throws.
 ///
 /// # Safety
-/// `name` aponta `n` bytes UTF-8 válidos.
+/// `name` points to `n` valid UTF-8 bytes.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_registrar_campo_do_rastro(class: i64, name: *const u8, n: i64, cur_position: i64) {
     let (Ok(n), Ok(cur_position)) = (usize::try_from(n), usize::try_from(cur_position)) else { return };
     if name.is_null() {
         return;
     }
-    // SAFETY: o contrato da função.
+    // SAFETY: the function's contract.
     let bytes = unsafe { std::slice::from_raw_parts(name, n) };
     let Ok(name) = std::str::from_utf8(bytes) else { return };
     let mut fields = TRACE_FIELDS.lock().unwrap_or_else(|e| e.into_inner());
@@ -258,9 +254,9 @@ pub unsafe extern "C" fn dartforge_registrar_campo_do_rastro(class: i64, name: *
     }
 }
 
-/// A entrada do tear-off de espécie `kind` (o `_onData` de
-/// `_StreamIterator`, o `_add` de `_StreamController`) que a imagem tem.
-/// Idempotente; não aloca no heap do coletor nem lança.
+/// The entry of the tear-off of kind `kind` (the `_onData` of `_StreamIterator`, the
+/// `_add` of `_StreamController`) that the image has. Idempotent; neither allocates
+/// on the collector's heap nor throws.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_registrar_tearoff_do_rastro(input: *const u8, kind: i64) {
     let input = input as usize;
@@ -273,9 +269,9 @@ pub extern "C" fn dartforge_registrar_tearoff_do_rastro(input: *const u8, kind: 
     }
 }
 
-/// Empurra na pilha do rastro o quadro de um corpo `async` (`tipo` 0) ou o
-/// ouvinte de `_FutureListener.handleValue` (`tipo` 1) na entrada da função;
-/// devolve a profundidade, que a saída passa a [`dartforge_rastro_sair`].
+/// Pushes onto the stack-trace stack the frame of an `async` body (`tipo` 0) or the
+/// `_FutureListener.handleValue` listener (`tipo` 1) at the function's entry;
+/// returns the depth, which the exit passes to [`dartforge_rastro_sair`].
 #[unsafe(no_mangle)]
 #[inline(never)]
 pub extern "C" fn dartforge_rastro_entrar(tipo: i64, value: i64) -> i64 {
@@ -288,29 +284,29 @@ pub extern "C" fn dartforge_rastro_entrar(tipo: i64, value: i64) -> i64 {
     })
 }
 
-/// A saída da função que entrou com `depth`: corta a pilha do rastro
-/// ali (o que funções desenroladas por exceção deixaram em cima cai junto).
+/// The exit of the function that entered with `depth`: cuts the stack-trace stack
+/// there (whatever functions unwound by an exception left on top falls with it).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_rastro_sair(depth: i64) {
     let n = usize::try_from(depth.saturating_sub(1)).unwrap_or(0);
     TRACE_STACK.with(|p| p.borrow_mut().truncate(n));
 }
 
-/// Alguma imagem registrou a tabela do rastro.
+/// Some image registered the stack-trace table.
 fn has_trace_table() -> bool {
     HAS_TRACE_TABLE.load(std::sync::atomic::Ordering::Acquire)
 }
 
-/// Os pares da pilha daqui para fora (os quadros síncronos e a cadeia de
-/// quem espera), com tabela; vazio sem.
+/// The pairs of the stack from here outwards (the synchronous frames and the
+/// awaiter chain), with a table; empty without.
 fn capture_returns() -> Vec<(u64, u64)> {
     if !has_trace_table() {
         return Vec::new();
     }
     let frames = crate::heap::return_addresses(FRAMES_IN_TRACE);
     let stack = TRACE_STACK.with(|p| p.borrow().clone());
-    // Sem nada na pilha do rastro, nenhum quadro casa: só os síncronos (sem
-    // montar o índice no `throw`).
+    // With nothing on the stack-trace stack, no frame matches: only the synchronous
+    // ones (without building the index at `throw`).
     if stack.is_empty() {
         return frames.into_iter().map(|(r, f, _)| (r, f)).collect();
     }
@@ -318,7 +314,7 @@ fn capture_returns() -> Vec<(u64, u64)> {
     frames.into_iter().map(frame_pair).collect()
 }
 
-/// O `throw`: guarda os pares desta pilha.
+/// The `throw`: stores the pairs of this stack.
 fn store_throw_returns() {
     if !has_trace_table() {
         return;
@@ -327,34 +323,34 @@ fn store_throw_returns() {
     THROW_RETURNS.with(|r| *r.borrow_mut() = returns);
 }
 
-/// Os pares do último `throw` desta thread (vazio sem tabela).
+/// The pairs of this thread's last `throw` (empty without a table).
 fn throw_returns() -> Vec<(u64, u64)> {
     THROW_RETURNS.with(|r| r.borrow().clone())
 }
 
-/// Esquece os pares do último `throw` (a exceção foi tratada).
+/// Forgets the pairs of the last `throw` (the exception was handled).
 fn forget_throw_returns() {
     THROW_RETURNS.with(|r| r.borrow_mut().clear());
 }
 
-// --- a cadeia de quem espera (`AsyncAwareStackUnwinder`) ---------------------
+// --- the awaiter chain (`AsyncAwareStackUnwinder`) ---------------------------
 
-/// O quadro de quem espera em construção (o `AwaiterFrame` da VM): a closure
-/// e o próximo objeto da cadeia (um quadro de corpo `async`, um `Completer`,
-/// um `_Future`).
+/// The awaiter frame under construction (the VM's `AwaiterFrame`): the closure and
+/// the next object of the chain (the frame of an `async` body, a `Completer`, a
+/// `_Future`).
 #[derive(Default)]
 struct Waiter {
     closure: Option<i64>,
     next_offset: Option<i64>,
 }
 
-/// O nome da classe de `h`, se é objeto.
+/// The class name of `h`, if it is an object.
 fn class_of(heap: &crate::heap::Heap, h: i64) -> Option<String> {
     let cid = heap.object_class(h)?;
     CLASS_NAMES.with(|m| m.borrow().get(&cid).cloned())
 }
 
-/// O campo `field` do objeto `h` (a posição registrada para a classe dele).
+/// Field `field` of object `h` (the position registered for its class).
 fn trace_field(heap: &crate::heap::Heap, h: i64, field: &str) -> Option<crate::heap::Field> {
     let cid = heap.object_class(h)?;
     let cur_position = {
@@ -364,7 +360,7 @@ fn trace_field(heap: &crate::heap::Heap, h: i64, field: &str) -> Option<crate::h
     heap.object(h)?.get(cur_position)
 }
 
-/// O campo de referência (não nulo).
+/// The reference field (non-null).
 fn trace_ref(heap: &crate::heap::Heap, h: i64, field: &str) -> Option<i64> {
     match trace_field(heap, h, field)? {
         (r, true) if r != 0 => Some(r),
@@ -372,7 +368,7 @@ fn trace_ref(heap: &crate::heap::Heap, h: i64, field: &str) -> Option<i64> {
     }
 }
 
-/// Um `int` guardado num campo (cru ou em caixa).
+/// An `int` stored in a field (raw or boxed).
 fn field_int(heap: &crate::heap::Heap, c: crate::heap::Field) -> Option<i64> {
     match c {
         (b, false) => Some(b),
@@ -384,26 +380,26 @@ fn is_async_frame(heap: &crate::heap::Heap, h: i64) -> bool {
     heap.object_class(h) == Some(ASYNC_FRAME_ID)
 }
 
-/// O estado do quadro de um corpo `async` (0 antes do primeiro `await`).
+/// The state of the frame of an `async` body (0 before the first `await`).
 fn frame_state(heap: &crate::heap::Heap, q: i64) -> i64 {
     heap.object(q).and_then(|o| o.get(0)).and_then(|c| field_int(heap, c)).unwrap_or(0)
 }
 
-/// As marcas do registro de função `r`.
+/// The marks of function record `r`.
 #[allow(unsafe_code)]
 fn record_marks(r: usize) -> u8 {
-    // SAFETY: o registro de uma entrada de uma seção registrada (o byte das
-    // marcas segue o deslocamento até a url).
+    // SAFETY: the record of an entry of a registered section (the marks byte
+    // follows the offset to the url).
     unsafe { ((r + 4) as *const u8).read() }
 }
 
-/// O elo da closure `c` com quem espera (`TryGetAwaiterLink`): `None` se a
-/// função dela não tem elo; `Some(None)` se o elo é nulo.
+/// The link of closure `c` with its awaiter (`TryGetAwaiterLink`): `None` if its
+/// function has no link; `Some(None)` if the link is null.
 fn closure_link(ix: &TraceIndex, heap: &crate::heap::Heap, c: i64) -> Option<Option<i64>> {
     let clo = heap.closure(c)?;
     let f = ix.function(clo.code as usize)?;
     let value = if record_marks(f.rec) & ASYNC_BODY_MARK != 0 {
-        // A closure do corpo: o quadro na posição 0 do ambiente.
+        // The body's closure: the frame at position 0 of the environment.
         heap.object(clo.contexto.0)?.get(0)?
     } else {
         let (cur_position, direct, cell) = f.link?;
@@ -413,9 +409,9 @@ fn closure_link(ix: &TraceIndex, heap: &crate::heap::Heap, c: i64) -> Option<Opt
     Some((value.1 && value.0 != 0).then_some(value.0))
 }
 
-/// `ComputeNextFrameFromAwaiterLink` (com `FollowAwaiterLinks`): segue os
-/// elos das closures enquanto o elo é outra closure; o último elo que não é
-/// closure passa a ser o próximo.
+/// `ComputeNextFrameFromAwaiterLink` (with `FollowAwaiterLinks`): follows the
+/// closures' links while the link is another closure; the last link that is not a
+/// closure becomes the next one.
 fn follow_links(ix: &TraceIndex, heap: &crate::heap::Heap, q: &mut Waiter) {
     let mut link: Option<i64> = None;
     let mut steps = 0;
@@ -463,7 +459,7 @@ fn start_from_listener(ix: &TraceIndex, heap: &crate::heap::Heap, q: &mut Waiter
     follow_links(ix, heap, q);
 }
 
-/// `UnwindFrameToFutureListener`: o primeiro ouvinte do `_Future` do próximo.
+/// `UnwindFrameToFutureListener`: the first listener of the next one's `_Future`.
 fn up_to_listener(ix: &TraceIndex, heap: &crate::heap::Heap, q: &mut Waiter) {
     let listener = q.next_offset.and_then(|f| trace_ref(heap, f, "_resultOrListeners"));
     match listener {
@@ -472,7 +468,7 @@ fn up_to_listener(ix: &TraceIndex, heap: &crate::heap::Heap, q: &mut Waiter) {
     }
 }
 
-/// Um `bool` guardado num campo (cru ou em caixa).
+/// A `bool` stored in a field (raw or boxed).
 fn field_bool(heap: &crate::heap::Heap, c: crate::heap::Field) -> Option<bool> {
     match c {
         (b, false) => Some(b != 0),
@@ -480,19 +476,19 @@ fn field_bool(heap: &crate::heap::Heap, c: crate::heap::Field) -> Option<bool> {
     }
 }
 
-/// O campo inteiro `field` de `h`.
+/// The integer field `field` of `h`.
 fn trace_int(heap: &crate::heap::Heap, h: i64, field: &str) -> Option<i64> {
     trace_field(heap, h, field).and_then(|c| field_int(heap, c))
 }
 
-/// A espécie e o receptor de um tear-off reconhecido.
+/// The kind and the receiver of a recognized tear-off.
 fn tearoff_of(heap: &crate::heap::Heap, c: i64) -> Option<(i64, Option<i64>)> {
     let clo = heap.closure(c)?;
     let kind = {
         let v = TRACE_TEAROFFS.lock().unwrap_or_else(|e| e.into_inner());
         v.iter().find(|&&(e, _)| e as i64 == clo.code).map(|&(_, k)| k)?
     };
-    // O ambiente do tear-off guarda o receptor na posição 0.
+    // The tear-off's environment keeps the receiver at position 0.
     let receiver_obj = if clo.contexto.1 {
         heap.object(clo.contexto.0).and_then(|o| o.get(0)).and_then(|v| (v.1 && v.0 != 0).then_some(v.0))
     } else {
@@ -501,8 +497,8 @@ fn tearoff_of(heap: &crate::heap::Heap, c: i64) -> Option<(i64, Option<i64>)> {
     Some((kind, receiver_obj))
 }
 
-/// `FollowAwaiterLinks`: segue os elos de `closure` enquanto o elo é outra
-/// closure; devolve o último elo (que não é closure), ou nada.
+/// `FollowAwaiterLinks`: follows the links of `closure` while the link is another
+/// closure; returns the last link (which is not a closure), or nothing.
 fn follow_links_from(ix: &TraceIndex, heap: &crate::heap::Heap, closure: &mut Option<i64>) -> Option<i64> {
     let mut link: Option<i64> = None;
     let mut steps = 0;
@@ -521,12 +517,12 @@ fn follow_links_from(ix: &TraceIndex, heap: &crate::heap::Heap, closure: &mut Op
     link.filter(|&x| heap.closure(x).is_none())
 }
 
-/// A função da closure `c` tem elo com quem espera (`HasAwaiterLink`).
+/// Does the function of closure `c` have a link with its awaiter (`HasAwaiterLink`)?
 fn has_link(ix: &TraceIndex, heap: &crate::heap::Heap, c: Option<i64>) -> bool {
     c.is_some_and(|c| closure_link(ix, heap, c).is_some())
 }
 
-/// `UnwindFrameToStreamController`: o controlador em `q.next_offset`.
+/// `UnwindFrameToStreamController`: the controller in `q.next_offset`.
 fn up_to_controller(ix: &TraceIndex, heap: &crate::heap::Heap, q: &mut Waiter) {
     let Some(controller) = q.next_offset else {
         *q = Waiter::default();
@@ -544,16 +540,16 @@ fn up_to_controller(ix: &TraceIndex, heap: &crate::heap::Heap, q: &mut Waiter) {
     let Some(subscription) = subscription else { return };
     let mut closure = trace_ref(heap, subscription, "_onData").filter(|&c| heap.closure(c).is_some());
     let subscription_state = trace_int(heap, subscription, "_state").unwrap_or(0);
-    // O tear-off do `_StreamIterator._onData` (o `await for`) e o do
-    // `_StreamController._add` (o `yield*`).
+    // The tear-off of `_StreamIterator._onData` (the `await for`) and that of
+    // `_StreamController._add` (the `yield*`).
     if let Some((kind, receiver_obj)) = closure.and_then(|c| tearoff_of(heap, c)) {
         if kind == ITERATOR_ON_DATA_TEAROFF {
             let Some(iterator) = receiver_obj.filter(|&r| class_of(heap, r).as_deref() == Some("_StreamIterator")) else { return };
-            // Com `_hasValue`, o `_stateData` é o valor: não segue.
+            // With `_hasValue`, `_stateData` is the value: do not follow.
             if trace_field(heap, iterator, "_hasValue").and_then(|c| field_bool(heap, c)) == Some(true) {
                 return;
             }
-            // O `_Future` do `await iterator.moveNext()`.
+            // The `_Future` of `await iterator.moveNext()`.
             if let Some(f) = trace_ref(heap, iterator, "_stateData")
                 && class_of(heap, f).as_deref() == Some("_Future")
             {
@@ -589,7 +585,7 @@ fn up_to_controller(ix: &TraceIndex, heap: &crate::heap::Heap, q: &mut Waiter) {
     let mut sibling_with_link = false;
     let mut with_link = has_link(ix, heap, closure);
     if !with_link {
-        // O `onError` ou o `onDone` com elo.
+        // The `onError` or the `onDone` with a link.
         closure = trace_ref(heap, subscription, "_onError").filter(|&c| heap.closure(c).is_some());
         with_link = has_link(ix, heap, closure);
         sibling_with_link = with_link;
@@ -614,15 +610,15 @@ fn up_to_controller(ix: &TraceIndex, heap: &crate::heap::Heap, q: &mut Waiter) {
     }
 }
 
-/// `UnwindAwaiterFrame`: do quadro suspenso ao `Future` dele (pelo
-/// `Completer`), e do `Future` ao ouvinte.
+/// `UnwindAwaiterFrame`: from the suspended frame to its `Future` (through the
+/// `Completer`), and from the `Future` to the listener.
 fn unwind_waiter(ix: &TraceIndex, heap: &crate::heap::Heap, q: &mut Waiter) {
     let mut next_offset = q.next_offset;
     if let Some(p) = next_offset
         && is_async_frame(heap, p)
     {
-        // O `completer` do quadro (posição 1); num gerador `async*`, o
-        // controlador (o `function_data` do `SuspendState` da VM).
+        // The frame's `completer` (position 1); in an `async*` generator, the
+        // controller (the VM's `SuspendState` `function_data`).
         next_offset = heap.object(p).and_then(|o| o.get(1)).and_then(|c| (c.1 && c.0 != 0).then_some(c.0));
     } else if let Some(p) = next_offset {
         match class_of(heap, p).as_deref() {
@@ -666,10 +662,9 @@ fn up_to_waiter(ix: &TraceIndex, heap: &crate::heap::Heap, q: &mut Waiter) {
     }
 }
 
-/// A entrada da pilha do rastro do quadro de máquina cujo topo é `sp`: a
-/// mais alta ainda livre, do `tipo`, gravada logo abaixo de `sp`. As de cima
-/// dela ficam para trás (de quadros mais fundos já casados, ou deixadas por
-/// quadros desenrolados).
+/// The stack-trace stack entry of the machine frame whose top is `sp`: the highest
+/// one still free, of `tipo`, written right below `sp`. The ones above it are left
+/// behind (from deeper frames already matched, or left by unwound frames).
 fn match_at(stack: &[(i64, i64, usize)], top: &mut usize, tipo: i64, sp: u64) -> Option<i64> {
     let sp = sp as usize;
     if sp == 0 {
@@ -685,8 +680,8 @@ fn match_at(stack: &[(i64, i64, usize)], top: &mut usize, tipo: i64, sp: u64) ->
     None
 }
 
-/// O percurso do `AsyncAwareStackUnwinder::Unwind`: os quadros síncronos até
-/// o primeiro com quem o espere, e depois a cadeia de quem espera.
+/// The walk of `AsyncAwareStackUnwinder::Unwind`: the synchronous frames up to the
+/// first one with an awaiter, and then the awaiter chain.
 fn unwind(ix: &TraceIndex, heap: &crate::heap::Heap, frames: &[(u64, u64, u64)], stack: &[(i64, i64, usize)]) -> Vec<TraceFrame> {
     let mut out = Vec::with_capacity(frames.len() + 8);
     let mut top = stack.len();
@@ -696,9 +691,9 @@ fn unwind(ix: &TraceIndex, heap: &crate::heap::Heap, frames: &[(u64, u64, u64)],
         for p in ix.chain(ret, start) {
             let marks = record_marks(p.rec);
             if marks & ASYNC_BODY_MARK != 0 {
-                // `InitializeAwaiterFrameFromSuspendState`: o corpo retomado
-                // (já suspenso uma vez; o de um gerador `async*` sempre)
-                // segue pela cadeia.
+                // `InitializeAwaiterFrameFromSuspendState`: the resumed body
+                // (already suspended once; that of an `async*` generator always)
+                // goes on through the chain.
                 if let Some(frame) = match_at(stack, &mut top, 0, sp)
                     && (marks & ASYNC_GENERATOR_MARK != 0 || frame_state(heap, frame) != 0)
                 {
@@ -728,7 +723,7 @@ fn unwind(ix: &TraceIndex, heap: &crate::heap::Heap, frames: &[(u64, u64, u64)],
         match q.next_offset {
             Some(p) if is_async_frame(heap, p) => {
                 let k = frame_state(heap, p);
-                // `pc == 0`: o corpo já foi retomado (está na pilha).
+                // `pc == 0`: the body has already been resumed (it is on the stack).
                 if k > 0 {
                     out.push(TraceFrame::Gap);
                     out.push(TraceFrame::Wait(input, k));
@@ -747,21 +742,20 @@ fn unwind(ix: &TraceIndex, heap: &crate::heap::Heap, frames: &[(u64, u64, u64)],
     out
 }
 
-// --- as seções e o texto ----------------------------------------------------
+// --- the sections and the text -----------------------------------------------
 
-/// Lê as entradas de `[start, end)`. A entrada toda zero é sentinela ou
-/// enchimento.
+/// Reads the entries of `[start, end)`. An all-zero entry is a sentinel or padding.
 ///
 /// # Safety
-/// `[start, end)` é uma seção do rastro mapeada.
+/// `[start, end)` is a mapped stack-trace section.
 #[allow(unsafe_code)]
 unsafe fn read_trace_section(start: usize, end: usize, points: &mut Vec<TracePoint>, functions: &mut Vec<(usize, TraceFunction)>) {
     let mut p = (start + 3) & !3;
     while p + 12 <= end {
-        // A forma compacta de um objeto convertido (`rastro_compacto.rs`).
-        // SAFETY: `p .. p + 4` está dentro da seção.
+        // The compact form of a converted object (`rastro_compacto.rs`).
+        // SAFETY: `p .. p + 4` is within the section.
         if unsafe { std::slice::from_raw_parts(p as *const u8, 4) } == b"DFPC" {
-            // SAFETY: o blob começa em `p` e fica dentro da seção.
+            // SAFETY: the blob starts at `p` and stays within the section.
             match unsafe { read_trace_blob(p, end, points, functions) } {
                 Some(size) => {
                     p += (size + 3) & !3;
@@ -770,7 +764,7 @@ unsafe fn read_trace_section(start: usize, end: usize, points: &mut Vec<TracePoi
                 None => return,
             }
         }
-        // SAFETY: `p .. p + 12` está dentro da seção.
+        // SAFETY: `p .. p + 12` is within the section.
         let (label_name, rec, word) = unsafe {
             (
                 (p as *const i32).read_unaligned(),
@@ -788,7 +782,7 @@ unsafe fn read_trace_section(start: usize, end: usize, points: &mut Vec<TracePoi
                     if functions.last().is_none_or(|(e, _)| *e != rot) {
                         functions.push((rot, TraceFunction::default()));
                     }
-                    let f = &mut functions.last_mut().expect("a função acabada de pôr").1;
+                    let f = &mut functions.last_mut().expect("the function just pushed").1;
                     match kind {
                         1 => {
                             f.rec = reg;
@@ -804,10 +798,10 @@ unsafe fn read_trace_section(start: usize, end: usize, points: &mut Vec<TracePoi
     }
 }
 
-/// Um varint LEB128 em `*p`, sem passar de `end`.
+/// A LEB128 varint at `*p`, without going past `end`.
 ///
 /// # Safety
-/// `[*p, end)` está mapeado.
+/// `[*p, end)` is mapped.
 #[allow(unsafe_code)]
 unsafe fn trace_varint(p: &mut usize, end: usize) -> Option<u64> {
     let mut r = 0u64;
@@ -816,7 +810,7 @@ unsafe fn trace_varint(p: &mut usize, end: usize) -> Option<u64> {
         if *p >= end {
             return None;
         }
-        // SAFETY: `*p < fim`.
+        // SAFETY: `*p < end`.
         let b = unsafe { (*p as *const u8).read() };
         *p += 1;
         if s < 64 {
@@ -829,16 +823,16 @@ unsafe fn trace_varint(p: &mut usize, end: usize) -> Option<u64> {
     }
 }
 
-/// Lê o blob DFPC em `start` (o formato de `rastro_compacto.rs`): o índice
-/// das funções e os registros, relocados relativos ao próprio campo (no
-/// COFF, ao byte seguinte), e o fluxo de cada função. Devolve o tamanho do
-/// blob; `None` num blob malformado (o resto da seção é ignorado).
+/// Reads the DFPC blob at `start` (the format of `rastro_compacto.rs`): the
+/// function index and the records, relocated relative to their own field (in COFF,
+/// to the next byte), and each function's stream. Returns the blob's size; `None`
+/// for a malformed blob (the rest of the section is ignored).
 ///
 /// # Safety
-/// `[start, end)` é uma seção do rastro mapeada.
+/// `[start, end)` is a mapped stack-trace section.
 #[allow(unsafe_code)]
 unsafe fn read_trace_blob(start: usize, end: usize, points: &mut Vec<TracePoint>, functions: &mut Vec<(usize, TraceFunction)>) -> Option<usize> {
-    // SAFETY: os campos lidos ficam dentro de `[start, end)` (conferido).
+    // SAFETY: the fields read stay within `[start, end)` (checked).
     unsafe {
         let u32_at = |q: usize| (q as *const u32).read_unaligned();
         if start + 20 > end || (start as *const u8).add(4).read() != 1 {
@@ -877,7 +871,7 @@ unsafe fn read_trace_blob(start: usize, end: usize, points: &mut Vec<TracePoint>
                         if functions.last().is_none_or(|(e, _)| *e != rot) {
                             functions.push((rot, TraceFunction::default()));
                         }
-                        let f = &mut functions.last_mut().expect("a função acabada de pôr").1;
+                        let f = &mut functions.last_mut().expect("the function just pushed").1;
                         match kind {
                             1 => {
                                 f.rec = reg;
@@ -894,7 +888,7 @@ unsafe fn read_trace_blob(start: usize, end: usize, points: &mut Vec<TracePoint>
     }
 }
 
-/// Chama `f` com o índice de todas as seções registradas.
+/// Calls `f` with the index of all the registered sections.
 #[allow(unsafe_code)]
 fn with_trace_index<R>(f: impl FnOnce(&TraceIndex) -> R) -> R {
     let (sections, generation) = {
@@ -910,11 +904,10 @@ fn with_trace_index<R>(f: impl FnOnce(&TraceIndex) -> R) -> R {
     let mut points = Vec::new();
     let mut functions = Vec::new();
     for &(start, end) in &sections {
-        // SAFETY: seções registradas por `dartforge_registrar_rastro`.
+        // SAFETY: sections registered by `dartforge_registrar_rastro`.
         unsafe { read_trace_section(start, end, &mut points, &mut functions) };
     }
-    // Estável: os do mesmo rótulo ficam na ordem da seção (de dentro para
-    // fora).
+    // Stable: those with the same label stay in section order (from the inside out).
     points.sort_by_key(|p| p.label_name);
     functions.sort_by_key(|(e, _)| *e);
     functions.dedup_by_key(|(e, _)| *e);
@@ -923,14 +916,14 @@ fn with_trace_index<R>(f: impl FnOnce(&TraceIndex) -> R) -> R {
     f(&ix.1)
 }
 
-/// O nome, a url e as marcas do registro de função em `r`.
+/// The name, the url and the marks of the function record at `r`.
 ///
 /// # Safety
-/// `r` é um registro de função de uma seção registrada.
+/// `r` is a function record of a registered section.
 #[allow(unsafe_code)]
 unsafe fn trace_record(r: usize) -> (String, String, u8) {
-    // SAFETY: o formato do registro (`llvm/rastro.rs`): `i32` até a url, o
-    // byte das marcas, o nome; os textos terminados em zero.
+    // SAFETY: the record format (`llvm/rastro.rs`): `i32` up to the url, the marks
+    // byte, the name; the strings NUL-terminated.
     unsafe {
         let until_url = (r as *const i32).read_unaligned();
         let url = std::ffi::CStr::from_ptr(r.wrapping_add_signed(until_url as isize) as *const std::ffi::c_char);
@@ -940,12 +933,11 @@ unsafe fn trace_record(r: usize) -> (String, String, u8) {
     }
 }
 
-/// O texto do rastro dos pares no formato da VM: `#<índice>` alinhado à
-/// esquerda em 6 colunas, o nome e `(url:line:column)`, a linha e a coluna
-/// só quando conhecidas; os quadros embutidos de um ponto, de dentro para
-/// fora; os ocultos, fora; e `<asynchronous suspension>` entre os trechos
-/// da cadeia de quem espera, uma vez por lacuna. Sem quadro nenhum, o texto
-/// de hoje.
+/// The stack-trace text of the pairs in the VM's format: `#<index>` left-aligned in
+/// 6 columns, the name and `(url:line:column)`, the line and the column only when
+/// known; the inlined frames of a site, from the inside out; the hidden ones, left
+/// out; and `<asynchronous suspension>` between the stretches of the awaiter chain,
+/// once per gap. Without any frame, today's text.
 fn symbolize_returns(pair_list: &[(u64, u64)]) -> String {
     with_trace_index(|ix| symbolize_with(ix, pair_list))
 }
@@ -963,7 +955,7 @@ fn escrever_quadro(text: &mut String, n: usize, name: &str, url: &str, line_colu
     text.push_str(")\n");
 }
 
-/// [`symbolize_returns`] com o índice dado.
+/// [`symbolize_returns`] with the given index.
 #[allow(unsafe_code)]
 fn symbolize_with(ix: &TraceIndex, pair_list: &[(u64, u64)]) -> String {
     let mut text = String::new();
@@ -974,7 +966,7 @@ fn symbolize_with(ix: &TraceIndex, pair_list: &[(u64, u64)]) -> String {
         match pair_frame(pair) {
             TraceFrame::Sync(ret, start) => {
                 for p in ix.chain(ret, start) {
-                    // SAFETY: o registro de uma entrada da seção.
+                    // SAFETY: the record of a section entry.
                     let (name, url, marks) = unsafe { trace_record(p.rec) };
                     if marks & HIDDEN_MARK != 0 {
                         continue;
@@ -994,7 +986,7 @@ fn symbolize_with(ix: &TraceIndex, pair_list: &[(u64, u64)]) -> String {
             TraceFrame::Wait(input, k) => {
                 let Some(f) = ix.function(input as usize) else { continue };
                 let cur_position = usize::try_from(k).ok().and_then(|k| k.checked_sub(1)).and_then(|i| f.waits.get(i)).copied().unwrap_or(0);
-                // SAFETY: o registro de uma entrada da seção.
+                // SAFETY: the record of a section entry.
                 let (name, url, _) = unsafe { trace_record(f.rec) };
                 escrever_quadro(&mut text, n, &name, &url, cur_position);
                 n += 1;
@@ -1003,7 +995,7 @@ fn symbolize_with(ix: &TraceIndex, pair_list: &[(u64, u64)]) -> String {
             }
             TraceFrame::Listener(input) => {
                 let Some(f) = ix.function(input as usize) else { continue };
-                // SAFETY: o registro de uma entrada da seção.
+                // SAFETY: the record of a section entry.
                 let (name, url, marks) = unsafe { trace_record(f.rec) };
                 if marks & HIDDEN_MARK != 0 {
                     continue;
@@ -1021,9 +1013,9 @@ fn symbolize_with(ix: &TraceIndex, pair_list: &[(u64, u64)]) -> String {
     text
 }
 
-/// Os pares guardados num `StackTrace` do rastro simbólico: o campo 0 nulo
-/// (o texto, feito no primeiro pedido), o 1 o número de pares e os pares
-/// depois, todos brutos. Vazio no `StackTrace` de texto.
+/// The pairs stored in a `StackTrace` of the symbolic stack trace: field 0 null (the
+/// text, built on the first request), field 1 the number of pairs and the pairs
+/// after it, all raw. Empty in a text `StackTrace`.
 fn object_returns(heap: &crate::heap::Heap, h: i64) -> Vec<(u64, u64)> {
     let Some(o) = heap.object(h) else { return Vec::new() };
     let Some((n, false)) = o.get(1) else { return Vec::new() };
@@ -1038,8 +1030,8 @@ fn object_returns(heap: &crate::heap::Heap, h: i64) -> Vec<(u64, u64)> {
     returns
 }
 
-/// Um `StackTrace` com os pares `returns` (veja [`object_returns`]);
-/// uma alocação, sem referência a enraizar.
+/// A `StackTrace` with the pairs `returns` (see [`object_returns`]); one
+/// allocation, with no reference to root.
 fn allocate_return_trace(returns: &[(u64, u64)]) -> i64 {
     let cid = stack_trace_class_id();
     let mut fields: Vec<crate::heap::Field> = Vec::with_capacity(2 + 2 * returns.len());
@@ -1052,9 +1044,9 @@ fn allocate_return_trace(returns: &[(u64, u64)]) -> i64 {
     HEAP.with(|h| h.borrow_mut().new_object(cid, &fields))
 }
 
-/// O texto do `StackTrace` `h` como `String` (a exceção não capturada, a
-/// descrição do runtime): o do campo 0, ou os pares simbolizados.
-/// `None`: `h` não é objeto.
+/// The text of `StackTrace` `h` as a `String` (the uncaught exception, the
+/// runtime's description): that of field 0, or the symbolized pairs. `None`: `h` is
+/// not an object.
 fn trace_text(h: i64) -> Option<String> {
     let (text, returns) = HEAP.with(|heap| {
         let heap = heap.borrow();
@@ -1067,8 +1059,8 @@ fn trace_text(h: i64) -> Option<String> {
     Some(text.unwrap_or_else(|| symbolize_returns(&returns)))
 }
 
-/// `_StackTrace.toString` (a VM o tem em C++): o texto do campo 0, ou os
-/// pares simbolizados agora e guardados no campo 0 para o próximo pedido.
+/// `_StackTrace.toString` (the VM has it in C++): the text of field 0, or the pairs
+/// symbolized now and stored in field 0 for the next request.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_rastro_texto(h: i64) -> i64 {
     let (ready_flag, returns) = HEAP.with(|heap| {
@@ -1096,11 +1088,11 @@ pub extern "C" fn dartforge_rastro_texto(h: i64) -> i64 {
 mod tests_trace {
     use super::*;
 
-    /// Os registros, o código e a seção de um teste numa alocação só. Os
-    /// campos da seção são deslocamentos `i32`, como entre as seções de um
-    /// binário; alocações separadas do heap não têm essa garantia (no macOS
-    /// arm64 o `malloc` põe blocos pequenos em regiões a centenas de GiB
-    /// umas das outras), e o deslocamento truncado apontaria para fora.
+    /// The records, the code and the section of a test in a single allocation. The
+    /// section's fields are `i32` offsets, as between the sections of a binary;
+    /// separate heap allocations do not have that guarantee (on macOS arm64
+    /// `malloc` puts small blocks in regions hundreds of GiB apart), and the
+    /// truncated offset would point outside.
     struct Area {
         rest: &'static mut [u8],
     }
@@ -1110,8 +1102,8 @@ mod tests_trace {
             Area { rest: Box::leak(vec![0u8; 4096].into_boxed_slice()) }
         }
 
-        /// `n` bytes zerados da área, alinhados a 16, vivos até o fim do
-        /// processo.
+        /// `n` zeroed bytes of the area, aligned to 16, alive until the end of the
+        /// process.
         fn reserve_space(&mut self, n: usize) -> &'static mut [u8] {
             let rest = std::mem::take(&mut self.rest);
             let jump = rest.as_ptr().align_offset(16);
@@ -1121,9 +1113,8 @@ mod tests_trace {
         }
     }
 
-    /// Os textos e os registros de um teste: `(base, rec de cada name)`.
-    /// A url em 0; cada registro tem o deslocamento até ela, o byte das
-    /// marcas e o nome.
+    /// The strings and the records of a test: `(base, rec of each name)`. The url at
+    /// 0; each record has the offset to it, the marks byte and the name.
     fn records(area: &mut Area, names: &[(&str, u8)]) -> Vec<usize> {
         let data = area.reserve_space(16 + 32 * names.len());
         data[..15].copy_from_slice(b"file:///a.dart\0");
@@ -1139,8 +1130,8 @@ mod tests_trace {
         out
     }
 
-    /// Uma seção montada à mão: `(espécie, rótulo, rec, word)`, com
-    /// uma sentinela zerada no começo.
+    /// A hand-built section: `(kind, label, rec, word)`, with a zeroed sentinel at
+    /// the start.
     fn section(area: &mut Area, entries: &[(u32, usize, usize, u32)]) -> (usize, usize) {
         let section = area.reserve_space(12 * (entries.len() + 1));
         let s = section.as_ptr() as usize;
@@ -1158,16 +1149,16 @@ mod tests_trace {
     fn ix(area: &mut Area, entries: &[(u32, usize, usize, u32)]) -> TraceIndex {
         let (s, f) = section(area, entries);
         let (mut points, mut functions) = (Vec::new(), Vec::new());
-        // SAFETY: a seção acima, viva até o fim do processo.
+        // SAFETY: the section above, alive until the end of the process.
         unsafe { read_trace_section(s, f, &mut points, &mut functions) };
         points.sort_by_key(|p| p.label_name);
         functions.sort_by_key(|(e, _)| *e);
         TraceIndex { points, functions }
     }
 
-    /// Cada endereço de retorno acha o rótulo da função dele, e o que não
-    /// acha fica de fora; os quadros embutidos saem de dentro para fora; os
-    /// ocultos, não.
+    /// Each return address finds its function's label, and one that does not find
+    /// it is left out; the inlined frames come out from the inside out; the hidden
+    /// ones do not.
     #[test]
     fn symbolizes_in_vm_format() {
         let mut area = Area::new_area();
@@ -1177,12 +1168,12 @@ mod tests_trace {
         let ind = ix(&mut area, &[
             (0, c + 50, r[1], 7 << 12),
             (0, c + 10, r[0], 3 << 12 | 5),
-            // Um ponto com `g` copiada em `main` (de dentro para fora).
+            // A site with `g` inlined into `main` (from the inside out).
             (0, c + 30, r[2], 9 << 12 | 2),
             (0, c + 30, r[0], 4 << 12 | 1),
             (0, c + 120, r[3], 1 << 12),
         ]);
-        assert_eq!(ind.points.len(), 5, "a sentinela não é entrada");
+        assert_eq!(ind.points.len(), 5, "the sentinel is not an entry");
         let c = c as u64;
         let text = symbolize_with(&ind, &[(c + 5, c), (c + 20, c), (c + 35, c), (c + 60, c + 55), (c + 60, c + 40), (c + 125, c + 100)]);
         assert_eq!(
@@ -1192,9 +1183,9 @@ mod tests_trace {
         assert_eq!(symbolize_with(&ind, &[(c + 5, c)]), TRACE_WITHOUT_TABLE);
     }
 
-    /// A cadeia de quem espera: a lacuna antes de cada quadro e no fim, uma
-    /// vez só entre trechos; o quadro de quem espera na posição do `await`
-    /// do estado; o ouvinte no token.
+    /// The awaiter chain: the gap before each frame and at the end, only once
+    /// between stretches; the awaiter's frame at the position of the state's
+    /// `await`; the listener at the token.
     #[test]
     fn writes_waiter_chain() {
         let mut area = Area::new_area();
@@ -1233,14 +1224,14 @@ mod tests_trace {
         }
     }
 
-    /// A entrada da pilha do rastro casa com o quadro cujo topo está logo
-    /// acima dela; a de um quadro desenrolado fica para trás.
+    /// A stack-trace stack entry matches the frame whose top is right above it; that
+    /// of an unwound frame is left behind.
     #[test]
     fn matches_trace_stack_by_frame_top() {
         let stack = [(0, 11, 9_000usize), (1, 22, 5_000), (0, 33, 4_000)];
         let mut top = stack.len();
-        // O quadro mais fundo (topo em 5 100): a entrada de 4 000 é de um
-        // quadro mais fundo que ele, já desenrolado, e não casa com o tipo.
+        // The deepest frame (top at 5 100): the entry at 4 000 belongs to a frame
+        // deeper than it, already unwound, and does not match the type.
         assert_eq!(match_at(&stack, &mut top, 1, 5_100), Some(22));
         assert_eq!(top, 1);
         assert_eq!(match_at(&stack, &mut top, 0, 9_050), Some(11));

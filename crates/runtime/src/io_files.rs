@@ -1,31 +1,31 @@
-// Runtime nativo: o `dart:io` da VM — arquivos (`runtime/bin/file.cc`,
-// `file_linux.cc`, `file_macos.cc`, `file_win.cc`), o campo nativo das
-// `NativeFieldWrapperClass1` e o que os outros fragmentos `io_*` usam:
-// erros do sistema, caminhos e os valores Dart que os natives devolvem.
+// Native runtime: the VM's `dart:io` — files (`runtime/bin/file.cc`,
+// `file_linux.cc`, `file_macos.cc`, `file_win.cc`), the native field of
+// `NativeFieldWrapperClass1` and what the other `io_*` fragments use: system
+// errors, paths and the Dart values that the natives return.
 //
-// Os natives seguem o contrato da VM ao pé da letra: o que a VM devolve em
-// `Dart_SetReturnValue` (um `int`, `bool`, `String`, `Uint8List` ou um
-// `OSError`) é o que o Dart dos patches da VM (`file_patch.dart`,
-// `directory_patch.dart`…) espera, sem sobreposição. Os parâmetros chegam
-// na representação da HIR (`int` → `i64`, `bool` → `u8`, o resto → `Ref`),
-// e o `_Namespace` é ignorado: o nativo só tem o namespace padrão (o
-// diretório corrente do processo), que é o único que o embedder `dart`
-// cria fora do Fuchsia.
+// The natives follow the VM's contract to the letter: what the VM returns in
+// `Dart_SetReturnValue` (an `int`, `bool`, `String`, `Uint8List` or an `OSError`)
+// is what the Dart code of the VM's patches (`file_patch.dart`,
+// `directory_patch.dart`…) expects, without an overlay. The parameters arrive in
+// the HIR representation (`int` → `i64`, `bool` → `u8`, the rest → `Ref`), and the
+// `_Namespace` is ignored: native code only has the default namespace (the
+// process's current directory), which is the only one that the `dart` embedder
+// creates outside Fuchsia.
 //
-// Um arquivo aberto é um [`NativeFile`] com contagem de referências,
-// como o `File` da VM (`ReferenceCounted<File>`): o objeto Dart guarda o
-// ponteiro no campo nativo e solta a referência dele quando é fechado ou
-// coletado (o finalizador de `Heap::finalizable`); `getPointer` retém uma
-// referência para o IOService, que a solta ao fim do pedido.
+// An open file is a reference-counted [`NativeFile`], like the VM's `File`
+// (`ReferenceCounted<File>`): the Dart object keeps the pointer in its native field
+// and releases its reference when it is closed or collected (the finalizer of
+// `Heap::finalizable`); `getPointer` retains a reference for the IOService, which
+// releases it at the end of the request.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering as AtomicOrdering};
 
 // ---------------------------------------------------------------------------
-// Erros do sistema.
+// System errors.
 
-/// Os códigos de erro que os natives atribuem por conta própria (o
-/// `SetErrno` de `file_linux.cc`): errno no Unix, `GetLastError` no Windows.
+/// The error codes that the natives assign on their own (the `SetErrno` of
+/// `file_linux.cc`): errno on Unix, `GetLastError` on Windows.
 #[cfg(unix)]
 mod os_code {
     pub const NOT_FOUND: i32 = 2; // ENOENT
@@ -43,11 +43,11 @@ mod os_code {
     pub const ALREADY_EXISTS: i32 = 183; // ERROR_ALREADY_EXISTS
 }
 
-/// A mensagem do sistema para o código `c`, como a VM a monta.
+/// The system message for code `c`, as the VM builds it.
 ///
-/// No Windows é o `FormatMessageIntoBuffer` da VM (`bin/utils_win.cc`): o
-/// texto do `FormatMessageW` como vem, com o CRLF final (o `std` o tira), e
-/// `OS Error N` quando o sistema não tem mensagem.
+/// On Windows it is the VM's `FormatMessageIntoBuffer` (`bin/utils_win.cc`): the
+/// text of `FormatMessageW` as it comes, with the trailing CRLF (`std` removes it),
+/// and `OS Error N` when the system has no message.
 #[cfg(windows)]
 fn system_message(c: i32) -> String {
     #[link(name = "kernel32")]
@@ -67,7 +67,7 @@ fn system_message(c: i32) -> String {
     // MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT).
     const LOCALE: u32 = 0x0400;
     let mut buffer = [0u16; 1024];
-    // SAFETY: o buffer tem o tamanho informado; sem inserções.
+    // SAFETY: the buffer has the reported size; no inserts.
     let n = unsafe {
         FormatMessageW(
             FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
@@ -85,7 +85,7 @@ fn system_message(c: i32) -> String {
     String::from_utf16_lossy(&buffer[..n as usize])
 }
 
-/// No Unix, o `strerror` (a mensagem do `std` sem o " (os error N)").
+/// On Unix, `strerror` (`std`'s message without the " (os error N)").
 #[cfg(not(windows))]
 fn system_message(c: i32) -> String {
     let text = std::io::Error::from_raw_os_error(c).to_string();
@@ -93,9 +93,8 @@ fn system_message(c: i32) -> String {
     text.strip_suffix(&suffix).map(str::to_string).unwrap_or(text)
 }
 
-/// Um erro do sistema operacional, como o `OSError` da VM (`bin/utils.h`):
-/// o código e a mensagem do sistema (`strerror_r`; `FormatMessage` no
-/// Windows).
+/// An operating system error, like the VM's `OSError` (`bin/utils.h`): the code and
+/// the system message (`strerror_r`; `FormatMessage` on Windows).
 #[derive(Clone, Debug)]
 struct OsError {
     code: i64,
@@ -103,12 +102,12 @@ struct OsError {
 }
 
 impl OsError {
-    /// O erro do código `c` do sistema.
+    /// The error of system code `c`.
     fn from_code(c: i32) -> OsError {
         OsError { code: i64::from(c), message: system_message(c) }
     }
 
-    /// O erro de uma operação do `std` (que carrega o código do sistema).
+    /// The error of a `std` operation (which carries the system code).
     fn de(e: &std::io::Error) -> OsError {
         match e.raw_os_error() {
             Some(c) => OsError::from_code(c),
@@ -116,26 +115,26 @@ impl OsError {
         }
     }
 
-    /// O `OSError(-1, "Invalid argument", kUnknown)` dos natives da VM.
+    /// The `OSError(-1, "Invalid argument", kUnknown)` of the VM's natives.
     fn invalid_argument() -> OsError {
         OsError { code: -1, message: "Invalid argument".to_string() }
     }
 
-    /// O `OSError` do Dart (`DartUtils::NewDartOSError`), pela função da
-    /// sobreposição de `dart:io`.
+    /// Dart's `OSError` (`DartUtils::NewDartOSError`), through the `dart:io`
+    /// overlay's function.
     fn to_dart(&self) -> i64 {
         let Some(f) = ajudante("_dartforgeOSError") else {
-            panic!("bug do compilador: dart:io sem `_dartforgeOSError` registrado");
+            panic!("compiler bug: dart:io without a registered `_dartforgeOSError`");
         };
-        // SAFETY: registrada pela biblioteca `dart:io` da sobreposição com a
-        // assinatura (`String`, `int`) → `OSError`.
+        // SAFETY: registered by the overlay's `dart:io` library with the signature
+        // (`String`, `int`) → `OSError`.
         let g = { let dart_target: usize = f; move |a0: i64, a1: i64| -> i64 { dart_r2(dart_target, a0, a1) } };
         let message = allocate_str(&self.message);
         with_roots(&[message], || g(message, self.code))
     }
 
-    /// A resposta de erro do IOService (`CObject::NewOSError`):
-    /// `[kOSError, código, message]`.
+    /// The IOService's error response (`CObject::NewOSError`):
+    /// `[kOSError, code, message]`.
     fn to_response(&self) -> Portable {
         Portable::List(vec![
             Portable::Int(RESPONSE_OS_ERROR),
@@ -154,7 +153,7 @@ impl From<std::io::Error> for OsError {
 type IoResult<T> = Result<T, OsError>;
 
 // ---------------------------------------------------------------------------
-// Valores Dart devolvidos pelos natives.
+// Dart values returned by the natives.
 
 fn dart_bool(b: bool) -> i64 {
     Heap::box_bool(b)
@@ -164,14 +163,14 @@ fn dart_int(i: i64) -> i64 {
     HEAP.with(|h| h.borrow_mut().box_int(i))
 }
 
-/// Uma `String` Dart a partir de bytes do sistema: UTF-8, com a sequência
-/// inválida trocada por U+FFFD.
+/// A Dart `String` from system bytes: UTF-8, with an invalid sequence replaced by
+/// U+FFFD.
 fn dart_string_from_bytes(b: &[u8]) -> i64 {
     allocate_str(&String::from_utf8_lossy(b))
 }
 
-/// Uma lista tipada interna do `tipo` com os bytes (o comprimento em
-/// elementos é `bytes.len() / tamanho`).
+/// An internal typed list of `tipo` with the bytes (the length in elements is
+/// `bytes.len() / size`).
 fn dart_typed_from_bytes(tipo: u8, bytes: &[u8]) -> i64 {
     HEAP.with(|h| {
         let mut h = h.borrow_mut();
@@ -183,19 +182,19 @@ fn dart_typed_from_bytes(tipo: u8, bytes: &[u8]) -> i64 {
     })
 }
 
-/// Uma `Uint8List` (`_Uint8List`) com os bytes.
+/// A `Uint8List` (`_Uint8List`) with the bytes.
 fn dart_bytes(bytes: Vec<u8>) -> i64 {
     dart_typed_from_bytes(TYPE_UINT8, &bytes)
 }
 
-/// Uma `Int64List` (`_Int64List`) com os valores.
+/// An `Int64List` (`_Int64List`) with the values.
 fn dart_int64s(value_list: &[i64]) -> i64 {
     let bytes: Vec<u8> = value_list.iter().flat_map(|v| v.to_ne_bytes()).collect();
     dart_typed_from_bytes(TYPE_INT64, &bytes)
 }
 
-/// Uma `_List` de tamanho fixo (cid 8, geral) com os valores (já na posição
-/// `Ref`), enraizados durante a alocação.
+/// A fixed-length `_List` (cid 8, general) with the values (already in the `Ref`
+/// position), rooted during the allocation.
 fn dart_fixed_list(value_list: &[i64]) -> i64 {
     HEAP.with(|h| {
         let mut h = h.borrow_mut();
@@ -204,17 +203,17 @@ fn dart_fixed_list(value_list: &[i64]) -> i64 {
             h.set_root(frame, i, v);
         }
         let l = h.new_list(crate::layout::cid::LIST, value_list.len(), crate::lists::Element::General);
-        // A palavra 0 do corpo é o comprimento; os elementos, as seguintes.
+        // Word 0 of the body is the length; the elements, the following ones.
         if !value_list.is_empty() {
             h.write_refs(l, 1, value_list);
         }
-        // As arestas da lista substituem as cópias proprietárias temporárias.
+        // The list's edges replace the temporary owning copies.
         h.pop_frame(frame);
         l
     })
 }
 
-/// O valor Dart de um resultado: o `Ok` por `f`, o erro como `OSError`.
+/// The Dart value of a result: the `Ok` through `f`, the error as an `OSError`.
 fn dart_or_error<T>(r: IoResult<T>, f: impl FnOnce(T) -> i64) -> i64 {
     match r {
         Ok(v) => f(v),
@@ -222,32 +221,32 @@ fn dart_or_error<T>(r: IoResult<T>, f: impl FnOnce(T) -> i64) -> i64 {
     }
 }
 
-/// `true` ou o `OSError` — a forma de quase todos os natives de caminho.
+/// `true` or the `OSError` — the shape of almost every path native.
 fn dart_true_or_error(r: IoResult<()>) -> i64 {
     dart_or_error(r, |()| dart_bool(true))
 }
 
-/// `null` ou o `OSError`.
+/// `null` or the `OSError`.
 fn dart_null_or_error(r: IoResult<()>) -> i64 {
     dart_or_error(r, |()| 0)
 }
 
-/// Lança `StateError(message)` (o `_InternalError` dos natives da VM).
+/// Throws `StateError(message)` (the `_InternalError` of the VM's natives).
 fn throw_internal_error(message: &str) {
     let e = allocate_state_error(message);
     with_roots(&[e], || dartforge_exception_throw(e, 3));
 }
 
 // ---------------------------------------------------------------------------
-// Caminhos.
+// Paths.
 
-/// Os bytes de uma lista tipada (lista interna ou visão).
+/// The bytes of a typed list (internal list or view).
 fn typed_list_bytes(h: i64) -> Option<Vec<u8>> {
     HEAP.with(|heap| heap.borrow().typed_bytes(h).map(<[u8]>::to_vec))
 }
 
-/// Os bytes de uma lista do núcleo de inteiros, cada um truncado a 8 bits
-/// (o `Dart_ListGetAsBytes` da VM); vazio se `h` não é lista do núcleo.
+/// The bytes of a core list of integers, each truncated to 8 bits (the VM's
+/// `Dart_ListGetAsBytes`); empty if `h` is not a core list.
 fn bytes_from_value_list(heap: &Heap, h: i64) -> Vec<u8> {
     if !heap.e_lista(h) {
         return Vec::new();
@@ -262,8 +261,8 @@ fn bytes_from_value_list(heap: &Heap, h: i64) -> Vec<u8> {
         .collect()
 }
 
-/// O caminho de um `rawPath` (`Uint8List` UTF-8 terminado em NUL, o
-/// `DartUtils::GetNativeTypedDataArgument` da VM): os bytes até o NUL.
+/// The path of a `rawPath` (a NUL-terminated UTF-8 `Uint8List`, the VM's
+/// `DartUtils::GetNativeTypedDataArgument`): the bytes up to the NUL.
 fn path_bytes(raw: i64) -> Vec<u8> {
     let mut b = typed_list_bytes(raw).unwrap_or_default();
     if let Some(end) = b.iter().position(|&c| c == 0) {
@@ -272,8 +271,8 @@ fn path_bytes(raw: i64) -> Vec<u8> {
     b
 }
 
-/// O caminho do sistema para os bytes (Unix: os bytes; Windows: o UTF-8
-/// convertido para UTF-16, como o `Utf8ToWideChar` da VM).
+/// The system path for the bytes (Unix: the bytes; Windows: the UTF-8 converted to
+/// UTF-16, like the VM's `Utf8ToWideChar`).
 #[cfg(unix)]
 fn path_from_bytes(b: &[u8]) -> std::path::PathBuf {
     use std::os::unix::ffi::OsStrExt;
@@ -284,7 +283,7 @@ fn path_from_bytes(b: &[u8]) -> std::path::PathBuf {
     std::path::PathBuf::from(String::from_utf8_lossy(b).into_owned())
 }
 
-/// Os bytes de um caminho do sistema (o inverso de [`path_from_bytes`]).
+/// The bytes of a system path (the inverse of [`path_from_bytes`]).
 #[cfg(unix)]
 fn path_bytes_of(p: &std::path::Path) -> Vec<u8> {
     use std::os::unix::ffi::OsStrExt;
@@ -295,19 +294,18 @@ fn path_bytes_of(p: &std::path::Path) -> Vec<u8> {
     p.to_string_lossy().into_owned().into_bytes()
 }
 
-/// O caminho de um `rawPath` Dart.
+/// The path of a Dart `rawPath`.
 fn raw_path(raw: i64) -> std::path::PathBuf {
     path_from_bytes(&path_bytes(raw))
 }
 
-/// O caminho de uma `String` Dart (`DartUtils::GetNativeStringArgument`:
-/// UTF-8).
+/// The path of a Dart `String` (`DartUtils::GetNativeStringArgument`: UTF-8).
 fn path_text(s: i64) -> std::path::PathBuf {
     path_from_bytes(&utf8_of_string(s))
 }
 
-/// O UTF-8 de uma `String` Dart (o substituto solto vira U+FFFD, como no
-/// `Dart_StringToUTF8` da VM).
+/// The UTF-8 of a Dart `String` (a lone surrogate becomes U+FFFD, as in the VM's
+/// `Dart_StringToUTF8`).
 fn utf8_of_string(s: i64) -> Vec<u8> {
     if s == 0 {
         return Vec::new();
@@ -316,13 +314,13 @@ fn utf8_of_string(s: i64) -> Vec<u8> {
 }
 
 // ---------------------------------------------------------------------------
-// O campo nativo de `NativeFieldWrapperClass1` (a sobreposição de
-// `dart:nativewrappers` o declara como o primeiro campo do layout).
+// The native field of `NativeFieldWrapperClass1` (the `dart:nativewrappers`
+// overlay declares it as the first field of the layout).
 
 fn native_field(obj: i64) -> i64 {
     HEAP.with(|h| match h.borrow().object(obj) {
         Some(o) => o.first().map_or(0, |f| f.0),
-        None => panic!("bug do compilador: campo nativo de algo que não é objeto"),
+        None => panic!("compiler bug: native field of something that is not an object"),
     })
 }
 
@@ -330,14 +328,14 @@ fn write_native_field(obj: i64, value: i64) {
     HEAP.with(|h| {
         let mut h = h.borrow_mut();
         if h.object(obj).is_none_or(|o| o.is_empty()) {
-            panic!("bug do compilador: campo nativo de algo que não é objeto");
+            panic!("compiler bug: native field of something that is not an object");
         }
         h.set_field(obj, 0, value, false);
     });
 }
 
-/// Liga `pair` ao objeto: quando o objeto for coletado, `finalizer(pair)`
-/// (o `Dart_NewFinalizableHandle` da VM).
+/// Binds `pair` to the object: when the object is collected, `finalizer(pair)` (the
+/// VM's `Dart_NewFinalizableHandle`).
 fn attach_finalizer(obj: i64, finalizer: fn(usize), pair: usize) {
     HEAP.with(|h| h.borrow_mut().finalizable.insert(obj, (finalizer, pair)));
 }
@@ -347,53 +345,53 @@ fn remove_finalizer(obj: i64) {
 }
 
 // ---------------------------------------------------------------------------
-// O arquivo aberto.
+// The open file.
 
-/// O descritor de um arquivo fechado (`File::kClosedFd`).
+/// The descriptor of a closed file (`File::kClosedFd`).
 const CLOSED_DESCRIPTOR: i64 = -1;
 
-/// Um arquivo aberto (o `File` de `bin/file.h`): o descritor do sistema
-/// (Unix) ou o `HANDLE` (Windows). O isolado e as threads do IOService o
-/// compartilham; o Dart dos patches serializa as operações de um mesmo
-/// arquivo (`_RandomAccessFile._checkAvailable`).
+/// An open file (the `File` of `bin/file.h`): the system descriptor (Unix) or the
+/// `HANDLE` (Windows). The isolate and the IOService threads share it; the Dart
+/// code of the patches serializes the operations on the same file
+/// (`_RandomAccessFile._checkAvailable`).
 struct NativeFile {
     descriptor: AtomicI64,
 }
 
 impl NativeFile {
-    /// Cria o arquivo com uma referência e devolve o ponteiro dela.
+    /// Creates the file with one reference and returns its pointer.
     fn new(descriptor: i64) -> i64 {
         Arc::into_raw(Arc::new(NativeFile { descriptor: AtomicI64::new(descriptor) })) as i64
     }
 
-    /// O arquivo do ponteiro `p`, emprestado de quem tem a referência.
+    /// The file of pointer `p`, borrowed from whoever has the reference.
     ///
     /// # Safety
-    /// `p` veio de [`NativeFile::new`] e a referência ainda existe.
+    /// `p` came from [`NativeFile::new`] and the reference still exists.
     unsafe fn de<'a>(p: i64) -> &'a NativeFile {
-        // SAFETY: garantido por quem chama.
+        // SAFETY: guaranteed by the caller.
         unsafe { &*(p as *const NativeFile) }
     }
 
-    /// Mais uma referência (`Retain`).
+    /// One more reference (`Retain`).
     fn retain_ref(p: i64) {
-        // SAFETY: `p` é um ponteiro vivo de `new`.
+        // SAFETY: `p` is a live pointer from `new`.
         unsafe { Arc::increment_strong_count(p as *const NativeFile) };
     }
 
-    /// Solta uma referência (`Release`); a última fecha o arquivo.
+    /// Releases a reference (`Release`); the last one closes the file.
     fn free(p: i64) {
-        // SAFETY: `p` é um ponteiro vivo de `new`, com esta referência.
+        // SAFETY: `p` is a live pointer from `new`, with this reference.
         unsafe { Arc::decrement_strong_count(p as *const NativeFile) };
     }
 
-    /// Toma a referência de `p` (o `RefCntReleaseScope` da VM: solta ao
-    /// sair do escopo).
+    /// Takes the reference of `p` (the VM's `RefCntReleaseScope`: released when
+    /// leaving the scope).
     ///
     /// # Safety
-    /// `p` é um ponteiro de `new` cuja referência passa a quem chama.
+    /// `p` is a pointer from `new` whose reference passes to the caller.
     unsafe fn take(p: i64) -> Arc<NativeFile> {
-        // SAFETY: garantido por quem chama.
+        // SAFETY: guaranteed by the caller.
         unsafe { Arc::from_raw(p as *const NativeFile) }
     }
 
@@ -405,7 +403,7 @@ impl NativeFile {
         self.descriptor.load(AtomicOrdering::Acquire)
     }
 
-    /// Opera no arquivo pelo `std::fs::File`, sem transferir o descritor.
+    /// Operates on the file through `std::fs::File`, without transferring the descriptor.
     fn com<R>(&self, f: impl FnOnce(&mut std::fs::File) -> std::io::Result<R>) -> IoResult<R> {
         let d = self.descriptor();
         if d == CLOSED_DESCRIPTOR {
@@ -415,7 +413,7 @@ impl NativeFile {
         f(&mut file).map_err(OsError::from)
     }
 
-    /// `File::Read`: uma leitura (repetida só na interrupção por sinal).
+    /// `File::Read`: one read (repeated only on interruption by a signal).
     fn do_read(&self, dest: &mut [u8]) -> IoResult<usize> {
         use std::io::Read;
         self.com(|f| loop {
@@ -430,8 +428,8 @@ impl NativeFile {
     fn write_all_bytes(&self, data: &[u8]) -> IoResult<()> {
         use std::io::Write;
         if matches!(self.descriptor(), 1 | 2) {
-            // A saída do `print` passa pelo `stdout` do `std`: o que ele
-            // tiver guardado sai antes, para a ordem ser a do programa.
+            // `print`'s output goes through `std`'s `stdout`: whatever it has
+            // buffered goes out first, so that the order is the program's.
             let _ = std::io::stdout().flush();
         }
         self.com(|f| f.write_all(data))
@@ -458,8 +456,8 @@ impl NativeFile {
         self.com(|f| f.metadata()).map(|m| m.len() as i64)
     }
 
-    /// `File::Flush`: `fsync` (Unix; o `sync_all` do `std` no macOS seria o
-    /// `F_FULLFSYNC`, que a VM não usa) ou `FlushFileBuffers` (Windows).
+    /// `File::Flush`: `fsync` (Unix; `std`'s `sync_all` on macOS would be
+    /// `F_FULLFSYNC`, which the VM does not use) or `FlushFileBuffers` (Windows).
     fn sync_file(&self) -> IoResult<()> {
         #[cfg(unix)]
         {
@@ -467,7 +465,7 @@ impl NativeFile {
                 fn fsync(fd: i32) -> i32;
             }
             let d = self.descriptor();
-            // SAFETY: `d` é um descritor aberto deste arquivo.
+            // SAFETY: `d` is an open descriptor of this file.
             if unsafe { fsync(d as i32) } == -1 {
                 return Err(OsError::de(&std::io::Error::last_os_error()));
             }
@@ -479,14 +477,14 @@ impl NativeFile {
         }
     }
 
-    /// `File::Lock`: `fcntl(F_SETLK[W])` no Unix, `LockFileEx` no Windows.
+    /// `File::Lock`: `fcntl(F_SETLK[W])` on Unix, `LockFileEx` on Windows.
     fn lock_file(&self, tipo: i64, start: i64, end: i64) -> IoResult<()> {
         lock_descriptor(self.descriptor(), tipo, start, end)
     }
 
-    /// `File::Close`: fecha o descritor. A saída padrão não é fechada: vira
-    /// `/dev/null` (a VM faz o mesmo, para o processo não escrever num
-    /// descritor que outro `open` reaproveitaria).
+    /// `File::Close`: closes the descriptor. Standard output is not closed: it
+    /// becomes `/dev/null` (the VM does the same, so that the process does not write
+    /// to a descriptor that another `open` would reuse).
     fn do_close(&self) {
         let d = self.descriptor.swap(CLOSED_DESCRIPTOR, AtomicOrdering::AcqRel);
         if d == CLOSED_DESCRIPTOR {
@@ -497,8 +495,8 @@ impl NativeFile {
 }
 
 impl Drop for NativeFile {
-    /// O destrutor do `File` da VM: fecha o que ficou aberto, menos a saída
-    /// e o erro padrão.
+    /// The destructor of the VM's `File`: closes whatever was left open, except
+    /// standard output and standard error.
     fn drop(&mut self) {
         let d = self.descriptor();
         if d != CLOSED_DESCRIPTOR && !is_stdout(d) {
@@ -507,7 +505,7 @@ impl Drop for NativeFile {
     }
 }
 
-/// O finalizador do objeto Dart dono de um arquivo.
+/// The finalizer of the Dart object that owns a file.
 fn free_object_file(pair: usize) {
     NativeFile::free(pair as i64);
 }
@@ -515,17 +513,17 @@ fn free_object_file(pair: usize) {
 #[cfg(unix)]
 fn file_from_descriptor(d: i64) -> std::fs::File {
     use std::os::unix::io::FromRawFd;
-    // SAFETY: `d` é um descritor aberto; quem chama não o fecha pelo `File`.
+    // SAFETY: `d` is an open descriptor; the caller does not close it through `File`.
     unsafe { std::fs::File::from_raw_fd(d as i32) }
 }
 #[cfg(windows)]
 fn file_from_descriptor(d: i64) -> std::fs::File {
     use std::os::windows::io::FromRawHandle;
-    // SAFETY: `d` é um HANDLE aberto; quem chama não o fecha pelo `File`.
+    // SAFETY: `d` is an open HANDLE; the caller does not close it through `File`.
     unsafe { std::fs::File::from_raw_handle(d as usize as *mut std::ffi::c_void) }
 }
 
-/// O descritor de um `std::fs::File` (que deixa de ser dono dele).
+/// The descriptor of a `std::fs::File` (which stops owning it).
 #[cfg(unix)]
 fn file_descriptor(f: std::fs::File) -> i64 {
     use std::os::unix::io::IntoRawFd;
@@ -556,7 +554,7 @@ fn close_descriptor(d: i64) {
     if d == 1 {
         use std::io::Write;
         let _ = std::io::stdout().flush();
-        // SAFETY: caminho C constante; os descritores são válidos.
+        // SAFETY: a constant C path; the descriptors are valid.
         unsafe {
             let null_val = open(c"/dev/null".as_ptr(), 1 /* O_WRONLY */);
             if null_val >= 0 {
@@ -566,7 +564,7 @@ fn close_descriptor(d: i64) {
         }
         return;
     }
-    // SAFETY: `d` é um descritor aberto deste arquivo, fechado uma vez.
+    // SAFETY: `d` is an open descriptor of this file, closed once.
     unsafe { close(d as i32) };
 }
 #[cfg(windows)]
@@ -577,7 +575,7 @@ fn close_descriptor(d: i64) {
     drop(file_from_descriptor(d));
 }
 
-/// O descritor da entrada/saída padrão `fd` (0, 1, 2).
+/// The descriptor of standard input/output `fd` (0, 1, 2).
 #[cfg(unix)]
 fn default_descriptor(fd: i64) -> i64 {
     fd
@@ -590,7 +588,7 @@ fn default_descriptor(fd: i64) -> i64 {
     }
     // STD_INPUT_HANDLE = -10, STD_OUTPUT_HANDLE = -11, STD_ERROR_HANDLE = -12.
     let which = (-10 - fd) as i32 as u32;
-    // SAFETY: só lê o handle do processo.
+    // SAFETY: only reads the process's handle.
     unsafe { GetStdHandle(which) as usize as i64 }
 }
 
@@ -650,7 +648,7 @@ fn fcntl_lock(d: i64, cmd: i32, fl: *const std::ffi::c_void) -> IoResult<()> {
         fn fcntl(fd: i32, cmd: i32, ...) -> i32;
     }
     loop {
-        // SAFETY: `fl` aponta para uma `struct flock` válida da plataforma.
+        // SAFETY: `fl` points to a valid platform `struct flock`.
         if unsafe { fcntl(d as i32, cmd, fl) } != -1 {
             return Ok(());
         }
@@ -687,7 +685,7 @@ fn lock_descriptor(d: i64, tipo: i64, start: i64, end: i64) -> IoResult<()> {
     };
     let h = d as usize as *mut std::ffi::c_void;
     let (low, high) = (length as u32, (length >> 32) as u32);
-    // SAFETY: `h` é o HANDLE aberto do arquivo; `o` vive durante a chamada.
+    // SAFETY: `h` is the file's open HANDLE; `o` lives during the call.
     let ok = unsafe {
         match tipo {
             LOCK_UNLOCK => UnlockFileEx(h, 0, low, high, &mut o),
@@ -712,8 +710,8 @@ const LOCK_SHARED_BLOCKING: i64 = 3;
 const LOCK_EXCLUSIVE_BLOCKING: i64 = 4;
 
 // ---------------------------------------------------------------------------
-// As operações sobre caminhos (`File::*` de `file_linux.cc`), partilhadas
-// pelos natives síncronos e pelo IOService.
+// The operations on paths (the `File::*` of `file_linux.cc`), shared by the
+// synchronous natives and the IOService.
 
 /// `File::Type`.
 const TYPE_FILE: i64 = 0;
@@ -723,7 +721,7 @@ const TYPE_SOCKET: i64 = 3;
 const TYPE_PIPE: i64 = 4;
 const TYPE_NOT_FOUND: i64 = 5;
 
-/// `File::DartFileOpenMode` → (leitura/escrita, só escrita, truncar).
+/// `File::DartFileOpenMode` → (read/write, write only, truncate).
 fn open_mode(dart_mode: i64) -> Option<(bool, bool, bool)> {
     match dart_mode {
         0 => Some((false, false, false)), // read → kRead
@@ -735,7 +733,7 @@ fn open_mode(dart_mode: i64) -> Option<(bool, bool, bool)> {
     }
 }
 
-/// O tipo de uma entrada do sistema de arquivos (`File::Type`).
+/// The type of a file system entry (`File::Type`).
 fn metadata_kind(m: &std::fs::Metadata) -> i64 {
     let t = m.file_type();
     if t.is_dir() {
@@ -766,7 +764,7 @@ fn path_type(p: &std::path::Path, follow_links_flag: bool) -> i64 {
     m.map_or(TYPE_NOT_FOUND, |m| metadata_kind(&m))
 }
 
-/// O `SetErrno` de `file_linux.cc`: o erro de um tipo inesperado.
+/// The `SetErrno` of `file_linux.cc`: the error of an unexpected type.
 fn type_error(tipo: i64) -> OsError {
     OsError::from_code(match tipo {
         TYPE_DIRECTORY => os_code::IS_DIRECTORY,
@@ -775,13 +773,13 @@ fn type_error(tipo: i64) -> OsError {
     })
 }
 
-/// Arquivo comum, soquete ou pipe: o que `Delete`/`Rename`/`Copy` aceitam.
+/// A regular file, socket or pipe: what `Delete`/`Rename`/`Copy` accept.
 fn is_file_type(tipo: i64) -> bool {
     matches!(tipo, TYPE_FILE | TYPE_SOCKET | TYPE_PIPE)
 }
 
-/// `File::Open`: só arquivos comuns, dispositivos de caractere e pipes; o
-/// modo de acréscimo posiciona no fim.
+/// `File::Open`: only regular files, character devices and pipes; append mode
+/// positions at the end.
 fn open_file(p: &std::path::Path, dart_mode: i64) -> IoResult<i64> {
     let Some((write_side, write_only, truncate_file)) = open_mode(dart_mode) else {
         return Err(OsError::invalid_argument());
@@ -818,20 +816,20 @@ fn open_file(p: &std::path::Path, dart_mode: i64) -> IoResult<i64> {
     Ok(file_descriptor(f))
 }
 
-/// `File::Exists`: tudo que não é diretório nem link é arquivo para o Dart.
+/// `File::Exists`: everything that is neither a directory nor a link is a file for Dart.
 fn file_exists(p: &std::path::Path) -> bool {
     std::fs::metadata(p).is_ok_and(|m| !m.is_dir() && !m.file_type().is_symlink())
 }
 
-/// `File::Create`: cria (ou, sem `exclusive`, aceita) o arquivo; um
-/// diretório ou link no caminho é erro.
+/// `File::Create`: creates (or, without `exclusive`, accepts) the file; a directory
+/// or link at the path is an error.
 fn create_file(p: &std::path::Path, exclusive: bool) -> IoResult<()> {
     let mut o = std::fs::OpenOptions::new();
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        // `O_RDONLY | O_CREAT [| O_EXCL]`, como a VM: o `std` só aceita
-        // `create` com escrita.
+        // `O_RDONLY | O_CREAT [| O_EXCL]`, like the VM: `std` only accepts
+        // `create` with write access.
         #[cfg(target_os = "linux")]
         const O_CREAT: i32 = 0o100;
         #[cfg(target_os = "linux")]
@@ -870,8 +868,8 @@ fn create_link(name: &std::path::Path, target: &std::path::Path) -> IoResult<()>
     }
     #[cfg(windows)]
     {
-        // Como a VM (`file_win.cc`): link de diretório se o alvo, resolvido
-        // a partir da pasta do link, é um diretório.
+        // Like the VM (`file_win.cc`): a directory link if the target, resolved from
+        // the link's folder, is a directory.
         let base = name.parent().map(|d| d.join(target)).unwrap_or_else(|| target.to_path_buf());
         if std::fs::metadata(&base).is_ok_and(|m| m.is_dir()) {
             std::os::windows::fs::symlink_dir(target, name)?;
@@ -922,8 +920,8 @@ fn rename_link(de: &std::path::Path, to: &std::path::Path) -> IoResult<()> {
     Ok(std::fs::rename(de, to)?)
 }
 
-/// `File::Copy`: o destino é criado com o modo da origem; se a cópia
-/// falha, o destino parcial é apagado.
+/// `File::Copy`: the destination is created with the source's mode; if the copy
+/// fails, the partial destination is deleted.
 fn copy_file(de: &std::path::Path, to: &std::path::Path) -> IoResult<()> {
     let tipo = path_type(de, true);
     if !is_file_type(tipo) {
@@ -938,8 +936,8 @@ fn copy_file(de: &std::path::Path, to: &std::path::Path) -> IoResult<()> {
         o.mode(origin.metadata()?.permissions().mode());
     }
     let mut dest = o.open(to)?;
-    // O `std::io::copy` entre dois `File` usa `copy_file_range`/`sendfile`
-    // no Linux (o `sendfile64` da VM) e cai para leitura e escrita.
+    // `std::io::copy` between two `File`s uses `copy_file_range`/`sendfile` on
+    // Linux (the VM's `sendfile64`) and falls back to reading and writing.
     if let Err(e) = std::io::copy(&mut origin, &mut dest) {
         drop(dest);
         let _ = std::fs::remove_file(to);
@@ -948,7 +946,7 @@ fn copy_file(de: &std::path::Path, to: &std::path::Path) -> IoResult<()> {
     Ok(())
 }
 
-/// O `StatHelper` de `file_linux.cc`: os metadados, com diretório como erro.
+/// The `StatHelper` of `file_linux.cc`: the metadata, with a directory as an error.
 fn file_metadata(p: &std::path::Path) -> IoResult<std::fs::Metadata> {
     let m = std::fs::metadata(p)?;
     if m.is_dir() {
@@ -957,7 +955,7 @@ fn file_metadata(p: &std::path::Path) -> IoResult<std::fs::Metadata> {
     Ok(m)
 }
 
-/// Segundos inteiros de um instante (o `st_mtime` da VM).
+/// Whole seconds of an instant (the VM's `st_mtime`).
 fn seconds_of(t: std::time::SystemTime) -> i64 {
     match t.duration_since(std::time::UNIX_EPOCH) {
         Ok(d) => d.as_secs() as i64,
@@ -965,7 +963,7 @@ fn seconds_of(t: std::time::SystemTime) -> i64 {
     }
 }
 
-/// Milissegundos de um instante (o `TimespecToMilliseconds` da VM).
+/// Milliseconds of an instant (the VM's `TimespecToMilliseconds`).
 fn millis_of(t: std::time::SystemTime) -> i64 {
     match t.duration_since(std::time::UNIX_EPOCH) {
         Ok(d) => d.as_millis() as i64,
@@ -978,8 +976,8 @@ fn instant_from_millis(ms: i64) -> std::time::SystemTime {
     if ms >= 0 { std::time::UNIX_EPOCH + d } else { std::time::UNIX_EPOCH - d }
 }
 
-/// `File::LastModified` / `LastAccessed`, em milissegundos (a VM multiplica
-/// os segundos inteiros por 1000).
+/// `File::LastModified` / `LastAccessed`, in milliseconds (the VM multiplies the
+/// whole seconds by 1000).
 fn last_modified(p: &std::path::Path) -> IoResult<i64> {
     Ok(seconds_of(file_metadata(p)?.modified()?) * 1000)
 }
@@ -988,8 +986,8 @@ fn last_accessed(p: &std::path::Path) -> IoResult<i64> {
     Ok(seconds_of(file_metadata(p)?.accessed()?) * 1000)
 }
 
-/// `File::SetLastModified` / `SetLastAccessed`: troca um instante e mantém o
-/// outro.
+/// `File::SetLastModified` / `SetLastAccessed`: changes one instant and keeps the
+/// other.
 fn change_instants(p: &std::path::Path, access: Option<i64>, modification: Option<i64>) -> IoResult<()> {
     let m = file_metadata(p)?;
     let tempos = std::fs::FileTimes::new()
@@ -1006,7 +1004,7 @@ fn change_instants(p: &std::path::Path, access: Option<i64>, modification: Optio
     Ok(o.open(p)?.set_times(tempos)?)
 }
 
-/// `File::Stat`: `[tipo, criação, modificação, access, mode, size]`.
+/// `File::Stat`: `[type, creation, modification, access, mode, size]`.
 fn statistics(p: &std::path::Path) -> IoResult<[i64; 6]> {
     let m = std::fs::metadata(p)?;
     let tipo = metadata_kind(&m);
@@ -1025,8 +1023,8 @@ fn statistics(p: &std::path::Path) -> IoResult<[i64; 6]> {
     }
     #[cfg(windows)]
     {
-        // O `st_mode` do `_wstat64`: tipo, leitura e escrita repetidas para
-        // grupo e outros, execução nos diretórios.
+        // The `st_mode` of `_wstat64`: type, read and write repeated for group and
+        // others, execution on directories.
         let read_write = if m.permissions().readonly() { 0o444 } else { 0o666 };
         let mode = if m.is_dir() { 0o040000 | read_write | 0o111 } else { 0o100000 | read_write };
         let ms = |t: std::io::Result<std::time::SystemTime>| t.map_or(0, millis_of);
@@ -1047,8 +1045,8 @@ fn link_target(p: &std::path::Path) -> IoResult<Vec<u8>> {
 fn canonical_path(p: &std::path::Path) -> IoResult<Vec<u8>> {
     let c = std::fs::canonicalize(p)?;
     let b = path_bytes_of(&c);
-    // No Windows, o `std` devolve o caminho estendido (`\\?\C:\…`); a VM
-    // tira o prefixo.
+    // On Windows, `std` returns the extended path (`\\?\C:\…`); the VM removes the
+    // prefix.
     #[cfg(windows)]
     if let Some(without) = b.strip_prefix(br"\\?\") {
         if !without.starts_with(b"UNC\\") {
@@ -1058,7 +1056,7 @@ fn canonical_path(p: &std::path::Path) -> IoResult<Vec<u8>> {
     Ok(b)
 }
 
-/// `File::AreIdentical`: o mesmo dispositivo e o mesmo nó (sem seguir
+/// `File::AreIdentical`: the same device and the same node (without following
 /// links).
 #[cfg(unix)]
 fn identical(a: &std::path::Path, b: &std::path::Path) -> IoResult<bool> {
@@ -1088,10 +1086,10 @@ fn identical(a: &std::path::Path, b: &std::path::Path) -> IoResult<bool> {
     fn identidade(p: &std::path::Path) -> IoResult<(u32, u32, u32)> {
         use std::os::windows::fs::OpenOptionsExt;
         use std::os::windows::io::AsRawHandle;
-        // FILE_FLAG_BACKUP_SEMANTICS abre diretórios; sem seguir o link.
+        // FILE_FLAG_BACKUP_SEMANTICS opens directories; without following the link.
         let f = std::fs::OpenOptions::new().access_mode(0).custom_flags(0x0200_0000 | 0x0020_0000).open(p)?;
         let mut i = InfoKind::default();
-        // SAFETY: o handle é válido enquanto `f` vive.
+        // SAFETY: the handle is valid while `f` lives.
         if unsafe { GetFileInformationByHandle(f.as_raw_handle(), &mut i) } == 0 {
             return Err(OsError::de(&std::io::Error::last_os_error()));
         }
@@ -1100,8 +1098,7 @@ fn identical(a: &std::path::Path, b: &std::path::Path) -> IoResult<bool> {
     Ok(identidade(a)? == identidade(b)?)
 }
 
-/// `File::GetStdioHandleType`: 0 terminal, 1 pipe, 2 arquivo, 3 soquete,
-/// 4 outro.
+/// `File::GetStdioHandleType`: 0 terminal, 1 pipe, 2 file, 3 socket, 4 other.
 #[cfg(unix)]
 fn stdio_kind(fd: i64) -> IoResult<i64> {
     use std::os::unix::fs::FileTypeExt;
@@ -1126,7 +1123,7 @@ fn stdio_kind(fd: i64) -> IoResult<i64> {
         fn GetFileType(h: *mut std::ffi::c_void) -> u32;
     }
     let h = default_descriptor(fd);
-    // SAFETY: consulta o tipo de um handle do processo.
+    // SAFETY: queries the type of a process handle.
     let t = unsafe { GetFileType(h as usize as *mut std::ffi::c_void) };
     // FILE_TYPE_DISK = 1, FILE_TYPE_CHAR = 2, FILE_TYPE_PIPE = 3.
     Ok(match t {
@@ -1138,7 +1135,7 @@ fn stdio_kind(fd: i64) -> IoResult<i64> {
 }
 
 // ---------------------------------------------------------------------------
-// Os natives de `_File` (estáticos, sobre caminhos).
+// The `_File` natives (static, on paths).
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_File_Exists(_ns: i64, raw: i64) -> i64 {
@@ -1155,7 +1152,7 @@ pub extern "C" fn dartforge_nativo_File_CreateLink(_ns: i64, raw: i64, target: i
     dart_null_or_error(create_link(&raw_path(raw), &path_text(target)))
 }
 
-/// `File_CreatePipe`: `[pointer de read_side, pointer de write_side]`.
+/// `File_CreatePipe`: `[pointer of read_side, pointer of write_side]`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_File_CreatePipe(_ns: i64) -> i64 {
     match create_pipe() {
@@ -1168,7 +1165,7 @@ pub extern "C" fn dartforge_nativo_File_CreatePipe(_ns: i64) -> i64 {
     }
 }
 
-/// Um pipe anônimo: (leitura, escrita).
+/// An anonymous pipe: (read, write).
 #[cfg(unix)]
 fn create_pipe() -> IoResult<(i64, i64)> {
     let (r, w) = std::io::pipe()?;
@@ -1237,13 +1234,13 @@ pub extern "C" fn dartforge_nativo_File_SetLastAccessed(_ns: i64, raw: i64, ms: 
     dart_null_or_error(change_instants(&raw_path(raw), Some(ms), None))
 }
 
-/// `File_Open`: o ponteiro do arquivo aberto (um `int`) ou o `OSError`.
+/// `File_Open`: the pointer of the open file (an `int`) or the `OSError`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_File_Open(_ns: i64, raw: i64, mode: i64) -> i64 {
     dart_or_error(open_file(&raw_path(raw), mode), |d| dart_int(NativeFile::new(d)))
 }
 
-/// `File_OpenStdio`: o arquivo da entrada/saída padrão `fd`.
+/// `File_OpenStdio`: the file of standard input/output `fd`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_File_OpenStdio(fd: i64) -> i64 {
     NativeFile::new(default_descriptor(fd))
@@ -1259,7 +1256,7 @@ pub extern "C" fn dartforge_nativo_File_GetType(_ns: i64, raw: i64, follow: u8) 
     dart_int(path_type(&raw_path(raw), follow != 0))
 }
 
-/// `File_Stat`: a `Int64List` de [`statistics`], ou o `OSError`.
+/// `File_Stat`: the `Int64List` of [`statistics`], or the `OSError`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_File_Stat(_ns: i64, file_path: i64) -> i64 {
     dart_or_error(statistics(&path_text(file_path)), |d| dart_int64s(&d))
@@ -1276,29 +1273,29 @@ pub extern "C" fn dartforge_nativo_File_ResolveSymbolicLinks(_ns: i64, raw: i64)
 }
 
 // ---------------------------------------------------------------------------
-// Os natives de `_RandomAccessFileOpsImpl` (instância, sobre o arquivo do
-// campo nativo).
+// The `_RandomAccessFileOpsImpl` natives (instance, on the file of the native
+// field).
 
-/// O arquivo do receptor, ou lança o erro interno da VM ("No native peer").
+/// The receiver's file, or throws the VM's internal error ("No native peer").
 fn receiver_file<'a>(this: i64) -> Option<&'a NativeFile> {
     let p = native_field(this);
     if p == 0 {
         throw_internal_error("No native peer");
         return None;
     }
-    // SAFETY: o campo guarda a referência do objeto, viva até `close` ou a
-    // coleta dele.
+    // SAFETY: the field holds the object's reference, alive until `close` or the
+    // object's collection.
     Some(unsafe { NativeFile::de(p) })
 }
 
-/// `File_SetPointer`: o objeto passa a ser dono da referência de `p`.
+/// `File_SetPointer`: the object becomes the owner of the reference of `p`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_File_SetPointer(this: i64, p: i64) {
     attach_finalizer(this, free_object_file, p as usize);
     write_native_field(this, p);
 }
 
-/// `File_GetPointer`: retém uma referência para o IOService (0 se fechado).
+/// `File_GetPointer`: retains a reference for the IOService (0 if closed).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_File_GetPointer(this: i64) -> i64 {
     let p = native_field(this);
@@ -1313,14 +1310,14 @@ pub extern "C" fn dartforge_nativo_File_GetFD(this: i64) -> i64 {
     receiver_file(this).map_or(0, |a| a.descriptor())
 }
 
-/// `File_Close`: 0, ou -1 se já fechado.
+/// `File_Close`: 0, or -1 if already closed.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_File_Close(this: i64) -> i64 {
     let p = native_field(this);
     if p == 0 {
         return -1;
     }
-    // SAFETY: a referência do objeto está viva.
+    // SAFETY: the object's reference is alive.
     unsafe { NativeFile::de(p) }.do_close();
     remove_finalizer(this);
     NativeFile::free(p);
@@ -1328,7 +1325,7 @@ pub extern "C" fn dartforge_nativo_File_Close(this: i64) -> i64 {
     0
 }
 
-/// `File_ReadByte`: o byte, -1 no fim, ou o `OSError`.
+/// `File_ReadByte`: the byte, -1 at the end, or the `OSError`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_File_ReadByte(this: i64) -> i64 {
     let Some(a) = receiver_file(this) else { return 0 };
@@ -1336,7 +1333,7 @@ pub extern "C" fn dartforge_nativo_File_ReadByte(this: i64) -> i64 {
     dart_or_error(a.do_read(&mut b), |n| dart_int(if n == 1 { i64::from(b[0]) } else { -1 }))
 }
 
-/// `File_WriteByte`: 1 ou o `OSError`.
+/// `File_WriteByte`: 1 or the `OSError`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_File_WriteByte(this: i64, value: i64) -> i64 {
     let Some(a) = receiver_file(this) else { return 0 };
@@ -1346,8 +1343,8 @@ pub extern "C" fn dartforge_nativo_File_WriteByte(this: i64, value: i64) -> i64 
     dart_or_error(a.write_all_bytes(&[v as u8]), |()| dart_int(1))
 }
 
-/// `File_Read`: os bytes lidos (uma visão, como o `_makeUint8ListView` da
-/// VM, se vieram menos que o pedido) ou o `OSError`.
+/// `File_Read`: the bytes read (a view, like the VM's `_makeUint8ListView`, if fewer
+/// than requested came) or the `OSError`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_File_Read(this: i64, n: i64) -> i64 {
     let Some(a) = receiver_file(this) else { return 0 };
@@ -1367,8 +1364,8 @@ pub extern "C" fn dartforge_nativo_File_Read(this: i64, n: i64) -> i64 {
     }
 }
 
-/// `File_ReadInto(buffer, start, end)`: os bytes lidos, gravados em
-/// `buffer[start..]`, ou o `OSError`.
+/// `File_ReadInto(buffer, start, end)`: the bytes read, written into
+/// `buffer[start..]`, or the `OSError`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_File_ReadInto(this: i64, buffer: i64, start: i64, end: i64) -> i64 {
     let Some(a) = receiver_file(this) else { return 0 };
@@ -1383,14 +1380,14 @@ pub extern "C" fn dartforge_nativo_File_ReadInto(this: i64, buffer: i64, start: 
     }
 }
 
-/// Grava `bytes` em `list[start..]` (lista tipada ou `List<int>`, o
-/// `Dart_ListSetAsBytes` da VM).
+/// Writes `bytes` into `list[start..]` (a typed list or a `List<int>`, the VM's
+/// `Dart_ListSetAsBytes`).
 fn write_bytes_to_list(list: i64, start: usize, bytes: &[u8]) {
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
         if let Some(t) = resolver(&heap, list) {
-            // Só listas de bytes chegam aqui (`_ensureFastAndSerializable…`
-            // nos patches); outra largura grava um byte por elemento.
+            // Only byte lists arrive here (`_ensureFastAndSerializable…` in the
+            // patches); another width writes one byte per element.
             let step = tamanho_do_elemento(t.tipo);
             if let Some(dest) = heap.typed_bytes_mut(list) {
                 for (i, &b) in bytes.iter().enumerate() {
@@ -1402,14 +1399,14 @@ fn write_bytes_to_list(list: i64, start: usize, bytes: &[u8]) {
             }
             return;
         }
-        // `List<int>`: o byte como `int` (sem alocação: cabe no `Smi`).
+        // `List<int>`: the byte as an `int` (no allocation: it fits in a `Smi`).
         for (i, &b) in bytes.iter().enumerate() {
             heap.list_set(list, start + i, crate::heap::Value::Int(i64::from(b)));
         }
     });
 }
 
-/// `File_WriteFrom(buffer, start, end)`: `null` ou o `OSError`.
+/// `File_WriteFrom(buffer, start, end)`: `null` or the `OSError`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_File_WriteFrom(this: i64, buffer: i64, start: i64, end: i64) -> i64 {
     let Some(a) = receiver_file(this) else { return 0 };
@@ -1449,7 +1446,7 @@ pub extern "C" fn dartforge_nativo_File_Flush(this: i64) -> i64 {
     dart_true_or_error(a.sync_file())
 }
 
-/// `File_Lock(tipo, início, end)`: `true` ou o `OSError`.
+/// `File_Lock(type, start, end)`: `true` or the `OSError`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_File_Lock(this: i64, tipo: i64, start: i64, end: i64) -> i64 {
     let Some(a) = receiver_file(this) else { return 0 };
@@ -1460,7 +1457,7 @@ pub extern "C" fn dartforge_nativo_File_Lock(this: i64, tipo: i64, start: i64, e
 }
 
 // ---------------------------------------------------------------------------
-// `_NamespaceImpl`: só o namespace padrão (o diretório corrente).
+// `_NamespaceImpl`: only the default namespace (the current directory).
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Namespace_Create(ns: i64, _n: i64) -> i64 {
