@@ -507,7 +507,7 @@ pub fn analyze(contents: &str, ctx: &OptionsContext<'_>) -> Vec<Report> {
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     /// `(code name, range text)` of each report, without includes.
@@ -518,7 +518,7 @@ mod testes {
     }
 
     #[test]
-    fn secao_do_analyzer() {
+    fn analyzer_section() {
         assert_eq!(findings("analyzer:\n  exclude: [a]\n  erros: {}\n"), vec![("unsupported_option_with_legal_values", "erros".to_string())]);
         assert_eq!(
             findings("analyzer:\n  errors:\n    nao_existe: ignore\n    dead_code: fatal\n"),
@@ -529,7 +529,7 @@ mod testes {
     }
 
     #[test]
-    fn regras_de_lint() {
+    fn lint_rules_section() {
         assert_eq!(findings("linter:\n  rules:\n    - regra_que_nao_existe\n"), vec![("undefined_lint", "regra_que_nao_existe".to_string())]);
         assert_eq!(
             findings("linter:\n  rules:\n    - annotate_overrides\n    - annotate_overrides\n"),
@@ -543,13 +543,13 @@ mod testes {
     }
 
     #[test]
-    fn include_e_sintaxe() {
+    fn include_and_syntax() {
         assert_eq!(findings("include: nao_existe.yaml\n"), vec![("include_file_not_found", "nao_existe.yaml".to_string())]);
         assert_eq!(findings("analyzer: [\n").first().map(|r| r.0), Some("parse_error"));
     }
 
     #[test]
-    fn lista_entre_aspas() {
+    fn quoted_list_formats() {
         assert_eq!(quoted_list(&["a"]), "'a'");
         assert_eq!(quoted_list(&["a", "b"]), "'a' and 'b'");
         assert_eq!(quoted_list(&["a", "b", "c"]), "'a', 'b', and 'c'");

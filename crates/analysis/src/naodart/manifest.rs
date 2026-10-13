@@ -382,7 +382,7 @@ pub fn validate(source: &str) -> Vec<Report> {
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     fn findings(source: &str) -> Vec<(&'static str, String)> {
@@ -390,13 +390,13 @@ mod testes {
     }
 
     #[test]
-    fn sem_tela_de_toque() {
+    fn no_touchscreen() {
         let source = "<manifest>\n</manifest>\n";
         assert_eq!(findings(source), vec![("no_touchscreen_feature", "<manifest>\n</manifest>".to_string())]);
     }
 
     #[test]
-    fn recursos_permissoes_e_atividades() {
+    fn features_permissions_and_activities() {
         let source = concat!(
             "<?xml version=\"1.0\"?>\n",
             "<!-- comentário -->\n",
@@ -423,7 +423,7 @@ mod testes {
     }
 
     #[test]
-    fn xml_quebrado_nao_relata() {
+    fn broken_xml_does_not_report() {
         assert!(findings("<manifest attr>").is_empty());
         assert!(findings("sem marcas").is_empty());
     }

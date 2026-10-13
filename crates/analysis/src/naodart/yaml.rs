@@ -248,7 +248,7 @@ pub fn ler(source: &str) -> Result<Option<No>, YamlError> {
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     fn fragment<'a>(source: &'a str, n: &No) -> &'a str {
@@ -256,7 +256,7 @@ mod testes {
     }
 
     #[test]
-    fn posicoes_de_chaves_e_valores() {
+    fn key_and_value_positions() {
         let source = "name: app\ndependencies:\n  a: ^1.0.0\n  b:\n    path: '../b' # perto\nflutter:\n";
         let root = ler(source).unwrap().unwrap();
         let (key, value) = root.par("name").unwrap();
@@ -272,7 +272,7 @@ mod testes {
     }
 
     #[test]
-    fn fluxo_e_tipos() {
+    fn flow_and_types() {
         let source = "a: [1, x, true]\nb: {k: v}\n";
         let root = ler(source).unwrap().unwrap();
         let a = root.campo("a").unwrap();
@@ -283,7 +283,7 @@ mod testes {
     }
 
     #[test]
-    fn erro_de_sintaxe() {
+    fn syntax_error() {
         assert!(ler("a: [\n").is_err());
         assert_eq!(ler("# só comentário\n").unwrap(), None);
     }

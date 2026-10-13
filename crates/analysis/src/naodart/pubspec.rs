@@ -286,7 +286,7 @@ pub fn validate(source: &str, folder: &Path) -> Vec<Report> {
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     /// `(code name, range text)` of each report.
@@ -297,7 +297,7 @@ mod testes {
     }
 
     #[test]
-    fn nome_e_campos() {
+    fn name_and_fields() {
         assert_eq!(findings("version: 1.0.0\n"), vec![("missing_name", String::new())]);
         assert_eq!(findings("name: 3\n"), vec![("name_not_string", "3".to_string())]);
         assert_eq!(findings("name: a\nauthor: eu\n"), vec![("deprecated_field", "author".to_string())]);
@@ -322,7 +322,7 @@ mod testes {
     }
 
     #[test]
-    fn plataformas_e_workspace() {
+    fn platforms_and_workspace() {
         assert_eq!(
             findings("name: a\nplatforms:\n  android:\n  fuchsia: x\n"),
             vec![("unknown_platform", "fuchsia".to_string()), ("platform_value_disallowed", "x".to_string())]

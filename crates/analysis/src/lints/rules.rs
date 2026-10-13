@@ -633,7 +633,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     /// `(rule, range text)` of each report, with all rules enabled.
@@ -645,7 +645,7 @@ mod testes {
     }
 
     #[test]
-    fn formas_dos_nomes() {
+    fn name_shapes() {
         assert!(is_camel_case("Foo") && is_camel_case("_Foo") && is_camel_case("$Foo") && is_camel_case("F"));
         assert!(!is_camel_case("foo") && !is_camel_case("Foo_Bar"));
         assert!(is_lower_camel_case("foo") && is_lower_camel_case("_fooBar") && is_lower_camel_case("foo_1") && is_lower_camel_case("A"));
@@ -664,7 +664,7 @@ mod testes {
     }
 
     #[test]
-    fn comandos_de_fluxo() {
+    fn flow_statements() {
         assert_eq!(findings("void f() {\n  try {} catch (e) {}\n}\n"), vec![("empty_catches", "{}".to_string())]);
         assert!(findings("void f() {\n  try {} catch (_) {}\n  try {} catch (e) {\n    // nada\n  }\n}\n").is_empty());
         assert_eq!(
@@ -681,7 +681,7 @@ mod testes {
     }
 
     #[test]
-    fn diretivas_e_typedefs() {
+    fn directives_and_typedefs() {
         assert_eq!(findings("import '../lib/a.dart';\n"), vec![("avoid_relative_lib_imports", "'../lib/a.dart'".to_string())]);
         assert!(findings("import 'package:a/lib/a.dart';\n").is_empty());
         let reports = {

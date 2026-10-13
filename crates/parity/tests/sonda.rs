@@ -31,7 +31,7 @@ fn seven_error_probe_matches_the_oracle() {
         d("WarningCode.UNUSED_LOCAL_VARIABLE", 162, 167, &["nunca"]),
     ];
     // Deliberately shuffled order: the reporting order comes from `json::ordenar`.
-    let mut v: Vec<_> = diags.iter().rev().map(|x| json::para_json("<SONDA>", &lines, x, false)).collect();
+    let mut v: Vec<_> = diags.iter().rev().map(|x| json::to_json("<SONDA>", &lines, x, false)).collect();
     json::ordenar(&mut v);
     assert_eq!(json::escrever(v), expected.trim_end());
 }

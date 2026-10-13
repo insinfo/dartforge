@@ -67,11 +67,11 @@ impl Report {
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     #[test]
-    fn mensagem_com_argumentos() {
+    fn message_with_arguments() {
         let r = Report::new(&codigos_g::pubspec::DEPRECATED_FIELD, Span { start: 0, end: 6 }, &["author"]);
         assert!(r.message().contains("author"));
     }

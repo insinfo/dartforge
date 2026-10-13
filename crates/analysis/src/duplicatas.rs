@@ -72,16 +72,16 @@ impl Reporter<'_> {
     /// `DiagnosticFactory.duplicateDefinition`: the first definition goes as
     /// a context message, on its name (in its file, if it is another one).
     fn with_first(&self, d: Diagnostic, previous: Elem) -> Diagnostic {
-        const TEXTO: &str = "The first definition of this name.";
+        const FIRST_DEFINITION: &str = "The first definition of this name.";
         if previous.at.start == previous.at.end {
             return d;
         }
         if previous.unit == self.unit {
-            return d.com_contexto(previous.at, TEXTO);
+            return d.com_contexto(previous.at, FIRST_DEFINITION);
         }
         let Some(path) = self.paths.get(previous.unit) else { return d };
         let mut d = d;
-        d.contexto.push(dartforge_diagnostics::Contexto { arquivo: Some(path.as_str().into()), span: previous.at, mensagem: TEXTO.into() });
+        d.contexto.push(dartforge_diagnostics::Contexto { arquivo: Some(path.as_str().into()), span: previous.at, mensagem: FIRST_DEFINITION.into() });
         d
     }
 
@@ -180,10 +180,10 @@ pub fn duplicates_with_paths(
     merge_same_location: bool,
 ) -> Vec<(usize, Diagnostic)> {
     let mut rel = Reporter { interner, unit: 0, out: Vec::new(), merge: merge_same_location, paths };
-    let nomes_da_biblioteca = top_level_names(units, interner);
+    let library_names = top_level_names(units, interner);
     for (i, u) in units.iter().enumerate() {
         rel.unit = i;
-        top_level_unit(&mut rel, units, i, &nomes_da_biblioteca);
+        top_level_unit(&mut rel, units, i, &library_names);
         locals(&mut rel, u.ast, wildcard);
     }
     // Members: first the instance ones of every unit, then the static ones

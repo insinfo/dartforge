@@ -216,22 +216,22 @@ mod tests {
     #[test]
     fn oracle_table() {
         assert_eq!(findings("/// TODO: doc\nvoid a() {}\n"), vec![("todo", 4, 9, "TODO: doc".to_string())]);
-        let block = "/** HACK bloco\n *  continua aqui\n */\nvoid b() {}\n";
-        assert_eq!(findings(block), vec![("hack", 4, 28, "HACK bloco continua aqui".to_string())]);
-        let lines = "// FIXME(x): linha um\n//  continua\n// nao continua\nvoid c() {}\n";
-        assert_eq!(findings(lines), vec![("fixme", 3, 31, "FIXME(x): linha um continua".to_string())]);
+        let block = "/** HACK block\n *  and more here\n */\nvoid b() {}\n";
+        assert_eq!(findings(block), vec![("hack", 4, 28, "HACK block and more here".to_string())]);
+        let lines = "// FIXME(x): line one\n//  and more\n// no more here\nvoid c() {}\n";
+        assert_eq!(findings(lines), vec![("fixme", 3, 31, "FIXME(x): line one and more".to_string())]);
         assert_eq!(findings("void c() {} // UNDONE\nvoid d() {}\n"), vec![("undone", 15, 6, "UNDONE".to_string())]);
     }
 
     #[test]
     fn what_does_not_match() {
-        assert!(findings("// todo: minusculo TODOS nao\nvoid a() {}\n").is_empty());
+        assert!(findings("// todo: lowercase TODOS not\nvoid a() {}\n").is_empty());
         // Dangling at the end of the file.
-        assert!(findings("void a() {}\n// TODO: no fim do arquivo\n").is_empty());
+        assert!(findings("void a() {}\n// TODO: at the end of the file\n").is_empty());
     }
 
     #[test]
     fn unfolds_the_block() {
-        assert_eq!(unfold("HACK bloco\n *  continua aqui"), "HACK bloco continua aqui");
+        assert_eq!(unfold("HACK block\n *  and more here"), "HACK block and more here");
     }
 }

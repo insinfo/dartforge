@@ -327,8 +327,8 @@ mod tests {
 
     #[test]
     fn comments_outside_strings() {
-        let source = "var a = '// não'; // sim\n/* b /* c */ d */ var e = \"/* não */\";\n";
+        let source = "var a = '// no'; // yes\n/* b /* c */ d */ var e = \"/* no */\";\n";
         let v: Vec<&str> = comments(source).iter().map(|s| &source[s.start..s.end]).collect();
-        assert_eq!(v, vec!["// sim", "/* b /* c */ d */"]);
+        assert_eq!(v, vec!["// yes", "/* b /* c */ d */"]);
     }
 }

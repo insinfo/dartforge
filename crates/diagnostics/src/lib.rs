@@ -544,7 +544,7 @@ mod tests {
     }
 
     #[test]
-    fn codigo_serde_by_unique_name() {
+    fn code_serde_by_unique_name() {
         let d = Diagnostic::com_codigo(codigos::compile_time_error::NON_BOOL_CONDITION, Span { start: 1, end: 2 }, Vec::<String>::new());
         let j = serde_json::to_string(&d).unwrap();
         assert!(j.contains("CompileTimeErrorCode.NON_BOOL_CONDITION"), "{j}");

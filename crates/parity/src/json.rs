@@ -129,7 +129,7 @@ impl<'a> Linhas<'a> {
 /// Converts one of our diagnostics to JSON v1. Without a code, the `code`
 /// field is `dartforge_sem_codigo` (it never matches the oracle: it counts as
 /// a false positive in the scoreboard).
-pub fn para_json(file: &str, lines: &Linhas<'_>, d: &Diagnostic, syntax: bool) -> DiagJson {
+pub fn to_json(file: &str, lines: &Linhas<'_>, d: &Diagnostic, syntax: bool) -> DiagJson {
     let (code, kind, doc) = match d.code {
         Some(c) => {
             let i = c.info();

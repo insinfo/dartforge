@@ -370,8 +370,8 @@ fn param_of_bound(program: &Program, u: UnitId, a: &ast::Ast, t: ast::TypeId, li
 
 /// `_UninstantiatedBoundChecker` num limite.
 fn uninstantiated(program: &Program, u: UnitId, a: &ast::Ast, t: ast::TypeId, visible: &dyn Fn(usize, SymbolId) -> bool, bounds: &SimpleBounds, out: &mut Vec<(UnitId, Diagnostic)>) {
-    let no_tipo = a.ty(t);
-    match &no_tipo.kind {
+    let type_node = a.ty(t);
+    match &type_node.kind {
         TypeKind::Named { name, args } => {
             if !args.is_empty() {
                 for &x in args.iter() {
@@ -387,7 +387,7 @@ fn uninstantiated(program: &Program, u: UnitId, a: &ast::Ast, t: ast::TypeId, vi
             if let Some(node) = element(program, u, name).and_then(|el| node_of(program, el))
                 && bounds.not_simple.contains(&node)
             {
-                out.push((u, Diagnostic::com_codigo(c::NOT_INSTANTIATED_BOUND, no_tipo.span, [] as [&str; 0])));
+                out.push((u, Diagnostic::com_codigo(c::NOT_INSTANTIATED_BOUND, type_node.span, [] as [&str; 0])));
             }
         }
         TypeKind::Void => {}

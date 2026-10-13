@@ -34,19 +34,19 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 pub use dartforge_analysis::publicacao::{VERIFICADOS, publicado, verificados};
 
 /// The analysis diagnostics in JSON v1, with the filters applied (the root
-/// `analysis_options.yaml` and `// ignore:`). `so_publicados` applies the
+/// `analysis_options.yaml` and `// ignore:`). `only_published` applies the
 /// publication rule.
-pub fn diagnosticos_json(analise: &Analise, raiz: &Path, opcoes: &filtros::Opcoes, so_publicados: bool) -> Vec<json::DiagJson> {
+pub fn diagnosticos_json(analysis: &Analise, root: &Path, options: &filtros::Opcoes, only_published: bool) -> Vec<json::DiagJson> {
     let mut out = Vec::new();
     // Subfolder options (INFRA §4.5): the nearest `analysis_options.yaml`
     // above the file, below the root, applies to it; its `exclude`s add to
     // the root's.
     let mut by_subfolder: std::collections::HashMap<std::path::PathBuf, filtros::Opcoes> = std::collections::HashMap::new();
-    for (p, a) in &analise.arquivos {
-        if oraculo::relativo(p, raiz).is_some_and(|rel| opcoes.excluido(&rel)) {
+    for (p, a) in &analysis.arquivos {
+        if oraculo::relativo(p, root).is_some_and(|rel| options.excluido(&rel)) {
             continue;
         }
-        let own: Option<&filtros::Opcoes> = match filtros::Opcoes::de_subpasta(p, raiz) {
+        let own: Option<&filtros::Opcoes> = match filtros::Opcoes::de_subpasta(p, root) {
             Some(file) => {
                 if !by_subfolder.contains_key(&file) {
                     let read = filtros::Opcoes::ler_arquivo(&file);
@@ -59,17 +59,17 @@ pub fn diagnosticos_json(analise: &Analise, raiz: &Path, opcoes: &filtros::Opcoe
         if own.is_some_and(|o| o.excludes_file(p)) {
             continue;
         }
-        let opcoes = own.unwrap_or(opcoes);
+        let options = own.unwrap_or(options);
         let lines = json::Linhas::new(&a.texto);
         let path = p.to_string_lossy();
-        for (d, syntax) in publicaveis(a, opcoes, so_publicados) {
-            out.push(json::para_json(&path, &lines, &d, syntax));
+        for (d, syntax) in publicaveis(a, options, only_published) {
+            out.push(json::to_json(&path, &lines, &d, syntax));
         }
         // The lint rules enabled in `linter: rules:` (INFRA §8), over the
         // text's tree, with the `// ignore:` comments and the options'
         // `errors:` (which silences the rule or changes its severity).
-        if opcoes.regras.values().any(|enabled| *enabled) {
-            let enabled = |rule: &str| opcoes.regras.get(rule).copied().unwrap_or(false);
+        if options.regras.values().any(|enabled| *enabled) {
+            let enabled = |rule: &str| options.regras.get(rule).copied().unwrap_or(false);
             let ignored = filtros::Ignorados::de_texto(&a.texto);
             // The reports over the program's tree, with semantics; without it
             // (a file outside the program), over the text's tree.
@@ -97,13 +97,13 @@ pub fn diagnosticos_json(analise: &Analise, raiz: &Path, opcoes: &filtros::Opcoe
             // variable).
             reports.dedup_by(|x, y| x.span == y.span && x.code.unico == y.code.unico && x.args == y.args);
             for r in reports {
-                let severity = match opcoes.errors.get(r.code.nome) {
+                let severity = match options.errors.get(r.code.nome) {
                     Some(None) => continue,
                     Some(Some(s)) => s.nome(),
                     None => "INFO",
                 };
                 // `cannot-ignore` with the lint's name: `// ignore:` does not silence it.
-                if opcoes.lint_ignorable(r.code.nome, r.code.unico)
+                if options.lint_ignorable(r.code.nome, r.code.unico)
                     && ignored.ignores_lint(r.code.nome, r.code.unico, lines.ponto(r.span.start).line)
                 {
                     continue;
@@ -145,16 +145,16 @@ fn report_to_json(file: &str, lines: &json::Linhas<'_>, r: &dartforge_analysis::
     }
 }
 
-/// The diagnostics of each `AndroidManifest.xml` under `raiz` (the analyzer's
+/// The diagnostics of each `AndroidManifest.xml` under `root` (the analyzer's
 /// `ManifestValidator`, `dartforge_analysis::naodart::manifest`), in JSON v1.
 /// Only with `analyzer: optional-checks: chrome-os-manifest-checks` in the
 /// options; hidden folders are skipped.
-pub fn diagnosticos_do_manifesto(raiz: &Path, opcoes: &filtros::Opcoes) -> Vec<json::DiagJson> {
+pub fn diagnosticos_do_manifesto(root: &Path, options: &filtros::Opcoes) -> Vec<json::DiagJson> {
     let mut out = Vec::new();
-    if !opcoes.chrome_os_manifest_checks {
+    if !options.chrome_os_manifest_checks {
         return out;
     }
-    let mut stack = vec![raiz.to_path_buf()];
+    let mut stack = vec![root.to_path_buf()];
     let mut found: Vec<PathBuf> = Vec::new();
     while let Some(folder) = stack.pop() {
         let Ok(entries) = std::fs::read_dir(&folder) else { continue };
@@ -180,13 +180,13 @@ pub fn diagnosticos_do_manifesto(raiz: &Path, opcoes: &filtros::Opcoes) -> Vec<j
     out
 }
 
-/// The diagnostics of the `analysis_options.yaml` of `raiz`
+/// The diagnostics of the `analysis_options.yaml` of `root`
 /// (`analyzeAnalysisOptions`, `dartforge_analysis::naodart::options`), in
 /// JSON v1. An `include:` is relative to the including file, or `package:`
 /// through the `package_config.json` found above the root. The SDK constraint
 /// is not passed: a lint rule removed with `since` is not reported.
-pub fn diagnosticos_das_opcoes(raiz: &Path) -> Vec<json::DiagJson> {
-    let file = raiz.join("analysis_options.yaml");
+pub fn diagnosticos_das_opcoes(root: &Path) -> Vec<json::DiagJson> {
+    let file = root.join("analysis_options.yaml");
     let Ok(text) = std::fs::read_to_string(&file) else { return Vec::new() };
     let config = dartforge_elements::config::PackageConfig::discover(&file)
         .and_then(|p| dartforge_elements::config::PackageConfig::load(&p).ok());
@@ -197,7 +197,7 @@ pub fn diagnosticos_das_opcoes(raiz: &Path) -> Vec<json::DiagJson> {
             from.parent().map(|p| p.join(uri))
         }
     };
-    let root_text = raiz.to_string_lossy();
+    let root_text = root.to_string_lossy();
     let ctx = dartforge_analysis::naodart::options::OptionsContext {
         file: &file,
         context_root: root_text.as_ref(),
@@ -209,20 +209,20 @@ pub fn diagnosticos_das_opcoes(raiz: &Path) -> Vec<json::DiagJson> {
     dartforge_analysis::naodart::options::analyze(&text, &ctx).iter().map(|r| report_to_json(&path, &lines, r)).collect()
 }
 
-/// The diagnostics of the `pubspec.yaml` of `raiz` (the analyzer's
+/// The diagnostics of the `pubspec.yaml` of `root` (the analyzer's
 /// `PubspecValidator`, `dartforge_analysis::naodart::pubspec`, and the pubspec
 /// lints enabled in the options, `dartforge_analysis::lints::pubspec`), in
 /// JSON v1, without those silenced by `# ignore:`/`# ignore_for_file:` (the
 /// `IgnoreInfo.forYaml` at the end of `validatePubspec`). Without the file,
 /// nothing. The validator's warnings come out as it gives them; the lints
 /// take the options' `errors:`.
-pub fn diagnosticos_do_pubspec(raiz: &Path, opcoes: &filtros::Opcoes) -> Vec<json::DiagJson> {
-    let file = raiz.join("pubspec.yaml");
+pub fn diagnosticos_do_pubspec(root: &Path, options: &filtros::Opcoes) -> Vec<json::DiagJson> {
+    let file = root.join("pubspec.yaml");
     let Ok(text) = std::fs::read_to_string(&file) else { return Vec::new() };
     let lines = json::Linhas::new(&text);
     let path = file.to_string_lossy();
     let ignored = dartforge_analysis::lints::pubspec::YamlIgnores::parse(&text);
-    let mut out: Vec<json::DiagJson> = dartforge_analysis::naodart::pubspec::validate(&text, raiz)
+    let mut out: Vec<json::DiagJson> = dartforge_analysis::naodart::pubspec::validate(&text, root)
         .into_iter()
         .filter(|r| !ignored.ignores(r.code.nome, r.code.nome, r.span.start))
         .map(|r| json::DiagJson {
@@ -239,13 +239,13 @@ pub fn diagnosticos_do_pubspec(raiz: &Path, opcoes: &filtros::Opcoes) -> Vec<jso
             documentation: r.code.documentado.then(|| format!("https://dart.dev/diagnostics/{}", r.code.nome)),
         })
         .collect();
-    if opcoes.regras.values().any(|enabled| *enabled) {
-        let enabled = |rule: &str| opcoes.regras.get(rule).copied().unwrap_or(false);
+    if options.regras.values().any(|enabled| *enabled) {
+        let enabled = |rule: &str| options.regras.get(rule).copied().unwrap_or(false);
         for r in dartforge_analysis::lints::pubspec::run(&text, &enabled) {
             if ignored.ignores(r.code.nome, r.code.unico, r.span.start) {
                 continue;
             }
-            let severity = match opcoes.errors.get(r.code.nome) {
+            let severity = match options.errors.get(r.code.nome) {
                 Some(None) => continue,
                 Some(Some(s)) => s.nome(),
                 None => "INFO",
@@ -269,29 +269,29 @@ pub fn diagnosticos_do_pubspec(raiz: &Path, opcoes: &filtros::Opcoes) -> Vec<jso
 }
 
 /// The diagnostics of a file that reach the user, with the syntax flag: the
-/// publication rule (with `so_publicados`), the `analysis_options.yaml`
-/// (`opcoes`) and the text's `// ignore:` comments. It is the filter shared by
+/// publication rule (with `only_published`), the `analysis_options.yaml`
+/// (`options`) and the text's `// ignore:` comments. It is the filter shared by
 /// `dartforge analyze` and the LSP.
-pub fn publicaveis(a: &analise::Arquivo, opcoes: &filtros::Opcoes, so_publicados: bool) -> Vec<(dartforge_diagnostics::Diagnostic, bool)> {
+pub fn publicaveis(a: &analise::Arquivo, options: &filtros::Opcoes, only_published: bool) -> Vec<(dartforge_diagnostics::Diagnostic, bool)> {
     let lines = json::Linhas::new(&a.texto);
     let ignored = filtros::Ignorados::de_texto(&a.texto);
     let mut out = Vec::new();
     for (i, d) in a.diags.iter().enumerate() {
         let syntax = i < a.syntactic_count;
-        if so_publicados && !publicado(d, syntax) {
+        if only_published && !publicado(d, syntax) {
             continue;
         }
         // The two `inference_failure_on_*` of the `BestPracticesVerifier` only
         // with `strict-inference: true` (INFRA §4.6); the engine always
         // reports them.
-        if !opcoes.strict_inference
+        if !options.strict_inference
             && d.code.is_some_and(|c| matches!(c.info().nome, "inference_failure_on_untyped_parameter" | "inference_failure_on_function_return_type"))
         {
             continue;
         }
-        let Some(d) = opcoes.processar(d.clone()) else { continue };
+        let Some(d) = options.processar(d.clone()) else { continue };
         let line = lines.ponto(d.span.start).line;
-        if opcoes.ignoravel(&d) && ignored.ignora(&d, line) {
+        if options.ignoravel(&d) && ignored.ignora(&d, line) {
             continue;
         }
         out.push((d, syntax));
@@ -299,24 +299,24 @@ pub fn publicaveis(a: &analise::Arquivo, opcoes: &filtros::Opcoes, so_publicados
     // `IgnoreValidator` (the unit's last phase): the names repeated in the
     // `ignore` comments.
     for d in ignored.duplicados() {
-        if so_publicados && !publicado(&d, false) {
+        if only_published && !publicado(&d, false) {
             continue;
         }
-        if let Some(d) = opcoes.processar(d) {
+        if let Some(d) = options.processar(d) {
             out.push((d, false));
         }
     }
     out
 }
 
-/// Like [`diagnosticos_json`], as records relative to `raiz`, with what
+/// Like [`diagnosticos_json`], as records relative to `root`, with what
 /// `dart analyze` (the oracle) prints: a `TODO` only comes out when `errors:`
 /// promoted it (`analyze.dart:191-192`, the same filter as our CLI).
-pub fn records(analise: &Analise, raiz: &Path, opcoes: &filtros::Opcoes, so_publicados: bool) -> Vec<Record> {
-    let mut out: Vec<Record> = diagnosticos_json(analise, raiz, opcoes, so_publicados)
+pub fn records(analysis: &Analise, root: &Path, options: &filtros::Opcoes, only_published: bool) -> Vec<Record> {
+    let mut out: Vec<Record> = diagnosticos_json(analysis, root, options, only_published)
         .iter()
         .filter(|j| !(j.tipo == "TODO" && j.severity == "INFO"))
-        .filter_map(|j| Record::from_json(j, raiz))
+        .filter_map(|j| Record::from_json(j, root))
         .collect();
     out.sort();
     out
@@ -349,15 +349,15 @@ pub struct Execution {
     pub max_time: std::time::Duration,
 }
 
-/// Analyzes `files` of `raiz` in batches. The batches are defined by the
+/// Analyzes `files` of `root` in batches. The batches are defined by the
 /// order of the files, not by the workers: the result is the same with 1, 4
 /// or 8.
 pub fn run_ours(
     motor: &Motor,
-    raiz: &Path,
+    root: &Path,
     files: &[PathBuf],
     packages: Option<&Path>,
-    opcoes: &filtros::Opcoes,
+    options: &filtros::Opcoes,
     ex: &Execution,
 ) -> Run {
     let batches: Vec<&[PathBuf]> = files.chunks(ex.batch_size.max(1)).collect();
@@ -372,8 +372,8 @@ pub fn run_ours(
                 break;
             }
             let r = match &ex.isolate {
-                Some(exe) => isolated_batch(exe, raiz, batches[i], packages, ex.max_time),
-                None => analyze_batch(motor, raiz, batches[i], packages),
+                Some(exe) => isolated_batch(exe, root, batches[i], packages, ex.max_time),
+                None => analyze_batch(motor, root, batches[i], packages),
             };
             results.lock().expect("results")[i] = Some(r);
             let n = done.fetch_add(1, Ordering::SeqCst) + 1;
@@ -403,8 +403,8 @@ pub fn run_ours(
     run.records = run
         .records
         .into_iter()
-        .filter(|r| !opcoes.excluido(&r.arquivo))
-        .filter_map(|mut r| match opcoes.errors.get(&r.code) {
+        .filter(|r| !options.excluido(&r.arquivo))
+        .filter_map(|mut r| match options.errors.get(&r.code) {
             None => Some(r),
             Some(None) => None,
             Some(Some(s)) => {
@@ -419,11 +419,11 @@ pub fn run_ours(
 }
 
 /// A batch on the same thread; on a panic, each file on its own.
-fn analyze_batch(motor: &Motor, raiz: &Path, batch: &[PathBuf], packages: Option<&Path>) -> (Vec<Record>, Vec<String>, usize) {
+fn analyze_batch(motor: &Motor, root: &Path, batch: &[PathBuf], packages: Option<&Path>) -> (Vec<Record>, Vec<String>, usize) {
     let attempt = |files: &[PathBuf]| {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let a = motor.analisar(raiz, files, packages);
-            (records(&a, raiz, &filtros::Opcoes::default(), false), a.ambiguos)
+            let a = motor.analisar(root, files, packages);
+            (records(&a, root, &filtros::Opcoes::default(), false), a.ambiguos)
         }))
     };
     if let Ok((r, amb)) = attempt(batch) {
@@ -438,7 +438,7 @@ fn analyze_batch(motor: &Motor, raiz: &Path, batch: &[PathBuf], packages: Option
                 regs.extend(r);
                 amb += x;
             }
-            Err(_) => panics.push(oraculo::relativo(a, raiz).unwrap_or_else(|| a.display().to_string())),
+            Err(_) => panics.push(oraculo::relativo(a, root).unwrap_or_else(|| a.display().to_string())),
         }
     }
     (regs, panics, amb)
@@ -447,24 +447,24 @@ fn analyze_batch(motor: &Motor, raiz: &Path, batch: &[PathBuf], packages: Option
 /// A batch in a child process; if it dies, each file in its own child.
 fn isolated_batch(
     exe: &Path,
-    raiz: &Path,
+    root: &Path,
     batch: &[PathBuf],
     packages: Option<&Path>,
     max_time: std::time::Duration,
 ) -> (Vec<Record>, Vec<String>, usize) {
-    if let Some((r, amb)) = child(exe, raiz, batch, packages, max_time) {
+    if let Some((r, amb)) = child(exe, root, batch, packages, max_time) {
         return (r, Vec::new(), amb);
     }
     let mut regs = Vec::new();
     let mut panics = Vec::new();
     let mut amb = 0;
     for a in batch {
-        match child(exe, raiz, std::slice::from_ref(a), packages, max_time) {
+        match child(exe, root, std::slice::from_ref(a), packages, max_time) {
             Some((r, x)) => {
                 regs.extend(r);
                 amb += x;
             }
-            None => panics.push(oraculo::relativo(a, raiz).unwrap_or_else(|| a.display().to_string())),
+            None => panics.push(oraculo::relativo(a, root).unwrap_or_else(|| a.display().to_string())),
         }
     }
     (regs, panics, amb)
@@ -474,7 +474,7 @@ fn isolated_batch(
 /// `None` if the child does not finish successfully within the time limit.
 fn child(
     exe: &Path,
-    raiz: &Path,
+    root: &Path,
     batch: &[PathBuf],
     packages: Option<&Path>,
     max_time: std::time::Duration,
@@ -484,7 +484,7 @@ fn child(
     let pk = packages.map(|p| p.as_os_str().to_owned()).unwrap_or_else(|| "-".into());
     let mut c = Command::new(exe)
         .arg("_lote")
-        .arg(raiz)
+        .arg(root)
         .arg(pk)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -536,7 +536,7 @@ fn child(
 /// ignore comments; the parent applies the options) and `#ambiguous N`. A
 /// watchdog ends the process if live memory (`live`) exceeds `cap` bytes.
 pub fn run_child_batch(
-    raiz: &Path,
+    root: &Path,
     packages: Option<&Path>,
     files: &[PathBuf],
     live: fn() -> usize,
@@ -554,7 +554,7 @@ pub fn run_child_batch(
         Ok(m) => m,
         Err(_) => return 2,
     };
-    let (r2, p2, a2) = (raiz.to_path_buf(), packages.map(Path::to_path_buf), files.to_vec());
+    let (r2, p2, a2) = (root.to_path_buf(), packages.map(Path::to_path_buf), files.to_vec());
     let finished = std::thread::Builder::new()
         .stack_size(1 << 30)
         .spawn(move || {
