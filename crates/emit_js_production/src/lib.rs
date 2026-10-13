@@ -187,15 +187,15 @@ pub fn compile(
 /// Roots of the user's world as seen from JS: `main` and the names that
 /// `dart_sdk.js` calls by string (`sdk::dynamic_selectors`, stored in the
 /// index).
-fn roots(a: &dartforge_emit_js::Analysis<'_>, index: &sdk::SdkIndex) -> dartforge_world::Raizes {
+fn roots(a: &dartforge_emit_js::Analysis<'_>, index: &sdk::SdkIndex) -> dartforge_world::Roots {
     use dartforge_elements::model::Element;
-    let mut r = dartforge_world::Raizes::default();
+    let mut r = dartforge_world::Roots::default();
     if let (Some(lib), Some(sym)) = (a.program.entry, a.interner.lookup("main")) {
         if let Some(Element::Function(f)) = a.program.library(lib).declared.get(&sym).and_then(|b| b.getter) {
-            r.funcoes.push(f);
+            r.functions.push(f);
         }
     }
-    r.seletores = index.dynamic_selectors();
+    r.selectors = index.dynamic_selectors();
     r
 }
 
@@ -209,7 +209,7 @@ pub fn emit_with_world(a: &dartforge_emit_js::Analysis<'_>, index: &sdk::SdkInde
     if !op.prune_user {
         return Ok((a.emit(None)?, None));
     }
-    let input = dartforge_world::Entrada { program: a.program, interner: a.interner, table: a.table, outline: a.outline, bodies: a.bodies };
+    let input = dartforge_world::WorldInput { program: a.program, interner: a.interner, table: a.table, outline: a.outline, bodies: a.bodies };
     let mut report = WorldReport::default();
     let t = Instant::now();
     let mut roots = roots(a, index);
@@ -219,7 +219,7 @@ pub fn emit_with_world(a: &dartforge_emit_js::Analysis<'_>, index: &sdk::SdkInde
     let max_rounds: usize = std::env::var("DARTFORGE_JSPROD_RODADAS").ok().and_then(|v| v.parse().ok()).unwrap_or(8).max(1);
     for round in 1..=max_rounds {
         let t = Instant::now();
-        let world = dartforge_world::calcular(input, &roots);
+        let world = dartforge_world::compute(input, &roots);
         report.world_time += t.elapsed();
         let ad = filter::Adapter { world: &world, program: a.program, stub: op.stub, signatures: None, constants: None, named_args: None, omit_checks: false };
         let t = Instant::now();
@@ -247,7 +247,7 @@ pub fn emit_with_world(a: &dartforge_emit_js::Analysis<'_>, index: &sdk::SdkInde
                 report.pruning_disabled = true;
                 report.fixes.push("user code pruning disabled: the analysis did not converge".to_string());
             }
-            report.stats = world.estat.clone();
+            report.stats = world.stats.clone();
             if std::env::var("DARTFORGE_JSPROD_CONFERIR").is_ok_and(|v| v != "0") {
                 let inc = dartforge_world::check_consistency(input, &roots, &world);
                 for i in inc.iter().take(10) {
@@ -261,19 +261,19 @@ pub fn emit_with_world(a: &dartforge_emit_js::Analysis<'_>, index: &sdk::SdkInde
             return Ok((emitted, Some(report)));
         }
         report.fixes.extend(missing.description.iter().cloned());
-        roots.funcoes.extend(missing.functions);
+        roots.functions.extend(missing.functions);
         roots.variables.extend(missing.variables);
         roots.type_classes.extend(missing.classes);
-        roots.classes_instanciadas.extend(missing.instantiated_classes);
+        roots.instantiated_classes.extend(missing.instantiated_classes);
         roots.tearoffs.extend(missing.tearoffs);
-        roots.seletores.extend(missing.selectors);
+        roots.selectors.extend(missing.selectors);
     }
     unreachable!()
 }
 
 /// `DARTFORGE_JSPROD_POR=Name`: why the class (or function) `Name` is in the
 /// file — the chain of causes up to the root.
-fn explain(a: &dartforge_emit_js::Analysis<'_>, world: &dartforge_world::Mundo, target: &str) {
+fn explain(a: &dartforge_emit_js::Analysis<'_>, world: &dartforge_world::World, target: &str) {
     use dartforge_elements::model::{ClassId, FunctionElementId};
     use dartforge_world::Cause;
     let p = a.program;
@@ -289,7 +289,7 @@ fn explain(a: &dartforge_emit_js::Analysis<'_>, world: &dartforge_world::Mundo, 
         }
     }
     for (i, f) in p.functions.iter().enumerate() {
-        if a.interner.resolve(f.name) == target && !p.library(f.library).is_sdk && world.funcao(FunctionElementId(i as u32)) {
+        if a.interner.resolve(f.name) == target && !p.library(f.library).is_sdk && world.is_live_function(FunctionElementId(i as u32)) {
             start.push(Cause::Function(FunctionElementId(i as u32)));
         }
     }

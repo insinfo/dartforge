@@ -17,7 +17,7 @@
 //! The world (the dead branch is not traversed) and the emitter (the dead
 //! branch is not emitted) use the same answer, so the text verifier agrees.
 
-use crate::Entrada;
+use crate::WorldInput;
 use dartforge_elements::model::{Element, FunctionElementId, FunctionKind, FunctionRef, UnitId, VariableId, VariableRef};
 use dartforge_frontend::ast::{self, BinaryOp, ExprId, ExprKind, FunctionBody, StmtKind, UnaryOp};
 use dartforge_intern::SymbolId;
@@ -33,14 +33,14 @@ enum Value {
 
 /// The evaluator, memoized per *getter* and per variable.
 pub struct Constants<'a> {
-    e: Entrada<'a>,
+    e: WorldInput<'a>,
     no_asserts: bool,
     memo_fn: RefCell<HashMap<FunctionElementId, Option<Value>>>,
     memo_var: RefCell<HashMap<VariableId, Option<Value>>>,
 }
 
 impl<'a> Constants<'a> {
-    pub fn new(e: Entrada<'a>, no_asserts: bool) -> Constants<'a> {
+    pub fn new(e: WorldInput<'a>, no_asserts: bool) -> Constants<'a> {
         Constants { e, no_asserts, memo_fn: RefCell::new(HashMap::new()), memo_var: RefCell::new(HashMap::new()) }
     }
 

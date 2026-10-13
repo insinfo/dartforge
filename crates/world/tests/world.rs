@@ -3,13 +3,13 @@
 
 use dartforge_elements::model::{ClassId, Element, FunctionElementId, Program, VariableId};
 use dartforge_intern::Interner;
-use dartforge_world::{Entrada, Mundo, ClassLevel, Raizes, calcular, check_consistency};
+use dartforge_world::{WorldInput, World, ClassLevel, Roots, compute, check_consistency};
 use std::path::Path;
 
 struct Case<'a> {
     p: &'a Program,
     i: &'a Interner,
-    m: &'a Mundo,
+    m: &'a World,
 }
 
 impl Case<'_> {
@@ -45,7 +45,7 @@ impl Case<'_> {
             .unwrap_or_else(|| panic!("variable {name}"))
     }
     fn live(&self, name: &str) -> bool {
-        self.m.funcao(self.function(name))
+        self.m.is_live_function(self.function(name))
     }
     /// `C.m` by kind: `write` picks the setter (`set m`), otherwise the
     /// getter/method. Tells them apart by `FunctionKind`, because both are
@@ -66,7 +66,7 @@ impl Case<'_> {
                     && matches!(func.kind, FunctionKind::Setter) == write
             })
             .unwrap_or_else(|| panic!("function {name} (write={write})"));
-        self.m.funcao(f)
+        self.m.is_live_function(f)
     }
     fn level(&self, name: &str) -> ClassLevel {
         self.m.class_level(self.class(name))
@@ -78,14 +78,14 @@ impl Case<'_> {
 fn closed_world_cases() {
     let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/programs/cases.dart");
     let (r, _) = dartforge_emit_js::compile_with(&file, None, None, &Default::default(), |a| {
-        let e = Entrada { program: a.program, interner: a.interner, table: a.table, outline: a.outline, bodies: a.bodies };
-        let mut roots = Raizes::default();
+        let e = WorldInput { program: a.program, interner: a.interner, table: a.table, outline: a.outline, bodies: a.bodies };
+        let mut roots = Roots::default();
         let lib = a.program.entry.expect("entry library");
         let main = a.interner.lookup("main").unwrap();
         let Some(Element::Function(f)) = a.program.library(lib).declared.get(&main).and_then(|b| b.getter) else { panic!("main") };
-        roots.funcoes.push(f);
-        roots.seletores.push("toJson".into());
-        let m = calcular(e, &roots);
+        roots.functions.push(f);
+        roots.selectors.push("toJson".into());
+        let m = compute(e, &roots);
         let c = Case { p: a.program, i: a.interner, m: &m };
         let mut errors: Vec<String> = Vec::new();
         let mut check = |cond: bool, o: &str| {
@@ -109,9 +109,9 @@ fn closed_world_cases() {
         check(c.live("M.doMixin") && !c.live("M.mixinMorto"), "mixin member by selector");
         // statics and top-level
         check(c.live("Estat.usado") && !c.live("Estat.naoUsado"), "used static live, the other dead");
-        check(c.m.variavel(c.variable("contador")), "static read/written live");
+        check(c.m.is_live_variable(c.variable("contador")), "static read/written live");
         check(c.live("topoUsado") && !c.live("topoMorto") && !c.live("topoMorto2"), "top-level functions");
-        check(!c.m.variavel(c.variable("preguicoso")), "unread top-level variable dead");
+        check(!c.m.is_live_variable(c.variable("preguicoso")), "unread top-level variable dead");
         check(c.level("Cor") == ClassLevel::Instantiated, "used enum instantiated");
         // extension
         check(c.live("ext:grita") && !c.live("ext:cala"), "extension members by name");
@@ -131,9 +131,9 @@ fn closed_world_cases() {
         let inc = check_consistency(e, &roots, &m);
         check(inc.is_empty(), &format!("consistency check: {inc:?}"));
         let mut perm = roots.clone();
-        perm.seletores.insert(0, "toJson".into());
-        let m2 = calcular(e, &perm);
-        let same = (0..a.program.functions.len()).all(|i| m.funcao(FunctionElementId(i as u32)) == m2.funcao(FunctionElementId(i as u32)))
+        perm.selectors.insert(0, "toJson".into());
+        let m2 = compute(e, &perm);
+        let same = (0..a.program.functions.len()).all(|i| m.is_live_function(FunctionElementId(i as u32)) == m2.is_live_function(FunctionElementId(i as u32)))
             && (0..a.program.classes.len()).all(|i| m.class_level(ClassId(i as u32)) == m2.class_level(ClassId(i as u32)));
         check(same, "determinism");
         Ok(errors)

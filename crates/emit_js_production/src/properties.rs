@@ -57,7 +57,7 @@ fn has_interop_annotation(p: &Program, i: &Interner, c: ClassId) -> bool {
 }
 
 /// Computes the sets from the model. `js_names` are the words of the live
-/// `JS()` *templates* (`dartforge_world::Mundo::js_names`).
+/// `JS()` *templates* (`dartforge_world::World::js_names`).
 pub fn compute(a: &dartforge_emit_js::Analysis<'_>, js_names: &HashSet<String>, named_args: Option<&std::collections::HashMap<String, String>>) -> Names {
     use dartforge_elements::model::ClassKind;
     use dartforge_emit_js::body::{js_member_name, static_member_name, top_level_name};

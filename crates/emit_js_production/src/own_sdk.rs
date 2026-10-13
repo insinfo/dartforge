@@ -24,21 +24,21 @@ const BUILTIN_TAGS: &[&str] = &["Object", "String", "Number", "Boolean", "Array"
 
 /// Initial roots: `main`, `core.Object` and the classes of the built-in tags.
 /// The rest comes from the fixed point with the text.
-fn roots(a: &dartforge_emit_js::Analysis<'_>, e: &dartforge_world::Entrada<'_>) -> dartforge_world::Raizes {
-    let mut r = dartforge_world::Raizes::default();
+fn roots(a: &dartforge_emit_js::Analysis<'_>, e: &dartforge_world::WorldInput<'_>) -> dartforge_world::Roots {
+    let mut r = dartforge_world::Roots::default();
     if let (Some(lib), Some(sym)) = (a.program.entry, a.interner.lookup("main")) {
         if let Some(Element::Function(f)) = a.program.library(lib).declared.get(&sym).and_then(|b| b.getter) {
-            r.funcoes.push(f);
+            r.functions.push(f);
         }
     }
     if let (Some(core), Some(sym)) = (a.program.core, a.interner.lookup("Object")) {
         if let Some(Element::Class(c)) = a.program.library(core).declared.get(&sym).and_then(|b| b.getter) {
-            r.classes_instanciadas.push(c);
+            r.instantiated_classes.push(c);
         }
     }
     for (c, tags) in dartforge_world::native_tags(e) {
         if tags.iter().any(|t| BUILTIN_TAGS.contains(&t.as_str())) {
-            r.classes_instanciadas.push(c);
+            r.instantiated_classes.push(c);
         }
     }
     r
@@ -162,7 +162,7 @@ fn dynamic_names(texts: &[(String, String)]) -> HashSet<String> {
 /// `DARTFORGE_JSPROD_POR=name`: each function (of the program or of the SDK)
 /// with that name, whether it is live, its owner class and that class's
 /// level, and whether the selector is live for it.
-fn diagnose(a: &dartforge_emit_js::Analysis<'_>, world: &dartforge_world::Mundo, target: &str) {
+fn diagnose(a: &dartforge_emit_js::Analysis<'_>, world: &dartforge_world::World, target: &str) {
     let p = a.program;
     for (i, f) in p.functions.iter().enumerate() {
         if a.interner.resolve(f.name) != target {
@@ -170,7 +170,7 @@ fn diagnose(a: &dartforge_emit_js::Analysis<'_>, world: &dartforge_world::Mundo,
         }
         let fid = dartforge_elements::model::FunctionElementId(i as u32);
         let owner = f.class.map(|c| format!("{} [{:?}] selector={}", a.interner.resolve(p.class(c).name), world.class_level(c), world.selector_live_for(p, target, c))).unwrap_or_default();
-        eprintln!("[jsprod] {}::{target} live={} {owner} cause={:?}", p.library(f.library).uri, world.funcao(fid), world.function_cause(fid));
+        eprintln!("[jsprod] {}::{target} live={} {owner} cause={:?}", p.library(f.library).uri, world.is_live_function(fid), world.function_cause(fid));
     }
 }
 
@@ -179,7 +179,7 @@ fn diagnose(a: &dartforge_emit_js::Analysis<'_>, world: &dartforge_world::Mundo,
 /// converge.
 fn fixed_point(
     a: &dartforge_emit_js::Analysis<'_>,
-    input: dartforge_world::Entrada<'_>,
+    input: dartforge_world::WorldInput<'_>,
     op: Options,
     signatures: Option<&HashSet<String>>,
     report: &mut WorldReport,
@@ -224,7 +224,7 @@ fn fixed_point(
             }
         }
         if missing.is_empty() {
-            report.stats = world.estat.clone();
+            report.stats = world.stats.clone();
             report.js_names = world.js_names.clone();
             report.named_args = named_args.clone();
             if let Ok(target) = std::env::var("DARTFORGE_JSPROD_POR") {
@@ -233,12 +233,12 @@ fn fixed_point(
             return Ok(Some(e));
         }
         report.fixes.extend(missing.description.iter().cloned());
-        roots.funcoes.extend(missing.functions);
+        roots.functions.extend(missing.functions);
         roots.variables.extend(missing.variables);
         roots.type_classes.extend(missing.classes);
-        roots.classes_instanciadas.extend(missing.instantiated_classes);
+        roots.instantiated_classes.extend(missing.instantiated_classes);
         roots.tearoffs.extend(missing.tearoffs);
-        roots.seletores.extend(missing.selectors);
+        roots.selectors.extend(missing.selectors);
     }
     Ok(None)
 }
@@ -260,7 +260,7 @@ pub fn emit(a: &dartforge_emit_js::Analysis<'_>, op: Options) -> Result<(Emitted
         strip_unused(&mut e);
         return Ok((e, None));
     }
-    let input = dartforge_world::Entrada { program: a.program, interner: a.interner, table: a.table, outline: a.outline, bodies: a.bodies };
+    let input = dartforge_world::WorldInput { program: a.program, interner: a.interner, table: a.table, outline: a.outline, bodies: a.bodies };
     let mut report = WorldReport::default();
     let Some(first) = fixed_point(a, input, op, None, &mut report)? else {
         report.pruning_disabled = true;

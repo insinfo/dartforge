@@ -390,7 +390,7 @@ fn emit_ir_internal(
     let t_world = Instant::now();
     ctx.world = native_world::compute(&program, &interner, &table, &outline, &bodies);
     let world_duration = t_world.elapsed();
-    let world_stat = ctx.world.as_ref().map_or((0, 0), |m| (m.estat.funcoes_vivas, m.estat.funcoes_usuario));
+    let world_stat = ctx.world.as_ref().map_or((0, 0), |m| (m.stats.live_functions, m.stats.user_functions));
     // A program without `main` in the entry library does not run: the VM
     // rejects it ("Invoked Dart programs must have a 'main' function defined").
     // On reload, it is the file read in the middle of a write (empty), which cannot

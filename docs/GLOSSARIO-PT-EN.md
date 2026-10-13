@@ -242,3 +242,12 @@ outras já em inglês ficam.
 | `formatter::{formatar, Opcoes { largura, recuo, fim_de_linha }}` | `formatter::{format, FormatOptions { page_width, indent, line_ending }}` |
 | `formatter::{ErroFormatacao::{Sintaxe, SaidaInesperada}, ErroSintaxe { posicao, comprimento, mensagem }}` | `formatter::{FormatError::{Syntax, UnexpectedOutput}, SyntaxError { offset, length, message }}` |
 | `formatter::edicoes::{Edicao, edicoes_minimas}` | `formatter::edits::{Edit, minimal_edits}` |
+
+## Nomes públicos dos crates JS e de ferramentas (fase 3b-2)
+
+| antes | depois |
+|---|---|
+| `world::{Mundo, Raizes, Entrada, calcular}` | `world::{World, Roots, WorldInput, compute}` |
+| `Mundo::{funcao, variavel, estat}` | `World::{is_live_function, is_live_variable, stats}` |
+| `Raizes { funcoes, classes_instanciadas, seletores }` | `Roots { functions, instantiated_classes, selectors }` |
+| `Statistics { classes_instanciadas, funcoes_usuario, funcoes_vivas, seletores }` | `Statistics { instantiated_classes, user_functions, live_functions, selectors }` |

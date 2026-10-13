@@ -10,7 +10,7 @@
 //! (`resolution/enqueuer.dart:283-302`), so dead code is never traversed.
 //!
 //! The crate knows no backend. What only the backend knows — what the runtime
-//! calls by name, what interop exposes — comes in through the [`Raizes`].
+//! calls by name, what interop exposes — comes in through the [`Roots`].
 //!
 //! Conservativeness decisions (the contract is in `docs/JS-PRODUCAO.md` §1.7):
 //!
@@ -161,7 +161,7 @@ fn reaches(h: &Hierarchy, inst_sub: &[Vec<ClassId>], member: ClassId, cone: Clas
 
 /// The analyzed program, borrowed from whoever compiled it.
 #[derive(Clone, Copy)]
-pub struct Entrada<'a> {
+pub struct WorldInput<'a> {
     pub program: &'a Program,
     pub interner: &'a Interner,
     pub table: &'a TypeTable,
@@ -171,19 +171,19 @@ pub struct Entrada<'a> {
 
 /// What the Dart program does not see, but which calls or creates its code.
 #[derive(Default, Clone)]
-pub struct Raizes {
+pub struct Roots {
     /// `main` and whatever else is called from outside.
-    pub funcoes: Vec<FunctionElementId>,
+    pub functions: Vec<FunctionElementId>,
     pub variables: Vec<VariableId>,
     /// Instantiated by code we do not see.
-    pub classes_instanciadas: Vec<ClassId>,
+    pub instantiated_classes: Vec<ClassId>,
     /// At least type identity (shell and rti rules).
     pub type_classes: Vec<ClassId>,
     /// Instantiated and with **all** members live (`@JSExport`).
     pub all_members_classes: Vec<ClassId>,
     /// Names called from outside the program (`dart.dsend(o, "toJson")` in
     /// the runtime): they apply to every instantiated class.
-    pub seletores: Vec<String>,
+    pub selectors: Vec<String>,
     /// Constructors whose static tearoff is referenced from outside.
     pub tearoffs: Vec<FunctionElementId>,
 }
@@ -209,19 +209,19 @@ pub enum Cause {
 #[derive(Default, Debug, Clone)]
 pub struct Statistics {
     pub user_classes: usize,
-    pub classes_instanciadas: usize,
+    pub instantiated_classes: usize,
     pub type_classes: usize,
-    pub funcoes_usuario: usize,
-    pub funcoes_vivas: usize,
+    pub user_functions: usize,
+    pub live_functions: usize,
     pub live_variables: usize,
-    pub seletores: usize,
+    pub selectors: usize,
     /// Selectors with a receiver restriction (`foo` only in the cone of `T`).
     pub restricted_selectors: usize,
     pub processed_items: usize,
 }
 
 /// The result: what is live.
-pub struct Mundo {
+pub struct World {
     classes: Vec<ClassLevel>,
     functions: Vec<bool>,
     variables: Vec<bool>,
@@ -234,7 +234,7 @@ pub struct Mundo {
     cause_fn: Vec<Option<Cause>>,
     cause_class: Vec<Option<Cause>>,
     cause_var: Vec<Option<Cause>>,
-    pub estat: Statistics,
+    pub stats: Statistics,
     /// Computed with the SDK in the fixed point (`Options::include_sdk`).
     pub include_sdk: bool,
     hier: Arc<Hierarchy>,
@@ -244,14 +244,14 @@ pub struct Mundo {
     pub js_names: HashSet<String>,
 }
 
-impl Mundo {
+impl World {
     pub fn class_level(&self, c: ClassId) -> ClassLevel {
         self.classes.get(c.0 as usize).copied().unwrap_or(ClassLevel::Dead)
     }
-    pub fn funcao(&self, f: FunctionElementId) -> bool {
+    pub fn is_live_function(&self, f: FunctionElementId) -> bool {
         self.functions.get(f.0 as usize).copied().unwrap_or(false)
     }
-    pub fn variavel(&self, v: VariableId) -> bool {
+    pub fn is_live_variable(&self, v: VariableId) -> bool {
         self.variables.get(v.0 as usize).copied().unwrap_or(false)
     }
     pub fn selector(&self, name: &str) -> bool {
@@ -259,7 +259,7 @@ impl Mundo {
     }
     /// Some use with a receiver of known type recorded `name` (even if
     /// restricted to another cone). The forwarder filter uses it so as not to
-    /// emit too little; member pruning uses [`Mundo::selector_live_for`].
+    /// emit too little; member pruning uses [`World::selector_live_for`].
     pub fn has_restriction(&self, name: &str) -> bool {
         self.sel_cone.contains_key(name)
     }
@@ -319,7 +319,7 @@ pub struct Options {
 /// Computes the world. Deterministic: the queue is FIFO, the roots are
 /// sorted, and the result (the sets) is the least fixed point, which does not
 /// depend on order.
-pub fn calcular(e: Entrada<'_>, r: &Raizes) -> Mundo {
+pub fn compute(e: WorldInput<'_>, r: &Roots) -> World {
     compute_with(e, r, Options::default())
 }
 
@@ -360,7 +360,7 @@ pub fn is_inlinable_constant(p: &Program, v: VariableId) -> bool {
 
 /// `@Native`/`@JsPeerInterface` classes of the SDK libraries (DDC's
 /// `native_types.dart`).
-fn native_classes(e: &Entrada<'_>) -> HashSet<ClassId> {
+fn native_classes(e: &WorldInput<'_>) -> HashSet<ClassId> {
     let p = e.program;
     let mut out = HashSet::new();
     for (i, c) in p.classes.iter().enumerate() {
@@ -380,7 +380,7 @@ fn native_classes(e: &Entrada<'_>) -> HashSet<ClassId> {
 /// `@JsPeerInterface(name: 'A')` — whoever compiles the SDK uses the ones for
 /// the JS built-in tags (`String`, `Number`, `Array`…) as roots: a JS
 /// primitive value becomes an instance of them without any `new`.
-pub fn native_tags(e: &Entrada<'_>) -> Vec<(ClassId, Vec<String>)> {
+pub fn native_tags(e: &WorldInput<'_>) -> Vec<(ClassId, Vec<String>)> {
     let p = e.program;
     let mut out = Vec::new();
     for (i, c) in p.classes.iter().enumerate() {
@@ -414,7 +414,7 @@ pub fn native_tags(e: &Entrada<'_>) -> Vec<(ClassId, Vec<String>)> {
 /// For each supertype of a native class that is neither native nor from
 /// `dart:core`/`dart:_interceptors`/`dart:collection`, the natives that
 /// implement it (deterministic: sorted).
-fn natives_by_interface(e: &Entrada<'_>, natives: &HashSet<ClassId>) -> HashMap<ClassId, Vec<ClassId>> {
+fn natives_by_interface(e: &WorldInput<'_>, natives: &HashSet<ClassId>) -> HashMap<ClassId, Vec<ClassId>> {
     let p = e.program;
     let mut out: HashMap<ClassId, Vec<ClassId>> = HashMap::new();
     let mut ns: Vec<ClassId> = natives.iter().copied().collect();
@@ -439,7 +439,7 @@ fn natives_by_interface(e: &Entrada<'_>, natives: &HashSet<ClassId>) -> HashMap<
 }
 
 /// `int` and `num` from `dart:core`.
-fn int_num(e: &Entrada<'_>) -> Option<(ClassId, ClassId)> {
+fn int_num(e: &WorldInput<'_>) -> Option<(ClassId, ClassId)> {
     let core = e.program.core?;
     let class_named = |n: &str| match e.program.library(core).declared.get(&e.interner.lookup(n)?)?.getter? {
         Element::Class(c) => Some(c),
@@ -448,8 +448,8 @@ fn int_num(e: &Entrada<'_>) -> Option<(ClassId, ClassId)> {
     Some((class_named("int")?, class_named("num")?))
 }
 
-/// Like [`calcular`], with [`Options`].
-pub fn compute_with(e: Entrada<'_>, r: &Raizes, op: Options) -> Mundo {
+/// Like [`compute`], with [`Options`].
+pub fn compute_with(e: WorldInput<'_>, r: &Roots, op: Options) -> World {
     let mut c = Computation::new(e, op);
     c.seed(r);
     c.engine.finish()
@@ -465,7 +465,7 @@ pub struct Computation<'a> {
 }
 
 impl<'a> Computation<'a> {
-    pub fn new(e: Entrada<'a>, op: Options) -> Computation<'a> {
+    pub fn new(e: WorldInput<'a>, op: Options) -> Computation<'a> {
         let mut m = Engine::new(e);
         if op.include_sdk {
             m.include_sdk = true;
@@ -477,19 +477,19 @@ impl<'a> Computation<'a> {
         Computation { engine: m }
     }
     /// Adds roots and runs until the fixed point.
-    pub fn seed(&mut self, r: &Raizes) {
+    pub fn seed(&mut self, r: &Roots) {
         seed(&mut self.engine, r);
     }
     /// The current world (a copy; the engine stays resumable).
-    pub fn world(&self) -> Mundo {
+    pub fn world(&self) -> World {
         self.engine.snapshot()
     }
 }
 
-fn seed(m: &mut Engine<'_>, r: &Raizes) {
+fn seed(m: &mut Engine<'_>, r: &Roots) {
     m.cause = Cause::Root;
     for s in {
-        let mut v = r.seletores.clone();
+        let mut v = r.selectors.clone();
         v.sort();
         v
     } {
@@ -501,7 +501,7 @@ fn seed(m: &mut Engine<'_>, r: &Raizes) {
         m.all_members.insert(c);
         m.instantiate(c);
     }
-    let mut cs = r.classes_instanciadas.clone();
+    let mut cs = r.instantiated_classes.clone();
     cs.sort();
     for c in cs {
         m.instantiate(c);
@@ -511,7 +511,7 @@ fn seed(m: &mut Engine<'_>, r: &Raizes) {
     for c in ts {
         m.mark_type(c);
     }
-    let mut fs = r.funcoes.clone();
+    let mut fs = r.functions.clone();
     fs.sort();
     for f in fs {
         m.use_function_directly(f);
@@ -546,7 +546,7 @@ pub enum Inconsistency {
 /// recomputes the impact of **all** live elements, without reusing the fixed
 /// point's state, and reports every use that points to something the world
 /// says is dead. A non-empty result is a defect of the fixed point.
-pub fn check_consistency(e: Entrada<'_>, r: &Raizes, world: &Mundo) -> Vec<Inconsistency> {
+pub fn check_consistency(e: WorldInput<'_>, r: &Roots, world: &World) -> Vec<Inconsistency> {
     // Recompute in a new engine, seeded with the finished world, and compare:
     // if the engine finds anything new, the world was not a fixed point.
     let mut m = Engine::new(e);
@@ -634,7 +634,7 @@ pub fn check_consistency(e: Entrada<'_>, r: &Raizes, world: &Mundo) -> Vec<Incon
 const NO_OWNER: ClassId = ClassId(u32::MAX);
 
 pub(crate) struct Engine<'a> {
-    pub(crate) e: Entrada<'a>,
+    pub(crate) e: WorldInput<'a>,
     classes: Vec<ClassLevel>,
     fn_live: Vec<bool>,
     var_live: Vec<bool>,
@@ -695,7 +695,7 @@ pub(crate) struct Engine<'a> {
 }
 
 impl<'a> Engine<'a> {
-    fn new(e: Entrada<'a>) -> Engine<'a> {
+    fn new(e: WorldInput<'a>) -> Engine<'a> {
         let p = e.program;
         let mut universal: HashSet<String> = HashSet::new();
         universal.insert("call".into());
@@ -1475,7 +1475,7 @@ impl<'a> Engine<'a> {
     }
 
     /// The current world without consuming the engine.
-    fn snapshot(&self) -> Mundo {
+    fn snapshot(&self) -> World {
         let mut stats = self.statistics();
         stats.processed_items = self.items;
         let mut sel_cone: HashMap<String, Vec<ClassId>> = HashMap::new();
@@ -1484,7 +1484,7 @@ impl<'a> Engine<'a> {
             v.sort();
             sel_cone.insert(n.clone(), v);
         }
-        Mundo {
+        World {
             classes: self.classes.clone(),
             functions: self.fn_live.clone(),
             variables: self.var_live.clone(),
@@ -1494,7 +1494,7 @@ impl<'a> Engine<'a> {
             cause_fn: self.cause_fn.clone(),
             cause_class: self.cause_class.clone(),
             cause_var: self.cause_var.clone(),
-            estat: stats,
+            stats,
             include_sdk: self.include_sdk,
             hier: Arc::clone(&self.hier),
             inst_sub: self.inst_sub.clone(),
@@ -1511,7 +1511,7 @@ impl<'a> Engine<'a> {
             }
             stats.user_classes += 1;
             match self.classes[i] {
-                ClassLevel::Instantiated => stats.classes_instanciadas += 1,
+                ClassLevel::Instantiated => stats.instantiated_classes += 1,
                 ClassLevel::Type => stats.type_classes += 1,
                 ClassLevel::Dead => {}
             }
@@ -1520,18 +1520,18 @@ impl<'a> Engine<'a> {
             if p.library(f.library).is_sdk {
                 continue;
             }
-            stats.funcoes_usuario += 1;
+            stats.user_functions += 1;
             if self.fn_live[i] {
-                stats.funcoes_vivas += 1;
+                stats.live_functions += 1;
             }
         }
         stats.live_variables = self.var_live.iter().filter(|v| **v).count();
-        stats.seletores = self.sel.len();
+        stats.selectors = self.sel.len();
         stats.restricted_selectors = self.sel_cone.len();
         stats
     }
 
-    fn finish(self) -> Mundo {
+    fn finish(self) -> World {
         let p = self.e.program;
         let mut stats = Statistics::default();
         for (i, c) in p.classes.iter().enumerate() {
@@ -1540,7 +1540,7 @@ impl<'a> Engine<'a> {
             }
             stats.user_classes += 1;
             match self.classes[i] {
-                ClassLevel::Instantiated => stats.classes_instanciadas += 1,
+                ClassLevel::Instantiated => stats.instantiated_classes += 1,
                 ClassLevel::Type => stats.type_classes += 1,
                 ClassLevel::Dead => {}
             }
@@ -1549,13 +1549,13 @@ impl<'a> Engine<'a> {
             if p.library(f.library).is_sdk {
                 continue;
             }
-            stats.funcoes_usuario += 1;
+            stats.user_functions += 1;
             if self.fn_live[i] {
-                stats.funcoes_vivas += 1;
+                stats.live_functions += 1;
             }
         }
         stats.live_variables = self.var_live.iter().filter(|v| **v).count();
-        stats.seletores = self.sel.len();
+        stats.selectors = self.sel.len();
         stats.restricted_selectors = self.sel_cone.len();
         stats.processed_items = self.items;
         let mut sel_cone: HashMap<String, Vec<ClassId>> = HashMap::new();
@@ -1564,7 +1564,7 @@ impl<'a> Engine<'a> {
             v.sort();
             sel_cone.insert(n, v);
         }
-        Mundo {
+        World {
             classes: self.classes,
             functions: self.fn_live,
             variables: self.var_live,
@@ -1574,7 +1574,7 @@ impl<'a> Engine<'a> {
             cause_fn: self.cause_fn,
             cause_class: self.cause_class,
             cause_var: self.cause_var,
-            estat: stats,
+            stats,
             include_sdk: self.include_sdk,
             hier: self.hier,
             inst_sub: self.inst_sub,

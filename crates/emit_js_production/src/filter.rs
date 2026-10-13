@@ -3,10 +3,10 @@
 
 use dartforge_elements::model::{ClassId, FunctionElementId, Program, VariableId};
 use dartforge_emit_js::filter::{State, Level, Liveness};
-use dartforge_world::{Mundo, ClassLevel};
+use dartforge_world::{World, ClassLevel};
 
 pub struct Adapter<'m> {
-    pub world: &'m Mundo,
+    pub world: &'m World,
     pub program: &'m Program,
     /// Verifier mode: what is dead becomes a *stub* that reports the call
     /// (`dart_podado("…")`) instead of disappearing.
@@ -32,7 +32,7 @@ impl Liveness for Adapter<'_> {
         }
     }
     fn function(&self, f: FunctionElementId) -> State {
-        if self.world.funcao(f) {
+        if self.world.is_live_function(f) {
             State::Live
         } else if self.stub && self.program.function(f).extension.is_none() {
             State::Stub
@@ -45,7 +45,7 @@ impl Liveness for Adapter<'_> {
         }
     }
     fn variable(&self, v: VariableId) -> State {
-        if self.world.variavel(v) {
+        if self.world.is_live_variable(v) {
             State::Live
         } else if self.stub && self.program.variable(v).extension.is_none() {
             State::Stub

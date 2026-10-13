@@ -46,14 +46,14 @@ fn suffix(mut n: usize) -> String {
 
 /// The name → short key map, or `None` when the program needs the source
 /// names at run time.
-pub fn compute(a: &dartforge_emit_js::Analysis<'_>, world: &dartforge_world::Mundo) -> Option<NamedArgs> {
+pub fn compute(a: &dartforge_emit_js::Analysis<'_>, world: &dartforge_world::World) -> Option<NamedArgs> {
     let p = a.program;
     let i = a.interner;
     let mut table = false;
     // `Function.apply` live.
     if let (Some(core), Some(fsym), Some(asym)) = (p.core, i.lookup("Function"), i.lookup("apply")) {
         if let Some(Element::Class(fc)) = p.library(core).declared.get(&fsym).and_then(|b| b.getter) {
-            if p.class(fc).static_members.get(&asym).is_some_and(|f| world.funcao(*f)) {
+            if p.class(fc).static_members.get(&asym).is_some_and(|f| world.is_live_function(*f)) {
                 // `Function.apply` translates the names at run time
                 // (`dart.nomeadoJS`, emitted with the table).
                 table = true;
@@ -62,7 +62,7 @@ pub fn compute(a: &dartforge_emit_js::Analysis<'_>, world: &dartforge_world::Mun
     }
     // The program's own `noSuchMethod`, live outside the SDK.
     for (k, f) in p.functions.iter().enumerate() {
-        if f.class.is_some() && !p.library(f.library).is_sdk && i.resolve(f.name) == "noSuchMethod" && world.funcao(FunctionElementId(k as u32)) {
+        if f.class.is_some() && !p.library(f.library).is_sdk && i.resolve(f.name) == "noSuchMethod" && world.is_live_function(FunctionElementId(k as u32)) {
             if std::env::var("DARTFORGE_JSPROD_RASTRO").is_ok() {
                 eprintln!("[jsprod] named args: noSuchMethod live in {}; source names", p.library(f.library).uri);
             }

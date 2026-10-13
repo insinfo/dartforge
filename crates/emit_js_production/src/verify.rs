@@ -18,7 +18,7 @@
 use crate::scan;
 use dartforge_elements::model::{ClassId, Element, FunctionElementId, LibraryId, Program, VariableId};
 use dartforge_intern::Interner;
-use dartforge_world::{Mundo, ClassLevel};
+use dartforge_world::{World, ClassLevel};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Default, Debug)]
@@ -463,7 +463,7 @@ pub fn libraries_from_text(modules: &[(String, String)], program: &Program) -> H
 }
 
 /// Checks the emitted text against the world and returns what is missing.
-pub fn check(modules: &[(String, String)], libs: &HashMap<String, LibraryId>, program: &Program, interner: &Interner, world: &Mundo) -> Missing {
+pub fn check(modules: &[(String, String)], libs: &HashMap<String, LibraryId>, program: &Program, interner: &Interner, world: &World) -> Missing {
     let idents: HashSet<&str> = libs.keys().map(String::as_str).collect();
     let defs = definitions(modules, &idents);
     // rti recipe (`main|D`, `_rti|Rti`) → namespace variable.
@@ -526,7 +526,7 @@ pub fn check(modules: &[(String, String)], libs: &HashMap<String, LibraryId>, pr
         }
         for (&key, &f) in c.instance_members.iter() {
             let func = program.function(f);
-            if world.funcao(f) || func.abstract_ {
+            if world.is_live_function(f) || func.abstract_ {
                 continue;
             }
             // The key carries the kind (`foo_=` is a write); `==` does not

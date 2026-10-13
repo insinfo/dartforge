@@ -52,15 +52,15 @@ pub fn compute(
     table: &TypeTable,
     outline: &OutlineTypes,
     bodies: &BodyTypes,
-) -> Option<dartforge_world::Mundo> {
+) -> Option<dartforge_world::World> {
     if std::env::var_os("DARTFORGE_SEM_PODA_DO_PROGRAMA").is_some_and(|v| v != "0") {
         return None;
     }
-    let mut r = dartforge_world::Raizes::default();
+    let mut r = dartforge_world::Roots::default();
     let lib = program.entry?;
     let main = interner.lookup("main")?;
     match program.library(lib).declared.get(&main).and_then(|b| b.getter) {
-        Some(Element::Function(f)) => r.funcoes.push(f),
+        Some(Element::Function(f)) => r.functions.push(f),
         _ => return None,
     }
     marked_entries(program, interner, &mut r);
@@ -69,15 +69,15 @@ pub fn compute(
         names.insert((*n).to_string());
     }
     names_written_in_sdk(program, interner, &mut names);
-    r.seletores = names.into_iter().collect();
-    let e = dartforge_world::Entrada { program, interner, table, outline, bodies };
-    Some(dartforge_world::calcular(e, &r))
+    r.selectors = names.into_iter().collect();
+    let e = dartforge_world::WorldInput { program, interner, table, outline, bodies };
+    Some(dartforge_world::compute(e, &r))
 }
 
 /// `@pragma('vm:entry-point')` in the program: the VM retains what the annotation
 /// marks (the embedder calls by name); here it becomes a root — the function (top-level
 /// or method) and the class.
-fn marked_entries(program: &Program, interner: &Interner, r: &mut dartforge_world::Raizes) {
+fn marked_entries(program: &Program, interner: &Interner, r: &mut dartforge_world::Roots) {
     use dartforge_elements::model::{ClassId, FunctionRef};
     let marked = |a: &ast::Ast, meta: &[ast::Annotation]| {
         meta.iter().any(|m| {
@@ -107,7 +107,7 @@ fn marked_entries(program: &Program, interner: &Interner, r: &mut dartforge_worl
                     && marked(a, &d.metadata)
                     && let Some(&f) = by_node.get(&(u, fid))
                 {
-                    r.funcoes.push(f);
+                    r.functions.push(f);
                 }
             }
             for m in &a.members {
@@ -115,7 +115,7 @@ fn marked_entries(program: &Program, interner: &Interner, r: &mut dartforge_worl
                     && marked(a, &m.metadata)
                     && let Some(&f) = by_node.get(&(u, fid))
                 {
-                    r.funcoes.push(f);
+                    r.functions.push(f);
                 }
             }
         }
@@ -127,7 +127,7 @@ fn marked_entries(program: &Program, interner: &Interner, r: &mut dartforge_worl
         let Some(d) = c.decl else { continue };
         let a = &program.unit(d.unit).ast;
         if marked(a, &a.decl(d.decl).metadata) {
-            r.classes_instanciadas.push(ClassId(i as u32));
+            r.instantiated_classes.push(ClassId(i as u32));
         }
     }
 }
