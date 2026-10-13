@@ -17,7 +17,7 @@
 
 /// O `typedef` que chega a si mesmo (`TypeAliasSelfReferenceFinder`).
 pub mod auto_referencia;
-pub mod ciclos_crus;
+pub mod raw_cycles;
 pub mod a_main;
 pub mod anotacoes;
 pub mod boas_praticas;
@@ -40,7 +40,7 @@ pub mod fase_sdk;
 pub mod fase_super;
 pub mod hierarchy;
 pub mod heranca;
-pub mod inferencia;
+pub mod inference;
 pub mod limites;
 pub mod lints_tipados;
 pub mod lints_tipados2;
@@ -59,8 +59,8 @@ pub mod fase_mixins;
 pub mod fase_estrita;
 pub mod ops;
 pub mod parametros;
-pub mod promocao_de_campos;
-pub mod redirecionamento;
+pub mod field_promotion;
+pub mod redirection;
 pub mod resolve;
 pub mod resolved;
 pub mod scope;
@@ -74,14 +74,14 @@ pub use codes::*;
 pub use constant::{ConstValue, ConstantEvaluator};
 pub use constraints::GenericInferrer;
 pub use hierarchy::{build_class_hierarchy, ClassHierarchy, ClassHierarchyData};
-pub use inferencia::{corpo_no_offset, corpos_da_unidade, extensoes_aplicaveis, extensoes_aplicaveis_dentre, inferir_corpos, BodyInferrer, CorpoRef, CorposInferidos};
+pub use inference::{corpo_no_offset, corpos_da_unidade, extensoes_aplicaveis, extensoes_aplicaveis_dentre, inferir_corpos, BodyInferrer, BodyRef, InferredBodies};
 pub use ops::{erase_extension_type, glb, lub, non_nullable, normalize, nullable, substitute};
 pub use resolve::{
     ClassTypeData, ExtensionTypeData, FunctionTypeData, OutlineResolver, OutlineTypes,
     ParameterTypeData, TypedefTypeData, VariableTypeData,
 };
-pub use resolved::{BodyTypes, EscopoSondado, LocalId, LocalVisivel, MemberRef, Resolved, UnitBodyTypes};
-pub use scope::supertipos_ordenados;
+pub use resolved::{BodyTypes, EscopoSondado, LocalId, VisibleLocal, MemberRef, Resolved, UnitBodyTypes};
+pub use scope::ordered_supertypes;
 pub use subtyping::{is_subtype, SubtypeEnv};
 pub use table::{
     CoreTypes, Type, TypeId, TypeParamId, TypeParamOwner, TypeParameterData, TypeTable, Variance,
@@ -115,7 +115,7 @@ pub fn resolve_outline_com_unidades(
     table: &mut TypeTable,
     core: &CoreTypes,
 ) -> (OutlineTypes, Vec<Diagnostic>, Vec<dartforge_elements::model::UnitId>) {
-    OutlineResolver::new(program, interner, table, core).resolve_all_com_unidades()
+    OutlineResolver::new(program, interner, table, core).resolve_all_with_units()
 }
 
 /// Ponto de entrada para a inferência de tipos e resolução de corpos em um [`Program`].
@@ -136,16 +136,16 @@ pub fn infer_program_bodies(
 /// Como [`infer_bodies_das_bibliotecas`], registrando a declaração do local
 /// que cada leitura de local resolve (`UnitBodyTypes::declaracoes_de_locais`),
 /// que a avaliação de constantes locais usa ([`constantes`]).
-pub fn infer_bodies_das_bibliotecas_com_locais(
+pub fn infer_library_bodies_with_locals(
     program: &Program,
     interner: &Interner,
     table: &mut TypeTable,
     core: &CoreTypes,
     outline: &mut OutlineTypes,
-    bibliotecas: &[dartforge_elements::model::LibraryId],
+    libraries: &[dartforge_elements::model::LibraryId],
 ) -> (BodyTypes, Vec<Diagnostic>) {
     let mut inferrer = BodyInferrer::new(program, interner, table, core, outline);
-    inferrer.apenas_bibliotecas = Some(bibliotecas.iter().map(|l| l.0).collect());
+    inferrer.apenas_bibliotecas = Some(libraries.iter().map(|l| l.0).collect());
     inferrer.registrar_locais = true;
     inferrer.infer_all()
 }
@@ -159,13 +159,13 @@ pub fn infer_bodies_das_bibliotecas_com_unidades(
     table: &mut TypeTable,
     core: &CoreTypes,
     outline: &mut OutlineTypes,
-    bibliotecas: &[dartforge_elements::model::LibraryId],
-    registrar_locais: bool,
+    libraries: &[dartforge_elements::model::LibraryId],
+    record_locals: bool,
 ) -> (BodyTypes, Vec<Diagnostic>, Vec<Option<dartforge_elements::model::UnitId>>) {
     let mut inferrer = BodyInferrer::new(program, interner, table, core, outline);
-    inferrer.apenas_bibliotecas = Some(bibliotecas.iter().map(|l| l.0).collect());
-    inferrer.registrar_locais = registrar_locais;
-    inferrer.infer_all_com_unidades()
+    inferrer.apenas_bibliotecas = Some(libraries.iter().map(|l| l.0).collect());
+    inferrer.registrar_locais = record_locals;
+    inferrer.infer_all_with_units()
 }
 
 /// Como [`infer_program_bodies`], inferindo os corpos **só** das bibliotecas
@@ -178,9 +178,9 @@ pub fn infer_bodies_das_bibliotecas(
     table: &mut TypeTable,
     core: &CoreTypes,
     outline: &mut OutlineTypes,
-    bibliotecas: &[dartforge_elements::model::LibraryId],
+    libraries: &[dartforge_elements::model::LibraryId],
 ) -> (BodyTypes, Vec<Diagnostic>) {
     let mut inferrer = BodyInferrer::new(program, interner, table, core, outline);
-    inferrer.apenas_bibliotecas = Some(bibliotecas.iter().map(|l| l.0).collect());
+    inferrer.apenas_bibliotecas = Some(libraries.iter().map(|l| l.0).collect());
     inferrer.infer_all()
 }

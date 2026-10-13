@@ -26,7 +26,7 @@ pub trait Grafo {
     /// O nó já tem resultado (`isConstantEvaluated`): variável com valor
     /// guardado, construtor `const` fora de ciclo já computado, anotação com
     /// valor; variável não `const` e parâmetro sem padrão, sempre.
-    fn avaliado(&self, no: usize) -> bool;
+    fn evaluated(&self, no: usize) -> bool;
     /// Um componente de um nó só, sem auto-referência: calcula o valor
     /// (`computeConstantValue`). Todas as dependências já estão avaliadas ou
     /// marcadas como ciclo.
@@ -34,17 +34,17 @@ pub trait Grafo {
     /// Um componente com ciclo, do topo da pilha para baixo (o nó que fecha
     /// o componente é o último): cada variável recebe o erro de ciclo e cada
     /// construtor deixa de ser livre de ciclo (`generateCycleError`).
-    fn avaliar_componente(&mut self, nos: &[usize]);
+    fn evaluate_component(&mut self, nodes: &[usize]);
 }
 
 /// O estado do percurso que persiste entre as chamadas de
 /// [`Caminhante::percorrer`].
 #[derive(Debug, Default)]
-pub struct Caminhante {
+pub struct Walker {
     /// `_index` de cada nó (0 = nunca visto).
     indice: Vec<u32>,
     /// `_lowLink` de cada nó.
-    menor: Vec<u32>,
+    less: Vec<u32>,
     /// As dependências de cada nó, pedidas ao grafo uma vez.
     dependencias: Vec<Option<Vec<usize>>>,
 }
@@ -59,87 +59,87 @@ struct Quadro {
     trivial: bool,
 }
 
-impl Caminhante {
+impl Walker {
     pub fn novo() -> Self {
         Self::default()
     }
 
-    fn garantir(&mut self, no: usize) {
+    fn ensure(&mut self, no: usize) {
         if no >= self.indice.len() {
             self.indice.resize(no + 1, 0);
-            self.menor.resize(no + 1, 0);
+            self.less.resize(no + 1, 0);
             self.dependencias.resize_with(no + 1, || None);
         }
     }
 
     /// `walk(start)`: avalia `inicio` e tudo de que ele depende, na ordem das
     /// dependências, entregando ao grafo cada componente fortemente conexo.
-    pub fn percorrer<G: Grafo>(&mut self, g: &mut G, inicio: usize) {
-        if g.avaliado(inicio) {
+    pub fn percorrer<G: Grafo>(&mut self, g: &mut G, start: usize) {
+        if g.evaluated(start) {
             return;
         }
         // O contador recomeça a cada percurso; os índices dos nós, não.
-        let mut contador: u32 = 1;
-        let mut pilha: Vec<usize> = Vec::new();
-        let mut quadros: Vec<Quadro> = Vec::new();
-        self.abrir(inicio, &mut contador, &mut pilha, &mut quadros);
-        while let Some(topo) = quadros.len().checked_sub(1) {
-            let no = quadros[topo].no;
+        let mut counter: u32 = 1;
+        let mut stack: Vec<usize> = Vec::new();
+        let mut frames: Vec<Quadro> = Vec::new();
+        self.abrir(start, &mut counter, &mut stack, &mut frames);
+        while let Some(top) = frames.len().checked_sub(1) {
+            let no = frames[top].no;
             if self.dependencias[no].is_none() {
                 let deps = g.dependencias(no);
                 for &d in &deps {
-                    self.garantir(d);
+                    self.ensure(d);
                 }
                 self.dependencias[no] = Some(deps);
             }
-            let proxima = quadros[topo].proxima;
-            let dep = self.dependencias[no].as_ref().and_then(|d| d.get(proxima).copied());
+            let next_ = frames[top].proxima;
+            let dep = self.dependencias[no].as_ref().and_then(|d| d.get(next_).copied());
             match dep {
                 Some(dep) => {
-                    quadros[topo].proxima += 1;
-                    if g.avaliado(dep) {
+                    frames[top].proxima += 1;
+                    if g.evaluated(dep) {
                         continue;
                     }
                     if dep == no {
-                        quadros[topo].trivial = true;
+                        frames[top].trivial = true;
                     } else if self.indice[dep] == 0 {
                         // Desce; o menor índice do filho sobe na volta
                         // (abaixo, quando o quadro dele fecha).
-                        self.abrir(dep, &mut contador, &mut pilha, &mut quadros);
-                    } else if self.indice[dep] < self.menor[no] {
+                        self.abrir(dep, &mut counter, &mut stack, &mut frames);
+                    } else if self.indice[dep] < self.less[no] {
                         // Já visto (neste percurso ou num anterior, sem
                         // ter sido avaliado): o índice dele, como está.
-                        self.menor[no] = self.indice[dep];
+                        self.less[no] = self.indice[dep];
                     }
                 }
                 None => {
                     // Todas as dependências vistas: fecha o nó.
-                    let trivial = quadros[topo].trivial;
-                    quadros.pop();
-                    if self.menor[no] == self.indice[no] {
-                        if pilha.last() == Some(&no) {
-                            pilha.pop();
+                    let trivial = frames[top].trivial;
+                    frames.pop();
+                    if self.less[no] == self.indice[no] {
+                        if stack.last() == Some(&no) {
+                            stack.pop();
                             if trivial {
-                                g.avaliar_componente(&[no]);
+                                g.evaluate_component(&[no]);
                             } else {
                                 g.avaliar(no);
                             }
                         } else {
-                            let mut componente = Vec::new();
-                            while let Some(x) = pilha.pop() {
-                                componente.push(x);
+                            let mut component = Vec::new();
+                            while let Some(x) = stack.pop() {
+                                component.push(x);
                                 if x == no {
                                     break;
                                 }
                             }
-                            g.avaliar_componente(&componente);
+                            g.evaluate_component(&component);
                         }
                     }
                     // A volta de `strongConnect(dep)` no pai.
-                    if let Some(pai) = quadros.last() {
-                        let pai = pai.no;
-                        if self.menor[no] < self.menor[pai] {
-                            self.menor[pai] = self.menor[no];
+                    if let Some(parent) = frames.last() {
+                        let parent = parent.no;
+                        if self.less[no] < self.less[parent] {
+                            self.less[parent] = self.less[no];
                         }
                     }
                 }
@@ -148,13 +148,13 @@ impl Caminhante {
     }
 
     /// O começo de `strongConnect(no)`: numera o nó e o empilha.
-    fn abrir(&mut self, no: usize, contador: &mut u32, pilha: &mut Vec<usize>, quadros: &mut Vec<Quadro>) {
-        self.garantir(no);
-        self.indice[no] = *contador;
-        self.menor[no] = *contador;
-        *contador += 1;
-        pilha.push(no);
-        quadros.push(Quadro { no, proxima: 0, trivial: false });
+    fn abrir(&mut self, no: usize, counter: &mut u32, stack: &mut Vec<usize>, frames: &mut Vec<Quadro>) {
+        self.ensure(no);
+        self.indice[no] = *counter;
+        self.less[no] = *counter;
+        *counter += 1;
+        stack.push(no);
+        frames.push(Quadro { no, proxima: 0, trivial: false });
     }
 }
 
@@ -164,107 +164,107 @@ mod testes {
 
     /// Um grafo de teste: as arestas, quem é construtor (nunca fica avaliado
     /// depois de um ciclo, e fica depois de `avaliar`), e o que aconteceu.
-    struct Teste {
+    struct Test {
         arestas: Vec<Vec<usize>>,
         avaliados: Vec<bool>,
         construtor: Vec<bool>,
         simples: Vec<usize>,
-        ciclos: Vec<Vec<usize>>,
+        cycles: Vec<Vec<usize>>,
     }
 
-    impl Teste {
-        fn novo(arestas: Vec<Vec<usize>>, construtores: &[usize]) -> Self {
-            let n = arestas.len();
-            let mut construtor = vec![false; n];
-            for &c in construtores {
-                construtor[c] = true;
+    impl Test {
+        fn novo(edges: Vec<Vec<usize>>, constructors: &[usize]) -> Self {
+            let n = edges.len();
+            let mut constructor = vec![false; n];
+            for &c in constructors {
+                constructor[c] = true;
             }
-            Teste { arestas, avaliados: vec![false; n], construtor, simples: Vec::new(), ciclos: Vec::new() }
+            Test { arestas: edges, avaliados: vec![false; n], construtor: constructor, simples: Vec::new(), cycles: Vec::new() }
         }
 
-        fn rodar(&mut self, ordem: &[usize]) {
-            let mut c = Caminhante::novo();
-            for &no in ordem {
+        fn run(&mut self, order: &[usize]) {
+            let mut c = Walker::novo();
+            for &no in order {
                 c.percorrer(self, no);
             }
         }
     }
 
-    impl Grafo for Teste {
+    impl Grafo for Test {
         fn dependencias(&mut self, no: usize) -> Vec<usize> {
             self.arestas[no].clone()
         }
-        fn avaliado(&self, no: usize) -> bool {
+        fn evaluated(&self, no: usize) -> bool {
             self.avaliados[no]
         }
         fn avaliar(&mut self, no: usize) {
             self.avaliados[no] = true;
             self.simples.push(no);
         }
-        fn avaliar_componente(&mut self, nos: &[usize]) {
+        fn evaluate_component(&mut self, nodes: &[usize]) {
             // A variável de um ciclo fica com o inválido guardado (avaliada);
             // o construtor de um ciclo nunca fica avaliado.
-            for &n in nos {
+            for &n in nodes {
                 if !self.construtor[n] {
                     self.avaliados[n] = true;
                 }
             }
-            let mut v = nos.to_vec();
+            let mut v = nodes.to_vec();
             v.sort_unstable();
-            self.ciclos.push(v);
+            self.cycles.push(v);
         }
     }
 
     #[test]
-    fn cadeia_sem_ciclo_avalia_das_folhas_para_a_raiz() {
+    fn acyclic_chain_evaluates_from_leaves_to_root() {
         // 0 → 1 → 2
-        let mut g = Teste::novo(vec![vec![1], vec![2], vec![]], &[]);
-        g.rodar(&[0, 1, 2]);
+        let mut g = Test::novo(vec![vec![1], vec![2], vec![]], &[]);
+        g.run(&[0, 1, 2]);
         assert_eq!(g.simples, vec![2, 1, 0]);
-        assert!(g.ciclos.is_empty());
+        assert!(g.cycles.is_empty());
     }
 
     #[test]
-    fn ciclo_de_tres_com_um_dependente_limpo() {
+    fn three_cycle_with_clean_dependent() {
         // `c02`: a → b → c → a; d → a. Só as três do ciclo recebem o erro.
-        let mut g = Teste::novo(vec![vec![1], vec![2], vec![0], vec![0]], &[]);
-        g.rodar(&[0, 1, 2, 3]);
-        assert_eq!(g.ciclos, vec![vec![0, 1, 2]]);
+        let mut g = Test::novo(vec![vec![1], vec![2], vec![0], vec![0]], &[]);
+        g.run(&[0, 1, 2, 3]);
+        assert_eq!(g.cycles, vec![vec![0, 1, 2]]);
         assert_eq!(g.simples, vec![3]);
     }
 
     #[test]
-    fn auto_referencia_e_ciclo_trivial() {
+    fn self_reference_and_trivial_cycle() {
         // `const a = a;`
-        let mut g = Teste::novo(vec![vec![0]], &[]);
-        g.rodar(&[0]);
-        assert_eq!(g.ciclos, vec![vec![0]]);
+        let mut g = Test::novo(vec![vec![0]], &[]);
+        g.run(&[0]);
+        assert_eq!(g.cycles, vec![vec![0]]);
         assert!(g.simples.is_empty());
     }
 
     #[test]
-    fn construtor_de_ciclo_visto_antes_da_o_falso_ciclo() {
+    fn cycle_constructor_seen_before_gives_false_cycle() {
         // `c27`: class C { const C() : this.a(); const C.a() : this(); }
         //        const y = z;  const z = const C();
         // Nós: 0 = C(), 1 = C.a(), 2 = y, 3 = z. Ordem dos alvos: a da fonte.
-        let mut g = Teste::novo(vec![vec![1], vec![0], vec![3], vec![0]], &[0, 1]);
-        g.rodar(&[0, 1, 2, 3]);
+        let mut g = Test::novo(vec![vec![1], vec![0], vec![3], vec![0]], &[0, 1]);
+        g.run(&[0, 1, 2, 3]);
         // Os dois construtores formam o ciclo de verdade; `y` e `z` saem
         // como um segundo componente, que não existe no grafo.
-        assert_eq!(g.ciclos, vec![vec![0, 1], vec![2, 3]]);
+        assert_eq!(g.cycles, vec![vec![0, 1], vec![2, 3]]);
         // O percurso de `C.a`, sozinho, fecha um componente de um nó (o
         // índice velho de `C()` não é menor que o dele): é "computado".
         assert_eq!(g.simples, vec![1]);
     }
 
     #[test]
-    fn a_mesma_coisa_com_a_classe_depois_nao_da_o_falso_ciclo() {
+    fn same_thing_with_class_after_gives_no_false_cycle() {
         // `s28`: const w2 = w;  const w = const R();  class R { os dois construtores }
         // Nós: 0 = w2, 1 = w, 2 = R(), 3 = R.a(). O percurso de `w2` é quem
         // visita `R` pela primeira vez.
-        let mut g = Teste::novo(vec![vec![1], vec![2], vec![3], vec![2]], &[2, 3]);
-        g.rodar(&[0, 1, 2, 3]);
-        assert_eq!(g.ciclos, vec![vec![2, 3]]);
+        let mut g = Test::novo(vec![vec![1], vec![2], vec![3], vec![2]], &[2, 3]);
+        g.run(&[0, 1, 2, 3]);
+        assert_eq!(g.cycles, vec![vec![2, 3]]);
         // `w` e `w2` saem limpos; os percursos seguintes dos dois
         // construtores, cada um sozinho, os dão por computados.
         assert_eq!(g.simples, vec![1, 0, 2, 3]);

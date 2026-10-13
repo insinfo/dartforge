@@ -8,12 +8,12 @@
 //! biblioteca.
 
 pub mod avaliador;
-pub mod ciclos;
-pub mod exaustividade;
-pub mod grafo;
-pub mod potencial;
+pub mod cycles;
+pub mod exhaustiveness;
+pub mod graph;
+pub mod potential;
 pub mod valor;
-pub mod verificador;
+pub mod verifier;
 
 use crate::resolve::OutlineTypes;
 use crate::resolved::BodyTypes;
@@ -23,8 +23,8 @@ use dartforge_elements::model::{LibraryId, Program, UnitId};
 use dartforge_intern::Interner;
 use std::collections::HashSet;
 
-pub use exaustividade::ParteDeTestemunha;
-pub use verificador::CODIGOS;
+pub use exhaustiveness::ParteDeTestemunha;
+pub use verifier::CODIGOS;
 
 /// As testemunhas com partes dos `switch` não exaustivos da biblioteca
 /// `lib`, por (unidade, offset do `switch`): o `diagnostic.data` que o
@@ -38,13 +38,13 @@ pub fn testemunhas_de_switch(
     core: &CoreTypes,
     outline: &OutlineTypes,
     body: &BodyTypes,
-    inferidas: &HashSet<LibraryId>,
+    the_inferred: &HashSet<LibraryId>,
     lib: LibraryId,
 ) -> std::collections::HashMap<(UnitId, usize), Vec<Vec<ParteDeTestemunha>>> {
-    let mut m = avaliador::Motor::novo(program, interner, table, core, outline, body, inferidas);
-    m.testemunhas = Some(std::collections::HashMap::new());
-    let _ = verificador::verificar(&mut m, lib);
-    m.testemunhas.take().unwrap_or_default()
+    let mut m = avaliador::Motor::novo(program, interner, table, core, outline, body, the_inferred);
+    m.witnesses = Some(std::collections::HashMap::new());
+    let _ = verifier::verificar(&mut m, lib);
+    m.witnesses.take().unwrap_or_default()
 }
 
 /// Os erros de constantes das bibliotecas `libs`. `inferidas` são as
@@ -58,10 +58,10 @@ pub fn verificar(
     core: &CoreTypes,
     outline: &OutlineTypes,
     body: &BodyTypes,
-    inferidas: &HashSet<LibraryId>,
+    the_inferred: &HashSet<LibraryId>,
     libs: &[LibraryId],
 ) -> Vec<(UnitId, Diagnostic)> {
-    verificar_com_quebras(program, interner, table, core, outline, body, inferidas, libs).0
+    verificar_com_quebras(program, interner, table, core, outline, body, the_inferred, libs).0
 }
 
 /// [`verificar`], com as bibliotecas em que o analyzer 3.6.2 lança (a
@@ -76,18 +76,18 @@ pub fn verificar_com_quebras(
     core: &CoreTypes,
     outline: &OutlineTypes,
     body: &BodyTypes,
-    inferidas: &HashSet<LibraryId>,
+    the_inferred: &HashSet<LibraryId>,
     libs: &[LibraryId],
 ) -> (Vec<(UnitId, Diagnostic)>, Vec<LibraryId>) {
-    let mut m = avaliador::Motor::novo(program, interner, table, core, outline, body, inferidas);
+    let mut m = avaliador::Motor::novo(program, interner, table, core, outline, body, the_inferred);
     let mut out = Vec::new();
-    let mut quebradas = Vec::new();
+    let mut broken = Vec::new();
     for &lib in libs {
-        m.quebra_do_analyzer = false;
-        out.extend(verificador::verificar(&mut m, lib));
-        if m.quebra_do_analyzer && program.referencia_da_biblioteca(lib) == dartforge_diagnostics::Referencia::V3_6 {
-            quebradas.push(lib);
+        m.analyzer_break = false;
+        out.extend(verifier::verificar(&mut m, lib));
+        if m.analyzer_break && program.referencia_da_biblioteca(lib) == dartforge_diagnostics::Referencia::V3_6 {
+            broken.push(lib);
         }
     }
-    (out, quebradas)
+    (out, broken)
 }

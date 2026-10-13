@@ -72,25 +72,25 @@ pub struct UnitBodyTypes {
     /// Expressões cujo tipo é o de recuperação do analyzer (`InvalidType`,
     /// uma leitura que não resolve): em `static_types` ficam `dynamic`, que
     /// é como o `InvalidType` se comporta; a marca só distingue na exibição.
-    pub tipos_invalidos: std::collections::HashSet<ast::ExprId>,
+    pub invalid_types: std::collections::HashSet<ast::ExprId>,
     /// O tipo de execução (a regra do CFE, que dá o `runtimeType`) de uma
     /// função literal ou local geradora (`sync*`/`async*`) sem retorno
     /// escrito, quando difere do tipo estático, que segue o analyzer 3.6.2:
     /// o analyzer junta o `Null` de um `return;` aos `yield` e dá `dynamic`
     /// ao gerador sem nenhum; o CFE ignora o `return;` e dá `Null`. Pela
     /// função (`ast::FunctionId`).
-    pub tipos_de_execucao_de_funcoes: std::collections::HashMap<ast::FunctionId, TypeId>,
+    pub function_runtime_types: std::collections::HashMap<ast::FunctionId, TypeId>,
     /// Argumentos de tipo escolhidos para cada chamada genérica (função,
     /// método, estático, `call`), explícitos ou inferidos, pelo offset do
     /// início da lista de argumentos (`ast::Arguments::span`). Fica fora do
     /// tipo de qualquer nó (`id(5)` tem tipo `Object?`, mas a instanciação
     /// `<Object?>` só aparece aqui) e é o que o backend reifica.
-    pub instanciacoes: std::collections::HashMap<usize, Box<[TypeId]>>,
+    pub instantiations: std::collections::HashMap<usize, Box<[TypeId]>>,
     /// Os argumentos de tipo da instanciação implícita de um tear-off de
     /// função genérica num contexto de função não genérica
     /// (`int Function(int) f = id;`), pela expressão do tear-off: a closure
     /// tem o tipo instanciado e leva os argumentos, como na VM.
-    pub instanciacoes_de_tearoff: std::collections::HashMap<ast::ExprId, Box<[TypeId]>>,
+    pub tearoff_instantiations: std::collections::HashMap<ast::ExprId, Box<[TypeId]>>,
     /// O tipo de cada padrão que a exaustividade lê (`PatternConverter` do
     /// analyzer, `an611:src/generated/exhaustiveness.dart:520-680`): o
     /// declarado de uma variável, o escrito de um curinga ou de um cast, o
@@ -98,10 +98,10 @@ pub struct UnitBodyTypes {
     pub tipos_de_padroes: std::collections::HashMap<ast::PatternId, TypeId>,
     /// O tipo da propriedade de extensão lida por um campo de padrão objeto
     /// (`ExtensionKey`), pelo subpadrão do campo.
-    pub campos_de_extensao: std::collections::HashMap<ast::PatternId, TypeId>,
+    pub extension_fields: std::collections::HashMap<ast::PatternId, TypeId>,
     /// Padrões cujo tipo escrito não resolve (`InvalidType`): o analyzer não
     /// verifica a exaustividade do `switch` que os contém.
-    pub padroes_invalidos: std::collections::HashSet<ast::PatternId>,
+    pub invalid_patterns: std::collections::HashSet<ast::PatternId>,
     /// O tipo casado (`matchedValueType`) de cada padrão, já promovido pelo
     /// fluxo de padrões (casos anteriores do `switch`, `&&`, `?`): o que o
     /// analyzer guarda em `DartPatternImpl.matchedValueType` e o
@@ -111,16 +111,16 @@ pub struct UnitBodyTypes {
     /// `SimpleIdentifier`) cujo nome não é constante: local ou variável sem
     /// `const`, membro de instância, getter (o `_getConstantValue` do 3.6.2 dá
     /// o erro genérico). O `ConstantVerifier` relata no nome.
-    pub padroes_de_nome_nao_constante: std::collections::HashSet<ast::PatternId>,
+    pub non_constant_name_patterns: std::collections::HashSet<ast::PatternId>,
     /// O elemento do nome solto em contexto refutável (o `SimpleIdentifier`
     /// do `ConstantPattern`: `case _limite:`), que não tem `ExprId` na nossa
     /// árvore: o que o `Resolved` de um identificador daria.
-    pub nomes_de_padroes: std::collections::HashMap<ast::PatternId, Resolved>,
+    pub pattern_names: std::collections::HashMap<ast::PatternId, Resolved>,
     /// As expressões de função cujo tipo de contexto era um tipo de função
     /// (`FunctionExpressionImpl.wasFunctionTypeSupplied`, o
     /// `FunctionExpressionResolver` do analyzer: `contextType is
     /// FunctionType`), pelo id da função.
-    pub com_tipo_de_funcao: std::collections::HashSet<ast::FunctionId>,
+    pub with_function_type: std::collections::HashSet<ast::FunctionId>,
     /// O tipo resolvido de cada anotação de tipo dos corpos
     /// (`TypeAnnotation.type` do analyzer): `is`, `as`, `catch`, variável
     /// local, argumento de tipo.
@@ -145,10 +145,10 @@ pub struct UnitBodyTypes {
     pub tipos_de_escrita: std::collections::HashMap<ast::ExprId, TypeId>,
     /// O `PatternField.element` de cada campo de padrão objeto que achou um
     /// membro, pelo subpadrão do campo.
-    pub elementos_de_campos: std::collections::HashMap<ast::PatternId, Resolved>,
+    pub field_elements: std::collections::HashMap<ast::PatternId, Resolved>,
     /// O `RelationalPattern.element` (o operador achado no tipo casado),
     /// pelo padrão relacional.
-    pub operadores_relacionais: std::collections::HashMap<ast::PatternId, Resolved>,
+    pub relational_operators: std::collections::HashMap<ast::PatternId, Resolved>,
 }
 
 impl UnitBodyTypes {
@@ -159,54 +159,54 @@ impl UnitBodyTypes {
             resolved: vec![None; num_exprs],
             tipos_de_locais: std::collections::HashMap::new(),
             declaracoes_de_locais: std::collections::HashMap::new(),
-            com_tipo_de_funcao: std::collections::HashSet::new(),
+            with_function_type: std::collections::HashSet::new(),
             tipos_de_anotacoes: std::collections::HashMap::new(),
             declaracoes_de_padroes: std::collections::HashMap::new(),
-            tipos_invalidos: std::collections::HashSet::new(),
-            tipos_de_execucao_de_funcoes: std::collections::HashMap::new(),
-            instanciacoes: std::collections::HashMap::new(),
-            instanciacoes_de_tearoff: std::collections::HashMap::new(),
+            invalid_types: std::collections::HashSet::new(),
+            function_runtime_types: std::collections::HashMap::new(),
+            instantiations: std::collections::HashMap::new(),
+            tearoff_instantiations: std::collections::HashMap::new(),
             tipos_de_padroes: std::collections::HashMap::new(),
-            campos_de_extensao: std::collections::HashMap::new(),
-            padroes_invalidos: std::collections::HashSet::new(),
+            extension_fields: std::collections::HashMap::new(),
+            invalid_patterns: std::collections::HashSet::new(),
             tipos_casados: std::collections::HashMap::new(),
-            padroes_de_nome_nao_constante: std::collections::HashSet::new(),
-            nomes_de_padroes: std::collections::HashMap::new(),
+            non_constant_name_patterns: std::collections::HashSet::new(),
+            pattern_names: std::collections::HashMap::new(),
             chamadas_implicitas: std::collections::HashSet::new(),
             tipos_de_parametros: std::collections::HashMap::new(),
             tipos_de_escrita: std::collections::HashMap::new(),
-            elementos_de_campos: std::collections::HashMap::new(),
-            operadores_relacionais: std::collections::HashMap::new(),
+            field_elements: std::collections::HashMap::new(),
+            relational_operators: std::collections::HashMap::new(),
         }
     }
 
     /// Os argumentos de tipo da instanciação implícita do tear-off `e` (ver
     /// [`UnitBodyTypes::instanciacoes_de_tearoff`]).
     pub fn instanciacao_de_tearoff(&self, e: ast::ExprId) -> Option<&[TypeId]> {
-        self.instanciacoes_de_tearoff.get(&e).map(|a| &**a)
+        self.tearoff_instantiations.get(&e).map(|a| &**a)
     }
 
     /// Registra os argumentos de tipo da chamada genérica cuja lista de
     /// argumentos começa em `offset`.
-    pub fn set_instanciacao(&mut self, offset: usize, args: Box<[TypeId]>) {
-        self.instanciacoes.insert(offset, args);
+    pub fn set_instantiation(&mut self, offset: usize, args: Box<[TypeId]>) {
+        self.instantiations.insert(offset, args);
     }
 
     /// Argumentos de tipo da chamada genérica cuja lista de argumentos
     /// começa em `offset` (ver [`UnitBodyTypes::instanciacoes`]).
     pub fn instanciacao(&self, offset: usize) -> Option<&[TypeId]> {
-        self.instanciacoes.get(&offset).map(|a| &**a)
+        self.instantiations.get(&offset).map(|a| &**a)
     }
 
     /// Registra o tipo de uma variável local declarada em `offset`.
-    pub fn set_tipo_local(&mut self, offset: usize, ty: TypeId) {
+    pub fn set_local_type(&mut self, offset: usize, ty: TypeId) {
         self.tipos_de_locais.insert(offset, ty);
     }
 
     /// O tipo de execução de uma função geradora sem retorno escrito, quando
     /// difere do estático (ver [`Self::tipos_de_execucao_de_funcoes`]).
     pub fn tipo_de_execucao_de_funcao(&self, f: ast::FunctionId) -> Option<TypeId> {
-        self.tipos_de_execucao_de_funcoes.get(&f).copied()
+        self.function_runtime_types.get(&f).copied()
     }
 
     /// Tipo da variável local declarada em `offset` (o do nome).
@@ -260,7 +260,7 @@ pub struct BodyTypes {
 
 /// Um local (variável, parâmetro ou função local) visível num ponto do corpo.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LocalVisivel {
+pub struct VisibleLocal {
     pub nome: SymbolId,
     /// Tipo declarado (escrito ou inferido do inicializador).
     pub tipo: TypeId,
@@ -277,7 +277,7 @@ pub struct LocalVisivel {
 pub struct EscopoSondado {
     /// Locais visíveis, do mais interno para o mais externo; um nome
     /// sombreado aparece só uma vez (a declaração mais interna).
-    pub locais: Vec<LocalVisivel>,
+    pub locais: Vec<VisibleLocal>,
     /// Parâmetros de tipo visíveis pelo nome.
     pub parametros_de_tipo: Vec<(SymbolId, TypeParamId)>,
     /// Classe (ou mixin, enum, extension type) do membro envolvente.

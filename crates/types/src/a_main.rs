@@ -24,8 +24,8 @@ pub fn funcao_main(
     outline: &OutlineTypes,
     lib: LibraryId,
 ) -> Vec<(UnitId, Diagnostic)> {
-    let mut saida = Vec::new();
-    let Some(sym_main) = interner.lookup("main") else { return saida };
+    let mut output = Vec::new();
+    let Some(sym_main) = interner.lookup("main") else { return output };
     for (i, f) in program.functions.iter().enumerate() {
         // Só a função de topo: um método `main` de classe não conta, nem um
         // getter (que não tem lista de parâmetros).
@@ -35,14 +35,14 @@ pub fn funcao_main(
         let FunctionRef::Function { unit, function } = f.node else { continue };
         let a = &program.unit(unit).ast;
         let func = a.function(function);
-        let (Some(ps), Some(nome)) = (&func.parameters, func.name) else { continue };
-        let vazio: Vec<&str> = Vec::new();
-        let obrigatorios = ps.iter().filter(|p| p.kind == ParameterKind::Required).count();
-        if obrigatorios > 2 {
-            saida.push((unit, Diagnostic::com_codigo(c::MAIN_HAS_TOO_MANY_REQUIRED_POSITIONAL_PARAMETERS, nome.span, vazio.iter().copied())));
+        let (Some(ps), Some(name)) = (&func.parameters, func.name) else { continue };
+        let empty: Vec<&str> = Vec::new();
+        let required = ps.iter().filter(|p| p.kind == ParameterKind::Required).count();
+        if required > 2 {
+            output.push((unit, Diagnostic::com_codigo(c::MAIN_HAS_TOO_MANY_REQUIRED_POSITIONAL_PARAMETERS, name.span, empty.iter().copied())));
         }
         if ps.iter().any(|p| p.kind == ParameterKind::Named && p.required) {
-            saida.push((unit, Diagnostic::com_codigo(c::MAIN_HAS_REQUIRED_NAMED_PARAMETERS, nome.span, vazio.iter().copied())));
+            output.push((unit, Diagnostic::com_codigo(c::MAIN_HAS_REQUIRED_NAMED_PARAMETERS, name.span, empty.iter().copied())));
         }
         // O primeiro posicional (obrigatório ou opcional), pelo tipo escrito:
         // sem tipo ele é `dynamic` e a condição não dispara.
@@ -52,40 +52,40 @@ pub fn funcao_main(
         // o parâmetro inteiro (sem o valor padrão) na forma de função
         // (`void args()`), em `this.x` e em `super.x`.
         let span = if p.function_parameters.is_none() && !p.this_ && !p.super_ {
-            let Some(escrito) = p.ty else { continue };
-            a.ty(escrito).span
+            let Some(written) = p.ty else { continue };
+            a.ty(written).span
         } else {
-            let inicio = p.metadata.first().map_or(p.span.start, |m| m.span.start.min(p.span.start));
-            let fim = match p.default_value {
+            let start = p.metadata.first().map_or(p.span.start, |m| m.span.start.min(p.span.start));
+            let end = match p.default_value {
                 Some(d) => {
-                    let fonte = program.unit(unit).source.as_bytes();
+                    let source = program.unit(unit).source.as_bytes();
                     let mut i = a.expr(d).span.start;
-                    while i > inicio && fonte[i - 1].is_ascii_whitespace() {
+                    while i > start && source[i - 1].is_ascii_whitespace() {
                         i -= 1;
                     }
-                    if i > inicio && matches!(fonte[i - 1], b'=' | b':') {
+                    if i > start && matches!(source[i - 1], b'=' | b':') {
                         i -= 1;
                     }
-                    while i > inicio && fonte[i - 1].is_ascii_whitespace() {
+                    while i > start && source[i - 1].is_ascii_whitespace() {
                         i -= 1;
                     }
                     i
                 }
                 None => p.span.end,
             };
-            Span { start: inicio, end: fim }
+            Span { start: start, end: end }
         };
-        let Some(dados) = outline.functions.get(i) else { continue };
-        let Some(tipo) = dados.parameters.get(k).map(|p| p.ty) else { continue };
-        let Some(lista) = core.list_class else { continue };
-        let lista_de_string = table.intern(Type::Interface { class: lista, args: vec![core.string].into_boxed_slice(), nullable: false });
-        let cabe = {
+        let Some(data) = outline.functions.get(i) else { continue };
+        let Some(ty) = data.parameters.get(k).map(|p| p.ty) else { continue };
+        let Some(list) = core.list_class else { continue };
+        let string_list = table.intern(Type::Interface { class: list, args: vec![core.string].into_boxed_slice(), nullable: false });
+        let fits = {
             let mut env = SubtypeEnv::new(table, &outline.hierarchy, core);
-            is_subtype(lista_de_string, tipo, &mut env)
+            is_subtype(string_list, ty, &mut env)
         };
-        if !cabe {
-            saida.push((unit, Diagnostic::com_codigo(c::MAIN_FIRST_POSITIONAL_PARAMETER_TYPE, span, vazio.iter().copied())));
+        if !fits {
+            output.push((unit, Diagnostic::com_codigo(c::MAIN_FIRST_POSITIONAL_PARAMETER_TYPE, span, empty.iter().copied())));
         }
     }
-    saida
+    output
 }

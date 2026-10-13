@@ -17,32 +17,32 @@ use dartforge_frontend::ast::{self, DeclKind, ExprKind, ForInTarget, ForInit, Fu
 use dartforge_intern::{Interner, SymbolId};
 
 /// Os nomes declarados por um padrão (as variáveis dele).
-fn variaveis_do_padrao(a: &ast::Ast, p: PatternId, saida: &mut Vec<ast::Name>) {
+fn variaveis_do_padrao(a: &ast::Ast, p: PatternId, output: &mut Vec<ast::Name>) {
     match &a.pattern(p).kind {
-        PatternKind::Variable { name, .. } => saida.push(*name),
+        PatternKind::Variable { name, .. } => output.push(*name),
         PatternKind::Or(l, r) | PatternKind::And(l, r) => {
-            variaveis_do_padrao(a, *l, saida);
-            variaveis_do_padrao(a, *r, saida);
+            variaveis_do_padrao(a, *l, output);
+            variaveis_do_padrao(a, *r, output);
         }
         PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) | PatternKind::Cast { pattern: x, .. } => {
-            variaveis_do_padrao(a, *x, saida)
+            variaveis_do_padrao(a, *x, output)
         }
         PatternKind::List { elements, .. } => {
             for e in elements.iter() {
                 match e {
-                    ast::ListPatternElement::Pattern(x) | ast::ListPatternElement::Rest(Some(x)) => variaveis_do_padrao(a, *x, saida),
+                    ast::ListPatternElement::Pattern(x) | ast::ListPatternElement::Rest(Some(x)) => variaveis_do_padrao(a, *x, output),
                     ast::ListPatternElement::Rest(None) => {}
                 }
             }
         }
         PatternKind::Map { entries, .. } => {
             for e in entries.iter() {
-                variaveis_do_padrao(a, e.value, saida);
+                variaveis_do_padrao(a, e.value, output);
             }
         }
         PatternKind::Record { fields } | PatternKind::Object { fields, .. } => {
             for f in fields.iter() {
-                variaveis_do_padrao(a, f.pattern, saida);
+                variaveis_do_padrao(a, f.pattern, output);
             }
         }
         _ => {}
@@ -52,104 +52,104 @@ fn variaveis_do_padrao(a: &ast::Ast, p: PatternId, saida: &mut Vec<ast::Name>) {
 /// Os nomes das variáveis que um padrão declara. Num padrão refutável
 /// (`case`, `if-case`), o nome solto (sem `var`, `final` nem tipo) é
 /// constante, não variável.
-fn declaradas_no_padrao(a: &ast::Ast, p: PatternId, refutavel: bool, saida: &mut Vec<ast::Name>) {
-    let mut todas: Vec<ast::Name> = Vec::new();
-    variaveis_do_padrao(a, p, &mut todas);
-    if !refutavel {
-        saida.extend(todas);
+fn declared_in_pattern(a: &ast::Ast, p: PatternId, refutable: bool, output: &mut Vec<ast::Name>) {
+    let mut all: Vec<ast::Name> = Vec::new();
+    variaveis_do_padrao(a, p, &mut all);
+    if !refutable {
+        output.extend(all);
         return;
     }
     // As variáveis com palavra-chave ou tipo.
-    let mut pilha = vec![p];
-    while let Some(q) = pilha.pop() {
+    let mut stack = vec![p];
+    while let Some(q) = stack.pop() {
         match &a.pattern(q).kind {
             PatternKind::Variable { name, final_, var_, ty } => {
                 if *final_ || *var_ || ty.is_some() {
-                    saida.push(*name);
+                    output.push(*name);
                 }
             }
-            PatternKind::Or(l, r) | PatternKind::And(l, r) => pilha.extend([*l, *r]),
-            PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) | PatternKind::Cast { pattern: x, .. } => pilha.push(*x),
-            PatternKind::List { elements, .. } => pilha.extend(elements.iter().filter_map(|e| match e {
+            PatternKind::Or(l, r) | PatternKind::And(l, r) => stack.extend([*l, *r]),
+            PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) | PatternKind::Cast { pattern: x, .. } => stack.push(*x),
+            PatternKind::List { elements, .. } => stack.extend(elements.iter().filter_map(|e| match e {
                 ast::ListPatternElement::Pattern(x) | ast::ListPatternElement::Rest(Some(x)) => Some(*x),
                 ast::ListPatternElement::Rest(None) => None,
             })),
-            PatternKind::Map { entries, .. } => pilha.extend(entries.iter().map(|e| e.value)),
-            PatternKind::Record { fields } | PatternKind::Object { fields, .. } => pilha.extend(fields.iter().map(|f| f.pattern)),
+            PatternKind::Map { entries, .. } => stack.extend(entries.iter().map(|e| e.value)),
+            PatternKind::Record { fields } | PatternKind::Object { fields, .. } => stack.extend(fields.iter().map(|f| f.pattern)),
             _ => {}
         }
     }
 }
 
 /// O trecho de um elemento de coleção (das expressões dele).
-fn trecho_do_elemento(a: &ast::Ast, el: &ast::CollectionElement) -> Option<Span> {
+fn element_snippet(a: &ast::Ast, el: &ast::CollectionElement) -> Option<Span> {
     use ast::CollectionElement as E;
-    let junta = |x: Option<Span>, y: Option<Span>| match (x, y) {
+    let joins_with = |x: Option<Span>, y: Option<Span>| match (x, y) {
         (Some(p), Some(q)) => Some(Span { start: p.start.min(q.start), end: p.end.max(q.end) }),
         (p, q) => p.or(q),
     };
     match el {
         E::Expression(e) | E::NullAwareExpression(e) | E::Spread { value: e, .. } => Some(a.expr(*e).span),
-        E::MapEntry { key, value, .. } => junta(Some(a.expr(*key).span), Some(a.expr(*value).span)),
+        E::MapEntry { key, value, .. } => joins_with(Some(a.expr(*key).span), Some(a.expr(*value).span)),
         E::If { condition, then, else_, .. } => {
-            let mut s = junta(Some(a.expr(*condition).span), trecho_do_elemento(a, then));
+            let mut s = joins_with(Some(a.expr(*condition).span), element_snippet(a, then));
             if let Some(x) = else_ {
-                s = junta(s, trecho_do_elemento(a, x));
+                s = joins_with(s, element_snippet(a, x));
             }
             s
         }
-        E::For { body, .. } | E::ForIn { body, .. } => trecho_do_elemento(a, body),
+        E::For { body, .. } | E::ForIn { body, .. } => element_snippet(a, body),
     }
 }
 
 /// Os escopos locais dos elementos de coleção: (trecho, nomes declarados).
-fn escopos_de_colecao(a: &ast::Ast, el: &ast::CollectionElement, saida: &mut Vec<(Span, Vec<ast::Name>)>) {
+fn collection_scopes(a: &ast::Ast, el: &ast::CollectionElement, output: &mut Vec<(Span, Vec<ast::Name>)>) {
     use ast::CollectionElement as E;
     match el {
         E::If { case_pattern, then, else_, .. } => {
             if let Some(p) = case_pattern
-                && let Some(t) = trecho_do_elemento(a, then)
+                && let Some(t) = element_snippet(a, then)
             {
-                let mut nomes = Vec::new();
-                declaradas_no_padrao(a, *p, true, &mut nomes);
-                saida.push((Span { start: a.pattern(*p).span.start, end: t.end }, nomes));
+                let mut names = Vec::new();
+                declared_in_pattern(a, *p, true, &mut names);
+                output.push((Span { start: a.pattern(*p).span.start, end: t.end }, names));
             }
-            escopos_de_colecao(a, then, saida);
+            collection_scopes(a, then, output);
             if let Some(x) = else_ {
-                escopos_de_colecao(a, x, saida);
+                collection_scopes(a, x, output);
             }
         }
         E::For { init, condition, updates, body, .. } => {
-            let mut nomes = Vec::new();
-            let mut inicio: Option<usize> = None;
+            let mut names = Vec::new();
+            let mut start: Option<usize> = None;
             match init {
                 Some(ForInit::Variables(l)) => {
-                    nomes.extend(l.variables.iter().map(|v| v.name));
-                    inicio = l.variables.first().map(|v| v.name.span.start);
+                    names.extend(l.variables.iter().map(|v| v.name));
+                    start = l.variables.first().map(|v| v.name.span.start);
                 }
                 Some(ForInit::Pattern { pattern, .. }) => {
-                    declaradas_no_padrao(a, *pattern, false, &mut nomes);
-                    inicio = Some(a.pattern(*pattern).span.start);
+                    declared_in_pattern(a, *pattern, false, &mut names);
+                    start = Some(a.pattern(*pattern).span.start);
                 }
                 _ => {}
             }
-            let fim = trecho_do_elemento(a, body).map(|s| s.end).or(condition.map(|c| a.expr(c).span.end)).or(updates.last().map(|u| a.expr(*u).span.end));
-            if let (Some(i), Some(f)) = (inicio, fim) {
-                saida.push((Span { start: i, end: f }, nomes));
+            let end = element_snippet(a, body).map(|s| s.end).or(condition.map(|c| a.expr(c).span.end)).or(updates.last().map(|u| a.expr(*u).span.end));
+            if let (Some(i), Some(f)) = (start, end) {
+                output.push((Span { start: i, end: f }, names));
             }
-            escopos_de_colecao(a, body, saida);
+            collection_scopes(a, body, output);
         }
         E::ForIn { target, body, .. } => {
-            let mut nomes = Vec::new();
+            let mut names = Vec::new();
             match target {
-                ForInTarget::Declared { name, .. } => nomes.push(*name),
-                ForInTarget::Pattern { pattern, .. } => declaradas_no_padrao(a, *pattern, false, &mut nomes),
+                ForInTarget::Declared { name, .. } => names.push(*name),
+                ForInTarget::Pattern { pattern, .. } => declared_in_pattern(a, *pattern, false, &mut names),
                 ForInTarget::Expression(_) => {}
             }
-            if let Some(t) = trecho_do_elemento(a, body) {
-                saida.push((t, nomes));
+            if let Some(t) = element_snippet(a, body) {
+                output.push((t, names));
             }
-            escopos_de_colecao(a, body, saida);
+            collection_scopes(a, body, output);
         }
         _ => {}
     }
@@ -159,11 +159,11 @@ fn escopos_de_colecao(a: &ast::Ast, el: &ast::CollectionElement, saida: &mut Vec
 /// posição `pos` da unidade (a busca léxica do analyzer pararia antes do
 /// escopo da biblioteca).
 pub fn sombreado(a: &ast::Ast, interner: &Interner, pos: usize, n: SymbolId) -> bool {
-    let em = |s: Span| s.start <= pos && pos < s.end;
-    let declara = |nomes: &[ast::Name]| nomes.iter().any(|x| x.sym == n && x.span.start < pos);
+    let in_ = |s: Span| s.start <= pos && pos < s.end;
+    let declares = |names: &[ast::Name]| names.iter().any(|x| x.sym == n && x.span.start < pos);
     // O menor bloco que contém o trecho `s` (o escopo de uma declaração
     // local); sem bloco, o próprio trecho.
-    let bloco_de = |s: Span| {
+    let block_of = |s: Span| {
         a.stmts
             .iter()
             .filter(|x| matches!(x.kind, StmtKind::Block(_)) && x.span.start < s.start && s.end <= x.span.end)
@@ -173,47 +173,47 @@ pub fn sombreado(a: &ast::Ast, interner: &Interner, pos: usize, n: SymbolId) -> 
     };
     // Os locais declarados antes de `pos`, no escopo que os contém.
     for s in a.stmts.iter() {
-        let mut nomes: Vec<ast::Name> = Vec::new();
+        let mut names: Vec<ast::Name> = Vec::new();
         // O local de bloco vale no bloco inteiro, também antes da declaração
         // (o uso antes dela é `REFERENCED_BEFORE_DECLARATION`, e um prefixo
         // de mesmo nome fica sombreado: `PREFIX_SHADOWED_BY_LOCAL_DECLARATION`).
-        let mut no_bloco_todo = false;
-        let escopo = match &s.kind {
+        let mut in_whole_block = false;
+        let scope = match &s.kind {
             StmtKind::Variables(l) => {
-                nomes.extend(l.variables.iter().map(|v| v.name));
-                no_bloco_todo = true;
-                bloco_de(s.span)
+                names.extend(l.variables.iter().map(|v| v.name));
+                in_whole_block = true;
+                block_of(s.span)
             }
             StmtKind::Function(f) => {
-                nomes.extend(a.function(*f).name);
-                no_bloco_todo = true;
-                bloco_de(s.span)
+                names.extend(a.function(*f).name);
+                in_whole_block = true;
+                block_of(s.span)
             }
             StmtKind::PatternVariables { pattern, .. } => {
-                declaradas_no_padrao(a, *pattern, false, &mut nomes);
-                no_bloco_todo = true;
-                bloco_de(s.span)
+                declared_in_pattern(a, *pattern, false, &mut names);
+                in_whole_block = true;
+                block_of(s.span)
             }
             // As variáveis do laço valem no próprio laço.
             StmtKind::For { init: Some(ForInit::Variables(l)), .. } => {
-                nomes.extend(l.variables.iter().map(|v| v.name));
+                names.extend(l.variables.iter().map(|v| v.name));
                 s.span
             }
             StmtKind::For { init: Some(ForInit::Pattern { pattern, .. }), .. } => {
-                declaradas_no_padrao(a, *pattern, false, &mut nomes);
+                declared_in_pattern(a, *pattern, false, &mut names);
                 s.span
             }
             StmtKind::ForIn { target: ForInTarget::Declared { name, .. }, .. } => {
-                nomes.push(*name);
+                names.push(*name);
                 s.span
             }
             StmtKind::ForIn { target: ForInTarget::Pattern { pattern, .. }, .. } => {
-                declaradas_no_padrao(a, *pattern, false, &mut nomes);
+                declared_in_pattern(a, *pattern, false, &mut names);
                 s.span
             }
             // As variáveis do `if-case` valem na guarda e no `then`.
             StmtKind::If { case_pattern: Some(p), then, .. } => {
-                declaradas_no_padrao(a, *p, true, &mut nomes);
+                declared_in_pattern(a, *p, true, &mut names);
                 Span { start: a.pattern(*p).span.start, end: a.stmt(*then).span.end }
             }
             // As de cada caso valem na guarda e no corpo do caso.
@@ -221,8 +221,8 @@ pub fn sombreado(a: &ast::Ast, interner: &Interner, pos: usize, n: SymbolId) -> 
                 for c in cases.iter() {
                     let Some(p) = c.pattern else { continue };
                     let mut vs = Vec::new();
-                    declaradas_no_padrao(a, p, true, &mut vs);
-                    if em(c.span) && declara(&vs) {
+                    declared_in_pattern(a, p, true, &mut vs);
+                    if in_(c.span) && declares(&vs) {
                         return true;
                     }
                 }
@@ -230,8 +230,8 @@ pub fn sombreado(a: &ast::Ast, interner: &Interner, pos: usize, n: SymbolId) -> 
             }
             StmtKind::Try { catches, .. } => {
                 for c in catches.iter() {
-                    let corpo = a.stmt(c.body).span;
-                    if em(corpo) && c.exception.iter().chain(c.stack_trace.iter()).any(|x| x.sym == n) {
+                    let the_body = a.stmt(c.body).span;
+                    if in_(the_body) && c.exception.iter().chain(c.stack_trace.iter()).any(|x| x.sym == n) {
                         return true;
                     }
                 }
@@ -239,7 +239,7 @@ pub fn sombreado(a: &ast::Ast, interner: &Interner, pos: usize, n: SymbolId) -> 
             }
             _ => continue,
         };
-        if em(escopo) && (if no_bloco_todo { nomes.iter().any(|x| x.sym == n) } else { declara(&nomes) }) {
+        if in_(scope) && (if in_whole_block { names.iter().any(|x| x.sym == n) } else { declares(&names) }) {
             return true;
         }
     }
@@ -249,21 +249,21 @@ pub fn sombreado(a: &ast::Ast, interner: &Interner, pos: usize, n: SymbolId) -> 
             ExprKind::Switch { cases, .. } => {
                 for c in cases.iter() {
                     let mut vs = Vec::new();
-                    declaradas_no_padrao(a, c.pattern, true, &mut vs);
-                    if em(c.span) && declara(&vs) {
+                    declared_in_pattern(a, c.pattern, true, &mut vs);
+                    if in_(c.span) && declares(&vs) {
                         return true;
                     }
                 }
             }
             ExprKind::List { elements, .. } | ExprKind::SetOrMap { elements, .. } => {
-                if !em(e.span) {
+                if !in_(e.span) {
                     continue;
                 }
-                let mut escopos = Vec::new();
+                let mut scopes = Vec::new();
                 for el in elements.iter() {
-                    escopos_de_colecao(a, el, &mut escopos);
+                    collection_scopes(a, el, &mut scopes);
                 }
-                if escopos.iter().any(|(s, nomes)| em(*s) && declara(nomes)) {
+                if scopes.iter().any(|(s, names)| in_(*s) && declares(names)) {
                     return true;
                 }
             }
@@ -272,17 +272,17 @@ pub fn sombreado(a: &ast::Ast, interner: &Interner, pos: usize, n: SymbolId) -> 
     }
     // Os parâmetros (no corpo) e os parâmetros de tipo (em toda a função)
     // das funções que contêm `pos`.
-    let comum = |ps: &[ast::Parameter]| ps.iter().any(|p| !p.this_ && !p.super_ && p.name.is_some_and(|x| x.sym == n));
+    let common = |ps: &[ast::Parameter]| ps.iter().any(|p| !p.this_ && !p.super_ && p.name.is_some_and(|x| x.sym == n));
     for f in a.functions.iter() {
-        if em(f.span) && f.type_params.iter().any(|t| t.name.sym == n) {
+        if in_(f.span) && f.type_params.iter().any(|t| t.name.sym == n) {
             return true;
         }
-        let corpo = match &f.body {
+        let the_body = match &f.body {
             FunctionBody::Block(s) => a.stmt(*s).span,
             FunctionBody::Expression(e) => a.expr(*e).span,
             _ => continue,
         };
-        if em(corpo) && f.parameters.as_deref().is_some_and(comum) {
+        if in_(the_body) && f.parameters.as_deref().is_some_and(common) {
             return true;
         }
     }
@@ -290,76 +290,76 @@ pub fn sombreado(a: &ast::Ast, interner: &Interner, pos: usize, n: SymbolId) -> 
     // (os `this.x` e `super.x` também); no corpo, os comuns.
     for m in a.members.iter() {
         let MemberKind::Constructor(k) = &m.kind else { continue };
-        let nos_inicializadores = k.initializers.iter().any(|i| {
-            em(match i {
+        let in_initializers = k.initializers.iter().any(|i| {
+            in_(match i {
                 Initializer::Field { span, .. } | Initializer::Super { span, .. } | Initializer::Redirect { span, .. } | Initializer::Assert { span, .. } => *span,
             })
         });
-        if nos_inicializadores && k.parameters.iter().any(|p| p.name.is_some_and(|x| x.sym == n)) {
+        if in_initializers && k.parameters.iter().any(|p| p.name.is_some_and(|x| x.sym == n)) {
             return true;
         }
-        let corpo = match &k.body {
+        let the_body = match &k.body {
             FunctionBody::Block(s) => Some(a.stmt(*s).span),
             FunctionBody::Expression(e) => Some(a.expr(*e).span),
             _ => None,
         };
-        if corpo.is_some_and(em) && comum(&k.parameters) {
+        if the_body.is_some_and(in_) && common(&k.parameters) {
             return true;
         }
     }
     // Os parâmetros de tipo de um tipo `Function<T>(…)` e de um
     // parâmetro-função `f<T>(…)`.
-    fn tipos_de_parametro(ps: &[ast::Parameter], pos: usize, n: SymbolId) -> bool {
+    fn parameter_types(ps: &[ast::Parameter], pos: usize, n: SymbolId) -> bool {
         ps.iter().any(|p| {
             (p.span.start <= pos && pos < p.span.end && p.function_type_params.iter().any(|t| t.name.sym == n))
-                || p.function_parameters.as_deref().is_some_and(|fs| tipos_de_parametro(fs, pos, n))
+                || p.function_parameters.as_deref().is_some_and(|fs| parameter_types(fs, pos, n))
         })
     }
     for t in a.types.iter() {
         if let TypeKind::Function { type_params, parameters, .. } = &t.kind
-            && ((em(t.span) && type_params.iter().any(|x| x.name.sym == n)) || tipos_de_parametro(parameters, pos, n))
+            && ((in_(t.span) && type_params.iter().any(|x| x.name.sym == n)) || parameter_types(parameters, pos, n))
         {
             return true;
         }
     }
     for f in a.functions.iter() {
-        if f.parameters.as_deref().is_some_and(|ps| tipos_de_parametro(ps, pos, n)) {
+        if f.parameters.as_deref().is_some_and(|ps| parameter_types(ps, pos, n)) {
             return true;
         }
     }
     // Os membros declarados (e os parâmetros de tipo) do tipo que contém
     // `pos` depois do nome dele; os parâmetros de tipo do typedef.
-    let valores = interner.lookup("values");
+    let values = interner.lookup("values");
     for d in a.decls.iter() {
-        let (nome, tipos, membros, extras): (Option<ast::Name>, &[ast::TypeParameter], &[ast::MemberId], Vec<SymbolId>) = match &d.kind {
+        let (the_name, types, members, extras): (Option<ast::Name>, &[ast::TypeParameter], &[ast::MemberId], Vec<SymbolId>) = match &d.kind {
             DeclKind::Class(x) => (Some(x.name), &x.type_params[..], &x.members[..], Vec::new()),
             DeclKind::Mixin(x) => (Some(x.name), &x.type_params[..], &x.members[..], Vec::new()),
             // O `values` sintético do enum também está no escopo.
-            DeclKind::Enum(x) => (Some(x.name), &x.type_params[..], &x.members[..], x.constants.iter().map(|c| c.name.sym).chain(valores).collect()),
+            DeclKind::Enum(x) => (Some(x.name), &x.type_params[..], &x.members[..], x.constants.iter().map(|c| c.name.sym).chain(values).collect()),
             DeclKind::Extension(x) => (x.name, &x.type_params[..], &x.members[..], Vec::new()),
             DeclKind::ExtensionType(x) => (Some(x.name), &x.type_params[..], &x.members[..], vec![x.representation_name.sym]),
             DeclKind::Typedef(x) => {
-                if em(d.span) && x.type_params.iter().any(|t| t.name.sym == n) {
+                if in_(d.span) && x.type_params.iter().any(|t| t.name.sym == n) {
                     return true;
                 }
                 continue;
             }
             _ => continue,
         };
-        let depois_do_nome = nome.map_or(d.span.start, |x| x.span.end);
-        if !(pos > depois_do_nome && pos < d.span.end) {
+        let after_name = the_name.map_or(d.span.start, |x| x.span.end);
+        if !(pos > after_name && pos < d.span.end) {
             continue;
         }
-        if tipos.iter().any(|t| t.name.sym == n) || extras.contains(&n) {
+        if types.iter().any(|t| t.name.sym == n) || extras.contains(&n) {
             return true;
         }
-        for &mid in membros {
-            let declara = match &a.member(mid).kind {
+        for &mid in members {
+            let declares = match &a.member(mid).kind {
                 MemberKind::Method(f) => a.function(*f).name.is_some_and(|x| x.sym == n),
                 MemberKind::Field(l) => l.variables.iter().any(|v| v.name.sym == n),
                 MemberKind::Constructor(_) => false,
             };
-            if declara {
+            if declares {
                 return true;
             }
         }
@@ -371,18 +371,18 @@ pub fn sombreado(a: &ast::Ast, interner: &Interner, pos: usize, n: SymbolId) -> 
 /// simples, o prefixado (`p.x`, `p.C.ctor`) ou o de classe (`C.ctor`, `C.x`,
 /// que devolve a classe). `None` quando o nome é de um escopo local ou de
 /// membro, ou não resolve.
-pub fn elemento_da_anotacao(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation) -> Option<Element> {
+pub fn annotation_element(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation) -> Option<Element> {
     let a = &program.unit(u).ast;
     let pos = m.span.start;
-    let primeiro = m.name.first()?;
-    if sombreado(a, interner, pos, primeiro.sym) {
+    let first = m.name.first()?;
+    if sombreado(a, interner, pos, first.sym) {
         return None;
     }
-    let no_escopo = program.lookup_na_unidade(u, primeiro.sym).and_then(|b| b.getter);
+    let in_scope = program.lookup_na_unidade(u, first.sym).and_then(|b| b.getter);
     match &m.name[..] {
-        [_] => no_escopo,
+        [_] => in_scope,
         // `p.x` com `p` prefixo de importação, ou `C.x`.
-        [p, x, ..] => match no_escopo {
+        [p, x, ..] => match in_scope {
             Some(e) => Some(e),
             None => program.lookup_prefixed_na_unidade(u, p.sym, x.sym).and_then(|b| b.getter),
         },
@@ -394,7 +394,7 @@ pub fn elemento_da_anotacao(program: &Program, interner: &Interner, u: UnitId, m
 /// argumentos, ou o getter lido (o da variável de topo ou estática, ou o
 /// explícito).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ElementoInvocado {
+pub enum InvokedElement {
     Construtor(dartforge_elements::model::ClassId, dartforge_elements::model::FunctionElementId),
     Classe(dartforge_elements::model::ClassId),
     Getter(dartforge_elements::model::FunctionElementId),
@@ -402,14 +402,14 @@ pub enum ElementoInvocado {
 }
 
 /// O [`ElementoInvocado`] da anotação `m`, escrita na unidade `u`.
-pub fn elemento_invocado(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation) -> ElementoInvocado {
+pub fn invoked_element(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation) -> InvokedElement {
     use dartforge_elements::model::FunctionKind;
     let a = &program.unit(u).ast;
-    let Some(primeiro) = m.name.first() else { return ElementoInvocado::Outro };
-    if sombreado(a, interner, m.span.start, primeiro.sym) {
-        return ElementoInvocado::Outro;
+    let Some(first) = m.name.first() else { return InvokedElement::Outro };
+    if sombreado(a, interner, m.span.start, first.sym) {
+        return InvokedElement::Outro;
     }
-    let (alvo, membro) = match &m.name[..] {
+    let (tgt, member) = match &m.name[..] {
         [c] => (program.lookup_na_unidade(u, c.sym).and_then(|b| b.getter), None),
         [x, y] => match program.lookup_na_unidade(u, x.sym).and_then(|b| b.getter) {
             Some(el @ Element::Class(_)) => (Some(el), Some(y.sym)),
@@ -425,27 +425,27 @@ pub fn elemento_invocado(program: &Program, interner: &Interner, u: UnitId, m: &
             FunctionKind::ImplicitAccessor => e.variable.is_some_and(|v| program.variable(v).getter == Some(f)),
             _ => false,
         };
-        if e_getter { ElementoInvocado::Getter(f) } else { ElementoInvocado::Outro }
+        if e_getter { InvokedElement::Getter(f) } else { InvokedElement::Outro }
     };
-    match (alvo, m.arguments.is_some(), membro) {
+    match (tgt, m.arguments.is_some(), member) {
         (Some(Element::Class(c)), true, _) => {
-            let chave = membro.or_else(|| interner.lookup(""));
-            match chave.and_then(|k| program.class(c).constructors.get(&k)) {
-                Some(&f) => ElementoInvocado::Construtor(c, f),
-                None => ElementoInvocado::Outro,
+            let the_key = member.or_else(|| interner.lookup(""));
+            match the_key.and_then(|k| program.class(c).constructors.get(&k)) {
+                Some(&f) => InvokedElement::Construtor(c, f),
+                None => InvokedElement::Outro,
             }
         }
-        (Some(Element::Class(c)), false, None) => ElementoInvocado::Classe(c),
+        (Some(Element::Class(c)), false, None) => InvokedElement::Classe(c),
         (Some(Element::Class(c)), false, Some(n)) => match program.class(c).static_members.get(&n) {
             Some(&f) => getter(f),
-            None => ElementoInvocado::Outro,
+            None => InvokedElement::Outro,
         },
         (Some(Element::Variable(v)), _, None) => match program.variable(v).getter {
-            Some(f) => ElementoInvocado::Getter(f),
-            None => ElementoInvocado::Outro,
+            Some(f) => InvokedElement::Getter(f),
+            None => InvokedElement::Outro,
         },
         (Some(Element::Function(g)), _, None) => getter(g),
-        _ => ElementoInvocado::Outro,
+        _ => InvokedElement::Outro,
     }
 }
 
@@ -456,11 +456,11 @@ pub fn nome_da_biblioteca(program: &Program, interner: &Interner, l: dartforge_e
 
 /// `_isTopGetter`: a anotação lê o getter `nome` de uma biblioteca chamada
 /// `biblioteca` (`_isPackageMetaGetter` com `meta`).
-pub fn e_getter_de(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation, biblioteca: &str, nome: &str) -> bool {
-    match elemento_invocado(program, interner, u, m) {
-        ElementoInvocado::Getter(f) => {
+pub fn e_getter_de(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation, library: &str, the_name: &str) -> bool {
+    match invoked_element(program, interner, u, m) {
+        InvokedElement::Getter(f) => {
             let e = program.function(f);
-            interner.resolve(e.name) == nome && nome_da_biblioteca(program, interner, e.library) == biblioteca
+            interner.resolve(e.name) == the_name && nome_da_biblioteca(program, interner, e.library) == library
         }
         _ => false,
     }
@@ -468,11 +468,11 @@ pub fn e_getter_de(program: &Program, interner: &Interner, u: UnitId, m: &ast::A
 
 /// `_isConstructor`: a anotação invoca um construtor da classe `classe` de
 /// uma biblioteca chamada `biblioteca`.
-pub fn e_construtor_de(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation, biblioteca: &str, classe: &str) -> bool {
-    match elemento_invocado(program, interner, u, m) {
-        ElementoInvocado::Construtor(c, _) => {
+pub fn e_construtor_de(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation, library: &str, class: &str) -> bool {
+    match invoked_element(program, interner, u, m) {
+        InvokedElement::Construtor(c, _) => {
             let k = program.class(c);
-            interner.resolve(k.name) == classe && nome_da_biblioteca(program, interner, k.library) == biblioteca
+            interner.resolve(k.name) == class && nome_da_biblioteca(program, interner, k.library) == library
         }
         _ => false,
     }
@@ -480,14 +480,14 @@ pub fn e_construtor_de(program: &Program, interner: &Interner, u: UnitId, m: &as
 
 /// A anotação `m` (escrita na unidade `u`), sem argumentos, é a variável de
 /// topo `nome` de uma biblioteca cujo URI satisfaz `da_biblioteca`.
-pub fn anotacao_e_variavel(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation, nome: &str, da_biblioteca: &dyn Fn(&str) -> bool) -> bool {
-    if m.arguments.is_some() || m.name.last().is_none_or(|n| interner.resolve(n.sym) != nome) {
+pub fn annotation_and_variable(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation, the_name: &str, of_library: &dyn Fn(&str) -> bool) -> bool {
+    if m.arguments.is_some() || m.name.last().is_none_or(|n| interner.resolve(n.sym) != the_name) {
         return false;
     }
-    match elemento_da_anotacao(program, interner, u, m) {
+    match annotation_element(program, interner, u, m) {
         Some(Element::Variable(v)) => {
             let x = program.variable(v);
-            interner.resolve(x.name) == nome && da_biblioteca(&program.library(x.library).uri)
+            interner.resolve(x.name) == the_name && of_library(&program.library(x.library).uri)
         }
         _ => false,
     }
@@ -497,7 +497,7 @@ pub fn anotacao_e_variavel(program: &Program, interner: &Interner, u: UnitId, m:
 /// (sem argumentos), ou um construtor da classe `Deprecated` do `dart:core`
 /// (`@Deprecated('…')`, com argumentos).
 pub fn e_deprecated(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation) -> bool {
-    match elemento_da_anotacao(program, interner, u, m) {
+    match annotation_element(program, interner, u, m) {
         Some(Element::Variable(v)) => {
             let x = program.variable(v);
             m.arguments.is_none() && interner.resolve(x.name) == "deprecated" && program.library(x.library).uri == "dart:core"
@@ -513,5 +513,5 @@ pub fn e_deprecated(program: &Program, interner: &Interner, u: UnitId, m: &ast::
 /// `ElementAnnotation.isDeprecated` sem argumentos: a variável
 /// `deprecated` do `dart:core`.
 pub fn e_deprecated_do_core(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation) -> bool {
-    anotacao_e_variavel(program, interner, u, m, "deprecated", &|uri| uri == "dart:core")
+    annotation_and_variable(program, interner, u, m, "deprecated", &|uri| uri == "dart:core")
 }

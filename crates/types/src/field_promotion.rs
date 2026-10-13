@@ -19,21 +19,21 @@ use std::collections::{HashMap, HashSet};
 /// `FieldNameNonPromotabilityInfo`: as declarações que impedem a promoção de
 /// um nome, na ordem em que o analyzer as encontra.
 #[derive(Debug, Default, Clone)]
-pub struct InfoDeNaoPromocao {
+pub struct NonPromotionInfo {
     /// Campos não finais ou `external` (`conflictingFields`).
     pub campos: Vec<VariableId>,
     /// Getters concretos (`conflictingGetters`).
     pub getters: Vec<FunctionElementId>,
     /// Classes concretas com encaminhador de `noSuchMethod`
     /// (`conflictingNsmClasses`).
-    pub classes_nsm: Vec<ClassId>,
+    pub nsm_classes: Vec<ClassId>,
 }
 
 /// O resultado de uma biblioteca.
 #[derive(Debug, Default, Clone)]
-pub struct PromocaoDaBiblioteca {
+pub struct LibraryPromotion {
     /// `fieldNameNonPromotabilityInfo`, pelo nome.
-    pub info: HashMap<SymbolId, InfoDeNaoPromocao>,
+    pub info: HashMap<SymbolId, NonPromotionInfo>,
     /// Campos com `isPromotable` (os de representação privados de tipos de
     /// extensão inclusive).
     pub campos: HashSet<VariableId>,
@@ -44,22 +44,22 @@ pub struct PromocaoDaBiblioteca {
 
 /// `PropertyNonPromotabilityReason`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PorQueNaoPromove {
-    NaoECampo,
-    NaoEPrivado,
-    Externo,
-    NaoFinal,
+pub enum WhyNotPromoted {
+    NotAField,
+    NotPrivate,
+    External,
+    NonFinal,
 }
 
 /// Se o recurso vale numa biblioteca (versão de linguagem 3.2 ou mais).
-pub fn habilitada(program: &Program, lib: LibraryId) -> bool {
+pub fn enabled(program: &Program, lib: LibraryId) -> bool {
     program.library(lib).features.versao() >= dartforge_frontend::LanguageVersion::new(3, 2)
 }
 
 /// As classes, enums e mixins de uma unidade na ordem do analyzer: as
 /// classes (e aliases de classe), depois os enums, depois os mixins, cada
 /// grupo na ordem de declaração.
-fn declaracoes_da_unidade(program: &Program, u: dartforge_elements::model::UnitId) -> Vec<(ClassId, bool)> {
+fn unit_declarations(program: &Program, u: dartforge_elements::model::UnitId) -> Vec<(ClassId, bool)> {
     let mut classes = Vec::new();
     let mut enums = Vec::new();
     let mut mixins = Vec::new();
@@ -72,8 +72,8 @@ fn declaracoes_da_unidade(program: &Program, u: dartforge_elements::model::UnitI
         match c.kind {
             ClassKind::Class | ClassKind::MixinApplication => {
                 // `sealed` também é abstrata no elemento do analyzer.
-                let abstrata = c.modifiers.abstract_ || c.modifiers.sealed;
-                classes.push((d.decl.0, id, abstrata));
+                let abstract_ = c.modifiers.abstract_ || c.modifiers.sealed;
+                classes.push((d.decl.0, id, abstract_));
             }
             ClassKind::Enum => enums.push((d.decl.0, id, false)),
             ClassKind::Mixin => mixins.push((d.decl.0, id, true)),
@@ -88,11 +88,11 @@ fn declaracoes_da_unidade(program: &Program, u: dartforge_elements::model::UnitI
 
 /// `getSuperclasses`: o supertipo e os mixins; com `implements` (e o `on`
 /// dos mixins) quando não os ignora.
-fn superclasses(program: &Program, c: ClassId, ignorar_implements: bool) -> Vec<ClassId> {
+fn superclasses(program: &Program, c: ClassId, ignore_implements: bool) -> Vec<ClassId> {
     let ce = program.class(c);
     let mut r: Vec<ClassId> = ce.supertype_class.into_iter().collect();
     r.extend(ce.mixin_classes.iter().copied());
-    if !ignorar_implements {
+    if !ignore_implements {
         r.extend(ce.interface_classes.iter().copied());
         if ce.kind == ClassKind::Mixin {
             r.extend(ce.on_classes.iter().copied());
@@ -103,24 +103,24 @@ fn superclasses(program: &Program, c: ClassId, ignorar_implements: bool) -> Vec<
 
 /// Os nomes de `_directNames` de cada nó alcançável a partir de `c` (o
 /// `_ClassHierarchyWalker`: a união transitiva).
-fn nomes_transitivos(program: &Program, c: ClassId, diretos: &HashMap<ClassId, HashSet<SymbolId>>, ignorar_implements: bool) -> HashSet<SymbolId> {
-    let mut vistos: HashSet<ClassId> = HashSet::new();
-    let mut pilha = vec![c];
-    let mut nomes = HashSet::new();
-    while let Some(x) = pilha.pop() {
-        if !vistos.insert(x) {
+fn transitive_names(program: &Program, c: ClassId, direct: &HashMap<ClassId, HashSet<SymbolId>>, ignore_implements: bool) -> HashSet<SymbolId> {
+    let mut seen: HashSet<ClassId> = HashSet::new();
+    let mut stack = vec![c];
+    let mut names = HashSet::new();
+    while let Some(x) = stack.pop() {
+        if !seen.insert(x) {
             continue;
         }
-        if let Some(d) = diretos.get(&x) {
-            nomes.extend(d.iter().copied());
+        if let Some(d) = direct.get(&x) {
+            names.extend(d.iter().copied());
         }
-        pilha.extend(superclasses(program, x, ignorar_implements));
+        stack.extend(superclasses(program, x, ignore_implements));
     }
-    nomes
+    names
 }
 
 /// O `abstract` escrito de um campo.
-fn campo_abstrato(program: &Program, v: VariableId) -> bool {
+fn abstract_field(program: &Program, v: VariableId) -> bool {
     match program.variable(v).node {
         VariableRef::Field { unit, member, .. } => match &program.unit(unit).ast.member(member).kind {
             ast::MemberKind::Field(l) => l.abstract_,
@@ -131,23 +131,23 @@ fn campo_abstrato(program: &Program, v: VariableId) -> bool {
 }
 
 /// `_FieldPromotability.perform` de uma biblioteca.
-pub fn calcular(program: &Program, interner: &Interner, lib: LibraryId) -> PromocaoDaBiblioteca {
-    let ligada = habilitada(program, lib);
-    let mut info: HashMap<SymbolId, InfoDeNaoPromocao> = HashMap::new();
+pub fn calcular(program: &Program, interner: &Interner, lib: LibraryId) -> LibraryPromotion {
+    let the_enabled = enabled(program, lib);
+    let mut info: HashMap<SymbolId, NonPromotionInfo> = HashMap::new();
     let mut interface: HashMap<ClassId, HashSet<SymbolId>> = HashMap::new();
-    let mut implementados: HashMap<ClassId, HashSet<SymbolId>> = HashMap::new();
-    let mut concretas: Vec<ClassId> = Vec::new();
-    let mut possiveis_campos: Vec<VariableId> = Vec::new();
-    let mut possiveis_getters: Vec<FunctionElementId> = Vec::new();
-    let mut r = PromocaoDaBiblioteca::default();
-    let privado = |s: SymbolId| interner.resolve(s).starts_with('_');
+    let mut implemented: HashMap<ClassId, HashSet<SymbolId>> = HashMap::new();
+    let mut concrete: Vec<ClassId> = Vec::new();
+    let mut possible_fields: Vec<VariableId> = Vec::new();
+    let mut possible_getters: Vec<FunctionElementId> = Vec::new();
+    let mut r = LibraryPromotion::default();
+    let private = |s: SymbolId| interner.resolve(s).starts_with('_');
     for &u in &program.library(lib).units {
-        for (c, abstrata) in declaracoes_da_unidade(program, u) {
-            if !abstrata {
-                concretas.push(c);
+        for (c, abstract_) in unit_declarations(program, u) {
+            if !abstract_ {
+                concrete.push(c);
             }
             interface.entry(c).or_default();
-            implementados.entry(c).or_default();
+            implemented.entry(c).or_default();
             let ce = program.class(c);
             // Os campos de instância não sintéticos, na ordem de declaração.
             for &v in &ce.fields {
@@ -155,18 +155,18 @@ pub fn calcular(program: &Program, interner: &Interner, lib: LibraryId) -> Promo
                 if ve.static_ {
                     continue;
                 }
-                if !privado(ve.name) {
+                if !private(ve.name) {
                     continue;
                 }
-                let abstrato = campo_abstrato(program, v);
+                let the_abstract_ = abstract_field(program, v);
                 interface.get_mut(&c).unwrap().insert(ve.name);
-                if !abstrato {
-                    implementados.get_mut(&c).unwrap().insert(ve.name);
+                if !the_abstract_ {
+                    implemented.get_mut(&c).unwrap().insert(ve.name);
                 }
                 if ve.external || !ve.final_ {
                     info.entry(ve.name).or_default().campos.push(v);
-                } else if ligada {
-                    possiveis_campos.push(v);
+                } else if the_enabled {
+                    possible_fields.push(v);
                 }
             }
             // Os getters de instância não sintéticos, na ordem de declaração.
@@ -182,15 +182,15 @@ pub fn calcular(program: &Program, interner: &Interner, lib: LibraryId) -> Promo
             getters.sort();
             for f in getters {
                 let fe = program.function(f);
-                if !privado(fe.name) {
+                if !private(fe.name) {
                     continue;
                 }
                 interface.get_mut(&c).unwrap().insert(fe.name);
                 if !fe.abstract_ {
-                    implementados.get_mut(&c).unwrap().insert(fe.name);
+                    implemented.get_mut(&c).unwrap().insert(fe.name);
                     info.entry(fe.name).or_default().getters.push(f);
-                } else if ligada {
-                    possiveis_getters.push(f);
+                } else if the_enabled {
+                    possible_getters.push(f);
                 }
             }
         }
@@ -200,7 +200,7 @@ pub fn calcular(program: &Program, interner: &Interner, lib: LibraryId) -> Promo
                 continue;
             }
             if let Some(rep) = c.representation {
-                if privado(program.variable(rep).name) {
+                if private(program.variable(rep).name) {
                     r.campos.insert(rep);
                 }
             }
@@ -208,21 +208,21 @@ pub fn calcular(program: &Program, interner: &Interner, lib: LibraryId) -> Promo
     }
     // `computeNonPromotabilityInfo`: as classes concretas cuja interface tem
     // um nome que a implementação não tem.
-    for &c in &concretas {
-        let nomes_da_interface = nomes_transitivos(program, c, &interface, false);
-        let nomes_implementados = nomes_transitivos(program, c, &implementados, true);
-        let mut faltam: Vec<SymbolId> = nomes_da_interface.into_iter().filter(|n| !nomes_implementados.contains(n)).collect();
-        faltam.sort();
-        for n in faltam {
-            info.entry(n).or_default().classes_nsm.push(c);
+    for &c in &concrete {
+        let interface_names = transitive_names(program, c, &interface, false);
+        let implemented_names = transitive_names(program, c, &implemented, true);
+        let mut missing: Vec<SymbolId> = interface_names.into_iter().filter(|n| !implemented_names.contains(n)).collect();
+        missing.sort();
+        for n in missing {
+            info.entry(n).or_default().nsm_classes.push(c);
         }
     }
-    for v in possiveis_campos {
+    for v in possible_fields {
         if !info.contains_key(&program.variable(v).name) {
             r.campos.insert(v);
         }
     }
-    for f in possiveis_getters {
+    for f in possible_getters {
         if !info.contains_key(&program.function(f).name) {
             r.getters.insert(f);
         }

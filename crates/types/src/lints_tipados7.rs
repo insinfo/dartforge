@@ -23,36 +23,36 @@ fn sem_parenteses(a: &dartforge_frontend::ast::Ast, mut e: ExprId) -> ExprId {
 }
 
 /// Os achados na unidade `u`.
-pub fn achados(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: &OutlineTypes, corpo: &UnitBodyTypes, u: UnitId) -> Vec<Achado> {
+pub fn achados(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: &OutlineTypes, the_body: &UnitBodyTypes, u: UnitId) -> Vec<Achado> {
     let mut out = Vec::new();
     let a = &program.unit(u).ast;
     let e_future = |table: &TypeTable, t: TypeId| matches!(table.get(t), Type::Interface { class, .. } if Some(*class) == core.future_class);
     // Os retornos: (o nó que procura o ancestral, a expressão).
-    let mut casos: Vec<(Span, ExprId)> = Vec::new();
+    let mut cases: Vec<(Span, ExprId)> = Vec::new();
     for f in a.functions.iter() {
         if let FunctionBody::Expression(e) = &f.body {
-            casos.push((a.expr(*e).span, *e));
+            cases.push((a.expr(*e).span, *e));
         }
     }
     for s in a.stmts.iter() {
         if let StmtKind::Return(Some(e)) = &s.kind {
-            casos.push((s.span, *e));
+            cases.push((s.span, *e));
         }
     }
-    if casos.is_empty() {
+    if cases.is_empty() {
         return out;
     }
     // Os blocos de `try` (o corpo e o `finally`).
-    let mut blocos_de_try: Vec<Span> = Vec::new();
+    let mut try_blocks: Vec<Span> = Vec::new();
     for s in a.stmts.iter() {
         if let StmtKind::Try { body, finally_, .. } = &s.kind {
-            blocos_de_try.push(a.stmt(*body).span);
+            try_blocks.push(a.stmt(*body).span);
             if let Some(f) = finally_ {
-                blocos_de_try.push(a.stmt(*f).span);
+                try_blocks.push(a.stmt(*f).span);
             }
         }
     }
-    let literais: HashMap<dartforge_frontend::ast::FunctionId, ExprId> = a
+    let literals: HashMap<dartforge_frontend::ast::FunctionId, ExprId> = a
         .exprs
         .iter()
         .enumerate()
@@ -61,7 +61,7 @@ pub fn achados(program: &Program, table: &mut TypeTable, core: &CoreTypes, outli
             _ => None,
         })
         .collect();
-    let elementos: HashMap<dartforge_frontend::ast::FunctionId, usize> = program
+    let elements: HashMap<dartforge_frontend::ast::FunctionId, usize> = program
         .functions
         .iter()
         .enumerate()
@@ -70,49 +70,49 @@ pub fn achados(program: &Program, table: &mut TypeTable, core: &CoreTypes, outli
             _ => None,
         })
         .collect();
-    for (no, e) in casos {
+    for (no, e) in cases {
         let x = sem_parenteses(a, e);
-        let ExprKind::Await(alvo) = &a.expr(x).kind else { continue };
-        let Some(t) = corpo.get_type(*alvo).filter(|t| !core.is_unknown(table, *t)) else { continue };
+        let ExprKind::Await(target) = &a.expr(x).kind else { continue };
+        let Some(t) = the_body.get_type(*target).filter(|t| !core.is_unknown(table, *t)) else { continue };
         if !e_future(table, t) {
             continue;
         }
         // O ancestral mais próximo: uma função (ou método) ou um bloco de
         // `try`.
-        let funcao = a
+        let func = a
             .functions
             .iter()
             .enumerate()
             .filter(|(_, f)| f.span.start <= no.start && no.end <= f.span.end)
             .min_by_key(|(_, f)| f.span.end - f.span.start)
             .map(|(k, f)| (dartforge_frontend::ast::FunctionId(k as u32), f.span));
-        let bloco = blocos_de_try.iter().filter(|b| b.start <= no.start && no.end <= b.end).min_by_key(|b| b.end - b.start).copied();
-        let Some((fid, fspan)) = funcao else { continue };
-        if bloco.is_some_and(|b| b.end - b.start < fspan.end - fspan.start && b.start >= fspan.start) {
+        let block = try_blocks.iter().filter(|b| b.start <= no.start && no.end <= b.end).min_by_key(|b| b.end - b.start).copied();
+        let Some((fid, fspan)) = func else { continue };
+        if block.is_some_and(|b| b.end - b.start < fspan.end - fspan.start && b.start >= fspan.start) {
             continue;
         }
         // O tipo de retorno do elemento.
-        let retorno = if let Some(&k) = elementos.get(&fid) {
+        let return_ = if let Some(&k) = elements.get(&fid) {
             outline.functions.get(k).map(|d| d.return_type)
-        } else if let Some(&fe) = literais.get(&fid) {
-            match corpo.get_type(fe).map(|t| table.get(t).clone()) {
+        } else if let Some(&fe) = literals.get(&fid) {
+            match the_body.get_type(fe).map(|t| table.get(t).clone()) {
                 Some(Type::Function { ret, .. }) => Some(ret),
                 _ => None,
             }
         } else {
-            a.function(fid).name.and_then(|n| corpo.tipo_local(n.span.start)).and_then(|t| match table.get(t) {
+            a.function(fid).name.and_then(|n| the_body.tipo_local(n.span.start)).and_then(|t| match table.get(t) {
                 Type::Function { ret, .. } => Some(*ret),
                 _ => None,
             })
         };
-        let Some(r) = retorno else { continue };
+        let Some(r) = return_ else { continue };
         if !e_future(table, r) {
             continue;
         }
         let mut env = SubtypeEnv::new(table, &outline.hierarchy, core);
         if is_subtype(t, r, &mut env) {
-            let ini = a.expr(x).span.start;
-            out.push((Span { start: ini, end: ini + "await".len() }, "unnecessary_await_in_return", Vec::new()));
+            let start = a.expr(x).span.start;
+            out.push((Span { start: start, end: start + "await".len() }, "unnecessary_await_in_return", Vec::new()));
         }
     }
     out

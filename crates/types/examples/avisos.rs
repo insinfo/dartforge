@@ -33,7 +33,7 @@ fn main() {
 }
 
 fn executar(a: Vec<String>) {
-    let (sdk, entrada, packages, pedidas): (SdkLayout, PathBuf, Option<PathBuf>, Vec<String>) = match a[0].as_str() {
+    let (sdk, entry, packages, requested): (SdkLayout, PathBuf, Option<PathBuf>, Vec<String>) = match a[0].as_str() {
         "projeto" => {
             let dir = SdkLayout::discover().unwrap_or_else(|| PathBuf::from("C:/tools/dartsdk-3.6.2/lib"));
             (SdkLayout::load(&dir, "dartdevc").unwrap(), PathBuf::from(&a[1]), Some(PathBuf::from(&a[2])), Vec::new())
@@ -43,54 +43,54 @@ fn executar(a: Vec<String>) {
             let libs: Vec<String> = a[4..].to_vec();
             let tmp = std::env::temp_dir().join(format!("dartforge-avisos-sdk-{}", std::process::id()));
             std::fs::create_dir_all(&tmp).unwrap();
-            let entrada = tmp.join("main.dart");
-            let mut fonte: String = libs.iter().map(|l| format!("import 'dart:{l}';\n")).collect();
-            fonte.push_str("void main() {}\n");
-            std::fs::write(&entrada, fonte).unwrap();
-            (sdk, entrada, None, libs)
+            let entry = tmp.join("main.dart");
+            let mut source: String = libs.iter().map(|l| format!("import 'dart:{l}';\n")).collect();
+            source.push_str("void main() {}\n");
+            std::fs::write(&entry, source).unwrap();
+            (sdk, entry, None, libs)
         }
         _ => panic!("uso: avisos projeto <entrada> <cfg> | avisos sdk <lib> <sobreposicao> <alvo> <libs...>"),
     };
     let mut interner = Interner::new();
-    let (prog, _) = load_lenient(&entrada, &sdk, packages.as_deref(), &mut interner);
+    let (prog, _) = load_lenient(&entry, &sdk, packages.as_deref(), &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
-    let mut por_codigo: BTreeMap<String, usize> = BTreeMap::new();
-    let mut listar = |prog: &Program, diags: Vec<dartforge_diagnostics::Diagnostic>, unidades: Vec<Option<UnitId>>| {
-        for (d, u) in diags.iter().zip(unidades.iter()) {
-            let codigo = d.message.split(": ").next().unwrap_or(&d.message).to_string();
-            *por_codigo.entry(codigo).or_default() += 1;
-            let (arq, linha, trecho) = match u {
+    let mut by_code: BTreeMap<String, usize> = BTreeMap::new();
+    let mut list_ = |prog: &Program, diags: Vec<dartforge_diagnostics::Diagnostic>, units: Vec<Option<UnitId>>| {
+        for (d, u) in diags.iter().zip(units.iter()) {
+            let code = d.message.split(": ").next().unwrap_or(&d.message).to_string();
+            *by_code.entry(code).or_default() += 1;
+            let (file, line, snippet) = match u {
                 Some(u) => {
                     let un = prog.unit(*u);
                     let src = &un.source;
-                    let ini = d.span.start.min(src.len());
-                    let fim = d.span.end.min(src.len()).min(ini + 80);
-                    let linha = src[..ini].matches('\n').count() + 1;
-                    let trecho = src.get(ini..fim).unwrap_or("").replace(['\n', '\r'], " ");
-                    (un.uri.clone(), linha, trecho)
+                    let start = d.span.start.min(src.len());
+                    let end = d.span.end.min(src.len()).min(start + 80);
+                    let line = src[..start].matches('\n').count() + 1;
+                    let snippet = src.get(start..end).unwrap_or("").replace(['\n', '\r'], " ");
+                    (un.uri.clone(), line, snippet)
                 }
                 None => ("?".into(), 0, String::new()),
             };
-            println!("{arq}:{linha}\t{}\t{trecho}", d.message);
+            println!("{file}:{line}\t{}\t{snippet}", d.message);
         }
     };
-    if pedidas.is_empty() {
+    if requested.is_empty() {
         let inf = BodyInferrer::new(&prog, &interner, &mut table, &core, &mut outline);
-        let (_, d, u) = inf.infer_all_com_unidades();
-        listar(&prog, d, u);
+        let (_, d, u) = inf.infer_all_with_units();
+        list_(&prog, d, u);
     } else {
-        for nome in &pedidas {
-            let uri = format!("dart:{nome}");
+        for name in &requested {
+            let uri = format!("dart:{name}");
             let Some(i) = prog.libraries.iter().position(|l| l.uri == uri) else { continue };
             let mut inf = BodyInferrer::new(&prog, &interner, &mut table, &core, &mut outline);
             inf.apenas_bibliotecas = Some([LibraryId(i as u32).0].into_iter().collect());
-            let (_, d, u) = inf.infer_all_com_unidades();
-            listar(&prog, d, u);
+            let (_, d, u) = inf.infer_all_with_units();
+            list_(&prog, d, u);
         }
     }
-    let mut v: Vec<(String, usize)> = por_codigo.into_iter().collect();
+    let mut v: Vec<(String, usize)> = by_code.into_iter().collect();
     v.sort_by(|a, b| b.1.cmp(&a.1));
     println!("# total: {}", v.iter().map(|x| x.1).sum::<usize>());
     for (c, n) in v {

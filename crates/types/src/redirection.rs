@@ -11,9 +11,9 @@ use dartforge_elements::model::{ClassId, Element, Program, UnitId};
 use dartforge_frontend::ast;
 
 /// A classe do alvo e o nome do construtor escrito (`None`: o sem nome).
-pub fn classe_e_construtor(program: &Program, unit: UnitId, r: &ast::RedirectTarget) -> Option<(ClassId, Option<ast::Name>)> {
+pub fn class_and_constructor(program: &Program, unit: UnitId, r: &ast::RedirectTarget) -> Option<(ClassId, Option<ast::Name>)> {
     let ast::TypeKind::Named { name, .. } = &program.unit(unit).ast.ty(r.ty).kind else { return None };
-    let (b, construtor) = match (&name[..], r.constructor) {
+    let (b, constructor) = match (&name[..], r.constructor) {
         ([n], ctor) => (program.lookup_na_unidade(unit, n.sym), ctor),
         ([p, n], None) => match program.lookup_prefixed_na_unidade(unit, p.sym, n.sym) {
             Some(b) => (Some(b), None),
@@ -24,7 +24,7 @@ pub fn classe_e_construtor(program: &Program, unit: UnitId, r: &ast::RedirectTar
         _ => (None, None),
     };
     match b?.getter? {
-        Element::Class(c) => Some((c, construtor)),
+        Element::Class(c) => Some((c, constructor)),
         _ => None,
     }
 }

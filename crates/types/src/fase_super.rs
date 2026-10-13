@@ -13,40 +13,40 @@
 use dartforge_diagnostics::codigos::warning as w;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_elements::model::{
-    ClassId, ClassKind, FunctionElementId, FunctionKind as EspecieDeElemento, FunctionRef, LibraryId, Program, UnitId, VariableRef,
+    ClassId, ClassKind, FunctionElementId, FunctionKind as ElementKind, FunctionRef, LibraryId, Program, UnitId, VariableRef,
 };
 use dartforge_frontend::ast::{self, AssignOp, DeclKind, ExprKind, FunctionKind, MemberKind, UnaryOp};
 use dartforge_intern::{Interner, SymbolId};
 use std::collections::{HashSet, VecDeque};
 
 /// A lista de anotações tem `@mustCallSuper` (ou `@prefixo.mustCallSuper`).
-fn anotado(metadata: &[ast::Annotation], sym: SymbolId) -> bool {
+fn annotated(metadata: &[ast::Annotation], sym: SymbolId) -> bool {
     metadata.iter().any(|m| m.arguments.is_none() && m.name.last().is_some_and(|n| n.sym == sym))
 }
 
 /// As anotações da declaração de um membro: as do método, ou as do campo de
 /// um acessor implícito.
-fn anotacoes_de(program: &Program, f: FunctionElementId) -> &[ast::Annotation] {
-    let elemento = program.function(f);
-    if let Some(v) = elemento.variable {
+fn annotations_of(program: &Program, f: FunctionElementId) -> &[ast::Annotation] {
+    let element = program.function(f);
+    if let Some(v) = element.variable {
         return match program.variable(v).node {
             VariableRef::Field { unit, member, .. } => &program.unit(unit).ast.member(member).metadata,
             _ => &[],
         };
     }
-    let (FunctionRef::Function { unit, function }, Some(classe)) = (elemento.node, elemento.class) else { return &[] };
-    let Some(decl) = program.class(classe).decl else { return &[] };
+    let (FunctionRef::Function { unit, function }, Some(class)) = (element.node, element.class) else { return &[] };
+    let Some(decl) = program.class(class).decl else { return &[] };
     let a = &program.unit(unit).ast;
     if decl.unit != unit {
         return &[];
     }
-    let membros: &[ast::MemberId] = match &a.decl(decl.decl).kind {
+    let members: &[ast::MemberId] = match &a.decl(decl.decl).kind {
         DeclKind::Class(x) => &x.members,
         DeclKind::Enum(x) => &x.members,
         DeclKind::Mixin(x) => &x.members,
         _ => return &[],
     };
-    membros
+    members
         .iter()
         .map(|m| a.member(*m))
         .find(|m| matches!(&m.kind, MemberKind::Method(g) if *g == function))
@@ -56,34 +56,34 @@ fn anotacoes_de(program: &Program, f: FunctionElementId) -> &[ast::Annotation] {
 /// `_findOverriddenMemberWithMustCallSuper`: em largura pelos mixins, a
 /// superclasse e (num mixin) as restrições `on`, sem as interfaces; o
 /// primeiro ancestral com um membro de nome `nome` decide.
-fn anotado_acima(program: &Program, interner: &Interner, classe: ClassId, lib: LibraryId, chaves: &[SymbolId], sym: SymbolId) -> Option<ClassId> {
-    let privado = chaves.first().is_some_and(|c| interner.resolve(*c).starts_with('_'));
-    let mut fila: VecDeque<ClassId> = VecDeque::new();
-    let enfileirar = |fila: &mut VecDeque<ClassId>, c: ClassId| {
+fn annotated_above(program: &Program, interner: &Interner, class: ClassId, lib: LibraryId, keys: &[SymbolId], sym: SymbolId) -> Option<ClassId> {
+    let private = keys.first().is_some_and(|c| interner.resolve(*c).starts_with('_'));
+    let mut queue: VecDeque<ClassId> = VecDeque::new();
+    let enqueue = |queue: &mut VecDeque<ClassId>, c: ClassId| {
         let e = program.class(c);
-        fila.extend(e.mixin_classes.iter().copied());
-        fila.extend(e.supertype_class);
+        queue.extend(e.mixin_classes.iter().copied());
+        queue.extend(e.supertype_class);
         if e.kind == ClassKind::Mixin {
-            fila.extend(e.on_classes.iter().copied());
+            queue.extend(e.on_classes.iter().copied());
         }
     };
-    let mut vistos: HashSet<ClassId> = HashSet::new();
-    enfileirar(&mut fila, classe);
-    while let Some(ancestral) = fila.pop_front() {
-        if !vistos.insert(ancestral) {
+    let mut seen: HashSet<ClassId> = HashSet::new();
+    enqueue(&mut queue, class);
+    while let Some(ancestral) = queue.pop_front() {
+        if !seen.insert(ancestral) {
             continue;
         }
         let e = program.class(ancestral);
-        if !privado || e.library == lib {
+        if !private || e.library == lib {
             // `getMethod(name) ?? getGetter(name) ?? getSetter(name)`.
-            let membro = chaves.iter().find_map(|c| e.instance_members.get(c).copied());
-            if let Some(m) = membro
-                && anotado(anotacoes_de(program, m), sym)
+            let mem = keys.iter().find_map(|c| e.instance_members.get(c).copied());
+            if let Some(m) = mem
+                && annotated(annotations_of(program, m), sym)
             {
                 return Some(ancestral);
             }
         }
-        enfileirar(&mut fila, ancestral);
+        enqueue(&mut queue, ancestral);
     }
     None
 }
@@ -91,34 +91,34 @@ fn anotado_acima(program: &Program, interner: &Interner, classe: ClassId, lib: L
 /// `lookUpConcrete…` a partir de `inicio`: a própria classe (com
 /// `com_a_propria`), os mixins dela do último para o primeiro, e assim pela
 /// cadeia de superclasses; o primeiro membro não abstrato da espécie pedida.
-pub(crate) fn concreto(program: &Program, inicio: ClassId, com_a_propria: bool, chave: SymbolId, lib: LibraryId, privado: bool, metodo: bool) -> bool {
+pub(crate) fn concreto(program: &Program, start: ClassId, with_itself: bool, key: SymbolId, lib: LibraryId, private: bool, method: bool) -> bool {
     let serve = |c: ClassId| {
         let e = program.class(c);
-        if privado && e.library != lib {
+        if private && e.library != lib {
             return false;
         }
-        e.instance_members.get(&chave).is_some_and(|f| {
+        e.instance_members.get(&key).is_some_and(|f| {
             let m = program.function(*f);
-            let e_metodo = matches!(m.kind, EspecieDeElemento::Function | EspecieDeElemento::Operator);
-            !m.abstract_ && e_metodo == metodo
+            let is_method = matches!(m.kind, ElementKind::Function | ElementKind::Operator);
+            !m.abstract_ && is_method == method
         })
     };
-    let mut vistos: HashSet<ClassId> = HashSet::new();
-    let mut atual = Some(inicio);
-    let mut primeira = true;
-    while let Some(c) = atual {
-        if !vistos.insert(c) {
+    let mut seen: HashSet<ClassId> = HashSet::new();
+    let mut current = Some(start);
+    let mut first = true;
+    while let Some(c) = current {
+        if !seen.insert(c) {
             break;
         }
-        if (!primeira || com_a_propria) && serve(c) {
+        if (!first || with_itself) && serve(c) {
             return true;
         }
-        primeira = false;
+        first = false;
         let e = program.class(c);
         if e.mixin_classes.iter().rev().any(|m| serve(*m)) {
             return true;
         }
-        atual = e.supertype_class;
+        current = e.supertype_class;
     }
     false
 }
@@ -126,45 +126,45 @@ pub(crate) fn concreto(program: &Program, inicio: ClassId, com_a_propria: bool, 
 /// `invokesSuperSelf`: o corpo de `funcao` tem `super.<nome>` no papel
 /// certo (leitura ou chamada para método e getter, escrita para setter), ou
 /// o operador aplicado a `super`.
-fn chama_o_super(a: &ast::Ast, fonte: &str, interner: &Interner, funcao: &ast::Function, nome: &str, especie: FunctionKind) -> bool {
-    let dentro = |s: Span| funcao.span.start <= s.start && s.end <= funcao.span.end;
+fn calls_super(a: &ast::Ast, source: &str, interner: &Interner, the_function: &ast::Function, the_name: &str, kind: FunctionKind) -> bool {
+    let inside = |s: Span| the_function.span.start <= s.start && s.end <= the_function.span.end;
     let e_super = |e: ast::ExprId| matches!(a.expr(e).kind, ExprKind::Super);
     // Os alvos de atribuição simples (`=`): não são leitura.
-    let mut so_escritos: HashSet<(usize, usize)> = HashSet::new();
-    let mut escritos: Vec<ast::ExprId> = Vec::new();
-    for e in a.exprs.iter().filter(|e| dentro(e.span)) {
+    let mut only_written: HashSet<(usize, usize)> = HashSet::new();
+    let mut written_ones: Vec<ast::ExprId> = Vec::new();
+    for e in a.exprs.iter().filter(|e| inside(e.span)) {
         if let ExprKind::Assign { op, target, .. } = &e.kind {
-            escritos.push(*target);
+            written_ones.push(*target);
             if matches!(op, AssignOp::Assign) {
                 let s = a.expr(*target).span;
-                so_escritos.insert((s.start, s.end));
+                only_written.insert((s.start, s.end));
             }
         }
     }
-    match especie {
-        FunctionKind::Setter => escritos.iter().any(|t| match &a.expr(*t).kind {
-            ExprKind::Property { target, name, .. } => e_super(*target) && interner.resolve(name.sym) == nome,
+    match kind {
+        FunctionKind::Setter => written_ones.iter().any(|t| match &a.expr(*t).kind {
+            ExprKind::Property { target, name, .. } => e_super(*target) && interner.resolve(name.sym) == the_name,
             _ => false,
         }),
-        FunctionKind::Function | FunctionKind::Getter => a.exprs.iter().filter(|e| dentro(e.span)).any(|e| match &e.kind {
+        FunctionKind::Function | FunctionKind::Getter => a.exprs.iter().filter(|e| inside(e.span)).any(|e| match &e.kind {
             ExprKind::Property { target, name, .. } => {
-                e_super(*target) && interner.resolve(name.sym) == nome && !so_escritos.contains(&(e.span.start, e.span.end))
+                e_super(*target) && interner.resolve(name.sym) == the_name && !only_written.contains(&(e.span.start, e.span.end))
             }
             _ => false,
         }),
         FunctionKind::Operator => {
-            if nome == "[]=" {
-                return escritos.iter().any(|t| matches!(&a.expr(*t).kind, ExprKind::Index { target, .. } if e_super(*target)));
+            if the_name == "[]=" {
+                return written_ones.iter().any(|t| matches!(&a.expr(*t).kind, ExprKind::Index { target, .. } if e_super(*target)));
             }
-            a.exprs.iter().filter(|e| dentro(e.span)).any(|e| match &e.kind {
-                ExprKind::Index { target, .. } => nome == "[]" && e_super(*target) && !so_escritos.contains(&(e.span.start, e.span.end)),
-                ExprKind::Unary { op: UnaryOp::Neg, operand } => nome == "unary-" && e_super(*operand),
-                ExprKind::Unary { op: UnaryOp::BitNot, operand } => nome == "~" && e_super(*operand),
+            a.exprs.iter().filter(|e| inside(e.span)).any(|e| match &e.kind {
+                ExprKind::Index { target, .. } => the_name == "[]" && e_super(*target) && !only_written.contains(&(e.span.start, e.span.end)),
+                ExprKind::Unary { op: UnaryOp::Neg, operand } => the_name == "unary-" && e_super(*operand),
+                ExprKind::Unary { op: UnaryOp::BitNot, operand } => the_name == "~" && e_super(*operand),
                 ExprKind::Binary { left, right, .. } if e_super(*left) => {
                     // O texto do operador, entre os operandos; `!=` chama `==`.
-                    let (de, ate) = (a.expr(*left).span.end, a.expr(*right).span.start);
-                    let texto = fonte.get(de..ate).map_or("", str::trim);
-                    texto == nome || (texto == "!=" && nome == "==")
+                    let (of, until) = (a.expr(*left).span.end, a.expr(*right).span.start);
+                    let text = source.get(of..until).map_or("", str::trim);
+                    text == the_name || (text == "!=" && the_name == "==")
                 }
                 _ => false,
             })
@@ -174,68 +174,68 @@ fn chama_o_super(a: &ast::Ast, fonte: &str, interner: &Interner, funcao: &ast::F
 
 /// Os `must_call_super` da biblioteca `lib`.
 pub fn sem_chamada_ao_super(program: &Program, interner: &Interner, lib: LibraryId) -> Vec<(UnitId, Diagnostic)> {
-    let mut saida = Vec::new();
-    let Some(sym) = interner.lookup("mustCallSuper") else { return saida };
-    for (i, classe) in program.classes.iter().enumerate() {
-        if classe.library != lib || !matches!(classe.kind, ClassKind::Class | ClassKind::Enum | ClassKind::Mixin) {
+    let mut output = Vec::new();
+    let Some(sym) = interner.lookup("mustCallSuper") else { return output };
+    for (i, class) in program.classes.iter().enumerate() {
+        if class.library != lib || !matches!(class.kind, ClassKind::Class | ClassKind::Enum | ClassKind::Mixin) {
             continue;
         }
-        let Some(decl) = classe.decl else { continue };
+        let Some(decl) = class.decl else { continue };
         let cid = ClassId(i as u32);
-        let unidade = program.unit(decl.unit);
-        let a = &unidade.ast;
-        let membros: &[ast::MemberId] = match &a.decl(decl.decl).kind {
+        let unit_id = program.unit(decl.unit);
+        let a = &unit_id.ast;
+        let members: &[ast::MemberId] = match &a.decl(decl.decl).kind {
             DeclKind::Class(x) => &x.members,
             DeclKind::Enum(x) => &x.members,
             DeclKind::Mixin(x) => &x.members,
             _ => continue,
         };
-        for &mid in membros {
+        for &mid in members {
             let MemberKind::Method(f) = &a.member(mid).kind else { continue };
             let func = a.function(*f);
             // Estático ou abstrato (sem corpo e sem `external`): fora.
             if func.static_ || (matches!(func.body, ast::FunctionBody::Empty) && !func.external) {
                 continue;
             }
-            let Some(nome) = func.name else { continue };
-            let texto = interner.resolve(nome.sym);
-            let privado = texto.starts_with('_');
-            let chave_do_setter = interner.lookup(&format!("{texto}_="));
-            let chaves: Vec<SymbolId> = match func.kind {
-                FunctionKind::Setter => chave_do_setter.into_iter().collect(),
-                _ => std::iter::once(nome.sym).chain(chave_do_setter).collect(),
+            let Some(the_name) = func.name else { continue };
+            let text = interner.resolve(the_name.sym);
+            let private = text.starts_with('_');
+            let setter_key = interner.lookup(&format!("{text}_="));
+            let keys: Vec<SymbolId> = match func.kind {
+                FunctionKind::Setter => setter_key.into_iter().collect(),
+                _ => std::iter::once(the_name.sym).chain(setter_key).collect(),
             };
-            let Some(dona) = anotado_acima(program, interner, cid, lib, &chaves, sym) else { continue };
+            let Some(owner) = annotated_above(program, interner, cid, lib, &keys, sym) else { continue };
             // A implementação concreta herdada.
-            let tem_concreto = match func.kind {
+            let has_concrete = match func.kind {
                 // `_hasConcreteSuperMethod`: a superclasse, os mixins ou as
                 // restrições, cada um com a sua cadeia.
-                FunctionKind::Function | FunctionKind::Operator => classe
+                FunctionKind::Function | FunctionKind::Operator => class
                     .supertype_class
                     .iter()
-                    .chain(classe.mixin_classes.iter())
-                    .chain(classe.on_classes.iter().filter(|_| classe.kind == ClassKind::Mixin))
-                    .any(|c| concreto(program, *c, true, nome.sym, lib, privado, true)),
+                    .chain(class.mixin_classes.iter())
+                    .chain(class.on_classes.iter().filter(|_| class.kind == ClassKind::Mixin))
+                    .any(|c| concreto(program, *c, true, the_name.sym, lib, private, true)),
                 // `lookUpInheritedConcreteGetter` / `…Setter`.
                 FunctionKind::Getter => {
-                    concreto(program, cid, false, nome.sym, lib, privado, false)
-                        || (classe.kind == ClassKind::Mixin
-                            && classe.on_classes.iter().any(|c| concreto(program, *c, true, nome.sym, lib, privado, false)))
+                    concreto(program, cid, false, the_name.sym, lib, private, false)
+                        || (class.kind == ClassKind::Mixin
+                            && class.on_classes.iter().any(|c| concreto(program, *c, true, the_name.sym, lib, private, false)))
                 }
-                FunctionKind::Setter => chave_do_setter.is_some_and(|k| {
-                    concreto(program, cid, false, k, lib, privado, false)
-                        || (classe.kind == ClassKind::Mixin
-                            && classe.on_classes.iter().any(|c| concreto(program, *c, true, k, lib, privado, false)))
+                FunctionKind::Setter => setter_key.is_some_and(|k| {
+                    concreto(program, cid, false, k, lib, private, false)
+                        || (class.kind == ClassKind::Mixin
+                            && class.on_classes.iter().any(|c| concreto(program, *c, true, k, lib, private, false)))
                 }),
             };
-            if !tem_concreto {
+            if !has_concrete {
                 continue;
             }
-            if !chama_o_super(a, &unidade.source, interner, func, texto, func.kind) {
-                let nome_da_dona = interner.resolve(program.class(dona).name);
-                saida.push((decl.unit, Diagnostic::com_codigo(w::MUST_CALL_SUPER, nome.span, [nome_da_dona])));
+            if !calls_super(a, &unit_id.source, interner, func, text, func.kind) {
+                let owner_name = interner.resolve(program.class(owner).name);
+                output.push((decl.unit, Diagnostic::com_codigo(w::MUST_CALL_SUPER, the_name.span, [owner_name])));
             }
         }
     }
-    saida
+    output
 }

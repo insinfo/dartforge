@@ -50,7 +50,7 @@ pub fn is_subtype(t0: TypeId, t1: TypeId, env: &mut SubtypeEnv) -> bool {
     // subtipo e supertipo de tudo (`subtype.dart:46-50`): o erro do nome já
     // foi relatado, e nada que dependa do tipo é relatado de novo. Só existe
     // na análise (tipos decorados); nos emissores a tabela não tem nenhum.
-    if !env.table.exibicao_vazia() && (env.table.e_invalido(t0) || env.table.e_invalido(t1)) {
+    if !env.table.empty_display() && (env.table.e_invalido(t0) || env.table.e_invalido(t1)) {
         return true;
     }
 
@@ -231,7 +231,7 @@ fn is_subtype_inner(t0_id: TypeId, t1_id: TypeId, env: &mut SubtypeEnv) -> bool 
     {
         if c0 == c1 {
             if args0.len() == args1.len() {
-                return argumentos_da_interface(*c0, args0, args1, env);
+                return interface_arguments(*c0, args0, args1, env);
             }
         } else if let Some(super_t) = env.hierarchy.supertype_of(t0_id, *c1, env.table, env.core) {
             return is_subtype(super_t, t1_id, env);
@@ -253,7 +253,7 @@ fn is_subtype_inner(t0_id: TypeId, t1_id: TypeId, env: &mut SubtypeEnv) -> bool 
             && e0 == e1
             && args0.len() == args1.len()
         {
-            return argumentos_da_interface(*e0, args0, args1, env);
+            return interface_arguments(*e0, args0, args1, env);
         }
         // Subinterfaces declaradas no implements do extension type (classes
         // ou outros extension types, como `JSObject implements JSAny`).
@@ -495,7 +495,7 @@ fn check_right_object(_t0_id: TypeId, t0: &Type, t1_id: TypeId, env: &mut Subtyp
     // - um tipo de extensão sem superinterface que leve a uma classe só é
     //   subtipo de `Object?`.
     if let Type::ExtensionType { decl, .. } = t0
-        && env.hierarchy.extensoes_sem_object.contains(decl)
+        && env.hierarchy.extensions_without_object.contains(decl)
     {
         return false;
     }
@@ -571,11 +571,11 @@ fn strip_nullability(ty_id: TypeId, ty: &Type, table: &mut TypeTable) -> TypeId 
 /// `_interfaceArguments` (`analyzer/lib/src/dart/element/subtype.dart`): os
 /// argumentos de `C<S…>` contra `C<T…>` pela variância declarada de cada
 /// parâmetro (`in`, `out`, `inout`; sem modificador, covariante).
-fn argumentos_da_interface(c: dartforge_elements::model::ClassId, args0: &[TypeId], args1: &[TypeId], env: &mut SubtypeEnv) -> bool {
+fn interface_arguments(c: dartforge_elements::model::ClassId, args0: &[TypeId], args1: &[TypeId], env: &mut SubtypeEnv) -> bool {
     let params: Vec<crate::table::TypeParamId> = env.hierarchy.get(c).map(|d| d.type_params.to_vec()).unwrap_or_default();
     for (i, (&a0, &a1)) in args0.iter().zip(args1.iter()).enumerate() {
-        let variancia = params.get(i).map(|&p| env.table.param(p).variance).unwrap_or_default();
-        let ok = match variancia {
+        let variance = params.get(i).map(|&p| env.table.param(p).variance).unwrap_or_default();
+        let ok = match variance {
             crate::table::Variance::Contravariant => is_subtype(a1, a0, env),
             crate::table::Variance::Invariant => is_subtype(a0, a1, env) && is_subtype(a1, a0, env),
             crate::table::Variance::Covariant | crate::table::Variance::Unspecified => is_subtype(a0, a1, env),

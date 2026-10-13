@@ -21,14 +21,14 @@ use dartforge_frontend::ast::{self, BinaryOp, ExprId, ExprKind, Initializer, Mem
 pub type Achado = (Span, &'static str, Vec<String>);
 
 /// `getIntValue`: o valor de um literal inteiro, com o `-` na frente.
-fn valor_inteiro(a: &ast::Ast, fonte: &str, e: ExprId) -> Option<i64> {
+fn integer_value(a: &ast::Ast, source: &str, e: ExprId) -> Option<i64> {
     let literal = |x: ExprId| match &a.expr(x).kind {
         ExprKind::Int(s) => {
-            let texto: String = fonte.get(s.start..s.end)?.chars().filter(|c| *c != '_').collect();
-            match texto.strip_prefix("0x").or_else(|| texto.strip_prefix("0X")) {
+            let text: String = source.get(s.start..s.end)?.chars().filter(|c| *c != '_').collect();
+            match text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")) {
                 // O hexadecimal vai até 64 bits (`0xFFFFFFFFFFFFFFFF` é -1).
                 Some(hex) => u64::from_str_radix(hex, 16).ok().map(|v| v as i64),
-                None => texto.parse::<i64>().ok(),
+                None => text.parse::<i64>().ok(),
             }
         }
         _ => None,
@@ -42,37 +42,37 @@ fn valor_inteiro(a: &ast::Ast, fonte: &str, e: ExprId) -> Option<i64> {
 /// Os pais das expressões da unidade `u` (`dartforge_frontend::pais`), com
 /// o `case` antigo nas bibliotecas de antes da 3.0.
 pub(crate) fn pais_da_unidade(program: &Program, u: UnitId) -> dartforge_frontend::pais::Pais {
-    let unidade = program.unit(u);
-    let versao = program.library(unidade.library).features.versao();
-    let antes_de_3 = versao < dartforge_frontend::features::LanguageVersion::new(3, 0);
-    dartforge_frontend::pais::Pais::novo(&unidade.ast, &unidade.unit, &unidade.source, antes_de_3)
+    let unit = program.unit(u);
+    let version = program.library(unit.library).features.versao();
+    let before_3 = version < dartforge_frontend::features::LanguageVersion::new(3, 0);
+    dartforge_frontend::pais::Pais::novo(&unit.ast, &unit.unit, &unit.source, before_3)
 }
 
 /// Os achados das regras tipadas na unidade `u`.
-pub fn achados(program: &Program, table: &TypeTable, core: &CoreTypes, outline: &OutlineTypes, corpo: &UnitBodyTypes, u: UnitId) -> Vec<Achado> {
+pub fn achados(program: &Program, table: &TypeTable, core: &CoreTypes, outline: &OutlineTypes, body: &UnitBodyTypes, u: UnitId) -> Vec<Achado> {
     let mut out: Vec<Achado> = Vec::new();
-    let unidade = program.unit(u);
-    let a = &unidade.ast;
-    let fonte = unidade.source.as_str();
+    let unit = program.unit(u);
+    let a = &unit.ast;
+    let source = unit.source.as_str();
 
     // `_check`: dentro de um inicializador de construtor `const`, nada.
-    let mut de_const: Vec<Span> = Vec::new();
+    let mut of_const: Vec<Span> = Vec::new();
     for m in a.members.iter() {
         if let MemberKind::Constructor(k) = &m.kind
             && k.const_
         {
-            de_const.extend(k.initializers.iter().map(|i| match i {
+            of_const.extend(k.initializers.iter().map(|i| match i {
                 Initializer::Field { span, .. } | Initializer::Super { span, .. } | Initializer::Redirect { span, .. } | Initializer::Assert { span, .. } => *span,
             }));
         }
     }
     // `inConstantContext`.
     let pais = pais_da_unidade(program, u);
-    let em_constante = |e: ExprId| pais.em_contexto_constante(a, e) || de_const.iter().any(|k| k.start <= a.expr(e).span.start && a.expr(e).span.end <= k.end);
+    let in_constant = |e: ExprId| pais.em_contexto_constante(a, e) || of_const.iter().any(|k| k.start <= a.expr(e).span.start && a.expr(e).span.end <= k.end);
 
     // `_isLengthAccess`: `x.length` com `x` um `Iterable`, um `Map` ou uma
     // `String` (através de parênteses e de `as`).
-    let de_comprimento = |mut e: ExprId| {
+    let of_length = |mut e: ExprId| {
         loop {
             match &a.expr(e).kind {
                 ExprKind::Parenthesized(x) => e = *x,
@@ -81,61 +81,61 @@ pub fn achados(program: &Program, table: &TypeTable, core: &CoreTypes, outline: 
             }
         }
         let ExprKind::Property { target, name, .. } = &a.expr(e).kind else { return false };
-        if fonte.get(name.span.start..name.span.end) != Some("length") {
+        if source.get(name.span.start..name.span.end) != Some("length") {
             return false;
         }
-        let Some(tipo) = corpo.get_type(*target) else { return false };
-        let Type::Interface { class, .. } = table.get(tipo) else { return false };
-        let implementa = |alvo: Option<dartforge_elements::model::ClassId>| {
-            alvo.is_some_and(|k| *class == k || outline.hierarchy.get(*class).is_some_and(|d| d.supertypes.contains_key(&k)))
+        let Some(ty) = body.get_type(*target) else { return false };
+        let Type::Interface { class, .. } = table.get(ty) else { return false };
+        let implements = |tgt: Option<dartforge_elements::model::ClassId>| {
+            tgt.is_some_and(|k| *class == k || outline.hierarchy.get(*class).is_some_and(|d| d.supertypes.contains_key(&k)))
         };
-        Some(*class) == core.string_class || implementa(core.iterable_class) || implementa(core.map_class)
+        Some(*class) == core.string_class || implements(core.iterable_class) || implements(core.map_class)
     };
 
     for (k, e) in a.exprs.iter().enumerate() {
         let ExprKind::Binary { op, left, right } = &e.kind else { continue };
         // A constante de um lado e o `length` do outro.
-        let (valor, a_direita) = match valor_inteiro(a, fonte, *right) {
-            Some(v) if de_comprimento(*left) => (v, true),
+        let (the_value, to_the_right) = match integer_value(a, source, *right) {
+            Some(v) if of_length(*left) => (v, true),
             Some(_) => continue,
-            None => match valor_inteiro(a, fonte, *left) {
-                Some(v) if de_comprimento(*right) => (v, false),
+            None => match integer_value(a, source, *left) {
+                Some(v) if of_length(*right) => (v, false),
                 _ => continue,
             },
         };
-        if em_constante(ExprId(k as u32)) {
+        if in_constant(ExprId(k as u32)) {
             continue;
         }
-        let (vazio, nao_vazio, falso, verdadeiro) = (
+        let (empty, non_empty, false_, true_) = (
             "prefer_is_empty_use_is_empty",
             "prefer_is_empty_use_is_not_empty",
             "prefer_is_empty_always_false",
             "prefer_is_empty_always_true",
         );
-        let codigo = if valor == 0 {
+        let code = if the_value == 0 {
             match op {
-                BinaryOp::Eq | BinaryOp::LtEq => Some(vazio),
-                BinaryOp::Gt | BinaryOp::NotEq => Some(nao_vazio),
-                BinaryOp::Lt => Some(falso),
-                BinaryOp::GtEq => Some(verdadeiro),
+                BinaryOp::Eq | BinaryOp::LtEq => Some(empty),
+                BinaryOp::Gt | BinaryOp::NotEq => Some(non_empty),
+                BinaryOp::Lt => Some(false_),
+                BinaryOp::GtEq => Some(true_),
                 _ => None,
             }
-        } else if valor == 1 {
-            match (a_direita, op) {
-                (true, BinaryOp::GtEq) | (false, BinaryOp::LtEq) => Some(nao_vazio),
-                (true, BinaryOp::Lt) | (false, BinaryOp::Gt) => Some(vazio),
+        } else if the_value == 1 {
+            match (to_the_right, op) {
+                (true, BinaryOp::GtEq) | (false, BinaryOp::LtEq) => Some(non_empty),
+                (true, BinaryOp::Lt) | (false, BinaryOp::Gt) => Some(empty),
                 _ => None,
             }
-        } else if valor < 0 {
-            match (a_direita, op) {
-                (true, BinaryOp::Eq | BinaryOp::LtEq | BinaryOp::Lt) | (false, BinaryOp::Eq | BinaryOp::GtEq | BinaryOp::Gt) => Some(falso),
-                (true, BinaryOp::NotEq | BinaryOp::GtEq | BinaryOp::Gt) | (false, BinaryOp::NotEq | BinaryOp::LtEq | BinaryOp::Lt) => Some(verdadeiro),
+        } else if the_value < 0 {
+            match (to_the_right, op) {
+                (true, BinaryOp::Eq | BinaryOp::LtEq | BinaryOp::Lt) | (false, BinaryOp::Eq | BinaryOp::GtEq | BinaryOp::Gt) => Some(false_),
+                (true, BinaryOp::NotEq | BinaryOp::GtEq | BinaryOp::Gt) | (false, BinaryOp::NotEq | BinaryOp::LtEq | BinaryOp::Lt) => Some(true_),
                 _ => None,
             }
         } else {
             None
         };
-        if let Some(c) = codigo {
+        if let Some(c) = code {
             out.push((e.span, c, Vec::new()));
         }
     }

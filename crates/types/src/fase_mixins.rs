@@ -82,12 +82,12 @@ fn contexto(a: &ast::Ast, pais: &dartforge_frontend::pais::Pais, e: ast::ExprId)
 /// `superInvokedNames`: os nomes invocados por `super` nos corpos dos
 /// métodos e acessores do mixin, na ordem da visita (pré-ordem: pelo início
 /// e, no mesmo início, o nó maior antes).
-fn nomes_invocados_por_super(program: &Program, m: ClassId) -> Vec<String> {
+fn names_invoked_through_super(program: &Program, m: ClassId) -> Vec<String> {
     let Some(d) = program.class(m).decl else { return Vec::new() };
-    let unidade = program.unit(d.unit);
-    let a = &unidade.ast;
+    let unit = program.unit(d.unit);
+    let a = &unit.ast;
     let DeclKind::Mixin(x) = &a.decl(d.decl).kind else { return Vec::new() };
-    let corpos: Vec<dartforge_diagnostics::Span> = x
+    let bodies: Vec<dartforge_diagnostics::Span> = x
         .members
         .iter()
         .filter_map(|&mid| match &a.member(mid).kind {
@@ -95,22 +95,22 @@ fn nomes_invocados_por_super(program: &Program, m: ClassId) -> Vec<String> {
             _ => None,
         })
         .collect();
-    if corpos.is_empty() {
+    if bodies.is_empty() {
         return Vec::new();
     }
     let pais = crate::lints_tipados::pais_da_unidade(program, d.unit);
     let e_super = |e: ast::ExprId| matches!(a.expr(e).kind, ExprKind::Super);
-    let mut achados: Vec<(usize, usize, Vec<String>)> = Vec::new();
+    let mut findings: Vec<(usize, usize, Vec<String>)> = Vec::new();
     for (i, ex) in a.exprs.iter().enumerate() {
         let id = ast::ExprId(i as u32);
         let sp = ex.span;
-        if !corpos.iter().any(|c| c.start <= sp.start && sp.end <= c.end) {
+        if !bodies.iter().any(|c| c.start <= sp.start && sp.end <= c.end) {
             continue;
         }
-        let nomes: Vec<String> = match &ex.kind {
+        let names: Vec<String> = match &ex.kind {
             // `super.m(...)`: a `MethodInvocation`.
             ExprKind::Call { target, .. } => match &a.expr(*target).kind {
-                ExprKind::Property { target: t, name, .. } if e_super(*t) => vec![unidade.source[name.span.start..name.span.end].to_string()],
+                ExprKind::Property { target: t, name, .. } if e_super(*t) => vec![unit.source[name.span.start..name.span.end].to_string()],
                 _ => Vec::new(),
             },
             ExprKind::Property { target, name, .. } if e_super(*target) => {
@@ -120,25 +120,25 @@ fn nomes_invocados_por_super(program: &Program, m: ClassId) -> Vec<String> {
                 {
                     Vec::new()
                 } else {
-                    let nome = unidade.source[name.span.start..name.span.end].to_string();
-                    let (le, escreve) = contexto(a, &pais, id);
+                    let the_name = unit.source[name.span.start..name.span.end].to_string();
+                    let (le, writes) = contexto(a, &pais, id);
                     let mut v = Vec::new();
                     if le {
-                        v.push(nome.clone());
+                        v.push(the_name.clone());
                     }
-                    if escreve {
-                        v.push(format!("{nome}="));
+                    if writes {
+                        v.push(format!("{the_name}="));
                     }
                     v
                 }
             }
             ExprKind::Index { target, .. } if e_super(*target) => {
-                let (le, escreve) = contexto(a, &pais, id);
+                let (le, writes) = contexto(a, &pais, id);
                 let mut v = Vec::new();
                 if le {
                     v.push("[]".to_string());
                 }
-                if escreve {
+                if writes {
                     v.push("[]=".to_string());
                 }
                 v
@@ -148,61 +148,61 @@ fn nomes_invocados_por_super(program: &Program, m: ClassId) -> Vec<String> {
             ExprKind::Unary { op: UnaryOp::BitNot, operand } if e_super(*operand) => vec!["~".to_string()],
             _ => Vec::new(),
         };
-        if !nomes.is_empty() {
-            achados.push((sp.start, usize::MAX - (sp.end - sp.start), nomes));
+        if !names.is_empty() {
+            findings.push((sp.start, usize::MAX - (sp.end - sp.start), names));
         }
     }
-    achados.sort_by_key(|(ini, tam, _)| (*ini, *tam));
-    let mut saida: Vec<String> = Vec::new();
-    for (_, _, ns) in achados {
+    findings.sort_by_key(|(start, tam, _)| (*start, *tam));
+    let mut output: Vec<String> = Vec::new();
+    for (_, _, ns) in findings {
         for n in ns {
-            if !saida.contains(&n) {
-                saida.push(n);
+            if !output.contains(&n) {
+                output.push(n);
             }
         }
     }
-    saida
+    output
 }
 
 /// A chave do modelo de elementos para um nome do analyzer (o setter `x=` é
 /// `x_=`; os operadores ficam como estão).
-fn chave_do_modelo(interner: &Interner, nome: &str) -> Option<dartforge_intern::SymbolId> {
-    if let Some(base) = nome.strip_suffix('=')
+fn model_key(interner: &Interner, the_name: &str) -> Option<dartforge_intern::SymbolId> {
+    if let Some(base) = the_name.strip_suffix('=')
         && !base.is_empty()
         && base.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_' || c == '$')
     {
         return interner.lookup(&format!("{base}_="));
     }
-    interner.lookup(nome)
+    interner.lookup(the_name)
 }
 
 /// `_computeThisTypeForSubtype`: os parâmetros covariantes valem `Object?`.
-fn tipo_para_subtipo(table: &mut TypeTable, core: &CoreTypes, t: TypeId, covariantes: &[Param]) -> TypeId {
-    if covariantes.is_empty() {
+fn type_for_subtype(table: &mut TypeTable, core: &CoreTypes, t: TypeId, the_covariant: &[Param]) -> TypeId {
+    if the_covariant.is_empty() {
         return t;
     }
     let Type::Function { type_params, ret, positional, optional, named, nullable } = table.get(t).clone() else { return t };
     let mut pos = positional.to_vec();
-    let mut opc = optional.to_vec();
-    let mut nom = named.to_vec();
-    for p in covariantes {
+    let mut the_opt = optional.to_vec();
+    let mut the_named = named.to_vec();
+    for p in the_covariant {
         match *p {
             Param::Indice(i) => {
                 if i < pos.len() {
                     pos[i] = core.object_nullable;
-                } else if i - pos.len() < opc.len() {
+                } else if i - pos.len() < the_opt.len() {
                     let k = i - pos.len();
-                    opc[k] = core.object_nullable;
+                    the_opt[k] = core.object_nullable;
                 }
             }
             Param::Nome(n) => {
-                if let Some(x) = nom.iter_mut().find(|(m, _, _)| *m == n) {
+                if let Some(x) = the_named.iter_mut().find(|(m, _, _)| *m == n) {
                     x.1 = core.object_nullable;
                 }
             }
         }
     }
-    table.intern(Type::Function { type_params, ret, positional: pos.into_boxed_slice(), optional: opc.into_boxed_slice(), named: nom.into_boxed_slice(), nullable })
+    table.intern(Type::Function { type_params, ret, positional: pos.into_boxed_slice(), optional: the_opt.into_boxed_slice(), named: the_named.into_boxed_slice(), nullable })
 }
 
 /// As decisões dos mixins de `with` das declarações de `libs`:
@@ -215,9 +215,9 @@ pub fn decisoes(
     outline: &OutlineTypes,
     libs: &[LibraryId],
 ) -> HashMap<(ClassId, usize), Option<Diagnostic>> {
-    let mut saida = HashMap::new();
-    let mut heranca = Heranca::default();
-    let mut nomes_por_mixin: HashMap<ClassId, Vec<String>> = HashMap::new();
+    let mut output = HashMap::new();
+    let mut inheritance = Heranca::default();
+    let mut names_by_mixin: HashMap<ClassId, Vec<String>> = HashMap::new();
     let enum_ = program
         .classes
         .iter()
@@ -238,17 +238,17 @@ pub fn decisoes(
         if with.is_empty() {
             continue;
         }
-        let dados = outline.classes[ci].clone();
-        if dados.mixins.len() != with.len() {
+        let data = outline.classes[ci].clone();
+        if data.mixins.len() != with.len() {
             continue;
         }
         // `_enclosingClass.supertype`, sem `?`.
-        let supertipo = match ce.kind {
+        let the_supertype = match ce.kind {
             ClassKind::Enum => match enum_ {
                 Some(e) => table.intern(Type::Interface { class: e, args: Box::new([]), nullable: false }),
                 None => continue,
             },
-            _ => match dados.supertype {
+            _ => match data.supertype {
                 Some(t) if matches!(table.get(t), Type::Interface { .. }) => {
                     let Type::Interface { class, args, .. } = table.get(t).clone() else { continue };
                     table.intern(Type::Interface { class, args, nullable: false })
@@ -257,10 +257,10 @@ pub fn decisoes(
             },
         };
         // `mixinTypeIndex`: só os mixins que são tipos de interface.
-        let mut indice_de_tipo: isize = -1;
-        for (i, (&escrito, &mt)) in with.iter().zip(dados.mixins.iter()).enumerate() {
+        let mut type_index: isize = -1;
+        for (i, (&written, &mt)) in with.iter().zip(data.mixins.iter()).enumerate() {
             let Type::Interface { class: m, args, .. } = table.get(mt).clone() else { continue };
-            indice_de_tipo += 1;
+            type_index += 1;
             let me = program.class(m);
             if me.kind != ClassKind::Mixin {
                 continue;
@@ -268,84 +268,84 @@ pub fn decisoes(
             // O mixin escrito sem argumentos já vem inferido do outline
             // (`resolve::inferir_mixin`), ou cru quando a inferência falha.
             let params: Vec<TypeParamId> = outline.classes[m.0 as usize].type_params.to_vec();
-            let mapa: HashMap<TypeParamId, TypeId> = params.iter().copied().zip(args.iter().copied()).collect();
+            let map: HashMap<TypeParamId, TypeId> = params.iter().copied().zip(args.iter().copied()).collect();
             // `_checkForMixinSuperclassConstraints`.
-            let mut decisao: Option<Diagnostic> = None;
-            let restricoes = outline.classes[m.0 as usize].on.clone();
-            for &r in restricoes.iter() {
-                let restricao = if mapa.is_empty() { r } else { ops::substitute(r, &mapa, table) };
-                let mut satisfeita = {
+            let mut decision: Option<Diagnostic> = None;
+            let constraints = outline.classes[m.0 as usize].on.clone();
+            for &r in constraints.iter() {
+                let constraint = if map.is_empty() { r } else { ops::substitute(r, &map, table) };
+                let mut satisfied = {
                     let mut env = SubtypeEnv::new(table, &outline.hierarchy, core);
-                    is_subtype(supertipo, restricao, &mut env)
+                    is_subtype(the_supertype, constraint, &mut env)
                 };
-                for &anterior in dados.mixins[..i].iter() {
-                    if satisfeita {
+                for &previous in data.mixins[..i].iter() {
+                    if satisfied {
                         break;
                     }
                     let mut env = SubtypeEnv::new(table, &outline.hierarchy, core);
-                    satisfeita = is_subtype(anterior, restricao, &mut env);
+                    satisfied = is_subtype(previous, constraint, &mut env);
                 }
-                if !satisfeita {
-                    let nome = match &a.ty(escrito).kind {
+                if !satisfied {
+                    let the_name = match &a.ty(written).kind {
                         ast::TypeKind::Named { name, .. } => name.last().map(|n| n.span),
                         _ => None,
                     };
-                    let Some(sp) = nome else { break };
-                    let (a0, a1, a2) = (table.format(mt, interner, program), table.format(supertipo, interner, program), table.format(restricao, interner, program));
-                    decisao = Some(Diagnostic::com_codigo(c::MIXIN_APPLICATION_NOT_IMPLEMENTED_INTERFACE, sp, [a0.as_str(), a1.as_str(), a2.as_str()]));
+                    let Some(sp) = the_name else { break };
+                    let (a0, a1, a2) = (table.format(mt, interner, program), table.format(the_supertype, interner, program), table.format(constraint, interner, program));
+                    decision = Some(Diagnostic::com_codigo(c::MIXIN_APPLICATION_NOT_IMPLEMENTED_INTERFACE, sp, [a0.as_str(), a1.as_str(), a2.as_str()]));
                     break;
                 }
             }
             // `_checkForMixinSuperInvokedMembers`.
-            if decisao.is_none() {
-                let nomes = nomes_por_mixin.entry(m).or_insert_with(|| nomes_invocados_por_super(program, m)).clone();
-                if !nomes.is_empty() {
+            if decision.is_none() {
+                let names = names_by_mixin.entry(m).or_insert_with(|| names_invoked_through_super(program, m)).clone();
+                if !names.is_empty() {
                     let interface = {
                         let mut p = ProvedorDoOutline { program, interner, core, outline, table: &mut *table };
-                        heranca.interface(&mut p, id)
+                        inheritance.interface(&mut p, id)
                     };
                     let interface_do_mixin = {
                         let mut p = ProvedorDoOutline { program, interner, core, outline, table: &mut *table };
-                        heranca.interface(&mut p, m)
+                        inheritance.interface(&mut p, m)
                     };
-                    let sp = a.ty(escrito).span;
-                    for nome in nomes {
+                    let sp = a.ty(written).span;
+                    for the_name in names {
                         // `isSetter = name.endsWith('=')` (também `==`, `<=`,
                         // `[]=`: o nome perde o último `=`).
-                        let (codigo_ausente, texto_ausente) = match nome.strip_suffix('=') {
+                        let (missing_code, missing_text) = match the_name.strip_suffix('=') {
                             Some(s) => (c::MIXIN_APPLICATION_NO_CONCRETE_SUPER_INVOKED_SETTER, s.to_string()),
-                            None => (c::MIXIN_APPLICATION_NO_CONCRETE_SUPER_INVOKED_MEMBER, nome.clone()),
+                            None => (c::MIXIN_APPLICATION_NO_CONCRETE_SUPER_INVOKED_MEMBER, the_name.clone()),
                         };
-                        let Some(chave) = chave_do_modelo(interner, &nome) else {
-                            decisao = Some(Diagnostic::com_codigo(codigo_ausente, sp, [texto_ausente.as_str()]));
+                        let Some(key) = model_key(interner, &the_name) else {
+                            decision = Some(Diagnostic::com_codigo(missing_code, sp, [missing_text.as_str()]));
                             break;
                         };
-                        let n = Nome::novo(interner, me.library, chave);
-                        let super_membro = usize::try_from(indice_de_tipo).ok().and_then(|k| interface.super_implemented.get(k)).and_then(|mp| mp.get(&n)).cloned();
-                        let Some(super_membro) = super_membro else {
-                            decisao = Some(Diagnostic::com_codigo(codigo_ausente, sp, [texto_ausente.as_str()]));
+                        let n = Nome::novo(interner, me.library, key);
+                        let super_member_of = usize::try_from(type_index).ok().and_then(|k| interface.super_implemented.get(k)).and_then(|mp| mp.get(&n)).cloned();
+                        let Some(super_member_of) = super_member_of else {
+                            decision = Some(Diagnostic::com_codigo(missing_code, sp, [missing_text.as_str()]));
                             break;
                         };
                         // `getMember(mixinType, name, forSuper: true)`: o
                         // `super` do próprio mixin (as restrições), visto
                         // pelos argumentos do mixin.
                         let Some(do_mixin) = interface_do_mixin.super_implemented.last().and_then(|mp| mp.get(&n)).cloned() else { continue };
-                        let tipo_mixin = if mapa.is_empty() { do_mixin.tipo } else { ops::substitute(do_mixin.tipo, &mapa, table) };
-                        let este = tipo_para_subtipo(table, core, super_membro.tipo, &super_membro.covariantes);
-                        let correto = {
+                        let mixin_type = if map.is_empty() { do_mixin.tipo } else { ops::substitute(do_mixin.tipo, &map, table) };
+                        let this_one = type_for_subtype(table, core, super_member_of.tipo, &super_member_of.the_covariant);
+                        let correct = {
                             let mut env = SubtypeEnv::new(table, &outline.hierarchy, core);
-                            is_subtype(este, tipo_mixin, &mut env)
+                            is_subtype(this_one, mixin_type, &mut env)
                         };
-                        if !correto {
-                            let (t1, t2) = (table.format(tipo_mixin, interner, program), table.format(super_membro.tipo, interner, program));
-                            decisao = Some(Diagnostic::com_codigo(c::MIXIN_APPLICATION_CONCRETE_SUPER_INVOKED_MEMBER_TYPE, sp, [nome.as_str(), t1.as_str(), t2.as_str()]));
+                        if !correct {
+                            let (t1, t2) = (table.format(mixin_type, interner, program), table.format(super_member_of.tipo, interner, program));
+                            decision = Some(Diagnostic::com_codigo(c::MIXIN_APPLICATION_CONCRETE_SUPER_INVOKED_MEMBER_TYPE, sp, [the_name.as_str(), t1.as_str(), t2.as_str()]));
                             break;
                         }
                     }
                 }
             }
-            saida.insert((id, i), decisao);
+            output.insert((id, i), decision);
         }
     }
-    saida
+    output
 }

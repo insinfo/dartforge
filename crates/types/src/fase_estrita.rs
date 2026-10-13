@@ -58,18 +58,18 @@ fn dentro(a: Span, b: Span) -> bool {
 /// As regiões que o `_UsedParameterVisitor` percorre, ou `None` quando o
 /// `isParameterReferenced` dá todo parâmetro por citado: sem corpo (ou com
 /// o corpo `;`) e sem lista de inicializadores.
-fn regioes_de(a: &ast::Ast, corpo: &FunctionBody, inicializadores: Option<&[Initializer]>) -> Option<Vec<Span>> {
-    if matches!(corpo, FunctionBody::Empty) && inicializadores.is_none() {
+fn regions_of(a: &ast::Ast, body: &FunctionBody, initializers: Option<&[Initializer]>) -> Option<Vec<Span>> {
+    if matches!(body, FunctionBody::Empty) && initializers.is_none() {
         return None;
     }
     let mut v = Vec::new();
-    match corpo {
+    match body {
         FunctionBody::Block(s) => v.push(a.stmt(*s).span),
         FunctionBody::Expression(e) => v.push(a.expr(*e).span),
         // O corpo `native 'x';` só tem o literal: nenhum identificador.
         FunctionBody::Empty | FunctionBody::Native(_) => {}
     }
-    for i in inicializadores.unwrap_or(&[]) {
+    for i in initializers.unwrap_or(&[]) {
         let sp = match i {
             Initializer::Assert { span, .. } | Initializer::Redirect { span, .. } | Initializer::Super { span, .. } => *span,
             Initializer::Field { value, .. } => a.expr(*value).span,
@@ -87,82 +87,82 @@ pub fn falhas_de_inferencia(
     table: &mut crate::table::TypeTable,
     core: &crate::table::CoreTypes,
     outline: &OutlineTypes,
-    corpo: &UnitBodyTypes,
+    body: &UnitBodyTypes,
     u: UnitId,
 ) -> Vec<Diagnostic> {
     let mut out = Vec::new();
-    let unidade = program.unit(u);
-    let a = &unidade.ast;
-    let fonte = unidade.source.as_str();
-    let nome = |s: SymbolId| interner.resolve(s).to_string();
+    let unit = program.unit(u);
+    let a = &unit.ast;
+    let source = unit.source.as_str();
+    let name = |s: SymbolId| interner.resolve(s).to_string();
 
     // `_UsedParameterVisitor`: um identificador nas regiões cujo local
     // resolvido é o parâmetro declarado em `declaracao`.
-    let citado = |regioes: &[Span], declaracao: usize| {
+    let cited = |regions: &[Span], declaration: usize| {
         a.exprs.iter().enumerate().any(|(k, e)| {
             matches!(e.kind, ExprKind::Identifier(_))
-                && regioes.iter().any(|&r| dentro(e.span, r))
-                && corpo.declaracao_local(ExprId(k as u32)) == Some(declaracao)
+                && regions.iter().any(|&r| dentro(e.span, r))
+                && body.declaracao_local(ExprId(k as u32)) == Some(declaration)
         })
     };
     // `_checkStrictInferenceInParameters`: os parâmetros simples da lista
     // (também dentro do `DefaultFormalParameter`).
-    let parametros = |ps: &[Parameter], regioes: Option<&[Span]>, out: &mut Vec<Diagnostic>| {
+    let params_list = |ps: &[Parameter], regions: Option<&[Span]>, out: &mut Vec<Diagnostic>| {
         for p in ps {
             if p.ty.is_some() || p.this_ || p.super_ || p.function_parameters.is_some() {
                 continue;
             }
             let Some(n) = p.name else { continue };
-            let referido = match regioes {
+            let referenced = match regions {
                 None => true,
-                Some(r) => citado(r, n.span.start),
+                Some(r) => cited(r, n.span.start),
             };
-            if referido {
+            if referenced {
                 // O nó do `SimpleFormalParameter`, sem o valor padrão: o
                 // nome é o último token dele.
-                let fim = if p.default_value.is_some() { n.span.end } else { p.span.end };
-                out.push(Diagnostic::com_codigo(w::INFERENCE_FAILURE_ON_UNTYPED_PARAMETER, Span { start: p.span.start, end: fim }, [nome(n.sym)]));
+                let end = if p.default_value.is_some() { n.span.end } else { p.span.end };
+                out.push(Diagnostic::com_codigo(w::INFERENCE_FAILURE_ON_UNTYPED_PARAMETER, Span { start: p.span.start, end: end }, [name(n.sym)]));
             }
         }
     };
     // A classe da declaração (o `InterfaceElement` que a contém).
-    let classe_da_decl = |d: ast::DeclId| -> Option<ClassId> {
+    let decl_class = |d: ast::DeclId| -> Option<ClassId> {
         program.classes.iter().position(|c| c.decl.is_some_and(|r| r.unit == u && r.decl == d)).map(|i| ClassId(i as u32))
     };
     // `getOverridden2` (o mesmo de `fase_override`), pela chave do membro.
-    let lib = unidade.library;
-    let mut heranca = crate::heranca::Heranca::default();
-    let mut provedor = crate::heranca::ProvedorDoOutline { program, interner, core, outline, table };
-    let mut sobrescreve =
-        |c: ClassId, chave: Option<SymbolId>| crate::fase_override::sobrescreve(&mut heranca, &mut provedor, c, lib, chave);
+    let lib = unit.library;
+    let mut inheritance = crate::heranca::Heranca::default();
+    let mut provider = crate::heranca::ProvedorDoOutline { program, interner, core, outline, table };
+    let mut overrides =
+        |c: ClassId, key: Option<SymbolId>| crate::fase_override::sobrescreve(&mut inheritance, &mut provider, c, lib, key);
 
     // `visitFunctionDeclaration`: as funções de topo e as locais.
-    let mut declaradas: std::collections::HashSet<ast::FunctionId> = std::collections::HashSet::new();
+    let mut the_declared: std::collections::HashSet<ast::FunctionId> = std::collections::HashSet::new();
     for d in a.decls.iter() {
         match &d.kind {
             DeclKind::Function(f) => {
-                declaradas.insert(*f);
+                the_declared.insert(*f);
                 let g = a.function(*f);
                 // Só a de topo tem o retorno conferido.
                 if g.return_type.is_none() && g.kind != ast::FunctionKind::Setter && let Some(n) = g.name {
-                    out.push(Diagnostic::com_codigo(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, n.span, [nome(n.sym)]));
+                    out.push(Diagnostic::com_codigo(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, n.span, [name(n.sym)]));
                 }
                 if let Some(ps) = &g.parameters {
-                    parametros(ps, regioes_de(a, &g.body, None).as_deref(), &mut out);
+                    params_list(ps, regions_of(a, &g.body, None).as_deref(), &mut out);
                 }
             }
             // `visitFunctionTypeAlias`: o retorno e os parâmetros, sem corpo.
             DeclKind::Typedef(t) => match &t.kind {
                 TypedefKind::Legacy { return_type, parameters } => {
                     if return_type.is_none() {
-                        out.push(Diagnostic::com_codigo(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, d.span, [nome(t.name.sym)]));
+                        out.push(Diagnostic::com_codigo(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, d.span, [name(t.name.sym)]));
                     }
-                    parametros(parameters, None, &mut out);
+                    params_list(parameters, None, &mut out);
                 }
                 // `visitGenericTypeAlias`.
                 TypedefKind::Alias(ty) => {
                     if let TypeKind::Function { return_type: None, .. } = &a.ty(*ty).kind {
-                        out.push(Diagnostic::com_codigo(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, d.span, [nome(t.name.sym)]));
+                        out.push(Diagnostic::com_codigo(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, d.span, [name(t.name.sym)]));
                     }
                 }
             },
@@ -171,16 +171,16 @@ pub fn falhas_de_inferencia(
     }
     for s in a.stmts.iter() {
         if let ast::StmtKind::Function(f) = &s.kind {
-            declaradas.insert(*f);
+            the_declared.insert(*f);
             let g = a.function(*f);
             if let Some(ps) = &g.parameters {
-                parametros(ps, regioes_de(a, &g.body, None).as_deref(), &mut out);
+                params_list(ps, regions_of(a, &g.body, None).as_deref(), &mut out);
             }
         }
     }
     // `visitMethodDeclaration` e `visitConstructorDeclaration`.
     for (di, d) in a.decls.iter().enumerate() {
-        let membros: &[ast::MemberId] = match &d.kind {
+        let members: &[ast::MemberId] = match &d.kind {
             DeclKind::Class(x) => &x.members,
             DeclKind::Mixin(x) => &x.members,
             DeclKind::Enum(x) => &x.members,
@@ -188,26 +188,26 @@ pub fn falhas_de_inferencia(
             DeclKind::ExtensionType(x) => &x.members,
             _ => continue,
         };
-        let classe = classe_da_decl(ast::DeclId(di as u32));
-        for &m in membros {
+        let class = decl_class(ast::DeclId(di as u32));
+        for &m in members {
             match &a.member(m).kind {
                 MemberKind::Method(f) => {
                     let g = a.function(*f);
                     let Some(n) = g.name else { continue };
                     // O `Name` do elemento: o do setter é `nome=`.
-                    let chave = if g.kind == ast::FunctionKind::Setter { interner.lookup(&format!("{}_=", nome(n.sym))) } else { Some(n.sym) };
-                    if classe.is_some_and(|c| sobrescreve(c, chave)) {
+                    let key = if g.kind == ast::FunctionKind::Setter { interner.lookup(&format!("{}_=", name(n.sym))) } else { Some(n.sym) };
+                    if class.is_some_and(|c| overrides(c, key)) {
                         continue;
                     }
                     if g.return_type.is_none() && g.kind != ast::FunctionKind::Setter {
-                        out.push(Diagnostic::com_codigo(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, n.span, [nome(n.sym)]));
+                        out.push(Diagnostic::com_codigo(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, n.span, [name(n.sym)]));
                     }
                     if let Some(ps) = &g.parameters {
-                        parametros(ps, regioes_de(a, &g.body, None).as_deref(), &mut out);
+                        params_list(ps, regions_of(a, &g.body, None).as_deref(), &mut out);
                     }
                 }
                 MemberKind::Constructor(k) => {
-                    parametros(&k.parameters, regioes_de(a, &k.body, Some(&k.initializers[..])).as_deref(), &mut out);
+                    params_list(&k.parameters, regions_of(a, &k.body, Some(&k.initializers[..])).as_deref(), &mut out);
                 }
                 MemberKind::Field(_) => {}
             }
@@ -216,38 +216,38 @@ pub fn falhas_de_inferencia(
     // `visitFunctionExpression`: só sem tipo de função do contexto.
     for e in a.exprs.iter() {
         let ExprKind::FunctionExpression(f) = &e.kind else { continue };
-        if declaradas.contains(f) || corpo.com_tipo_de_funcao.contains(f) {
+        if the_declared.contains(f) || body.with_function_type.contains(f) {
             continue;
         }
         let g = a.function(*f);
         if let Some(ps) = &g.parameters {
-            parametros(ps, regioes_de(a, &g.body, None).as_deref(), &mut out);
+            params_list(ps, regions_of(a, &g.body, None).as_deref(), &mut out);
         }
     }
     // `visitFunctionTypedFormalParameter`, em toda lista de parâmetros da
     // unidade: funções (de topo, locais, métodos, expressões de função),
     // construtores, typedefs antigos e tipos `Function(…)`.
-    let mut listas: Vec<&[Parameter]> = Vec::new();
-    listas.extend(a.functions.iter().filter_map(|f| f.parameters.as_deref()));
+    let mut lists: Vec<&[Parameter]> = Vec::new();
+    lists.extend(a.functions.iter().filter_map(|f| f.parameters.as_deref()));
     for m in a.members.iter() {
         if let MemberKind::Constructor(k) = &m.kind {
-            listas.push(&k.parameters[..]);
+            lists.push(&k.parameters[..]);
         }
     }
     for d in a.decls.iter() {
         if let DeclKind::Typedef(t) = &d.kind
             && let TypedefKind::Legacy { parameters, .. } = &t.kind
         {
-            listas.push(&parameters[..]);
+            lists.push(&parameters[..]);
         }
     }
     for t in a.types.iter() {
         if let TypeKind::Function { parameters, .. } = &t.kind {
-            listas.push(&parameters[..]);
+            lists.push(&parameters[..]);
         }
     }
-    let mut pilha: Vec<&Parameter> = listas.into_iter().flatten().filter(|p| p.function_parameters.is_some()).collect();
-    while let Some(q) = pilha.pop() {
+    let mut stack: Vec<&Parameter> = lists.into_iter().flatten().filter(|p| p.function_parameters.is_some()).collect();
+    while let Some(q) = stack.pop() {
         let Some(fs) = &q.function_parameters else { continue };
         // `this.f(…)` e `super.f(…)` não são `FunctionTypedFormalParameter`,
         // mas a lista deles é percorrida.
@@ -256,12 +256,12 @@ pub fn falhas_de_inferencia(
             && let Some(n) = q.name
         {
             if q.ty.is_none() {
-                let fim = if q.default_value.is_some() { fim_do_parametro_funcao(fonte, n.span.end) } else { q.span.end };
-                out.push(Diagnostic::com_codigo(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, Span { start: q.span.start, end: fim }, [nome(n.sym)]));
+                let end = if q.default_value.is_some() { fim_do_parametro_funcao(source, n.span.end) } else { q.span.end };
+                out.push(Diagnostic::com_codigo(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, Span { start: q.span.start, end: end }, [name(n.sym)]));
             }
-            parametros(fs, None, &mut out);
+            params_list(fs, None, &mut out);
         }
-        pilha.extend(fs.iter().filter(|x| x.function_parameters.is_some()));
+        stack.extend(fs.iter().filter(|x| x.function_parameters.is_some()));
     }
     // `visitGenericFunctionType`: o tipo `Function(…)` sem retorno que não é
     // o do typedef `= Function(…)`, com o `node.toString()`.
@@ -281,8 +281,8 @@ pub fn falhas_de_inferencia(
         if let TypeKind::Function { return_type: None, .. } = &t.kind
             && !dos_typedefs.contains(&id)
         {
-            let texto = dartforge_frontend::fonte::de_tipo(a, fonte, interner, id);
-            out.push(Diagnostic::com_codigo(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, t.span, [texto]));
+            let text = dartforge_frontend::fonte::de_tipo(a, source, interner, id);
+            out.push(Diagnostic::com_codigo(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, t.span, [text]));
         }
     }
     // O conjunto de erros do analyzer: o mesmo relato sai uma vez.

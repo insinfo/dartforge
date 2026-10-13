@@ -23,7 +23,7 @@ pub enum Campo {
     Super,
     /// `index` e `_name` de uma constante de enum (`updateEnumConstant`).
     Indice,
-    NomeDoEnum,
+    EnumName,
 }
 
 /// O elemento de um valor de função (`FunctionState`).
@@ -31,7 +31,7 @@ pub enum Campo {
 pub enum Funcao {
     Elemento(FunctionElementId),
     /// O construtor primário de um tipo de extensão (sem elemento).
-    Primario(ClassId),
+    Primary(ClassId),
 }
 
 /// `InstanceState`.
@@ -43,11 +43,11 @@ pub enum Estado {
     Str(Option<Texto>),
     /// `NullState`; `invalido` é o objeto fictício de uma expressão não
     /// resolvida (`_unresolvedObject`).
-    Null { invalido: bool },
+    Null { invalid: bool },
     Simbolo(Option<Rc<str>>),
     Tipo(Option<TypeId>),
     Funcao { elemento: Funcao, args: Option<Rc<[TypeId]>> },
-    Lista { elemento: TypeId, elementos: Rc<Vec<Valor>>, desconhecida: bool },
+    Lista { elemento: TypeId, elementos: Rc<Vec<Valor>>, unknown: bool },
     Conjunto { elementos: Rc<Vec<Valor>>, desconhecido: bool },
     Mapa { entradas: Rc<Vec<(Valor, Valor)>>, desconhecido: bool },
     Registro { posicionais: Rc<Vec<Valor>>, nomeados: Rc<Vec<(SymbolId, Valor)>> },
@@ -67,19 +67,19 @@ pub struct Valor {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Excecao {
     pub codigo: Codigo,
-    pub de_execucao: bool,
+    pub runtime: bool,
 }
 
 impl Excecao {
-    pub fn nova(codigo: Codigo) -> Self {
-        Excecao { codigo, de_execucao: false }
+    pub fn nova(code: Codigo) -> Self {
+        Excecao { codigo: code, runtime: false }
     }
 }
 
 type R<T> = Result<T, Excecao>;
 
-fn lanca<T>(codigo: Codigo) -> R<T> {
-    Err(Excecao::nova(codigo))
+fn lanca<T>(code: Codigo) -> R<T> {
+    Err(Excecao::nova(code))
 }
 
 impl Estado {
@@ -89,9 +89,9 @@ impl Estado {
             Estado::Int(v) => v.is_none(),
             Estado::Double(v) => v.is_none(),
             Estado::Str(v) => v.is_none(),
-            Estado::Lista { desconhecida, .. } => *desconhecida,
-            Estado::Conjunto { desconhecido, .. } | Estado::Mapa { desconhecido, .. } => *desconhecido,
-            Estado::Generico { desconhecido, .. } => *desconhecido,
+            Estado::Lista { unknown, .. } => *unknown,
+            Estado::Conjunto { desconhecido: the_unknown, .. } | Estado::Mapa { desconhecido: the_unknown, .. } => *the_unknown,
+            Estado::Generico { desconhecido: the_unknown, .. } => *the_unknown,
             _ => false,
         }
     }
@@ -108,35 +108,35 @@ impl Estado {
         matches!(self, Estado::Int(_) | Estado::Double(_))
     }
 
-    pub fn e_nulo(&self) -> bool {
+    pub fn is_null(&self) -> bool {
         matches!(self, Estado::Null { .. })
     }
 
-    pub fn e_bool_num_string_ou_nulo(&self) -> bool {
+    pub fn is_bool_num_string_or_null(&self) -> bool {
         matches!(self, Estado::Bool(_) | Estado::Int(_) | Estado::Double(_) | Estado::Str(_) | Estado::Null { .. })
     }
 
-    fn afirmar_bool(s: &Estado) -> R<()> {
+    fn assert_bool(s: &Estado) -> R<()> {
         if s.e_bool() { Ok(()) } else { lanca(c::CONST_EVAL_TYPE_BOOL) }
     }
 
-    fn afirmar_int_ou_nulo(s: &Estado) -> R<()> {
+    fn assert_int_or_null(s: &Estado) -> R<()> {
         if matches!(s, Estado::Int(_) | Estado::Null { .. }) { Ok(()) } else { lanca(c::CONST_EVAL_TYPE_INT) }
     }
 
-    fn afirmar_num_ou_nulo(s: &Estado) -> R<()> {
-        if s.e_num() || s.e_nulo() { Ok(()) } else { lanca(c::CONST_EVAL_TYPE_NUM) }
+    fn assert_num_or_null(s: &Estado) -> R<()> {
+        if s.e_num() || s.is_null() { Ok(()) } else { lanca(c::CONST_EVAL_TYPE_NUM) }
     }
 
-    fn afirmar_num_string_ou_nulo(s: &Estado) -> R<()> {
-        if s.e_num() || matches!(s, Estado::Str(_)) || s.e_nulo() {
+    fn assert_num_string_or_null(s: &Estado) -> R<()> {
+        if s.e_num() || matches!(s, Estado::Str(_)) || s.is_null() {
             Ok(())
         } else {
             lanca(c::CONST_EVAL_TYPE_NUM_STRING)
         }
     }
 
-    fn afirmar_string(s: &Estado) -> R<()> {
+    fn assert_string(s: &Estado) -> R<()> {
         if matches!(s, Estado::Str(_)) { Ok(()) } else { lanca(c::CONST_EVAL_TYPE_STRING) }
     }
 
@@ -150,16 +150,16 @@ impl Estado {
     }
 
     /// `convertToString`.
-    pub fn para_texto(&self, formatar_tipo: &dyn Fn(TypeId) -> String, nome_de_funcao: &dyn Fn(Funcao) -> String) -> R<Estado> {
+    pub fn para_texto(&self, format_type: &dyn Fn(TypeId) -> String, function_name: &dyn Fn(Funcao) -> String) -> R<Estado> {
         Ok(match self {
             Estado::Bool(v) => Estado::Str(v.map(|b| texto(if b { "true" } else { "false" }))),
             Estado::Int(v) => Estado::Str(v.map(|i| texto(&i.to_string()))),
-            Estado::Double(v) => Estado::Str(v.map(|d| texto(&double_como_dart(d)))),
+            Estado::Double(v) => Estado::Str(v.map(|d| texto(&double_as_dart(d)))),
             Estado::Str(v) => Estado::Str(v.clone()),
             Estado::Null { .. } => Estado::Str(Some(texto("null"))),
             Estado::Simbolo(v) => Estado::Str(v.as_ref().map(|s| texto(s))),
-            Estado::Tipo(t) => Estado::Str(t.map(|t| texto(&formatar_tipo(t)))),
-            Estado::Funcao { elemento, .. } => Estado::Str(Some(texto(&nome_de_funcao(*elemento)))),
+            Estado::Tipo(t) => Estado::Str(t.map(|t| texto(&format_type(t)))),
+            Estado::Funcao { elemento: element, .. } => Estado::Str(Some(texto(&function_name(*element)))),
             Estado::Lista { .. } | Estado::Conjunto { .. } | Estado::Mapa { .. } | Estado::Registro { .. } | Estado::Generico { .. } => {
                 Estado::Str(None)
             }
@@ -170,7 +170,7 @@ impl Estado {
     pub fn somar(&self, d: &Estado) -> R<Estado> {
         match self {
             Estado::Int(v) => {
-                Self::afirmar_num_ou_nulo(d)?;
+                Self::assert_num_or_null(d)?;
                 let Some(a) = v else {
                     return Ok(if matches!(d, Estado::Double(_)) { Estado::Double(None) } else { Estado::Int(None) });
                 };
@@ -181,7 +181,7 @@ impl Estado {
                 }
             }
             Estado::Double(v) => {
-                Self::afirmar_num_ou_nulo(d)?;
+                Self::assert_num_or_null(d)?;
                 let Some(a) = v else { return Ok(Estado::Double(None)) };
                 match d {
                     Estado::Int(b) => Ok(Estado::Double(b.map(|b| a + b as f64))),
@@ -191,8 +191,8 @@ impl Estado {
             }
             Estado::Str(_) if matches!(d, Estado::Str(_)) => self.concatenar(d),
             _ => {
-                Self::afirmar_num_string_ou_nulo(self)?;
-                Self::afirmar_num_string_ou_nulo(d)?;
+                Self::assert_num_string_or_null(self)?;
+                Self::assert_num_string_or_null(d)?;
                 lanca(c::CONST_EVAL_THROWS_EXCEPTION)
             }
         }
@@ -209,22 +209,22 @@ impl Estado {
                 return Ok(Estado::Str(Some(u.into())));
             }
         }
-        Self::afirmar_string(d)?;
+        Self::assert_string(d)?;
         lanca(c::CONST_EVAL_THROWS_EXCEPTION)
     }
 
-    fn aritmetica(
+    fn arithmetic(
         &self,
         d: &Estado,
         int: impl Fn(i64, i64) -> Option<R<Estado>>,
         double: impl Fn(f64, f64) -> R<Estado>,
-        int_desconhecido_com_double: Estado,
+        unknown_int_with_double: Estado,
     ) -> R<Estado> {
         match self {
             Estado::Int(v) => {
-                Self::afirmar_num_ou_nulo(d)?;
+                Self::assert_num_or_null(d)?;
                 let Some(a) = *v else {
-                    return Ok(if matches!(d, Estado::Double(_)) { int_desconhecido_com_double } else { Estado::Int(None) });
+                    return Ok(if matches!(d, Estado::Double(_)) { unknown_int_with_double } else { Estado::Int(None) });
                 };
                 match d {
                     Estado::Int(b) => match b {
@@ -239,7 +239,7 @@ impl Estado {
                 }
             }
             Estado::Double(v) => {
-                Self::afirmar_num_ou_nulo(d)?;
+                Self::assert_num_or_null(d)?;
                 let Some(a) = *v else { return Ok(Estado::Double(None)) };
                 match d {
                     Estado::Int(b) => match b {
@@ -254,33 +254,33 @@ impl Estado {
                 }
             }
             _ => {
-                Self::afirmar_num_ou_nulo(self)?;
-                Self::afirmar_num_ou_nulo(d)?;
+                Self::assert_num_or_null(self)?;
+                Self::assert_num_or_null(d)?;
                 lanca(c::CONST_EVAL_THROWS_EXCEPTION)
             }
         }
     }
 
     /// `minus`.
-    pub fn subtrair(&self, d: &Estado) -> R<Estado> {
-        self.aritmetica(d, |a, b| Some(Ok(Estado::Int(Some(a.wrapping_sub(b))))), |a, b| Ok(Estado::Double(Some(a - b))), Estado::Double(None))
+    pub fn subtract(&self, d: &Estado) -> R<Estado> {
+        self.arithmetic(d, |a, b| Some(Ok(Estado::Int(Some(a.wrapping_sub(b))))), |a, b| Ok(Estado::Double(Some(a - b))), Estado::Double(None))
     }
 
     /// `times`.
-    pub fn multiplicar(&self, d: &Estado) -> R<Estado> {
-        self.aritmetica(d, |a, b| Some(Ok(Estado::Int(Some(a.wrapping_mul(b))))), |a, b| Ok(Estado::Double(Some(a * b))), Estado::Double(None))
+    pub fn multiply(&self, d: &Estado) -> R<Estado> {
+        self.arithmetic(d, |a, b| Some(Ok(Estado::Int(Some(a.wrapping_mul(b))))), |a, b| Ok(Estado::Double(Some(a * b))), Estado::Double(None))
     }
 
     /// `divide`: sempre `double` (o `int` desconhecido também).
-    pub fn dividir(&self, d: &Estado) -> R<Estado> {
+    pub fn divide(&self, d: &Estado) -> R<Estado> {
         if let Estado::Int(None) = self {
-            Self::afirmar_num_ou_nulo(d)?;
+            Self::assert_num_or_null(d)?;
             return Ok(Estado::Double(None));
         }
         if let (Estado::Int(Some(_)), Estado::Int(None)) = (self, d) {
             return Ok(Estado::Double(None));
         }
-        self.aritmetica(
+        self.arithmetic(
             d,
             |a, b| Some(Ok(Estado::Double(Some(a as f64 / b as f64)))),
             |a, b| Ok(Estado::Double(Some(a / b))),
@@ -290,23 +290,23 @@ impl Estado {
 
     /// `remainder` (`%` do Dart: resto euclidiano, nunca negativo).
     pub fn resto(&self, d: &Estado) -> R<Estado> {
-        self.aritmetica(
+        self.arithmetic(
             d,
             |a, b| (b != 0).then(|| Ok(Estado::Int(Some(a.wrapping_rem_euclid(b))))),
-            |a, b| Ok(Estado::Double(Some(resto_double(a, b)))),
+            |a, b| Ok(Estado::Double(Some(double_remainder(a, b)))),
             Estado::Double(None),
         )
     }
 
     /// `integerDivide` (`~/`).
-    pub fn dividir_inteiro(&self, d: &Estado) -> R<Estado> {
+    pub fn integer_divide(&self, d: &Estado) -> R<Estado> {
         match self {
             Estado::Int(v) => {
-                Self::afirmar_num_ou_nulo(d)?;
+                Self::assert_num_or_null(d)?;
                 let Some(a) = *v else { return Ok(Estado::Int(None)) };
                 match d {
                     Estado::Int(None) | Estado::Double(None) => Ok(Estado::Int(None)),
-                    Estado::Int(Some(0)) => Err(Excecao { codigo: c::CONST_EVAL_THROWS_IDBZE, de_execucao: true }),
+                    Estado::Int(Some(0)) => Err(Excecao { codigo: c::CONST_EVAL_THROWS_IDBZE, runtime: true }),
                     Estado::Int(Some(b)) => Ok(Estado::Int(Some(a.wrapping_div(*b)))),
                     Estado::Double(Some(b)) => {
                         let r = a as f64 / b;
@@ -316,7 +316,7 @@ impl Estado {
                 }
             }
             Estado::Double(v) => {
-                Self::afirmar_num_ou_nulo(d)?;
+                Self::assert_num_or_null(d)?;
                 let Some(a) = *v else { return Ok(Estado::Int(None)) };
                 let b = match d {
                     Estado::Int(None) | Estado::Double(None) => return Ok(Estado::Int(None)),
@@ -328,15 +328,15 @@ impl Estado {
                 if r.is_finite() { Ok(Estado::Int(Some(r as i64))) } else { lanca(c::CONST_EVAL_THROWS_EXCEPTION) }
             }
             _ => {
-                Self::afirmar_num_ou_nulo(self)?;
-                Self::afirmar_num_ou_nulo(d)?;
+                Self::assert_num_or_null(self)?;
+                Self::assert_num_or_null(d)?;
                 lanca(c::CONST_EVAL_THROWS_EXCEPTION)
             }
         }
     }
 
-    fn comparar(&self, d: &Estado, f: impl Fn(std::cmp::Ordering) -> bool) -> R<Estado> {
-        let valor = |s: &Estado| -> Option<Option<f64>> {
+    fn compare(&self, d: &Estado, f: impl Fn(std::cmp::Ordering) -> bool) -> R<Estado> {
+        let value = |s: &Estado| -> Option<Option<f64>> {
             match s {
                 Estado::Int(v) => Some(v.map(|i| i as f64)),
                 Estado::Double(v) => Some(*v),
@@ -346,14 +346,14 @@ impl Estado {
         match (self, d) {
             (Estado::Int(Some(a)), Estado::Int(Some(b))) => Ok(Estado::Bool(Some(f(a.cmp(b))))),
             _ => {
-                let Some(a) = valor(self) else {
-                    Self::afirmar_num_ou_nulo(self)?;
-                    Self::afirmar_num_ou_nulo(d)?;
+                let Some(a) = value(self) else {
+                    Self::assert_num_or_null(self)?;
+                    Self::assert_num_or_null(d)?;
                     return lanca(c::CONST_EVAL_THROWS_EXCEPTION);
                 };
-                Self::afirmar_num_ou_nulo(d)?;
+                Self::assert_num_or_null(d)?;
                 let Some(a) = a else { return Ok(Estado::Bool(None)) };
-                let Some(b) = valor(d) else { return lanca(c::CONST_EVAL_THROWS_EXCEPTION) };
+                let Some(b) = value(d) else { return lanca(c::CONST_EVAL_THROWS_EXCEPTION) };
                 let Some(b) = b else { return Ok(Estado::Bool(None)) };
                 Ok(Estado::Bool(Some(match a.partial_cmp(&b) {
                     Some(o) => f(o),
@@ -363,23 +363,23 @@ impl Estado {
         }
     }
 
-    pub fn maior(&self, d: &Estado) -> R<Estado> {
-        self.comparar(d, |o| o == std::cmp::Ordering::Greater)
+    pub fn greater(&self, d: &Estado) -> R<Estado> {
+        self.compare(d, |o| o == std::cmp::Ordering::Greater)
     }
-    pub fn maior_ou_igual(&self, d: &Estado) -> R<Estado> {
-        self.comparar(d, |o| o != std::cmp::Ordering::Less)
+    pub fn greater_or_equal(&self, d: &Estado) -> R<Estado> {
+        self.compare(d, |o| o != std::cmp::Ordering::Less)
     }
-    pub fn menor(&self, d: &Estado) -> R<Estado> {
-        self.comparar(d, |o| o == std::cmp::Ordering::Less)
+    pub fn less(&self, d: &Estado) -> R<Estado> {
+        self.compare(d, |o| o == std::cmp::Ordering::Less)
     }
-    pub fn menor_ou_igual(&self, d: &Estado) -> R<Estado> {
-        self.comparar(d, |o| o != std::cmp::Ordering::Greater)
+    pub fn less_or_equal(&self, d: &Estado) -> R<Estado> {
+        self.compare(d, |o| o != std::cmp::Ordering::Greater)
     }
 
     fn bits(&self, d: &Estado, f: impl Fn(i64, i64) -> Option<Estado>) -> R<Estado> {
         match self {
             Estado::Int(v) => {
-                Self::afirmar_int_ou_nulo(d)?;
+                Self::assert_int_or_null(d)?;
                 let Some(a) = *v else { return Ok(Estado::Int(None)) };
                 match d {
                     Estado::Int(None) => Ok(Estado::Int(None)),
@@ -388,8 +388,8 @@ impl Estado {
                 }
             }
             _ => {
-                Self::afirmar_int_ou_nulo(self)?;
-                Self::afirmar_int_ou_nulo(d)?;
+                Self::assert_int_or_null(self)?;
+                Self::assert_int_or_null(d)?;
                 lanca(c::CONST_EVAL_THROWS_EXCEPTION)
             }
         }
@@ -398,14 +398,14 @@ impl Estado {
     pub fn e_bit(&self, d: &Estado) -> R<Estado> {
         self.bits(d, |a, b| Some(Estado::Int(Some(a & b))))
     }
-    pub fn ou_bit(&self, d: &Estado) -> R<Estado> {
+    pub fn bit_or(&self, d: &Estado) -> R<Estado> {
         self.bits(d, |a, b| Some(Estado::Int(Some(a | b))))
     }
-    pub fn xor_bit(&self, d: &Estado) -> R<Estado> {
+    pub fn bit_xor(&self, d: &Estado) -> R<Estado> {
         self.bits(d, |a, b| Some(Estado::Int(Some(a ^ b))))
     }
     /// `<<`: deslocamento com mais de 31 bits de largura é desconhecido.
-    pub fn desloca_esquerda(&self, d: &Estado) -> R<Estado> {
+    pub fn shift_left(&self, d: &Estado) -> R<Estado> {
         self.bits(d, |a, b| {
             if bit_length(b) > 31 {
                 Some(Estado::Int(None))
@@ -416,7 +416,7 @@ impl Estado {
             }
         })
     }
-    pub fn desloca_direita(&self, d: &Estado) -> R<Estado> {
+    pub fn shift_right(&self, d: &Estado) -> R<Estado> {
         self.bits(d, |a, b| {
             if bit_length(b) > 31 {
                 Some(Estado::Int(None))
@@ -427,7 +427,7 @@ impl Estado {
             }
         })
     }
-    pub fn desloca_direita_logico(&self, d: &Estado) -> R<Estado> {
+    pub fn logical_shift_right(&self, d: &Estado) -> R<Estado> {
         self.bits(d, |a, b| {
             if b >= 64 {
                 Some(Estado::Int(Some(0)))
@@ -440,57 +440,57 @@ impl Estado {
     }
 
     /// `bitNot`.
-    pub fn negar_bits(&self) -> R<Estado> {
+    pub fn negate_bits(&self) -> R<Estado> {
         match self {
             Estado::Int(v) => Ok(Estado::Int(v.map(|i| !i))),
             _ => {
-                Self::afirmar_int_ou_nulo(self)?;
+                Self::assert_int_or_null(self)?;
                 lanca(c::CONST_EVAL_THROWS_EXCEPTION)
             }
         }
     }
 
     /// `negated`.
-    pub fn negar(&self) -> R<Estado> {
+    pub fn negate(&self) -> R<Estado> {
         match self {
             Estado::Int(v) => Ok(Estado::Int(v.map(|i| i.wrapping_neg()))),
             Estado::Double(v) => Ok(Estado::Double(v.map(|d| -d))),
             _ => {
-                Self::afirmar_num_ou_nulo(self)?;
+                Self::assert_num_or_null(self)?;
                 lanca(c::CONST_EVAL_THROWS_EXCEPTION)
             }
         }
     }
 
     /// `logicalNot`.
-    pub fn nao_logico(&self) -> R<Estado> {
+    pub fn logical_not(&self) -> R<Estado> {
         match self {
             Estado::Bool(v) => Ok(Estado::Bool(v.map(|b| !b))),
             Estado::Null { .. } => lanca(c::CONST_EVAL_THROWS_EXCEPTION),
             _ => {
-                Self::afirmar_bool(self)?;
+                Self::assert_bool(self)?;
                 Ok(Estado::Bool(Some(true)))
             }
         }
     }
 
-    fn logico(&self, d: &Estado, f: impl Fn(bool, bool) -> bool) -> R<Estado> {
-        Self::afirmar_bool(self)?;
-        Self::afirmar_bool(d)?;
+    fn logical(&self, d: &Estado, f: impl Fn(bool, bool) -> bool) -> R<Estado> {
+        Self::assert_bool(self)?;
+        Self::assert_bool(d)?;
         let (Estado::Bool(a), Estado::Bool(b)) = (self.para_bool()?, d.para_bool()?) else { unreachable!() };
         Ok(Estado::Bool(match (a, b) {
             (Some(a), Some(b)) => Some(f(a, b)),
             _ => None,
         }))
     }
-    pub fn e_logico(&self, d: &Estado) -> R<Estado> {
-        self.logico(d, |a, b| a & b)
+    pub fn logical_and(&self, d: &Estado) -> R<Estado> {
+        self.logical(d, |a, b| a & b)
     }
-    pub fn ou_logico(&self, d: &Estado) -> R<Estado> {
-        self.logico(d, |a, b| a | b)
+    pub fn logical_or(&self, d: &Estado) -> R<Estado> {
+        self.logical(d, |a, b| a | b)
     }
-    pub fn xor_logico(&self, d: &Estado) -> R<Estado> {
-        self.logico(d, |a, b| a ^ b)
+    pub fn logical_xor(&self, d: &Estado) -> R<Estado> {
+        self.logical(d, |a, b| a ^ b)
     }
 
     /// `stringLength` (em unidades UTF-16).
@@ -498,7 +498,7 @@ impl Estado {
         match self {
             Estado::Str(v) => Ok(Estado::Int(v.as_ref().map(|s| s.len() as i64))),
             _ => {
-                Self::afirmar_string(self)?;
+                Self::assert_string(self)?;
                 lanca(c::CONST_EVAL_THROWS_EXCEPTION)
             }
         }
@@ -511,7 +511,7 @@ fn bit_length(v: i64) -> u32 {
     64 - x.leading_zeros()
 }
 
-fn resto_double(a: f64, b: f64) -> f64 {
+fn double_remainder(a: f64, b: f64) -> f64 {
     let r = a % b;
     if r < 0.0 { r + b.abs() } else { r }
 }
@@ -523,7 +523,7 @@ pub fn texto(s: &str) -> Texto {
 
 /// `double.toString()` do Dart: `1.0`, `0.1`, `1e+21`, `1e-7`, `NaN`,
 /// `Infinity`.
-pub fn double_como_dart(d: f64) -> String {
+pub fn double_as_dart(d: f64) -> String {
     if d.is_nan() {
         return "NaN".into();
     }
@@ -548,12 +548,12 @@ pub fn double_como_dart(d: f64) -> String {
 
 impl Valor {
     /// O tipo já vem apagado (`extensionTypeErasure`, feito pelo motor).
-    pub fn novo(tipo: TypeId, estado: Estado) -> Valor {
-        Valor { tipo, estado, variavel: None }
+    pub fn novo(ty: TypeId, state: Estado) -> Valor {
+        Valor { tipo: ty, estado: state, variavel: None }
     }
 
     pub fn nulo(core: &CoreTypes) -> Valor {
-        Valor { tipo: core.null, estado: Estado::Null { invalido: false }, variavel: None }
+        Valor { tipo: core.null, estado: Estado::Null { invalid: false }, variavel: None }
     }
 
     pub fn bool_(core: &CoreTypes, v: Option<bool>) -> Valor {
@@ -561,8 +561,8 @@ impl Valor {
     }
 
     /// `validWithUnknownValue` (o tipo já apagado).
-    pub fn desconhecido(table: &TypeTable, core: &CoreTypes, tipo: TypeId, elemento_de_lista: Option<TypeId>) -> Valor {
-        let classe = match table.get(tipo) {
+    pub fn desconhecido(table: &TypeTable, core: &CoreTypes, ty: TypeId, list_element: Option<TypeId>) -> Valor {
+        let cls = match table.get(ty) {
             Type::Interface { class, nullable: false, .. } => Some(*class),
             _ => None,
         };
@@ -570,36 +570,36 @@ impl Valor {
         // tipo de base: pelo lado seguro, nenhum erro de tipo é provado sobre
         // ele (`c ? 1 : 2` com `c` desconhecido de tipo `bool?` não é
         // `CONST_EVAL_TYPE_BOOL`).
-        let base = match table.get(tipo) {
+        let base = match table.get(ty) {
             Type::Interface { class, .. } => Some(*class),
             _ => None,
         };
-        let de = |k: Option<ClassId>| base.is_some() && base == k;
-        let estado = if tipo == core.bool_ || de(core.bool_class) {
+        let of = |k: Option<ClassId>| base.is_some() && base == k;
+        let state = if ty == core.bool_ || of(core.bool_class) {
             Estado::Bool(None)
-        } else if tipo == core.double || de(core.double_class) {
+        } else if ty == core.double || of(core.double_class) {
             Estado::Double(None)
-        } else if tipo == core.int || de(core.int_class) {
+        } else if ty == core.int || of(core.int_class) {
             Estado::Int(None)
-        } else if tipo == core.string || de(core.string_class) {
+        } else if ty == core.string || of(core.string_class) {
             Estado::Str(None)
-        } else if classe.is_some() && classe == core.list_class {
-            Estado::Lista { elemento: elemento_de_lista.unwrap_or(core.dynamic_), elementos: Rc::new(Vec::new()), desconhecida: true }
-        } else if classe.is_some() && classe == core.map_class {
+        } else if cls.is_some() && cls == core.list_class {
+            Estado::Lista { elemento: list_element.unwrap_or(core.dynamic_), elementos: Rc::new(Vec::new()), unknown: true }
+        } else if cls.is_some() && cls == core.map_class {
             Estado::Mapa { entradas: Rc::new(Vec::new()), desconhecido: true }
-        } else if classe.is_some() && classe == core.set_class {
+        } else if cls.is_some() && cls == core.set_class {
             Estado::Conjunto { elementos: Rc::new(Vec::new()), desconhecido: true }
         } else {
             Estado::Generico { campos: Rc::new(Vec::new()), desconhecido: true }
         };
-        Valor { tipo, estado, variavel: None }
+        Valor { tipo: ty, estado: state, variavel: None }
     }
 
-    pub fn desconhecido_de_fato(&self) -> bool {
+    pub fn actually_unknown(&self) -> bool {
         self.estado.desconhecido()
     }
 
-    pub fn como_bool(&self) -> Option<bool> {
+    pub fn as_bool(&self) -> Option<bool> {
         match self.estado {
             Estado::Bool(v) => v,
             _ => None,
@@ -613,7 +613,7 @@ impl Valor {
         }
     }
 
-    pub fn como_tipo(&self) -> Option<TypeId> {
+    pub fn as_type(&self) -> Option<TypeId> {
         match self.estado {
             Estado::Tipo(t) => t,
             _ => None,
@@ -621,32 +621,32 @@ impl Valor {
     }
 
     /// `toListValue`.
-    pub fn como_lista(&self) -> Option<&Rc<Vec<Valor>>> {
+    pub fn as_list(&self) -> Option<&Rc<Vec<Valor>>> {
         match &self.estado {
-            Estado::Lista { elementos, .. } => Some(elementos),
+            Estado::Lista { elementos: elements, .. } => Some(elements),
             _ => None,
         }
     }
 
     /// `toSetValue`.
-    pub fn como_conjunto(&self) -> Option<&Rc<Vec<Valor>>> {
+    pub fn as_set(&self) -> Option<&Rc<Vec<Valor>>> {
         match &self.estado {
-            Estado::Conjunto { elementos, .. } => Some(elementos),
+            Estado::Conjunto { elementos: elements, .. } => Some(elements),
             _ => None,
         }
     }
 
     /// `toMapValue`.
-    pub fn como_mapa(&self) -> Option<&Rc<Vec<(Valor, Valor)>>> {
+    pub fn as_map(&self) -> Option<&Rc<Vec<(Valor, Valor)>>> {
         match &self.estado {
-            Estado::Mapa { entradas, .. } => Some(entradas),
+            Estado::Mapa { entradas: entries, .. } => Some(entries),
             _ => None,
         }
     }
 
-    pub fn como_funcao(&self) -> Option<Funcao> {
+    pub fn as_function(&self) -> Option<Funcao> {
         match self.estado {
-            Estado::Funcao { elemento, .. } => Some(elemento),
+            Estado::Funcao { elemento: element, .. } => Some(element),
             _ => None,
         }
     }

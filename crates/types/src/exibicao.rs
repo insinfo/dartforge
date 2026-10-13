@@ -23,7 +23,7 @@ pub enum Arg<'a> {
     Tipo(TypeId),
     /// Um texto que o emissor oficial tirou de `getDisplayString()` antes de
     /// passar: sem alias e sem desambiguação.
-    TipoSemAlias(TypeId),
+    TypeWithoutAlias(TypeId),
     /// `String`, `int` ou nome de elemento: como veio.
     Texto(Cow<'a, str>),
 }
@@ -59,7 +59,7 @@ impl Exibidor<'_> {
 
     /// `_convertTypeNames`: o texto de cada argumento, na ordem.
     pub fn argumentos(&self, args: &[Arg<'_>]) -> Vec<String> {
-        self.argumentos_e_contexto(args).0
+        self.arguments_and_context(args).0
     }
 
     /// `_convertTypeNames` inteiro: os textos e as mensagens de contexto
@@ -67,68 +67,68 @@ impl Exibidor<'_> {
     /// de dois ou mais argumentos com o mesmo texto — mesmo os elementos que
     /// não colidem —, `<nome> is defined in <caminho>`, no nome do elemento,
     /// no arquivo dele.
-    pub fn argumentos_e_contexto(&self, args: &[Arg<'_>]) -> (Vec<String>, Vec<dartforge_diagnostics::Contexto>) {
-        let mut contexto: Vec<dartforge_diagnostics::Contexto> = Vec::new();
-        let mut saida: Vec<String> = args
+    pub fn arguments_and_context(&self, args: &[Arg<'_>]) -> (Vec<String>, Vec<dartforge_diagnostics::Contexto>) {
+        let mut context: Vec<dartforge_diagnostics::Contexto> = Vec::new();
+        let mut output: Vec<String> = args
             .iter()
             .map(|a| match a {
                 Arg::Tipo(t) => self.tipo(*t, true),
-                Arg::TipoSemAlias(t) => self.tipo(*t, false),
+                Arg::TypeWithoutAlias(t) => self.tipo(*t, false),
                 Arg::Texto(s) => s.to_string(),
             })
             .collect();
         // Os argumentos-tipo agrupados pelo texto, na ordem em que aparecem.
-        let mut grupos: Vec<(String, Vec<(usize, TypeId)>)> = Vec::new();
+        let mut groups: Vec<(String, Vec<(usize, TypeId)>)> = Vec::new();
         for (i, a) in args.iter().enumerate() {
             let Arg::Tipo(t) = a else { continue };
-            let posicao = grupos.iter().position(|(nome, _)| *nome == saida[i]);
-            match posicao {
-                Some(k) => grupos[k].1.push((i, *t)),
-                None => grupos.push((saida[i].clone(), vec![(i, *t)])),
+            let position = groups.iter().position(|(name, _)| *name == output[i]);
+            match position {
+                Some(k) => groups[k].1.push((i, *t)),
+                None => groups.push((output[i].clone(), vec![(i, *t)])),
             }
         }
-        for (nome, membros) in grupos {
-            if membros.len() < 2 {
+        for (name, members) in groups {
+            if members.len() < 2 {
                 continue;
             }
             // Os elementos de todos os tipos do grupo, pelo nome.
-            let mut por_nome: HashMap<SymbolId, Vec<ClassId>> = HashMap::new();
-            let mut elementos_de: Vec<Vec<ClassId>> = Vec::with_capacity(membros.len());
-            for &(_, t) in &membros {
+            let mut by_name: HashMap<SymbolId, Vec<ClassId>> = HashMap::new();
+            let mut elements_of: Vec<Vec<ClassId>> = Vec::with_capacity(members.len());
+            for &(_, t) in &members {
                 let mut els = Vec::new();
                 self.elementos(t, &mut els, 0);
                 for &c in &els {
-                    let lista = por_nome.entry(self.program.class(c).name).or_default();
-                    if !lista.contains(&c) {
-                        lista.push(c);
+                    let list = by_name.entry(self.program.class(c).name).or_default();
+                    if !list.contains(&c) {
+                        list.push(c);
                     }
                 }
-                elementos_de.push(els);
+                elements_of.push(els);
             }
-            for (k, &(i, _)) in membros.iter().enumerate() {
-                let mut sufixo: Option<String> = None;
-                for &c in &elementos_de[k] {
-                    let nome_do_elemento = self.program.class(c).name;
-                    let trecho = format!("{} is defined in {}", self.interner.resolve(nome_do_elemento), self.arquivo_de(c));
+            for (k, &(i, _)) in members.iter().enumerate() {
+                let mut suffix: Option<String> = None;
+                for &c in &elements_of[k] {
+                    let element_name = self.program.class(c).name;
+                    let snippet = format!("{} is defined in {}", self.interner.resolve(element_name), self.file_of(c));
                     // A mensagem de contexto sai para todo elemento (fora do
                     // `if` no analyzer).
                     if let Some(span) = self.nome_da_classe(c) {
-                        contexto.push(dartforge_diagnostics::Contexto { arquivo: Some(self.arquivo_de(c).into()), span, mensagem: trecho.clone().into() });
+                        context.push(dartforge_diagnostics::Contexto { arquivo: Some(self.file_of(c).into()), span, mensagem: snippet.clone().into() });
                     }
-                    if por_nome.get(&nome_do_elemento).is_none_or(|l| l.len() < 2) {
+                    if by_name.get(&element_name).is_none_or(|l| l.len() < 2) {
                         continue;
                     }
-                    sufixo = Some(match sufixo {
-                        None => format!("where {trecho}"),
-                        Some(s) => format!("{s}, {trecho}"),
+                    suffix = Some(match suffix {
+                        None => format!("where {snippet}"),
+                        Some(s) => format!("{s}, {snippet}"),
                     });
                 }
-                if let Some(s) = sufixo {
-                    saida[i] = format!("{nome} ({s})");
+                if let Some(s) = suffix {
+                    output[i] = format!("{name} ({s})");
                 }
             }
         }
-        (saida, contexto)
+        (output, context)
     }
 
     /// O intervalo do nome da classe (`nameOffset`/`nameLength`); nenhum na
@@ -162,9 +162,9 @@ impl Exibidor<'_> {
                     self.elementos(p, out, prof + 1);
                 }
                 // Os nomeados na ordem do analyzer (alfabética).
-                let mut ordem: Vec<&(SymbolId, TypeId, bool)> = named.iter().collect();
-                ordem.sort_by(|a, b| self.interner.resolve(a.0).cmp(self.interner.resolve(b.0)));
-                for (_, p, _) in ordem {
+                let mut order: Vec<&(SymbolId, TypeId, bool)> = named.iter().collect();
+                order.sort_by(|a, b| self.interner.resolve(a.0).cmp(self.interner.resolve(b.0)));
+                for (_, p, _) in order {
                     self.elementos(*p, out, prof + 1);
                 }
             }
@@ -187,13 +187,13 @@ impl Exibidor<'_> {
 
     /// `element.source.fullName`: o caminho nativo do arquivo que declara a
     /// classe (a URI, para o que não tem arquivo).
-    fn arquivo_de(&self, c: ClassId) -> String {
-        let classe = self.program.class(c);
-        let unidade = match classe.decl {
+    fn file_of(&self, c: ClassId) -> String {
+        let cls = self.program.class(c);
+        let unit_id = match cls.decl {
             Some(d) => Some(d.unit),
-            None => self.program.library(classe.library).units.first().copied(),
+            None => self.program.library(cls.library).units.first().copied(),
         };
-        match unidade {
+        match unit_id {
             Some(u) => {
                 let unit = self.program.unit(u);
                 match &unit.path {

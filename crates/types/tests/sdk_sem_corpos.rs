@@ -11,7 +11,7 @@ use dartforge_types::{infer_program_bodies, resolve_outline};
 use std::fs;
 use tempfile::tempdir;
 
-fn sdk_simulado(dir: &std::path::Path) -> SdkLayout {
+fn simulated_sdk(dir: &std::path::Path) -> SdkLayout {
     let lib_dir = dir.join("lib");
     fs::create_dir_all(lib_dir.join("core")).unwrap();
     fs::create_dir_all(lib_dir.join("convert")).unwrap();
@@ -79,9 +79,9 @@ fn sdk_simulado(dir: &std::path::Path) -> SdkLayout {
 }
 
 #[test]
-fn sdk_sem_corpos_e_usuario_tipado() {
+fn sdk_without_bodies_and_typed_user() {
     let tmp = tempdir().unwrap();
-    let sdk = sdk_simulado(tmp.path());
+    let sdk = simulated_sdk(tmp.path());
     let main = tmp.path().join("main.dart");
     fs::write(
         &main,
@@ -116,14 +116,14 @@ fn sdk_sem_corpos_e_usuario_tipado() {
     // O usuário continua tipado: `y` em `dobro` é `int`.
     let entry_unit = program.library(program.entry.unwrap()).units[0];
     let unit = program.unit(entry_unit);
-    let tabela = &bodies.units[entry_unit.0 as usize];
-    assert_eq!(tabela.static_types.len(), unit.ast.exprs.len());
+    let the_table = &bodies.units[entry_unit.0 as usize];
+    assert_eq!(the_table.static_types.len(), unit.ast.exprs.len());
     let int_class = program.classes.iter().position(|c| interner.resolve(c.name) == "int").unwrap();
     let mut y_int = false;
     for (i, e) in unit.ast.exprs.iter().enumerate() {
         if let dartforge_frontend::ast::ExprKind::Identifier(n) = &e.kind {
             if interner.resolve(n.sym) == "y" {
-                let ty = table.get(tabela.static_types[i]);
+                let ty = table.get(the_table.static_types[i]);
                 if let Type::Interface { class, .. } = ty {
                     y_int |= class.0 as usize == int_class;
                 }

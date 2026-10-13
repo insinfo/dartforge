@@ -290,8 +290,8 @@ pub const DEAD_CODE: DiagnosticCode = DiagnosticCode::new(
 pub const ERRO_DE_LINGUAGEM: &str = "erro de linguagem: ";
 
 /// A mensagem é de um erro de linguagem (e não de um aviso de tipos)?
-pub fn e_erro_de_linguagem(mensagem: &str) -> bool {
-    mensagem.starts_with(ERRO_DE_LINGUAGEM)
+pub fn is_language_error(message: &str) -> bool {
+    message.starts_with(ERRO_DE_LINGUAGEM)
 }
 
 /// O diagnóstico de `types` recusa o programa: um erro de linguagem
@@ -312,30 +312,30 @@ pub fn e_erro_de_linguagem(mensagem: &str) -> bool {
 /// assert!(e_erro_de_compilacao(&format!("{ERRO_DE_LINGUAGEM}a.dart:3: x")));
 /// assert!(!e_erro_de_compilacao("O tipo 'int' não pode ser atribuído a 'String'."));
 /// ```
-pub fn e_erro_de_compilacao(mensagem: &str) -> bool {
-    e_erro_de_linguagem(mensagem)
-        || mensagem.starts_with(DEFINITELY_UNASSIGNED_VARIABLE.template)
+pub fn e_erro_de_compilacao(message: &str) -> bool {
+    is_language_error(message)
+        || message.starts_with(DEFINITELY_UNASSIGNED_VARIABLE.template)
         // `READ_POTENTIALLY_UNASSIGNED_FINAL` (com código do analyzer): leitura
         // de `final` local talvez não atribuída também aborta, como antes.
-        || (mensagem.starts_with("The final variable '") && mensagem.ends_with("because it's potentially unassigned at this point."))
+        || (message.starts_with("The final variable '") && message.ends_with("because it's potentially unassigned at this point."))
 }
 
-pub const WILDCARD_NAO_LIGA: DiagnosticCode = DiagnosticCode::new(
+pub const WILDCARD_DOES_NOT_BIND: DiagnosticCode = DiagnosticCode::new(
     "undefined_identifier",
     "nenhum '_' visível: numa biblioteca 3.7+, local e parâmetro chamados '_' são curingas e não ligam nome",
 );
 
-pub const DOT_SHORTHAND_SEM_CONTEXTO: DiagnosticCode = DiagnosticCode::new(
+pub const DOT_SHORTHAND_NO_CONTEXT: DiagnosticCode = DiagnosticCode::new(
     "dot_shorthand_missing_context",
     "o atalho de ponto '.{0}' precisa de um tipo de contexto que denote uma classe, mixin, enum ou extension type",
 );
 
-pub const DOT_SHORTHAND_SEM_MEMBRO: DiagnosticCode = DiagnosticCode::new(
+pub const DOT_SHORTHAND_NO_MEMBER: DiagnosticCode = DiagnosticCode::new(
     "dot_shorthand_undefined_member",
     "'{1}' não tem membro estático nem construtor '{0}' para o atalho de ponto",
 );
 
-pub const CONSTRUTOR_PRIMARIO: DiagnosticCode = DiagnosticCode::new(
+pub const PRIMARY_CONSTRUCTOR: DiagnosticCode = DiagnosticCode::new(
     "primary_constructor",
     "construtor primário: {0}",
 );

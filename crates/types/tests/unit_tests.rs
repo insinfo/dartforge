@@ -86,9 +86,9 @@ fn test_generic_typedef_expansion() {
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
 
-    let proj_dir = tmp.path().join("proj");
-    fs::create_dir_all(&proj_dir).unwrap();
-    let main_dart = proj_dir.join("main.dart");
+    let the_proj_dir = tmp.path().join("proj");
+    fs::create_dir_all(&the_proj_dir).unwrap();
+    let main_dart = the_proj_dir.join("main.dart");
 
     fs::write(
         &main_dart,
@@ -172,9 +172,9 @@ fn test_override_inference() {
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
 
-    let proj_dir = tmp.path().join("proj");
-    fs::create_dir_all(&proj_dir).unwrap();
-    let main_dart = proj_dir.join("main.dart");
+    let the_proj_dir = tmp.path().join("proj");
+    fs::create_dir_all(&the_proj_dir).unwrap();
+    let main_dart = the_proj_dir.join("main.dart");
 
     fs::write(
         &main_dart,
@@ -263,9 +263,9 @@ fn test_mixin_application_instantiated_supertypes() {
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
 
-    let proj_dir = tmp.path().join("proj");
-    fs::create_dir_all(&proj_dir).unwrap();
-    let main_dart = proj_dir.join("main.dart");
+    let the_proj_dir = tmp.path().join("proj");
+    fs::create_dir_all(&the_proj_dir).unwrap();
+    let main_dart = the_proj_dir.join("main.dart");
 
     fs::write(
         &main_dart,
@@ -376,9 +376,9 @@ fn test_extension_type_erasure_and_subtyping() {
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
 
-    let proj_dir = tmp.path().join("proj");
-    fs::create_dir_all(&proj_dir).unwrap();
-    let main_dart = proj_dir.join("main.dart");
+    let the_proj_dir = tmp.path().join("proj");
+    fs::create_dir_all(&the_proj_dir).unwrap();
+    let main_dart = the_proj_dir.join("main.dart");
 
     fs::write(
         &main_dart,
@@ -488,9 +488,9 @@ fn test_accumulated_diagnostics_unknown_type() {
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
 
-    let proj_dir = tmp.path().join("proj");
-    fs::create_dir_all(&proj_dir).unwrap();
-    let main_dart = proj_dir.join("main.dart");
+    let the_proj_dir = tmp.path().join("proj");
+    fs::create_dir_all(&the_proj_dir).unwrap();
+    let main_dart = the_proj_dir.join("main.dart");
 
     fs::write(
         &main_dart,
@@ -555,7 +555,7 @@ fn test_accumulated_diagnostics_unknown_type() {
 /// `class C extends C` (`recursive_interface_inheritance`): o outline termina
 /// (a cadeia de superclasses com ciclo é percorrida uma vez).
 #[test]
-fn superclasse_de_si_mesma_termina() {
+fn superclass_of_itself_terminates() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
@@ -571,13 +571,13 @@ fn superclasse_de_si_mesma_termina() {
 /// analyzer (oráculo 3.6.2): retorno, parâmetro, setter, `covariant` e a
 /// verificação dos parâmetros covariantes contra todos os supertipos.
 #[test]
-fn sobrescritas_invalidas_do_corpus() {
+fn corpus_invalid_overrides() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
     let main_dart = tmp.path().join("main.dart");
-    let fonte = "class A {\n  int g() => 0;\n  void m(int a) {}\n  set s(num v) {}\n  void c(num a) {}\n}\nclass B extends A {\n  String g() => '';\n  void m(String a) {}\n  set s(int v) {}\n  void c(dynamic a) {}\n}\nclass C extends B {\n  void c(covariant String a) {}\n}\nclass D extends A {\n  int g() => 1;\n  void m(covariant int a) {}\n}\n";
-    fs::write(&main_dart, fonte).unwrap();
+    let source = "class A {\n  int g() => 0;\n  void m(int a) {}\n  set s(num v) {}\n  void c(num a) {}\n}\nclass B extends A {\n  String g() => '';\n  void m(String a) {}\n  set s(int v) {}\n  void c(dynamic a) {}\n}\nclass C extends B {\n  void c(covariant String a) {}\n}\nclass D extends A {\n  int g() => 1;\n  void m(covariant int a) {}\n}\n";
+    fs::write(&main_dart, source).unwrap();
     let (prog, _) = dartforge_elements::load::load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
@@ -588,7 +588,7 @@ fn sobrescritas_invalidas_do_corpus() {
     let mut v: Vec<(String, String)> =
         dartforge_types::sobrescritas::sobrescritas_invalidas(&prog, &interner, &mut table, &core, &outline, &classes)
             .into_iter()
-            .map(|(_, d)| (fonte[d.span.start..d.span.end].to_string(), d.message))
+            .map(|(_, d)| (source[d.span.start..d.span.end].to_string(), d.message))
             .collect();
     v.sort();
     assert_eq!(
@@ -606,13 +606,13 @@ fn sobrescritas_invalidas_do_corpus() {
 /// `dart analyze` 3.6.2, que guarda a variância escrita mesmo sem o
 /// experimento).
 #[test]
-fn variancia_dos_parametros_de_tipo() {
+fn type_parameter_variance() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
     let main_dart = tmp.path().join("main.dart");
-    let fonte = "class A<in T> {\n  T get g => throw 0;\n  void m(T x) {}\n  void c(covariant T x) {}\n}\nclass B<out T> {\n  final T f;\n  B(this.f);\n}\nclass K<X> {}\nclass C<X> extends K<void Function(X)> {}\nclass D<out X> extends K<void Function(X)> {}\n";
-    fs::write(&main_dart, fonte).unwrap();
+    let source = "class A<in T> {\n  T get g => throw 0;\n  void m(T x) {}\n  void c(covariant T x) {}\n}\nclass B<out T> {\n  final T f;\n  B(this.f);\n}\nclass K<X> {}\nclass C<X> extends K<void Function(X)> {}\nclass D<out X> extends K<void Function(X)> {}\n";
+    fs::write(&main_dart, source).unwrap();
     let (prog, _) = dartforge_elements::load::load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
@@ -620,7 +620,7 @@ fn variancia_dos_parametros_de_tipo() {
     let lib = prog.entry.unwrap();
     let v: Vec<(String, String)> = dartforge_types::variancia::variancia(&prog, &interner, &table, &outline, lib)
         .into_iter()
-        .map(|(_, d)| (fonte[d.span.start..d.span.end].to_string(), d.message))
+        .map(|(_, d)| (source[d.span.start..d.span.end].to_string(), d.message))
         .collect();
     assert_eq!(
         v,
@@ -638,13 +638,13 @@ fn variancia_dos_parametros_de_tipo() {
 /// `getter_not_subtype_setter_types` (`types::sobrescritas::getters_e_setters`):
 /// topo, estático e a interface (o getter herdado leva o nome da classe).
 #[test]
-fn getter_e_setter_de_tipos_incompativeis() {
+fn getter_and_setter_with_incompatible_types() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
     let main_dart = tmp.path().join("main.dart");
-    let fonte = "int get a => 0;\nset a(String v) {}\nget b => 0;\nset b(int v) {}\nclass A {\n  static num get s => 0;\n  static set s(int v) {}\n  int get foo => 0;\n}\nclass B extends A {\n  set foo(String v) {}\n}\n";
-    fs::write(&main_dart, fonte).unwrap();
+    let source = "int get a => 0;\nset a(String v) {}\nget b => 0;\nset b(int v) {}\nclass A {\n  static num get s => 0;\n  static set s(int v) {}\n  int get foo => 0;\n}\nclass B extends A {\n  set foo(String v) {}\n}\n";
+    fs::write(&main_dart, source).unwrap();
     let (prog, _) = dartforge_elements::load::load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
@@ -655,7 +655,7 @@ fn getter_e_setter_de_tipos_incompativeis() {
     let mut v: Vec<(String, String)> =
         dartforge_types::sobrescritas::getters_e_setters(&prog, &interner, &mut table, &core, &outline, lib, &classes)
             .into_iter()
-            .map(|(_, d)| (fonte[d.span.start..d.span.end].to_string(), d.message))
+            .map(|(_, d)| (source[d.span.start..d.span.end].to_string(), d.message))
             .collect();
     v.sort();
     assert_eq!(
@@ -673,13 +673,13 @@ fn getter_e_setter_de_tipos_incompativeis() {
 /// concreta, herdados sem implementação (ordenados, com `getter`), a
 /// superclasse concreta que já os deixa de fora, e o `noSuchMethod`.
 #[test]
-fn membros_abstratos_em_classe_concreta() {
+fn abstract_members_in_concrete_class() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
     let main_dart = tmp.path().join("main.dart");
-    let fonte = "abstract class I {\n  int get g;\n  void m();\n}\nclass A {\n  void f();\n}\nclass B implements I {}\nclass C extends B {}\nclass D implements I {\n  noSuchMethod(i) => null;\n}\n";
-    fs::write(&main_dart, fonte).unwrap();
+    let source = "abstract class I {\n  int get g;\n  void m();\n}\nclass A {\n  void f();\n}\nclass B implements I {}\nclass C extends B {}\nclass D implements I {\n  noSuchMethod(i) => null;\n}\n";
+    fs::write(&main_dart, source).unwrap();
     let (prog, _) = dartforge_elements::load::load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
@@ -690,7 +690,7 @@ fn membros_abstratos_em_classe_concreta() {
     let mut v: Vec<(String, String)> =
         dartforge_types::sobrescritas::membros_abstratos(&prog, &interner, &mut table, &core, &outline, &classes)
             .into_iter()
-            .map(|(_, d)| (fonte[d.span.start..d.span.end].to_string(), d.message))
+            .map(|(_, d)| (source[d.span.start..d.span.end].to_string(), d.message))
             .collect();
     v.sort();
     assert_eq!(
@@ -705,13 +705,13 @@ fn membros_abstratos_em_classe_concreta() {
 /// `membros_em_conflito` e `valores_padrao` de `types::sobrescritas`
 /// (corpus do analyzer, oráculo 3.6.2).
 #[test]
-fn membros_em_conflito_e_valores_padrao() {
+fn conflicting_members_and_default_values() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
     let main_dart = tmp.path().join("main.dart");
-    let fonte = "class A {\n  int foo = 0;\n  void bar() {}\n}\nclass B extends A {\n  void foo() {}\n  int get bar => 0;\n}\nvoid f([int a]) {}\nvoid g({String? b, int c = 0}) {}\nclass C {\n  C({this.x});\n  int x;\n}\n";
-    fs::write(&main_dart, fonte).unwrap();
+    let source = "class A {\n  int foo = 0;\n  void bar() {}\n}\nclass B extends A {\n  void foo() {}\n  int get bar => 0;\n}\nvoid f([int a]) {}\nvoid g({String? b, int c = 0}) {}\nclass C {\n  C({this.x});\n  int x;\n}\n";
+    fs::write(&main_dart, source).unwrap();
     let (prog, _) = dartforge_elements::load::load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
@@ -719,8 +719,8 @@ fn membros_em_conflito_e_valores_padrao() {
     let lib = prog.entry.unwrap();
     let mut v: Vec<(String, String)> = dartforge_types::sobrescritas::membros_em_conflito(&prog, &interner, &mut table, &core, &outline, lib)
         .into_iter()
-        .chain(dartforge_types::sobrescritas::valores_padrao(&prog, &interner, &mut table, &outline, lib))
-        .map(|(_, d)| (fonte[d.span.start..d.span.end].to_string(), d.message))
+        .chain(dartforge_types::sobrescritas::default_values(&prog, &interner, &mut table, &outline, lib))
+        .map(|(_, d)| (source[d.span.start..d.span.end].to_string(), d.message))
         .collect();
     v.sort();
     assert_eq!(
@@ -737,7 +737,7 @@ fn membros_em_conflito_e_valores_padrao() {
 /// `membros_de_enum`: `index`/`hashCode` concretos e `values` numa classe
 /// que implementa `Enum` (corpus `illegal_*`, oráculo 3.6.2).
 #[test]
-fn membros_proibidos_em_quem_implementa_enum() {
+fn members_forbidden_in_enum_implementers() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     fs::write(
@@ -747,8 +747,8 @@ fn membros_proibidos_em_quem_implementa_enum() {
     .unwrap();
     let mut interner = Interner::new();
     let main_dart = tmp.path().join("main.dart");
-    let fonte = "abstract class A implements Enum {\n  int get index => 0;\n  int values = 0;\n}\n";
-    fs::write(&main_dart, fonte).unwrap();
+    let source = "abstract class A implements Enum {\n  int get index => 0;\n  int values = 0;\n}\n";
+    fs::write(&main_dart, source).unwrap();
     let (prog, _) = dartforge_elements::load::load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
@@ -759,7 +759,7 @@ fn membros_proibidos_em_quem_implementa_enum() {
     let mut v: Vec<(String, String)> =
         dartforge_types::sobrescritas::membros_de_enum(&prog, &interner, &mut table, &core, &outline, &classes)
             .into_iter()
-            .map(|(_, d)| (fonte[d.span.start..d.span.end].to_string(), d.message))
+            .map(|(_, d)| (source[d.span.start..d.span.end].to_string(), d.message))
             .collect();
     v.sort();
     assert_eq!(

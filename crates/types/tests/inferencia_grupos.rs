@@ -20,30 +20,30 @@ fn sdk() -> Option<SdkLayout> {
 
 /// Tipos (no formato do analyzer) das expressões cujo texto é exatamente
 /// `trecho`, na ordem do código-fonte; e os avisos.
-struct Resultado {
+struct Result_ {
     tipos: Vec<(String, String)>,
     avisos: Vec<String>,
 }
 
-impl Resultado {
-    fn tipo(&self, trecho: &str) -> &str {
+impl Result_ {
+    fn tipo(&self, snippet: &str) -> &str {
         self.tipos
             .iter()
-            .find(|(t, _)| t == trecho)
+            .find(|(t, _)| t == snippet)
             .map(|(_, ty)| ty.as_str())
-            .unwrap_or_else(|| panic!("expressão `{trecho}` não encontrada"))
+            .unwrap_or_else(|| panic!("expressão `{snippet}` não encontrada"))
     }
 }
 
-fn inferir(codigo: &str) -> Option<Resultado> {
+fn inferir(code: &str) -> Option<Result_> {
     sdk()?;
     let dir = tempfile::tempdir().unwrap();
     let main = dir.path().join("main.dart");
-    std::fs::write(&main, codigo).unwrap();
-    Some(inferir_arquivo(&main))
+    std::fs::write(&main, code).unwrap();
+    Some(infer_file(&main))
 }
 
-fn inferir_arquivo(main: &std::path::Path) -> Resultado {
+fn infer_file(main: &std::path::Path) -> Result_ {
     let sdk = sdk().unwrap();
     let main = main.to_path_buf();
     std::thread::Builder::new()
@@ -55,18 +55,18 @@ fn inferir_arquivo(main: &std::path::Path) -> Resultado {
             let core = CoreTypes::init(&mut table, &prog, &interner);
             let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
             let (bodies, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
-            let entrada = prog.library(prog.entry.unwrap()).units[0];
-            let unit = prog.unit(entrada);
-            let bt = &bodies.units[entrada.0 as usize];
-            let mut tipos = Vec::new();
+            let entry = prog.library(prog.entry.unwrap()).units[0];
+            let unit = prog.unit(entry);
+            let bt = &bodies.units[entry.0 as usize];
+            let mut types = Vec::new();
             for (i, e) in unit.ast.exprs.iter().enumerate() {
-                let texto = unit.source[e.span.start..e.span.end].to_string();
+                let text = unit.source[e.span.start..e.span.end].to_string();
                 let t = bt.static_types[i];
-                tipos.push((e.span.start, texto, formatar(&table, t, &interner, &prog)));
+                types.push((e.span.start, text, formatar(&table, t, &interner, &prog)));
             }
-            tipos.sort_by_key(|(s, _, _)| *s);
-            Resultado {
-                tipos: tipos.into_iter().map(|(_, a, b)| (a, b)).collect(),
+            types.sort_by_key(|(s, _, _)| *s);
+            Result_ {
+                tipos: types.into_iter().map(|(_, a, b)| (a, b)).collect(),
                 avisos: diags.iter().map(|d| d.message.clone()).collect(),
             }
         })
@@ -85,26 +85,26 @@ fn formatar(t: &TypeTable, ty: TypeId, i: &Interner, p: &dartforge_elements::mod
         Type::Never => "Never".into(),
         Type::Null => "Null".into(),
         Type::Interface { class, args, nullable } | Type::ExtensionType { decl: class, args, nullable } => {
-            let nome = i.resolve(p.class(*class).name);
+            let name = i.resolve(p.class(*class).name);
             if args.is_empty() {
-                format!("{nome}{}", q(*nullable))
+                format!("{name}{}", q(*nullable))
             } else {
                 let a: Vec<String> = args.iter().map(|&x| formatar(t, x, i, p)).collect();
-                format!("{nome}<{}>{}", a.join(", "), q(*nullable))
+                format!("{name}<{}>{}", a.join(", "), q(*nullable))
             }
         }
         Type::FutureOr { arg, nullable } => format!("FutureOr<{}>{}", formatar(t, *arg, i, p), q(*nullable)),
         Type::TypeParameter { param, nullable } => format!("{}{}", i.resolve(t.param(*param).name), q(*nullable)),
         Type::Record { positional, named, nullable } => {
-            let mut partes: Vec<String> = positional.iter().map(|&x| formatar(t, x, i, p)).collect();
+            let mut parts: Vec<String> = positional.iter().map(|&x| formatar(t, x, i, p)).collect();
             let mut n: Vec<(String, String)> = named.iter().map(|(s, x)| (i.resolve(*s).to_string(), formatar(t, *x, i, p))).collect();
             n.sort();
             if !n.is_empty() {
-                partes.push(format!("{{{}}}", n.iter().map(|(s, x)| format!("{x} {s}")).collect::<Vec<_>>().join(", ")));
+                parts.push(format!("{{{}}}", n.iter().map(|(s, x)| format!("{x} {s}")).collect::<Vec<_>>().join(", ")));
             } else if positional.len() == 1 {
-                return format!("({},){}", partes[0], q(*nullable));
+                return format!("({},){}", parts[0], q(*nullable));
             }
-            format!("({}){}", partes.join(", "), q(*nullable))
+            format!("({}){}", parts.join(", "), q(*nullable))
         }
         Type::Function { type_params, ret, positional, optional, named, nullable } => {
             let tps = if type_params.is_empty() {
@@ -114,19 +114,19 @@ fn formatar(t: &TypeTable, ty: TypeId, i: &Interner, p: &dartforge_elements::mod
                     .iter()
                     .map(|&tp| {
                         let d = t.param(tp);
-                        let nome = i.resolve(d.name).to_string();
+                        let name = i.resolve(d.name).to_string();
                         match t.get(d.bound) {
-                            Type::Interface { nullable: true, class, .. } if i.resolve(p.class(*class).name) == "Object" => nome,
-                            Type::Dynamic => nome,
-                            _ => format!("{nome} extends {}", formatar(t, d.bound, i, p)),
+                            Type::Interface { nullable: true, class, .. } if i.resolve(p.class(*class).name) == "Object" => name,
+                            Type::Dynamic => name,
+                            _ => format!("{name} extends {}", formatar(t, d.bound, i, p)),
                         }
                     })
                     .collect();
                 format!("<{}>", v.join(", "))
             };
-            let mut partes: Vec<String> = positional.iter().map(|&x| formatar(t, x, i, p)).collect();
+            let mut parts: Vec<String> = positional.iter().map(|&x| formatar(t, x, i, p)).collect();
             if !optional.is_empty() {
-                partes.push(format!("[{}]", optional.iter().map(|&x| formatar(t, x, i, p)).collect::<Vec<_>>().join(", ")));
+                parts.push(format!("[{}]", optional.iter().map(|&x| formatar(t, x, i, p)).collect::<Vec<_>>().join(", ")));
             }
             if !named.is_empty() {
                 let mut n: Vec<(String, String)> = named
@@ -134,14 +134,14 @@ fn formatar(t: &TypeTable, ty: TypeId, i: &Interner, p: &dartforge_elements::mod
                     .map(|(s, x, r)| (i.resolve(*s).to_string(), format!("{}{} {}", if *r { "required " } else { "" }, formatar(t, *x, i, p), i.resolve(*s))))
                     .collect();
                 n.sort();
-                partes.push(format!("{{{}}}", n.into_iter().map(|(_, s)| s).collect::<Vec<_>>().join(", ")));
+                parts.push(format!("{{{}}}", n.into_iter().map(|(_, s)| s).collect::<Vec<_>>().join(", ")));
             }
-            format!("{} Function{tps}({}){}", formatar(t, *ret, i, p), partes.join(", "), q(*nullable))
+            format!("{} Function{tps}({}){}", formatar(t, *ret, i, p), parts.join(", "), q(*nullable))
         }
     }
 }
 
-macro_rules! ou_pula {
+macro_rules! or_skip {
     ($e:expr) => {
         match $e {
             Some(r) => r,
@@ -156,8 +156,8 @@ macro_rules! ou_pula {
 /// Grupo base: literais, closures (corpo inferido), genéricos de coleção,
 /// índices, operadores numéricos, `super`, construtores genéricos.
 #[test]
-fn base_do_motor_novo() {
-    let r = ou_pula!(inferir(
+fn new_engine_base() {
+    let r = or_skip!(inferir(
         r#"
 class A { int f() => 1; }
 class B extends A { void g() { var s = super.f(); } }
@@ -196,8 +196,8 @@ void main() {
 /// Tipo cru numa anotação do outline é instanciado para os limites
 /// (`Map` → `Map<dynamic, dynamic>`, `C` com `T extends num` → `C<num>`).
 #[test]
-fn tipo_cru_instanciado_para_os_limites() {
-    let r = ou_pula!(inferir(
+fn raw_type_instantiated_to_bounds() {
+    let r = or_skip!(inferir(
         r#"
 class C<T extends num> { T? v; }
 Map dados = {};
@@ -215,8 +215,8 @@ void main() {
 /// Construtores nomeados, `$this`, campos de extensão, `null.hashCode`,
 /// tear-off genérico como alvo de chamada (tipo não instanciado).
 #[test]
-fn construtores_nomeados_e_referencias() {
-    let r = ou_pula!(inferir(
+fn named_constructors_and_references() {
+    let r = or_skip!(inferir(
         r#"
 typedef Cb = dynamic Function(List<String>, {String rawValue});
 class E {
@@ -254,8 +254,8 @@ void main() {
 /// `late final x;` sem inicializador tem setter (atribuição única): a
 /// atribuição tipa o valor pelo campo, sem aviso de setter indefinido.
 #[test]
-fn setter_de_late_final() {
-    let r = ou_pula!(inferir(
+fn late_final_setter() {
+    let r = or_skip!(inferir(
         r#"
 T cast<T>(Object? o) => o as T;
 class V {
@@ -276,8 +276,8 @@ class V {
 /// (`core_patch.dart` → `part 'bigint_patch.dart'`): uma classe só, com os
 /// membros da declaração original (`BigInt.operator <<`).
 #[test]
-fn patch_em_parte_de_patch() {
-    let r = ou_pula!(inferir(
+fn patch_in_part_of_patch() {
+    let r = or_skip!(inferir(
         r#"
 void main() {
   var n = BigInt.parse('1');
@@ -295,8 +295,8 @@ void main() {
 /// Parâmetro-função da forma antiga com `?` (`int f(int x)?`): o tipo do
 /// parâmetro é anulável (`jsonEncode`, `List.sort`, `Stream.listen`).
 #[test]
-fn parametro_funcao_antigo_anulavel() {
-    let r = ou_pula!(inferir(
+fn old_nullable_function_parameter() {
+    let r = or_skip!(inferir(
         r#"
 void g([int comparar(String a, String b)?]) {}
 void main() {
@@ -314,8 +314,8 @@ void main() {
 /// mudar), extensão genérica usada de dentro dela mesma, `-1` com contexto
 /// `double`, e closure que não herda promoção de variável escrita no corpo.
 #[test]
-fn sobreposicao_extensao_e_closure() {
-    let r = ou_pula!(inferir(
+fn extension_override_and_closure() {
+    let r = or_skip!(inferir(
         r#"
 typedef F<T> = void Function(T v);
 abstract class Base<T> { void registrar(F<T> f); }
@@ -345,7 +345,7 @@ void main() {
 /// Conflito de import entre `dart:` e um pacote: o do sistema fica oculto
 /// (`dart:html` também exporta `NotificationEvent`).
 #[test]
-fn import_do_sistema_perde_o_conflito() {
+fn system_import_loses_conflict() {
     let Some(sdk) = sdk() else { return };
     let _ = sdk;
     let dir = tempfile::tempdir().unwrap();
@@ -354,7 +354,7 @@ fn import_do_sistema_perde_o_conflito() {
     std::fs::write(&main, "import 'dart:core';
 import 'lib.dart';
 void main() { var d = Duration(3); var n = d.n; }").unwrap();
-    let r = inferir_arquivo(&main);
+    let r = infer_file(&main);
     assert_eq!(r.tipo("d.n"), "int");
     assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
 }
@@ -362,8 +362,8 @@ void main() { var d = Duration(3); var n = d.n; }").unwrap();
 /// Promoção de variável de tipo: interseção `X & B` (`T?` testado contra
 /// `null` vira `T & Object`; `is int` vira `T & int`).
 #[test]
-fn promocao_de_variavel_de_tipo() {
-    let r = ou_pula!(inferir(
+fn type_variable_promotion() {
+    let r = or_skip!(inferir(
         r#"
 T f<T>(T? a, T b, Map<String, T> m) {
   if (a != null) { var x = a; }
@@ -373,8 +373,8 @@ T f<T>(T? a, T b, Map<String, T> m) {
 }
 "#
     ));
-    let tipos: Vec<&str> = r.tipos.iter().filter(|(t, _)| t == "a").map(|(_, ty)| ty.as_str()).collect();
-    assert_eq!(tipos, ["T?", "T & Object"]);
+    let types: Vec<&str> = r.tipos.iter().filter(|(t, _)| t == "a").map(|(_, ty)| ty.as_str()).collect();
+    assert_eq!(types, ["T?", "T & Object"]);
     let tb: Vec<&str> = r.tipos.iter().filter(|(t, _)| t == "b").map(|(_, ty)| ty.as_str()).collect();
     assert_eq!(tb, ["T", "T & int", "T"]);
     assert_eq!(r.tipo("m['k']"), "T?");
@@ -385,8 +385,8 @@ T f<T>(T? a, T b, Map<String, T> m) {
 /// Promoção de campo privado final (Dart 3.2), por `this`, implícito e por
 /// local; um homônimo não final na biblioteca a impede.
 #[test]
-fn promocao_de_campo_privado() {
-    let r = ou_pula!(inferir(
+fn private_field_promotion() {
+    let r = or_skip!(inferir(
         r#"
 class A {
   final int? _x;
@@ -406,11 +406,11 @@ int g(A a) {
 }
 "#
     ));
-    let tipos = |t: &str| r.tipos.iter().filter(|(x, _)| x == t).map(|(_, y)| y.as_str()).collect::<Vec<_>>();
-    assert_eq!(tipos("_x"), ["int?", "int"]);
-    assert_eq!(tipos("this._o"), ["Object", "String"]);
-    assert_eq!(tipos("_y"), ["int?", "int?"]);
-    assert_eq!(tipos("a._x"), ["int?", "int"]);
+    let types = |t: &str| r.tipos.iter().filter(|(x, _)| x == t).map(|(_, y)| y.as_str()).collect::<Vec<_>>();
+    assert_eq!(types("_x"), ["int?", "int"]);
+    assert_eq!(types("this._o"), ["Object", "String"]);
+    assert_eq!(types("_y"), ["int?", "int?"]);
+    assert_eq!(types("a._x"), ["int?", "int"]);
     assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
 }
 
@@ -421,8 +421,8 @@ int g(A a) {
 /// sondado no analyzer 3.6.2 e 3.13.4: só o segundo caso dá
 /// `unchecked_use_of_nullable_value`).
 #[test]
-fn cadeia_clamp_e_funcao_local() {
-    let r = ou_pula!(inferir(
+fn chain_clamp_and_local_function() {
+    let r = or_skip!(inferir(
         r#"
 class S { int? d; S copia(int e) => this; }
 void f(S? s, double? h, double ph) {
@@ -443,12 +443,12 @@ void g() {
 }
 "#
     ));
-    let tipos = |t: &str| r.tipos.iter().filter(|(x, _)| x == t).map(|(_, y)| y.as_str()).collect::<Vec<_>>();
-    assert_eq!(tipos("s"), ["S?", "S"]);
-    assert_eq!(tipos("1"), ["double"]);
-    assert_eq!(tipos("buf")[..2], ["StringBuffer?", "StringBuffer"]);
+    let types = |t: &str| r.tipos.iter().filter(|(x, _)| x == t).map(|(_, y)| y.as_str()).collect::<Vec<_>>();
+    assert_eq!(types("s"), ["S?", "S"]);
+    assert_eq!(types("1"), ["double"]);
+    assert_eq!(types("buf")[..2], ["StringBuffer?", "StringBuffer"]);
     // `cap = null` (escrita), `cap != null`, `cap.write`: capturada, não promove.
-    assert_eq!(tipos("cap")[1..3], ["StringBuffer?", "StringBuffer?"]);
+    assert_eq!(types("cap")[1..3], ["StringBuffer?", "StringBuffer?"]);
 }
 
 /// A escrita de uma variável homônima declarada noutra closure (o `main` de
@@ -456,8 +456,8 @@ void g() {
 /// as escritas são resolvidas pela declaração, no escopo léxico
 /// (`limitless_ui`, `li_datatable_component_test.dart`).
 #[test]
-fn escrita_homonima_noutra_closure_nao_captura() {
-    let r = ou_pula!(inferir(
+fn same_name_write_in_other_closure_does_not_capture() {
+    let r = or_skip!(inferir(
         r#"
 void rodar(void Function() f) => f();
 void main() {
@@ -473,9 +473,9 @@ void main() {
 }
 "#
     ));
-    let tipos = |t: &str| r.tipos.iter().filter(|(x, _)| x == t).map(|(_, y)| y.as_str()).collect::<Vec<_>>();
+    let types = |t: &str| r.tipos.iter().filter(|(x, _)| x == t).map(|(_, y)| y.as_str()).collect::<Vec<_>>();
     // `botao!`, depois `botao.write` dentro da closure: promovido.
-    assert_eq!(tipos("botao")[..2], ["StringBuffer?", "StringBuffer"]);
+    assert_eq!(types("botao")[..2], ["StringBuffer?", "StringBuffer"]);
     assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
 }
 
@@ -486,8 +486,8 @@ void main() {
 /// funções genéricas, construtor encaminhado de aplicação de mixin e
 /// constantes referidas.
 #[test]
-fn corpos_do_sdk() {
-    let r = ou_pula!(inferir(
+fn sdk_bodies() {
+    let r = or_skip!(inferir(
         r#"
 abstract class E { String get _name; }
 extension X<T extends E> on Iterable<T> {
@@ -531,8 +531,8 @@ const lista = [base, deslocado, 'x$base'];
 /// (R-FLU-12): em biblioteca `// @dart = 3.1` o `!` é necessário e o campo
 /// fica anulável.
 #[test]
-fn promocao_de_campo_depende_da_versao() {
-    let r = ou_pula!(inferir(
+fn field_promotion_depends_on_version() {
+    let r = or_skip!(inferir(
         r#"// @dart = 3.1
 class A {
   final int? _x;
@@ -542,15 +542,15 @@ class A {
 "#
     ));
     assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
-    let tipos: Vec<&str> = r.tipos.iter().filter(|(t, _)| t == "_x").map(|(_, y)| y.as_str()).collect();
-    assert_eq!(tipos, ["int?", "int?"]);
+    let types: Vec<&str> = r.tipos.iter().filter(|(t, _)| t == "_x").map(|(_, y)| y.as_str()).collect();
+    assert_eq!(types, ["int?", "int?"]);
 }
 
 /// Variável de condição (§7.10): `final bool v = d != null; if (v) d` promove
 /// `d`; escrever `d` depois invalida.
 #[test]
-fn variavel_de_condicao() {
-    let r = ou_pula!(inferir(
+fn condition_variable() {
+    let r = or_skip!(inferir(
         r#"
 double f(double? d, double? e) {
   var soma = 0.0;
@@ -564,16 +564,16 @@ double f(double? d, double? e) {
 "#
     ));
     assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
-    let tipos: Vec<&str> = r.tipos.iter().filter(|(t, _)| t == "e").map(|(_, y)| y.as_str()).collect();
+    let types: Vec<&str> = r.tipos.iter().filter(|(t, _)| t == "e").map(|(_, y)| y.as_str()).collect();
     // Escrita depois da condição: a variável não restaura a promoção.
-    assert_eq!(tipos.last(), Some(&"double?"));
+    assert_eq!(types.last(), Some(&"double?"));
 }
 
 /// Extension type que implementa outro extension type (`Element implements
 /// JSObject`, `JSString implements JSAny` no package:web).
 #[test]
-fn extension_type_implementa_extension_type() {
-    let r = ou_pula!(inferir(
+fn extension_type_implements_extension_type() {
+    let r = or_skip!(inferir(
         r#"
 extension type A._(Object _) {}
 extension type B._(Object _) implements A {}
@@ -591,8 +591,8 @@ A f(C c) => c;
 /// genérica: a coerção por `call` vem antes da restrição, e `T` sai do
 /// retorno do `call` (o analyzer dá `Iterable<int>`).
 #[test]
-fn call_implicito_restringe_a_chamada_generica() {
-    let r = ou_pula!(inferir(
+fn implicit_call_restricts_generic_invocation() {
+    let r = or_skip!(inferir(
         r#"
 class Somador {
   final int base;
@@ -613,8 +613,8 @@ void main() {
 /// `Never` como valor é literal de tipo, como `dynamic` (o analyzer dá
 /// `Type`); não há declaração dele no `dart:core`.
 #[test]
-fn never_como_literal_de_tipo() {
-    let r = ou_pula!(inferir(
+fn never_as_type_literal() {
+    let r = or_skip!(inferir(
         r#"
 void main() {
   var t = Never;
@@ -631,8 +631,8 @@ void main() {
 /// `switch (e)`) tem o tipo do campo; a promoção do caso vale para o
 /// escrutinado, não para ela (o analyzer dá `Expr` ao `e` do corpo).
 #[test]
-fn variavel_do_padrao_que_sombreia_o_escrutinado() {
-    let r = ou_pula!(inferir(
+fn pattern_variable_shadowing_scrutinee() {
+    let r = or_skip!(inferir(
         r#"
 sealed class Expr {}
 class Num extends Expr { final int valor; Num(this.valor); }
@@ -652,6 +652,6 @@ Object comando(Expr e) {
 "#
     ));
     assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
-    let tipos: Vec<&str> = r.tipos.iter().filter(|(t, _)| t == "e").map(|(_, y)| y.as_str()).collect();
-    assert_eq!(tipos, ["Expr", "Num", "Expr", "Expr", "Expr", "Num"]);
+    let types: Vec<&str> = r.tipos.iter().filter(|(t, _)| t == "e").map(|(_, y)| y.as_str()).collect();
+    assert_eq!(types, ["Expr", "Num", "Expr", "Expr", "Expr", "Num"]);
 }

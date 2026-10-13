@@ -31,25 +31,25 @@ use dartforge_intern::{Interner, SymbolId};
 use std::collections::HashMap;
 
 /// `getOverridden2(classe, Name(lib, chave)) != null`.
-pub(crate) fn sobrescreve(h: &mut Heranca, p: &mut ProvedorDoOutline<'_, '_>, classe: ClassId, lib: LibraryId, chave: Option<SymbolId>) -> bool {
-    let Some(chave) = chave else { return false };
-    let nome = Nome::novo(p.interner, lib, chave);
-    h.sobrescritos(p, classe, nome).is_some()
+pub(crate) fn sobrescreve(h: &mut Heranca, p: &mut ProvedorDoOutline<'_, '_>, class: ClassId, lib: LibraryId, key: Option<SymbolId>) -> bool {
+    let Some(key) = key else { return false };
+    let name = Nome::novo(p.interner, lib, key);
+    h.sobrescritos(p, class, name).is_some()
 }
 
 /// `hasOverride`: o getter `override` do `dart.core`.
-fn com_override(program: &Program, interner: &Interner, u: UnitId, metadata: &[ast::Annotation]) -> bool {
+fn with_override(program: &Program, interner: &Interner, u: UnitId, metadata: &[ast::Annotation]) -> bool {
     metadata.iter().any(|m| crate::anotacoes::e_getter_de(program, interner, u, m, "dart.core", "override"))
 }
 
 /// A chave de setter de `nome`.
-fn chave_do_setter(interner: &Interner, nome: SymbolId) -> Option<SymbolId> {
-    interner.lookup(&format!("{}_=", interner.resolve(nome)))
+fn setter_key(interner: &Interner, name: SymbolId) -> Option<SymbolId> {
+    interner.lookup(&format!("{}_=", interner.resolve(name)))
 }
 
 /// O campo tem setter: não `const`, e não `final` (salvo `late final` sem
 /// inicializador).
-fn tem_setter(l: &ast::VariableList, v: &ast::Variable) -> bool {
+fn has_setter(l: &ast::VariableList, v: &ast::Variable) -> bool {
     !l.const_ && (!l.final_ || (l.late && v.initializer.is_none()))
 }
 
@@ -96,77 +96,77 @@ pub fn sem_sobrescrita(
     outline: &OutlineTypes,
     lib: LibraryId,
 ) -> Vec<(UnitId, Diagnostic)> {
-    let mut saida = Vec::new();
+    let mut output = Vec::new();
     let mut h = Heranca::default();
     let mut p = ProvedorDoOutline { program, interner, core, outline, table };
-    let vazio: [&str; 0] = [];
-    for (u, did, classe) in declaracoes(program, lib) {
+    let empty: [&str; 0] = [];
+    for (u, did, class) in declaracoes(program, lib) {
         let a = &program.unit(u).ast;
         let d = a.decl(did);
         // `_currentClass`: só classe, enum e mixin.
-        let corrente = match &d.kind {
-            DeclKind::Class(_) | DeclKind::Enum(_) | DeclKind::Mixin(_) => classe,
+        let current = match &d.kind {
+            DeclKind::Class(_) | DeclKind::Enum(_) | DeclKind::Mixin(_) => class,
             _ => None,
         };
-        let primario = match &d.kind {
+        let primary = match &d.kind {
             DeclKind::Class(x) => x.primary_constructor,
             DeclKind::Enum(x) => x.primary_constructor,
             _ => None,
         };
         for &mid in membros(d) {
-            let membro = a.member(mid);
+            let mem = a.member(mid);
             // O parâmetro declarante do construtor primário (3.13) é o campo:
             // a anotação dele vale para o campo, que a elaboração cria sem
             // metadata. No nome do parâmetro.
-            if primario == Some(mid)
-                && let MemberKind::Constructor(k) = &membro.kind
+            if primary == Some(mid)
+                && let MemberKind::Constructor(k) = &mem.kind
             {
                 for par in k.parameters.iter().filter(|x| x.declarante) {
-                    let Some(nome) = par.name else { continue };
-                    if !com_override(program, interner, u, &par.metadata) {
+                    let Some(name) = par.name else { continue };
+                    if !with_override(program, interner, u, &par.metadata) {
                         continue;
                     }
-                    let pelo_getter = corrente.is_some_and(|c| sobrescreve(&mut h, &mut p, c, lib, Some(nome.sym)));
-                    let pelo_setter = !pelo_getter
+                    let through_getter = current.is_some_and(|c| sobrescreve(&mut h, &mut p, c, lib, Some(name.sym)));
+                    let through_setter = !through_getter
                         && !par.final_
-                        && corrente.is_some_and(|c| sobrescreve(&mut h, &mut p, c, lib, chave_do_setter(interner, nome.sym)));
-                    if !pelo_getter && !pelo_setter {
-                        saida.push((u, Diagnostic::com_codigo(w::OVERRIDE_ON_NON_OVERRIDING_FIELD, nome.span, vazio)));
+                        && current.is_some_and(|c| sobrescreve(&mut h, &mut p, c, lib, setter_key(interner, name.sym)));
+                    if !through_getter && !through_setter {
+                        output.push((u, Diagnostic::com_codigo(w::OVERRIDE_ON_NON_OVERRIDING_FIELD, name.span, empty)));
                     }
                 }
             }
-            if !com_override(program, interner, u, &membro.metadata) {
+            if !with_override(program, interner, u, &mem.metadata) {
                 continue;
             }
-            match &membro.kind {
+            match &mem.kind {
                 MemberKind::Field(l) => {
                     for var in l.variables.iter() {
-                        let pelo_getter = corrente.is_some_and(|c| sobrescreve(&mut h, &mut p, c, lib, Some(var.name.sym)));
-                        let pelo_setter = !pelo_getter
-                            && tem_setter(l, var)
-                            && corrente.is_some_and(|c| sobrescreve(&mut h, &mut p, c, lib, chave_do_setter(interner, var.name.sym)));
-                        if !pelo_getter && !pelo_setter {
-                            saida.push((u, Diagnostic::com_codigo(w::OVERRIDE_ON_NON_OVERRIDING_FIELD, var.name.span, vazio)));
+                        let through_getter = current.is_some_and(|c| sobrescreve(&mut h, &mut p, c, lib, Some(var.name.sym)));
+                        let through_setter = !through_getter
+                            && has_setter(l, var)
+                            && current.is_some_and(|c| sobrescreve(&mut h, &mut p, c, lib, setter_key(interner, var.name.sym)));
+                        if !through_getter && !through_setter {
+                            output.push((u, Diagnostic::com_codigo(w::OVERRIDE_ON_NON_OVERRIDING_FIELD, var.name.span, empty)));
                         }
                     }
                 }
                 MemberKind::Method(f) => {
                     let func = a.function(*f);
-                    let Some(nome) = func.name else { continue };
-                    let (chave, codigo) = match func.kind {
-                        FunctionKind::Getter => (Some(nome.sym), w::OVERRIDE_ON_NON_OVERRIDING_GETTER),
-                        FunctionKind::Setter => (chave_do_setter(interner, nome.sym), w::OVERRIDE_ON_NON_OVERRIDING_SETTER),
-                        FunctionKind::Function | FunctionKind::Operator => (Some(nome.sym), w::OVERRIDE_ON_NON_OVERRIDING_METHOD),
+                    let Some(name) = func.name else { continue };
+                    let (key, code) = match func.kind {
+                        FunctionKind::Getter => (Some(name.sym), w::OVERRIDE_ON_NON_OVERRIDING_GETTER),
+                        FunctionKind::Setter => (setter_key(interner, name.sym), w::OVERRIDE_ON_NON_OVERRIDING_SETTER),
+                        FunctionKind::Function | FunctionKind::Operator => (Some(name.sym), w::OVERRIDE_ON_NON_OVERRIDING_METHOD),
                     };
-                    if !corrente.is_some_and(|c| sobrescreve(&mut h, &mut p, c, lib, chave)) {
-                        saida.push((u, Diagnostic::com_codigo(codigo, nome.span, vazio)));
+                    if !current.is_some_and(|c| sobrescreve(&mut h, &mut p, c, lib, key)) {
+                        output.push((u, Diagnostic::com_codigo(code, name.span, empty)));
                     }
                 }
                 MemberKind::Constructor(_) => {}
             }
         }
     }
-    saida
+    output
 }
 
 /// O `RedeclareVerifier`: `redeclare_on_non_redeclaring_member` no nome de
@@ -180,43 +180,43 @@ pub fn sem_redeclaracao(
     outline: &OutlineTypes,
     lib: LibraryId,
 ) -> Vec<(UnitId, Diagnostic)> {
-    let mut saida = Vec::new();
+    let mut output = Vec::new();
     let mut h = Heranca::default();
     let mut p = ProvedorDoOutline { program, interner, core, outline, table };
-    for (u, did, classe) in declaracoes(program, lib) {
+    for (u, did, class) in declaracoes(program, lib) {
         let a = &program.unit(u).ast;
         let d = a.decl(did);
-        let (DeclKind::ExtensionType(x), Some(c)) = (&d.kind, classe) else { continue };
+        let (DeclKind::ExtensionType(x), Some(c)) = (&d.kind, class) else { continue };
         for &mid in x.members.iter() {
-            let membro = a.member(mid);
-            let MemberKind::Method(f) = &membro.kind else { continue };
+            let mem = a.member(mid);
+            let MemberKind::Method(f) = &mem.kind else { continue };
             let func = a.function(*f);
             if func.static_ {
                 continue;
             }
-            if !membro.metadata.iter().any(|m| crate::anotacoes::e_getter_de(program, interner, u, m, "meta", "redeclare")) {
+            if !mem.metadata.iter().any(|m| crate::anotacoes::e_getter_de(program, interner, u, m, "meta", "redeclare")) {
                 continue;
             }
-            let Some(nome) = func.name else { continue };
-            let (chave, especie) = match func.kind {
-                FunctionKind::Getter => (Some(nome.sym), "getter"),
-                FunctionKind::Setter => (chave_do_setter(interner, nome.sym), "setter"),
-                FunctionKind::Function | FunctionKind::Operator => (Some(nome.sym), "method"),
+            let Some(name) = func.name else { continue };
+            let (key, kind) = match func.kind {
+                FunctionKind::Getter => (Some(name.sym), "getter"),
+                FunctionKind::Setter => (setter_key(interner, name.sym), "setter"),
+                FunctionKind::Function | FunctionKind::Operator => (Some(name.sym), "method"),
             };
-            let redeclara = chave.is_some_and(|k| {
+            let redeclares = key.is_some_and(|k| {
                 let n = Nome::novo(interner, lib, k);
                 h.interface(&mut p, c).redeclared.contains_key(&n)
             });
-            if !redeclara {
-                saida.push((u, Diagnostic::com_codigo(w::REDECLARE_ON_NON_REDECLARING_MEMBER, nome.span, [especie])));
+            if !redeclares {
+                output.push((u, Diagnostic::com_codigo(w::REDECLARE_ON_NON_REDECLARING_MEMBER, name.span, [kind])));
             }
         }
     }
-    saida
+    output
 }
 
 /// O nome de um membro herdado (`ExecutableElement.name`: o setter com `=`).
-fn nome_do_membro(program: &Program, interner: &Interner, m: &Membro) -> String {
+fn member_name(program: &Program, interner: &Interner, m: &Membro) -> String {
     let base = interner.resolve(program.function(m.funcao).name);
     let base = base.strip_suffix("_=").unwrap_or(base);
     if m.especie == Especie::Setter { format!("{base}=") } else { base.to_string() }
@@ -235,52 +235,52 @@ pub fn sem_anotacao_de_override(
     outline: &OutlineTypes,
     lib: LibraryId,
 ) -> Vec<(UnitId, Span, String)> {
-    let mut saida = Vec::new();
+    let mut output = Vec::new();
     let mut h = Heranca::default();
     let mut p = ProvedorDoOutline { program, interner, core, outline, table };
-    for (u, did, classe) in declaracoes(program, lib) {
+    for (u, did, class) in declaracoes(program, lib) {
         let a = &program.unit(u).ast;
         let d = a.decl(did);
-        let Some(c) = classe else { continue };
+        let Some(c) = class else { continue };
         if !matches!(d.kind, DeclKind::Class(_) | DeclKind::Enum(_) | DeclKind::Mixin(_)) {
             continue;
         }
-        let biblioteca = program.class(c).library;
+        let library = program.class(c).library;
         for &mid in membros(d) {
-            let membro = a.member(mid);
-            if membro.augment || com_override(program, interner, u, &membro.metadata) {
+            let mem = a.member(mid);
+            if mem.augment || with_override(program, interner, u, &mem.metadata) {
                 continue;
             }
-            match &membro.kind {
+            match &mem.kind {
                 MemberKind::Field(l) if !l.static_ => {
                     for var in l.variables.iter() {
-                        let n = Nome::novo(interner, biblioteca, var.name.sym);
+                        let n = Nome::novo(interner, library, var.name.sym);
                         if let Some(m) = h.herdado(&mut p, c, n) {
-                            saida.push((u, var.name.span, nome_do_membro(program, interner, &m)));
+                            output.push((u, var.name.span, member_name(program, interner, &m)));
                         }
                     }
                 }
                 MemberKind::Method(f) => {
                     let func = a.function(*f);
-                    let Some(nome) = func.name else { continue };
+                    let Some(name) = func.name else { continue };
                     if func.static_ {
                         continue;
                     }
-                    let chave = match func.kind {
-                        FunctionKind::Setter => chave_do_setter(interner, nome.sym),
-                        _ => Some(nome.sym),
+                    let key = match func.kind {
+                        FunctionKind::Setter => setter_key(interner, name.sym),
+                        _ => Some(name.sym),
                     };
-                    let Some(chave) = chave else { continue };
-                    let n = Nome::novo(interner, biblioteca, chave);
+                    let Some(key) = key else { continue };
+                    let n = Nome::novo(interner, library, key);
                     if let Some(m) = h.herdado(&mut p, c, n) {
-                        saida.push((u, nome.span, nome_do_membro(program, interner, &m)));
+                        output.push((u, name.span, member_name(program, interner, &m)));
                     }
                 }
                 _ => {}
             }
         }
     }
-    saida
+    output
 }
 
 /// `_hasNonVirtualAnnotation`: o `@nonVirtual` do `package:meta` no membro
@@ -291,20 +291,20 @@ fn nao_virtual(program: &Program, interner: &Interner, m: &Membro) -> bool {
         return false;
     }
     let e = program.function(m.funcao);
-    let (unidade, metadata): (UnitId, &[ast::Annotation]) = if e.kind == Fk::ImplicitAccessor {
+    let (unit_id, metadata): (UnitId, &[ast::Annotation]) = if e.kind == Fk::ImplicitAccessor {
         let Some(v) = e.variable else { return false };
         match program.variable(v).node {
             VariableRef::Field { unit, member, .. } => (unit, &program.unit(unit).ast.member(member).metadata[..]),
             _ => return false,
         }
     } else {
-        let unidade = match e.node {
+        let unit_id = match e.node {
             FunctionRef::Function { unit, .. } | FunctionRef::Constructor { unit, .. } => unit,
             FunctionRef::None => return false,
         };
-        (unidade, crate::fase_resultado::anotacoes_da_funcao(program, m.funcao))
+        (unit_id, crate::fase_resultado::function_annotations(program, m.funcao))
     };
-    metadata.iter().any(|a| crate::anotacoes::e_getter_de(program, interner, unidade, a, "meta", "nonVirtual"))
+    metadata.iter().any(|a| crate::anotacoes::e_getter_de(program, interner, unit_id, a, "meta", "nonVirtual"))
 }
 
 /// `invalid_override_of_non_virtual_member` (`BestPracticesVerifier`,
@@ -319,13 +319,13 @@ pub fn sobrescritas_de_nao_virtuais(
     outline: &OutlineTypes,
     lib: LibraryId,
 ) -> Vec<(UnitId, Diagnostic)> {
-    let mut saida = Vec::new();
+    let mut output = Vec::new();
     let mut h = Heranca::default();
     let mut p = ProvedorDoOutline { program, interner, core, outline, table };
-    for (u, did, classe) in declaracoes(program, lib) {
+    for (u, did, class) in declaracoes(program, lib) {
         let a = &program.unit(u).ast;
         let d = a.decl(did);
-        let Some(c) = classe else { continue };
+        let Some(c) = class else { continue };
         if !matches!(d.kind, DeclKind::Class(_) | DeclKind::Enum(_) | DeclKind::Mixin(_) | DeclKind::ExtensionType(_)) {
             continue;
         }
@@ -334,40 +334,40 @@ pub fn sobrescritas_de_nao_virtuais(
                 MemberKind::Field(l) => {
                     for var in l.variables.iter() {
                         let n = Nome::novo(interner, lib, var.name.sym);
-                        let mut achado = h.membro(&mut p, c, n, false, None, true);
-                        if achado.is_none()
-                            && let Some(s) = chave_do_setter(interner, var.name.sym)
+                        let mut finding = h.membro(&mut p, c, n, false, None, true);
+                        if finding.is_none()
+                            && let Some(s) = setter_key(interner, var.name.sym)
                         {
-                            achado = h.membro(&mut p, c, Nome::novo(interner, lib, s), false, None, true);
+                            finding = h.membro(&mut p, c, Nome::novo(interner, lib, s), false, None, true);
                         }
-                        if let Some(m) = achado
+                        if let Some(m) = finding
                             && nao_virtual(program, interner, &m)
                         {
-                            let texto = interner.resolve(var.name.sym);
-                            let dona = interner.resolve(program.class(m.classe).name);
-                            saida.push((u, Diagnostic::com_codigo(w::INVALID_OVERRIDE_OF_NON_VIRTUAL_MEMBER, var.name.span, [texto, dona])));
+                            let text = interner.resolve(var.name.sym);
+                            let owner = interner.resolve(program.class(m.classe).name);
+                            output.push((u, Diagnostic::com_codigo(w::INVALID_OVERRIDE_OF_NON_VIRTUAL_MEMBER, var.name.span, [text, owner])));
                         }
                     }
                 }
                 MemberKind::Method(f) => {
                     let func = a.function(*f);
-                    let Some(nome) = func.name else { continue };
-                    let chave = match func.kind {
-                        FunctionKind::Setter => chave_do_setter(interner, nome.sym),
-                        _ => Some(nome.sym),
+                    let Some(name) = func.name else { continue };
+                    let key = match func.kind {
+                        FunctionKind::Setter => setter_key(interner, name.sym),
+                        _ => Some(name.sym),
                     };
-                    let Some(chave) = chave else { continue };
-                    if let Some(m) = h.membro(&mut p, c, Nome::novo(interner, lib, chave), false, None, true)
+                    let Some(key) = key else { continue };
+                    if let Some(m) = h.membro(&mut p, c, Nome::novo(interner, lib, key), false, None, true)
                         && nao_virtual(program, interner, &m)
                     {
-                        let texto = interner.resolve(nome.sym);
-                        let dona = interner.resolve(program.class(m.classe).name);
-                        saida.push((u, Diagnostic::com_codigo(w::INVALID_OVERRIDE_OF_NON_VIRTUAL_MEMBER, nome.span, [texto, dona])));
+                        let text = interner.resolve(name.sym);
+                        let owner = interner.resolve(program.class(m.classe).name);
+                        output.push((u, Diagnostic::com_codigo(w::INVALID_OVERRIDE_OF_NON_VIRTUAL_MEMBER, name.span, [text, owner])));
                     }
                 }
                 MemberKind::Constructor(_) => {}
             }
         }
     }
-    saida
+    output
 }

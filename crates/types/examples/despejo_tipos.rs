@@ -15,30 +15,30 @@
 //! `--avisos` recebe os avisos, um por linha, com o offset.
 
 use dartforge_elements::sdk::SdkLayout;
-use dartforge_types::despejo::despejar;
+use dartforge_types::despejo::dump;
 use std::io::Write;
 use std::path::PathBuf;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let mut entrada = None;
+    let mut entry = None;
     let mut packages = None;
-    let mut saida = None;
-    let mut arquivos = None;
-    let mut avisos = None;
+    let mut output = None;
+    let mut files = None;
+    let mut warnings = None;
     let mut sdk_dir = None;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
             "--packages" => packages = it.next().map(PathBuf::from),
-            "-o" => saida = it.next().map(PathBuf::from),
-            "--arquivos" => arquivos = it.next().map(PathBuf::from),
-            "--avisos" => avisos = it.next().map(PathBuf::from),
+            "-o" => output = it.next().map(PathBuf::from),
+            "--arquivos" => files = it.next().map(PathBuf::from),
+            "--avisos" => warnings = it.next().map(PathBuf::from),
             "--sdk" => sdk_dir = it.next().map(PathBuf::from),
-            _ => entrada = Some(PathBuf::from(a)),
+            _ => entry = Some(PathBuf::from(a)),
         }
     }
-    let entrada = entrada.expect("uso: despejo_tipos <entrada.dart> --packages <cfg> -o <saida.tsv>");
+    let entry = entry.expect("uso: despejo_tipos <entrada.dart> --packages <cfg> -o <saida.tsv>");
     let sdk_dir = sdk_dir
         .or_else(SdkLayout::discover)
         .unwrap_or_else(|| PathBuf::from("C:/tools/dartsdk-3.6.2/lib"));
@@ -48,22 +48,22 @@ fn main() {
     std::thread::Builder::new()
         .stack_size(1 << 30)
         .spawn(move || {
-            let d = despejar(&entrada, &sdk, packages.as_deref());
-            eprintln!("inferência: {:?}; avisos: {}", d.tempo_inferencia, d.avisos.len());
-            let mut out = std::io::BufWriter::new(std::fs::File::create(saida.expect("-o")).unwrap());
+            let d = dump(&entry, &sdk, packages.as_deref());
+            eprintln!("inferência: {:?}; avisos: {}", d.inference_time, d.avisos.len());
+            let mut out = std::io::BufWriter::new(std::fs::File::create(output.expect("-o")).unwrap());
             let mut total = 0usize;
             for u in &d.unidades {
                 for l in &u.linhas {
-                    writeln!(out, "{}\t{}\t{}\t{}\t{}\t{}", u.caminho, l.offset, l.comprimento, l.no, l.tipo, l.resolucao).unwrap();
+                    writeln!(out, "{}\t{}\t{}\t{}\t{}\t{}", u.caminho, l.offset, l.comprimento, l.no, l.tipo, l.resolution).unwrap();
                 }
                 total += u.linhas.len();
             }
-            eprintln!("despejo: {} unidades, {total} expressões, {} não visitadas", d.unidades.len(), d.nao_visitadas);
-            if let Some(a) = arquivos {
-                let lista: Vec<&str> = d.unidades.iter().map(|u| u.caminho.as_str()).collect();
-                std::fs::write(a, lista.join("\n")).unwrap();
+            eprintln!("despejo: {} unidades, {total} expressões, {} não visitadas", d.unidades.len(), d.not_visited);
+            if let Some(a) = files {
+                let list: Vec<&str> = d.unidades.iter().map(|u| u.caminho.as_str()).collect();
+                std::fs::write(a, list.join("\n")).unwrap();
             }
-            if let Some(a) = avisos {
+            if let Some(a) = warnings {
                 let mut f = std::io::BufWriter::new(std::fs::File::create(a).unwrap());
                 for x in &d.avisos {
                     writeln!(f, "{}\t{}", x.span.start, x.message.replace('\n', " ")).unwrap();

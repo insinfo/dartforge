@@ -4,7 +4,7 @@
 //! `cargo run -q --release -p dartforge-types --example memoria_types -- C:/MyDartProjects/new_sali/frontend/web/main.dart`
 
 #[global_allocator]
-static ALOCADOR: dartforge_instrument::CountingAllocator = dartforge_instrument::CountingAllocator;
+static ALLOCATOR: dartforge_instrument::CountingAllocator = dartforge_instrument::CountingAllocator;
 
 use dartforge_elements::load::load_lenient;
 use dartforge_elements::sdk::SdkLayout;
@@ -50,7 +50,7 @@ fn main() {
     let mut interner = Interner::new();
     let (program, elements_diags) = load_lenient(&entry_point, &sdk, package_config.as_deref(), &mut interner);
     let t_elements = t0.elapsed();
-    let bytes_apos_elementos = dartforge_instrument::live_bytes();
+    let bytes_after_elements = dartforge_instrument::live_bytes();
 
     // 2. Inicialização da TypeTable e CoreTypes
     let mut table = TypeTable::new();
@@ -60,16 +60,16 @@ fn main() {
     let t1 = Instant::now();
     let (mut outline, outline_diags) = resolve_outline(&program, &interner, &mut table, &core);
     let t_outline = t1.elapsed();
-    let bytes_apos_outline = dartforge_instrument::live_bytes();
+    let bytes_after_outline = dartforge_instrument::live_bytes();
 
     // 4. Inferência de Corpos
     let t2 = Instant::now();
     let (body_types, body_diags) = infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
     let t_bodies = t2.elapsed();
-    let bytes_apos_bodies = dartforge_instrument::live_bytes();
+    let bytes_after_bodies = dartforge_instrument::live_bytes();
 
-    let pico_bytes = dartforge_instrument::peak_bytes();
-    let total_alocacoes = dartforge_instrument::allocation_count();
+    let peak_bytes = dartforge_instrument::peak_bytes();
+    let total_allocations = dartforge_instrument::allocation_count();
 
     // Contagem de estatísticas
     let mut total_exprs = 0;
@@ -100,19 +100,19 @@ fn main() {
     println!("\n--- Consumo de Memória ---");
     println!("Memória Base:                   {:.2} MB", base_bytes as f64 / 1_048_576.0);
     println!("Após Carga de Elementos:        {:.2} MB (+{:.2} MB)",
-        bytes_apos_elementos as f64 / 1_048_576.0,
-        (bytes_apos_elementos.saturating_sub(base_bytes)) as f64 / 1_048_576.0
+        bytes_after_elements as f64 / 1_048_576.0,
+        (bytes_after_elements.saturating_sub(base_bytes)) as f64 / 1_048_576.0
     );
     println!("Após Resolução de Outline:      {:.2} MB (+{:.2} MB)",
-        bytes_apos_outline as f64 / 1_048_576.0,
-        (bytes_apos_outline.saturating_sub(bytes_apos_elementos)) as f64 / 1_048_576.0
+        bytes_after_outline as f64 / 1_048_576.0,
+        (bytes_after_outline.saturating_sub(bytes_after_elements)) as f64 / 1_048_576.0
     );
     println!("Após Inferência de Corpos:      {:.2} MB (+{:.2} MB)",
-        bytes_apos_bodies as f64 / 1_048_576.0,
-        (bytes_apos_bodies.saturating_sub(bytes_apos_outline)) as f64 / 1_048_576.0
+        bytes_after_bodies as f64 / 1_048_576.0,
+        (bytes_after_bodies.saturating_sub(bytes_after_outline)) as f64 / 1_048_576.0
     );
-    println!("Pico de Memória Global:         {:.2} MB", pico_bytes as f64 / 1_048_576.0);
-    println!("Alocações Totais:               {}", total_alocacoes);
+    println!("Pico de Memória Global:         {:.2} MB", peak_bytes as f64 / 1_048_576.0);
+    println!("Alocações Totais:               {}", total_allocations);
 
     println!("\n--- Tempos de Execução ---");
     println!("Carga e Parse (Elementos):      {:.2?}", t_elements);

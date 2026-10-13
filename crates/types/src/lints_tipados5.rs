@@ -49,16 +49,16 @@ pub fn achados(
     table: &mut TypeTable,
     core: &CoreTypes,
     outline: &OutlineTypes,
-    corpos: &BodyTypes,
-    inferidas: &HashSet<LibraryId>,
+    bodies: &BodyTypes,
+    the_inferred: &HashSet<LibraryId>,
     u: UnitId,
 ) -> Vec<Achado> {
     let mut out: Vec<Achado> = Vec::new();
-    let Some(corpo) = corpos.units.get(u.0 as usize) else { return out };
-    casos_exaustivos(program, interner, table, core, outline, corpos, inferidas, u, &mut out);
-    constantes_nomeadas_e_declaracoes(program, interner, table, core, outline, corpos, inferidas, u, &mut out);
-    parametros_super(program, interner, table, core, outline, corpo, u, &mut out);
-    checagens_js(program, interner, table, core, outline, corpo, u, &mut out);
+    let Some(body) = bodies.units.get(u.0 as usize) else { return out };
+    exhaustive_cases(program, interner, table, core, outline, bodies, the_inferred, u, &mut out);
+    named_constants_and_declarations(program, interner, table, core, outline, bodies, the_inferred, u, &mut out);
+    super_parameters(program, interner, table, core, outline, body, u, &mut out);
+    js_checks(program, interner, table, core, outline, body, u, &mut out);
     out
 }
 
@@ -74,21 +74,21 @@ fn tipo_this(table: &mut TypeTable, outline: &OutlineTypes, c: ClassId) -> TypeI
 
 /// `exhaustive_cases`.
 #[allow(clippy::too_many_arguments)]
-fn casos_exaustivos(
+fn exhaustive_cases(
     program: &Program,
     interner: &Interner,
     table: &mut TypeTable,
     core: &CoreTypes,
     outline: &OutlineTypes,
-    corpos: &BodyTypes,
-    inferidas: &HashSet<LibraryId>,
+    bodies: &BodyTypes,
+    the_inferred: &HashSet<LibraryId>,
     u: UnitId,
     out: &mut Vec<Achado>,
 ) {
-    let unidade = program.unit(u);
-    let a = &unidade.ast;
-    let fonte = unidade.source.as_str();
-    let Some(corpo) = corpos.units.get(u.0 as usize) else { return };
+    let unit_id = program.unit(u);
+    let a = &unit_id.ast;
+    let source = unit_id.source.as_str();
+    let Some(body) = bodies.units.get(u.0 as usize) else { return };
     let switches: Vec<(Span, ExprId, &[ast::SwitchCase])> = a
         .stmts
         .iter()
@@ -100,7 +100,7 @@ fn casos_exaustivos(
     if switches.is_empty() {
         return;
     }
-    let deprecado = |v: VariableId| -> bool {
+    let deprecated = |v: VariableId| -> bool {
         let VariableRef::Field { unit, member, .. } = program.variable(v).node else { return false };
         let m = program.unit(unit).ast.member(member);
         m.metadata.iter().any(|x| {
@@ -109,26 +109,26 @@ fn casos_exaustivos(
         })
     };
     // Primeira passada (com a tabela): as candidatas e o `thisType`.
-    let mut candidatas: Vec<(Span, ExprId, &[ast::SwitchCase], ClassId, TypeId)> = Vec::new();
-    for (span, valor, casos) in switches {
-        let Some(t) = corpo.get_type(valor) else { continue };
+    let mut candidates: Vec<(Span, ExprId, &[ast::SwitchCase], ClassId, TypeId)> = Vec::new();
+    for (span, the_value, the_cases) in switches {
+        let Some(t) = body.get_type(the_value) else { continue };
         let Type::Interface { class, .. } = table.get(t).clone() else { continue };
         let this_t = tipo_this(table, outline, class);
-        candidatas.push((span, valor, casos, class, this_t));
+        candidates.push((span, the_value, the_cases, class, this_t));
     }
-    if candidatas.is_empty() {
+    if candidates.is_empty() {
         return;
     }
-    let mut motor = Motor::novo(program, interner, table, core, outline, corpos, inferidas);
-    let exaustivos_ligado = true;
-    for (span, valor, casos, class, this_t) in candidatas {
+    let mut engine = Motor::novo(program, interner, table, core, outline, bodies, the_inferred);
+    let exhaustive_on = true;
+    for (span, the_value, the_cases, class, this_t) in candidates {
         // `no_default_cases`: o `default` de um `switch` sobre enum ou
         // classe "enum-like" (o primeiro `default`).
         let e_enum = program.class(class).kind == ClassKind::Enum;
         let k = program.class(class);
-        let padrao_do_switch = casos.iter().find(|c| c.pattern.is_none()).map(|c| c.span);
+        let switch_pattern = the_cases.iter().find(|c| c.pattern.is_none()).map(|c| c.span);
         if e_enum {
-            if let Some(sp) = padrao_do_switch {
+            if let Some(sp) = switch_pattern {
                 out.push((sp, "no_default_cases", Vec::new()));
             }
             continue;
@@ -138,17 +138,17 @@ fn casos_exaustivos(
         }
         // Só construtores privados que não são fábrica (sem nenhum
         // declarado, o padrão é público).
-        let construtores = k.construtores();
-        if construtores.is_empty() {
+        let constructors = k.construtores();
+        if constructors.is_empty() {
             continue;
         }
-        let todos_privados = construtores.iter().all(|(nome, f)| interner.resolve(*nome).starts_with('_') && !program.function(*f).factory);
-        if !todos_privados {
+        let all_private = constructors.iter().all(|(name, f)| interner.resolve(*name).starts_with('_') && !program.function(*f).factory);
+        if !all_private {
             continue;
         }
         // As constantes estáticas do tipo da classe, por valor.
         let mut constantes: Vec<(crate::constantes::valor::Valor, Vec<VariableId>)> = Vec::new();
-        let mut contagem = 0;
+        let mut count = 0;
         for &v in &k.fields {
             let x = program.variable(v);
             if !x.const_ || !x.static_ {
@@ -159,47 +159,47 @@ fn casos_exaustivos(
             if tv != this_t {
                 continue;
             }
-            let Some(Constante::Valor(val)) = motor.valor_de_variavel(v) else { continue };
-            contagem += 1;
-            match constantes.iter().position(|(w, _)| motor.iguais(&val, w)) {
+            let Some(Constante::Valor(val)) = engine.valor_de_variavel(v) else { continue };
+            count += 1;
+            match constantes.iter().position(|(w, _)| engine.iguais(&val, w)) {
                 Some(i) => constantes[i].1.push(v),
                 None => constantes.push((val, vec![v])),
             }
         }
-        if contagem < 2 {
+        if count < 2 {
             continue;
         }
         // Nenhuma subclasse na unidade que define a biblioteca.
-        let definidora = program.library(k.library).units.first().copied();
-        let tem_subclasse = (0..program.classes.len()).map(|i| ClassId(i as u32)).any(|cand| {
+        let defining = program.library(k.library).units.first().copied();
+        let has_subclass = (0..program.classes.len()).map(|i| ClassId(i as u32)).any(|cand| {
             let ck = program.class(cand);
-            if !ck.decl.is_some_and(|r| Some(r.unit) == definidora) {
+            if !ck.decl.is_some_and(|r| Some(r.unit) == defining) {
                 return false;
             }
-            let mut vistos = HashSet::new();
-            let mut atual = ck.supertype_class;
-            while let Some(sc) = atual {
-                if !vistos.insert(sc) {
+            let mut seen = HashSet::new();
+            let mut current = ck.supertype_class;
+            while let Some(sc) = current {
+                if !seen.insert(sc) {
                     break;
                 }
                 if sc == class {
                     return true;
                 }
-                atual = program.class(sc).supertype_class;
+                current = program.class(sc).supertype_class;
             }
             false
         });
-        if tem_subclasse {
+        if has_subclass {
             continue;
         }
         // A classe é "enum-like": o `default` é `no_default_cases`.
-        if let Some(sp) = padrao_do_switch {
+        if let Some(sp) = switch_pattern {
             out.push((sp, "no_default_cases", Vec::new()));
         }
-        let mut padrao = false;
-        for caso in casos {
-            let Some(p) = caso.pattern else {
-                padrao = true;
+        let mut pattern = false;
+        for case in the_cases {
+            let Some(p) = case.pattern else {
+                pattern = true;
                 break;
             };
             let mut p = p;
@@ -211,32 +211,32 @@ fn casos_exaustivos(
             if !matches!(a.expr(e).kind, ExprKind::Identifier(_) | ExprKind::Property { .. }) {
                 continue;
             }
-            let variavel = match corpo.get_resolved(e) {
+            let variable = match body.get_resolved(e) {
                 Some(Resolved::Member { member: MemberRef::Variable(v), .. }) | Some(Resolved::Element(Element::Variable(v))) => Some(*v),
                 Some(Resolved::Member { member: MemberRef::Function(f), .. }) | Some(Resolved::Element(Element::Function(f))) => program.function(*f).variable,
                 _ => None,
             };
-            let Some(v) = variavel else { continue };
-            if let Some(Constante::Valor(val)) = motor.valor_de_variavel(v)
-                && let Some(i) = constantes.iter().position(|(w, _)| motor.iguais(&val, w))
+            let Some(v) = variable else { continue };
+            if let Some(Constante::Valor(val)) = engine.valor_de_variavel(v)
+                && let Some(i) = constantes.iter().position(|(w, _)| engine.iguais(&val, w))
             {
                 constantes.remove(i);
             }
         }
-        if padrao {
+        if pattern {
             continue;
         }
-        if !exaustivos_ligado {
+        if !exhaustive_on {
             continue;
         }
         // Do `switch` ao `)` depois da expressão.
-        let b = fonte.as_bytes();
-        let depois = dartforge_frontend::fonte::pular_brancos(b, a.expr(valor).span.end);
-        let fim = if b.get(depois) == Some(&b')') { depois + 1 } else { a.expr(valor).span.end };
-        for (_, campos) in constantes {
-            let preferido = campos.iter().copied().find(|v| !deprecado(*v)).unwrap_or(campos[0]);
-            let nome = interner.resolve(program.variable(preferido).name).to_string();
-            out.push((Span { start: span.start, end: fim }, "exhaustive_cases", vec![nome]));
+        let b = source.as_bytes();
+        let after = dartforge_frontend::fonte::pular_brancos(b, a.expr(the_value).span.end);
+        let end = if b.get(after) == Some(&b')') { after + 1 } else { a.expr(the_value).span.end };
+        for (_, fields) in constantes {
+            let preferred = fields.iter().copied().find(|v| !deprecated(*v)).unwrap_or(fields[0]);
+            let name = interner.resolve(program.variable(preferred).name).to_string();
+            out.push((Span { start: span.start, end: end }, "exhaustive_cases", vec![name]));
         }
     }
 }
@@ -244,41 +244,41 @@ fn casos_exaustivos(
 /// `use_named_constants` e `prefer_const_declarations` (o motor de
 /// constantes).
 #[allow(clippy::too_many_arguments)]
-fn constantes_nomeadas_e_declaracoes(
+fn named_constants_and_declarations(
     program: &Program,
     interner: &Interner,
     table: &mut TypeTable,
     core: &CoreTypes,
     outline: &OutlineTypes,
-    corpos: &BodyTypes,
-    inferidas: &HashSet<LibraryId>,
+    bodies: &BodyTypes,
+    the_inferred: &HashSet<LibraryId>,
     u: UnitId,
     out: &mut Vec<Achado>,
 ) {
-    let unidade = program.unit(u);
-    let a = &unidade.ast;
-    let fonte = unidade.source.as_str();
-    let lib = unidade.library;
-    let Some(corpo) = corpos.units.get(u.0 as usize) else { return };
+    let unit_id = program.unit(u);
+    let a = &unit_id.ast;
+    let source = unit_id.source.as_str();
+    let lib = unit_id.library;
+    let Some(body) = bodies.units.get(u.0 as usize) else { return };
     let pais = crate::lints_tipados::pais_da_unidade(program, u);
     // `use_named_constants`: as criações constantes de uma classe.
-    let mut criacoes: Vec<(ExprId, ClassId)> = Vec::new();
+    let mut creations: Vec<(ExprId, ClassId)> = Vec::new();
     for (k, e) in a.exprs.iter().enumerate() {
         let id = ExprId(k as u32);
-        if !matches!(corpo.get_resolved(id), Some(Resolved::Constructor(_))) {
+        if !matches!(body.get_resolved(id), Some(Resolved::Constructor(_))) {
             continue;
         }
-        let escrito_const = matches!(&e.kind, ExprKind::InstanceCreation { keyword: Some(ast::CreationKeyword::Const), .. });
-        if !escrito_const && !pais.em_contexto_constante(a, id) {
+        let written_const = matches!(&e.kind, ExprKind::InstanceCreation { keyword: Some(ast::CreationKeyword::Const), .. });
+        if !written_const && !pais.em_contexto_constante(a, id) {
             continue;
         }
-        let Some(t) = corpo.get_type(id) else { continue };
+        let Some(t) = body.get_type(id) else { continue };
         let Type::Interface { class, .. } = table.get(t) else { continue };
         if program.class(*class).kind != ClassKind::Class {
             continue;
         }
         // Dentro do inicializador de um campo da própria classe.
-        let dentro_de_campo = program.class(*class).fields.iter().any(|v| match program.variable(*v).node {
+        let inside_field = program.class(*class).fields.iter().any(|v| match program.variable(*v).node {
             VariableRef::Field { unit, member, index } if unit == u => match &a.member(member).kind {
                 MemberKind::Field(l) => l.variables.get(index).and_then(|x| x.initializer).is_some_and(|i| {
                     let (ie, ce) = (a.expr(i).span, e.span);
@@ -288,14 +288,14 @@ fn constantes_nomeadas_e_declaracoes(
             },
             _ => false,
         });
-        if !dentro_de_campo {
-            criacoes.push((id, *class));
+        if !inside_field {
+            creations.push((id, *class));
         }
     }
     // `prefer_const_declarations`: as listas `final` (campos estáticos, de
     // topo e locais) com o começo da lista e os inicializadores.
-    let mut listas: Vec<(usize, usize, Vec<ExprId>)> = Vec::new();
-    let lista = |inicio: usize, l: &ast::VariableList, listas: &mut Vec<(usize, usize, Vec<ExprId>)>| {
+    let mut lists: Vec<(usize, usize, Vec<ExprId>)> = Vec::new();
+    let list = |start: usize, l: &ast::VariableList, lists: &mut Vec<(usize, usize, Vec<ExprId>)>| {
         if l.const_ || !l.final_ {
             return;
         }
@@ -308,245 +308,245 @@ fn constantes_nomeadas_e_declaracoes(
             }
             inits.push(i);
         }
-        let Some(ultima) = l.variables.last() else { return };
-        let fim = ultima.initializer.map_or(ultima.name.span.end, |i| a.expr(i).span.end);
-        listas.push((inicio, fim, inits));
+        let Some(last) = l.variables.last() else { return };
+        let end = last.initializer.map_or(last.name.span.end, |i| a.expr(i).span.end);
+        lists.push((start, end, inits));
     };
-    let pular_palavra = |pos: usize, p: &str| -> usize {
-        if fonte[pos..].starts_with(p) && !fonte.as_bytes().get(pos + p.len()).is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_') {
-            dartforge_frontend::fonte::pular_brancos(fonte.as_bytes(), pos + p.len())
+    let skip_word = |pos: usize, p: &str| -> usize {
+        if source[pos..].starts_with(p) && !source.as_bytes().get(pos + p.len()).is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_') {
+            dartforge_frontend::fonte::pular_brancos(source.as_bytes(), pos + p.len())
         } else {
             pos
         }
     };
-    let depois_das_anotacoes = |metadata: &[ast::Annotation], inicio: usize| match metadata.last() {
-        Some(m) => dartforge_frontend::fonte::pular_brancos(fonte.as_bytes(), m.span.end),
-        None => inicio,
+    let after_annotations = |metadata: &[ast::Annotation], start: usize| match metadata.last() {
+        Some(m) => dartforge_frontend::fonte::pular_brancos(source.as_bytes(), m.span.end),
+        None => start,
     };
     for d in a.decls.iter() {
         if let ast::DeclKind::Variables(l) = &d.kind {
-            let ini = depois_das_anotacoes(&d.metadata, d.span.start);
-            lista(ini, l, &mut listas);
+            let begin = after_annotations(&d.metadata, d.span.start);
+            list(begin, l, &mut lists);
         }
     }
     for m in a.members.iter() {
         if let MemberKind::Field(l) = &m.kind
             && l.static_
         {
-            let ini = pular_palavra(depois_das_anotacoes(&m.metadata, m.span.start), "static");
-            lista(ini, l, &mut listas);
+            let begin = skip_word(after_annotations(&m.metadata, m.span.start), "static");
+            list(begin, l, &mut lists);
         }
     }
     for (k, st) in a.stmts.iter().enumerate() {
         if let StmtKind::Variables(l) = &st.kind {
             let meta = a.metadados_locais.iter().find(|(x, _)| x.0 as usize == k).map_or(&[][..], |(_, m)| &m[..]);
-            let ini = depois_das_anotacoes(meta, st.span.start);
-            lista(ini, l, &mut listas);
+            let begin = after_annotations(meta, st.span.start);
+            list(begin, l, &mut lists);
         }
     }
-    if criacoes.is_empty() && listas.is_empty() {
+    if creations.is_empty() && lists.is_empty() {
         return;
     }
-    let mut motor = Motor::novo(program, interner, table, core, outline, corpos, inferidas);
+    let mut engine = Motor::novo(program, interner, table, core, outline, bodies, the_inferred);
     let cx = crate::constantes::avaliador::Ctx::simples(u, lib);
-    for (e, class) in criacoes {
-        let Constante::Valor(valor) = motor.avaliar(&cx, e, true) else { continue };
+    for (e, class) in creations {
+        let Constante::Valor(the_value) = engine.avaliar(&cx, e, true) else { continue };
         let k = program.class(class);
         for &v in &k.fields {
             let x = program.variable(v);
             if !x.static_ || !x.const_ {
                 continue;
             }
-            let nome = interner.resolve(x.name);
-            if nome.starts_with('_') && k.library != lib {
+            let name = interner.resolve(x.name);
+            if name.starts_with('_') && k.library != lib {
                 continue;
             }
-            if let Some(Constante::Valor(w)) = motor.valor_de_variavel(v)
-                && motor.iguais(&valor, &w)
+            if let Some(Constante::Valor(w)) = engine.valor_de_variavel(v)
+                && engine.iguais(&the_value, &w)
             {
-                let texto = format!("{}.{}", interner.resolve(k.name), nome);
-                out.push((a.expr(e).span, "use_named_constants", vec![texto]));
+                let text = format!("{}.{}", interner.resolve(k.name), name);
+                out.push((a.expr(e).span, "use_named_constants", vec![text]));
                 break;
             }
         }
     }
-    for (ini, fim, inits) in listas {
-        let sem_erro = inits.iter().all(|i| matches!(motor.avaliar(&cx, *i, true), Constante::Valor(_)));
-        if sem_erro {
-            out.push((Span { start: ini, end: fim }, "prefer_const_declarations", Vec::new()));
+    for (begin, end, inits) in lists {
+        let without_error = inits.iter().all(|i| matches!(engine.avaliar(&cx, *i, true), Constante::Valor(_)));
+        if without_error {
+            out.push((Span { start: begin, end: end }, "prefer_const_declarations", Vec::new()));
         }
     }
 }
 
 /// `use_super_parameters`.
 #[allow(clippy::too_many_arguments)]
-fn parametros_super(
+fn super_parameters(
     program: &Program,
     interner: &Interner,
     table: &mut TypeTable,
     core: &CoreTypes,
     outline: &OutlineTypes,
-    corpo: &UnitBodyTypes,
+    body: &UnitBodyTypes,
     u: UnitId,
     out: &mut Vec<Achado>,
 ) {
-    let unidade = program.unit(u);
+    let unit_id = program.unit(u);
     // `Feature.super_parameters` (2.17).
-    if program.library(unidade.library).features.versao() < dartforge_frontend::features::LanguageVersion::new(2, 17) {
+    if program.library(unit_id.library).features.versao() < dartforge_frontend::features::LanguageVersion::new(2, 17) {
         return;
     }
-    let a = &unidade.ast;
+    let a = &unit_id.ast;
     for (k_decl, d) in a.decls.iter().enumerate() {
-        let membros = match &d.kind {
+        let members = match &d.kind {
             ast::DeclKind::Class(x) => &x.members,
             ast::DeclKind::Enum(x) => &x.members,
             _ => continue,
         };
         let did = ast::DeclId(k_decl as u32);
-        let Some(classe) = (0..program.classes.len()).map(|i| ClassId(i as u32)).find(|c| program.class(*c).decl.is_some_and(|r| r.unit == u && r.decl == did)) else {
+        let Some(cls) = (0..program.classes.len()).map(|i| ClassId(i as u32)).find(|c| program.class(*c).decl.is_some_and(|r| r.unit == u && r.decl == did)) else {
             continue;
         };
-        for &mid in membros {
+        for &mid in members {
             let MemberKind::Constructor(k) = &a.member(mid).kind else { continue };
             // O último `super(…)` dos inicializadores.
-            let Some((nome_super, args)) = k.initializers.iter().rev().find_map(|i| match i {
+            let Some((super_name_of, args)) = k.initializers.iter().rev().find_map(|i| match i {
                 Initializer::Super { constructor, arguments, .. } => Some((*constructor, arguments)),
                 _ => None,
             }) else {
                 continue;
             };
             // O construtor da superclasse (o `staticElement`).
-            let Some(sup) = program.class(classe).supertype_class else { continue };
-            let chave = match nome_super {
+            let Some(sup) = program.class(cls).supertype_class else { continue };
+            let key = match super_name_of {
                 Some(n) => n.sym,
                 None => match interner.lookup("") {
                     Some(s) => s,
                     None => continue,
                 },
             };
-            let Some(&ksup) = program.class(sup).constructors.get(&chave) else { continue };
+            let Some(&ksup) = program.class(sup).constructors.get(&key) else { continue };
             // Os parâmetros citados no corpo.
-            let corpo_span = match &k.body {
+            let body_span = match &k.body {
                 ast::FunctionBody::Block(s) => Some(a.stmt(*s).span),
                 ast::FunctionBody::Expression(e) => Some(a.expr(*e).span),
                 _ => None,
             };
-            let mut citados: HashSet<dartforge_intern::SymbolId> = HashSet::new();
-            if let Some(cs) = corpo_span {
+            let mut cited: HashSet<dartforge_intern::SymbolId> = HashSet::new();
+            if let Some(cs) = body_span {
                 for (i, e) in a.exprs.iter().enumerate() {
                     if e.span.start >= cs.start
                         && e.span.end <= cs.end
                         && let ExprKind::Identifier(n) = &e.kind
-                        && matches!(corpo.get_resolved(ExprId(i as u32)), Some(Resolved::Parameter { .. }))
+                        && matches!(body.get_resolved(ExprId(i as u32)), Some(Resolved::Parameter { .. }))
                     {
-                        citados.insert(n.sym);
+                        cited.insert(n.sym);
                     }
                 }
             }
             let ps = &k.parameters;
             // `_checkForConvertiblePositionalParams`.
-            let mut posicionais: Vec<ast::Name> = Vec::new();
-            let mut invalido = false;
+            let mut positional: Vec<ast::Name> = Vec::new();
+            let mut invalid = false;
             for x in args.args.iter() {
                 match x.name {
                     None => match &a.expr(x.value).kind {
-                        ExprKind::Identifier(n) => posicionais.push(*n),
+                        ExprKind::Identifier(n) => positional.push(*n),
                         _ => {
-                            invalido = true;
+                            invalid = true;
                             break;
                         }
                     },
                     Some(_) => {}
                 }
             }
-            if invalido {
+            if invalid {
                 continue;
             }
-            let mut identificadores: Vec<String> = Vec::new();
-            let mut vistos: HashSet<dartforge_intern::SymbolId> = HashSet::new();
-            let mut indice_casado = 0usize;
-            let mut aborta = false;
-            'args: for n in &posicionais {
+            let mut identifiers: Vec<String> = Vec::new();
+            let mut seen: HashSet<dartforge_intern::SymbolId> = HashSet::new();
+            let mut matched_index = 0usize;
+            let mut aborts = false;
+            'args: for n in &positional {
                 // O elemento do argumento é um parâmetro deste construtor
                 // (o escopo dos inicializadores).
                 let Some(p) = ps.iter().find(|p| p.name.is_some_and(|q| q.sym == n.sym)) else {
-                    aborta = true;
+                    aborts = true;
                     break;
                 };
-                if p.kind == ParameterKind::Named || !vistos.insert(n.sym) {
-                    aborta = true;
+                if p.kind == ParameterKind::Named || !seen.insert(n.sym) {
+                    aborts = true;
                     break;
                 }
-                let mut casou = false;
+                let mut matched = false;
                 for (i, q) in ps.iter().enumerate() {
-                    if casou {
+                    if matched {
                         break;
                     }
                     if q.this_ || q.super_ {
-                        aborta = true;
+                        aborts = true;
                         break 'args;
                     }
                     let Some(qn) = q.name else { continue };
-                    if citados.contains(&qn.sym) {
-                        aborta = true;
+                    if cited.contains(&qn.sym) {
+                        aborts = true;
                         break 'args;
                     }
                     if qn.sym == n.sym {
-                        casou = true;
-                        identificadores.push(interner.resolve(qn.sym).to_string());
-                        if i < indice_casado {
-                            aborta = true;
+                        matched = true;
+                        identifiers.push(interner.resolve(qn.sym).to_string());
+                        if i < matched_index {
+                            aborts = true;
                             break 'args;
                         }
-                        indice_casado = i;
+                        matched_index = i;
                     }
                 }
             }
-            if aborta {
+            if aborts {
                 continue;
             }
             // Os nomeados.
-            let tipos_sup = parametros_nomeados(program, table, outline, ksup, classe, sup, core);
+            let sup_types = named_parameters(program, table, outline, ksup, cls, sup, core);
             for p in ps.iter() {
                 if p.this_ || p.kind != ParameterKind::Named {
                     continue;
                 }
                 let Some(pn) = p.name else { continue };
-                if citados.contains(&pn.sym) {
+                if cited.contains(&pn.sym) {
                     continue;
                 }
-                let Some(&tipo_sup) = tipos_sup.get(&pn.sym) else { continue };
-                let repassado = args.args.iter().any(|x| {
+                let Some(&sup_type) = sup_types.get(&pn.sym) else { continue };
+                let passed_on = args.args.iter().any(|x| {
                     x.name.is_some_and(|l| l.sym == pn.sym)
                         && matches!(&a.expr(x.value).kind, ExprKind::Identifier(m) if m.sym == pn.sym)
-                        && matches!(corpo.get_resolved(x.value), Some(Resolved::Parameter { .. }) | None)
+                        && matches!(body.get_resolved(x.value), Some(Resolved::Parameter { .. }) | None)
                 });
-                if !repassado {
+                if !passed_on {
                     continue;
                 }
                 // O tipo deste parâmetro.
-                let tipo_proprio = p.ty.and_then(|t| outline.tipos_escritos.get(&(u, t)).copied()).unwrap_or(core.dynamic_);
-                let atribuivel = matches!(table.get(tipo_sup), Type::Dynamic) || {
+                let own_type = p.ty.and_then(|t| outline.tipos_escritos.get(&(u, t)).copied()).unwrap_or(core.dynamic_);
+                let assignable = matches!(table.get(sup_type), Type::Dynamic) || {
                     let mut env = SubtypeEnv::new(table, &outline.hierarchy, core);
-                    is_subtype(tipo_sup, tipo_proprio, &mut env)
+                    is_subtype(sup_type, own_type, &mut env)
                 };
-                if atribuivel {
-                    identificadores.push(interner.resolve(pn.sym).to_string());
+                if assignable {
+                    identifiers.push(interner.resolve(pn.sym).to_string());
                 }
             }
-            if identificadores.is_empty() {
+            if identifiers.is_empty() {
                 continue;
             }
-            let alvo = k.name.unwrap_or(k.class_name).span;
-            if identificadores.len() > 1 {
-                let citados: Vec<String> = identificadores.iter().map(|i| format!("'{i}'")).collect();
-                let msg = match citados.len() {
-                    2 => format!("{} and {}", citados[0], citados[1]),
-                    n => format!("{}, and {}", citados[..n - 1].join(", "), citados[n - 1]),
+            let target = k.name.unwrap_or(k.class_name).span;
+            if identifiers.len() > 1 {
+                let cited: Vec<String> = identifiers.iter().map(|i| format!("'{i}'")).collect();
+                let msg = match cited.len() {
+                    2 => format!("{} and {}", cited[0], cited[1]),
+                    n => format!("{}, and {}", cited[..n - 1].join(", "), cited[n - 1]),
                 };
-                out.push((alvo, "use_super_parameters_multiple", vec![msg]));
+                out.push((target, "use_super_parameters_multiple", vec![msg]));
             } else {
-                out.push((alvo, "use_super_parameters_single", vec![identificadores[0].clone()]));
+                out.push((target, "use_super_parameters_single", vec![identifiers[0].clone()]));
             }
         }
     }
@@ -554,25 +554,25 @@ fn parametros_super(
 
 /// Os tipos dos parâmetros nomeados do construtor `f` da superclasse `sup`,
 /// instanciados no supertipo da classe `classe`.
-fn parametros_nomeados(
+fn named_parameters(
     program: &Program,
     table: &mut TypeTable,
     outline: &OutlineTypes,
     f: dartforge_elements::model::FunctionElementId,
-    classe: ClassId,
+    cls: ClassId,
     sup: ClassId,
     core: &CoreTypes,
 ) -> HashMap<dartforge_intern::SymbolId, TypeId> {
     let mut m = HashMap::new();
-    let Some(dados) = outline.functions.get(f.0 as usize) else { return m };
-    let mut sig = dados.signature;
-    let this_t = tipo_this(table, outline, classe);
+    let Some(data) = outline.functions.get(f.0 as usize) else { return m };
+    let mut sig = data.signature;
+    let this_t = tipo_this(table, outline, cls);
     if let Some(inst) = outline.hierarchy.supertype_of(this_t, sup, table, core)
         && let Type::Interface { args, .. } = table.get(inst).clone()
     {
         let params = outline.classes.get(sup.0 as usize).map(|x| x.type_params.clone()).unwrap_or_default();
-        let mapa: HashMap<TypeParamId, TypeId> = params.iter().copied().zip(args.iter().copied()).collect();
-        sig = crate::ops::substitute(sig, &mapa, table);
+        let map: HashMap<TypeParamId, TypeId> = params.iter().copied().zip(args.iter().copied()).collect();
+        sig = crate::ops::substitute(sig, &map, table);
     }
     if let Type::Function { named, .. } = table.get(sig) {
         for (n, t, _) in named.iter() {
@@ -633,48 +633,48 @@ impl Js<'_> {
         let Some(r) = k.decl else { return false };
         let a = &self.program.unit(r.unit).ast;
         let mut js = false;
-        let mut estatico = false;
+        let mut static_ = false;
         for m in a.decl(r.decl).metadata.iter() {
-            match crate::anotacoes::elemento_invocado(self.program, self.interner, r.unit, m) {
-                crate::anotacoes::ElementoInvocado::Construtor(cl, _) => {
+            match crate::anotacoes::invoked_element(self.program, self.interner, r.unit, m) {
+                crate::anotacoes::InvokedElement::Construtor(cl, _) => {
                     let x = self.program.class(cl);
                     if self.uri(x.library) == "dart:js_interop" && self.interner.resolve(x.name) == "JS" {
                         js = true;
                     }
                 }
-                crate::anotacoes::ElementoInvocado::Getter(f) => {
+                crate::anotacoes::InvokedElement::Getter(f) => {
                     let g = self.program.function(f);
                     if self.uri(g.library) == "dart:_js_annotations" && self.interner.resolve(g.name) == "staticInterop" {
-                        estatico = true;
+                        static_ = true;
                     }
                 }
                 _ => {}
             }
         }
-        js && estatico && self.js_object.is_some()
+        js && static_ && self.js_object.is_some()
     }
 
     /// `isUserJsInteropType`.
-    fn usuario_js(&self, table: &TypeTable, t: TypeId, prof: u32) -> bool {
+    fn js_user(&self, table: &TypeTable, t: TypeId, prof: u32) -> bool {
         if prof > 16 {
             return false;
         }
         match table.get(t) {
-            Type::TypeParameter { .. } | Type::Intersection { .. } => self.usuario_js(table, self.limite(table, t), prof + 1),
-            Type::ExtensionType { decl, .. } => self.representacao(*decl).is_some_and(|r| self.dart_js(table, r) || self.usuario_js(table, r, prof + 1)),
+            Type::TypeParameter { .. } | Type::Intersection { .. } => self.js_user(table, self.limite(table, t), prof + 1),
+            Type::ExtensionType { decl, .. } => self.representacao(*decl).is_some_and(|r| self.dart_js(table, r) || self.js_user(table, r, prof + 1)),
             Type::Interface { class, .. } => self.static_interop(*class),
             _ => false,
         }
     }
 
     /// `isWasmIncompatibleJsInterop`.
-    fn incompativel(&self, table: &TypeTable, t: TypeId) -> bool {
+    fn incompatible(&self, table: &TypeTable, t: TypeId) -> bool {
         let (Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. }) = table.get(self.limite(table, t)) else { return false };
         let k = self.program.class(*class);
-        let tem_js = k.decl.is_some_and(|r| {
+        let has_js = k.decl.is_some_and(|r| {
             let a = &self.program.unit(r.unit).ast;
-            a.decl(r.decl).metadata.iter().any(|m| match crate::anotacoes::elemento_invocado(self.program, self.interner, r.unit, m) {
-                crate::anotacoes::ElementoInvocado::Construtor(cl, _) => {
+            a.decl(r.decl).metadata.iter().any(|m| match crate::anotacoes::invoked_element(self.program, self.interner, r.unit, m) {
+                crate::anotacoes::InvokedElement::Construtor(cl, _) => {
                     let x = self.program.class(cl);
                     self.interner.resolve(x.name) == "JS" && (self.uri(x.library) == "package:js/js.dart" || self.uri(x.library) == "dart:_js_annotations")
                 }
@@ -682,15 +682,15 @@ impl Js<'_> {
             })
         });
         let uri = self.uri(k.library);
-        tem_js || WEB_SDK.contains(&uri) || uri == "dart:js"
+        has_js || WEB_SDK.contains(&uri) || uri == "dart:js"
     }
 
     /// `EraseNonJSInteropTypes.perform`.
-    fn apagar(&self, table: &mut TypeTable, t: TypeId, manter_usuario: bool, vistos: &mut HashSet<TypeParamId>) -> TypeId {
-        let mantem = if manter_usuario { self.usuario_js(table, t, 0) } else { self.dart_js(table, t) };
+    fn apagar(&self, table: &mut TypeTable, t: TypeId, keep_user: bool, seen: &mut HashSet<TypeParamId>) -> TypeId {
+        let keeps = if keep_user { self.js_user(table, t, 0) } else { self.dart_js(table, t) };
         match table.get(t).clone() {
             Type::Interface { class, args, nullable } => {
-                if mantem {
+                if keeps {
                     return tipo_this(table, self.outline, class);
                 }
                 if self.static_interop(class)
@@ -698,11 +698,11 @@ impl Js<'_> {
                 {
                     return table.intern(Type::ExtensionType { decl: jo, args: Box::new([]), nullable: false });
                 }
-                let novos: Vec<TypeId> = args.iter().map(|x| self.apagar(table, *x, manter_usuario, vistos)).collect();
-                table.intern(Type::Interface { class, args: novos.into(), nullable })
+                let new_: Vec<TypeId> = args.iter().map(|x| self.apagar(table, *x, keep_user, seen)).collect();
+                table.intern(Type::Interface { class, args: new_.into(), nullable })
             }
             Type::ExtensionType { decl, args, nullable } => {
-                if mantem {
+                if keeps {
                     let params: Vec<TypeId> = self
                         .outline
                         .classes
@@ -714,28 +714,28 @@ impl Js<'_> {
                 // O apagamento: a representação instanciada.
                 let Some(rep) = self.representacao(decl) else { return t };
                 let params = self.outline.classes.get(decl.0 as usize).map(|x| x.type_params.clone()).unwrap_or_default();
-                let mapa: HashMap<TypeParamId, TypeId> = params.iter().copied().zip(args.iter().copied()).collect();
-                let inst = crate::ops::substitute(rep, &mapa, table);
-                let apagado = self.apagar(table, inst, manter_usuario, vistos);
-                if nullable { crate::ops::nullable(apagado, table) } else { apagado }
+                let map: HashMap<TypeParamId, TypeId> = params.iter().copied().zip(args.iter().copied()).collect();
+                let inst = crate::ops::substitute(rep, &map, table);
+                let erased = self.apagar(table, inst, keep_user, seen);
+                if nullable { crate::ops::nullable(erased, table) } else { erased }
             }
             Type::TypeParameter { param, .. } => {
-                if !vistos.insert(param) {
+                if !seen.insert(param) {
                     return t;
                 }
-                let limite = table.param(param).bound;
-                let novo = self.apagar(table, limite, manter_usuario, vistos);
-                table.intern(Type::Intersection { param, bound: novo })
+                let bnd = table.param(param).bound;
+                let the_new_ = self.apagar(table, bnd, keep_user, seen);
+                table.intern(Type::Intersection { param, bound: the_new_ })
             }
             Type::Intersection { param, bound } => {
-                if !vistos.insert(param) {
+                if !seen.insert(param) {
                     return t;
                 }
-                let novo = self.apagar(table, bound, manter_usuario, vistos);
-                table.intern(Type::Intersection { param, bound: novo })
+                let the_new_ = self.apagar(table, bound, keep_user, seen);
+                table.intern(Type::Intersection { param, bound: the_new_ })
             }
             Type::FutureOr { arg, nullable } => {
-                let a2 = self.apagar(table, arg, manter_usuario, vistos);
+                let a2 = self.apagar(table, arg, keep_user, seen);
                 table.intern(Type::FutureOr { arg: a2, nullable })
             }
             _ => t,
@@ -743,7 +743,7 @@ impl Js<'_> {
     }
 
     /// `extensionTypeErasure` comum.
-    fn apagar_extensao(&self, table: &mut TypeTable, t: TypeId) -> TypeId {
+    fn erase_extension(&self, table: &mut TypeTable, t: TypeId) -> TypeId {
         let outline = self.outline;
         let program = self.program;
         let rep = |decl: ClassId, args: &[TypeId], table: &mut TypeTable| -> Option<TypeId> {
@@ -753,8 +753,8 @@ impl Js<'_> {
             if params.is_empty() || params.len() != args.len() {
                 return Some(t);
             }
-            let mapa: HashMap<TypeParamId, TypeId> = params.iter().copied().zip(args.iter().copied()).collect();
-            Some(crate::ops::substitute(t, &mapa, table))
+            let map: HashMap<TypeParamId, TypeId> = params.iter().copied().zip(args.iter().copied()).collect();
+            Some(crate::ops::substitute(t, &map, table))
         };
         crate::ops::erase_extension_type(t, table, &rep)
     }
@@ -778,36 +778,36 @@ impl Js<'_> {
 
     /// O `eraseTypes` do emissor: decide o código (uma vez) e devolve os
     /// tipos para seguir a comparação.
-    fn apagar_par(&self, table: &mut TypeTable, l: TypeId, r: TypeId, check: bool, codigo: &mut Option<&'static str>) -> (TypeId, TypeId) {
+    fn erase_pair(&self, table: &mut TypeTable, l: TypeId, r: TypeId, check: bool, code: &mut Option<&'static str>) -> (TypeId, TypeId) {
         let el0 = self.apagar(table, l, false, &mut HashSet::new());
         let mut el = crate::ops::non_nullable(el0, table);
         let er0 = self.apagar(table, r, false, &mut HashSet::new());
         let mut er = crate::ops::non_nullable(er0, table);
         let l_js = self.dart_js(table, el);
         let r_js = self.dart_js(table, er);
-        if codigo.is_none() && (l_js || r_js) && !self.incompativel(table, el) && !self.incompativel(table, er) {
+        if code.is_none() && (l_js || r_js) && !self.incompatible(table, el) && !self.incompatible(table, er) {
             let l_sub = self.sub(table, el, er);
             let r_sub = self.sub(table, er, el);
             let l_din = matches!(table.get(el), Type::Dynamic);
             let r_din = matches!(table.get(er), Type::Dynamic);
             if check {
                 if !l_sub && !r_din {
-                    *codigo = Some(if l_js && r_js {
+                    *code = Some(if l_js && r_js {
                         "invalid_runtime_check_with_js_interop_types_js_is_inconsistent_js"
                     } else if l_js {
                         "invalid_runtime_check_with_js_interop_types_js_is_dart"
                     } else {
                         "invalid_runtime_check_with_js_interop_types_dart_is_js"
                     });
-                } else if l_sub && l_js && r_js && self.usuario_js(table, r, 0) {
+                } else if l_sub && l_js && r_js && self.js_user(table, r, 0) {
                     let ul = self.apagar(table, l, true, &mut HashSet::new());
                     let ur = self.apagar(table, r, true, &mut HashSet::new());
                     if !self.sub(table, ul, ur) {
-                        *codigo = Some("invalid_runtime_check_with_js_interop_types_js_is_unrelated_js");
+                        *code = Some("invalid_runtime_check_with_js_interop_types_js_is_unrelated_js");
                     }
                 }
             } else if !l_sub && !r_sub && !l_din && !r_din {
-                *codigo = Some(if l_js && r_js {
+                *code = Some(if l_js && r_js {
                     "invalid_runtime_check_with_js_interop_types_js_as_incompatible_js"
                 } else if l_js {
                     "invalid_runtime_check_with_js_interop_types_js_as_dart"
@@ -817,44 +817,44 @@ impl Js<'_> {
             }
         }
         if l_js {
-            el = self.apagar_extensao(table, l);
+            el = self.erase_extension(table, l);
         }
         if r_js {
-            er = self.apagar_extensao(table, r);
+            er = self.erase_extension(table, r);
         }
         (el, er)
     }
 
     /// `canBeSubtypeOf` com o `eraseTypes` (o resultado guia a recursão).
-    fn pode(&self, table: &mut TypeTable, l: TypeId, r: TypeId, check: bool, codigo: &mut Option<&'static str>, prof: u32) -> bool {
+    fn can(&self, table: &mut TypeTable, l: TypeId, r: TypeId, check: bool, code: &mut Option<&'static str>, prof: u32) -> bool {
         if prof > 16 {
             return true;
         }
-        let (l, r) = self.apagar_par(table, l, r, check, codigo);
-        let l_anul = !self.nao_anulavel(table, l);
-        let r_anul = !self.nao_anulavel(table, r);
+        let (l, r) = self.erase_pair(table, l, r, check, code);
+        let l_nullable = !self.nao_anulavel(table, l);
+        let r_nullable = !self.nao_anulavel(table, r);
         if matches!(table.get(l), Type::Null) {
-            return r_anul;
+            return r_nullable;
         }
         if matches!(table.get(r), Type::Null) {
-            return l_anul;
+            return l_nullable;
         }
-        if l_anul && r_anul {
+        if l_nullable && r_nullable {
             return true;
         }
-        let e_classe = |c: ClassId, alvo: Option<ClassId>| Some(c) == alvo;
+        let is_class = |c: ClassId, target: Option<ClassId>| Some(c) == target;
         match (table.get(l).clone(), table.get(r).clone()) {
-            (Type::Function { .. }, Type::Interface { class, .. }) => return e_classe(class, self.core.function_class) || e_classe(class, self.core.object_class),
-            (Type::Interface { class, .. }, Type::Function { .. }) => return e_classe(class, self.core.function_class) || e_classe(class, self.core.object_class),
+            (Type::Function { .. }, Type::Interface { class, .. }) => return is_class(class, self.core.function_class) || is_class(class, self.core.object_class),
+            (Type::Interface { class, .. }, Type::Function { .. }) => return is_class(class, self.core.function_class) || is_class(class, self.core.object_class),
             _ => {}
         }
         if let Type::FutureOr { arg, .. } = table.get(l).clone() {
             let fut = self.futuro(table, arg);
-            return self.pode(table, arg, r, check, codigo, prof + 1) || self.pode(table, fut, r, check, codigo, prof + 1);
+            return self.can(table, arg, r, check, code, prof + 1) || self.can(table, fut, r, check, code, prof + 1);
         }
         if let Type::FutureOr { arg, .. } = table.get(r).clone() {
             let fut = self.futuro(table, arg);
-            return self.pode(table, l, arg, check, codigo, prof + 1) || self.pode(table, l, fut, check, codigo, prof + 1);
+            return self.can(table, l, arg, check, code, prof + 1) || self.can(table, l, fut, check, code, prof + 1);
         }
         if let (Type::Interface { class: lc, args: la, .. }, Type::Interface { class: rc, args: ra, .. }) = (table.get(l).clone(), table.get(r).clone()) {
             if (Some(lc) == self.core.int_class && Some(rc) == self.core.double_class) || (Some(lc) == self.core.double_class && Some(rc) == self.core.int_class) {
@@ -865,7 +865,7 @@ impl Js<'_> {
             }
             if lc == rc {
                 for (x, y) in la.iter().zip(ra.iter()) {
-                    if !self.pode(table, *x, *y, check, codigo, prof + 1) {
+                    if !self.can(table, *x, *y, check, code, prof + 1) {
                         return false;
                     }
                 }
@@ -877,15 +877,15 @@ impl Js<'_> {
                 return false;
             }
             for (x, y) in lp.iter().zip(rp.iter()) {
-                if !self.pode(table, *x, *y, check, codigo, prof + 1) {
+                if !self.can(table, *x, *y, check, code, prof + 1) {
                     return false;
                 }
             }
             if ln.len() != rn.len() {
                 return false;
             }
-            for ((na, x), (nb, y)) in ln.iter().zip(rn.iter()) {
-                if na != nb || !self.pode(table, *x, *y, check, codigo, prof + 1) {
+            for ((at, x), (nb, y)) in ln.iter().zip(rn.iter()) {
+                if at != nb || !self.can(table, *x, *y, check, code, prof + 1) {
                     return false;
                 }
             }
@@ -903,13 +903,13 @@ impl Js<'_> {
 
 /// `invalid_runtime_check_with_js_interop_types`.
 #[allow(clippy::too_many_arguments)]
-fn checagens_js(
+fn js_checks(
     program: &Program,
     interner: &Interner,
     table: &mut TypeTable,
     core: &CoreTypes,
     outline: &OutlineTypes,
-    corpo: &UnitBodyTypes,
+    body: &UnitBodyTypes,
     u: UnitId,
     out: &mut Vec<Achado>,
 ) {
@@ -924,16 +924,16 @@ fn checagens_js(
         });
     let js = Js { program, interner, outline, core, js_object };
     for e in a.exprs.iter() {
-        let (valor, ty, check) = match &e.kind {
+        let (the_value, ty, check) = match &e.kind {
             ExprKind::Is { value, ty, .. } => (*value, *ty, true),
             ExprKind::As { value, ty } => (*value, *ty, false),
             _ => continue,
         };
-        let Some(l) = corpo.get_type(valor).filter(|t| !core.is_unknown(table, *t)) else { continue };
-        let Some(r) = corpo.tipos_de_anotacoes.get(&ty).copied().or_else(|| outline.tipos_escritos.get(&(u, ty)).copied()) else { continue };
-        let mut codigo: Option<&'static str> = None;
-        js.pode(table, l, r, check, &mut codigo, 0);
-        if let Some(c) = codigo {
+        let Some(l) = body.get_type(the_value).filter(|t| !core.is_unknown(table, *t)) else { continue };
+        let Some(r) = body.tipos_de_anotacoes.get(&ty).copied().or_else(|| outline.tipos_escritos.get(&(u, ty)).copied()) else { continue };
+        let mut code: Option<&'static str> = None;
+        js.can(table, l, r, check, &mut code, 0);
+        if let Some(c) = code {
             let args = vec![crate::despejo::formatar(table, l, interner, program), crate::despejo::formatar(table, r, interner, program)];
             out.push((e.span, c, args));
         }

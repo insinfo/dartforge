@@ -14,7 +14,7 @@
 //!
 //! Escrito sem compilar nem executar (2026-10-05).
 
-use crate::heranca::{combinar, Conflito, Especie, Heranca, Membro, Nome, ProvedorDoOutline};
+use crate::heranca::{combinar, Conflict, Especie, Heranca, Membro, Nome, ProvedorDoOutline};
 use crate::resolve::OutlineTypes;
 use crate::table::{CoreTypes, TypeTable};
 use dartforge_diagnostics::codigos::compile_time_error as c;
@@ -25,19 +25,19 @@ use dartforge_intern::Interner;
 use std::collections::{HashMap, HashSet};
 
 /// O `Name.name` do analyzer: o setter é `x=` (a chave do modelo é `x_=`).
-fn nome_do_membro(interner: &Interner, n: &Nome) -> String {
-    let texto = interner.resolve(n.chave);
-    texto.strip_suffix("_=").map_or_else(|| texto.to_string(), |s| format!("{s}="))
+fn member_name(interner: &Interner, n: &Nome) -> String {
+    let text = interner.resolve(n.chave);
+    text.strip_suffix("_=").map_or_else(|| text.to_string(), |s| format!("{s}="))
 }
 
 /// `'Classe.nome (tipo)'` de cada candidato, com `, `.
-fn candidatos_exibidos(program: &Program, interner: &Interner, table: &TypeTable, nome: &str, candidatos: &[Membro]) -> String {
-    candidatos
+fn displayed_candidates(program: &Program, interner: &Interner, table: &TypeTable, name: &str, candidates: &[Membro]) -> String {
+    candidates
         .iter()
         .map(|m| {
-            let classe = interner.resolve(program.class(m.classe).name);
-            let tipo = table.format_sem_alias(m.tipo, interner, program);
-            format!("{classe}.{nome} ({tipo})")
+            let class = interner.resolve(program.class(m.classe).name);
+            let ty = table.format_sem_alias(m.tipo, interner, program);
+            format!("{class}.{name} ({ty})")
         })
         .collect::<Vec<_>>()
         .join(", ")
@@ -61,7 +61,7 @@ fn declaracao(program: &Program, c: ClassId) -> Option<(UnitId, ast::Name, &[ast
 
 /// Os métodos (e operadores) de instância com tipo omitido cujos
 /// sobrescritos não se combinam: `(classe, método, nome, explicação)`.
-pub fn metodos_sem_assinatura_combinada(
+pub fn methods_without_combined_signature(
     program: &Program,
     interner: &Interner,
     table: &mut TypeTable,
@@ -69,52 +69,52 @@ pub fn metodos_sem_assinatura_combinada(
     outline: &OutlineTypes,
     classes: &[ClassId],
 ) -> Vec<(ClassId, FunctionElementId, ast::Name, String)> {
-    let mut por_funcao: HashMap<(UnitId, u32), FunctionElementId> = HashMap::new();
+    let mut by_function: HashMap<(UnitId, u32), FunctionElementId> = HashMap::new();
     for (i, f) in program.functions.iter().enumerate() {
         if f.class.is_some()
             && !f.static_
             && let FunctionRef::Function { unit, function } = f.node
         {
-            por_funcao.insert((unit, function.0), FunctionElementId(i as u32));
+            by_function.insert((unit, function.0), FunctionElementId(i as u32));
         }
     }
-    let mut heranca = Heranca::default();
-    let mut saida = Vec::new();
+    let mut inheritance = Heranca::default();
+    let mut output = Vec::new();
     for &cid in classes {
-        let Some((u, _, membros)) = declaracao(program, cid) else { continue };
+        let Some((u, _, members)) = declaracao(program, cid) else { continue };
         let a = &program.unit(u).ast;
         let lib = program.class(cid).library;
-        for &m in membros {
+        for &m in members {
             let MemberKind::Method(fid) = &a.member(m).kind else { continue };
             let af = a.function(*fid);
             if af.static_ || !matches!(af.kind, ast::FunctionKind::Function | ast::FunctionKind::Operator) {
                 continue;
             }
-            let (Some(&f), Some(n)) = (por_funcao.get(&(u, fid.0)), af.name) else { continue };
-            let implicito = af.return_type.is_none()
+            let (Some(&f), Some(n)) = (by_function.get(&(u, fid.0)), af.name) else { continue };
+            let implicit = af.return_type.is_none()
                 || af.parameters.as_deref().is_some_and(|ps| ps.iter().any(|p| p.ty.is_none() && p.function_parameters.is_none()));
-            if !implicito {
+            if !implicit {
                 continue;
             }
-            let nome = Nome::novo(interner, lib, program.function(f).name);
+            let name = Nome::novo(interner, lib, program.function(f).name);
             let mut p = ProvedorDoOutline { program, interner, core, outline, table: &mut *table };
-            let Some(sobrescritos) = heranca.sobrescritos(&mut p, cid, nome) else { continue };
-            if sobrescritos.is_empty() || sobrescritos.iter().any(|s| s.especie != Especie::Metodo) {
+            let Some(overridden) = inheritance.sobrescritos(&mut p, cid, name) else { continue };
+            if overridden.is_empty() || overridden.iter().any(|s| s.especie != Especie::Metodo) {
                 continue;
             }
-            let mut conflitos: Vec<Conflito> = Vec::new();
-            if combinar(&mut p, cid, &sobrescritos, true, nome, Some(&mut conflitos)).is_some() {
+            let mut conflicts: Vec<Conflict> = Vec::new();
+            if combinar(&mut p, cid, &overridden, true, name, Some(&mut conflicts)).is_some() {
                 continue;
             }
-            let texto_nome = nome_do_membro(interner, &nome);
-            let explicacao = match conflitos.as_slice() {
-                [Conflito::Candidatos { candidatos, .. }] => candidatos_exibidos(program, interner, table, &texto_nome, candidatos),
+            let name_text = member_name(interner, &name);
+            let explanation = match conflicts.as_slice() {
+                [Conflict::Candidates { candidatos: candidates, .. }] => displayed_candidates(program, interner, table, &name_text, candidates),
                 _ => "<unknown>".to_string(),
             };
-            saida.push((cid, f, n, explicacao));
+            output.push((cid, f, n, explanation));
         }
     }
-    saida
+    output
 }
 
 pub fn inconsistencias(
@@ -125,44 +125,44 @@ pub fn inconsistencias(
     outline: &OutlineTypes,
     classes: &[ClassId],
 ) -> Vec<(UnitId, Diagnostic)> {
-    let mut heranca = Heranca::default();
-    let mut saida = Vec::new();
+    let mut inheritance = Heranca::default();
+    let mut output = Vec::new();
     for &cid in classes {
-        let Some((u, nome_classe, _)) = declaracao(program, cid) else { continue };
+        let Some((u, class_name, _)) = declaracao(program, cid) else { continue };
         let interface = {
             let mut p = ProvedorDoOutline { program, interner, core, outline, table: &mut *table };
-            heranca.interface(&mut p, cid)
+            inheritance.interface(&mut p, cid)
         };
         // O mesmo conflito pode vir das restrições `on` e das interfaces de
         // um mixin: um relato por texto.
-        let mut vistos: HashSet<(bool, String, String)> = HashSet::new();
-        for conflito in interface.conflitos.iter() {
-            match conflito {
-                Conflito::GetterMetodo { nome, getter, metodo } => {
-                    let n = nome_do_membro(interner, nome);
+        let mut seen: HashSet<(bool, String, String)> = HashSet::new();
+        for conflict in interface.conflicts.iter() {
+            match conflict {
+                Conflict::GetterMethod { nome: name, getter, metodo: method } => {
+                    let n = member_name(interner, name);
                     let g = interner.resolve(program.class(getter.classe).name).to_string();
-                    let m = interner.resolve(program.class(metodo.classe).name).to_string();
-                    if vistos.insert((true, n.clone(), format!("{g}\u{0}{m}"))) {
-                        saida.push((u, Diagnostic::com_codigo(c::INCONSISTENT_INHERITANCE_GETTER_AND_METHOD, nome_classe.span, [n.as_str(), g.as_str(), m.as_str()])));
+                    let m = interner.resolve(program.class(method.classe).name).to_string();
+                    if seen.insert((true, n.clone(), format!("{g}\u{0}{m}"))) {
+                        output.push((u, Diagnostic::com_codigo(c::INCONSISTENT_INHERITANCE_GETTER_AND_METHOD, class_name.span, [n.as_str(), g.as_str(), m.as_str()])));
                     }
                 }
-                Conflito::Candidatos { nome, candidatos } => {
-                    let n = nome_do_membro(interner, nome);
-                    let lista = candidatos_exibidos(program, interner, table, &n, candidatos);
-                    if vistos.insert((false, n.clone(), lista.clone())) {
-                        saida.push((u, Diagnostic::com_codigo(c::INCONSISTENT_INHERITANCE, nome_classe.span, [n.as_str(), lista.as_str()])));
+                Conflict::Candidates { nome: name, candidatos: candidates } => {
+                    let n = member_name(interner, name);
+                    let list = displayed_candidates(program, interner, table, &n, candidates);
+                    if seen.insert((false, n.clone(), list.clone())) {
+                        output.push((u, Diagnostic::com_codigo(c::INCONSISTENT_INHERITANCE, class_name.span, [n.as_str(), list.as_str()])));
                     }
                 }
-                Conflito::ExtensaoENaoExtensao { .. } | Conflito::ExtensaoNaoUnica { .. } => {}
+                Conflict::ExtensionAndNonExtension { .. } | Conflict::NonUniqueExtension { .. } => {}
             }
         }
     }
     // `_reportNoCombinedSuperSignature`, no laço dos membros (depois dos
     // conflitos de todas as classes: offsets diferentes).
-    for (cid, _, n, explicacao) in metodos_sem_assinatura_combinada(program, interner, table, core, outline, classes) {
+    for (cid, _, n, explanation) in methods_without_combined_signature(program, interner, table, core, outline, classes) {
         let Some((u, _, _)) = declaracao(program, cid) else { continue };
-        let classe = interner.resolve(program.class(cid).name).to_string();
-        saida.push((u, Diagnostic::com_codigo(c::NO_COMBINED_SUPER_SIGNATURE, n.span, [classe.as_str(), explicacao.as_str()])));
+        let class = interner.resolve(program.class(cid).name).to_string();
+        output.push((u, Diagnostic::com_codigo(c::NO_COMBINED_SUPER_SIGNATURE, n.span, [class.as_str(), explanation.as_str()])));
     }
-    saida
+    output
 }

@@ -38,22 +38,22 @@ pub struct Nome {
 
 impl Nome {
     /// `Name(libraryUri, name)`.
-    pub fn novo(interner: &Interner, biblioteca: LibraryId, chave: SymbolId) -> Nome {
-        let privado = interner.resolve(chave).starts_with('_');
-        Nome { chave, biblioteca: privado.then_some(biblioteca) }
+    pub fn novo(interner: &Interner, library: LibraryId, key: SymbolId) -> Nome {
+        let private = interner.resolve(key).starts_with('_');
+        Nome { chave: key, biblioteca: private.then_some(library) }
     }
 
     /// `forSetter`.
     pub fn de_setter(self, interner: &Interner) -> Option<Nome> {
-        let texto = interner.resolve(self.chave);
-        let chave = interner.lookup(&format!("{texto}_="))?;
-        Some(Nome { chave, biblioteca: self.biblioteca })
+        let text = interner.resolve(self.chave);
+        let key = interner.lookup(&format!("{text}_="))?;
+        Some(Nome { chave: key, biblioteca: self.biblioteca })
     }
 
     /// `forGetter`.
-    pub fn de_getter(self, interner: &Interner) -> Option<Nome> {
-        let texto = interner.resolve(self.chave);
-        match texto.strip_suffix("_=") {
+    pub fn of_getter(self, interner: &Interner) -> Option<Nome> {
+        let text = interner.resolve(self.chave);
+        match text.strip_suffix("_=") {
             Some(base) => Some(Nome { chave: interner.lookup(base)?, biblioteca: self.biblioteca }),
             None => Some(self),
         }
@@ -89,23 +89,23 @@ pub struct Membro {
     /// `type`, nos parâmetros de tipo da classe cuja interface o contém.
     pub tipo: TypeId,
     pub especie: Especie,
-    pub abstrato: bool,
+    pub the_abstract_: bool,
     /// Os parâmetros covariantes (`isCovariant`: escrito ou herdado).
-    pub covariantes: Rc<[Param]>,
+    pub the_covariant: Rc<[Param]>,
     pub sintetico: bool,
 }
 
 /// `Conflict`.
 #[derive(Clone, Debug)]
-pub enum Conflito {
+pub enum Conflict {
     /// `CandidatesConflict`.
-    Candidatos { nome: Nome, candidatos: Vec<Membro> },
+    Candidates { nome: Nome, candidatos: Vec<Membro> },
     /// `GetterMethodConflict`.
-    GetterMetodo { nome: Nome, getter: Membro, metodo: Membro },
+    GetterMethod { nome: Nome, getter: Membro, metodo: Membro },
     /// `HasNonExtensionAndExtensionMemberConflict`.
-    ExtensaoENaoExtensao { nome: Nome, nao_extensao: Vec<Membro>, extensao: Vec<Membro> },
+    ExtensionAndNonExtension { nome: Nome, non_extension: Vec<Membro>, extensao: Vec<Membro> },
     /// `NotUniqueExtensionMemberConflict`.
-    ExtensaoNaoUnica { nome: Nome, candidatos: Vec<Membro> },
+    NonUniqueExtension { nome: Nome, candidatos: Vec<Membro> },
 }
 
 /// Um mapa na ordem de inserção (o `LinkedHashMap` do Dart: reatribuir
@@ -172,7 +172,7 @@ pub struct Interface {
     pub overridden: Mapa<Vec<Membro>>,
     pub redeclared: Mapa<Vec<Membro>>,
     pub super_implemented: Vec<Mapa<Membro>>,
-    pub conflitos: Vec<Conflito>,
+    pub conflicts: Vec<Conflict>,
 }
 
 impl Interface {
@@ -193,13 +193,13 @@ pub trait Provedor<'p> {
     fn interner(&self) -> &'p Interner;
     fn core(&self) -> &'p CoreTypes;
     fn tabela(&mut self) -> &mut TypeTable;
-    fn dados_da_classe(&self, c: ClassId) -> ClassTypeData;
+    fn class_data(&self, c: ClassId) -> ClassTypeData;
     /// `ExecutableElement.type` do membro `f`, nos parâmetros de tipo da
     /// classe que o declara.
     fn tipo_do_membro(&mut self, f: FunctionElementId) -> TypeId;
     fn sub(&mut self, a: TypeId, b: TypeId) -> bool;
     /// `TypeSystem.normalize`.
-    fn normalizar(&mut self, t: TypeId) -> TypeId;
+    fn normalize_(&mut self, t: TypeId) -> TypeId;
 }
 
 /// O provedor das fases que rodam depois da inferência: os tipos do
@@ -214,13 +214,13 @@ pub struct ProvedorDoOutline<'p, 't> {
 
 /// O tipo de função de um membro (o de um acessor implícito, montado pelo
 /// tipo da variável `tipo_da_variavel`).
-pub fn tipo_de_funcao_do_membro(
+pub fn member_function_type(
     program: &Program,
     outline: &OutlineTypes,
     core: &CoreTypes,
     table: &mut TypeTable,
     f: FunctionElementId,
-    tipo_da_variavel: TypeId,
+    variable_type: TypeId,
 ) -> TypeId {
     let e = program.function(f);
     if e.kind == FunctionKind::ImplicitAccessor
@@ -231,7 +231,7 @@ pub fn tipo_de_funcao_do_membro(
             table.intern(Type::Function {
                 type_params: Box::new([]),
                 ret: core.void_,
-                positional: Box::new([tipo_da_variavel]),
+                positional: Box::new([variable_type]),
                 optional: Box::new([]),
                 named: Box::new([]),
                 nullable: false,
@@ -239,7 +239,7 @@ pub fn tipo_de_funcao_do_membro(
         } else {
             table.intern(Type::Function {
                 type_params: Box::new([]),
-                ret: tipo_da_variavel,
+                ret: variable_type,
                 positional: Box::new([]),
                 optional: Box::new([]),
                 named: Box::new([]),
@@ -263,7 +263,7 @@ impl<'p> Provedor<'p> for ProvedorDoOutline<'p, '_> {
     fn tabela(&mut self) -> &mut TypeTable {
         &mut *self.table
     }
-    fn dados_da_classe(&self, c: ClassId) -> ClassTypeData {
+    fn class_data(&self, c: ClassId) -> ClassTypeData {
         self.outline.classes[c.0 as usize].clone()
     }
     fn tipo_do_membro(&mut self, f: FunctionElementId) -> TypeId {
@@ -271,13 +271,13 @@ impl<'p> Provedor<'p> for ProvedorDoOutline<'p, '_> {
             Some(v) => self.outline.variables.get(v.0 as usize).and_then(|d| d.declared_type.or(d.inferred)).unwrap_or(self.core.dynamic_),
             None => self.core.dynamic_,
         };
-        tipo_de_funcao_do_membro(self.program, self.outline, self.core, &mut *self.table, f, tv)
+        member_function_type(self.program, self.outline, self.core, &mut *self.table, f, tv)
     }
     fn sub(&mut self, a: TypeId, b: TypeId) -> bool {
         let mut env = SubtypeEnv::new(&mut *self.table, &self.outline.hierarchy, self.core);
         is_subtype(a, b, &mut env)
     }
-    fn normalizar(&mut self, t: TypeId) -> TypeId {
+    fn normalize_(&mut self, t: TypeId) -> TypeId {
         ops::normalize(t, &mut *self.table, self.core)
     }
 }
@@ -287,11 +287,11 @@ impl<'p> Provedor<'p> for ProvedorDoOutline<'p, '_> {
 pub struct Heranca {
     interfaces: HashMap<ClassId, Rc<Interface>>,
     processando: HashSet<ClassId>,
-    herdados: HashMap<ClassId, Rc<Mapa<Membro>>>,
+    the_inherited: HashMap<ClassId, Rc<Mapa<Membro>>>,
 }
 
 /// A espécie de um membro declarado.
-fn especie_de(program: &Program, f: FunctionElementId) -> Especie {
+fn kind_of(program: &Program, f: FunctionElementId) -> Especie {
     let e = program.function(f);
     match e.kind {
         FunctionKind::Getter => Especie::Getter,
@@ -306,7 +306,7 @@ fn especie_de(program: &Program, f: FunctionElementId) -> Especie {
 
 /// A lista de campos da declaração de uma variável (para `abstract` e
 /// `covariant`).
-fn lista_do_campo(program: &Program, v: dartforge_elements::model::VariableId) -> Option<&ast::VariableList> {
+fn field_list(program: &Program, v: dartforge_elements::model::VariableId) -> Option<&ast::VariableList> {
     match program.variable(v).node {
         VariableRef::Field { unit, member, .. } => match &program.unit(unit).ast.member(member).kind {
             MemberKind::Field(l) => Some(l),
@@ -319,7 +319,7 @@ fn lista_do_campo(program: &Program, v: dartforge_elements::model::VariableId) -
 /// `isAbstract`. O `int get index;` do `Enum` de `dart:core` conta como
 /// concreto (3.6.2 `element_builder.dart:968-974`: a especificação diz que a
 /// superclasse de fato é outra classe que implementa `Enum`).
-fn abstrato(program: &Program, interner: &dartforge_intern::Interner, f: FunctionElementId) -> bool {
+fn the_abstract_(program: &Program, interner: &dartforge_intern::Interner, f: FunctionElementId) -> bool {
     let e = program.function(f);
     if e.kind == FunctionKind::Getter
         && interner.resolve(e.name) == "index"
@@ -330,19 +330,19 @@ fn abstrato(program: &Program, interner: &dartforge_intern::Interner, f: Functio
         return false;
     }
     if e.kind == FunctionKind::ImplicitAccessor {
-        return e.variable.and_then(|v| lista_do_campo(program, v)).is_some_and(|l| l.abstract_);
+        return e.variable.and_then(|v| field_list(program, v)).is_some_and(|l| l.abstract_);
     }
     e.abstract_
 }
 
 /// Os parâmetros escritos `covariant` de um membro declarado (o setter
 /// implícito de um campo `covariant`).
-fn covariancia_escrita(program: &Program, f: FunctionElementId) -> Vec<Param> {
+fn written_covariance(program: &Program, f: FunctionElementId) -> Vec<Param> {
     let e = program.function(f);
     if e.kind == FunctionKind::ImplicitAccessor {
         let setter = e.variable.is_some_and(|v| program.variable(v).setter == Some(f));
-        let covariante = e.variable.and_then(|v| lista_do_campo(program, v)).is_some_and(|l| l.covariant);
-        return if setter && covariante { vec![Param::Indice(0)] } else { Vec::new() };
+        let covariant = e.variable.and_then(|v| field_list(program, v)).is_some_and(|l| l.covariant);
+        return if setter && covariant { vec![Param::Indice(0)] } else { Vec::new() };
     }
     let FunctionRef::Function { unit, function } = e.node else { return Vec::new() };
     let Some(ps) = &program.unit(unit).ast.function(function).parameters else { return Vec::new() };
@@ -381,9 +381,9 @@ impl Heranca {
             return Rc::new(Interface::vazia());
         }
         let r = match p.programa().class(c).kind {
-            ClassKind::ExtensionType => self.de_tipo_de_extensao(p, c),
-            ClassKind::Mixin => self.de_mixin(p, c),
-            _ => self.de_classe(p, c),
+            ClassKind::ExtensionType => self.of_extension_type(p, c),
+            ClassKind::Mixin => self.of_mixin(p, c),
+            _ => self.of_class(p, c),
         };
         self.processando.remove(&c);
         let r = Rc::new(r);
@@ -392,10 +392,10 @@ impl Heranca {
     }
 
     /// Tira do cache a interface de `c` (os tipos dos membros dela mudaram).
-    pub fn esquecer(&mut self, program: &Program, c: ClassId) {
+    pub fn forget(&mut self, program: &Program, c: ClassId) {
         let c = program.dono_da_classe(c);
         self.interfaces.remove(&c);
-        self.herdados.remove(&c);
+        self.the_inherited.remove(&c);
     }
 
     /// `getMember2`.
@@ -403,54 +403,54 @@ impl Heranca {
         &mut self,
         p: &mut dyn Provedor<'p>,
         c: ClassId,
-        nome: Nome,
-        concreto: bool,
-        indice_mixin: Option<usize>,
-        para_super: bool,
+        name: Nome,
+        concrete: bool,
+        mixin_index: Option<usize>,
+        to_super: bool,
     ) -> Option<Membro> {
         let i = self.interface(p, c);
-        if para_super {
+        if to_super {
             if p.programa().class(c).kind == ClassKind::ExtensionType {
                 return None;
             }
-            if let Some(k) = indice_mixin {
-                return i.super_implemented.get(k).and_then(|m| m.get(&nome)).cloned();
+            if let Some(k) = mixin_index {
+                return i.super_implemented.get(k).and_then(|m| m.get(&name)).cloned();
             }
-            return i.super_implemented.last().and_then(|m| m.get(&nome)).cloned();
+            return i.super_implemented.last().and_then(|m| m.get(&name)).cloned();
         }
-        if concreto {
-            return i.implemented.get(&nome).cloned();
+        if concrete {
+            return i.implemented.get(&name).cloned();
         }
-        i.map.get(&nome).cloned()
+        i.map.get(&name).cloned()
     }
 
     /// `getOverridden2`.
-    pub fn sobrescritos<'p>(&mut self, p: &mut dyn Provedor<'p>, c: ClassId, nome: Nome) -> Option<Vec<Membro>> {
-        self.interface(p, c).overridden.get(&nome).cloned()
+    pub fn sobrescritos<'p>(&mut self, p: &mut dyn Provedor<'p>, c: ClassId, name: Nome) -> Option<Vec<Membro>> {
+        self.interface(p, c).overridden.get(&name).cloned()
     }
 
     /// `getInheritedMap2`.
-    pub fn mapa_herdado<'p>(&mut self, p: &mut dyn Provedor<'p>, c: ClassId) -> Rc<Mapa<Membro>> {
+    pub fn inherited_map<'p>(&mut self, p: &mut dyn Provedor<'p>, c: ClassId) -> Rc<Mapa<Membro>> {
         let c = p.programa().dono_da_classe(c);
-        if let Some(m) = self.herdados.get(&c) {
+        if let Some(m) = self.the_inherited.get(&c) {
             return m.clone();
         }
         let i = self.interface(p, c);
-        let mut mapa = Mapa::default();
-        let fonte = if p.programa().class(c).kind == ClassKind::ExtensionType { &i.redeclared } else { &i.overridden };
-        mais_especificos(p, c, &mut mapa, fonte, false);
-        let mapa = Rc::new(mapa);
-        self.herdados.insert(c, mapa.clone());
-        mapa
+        let mut map = Mapa::default();
+        let source = if p.programa().class(c).kind == ClassKind::ExtensionType { &i.redeclared } else { &i.overridden };
+        most_specific(p, c, &mut map, source, false);
+        let map = Rc::new(map);
+        self.the_inherited.insert(c, map.clone());
+        map
     }
 
     /// `getInherited2`.
-    pub fn herdado<'p>(&mut self, p: &mut dyn Provedor<'p>, c: ClassId, nome: Nome) -> Option<Membro> {
-        self.mapa_herdado(p, c).get(&nome).cloned()
+    pub fn herdado<'p>(&mut self, p: &mut dyn Provedor<'p>, c: ClassId, name: Nome) -> Option<Membro> {
+        self.inherited_map(p, c).get(&name).cloned()
     }
 
     /// `getInheritedConcreteMap2`.
-    pub fn concretos_herdados<'p>(&mut self, p: &mut dyn Provedor<'p>, c: ClassId) -> Mapa<Membro> {
+    pub fn inherited_concrete<'p>(&mut self, p: &mut dyn Provedor<'p>, c: ClassId) -> Mapa<Membro> {
         if p.programa().class(c).kind == ClassKind::ExtensionType {
             return Mapa::default();
         }
@@ -459,14 +459,14 @@ impl Heranca {
 
     /// A classe e a substituição (`Substitution.fromInterfaceType`) de um
     /// supertipo.
-    fn substituicao<'p>(p: &mut dyn Provedor<'p>, t: TypeId) -> Option<(ClassId, HashMap<TypeParamId, TypeId>)> {
+    fn substitution<'p>(p: &mut dyn Provedor<'p>, t: TypeId) -> Option<(ClassId, HashMap<TypeParamId, TypeId>)> {
         let (c, args) = match p.tabela().get(t) {
             Type::Interface { class, args, .. } => (*class, args.clone()),
             Type::ExtensionType { decl, args, .. } => (*decl, args.clone()),
             _ => return None,
         };
-        let formais = p.dados_da_classe(c).type_params;
-        Some((c, formais.iter().copied().zip(args.iter().copied()).collect()))
+        let formals = p.class_data(c).type_params;
+        Some((c, formals.iter().copied().zip(args.iter().copied()).collect()))
     }
 
     fn substituir<'p>(p: &mut dyn Provedor<'p>, m: &Membro, s: &HashMap<TypeParamId, TypeId>) -> Membro {
@@ -477,25 +477,25 @@ impl Heranca {
     }
 
     /// `_addCandidates`.
-    fn adicionar_candidatos<'p>(p: &mut dyn Provedor<'p>, candidatos: &mut Mapa<Vec<Membro>>, s: &HashMap<TypeParamId, TypeId>, i: &Interface) {
+    fn add_candidates<'p>(p: &mut dyn Provedor<'p>, candidates: &mut Mapa<Vec<Membro>>, s: &HashMap<TypeParamId, TypeId>, i: &Interface) {
         for (n, m) in i.map.iter() {
             let c = Self::substituir(p, m, s);
-            match candidatos.get_mut(n) {
+            match candidates.get_mut(n) {
                 Some(l) => l.push(c),
-                None => candidatos.insert(*n, vec![c]),
+                None => candidates.insert(*n, vec![c]),
             }
         }
     }
 
     /// O tipo de `Object`.
-    fn tipo_object<'p>(p: &mut dyn Provedor<'p>) -> Option<TypeId> {
+    fn object_type<'p>(p: &mut dyn Provedor<'p>) -> Option<TypeId> {
         let o = p.core().object_class?;
         Some(p.tabela().intern(Type::Interface { class: o, args: Box::new([]), nullable: false }))
     }
 
     /// `element.supertype`, com o padrão do `setDefaultSupertypes` e do
     /// `buildEnumChildren`.
-    fn supertipo<'p>(p: &mut dyn Provedor<'p>, c: ClassId, dados: &ClassTypeData) -> Option<TypeId> {
+    fn the_supertype<'p>(p: &mut dyn Provedor<'p>, c: ClassId, data: &ClassTypeData) -> Option<TypeId> {
         let prog = p.programa();
         let k = prog.class(c);
         match k.kind {
@@ -505,11 +505,11 @@ impl Heranca {
                 }
                 // Só um tipo de interface de classe vale como superclasse
                 // (`_isInterfaceTypeClass`); o resto cai em `Object`.
-                let escrito = dados.supertype.filter(|&t| match p.tabela().get(t) {
+                let written = data.supertype.filter(|&t| match p.tabela().get(t) {
                     Type::Interface { class, .. } => matches!(prog.class(*class).kind, ClassKind::Class | ClassKind::MixinApplication),
                     _ => false,
                 });
-                escrito.or_else(|| Self::tipo_object(p))
+                written.or_else(|| Self::object_type(p))
             }
             ClassKind::Enum => {
                 let core_lib = p.core().core_library;
@@ -522,7 +522,7 @@ impl Heranca {
                 });
                 match enum_ {
                     Some(e) => Some(p.tabela().intern(Type::Interface { class: e, args: Box::new([]), nullable: false })),
-                    None => Self::tipo_object(p),
+                    None => Self::object_type(p),
                 }
             }
             _ => None,
@@ -533,31 +533,31 @@ impl Heranca {
     /// de método e setter) percorre: a própria, os mixins de trás para a
     /// frente e então a superclasse, até `Object`
     /// (an362:src/dart/element/element.dart:5423-5470).
-    pub fn cadeia_de_implementacoes<'p>(p: &mut dyn Provedor<'p>, c: ClassId) -> Vec<ClassId> {
-        let mut cadeia = Vec::new();
-        let mut vistas = std::collections::HashSet::new();
-        let mut atual = Some(c);
-        while let Some(k) = atual {
-            if !vistas.insert(k) {
+    pub fn implementation_chain<'p>(p: &mut dyn Provedor<'p>, c: ClassId) -> Vec<ClassId> {
+        let mut chain = Vec::new();
+        let mut the_seen = std::collections::HashSet::new();
+        let mut current = Some(c);
+        while let Some(k) = current {
+            if !the_seen.insert(k) {
                 break;
             }
-            cadeia.push(k);
-            let dados = p.dados_da_classe(k);
-            for &mt in dados.mixins.iter().rev() {
-                if let Some((m, _)) = Self::substituicao(p, mt) {
-                    cadeia.push(m);
+            chain.push(k);
+            let data = p.class_data(k);
+            for &mt in data.mixins.iter().rev() {
+                if let Some((m, _)) = Self::substitution(p, mt) {
+                    chain.push(m);
                 }
             }
-            atual = Self::supertipo(p, k, &dados).and_then(|st| Self::substituicao(p, st)).map(|(s, _)| s);
+            current = Self::the_supertype(p, k, &data).and_then(|st| Self::substitution(p, st)).map(|(s, _)| s);
         }
-        cadeia
+        chain
     }
 
     /// Os membros de instância concretos da declaração de `c` na ordem do
     /// `_addImplemented` (métodos, depois acessores, cada grupo na ordem dos
     /// elementos), quando algum deles ficou fora do mapa `instance_members`
     /// (homônimo); vazio quando não há homônimo.
-    fn homonimos_concretos<'p>(p: &mut dyn Provedor<'p>, c: ClassId) -> Vec<FunctionElementId> {
+    fn concrete_same_named<'p>(p: &mut dyn Provedor<'p>, c: ClassId) -> Vec<FunctionElementId> {
         let prog = p.programa();
         let interner = p.interner();
         let k = prog.class(c);
@@ -573,8 +573,8 @@ impl Heranca {
         while max + 1 < total && prog.function(FunctionElementId(max + 1)).class == Some(c) {
             max += 1;
         }
-        let no_mapa: HashSet<FunctionElementId> = k.instance_members.values().copied().collect();
-        let mut todos: Vec<FunctionElementId> = (min..=max)
+        let in_map: HashSet<FunctionElementId> = k.instance_members.values().copied().collect();
+        let mut all: Vec<FunctionElementId> = (min..=max)
             .map(FunctionElementId)
             .filter(|&f| {
                 let e = prog.function(f);
@@ -584,25 +584,25 @@ impl Heranca {
                     && matches!(e.kind, FunctionKind::Function | FunctionKind::Getter | FunctionKind::Setter | FunctionKind::Operator | FunctionKind::ImplicitAccessor)
             })
             .collect();
-        if todos.iter().all(|f| no_mapa.contains(f)) {
+        if all.iter().all(|f| in_map.contains(f)) {
             return Vec::new();
         }
-        todos.retain(|&f| !abstrato(prog, interner, f));
-        todos.sort_by_key(|&f| ordem_dos_membros(prog, f));
-        todos
+        all.retain(|&f| !the_abstract_(prog, interner, f));
+        all.sort_by_key(|&f| member_order(prog, f));
+        all
     }
 
     /// Os membros de instância declarados (`_getTypeMembers`): métodos,
     /// depois acessores, na ordem da fonte, com a covariância escrita e a
     /// herdada dos `candidatos` (`_inferParameterCovariance`).
-    fn declarados<'p>(p: &mut dyn Provedor<'p>, c: ClassId, candidatos: &Mapa<Vec<Membro>>) -> Mapa<Membro> {
+    fn declarados<'p>(p: &mut dyn Provedor<'p>, c: ClassId, candidates: &Mapa<Vec<Membro>>) -> Mapa<Membro> {
         let prog = p.programa();
         let interner = p.interner();
         let k = prog.class(c);
         // O `index` sintético que o outline põe num enum não é membro do
         // elemento do analyzer: vem de `Enum` (concreto, ver `abstrato`).
         let e_enum = k.kind == ClassKind::Enum;
-        let mut membros: Vec<(SymbolId, FunctionElementId)> = k
+        let mut members: Vec<(SymbolId, FunctionElementId)> = k
             .instance_members
             .iter()
             .filter(|&(&s, &f)| !(e_enum && matches!(prog.function(f).node, FunctionRef::None) && interner.resolve(s) == "index"))
@@ -612,295 +612,295 @@ impl Heranca {
         // (métodos; acessores dos campos; acessores escritos), não o da fonte
         // (`int get foo` e depois o campo `foo = 1`: o getter escrito).
         if !k.instancia_sobrepostos.is_empty() {
-            for &(chave, antigo) in k.instancia_sobrepostos.iter() {
-                if let Some(atual) = membros.iter_mut().find(|(s, _)| *s == chave)
-                    && ordem_dos_membros(prog, antigo) > ordem_dos_membros(prog, atual.1)
+            for &(key, old) in k.instancia_sobrepostos.iter() {
+                if let Some(current) = members.iter_mut().find(|(s, _)| *s == key)
+                    && member_order(prog, old) > member_order(prog, current.1)
                 {
-                    atual.1 = antigo;
+                    current.1 = old;
                 }
             }
         }
-        membros.sort_by_key(|&(_, f)| (especie_de(prog, f) != Especie::Metodo, f));
-        let mut mapa = Mapa::default();
-        for (chave, f) in membros {
-            let nome = Nome::novo(interner, k.library, chave);
-            let tipo = p.tipo_do_membro(f);
-            let mut covariantes = covariancia_escrita(prog, f);
-            if let Some(sobrescritos) = candidatos.get(&nome) {
-                for d in parametros_do_tipo(p.tabela(), tipo) {
-                    if covariantes.contains(&d) {
+        members.sort_by_key(|&(_, f)| (kind_of(prog, f) != Especie::Metodo, f));
+        let mut map = Mapa::default();
+        for (key, f) in members {
+            let name = Nome::novo(interner, k.library, key);
+            let typ = p.tipo_do_membro(f);
+            let mut the_covariant = written_covariance(prog, f);
+            if let Some(overridden) = candidates.get(&name) {
+                for d in parametros_do_tipo(p.tabela(), typ) {
+                    if the_covariant.contains(&d) {
                         continue;
                     }
-                    let herda = sobrescritos.iter().any(|o| {
+                    let inherits = overridden.iter().any(|o| {
                         // `_getCorrespondingParameter`: o nomeado pelo nome, o
                         // posicional pela posição (se lá for posicional).
-                        o.covariantes.contains(&d) && parametros_do_tipo(p.tabela(), o.tipo).contains(&d)
+                        o.the_covariant.contains(&d) && parametros_do_tipo(p.tabela(), o.tipo).contains(&d)
                     });
-                    if herda {
-                        covariantes.push(d);
+                    if inherits {
+                        the_covariant.push(d);
                     }
                 }
             }
-            mapa.insert(
-                nome,
+            map.insert(
+                name,
                 Membro {
                     funcao: f,
                     classe: c,
-                    tipo,
-                    especie: especie_de(prog, f),
-                    abstrato: abstrato(prog, interner, f),
-                    covariantes: covariantes.into(),
+                    tipo: typ,
+                    especie: kind_of(prog, f),
+                    the_abstract_: the_abstract_(prog, interner, f),
+                    the_covariant: the_covariant.into(),
                     sintetico: false,
                 },
             );
         }
-        mapa
+        map
     }
 
     /// `_getInterfaceClass`.
-    fn de_classe<'p>(&mut self, p: &mut dyn Provedor<'p>, c: ClassId) -> Interface {
+    fn of_class<'p>(&mut self, p: &mut dyn Provedor<'p>, c: ClassId) -> Interface {
         let prog = p.programa();
-        let dados = p.dados_da_classe(c);
-        let mut candidatos: Mapa<Vec<Membro>> = Mapa::default();
+        let data = p.class_data(c);
+        let mut candidates: Mapa<Vec<Membro>> = Mapa::default();
         let mut super_impl: Vec<Mapa<Membro>> = Vec::new();
-        let mut implementados: Mapa<Membro> = Mapa::default();
+        let mut implemented: Mapa<Membro> = Mapa::default();
         let mut interface_do_super: Option<Rc<Interface>> = None;
-        if let Some(st) = Self::supertipo(p, c, &dados)
-            && let Some((sc, s)) = Self::substituicao(p, st)
+        if let Some(st) = Self::the_supertype(p, c, &data)
+            && let Some((sc, s)) = Self::substitution(p, st)
         {
             let si = self.interface(p, sc);
-            Self::adicionar_candidatos(p, &mut candidatos, &s, &si);
+            Self::add_candidates(p, &mut candidates, &s, &si);
             for (n, m) in si.implemented.iter() {
                 let m = Self::substituir(p, m, &s);
-                implementados.insert(*n, m);
+                implemented.insert(*n, m);
             }
-            super_impl.push(implementados.clone());
+            super_impl.push(implemented.clone());
             interface_do_super = Some(si);
         }
-        let mut conflitos_de_mixins: Vec<Vec<Conflito>> = Vec::new();
-        for &mt in dados.mixins.iter() {
-            let Some((mc, s)) = Self::substituicao(p, mt) else { continue };
+        let mut mixin_conflicts: Vec<Vec<Conflict>> = Vec::new();
+        for &mt in data.mixins.iter() {
+            let Some((mc, s)) = Self::substitution(p, mt) else { continue };
             let mi = self.interface(p, mc);
-            let mut de_super_e_mixin: Mapa<Vec<Membro>> = Mapa::default();
-            let mut conflitos_do_mixin: Vec<Conflito> = Vec::new();
+            let mut of_super_and_mixin: Mapa<Vec<Membro>> = Mapa::default();
+            let mut mixin_conflicts_of: Vec<Conflict> = Vec::new();
             for (n, m0) in mi.map.iter() {
-                let candidato = Self::substituir(p, m0, &s);
-                let atual = match candidatos.get(n) {
+                let candidate = Self::substituir(p, m0, &s);
+                let current = match candidates.get(n) {
                     None => {
-                        candidatos.insert(*n, vec![candidato]);
+                        candidates.insert(*n, vec![candidate]);
                         continue;
                     }
                     Some(l) => l[0].clone(),
                 };
-                if candidato.classe == mc {
-                    if atual.especie != candidato.especie {
-                        let (getter, metodo) = if atual.especie == Especie::Getter { (atual, candidato.clone()) } else { (candidato.clone(), atual) };
-                        conflitos_do_mixin.push(Conflito::GetterMetodo { nome: *n, getter, metodo });
+                if candidate.classe == mc {
+                    if current.especie != candidate.especie {
+                        let (getter, method) = if current.especie == Especie::Getter { (current, candidate.clone()) } else { (candidate.clone(), current) };
+                        mixin_conflicts_of.push(Conflict::GetterMethod { nome: *n, getter, metodo: method });
                     }
-                    candidatos.insert(*n, vec![candidato]);
+                    candidates.insert(*n, vec![candidate]);
                 } else {
-                    de_super_e_mixin.insert(*n, vec![atual, candidato]);
+                    of_super_and_mixin.insert(*n, vec![current, candidate]);
                 }
             }
-            let mut mapa = Mapa::default();
-            mais_especificos(p, c, &mut mapa, &de_super_e_mixin, true);
-            for (n, m) in mapa.iter() {
-                candidatos.insert(*n, vec![m.clone()]);
+            let mut map = Mapa::default();
+            most_specific(p, c, &mut map, &of_super_and_mixin, true);
+            for (n, m) in map.iter() {
+                candidates.insert(*n, vec![m.clone()]);
             }
-            conflitos_de_mixins.push(conflitos_do_mixin);
+            mixin_conflicts.push(mixin_conflicts_of);
             // `_addMixinMembers`.
             let object = p.core().object_class;
             for (n, m) in mi.implemented.iter() {
-                if m.abstrato || Some(m.classe) == object {
+                if m.the_abstract_ || Some(m.classe) == object {
                     continue;
                 }
                 let m = Self::substituir(p, m, &s);
-                implementados.insert(*n, m);
+                implemented.insert(*n, m);
             }
-            super_impl.push(implementados.clone());
+            super_impl.push(implemented.clone());
         }
-        for &it in dados.interfaces.iter() {
-            let Some((ic, s)) = Self::substituicao(p, it) else { continue };
+        for &it in data.interfaces.iter() {
+            let Some((ic, s)) = Self::substitution(p, it) else { continue };
             let ii = self.interface(p, ic);
-            Self::adicionar_candidatos(p, &mut candidatos, &s, &ii);
+            Self::add_candidates(p, &mut candidates, &s, &ii);
         }
-        let declarados = Self::declarados(p, c, &candidatos);
+        let declared = Self::declarados(p, c, &candidates);
         // `_addImplemented` (3.6.2 `inheritance_manager3.dart:455-470`): todo
         // método e acessor de instância concreto da declaração, na ordem
         // (métodos, depois acessores), o último vencendo. Com homônimos (o
         // `augment` que o 3.6.2 lê como outra declaração), o mapa do outline
         // guarda só o último; os outros elementos estão na faixa de ids dos
         // membros da classe.
-        for (n, m) in declarados.iter() {
-            if !m.abstrato {
-                implementados.insert(*n, m.clone());
+        for (n, m) in declared.iter() {
+            if !m.the_abstract_ {
+                implemented.insert(*n, m.clone());
             }
         }
-        let homonimos = Self::homonimos_concretos(p, c);
-        if !homonimos.is_empty() {
+        let same_named = Self::concrete_same_named(p, c);
+        if !same_named.is_empty() {
             let interner = p.interner();
             let lib = prog.class(c).library;
-            for f in homonimos {
+            for f in same_named {
                 let e = prog.function(f);
-                let especie = especie_de(prog, f);
-                let texto = interner.resolve(e.name);
-                let chave = if especie == Especie::Setter && !texto.ends_with("_=") {
-                    match interner.lookup(&format!("{texto}_=")) {
+                let kind = kind_of(prog, f);
+                let text = interner.resolve(e.name);
+                let key = if kind == Especie::Setter && !text.ends_with("_=") {
+                    match interner.lookup(&format!("{text}_=")) {
                         Some(s) => s,
                         None => continue,
                     }
                 } else {
                     e.name
                 };
-                let nome = Nome::novo(interner, lib, chave);
-                let m = match declarados.get(&nome) {
+                let name = Nome::novo(interner, lib, key);
+                let m = match declared.get(&name) {
                     Some(d) if d.funcao == f => d.clone(),
                     _ => Membro {
                         funcao: f,
                         classe: c,
                         tipo: p.tipo_do_membro(f),
-                        especie,
-                        abstrato: false,
-                        covariantes: covariancia_escrita(prog, f).into(),
+                        especie: kind,
+                        the_abstract_: false,
+                        the_covariant: written_covariance(prog, f).into(),
                         sintetico: false,
                     },
                 };
-                implementados.insert(nome, m);
+                implemented.insert(name, m);
             }
         }
-        let mut mapa = declarados.clone();
-        let mut conflitos = mais_especificos(p, c, &mut mapa, &candidatos, true);
+        let mut map = declared.clone();
+        let mut conflicts = most_specific(p, c, &mut map, &candidates, true);
         // Os encaminhadores de `noSuchMethod`.
         let k = prog.class(c);
-        let mut encaminhados: HashSet<Nome> = HashSet::new();
-        let classe_abstrata =
+        let mut forwarded: HashSet<Nome> = HashSet::new();
+        let abstract_class =
             matches!(k.kind, ClassKind::Class | ClassKind::MixinApplication) && (k.modifiers.abstract_ || k.modifiers.sealed);
-        if classe_abstrata {
+        if abstract_class {
             if let Some(si) = &interface_do_super {
-                encaminhados = si.encaminhados.clone();
+                forwarded = si.encaminhados.clone();
             }
         } else if let Some(nsm) = p.interner().lookup("noSuchMethod") {
-            let nome = Nome { chave: nsm, biblioteca: None };
+            let name = Nome { chave: nsm, biblioteca: None };
             let object = p.core().object_class;
-            if implementados.get(&nome).is_some_and(|m| Some(m.classe) != object) {
+            if implemented.get(&name).is_some_and(|m| Some(m.classe) != object) {
                 let do_super = interface_do_super.as_ref().map(|s| &s.encaminhados);
-                for (n, m) in mapa.iter() {
-                    if !implementados.contains_key(n) || do_super.is_some_and(|s| s.contains(n)) {
-                        implementados.insert(*n, m.clone());
-                        encaminhados.insert(*n);
+                for (n, m) in map.iter() {
+                    if !implemented.contains_key(n) || do_super.is_some_and(|s| s.contains(n)) {
+                        implemented.insert(*n, m.clone());
+                        forwarded.insert(*n);
                     }
                 }
             }
         }
-        for cs in conflitos_de_mixins {
-            conflitos.extend(cs);
+        for cs in mixin_conflicts {
+            conflicts.extend(cs);
         }
         // `_inheritCovariance`.
-        let mut com_covariancia: Mapa<Membro> = Mapa::default();
-        for (n, m) in implementados.iter() {
-            let r = herdar_covariancia(p, c, &candidatos, n, m);
-            com_covariancia.insert(*n, r);
+        let mut with_covariance: Mapa<Membro> = Mapa::default();
+        for (n, m) in implemented.iter() {
+            let r = inherit_covariance(p, c, &candidates, n, m);
+            with_covariance.insert(*n, r);
         }
         Interface {
-            map: mapa,
-            declared: declarados,
-            implemented: com_covariancia,
-            encaminhados,
-            overridden: candidatos,
+            map: map,
+            declared: declared,
+            implemented: with_covariance,
+            encaminhados: forwarded,
+            overridden: candidates,
             redeclared: Mapa::default(),
             super_implemented: super_impl,
-            conflitos,
+            conflicts,
         }
     }
 
     /// `_getInterfaceMixin`.
-    fn de_mixin<'p>(&mut self, p: &mut dyn Provedor<'p>, c: ClassId) -> Interface {
-        let dados = p.dados_da_classe(c);
-        let mut restricoes: Vec<TypeId> = dados.on.to_vec();
-        if restricoes.is_empty()
-            && let Some(o) = Self::tipo_object(p)
+    fn of_mixin<'p>(&mut self, p: &mut dyn Provedor<'p>, c: ClassId) -> Interface {
+        let data = p.class_data(c);
+        let mut constraints: Vec<TypeId> = data.on.to_vec();
+        if constraints.is_empty()
+            && let Some(o) = Self::object_type(p)
         {
-            restricoes.push(o);
+            constraints.push(o);
         }
-        let mut candidatos_do_super: Mapa<Vec<Membro>> = Mapa::default();
-        for t in restricoes {
-            let Some((rc, s)) = Self::substituicao(p, t) else { continue };
+        let mut super_candidates: Mapa<Vec<Membro>> = Mapa::default();
+        for t in constraints {
+            let Some((rc, s)) = Self::substitution(p, t) else { continue };
             let ri = self.interface(p, rc);
-            Self::adicionar_candidatos(p, &mut candidatos_do_super, &s, &ri);
+            Self::add_candidates(p, &mut super_candidates, &s, &ri);
         }
         let mut interface_do_super: Mapa<Membro> = Mapa::default();
-        let conflitos_do_super = mais_especificos(p, c, &mut interface_do_super, &candidatos_do_super, true);
-        let mut candidatos = candidatos_do_super.clone();
-        for &it in dados.interfaces.iter() {
-            let Some((ic, s)) = Self::substituicao(p, it) else { continue };
+        let super_conflicts = most_specific(p, c, &mut interface_do_super, &super_candidates, true);
+        let mut candidates = super_candidates.clone();
+        for &it in data.interfaces.iter() {
+            let Some((ic, s)) = Self::substitution(p, it) else { continue };
             let ii = self.interface(p, ic);
-            Self::adicionar_candidatos(p, &mut candidatos, &s, &ii);
+            Self::add_candidates(p, &mut candidates, &s, &ii);
         }
-        let declarados = Self::declarados(p, c, &candidatos);
-        let mut mapa = declarados.clone();
-        let conflitos_da_interface = mais_especificos(p, c, &mut mapa, &candidatos, true);
-        let mut implementados: Mapa<Membro> = Mapa::default();
-        for (n, m) in declarados.iter() {
-            if !m.abstrato {
-                implementados.insert(*n, m.clone());
+        let declared = Self::declarados(p, c, &candidates);
+        let mut map = declared.clone();
+        let interface_conflicts = most_specific(p, c, &mut map, &candidates, true);
+        let mut implemented: Mapa<Membro> = Mapa::default();
+        for (n, m) in declared.iter() {
+            if !m.the_abstract_ {
+                implemented.insert(*n, m.clone());
             }
         }
-        let mut conflitos = conflitos_do_super;
-        conflitos.extend(conflitos_da_interface);
+        let mut conflicts = super_conflicts;
+        conflicts.extend(interface_conflicts);
         Interface {
-            map: mapa,
-            declared: declarados,
-            implemented: implementados,
+            map: map,
+            declared: declared,
+            implemented: implemented,
             encaminhados: HashSet::new(),
-            overridden: candidatos,
+            overridden: candidates,
             redeclared: Mapa::default(),
             super_implemented: vec![interface_do_super],
-            conflitos,
+            conflicts,
         }
     }
 
     /// `_getInterfaceExtensionType`.
-    fn de_tipo_de_extensao<'p>(&mut self, p: &mut dyn Provedor<'p>, c: ClassId) -> Interface {
+    fn of_extension_type<'p>(&mut self, p: &mut dyn Provedor<'p>, c: ClassId) -> Interface {
         let prog = p.programa();
         let interner = p.interner();
-        let dados = p.dados_da_classe(c);
-        let todos = Self::declarados(p, c, &Mapa::default());
-        let mut declarados: Mapa<Membro> = Mapa::default();
-        for (n, m) in todos.iter() {
-            if !m.abstrato {
-                declarados.insert(*n, m.clone());
+        let data = p.class_data(c);
+        let all = Self::declarados(p, c, &Mapa::default());
+        let mut declared: Mapa<Membro> = Mapa::default();
+        for (n, m) in all.iter() {
+            if !m.the_abstract_ {
+                declared.insert(*n, m.clone());
             }
         }
         // Os nomes excluídos.
-        let mut nomes_excluidos: HashSet<Nome> = HashSet::new();
-        let mut metodos_excluidos: HashSet<Nome> = HashSet::new();
-        let mut setters_excluidos: HashSet<Nome> = HashSet::new();
-        for (n, m) in declarados.iter() {
-            nomes_excluidos.insert(*n);
+        let mut excluded_names: HashSet<Nome> = HashSet::new();
+        let mut excluded_methods: HashSet<Nome> = HashSet::new();
+        let mut excluded_setters: HashSet<Nome> = HashSet::new();
+        for (n, m) in declared.iter() {
+            excluded_names.insert(*n);
             match m.especie {
                 Especie::Metodo => {
                     if let Some(s) = n.de_setter(interner) {
-                        setters_excluidos.insert(s);
+                        excluded_setters.insert(s);
                     }
                 }
                 Especie::Setter => {
-                    if let Some(g) = n.de_getter(interner) {
-                        metodos_excluidos.insert(g);
+                    if let Some(g) = n.of_getter(interner) {
+                        excluded_methods.insert(g);
                     }
                 }
                 Especie::Getter => {}
             }
         }
-        let mut implementados = declarados.clone();
+        let mut implemented = declared.clone();
         // Os candidatos, separados entre membros de tipo de extensão e os
         // outros (`_ExtensionTypeCandidates`: métodos, getters, setters).
         #[derive(Default, Clone)]
-        struct Candidatos {
+        struct Candidates {
             metodos: Vec<Membro>,
             getters: Vec<Membro>,
             setters: Vec<Membro>,
         }
-        impl Candidatos {
+        impl Candidates {
             fn adicionar(&mut self, m: Membro) {
                 match m.especie {
                     Especie::Metodo => self.metodos.push(m),
@@ -912,24 +912,24 @@ impl Heranca {
                 self.metodos.iter().chain(self.getters.iter()).chain(self.setters.iter()).cloned().collect()
             }
         }
-        let nao_excluidos = |n: &Nome, cs: &Candidatos| -> Vec<Membro> {
-            if nomes_excluidos.contains(n) {
+        let not_excluded = |n: &Nome, cs: &Candidates| -> Vec<Membro> {
+            if excluded_names.contains(n) {
                 return Vec::new();
             }
             let mut v = Vec::new();
-            if !metodos_excluidos.contains(n) {
+            if !excluded_methods.contains(n) {
                 v.extend(cs.metodos.iter().cloned());
             }
             v.extend(cs.getters.iter().cloned());
-            if !setters_excluidos.contains(n) {
+            if !excluded_setters.contains(n) {
                 v.extend(cs.setters.iter().cloned());
             }
             v
         };
-        let mut de_extensao: Mapa<Candidatos> = Mapa::default();
-        let mut outros: Mapa<Candidatos> = Mapa::default();
-        for &it in dados.interfaces.iter() {
-            let Some((ic, s)) = Self::substituicao(p, it) else { continue };
+        let mut of_extension: Mapa<Candidates> = Mapa::default();
+        let mut others: Mapa<Candidates> = Mapa::default();
+        for &it in data.interfaces.iter() {
+            let Some((ic, s)) = Self::substitution(p, it) else { continue };
             let ii = self.interface(p, ic);
             for (n, m) in ii.map.iter() {
                 let m = Self::substituir(p, m, &s);
@@ -938,84 +938,84 @@ impl Heranca {
                 // o extension type que combinou) nasce sem ele e conta como
                 // não-extensão (`G implements F, D` com o `method` combinado
                 // de `A`/`B` em `F`: sem conflito).
-                let de_ext = !m.sintetico && prog.class(m.classe).kind == ClassKind::ExtensionType;
-                let alvo = if de_ext { &mut de_extensao } else { &mut outros };
-                match alvo.get_mut(n) {
+                let of_ext = !m.sintetico && prog.class(m.classe).kind == ClassKind::ExtensionType;
+                let target = if of_ext { &mut of_extension } else { &mut others };
+                match target.get_mut(n) {
                     Some(cs) => cs.adicionar(m),
                     None => {
-                        let mut cs = Candidatos::default();
+                        let mut cs = Candidates::default();
                         cs.adicionar(m);
-                        alvo.insert(*n, cs);
+                        target.insert(*n, cs);
                     }
                 }
             }
         }
-        let mut redeclarados: Mapa<Vec<Membro>> = Mapa::default();
-        let mut conflitos: Vec<Conflito> = Vec::new();
-        for (n, cs) in de_extensao.iter() {
-            match redeclarados.get_mut(n) {
+        let mut redeclared: Mapa<Vec<Membro>> = Mapa::default();
+        let mut conflicts: Vec<Conflict> = Vec::new();
+        for (n, cs) in of_extension.iter() {
+            match redeclared.get_mut(n) {
                 Some(l) => l.extend(cs.todos()),
-                None => redeclarados.insert(*n, cs.todos()),
+                None => redeclared.insert(*n, cs.todos()),
             }
-            let livres = nao_excluidos(n, cs);
-            if livres.is_empty() {
+            let free = not_excluded(n, cs);
+            if free.is_empty() {
                 continue;
             }
-            if let Some(ne) = outros.get(n) {
-                let ne_livres = nao_excluidos(n, ne);
-                if !ne_livres.is_empty() {
-                    conflitos.push(Conflito::ExtensaoENaoExtensao { nome: *n, nao_extensao: ne_livres, extensao: livres });
+            if let Some(ne) = others.get(n) {
+                let ne_free = not_excluded(n, ne);
+                if !ne_free.is_empty() {
+                    conflicts.push(Conflict::ExtensionAndNonExtension { nome: *n, non_extension: ne_free, extensao: free });
                 }
                 continue;
             }
             // O herdado tem de ser um só.
-            let unico = livres.iter().all(|m| m.funcao == livres[0].funcao);
-            if !unico {
-                conflitos.push(Conflito::ExtensaoNaoUnica { nome: *n, candidatos: livres });
+            let unique = free.iter().all(|m| m.funcao == free[0].funcao);
+            if !unique {
+                conflicts.push(Conflict::NonUniqueExtension { nome: *n, candidatos: free });
                 continue;
             }
-            implementados.insert(*n, livres[0].clone());
+            implemented.insert(*n, free[0].clone());
         }
-        for (n, cs) in outros.iter() {
-            match redeclarados.get_mut(n) {
+        for (n, cs) in others.iter() {
+            match redeclared.get_mut(n) {
                 Some(l) => l.extend(cs.todos()),
-                None => redeclarados.insert(*n, cs.todos()),
+                None => redeclared.insert(*n, cs.todos()),
             }
-            let livres = nao_excluidos(n, cs);
-            if livres.is_empty() || de_extensao.contains_key(n) {
+            let free = not_excluded(n, cs);
+            if free.is_empty() || of_extension.contains_key(n) {
                 continue;
             }
-            match combinar(p, c, &livres, true, *n, None) {
-                Some(m) => implementados.insert(*n, m),
-                None => conflitos.push(Conflito::Candidatos { nome: *n, candidatos: livres }),
+            match combinar(p, c, &free, true, *n, None) {
+                Some(m) => implemented.insert(*n, m),
+                None => conflicts.push(Conflict::Candidates { nome: *n, candidatos: free }),
             }
         }
         // Os redeclarados sem repetição.
-        let mut unicos: Mapa<Vec<Membro>> = Mapa::default();
-        for (n, l) in redeclarados.iter() {
+        let mut the_unique: Mapa<Vec<Membro>> = Mapa::default();
+        for (n, l) in redeclared.iter() {
             if l.len() <= 1 {
-                unicos.insert(*n, l.clone());
+                the_unique.insert(*n, l.clone());
             } else {
-                let mut vistos: Vec<FunctionElementId> = Vec::new();
+                let mut seen: Vec<FunctionElementId> = Vec::new();
                 let mut v = Vec::new();
                 for m in l {
-                    if !vistos.contains(&m.funcao) {
-                        vistos.push(m.funcao);
+                    if !seen.contains(&m.funcao) {
+                        seen.push(m.funcao);
                         v.push(m.clone());
                     }
                 }
-                unicos.insert(*n, v);
+                the_unique.insert(*n, v);
             }
         }
         Interface {
-            map: implementados.clone(),
-            declared: declarados,
-            implemented: implementados,
+            map: implemented.clone(),
+            declared: declared,
+            implemented: implemented,
             encaminhados: HashSet::new(),
             overridden: Mapa::default(),
-            redeclared: unicos,
+            redeclared: the_unique,
             super_implemented: Vec::new(),
-            conflitos,
+            conflicts,
         }
     }
 }
@@ -1024,69 +1024,69 @@ impl Heranca {
 /// analyzer (`_getTypeMembers`, `_addImplemented`): métodos; depois os
 /// acessores, os dos campos antes dos escritos (`_visitPropertyFirst`); em
 /// cada grupo, a ordem da fonte.
-fn ordem_dos_membros(prog: &Program, f: FunctionElementId) -> (u8, FunctionElementId) {
-    let categoria = match especie_de(prog, f) {
+fn member_order(prog: &Program, f: FunctionElementId) -> (u8, FunctionElementId) {
+    let category = match kind_of(prog, f) {
         Especie::Metodo => 0u8,
         _ if matches!(prog.function(f).node, FunctionRef::None) => 1,
         _ => 2,
     };
-    (categoria, f)
+    (category, f)
 }
 
 /// `_checkForGetterMethodConflict`.
-fn conflito_getter_metodo(nome: Nome, candidatos: &[Membro]) -> Option<Conflito> {
-    let getter = candidatos.iter().find(|m| m.especie == Especie::Getter)?;
-    let metodo = candidatos.iter().find(|m| m.especie == Especie::Metodo)?;
-    Some(Conflito::GetterMetodo { nome, getter: getter.clone(), metodo: metodo.clone() })
+fn getter_method_conflict(name: Nome, candidates: &[Membro]) -> Option<Conflict> {
+    let getter = candidates.iter().find(|m| m.especie == Especie::Getter)?;
+    let method = candidates.iter().find(|m| m.especie == Especie::Metodo)?;
+    Some(Conflict::GetterMethod { nome: name, getter: getter.clone(), metodo: method.clone() })
 }
 
 /// `_findMostSpecificFromNamedCandidates`.
-fn mais_especificos<'p>(p: &mut dyn Provedor<'p>, alvo: ClassId, mapa: &mut Mapa<Membro>, candidatos: &Mapa<Vec<Membro>>, top_merge: bool) -> Vec<Conflito> {
-    let mut conflitos = Vec::new();
-    for (n, lista) in candidatos.iter() {
-        if lista.len() > 1
-            && let Some(c) = conflito_getter_metodo(*n, lista)
+fn most_specific<'p>(p: &mut dyn Provedor<'p>, target: ClassId, map: &mut Mapa<Membro>, candidates: &Mapa<Vec<Membro>>, top_merge: bool) -> Vec<Conflict> {
+    let mut conflicts = Vec::new();
+    for (n, list) in candidates.iter() {
+        if list.len() > 1
+            && let Some(c) = getter_method_conflict(*n, list)
         {
-            conflitos.push(c);
+            conflicts.push(c);
             continue;
         }
-        if mapa.contains_key(n) {
+        if map.contains_key(n) {
             continue;
         }
-        if let Some(m) = combinar(p, alvo, lista, top_merge, *n, Some(&mut conflitos)) {
-            mapa.insert(*n, m);
+        if let Some(m) = combinar(p, target, list, top_merge, *n, Some(&mut conflicts)) {
+            map.insert(*n, m);
         }
     }
-    conflitos
+    conflicts
 }
 
 /// `combineSignatures`.
 pub fn combinar<'p>(
     p: &mut dyn Provedor<'p>,
-    alvo: ClassId,
-    candidatos: &[Membro],
+    target: ClassId,
+    candidates: &[Membro],
     top_merge: bool,
-    nome: Nome,
-    conflitos: Option<&mut Vec<Conflito>>,
+    name: Nome,
+    conflicts: Option<&mut Vec<Conflict>>,
 ) -> Option<Membro> {
-    if candidatos.len() == 1 {
-        return Some(candidatos[0].clone());
+    if candidates.len() == 1 {
+        return Some(candidates[0].clone());
     }
-    let mut validos: Vec<Membro> = Vec::new();
-    for (i, c) in candidatos.iter().enumerate() {
+    let mut valid: Vec<Membro> = Vec::new();
+    for (i, c) in candidates.iter().enumerate() {
         let _ = i;
-        let ok = candidatos.iter().all(|d| p.sub(c.tipo, d.tipo));
+        let ok = candidates.iter().all(|d| p.sub(c.tipo, d.tipo));
         if ok {
-            validos.push(c.clone());
+            valid.push(c.clone());
         }
     }
-    if validos.is_empty() {
-        if let Some(cs) = conflitos {
-            cs.push(Conflito::Candidatos { nome, candidatos: candidatos.to_vec() });
+    if valid.is_empty() {
+        if let Some(cs) = conflicts {
+            cs.push(Conflict::Candidates { nome: name, candidatos: candidates.to_vec() });
         }
         return None;
     }
-    if top_merge { Some(topo(p, alvo, &validos)) } else { Some(validos[0].clone()) }
+    if top_merge { Some(topo(p, target, &valid)) } else { Some(valid[0].clone()) }
 }
 
 /// A igualdade de tipos do Dart (`==`): estrutural, sem o alias, e a menos
@@ -1106,7 +1106,7 @@ fn iguais(table: &mut TypeTable, a: TypeId, b: TypeId) -> bool {
             // Os parâmetros de `b` renomeados para os de `a`: o resto tem de
             // coincidir.
             let rb = ops::substitute(cb, &s, table);
-            let (Type::Function { ret: ra, positional: pa, optional: oa, named: na, nullable: la, .. }, Type::Function { ret: rr, positional: pb, optional: ob, named: nb, nullable: lb, .. }) =
+            let (Type::Function { ret: ra, positional: pa, optional: oa, named: at, nullable: la, .. }, Type::Function { ret: rr, positional: pb, optional: ob, named: nb, nullable: lb, .. }) =
                 (table.get(ca).clone(), table.get(rb).clone())
             else {
                 return false;
@@ -1116,74 +1116,74 @@ fn iguais(table: &mut TypeTable, a: TypeId, b: TypeId) -> bool {
                 let ly = ops::substitute(table.param(*y).bound, &s, table);
                 table.canonico(lx) == table.canonico(ly)
             });
-            limites && la == lb && table.canonico(ra) == table.canonico(rr) && pa == pb && oa == ob && na == nb
+            limites && la == lb && table.canonico(ra) == table.canonico(rr) && pa == pb && oa == ob && at == nb
         }
         _ => false,
     }
 }
 
 /// `_topMerge`.
-fn topo<'p>(p: &mut dyn Provedor<'p>, alvo: ClassId, validos: &[Membro]) -> Membro {
-    let primeiro = &validos[0];
-    if validos.len() == 1 {
-        return primeiro.clone();
+fn topo<'p>(p: &mut dyn Provedor<'p>, target: ClassId, valid: &[Membro]) -> Membro {
+    let first = &valid[0];
+    if valid.len() == 1 {
+        return first.clone();
     }
-    let todos_iguais = validos.iter().all(|m| iguais(p.tabela(), m.tipo, primeiro.tipo));
-    if todos_iguais {
-        return primeiro.clone();
+    let all_equal = valid.iter().all(|m| iguais(p.tabela(), m.tipo, first.tipo));
+    if all_equal {
+        return first.clone();
     }
     // `reduce` do `topMerge` sobre os tipos normalizados; os parâmetros do
     // resultado guardam a covariância do operando da esquerda.
-    let mut resultado = p.normalizar(primeiro.tipo);
-    let covariantes = primeiro.covariantes.clone();
-    for m in &validos[1..] {
-        let t = p.normalizar(m.tipo);
-        resultado = top_merge_funcao(p, resultado, t, &covariantes, &m.covariantes);
+    let mut result = p.normalize_(first.tipo);
+    let the_covariant = first.the_covariant.clone();
+    for m in &valid[1..] {
+        let t = p.normalize_(m.tipo);
+        result = top_merge_function(p, result, t, &the_covariant, &m.the_covariant);
     }
-    for m in validos {
-        if iguais(p.tabela(), m.tipo, resultado) {
+    for m in valid {
+        if iguais(p.tabela(), m.tipo, result) {
             return m.clone();
         }
     }
     Membro {
-        funcao: primeiro.funcao,
-        classe: alvo,
-        tipo: resultado,
-        especie: primeiro.especie,
-        abstrato: false,
-        covariantes,
+        funcao: first.funcao,
+        classe: target,
+        tipo: result,
+        especie: first.especie,
+        the_abstract_: false,
+        the_covariant,
         sintetico: true,
     }
 }
 
 /// `_inheritCovariance`.
-fn herdar_covariancia<'p>(p: &mut dyn Provedor<'p>, c: ClassId, candidatos: &Mapa<Vec<Membro>>, nome: &Nome, m: &Membro) -> Membro {
+fn inherit_covariance<'p>(p: &mut dyn Provedor<'p>, c: ClassId, candidates: &Mapa<Vec<Membro>>, name: &Nome, m: &Membro) -> Membro {
     if m.classe == c {
         return m.clone();
     }
-    let parametros = parametros_do_tipo(p.tabela(), m.tipo);
-    if parametros.is_empty() {
+    let parameters = parametros_do_tipo(p.tabela(), m.tipo);
+    if parameters.is_empty() {
         return m.clone();
     }
-    let Some(lista) = candidatos.get(nome) else { return m.clone() };
-    let mut covariantes: HashSet<Param> = HashSet::new();
-    for o in lista {
+    let Some(list) = candidates.get(name) else { return m.clone() };
+    let mut the_covariant: HashSet<Param> = HashSet::new();
+    for o in list {
         for d in parametros_do_tipo(p.tabela(), o.tipo) {
-            if o.covariantes.contains(&d) {
-                covariantes.insert(d);
+            if o.the_covariant.contains(&d) {
+                the_covariant.insert(d);
             }
         }
     }
-    if covariantes.is_empty() {
+    if the_covariant.is_empty() {
         return m.clone();
     }
-    let devem: Vec<Param> = parametros.iter().copied().filter(|d| covariantes.contains(d)).collect();
-    let mudou = parametros.iter().any(|d| m.covariantes.contains(d) != devem.contains(d));
-    if !mudou {
+    let must: Vec<Param> = parameters.iter().copied().filter(|d| the_covariant.contains(d)).collect();
+    let changed = parameters.iter().any(|d| m.the_covariant.contains(d) != must.contains(d));
+    if !changed {
         return m.clone();
     }
     match m.especie {
-        Especie::Metodo | Especie::Setter => Membro { classe: c, covariantes: devem.into(), sintetico: true, ..m.clone() },
+        Especie::Metodo | Especie::Setter => Membro { classe: c, the_covariant: must.into(), sintetico: true, ..m.clone() },
         Especie::Getter => m.clone(),
     }
 }
@@ -1194,8 +1194,8 @@ fn anulavel(table: &TypeTable, t: TypeId) -> bool {
     table.get(t).is_declared_nullable()
 }
 
-fn com_anulabilidade(table: &mut TypeTable, t: TypeId, nullable: bool) -> TypeId {
-    let novo = match table.get(t).clone() {
+fn with_nullability(table: &mut TypeTable, t: TypeId, nullable: bool) -> TypeId {
+    let the_new_ = match table.get(t).clone() {
         Type::Interface { class, args, .. } => Type::Interface { class, args, nullable },
         Type::Function { type_params, ret, positional, optional, named, .. } => Type::Function { type_params, ret, positional, optional, named, nullable },
         Type::Record { positional, named, .. } => Type::Record { positional, named, nullable },
@@ -1204,18 +1204,18 @@ fn com_anulabilidade(table: &mut TypeTable, t: TypeId, nullable: bool) -> TypeId
         Type::ExtensionType { decl, args, .. } => Type::ExtensionType { decl, args, nullable },
         _ => return t,
     };
-    table.intern(novo)
+    table.intern(the_new_)
 }
 
 /// `topMerge` de dois tipos quaisquer (os tipos de função aninhados não têm
 /// parâmetros covariantes).
 fn top_merge<'p>(p: &mut dyn Provedor<'p>, t: TypeId, s: TypeId) -> TypeId {
-    top_merge_funcao(p, t, s, &[], &[])
+    top_merge_function(p, t, s, &[], &[])
 }
 
 /// `TopMergeHelper.topMerge`, com a covariância dos parâmetros quando `t` e
 /// `s` são os tipos de dois membros.
-fn top_merge_funcao<'p>(p: &mut dyn Provedor<'p>, t: TypeId, s: TypeId, cov_t: &[Param], cov_s: &[Param]) -> TypeId {
+fn top_merge_function<'p>(p: &mut dyn Provedor<'p>, t: TypeId, s: TypeId, cov_t: &[Param], cov_s: &[Param]) -> TypeId {
     let object = p.core().object_class;
     let (tt, st) = (p.tabela().get(t).clone(), p.tabela().get(s).clone());
     let t_obj_q = matches!(tt, Type::Interface { class, nullable: true, .. } if Some(class) == object);
@@ -1223,17 +1223,17 @@ fn top_merge_funcao<'p>(p: &mut dyn Provedor<'p>, t: TypeId, s: TypeId, cov_t: &
     if t_obj_q && s_obj_q {
         return t;
     }
-    let invalido_t = p.tabela().e_invalido(t);
-    let invalido_s = p.tabela().e_invalido(s);
-    let t_dyn = matches!(tt, Type::Dynamic) && !invalido_t;
-    let s_dyn = matches!(st, Type::Dynamic) && !invalido_s;
+    let invalid_t = p.tabela().e_invalido(t);
+    let invalid_s = p.tabela().e_invalido(s);
+    let t_dyn = matches!(tt, Type::Dynamic) && !invalid_t;
+    let s_dyn = matches!(st, Type::Dynamic) && !invalid_s;
     if t_dyn && s_dyn {
         return p.core().dynamic_;
     }
-    if invalido_t {
+    if invalid_t {
         return t;
     }
-    if invalido_s {
+    if invalid_s {
         return s;
     }
     if matches!(tt, Type::Never) && matches!(st, Type::Never) {
@@ -1255,10 +1255,10 @@ fn top_merge_funcao<'p>(p: &mut dyn Provedor<'p>, t: TypeId, s: TypeId, cov_t: &
     }
     let (tq, sq) = (anulavel(p.tabela(), t), anulavel(p.tabela(), s));
     if tq && sq {
-        let tn = com_anulabilidade(p.tabela(), t, false);
-        let sn = com_anulabilidade(p.tabela(), s, false);
-        let r = top_merge_funcao(p, tn, sn, cov_t, cov_s);
-        return com_anulabilidade(p.tabela(), r, true);
+        let tn = with_nullability(p.tabela(), t, false);
+        let sn = with_nullability(p.tabela(), s, false);
+        let r = top_merge_function(p, tn, sn, cov_t, cov_s);
+        return with_nullability(p.tabela(), r, true);
     } else if tq || sq {
         // `StateError` no original: não acontece com tipos normalizados que
         // são subtipos um do outro.
@@ -1288,19 +1288,19 @@ fn top_merge_funcao<'p>(p: &mut dyn Provedor<'p>, t: TypeId, s: TypeId, cov_t: &
         }
         (Type::Null, Type::Null) => t,
         (Type::Function { .. }, Type::Function { .. }) => funcoes(p, t, s, cov_t, cov_s),
-        (Type::Record { positional: pa, named: na, .. }, Type::Record { positional: pb, named: nb, .. }) => {
-            if pa.len() != pb.len() || na.len() != nb.len() {
+        (Type::Record { positional: pa, named: at, .. }, Type::Record { positional: pb, named: nb, .. }) => {
+            if pa.len() != pb.len() || at.len() != nb.len() {
                 return t;
             }
             let pos: Vec<TypeId> = pa.iter().zip(pb.iter()).map(|(x, y)| top_merge(p, *x, *y)).collect();
-            let mut nomeados: Vec<(SymbolId, TypeId)> = Vec::new();
-            for ((n1, x), (n2, y)) in na.iter().zip(nb.iter()) {
+            let mut named_args: Vec<(SymbolId, TypeId)> = Vec::new();
+            for ((n1, x), (n2, y)) in at.iter().zip(nb.iter()) {
                 if n1 != n2 {
                     return t;
                 }
-                nomeados.push((*n1, top_merge(p, *x, *y)));
+                named_args.push((*n1, top_merge(p, *x, *y)));
             }
-            p.tabela().intern(Type::Record { positional: pos.into_boxed_slice(), named: nomeados.into_boxed_slice(), nullable: false })
+            p.tabela().intern(Type::Record { positional: pos.into_boxed_slice(), named: named_args.into_boxed_slice(), nullable: false })
         }
         (Type::TypeParameter { param: a, .. }, Type::TypeParameter { param: b, .. }) if a == b => t,
         _ => t,
@@ -1320,18 +1320,18 @@ fn funcoes<'p>(p: &mut dyn Provedor<'p>, t: TypeId, s: TypeId, cov_t: &[Param], 
         return t;
     }
     // Os parâmetros de tipo novos (`_typeParameters`).
-    let mut novos: Vec<TypeParamId> = Vec::new();
+    let mut new_: Vec<TypeParamId> = Vec::new();
     let mut sub_t: HashMap<TypeParamId, TypeId> = HashMap::new();
     let mut sub_s: HashMap<TypeParamId, TypeId> = HashMap::new();
     if !tp_t.is_empty() {
         for (a, b) in tp_t.iter().zip(tp_s.iter()) {
-            let nome = p.tabela().param(*a).name;
-            let limite_padrao = p.core().object_nullable;
-            let n = p.tabela().alloc_type_param(nome, TypeParamOwner::GenericFunctionType, limite_padrao, Variance::Unspecified);
+            let name = p.tabela().param(*a).name;
+            let default_bound = p.core().object_nullable;
+            let n = p.tabela().alloc_type_param(name, TypeParamOwner::GenericFunctionType, default_bound, Variance::Unspecified);
             let tn = p.tabela().intern(Type::TypeParameter { param: n, nullable: false });
             sub_t.insert(*a, tn);
             sub_s.insert(*b, tn);
-            novos.push(n);
+            new_.push(n);
         }
         for (i, (a, b)) in tp_t.iter().zip(tp_s.iter()).enumerate() {
             let (ea, eb) = (p.tabela().param(*a).explicito, p.tabela().param(*b).explicito);
@@ -1346,35 +1346,35 @@ fn funcoes<'p>(p: &mut dyn Provedor<'p>, t: TypeId, s: TypeId, cov_t: &[Param], 
             let la = ops::substitute(la, &sub_t, p.tabela());
             let lb = ops::substitute(lb, &sub_s, p.tabela());
             let l = top_merge(p, la, lb);
-            p.tabela().set_type_param_bound(novos[i], l);
+            p.tabela().set_type_param_bound(new_[i], l);
         }
     }
     let ret = juntar(p, rt, rs, &sub_t, &sub_s);
     if pt.len() != ps.len() || ot.len() != os.len() || nt.len() != ns.len() {
         return t;
     }
-    let mut posicionais = Vec::with_capacity(pt.len());
+    let mut positional_args = Vec::with_capacity(pt.len());
     for (i, (a, b)) in pt.iter().zip(ps.iter()).enumerate() {
-        posicionais.push(parametro(p, Param::Indice(i), *a, *b, cov_t, cov_s, &sub_t, &sub_s));
+        positional_args.push(parametro(p, Param::Indice(i), *a, *b, cov_t, cov_s, &sub_t, &sub_s));
     }
-    let mut opcionais = Vec::with_capacity(ot.len());
+    let mut the_optional = Vec::with_capacity(ot.len());
     for (i, (a, b)) in ot.iter().zip(os.iter()).enumerate() {
-        opcionais.push(parametro(p, Param::Indice(pt.len() + i), *a, *b, cov_t, cov_s, &sub_t, &sub_s));
+        the_optional.push(parametro(p, Param::Indice(pt.len() + i), *a, *b, cov_t, cov_s, &sub_t, &sub_s));
     }
-    let mut nomeados = Vec::with_capacity(nt.len());
+    let mut named_args = Vec::with_capacity(nt.len());
     for ((n1, a, r1), (n2, b, r2)) in nt.iter().zip(ns.iter()) {
         if n1 != n2 {
             return t;
         }
         let ty = parametro(p, Param::Nome(*n1), *a, *b, cov_t, cov_s, &sub_t, &sub_s);
-        nomeados.push((*n1, ty, *r1 || *r2));
+        named_args.push((*n1, ty, *r1 || *r2));
     }
     p.tabela().intern(Type::Function {
-        type_params: novos.into_boxed_slice(),
+        type_params: new_.into_boxed_slice(),
         ret,
-        positional: posicionais.into_boxed_slice(),
-        optional: opcionais.into_boxed_slice(),
-        named: nomeados.into_boxed_slice(),
+        positional: positional_args.into_boxed_slice(),
+        optional: the_optional.into_boxed_slice(),
+        named: named_args.into_boxed_slice(),
         nullable: false,
     })
 }

@@ -79,16 +79,16 @@ impl OutlineTypes {
     /// `mapa` (a troca de texto de uma unidade sem recarga,
     /// `dartforge_elements::incremental`). Recusa, sem mudar nada, se alguma
     /// chave da unidade não está no mapa.
-    pub fn remapear_tipos_escritos(&mut self, u: UnitId, mapa: &HashMap<ast::TypeId, ast::TypeId>) -> bool {
-        let da_unidade: Vec<((UnitId, ast::TypeId), TypeId)> = self.tipos_escritos.iter().filter(|((un, _), _)| *un == u).map(|(k, v)| (*k, *v)).collect();
-        if da_unidade.iter().any(|((_, t), _)| !mapa.contains_key(t)) {
+    pub fn remapear_tipos_escritos(&mut self, u: UnitId, map: &HashMap<ast::TypeId, ast::TypeId>) -> bool {
+        let of_unit: Vec<((UnitId, ast::TypeId), TypeId)> = self.tipos_escritos.iter().filter(|((un, _), _)| *un == u).map(|(k, v)| (*k, *v)).collect();
+        if of_unit.iter().any(|((_, t), _)| !map.contains_key(t)) {
             return false;
         }
-        for (k, _) in &da_unidade {
+        for (k, _) in &of_unit {
             self.tipos_escritos.remove(k);
         }
-        for ((un, t), v) in da_unidade {
-            self.tipos_escritos.insert((un, mapa[&t]), v);
+        for ((un, t), v) in of_unit {
+            self.tipos_escritos.insert((un, map[&t]), v);
         }
         true
     }
@@ -113,7 +113,7 @@ pub struct OutlineTypes {
     /// Sobrescritas cujo tipo herdado vem de um campo sem tipo escrito
     /// (`var lista = [1.5];`): o tipo do campo só existe depois da inferência
     /// do inicializador, e a dos corpos completa a assinatura antes de tudo.
-    pub sobrescritas_de_campo: Vec<SobrescritaDeCampo>,
+    pub field_overrides: Vec<FieldOverride>,
     /// O tipo de cada anotação de tipo que o outline resolveu (assinaturas,
     /// cláusulas, limites, e as anotações dentro delas), por unidade e nó:
     /// o `TypeAnnotation.type` do analyzer. As dos corpos ficam em
@@ -121,13 +121,13 @@ pub struct OutlineTypes {
     pub tipos_escritos: HashMap<(UnitId, ast::TypeId), TypeId>,
     /// A inferência de sobrescrita fiel (`InstanceMemberInferrer`) já rodou
     /// sobre estes tipos (na primeira inferência de corpos).
-    pub sobrescritas_inferidas: bool,
+    pub inferred_overrides: bool,
 }
 
 /// Parte omitida de uma sobrescrita que herda o tipo de um campo sem tipo
 /// escrito no supertipo (override inference sobre tipo inferido).
 #[derive(Debug, Clone)]
-pub struct SobrescritaDeCampo {
+pub struct FieldOverride {
     /// O membro sobrescritor (getter, setter ou método).
     pub funcao: FunctionElementId,
     /// O campo sobrescrito.
@@ -143,12 +143,12 @@ pub struct SobrescritaDeCampo {
 /// `NamedTypeResolver` consulta para escolher o código de um nome que não
 /// resolve para tipo (`an611:src/dart/resolver/named_type_resolver.dart:515-643`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum ContextoDeTipo {
+pub enum TypeContext {
     /// Anotação comum (variável, parâmetro, retorno, limite…).
     #[default]
     Normal,
     /// Elemento de uma lista de argumentos de tipo (`List<X>`, `f<X>()`).
-    ArgumentoDeTipo,
+    TypeArgument,
     /// O tipo de `on T` de um `catch`.
     Catch,
     /// O tipo de `e as T`.
@@ -160,7 +160,7 @@ pub enum ContextoDeTipo {
     /// não relata nome indefinido nem nome que não é tipo ali ("The error
     /// will be reported elsewhere", `named_type_resolver.dart:601-608`), só o
     /// `boolean`, que vem antes.
-    Hierarquia,
+    Hierarchy,
 }
 
 /// O código e os argumentos do analyzer para um nome de tipo que não
@@ -168,56 +168,56 @@ pub enum ContextoDeTipo {
 /// `an611:src/dart/resolver/named_type_resolver.dart:515-643`): `achou` é a
 /// busca ter encontrado um elemento (que não é tipo). As cláusulas de herança
 /// e a criação de instância não passam por aqui (outros códigos).
-pub fn codigo_de_nome_de_tipo(contexto: ContextoDeTipo, achou: bool, nome: &str) -> dartforge_diagnostics::Codigo {
+pub fn type_name_code(context: TypeContext, found: bool, the_name: &str) -> dartforge_diagnostics::Codigo {
     use dartforge_diagnostics::codigos::compile_time_error as c;
-    if nome == "boolean" {
+    if the_name == "boolean" {
         return c::UNDEFINED_CLASS_BOOLEAN;
     }
-    match contexto {
-        ContextoDeTipo::Catch => c::NON_TYPE_IN_CATCH_CLAUSE,
-        ContextoDeTipo::As => c::CAST_TO_NON_TYPE,
-        ContextoDeTipo::Is if achou => c::TYPE_TEST_WITH_NON_TYPE,
-        ContextoDeTipo::Is => c::TYPE_TEST_WITH_UNDEFINED_NAME,
-        ContextoDeTipo::ArgumentoDeTipo => c::NON_TYPE_AS_TYPE_ARGUMENT,
-        ContextoDeTipo::Normal if achou => c::NOT_A_TYPE,
-        ContextoDeTipo::Normal if nome == "await" => c::UNDEFINED_IDENTIFIER_AWAIT,
-        ContextoDeTipo::Normal | ContextoDeTipo::Hierarquia => c::UNDEFINED_CLASS,
+    match context {
+        TypeContext::Catch => c::NON_TYPE_IN_CATCH_CLAUSE,
+        TypeContext::As => c::CAST_TO_NON_TYPE,
+        TypeContext::Is if found => c::TYPE_TEST_WITH_NON_TYPE,
+        TypeContext::Is => c::TYPE_TEST_WITH_UNDEFINED_NAME,
+        TypeContext::TypeArgument => c::NON_TYPE_AS_TYPE_ARGUMENT,
+        TypeContext::Normal if found => c::NOT_A_TYPE,
+        TypeContext::Normal if the_name == "await" => c::UNDEFINED_IDENTIFIER_AWAIT,
+        TypeContext::Normal | TypeContext::Hierarchy => c::UNDEFINED_CLASS,
     }
 }
 
 /// O diagnóstico de [`codigo_de_nome_de_tipo`] no nome (`faixa`: do prefixo,
 /// se houver, ao fim do nome — o `_getErrorRange`).
-pub fn diagnostico_de_nome_de_tipo(contexto: ContextoDeTipo, achou: bool, nome: &str, faixa: dartforge_diagnostics::Span) -> Diagnostic {
-    let codigo = codigo_de_nome_de_tipo(contexto, achou, nome);
-    if codigo == dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_IDENTIFIER_AWAIT {
-        return Diagnostic::com_codigo(codigo, faixa, std::iter::empty::<&str>());
+pub fn type_name_diagnostic(context: TypeContext, found: bool, the_name: &str, range: dartforge_diagnostics::Span) -> Diagnostic {
+    let code = type_name_code(context, found, the_name);
+    if code == dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_IDENTIFIER_AWAIT {
+        return Diagnostic::com_codigo(code, range, std::iter::empty::<&str>());
     }
-    Diagnostic::com_codigo(codigo, faixa, [nome])
+    Diagnostic::com_codigo(code, range, [the_name])
 }
 
 /// `WRONG_NUMBER_OF_TYPE_ARGUMENTS` (`_buildTypeArguments`,
 /// `an611:src/dart/resolver/named_type_resolver.dart:136-150`): no tipo
 /// inteiro, com o nome, o número de parâmetros e o de argumentos.
-pub fn diagnostico_de_argumentos_de_tipo(nome: &str, parametros: usize, argumentos: usize, span: dartforge_diagnostics::Span) -> Diagnostic {
+pub fn type_arguments_diagnostic(the_name: &str, params_list: usize, args_list: usize, span: dartforge_diagnostics::Span) -> Diagnostic {
     Diagnostic::com_codigo(
         dartforge_diagnostics::codigos::compile_time_error::WRONG_NUMBER_OF_TYPE_ARGUMENTS,
         span,
-        [nome.to_string(), parametros.to_string(), argumentos.to_string()],
+        [the_name.to_string(), params_list.to_string(), args_list.to_string()],
     )
 }
 
 /// O parâmetro de tipo é de uma classe, mixin, enum ou extensão.
-pub(crate) fn param_da_classe(table: &TypeTable, p: TypeParamId) -> bool {
+pub(crate) fn class_param(table: &TypeTable, p: TypeParamId) -> bool {
     matches!(table.param(p).owner, TypeParamOwner::Class(_) | TypeParamOwner::Extension(_))
 }
 
 /// `TYPE_PARAMETER_REFERENCED_BY_STATIC` (`_checkForTypeParameterReferencedByStatic`,
 /// `an611:src/generated/error_verifier.dart:5419-5434`): um parâmetro de tipo
 /// da classe citado num método ou campo estático, no nome.
-pub fn diagnostico_de_parametro_em_estatico(faixa: dartforge_diagnostics::Span) -> Diagnostic {
+pub fn parameter_in_static_diagnostic(range: dartforge_diagnostics::Span) -> Diagnostic {
     Diagnostic::com_codigo(
         dartforge_diagnostics::codigos::compile_time_error::TYPE_PARAMETER_REFERENCED_BY_STATIC,
-        faixa,
+        range,
         std::iter::empty::<&str>(),
     )
 }
@@ -229,14 +229,14 @@ pub fn diagnostico_de_parametro_em_estatico(faixa: dartforge_diagnostics::Span) 
 /// `ExtensionScope` em `:92-100`). O `values` sintético de um enum conta (é
 /// um campo estático declarado pelo analyzer); o `index` sintético não (é
 /// herdado de `Enum`).
-pub(crate) fn nome_no_conteiner(
+pub(crate) fn name_in_container(
     program: &Program,
     interner: &Interner,
-    classe: Option<ClassId>,
-    extensao: Option<ExtensionId>,
+    the_class: Option<ClassId>,
+    extension: Option<ExtensionId>,
     sym: SymbolId,
-) -> Option<NoConteiner> {
-    let (instancia, estaticos, campos) = match (classe, extensao) {
+) -> Option<InContainer> {
+    let (instance, statics, fields) = match (the_class, extension) {
         (Some(c), _) => {
             let k = program.class(c);
             (&k.instance_members, &k.static_members, k.fields.iter().chain(&k.enum_constants).copied().collect::<Vec<_>>())
@@ -247,22 +247,22 @@ pub(crate) fn nome_no_conteiner(
         }
         _ => return None,
     };
-    let declarado = |f: FunctionElementId| {
+    let the_declared = |f: FunctionElementId| {
         let fe = &program.functions[f.0 as usize];
         !matches!(fe.node, FunctionRef::None) || fe.variable.is_some() || (fe.static_ && interner.resolve(fe.name) == "values")
     };
-    let getter = [instancia, estaticos]
+    let getter = [instance, statics]
         .iter()
-        .any(|m| m.get(&sym).is_some_and(|&f| declarado(f) && program.functions[f.0 as usize].kind != FunctionKind::Constructor))
-        || campos.iter().any(|v| program.variables[v.0 as usize].name == sym);
+        .any(|m| m.get(&sym).is_some_and(|&f| the_declared(f) && program.functions[f.0 as usize].kind != FunctionKind::Constructor))
+        || fields.iter().any(|v| program.variables[v.0 as usize].name == sym);
     if getter {
-        return Some(NoConteiner::Getter);
+        return Some(InContainer::Getter);
     }
-    let nome_setter = format!("{}_=", interner.resolve(sym));
+    let setter_name = format!("{}_=", interner.resolve(sym));
     let setter = interner
-        .lookup(&nome_setter)
-        .is_some_and(|k| [instancia, estaticos].iter().any(|m| m.get(&k).is_some_and(|&f| declarado(f))));
-    setter.then_some(NoConteiner::SoSetter)
+        .lookup(&setter_name)
+        .is_some_and(|k| [instance, statics].iter().any(|m| m.get(&k).is_some_and(|&f| the_declared(f))));
+    setter.then_some(InContainer::OnlySetter)
 }
 
 /// `NamedTypeResolver.resolve` (`named_type_resolver.dart:89-121`): o
@@ -274,18 +274,18 @@ pub(crate) fn nome_no_conteiner(
 /// (o `LocalScope` em que o `ResolutionVisitor` define `accessors` e
 /// `methods` pelo nome deles: um setter fica sob `x=` e não esconde `x`) e
 /// o escopo de topo ([`prefixo_sombreado_no_topo`]).
-pub(crate) fn prefixo_sombreado(
+pub(crate) fn shadowed_prefix(
     program: &Program,
     interner: &Interner,
     unit: UnitId,
     p: SymbolId,
     local: bool,
-    classe: Option<ClassId>,
-    extensao: Option<ExtensionId>,
+    the_class: Option<ClassId>,
+    extension: Option<ExtensionId>,
 ) -> bool {
     local
-        || matches!(nome_no_conteiner(program, interner, classe, extensao, p), Some(NoConteiner::Getter))
-        || prefixo_sombreado_no_topo(program, unit, p)
+        || matches!(name_in_container(program, interner, the_class, extension, p), Some(InContainer::Getter))
+        || top_level_shadowed_prefix(program, unit, p)
 }
 
 /// `LibraryFragmentScope.lookup` (`scope.dart:424-440`): as declarações da
@@ -293,7 +293,7 @@ pub(crate) fn prefixo_sombreado(
 /// extensão (ou um nome ambíguo, o `MultiplyDefinedElement`) com o nome do
 /// prefixo o esconde; só setter é `getter` nulo (tipo indefinido, não
 /// sombra).
-pub(crate) fn prefixo_sombreado_no_topo(program: &Program, unit: UnitId, p: SymbolId) -> bool {
+pub(crate) fn top_level_shadowed_prefix(program: &Program, unit: UnitId, p: SymbolId) -> bool {
     let lib = program.library(program.unit(unit).library);
     let b = match lib.declared.get(&p) {
         Some(b) => *b,
@@ -307,26 +307,26 @@ pub(crate) fn prefixo_sombreado_no_topo(program: &Program, unit: UnitId, p: Symb
 }
 
 /// `PREFIX_SHADOWED_BY_LOCAL_DECLARATION` no prefixo, com o nome dele.
-pub fn diagnostico_de_prefixo_sombreado(nome: &str, faixa: dartforge_diagnostics::Span) -> Diagnostic {
-    Diagnostic::com_codigo(dartforge_diagnostics::codigos::compile_time_error::PREFIX_SHADOWED_BY_LOCAL_DECLARATION, faixa, [nome])
+pub fn shadowed_prefix_diagnostic(the_name: &str, range: dartforge_diagnostics::Span) -> Diagnostic {
+    Diagnostic::com_codigo(dartforge_diagnostics::codigos::compile_time_error::PREFIX_SHADOWED_BY_LOCAL_DECLARATION, range, [the_name])
 }
 
 /// Declaração cujos membros formam um escopo (o `InstanceScope` do analyzer).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Conteiner {
+enum Container {
     Classe(ClassId),
     Extensao(ExtensionId),
 }
 
 /// O que um nome é no escopo de instância de um contêiner.
-pub(crate) enum NoConteiner {
+pub(crate) enum InContainer {
     /// Getter (inclusive o implícito de campo e de constante de enum) ou
     /// método: o resultado da busca tem `getter`, e não é tipo.
     Getter,
     /// Só setter: a busca do `InstanceScope` (a do vinculador, que dá o
     /// tipo do elemento) para aqui, sem `getter`: tipo inválido. A do
     /// `ResolutionVisitor` (a que relata) não o vê e segue para fora.
-    SoSetter,
+    OnlySetter,
 }
 
 /// Contexto de resolução com acesso ao programa e acumuladores de estado.
@@ -338,18 +338,18 @@ pub struct OutlineResolver<'a> {
     pub diagnostics: Vec<Diagnostic>,
     /// Unidade de cada diagnóstico (paralelo a `diagnostics`): o arquivo em
     /// que ele é relatado, sem depender de adivinhar pelo intervalo.
-    pub unidades_dos_avisos: Vec<UnitId>,
+    pub warning_units: Vec<UnitId>,
     /// O contêiner (classe, mixin, enum, extension type ou extensão) cujos
     /// membros estão em escopo na anotação sendo resolvida: o
     /// `InstanceScope` do analyzer (docs/ANALISADOR-PARIDADE-PLANO.md §3.3).
-    conteiner: Option<Conteiner>,
+    conteiner: Option<Container>,
     /// O contexto da anotação que a próxima chamada de `resolve_annotation`
     /// resolve (lido e zerado na entrada; os argumentos de tipo o põem em
     /// [`ContextoDeTipo::ArgumentoDeTipo`]).
-    contexto_de_tipo: ContextoDeTipo,
+    type_context: TypeContext,
     /// Resolvendo a assinatura de um método ou campo estático (os parâmetros
     /// de tipo da classe não valem ali).
-    membro_estatico: bool,
+    static_member: bool,
     /// Parâmetros de tipo alocados por classe: `[ClassId] -> Box<[TypeParamId]>`
     pub class_type_params: Vec<Box<[TypeParamId]>>,
     /// Parâmetros de tipo alocados por typedef: `[TypedefId] -> Box<[TypeParamId]>`
@@ -359,12 +359,12 @@ pub struct OutlineResolver<'a> {
     /// Tipos alvo expandidos de typedefs: `[TypedefId] -> Option<TypeId>`
     pub typedef_targets: Vec<Option<TypeId>>,
     /// Cache do `hasSelfReference` de cada `typedef` (`auto_referencia`).
-    typedefs_auto_referentes: Vec<Option<bool>>,
+    self_referencing_typedefs: Vec<Option<bool>>,
     /// Os limites que o `_breakRawTypeCycles` troca por `dynamic`
     /// ([`crate::ciclos_crus`]); calculados na primeira leitura dos limites.
-    limites_quebrados: Option<std::collections::HashSet<(dartforge_elements::model::DeclRef, usize)>>,
+    broken_bounds: Option<std::collections::HashSet<(dartforge_elements::model::DeclRef, usize)>>,
     /// Ver [`OutlineTypes::sobrescritas_de_campo`].
-    pub sobrescritas_de_campo: Vec<SobrescritaDeCampo>,
+    pub field_overrides: Vec<FieldOverride>,
     /// Ver [`OutlineTypes::tipos_escritos`].
     pub tipos_escritos: HashMap<(UnitId, ast::TypeId), TypeId>,
 }
@@ -386,17 +386,17 @@ impl<'a> OutlineResolver<'a> {
             table,
             core,
             diagnostics: Vec::new(),
-            unidades_dos_avisos: Vec::new(),
+            warning_units: Vec::new(),
             conteiner: None,
-            contexto_de_tipo: ContextoDeTipo::Normal,
-            membro_estatico: false,
+            type_context: TypeContext::Normal,
+            static_member: false,
             class_type_params: vec![Box::new([]); num_classes],
             typedef_type_params: vec![Box::new([]); num_typedefs],
             extension_type_params: vec![Box::new([]); num_extensions],
             typedef_targets: vec![None; num_typedefs],
-            typedefs_auto_referentes: vec![None; num_typedefs],
-            limites_quebrados: None,
-            sobrescritas_de_campo: Vec::new(),
+            self_referencing_typedefs: vec![None; num_typedefs],
+            broken_bounds: None,
+            field_overrides: Vec::new(),
             tipos_escritos: HashMap::new(),
         }
     }
@@ -405,17 +405,17 @@ impl<'a> OutlineResolver<'a> {
 
     /// `reportNullOrNonTypeElement` (named_type_resolver.dart:518-521): o
     /// nome sintético (vazio, da recuperação do parser) não é relatado.
-    fn avisar_nome_de_tipo(&mut self, unit_id: UnitId, contexto: ContextoDeTipo, achou: bool, texto: &str, faixa: dartforge_diagnostics::Span) {
-        if texto.is_empty() || contexto == ContextoDeTipo::Hierarquia && texto != "boolean" {
+    fn warn_type_name(&mut self, unit_id: UnitId, context: TypeContext, found: bool, text: &str, range: dartforge_diagnostics::Span) {
+        if text.is_empty() || context == TypeContext::Hierarchy && text != "boolean" {
             return;
         }
-        self.avisar(unit_id, diagnostico_de_nome_de_tipo(contexto, achou, texto, faixa));
+        self.warn(unit_id, type_name_diagnostic(context, found, text, range));
     }
     /// O nome `sym` do namespace do `dart:core` está no escopo sem prefixo:
     /// a biblioteca não importa o core explicitamente (o import implícito),
     /// ou o importa sem prefixo com combinadores que o deixam passar.
-    fn nucleo_visivel(&self, unidade: UnitId, sym: SymbolId) -> bool {
-        let lib = self.program.unit(unidade).library;
+    fn visible_core(&self, the_unit: UnitId, sym: SymbolId) -> bool {
+        let lib = self.program.unit(the_unit).library;
         if Some(lib) == self.program.core {
             return true;
         }
@@ -438,29 +438,29 @@ impl<'a> OutlineResolver<'a> {
         })
     }
 
-    fn avisar(&mut self, unidade: UnitId, d: Diagnostic) {
+    fn warn(&mut self, the_unit: UnitId, d: Diagnostic) {
         self.diagnostics.push(d);
-        self.unidades_dos_avisos.push(unidade);
+        self.warning_units.push(the_unit);
     }
 
     /// O nome `sym` no escopo de instância do contêiner em resolução
     /// ([`nome_no_conteiner`]).
-    fn no_conteiner(&self, sym: SymbolId) -> Option<NoConteiner> {
-        let (classe, extensao) = match self.conteiner? {
-            Conteiner::Classe(c) => (Some(c), None),
-            Conteiner::Extensao(e) => (None, Some(e)),
+    fn in_container(&self, sym: SymbolId) -> Option<InContainer> {
+        let (the_class, extension) = match self.conteiner? {
+            Container::Classe(c) => (Some(c), None),
+            Container::Extensao(e) => (None, Some(e)),
         };
-        nome_no_conteiner(self.program, self.interner, classe, extensao, sym)
+        name_in_container(self.program, self.interner, the_class, extension, sym)
     }
 
     /// Resolve todo o outline do programa, retornando as tabelas laterais e os diagnósticos acumulados.
     pub fn resolve_all(self) -> (OutlineTypes, Vec<Diagnostic>) {
-        let (o, d, _) = self.resolve_all_com_unidades();
+        let (o, d, _) = self.resolve_all_with_units();
         (o, d)
     }
 
     /// Como [`OutlineResolver::resolve_all`], com a unidade de cada diagnóstico.
-    pub fn resolve_all_com_unidades(mut self) -> (OutlineTypes, Vec<Diagnostic>, Vec<UnitId>) {
+    pub fn resolve_all_with_units(mut self) -> (OutlineTypes, Vec<Diagnostic>, Vec<UnitId>) {
         // 1. Alocar TypeParamIds para classes, typedefs e extensions
         self.allocate_outline_type_params();
 
@@ -496,12 +496,12 @@ impl<'a> OutlineResolver<'a> {
             extensions: extension_type_data,
             typedefs: typedef_type_data,
             hierarchy,
-            sobrescritas_de_campo: std::mem::take(&mut self.sobrescritas_de_campo),
+            field_overrides: std::mem::take(&mut self.field_overrides),
             tipos_escritos: std::mem::take(&mut self.tipos_escritos),
-            sobrescritas_inferidas: false,
+            inferred_overrides: false,
         };
 
-        (outline, self.diagnostics, self.unidades_dos_avisos)
+        (outline, self.diagnostics, self.warning_units)
     }
 
     fn allocate_outline_type_params(&mut self) {
@@ -510,7 +510,7 @@ impl<'a> OutlineResolver<'a> {
             let mut params = Vec::with_capacity(class.type_params.len());
             // A variância escrita (`class C<out T>`), guardada mesmo com o
             // experimento desligado, como o `ElementBuilder` do analyzer.
-            let escritos: &[dartforge_frontend::ast::TypeParameter] = match class.decl {
+            let written_ones: &[dartforge_frontend::ast::TypeParameter] = match class.decl {
                 Some(d) => match &self.program.unit(d.unit).ast.decl(d.decl).kind {
                     dartforge_frontend::ast::DeclKind::Class(k) => &k.type_params,
                     dartforge_frontend::ast::DeclKind::Mixin(k) => &k.type_params,
@@ -520,7 +520,7 @@ impl<'a> OutlineResolver<'a> {
                 None => &[],
             };
             for (j, p) in class.type_params.iter().enumerate() {
-                let variance = match escritos.get(j).and_then(|t| t.variance).map(|v| v.0) {
+                let variance = match written_ones.get(j).and_then(|t| t.variance).map(|v| v.0) {
                     Some(dartforge_frontend::ast::Variance::In) => Variance::Contravariant,
                     Some(dartforge_frontend::ast::Variance::Out) => Variance::Covariant,
                     Some(dartforge_frontend::ast::Variance::Inout) => Variance::Invariant,
@@ -572,13 +572,13 @@ impl<'a> OutlineResolver<'a> {
         // da outra classe, que podem ainda não ter sido lidos na primeira
         // (sairia `Restriction<Object?>` em vez de `Restriction<Object>`);
         // cadeias de limites crus até três níveis; só a última relata.
-        let (n_diag, n_unid) = (self.diagnostics.len(), self.unidades_dos_avisos.len());
-        for passada in 0..3 {
-            if passada > 0 {
+        let (n_diag, n_units) = (self.diagnostics.len(), self.warning_units.len());
+        for passed in 0..3 {
+            if passed > 0 {
                 self.diagnostics.truncate(n_diag);
-                self.unidades_dos_avisos.truncate(n_unid);
+                self.warning_units.truncate(n_units);
             }
-            self.resolver_limites_de_classes();
+            self.resolve_class_bounds();
         }
 
         // E os dos typedefs (`typedef F<X extends num> = X Function();`):
@@ -592,15 +592,15 @@ impl<'a> OutlineResolver<'a> {
             for (j, (p_elem, &pid)) in typedef.type_params.iter().zip(params.iter()).enumerate() {
                 if let Some((unit_id, ast_ty_id)) = p_elem.bound {
                     let bound_ty = self.resolve_annotation(unit_id, ast_ty_id, typedef.library, &scope);
-                    let quebrado = self.limite_quebrado(typedef.decl, j);
-                    self.table.set_type_param_bound(pid, if quebrado { self.core.dynamic_ } else { bound_ty });
+                    let broken = self.broken_bound(typedef.decl, j);
+                    self.table.set_type_param_bound(pid, if broken { self.core.dynamic_ } else { bound_ty });
                 }
             }
         }
     }
 
     /// Os limites escritos dos parâmetros de tipo de todas as classes.
-    fn resolver_limites_de_classes(&mut self) {
+    fn resolve_class_bounds(&mut self) {
         for (i, class) in self.program.classes.iter().enumerate() {
             let params = self.class_type_params[i].clone();
             let mut scope = HashMap::with_capacity(params.len());
@@ -610,8 +610,8 @@ impl<'a> OutlineResolver<'a> {
             for (j, (p_elem, &pid)) in class.type_params.iter().zip(params.iter()).enumerate() {
                 if let Some((unit_id, ast_ty_id)) = p_elem.bound {
                     let bound_ty = self.resolve_annotation(unit_id, ast_ty_id, class.library, &scope);
-                    let quebrado = class.decl.is_some_and(|d| self.limite_quebrado(d, j));
-                    self.table.set_type_param_bound(pid, if quebrado { self.core.dynamic_ } else { bound_ty });
+                    let broken = class.decl.is_some_and(|d| self.broken_bound(d, j));
+                    self.table.set_type_param_bound(pid, if broken { self.core.dynamic_ } else { bound_ty });
                 }
             }
         }
@@ -619,11 +619,11 @@ impl<'a> OutlineResolver<'a> {
 
     /// O limite do parâmetro `j` da declaração `d` vira `dynamic`
     /// (`_breakRawTypeCycles`, [`crate::ciclos_crus`]).
-    fn limite_quebrado(&mut self, d: dartforge_elements::model::DeclRef, j: usize) -> bool {
-        if self.limites_quebrados.is_none() {
-            self.limites_quebrados = Some(crate::ciclos_crus::limites_quebrados(self.program));
+    fn broken_bound(&mut self, d: dartforge_elements::model::DeclRef, j: usize) -> bool {
+        if self.broken_bounds.is_none() {
+            self.broken_bounds = Some(crate::raw_cycles::broken_bounds(self.program));
         }
-        self.limites_quebrados.as_ref().is_some_and(|q| q.contains(&(d, j)))
+        self.broken_bounds.as_ref().is_some_and(|q| q.contains(&(d, j)))
     }
 
     fn resolve_typedefs(&mut self) {
@@ -637,11 +637,11 @@ impl<'a> OutlineResolver<'a> {
     /// `dynamic` (`TypeAliasElementImpl.instantiate`, `element.dart:9690-9696`).
     fn typedef_auto_referente(&mut self, id: TypedefId) -> bool {
         let i = id.0 as usize;
-        if let Some(r) = self.typedefs_auto_referentes[i] {
+        if let Some(r) = self.self_referencing_typedefs[i] {
             return r;
         }
         let r = crate::auto_referencia::typedef_auto_referente(self.program, self.program.typedefs[i].decl);
-        self.typedefs_auto_referentes[i] = Some(r);
+        self.self_referencing_typedefs[i] = Some(r);
         r
     }
 
@@ -722,7 +722,7 @@ impl<'a> OutlineResolver<'a> {
             }
 
             let supertype = class.supertype.map(|(unit, ast_id)| {
-                self.contexto_de_tipo = ContextoDeTipo::Hierarquia;
+                self.type_context = TypeContext::Hierarchy;
                 self.resolve_annotation(unit, ast_id, class.library, &scope)
             });
 
@@ -730,7 +730,7 @@ impl<'a> OutlineResolver<'a> {
                 .mixins
                 .iter()
                 .map(|&(unit, ast_id)| {
-                    self.contexto_de_tipo = ContextoDeTipo::Hierarquia;
+                    self.type_context = TypeContext::Hierarchy;
                     self.resolve_annotation(unit, ast_id, class.library, &scope)
                 })
                 .collect();
@@ -739,7 +739,7 @@ impl<'a> OutlineResolver<'a> {
                 .interfaces
                 .iter()
                 .map(|&(unit, ast_id)| {
-                    self.contexto_de_tipo = ContextoDeTipo::Hierarquia;
+                    self.type_context = TypeContext::Hierarchy;
                     self.resolve_annotation(unit, ast_id, class.library, &scope)
                 })
                 .collect();
@@ -783,9 +783,9 @@ impl<'a> OutlineResolver<'a> {
         // são o mesmo elemento como chave). A identidade do tipo continua a
         // de cada classe.
         for i in 0..hierarchy_inputs.len() {
-            let dono = self.program.dono_da_classe(ClassId(i as u32));
-            if dono.0 as usize != i && (dono.0 as usize) < hierarchy_inputs.len() {
-                hierarchy_inputs[i] = hierarchy_inputs[dono.0 as usize].clone();
+            let owner = self.program.dono_da_classe(ClassId(i as u32));
+            if owner.0 as usize != i && (owner.0 as usize) < hierarchy_inputs.len() {
+                hierarchy_inputs[i] = hierarchy_inputs[owner.0 as usize].clone();
             }
         }
         let mut hierarchy = build_class_hierarchy(
@@ -804,36 +804,36 @@ impl<'a> OutlineResolver<'a> {
         // Sem casamento, fica o tipo cru. Com mudança, a hierarquia é refeita
         // e a passada se repete (a superclasse pode ter mixins inferidos).
         for _ in 0..4 {
-            let mut mudou = false;
+            let mut changed = false;
             for i in 0..self.program.classes.len() {
                 for j in 0..self.program.classes[i].mixins.len() {
-                    if let Some(novo) = self.inferir_mixin(&class_type_data, &hierarchy, i, j) {
-                        class_type_data[i].mixins[j] = novo;
-                        mudou = true;
+                    if let Some(the_new_) = self.infer_mixin(&class_type_data, &hierarchy, i, j) {
+                        class_type_data[i].mixins[j] = the_new_;
+                        changed = true;
                     }
                 }
             }
-            if !mudou {
+            if !changed {
                 break;
             }
             for i in 0..self.program.classes.len() {
                 let d = &class_type_data[i];
-                let mut todos = Vec::new();
-                todos.extend(d.supertype);
-                todos.extend_from_slice(&d.mixins);
-                todos.extend_from_slice(&d.interfaces);
-                todos.extend_from_slice(&d.on);
+                let mut all = Vec::new();
+                all.extend(d.supertype);
+                all.extend_from_slice(&d.mixins);
+                all.extend_from_slice(&d.interfaces);
+                all.extend_from_slice(&d.on);
                 if self.program.classes[i].kind == dartforge_elements::model::ClassKind::Enum {
                     if let Some(e) = enum_type {
-                        todos.push(e);
+                        all.push(e);
                     }
                 }
-                hierarchy_inputs[i] = Some((d.type_params.clone(), todos));
+                hierarchy_inputs[i] = Some((d.type_params.clone(), all));
             }
             for i in 0..hierarchy_inputs.len() {
-                let dono = self.program.dono_da_classe(ClassId(i as u32));
-                if dono.0 as usize != i && (dono.0 as usize) < hierarchy_inputs.len() {
-                    hierarchy_inputs[i] = hierarchy_inputs[dono.0 as usize].clone();
+                let owner = self.program.dono_da_classe(ClassId(i as u32));
+                if owner.0 as usize != i && (owner.0 as usize) < hierarchy_inputs.len() {
+                    hierarchy_inputs[i] = hierarchy_inputs[owner.0 as usize].clone();
                 }
             }
             hierarchy = build_class_hierarchy(self.program.classes.len(), &hierarchy_inputs, self.table, self.core);
@@ -842,9 +842,9 @@ impl<'a> OutlineResolver<'a> {
         // superinterface (o `implements`) o for: uma classe, ou outro tipo
         // de extensão que o seja.
         let mut memo: HashMap<usize, bool> = HashMap::new();
-        fn com_object(
+        fn with_object(
             i: usize,
-            dados: &[ClassTypeData],
+            the_data: &[ClassTypeData],
             program: &Program,
             table: &TypeTable,
             memo: &mut HashMap<usize, bool>,
@@ -860,9 +860,9 @@ impl<'a> OutlineResolver<'a> {
                 return true;
             }
             memo.insert(i, true);
-            let r = dados[i].interfaces.iter().any(|&t| match table.get(t) {
+            let r = the_data[i].interfaces.iter().any(|&t| match table.get(t) {
                 Type::Interface { .. } => true,
-                Type::ExtensionType { decl, .. } => com_object(decl.0 as usize, dados, program, table, memo, prof + 1),
+                Type::ExtensionType { decl, .. } => with_object(decl.0 as usize, the_data, program, table, memo, prof + 1),
                 _ => false,
             });
             memo.insert(i, r);
@@ -870,9 +870,9 @@ impl<'a> OutlineResolver<'a> {
         }
         for i in 0..self.program.classes.len() {
             if self.program.classes[i].kind == ClassKind::ExtensionType
-                && !com_object(i, &class_type_data, self.program, self.table, &mut memo, 0)
+                && !with_object(i, &class_type_data, self.program, self.table, &mut memo, 0)
             {
-                hierarchy.extensoes_sem_object.insert(ClassId(i as u32));
+                hierarchy.extensions_without_object.insert(ClassId(i as u32));
             }
         }
 
@@ -881,26 +881,26 @@ impl<'a> OutlineResolver<'a> {
 
     /// `_MixinInference._inferSingle` para o mixin `j` da classe `i`: o novo
     /// tipo, quando a inferência o muda.
-    fn inferir_mixin(&mut self, dados: &[ClassTypeData], hierarquia: &ClassHierarchy, i: usize, j: usize) -> Option<TypeId> {
+    fn infer_mixin(&mut self, the_data: &[ClassTypeData], the_hierarchy: &ClassHierarchy, i: usize, j: usize) -> Option<TypeId> {
         let (unit, ast_id) = self.program.classes[i].mixins[j];
-        let sem_args = matches!(&self.program.unit(unit).ast.ty(ast_id).kind, ast::TypeKind::Named { args, .. } if args.is_empty());
-        if !sem_args {
+        let without_args = matches!(&self.program.unit(unit).ast.ty(ast_id).kind, ast::TypeKind::Named { args, .. } if args.is_empty());
+        if !without_args {
             return None;
         }
-        let mt = *dados[i].mixins.get(j)?;
+        let mt = *the_data[i].mixins.get(j)?;
         let Type::Interface { class: m, nullable, .. } = self.table.get(mt).clone() else { return None };
-        let params = dados[m.0 as usize].type_params.clone();
+        let params = the_data[m.0 as usize].type_params.clone();
         if params.is_empty() {
             return None;
         }
         // `gatherMixinSupertypeConstraintsForInference` (`type_system.dart:500-518`).
         let mk = &self.program.classes[m.0 as usize];
-        let candidatos: Vec<TypeId> = if mk.kind == dartforge_elements::model::ClassKind::Mixin {
-            dados[m.0 as usize].on.to_vec()
+        let candidates: Vec<TypeId> = if mk.kind == dartforge_elements::model::ClassKind::Mixin {
+            the_data[m.0 as usize].on.to_vec()
         } else {
-            let s = dados[m.0 as usize].supertype?;
+            let s = the_data[m.0 as usize].supertype?;
             let mut v = vec![s];
-            v.extend(dados[m.0 as usize].mixins.iter().copied());
+            v.extend(the_data[m.0 as usize].mixins.iter().copied());
             let alias = mk.decl.is_some_and(|d| {
                 matches!(&self.program.unit(d.unit).ast.decl(d.decl).kind, DeclKind::Class(x) if x.mixin_application)
             });
@@ -909,10 +909,10 @@ impl<'a> OutlineResolver<'a> {
             }
             v
         };
-        let restricoes: Vec<(TypeId, ClassId)> = candidatos
+        let constraints: Vec<(TypeId, ClassId)> = candidates
             .into_iter()
             .filter_map(|r| match self.table.get(r) {
-                Type::Interface { class, .. } if !dados[class.0 as usize].type_params.is_empty() => Some((r, *class)),
+                Type::Interface { class, .. } if !the_data[class.0 as usize].type_params.is_empty() => Some((r, *class)),
                 _ => None,
             })
             .collect();
@@ -921,50 +921,50 @@ impl<'a> OutlineResolver<'a> {
         // (`class_hierarchy.dart:170-196`): o primeiro tipo; outro diferente
         // passa a juntar os normalizados pelo `topMerge`, e o que falha deixa
         // o resultado anterior.
-        let fontes: Vec<TypeId> = dados[i].supertype.into_iter().chain(dados[i].mixins[..j].iter().copied()).collect();
-        let mut alvos: Vec<TypeId> = Vec::new();
-        for &(_, rc) in restricoes.iter() {
-            let (mut unico, mut atual, mut erro): (Option<TypeId>, Option<TypeId>, bool) = (None, None, false);
-            for &f in fontes.iter() {
-                let Some(t) = hierarquia.supertype_of(f, rc, self.table, self.core) else { continue };
-                if erro {
+        let sources: Vec<TypeId> = the_data[i].supertype.into_iter().chain(the_data[i].mixins[..j].iter().copied()).collect();
+        let mut targets: Vec<TypeId> = Vec::new();
+        for &(_, rc) in constraints.iter() {
+            let (mut unique, mut current, mut error): (Option<TypeId>, Option<TypeId>, bool) = (None, None, false);
+            for &f in sources.iter() {
+                let Some(t) = the_hierarchy.supertype_of(f, rc, self.table, self.core) else { continue };
+                if error {
                     continue;
                 }
-                if atual.is_none() {
-                    match unico {
+                if current.is_none() {
+                    match unique {
                         None => {
-                            unico = Some(t);
+                            unique = Some(t);
                             continue;
                         }
                         Some(u) if u == t => continue,
-                        Some(u) => atual = Some(crate::ops::normalize(u, self.table, self.core)),
+                        Some(u) => current = Some(crate::ops::normalize(u, self.table, self.core)),
                     }
                 }
                 let nt = crate::ops::normalize(t, self.table, self.core);
-                match crate::ops::top_merge(self.table, self.core, atual.expect("posto acima"), nt) {
-                    Some(r) => atual = Some(r),
-                    None => erro = true,
+                match crate::ops::top_merge(self.table, self.core, current.expect("posto acima"), nt) {
+                    Some(r) => current = Some(r),
+                    None => error = true,
                 }
             }
-            alvos.push(atual.or(unico)?);
+            targets.push(current.or(unique)?);
         }
         let mut gi = crate::constraints::GenericInferrer::new(&params);
-        let tipos = {
-            let mut env = crate::subtyping::SubtypeEnv::new(self.table, hierarquia, self.core);
-            for (k, &(src, _)) in restricoes.iter().enumerate() {
-                gi.constrain_return(src, alvos[k], &mut env);
-                gi.constrain_return(alvos[k], src, &mut env);
+        let types = {
+            let mut env = crate::subtyping::SubtypeEnv::new(self.table, the_hierarchy, self.core);
+            for (k, &(src, _)) in constraints.iter().enumerate() {
+                gi.constrain_return(src, targets[k], &mut env);
+                gi.constrain_return(targets[k], src, &mut env);
             }
             gi.choose_final(&mut env)
         };
-        let mapa: HashMap<TypeParamId, TypeId> = params.iter().copied().zip(tipos.iter().copied()).collect();
-        for (k, &(src, _)) in restricoes.iter().enumerate() {
-            if substitute(src, &mapa, self.table) != alvos[k] {
+        let map: HashMap<TypeParamId, TypeId> = params.iter().copied().zip(types.iter().copied()).collect();
+        for (k, &(src, _)) in constraints.iter().enumerate() {
+            if substitute(src, &map, self.table) != targets[k] {
                 return None;
             }
         }
-        let novo = self.table.intern(Type::Interface { class: m, args: tipos.into_boxed_slice(), nullable });
-        (novo != mt).then_some(novo)
+        let the_new_ = self.table.intern(Type::Interface { class: m, args: types.into_boxed_slice(), nullable });
+        (the_new_ != mt).then_some(the_new_)
     }
 
     fn resolve_extensions(&mut self) -> Vec<ExtensionTypeData> {
@@ -1014,11 +1014,11 @@ impl<'a> OutlineResolver<'a> {
                     if let MemberKind::Field(var_list) = &mem_node.kind {
                         let scope = self.get_enclosing_type_param_scope(var.class, var.extension);
                         if let Some(ast_ty) = var_list.ty {
-                            self.conteiner = conteiner_de(var.class, var.extension);
-                            self.membro_estatico = var.static_;
+                            self.conteiner = container_of(var.class, var.extension);
+                            self.static_member = var.static_;
                             let ty = self.resolve_annotation(unit, ast_ty, var.library, &scope);
                             self.conteiner = None;
-                            self.membro_estatico = false;
+                            self.static_member = false;
                             (Some(ty), Some(ty))
                         } else {
                             (None, None)
@@ -1034,11 +1034,11 @@ impl<'a> OutlineResolver<'a> {
                         // construtor fica de fora). Sem isto o tipo saía `E`
                         // sem argumentos e o UP de duas constantes vazava `E<T>`.
                         let n = self.class_type_params[cls.0 as usize].len();
-                        let escritos: Vec<ast::TypeId> = match &self.program.unit(unit).ast.decl(decl).kind {
+                        let written_ones: Vec<ast::TypeId> = match &self.program.unit(unit).ast.decl(decl).kind {
                             DeclKind::Enum(en) => en.constants.get(index).map(|k| k.type_args.to_vec()).unwrap_or_default(),
                             _ => Vec::new(),
                         };
-                        let com_argumentos = match &self.program.unit(unit).ast.decl(decl).kind {
+                        let with_arguments = match &self.program.unit(unit).ast.decl(decl).kind {
                             DeclKind::Enum(en) => en.constants.get(index).is_some_and(|k| k.arguments.is_some()),
                             _ => false,
                         };
@@ -1048,19 +1048,19 @@ impl<'a> OutlineResolver<'a> {
                         // `E<String>`). Genérica, sem argumentos de tipo
                         // escritos e com argumentos, fica para a inferência
                         // (`funcoes.rs::inferir_tipo_de_variavel_sem_tipo`).
-                        if n > 0 && escritos.is_empty() && com_argumentos {
+                        if n > 0 && written_ones.is_empty() && with_arguments {
                             (None, None)
                         } else {
                         let args: Vec<TypeId> = if n == 0 {
                             Vec::new()
-                        } else if escritos.len() == n {
+                        } else if written_ones.len() == n {
                             // No escopo do enum: `enum E<T> { v<T>() }` vê o
                             // `T` (o 3.6.2 não relata nada).
-                            let escopo = self.get_enclosing_type_param_scope(var.class, var.extension);
-                            escritos.iter().map(|&t| self.resolve_annotation(unit, t, var.library, &escopo)).collect()
+                            let the_scope = self.get_enclosing_type_param_scope(var.class, var.extension);
+                            written_ones.iter().map(|&t| self.resolve_annotation(unit, t, var.library, &the_scope)).collect()
                         } else {
                             let formals = self.class_type_params[cls.0 as usize].clone();
-                            self.instanciar_para_limites(&formals)
+                            self.instantiate_to_bounds(&formals)
                         };
                         let ty = self.table.intern(Type::Interface {
                             class: cls,
@@ -1107,15 +1107,15 @@ impl<'a> OutlineResolver<'a> {
         variables: &mut [VariableTypeData],
     ) -> Vec<FunctionTypeData> {
         let mut data: Vec<FunctionTypeData> = Vec::with_capacity(self.program.functions.len());
-        let augmentadas = self.declaracoes_augmentadas();
+        let augmented = self.augmented_declarations();
 
         for (i, func) in self.program.functions.iter().enumerate() {
             let func_id = FunctionElementId(i as u32);
             let (mut sig, mut ret, mut params, tparams) =
                 self.resolve_function_signature(func_id, func, hierarchy, variables);
-            if let Some(&anterior) = augmentadas.get(&func_id)
-                && let Some(herdado) = data.get(anterior.0 as usize)
-                && let Some((s2, r2, p2)) = self.herdar_assinatura(func, herdado, &params, ret, &tparams)
+            if let Some(&previous) = augmented.get(&func_id)
+                && let Some(inherited) = data.get(previous.0 as usize)
+                && let Some((s2, r2, p2)) = self.inherit_signature(func, inherited, &params, ret, &tparams)
             {
                 (sig, ret, params) = (s2, r2, p2);
             }
@@ -1143,21 +1143,21 @@ impl<'a> OutlineResolver<'a> {
     /// patches do SDK), a declaração que ela aumenta: a primeira da cadeia
     /// (docs/AUGMENTATIONS.md §2 — os elementos anteriores apontam, por
     /// `patched_by`, para o efetivo).
-    fn declaracoes_augmentadas(&self) -> HashMap<FunctionElementId, FunctionElementId> {
+    fn augmented_declarations(&self) -> HashMap<FunctionElementId, FunctionElementId> {
         let mut m: HashMap<FunctionElementId, FunctionElementId> = HashMap::new();
         for (i, f) in self.program.functions.iter().enumerate() {
-            let Some(efetivo) = f.patched_by else { continue };
+            let Some(effective) = f.patched_by else { continue };
             if self.program.library(f.library).is_sdk {
                 continue;
             }
-            let atual = FunctionElementId(i as u32);
-            m.entry(efetivo)
+            let current = FunctionElementId(i as u32);
+            m.entry(effective)
                 .and_modify(|x| {
-                    if atual.0 < x.0 {
-                        *x = atual;
+                    if current.0 < x.0 {
+                        *x = current;
                     }
                 })
-                .or_insert(atual);
+                .or_insert(current);
         }
         m
     }
@@ -1169,53 +1169,53 @@ impl<'a> OutlineResolver<'a> {
     /// Funções genéricas (dos dois lados) ficam como estão: herdar exigiria
     /// substituir os parâmetros de tipo. Conferido com o CFE e o analyzer
     /// 3.13.4 (`augment f(x) => …` com `String f(int x);` antes).
-    fn herdar_assinatura(
+    fn inherit_signature(
         &mut self,
         func: &FunctionElement,
-        anterior: &FunctionTypeData,
+        previous: &FunctionTypeData,
         params: &[ParameterTypeData],
         ret: TypeId,
         tparams: &[TypeParamId],
     ) -> Option<(TypeId, TypeId, Box<[ParameterTypeData]>)> {
         let FunctionRef::Function { unit, function } = func.node else { return None };
-        if !tparams.is_empty() || !anterior.type_params.is_empty() {
+        if !tparams.is_empty() || !previous.type_params.is_empty() {
             return None;
         }
         let ast_func = &self.program.unit(unit).ast.functions[function.0 as usize];
-        let escritos: Vec<bool> = match &ast_func.parameters {
+        let written_ones: Vec<bool> = match &ast_func.parameters {
             Some(ps) => ps.iter().map(|p| p.ty.is_some() || p.function_parameters.is_some()).collect(),
             None => Vec::new(),
         };
-        if escritos.len() != params.len() {
+        if written_ones.len() != params.len() {
             return None;
         }
-        let mut novos: Vec<ParameterTypeData> = params.to_vec();
-        let posicionais_antes: Vec<&ParameterTypeData> =
-            anterior.parameters.iter().filter(|p| p.kind != ParameterKind::Named).collect();
-        let mut posicao = 0usize;
-        for (i, p) in novos.iter_mut().enumerate() {
-            let correspondente = if p.kind == ParameterKind::Named {
-                anterior.parameters.iter().find(|q| q.kind == ParameterKind::Named && q.externo == p.externo)
+        let mut new_: Vec<ParameterTypeData> = params.to_vec();
+        let positional_before: Vec<&ParameterTypeData> =
+            previous.parameters.iter().filter(|p| p.kind != ParameterKind::Named).collect();
+        let mut position = 0usize;
+        for (i, p) in new_.iter_mut().enumerate() {
+            let corresponding = if p.kind == ParameterKind::Named {
+                previous.parameters.iter().find(|q| q.kind == ParameterKind::Named && q.externo == p.externo)
             } else {
-                let q = posicionais_antes.get(posicao).copied();
-                posicao += 1;
+                let q = positional_before.get(position).copied();
+                position += 1;
                 q
             };
-            if !escritos[i]
-                && let Some(q) = correspondente
+            if !written_ones[i]
+                && let Some(q) = corresponding
             {
                 p.ty = q.ty;
             }
         }
-        let novo_ret = if ast_func.return_type.is_none() && func.kind != FunctionKind::Setter {
-            anterior.return_type
+        let new_ret = if ast_func.return_type.is_none() && func.kind != FunctionKind::Setter {
+            previous.return_type
         } else {
             ret
         };
         let mut positional = Vec::new();
         let mut optional = Vec::new();
         let mut named = Vec::new();
-        for p in &novos {
+        for p in &new_ {
             match p.kind {
                 ParameterKind::Required => positional.push(p.ty),
                 ParameterKind::Optional => optional.push(p.ty),
@@ -1228,13 +1228,13 @@ impl<'a> OutlineResolver<'a> {
         }
         let sig = self.table.intern(Type::Function {
             type_params: Box::new([]),
-            ret: novo_ret,
+            ret: new_ret,
             positional: positional.into_boxed_slice(),
             optional: optional.into_boxed_slice(),
             named: named.into_boxed_slice(),
             nullable: false,
         });
-        Some((sig, novo_ret, novos.into_boxed_slice()))
+        Some((sig, new_ret, new_.into_boxed_slice()))
     }
 
     /// A assinatura de um membro é resolvida com o escopo de instância do
@@ -1246,18 +1246,18 @@ impl<'a> OutlineResolver<'a> {
         hierarchy: &ClassHierarchy,
         variables: &[VariableTypeData],
     ) -> (TypeId, TypeId, Box<[ParameterTypeData]>, Box<[TypeParamId]>) {
-        self.conteiner = conteiner_de(func.class, func.extension);
-        self.membro_estatico = func.static_
+        self.conteiner = container_of(func.class, func.extension);
+        self.static_member = func.static_
             && !func.factory
             && func.kind != FunctionKind::Constructor
             && (func.class.is_some() || func.extension.is_some());
-        let r = self.resolve_function_signature_no_escopo(func_id, func, hierarchy, variables);
+        let r = self.resolve_function_signature_in_scope(func_id, func, hierarchy, variables);
         self.conteiner = None;
-        self.membro_estatico = false;
+        self.static_member = false;
         r
     }
 
-    fn resolve_function_signature_no_escopo(
+    fn resolve_function_signature_in_scope(
         &mut self,
         func_id: FunctionElementId,
         func: &FunctionElement,
@@ -1298,11 +1298,11 @@ impl<'a> OutlineResolver<'a> {
                 let mut named = Vec::new();
 
                 if let Some(parameters) = &ast_func.parameters {
-                    let mut idx_posicional = 0usize;
+                    let mut positional_idx = 0usize;
                     for p in parameters.iter() {
-                        let pos_atual = idx_posicional;
+                        let current_pos = positional_idx;
                         if p.kind != ParameterKind::Named {
-                            idx_posicional += 1;
+                            positional_idx += 1;
                         }
                         let p_name = p.name.as_ref().map(|n| n.sym);
                         let p_ty = if p.function_parameters.is_some() {
@@ -1311,10 +1311,10 @@ impl<'a> OutlineResolver<'a> {
                             self.resolve_annotation(unit, ast_ty, func.library, &scope)
                         } else {
                             // Tenta override inference se for método de instância
-                            self.infer_override_parameter_type(func, p_name, p.kind, pos_atual, hierarchy, 0)
+                            self.infer_override_parameter_type(func, p_name, p.kind, current_pos, hierarchy, 0)
                                 .unwrap_or_else(|| {
                                     if func.kind == FunctionKind::Setter {
-                                        self.adiar_sobrescrita_de_campo(func_id, func, Some(param_types.len()), hierarchy);
+                                        self.defer_field_override(func_id, func, Some(param_types.len()), hierarchy);
                                     }
                                     self.core.dynamic_
                                 })
@@ -1349,7 +1349,7 @@ impl<'a> OutlineResolver<'a> {
                     // Tenta override inference para retorno
                     self.infer_override_return_type(func, hierarchy, 0).unwrap_or_else(|| {
                         if func.kind == FunctionKind::Getter {
-                            self.adiar_sobrescrita_de_campo(func_id, func, None, hierarchy);
+                            self.defer_field_override(func_id, func, None, hierarchy);
                         }
                         self.core.dynamic_
                     })
@@ -1513,19 +1513,19 @@ impl<'a> OutlineResolver<'a> {
     /// Argumentos de uma classe usada numa anotação: os escritos, ou a
     /// instanciação para os limites quando a classe é usada crua (`Map` é
     /// `Map<dynamic, dynamic>`, `C` com `T extends num` é `C<num>`).
-    fn args_ou_limites(&mut self, cid: ClassId, args: Vec<TypeId>) -> Vec<TypeId> {
+    fn args_or_bounds(&mut self, cid: ClassId, args: Vec<TypeId>) -> Vec<TypeId> {
         let formals = self.class_type_params[cid.0 as usize].clone();
         if args.len() == formals.len() {
             return args;
         }
-        self.instanciar_para_limites(&formals)
+        self.instantiate_to_bounds(&formals)
     }
 
     /// Instanciação para os limites (`instantiate to bounds`): o limite
     /// escrito, ou `dynamic`; limites que mencionam os próprios parâmetros
     /// (F-limites) têm esses parâmetros trocados por `dynamic`.
-    fn instanciar_para_limites(&mut self, formals: &[TypeParamId]) -> Vec<TypeId> {
-        crate::ops::instanciar_para_limites(formals, &[], self.table, self.core)
+    fn instantiate_to_bounds(&mut self, formals: &[TypeParamId]) -> Vec<TypeId> {
+        crate::ops::instantiate_to_bounds(formals, &[], self.table, self.core)
     }
 
     fn instantiate_self_class(&mut self, class_opt: Option<ClassId>) -> TypeId {
@@ -1561,18 +1561,18 @@ impl<'a> OutlineResolver<'a> {
 
     /// Membro homônimo nos supertipos da classe de `func`, na ordem de busca
     /// (superclasses e mixins, depois interfaces): `(classe, função)`.
-    fn membro_sobreposto(&self, func: &FunctionElement, hierarchy: &ClassHierarchy) -> Option<(ClassId, FunctionElementId)> {
+    fn overlapping_member(&self, func: &FunctionElement, hierarchy: &ClassHierarchy) -> Option<(ClassId, FunctionElementId)> {
         let class_id = func.class?;
         if func.static_ {
             return None;
         }
-        let chave = if func.kind == FunctionKind::Setter {
+        let the_key = if func.kind == FunctionKind::Setter {
             self.interner.lookup(&format!("{}_=", self.interner.resolve(func.name)))?
         } else {
             func.name
         };
-        for (sup, _) in crate::scope::supertipos_ordenados(self.program, hierarchy, class_id) {
-            if let Some(&f) = self.program.class(sup).instance_members.get(&chave) {
+        for (sup, _) in crate::scope::ordered_supertypes(self.program, hierarchy, class_id) {
+            if let Some(&f) = self.program.class(sup).instance_members.get(&the_key) {
                 return Some((sup, f));
             }
         }
@@ -1581,7 +1581,7 @@ impl<'a> OutlineResolver<'a> {
 
     /// Substitui os parâmetros da superclasse `sup` pelo que a classe de
     /// `func` lhe passa.
-    fn instanciar_do_super(&mut self, func: &FunctionElement, sup: ClassId, t: TypeId, hierarchy: &ClassHierarchy) -> Option<TypeId> {
+    fn instantiate_from_super(&mut self, func: &FunctionElement, sup: ClassId, t: TypeId, hierarchy: &ClassHierarchy) -> Option<TypeId> {
         let class_id = func.class?;
         let this = self.instantiate_self_class(Some(class_id));
         let super_ty = hierarchy.supertype_of(this, sup, self.table, self.core)?;
@@ -1595,7 +1595,7 @@ impl<'a> OutlineResolver<'a> {
     }
 
     /// Tipo do campo `v` escrito na declaração, no escopo da classe `sup`.
-    fn tipo_escrito_de_campo(&mut self, v: dartforge_elements::model::VariableId, sup: ClassId) -> Option<TypeId> {
+    fn written_field_type(&mut self, v: dartforge_elements::model::VariableId, sup: ClassId) -> Option<TypeId> {
         let (unit, ast_ty) = match self.program.variable(v).node {
             VariableRef::Field { unit, member, .. } => match &self.program.unit(unit).ast.member(member).kind {
                 MemberKind::Field(vl) => (unit, vl.ty?),
@@ -1611,14 +1611,14 @@ impl<'a> OutlineResolver<'a> {
     /// Registra a sobrescrita cujo membro sobreposto é o acessor implícito de
     /// um campo sem tipo escrito: o tipo sai da inferência do inicializador
     /// ([`OutlineTypes::sobrescritas_de_campo`]).
-    fn adiar_sobrescrita_de_campo(
+    fn defer_field_override(
         &mut self,
         func_id: FunctionElementId,
         func: &FunctionElement,
-        parametro: Option<usize>,
+        parameter: Option<usize>,
         hierarchy: &ClassHierarchy,
     ) {
-        let Some((sup, sf)) = self.membro_sobreposto(func, hierarchy) else { return };
+        let Some((sup, sf)) = self.overlapping_member(func, hierarchy) else { return };
         let super_func = self.program.function(sf);
         if !matches!(super_func.node, FunctionRef::None) {
             return;
@@ -1636,7 +1636,7 @@ impl<'a> OutlineResolver<'a> {
         };
         let params = self.class_type_params[sup.0 as usize].clone();
         let subst = params.iter().copied().zip(args.iter().copied()).collect();
-        self.sobrescritas_de_campo.push(SobrescritaDeCampo { funcao: func_id, campo: v, subst, parametro });
+        self.field_overrides.push(FieldOverride { funcao: func_id, campo: v, subst, parametro: parameter });
     }
 
     /// Tipo de retorno herdado (override inference): o do membro sobreposto,
@@ -1645,12 +1645,12 @@ impl<'a> OutlineResolver<'a> {
         if prof > 16 {
             return None;
         }
-        let (sup, sf) = self.membro_sobreposto(func, hierarchy)?;
+        let (sup, sf) = self.overlapping_member(func, hierarchy)?;
         let super_func = self.program.function(sf);
         let t = match (super_func.kind, super_func.node) {
             (FunctionKind::ImplicitAccessor, _) => {
                 let v = super_func.variable?;
-                self.tipo_escrito_de_campo(v, sup)?
+                self.written_field_type(v, sup)?
             }
             (_, FunctionRef::Function { unit, function }) => {
                 let ast_func = &self.program.unit(unit).ast.functions[function.0 as usize];
@@ -1664,13 +1664,13 @@ impl<'a> OutlineResolver<'a> {
                     }
                     None => {
                         let t = self.infer_override_return_type(super_func, hierarchy, prof + 1)?;
-                        return self.instanciar_do_super(func, sup, t, hierarchy).or(Some(t));
+                        return self.instantiate_from_super(func, sup, t, hierarchy).or(Some(t));
                     }
                 }
             }
             _ => return None,
         };
-        self.instanciar_do_super(func, sup, t, hierarchy)
+        self.instantiate_from_super(func, sup, t, hierarchy)
     }
 
     /// Tipo herdado de um parâmetro: o nomeado pelo nome, o posicional pela
@@ -1680,14 +1680,14 @@ impl<'a> OutlineResolver<'a> {
         func: &FunctionElement,
         param_name: Option<SymbolId>,
         kind: ParameterKind,
-        posicao: usize,
+        position: usize,
         hierarchy: &ClassHierarchy,
         prof: u32,
     ) -> Option<TypeId> {
         if prof > 16 {
             return None;
         }
-        let (sup, sf) = self.membro_sobreposto(func, hierarchy)?;
+        let (sup, sf) = self.overlapping_member(func, hierarchy)?;
         let super_func = self.program.function(sf);
         let t = match super_func.node {
             FunctionRef::Function { unit, function } => {
@@ -1696,29 +1696,29 @@ impl<'a> OutlineResolver<'a> {
                     return None;
                 }
                 let params = ast_func.parameters.as_ref()?;
-                let alvo = if kind == ParameterKind::Named {
+                let tgt = if kind == ParameterKind::Named {
                     params.iter().find(|p| p.kind == ParameterKind::Named && p.name.map(|n| n.sym) == param_name)?
                 } else {
-                    params.iter().filter(|p| p.kind != ParameterKind::Named).nth(posicao)?
+                    params.iter().filter(|p| p.kind != ParameterKind::Named).nth(position)?
                 };
-                if alvo.function_parameters.is_some() {
+                if tgt.function_parameters.is_some() {
                     let scope = self.get_enclosing_type_param_scope(Some(sup), None);
-                    self.resolve_function_typed_parameter(unit, alvo, super_func.library, &scope)
-                } else if let Some(ast_ty) = alvo.ty {
+                    self.resolve_function_typed_parameter(unit, tgt, super_func.library, &scope)
+                } else if let Some(ast_ty) = tgt.ty {
                     let scope = self.get_enclosing_type_param_scope(Some(sup), None);
                     self.resolve_annotation(unit, ast_ty, super_func.library, &scope)
                 } else {
-                    let t = self.infer_override_parameter_type(super_func, param_name, kind, posicao, hierarchy, prof + 1)?;
-                    return self.instanciar_do_super(func, sup, t, hierarchy).or(Some(t));
+                    let t = self.infer_override_parameter_type(super_func, param_name, kind, position, hierarchy, prof + 1)?;
+                    return self.instantiate_from_super(func, sup, t, hierarchy).or(Some(t));
                 }
             }
             FunctionRef::None if func.kind == FunctionKind::Setter => {
                 let v = super_func.variable?;
-                self.tipo_escrito_de_campo(v, sup)?
+                self.written_field_type(v, sup)?
             }
             _ => return None,
         };
-        self.instanciar_do_super(func, sup, t, hierarchy)
+        self.instantiate_from_super(func, sup, t, hierarchy)
     }
 
     fn get_enclosing_type_param_scope(
@@ -1750,7 +1750,7 @@ impl<'a> OutlineResolver<'a> {
         library: LibraryId,
         type_param_scope: &HashMap<SymbolId, TypeParamId>,
     ) -> TypeId {
-        let t = self.resolver_anotacao_escrita(unit_id, ast_ty_id, library, type_param_scope);
+        let t = self.resolve_written_annotation(unit_id, ast_ty_id, library, type_param_scope);
         // `TypeAnnotation.type`, para as regras que o leem.
         self.tipos_escritos.insert((unit_id, ast_ty_id), t);
         // O `ResolutionVisitor.visitNamedType` resolve os argumentos de tipo
@@ -1763,14 +1763,14 @@ impl<'a> OutlineResolver<'a> {
         };
         for a in args {
             if !self.tipos_escritos.contains_key(&(unit_id, a)) {
-                self.contexto_de_tipo = ContextoDeTipo::ArgumentoDeTipo;
+                self.type_context = TypeContext::TypeArgument;
                 self.resolve_annotation(unit_id, a, library, type_param_scope);
             }
         }
         t
     }
 
-    fn resolver_anotacao_escrita(
+    fn resolve_written_annotation(
         &mut self,
         unit_id: UnitId,
         ast_ty_id: ast::TypeId,
@@ -1780,25 +1780,25 @@ impl<'a> OutlineResolver<'a> {
         let annot = self.program.unit(unit_id).ast.ty(ast_ty_id);
         let is_nullable = annot.nullable;
         let span = annot.span;
-        let contexto = std::mem::take(&mut self.contexto_de_tipo);
+        let context = std::mem::take(&mut self.type_context);
 
         match &annot.kind {
             ast::TypeKind::Void => self.core.void_,
             ast::TypeKind::Named { name, args } => {
                 // O nome (com o prefixo) é a faixa dos erros de nome; o tipo
                 // inteiro, a do número de argumentos.
-                let faixa = dartforge_diagnostics::Span { start: name[0].span.start, end: name[name.len() - 1].span.end };
-                let texto = self.interner.resolve(name[name.len() - 1].sym).to_string();
+                let range = dartforge_diagnostics::Span { start: name[0].span.start, end: name[name.len() - 1].span.end };
+                let text = self.interner.resolve(name[name.len() - 1].sym).to_string();
                 if name.len() == 1 {
                     let sym = name[0].sym;
 
                     // 1. Verificar escopo de parâmetros de tipo vigentes
                     if let Some(&param_id) = type_param_scope.get(&sym) {
                         if !args.is_empty() {
-                            self.avisar(unit_id, diagnostico_de_argumentos_de_tipo(&texto, 0, args.len(), span));
+                            self.warn(unit_id, type_arguments_diagnostic(&text, 0, args.len(), span));
                         }
-                        if self.membro_estatico && param_da_classe(self.table, param_id) {
-                            self.avisar(unit_id, diagnostico_de_parametro_em_estatico(faixa));
+                        if self.static_member && class_param(self.table, param_id) {
+                            self.warn(unit_id, parameter_in_static_diagnostic(range));
                         }
                         return self.table.intern(Type::TypeParameter {
                             param: param_id,
@@ -1810,16 +1810,16 @@ impl<'a> OutlineResolver<'a> {
                     // `Never<int>`: a contagem errada do `_buildTypeArguments`,
                     // no tipo inteiro). `dynamic` e `Never` vêm do namespace do
                     // `dart:core`: com o core só por prefixo, são indefinidos.
-                    let especial = self.interner.lookup("dynamic") == Some(sym) || self.interner.lookup("Never") == Some(sym);
-                    if especial && !self.nucleo_visivel(unit_id, sym) {
-                        if !crate::scope::deve_ignorar_indefinido(self.program, self.interner, unit_id, None, sym) {
-                            self.avisar_nome_de_tipo(unit_id, contexto, false, &texto, faixa);
+                    let special = self.interner.lookup("dynamic") == Some(sym) || self.interner.lookup("Never") == Some(sym);
+                    if special && !self.visible_core(unit_id, sym) {
+                        if !crate::scope::should_ignore_undefined(self.program, self.interner, unit_id, None, sym) {
+                            self.warn_type_name(unit_id, context, false, &text, range);
                         }
-                        return self.table.invalido(self.core.dynamic_);
+                        return self.table.invalid(self.core.dynamic_);
                     }
-                    let embutido = self.interner.lookup("dynamic") == Some(sym) || self.interner.lookup("Never") == Some(sym);
-                    if embutido && !args.is_empty() {
-                        self.avisar(unit_id, diagnostico_de_argumentos_de_tipo(&texto, 0, args.len(), span));
+                    let builtin = self.interner.lookup("dynamic") == Some(sym) || self.interner.lookup("Never") == Some(sym);
+                    if builtin && !args.is_empty() {
+                        self.warn(unit_id, type_arguments_diagnostic(&text, 0, args.len(), span));
                     }
                     if self.interner.lookup("dynamic") == Some(sym) {
                         return self.core.dynamic_;
@@ -1829,7 +1829,7 @@ impl<'a> OutlineResolver<'a> {
                     }
                     if self.interner.lookup("Never") == Some(sym) {
                         return if is_nullable {
-                            self.table.decorar(self.core.null, crate::table::Exibicao::NeverAnulavel)
+                            self.table.decorate(self.core.null, crate::table::Exibicao::NeverAnulavel)
                         } else {
                             self.core.never
                         };
@@ -1840,11 +1840,11 @@ impl<'a> OutlineResolver<'a> {
                     // `FutureOr` só é o de `dart:async` quando está no escopo
                     // (o `dart:core` não o exporta): sem import, o nome é
                     // indefinido como qualquer outro.
-                    let futureor_no_escopo = matches!(
+                    let futureor_in_scope = matches!(
                         self.program.lookup_na_unidade(unit_id, sym).and_then(|b| b.getter),
                         Some(Element::Class(c)) if self.program.library(self.program.class(c).library).uri == "dart:async"
                     );
-                    if self.interner.lookup("FutureOr") == Some(sym) && futureor_no_escopo {
+                    if self.interner.lookup("FutureOr") == Some(sym) && futureor_in_scope {
                         if args.len() == 1 {
                             let arg_ty = self.resolve_annotation(
                                 unit_id,
@@ -1863,29 +1863,29 @@ impl<'a> OutlineResolver<'a> {
                                 nullable: is_nullable,
                             });
                         } else {
-                            self.avisar(unit_id, diagnostico_de_argumentos_de_tipo(&texto, 1, args.len(), span));
+                            self.warn(unit_id, type_arguments_diagnostic(&text, 1, args.len(), span));
                             return self.core.dynamic_;
                         }
                     }
 
                     // 3. O escopo de instância do contêiner esconde o de topo.
                     // (Nome sintético da recuperação, sem largura: nada.)
-                    match if span.start == span.end { None } else { self.no_conteiner(sym) } {
-                        Some(NoConteiner::Getter) => {
+                    match if span.start == span.end { None } else { self.in_container(sym) } {
+                        Some(InContainer::Getter) => {
                             // O `NamedTypeBuilder` da ligação dá `dynamic` (não
                             // `InvalidType`) ao elemento que não é tipo
                             // (`named_type_builder.dart:121`); o `InvalidType`
                             // é só do nome não achado (`reference_resolver.dart:424`).
                             // `int get foo` com um campo `int` na classe: o getter
                             // é `dynamic`, que não é subtipo de `int`.
-                            self.avisar_nome_de_tipo(unit_id, contexto, true, &texto, faixa);
+                            self.warn_type_name(unit_id, context, true, &text, range);
                             return self.core.dynamic_;
                         }
-                        Some(NoConteiner::SoSetter) => {
+                        Some(InContainer::OnlySetter) => {
                             // O vinculador não acha o tipo (inválido, sem
                             // aviso); o `ResolutionVisitor`, que relata, acha
                             // o de fora.
-                            return self.table.invalido(self.core.dynamic_);
+                            return self.table.invalid(self.core.dynamic_);
                         }
                         None => {}
                     }
@@ -1895,19 +1895,19 @@ impl<'a> OutlineResolver<'a> {
                     match binding {
                         Some(b) => {
                             if b.ambiguous {
-                                let lista = crate::scope::bibliotecas_ambiguas(self.program, unit_id, None, sym);
-                                self.avisar(
+                                let the_list = crate::scope::ambiguous_libraries(self.program, unit_id, None, sym);
+                                self.warn(
                                     unit_id,
-                                    Diagnostic::com_codigo(dartforge_diagnostics::codigos::compile_time_error::AMBIGUOUS_IMPORT, name[0].span, [texto.as_str(), lista.as_str()]),
+                                    Diagnostic::com_codigo(dartforge_diagnostics::codigos::compile_time_error::AMBIGUOUS_IMPORT, name[0].span, [text.as_str(), the_list.as_str()]),
                                 );
-                                return self.table.invalido(self.core.dynamic_);
+                                return self.table.invalid(self.core.dynamic_);
                             }
                             match b.getter {
                                 Some(Element::Class(cid)) => {
                                     let resolved_args: Vec<TypeId> = args
                                         .iter()
                                         .map(|&a| {
-                                            self.contexto_de_tipo = ContextoDeTipo::ArgumentoDeTipo;
+                                            self.type_context = TypeContext::TypeArgument;
                                             self.resolve_annotation(
                                                 unit_id,
                                                 a,
@@ -1919,14 +1919,14 @@ impl<'a> OutlineResolver<'a> {
 
                                     let n_params = self.class_type_params[cid.0 as usize].len();
                                     if !args.is_empty() && args.len() != n_params {
-                                        self.avisar(unit_id, diagnostico_de_argumentos_de_tipo(&texto, n_params, args.len(), span));
+                                        self.warn(unit_id, type_arguments_diagnostic(&text, n_params, args.len(), span));
                                     }
                                     // Número errado de argumentos de tipo: todos ficam inválidos
                                     // (`_buildTypeArguments`, `named_type_resolver.dart:148`).
                                     let resolved_args = if !args.is_empty() && args.len() != n_params {
-                                        vec![self.table.invalido(self.core.dynamic_); n_params]
+                                        vec![self.table.invalid(self.core.dynamic_); n_params]
                                     } else {
-                                        self.args_ou_limites(cid, resolved_args)
+                                        self.args_or_bounds(cid, resolved_args)
                                     };
                                     let is_ext =
                                         self.program.class(cid).kind == ClassKind::ExtensionType;
@@ -1949,7 +1949,7 @@ impl<'a> OutlineResolver<'a> {
                                     let resolved_args: Vec<TypeId> = args
                                         .iter()
                                         .map(|&a| {
-                                            self.contexto_de_tipo = ContextoDeTipo::ArgumentoDeTipo;
+                                            self.type_context = TypeContext::TypeArgument;
                                             self.resolve_annotation(
                                                 unit_id,
                                                 a,
@@ -1962,22 +1962,22 @@ impl<'a> OutlineResolver<'a> {
                                     let target_ty = self.ensure_typedef_resolved(tid);
                                     let formals = self.typedef_type_params[tid.0 as usize].clone();
                                     if !args.is_empty() && args.len() != formals.len() {
-                                        self.avisar(unit_id, diagnostico_de_argumentos_de_tipo(&texto, formals.len(), args.len(), span));
+                                        self.warn(unit_id, type_arguments_diagnostic(&text, formals.len(), args.len(), span));
                                     }
                                     let resolved_args = if resolved_args.len() == formals.len() {
                                         resolved_args
                                     } else if !args.is_empty() {
                                         // Número errado de argumentos de tipo: todos inválidos.
-                                        vec![self.table.invalido(self.core.dynamic_); formals.len()]
+                                        vec![self.table.invalid(self.core.dynamic_); formals.len()]
                                     } else {
-                                        self.instanciar_para_limites(&formals)
+                                        self.instantiate_to_bounds(&formals)
                                     };
                                     let mut subst = HashMap::with_capacity(formals.len());
                                     for (&f, &a) in formals.iter().zip(resolved_args.iter()) {
                                         subst.insert(f, a);
                                     }
                                     let expanded = substitute(target_ty, &subst, self.table);
-                                    let expanded = self.table.decorar(
+                                    let expanded = self.table.decorate(
                                         expanded,
                                         crate::table::Exibicao::Alias { typedef: tid, args: resolved_args.clone().into_boxed_slice() },
                                     );
@@ -1990,8 +1990,8 @@ impl<'a> OutlineResolver<'a> {
                                 // Elemento que não é tipo: `dynamic` na ligação;
                                 // só setter (getter nulo) é nome não achado.
                                 g => {
-                                    self.avisar_nome_de_tipo(unit_id, contexto, true, &texto, faixa);
-                                    if g.is_some() { self.core.dynamic_ } else { self.table.invalido(self.core.dynamic_) }
+                                    self.warn_type_name(unit_id, context, true, &text, range);
+                                    if g.is_some() { self.core.dynamic_ } else { self.table.invalid(self.core.dynamic_) }
                                 }
                             }
                         }
@@ -2001,30 +2001,30 @@ impl<'a> OutlineResolver<'a> {
                             // pode vir de um import ou parte que não existe
                             // (`shouldIgnoreUndefinedNamedType`).
                             if span.start != span.end
-                                && !crate::scope::deve_ignorar_indefinido(self.program, self.interner, unit_id, None, name[0].sym)
+                                && !crate::scope::should_ignore_undefined(self.program, self.interner, unit_id, None, name[0].sym)
                             {
-                                self.avisar_nome_de_tipo(unit_id, contexto, false, &texto, faixa);
+                                self.warn_type_name(unit_id, context, false, &text, range);
                             }
-                            self.table.invalido(self.core.dynamic_)
+                            self.table.invalid(self.core.dynamic_)
                         }
                     }
                 } else if name.len() == 2 {
                     let prefix = name[0].sym;
                     let member = name[1].sym;
                     if name[0].span.start != name[0].span.end {
-                        let (classe, extensao) = match self.conteiner {
-                            Some(Conteiner::Classe(c)) => (Some(c), None),
-                            Some(Conteiner::Extensao(e)) => (None, Some(e)),
+                        let (the_class, extension) = match self.conteiner {
+                            Some(Container::Classe(c)) => (Some(c), None),
+                            Some(Container::Extensao(e)) => (None, Some(e)),
                             None => (None, None),
                         };
                         let local = type_param_scope.contains_key(&prefix);
-                        if prefixo_sombreado(self.program, self.interner, unit_id, prefix, local, classe, extensao) {
-                            let nome = self.interner.resolve(prefix).to_string();
-                            self.avisar(unit_id, diagnostico_de_prefixo_sombreado(&nome, name[0].span));
-                            return self.table.invalido(self.core.dynamic_);
+                        if shadowed_prefix(self.program, self.interner, unit_id, prefix, local, the_class, extension) {
+                            let the_name = self.interner.resolve(prefix).to_string();
+                            self.warn(unit_id, shadowed_prefix_diagnostic(&the_name, name[0].span));
+                            return self.table.invalid(self.core.dynamic_);
                         }
-                        if matches!(self.no_conteiner(prefix), Some(NoConteiner::SoSetter)) {
-                            return self.table.invalido(self.core.dynamic_);
+                        if matches!(self.in_container(prefix), Some(InContainer::OnlySetter)) {
+                            return self.table.invalid(self.core.dynamic_);
                         }
                     }
                     let binding = self.program.lookup_prefixed_na_unidade(unit_id, prefix, member);
@@ -2034,7 +2034,7 @@ impl<'a> OutlineResolver<'a> {
                                 let resolved_args: Vec<TypeId> = args
                                     .iter()
                                     .map(|&a| {
-                                        self.contexto_de_tipo = ContextoDeTipo::ArgumentoDeTipo;
+                                        self.type_context = TypeContext::TypeArgument;
                                         self.resolve_annotation(
                                             unit_id,
                                             a,
@@ -2046,14 +2046,14 @@ impl<'a> OutlineResolver<'a> {
 
                                 let n_params = self.class_type_params[cid.0 as usize].len();
                                 if !args.is_empty() && args.len() != n_params {
-                                    self.avisar(unit_id, diagnostico_de_argumentos_de_tipo(&texto, n_params, args.len(), span));
+                                    self.warn(unit_id, type_arguments_diagnostic(&text, n_params, args.len(), span));
                                 }
                                 // Número errado de argumentos de tipo: todos ficam inválidos
                                 // (`_buildTypeArguments`, `named_type_resolver.dart:148`).
                                 let resolved_args = if !args.is_empty() && args.len() != n_params {
-                                    vec![self.table.invalido(self.core.dynamic_); n_params]
+                                    vec![self.table.invalid(self.core.dynamic_); n_params]
                                 } else {
-                                    self.args_ou_limites(cid, resolved_args)
+                                    self.args_or_bounds(cid, resolved_args)
                                 };
                                 let is_ext =
                                     self.program.class(cid).kind == ClassKind::ExtensionType;
@@ -2076,7 +2076,7 @@ impl<'a> OutlineResolver<'a> {
                                 let resolved_args: Vec<TypeId> = args
                                     .iter()
                                     .map(|&a| {
-                                        self.contexto_de_tipo = ContextoDeTipo::ArgumentoDeTipo;
+                                        self.type_context = TypeContext::TypeArgument;
                                         self.resolve_annotation(
                                             unit_id,
                                             a,
@@ -2089,22 +2089,22 @@ impl<'a> OutlineResolver<'a> {
                                 let target_ty = self.ensure_typedef_resolved(tid);
                                 let formals = self.typedef_type_params[tid.0 as usize].clone();
                                 if !args.is_empty() && args.len() != formals.len() {
-                                    self.avisar(unit_id, diagnostico_de_argumentos_de_tipo(&texto, formals.len(), args.len(), span));
+                                    self.warn(unit_id, type_arguments_diagnostic(&text, formals.len(), args.len(), span));
                                 }
                                 let resolved_args = if resolved_args.len() == formals.len() {
                                     resolved_args
                                 } else if !args.is_empty() {
                                     // Número errado de argumentos de tipo: todos inválidos.
-                                    vec![self.table.invalido(self.core.dynamic_); formals.len()]
+                                    vec![self.table.invalid(self.core.dynamic_); formals.len()]
                                 } else {
-                                    self.instanciar_para_limites(&formals)
+                                    self.instantiate_to_bounds(&formals)
                                 };
                                 let mut subst = HashMap::with_capacity(formals.len());
                                 for (&f, &a) in formals.iter().zip(resolved_args.iter()) {
                                     subst.insert(f, a);
                                 }
                                 let expanded = substitute(target_ty, &subst, self.table);
-                                let expanded = self.table.decorar(
+                                let expanded = self.table.decorate(
                                     expanded,
                                     crate::table::Exibicao::Alias { typedef: tid, args: resolved_args.clone().into_boxed_slice() },
                                 );
@@ -2115,8 +2115,8 @@ impl<'a> OutlineResolver<'a> {
                                 }
                             }
                             _ => {
-                                self.avisar_nome_de_tipo(unit_id, contexto, true, &texto, faixa);
-                                self.table.invalido(self.core.dynamic_)
+                                self.warn_type_name(unit_id, context, true, &text, range);
+                                self.table.invalid(self.core.dynamic_)
                             }
                         },
                         None => {
@@ -2125,24 +2125,24 @@ impl<'a> OutlineResolver<'a> {
                             // prefixo de import (`A.foo` lido como `prefixo.Nome`). Fora
                             // da criação, `NOT_A_TYPE` com `A.foo`, do prefixo ao fim do
                             // nome, em qualquer contexto; nunca o nome indefinido.
-                            let prefixo_e_tipo = matches!(
+                            let prefix_and_type = matches!(
                                 self.program.lookup_na_unidade(unit_id, prefix).and_then(|b| b.getter),
                                 Some(Element::Class(_) | Element::Typedef(_))
                             );
-                            if prefixo_e_tipo {
-                                let completo = format!("{}.{}", self.interner.resolve(prefix), texto);
-                                self.avisar(
+                            if prefix_and_type {
+                                let complete = format!("{}.{}", self.interner.resolve(prefix), text);
+                                self.warn(
                                     unit_id,
-                                    Diagnostic::com_codigo(dartforge_diagnostics::codigos::compile_time_error::NOT_A_TYPE, faixa, [completo.as_str()]),
+                                    Diagnostic::com_codigo(dartforge_diagnostics::codigos::compile_time_error::NOT_A_TYPE, range, [complete.as_str()]),
                                 );
-                            } else if !crate::scope::deve_ignorar_indefinido(self.program, self.interner, unit_id, Some(name[0].sym), name[1].sym) {
-                                self.avisar_nome_de_tipo(unit_id, contexto, false, &texto, faixa);
+                            } else if !crate::scope::should_ignore_undefined(self.program, self.interner, unit_id, Some(name[0].sym), name[1].sym) {
+                                self.warn_type_name(unit_id, context, false, &text, range);
                             }
-                            self.table.invalido(self.core.dynamic_)
+                            self.table.invalid(self.core.dynamic_)
                         }
                     }
                 } else {
-                    self.table.invalido(self.core.dynamic_)
+                    self.table.invalid(self.core.dynamic_)
                 }
             }
             ast::TypeKind::Function {
@@ -2250,12 +2250,12 @@ impl<'a> OutlineResolver<'a> {
     /// inicializador, o sem nome), com os parâmetros de tipo da superclasse
     /// substituídos pelo que a classe lhe passa.
     fn super_param_type(&mut self, func: &FunctionElement, ctor: &ast::Constructor, p: &ast::Parameter, depth: u32, hierarchy: &ClassHierarchy) -> Option<TypeId> {
-        let t = self.super_param_type_cru(func, ctor, p, depth, hierarchy)?;
+        let t = self.super_param_type_raw(func, ctor, p, depth, hierarchy)?;
         let sup = self.program.class(func.class?).supertype_class?;
-        Some(self.instanciar_do_super(func, sup, t, hierarchy).unwrap_or(t))
+        Some(self.instantiate_from_super(func, sup, t, hierarchy).unwrap_or(t))
     }
 
-    fn super_param_type_cru(&mut self, func: &FunctionElement, ctor: &ast::Constructor, p: &ast::Parameter, depth: u32, hierarchy: &ClassHierarchy) -> Option<TypeId> {
+    fn super_param_type_raw(&mut self, func: &FunctionElement, ctor: &ast::Constructor, p: &ast::Parameter, depth: u32, hierarchy: &ClassHierarchy) -> Option<TypeId> {
         if depth > 8 {
             return None;
         }
@@ -2357,10 +2357,10 @@ impl<'a> OutlineResolver<'a> {
 }
 
 /// O contêiner de um membro (classe ou extensão), se houver.
-fn conteiner_de(classe: Option<ClassId>, extensao: Option<ExtensionId>) -> Option<Conteiner> {
-    match (classe, extensao) {
-        (Some(c), _) => Some(Conteiner::Classe(c)),
-        (None, Some(e)) => Some(Conteiner::Extensao(e)),
+fn container_of(the_class: Option<ClassId>, extension: Option<ExtensionId>) -> Option<Container> {
+    match (the_class, extension) {
+        (Some(c), _) => Some(Container::Classe(c)),
+        (None, Some(e)) => Some(Container::Extensao(e)),
         _ => None,
     }
 }

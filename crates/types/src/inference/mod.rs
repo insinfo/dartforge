@@ -23,24 +23,24 @@
 //! do inicializador, com detecção de ciclo (`inference.md`, "Top-level
 //! inference procedure").
 
-mod atalhos;
-mod chamadas;
-mod colecoes;
-mod corpo;
+mod shorthands;
+mod calls;
+mod collections;
+mod body;
 mod expr;
-mod fluxo;
-mod inteiros;
-mod funcoes;
-mod instrucoes;
-mod membros;
-mod nao_promocao;
-mod padroes;
-mod sobrescrita;
-mod tipos;
+mod flow;
+mod integers;
+mod functions;
+mod statements;
+mod members;
+mod non_promotion;
+mod patterns;
+mod overrides;
+mod types;
 
 use crate::resolved::{BodyTypes, UnitBodyTypes};
 use crate::table::{CoreTypes, TypeId, TypeTable};
-use corpo::Corpo;
+use body::Body;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_elements::model::{ExtensionId, FunctionElementId, LibraryId, Program, UnitId, VariableId, VariableRef};
 use dartforge_frontend::ast;
@@ -50,37 +50,37 @@ use std::rc::Rc;
 
 /// Estado da inferência de topo de uma variável.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum EstadoVar {
+enum VarState {
     Pendente,
-    EmCurso,
-    Pronta,
+    InProgress,
+    Ready,
 }
 
 /// Símbolos usados com frequência, resolvidos uma vez.
-pub(crate) struct Simbolos {
+pub(crate) struct Symbols {
     pub vazio: Option<SymbolId>,
     pub call: Option<SymbolId>,
     pub new_: Option<SymbolId>,
     pub indice: Option<SymbolId>,
-    pub indice_set: Option<SymbolId>,
+    pub set_index: Option<SymbolId>,
     pub igual: Option<SymbolId>,
-    pub menos_unario: Option<SymbolId>,
+    pub unary_minus: Option<SymbolId>,
     pub til: Option<SymbolId>,
     pub remainder: Option<SymbolId>,
     pub clamp: Option<SymbolId>,
     pub this_: Option<SymbolId>,
 }
 
-impl Simbolos {
+impl Symbols {
     fn new(i: &Interner) -> Self {
         Self {
             vazio: i.lookup(""),
             call: i.lookup("call"),
             new_: i.lookup("new"),
             indice: i.lookup("[]"),
-            indice_set: i.lookup("[]="),
+            set_index: i.lookup("[]="),
             igual: i.lookup("=="),
-            menos_unario: i.lookup("unary-"),
+            unary_minus: i.lookup("unary-"),
             til: i.lookup("~"),
             remainder: i.lookup("remainder"),
             clamp: i.lookup("clamp"),
@@ -91,7 +91,7 @@ impl Simbolos {
 
 /// Um corpo inferível isoladamente (ver [`BodyInferrer::apenas_corpos`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum CorpoRef {
+pub enum BodyRef {
     /// Função de topo, método, construtor, getter/setter ou função local
     /// declarada como elemento.
     Funcao(FunctionElementId),
@@ -101,18 +101,18 @@ pub enum CorpoRef {
 
 /// O corpo que contém o offset `pos` da unidade `u`: o executável ou o
 /// inicializador de variável cujo nó o envolve (o menor).
-pub fn corpo_no_offset(program: &Program, u: UnitId, pos: usize) -> Option<CorpoRef> {
+pub fn corpo_no_offset(program: &Program, u: UnitId, pos: usize) -> Option<BodyRef> {
     use dartforge_elements::model::FunctionRef;
     let a = &program.unit(u).ast;
-    let mut melhor: Option<(usize, CorpoRef)> = None;
+    let mut best: Option<(usize, BodyRef)> = None;
     for (i, fe) in program.functions.iter().enumerate() {
         let span = match fe.node {
             FunctionRef::Function { unit, function } if unit == u => a.function(function).span,
             FunctionRef::Constructor { unit, member } if unit == u => a.member(member).span,
             _ => continue,
         };
-        if span.start <= pos && pos <= span.end && melhor.is_none_or(|(t, _)| span.end - span.start < t) {
-            melhor = Some((span.end - span.start, CorpoRef::Funcao(FunctionElementId(i as u32))));
+        if span.start <= pos && pos <= span.end && best.is_none_or(|(t, _)| span.end - span.start < t) {
+            best = Some((span.end - span.start, BodyRef::Funcao(FunctionElementId(i as u32))));
         }
     }
     for (i, v) in program.variables.iter().enumerate() {
@@ -121,11 +121,11 @@ pub fn corpo_no_offset(program: &Program, u: UnitId, pos: usize) -> Option<Corpo
             VariableRef::Field { unit, member, .. } if unit == u => a.member(member).span,
             _ => continue,
         };
-        if span.start <= pos && pos <= span.end && melhor.is_none_or(|(t, _)| span.end - span.start < t) {
-            melhor = Some((span.end - span.start, CorpoRef::Variavel(VariableId(i as u32))));
+        if span.start <= pos && pos <= span.end && best.is_none_or(|(t, _)| span.end - span.start < t) {
+            best = Some((span.end - span.start, BodyRef::Variavel(VariableId(i as u32))));
         }
     }
-    melhor.map(|(_, c)| c)
+    best.map(|(_, c)| c)
 }
 
 /// Os corpos da unidade `u`, na ordem da inferência completa (variáveis,
@@ -133,27 +133,27 @@ pub fn corpo_no_offset(program: &Program, u: UnitId, pos: usize) -> Option<Corpo
 /// sem tipo escrito que o esboço já inferiu: o que a inferência de uma
 /// biblioteca cujos corpos não foram pedidos grava nas tabelas desta unidade
 /// (a inferência de topo sob demanda).
-pub fn corpos_da_unidade(program: &Program, outline: &crate::resolve::OutlineTypes, u: UnitId, todos: bool) -> Vec<CorpoRef> {
+pub fn corpos_da_unidade(program: &Program, outline: &crate::resolve::OutlineTypes, u: UnitId, all: bool) -> Vec<BodyRef> {
     use dartforge_elements::model::FunctionRef;
     let mut v = Vec::new();
     for (i, var) in program.variables.iter().enumerate() {
-        let unidade = match var.node {
+        let unit_id = match var.node {
             VariableRef::TopLevel { unit, .. } | VariableRef::Field { unit, .. } | VariableRef::EnumConstant { unit, .. } | VariableRef::Representation { unit, .. } => unit,
             VariableRef::None => continue,
         };
-        if unidade != u {
+        if unit_id != u {
             continue;
         }
         let d = &outline.variables[i];
-        if todos || (d.declared_type.is_none() && d.inferred.is_some()) {
-            v.push(CorpoRef::Variavel(VariableId(i as u32)));
+        if all || (d.declared_type.is_none() && d.inferred.is_some()) {
+            v.push(BodyRef::Variavel(VariableId(i as u32)));
         }
     }
-    if !todos {
+    if !all {
         return v;
     }
     for (i, f) in program.functions.iter().enumerate() {
-        let dela = match f.node {
+        let its = match f.node {
             FunctionRef::Function { unit, .. } | FunctionRef::Constructor { unit, .. } => unit == u,
             // Sintéticas (construtor implícito, acessores de campo): pela
             // declaração da classe ou pela variável de origem.
@@ -165,15 +165,15 @@ pub fn corpos_da_unidade(program: &Program, outline: &crate::resolve::OutlineTyp
                     })
             }
         };
-        if dela {
-            v.push(CorpoRef::Funcao(FunctionElementId(i as u32)));
+        if its {
+            v.push(BodyRef::Funcao(FunctionElementId(i as u32)));
         }
     }
     v
 }
 
 /// O resultado de [`inferir_corpos`].
-pub struct CorposInferidos {
+pub struct InferredBodies {
     /// As tabelas da unidade, preenchidas pelos corpos pedidos.
     pub tabelas: UnitBodyTypes,
     /// Os diagnósticos desses corpos.
@@ -199,33 +199,33 @@ pub fn inferir_corpos(
     table: &mut TypeTable,
     core: &CoreTypes,
     outline: &mut crate::resolve::OutlineTypes,
-    unidade: UnitId,
-    corpos: &[CorpoRef],
-    metadados: bool,
-    sonda: Option<(UnitId, usize)>,
-    registrar_locais: bool,
-) -> CorposInferidos {
-    let mut inf = BodyInferrer::com_tabelas(program, interner, table, core, outline, Some(unidade));
-    inf.apenas_bibliotecas = Some(HashSet::from([program.unit(unidade).library.0]));
-    inf.registrar_locais = registrar_locais;
-    inf.sonda_escopo = sonda;
-    inf.usar_esboco_retido();
-    inf.completar_sobrescritas_de_campo();
-    inf.inferir_sobrescritas();
-    for &c in corpos {
+    unit_id: UnitId,
+    bodies: &[BodyRef],
+    metadata: bool,
+    probe: Option<(UnitId, usize)>,
+    record_locals: bool,
+) -> InferredBodies {
+    let mut inf = BodyInferrer::with_tables(program, interner, table, core, outline, Some(unit_id));
+    inf.apenas_bibliotecas = Some(HashSet::from([program.unit(unit_id).library.0]));
+    inf.registrar_locais = record_locals;
+    inf.sonda_escopo = probe;
+    inf.use_retained_sketch();
+    inf.complete_field_overrides();
+    inf.infer_overrides();
+    for &c in bodies {
         match c {
-            CorpoRef::Variavel(v) => inf.reinferir_variavel(v),
-            CorpoRef::Funcao(f) => funcoes::inferir_funcao_declarada(&mut inf, f),
+            BodyRef::Variavel(v) => inf.reinfer_variable(v),
+            BodyRef::Funcao(f) => functions::infer_declared_function(&mut inf, f),
         }
     }
-    if metadados {
-        inf.unidade_corrente = Some(unidade);
-        funcoes::inferir_metadados_da_unidade(&mut inf, unidade);
+    if metadata {
+        inf.current_unit = Some(unit_id);
+        functions::infer_unit_metadata(&mut inf, unit_id);
     }
-    CorposInferidos {
-        tabelas: std::mem::take(&mut inf.body_types.units[unidade.0 as usize]),
+    InferredBodies {
+        tabelas: std::mem::take(&mut inf.body_types.units[unit_id.0 as usize]),
         diagnosticos: std::mem::take(&mut inf.diagnostics),
-        escopo: inf.escopo_sondado.take(),
+        escopo: inf.probed_scope.take(),
     }
 }
 
@@ -248,57 +248,57 @@ pub struct BodyInferrer<'a> {
     /// corpos (funções/métodos/construtores e inicializadores de variáveis)
     /// são inferidos; os tipos de variáveis de topo lidos por eles seguem sob
     /// demanda. Os metadados das unidades não são visitados.
-    pub apenas_corpos: Option<HashSet<CorpoRef>>,
-    estado_vars: Vec<EstadoVar>,
+    pub only_bodies: Option<HashSet<BodyRef>>,
+    vars_state: Vec<VarState>,
     /// Inicializadores já visitados para as tabelas laterais.
-    inicializador_visitado: Vec<bool>,
+    visited_initializer: Vec<bool>,
     extensoes: HashMap<u32, Rc<[ExtensionId]>>,
-    pub(crate) sym: Simbolos,
+    pub(crate) sym: Symbols,
     /// Profundidade de inferências de topo aninhadas (proteção de pilha).
-    profundidade_topo: u32,
+    top_depth: u32,
     /// Parâmetros auxiliares (E, K, V) da inferência de literais de coleção.
-    pub(crate) params_colecao_cache: Option<[crate::table::TypeParamId; 3]>,
+    pub(crate) collection_params_cache: Option<[crate::table::TypeParamId; 3]>,
     /// Parâmetros novos, por classe, da inferência de construtores.
-    pub(crate) params_construtor: HashMap<u32, Vec<crate::table::TypeParamId>>,
+    pub(crate) constructor_params: HashMap<u32, Vec<crate::table::TypeParamId>>,
     /// O `FieldPromotability` de cada biblioteca já consultada.
-    pub(crate) promocao_por_biblioteca: HashMap<LibraryId, std::rc::Rc<crate::promocao_de_campos::PromocaoDaBiblioteca>>,
+    pub(crate) promotion_by_library: HashMap<LibraryId, std::rc::Rc<crate::field_promotion::LibraryPromotion>>,
     /// O `whyNotPromoted` de cada leitura de referência (local ou
     /// propriedade) que tem algum motivo: `tipo -> motivo`, na ordem do mapa
     /// do fluxo.
-    pub(crate) nao_promocoes: HashMap<(UnitId, ast::ExprId), Vec<(TypeId, fluxo::MotivoDeNaoPromocao)>>,
+    pub(crate) non_promotions: HashMap<(UnitId, ast::ExprId), Vec<(TypeId, flow::NonPromotionReason)>>,
     /// Contexto refinado dos argumentos de `clamp`/`remainder` para a
     /// próxima invocação.
-    pub(crate) contexto_numerico_pendente: Option<TypeId>,
+    pub(crate) pending_numeric_context: Option<TypeId>,
     /// O `errorEntity` da próxima invocação genérica (onde vai o
     /// `COULD_NOT_INFER`) e os nomes dos parâmetros posicionais do alvo
     /// (para a mensagem); só quem conhece o alvo os define.
-    pub(crate) entidade_da_inferencia: Option<Span>,
+    pub(crate) inference_entity: Option<Span>,
     /// Parâmetros cujo tipo escrito não resolve (`InvalidType` no
     /// analyzer), pela unidade e o offset do nome: a leitura deles tem o tipo
     /// de recuperação.
-    pub(crate) locais_invalidos: HashSet<(UnitId, usize)>,
+    pub(crate) invalid_locals: HashSet<(UnitId, usize)>,
     pub(crate) nomes_posicionais: Option<Vec<String>>,
     /// Alvo da próxima verificação de aridade (`chamadas::verificar_aridade`):
     /// o nome citado nos `NOT_ENOUGH_POSITIONAL_ARGUMENTS_NAME_*` e o
     /// intervalo do `MISSING_REQUIRED_ARGUMENT`; só quem conhece a chamada o define.
-    pub(crate) alvo_da_aridade: Option<chamadas::AlvoDaAridade>,
+    pub(crate) arity_target: Option<calls::ArityTarget>,
     /// A próxima [`chamadas::invocar`] é a de um `call` implícito: a função
     /// invocada tem tipo de interface, e o `_checkInvocationTypeArguments`
     /// (`type_arguments_verifier.dart`) não confere os limites dos
     /// argumentos de tipo escritos (o tipo genérico não é `FunctionType`).
-    pub(crate) call_implicito: bool,
+    pub(crate) implicit_call: bool,
     /// Unidade de cada diagnóstico (paralelo a `diagnostics`), para quem
     /// precisa do arquivo (ferramentas; o LSP).
-    pub unidades_dos_avisos: Vec<Option<UnitId>>,
+    pub warning_units: Vec<Option<UnitId>>,
     /// Unidade do corpo em inferência.
-    pub(crate) unidade_corrente: Option<UnitId>,
+    pub(crate) current_unit: Option<UnitId>,
     /// Tipos dos espalhamentos de um `{…}` só de espalhamentos, já
     /// inferidos sem contexto para decidir entre conjunto e mapa (a visita
     /// dos elementos os reaproveita em vez de inferir de novo).
-    pub(crate) espalhamentos_inferidos: HashMap<dartforge_frontend::ast::ExprId, TypeId>,
+    pub(crate) inferred_spreads: HashMap<dartforge_frontend::ast::ExprId, TypeId>,
     /// O tipo de cada espalhamento depois da visita do literal, para a
     /// forma pelos elementos (`colecoes::literal`).
-    pub(crate) espalhamentos_visitados: HashMap<dartforge_frontend::ast::ExprId, TypeId>,
+    pub(crate) visited_spreads: HashMap<dartforge_frontend::ast::ExprId, TypeId>,
     /// LSP: registra em [`UnitBodyTypes::declaracoes_de_locais`] a
     /// declaração de cada local referido (renomear, referências). Desligado
     /// no compilador, que não paga pela tabela.
@@ -308,19 +308,19 @@ pub struct BodyInferrer<'a> {
     /// quando a inferência passa por ele.
     pub sonda_escopo: Option<(UnitId, usize)>,
     /// O escopo capturado pela [`BodyInferrer::sonda_escopo`].
-    pub escopo_sondado: Option<crate::resolved::EscopoSondado>,
+    pub probed_scope: Option<crate::resolved::EscopoSondado>,
     /// O contexto da próxima anotação resolvida (lido e zerado por
     /// `resolver_anotacao`).
-    pub(crate) contexto_de_tipo: crate::resolve::ContextoDeTipo,
+    pub(crate) type_context: crate::resolve::TypeContext,
     /// Os locais do corpo visíveis na anotação em resolução (ver
     /// [`Corpo::locais_visiveis`](corpo::Corpo::locais_visiveis)).
-    pub(crate) locais_como_tipo: HashMap<SymbolId, (Span, bool)>,
+    pub(crate) locals_as_type: HashMap<SymbolId, (Span, bool)>,
     /// A classe e a extensão cujos membros estão em escopo na anotação.
-    pub(crate) conteiner_de_tipos: (Option<dartforge_elements::model::ClassId>, Option<ExtensionId>),
+    pub(crate) type_container: (Option<dartforge_elements::model::ClassId>, Option<ExtensionId>),
     /// Ambiguidade de extensão da última busca de membro: `(nome, lista)`.
-    pub(crate) ambiguidade_de_extensao: Option<(String, String, Option<(String, String)>)>,
+    pub(crate) extension_ambiguity: Option<(String, String, Option<(String, String)>)>,
     /// A anotação em resolução está num método ou campo estático.
-    pub(crate) em_membro_estatico: bool,
+    pub(crate) in_static_member: bool,
     /// O `InheritanceManager3` (as interfaces das classes), com os tipos
     /// dos campos inferidos sob demanda.
     pub(crate) heranca: crate::heranca::Heranca,
@@ -329,16 +329,16 @@ pub struct BodyInferrer<'a> {
     pais: HashMap<UnitId, Rc<dartforge_frontend::pais::Pais>>,
     /// `_inferring` da inferência de topo: as variáveis cujo inicializador
     /// está sendo inferido, na ordem.
-    pilha_de_variaveis: Vec<VariableId>,
+    variable_stack: Vec<VariableId>,
     /// As variáveis num ciclo de inferência (`dependencyCycle`): o tipo é
     /// `dynamic`, e o relato já saiu.
-    em_ciclo: HashSet<VariableId>,
+    in_cycle: HashSet<VariableId>,
     /// Na busca dos sobrescritos de um campo sem tipo, a classe dele: os
     /// campos declarados nela não são tipados ao montar a interface
     /// ([`crate::heranca::Provedor::tipo_do_membro`]).
-    pub(crate) declarados_sem_tipar: Option<dartforge_elements::model::ClassId>,
+    pub(crate) declared_untyped: Option<dartforge_elements::model::ClassId>,
     /// Alguma interface do cache foi montada com um campo não tipado.
-    pub(crate) heranca_provisoria: bool,
+    pub(crate) provisional_inheritance: bool,
     /// O nome (sem o `=`) buscado na interface durante uma inferência de
     /// topo: os campos ainda não inferidos com outro nome ficam provisórios
     /// ([`crate::heranca::Provedor::tipo_do_membro`]).
@@ -361,8 +361,8 @@ pub fn extensoes_aplicaveis(
     recv: TypeId,
 ) -> Vec<(ExtensionId, Vec<TypeId>)> {
     // Sem tabelas de corpo: só a aplicabilidade é consultada.
-    let mut inf = BodyInferrer::com_tabelas(program, interner, table, core, outline, Some(UnitId(u32::MAX)));
-    let exts = inf.extensoes_acessiveis(lib);
+    let mut inf = BodyInferrer::with_tables(program, interner, table, core, outline, Some(UnitId(u32::MAX)));
+    let exts = inf.accessible_extensions(lib);
     exts.iter().filter_map(|&e| inf.extensao_aplicavel(e, recv).map(|a| (e, a))).collect()
 }
 
@@ -375,11 +375,11 @@ pub fn extensoes_aplicaveis_dentre(
     table: &mut TypeTable,
     core: &CoreTypes,
     outline: &mut crate::resolve::OutlineTypes,
-    candidatas: &[ExtensionId],
+    candidates: &[ExtensionId],
     recv: TypeId,
 ) -> Vec<(ExtensionId, Vec<TypeId>)> {
-    let mut inf = BodyInferrer::com_tabelas(program, interner, table, core, outline, Some(UnitId(u32::MAX)));
-    candidatas.iter().filter_map(|&e| inf.extensao_aplicavel(e, recv).map(|a| (e, a))).collect()
+    let mut inf = BodyInferrer::with_tables(program, interner, table, core, outline, Some(UnitId(u32::MAX)));
+    candidates.iter().filter_map(|&e| inf.extensao_aplicavel(e, recv).map(|a| (e, a))).collect()
 }
 
 impl<'a> BodyInferrer<'a> {
@@ -390,28 +390,28 @@ impl<'a> BodyInferrer<'a> {
         core: &'a CoreTypes,
         outline: &'a mut crate::resolve::OutlineTypes,
     ) -> Self {
-        Self::com_tabelas(program, interner, table, core, outline, None)
+        Self::with_tables(program, interner, table, core, outline, None)
     }
 
     /// Como [`BodyInferrer::new`]; com `so = Some(u)`, só a unidade `u` tem
     /// tabelas (a inferência de corpos isolados, [`inferir_corpos`]).
-    fn com_tabelas(
+    fn with_tables(
         program: &'a Program,
         interner: &'a Interner,
         table: &'a mut TypeTable,
         core: &'a CoreTypes,
         outline: &'a mut crate::resolve::OutlineTypes,
-        so: Option<UnitId>,
+        only: Option<UnitId>,
     ) -> Self {
         let mut units = Vec::with_capacity(program.units.len());
         for (ui, u) in program.units.iter().enumerate() {
             // Unidades do SDK não recebem inferência de corpos: tabela vazia
             // (`get_type`/`get_resolved` devolvem `None`, `set_*` ignoram).
-            let alocar = match so {
+            let allocate = match only {
                 Some(s) => s.0 as usize == ui,
                 None => !program.library(u.library).is_sdk,
             };
-            if alocar {
+            if allocate {
                 units.push(UnitBodyTypes::new(u.ast.exprs.len(), core.dynamic_));
             } else {
                 units.push(UnitBodyTypes::default());
@@ -427,41 +427,41 @@ impl<'a> BodyInferrer<'a> {
             diagnostics: Vec::new(),
             body_types: BodyTypes { units, extensoes_usadas: std::collections::HashSet::new() },
             apenas_bibliotecas: None,
-            apenas_corpos: None,
-            estado_vars: vec![EstadoVar::Pendente; nvars],
-            inicializador_visitado: vec![false; nvars],
+            only_bodies: None,
+            vars_state: vec![VarState::Pendente; nvars],
+            visited_initializer: vec![false; nvars],
             extensoes: HashMap::new(),
-            sym: Simbolos::new(interner),
-            profundidade_topo: 0,
-            params_colecao_cache: None,
-            params_construtor: HashMap::new(),
-            promocao_por_biblioteca: HashMap::new(),
-            nao_promocoes: HashMap::new(),
-            contexto_numerico_pendente: None,
-            entidade_da_inferencia: None,
-            locais_invalidos: HashSet::new(),
+            sym: Symbols::new(interner),
+            top_depth: 0,
+            collection_params_cache: None,
+            constructor_params: HashMap::new(),
+            promotion_by_library: HashMap::new(),
+            non_promotions: HashMap::new(),
+            pending_numeric_context: None,
+            inference_entity: None,
+            invalid_locals: HashSet::new(),
             nomes_posicionais: None,
-            alvo_da_aridade: None,
-            call_implicito: false,
-            unidades_dos_avisos: Vec::new(),
-            unidade_corrente: None,
+            arity_target: None,
+            implicit_call: false,
+            warning_units: Vec::new(),
+            current_unit: None,
             heranca: crate::heranca::Heranca::default(),
-            declarados_sem_tipar: None,
-            heranca_provisoria: false,
+            declared_untyped: None,
+            provisional_inheritance: false,
             nome_da_busca: None,
             pais: HashMap::new(),
-            pilha_de_variaveis: Vec::new(),
-            em_ciclo: HashSet::new(),
-            espalhamentos_inferidos: HashMap::new(),
-            espalhamentos_visitados: HashMap::new(),
+            variable_stack: Vec::new(),
+            in_cycle: HashSet::new(),
+            inferred_spreads: HashMap::new(),
+            visited_spreads: HashMap::new(),
             registrar_locais: false,
             sonda_escopo: None,
-            escopo_sondado: None,
-            contexto_de_tipo: crate::resolve::ContextoDeTipo::Normal,
-            locais_como_tipo: HashMap::new(),
-            conteiner_de_tipos: (None, None),
-            ambiguidade_de_extensao: None,
-            em_membro_estatico: false,
+            probed_scope: None,
+            type_context: crate::resolve::TypeContext::Normal,
+            locals_as_type: HashMap::new(),
+            type_container: (None, None),
+            extension_ambiguity: None,
+            in_static_member: false,
         }
     }
 
@@ -479,10 +479,10 @@ impl<'a> BodyInferrer<'a> {
     /// Os tipos de variáveis já inferidos no esboço valem (um esboço retido
     /// de uma inferência anterior do mesmo programa, docs/LSP-ESPECIFICACAO.md
     /// §16.5): o estado delas começa pronto, e só as pedidas são reinferidas.
-    fn usar_esboco_retido(&mut self) {
+    fn use_retained_sketch(&mut self) {
         for (i, d) in self.outline.variables.iter().enumerate() {
             if d.declared_type.is_none() && d.inferred.is_some() {
-                self.estado_vars[i] = EstadoVar::Pronta;
+                self.vars_state[i] = VarState::Ready;
             }
         }
     }
@@ -492,65 +492,65 @@ impl<'a> BodyInferrer<'a> {
     /// esboço (o inicializador de variável sem tipo é assinatura: numa troca
     /// de classe Corpo ele não mudou; na troca especulativa do completar, o
     /// tipo novo não é gravado).
-    fn reinferir_variavel(&mut self, vid: VariableId) {
+    fn reinfer_variable(&mut self, vid: VariableId) {
         let d = &self.outline.variables[vid.0 as usize];
         if d.declared_type.is_some() {
-            self.visitar_inicializador(vid);
+            self.visit_initializer(vid);
             return;
         }
-        let antes = d.inferred;
-        self.estado_vars[vid.0 as usize] = EstadoVar::Pendente;
-        let t = self.tipo_variavel(vid);
-        if let Some(a) = antes
+        let before = d.inferred;
+        self.vars_state[vid.0 as usize] = VarState::Pendente;
+        let t = self.variable_type(vid);
+        if let Some(a) = before
             && a != t
         {
             self.outline.variables[vid.0 as usize].inferred = Some(a);
-            self.sincronizar_acessores(vid, a);
+            self.sync_accessors(vid, a);
         }
     }
 
     /// Ponto de entrada: infere inicializadores de variáveis e corpos.
     pub fn infer_all(self) -> (BodyTypes, Vec<Diagnostic>) {
-        let (b, d, _) = self.infer_all_com_unidades();
+        let (b, d, _) = self.infer_all_with_units();
         (b, d)
     }
 
     /// Como [`BodyInferrer::infer_all`], com a unidade de cada diagnóstico.
-    pub fn infer_all_com_unidades(mut self) -> (BodyTypes, Vec<Diagnostic>, Vec<Option<UnitId>>) {
-        self.inferir_tudo();
-        (self.body_types, self.diagnostics, self.unidades_dos_avisos)
+    pub fn infer_all_with_units(mut self) -> (BodyTypes, Vec<Diagnostic>, Vec<Option<UnitId>>) {
+        self.infer_everything();
+        (self.body_types, self.diagnostics, self.warning_units)
     }
 
     /// Como [`BodyInferrer::infer_all`], devolvendo também o escopo capturado
     /// pela [`BodyInferrer::sonda_escopo`] (o completar do LSP).
     pub fn infer_all_com_sonda(mut self) -> (BodyTypes, Vec<Diagnostic>, Option<crate::resolved::EscopoSondado>) {
-        self.inferir_tudo();
-        (self.body_types, self.diagnostics, self.escopo_sondado)
+        self.infer_everything();
+        (self.body_types, self.diagnostics, self.probed_scope)
     }
 
     /// Infere inicializadores, corpos e metadados, enchendo as tabelas.
-    fn inferir_tudo(&mut self) {
+    fn infer_everything(&mut self) {
         // Bibliotecas do SDK pedidas explicitamente (o nativo compila o SDK
         // da fonte) ganham tabelas laterais como as do usuário.
-        if let Some(pedidas) = self.apenas_bibliotecas.clone() {
+        if let Some(requested) = self.apenas_bibliotecas.clone() {
             for (ui, u) in self.program.units.iter().enumerate() {
-                if self.program.library(u.library).is_sdk && pedidas.contains(&u.library.0) {
+                if self.program.library(u.library).is_sdk && requested.contains(&u.library.0) {
                     self.body_types.units[ui] = UnitBodyTypes::new(u.ast.exprs.len(), self.core.dynamic_);
                 }
             }
         }
-        self.completar_sobrescritas_de_campo();
+        self.complete_field_overrides();
         // `_performOverrideInference`: a assinatura combinada dos
         // sobrescritos nos tipos omitidos dos membros de instância.
-        self.inferir_sobrescritas();
-        if let Some(corpos) = self.apenas_corpos.clone() {
-            for c in corpos {
+        self.infer_overrides();
+        if let Some(bodies) = self.only_bodies.clone() {
+            for c in bodies {
                 match c {
-                    CorpoRef::Variavel(vid) => {
-                        self.tipo_variavel(vid);
-                        self.visitar_inicializador(vid);
+                    BodyRef::Variavel(vid) => {
+                        self.variable_type(vid);
+                        self.visit_initializer(vid);
                     }
-                    CorpoRef::Funcao(f) => funcoes::inferir_funcao_declarada(self, f),
+                    BodyRef::Funcao(f) => functions::infer_declared_function(self, f),
                 }
             }
             return;
@@ -560,32 +560,32 @@ impl<'a> BodyInferrer<'a> {
             // Sessão residente: variáveis de bibliotecas que não serão
             // reemitidas só são inferidas sob demanda (quem as lê pede o tipo).
             let lib = self.program.variable(vid).library;
-            if !self.inferir_corpos_de(lib) {
+            if !self.infer_bodies_of(lib) {
                 continue;
             }
-            self.tipo_variavel(vid);
-            self.visitar_inicializador(vid);
+            self.variable_type(vid);
+            self.visit_initializer(vid);
         }
         for f in 0..self.program.functions.len() {
             let lib = self.program.functions[f].library;
-            if !self.inferir_corpos_de(lib) {
+            if !self.infer_bodies_of(lib) {
                 continue;
             }
-            funcoes::inferir_funcao_declarada(self, FunctionElementId(f as u32));
+            functions::infer_declared_function(self, FunctionElementId(f as u32));
         }
         for ui in 0..self.program.units.len() {
             let lib = self.program.units[ui].library;
-            if !self.inferir_corpos_de(lib) {
+            if !self.infer_bodies_of(lib) {
                 continue;
             }
-            self.unidade_corrente = Some(UnitId(ui as u32));
-            funcoes::inferir_metadados_da_unidade(self, UnitId(ui as u32));
+            self.current_unit = Some(UnitId(ui as u32));
+            functions::infer_unit_metadata(self, UnitId(ui as u32));
         }
     }
 
     /// Os corpos de `lib` são inferidos: os pedidos, quando há pedido
     /// (inclusive do SDK); senão todos menos os do SDK.
-    pub(crate) fn inferir_corpos_de(&self, lib: LibraryId) -> bool {
+    pub(crate) fn infer_bodies_of(&self, lib: LibraryId) -> bool {
         match &self.apenas_bibliotecas {
             Some(s) => s.contains(&lib.0),
             None => !self.program.library(lib).is_sdk,
@@ -594,46 +594,46 @@ impl<'a> BodyInferrer<'a> {
 
     /// Tipo de uma variável de topo ou campo, inferindo o inicializador sob
     /// demanda quando o tipo foi omitido.
-    pub(crate) fn tipo_variavel(&mut self, vid: VariableId) -> TypeId {
+    pub(crate) fn variable_type(&mut self, vid: VariableId) -> TypeId {
         let d = &self.outline.variables[vid.0 as usize];
         if let Some(t) = d.declared_type {
             return t;
         }
-        match self.estado_vars[vid.0 as usize] {
-            EstadoVar::Pronta => return d.inferred.unwrap_or(self.core.dynamic_),
+        match self.vars_state[vid.0 as usize] {
+            VarState::Ready => return d.inferred.unwrap_or(self.core.dynamic_),
             // Ciclo de inferência: `TopLevelInference` (`top_level_inference.dart:228-240`).
-            EstadoVar::EmCurso => {
-                self.ciclo_de_inferencia(vid);
+            VarState::InProgress => {
+                self.inference_cycle(vid);
                 return self.core.dynamic_;
             }
-            EstadoVar::Pendente => {}
+            VarState::Pendente => {}
         }
-        if self.profundidade_topo > 200 {
+        if self.top_depth > 200 {
             return self.core.dynamic_;
         }
-        self.estado_vars[vid.0 as usize] = EstadoVar::EmCurso;
-        self.profundidade_topo += 1;
-        let diags_antes = self.diagnostics.len();
-        let unidade_salva = self.unidade_corrente;
-        self.pilha_de_variaveis.push(vid);
-        let t = funcoes::inferir_tipo_de_variavel_sem_tipo(self, vid);
-        self.pilha_de_variaveis.pop();
+        self.vars_state[vid.0 as usize] = VarState::InProgress;
+        self.top_depth += 1;
+        let diags_before = self.diagnostics.len();
+        let saved_unit = self.current_unit;
+        self.variable_stack.push(vid);
+        let t = functions::infer_untyped_variable_type(self, vid);
+        self.variable_stack.pop();
         // Num ciclo, o tipo já ficou `dynamic` (o resultado do inicializador
         // não conta).
-        let t = if self.em_ciclo.contains(&vid) { self.core.dynamic_ } else { t };
-        self.unidade_corrente = unidade_salva;
+        let t = if self.in_cycle.contains(&vid) { self.core.dynamic_ } else { t };
+        self.current_unit = saved_unit;
         // Inferência sob demanda de uma variável cujos corpos não foram
         // pedidos (SDK, biblioteca não reemitida): os avisos não são deste
         // pedido.
-        if !self.inferir_corpos_de(self.program.variable(vid).library) {
-            self.diagnostics.truncate(diags_antes);
-            self.unidades_dos_avisos.truncate(diags_antes);
+        if !self.infer_bodies_of(self.program.variable(vid).library) {
+            self.diagnostics.truncate(diags_before);
+            self.warning_units.truncate(diags_before);
         }
-        self.profundidade_topo -= 1;
+        self.top_depth -= 1;
         self.outline.variables[vid.0 as usize].inferred = Some(t);
-        self.estado_vars[vid.0 as usize] = EstadoVar::Pronta;
-        self.inicializador_visitado[vid.0 as usize] = true;
-        self.sincronizar_acessores(vid, t);
+        self.vars_state[vid.0 as usize] = VarState::Ready;
+        self.visited_initializer[vid.0 as usize] = true;
+        self.sync_accessors(vid, t);
         t
     }
 
@@ -642,18 +642,18 @@ impl<'a> BodyInferrer<'a> {
     /// `TOP_LEVEL_CYCLE` (`ResolverVisitor._checkTopLevelCycle`,
     /// `resolver.dart:4009-4030`, só as não `const`) no nome, com os nomes do
     /// ciclo em ordem.
-    fn ciclo_de_inferencia(&mut self, vid: VariableId) {
-        let Some(inicio) = self.pilha_de_variaveis.iter().position(|&v| v == vid) else { return };
-        let ciclo: Vec<VariableId> = self.pilha_de_variaveis[inicio..].iter().copied().filter(|v| !self.em_ciclo.contains(v)).collect();
-        if ciclo.is_empty() {
+    fn inference_cycle(&mut self, vid: VariableId) {
+        let Some(start) = self.variable_stack.iter().position(|&v| v == vid) else { return };
+        let cycle: Vec<VariableId> = self.variable_stack[start..].iter().copied().filter(|v| !self.in_cycle.contains(v)).collect();
+        if cycle.is_empty() {
             return;
         }
-        let mut nomes: Vec<String> = self.pilha_de_variaveis[inicio..].iter().map(|&v| self.interner.resolve(self.program.variable(v).name).to_string()).collect();
-        nomes.sort();
-        let lista = nomes.join(", ");
-        let unidade_salva = self.unidade_corrente;
-        for v in ciclo {
-            self.em_ciclo.insert(v);
+        let mut names: Vec<String> = self.variable_stack[start..].iter().map(|&v| self.interner.resolve(self.program.variable(v).name).to_string()).collect();
+        names.sort();
+        let list = names.join(", ");
+        let saved_unit = self.current_unit;
+        for v in cycle {
+            self.in_cycle.insert(v);
             let var = self.program.variable(v);
             if var.const_ {
                 continue;
@@ -675,20 +675,20 @@ impl<'a> BodyInferrer<'a> {
                 },
                 _ => continue,
             };
-            let nome = self.interner.resolve(var.name).to_string();
-            self.unidade_corrente = Some(unit);
-            self.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::TOP_LEVEL_CYCLE, span, &[&nome, &lista]);
+            let name = self.interner.resolve(var.name).to_string();
+            self.current_unit = Some(unit);
+            self.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::TOP_LEVEL_CYCLE, span, &[&name, &list]);
         }
-        self.unidade_corrente = unidade_salva;
+        self.current_unit = saved_unit;
     }
 
     /// Override inference sobre campo sem tipo escrito: o getter (retorno) ou
     /// o setter (parâmetro) sobrescritor que omitiu o tipo herda o tipo
     /// inferido do campo sobreposto, instanciado na classe do sobrescritor.
-    fn completar_sobrescritas_de_campo(&mut self) {
-        let pendentes = std::mem::take(&mut self.outline.sobrescritas_de_campo);
+    fn complete_field_overrides(&mut self) {
+        let pendentes = std::mem::take(&mut self.outline.field_overrides);
         for p in &pendentes {
-            let t = self.tipo_variavel(p.campo);
+            let t = self.variable_type(p.campo);
             let subst: HashMap<_, _> = p.subst.iter().copied().collect();
             let t = crate::ops::substitute(t, &subst, self.table);
             let fd = &mut self.outline.functions[p.funcao.0 as usize];
@@ -700,14 +700,14 @@ impl<'a> BodyInferrer<'a> {
                 },
             }
             let fd = &self.outline.functions[p.funcao.0 as usize];
-            let (mut pos, mut opt, mut nom) = (Vec::new(), Vec::new(), Vec::new());
+            let (mut pos, mut opt, mut the_named) = (Vec::new(), Vec::new(), Vec::new());
             for par in fd.parameters.iter() {
                 match par.kind {
                     ast::ParameterKind::Required => pos.push(par.ty),
                     ast::ParameterKind::Optional => opt.push(par.ty),
                     ast::ParameterKind::Named => {
                         if let Some(n) = par.externo {
-                            nom.push((n, par.ty, par.required));
+                            the_named.push((n, par.ty, par.required));
                         }
                     }
                 }
@@ -717,16 +717,16 @@ impl<'a> BodyInferrer<'a> {
                 ret: fd.return_type,
                 positional: pos.into_boxed_slice(),
                 optional: opt.into_boxed_slice(),
-                named: nom.into_boxed_slice(),
+                named: the_named.into_boxed_slice(),
                 nullable: false,
             });
             self.outline.functions[p.funcao.0 as usize].signature = sig;
         }
-        self.outline.sobrescritas_de_campo = pendentes;
+        self.outline.field_overrides = pendentes;
     }
 
     /// Os acessores implícitos da variável passam a ter o tipo inferido.
-    fn sincronizar_acessores(&mut self, vid: VariableId, t: TypeId) {
+    fn sync_accessors(&mut self, vid: VariableId, t: TypeId) {
         let v = self.program.variable(vid);
         if let Some(g) = v.getter {
             let sig = self.table.intern(crate::table::Type::Function {
@@ -760,20 +760,20 @@ impl<'a> BodyInferrer<'a> {
 
     /// Visita (uma vez) o inicializador de uma variável com tipo escrito,
     /// para preencher as tabelas laterais das suas expressões.
-    fn visitar_inicializador(&mut self, vid: VariableId) {
-        if self.inicializador_visitado[vid.0 as usize] {
+    fn visit_initializer(&mut self, vid: VariableId) {
+        if self.visited_initializer[vid.0 as usize] {
             return;
         }
-        self.inicializador_visitado[vid.0 as usize] = true;
+        self.visited_initializer[vid.0 as usize] = true;
         let v = self.program.variable(vid);
-        if !self.inferir_corpos_de(v.library) {
+        if !self.infer_bodies_of(v.library) {
             return;
         }
-        let Some(declarado) = self.outline.variables[vid.0 as usize].declared_type else { return };
+        let Some(declared) = self.outline.variables[vid.0 as usize].declared_type else { return };
         if let Some((unit, init)) = self.inicializador(vid) {
-            let mut cx = Corpo::para_variavel(self, vid, unit);
-            let t = expr::inferir(self, &mut cx, init, declarado);
-            expr::verificar_atribuivel_expr(self, &cx, init, t, declarado, crate::codes::INVALID_ASSIGNMENT.template);
+            let mut cx = Body::to_variable(self, vid, unit);
+            let t = expr::inferir(self, &mut cx, init, declared);
+            expr::verify_assignable_expr(self, &cx, init, t, declared, crate::codes::INVALID_ASSIGNMENT.template);
         }
     }
 
@@ -782,33 +782,33 @@ impl<'a> BodyInferrer<'a> {
     /// (spec, "primary initializer scope"): um parâmetro sombreia o que
     /// estiver fora da classe. Os valores padrão já foram inferidos no
     /// próprio construtor.
-    pub(crate) fn declarar_parametros_do_primario(&mut self, cx: &mut Corpo, c: dartforge_elements::model::ClassId) {
+    pub(crate) fn declare_primary_parameters(&mut self, cx: &mut Body, c: dartforge_elements::model::ClassId) {
         let Some(d) = self.program.class(c).decl else { return };
         let ast_unit = &self.program.unit(d.unit).ast;
-        let primario = match &ast_unit.decl(d.decl).kind {
+        let primary = match &ast_unit.decl(d.decl).kind {
             ast::DeclKind::Class(cd) => cd.primary_constructor,
             ast::DeclKind::Enum(ed) => ed.primary_constructor,
             _ => None,
         };
-        let Some(membro) = primario else { return };
-        let ast::MemberKind::Constructor(k) = &ast_unit.member(membro).kind else { return };
+        let Some(mem) = primary else { return };
+        let ast::MemberKind::Constructor(k) = &ast_unit.member(mem).kind else { return };
         let Some(f) = self.program.functions.iter().position(|f| {
-            matches!(f.node, dartforge_elements::model::FunctionRef::Constructor { unit, member } if unit == d.unit && member == membro)
+            matches!(f.node, dartforge_elements::model::FunctionRef::Constructor { unit, member } if unit == d.unit && member == mem)
         }) else {
             return;
         };
-        let tipos: Vec<TypeId> = self.outline.functions[f].parameters.iter().map(|p| p.ty).collect();
-        cx.empurrar_escopo();
+        let types: Vec<TypeId> = self.outline.functions[f].parameters.iter().map(|p| p.ty).collect();
+        cx.push_scope();
         for (i, p) in k.parameters.iter().enumerate() {
             let Some(n) = &p.name else { continue };
-            let tipo = tipos.get(i).copied().unwrap_or(self.core.dynamic_);
+            let ty = types.get(i).copied().unwrap_or(self.core.dynamic_);
             let id = expr::declarar_local(
                 self,
                 cx,
-                corpo::Local { nome: n.sym, tipo, final_: p.final_, late: false, const_: false, offset: n.span.start, funcao_local: false },
+                body::Local { nome: n.sym, tipo: ty, final_: p.final_, late: false, const_: false, offset: n.span.start, funcao_local: false },
                 true,
             );
-            cx.parametros_primarios.insert(id);
+            cx.primary_parameters.insert(id);
         }
     }
 
@@ -834,7 +834,7 @@ impl<'a> BodyInferrer<'a> {
     /// `IterableExtension` importadas (a do `package:collection` e a do
     /// próprio analyzer) conflitam como nome, mas as duas continuam
     /// aplicáveis implicitamente.
-    pub(crate) fn extensoes_acessiveis(&mut self, lib: LibraryId) -> Rc<[ExtensionId]> {
+    pub(crate) fn accessible_extensions(&mut self, lib: LibraryId) -> Rc<[ExtensionId]> {
         if let Some(e) = self.extensoes.get(&lib.0) {
             return e.clone();
         }
@@ -851,16 +851,16 @@ impl<'a> BodyInferrer<'a> {
             }
         }
         // O escopo traz também o `dart:core` implícito (que não é diretiva).
-        let mut nomes: Vec<(&SymbolId, &dartforge_elements::model::Binding)> = l.scope.iter().collect();
-        nomes.sort_by_key(|(s, _)| s.as_u32());
-        for (_, b) in nomes {
+        let mut names: Vec<(&SymbolId, &dartforge_elements::model::Binding)> = l.scope.iter().collect();
+        names.sort_by_key(|(s, _)| s.as_u32());
+        for (_, b) in names {
             if let Some(dartforge_elements::model::Element::Extension(e)) = b.getter {
                 empurrar(e, &mut v);
             }
         }
         for import in l.imports.iter().filter(|i| !i.deferred) {
-            let exportados = &self.program.library(import.library).exported;
-            let mut nomes: Vec<_> = exportados
+            let exported = &self.program.library(import.library).exported;
+            let mut names: Vec<_> = exported
                 .iter()
                 .filter(|(s, _)| {
                     import.combinators.iter().all(|c| match c {
@@ -869,8 +869,8 @@ impl<'a> BodyInferrer<'a> {
                     })
                 })
                 .collect();
-            nomes.sort_by_key(|(s, _)| s.as_u32());
-            for (_, b) in nomes {
+            names.sort_by_key(|(s, _)| s.as_u32());
+            for (_, b) in names {
                 if let Some(dartforge_elements::model::Element::Extension(e)) = b.getter {
                     empurrar(e, &mut v);
                 }
@@ -886,7 +886,7 @@ impl<'a> BodyInferrer<'a> {
     // ---------------------------------------------------------------
 
     /// O pai sintático da expressão `e` da unidade `u`.
-    pub(crate) fn pai_de(&mut self, u: UnitId, e: ast::ExprId) -> dartforge_frontend::pais::Pai {
+    pub(crate) fn parent_of(&mut self, u: UnitId, e: ast::ExprId) -> dartforge_frontend::pais::Pai {
         let program = self.program;
         let pais = self.pais.entry(u).or_insert_with(|| Rc::new(crate::lints_tipados::pais_da_unidade(program, u))).clone();
         pais.pai(e)
@@ -894,62 +894,62 @@ impl<'a> BodyInferrer<'a> {
 
     pub(crate) fn aviso(&mut self, msg: String, span: Span) {
         self.diagnostics.push(Diagnostic::new(msg, span));
-        self.unidades_dos_avisos.push(self.unidade_corrente);
+        self.warning_units.push(self.current_unit);
     }
 
     /// Uso sem checagem de nulo de um receptor potencialmente anulável
     /// (`codigo`, um dos `UNCHECKED_…_OF_NULLABLE_VALUE`); com o receptor do
     /// tipo `Null`, é o `INVALID_USE_OF_NULL_VALUE` (sem argumentos), no
     /// mesmo lugar.
-    pub(crate) fn aviso_de_nulo(&mut self, recv: TypeId, codigo: dartforge_diagnostics::Codigo, span: Span, args: &[&str]) {
+    pub(crate) fn null_warning(&mut self, recv: TypeId, code: dartforge_diagnostics::Codigo, span: Span, args: &[&str]) {
         // `Never?` não é `Null` para o analyzer (é o `NeverType` com `?`).
-        let never_anulavel = matches!(self.table.exibicao(recv), Some(crate::table::Exibicao::NeverAnulavel));
-        if matches!(self.table.get(recv), crate::table::Type::Null) && !never_anulavel {
-            self.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::INVALID_USE_OF_NULL_VALUE, span, &[]);
+        let nullable_never = matches!(self.table.exibicao(recv), Some(crate::table::Exibicao::NeverAnulavel));
+        if matches!(self.table.get(recv), crate::table::Type::Null) && !nullable_never {
+            self.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::INVALID_USE_OF_NULL_VALUE, span, &[]);
         } else {
-            self.aviso_com_codigo(codigo, span, args);
+            self.warning_with_code(code, span, args);
         }
     }
 
     /// Aviso já com o código do analyzer, a mensagem oficial e os
     /// argumentos (o desenho do T1): a ponte da paridade o deixa como está.
-    pub(crate) fn aviso_com_codigo(&mut self, codigo: dartforge_diagnostics::Codigo, span: Span, args: &[&str]) {
-        self.diagnostics.push(Diagnostic::com_codigo(codigo, span, args.iter().copied()));
-        self.unidades_dos_avisos.push(self.unidade_corrente);
+    pub(crate) fn warning_with_code(&mut self, code: dartforge_diagnostics::Codigo, span: Span, args: &[&str]) {
+        self.diagnostics.push(Diagnostic::com_codigo(code, span, args.iter().copied()));
+        self.warning_units.push(self.current_unit);
     }
 
     /// Aviso com código e mensagens de contexto (`DiagnosticFactory`):
     /// `(arquivo, intervalo, texto)`, o arquivo quando não é o do aviso.
-    pub(crate) fn aviso_com_contexto(&mut self, codigo: dartforge_diagnostics::Codigo, span: Span, args: &[&str], contexto: Vec<(Option<String>, Span, String)>) {
-        let mut d = Diagnostic::com_codigo(codigo, span, args.iter().copied());
-        d.contexto.extend(contexto.into_iter().map(|(arquivo, span, mensagem)| dartforge_diagnostics::Contexto { arquivo: arquivo.map(Into::into), span, mensagem: mensagem.into() }));
+    pub(crate) fn warning_with_context(&mut self, code: dartforge_diagnostics::Codigo, span: Span, args: &[&str], context: Vec<(Option<String>, Span, String)>) {
+        let mut d = Diagnostic::com_codigo(code, span, args.iter().copied());
+        d.contexto.extend(context.into_iter().map(|(file, span, message)| dartforge_diagnostics::Contexto { arquivo: file.map(Into::into), span, mensagem: message.into() }));
         self.diagnostics.push(d);
-        self.unidades_dos_avisos.push(self.unidade_corrente);
+        self.warning_units.push(self.current_unit);
     }
 
     /// Aviso com código cujos argumentos passam juntos pela conversão do
     /// `ErrorReporter` ([`crate::exibicao::Exibidor::argumentos`], T7): os
     /// tipos saem com alias, e dois tipos do mesmo relato com o mesmo texto
     /// ganham o `(where X is defined in …)`.
-    pub(crate) fn aviso_com_args(&mut self, codigo: dartforge_diagnostics::Codigo, span: Span, args: &[crate::exibicao::Arg<'_>]) {
-        let (textos, contexto) = {
-            let exibidor = crate::exibicao::Exibidor { table: &*self.table, interner: self.interner, program: self.program };
-            exibidor.argumentos_e_contexto(args)
+    pub(crate) fn warning_with_args(&mut self, code: dartforge_diagnostics::Codigo, span: Span, args: &[crate::exibicao::Arg<'_>]) {
+        let (texts, context) = {
+            let displayer = crate::exibicao::Exibidor { table: &*self.table, interner: self.interner, program: self.program };
+            displayer.arguments_and_context(args)
         };
-        let mut d = Diagnostic::com_codigo(codigo, span, textos);
-        d.contexto.extend(contexto);
+        let mut d = Diagnostic::com_codigo(code, span, texts);
+        d.contexto.extend(context);
         self.diagnostics.push(d);
-        self.unidades_dos_avisos.push(self.unidade_corrente);
+        self.warning_units.push(self.current_unit);
     }
 
     /// Registra um erro de linguagem (`codes::ERRO_DE_LINGUAGEM`,
     /// docs/VERSOES-LINGUAGEM.md §3): aborta a compilação, com o arquivo e o
     /// deslocamento na mensagem, como os erros de carga.
     pub(crate) fn erro_de_linguagem(&mut self, unit: UnitId, span: Span, msg: String) {
-        let arquivo = self.program.unit(unit).path.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
-        let texto = format!("{}{arquivo}:{}: {msg}", crate::codes::ERRO_DE_LINGUAGEM, span.start);
-        self.diagnostics.push(Diagnostic::new(texto, span));
-        self.unidades_dos_avisos.push(Some(unit));
+        let file = self.program.unit(unit).path.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
+        let text = format!("{}{file}:{}: {msg}", crate::codes::ERRO_DE_LINGUAGEM, span.start);
+        self.diagnostics.push(Diagnostic::new(text, span));
+        self.warning_units.push(Some(unit));
     }
 
     pub(crate) fn span_expr(&self, unit: UnitId, e: ast::ExprId) -> Span {
@@ -958,8 +958,8 @@ impl<'a> BodyInferrer<'a> {
 
     /// Diagnóstico de atribuibilidade: `dynamic` é atribuível a tudo (cast
     /// implícito); um objeto com `call` a um tipo de função também.
-    pub(crate) fn verificar_atribuivel(&mut self, de: TypeId, para: TypeId, span: Span, template: &str) {
-        if self.atribuivel(de, para) {
+    pub(crate) fn verify_assignable(&mut self, of: TypeId, for_: TypeId, span: Span, template: &str) {
+        if self.atribuivel(of, for_) {
             return;
         }
         // Os códigos com tipos nos argumentos passam pela conversão do
@@ -968,18 +968,18 @@ impl<'a> BodyInferrer<'a> {
         use crate::exibicao::Arg;
         use dartforge_diagnostics::codigos::compile_time_error as c;
         if template == crate::codes::INVALID_ASSIGNMENT.template {
-            self.aviso_com_args(c::INVALID_ASSIGNMENT, span, &[Arg::Tipo(de), Arg::Tipo(para)]);
+            self.warning_with_args(c::INVALID_ASSIGNMENT, span, &[Arg::Tipo(of), Arg::Tipo(for_)]);
             return;
         }
         if template == crate::codes::ARGUMENT_TYPE_NOT_ASSIGNABLE.template {
-            self.aviso_com_args(c::ARGUMENT_TYPE_NOT_ASSIGNABLE, span, &[Arg::Tipo(de), Arg::Tipo(para), Arg::Texto("".into())]);
+            self.warning_with_args(c::ARGUMENT_TYPE_NOT_ASSIGNABLE, span, &[Arg::Tipo(of), Arg::Tipo(for_), Arg::Texto("".into())]);
             return;
         }
         let msg = format!(
             "{}: '{}' não é atribuível a '{}'",
             template,
-            self.table.format(de, self.interner, self.program),
-            self.table.format(para, self.interner, self.program)
+            self.table.format(of, self.interner, self.program),
+            self.table.format(for_, self.interner, self.program)
         );
         self.aviso(msg, span);
     }

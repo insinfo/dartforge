@@ -26,12 +26,12 @@ use std::collections::HashSet;
 
 /// Uma criação candidata: a unidade, a expressão, o nome a relatar e se
 /// foi escrita com `new`.
-struct Candidata {
+struct Candidate {
     unidade: UnitId,
     lib: LibraryId,
     expr: ExprId,
     nome: String,
-    com_new: bool,
+    with_new: bool,
 }
 
 /// Os relatos das bibliotecas `libs` (as próprias, cujos corpos `corpos` tem).
@@ -42,8 +42,8 @@ pub fn construtores_literais(
     table: &mut TypeTable,
     core: &CoreTypes,
     outline: &OutlineTypes,
-    corpos: &BodyTypes,
-    inferidas: &HashSet<LibraryId>,
+    bodies: &BodyTypes,
+    the_inferred: &HashSet<LibraryId>,
     libs: &[LibraryId],
 ) -> Vec<(UnitId, Diagnostic)> {
     let mut out = Vec::new();
@@ -51,70 +51,70 @@ pub fn construtores_literais(
         return out;
     }
     // As criações sem `const` de construtor `@literal`.
-    let mut candidatas: Vec<Candidata> = Vec::new();
+    let mut candidates: Vec<Candidate> = Vec::new();
     for &lib in libs {
         for &u in &program.library(lib).units {
-            let Some(corpo) = corpos.units.get(u.0 as usize) else { continue };
-            let unidade = program.unit(u);
-            let a = &unidade.ast;
+            let Some(body) = bodies.units.get(u.0 as usize) else { continue };
+            let unit = program.unit(u);
+            let a = &unit.ast;
             for (k, e) in a.exprs.iter().enumerate() {
                 let id = ExprId(k as u32);
-                let (com_new, nome) = match &e.kind {
+                let (with_new, the_name) = match &e.kind {
                     ExprKind::InstanceCreation { keyword, ty, constructor, .. } => {
                         if matches!(keyword, Some(CreationKeyword::Const)) {
                             continue;
                         }
                         let ast::TypeKind::Named { name, .. } = &a.ty(*ty).kind else { continue };
-                        let tipo = name.iter().map(|n| interner.resolve(n.sym)).collect::<Vec<_>>().join(".");
-                        let nome = match constructor {
-                            Some(c) => format!("{tipo}.{}", interner.resolve(c.sym)),
-                            None => tipo,
+                        let typ = name.iter().map(|n| interner.resolve(n.sym)).collect::<Vec<_>>().join(".");
+                        let the_name = match constructor {
+                            Some(c) => format!("{typ}.{}", interner.resolve(c.sym)),
+                            None => typ,
                         };
-                        (matches!(keyword, Some(CreationKeyword::New)), nome)
+                        (matches!(keyword, Some(CreationKeyword::New)), the_name)
                     }
                     // A criação sem `new` que a resolução diz ser de
                     // construtor: o nome escrito, sem os argumentos de tipo.
                     ExprKind::Call { target, .. } => {
-                        if !matches!(corpo.get_resolved(id), Some(Resolved::Constructor(_))) {
+                        if !matches!(body.get_resolved(id), Some(Resolved::Constructor(_))) {
                             continue;
                         }
-                        (false, nome_escrito(interner, a, *target).unwrap_or_default())
+                        (false, written_name(interner, a, *target).unwrap_or_default())
                     }
                     _ => continue,
                 };
-                let Some(Resolved::Constructor(f)) = corpo.get_resolved(id) else { continue };
-                let Some(onde) = crate::fase_resultado::unidade_da_funcao(program, *f) else { continue };
-                let marcado = crate::fase_resultado::anotacoes_da_funcao(program, *f)
+                let Some(Resolved::Constructor(f)) = body.get_resolved(id) else { continue };
+                let Some(where_) = crate::fase_resultado::function_unit(program, *f) else { continue };
+                let marked = crate::fase_resultado::function_annotations(program, *f)
                     .iter()
-                    .any(|m| crate::fase_resultado::anotacao_do_meta(program, interner, onde, m, "literal"));
-                if marcado {
-                    candidatas.push(Candidata { unidade: u, lib, expr: id, nome, com_new });
+                    .any(|m| crate::fase_resultado::meta_annotation(program, interner, where_, m, "literal"));
+                if marked {
+                    candidates.push(Candidate { unidade: u, lib, expr: id, nome: the_name, with_new });
                 }
             }
         }
     }
-    if candidatas.is_empty() {
+    if candidates.is_empty() {
         return out;
     }
-    let mut motor = Motor::novo(program, interner, table, core, outline, corpos, inferidas);
-    for c in candidatas {
-        if !crate::constantes::verificador::criacao_pode_ser_const(&mut motor, c.lib, c.unidade, c.expr) {
+    let mut engine = Motor::novo(program, interner, table, core, outline, bodies, the_inferred);
+    for c in candidates {
+        if !crate::constantes::verifier::creation_can_be_const(&mut engine, c.lib, c.unidade, c.expr) {
             continue;
         }
-        let codigo = if c.com_new { w::NON_CONST_CALL_TO_LITERAL_CONSTRUCTOR_USING_NEW } else { w::NON_CONST_CALL_TO_LITERAL_CONSTRUCTOR };
+        let code = if c.with_new { w::NON_CONST_CALL_TO_LITERAL_CONSTRUCTOR_USING_NEW } else { w::NON_CONST_CALL_TO_LITERAL_CONSTRUCTOR };
         let span = program.unit(c.unidade).ast.expr(c.expr).span;
-        out.push((c.unidade, Diagnostic::com_codigo(codigo, span, [c.nome.as_str()])));
+        out.push((c.unidade, Diagnostic::com_codigo(code, span, [c.nome.as_str()])));
     }
     out
 }
 
 /// O nome escrito no alvo de uma criação sem `new`: `C`, `p.C`, `C.nome`,
 /// `p.C.nome`, sem os argumentos de tipo.
-fn nome_escrito(interner: &Interner, a: &ast::Ast, e: ExprId) -> Option<String> {
+fn written_name(interner: &Interner, a: &ast::Ast, e: ExprId) -> Option<String> {
     match &a.expr(e).kind {
         ExprKind::Identifier(n) => Some(interner.resolve(n.sym).to_string()),
-        ExprKind::Property { target, name, .. } => Some(format!("{}.{}", nome_escrito(interner, a, *target)?, interner.resolve(name.sym))),
-        ExprKind::TypeArguments { target, .. } => nome_escrito(interner, a, *target),
+        ExprKind::Property { target, name, .. } => Some(format!("{}.{}", written_name(interner, a, *target)?, interner.resolve(name.sym))),
+        ExprKind::TypeArguments { target, .. } => written_name(interner, a, *target),
         _ => None,
     }
 }

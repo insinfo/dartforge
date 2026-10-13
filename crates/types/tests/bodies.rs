@@ -124,14 +124,14 @@ fn get_real_sdk() -> Option<(PathBuf, SdkLayout)> {
 // ===========================================================================
 
 #[test]
-fn promocao_e_inferencia() {
+fn promotion_and_inference() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
 
-    let proj_dir = tmp.path().join("proj");
-    fs::create_dir_all(&proj_dir).unwrap();
-    let main_dart = proj_dir.join("main.dart");
+    let the_proj_dir = tmp.path().join("proj");
+    fs::create_dir_all(&the_proj_dir).unwrap();
+    let main_dart = the_proj_dir.join("main.dart");
 
     fs::write(
         &main_dart,
@@ -202,16 +202,16 @@ fn promocao_e_inferencia() {
 // 2. Casos Negativos do Analyzer (>= 40 testes traduzidos da suite oficial)
 // ===========================================================================
 
-fn verificar_diagnostico(codigo_dart: &str, diagnostic_esperado: DiagnosticCode) {
+fn verify_diagnostic(dart_code: &str, expected_diagnostic: DiagnosticCode) {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
 
-    let proj_dir = tmp.path().join("proj");
-    fs::create_dir_all(&proj_dir).unwrap();
-    let main_dart = proj_dir.join("main.dart");
+    let the_proj_dir = tmp.path().join("proj");
+    fs::create_dir_all(&the_proj_dir).unwrap();
+    let main_dart = the_proj_dir.join("main.dart");
 
-    fs::write(&main_dart, format!("library test_neg;\nimport 'dart:core';\n{codigo_dart}")).unwrap();
+    fs::write(&main_dart, format!("library test_neg;\nimport 'dart:core';\n{dart_code}")).unwrap();
 
     let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
@@ -221,26 +221,26 @@ fn verificar_diagnostico(codigo_dart: &str, diagnostic_esperado: DiagnosticCode)
 
     // O diagnóstico pode sair com o molde de `types::codes` ou já com o
     // código do analyzer (mensagem oficial em inglês).
-    let encontrou = diags.iter().any(|d| {
-        d.message.contains(diagnostic_esperado.template)
-            || d.code.is_some_and(|c| c.info().nome == diagnostic_esperado.name)
+    let found = diags.iter().any(|d| {
+        d.message.contains(expected_diagnostic.template)
+            || d.code.is_some_and(|c| c.info().nome == expected_diagnostic.name)
     });
     assert!(
-        encontrou,
+        found,
         "Esperava diagnóstico '{}', mas obteve:\n{:?}",
-        diagnostic_esperado.template,
+        expected_diagnostic.template,
         diags
     );
 }
 
 #[test]
-fn getter_de_classe_sem_setter_em_atribuicao_simples() {
+fn class_getter_without_setter_in_simple_assignment() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
     let main_dart = tmp.path().join("main.dart");
-    let fonte = "library test; import 'dart:core'; class A { int get x => 0; } class B { int get x => 0; set x(int v) {} } void f(A a, B b) { a.x = 0; a.x += 0; ++a.x; a.x++; a.y = 0; b.x = 0; b.x += 0; ++b.x; b.x++; }";
-    fs::write(&main_dart, fonte).unwrap();
+    let source = "library test; import 'dart:core'; class A { int get x => 0; } class B { int get x => 0; set x(int v) {} } void f(A a, B b) { a.x = 0; a.x += 0; ++a.x; a.x++; a.y = 0; b.x = 0; b.x += 0; ++b.x; b.x++; }";
+    fs::write(&main_dart, source).unwrap();
     let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
@@ -249,25 +249,25 @@ fn getter_de_classe_sem_setter_em_atribuicao_simples() {
 
     let readonly: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_FINAL_NO_SETTER.template)).collect();
     assert_eq!(readonly.len(), 4, "{diags:?}");
-    for (d, alvo) in readonly.iter().zip(["a.x = 0", "a.x += 0", "++a.x", "a.x++"]) {
-        let x = fonte.find(alvo).unwrap() + alvo.find("x").unwrap();
+    for (d, target) in readonly.iter().zip(["a.x = 0", "a.x += 0", "++a.x", "a.x++"]) {
+        let x = source.find(target).unwrap() + target.find("x").unwrap();
         assert_eq!(d.span.start as usize, x, "{diags:?}");
         assert_eq!(d.span.end as usize, x + 1, "{diags:?}");
         assert!(d.message.contains("'x' na classe 'A'"), "{diags:?}");
     }
     let missing: Vec<_> = diags.iter().filter(|d| d.message.starts_with(UNDEFINED_SETTER.template)).collect();
     assert_eq!(missing.len(), 1, "{diags:?}");
-    assert_eq!(missing[0].span.start as usize, fonte.find("a.y = 0").unwrap() + 2);
+    assert_eq!(missing[0].span.start as usize, source.find("a.y = 0").unwrap() + 2);
 }
 
 #[test]
-fn atribuir_a_tipos_e_funcao_de_topo() {
+fn assign_to_types_and_top_level_function() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
     let main_dart = tmp.path().join("main.dart");
-    let fonte = "library test; import 'dart:core'; class C<T> { void m() { T = null; } } enum E { e } typedef F = C<int>; void f() {} void g() { C = null; E = null; F = null; dynamic = 1; f = null; } void h() { var C = 0; C = 1; }";
-    fs::write(&main_dart, fonte).unwrap();
+    let source = "library test; import 'dart:core'; class C<T> { void m() { T = null; } } enum E { e } typedef F = C<int>; void f() {} void g() { C = null; E = null; F = null; dynamic = 1; f = null; } void h() { var C = 0; C = 1; }";
+    fs::write(&main_dart, source).unwrap();
     let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
@@ -275,25 +275,25 @@ fn atribuir_a_tipos_e_funcao_de_topo() {
     let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
 
     assert_eq!(diags.len(), 6, "{diags:?}");
-    let tipos: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_TYPE.template)).collect();
-    assert_eq!(tipos.len(), 5, "{diags:?}");
-    for (d, trecho) in tipos.iter().zip(["T = null", "C = null", "E = null", "F = null", "dynamic = 1"]) {
-        assert_eq!(d.span.start as usize, fonte.find(trecho).unwrap(), "{diags:?}");
-        assert_eq!(d.span.end as usize, fonte.find(trecho).unwrap() + trecho.split(' ').next().unwrap().len(), "{diags:?}");
+    let types: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_TYPE.template)).collect();
+    assert_eq!(types.len(), 5, "{diags:?}");
+    for (d, snippet) in types.iter().zip(["T = null", "C = null", "E = null", "F = null", "dynamic = 1"]) {
+        assert_eq!(d.span.start as usize, source.find(snippet).unwrap(), "{diags:?}");
+        assert_eq!(d.span.end as usize, source.find(snippet).unwrap() + snippet.split(' ').next().unwrap().len(), "{diags:?}");
     }
-    let funcoes: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_FUNCTION.template)).collect();
-    assert_eq!(funcoes.len(), 1, "{diags:?}");
-    assert_eq!(funcoes[0].span.start as usize, fonte.find("f = null").unwrap(), "{diags:?}");
+    let functions: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_FUNCTION.template)).collect();
+    assert_eq!(functions.len(), 1, "{diags:?}");
+    assert_eq!(functions[0].span.start as usize, source.find("f = null").unwrap(), "{diags:?}");
 }
 
 #[test]
-fn funcao_local_nao_e_variavel_final_atribuivel() {
+fn local_function_is_not_assignable_final_variable() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
     let main_dart = tmp.path().join("main.dart");
-    let fonte = "library test; import 'dart:core'; void f() { g(int x) {} g = 0; void Function() h = () {}; h = () {}; }";
-    fs::write(&main_dart, fonte).unwrap();
+    let source = "library test; import 'dart:core'; void f() { g(int x) {} g = 0; void Function() h = () {}; h = () {}; }";
+    fs::write(&main_dart, source).unwrap();
     let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
@@ -302,18 +302,18 @@ fn funcao_local_nao_e_variavel_final_atribuivel() {
 
     assert_eq!(diags.len(), 1, "{diags:?}");
     assert!(diags[0].message.starts_with(ASSIGNMENT_TO_FUNCTION.template), "{diags:?}");
-    assert_eq!(diags[0].span.start as usize, fonte.find("g = 0").unwrap(), "{diags:?}");
-    assert_eq!(diags[0].span.end as usize, fonte.find("g = 0").unwrap() + 1, "{diags:?}");
+    assert_eq!(diags[0].span.start as usize, source.find("g = 0").unwrap(), "{diags:?}");
+    assert_eq!(diags[0].span.end as usize, source.find("g = 0").unwrap() + 1, "{diags:?}");
 }
 
 #[test]
-fn getter_lexico_sem_setter_em_atribuicoes_e_incrementos() {
+fn lexical_getter_without_setter_in_assignments_and_increments() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
     let main_dart = tmp.path().join("main.dart");
-    let fonte = "library test; import 'dart:core'; class A { int get x => 0; static int get s => 0; void f() { x = 0; x += 0; ++x; x++; s = 0; s += 0; ++s; s++; } } class B extends A { void g() { x = 0; } }";
-    fs::write(&main_dart, fonte).unwrap();
+    let source = "library test; import 'dart:core'; class A { int get x => 0; static int get s => 0; void f() { x = 0; x += 0; ++x; x++; s = 0; s += 0; ++s; s++; } } class B extends A { void g() { x = 0; } }";
+    fs::write(&main_dart, source).unwrap();
     let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
@@ -322,25 +322,25 @@ fn getter_lexico_sem_setter_em_atribuicoes_e_incrementos() {
 
     let readonly: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_FINAL_NO_SETTER.template)).collect();
     assert_eq!(readonly.len(), 9, "{diags:?}");
-    for (d, alvo) in readonly.iter().zip(["x = 0", "x += 0", "++x", "x++", "s = 0", "s += 0", "++s", "s++"]) {
-        let indice = fonte.find(alvo).unwrap() + alvo.find(|c| c == 'x' || c == 's').unwrap();
-        assert_eq!(d.span.start as usize, indice, "{diags:?}");
-        assert_eq!(d.span.end as usize, indice + 1, "{diags:?}");
+    for (d, target) in readonly.iter().zip(["x = 0", "x += 0", "++x", "x++", "s = 0", "s += 0", "++s", "s++"]) {
+        let index = source.find(target).unwrap() + target.find(|c| c == 'x' || c == 's').unwrap();
+        assert_eq!(d.span.start as usize, index, "{diags:?}");
+        assert_eq!(d.span.end as usize, index + 1, "{diags:?}");
         assert!(d.message.contains("na classe 'A'"), "{diags:?}");
     }
-    let herdado = fonte.rfind("x = 0").unwrap();
-    assert_eq!(readonly[8].span.start as usize, herdado, "{diags:?}");
+    let inherited = source.rfind("x = 0").unwrap();
+    assert_eq!(readonly[8].span.start as usize, inherited, "{diags:?}");
     assert!(readonly[8].message.contains("na classe 'A'"), "{diags:?}");
 }
 
 #[test]
-fn getter_de_extensao_sem_setter() {
+fn extension_getter_without_setter() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
     let main_dart = tmp.path().join("main.dart");
-    let fonte = "library test; import 'dart:core'; extension E on int { int get x => 0; } void f() { 0.x = 0; 0.x += 0; ++0.x; 0.x++; }";
-    fs::write(&main_dart, fonte).unwrap();
+    let source = "library test; import 'dart:core'; extension E on int { int get x => 0; } void f() { 0.x = 0; 0.x += 0; ++0.x; 0.x++; }";
+    fs::write(&main_dart, source).unwrap();
     let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
@@ -349,32 +349,32 @@ fn getter_de_extensao_sem_setter() {
 
     let readonly: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_FINAL_NO_SETTER.template)).collect();
     assert_eq!(readonly.len(), 4, "{diags:?}");
-    for (d, alvo) in readonly.iter().zip(["0.x = 0", "0.x += 0", "++0.x", "0.x++"]) {
-        let indice = fonte.find(alvo).unwrap() + alvo.find('x').unwrap();
-        assert_eq!(d.span.start as usize, indice, "{diags:?}");
-        assert_eq!(d.span.end as usize, indice + 1, "{diags:?}");
+    for (d, target) in readonly.iter().zip(["0.x = 0", "0.x += 0", "++0.x", "0.x++"]) {
+        let index = source.find(target).unwrap() + target.find('x').unwrap();
+        assert_eq!(d.span.start as usize, index, "{diags:?}");
+        assert_eq!(d.span.end as usize, index + 1, "{diags:?}");
         assert!(d.message.contains("na classe 'E'"), "{diags:?}");
     }
 }
 
 #[test]
-fn sobreposicao_explicita_de_extensao_sem_setter() {
+fn explicit_extension_override_without_setter() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
     let main_dart = tmp.path().join("main.dart");
-    let fonte = "library test; import 'dart:core'; extension E on int { int get foo => 0; } extension F on int { set bar(int v) {} } void f() { E(0).foo = 1; E(0).foo += 1; F(0).bar = 1; }";
-    fs::write(&main_dart, fonte).unwrap();
+    let source = "library test; import 'dart:core'; extension E on int { int get foo => 0; } extension F on int { set bar(int v) {} } void f() { E(0).foo = 1; E(0).foo += 1; F(0).bar = 1; }";
+    fs::write(&main_dart, source).unwrap();
     let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
 
-    let ausentes: Vec<_> = diags.iter().filter(|d| d.message.starts_with(UNDEFINED_EXTENSION_SETTER.template)).collect();
-    assert_eq!(ausentes.len(), 2, "{diags:?}");
-    for d in ausentes {
-        assert_eq!(&fonte[d.span.start as usize..d.span.end as usize], "foo", "{diags:?}");
+    let the_missing: Vec<_> = diags.iter().filter(|d| d.message.starts_with(UNDEFINED_EXTENSION_SETTER.template)).collect();
+    assert_eq!(the_missing.len(), 2, "{diags:?}");
+    for d in the_missing {
+        assert_eq!(&source[d.span.start as usize..d.span.end as usize], "foo", "{diags:?}");
         assert!(d.message.contains("'foo' em 'E'"), "{diags:?}");
     }
     assert!(!diags.iter().any(|d| d.message.starts_with(ASSIGNMENT_TO_FINAL_NO_SETTER.template)), "{diags:?}");
@@ -382,106 +382,106 @@ fn sobreposicao_explicita_de_extensao_sem_setter() {
 }
 
 #[test]
-fn sobreposicao_explicita_sem_getter_usa_codigo_de_extensao() {
+fn explicit_override_without_getter_uses_extension_code() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
     let main_dart = tmp.path().join("main.dart");
-    let fonte = "library test; import 'dart:core'; extension E on int { set foo(int v) {} } void f() { E(0).foo; E(0).foo += 1; }";
-    fs::write(&main_dart, fonte).unwrap();
+    let source = "library test; import 'dart:core'; extension E on int { set foo(int v) {} } void f() { E(0).foo; E(0).foo += 1; }";
+    fs::write(&main_dart, source).unwrap();
     let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
 
-    let ausentes: Vec<_> = diags.iter().filter(|d| d.message.starts_with(UNDEFINED_EXTENSION_GETTER.template)).collect();
-    assert_eq!(ausentes.len(), 2, "{diags:?}");
-    for d in ausentes {
-        assert_eq!(&fonte[d.span.start as usize..d.span.end as usize], "foo");
+    let the_missing: Vec<_> = diags.iter().filter(|d| d.message.starts_with(UNDEFINED_EXTENSION_GETTER.template)).collect();
+    assert_eq!(the_missing.len(), 2, "{diags:?}");
+    for d in the_missing {
+        assert_eq!(&source[d.span.start as usize..d.span.end as usize], "foo");
         assert!(d.message.contains("'foo' em 'E'"));
     }
     assert!(!diags.iter().any(|d| d.message.starts_with(UNDEFINED_GETTER.template)), "{diags:?}");
 }
 
 #[test]
-fn getter_estatico_ausente_em_extensao_do_oraculo() {
+fn missing_static_getter_in_extension_per_oracle() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let main_dart = tmp.path().join("main.dart");
-    for (fonte, offset) in [
+    for (source, offset) in [
         (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_getter/UndefinedExtensionGetter__static_withou_8f374a5b.dart")), 40),
         (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_getter/UndefinedExtensionGetter__static_withInference.dart")), 35),
     ] {
         let mut interner = Interner::new();
-        fs::write(&main_dart, fonte).unwrap();
+        fs::write(&main_dart, source).unwrap();
         let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
         let mut table = TypeTable::new();
         let core = CoreTypes::init(&mut table, &prog, &interner);
         let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
         let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
 
-        let ausentes: Vec<_> = diags.iter().filter(|d| d.message.starts_with(UNDEFINED_EXTENSION_GETTER.template)).collect();
-        assert_eq!(ausentes.len(), 1, "{diags:?}");
-        assert_eq!((ausentes[0].span.start, ausentes[0].span.end), (offset, offset + 1));
-        assert!(ausentes[0].message.contains("'v' em 'E'"));
+        let the_missing: Vec<_> = diags.iter().filter(|d| d.message.starts_with(UNDEFINED_EXTENSION_GETTER.template)).collect();
+        assert_eq!(the_missing.len(), 1, "{diags:?}");
+        assert_eq!((the_missing[0].span.start, the_missing[0].span.end), (offset, offset + 1));
+        assert!(the_missing[0].message.contains("'v' em 'E'"));
     }
 }
 
 #[test]
-fn setter_estatico_ausente_em_extensao_do_oraculo() {
+fn missing_static_setter_in_extension_per_oracle() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
     let main_dart = tmp.path().join("main.dart");
-    let fonte = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_setter/UndefinedExtensionSetter__static_undefined.dart"));
-    fs::write(&main_dart, fonte).unwrap();
+    let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_setter/UndefinedExtensionSetter__static_undefined.dart"));
+    fs::write(&main_dart, source).unwrap();
     let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
-    let encontrados: Vec<_> = diags.iter().filter(|d| d.message.starts_with(UNDEFINED_EXTENSION_SETTER.template)).collect();
-    assert_eq!(encontrados.len(), 1, "{diags:?}");
-    let d = encontrados[0];
-    assert_eq!(&fonte[d.span.start as usize..d.span.end as usize], "foo");
-    assert_eq!(d.span.start as usize, fonte.find("E.foo").unwrap() + 2);
+    let the_found: Vec<_> = diags.iter().filter(|d| d.message.starts_with(UNDEFINED_EXTENSION_SETTER.template)).collect();
+    assert_eq!(the_found.len(), 1, "{diags:?}");
+    let d = the_found[0];
+    assert_eq!(&source[d.span.start as usize..d.span.end as usize], "foo");
+    assert_eq!(d.span.start as usize, source.find("E.foo").unwrap() + 2);
     assert!(d.message.contains("'foo' em 'E'"));
 }
 
 #[test]
-fn acesso_estatico_a_membros_de_instancia_da_extensao_do_oraculo() {
+fn static_access_to_extension_instance_members_per_oracle() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let main_dart = tmp.path().join("main.dart");
-    for (fonte, nome) in [
+    for (source, the_name) in [
         (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__extension_getter.dart")), "g"),
         (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__extension_method.dart")), "m"),
         (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__extension_setter.dart")), "s"),
     ] {
         let mut interner = Interner::new();
-        fs::write(&main_dart, fonte).unwrap();
+        fs::write(&main_dart, source).unwrap();
         let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
         let mut table = TypeTable::new();
         let core = CoreTypes::init(&mut table, &prog, &interner);
         let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
         let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
-        let encontrados: Vec<_> = diags.iter().filter(|d| d.message.starts_with(STATIC_ACCESS_TO_INSTANCE_MEMBER.template)).collect();
-        assert_eq!(encontrados.len(), 1, "{nome}: {diags:?}");
-        let d = encontrados[0];
-        assert_eq!(&fonte[d.span.start as usize..d.span.end as usize], nome);
-        assert_eq!(d.span.start as usize, fonte.find(&format!("E.{nome}")).unwrap() + 2);
+        let the_found: Vec<_> = diags.iter().filter(|d| d.message.starts_with(STATIC_ACCESS_TO_INSTANCE_MEMBER.template)).collect();
+        assert_eq!(the_found.len(), 1, "{the_name}: {diags:?}");
+        let d = the_found[0];
+        assert_eq!(&source[d.span.start as usize..d.span.end as usize], the_name);
+        assert_eq!(d.span.start as usize, source.find(&format!("E.{the_name}")).unwrap() + 2);
         assert!(!diags.iter().any(|d| d.message.starts_with(UNDEFINED_EXTENSION_GETTER.template)
             || d.message.starts_with(UNDEFINED_EXTENSION_METHOD.template)), "{diags:?}");
     }
 }
 
 #[test]
-fn acesso_estatico_a_membros_de_instancia_da_classe_do_oraculo() {
+fn static_access_to_class_instance_members_per_oracle() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let main_dart = tmp.path().join("main.dart");
-    let positivos = [
+    let positives = [
         (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__method_invocation.dart")), "m"),
         (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__method_reference.dart")), "m"),
         (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__propertyA_5eff7611.dart")), "t"),
@@ -489,26 +489,26 @@ fn acesso_estatico_a_membros_de_instancia_da_classe_do_oraculo() {
         (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__propertyA_baf43dcf.dart")), "f"),
         (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__propertyA_dfc9b0ea.dart")), "f"),
     ];
-    for (fonte, nome) in positivos {
+    for (source, the_name) in positives {
         let mut interner = Interner::new();
-        fs::write(&main_dart, fonte).unwrap();
+        fs::write(&main_dart, source).unwrap();
         let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
         let mut table = TypeTable::new();
         let core = CoreTypes::init(&mut table, &prog, &interner);
         let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
         let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
-        let encontrados: Vec<_> = diags.iter().filter(|d| d.message.starts_with(STATIC_ACCESS_TO_INSTANCE_MEMBER.template)).collect();
-        assert_eq!(encontrados.len(), 1, "{nome}: {diags:?}");
-        let d = encontrados[0];
-        assert_eq!(&fonte[d.span.start as usize..d.span.end as usize], nome);
-        assert_eq!(d.span.start as usize, fonte.rfind(&format!(".{nome}")).unwrap() + 1);
+        let the_found: Vec<_> = diags.iter().filter(|d| d.message.starts_with(STATIC_ACCESS_TO_INSTANCE_MEMBER.template)).collect();
+        assert_eq!(the_found.len(), 1, "{the_name}: {diags:?}");
+        let d = the_found[0];
+        assert_eq!(&source[d.span.start as usize..d.span.end as usize], the_name);
+        assert_eq!(d.span.start as usize, source.rfind(&format!(".{the_name}")).unwrap() + 1);
         // A ponte de paridade traduz este template interno para a mensagem
         // inglesa do oráculo; o teste de types verifica código e argumento.
-        assert_eq!(d.message, format!("{}: '{nome}'", STATIC_ACCESS_TO_INSTANCE_MEMBER.template));
-        assert!(!diags.iter().any(|outro| outro.span == d.span
-            && outro.message.starts_with(UNDEFINED_GETTER.template)), "{diags:?}");
+        assert_eq!(d.message, format!("{}: '{the_name}'", STATIC_ACCESS_TO_INSTANCE_MEMBER.template));
+        assert!(!diags.iter().any(|other| other.span == d.span
+            && other.message.starts_with(UNDEFINED_GETTER.template)), "{diags:?}");
     }
-    for fonte in [
+    for source in [
         include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__static_method.dart")),
         include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__static_pr_24220736.dart")),
         include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/static_access_to_instance_member/StaticAccessToInstanceMember__static_pr_d7df5494.dart")),
@@ -520,7 +520,7 @@ fn acesso_estatico_a_membros_de_instancia_da_classe_do_oraculo() {
         "class A { A.named(); void named() {} } var tearoff = A.named;",
     ] {
         let mut interner = Interner::new();
-        fs::write(&main_dart, fonte).unwrap();
+        fs::write(&main_dart, source).unwrap();
         let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
         let mut table = TypeTable::new();
         let core = CoreTypes::init(&mut table, &prog, &interner);
@@ -541,80 +541,80 @@ fn acesso_estatico_a_membros_de_instancia_da_classe_do_oraculo() {
 }
 
 #[test]
-fn escrita_em_metodo_de_instancia_pelo_tipo_e_setter_indefinido() {
+fn write_to_instance_method_via_type_and_undefined_setter() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
     let main_dart = tmp.path().join("main.dart");
-    let fonte = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/linguagem/static/field3_test.dart"));
-    fs::write(&main_dart, fonte).unwrap();
+    let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/linguagem/static/field3_test.dart"));
+    fs::write(&main_dart, source).unwrap();
     let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
-    let offset = fonte.find("Foo.m = 1").unwrap() + "Foo.".len();
-    let no_alvo: Vec<_> = diags.iter().filter(|d| d.span.start as usize == offset).collect();
-    assert_eq!(no_alvo.len(), 1, "{diags:?}");
-    assert!(no_alvo[0].message.starts_with(UNDEFINED_SETTER.template), "{diags:?}");
-    assert!(no_alvo[0].message.contains("'m'"), "{diags:?}");
-    assert_eq!(no_alvo[0].span.end as usize, offset + 1);
+    let offset = source.find("Foo.m = 1").unwrap() + "Foo.".len();
+    let at_target: Vec<_> = diags.iter().filter(|d| d.span.start as usize == offset).collect();
+    assert_eq!(at_target.len(), 1, "{diags:?}");
+    assert!(at_target[0].message.starts_with(UNDEFINED_SETTER.template), "{diags:?}");
+    assert!(at_target[0].message.contains("'m'"), "{diags:?}");
+    assert_eq!(at_target[0].span.end as usize, offset + 1);
 }
 
 #[test]
-fn new_ausente_apos_tipo_instanciado_preserva_diagnostico_de_construtor() {
+fn missing_new_after_instantiated_type_keeps_constructor_diagnostic() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
     let main_dart = tmp.path().join("main.dart");
-    let fonte = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/linguagem/constructor/unnamed_new_error_test.dart"));
-    fs::write(&main_dart, fonte).unwrap();
+    let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/linguagem/constructor/unnamed_new_error_test.dart"));
+    fs::write(&main_dart, source).unwrap();
     let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
-    for (expr, codigo) in [
+    for (expr, code) in [
         ("NoUnnamed.new();", NEW_WITH_UNDEFINED_CONSTRUCTOR_DEFAULT),
         ("NoUnnamed<int>.new();", NEW_WITH_UNDEFINED_CONSTRUCTOR),
     ] {
-        let offset = fonte.find(expr).unwrap() + expr.find(".new").unwrap() + 1;
-        let no_alvo: Vec<_> = diags.iter().filter(|d| d.span.start as usize == offset).collect();
-        assert_eq!(no_alvo.len(), 1, "{expr}: {diags:?}");
+        let offset = source.find(expr).unwrap() + expr.find(".new").unwrap() + 1;
+        let at_target: Vec<_> = diags.iter().filter(|d| d.span.start as usize == offset).collect();
+        assert_eq!(at_target.len(), 1, "{expr}: {diags:?}");
         // Pelo código do analyzer (o relato traz a mensagem dele, não o texto
         // legado de `codes.rs`); ou, sem código, pelo texto legado.
-        let pelo_codigo = no_alvo[0].code.is_some_and(|c| c.info().nome == codigo.name);
-        assert!(pelo_codigo || no_alvo[0].message.starts_with(codigo.template), "{expr}: {diags:?}");
-        assert_eq!(no_alvo[0].span.end as usize, offset + 3);
+        let by_code = at_target[0].code.is_some_and(|c| c.info().nome == code.name);
+        assert!(by_code || at_target[0].message.starts_with(code.template), "{expr}: {diags:?}");
+        assert_eq!(at_target[0].span.end as usize, offset + 3);
     }
 }
 
 #[test]
-fn referencia_a_construtor_gerador_de_enum_nao_e_construtor_ausente() {
+fn enum_generative_constructor_reference_is_not_missing_constructor() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let main_dart = tmp.path().join("main.dart");
-    for (fonte, expr, sufixo) in [
+    for (source, expr, suffix) in [
         (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/invalid_reference_to_generative_enum_constructor/InvalidReferenceToGenerativeEnumConstru_f77bae06.dart")), "E.new", ";"),
         (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/invalid_reference_to_generative_enum_constructor/InvalidReferenceToGenerativeEnumConstru_24430155.dart")), "E.named", ";"),
         (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/invalid_reference_to_generative_enum_constructor/InvalidReferenceToGenerativeEnumConstru_3e9c8dca.dart")), "E.named", "();"),
     ] {
         let mut interner = Interner::new();
-        fs::write(&main_dart, fonte).unwrap();
+        fs::write(&main_dart, source).unwrap();
         let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
         let mut table = TypeTable::new();
         let core = CoreTypes::init(&mut table, &prog, &interner);
         let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
         let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
-        let offset = fonte.find(&format!("  {expr}{sufixo}")).unwrap() + 2;
-        let alvo: Vec<_> = diags.iter().filter(|d| d.span.start as usize == offset).collect();
-        assert_eq!(alvo.len(), 1, "{expr}: {diags:?}");
-        assert!(alvo[0].message.starts_with(INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template), "{expr}: {diags:?}");
-        assert_eq!(alvo[0].span.end as usize, offset + expr.len());
+        let offset = source.find(&format!("  {expr}{suffix}")).unwrap() + 2;
+        let target: Vec<_> = diags.iter().filter(|d| d.span.start as usize == offset).collect();
+        assert_eq!(target.len(), 1, "{expr}: {diags:?}");
+        assert!(target[0].message.starts_with(INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template), "{expr}: {diags:?}");
+        assert_eq!(target[0].span.end as usize, offset + expr.len());
     }
-    let fonte = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/invalid_reference_to_generative_enum_constructor/InvalidReferenceToGenerativeEnumConstru_4790a320.dart"));
+    let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/invalid_reference_to_generative_enum_constructor/InvalidReferenceToGenerativeEnumConstru_4790a320.dart"));
     let mut interner = Interner::new();
-    fs::write(&main_dart, fonte).unwrap();
+    fs::write(&main_dart, source).unwrap();
     let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
@@ -624,36 +624,36 @@ fn referencia_a_construtor_gerador_de_enum_nao_e_construtor_ausente() {
 }
 
 #[test]
-fn invocacao_de_construtor_gerador_de_enum_com_new_const_e_sem_nome() {
+fn enum_generative_constructor_invocation_with_new_const_and_unnamed() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let main_dart = tmp.path().join("main.dart");
     // (arquivo do corpus, trecho com o ponto de partida, deslocamento do
     // nome do construtor no trecho, comprimento do intervalo do oráculo)
-    for (arquivo, trecho, desloc, comp) in [
+    for (file, snippet, shift, comp) in [
         ("InvalidReferenceToGenerativeEnumConstru_f38943a5.dart", "  E();", 2, 1),
         ("InvalidReferenceToGenerativeEnumConstru_b2744770.dart", "  new E();", 6, 1),
         ("InvalidReferenceToGenerativeEnumConstru_3b68350d.dart", "  const E();", 8, 1),
     ] {
-        let caminho = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../corpus/diagnosticos/analyzer/invalid_reference_to_generative_enum_constructor").join(arquivo);
-        let fonte = fs::read_to_string(&caminho).unwrap();
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../corpus/diagnosticos/analyzer/invalid_reference_to_generative_enum_constructor").join(file);
+        let source = fs::read_to_string(&path).unwrap();
         let mut interner = Interner::new();
-        fs::write(&main_dart, &fonte).unwrap();
+        fs::write(&main_dart, &source).unwrap();
         let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
         let mut table = TypeTable::new();
         let core = CoreTypes::init(&mut table, &prog, &interner);
         let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
         let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
-        let offset = fonte.find(trecho).unwrap() + desloc;
-        let alvo: Vec<_> = diags.iter().filter(|d| d.span.start as usize == offset).collect();
-        assert_eq!(alvo.len(), 1, "{arquivo}: {diags:?}");
-        assert!(alvo[0].message.starts_with(INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template), "{arquivo}: {diags:?}");
-        assert_eq!(alvo[0].span.end as usize, offset + comp, "{arquivo}: {diags:?}");
+        let offset = source.find(snippet).unwrap() + shift;
+        let target: Vec<_> = diags.iter().filter(|d| d.span.start as usize == offset).collect();
+        assert_eq!(target.len(), 1, "{file}: {diags:?}");
+        assert!(target[0].message.starts_with(INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template), "{file}: {diags:?}");
+        assert_eq!(target[0].span.end as usize, offset + comp, "{file}: {diags:?}");
     }
     // Negativos: factory com o mesmo nome e redirecionamentos para o
     // gerador em inicializador (`: this(...)`) continuam sem acusar; nome
     // explícito sem alvo (`const E.foo()`) é de outro código.
-    for arquivo in [
+    for file in [
         "InvalidReferenceToGenerativeEnumConstru_7e4106b1.dart",
         "InvalidReferenceToGenerativeEnumConstru_4fcf1842.dart",
         "InvalidReferenceToGenerativeEnumConstru_bd7327c1.dart",
@@ -661,221 +661,221 @@ fn invocacao_de_construtor_gerador_de_enum_com_new_const_e_sem_nome() {
         "../const_with_undefined_constructor/ConstWithUndefinedConstructor__enum_not_a082a644.dart",
         "../const_with_undefined_constructor/ConstWithUndefinedConstructor__enum_unresolved.dart",
     ] {
-        let caminho = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../corpus/diagnosticos/analyzer/invalid_reference_to_generative_enum_constructor").join(arquivo);
-        let fonte = fs::read_to_string(&caminho).unwrap();
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../corpus/diagnosticos/analyzer/invalid_reference_to_generative_enum_constructor").join(file);
+        let source = fs::read_to_string(&path).unwrap();
         let mut interner = Interner::new();
-        fs::write(&main_dart, &fonte).unwrap();
+        fs::write(&main_dart, &source).unwrap();
         let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
         let mut table = TypeTable::new();
         let core = CoreTypes::init(&mut table, &prog, &interner);
         let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
         let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
-        assert!(!diags.iter().any(|d| d.message.starts_with(INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template)), "{arquivo}: {diags:?}");
+        assert!(!diags.iter().any(|d| d.message.starts_with(INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template)), "{file}: {diags:?}");
     }
 }
 
 #[test]
-fn factory_redirecionadora_para_gerador_de_enum_acusa_no_alvo() {
+fn redirecting_factory_to_enum_generative_reports_at_target() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let main_dart = tmp.path().join("main.dart");
     // (arquivo do corpus, trecho com o ponto de partida, deslocamento do
     // alvo no trecho, comprimento do intervalo do oráculo)
-    for (arquivo, trecho, desloc, comp) in [
+    for (file, snippet, shift, comp) in [
         ("InvalidReferenceToGenerativeEnumConstru_31f7f2b6.dart", " = E.named;", 3, 7),
         ("InvalidReferenceToGenerativeEnumConstru_f6f82211.dart", " = E;", 3, 1),
     ] {
-        let caminho = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../corpus/diagnosticos/analyzer/invalid_reference_to_generative_enum_constructor").join(arquivo);
-        let fonte = fs::read_to_string(&caminho).unwrap();
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../corpus/diagnosticos/analyzer/invalid_reference_to_generative_enum_constructor").join(file);
+        let source = fs::read_to_string(&path).unwrap();
         let mut interner = Interner::new();
-        fs::write(&main_dart, &fonte).unwrap();
+        fs::write(&main_dart, &source).unwrap();
         let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
         let mut table = TypeTable::new();
         let core = CoreTypes::init(&mut table, &prog, &interner);
         let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
         let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
-        let offset = fonte.find(trecho).unwrap() + desloc;
-        let alvo: Vec<_> = diags.iter().filter(|d| d.span.start as usize == offset).collect();
-        assert_eq!(alvo.len(), 1, "{arquivo}: {diags:?}");
-        assert!(alvo[0].message.starts_with(INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template), "{arquivo}: {diags:?}");
-        assert_eq!(alvo[0].span.end as usize, offset + comp, "{arquivo}: {diags:?}");
+        let offset = source.find(snippet).unwrap() + shift;
+        let target: Vec<_> = diags.iter().filter(|d| d.span.start as usize == offset).collect();
+        assert_eq!(target.len(), 1, "{file}: {diags:?}");
+        assert!(target[0].message.starts_with(INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template), "{file}: {diags:?}");
+        assert_eq!(target[0].span.end as usize, offset + comp, "{file}: {diags:?}");
     }
     // Negativos: factory para factory, classe não-enum e nome indefinido
     // seguem sem acusar deste código.
-    for (nome, fonte) in [
+    for (the_name, source) in [
         ("fabrica_para_fabrica", "enum E { v(); factory E.named() => v; const factory E.other() = E.named; const E(); }"),
         ("classe_comum", "class C { const C(); const factory C.a() = C; }"),
         ("nome_indefinido", "enum E { v; const factory E.a() = E.inexistente; const E(); }"),
     ] {
         let mut interner = Interner::new();
-        fs::write(&main_dart, fonte).unwrap();
+        fs::write(&main_dart, source).unwrap();
         let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
         let mut table = TypeTable::new();
         let core = CoreTypes::init(&mut table, &prog, &interner);
         let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
         let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
-        assert!(!diags.iter().any(|d| d.message.starts_with(INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template)), "{nome}: {diags:?}");
+        assert!(!diags.iter().any(|d| d.message.starts_with(INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template)), "{the_name}: {diags:?}");
     }
 }
 
 #[test]
-fn membro_de_instancia_em_instanciacao_explicita_tem_codigo_e_span_proprios() {
+fn instance_member_in_explicit_instantiation_has_own_code_and_span() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let main_dart = tmp.path().join("main.dart");
-    for (fonte, acesso) in [
+    for (source, access) in [
         (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/class_instantiation_access_to_member/ClassInstantiationAccessToMember__alias.dart")), "TA<int>.i"),
         (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/class_instantiation_access_to_member/ClassInstantiationAccessToMember__instanceMember.dart")), "A<int>.i"),
         (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/class_instantiation_access_to_member/ClassInstantiationAccessToMember__instanceSetter.dart")), "A<int>.i"),
     ] {
         let mut interner = Interner::new();
-        fs::write(&main_dart, fonte).unwrap();
+        fs::write(&main_dart, source).unwrap();
         let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
         let mut table = TypeTable::new();
         let core = CoreTypes::init(&mut table, &prog, &interner);
         let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
         let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
-        let encontrados: Vec<_> = diags.iter().filter(|d| d.message.starts_with(CLASS_INSTANTIATION_ACCESS_TO_INSTANCE_MEMBER.template)).collect();
-        assert_eq!(encontrados.len(), 1, "{acesso}: {diags:?}");
-        let d = encontrados[0];
+        let the_found: Vec<_> = diags.iter().filter(|d| d.message.starts_with(CLASS_INSTANTIATION_ACCESS_TO_INSTANCE_MEMBER.template)).collect();
+        assert_eq!(the_found.len(), 1, "{access}: {diags:?}");
+        let d = the_found[0];
         assert_eq!(d.message, format!("{}: 'i'", CLASS_INSTANTIATION_ACCESS_TO_INSTANCE_MEMBER.template));
-        assert_eq!(&fonte[d.span.start as usize..d.span.end as usize], acesso);
+        assert_eq!(&source[d.span.start as usize..d.span.end as usize], access);
     }
 }
 
 #[test]
-fn membro_estatico_ou_desconhecido_em_instanciacao_explicita() {
+fn static_or_unknown_member_in_explicit_instantiation() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let main_dart = tmp.path().join("main.dart");
-    for (fonte, codigo, argumento) in [
+    for (source, code, argument) in [
         (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/class_instantiation_access_to_member/ClassInstantiationAccessToMember__staticMember.dart")), CLASS_INSTANTIATION_ACCESS_TO_STATIC_MEMBER, "'i'"),
         (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/class_instantiation_access_to_member/ClassInstantiationAccessToMember__staticSetter.dart")), CLASS_INSTANTIATION_ACCESS_TO_STATIC_MEMBER, "'i'"),
         (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/class_instantiation_access_to_member/ClassInstantiationAccessToMember__exten_0fa28792.dart")), CLASS_INSTANTIATION_ACCESS_TO_UNKNOWN_MEMBER, "'A', 'i'"),
     ] {
         let mut interner = Interner::new();
-        fs::write(&main_dart, fonte).unwrap();
+        fs::write(&main_dart, source).unwrap();
         let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
         let mut table = TypeTable::new();
         let core = CoreTypes::init(&mut table, &prog, &interner);
         let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
         let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
-        let encontrados: Vec<_> = diags.iter().filter(|d| d.message.starts_with(codigo.template)).collect();
-        assert_eq!(encontrados.len(), 1, "{diags:?}");
-        let d = encontrados[0];
-        assert_eq!(d.message, format!("{}: {argumento}", codigo.template));
-        assert_eq!(&fonte[d.span.start as usize..d.span.end as usize], "A<int>.i");
+        let the_found: Vec<_> = diags.iter().filter(|d| d.message.starts_with(code.template)).collect();
+        assert_eq!(the_found.len(), 1, "{diags:?}");
+        let d = the_found[0];
+        assert_eq!(d.message, format!("{}: {argument}", code.template));
+        assert_eq!(&source[d.span.start as usize..d.span.end as usize], "A<int>.i");
     }
 }
 
 #[test]
-fn sobreposicao_explicita_sem_metodo_usa_codigo_de_extensao() {
+fn explicit_override_without_method_uses_extension_code() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
     let main_dart = tmp.path().join("main.dart");
-    let fonte = "library test; import 'dart:core'; extension E on String {} void f() { E('a').m(); }";
-    fs::write(&main_dart, fonte).unwrap();
+    let source = "library test; import 'dart:core'; extension E on String {} void f() { E('a').m(); }";
+    fs::write(&main_dart, source).unwrap();
     let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
 
-    let ausentes: Vec<_> = diags.iter().filter(|d| d.message.starts_with(UNDEFINED_EXTENSION_METHOD.template)).collect();
-    assert_eq!(ausentes.len(), 1, "{diags:?}");
-    assert_eq!(&fonte[ausentes[0].span.start as usize..ausentes[0].span.end as usize], "m");
-    assert!(ausentes[0].message.contains("'m' em 'E'"));
+    let the_missing: Vec<_> = diags.iter().filter(|d| d.message.starts_with(UNDEFINED_EXTENSION_METHOD.template)).collect();
+    assert_eq!(the_missing.len(), 1, "{diags:?}");
+    assert_eq!(&source[the_missing[0].span.start as usize..the_missing[0].span.end as usize], "m");
+    assert!(the_missing[0].message.contains("'m' em 'E'"));
 }
 
 #[test]
-fn metodo_estatico_ausente_em_extensao_do_oraculo() {
+fn missing_static_method_in_extension_per_oracle() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let main_dart = tmp.path().join("main.dart");
-    for (fonte, offset) in [
+    for (source, offset) in [
         (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_method/UndefinedExtensionMethod__static_withInference.dart")), 35),
         (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_method/UndefinedExtensionMethod__static_withou_709c4429.dart")), 40),
     ] {
         let mut interner = Interner::new();
-        fs::write(&main_dart, fonte).unwrap();
+        fs::write(&main_dart, source).unwrap();
         let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
         let mut table = TypeTable::new();
         let core = CoreTypes::init(&mut table, &prog, &interner);
         let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
         let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
 
-        let ausentes: Vec<_> = diags.iter().filter(|d| d.message.starts_with(UNDEFINED_EXTENSION_METHOD.template)).collect();
-        assert_eq!(ausentes.len(), 1, "{diags:?}");
-        assert_eq!((ausentes[0].span.start, ausentes[0].span.end), (offset, offset + 1));
-        assert!(ausentes[0].message.contains("'m' em 'E'"));
+        let the_missing: Vec<_> = diags.iter().filter(|d| d.message.starts_with(UNDEFINED_EXTENSION_METHOD.template)).collect();
+        assert_eq!(the_missing.len(), 1, "{diags:?}");
+        assert_eq!((the_missing[0].span.start, the_missing[0].span.end), (offset, offset + 1));
+        assert!(the_missing[0].message.contains("'m' em 'E'"));
     }
 }
 
 #[test]
-fn sobreposicao_explicita_de_extensao_rejeita_membros_estaticos() {
+fn explicit_extension_override_rejects_static_members() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
     let main_dart = tmp.path().join("main.dart");
-    let fonte = "library test; import 'dart:core'; extension E on String { static String get empty => ''; static void set empty(String s) {} } void f() { E('a').empty; E('a').empty = 'b'; E('a').empty += 'b'; }";
-    fs::write(&main_dart, fonte).unwrap();
+    let source = "library test; import 'dart:core'; extension E on String { static String get empty => ''; static void set empty(String s) {} } void f() { E('a').empty; E('a').empty = 'b'; E('a').empty += 'b'; }";
+    fs::write(&main_dart, source).unwrap();
     let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
 
-    let estaticos: Vec<_> = diags.iter().filter(|d| d.message == EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER.template).collect();
-    assert_eq!(estaticos.len(), 3, "{diags:?}");
-    for d in estaticos {
-        assert_eq!(&fonte[d.span.start as usize..d.span.end as usize], "empty", "{diags:?}");
+    let statics: Vec<_> = diags.iter().filter(|d| d.message == EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER.template).collect();
+    assert_eq!(statics.len(), 3, "{diags:?}");
+    for d in statics {
+        assert_eq!(&source[d.span.start as usize..d.span.end as usize], "empty", "{diags:?}");
     }
     assert!(!diags.iter().any(|d| d.message.starts_with(UNDEFINED_EXTENSION_SETTER.template)), "{diags:?}");
 }
 
 #[test]
-fn metodo_estatico_em_sobreposicao_de_extensao() {
+fn static_method_in_extension_override() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
     let main_dart = tmp.path().join("main.dart");
-    let fonte = "library test; import 'dart:core'; extension E on String { static String empty() => ''; String instance() => ''; } void f() { E('a').empty(); E('a').instance(); }";
-    fs::write(&main_dart, fonte).unwrap();
+    let source = "library test; import 'dart:core'; extension E on String { static String empty() => ''; String instance() => ''; } void f() { E('a').empty(); E('a').instance(); }";
+    fs::write(&main_dart, source).unwrap();
     let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
 
-    let estaticos: Vec<_> = diags.iter().filter(|d| d.message == EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER.template).collect();
-    assert_eq!(estaticos.len(), 1, "{diags:?}");
+    let statics: Vec<_> = diags.iter().filter(|d| d.message == EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER.template).collect();
+    assert_eq!(statics.len(), 1, "{diags:?}");
     assert_eq!(diags.len(), 1, "{diags:?}");
-    assert_eq!(&fonte[estaticos[0].span.start as usize..estaticos[0].span.end as usize], "empty");
+    assert_eq!(&source[statics[0].span.start as usize..statics[0].span.end as usize], "empty");
     assert!(!diags.iter().any(|d| d.message.contains("instance")), "{diags:?}");
 }
 
 #[test]
-fn call_estatico_em_sobreposicao_de_extensao() {
+fn static_call_in_extension_override() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
     let main_dart = tmp.path().join("main.dart");
-    let fonte = "library test; import 'dart:core'; extension E on int { static void call() {} } void f() { E(0)(); }";
-    fs::write(&main_dart, fonte).unwrap();
+    let source = "library test; import 'dart:core'; extension E on int { static void call() {} } void f() { E(0)(); }";
+    fs::write(&main_dart, source).unwrap();
     let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
 
-    let estaticos: Vec<_> = diags.iter().filter(|d| d.message == EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER.template).collect();
-    assert_eq!(estaticos.len(), 1, "{diags:?}");
+    let statics: Vec<_> = diags.iter().filter(|d| d.message == EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER.template).collect();
+    assert_eq!(statics.len(), 1, "{diags:?}");
     assert_eq!(diags.len(), 1, "{diags:?}");
-    assert_eq!(&fonte[estaticos[0].span.start as usize..estaticos[0].span.end as usize], "()");
+    assert_eq!(&source[statics[0].span.start as usize..statics[0].span.end as usize], "()");
 
-    let fonte_instancia = "library test; import 'dart:core'; extension F on int { void call() {} } void g() { F(0)(); }";
-    fs::write(&main_dart, fonte_instancia).unwrap();
+    let instance_source = "library test; import 'dart:core'; extension F on int { void call() {} } void g() { F(0)(); }";
+    fs::write(&main_dart, instance_source).unwrap();
     let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
@@ -885,87 +885,87 @@ fn call_estatico_em_sobreposicao_de_extensao() {
 }
 
 #[test]
-fn override_sem_call_do_oraculo() {
+fn override_without_call_per_oracle() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
     let main_dart = tmp.path().join("main.dart");
-    let fonte = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/invocation_of_extension_without_call/InvocationOfExtensionWithoutCall__insta_ae18bfa4.dart"));
-    fs::write(&main_dart, fonte).unwrap();
+    let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/invocation_of_extension_without_call/InvocationOfExtensionWithoutCall__insta_ae18bfa4.dart"));
+    fs::write(&main_dart, source).unwrap();
     let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
-    let ausentes: Vec<_> = diags.iter().filter(|d| d.message.starts_with(INVOCATION_OF_EXTENSION_WITHOUT_CALL.template)).collect();
-    assert_eq!(ausentes.len(), 1, "{diags:?}");
-    assert_eq!(&fonte[ausentes[0].span.start as usize..ausentes[0].span.end as usize], "E(0)");
+    let the_missing: Vec<_> = diags.iter().filter(|d| d.message.starts_with(INVOCATION_OF_EXTENSION_WITHOUT_CALL.template)).collect();
+    assert_eq!(the_missing.len(), 1, "{diags:?}");
+    assert_eq!(&source[the_missing[0].span.start as usize..the_missing[0].span.end as usize], "E(0)");
 }
 
 #[test]
-fn operador_unario_em_override_do_oraculo() {
+fn unary_operator_in_override_per_oracle() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let main_dart = tmp.path().join("main.dart");
-    for (fonte, ausente) in [
+    for (source, missing_) in [
         (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_operator/UndefinedExtensionOperator__prefix_minu_99f91916.dart")), true),
         (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_operator/UndefinedExtensionOperator__prefix_minus_defined.dart")), false),
     ] {
         let mut interner = Interner::new();
-        fs::write(&main_dart, fonte).unwrap();
+        fs::write(&main_dart, source).unwrap();
         let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
         let mut table = TypeTable::new();
         let core = CoreTypes::init(&mut table, &prog, &interner);
         let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
         let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
-        let operadores: Vec<_> = diags.iter().filter(|d| d.message.starts_with(UNDEFINED_EXTENSION_OPERATOR.template)).collect();
-        assert_eq!(operadores.len(), usize::from(ausente), "{diags:?}");
-        if ausente {
-            assert_eq!((operadores[0].span.start, operadores[0].span.end), (33, 34));
-            assert!(operadores[0].message.contains("'unary-' em 'E'"));
+        let operators: Vec<_> = diags.iter().filter(|d| d.message.starts_with(UNDEFINED_EXTENSION_OPERATOR.template)).collect();
+        assert_eq!(operators.len(), usize::from(missing_), "{diags:?}");
+        if missing_ {
+            assert_eq!((operators[0].span.start, operators[0].span.end), (33, 34));
+            assert!(operators[0].message.contains("'unary-' em 'E'"));
         }
     }
 }
 
 #[test]
-fn operador_binario_em_override_do_oraculo() {
+fn binary_operator_in_override_per_oracle() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let main_dart = tmp.path().join("main.dart");
-    for (fonte, ausente) in [
+    for (source, missing_) in [
         (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_operator/UndefinedExtensionOperator__binary_undefined.dart")), true),
         (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_operator/UndefinedExtensionOperator__binary_defined.dart")), false),
     ] {
         let mut interner = Interner::new();
-        fs::write(&main_dart, fonte).unwrap();
+        fs::write(&main_dart, source).unwrap();
         let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
         let mut table = TypeTable::new();
         let core = CoreTypes::init(&mut table, &prog, &interner);
         let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
         let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
-        let operadores: Vec<_> = diags.iter().filter(|d| d.message.starts_with(UNDEFINED_EXTENSION_OPERATOR.template)).collect();
-        assert_eq!(operadores.len(), usize::from(ausente), "{diags:?}");
-        if ausente {
-            assert_eq!((operadores[0].span.start, operadores[0].span.end), (40, 41));
-            assert!(operadores[0].message.contains("'+' em 'E'"));
+        let operators: Vec<_> = diags.iter().filter(|d| d.message.starts_with(UNDEFINED_EXTENSION_OPERATOR.template)).collect();
+        assert_eq!(operators.len(), usize::from(missing_), "{diags:?}");
+        if missing_ {
+            assert_eq!((operators[0].span.start, operators[0].span.end), (40, 41));
+            assert!(operators[0].message.contains("'+' em 'E'"));
         }
     }
 
-    let fonte = "extension E on String {} void f() { E('a') /* + */ + 1; }";
+    let source = "extension E on String {} void f() { E('a') /* + */ + 1; }";
     let mut interner = Interner::new();
-    fs::write(&main_dart, fonte).unwrap();
+    fs::write(&main_dart, source).unwrap();
     let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
-    let operador = diags.iter().find(|d| d.message.starts_with(UNDEFINED_EXTENSION_OPERATOR.template)).expect("operador ausente");
-    assert_eq!(operador.span.start, fonte.rfind('+').unwrap());
+    let operator = diags.iter().find(|d| d.message.starts_with(UNDEFINED_EXTENSION_OPERATOR.template)).expect("operador ausente");
+    assert_eq!(operator.span.start, source.rfind('+').unwrap());
 }
 
 #[test]
-fn operadores_de_indice_em_override_do_oraculo() {
-    let casos: &[(&str, &[&str])] = &[
+fn index_operators_in_override_per_oracle() {
+    let cases: &[(&str, &[&str])] = &[
         (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_operator/UndefinedExtensionOperator__index_get_hasGetter.dart")), &[]),
         (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_operator/UndefinedExtensionOperator__index_get_hasNone.dart")), &["[]"]),
         (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/undefined_extension_operator/UndefinedExtensionOperator__index_get_hasSetter.dart")), &["[]"]),
@@ -980,174 +980,174 @@ fn operadores_de_indice_em_override_do_oraculo() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let main_dart = tmp.path().join("main.dart");
-    for (fonte, esperados) in casos {
+    for (source, the_expected) in cases {
         let mut interner = Interner::new();
-        fs::write(&main_dart, fonte).unwrap();
+        fs::write(&main_dart, source).unwrap();
         let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
         let mut table = TypeTable::new();
         let core = CoreTypes::init(&mut table, &prog, &interner);
         let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
         let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
-        let mut encontrados: Vec<_> = diags.iter()
+        let mut the_found: Vec<_> = diags.iter()
             .filter(|d| d.message.starts_with(UNDEFINED_EXTENSION_OPERATOR.template))
             .map(|d| {
-                let operador = if d.message.contains("'[]='") { "[]=" } else { "[]" };
-                (operador, d.span.start, d.span.end)
+                let operator = if d.message.contains("'[]='") { "[]=" } else { "[]" };
+                (operator, d.span.start, d.span.end)
             })
             .collect();
-        encontrados.sort();
-        let inicio = fonte.find("[0]").unwrap();
-        let mut esperado: Vec<_> = esperados.iter().map(|nome| (*nome, inicio, inicio + 3)).collect();
-        esperado.sort();
-        assert_eq!(encontrados, esperado, "{diags:?}");
+        the_found.sort();
+        let start = source.find("[0]").unwrap();
+        let mut expected: Vec<_> = the_expected.iter().map(|the_name| (*the_name, start, start + 3)).collect();
+        expected.sort();
+        assert_eq!(the_found, expected, "{diags:?}");
     }
-    let fonte = "class A {} extension E on A {} void f(A a) { E(a) /* [ */ [0]; }";
+    let source = "class A {} extension E on A {} void f(A a) { E(a) /* [ */ [0]; }";
     let mut interner = Interner::new();
-    fs::write(&main_dart, fonte).unwrap();
+    fs::write(&main_dart, source).unwrap();
     let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
-    let operador = diags.iter().find(|d| d.message.starts_with(UNDEFINED_EXTENSION_OPERATOR.template)).expect("operador ausente");
-    assert_eq!(operador.span.start, fonte.rfind("[0]").unwrap());
+    let operator = diags.iter().find(|d| d.message.starts_with(UNDEFINED_EXTENSION_OPERATOR.template)).expect("operador ausente");
+    assert_eq!(operator.span.start, source.rfind("[0]").unwrap());
 }
 
 #[test]
-fn campo_final_sem_setter_e_late_final_atribuivel() {
+fn final_field_without_setter_and_assignable_late_final() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
     let main_dart = tmp.path().join("main.dart");
-    let fonte = "library test; import 'dart:core'; class A { final int x = 0; late final int y; late final int z = 0; static final int s = 0; static const int c = 0; void f() { x = 0; x += 0; ++x; x++; s = 0; z = 1; c = 1; y = 1; } } void g(A a) { a.x = 0; a.x += 0; ++a.x; a.x++; a.z = 1; a.y = 1; }";
-    fs::write(&main_dart, fonte).unwrap();
+    let source = "library test; import 'dart:core'; class A { final int x = 0; late final int y; late final int z = 0; static final int s = 0; static const int c = 0; void f() { x = 0; x += 0; ++x; x++; s = 0; z = 1; c = 1; y = 1; } } void g(A a) { a.x = 0; a.x += 0; ++a.x; a.x++; a.z = 1; a.y = 1; }";
+    fs::write(&main_dart, source).unwrap();
     let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
 
-    let finais: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_FINAL.template)).collect();
-    assert_eq!(finais.len(), 11, "{diags:?}");
-    for d in finais {
-        let trecho = &fonte[d.span.start as usize..d.span.end as usize];
-        assert!(trecho == "x" || trecho == "s" || trecho == "z", "{diags:?}");
-        assert!(d.message.contains(&format!("'{trecho}'")), "{diags:?}");
+    let finals: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_FINAL.template)).collect();
+    assert_eq!(finals.len(), 11, "{diags:?}");
+    for d in finals {
+        let snippet = &source[d.span.start as usize..d.span.end as usize];
+        assert!(snippet == "x" || snippet == "s" || snippet == "z", "{diags:?}");
+        assert!(d.message.contains(&format!("'{snippet}'")), "{diags:?}");
     }
     let constantes: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_CONST.template)).collect();
     assert_eq!(constantes.len(), 1, "{diags:?}");
-    assert_eq!(&fonte[constantes[0].span.start as usize..constantes[0].span.end as usize], "c");
+    assert_eq!(&source[constantes[0].span.start as usize..constantes[0].span.end as usize], "c");
     assert!(!diags.iter().any(|d| d.message.contains("'y'")), "{diags:?}");
 }
 
 #[test]
-fn membros_estaticos_somente_leitura_em_atribuicoes() {
+fn read_only_static_members_in_assignments() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
     let main_dart = tmp.path().join("main.dart");
-    let fonte = "library test; import 'dart:core'; class A { static final int x = 0; static int get g => 0; static late final int l; static const int c = 0; } void f() { A.x = 0; A.x += 0; ++A.x; A.x++; A.g = 0; A.g += 0; ++A.g; A.g++; A.c = 1; A.l = 1; }";
-    fs::write(&main_dart, fonte).unwrap();
+    let source = "library test; import 'dart:core'; class A { static final int x = 0; static int get g => 0; static late final int l; static const int c = 0; } void f() { A.x = 0; A.x += 0; ++A.x; A.x++; A.g = 0; A.g += 0; ++A.g; A.g++; A.c = 1; A.l = 1; }";
+    fs::write(&main_dart, source).unwrap();
     let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
 
-    let finais: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_FINAL.template)).collect();
+    let finals: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_FINAL.template)).collect();
     let getters: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_FINAL_NO_SETTER.template)).collect();
     let constantes: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_CONST.template)).collect();
-    assert_eq!(finais.len(), 4, "{diags:?}");
+    assert_eq!(finals.len(), 4, "{diags:?}");
     assert_eq!(getters.len(), 4, "{diags:?}");
     assert_eq!(constantes.len(), 1, "{diags:?}");
-    for d in finais {
-        assert_eq!(&fonte[d.span.start as usize..d.span.end as usize], "x");
+    for d in finals {
+        assert_eq!(&source[d.span.start as usize..d.span.end as usize], "x");
     }
     for d in getters {
-        assert_eq!(&fonte[d.span.start as usize..d.span.end as usize], "g");
+        assert_eq!(&source[d.span.start as usize..d.span.end as usize], "g");
         assert!(d.message.contains("na classe 'A'"));
     }
-    assert_eq!(&fonte[constantes[0].span.start as usize..constantes[0].span.end as usize], "c");
+    assert_eq!(&source[constantes[0].span.start as usize..constantes[0].span.end as usize], "c");
     assert!(!diags.iter().any(|d| d.message.contains("'l'")), "{diags:?}");
 }
 
 #[test]
-fn getter_de_topo_sem_setter_e_par_com_setter() {
+fn top_level_getter_without_setter_and_pair_with_setter() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
     let main_dart = tmp.path().join("main.dart");
-    let fonte = "library test; import 'dart:core'; int get x => 0; int get y => 0; set y(int v) {} void f() { x = 0; x += 0; ++x; x++; y = 0; y += 0; ++y; y++; }";
-    fs::write(&main_dart, fonte).unwrap();
+    let source = "library test; import 'dart:core'; int get x => 0; int get y => 0; set y(int v) {} void f() { x = 0; x += 0; ++x; x++; y = 0; y += 0; ++y; y++; }";
+    fs::write(&main_dart, source).unwrap();
     let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
 
-    let finais: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_FINAL.template)).collect();
-    assert_eq!(finais.len(), 4, "{diags:?}");
-    for (d, alvo) in finais.iter().zip(["x = 0", "x += 0", "++x", "x++"]) {
-        let indice = fonte.find(alvo).unwrap() + alvo.find('x').unwrap();
-        assert_eq!(d.span.start as usize, indice, "{diags:?}");
-        assert_eq!(d.span.end as usize, indice + 1, "{diags:?}");
+    let finals: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_FINAL.template)).collect();
+    assert_eq!(finals.len(), 4, "{diags:?}");
+    for (d, target) in finals.iter().zip(["x = 0", "x += 0", "++x", "x++"]) {
+        let index = source.find(target).unwrap() + target.find('x').unwrap();
+        assert_eq!(d.span.start as usize, index, "{diags:?}");
+        assert_eq!(d.span.end as usize, index + 1, "{diags:?}");
         assert!(d.message.contains("'x'"), "{diags:?}");
     }
     assert!(!diags.iter().any(|d| d.message.contains("'y'")), "{diags:?}");
 }
 
 #[test]
-fn metodo_de_classe_nao_e_setter_mesmo_com_extensao() {
+fn class_method_is_not_setter_even_with_extension() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
     let main_dart = tmp.path().join("main.dart");
-    let fonte = "library test; import 'dart:core'; class A { void foo() {} int bar = 0; void g() { foo = 0; } } extension E on A { set foo(int v) {} } void f(A a) { a.foo = 0; a.foo += 1; a.foo++; ++a.foo; a.bar = 0; }";
-    fs::write(&main_dart, fonte).unwrap();
+    let source = "library test; import 'dart:core'; class A { void foo() {} int bar = 0; void g() { foo = 0; } } extension E on A { set foo(int v) {} } void f(A a) { a.foo = 0; a.foo += 1; a.foo++; ++a.foo; a.bar = 0; }";
+    fs::write(&main_dart, source).unwrap();
     let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
 
-    let metodos: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_METHOD.template)).collect();
-    assert_eq!(metodos.len(), 5, "{diags:?}");
-    for d in metodos {
-        assert_eq!(&fonte[d.span.start as usize..d.span.end as usize], "foo", "{diags:?}");
+    let methods: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_METHOD.template)).collect();
+    assert_eq!(methods.len(), 5, "{diags:?}");
+    for d in methods {
+        assert_eq!(&source[d.span.start as usize..d.span.end as usize], "foo", "{diags:?}");
     }
     assert!(!diags.iter().any(|d| d.message.contains("'bar'")), "{diags:?}");
 }
 
 #[test]
-fn late_final_de_topo_sem_inicializador_aceita_escrita() {
+fn top_level_late_final_without_initializer_accepts_write() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
     let main_dart = tmp.path().join("main.dart");
-    let fonte = "library test; import 'dart:core'; late final int x; late final int y = 0; void f() { x = 0; x += 0; ++x; x++; y = 0; y += 0; ++y; y++; }";
-    fs::write(&main_dart, fonte).unwrap();
+    let source = "library test; import 'dart:core'; late final int x; late final int y = 0; void f() { x = 0; x += 0; ++x; x++; y = 0; y += 0; ++y; y++; }";
+    fs::write(&main_dart, source).unwrap();
     let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
 
-    let finais: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_FINAL.template)).collect();
-    assert_eq!(finais.len(), 4, "{diags:?}");
-    for d in finais {
-        assert_eq!(&fonte[d.span.start as usize..d.span.end as usize], "y", "{diags:?}");
+    let finals: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_FINAL.template)).collect();
+    assert_eq!(finals.len(), 4, "{diags:?}");
+    for d in finals {
+        assert_eq!(&source[d.span.start as usize..d.span.end as usize], "y", "{diags:?}");
     }
     assert!(!diags.iter().any(|d| d.message.contains("'x'")), "{diags:?}");
 }
 
 #[test]
-fn atribuicao_a_final_local_marca_somente_o_identificador() {
+fn assignment_to_final_local_marks_only_identifier() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
     let main_dart = tmp.path().join("main.dart");
-    let fonte = "library teste; import 'dart:core'; void f() { final int x = 0; x = 1; x += 1; ++x; }";
-    fs::write(&main_dart, fonte).unwrap();
+    let source = "library teste; import 'dart:core'; void f() { final int x = 0; x = 1; x += 1; ++x; }";
+    fs::write(&main_dart, source).unwrap();
 
     let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
@@ -1155,258 +1155,258 @@ fn atribuicao_a_final_local_marca_somente_o_identificador() {
     let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
 
-    let achados: Vec<_> = diags.iter().filter(|d| d.message.contains(ASSIGNMENT_TO_FINAL_LOCAL.template)).collect();
-    assert_eq!(achados.len(), 3, "{diags:?}");
-    for d in achados {
-        assert_eq!(&fonte[d.span.start..d.span.end], "x", "{d:?}");
+    let findings: Vec<_> = diags.iter().filter(|d| d.message.contains(ASSIGNMENT_TO_FINAL_LOCAL.template)).collect();
+    assert_eq!(findings.len(), 3, "{diags:?}");
+    for d in findings {
+        assert_eq!(&source[d.span.start..d.span.end], "x", "{d:?}");
     }
 }
 
 #[test]
-fn const_local_e_final_de_topo_nao_sao_final_local() {
-    verificar_diagnostico("void f() { const x = 1; x = 2; }", ASSIGNMENT_TO_CONST);
-    verificar_diagnostico("final int x = 1; void f() { x = 2; }", ASSIGNMENT_TO_FINAL);
+fn const_local_and_top_level_final_are_not_final_local() {
+    verify_diagnostic("void f() { const x = 1; x = 2; }", ASSIGNMENT_TO_CONST);
+    verify_diagnostic("final int x = 1; void f() { x = 2; }", ASSIGNMENT_TO_FINAL);
 }
 
 #[test]
-fn negativos_do_analyzer_40_casos() {
+fn analyzer_negatives_40_cases() {
     // 1. ARGUMENT_TYPE_NOT_ASSIGNABLE: passa String para int
-    verificar_diagnostico(
+    verify_diagnostic(
         "void f(int x) {} void main() { f('str'); }",
         ARGUMENT_TYPE_NOT_ASSIGNABLE,
     );
 
     // 2. ARGUMENT_TYPE_NOT_ASSIGNABLE: passa Object para String
-    verificar_diagnostico(
+    verify_diagnostic(
         "void f(String s) {} void main(Object o) { f(o); }",
         ARGUMENT_TYPE_NOT_ASSIGNABLE,
     );
 
     // 3. ARGUMENT_TYPE_NOT_ASSIGNABLE: operador + de int recebe String
-    verificar_diagnostico(
+    verify_diagnostic(
         "void main() { int a = 1; var b = a + 'x'; }",
         ARGUMENT_TYPE_NOT_ASSIGNABLE,
     );
 
     // 4. RETURN_OF_INVALID_TYPE: retorna String de função int
-    verificar_diagnostico(
+    verify_diagnostic(
         "int f() { return 'not an int'; }",
         RETURN_OF_INVALID_TYPE,
     );
 
     // 5. RETURN_OF_INVALID_TYPE: retorna int de função String
-    verificar_diagnostico(
+    verify_diagnostic(
         "String f() { return 42; }",
         RETURN_OF_INVALID_TYPE,
     );
 
     // 6. ASSIGNMENT_TO_FINAL_LOCAL: reatribuição de variável final
-    verificar_diagnostico(
+    verify_diagnostic(
         "void main() { final int x = 1; x = 2; }",
         ASSIGNMENT_TO_FINAL_LOCAL,
     );
 
     // 7. ASSIGNMENT_TO_FINAL_LOCAL: reatribuição de final inferida
-    verificar_diagnostico(
+    verify_diagnostic(
         "void main() { final x = 'a'; x = 'b'; }",
         ASSIGNMENT_TO_FINAL_LOCAL,
     );
 
     // 8. ASSIGNMENT_TO_FINAL_LOCAL: reatribuição de parâmetro final
-    verificar_diagnostico(
+    verify_diagnostic(
         "void main(final int x) { x = 3; }",
         ASSIGNMENT_TO_FINAL_LOCAL,
     );
 
     // 9. UNDEFINED_GETTER: acesso a getter inexistente em int
-    verificar_diagnostico(
+    verify_diagnostic(
         "void main() { int x = 1; var y = x.propriedadeInexistente; }",
         UNDEFINED_GETTER,
     );
 
     // 10. UNDEFINED_GETTER: acesso a getter inexistente em String
-    verificar_diagnostico(
+    verify_diagnostic(
         "void main() { String s = 'a'; var y = s.foo; }",
         UNDEFINED_GETTER,
     );
 
     // 11. UNDEFINED_METHOD: chamada a método inexistente em int
-    verificar_diagnostico(
+    verify_diagnostic(
         "void main() { int x = 1; x.metodoInexistente(); }",
         UNDEFINED_METHOD,
     );
 
     // 12. UNDEFINED_METHOD: chamada a método inexistente em String
-    verificar_diagnostico(
+    verify_diagnostic(
         "void main() { String s = 'hello'; s.bar(); }",
         UNDEFINED_METHOD,
     );
 
     // 13. UNDEFINED_SETTER: atribuição a setter inexistente em int
-    verificar_diagnostico(
+    verify_diagnostic(
         "void main() { int x = 1; x.setterInexistente = 2; }",
         UNDEFINED_SETTER,
     );
 
     // 14. UNDEFINED_IDENTIFIER: variável não declarada
-    verificar_diagnostico(
+    verify_diagnostic(
         "void main() { var y = variavelTotalmenteInexistente; }",
         UNDEFINED_IDENTIFIER,
     );
 
     // 15. NOT_ENOUGH_POSITIONAL_ARGUMENTS: função esperando 2 argumentos recebe 1
-    verificar_diagnostico(
+    verify_diagnostic(
         "void f(int a, int b) {} void main() { f(1); }",
         NOT_ENOUGH_POSITIONAL_ARGUMENTS,
     );
 
     // 16. NOT_ENOUGH_POSITIONAL_ARGUMENTS: função esperando 1 argumento recebe 0
-    verificar_diagnostico(
+    verify_diagnostic(
         "void f(int a) {} void main() { f(); }",
         NOT_ENOUGH_POSITIONAL_ARGUMENTS,
     );
 
     // 17. EXTRA_POSITIONAL_ARGUMENTS: função sem argumentos recebe 1
-    verificar_diagnostico(
+    verify_diagnostic(
         "void f() {} void main() { f(1); }",
         EXTRA_POSITIONAL_ARGUMENTS,
     );
 
     // 18. EXTRA_POSITIONAL_ARGUMENTS: função de 1 argumento recebe 2
-    verificar_diagnostico(
+    verify_diagnostic(
         "void f(int a) {} void main() { f(1, 2); }",
         EXTRA_POSITIONAL_ARGUMENTS,
     );
 
     // 19. UNDEFINED_NAMED_PARAMETER: parâmetro nomeado inexistente passado
-    verificar_diagnostico(
+    verify_diagnostic(
         "void f({int? x}) {} void main() { f(nomeInexistente: 1); }",
         UNDEFINED_NAMED_PARAMETER,
     );
 
     // 20. UNDEFINED_NAMED_PARAMETER: função sem nomeados recebe nomeado
-    verificar_diagnostico(
+    verify_diagnostic(
         "void f(int a) {} void main() { f(1, foo: 2); }",
         UNDEFINED_NAMED_PARAMETER,
     );
 
     // 21. MISSING_REQUIRED_ARGUMENT: parâmetro nomeado required omitido
-    verificar_diagnostico(
+    verify_diagnostic(
         "void f({required int x}) {} void main() { f(); }",
         MISSING_REQUIRED_ARGUMENT,
     );
 
     // 22. DEFINITELY_UNASSIGNED: uso de local não inicializada
-    verificar_diagnostico(
+    verify_diagnostic(
         "void main() { int x; var y = x + 1; }",
         DEFINITELY_UNASSIGNED_VARIABLE,
     );
 
     // 23. DEFINITELY_UNASSIGNED: uso em if onde só um ramo atribui
-    verificar_diagnostico(
+    verify_diagnostic(
         "void main(bool c) { int x; if (c) { x = 1; } var y = x + 1; }",
         DEFINITELY_UNASSIGNED_VARIABLE,
     );
 
     // 24. REFERENCED_BEFORE_DECLARATION: variável local referenciada antes da linha
-    verificar_diagnostico(
+    verify_diagnostic(
         "void main() { print(x); int x = 10; } void print(Object o) {}",
         REFERENCED_BEFORE_DECLARATION,
     );
 
     // 25. NON_BOOL_CONDITION: condição de if é int
-    verificar_diagnostico(
+    verify_diagnostic(
         "void main() { if (42) {} }",
         NON_BOOL_CONDITION,
     );
 
     // 26. NON_BOOL_CONDITION: condição de while é String
-    verificar_diagnostico(
+    verify_diagnostic(
         "void main() { while ('loop') {} }",
         NON_BOOL_CONDITION,
     );
 
     // 27. NON_BOOL_CONDITION: condição de do-while é int
-    verificar_diagnostico(
+    verify_diagnostic(
         "void main() { do {} while (0); }",
         NON_BOOL_CONDITION,
     );
 
     // 28. NON_BOOL_CONDITION: operador ternário com condição int
-    verificar_diagnostico(
+    verify_diagnostic(
         "void main() { var x = 1 ? 'a' : 'b'; }",
         NON_BOOL_CONDITION,
     );
 
     // 29. INVALID_ASSIGNMENT: atribuição de String para variável int
-    verificar_diagnostico(
+    verify_diagnostic(
         "void main() { int x = 1; x = 'nao int'; }",
         INVALID_ASSIGNMENT,
     );
 
     // 30. INVALID_ASSIGNMENT: atribuição de Object para variável int
-    verificar_diagnostico(
+    verify_diagnostic(
         "void main(Object o) { int x = 1; x = o; }",
         INVALID_ASSIGNMENT,
     );
 
     // 31. EQUAL_ELEMENTS_IN_CONST_SET: conjunto const com chaves duplicadas
-    verificar_diagnostico(
+    verify_diagnostic(
         "void main() { const s = {1, 1}; }",
         EQUAL_ELEMENTS_IN_CONST_SET,
     );
 
     // 32. EQUAL_KEYS_IN_CONST_MAP: mapa const com chaves repetidas
-    verificar_diagnostico(
+    verify_diagnostic(
         "void main() { const m = {'a': 1, 'a': 2}; }",
         EQUAL_KEYS_IN_CONST_MAP,
     );
 
     // 33. CONST_EVAL_THROWS_EXCEPTION: divisão por zero em const
-    verificar_diagnostico(
+    verify_diagnostic(
         "void main() { const x = 1 ~/ 0; }",
         CONST_EVAL_THROWS_EXCEPTION,
     );
 
     // 34. CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE: const com variável não-const
-    verificar_diagnostico(
+    verify_diagnostic(
         "void main() { var a = 1; const b = a; }",
         CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE,
     );
 
     // 35. UNNECESSARY_NON_NULL_ASSERTION: bang (!) em tipo garantidamente não-nulo
     // (o analyzer não usa `invalid_null_aware_operator` para o `!`).
-    verificar_diagnostico(
+    verify_diagnostic(
         "void main() { int x = 1; var y = x!; }",
         UNNECESSARY_NON_NULL_ASSERTION,
     );
 
     // 36. INVALID_NULL_AWARE_OPERATOR: ?. em int não-nulo
-    verificar_diagnostico(
+    verify_diagnostic(
         "void main() { int x = 1; var y = x?.toString(); }",
         INVALID_NULL_AWARE_OPERATOR,
     );
 
     // 37. UNNECESSARY_CAST: cast de int para int
-    verificar_diagnostico(
+    verify_diagnostic(
         "void main() { int x = 1; var y = x as int; }",
         UNNECESSARY_CAST,
     );
 
     // 38. UNNECESSARY_TYPE_CHECK_TRUE: teste is Object em int
-    verificar_diagnostico(
+    verify_diagnostic(
         "void main() { int x = 1; if (x is Object) {} }",
         UNNECESSARY_TYPE_CHECK_TRUE,
     );
 
     // 39. DEAD_CODE: código após return incondicional
-    verificar_diagnostico(
+    verify_diagnostic(
         "void main() { return; int x = 1; }",
         DEAD_CODE,
     );
 
     // 40. DEAD_CODE: código após throw incondicional
-    verificar_diagnostico(
+    verify_diagnostic(
         "void main() { throw 'erro'; int x = 1; }",
         DEAD_CODE,
     );
@@ -1418,7 +1418,7 @@ fn negativos_do_analyzer_40_casos() {
 
 #[test]
 #[ignore]
-fn corpos_do_sdk_tipam() {
+fn sdk_bodies_type_check() {
     let Some((_lib_dir, sdk)) = get_real_sdk() else {
         eprintln!("SDK 3.6.2 não disponível, pulando teste.");
         return;
@@ -1428,11 +1428,11 @@ fn corpos_do_sdk_tipam() {
     let entry = tmp.path().join("main.dart");
 
     let mut imports = String::new();
-    let mut bib_cont = 0;
+    let mut lib_count = 0;
     for (name, lib) in &sdk.libraries {
         if lib.supported && !name.starts_with('_') {
             imports.push_str(&format!("import 'dart:{name}';\n"));
-            bib_cont += 1;
+            lib_count += 1;
         }
     }
     imports.push_str("void main() {}\n");
@@ -1447,7 +1447,7 @@ fn corpos_do_sdk_tipam() {
 
     let t0 = std::time::Instant::now();
     let (body_types, body_diags) = infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
-    let tempo = t0.elapsed();
+    let time = t0.elapsed();
 
     let mut total_exprs = 0;
     let mut resolved_exprs = 0;
@@ -1457,7 +1457,7 @@ fn corpos_do_sdk_tipam() {
     }
 
     println!("============================================================");
-    println!(" Tipagem de Corpos do SDK Dart 3.6.2 ({bib_cont} bibliotecas)");
+    println!(" Tipagem de Corpos do SDK Dart 3.6.2 ({lib_count} bibliotecas)");
     println!("============================================================");
     println!("Unidades (.dart):               {}", program.units.len());
     println!("Expressões tipadas:             {}", total_exprs);
@@ -1466,7 +1466,7 @@ fn corpos_do_sdk_tipam() {
         (resolved_exprs as f64 / total_exprs as f64) * 100.0
     );
     println!("Tipos únicos em TypeTable:      {}", table.len());
-    println!("Tempo de inferência:            {:.2?}", tempo);
+    println!("Tempo de inferência:            {:.2?}", time);
     println!("Diagnósticos de Parser:         {}", elements_diags.len());
     println!("Diagnósticos de Outline:        {}", outline_diags.len());
     println!("Diagnósticos de Corpos:         {}", body_diags.len());
@@ -1484,7 +1484,7 @@ fn corpos_do_sdk_tipam() {
 
 #[test]
 #[ignore]
-fn corpus_pub_tipa() {
+fn pub_corpus_type_checks() {
     let Some((_lib_dir, sdk)) = get_real_sdk() else {
         eprintln!("SDK 3.6.2 não disponível, pulando teste.");
         return;
@@ -1532,7 +1532,7 @@ fn corpus_pub_tipa() {
 
 #[test]
 #[ignore]
-fn new_sali_tipa() {
+fn new_sali_type_checks() {
     let Some((_lib_dir, sdk)) = get_real_sdk() else {
         eprintln!("SDK 3.6.2 não disponível, pulando teste.");
         return;
@@ -1573,12 +1573,12 @@ fn new_sali_tipa() {
 }
 
 /// Diagnósticos de corpo de uma fonte sobre o SDK simulado.
-fn diagnosticos_de(fonte: &str) -> Vec<dartforge_diagnostics::Diagnostic> {
+fn diagnostics_of(source: &str) -> Vec<dartforge_diagnostics::Diagnostic> {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
     let main_dart = tmp.path().join("main.dart");
-    fs::write(&main_dart, fonte).unwrap();
+    fs::write(&main_dart, source).unwrap();
     let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
@@ -1587,32 +1587,32 @@ fn diagnosticos_de(fonte: &str) -> Vec<dartforge_diagnostics::Diagnostic> {
 }
 
 #[test]
-fn membro_herdado_usa_a_declaracao_mais_especifica() {
+fn inherited_member_uses_most_specific_declaration() {
     // `CompilationUnitElement implements UriReferencedElement implements
     // _ExistingElement implements Element`: o `library` não anulável de
     // `_ExistingElement` sobrescreve o anulável de `Element`, declarado antes.
-    let fonte = "library test; import 'dart:core';
+    let source = "library test; import 'dart:core';
         class Lib { int get n => 0; }
         abstract class Elem { Lib? get library; }
         abstract class Existe implements Elem { Lib get library; }
         abstract class Uri implements Existe {}
         abstract class Unit implements Uri, Elem {}
         int f(Unit u) => u.library.n;";
-    let diags = diagnosticos_de(fonte);
+    let diags = diagnostics_of(source);
     assert!(diags.is_empty(), "{diags:?}");
 }
 
 #[test]
-fn criacao_de_nome_que_nao_e_classe() {
-    let fonte = "library test; import 'dart:core'; class C<T> { m() => new T(); } void f() { new A(); const B.x(); }";
-    let diags = diagnosticos_de(fonte);
-    let criacoes: Vec<_> = diags
+fn creation_of_non_class_name() {
+    let source = "library test; import 'dart:core'; class C<T> { m() => new T(); } void f() { new A(); const B.x(); }";
+    let diags = diagnostics_of(source);
+    let creations: Vec<_> = diags
         .iter()
         .filter(|d| d.code.is_some_and(|c| c.info().nome == "creation_with_non_type"))
-        .map(|d| (&fonte[d.span.start..d.span.end], d.message.as_str()))
+        .map(|d| (&source[d.span.start..d.span.end], d.message.as_str()))
         .collect();
     assert_eq!(
-        criacoes,
+        creations,
         vec![
             ("T", "The name 'T' isn't a class."),
             ("A", "The name 'A' isn't a class."),
@@ -1623,7 +1623,7 @@ fn criacao_de_nome_que_nao_e_classe() {
 }
 
 #[test]
-fn extensoes_homonimas_importadas_continuam_aplicaveis() {
+fn imported_same_name_extensions_remain_applicable() {
     // `package:collection` e o analyzer declaram, cada um, uma
     // `IterableExtension`: o nome conflita, os membros continuam acessíveis.
     let tmp = tempdir().unwrap();
@@ -1646,10 +1646,10 @@ fn extensoes_homonimas_importadas_continuam_aplicaveis() {
 }
 
 #[test]
-fn casos_que_dividem_o_corpo_e_caso_irrefutavel_atribuem() {
+fn cases_sharing_body_and_irrefutable_case_assign() {
     // Variável de junção de `case`s que dividem o corpo (dart_style), e
     // `case _:` que torna inalcançável a saída sem casamento.
-    let fonte = "library test; import 'dart:core';
+    let source = "library test; import 'dart:core';
         class A { int? i; int? j; }
         int f(Object o) {
           switch (o) {
@@ -1669,15 +1669,15 @@ fn casos_que_dividem_o_corpo_e_caso_irrefutavel_atribuem() {
           }
           return x;
         }";
-    let diags = diagnosticos_de(fonte);
+    let diags = diagnostics_of(source);
     assert!(diags.is_empty(), "{diags:?}");
 }
 
 #[test]
-fn membro_estatico_por_instancia() {
-    let fonte = "library test; import 'dart:core'; class C { static void a() {} static int get g => 0; } void f(C c) { c.a(); c.g; }";
-    let diags = diagnosticos_de(fonte);
-    let v: Vec<_> = diags.iter().map(|d| (&fonte[d.span.start..d.span.end], d.message.as_str())).collect();
+fn static_member_through_instance() {
+    let source = "library test; import 'dart:core'; class C { static void a() {} static int get g => 0; } void f(C c) { c.a(); c.g; }";
+    let diags = diagnostics_of(source);
+    let v: Vec<_> = diags.iter().map(|d| (&source[d.span.start..d.span.end], d.message.as_str())).collect();
     assert_eq!(
         v,
         vec![
@@ -1689,10 +1689,10 @@ fn membro_estatico_por_instancia() {
 }
 
 #[test]
-fn criacao_por_alias_infere_argumento_aninhado_pelo_contexto() {
+fn creation_via_alias_infers_nested_argument_from_context() {
     // O contexto restringe o parâmetro do alias dentro de List<X>, tanto
     // na criação implícita quanto em new e no construtor nomeado.
-    let fonte = "library test; import 'dart:core';
+    let source = "library test; import 'dart:core';
         class C<X> { C(); C.nome(); }
         typedef D<X> = C<List<X>>;
         C<List<int>> implicita() => D();
@@ -1700,20 +1700,20 @@ fn criacao_por_alias_infere_argumento_aninhado_pelo_contexto() {
         C<List<int>> nomeada() => D.nome();
         C<List<int>> nomeadaExplicita() => new D.nome();
         C<List<String>> outroContexto() => D();";
-    let diags = diagnosticos_de(fonte);
+    let diags = diagnostics_of(source);
     assert!(diags.is_empty(), "{diags:?}");
 }
 
 #[test]
-fn criacao_por_alias_com_argumento_escrito_preserva_tipo_incompativel() {
+fn creation_via_alias_with_written_argument_keeps_incompatible_type() {
     // Argumentos escritos prevalecem sobre o contexto; inferir dynamic
     // esconderia a incompatibilidade que este caso precisa conservar.
-    let fonte = "library test; import 'dart:core';
+    let source = "library test; import 'dart:core';
         class C<X> { C(); C.nome(); }
         typedef D<X> = C<List<X>>;
         C<List<String>> f() => D<int>();
         C<List<String>> g() => D<int>.nome();";
-    let diags = diagnosticos_de(fonte);
+    let diags = diagnostics_of(source);
     assert_eq!(diags.len(), 2, "{diags:?}");
     for d in &diags {
         assert!(d.message.contains("C<List<int>>") && d.message.contains("C<List<String>>"), "{d:?}");
@@ -1721,10 +1721,10 @@ fn criacao_por_alias_com_argumento_escrito_preserva_tipo_incompativel() {
 }
 
 #[test]
-fn constante_em_case_e_promocao_no_lado_direito_de_se_nulo() {
+fn constant_in_case_and_promotion_on_rhs_of_if_null() {
     // `case _k:` lê a constante (não declara `_k` sem valor); `o ??= a!`
     // não promove `a` depois do comando (o lado direito pode não rodar).
-    let fonte = "library test; import 'dart:core';
+    let source = "library test; import 'dart:core';
         const _k = 1;
         int g(int t) {
           switch (t) {
@@ -1738,12 +1738,12 @@ fn constante_em_case_e_promocao_no_lado_direito_de_se_nulo() {
           o ??= a!;
           return a!;
         }";
-    let diags = diagnosticos_de(fonte);
+    let diags = diagnostics_of(source);
     assert!(diags.is_empty(), "{diags:?}");
 }
 
 #[test]
-fn argumentos_de_tipo_fora_dos_limites() {
+fn type_arguments_out_of_bounds() {
     // `C<Object>` e o alias `F<Object>` violam `X extends num`; `C<dynamic>`
     // é super-bounded (o invertido `C<Never>` cabe); `C<int>` cabe; o
     // `extends` não aceita super-bounded. O limite do parâmetro do typedef
@@ -1752,19 +1752,19 @@ fn argumentos_de_tipo_fora_dos_limites() {
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
     let main_dart = tmp.path().join("main.dart");
-    let fonte = "library test; import 'dart:core';
+    let source = "library test; import 'dart:core';
         class C<X extends num> {}
         typedef F<X extends num> = X Function();
         class D extends C<dynamic> {}
         void f() { C<Object> a; F<Object> b; C<int> c; C<dynamic> d; }";
-    fs::write(&main_dart, fonte).unwrap();
+    fs::write(&main_dart, source).unwrap();
     let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let unit = prog.library(prog.entry.unwrap()).units[0];
     let diags = dartforge_types::limites::argumentos_fora_dos_limites(&prog, &interner, &mut table, &core, &outline, None, unit);
-    let v: Vec<(&str, &str)> = diags.iter().map(|d| (&fonte[d.span.start..d.span.end], d.message.as_str())).collect();
+    let v: Vec<(&str, &str)> = diags.iter().map(|d| (&source[d.span.start..d.span.end], d.message.as_str())).collect();
     assert_eq!(
         v,
         vec![
@@ -1777,12 +1777,12 @@ fn argumentos_de_tipo_fora_dos_limites() {
 }
 
 #[test]
-fn uso_de_resultado_void() {
+fn void_result_use() {
     // Argumento, inicializador e condição com valor `void`: o analyzer relata
     // `use_of_void_result` (no nome, numa invocação de função), não
     // `argument_type_not_assignable`/`invalid_assignment`. `void v = f();`
     // e `f();` como comando são permitidos.
-    let fonte = "library test; import 'dart:core';
+    let source = "library test; import 'dart:core';
         void f() {}
         void g(Object? o) {}
         void h(void x) {
@@ -1792,10 +1792,10 @@ fn uso_de_resultado_void() {
           f();
           if (x) {}
         }";
-    let diags = diagnosticos_de(fonte);
+    let diags = diagnostics_of(source);
     let v: Vec<(&str, &str)> = diags
         .iter()
-        .map(|d| (&fonte[d.span.start..d.span.end], d.code.map_or("", |c| c.info().nome)))
+        .map(|d| (&source[d.span.start..d.span.end], d.code.map_or("", |c| c.info().nome)))
         .collect();
     assert_eq!(
         v,
@@ -1811,40 +1811,40 @@ fn uso_de_resultado_void() {
 
 /// `(trecho, tipo)` de cada expressão de `fonte`, na ordem do código (com o
 /// SDK real; `None` sem ele). Os tipos saem como no despejo do corpus.
-fn tipos_com_sdk(fonte: &str) -> Option<Vec<(String, String)>> {
+fn types_with_sdk(source: &str) -> Option<Vec<(String, String)>> {
     let (_, sdk) = get_real_sdk()?;
     let tmp = tempdir().unwrap();
     let main = tmp.path().join("main.dart");
-    fs::write(&main, fonte).unwrap();
-    let linhas = std::thread::Builder::new()
+    fs::write(&main, source).unwrap();
+    let lines = std::thread::Builder::new()
         .stack_size(1 << 28)
         .spawn(move || {
-            let d = dartforge_types::despejo::despejar(&main, &sdk, None);
+            let d = dartforge_types::despejo::dump(&main, &sdk, None);
             d.unidades.into_iter().next().expect("unidade despejada").linhas
         })
         .unwrap()
         .join()
         .unwrap();
     // Fonte ASCII: offsets UTF-16 = offsets em bytes.
-    Some(linhas.into_iter().map(|l| (fonte[l.offset..l.offset + l.comprimento].to_string(), l.tipo)).collect())
+    Some(lines.into_iter().map(|l| (source[l.offset..l.offset + l.comprimento].to_string(), l.tipo)).collect())
 }
 
 /// Tipo da `n`-ésima (a partir de 0) expressão cujo texto é `trecho`.
-fn tipo_de<'a>(tipos: &'a [(String, String)], trecho: &str, n: usize) -> &'a str {
-    tipos
+fn tipo_de<'a>(types: &'a [(String, String)], snippet: &str, n: usize) -> &'a str {
+    types
         .iter()
-        .filter(|(t, _)| t == trecho)
+        .filter(|(t, _)| t == snippet)
         .nth(n)
         .map(|(_, ty)| ty.as_str())
-        .unwrap_or_else(|| panic!("expressão `{trecho}` #{n} não encontrada em {tipos:?}"))
+        .unwrap_or_else(|| panic!("expressão `{snippet}` #{n} não encontrada em {types:?}"))
 }
 
 #[test]
-fn sobrescrita_herda_o_tipo_inferido_de_campo_sem_tipo() {
+fn override_inherits_inferred_type_of_untyped_field() {
     // Override inference sobre campo sem tipo escrito: o tipo do campo só
     // existe depois da inferência do inicializador, e o getter e o setter
     // sobrescritores o herdam (também como contexto do corpo).
-    let Some(t) = tipos_com_sdk(
+    let Some(t) = types_with_sdk(
         "class A { var lista = [1.5]; var n = 1; }
 class B extends A {
   @override get lista => [];
@@ -1860,10 +1860,10 @@ void f(B b) { print(b.lista); }",
 }
 
 #[test]
-fn instanciacao_para_os_limites_segue_as_dependencias_e_limite_escrito() {
+fn instantiation_to_bounds_follows_dependencies_and_written_bound() {
     // `A<T extends U, U extends num>` cru é `A<num, num>`; `Object?` escrito
     // é limite (não o implícito, que vira `dynamic`) e aparece na exibição.
-    let Some(t) = tipos_com_sdk(
+    let Some(t) = types_with_sdk(
         "class A<T extends U, U extends num> {}
 class O<T extends Object?> {}
 class P<T> {}
@@ -1879,10 +1879,10 @@ void f() { A a = A(); var o = O(); var p = P(); print([a, o, p, g]); }",
 }
 
 #[test]
-fn inferencia_horizontal_segue_as_dependencias_entre_closures() {
+fn horizontal_inference_follows_dependencies_between_closures() {
     // `c` fixa T; `b` depende de T e fixa U; `a` depende de U: a ordem é
     // c, b, a, não a do texto.
-    let Some(t) = tipos_com_sdk(
+    let Some(t) = types_with_sdk(
         "V h<T, U, V>(V Function(U) a, U Function(T) b, T c) => a(b(c));
 void f() { var r = h((u) => u.isEven, (t) => t * 2, 1); print(r); }",
     ) else {
@@ -1894,10 +1894,10 @@ void f() { var r = h((u) => u.isEven, (t) => t * 2, 1); print(r); }",
 }
 
 #[test]
-fn gerador_sem_yield_e_return_vazio_como_no_analyzer_3_6_2() {
+fn generator_without_yield_and_empty_return_like_analyzer_3_6_2() {
     // Gerador sem `yield` nem `return`: elemento `dynamic`; `return;` num
     // gerador contribui `Null` (regra da 3.6.2, anterior à mudança de 2024-12).
-    let Some(t) = tipos_com_sdk(
+    let Some(t) = types_with_sdk(
         "void f() {
   var c = () sync* {};
   var d = () sync* { yield 1; return; };
@@ -1913,11 +1913,11 @@ fn gerador_sem_yield_e_return_vazio_como_no_analyzer_3_6_2() {
 }
 
 #[test]
-fn se_nulo_com_lado_direito_que_nao_completa_promove_o_esquerdo() {
+fn if_null_with_non_completing_rhs_promotes_lhs() {
     // `y ?? (throw 0)`: no ramo em que `y` não é nulo ele é promovido; o
     // outro não completa, então `y` segue promovido depois. Com lado direito
     // que completa, nada se promove.
-    let Some(t) = tipos_com_sdk(
+    let Some(t) = types_with_sdk(
         "void f(int? y, int? w) {
   var z = y ?? (throw 0);
   print([z, y]);
@@ -1933,10 +1933,10 @@ fn se_nulo_com_lado_direito_que_nao_completa_promove_o_esquerdo() {
 }
 
 #[test]
-fn finally_que_completa_leva_as_promocoes_para_depois_do_try() {
+fn completing_finally_carries_promotions_past_try() {
     // `attachFinally`: as promoções do `finally` valem depois do `try`, e o
     // que o `finally` escreve fica com o estado dele.
-    let Some(t) = tipos_com_sdk(
+    let Some(t) = types_with_sdk(
         "void f(Object o, int? x) {
   try { print(0); } finally { o as int; }
   print(o);
@@ -1951,10 +1951,10 @@ fn finally_que_completa_leva_as_promocoes_para_depois_do_try() {
 }
 
 #[test]
-fn membro_de_interfaces_diferentes_usa_a_assinatura_mais_especifica() {
+fn member_from_different_interfaces_uses_most_specific_signature() {
     // Combined member signature: entre `num get v` (I1) e `int get v` (I2),
     // vale a de tipo subtipo de todas as outras, não a primeira na busca.
-    let Some(t) = tipos_com_sdk(
+    let Some(t) = types_with_sdk(
         "abstract class I1 { num get v; }
 abstract class I2 { int get v; }
 abstract class J implements I1, I2 {}
@@ -1968,11 +1968,11 @@ void f(J j, K k) { print([j.v, k.v]); }",
 }
 
 #[test]
-fn acesso_a_propriedade_de_receptor_never() {
+fn property_access_on_never_receiver() {
     // analyzer 3.6.2: `id.x` (PrefixedIdentifier) com `id: Never` é `Never`;
     // `falha().x` (PropertyAccess) busca só em `Object`: membro de `Object`
     // tem o seu tipo, outro nome fica com o tipo de recuperação `InvalidType`.
-    let Some(t) = tipos_com_sdk(
+    let Some(t) = types_with_sdk(
         "Never falha() => throw 0;
 void f(bool b, Never n) {
   if (b) print(falha().x);
@@ -1993,32 +1993,32 @@ void f(bool b, Never n) {
 /// (`if (false) { … }`, corpo de `while (false)`), e as atualizações do
 /// `for` cujo corpo é inalcançável. Conferido com o `dart analyze` 3.6.2.
 #[test]
-fn trechos_de_codigo_morto_como_o_analyzer() {
+fn dead_code_snippets_like_analyzer() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
-    let proj_dir = tmp.path().join("proj");
-    fs::create_dir_all(&proj_dir).unwrap();
-    let main_dart = proj_dir.join("main.dart");
-    let codigo = "void h() { for (int i = 0; false; i++) { print(i); } print(2); }\n\
+    let the_proj_dir = tmp.path().join("proj");
+    fs::create_dir_all(&the_proj_dir).unwrap();
+    let main_dart = the_proj_dir.join("main.dart");
+    let code = "void h() { for (int i = 0; false; i++) { print(i); } print(2); }\n\
         void k() { return; print(1); if (true) { print(2); } }\n\
         class A { A() { return; print(3); } }\n\
         void m(bool b) { if (false) { print(4); } else { print(5); } while (false) {} }\n\
         void print(Object? o) {}\n";
-    let fonte = format!("library test_neg;\nimport 'dart:core';\n{codigo}");
-    fs::write(&main_dart, &fonte).unwrap();
+    let source = format!("library test_neg;\nimport 'dart:core';\n{code}");
+    fs::write(&main_dart, &source).unwrap();
     let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
-    let mut trechos: Vec<&str> = diags
+    let mut snippets: Vec<&str> = diags
         .iter()
         .filter(|d| d.message.contains(DEAD_CODE.template) || d.code.is_some_and(|c| c.info().nome == "dead_code"))
-        .map(|d| &fonte[d.span.start..d.span.end])
+        .map(|d| &source[d.span.start..d.span.end])
         .collect();
-    trechos.sort();
-    let mut esperado = vec![
+    snippets.sort();
+    let mut expected = vec![
         "i++",
         "{ print(i); }",
         "print(1); if (true) { print(2); }",
@@ -2026,8 +2026,8 @@ fn trechos_de_codigo_morto_como_o_analyzer() {
         "{ print(4); }",
         "{}",
     ];
-    esperado.sort();
-    assert_eq!(trechos, esperado, "{diags:?}");
+    expected.sort();
+    assert_eq!(snippets, expected, "{diags:?}");
 }
 
 /// Assinatura omitida numa augmentation: os tipos vêm da declaração
@@ -2036,47 +2036,47 @@ fn trechos_de_codigo_morto_como_o_analyzer() {
 /// `dynamic` e nada seria relatado. (O CFE 3.13.4 não herda: compila e
 /// falha em execução — divergência registrada em docs/AUGMENTATIONS.md.)
 #[test]
-fn augmentation_herda_tipos_omitidos() {
+fn augmentation_inherits_omitted_types() {
     let tmp = tempdir().unwrap();
     let mut sdk = mock_sdk(tmp.path());
     sdk.experimentos.push(dartforge_frontend::features::Feature::Augmentations);
     sdk.experimentos.push(dartforge_frontend::features::Feature::EnhancedParts);
     let mut interner = Interner::new();
-    let proj = tmp.path().join("proj");
-    fs::create_dir_all(&proj).unwrap();
+    let the_proj = tmp.path().join("proj");
+    fs::create_dir_all(&the_proj).unwrap();
     let principal = "part 'p.dart';\n\
         class C {\n  String f(int x);\n  int get g;\n}\n\
         List<int> topo(int n);\n\
         void main() {\n  int a = C().f(3);\n  C().f('x');\n  String b = C().g;\n  String c = topo(1);\n}\n";
-    fs::write(proj.join("main.dart"), principal).unwrap();
+    fs::write(the_proj.join("main.dart"), principal).unwrap();
     fs::write(
-        proj.join("p.dart"),
+        the_proj.join("p.dart"),
         "part of 'main.dart';\naugment class C {\n  augment f(x) => 'v';\n  augment get g => 41;\n}\naugment topo(n) => <int>[];\n",
     )
     .unwrap();
-    let (prog, diags_carga) = load_lenient(&proj.join("main.dart"), &sdk, None, &mut interner);
-    assert!(diags_carga.iter().all(|d| !d.message.contains("augment")), "{diags_carga:?}");
+    let (prog, load_diags) = load_lenient(&the_proj.join("main.dart"), &sdk, None, &mut interner);
+    assert!(load_diags.iter().all(|d| !d.message.contains("augment")), "{load_diags:?}");
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
-    let trecho = |d: &dartforge_diagnostics::Diagnostic| principal.get(d.span.start..d.span.end).unwrap_or("").to_string();
+    let snippet = |d: &dartforge_diagnostics::Diagnostic| principal.get(d.span.start..d.span.end).unwrap_or("").to_string();
     // O código do analyzer, ou o molde de `types::codes` (a ponte da
     // paridade converte um no outro).
-    let codigo = |d: &dartforge_diagnostics::Diagnostic| match d.code.map(|c| c.info().nome) {
+    let code = |d: &dartforge_diagnostics::Diagnostic| match d.code.map(|c| c.info().nome) {
         Some(n) => n,
         None if d.message.starts_with(INVALID_ASSIGNMENT.template) => "invalid_assignment",
         None if d.message.starts_with(ARGUMENT_TYPE_NOT_ASSIGNABLE.template) => "argument_type_not_assignable",
         None => "",
     };
-    let mut achados: Vec<(String, String)> = diags
+    let mut findings: Vec<(String, String)> = diags
         .iter()
-        .filter(|d| matches!(codigo(d), "invalid_assignment" | "argument_type_not_assignable"))
-        .map(|d| (codigo(d).to_string(), trecho(d)))
+        .filter(|d| matches!(code(d), "invalid_assignment" | "argument_type_not_assignable"))
+        .map(|d| (code(d).to_string(), snippet(d)))
         .collect();
-    achados.sort();
+    findings.sort();
     assert_eq!(
-        achados,
+        findings,
         vec![
             ("argument_type_not_assignable".to_string(), "'x'".to_string()),
             ("invalid_assignment".to_string(), "C().f(3)".to_string()),
@@ -2094,48 +2094,48 @@ fn augmentation_herda_tipos_omitidos() {
 /// = Cor.azul.index` é `invalid_assignment`, como lá). O CFE 3.13.4 recusa
 /// augmentation de enum ("already declared"): sem oráculo de execução.
 #[test]
-fn augmentation_de_enum_acrescenta_valores_e_membros() {
+fn enum_augmentation_adds_values_and_members() {
     let tmp = tempdir().unwrap();
     let mut sdk = mock_sdk(tmp.path());
     sdk.experimentos.push(dartforge_frontend::features::Feature::Augmentations);
     sdk.experimentos.push(dartforge_frontend::features::Feature::EnhancedParts);
     let mut interner = Interner::new();
-    let proj = tmp.path().join("proj");
-    fs::create_dir_all(&proj).unwrap();
+    let the_proj = tmp.path().join("proj");
+    fs::create_dir_all(&the_proj).unwrap();
     let principal = "part 'p.dart';\n\
         enum Cor {\n  vermelho('v'),\n  verde('g');\n  const Cor(this.sigla);\n  final String sigla;\n}\n\
         void main() {\n  int n = Cor.values.length;\n  String m = Cor.azul.maiuscula;\n  Cor c = Cor.porSigla('g');\n  String s = Cor.azul.index;\n}\n";
-    fs::write(proj.join("main.dart"), principal).unwrap();
+    fs::write(the_proj.join("main.dart"), principal).unwrap();
     fs::write(
-        proj.join("p.dart"),
+        the_proj.join("p.dart"),
         "part of 'main.dart';\naugment enum Cor {\n  azul('b');\n  String get maiuscula => sigla;\n  static Cor porSigla(String s) => Cor.verde;\n}\n",
     )
     .unwrap();
-    let (prog, diags_carga) = load_lenient(&proj.join("main.dart"), &sdk, None, &mut interner);
-    assert!(diags_carga.iter().all(|d| !d.message.contains("augment")), "{diags_carga:?}");
+    let (prog, load_diags) = load_lenient(&the_proj.join("main.dart"), &sdk, None, &mut interner);
+    assert!(load_diags.iter().all(|d| !d.message.contains("augment")), "{load_diags:?}");
     let cor = prog.classes.iter().find(|c| interner.resolve(c.name) == "Cor").expect("Cor");
-    let valores: Vec<&str> = cor.enum_constants.iter().map(|v| interner.resolve(prog.variable(*v).name)).collect();
-    assert_eq!(valores, vec!["vermelho", "verde", "azul"]);
+    let values: Vec<&str> = cor.enum_constants.iter().map(|v| interner.resolve(prog.variable(*v).name)).collect();
+    assert_eq!(values, vec!["vermelho", "verde", "azul"]);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
-    let erros: Vec<String> = diags
+    let errors: Vec<String> = diags
         .iter()
         .filter(|d| d.severity == dartforge_diagnostics::Severidade::Error)
         .map(|d| format!("{} @ {}", d.message, principal.get(d.span.start..d.span.end).unwrap_or("?")))
         .collect();
-    assert_eq!(erros.len(), 1, "{erros:?}");
+    assert_eq!(errors.len(), 1, "{errors:?}");
     // `invalid_assignment` sai com o código e o texto do analyzer.
-    assert!(erros[0].starts_with("A value of type 'int' can't be assigned to a variable of type 'String'.") && erros[0].ends_with("@ Cor.azul.index"), "{erros:?}");
+    assert!(errors[0].starts_with("A value of type 'int' can't be assigned to a variable of type 'String'.") && errors[0].ends_with("@ Cor.azul.index"), "{errors:?}");
 }
 
 #[test]
-fn switch_sobre_sealed_anulavel_e_exaustivo() {
+fn switch_on_nullable_sealed_is_exhaustive() {
     // `isAlwaysExhaustive` ignora o `?`: `case var y?` e `case null` cobrem
     // `S?` de uma classe `sealed`, e `r` está atribuída depois do `switch`
     // (o `fieldType` do `ast_builder.dart` do analyzer 7.7.1).
-    let fonte = "library test; import 'dart:core';
+    let source = "library test; import 'dart:core';
         sealed class S {}
         class A extends S {}
         String f(S? x) {
@@ -2146,7 +2146,7 @@ fn switch_sobre_sealed_anulavel_e_exaustivo() {
           }
           return r;
         }";
-    let diags = diagnosticos_de(fonte);
+    let diags = diagnostics_of(source);
     assert!(
         !diags.iter().any(|d| d.message.contains("é lida antes de ser atribuída")),
         "{diags:?}"

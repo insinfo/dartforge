@@ -421,10 +421,10 @@ fn up_depth(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv, depth: u32) -> TypeId 
         return t1;
     }
     if let (Type::Record { positional: p0, named: nm0, .. }, Type::Record { positional: p1, named: nm1, .. }) = (&ty1, &ty2) {
-        let mesma_forma = p0.len() == p1.len()
+        let same_shape = p0.len() == p1.len()
             && nm0.len() == nm1.len()
             && nm0.iter().zip(nm1.iter()).all(|((a, _), (b, _))| a == b);
-        if !mesma_forma {
+        if !same_shape {
             return env.core.record;
         }
         let pos: Vec<TypeId> = p0.iter().zip(p1.iter()).map(|(a, b)| up_depth(*a, *b, env, depth + 1)).collect();
@@ -517,10 +517,10 @@ fn interface_lub(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv) -> TypeId {
         };
         let mut out = vec![t];
         if let Some(data) = env.hierarchy.get(class) {
-            let mapa: HashMap<TypeParamId, TypeId> = data.type_params.iter().copied().zip(args.iter().copied()).collect();
-            let lista = data.all_supertypes.clone();
-            for s in lista {
-                let si = crate::ops::substitute(s, &mapa, env.table);
+            let map: HashMap<TypeParamId, TypeId> = data.type_params.iter().copied().zip(args.iter().copied()).collect();
+            let list = data.all_supertypes.clone();
+            for s in list {
+                let si = crate::ops::substitute(s, &map, env.table);
                 // `Object` entra abaixo só se houver classe na cadeia (a
                 // hierarquia o põe também sobre tipo de extensão).
                 if si != env.core.object && matches!(env.table.get(si), Type::Interface { .. } | Type::ExtensionType { .. }) && !out.contains(&si) {
@@ -528,8 +528,8 @@ fn interface_lub(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv) -> TypeId {
                 }
             }
         }
-        let tem_classe = out.iter().any(|x| matches!(env.table.get(*x), Type::Interface { .. }));
-        if tem_classe && !out.contains(&env.core.object) {
+        let has_class = out.iter().any(|x| matches!(env.table.get(*x), Type::Interface { .. }));
+        if has_class && !out.contains(&env.core.object) {
             out.push(env.core.object);
         }
         if !out.contains(&env.core.object_nullable) {
@@ -539,9 +539,9 @@ fn interface_lub(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv) -> TypeId {
     };
     let s1 = supers(t1, env);
     let s2 = supers(t2, env);
-    let comuns: Vec<TypeId> = s1.into_iter().filter(|x| s2.contains(x)).collect();
-    let mut por_prof: HashMap<u32, Vec<TypeId>> = HashMap::new();
-    for c in comuns {
+    let common: Vec<TypeId> = s1.into_iter().filter(|x| s2.contains(x)).collect();
+    let mut by_depth: HashMap<u32, Vec<TypeId>> = HashMap::new();
+    for c in common {
         // Profundidade: `Object?` 0, `Object` 1, os demais a da hierarquia + 1
         // (tipo de extensão sem `implements` = 1, como no analyzer).
         let d = if c == env.core.object_nullable {
@@ -555,15 +555,15 @@ fn interface_lub(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv) -> TypeId {
                 _ => 0,
             }
         };
-        let v = por_prof.entry(d).or_default();
+        let v = by_depth.entry(d).or_default();
         if !v.contains(&c) {
             v.push(c);
         }
     }
-    let mut profs: Vec<u32> = por_prof.keys().copied().collect();
+    let mut profs: Vec<u32> = by_depth.keys().copied().collect();
     profs.sort_unstable_by(|a, b| b.cmp(a));
     for d in profs {
-        let v = &por_prof[&d];
+        let v = &by_depth[&d];
         if v.len() == 1 {
             return v[0];
         }
@@ -580,29 +580,29 @@ type FnParts<'x> = (
 );
 
 /// Renomeia os parâmetros de tipo de `b` para os de `a` (mesmos limites).
-fn alinhar_genericos(a: &[TypeParamId], b: &[TypeParamId], env: &mut SubtypeEnv) -> Option<HashMap<TypeParamId, TypeId>> {
+fn align_generics(a: &[TypeParamId], b: &[TypeParamId], env: &mut SubtypeEnv) -> Option<HashMap<TypeParamId, TypeId>> {
     if a.len() != b.len() {
         return None;
     }
-    let mut mapa = HashMap::new();
+    let mut map = HashMap::new();
     for (&pa, &pb) in a.iter().zip(b.iter()) {
         let ta = env.table.intern(Type::TypeParameter { param: pa, nullable: false });
-        mapa.insert(pb, ta);
+        map.insert(pb, ta);
     }
     for (&pa, &pb) in a.iter().zip(b.iter()) {
         let ba = env.table.param(pa).bound;
         let bb = env.table.param(pb).bound;
-        let bb = crate::ops::substitute(bb, &mapa, env.table);
+        let bb = crate::ops::substitute(bb, &map, env.table);
         if ba != bb {
             return None;
         }
     }
-    Some(mapa)
+    Some(map)
 }
 
 fn up_functions(f0: FnParts<'_>, f1: FnParts<'_>, env: &mut SubtypeEnv, depth: u32) -> Option<TypeId> {
-    let mapa = alinhar_genericos(f0.0, f1.0, env)?;
-    let s = |t: TypeId, env: &mut SubtypeEnv| crate::ops::substitute(t, &mapa, env.table);
+    let map = align_generics(f0.0, f1.0, env)?;
+    let s = |t: TypeId, env: &mut SubtypeEnv| crate::ops::substitute(t, &map, env.table);
     let r1 = s(f1.1, env);
     let p1: Vec<TypeId> = f1.2.iter().map(|t| s(*t, env)).collect();
     let o1: Vec<TypeId> = f1.3.iter().map(|t| s(*t, env)).collect();
@@ -657,8 +657,8 @@ fn up_functions(f0: FnParts<'_>, f1: FnParts<'_>, env: &mut SubtypeEnv, depth: u
 }
 
 fn down_functions(f0: FnParts<'_>, f1: FnParts<'_>, env: &mut SubtypeEnv, depth: u32) -> Option<TypeId> {
-    let mapa = alinhar_genericos(f0.0, f1.0, env)?;
-    let s = |t: TypeId, env: &mut SubtypeEnv| crate::ops::substitute(t, &mapa, env.table);
+    let map = align_generics(f0.0, f1.0, env)?;
+    let s = |t: TypeId, env: &mut SubtypeEnv| crate::ops::substitute(t, &map, env.table);
     let r1 = s(f1.1, env);
     let p1: Vec<TypeId> = f1.2.iter().map(|t| s(*t, env)).collect();
     let o1: Vec<TypeId> = f1.3.iter().map(|t| s(*t, env)).collect();
@@ -667,14 +667,14 @@ fn down_functions(f0: FnParts<'_>, f1: FnParts<'_>, env: &mut SubtypeEnv, depth:
     let ret = down_depth(f0.1, r1, env, depth + 1);
     if n0.is_empty() && n1.is_empty() {
         // Todos os posicionais (obrigatórios e opcionais) em sequência.
-        let todos0: Vec<TypeId> = p0.iter().chain(o0.iter()).copied().collect();
-        let todos1: Vec<TypeId> = p1.iter().chain(o1.iter()).copied().collect();
-        let q = todos0.len().max(todos1.len());
+        let all0: Vec<TypeId> = p0.iter().chain(o0.iter()).copied().collect();
+        let all1: Vec<TypeId> = p1.iter().chain(o1.iter()).copied().collect();
+        let q = all0.len().max(all1.len());
         let req = p0.len().min(p1.len());
         let mut pos = Vec::new();
         let mut opt = Vec::new();
         for i in 0..q {
-            let t = match (todos0.get(i), todos1.get(i)) {
+            let t = match (all0.get(i), all1.get(i)) {
                 (Some(a), Some(b)) => up_depth(*a, *b, env, depth + 1),
                 (Some(a), None) => *a,
                 (None, Some(b)) => *b,
@@ -807,10 +807,10 @@ fn down_depth(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv, depth: u32) -> TypeI
             .unwrap_or(env.core.never);
     }
     if let (Type::Record { positional: p0, named: nm0, .. }, Type::Record { positional: p1, named: nm1, .. }) = (&ty1, &ty2) {
-        let mesma_forma = p0.len() == p1.len()
+        let same_shape = p0.len() == p1.len()
             && nm0.len() == nm1.len()
             && nm0.iter().zip(nm1.iter()).all(|((a, _), (b, _))| a == b);
-        if !mesma_forma {
+        if !same_shape {
             return env.core.never;
         }
         let pos: Vec<TypeId> = p0.iter().zip(p1.iter()).map(|(a, b)| down_depth(*a, *b, env, depth + 1)).collect();

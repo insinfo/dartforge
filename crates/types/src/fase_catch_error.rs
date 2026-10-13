@@ -55,17 +55,17 @@ fn dentro(a: Span, b: Span) -> bool {
 
 /// `flatten`: `Future<Y>` e `FutureOr<Y>` dão `Y` (anulável com eles).
 fn achatar(table: &mut TypeTable, core: &CoreTypes, t: TypeId) -> TypeId {
-    let (y, anulavel) = match table.get(t) {
+    let (y, is_nullable) = match table.get(t) {
         Type::Interface { class, args, nullable } if Some(*class) == core.future_class && args.len() == 1 => (args[0], *nullable),
         Type::FutureOr { arg, nullable } => (*arg, *nullable),
         _ => return t,
     };
-    if anulavel { crate::ops::nullable(y, table) } else { y }
+    if is_nullable { crate::ops::nullable(y, table) } else { y }
 }
 
 /// A classe `nome` declarada na biblioteca `lib`.
-fn classe_de(program: &Program, interner: &Interner, lib: Option<LibraryId>, nome: &str) -> Option<ClassId> {
-    let sym = interner.lookup(nome)?;
+fn class_of(program: &Program, interner: &Interner, lib: Option<LibraryId>, the_name: &str) -> Option<ClassId> {
+    let sym = interner.lookup(the_name)?;
     match program.library(lib?).declared.get(&sym)?.getter? {
         Element::Class(c) => Some(c),
         _ => None,
@@ -74,14 +74,14 @@ fn classe_de(program: &Program, interner: &Interner, lib: Option<LibraryId>, nom
 
 /// O `realTarget` de cada seção de cascata (o `CascadeTarget` aponta para o
 /// alvo da cascata).
-pub(crate) fn alvos_de_cascata(a: &ast::Ast) -> HashMap<ExprId, ExprId> {
+pub(crate) fn cascade_targets(a: &ast::Ast) -> HashMap<ExprId, ExprId> {
     let mut m = HashMap::new();
     for e in a.exprs.iter() {
         let ExprKind::Cascade { target, sections, .. } = &e.kind else { continue };
         for &s in sections.iter() {
             let mut x = s;
             loop {
-                let proximo = match &a.expr(x).kind {
+                let next_ = match &a.expr(x).kind {
                     ExprKind::Property { target, .. }
                     | ExprKind::Index { target, .. }
                     | ExprKind::Call { target, .. }
@@ -94,14 +94,14 @@ pub(crate) fn alvos_de_cascata(a: &ast::Ast) -> HashMap<ExprId, ExprId> {
                     }
                     _ => break,
                 };
-                x = proximo;
+                x = next_;
             }
         }
     }
     m
 }
 
-struct Verificador<'a> {
+struct Verifier<'a> {
     program: &'a Program,
     interner: &'a Interner,
     table: &'a mut TypeTable,
@@ -111,7 +111,7 @@ struct Verificador<'a> {
     saida: Vec<Diagnostic>,
 }
 
-impl Verificador<'_> {
+impl Verifier<'_> {
     fn sub(&mut self, a: TypeId, b: TypeId) -> bool {
         let mut env = SubtypeEnv::new(self.table, &self.outline.hierarchy, self.core);
         is_subtype(a, b, &mut env)
@@ -127,34 +127,34 @@ impl Verificador<'_> {
     }
 
     /// `_checkErrorHandlerFunctionType`.
-    fn manipulador(&mut self, onde: Span, tipo: TypeId, retorno_esperado: TypeId, conferir_primeiro: bool) {
-        let Type::Function { positional, optional, named, .. } = self.table.get(tipo).clone() else { return };
-        let relatar = |v: &mut Self| {
-            let args = [v.formatar(tipo), v.formatar(retorno_esperado)];
-            v.saida.push(Diagnostic::com_codigo(warning::ARGUMENT_TYPE_NOT_ASSIGNABLE_TO_ERROR_HANDLER, onde, args));
+    fn handler(&mut self, where_: Span, ty: TypeId, expected_return: TypeId, check_first: bool) {
+        let Type::Function { positional, optional, named, .. } = self.table.get(ty).clone() else { return };
+        let report = |v: &mut Self| {
+            let args = [v.formatar(ty), v.formatar(expected_return)];
+            v.saida.push(Diagnostic::com_codigo(warning::ARGUMENT_TYPE_NOT_ASSIGNABLE_TO_ERROR_HANDLER, where_, args));
         };
         // Os parâmetros na ordem: posicionais, opcionais, nomeados.
-        let posicionais: Vec<TypeId> = positional.iter().chain(optional.iter()).copied().collect();
-        let total = posicionais.len() + named.len();
+        let positional_args: Vec<TypeId> = positional.iter().chain(optional.iter()).copied().collect();
+        let total = positional_args.len() + named.len();
         if total == 0 {
-            return relatar(self);
+            return report(self);
         }
-        let Some(&primeiro) = posicionais.first() else { return relatar(self) };
-        if conferir_primeiro {
-            let objeto = self.core.object;
-            if !self.sub(objeto, primeiro) {
-                return relatar(self);
+        let Some(&first) = positional_args.first() else { return report(self) };
+        if check_first {
+            let object = self.core.object;
+            if !self.sub(object, first) {
+                return report(self);
             }
         }
         if total == 2 {
-            let Some(&segundo) = posicionais.get(1) else { return relatar(self) };
+            let Some(&second) = positional_args.get(1) else { return report(self) };
             if let Some(st) = self.stack_trace
-                && !self.sub(st, segundo)
+                && !self.sub(st, second)
             {
-                return relatar(self);
+                return report(self);
             }
         } else if total > 2 {
-            relatar(self);
+            report(self);
         }
     }
 }
@@ -166,92 +166,92 @@ pub fn retornos_de_catch_error(
     table: &mut TypeTable,
     core: &CoreTypes,
     outline: &OutlineTypes,
-    corpo: &UnitBodyTypes,
+    body: &UnitBodyTypes,
     u: UnitId,
 ) -> Vec<Diagnostic> {
     let a = &program.unit(u).ast;
-    let fonte = program.unit(u).source.as_str();
-    let stack_trace = classe_de(program, interner, core.core_library, "StackTrace").map(|c| table.intern(Type::Interface { class: c, args: Box::new([]), nullable: false }));
-    let stream = classe_de(program, interner, core.async_library, "Stream");
-    let subscription = classe_de(program, interner, core.async_library, "StreamSubscription");
-    let mut v = Verificador { program, interner, table, core, outline, stack_trace, saida: Vec::new() };
-    let cascatas = alvos_de_cascata(a);
-    let tipo = |e: ExprId, v: &Verificador<'_>| corpo.get_type(e).filter(|t| !core.is_unknown(&*v.table, *t));
+    let source = program.unit(u).source.as_str();
+    let stack_trace = class_of(program, interner, core.core_library, "StackTrace").map(|c| table.intern(Type::Interface { class: c, args: Box::new([]), nullable: false }));
+    let stream = class_of(program, interner, core.async_library, "Stream");
+    let subscription = class_of(program, interner, core.async_library, "StreamSubscription");
+    let mut v = Verifier { program, interner, table, core, outline, stack_trace, saida: Vec::new() };
+    let cascades = cascade_targets(a);
+    let ty = |e: ExprId, v: &Verifier<'_>| body.get_type(e).filter(|t| !core.is_unknown(&*v.table, *t));
     for (k, e) in a.exprs.iter().enumerate() {
         let ExprKind::Call { target, arguments } = &e.kind else { continue };
         // A invocação de método (não a criação de instância sem `new`).
-        if matches!(corpo.get_resolved(ExprId(k as u32)), Some(Resolved::Constructor(_))) {
+        if matches!(body.get_resolved(ExprId(k as u32)), Some(Resolved::Constructor(_))) {
             continue;
         }
-        let ExprKind::Property { target: alvo, name, .. } = &a.expr(*target).kind else { continue };
-        let alvo = if matches!(a.expr(*alvo).kind, ExprKind::CascadeTarget) {
-            match cascatas.get(alvo) {
+        let ExprKind::Property { target: tgt, name, .. } = &a.expr(*target).kind else { continue };
+        let tgt = if matches!(a.expr(*tgt).kind, ExprKind::CascadeTarget) {
+            match cascades.get(tgt) {
                 Some(x) => *x,
                 None => continue,
             }
         } else {
-            *alvo
+            *tgt
         };
         if arguments.args.is_empty() {
             continue;
         }
-        let Some(t_alvo) = tipo(alvo, &v) else { continue };
-        let classe_do_alvo = match v.table.get(t_alvo) {
+        let Some(t_target) = ty(tgt, &v) else { continue };
+        let target_class = match v.table.get(t_target) {
             Type::Interface { class, .. } => Some(*class),
             _ => None,
         };
-        let metodo = interner.resolve(name.sym);
-        let primeiro_posicional = arguments.args.first().filter(|x| x.name.is_none());
-        let nomeado = |n: &str| arguments.args.iter().find(|x| x.name.is_some_and(|m| interner.resolve(m.sym) == n));
+        let method = interner.resolve(name.sym);
+        let first_positional = arguments.args.first().filter(|x| x.name.is_none());
+        let named_one = |n: &str| arguments.args.iter().find(|x| x.name.is_some_and(|m| interner.resolve(m.sym) == n));
         // O tipo de função do argumento.
-        let tipo_de_funcao = |x: ExprId, v: &Verificador<'_>| tipo(x, v).filter(|t| matches!(v.table.get(*t), Type::Function { .. }));
-        let e_funcao_literal = |x: ExprId| matches!(a.expr(x).kind, ExprKind::FunctionExpression(_));
-        if metodo == "catchError" && classe_do_alvo.is_some() && classe_do_alvo == core.future_class {
-            let Some(callback) = primeiro_posicional.map(|x| x.value) else { continue };
-            let x = match v.table.get(t_alvo) {
+        let function_type = |x: ExprId, v: &Verifier<'_>| ty(x, v).filter(|t| matches!(v.table.get(*t), Type::Function { .. }));
+        let is_function_literal = |x: ExprId| matches!(a.expr(x).kind, ExprKind::FunctionExpression(_));
+        if method == "catchError" && target_class.is_some() && target_class == core.future_class {
+            let Some(callback) = first_positional.map(|x| x.value) else { continue };
+            let x = match v.table.get(t_target) {
                 Type::Interface { args, .. } if args.len() == 1 => args[0],
                 _ => continue,
             };
-            let esperado = v.table.intern(Type::FutureOr { arg: x, nullable: false });
+            let expected = v.table.intern(Type::FutureOr { arg: x, nullable: false });
             if let ExprKind::FunctionExpression(fid) = &a.expr(callback).kind {
-                if let Some(t) = tipo_de_funcao(callback, &v) {
-                    v.manipulador(a.expr(callback).span, t, esperado, true);
+                if let Some(t) = function_type(callback, &v) {
+                    v.handler(a.expr(callback).span, t, expected, true);
                 }
-                retornos_da_closure(&mut v, a, fonte, corpo, *fid, x, esperado);
-            } else if let Some(t) = tipo_de_funcao(callback, &v) {
+                closure_returns(&mut v, a, source, body, *fid, x, expected);
+            } else if let Some(t) = function_type(callback, &v) {
                 // `_checkReturnType`.
                 let Type::Function { ret, .. } = *v.table.get(t) else { continue };
-                if !v.atribuivel(ret, esperado) {
-                    let args = [v.formatar(ret), v.formatar(esperado)];
+                if !v.atribuivel(ret, expected) {
+                    let args = [v.formatar(ret), v.formatar(expected)];
                     v.saida.push(Diagnostic::com_codigo(warning::RETURN_TYPE_INVALID_FOR_CATCH_ERROR, a.expr(callback).span, args));
                 }
-                v.manipulador(a.expr(callback).span, t, esperado, true);
+                v.handler(a.expr(callback).span, t, expected, true);
             }
             continue;
         }
-        let vazio = core.void_;
+        let empty = core.void_;
         // `then(onError:)` de `Future` e `listen(onError:)` de `Stream`: o
         // relato no argumento nomeado inteiro.
-        let do_nomeado = (metodo == "then" && classe_do_alvo.is_some() && classe_do_alvo == core.future_class)
-            || (metodo == "listen" && classe_do_alvo.is_some() && classe_do_alvo == stream);
-        if do_nomeado {
-            if let Some(arg) = nomeado("onError")
-                && let Some(t) = tipo_de_funcao(arg.value, &v)
+        let of_named = (method == "then" && target_class.is_some() && target_class == core.future_class)
+            || (method == "listen" && target_class.is_some() && target_class == stream);
+        if of_named {
+            if let Some(arg) = named_one("onError")
+                && let Some(t) = function_type(arg.value, &v)
                 && let Some(n) = arg.name
             {
-                let onde = Span { start: n.span.start, end: a.expr(arg.value).span.end };
-                v.manipulador(onde, t, vazio, e_funcao_literal(arg.value));
+                let where_ = Span { start: n.span.start, end: a.expr(arg.value).span.end };
+                v.handler(where_, t, empty, is_function_literal(arg.value));
             }
             continue;
         }
         // `handleError` de `Stream` e `onError` de `StreamSubscription`.
-        let do_posicional = (metodo == "handleError" && classe_do_alvo.is_some() && classe_do_alvo == stream)
-            || (metodo == "onError" && classe_do_alvo.is_some() && classe_do_alvo == subscription);
-        if do_posicional
-            && let Some(arg) = primeiro_posicional
-            && let Some(t) = tipo_de_funcao(arg.value, &v)
+        let of_positional = (method == "handleError" && target_class.is_some() && target_class == stream)
+            || (method == "onError" && target_class.is_some() && target_class == subscription);
+        if of_positional
+            && let Some(arg) = first_positional
+            && let Some(t) = function_type(arg.value, &v)
         {
-            v.manipulador(a.expr(arg.value).span, t, vazio, e_funcao_literal(arg.value));
+            v.handler(a.expr(arg.value).span, t, empty, is_function_literal(arg.value));
         }
     }
     v.saida
@@ -259,33 +259,33 @@ pub fn retornos_de_catch_error(
 
 /// Os `return` da closure do `onError` de `catchError` (não os das funções de
 /// dentro), no contexto assíncrono de retorno `esperado = FutureOr<X>`.
-fn retornos_da_closure(v: &mut Verificador<'_>, a: &ast::Ast, fonte: &str, corpo: &UnitBodyTypes, fid: ast::FunctionId, x: TypeId, esperado: TypeId) {
+fn closure_returns(v: &mut Verifier<'_>, a: &ast::Ast, source: &str, body: &UnitBodyTypes, fid: ast::FunctionId, x: TypeId, expected: TypeId) {
     let f = a.function(fid);
     // O gerador não tem os `return` conferidos.
     if matches!(f.modifier, AsyncModifier::AsyncStar | AsyncModifier::SyncStar) {
         return;
     }
-    let x_vazio_dinamico_ou_nulo = matches!(v.table.get(x), Type::Void | Type::Dynamic | Type::Null);
-    let mut retornadas: Vec<ExprId> = Vec::new();
+    let x_empty_dynamic_or_null = matches!(v.table.get(x), Type::Void | Type::Dynamic | Type::Null);
+    let mut returned: Vec<ExprId> = Vec::new();
     match &f.body {
         FunctionBody::Expression(r) => {
             if !matches!(v.table.get(x), Type::Void) {
-                retornadas.push(*r);
+                returned.push(*r);
             }
         }
         FunctionBody::Block(b) => {
-            let regiao = a.stmt(*b).span;
-            let de_dentro: Vec<Span> = a.functions.iter().map(|g| g.span).filter(|&s| dentro(s, regiao) && s != f.span).collect();
+            let region = a.stmt(*b).span;
+            let from_inside: Vec<Span> = a.functions.iter().map(|g| g.span).filter(|&s| dentro(s, region) && s != f.span).collect();
             for s in a.stmts.iter() {
-                if !dentro(s.span, regiao) || de_dentro.iter().any(|&d| dentro(s.span, d)) {
+                if !dentro(s.span, region) || from_inside.iter().any(|&d| dentro(s.span, d)) {
                     continue;
                 }
                 match &s.kind {
-                    StmtKind::Return(Some(r)) => retornadas.push(*r),
+                    StmtKind::Return(Some(r)) => returned.push(*r),
                     // `_checkReturnWithoutValue` com `T_v = X`.
-                    StmtKind::Return(None) if !x_vazio_dinamico_ou_nulo => {
-                        let fim = if fonte.get(s.span.start..).is_some_and(|t| t.starts_with("return")) { s.span.start + 6 } else { s.span.end };
-                        v.saida.push(Diagnostic::com_codigo(compile_time_error::RETURN_WITHOUT_VALUE, Span { start: s.span.start, end: fim }, std::iter::empty::<&str>()));
+                    StmtKind::Return(None) if !x_empty_dynamic_or_null => {
+                        let end = if source.get(s.span.start..).is_some_and(|t| t.starts_with("return")) { s.span.start + 6 } else { s.span.end };
+                        v.saida.push(Diagnostic::com_codigo(compile_time_error::RETURN_WITHOUT_VALUE, Span { start: s.span.start, end: end }, std::iter::empty::<&str>()));
                     }
                     _ => {}
                 }
@@ -293,24 +293,24 @@ fn retornos_da_closure(v: &mut Verificador<'_>, a: &ast::Ast, fonte: &str, corpo
         }
         _ => {}
     }
-    for r in retornadas {
-        let Some(s) = corpo.get_type(r) else { continue };
+    for r in returned {
+        let Some(s) = body.get_type(r) else { continue };
         if v.core.is_unknown(&*v.table, s) {
             continue;
         }
-        let achatado = achatar(v.table, v.core, s);
-        let vazio_dinamico_ou_nulo = |tb: &TypeTable, k: TypeId| matches!(tb.get(k), Type::Void | Type::Dynamic | Type::Null);
-        let erro = if matches!(v.table.get(x), Type::Void) {
-            !vazio_dinamico_ou_nulo(&*v.table, achatado)
-        } else if matches!(v.table.get(achatado), Type::Void) {
+        let flattened = achatar(v.table, v.core, s);
+        let empty_dynamic_or_null = |tb: &TypeTable, k: TypeId| matches!(tb.get(k), Type::Void | Type::Dynamic | Type::Null);
+        let error = if matches!(v.table.get(x), Type::Void) {
+            !empty_dynamic_or_null(&*v.table, flattened)
+        } else if matches!(v.table.get(flattened), Type::Void) {
             !matches!(v.table.get(x), Type::Void | Type::Dynamic)
         } else {
-            let atribuivel = v.atribuivel(s, x);
-            let sub = v.sub(achatado, x);
-            !atribuivel && !sub
+            let assignable = v.atribuivel(s, x);
+            let sub = v.sub(flattened, x);
+            !assignable && !sub
         };
-        if erro {
-            let args = [v.formatar(s), v.formatar(esperado)];
+        if error {
+            let args = [v.formatar(s), v.formatar(expected)];
             v.saida.push(Diagnostic::com_codigo(warning::RETURN_OF_INVALID_TYPE_FROM_CATCH_ERROR, a.expr(r).span, args));
         }
     }

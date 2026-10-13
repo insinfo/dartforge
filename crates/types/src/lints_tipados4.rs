@@ -53,7 +53,7 @@ fn dentro(a: Span, b: Span) -> bool {
 }
 
 /// O `FunctionElementId` de cada função escrita da unidade.
-fn elementos_das_funcoes(program: &Program, u: UnitId) -> HashMap<ast::FunctionId, FunctionElementId> {
+fn function_elements(program: &Program, u: UnitId) -> HashMap<ast::FunctionId, FunctionElementId> {
     let mut m = HashMap::new();
     for (k, f) in program.functions.iter().enumerate() {
         if let FunctionRef::Function { unit, function } = f.node
@@ -66,14 +66,14 @@ fn elementos_das_funcoes(program: &Program, u: UnitId) -> HashMap<ast::FunctionI
 }
 
 /// O `realTarget` de cada seção de cascata.
-fn alvos_de_cascata(a: &ast::Ast) -> HashMap<ExprId, ExprId> {
+fn cascade_targets(a: &ast::Ast) -> HashMap<ExprId, ExprId> {
     let mut m = HashMap::new();
     for e in a.exprs.iter() {
         let ExprKind::Cascade { target, sections, .. } = &e.kind else { continue };
         for &s in sections.iter() {
             let mut x = s;
             loop {
-                let proximo = match &a.expr(x).kind {
+                let next_ = match &a.expr(x).kind {
                     ExprKind::Property { target, .. }
                     | ExprKind::Index { target, .. }
                     | ExprKind::Call { target, .. }
@@ -86,7 +86,7 @@ fn alvos_de_cascata(a: &ast::Ast) -> HashMap<ExprId, ExprId> {
                     }
                     _ => break,
                 };
-                x = proximo;
+                x = next_;
             }
         }
     }
@@ -95,20 +95,20 @@ fn alvos_de_cascata(a: &ast::Ast) -> HashMap<ExprId, ExprId> {
 
 /// A chamada é um `MethodInvocation` do analyzer (o nome não resolve a
 /// variável nem a getter, que viram `FunctionExpressionInvocation`).
-pub(crate) fn e_invocacao_de_metodo(program: &Program, a: &ast::Ast, corpo: &UnitBodyTypes, alvo: ExprId) -> bool {
-    if !matches!(a.expr(alvo).kind, ExprKind::Identifier(_) | ExprKind::Property { .. }) {
+pub(crate) fn e_invocacao_de_metodo(program: &Program, a: &ast::Ast, body: &UnitBodyTypes, tgt: ExprId) -> bool {
+    if !matches!(a.expr(tgt).kind, ExprKind::Identifier(_) | ExprKind::Property { .. }) {
         return false;
     }
-    let funcao_nao_getter = |f: FunctionElementId| program.function(f).kind != FunctionKind::Getter;
-    match corpo.get_resolved(alvo) {
-        Some(Resolved::Member { member: MemberRef::Function(f), .. }) => funcao_nao_getter(*f),
+    let non_getter_function = |f: FunctionElementId| program.function(f).kind != FunctionKind::Getter;
+    match body.get_resolved(tgt) {
+        Some(Resolved::Member { member: MemberRef::Function(f), .. }) => non_getter_function(*f),
         Some(Resolved::Member { member: MemberRef::Variable(_), .. }) => false,
-        Some(Resolved::Element(dartforge_elements::model::Element::Function(f))) => funcao_nao_getter(*f),
+        Some(Resolved::Element(dartforge_elements::model::Element::Function(f))) => non_getter_function(*f),
         Some(Resolved::Element(_)) => false,
-        Some(Resolved::ExtensionMember { member, .. }) => funcao_nao_getter(*member),
+        Some(Resolved::ExtensionMember { member, .. }) => non_getter_function(*member),
         Some(Resolved::Local(_)) => {
             // A função local é `MethodInvocation`; a variável local, não.
-            corpo.declaracao_local(alvo).is_some_and(|d| {
+            body.declaracao_local(tgt).is_some_and(|d| {
                 a.stmts.iter().any(|s| matches!(&s.kind, StmtKind::Function(g) if a.function(*g).name.is_some_and(|n| n.span.start == d)))
             })
         }
@@ -125,21 +125,21 @@ pub fn achados(
     table: &mut TypeTable,
     core: &CoreTypes,
     outline: &OutlineTypes,
-    corpos: &BodyTypes,
-    inferidas: &HashSet<LibraryId>,
+    bodies: &BodyTypes,
+    the_inferred: &HashSet<LibraryId>,
     u: UnitId,
 ) -> Vec<Achado> {
     let mut out: Vec<Achado> = Vec::new();
-    let Some(corpo) = corpos.units.get(u.0 as usize) else { return out };
-    colecoes(program, interner, table, core, outline, corpo, u, &mut out);
-    checagens_de_void(program, table, core, outline, corpo, u, &mut out);
-    sobrescritas_desnecessarias(program, interner, table, core, outline, corpo, u, &mut out);
-    casos_duplicados(program, interner, table, core, outline, corpos, inferidas, u, &mut out);
+    let Some(body) = bodies.units.get(u.0 as usize) else { return out };
+    the_collections(program, interner, table, core, outline, body, u, &mut out);
+    void_checks(program, table, core, outline, body, u, &mut out);
+    unnecessary_overrides(program, interner, table, core, outline, body, u, &mut out);
+    duplicate_cases(program, interner, table, core, outline, bodies, the_inferred, u, &mut out);
     out
 }
 
 /// Uma definição de `_MethodDefinition`.
-struct Definicao {
+struct Definition {
     metodo: &'static str,
     /// A classe (`dart:core`), ou a interface pelo nome e a biblioteca.
     classe: Option<ClassId>,
@@ -149,59 +149,59 @@ struct Definicao {
 
 /// `collection_methods_unrelated_type`.
 #[allow(clippy::too_many_arguments)]
-fn colecoes(
+fn the_collections(
     program: &Program,
     interner: &Interner,
     table: &mut TypeTable,
     core: &CoreTypes,
     outline: &OutlineTypes,
-    corpo: &UnitBodyTypes,
+    body: &UnitBodyTypes,
     u: UnitId,
     out: &mut Vec<Achado>,
 ) {
     let a = &program.unit(u).ast;
-    let cascatas = alvos_de_cascata(a);
-    let def = |metodo, classe: Option<ClassId>, indice| Definicao { metodo, classe, por_nome: None, indice };
-    let metodos = [
+    let cascades = cascade_targets(a);
+    let def = |method, cls: Option<ClassId>, idx| Definition { metodo: method, classe: cls, por_nome: None, indice: idx };
+    let methods = [
         def("contains", core.iterable_class, 0),
         def("remove", core.list_class, 0),
         def("containsKey", core.map_class, 0),
         def("containsValue", core.map_class, 1),
         def("remove", core.map_class, 0),
-        Definicao { metodo: "remove", classe: None, por_nome: Some(("dart.collection", "Queue")), indice: 0 },
+        Definition { metodo: "remove", classe: None, por_nome: Some(("dart.collection", "Queue")), indice: 0 },
         def("lookup", core.set_class, 0),
         def("remove", core.set_class, 0),
     ];
     let indices = [def("[]", core.map_class, 0)];
-    let nome_da_biblioteca = |l: LibraryId| program.library(l).name.as_ref().map(|n| n.iter().map(|s| interner.resolve(*s)).collect::<Vec<_>>().join("."));
+    let library_name = |l: LibraryId| program.library(l).name.as_ref().map(|n| n.iter().map(|s| interner.resolve(*s)).collect::<Vec<_>>().join("."));
     // `collectionTypeFor`: o `asInstanceOf`.
-    let colecao = |table: &mut TypeTable, t: TypeId, d: &Definicao| -> Option<TypeId> {
+    let collection = |table: &mut TypeTable, t: TypeId, d: &Definition| -> Option<TypeId> {
         if let Some(c) = d.classe {
             return outline.hierarchy.supertype_of(t, c, table, core);
         }
-        let (biblioteca, interface) = d.por_nome?;
-        let classe_de = |t: TypeId| match table.get(t) {
+        let (library, interface) = d.por_nome?;
+        let class_of = |t: TypeId| match table.get(t) {
             Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. } => Some(*class),
             _ => None,
         };
-        let propria = classe_de(t)?;
-        let mut candidatas = vec![propria];
-        if let Some(d) = outline.hierarchy.get(propria) {
+        let own_ = class_of(t)?;
+        let mut candidates = vec![own_];
+        if let Some(d) = outline.hierarchy.get(own_) {
             let mut sup: Vec<ClassId> = d.supertypes.keys().copied().collect();
             sup.sort();
-            candidatas.extend(sup);
+            candidates.extend(sup);
         }
-        let alvo = candidatas.into_iter().find(|c| {
+        let tgt = candidates.into_iter().find(|c| {
             let k = program.class(*c);
-            interner.resolve(k.name) == interface && nome_da_biblioteca(k.library).as_deref() == Some(biblioteca)
+            interner.resolve(k.name) == interface && library_name(k.library).as_deref() == Some(library)
         })?;
-        outline.hierarchy.supertype_of(t, alvo, table, core)
+        outline.hierarchy.supertype_of(t, tgt, table, core)
     };
     let e_interface = |table: &TypeTable, t: TypeId| matches!(table.get(t), Type::Interface { .. } | Type::ExtensionType { .. } | Type::FutureOr { .. });
     // O tipo do alvo implícito (`this`): a classe, mixin ou enum que envolve,
     // ou o tipo estendido da extensão.
-    let alvo_implicito = |table: &mut TypeTable, span: Span| -> Option<TypeId> {
-        let mut melhor: Option<(Span, TypeId)> = None;
+    let implicit_target = |table: &mut TypeTable, span: Span| -> Option<TypeId> {
+        let mut best: Option<(Span, TypeId)> = None;
         for &did in &program.unit(u).unit.declarations {
             let d = a.decl(did);
             if !dentro(span, d.span) {
@@ -225,53 +225,53 @@ fn colecoes(
                 }
                 _ => return None,
             };
-            melhor = Some((d.span, t));
+            best = Some((d.span, t));
         }
-        melhor.map(|(_, t)| t)
+        best.map(|(_, t)| t)
     };
-    let mut casos: Vec<(Span, ExprId, TypeId, &Definicao)> = Vec::new();
+    let mut the_cases: Vec<(Span, ExprId, TypeId, &Definition)> = Vec::new();
     for e in a.exprs.iter() {
         match &e.kind {
             ExprKind::Call { target, arguments } => {
-                if arguments.args.len() != 1 || !e_invocacao_de_metodo(program, a, corpo, *target) {
+                if arguments.args.len() != 1 || !e_invocacao_de_metodo(program, a, body, *target) {
                     continue;
                 }
-                let (alvo, nome) = match &a.expr(*target).kind {
-                    ExprKind::Property { target: alvo, name, .. } => (Some(*alvo), *name),
+                let (tgt, the_name) = match &a.expr(*target).kind {
+                    ExprKind::Property { target: tgt, name, .. } => (Some(*tgt), *name),
                     ExprKind::Identifier(n) => (None, *n),
                     _ => continue,
                 };
-                let nome = interner.resolve(nome.sym);
-                let candidatas: Vec<&Definicao> = metodos.iter().filter(|d| d.metodo == nome).collect();
-                if candidatas.is_empty() {
+                let the_name = interner.resolve(the_name.sym);
+                let candidates: Vec<&Definition> = methods.iter().filter(|d| d.metodo == the_name).collect();
+                if candidates.is_empty() {
                     continue;
                 }
-                let tipo_do_alvo = match alvo {
+                let target_type = match tgt {
                     Some(x) => {
-                        let x = if matches!(a.expr(x).kind, ExprKind::CascadeTarget) { cascatas.get(&x).copied() } else { Some(x) };
-                        x.and_then(|x| corpo.get_type(x))
+                        let x = if matches!(a.expr(x).kind, ExprKind::CascadeTarget) { cascades.get(&x).copied() } else { Some(x) };
+                        x.and_then(|x| body.get_type(x))
                     }
-                    None => alvo_implicito(table, e.span),
+                    None => implicit_target(table, e.span),
                 };
-                let Some(t) = tipo_do_alvo.filter(|t| e_interface(table, *t)) else { continue };
+                let Some(t) = target_type.filter(|t| e_interface(table, *t)) else { continue };
                 let arg = &arguments.args[0];
                 let span = match arg.name {
                     Some(n) => Span { start: n.span.start, end: a.expr(arg.value).span.end },
                     None => a.expr(arg.value).span,
                 };
-                for d in candidatas {
-                    if let Some(col) = colecao(table, t, d) {
-                        casos.push((span, arg.value, col, d));
+                for d in candidates {
+                    if let Some(col) = collection(table, t, d) {
+                        the_cases.push((span, arg.value, col, d));
                         break;
                     }
                 }
             }
             ExprKind::Index { target, index, .. } => {
-                let x = if matches!(a.expr(*target).kind, ExprKind::CascadeTarget) { cascatas.get(target).copied() } else { Some(*target) };
-                let Some(t) = x.and_then(|x| corpo.get_type(x)).filter(|t| e_interface(table, *t)) else { continue };
+                let x = if matches!(a.expr(*target).kind, ExprKind::CascadeTarget) { cascades.get(target).copied() } else { Some(*target) };
+                let Some(t) = x.and_then(|x| body.get_type(x)).filter(|t| e_interface(table, *t)) else { continue };
                 for d in &indices {
-                    if let Some(col) = colecao(table, t, d) {
-                        casos.push((a.expr(*index).span, *index, col, d));
+                    if let Some(col) = collection(table, t, d) {
+                        the_cases.push((a.expr(*index).span, *index, col, d));
                         break;
                     }
                 }
@@ -287,36 +287,36 @@ fn colecoes(
             dartforge_elements::model::Element::Class(c) => Some(c),
             _ => None,
         });
-    for (span, arg, col, d) in casos {
-        let Some(ta) = corpo.get_type(arg).filter(|t| !core.is_unknown(table, *t)) else { continue };
+    for (span, arg, col, d) in the_cases {
+        let Some(ta) = body.get_type(arg).filter(|t| !core.is_unknown(table, *t)) else { continue };
         let Type::Interface { args, .. } = table.get(col).clone() else { continue };
-        let Some(&tipo_arg) = args.get(d.indice) else { continue };
-        let mut rel = crate::lints_tipados3::Relacao { program, table: &mut *table, core, outline, future_or, call: interner.lookup("call") };
-        if rel.sem_relacao(ta, tipo_arg) {
-            let argumentos = vec![crate::despejo::formatar(table, ta, interner, program), crate::despejo::formatar(table, tipo_arg, interner, program)];
-            out.push((span, "collection_methods_unrelated_type", argumentos));
+        let Some(&arg_type) = args.get(d.indice) else { continue };
+        let mut rel = crate::lints_tipados3::Relation { program, table: &mut *table, core, outline, future_or, call: interner.lookup("call") };
+        if rel.unrelated(ta, arg_type) {
+            let args_list = vec![crate::despejo::formatar(table, ta, interner, program), crate::despejo::formatar(table, arg_type, interner, program)];
+            out.push((span, "collection_methods_unrelated_type", args_list));
         }
     }
 }
 
 /// `isTypeAcceptableWhenExpectingVoid`.
-fn aceito_como_void(program: &Program, table: &TypeTable, core: &CoreTypes, t: TypeId) -> bool {
+fn accepted_as_void(program: &Program, table: &TypeTable, core: &CoreTypes, t: TypeId) -> bool {
     match table.get(t) {
         Type::Void | Type::Null | Type::Never => true,
         Type::Interface { class, args, .. } if Some(*class) == core.future_class => {
-            args.first().is_some_and(|x| aceito_como_void(program, table, core, *x))
+            args.first().is_some_and(|x| accepted_as_void(program, table, core, *x))
         }
         _ => false,
     }
 }
 
 /// `isTypeAcceptableWhenExpectingFutureOrVoid`.
-fn aceito_como_future_or_void(program: &Program, table: &TypeTable, core: &CoreTypes, t: TypeId) -> bool {
+fn accepted_as_future_or_void(program: &Program, table: &TypeTable, core: &CoreTypes, t: TypeId) -> bool {
     match table.get(t) {
         Type::Dynamic | Type::FutureOr { .. } => true,
-        _ if aceito_como_void(program, table, core, t) => true,
+        _ if accepted_as_void(program, table, core, t) => true,
         Type::Interface { class, args, .. } if Some(*class) == core.future_class => {
-            args.first().is_some_and(|x| aceito_como_future_or_void(program, table, core, *x))
+            args.first().is_some_and(|x| accepted_as_future_or_void(program, table, core, *x))
         }
         _ => false,
     }
@@ -324,57 +324,57 @@ fn aceito_como_future_or_void(program: &Program, table: &TypeTable, core: &CoreT
 
 /// `_check` do `void_checks`: `true` relata. `closure_de_bloco`: o nó
 /// conferido é uma `FunctionExpression` de corpo que não é de expressão.
-fn checar_void(program: &Program, table: &TypeTable, core: &CoreTypes, esperado: TypeId, t: TypeId, e_retorno: bool, closure_de_bloco: bool) -> bool {
-    if core.is_unknown(table, esperado) || core.is_unknown(table, t) {
+fn check_void(program: &Program, table: &TypeTable, core: &CoreTypes, expected: TypeId, t: TypeId, is_return: bool, block_closure: bool) -> bool {
+    if core.is_unknown(table, expected) || core.is_unknown(table, t) {
         return false;
     }
-    let esperado_void = matches!(table.get(esperado), Type::Void);
-    if esperado_void && !matches!(table.get(t), Type::Dynamic) && e_retorno {
+    let expected_void = matches!(table.get(expected), Type::Void);
+    if expected_void && !matches!(table.get(t), Type::Dynamic) && is_return {
         return false;
     }
-    if esperado_void && !aceito_como_void(program, table, core, t) {
+    if expected_void && !accepted_as_void(program, table, core, t) {
         return true;
     }
-    if let Type::FutureOr { arg, .. } = table.get(esperado) {
-        if matches!(table.get(*arg), Type::Void) && !aceito_como_future_or_void(program, table, core, t) {
+    if let Type::FutureOr { arg, .. } = table.get(expected) {
+        if matches!(table.get(*arg), Type::Void) && !accepted_as_future_or_void(program, table, core, t) {
             return true;
         }
         return false;
     }
-    if esperado_void {
+    if expected_void {
         return false;
     }
-    if closure_de_bloco
-        && let (Type::Function { ret: r1, .. }, Type::Function { ret: r2, .. }) = (table.get(esperado), table.get(t))
+    if block_closure
+        && let (Type::Function { ret: r1, .. }, Type::Function { ret: r2, .. }) = (table.get(expected), table.get(t))
     {
-        return checar_void(program, table, core, *r1, *r2, e_retorno, closure_de_bloco);
+        return check_void(program, table, core, *r1, *r2, is_return, block_closure);
     }
     false
 }
 
 /// `void_checks`.
-fn checagens_de_void(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: &OutlineTypes, corpo: &UnitBodyTypes, u: UnitId, out: &mut Vec<Achado>) {
+fn void_checks(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: &OutlineTypes, body: &UnitBodyTypes, u: UnitId, out: &mut Vec<Achado>) {
     let table: &TypeTable = table;
     let a = &program.unit(u).ast;
-    let tipo = |e: ExprId| corpo.get_type(e).filter(|t| !core.is_unknown(table, *t));
-    let closure_de_bloco = |e: ExprId| match &a.expr(e).kind {
+    let ty = |e: ExprId| body.get_type(e).filter(|t| !core.is_unknown(table, *t));
+    let block_closure = |e: ExprId| match &a.expr(e).kind {
         ExprKind::FunctionExpression(f) => !matches!(a.function(*f).body, FunctionBody::Expression(_)),
         _ => false,
     };
-    let relatar = |span: Span, out: &mut Vec<Achado>| out.push((span, "void_checks", Vec::new()));
+    let report = |span: Span, out: &mut Vec<Achado>| out.push((span, "void_checks", Vec::new()));
     // Atribuições.
     for (k, e) in a.exprs.iter().enumerate() {
         let id = ExprId(k as u32);
         if let ExprKind::Assign { value, .. } = &e.kind
-            && let (Some(&esperado), Some(t)) = (corpo.tipos_de_escrita.get(&id), tipo(*value))
-            && checar_void(program, table, core, esperado, t, false, closure_de_bloco(*value))
+            && let (Some(&expected), Some(t)) = (body.tipos_de_escrita.get(&id), ty(*value))
+            && check_void(program, table, core, expected, t, false, block_closure(*value))
         {
-            relatar(e.span, out);
+            report(e.span, out);
         }
     }
     // `return`: a função mais próxima (literal, local, de topo ou método).
-    let elementos = elementos_das_funcoes(program, u);
-    let literais: HashMap<ast::FunctionId, ExprId> = a
+    let elems = function_elements(program, u);
+    let literals: HashMap<ast::FunctionId, ExprId> = a
         .exprs
         .iter()
         .enumerate()
@@ -383,7 +383,7 @@ fn checagens_de_void(program: &Program, table: &mut TypeTable, core: &CoreTypes,
             _ => None,
         })
         .collect();
-    let locais: HashMap<ast::FunctionId, usize> = a
+    let locals: HashMap<ast::FunctionId, usize> = a
         .stmts
         .iter()
         .filter_map(|s| match &s.kind {
@@ -392,7 +392,7 @@ fn checagens_de_void(program: &Program, table: &mut TypeTable, core: &CoreTypes,
         })
         .collect();
     // Os corpos de construtor (o `return` neles não tem função).
-    let construtores: Vec<Span> = a
+    let constructors: Vec<Span> = a
         .members
         .iter()
         .filter_map(|m| match &m.kind {
@@ -403,13 +403,13 @@ fn checagens_de_void(program: &Program, table: &mut TypeTable, core: &CoreTypes,
             _ => None,
         })
         .collect();
-    let retorno_da_funcao = |f: ast::FunctionId| -> Option<TypeId> {
-        let t = if let Some(&e) = literais.get(&f) {
-            tipo(e)?
-        } else if let Some(&p) = locais.get(&f) {
-            corpo.tipo_local(p)?
+    let function_return = |f: ast::FunctionId| -> Option<TypeId> {
+        let t = if let Some(&e) = literals.get(&f) {
+            ty(e)?
+        } else if let Some(&p) = locals.get(&f) {
+            body.tipo_local(p)?
         } else {
-            return elementos.get(&f).and_then(|fe| outline.functions.get(fe.0 as usize)).map(|d| d.return_type);
+            return elems.get(&f).and_then(|fe| outline.functions.get(fe.0 as usize)).map(|d| d.return_type);
         };
         match table.get(t) {
             Type::Function { ret, .. } => Some(*ret),
@@ -419,50 +419,50 @@ fn checagens_de_void(program: &Program, table: &mut TypeTable, core: &CoreTypes,
     for s in a.stmts.iter() {
         let StmtKind::Return(Some(v)) = &s.kind else { continue };
         // A função mais interna que contém o `return`.
-        let mais_interna = a
+        let innermost = a
             .functions
             .iter()
             .enumerate()
             .filter(|(_, f)| dentro(s.span, f.span))
             .min_by_key(|(_, f)| f.span.end - f.span.start)
             .map(|(k, f)| (ast::FunctionId(k as u32), f.span));
-        let Some((f, fspan)) = mais_interna else { continue };
+        let Some((f, fspan)) = innermost else { continue };
         // Um construtor dentro da função (não acontece) ou a função dentro
         // de um construtor: vale a mais interna; o construtor mais interno
         // que a função tira a checagem.
-        if construtores.iter().any(|c| dentro(s.span, *c) && dentro(*c, fspan) && *c != fspan) {
+        if constructors.iter().any(|c| dentro(s.span, *c) && dentro(*c, fspan) && *c != fspan) {
             continue;
         }
-        if let (Some(esperado), Some(t)) = (retorno_da_funcao(f), tipo(*v))
-            && checar_void(program, table, core, esperado, t, true, closure_de_bloco(*v))
+        if let (Some(expected), Some(t)) = (function_return(f), ty(*v))
+            && check_void(program, table, core, expected, t, true, block_closure(*v))
         {
-            relatar(s.span, out);
+            report(s.span, out);
         }
     }
     // Argumentos de criação de instância e de `MethodInvocation`.
     for (k, e) in a.exprs.iter().enumerate() {
         let id = ExprId(k as u32);
-        let argumentos = match &e.kind {
+        let args_list = match &e.kind {
             ExprKind::InstanceCreation { arguments, .. } => arguments,
             ExprKind::Call { target, arguments } => {
-                let construtor = matches!(corpo.get_resolved(id), Some(Resolved::Constructor(_)));
-                if !construtor && !e_invocacao_de_metodo(program, a, corpo, *target) {
+                let constructor = matches!(body.get_resolved(id), Some(Resolved::Constructor(_)));
+                if !constructor && !e_invocacao_de_metodo(program, a, body, *target) {
                     continue;
                 }
                 arguments
             }
             _ => continue,
         };
-        for arg in argumentos.args.iter() {
-            if let (Some(&p), Some(t)) = (corpo.tipos_de_parametros.get(&arg.value), tipo(arg.value))
-                && checar_void(program, table, core, p, t, false, closure_de_bloco(arg.value))
+        for arg in args_list.args.iter() {
+            if let (Some(&p), Some(t)) = (body.tipos_de_parametros.get(&arg.value), ty(arg.value))
+                && check_void(program, table, core, p, t, false, block_closure(arg.value))
             {
-                relatar(a.expr(arg.value).span, out);
+                report(a.expr(arg.value).span, out);
             }
         }
     }
     // O padrão de variável atribuída.
-    let mut atribuidos: Vec<ast::PatternId> = Vec::new();
+    let mut assigned: Vec<ast::PatternId> = Vec::new();
     fn variaveis(a: &ast::Ast, p: ast::PatternId, v: &mut Vec<ast::PatternId>) {
         match &a.pattern(p).kind {
             PatternKind::Variable { .. } => v.push(p),
@@ -493,14 +493,14 @@ fn checagens_de_void(program: &Program, table: &mut TypeTable, core: &CoreTypes,
     }
     for e in a.exprs.iter() {
         if let ExprKind::PatternAssign { pattern, .. } = &e.kind {
-            variaveis(a, *pattern, &mut atribuidos);
+            variaveis(a, *pattern, &mut assigned);
         }
     }
-    for p in atribuidos {
-        let (Some(&valor), Some(&decl)) = (corpo.tipos_casados.get(&p), corpo.declaracoes_de_padroes.get(&p)) else { continue };
-        let Some(esperado) = corpo.tipo_local(decl) else { continue };
-        if checar_void(program, table, core, esperado, valor, false, false) {
-            relatar(a.pattern(p).span, out);
+    for p in assigned {
+        let (Some(&the_value), Some(&decl)) = (body.tipos_casados.get(&p), body.declaracoes_de_padroes.get(&p)) else { continue };
+        let Some(expected) = body.tipo_local(decl) else { continue };
+        if check_void(program, table, core, expected, the_value, false, false) {
+            report(a.pattern(p).span, out);
         }
     }
 }
@@ -515,7 +515,7 @@ enum Especie {
 
 /// Um parâmetro de um membro: nome, espécie, `covariant` escrito, tipo e o
 /// `defaultValueCode`.
-struct ParametroDoMembro {
+struct MemberParameter {
     nome: String,
     /// `_sameKind`: 0 obrigatório (posicional ou nomeado `required`), 1
     /// posicional opcional, 2 nomeado opcional.
@@ -527,25 +527,25 @@ struct ParametroDoMembro {
 
 /// `unnecessary_overrides`.
 #[allow(clippy::too_many_arguments)]
-fn sobrescritas_desnecessarias(
+fn unnecessary_overrides(
     program: &Program,
     interner: &Interner,
     table: &mut TypeTable,
     core: &CoreTypes,
     outline: &OutlineTypes,
-    corpo: &UnitBodyTypes,
+    body: &UnitBodyTypes,
     u: UnitId,
     out: &mut Vec<Achado>,
 ) {
-    let unidade = program.unit(u);
-    let a = &unidade.ast;
-    let fonte = unidade.source.as_str();
-    let lib = unidade.library;
-    let comentarios = dartforge_frontend::comentarios::Comentarios::de(fonte);
-    let elementos = elementos_das_funcoes(program, u);
-    let protegido = |u2: UnitId, m: &ast::Annotation| crate::anotacoes::e_getter_de(program, interner, u2, m, "meta", "protected");
+    let unit_id = program.unit(u);
+    let a = &unit_id.ast;
+    let source = unit_id.source.as_str();
+    let lib = unit_id.library;
+    let comments = dartforge_frontend::comentarios::Comentarios::de(source);
+    let elems = function_elements(program, u);
+    let protected = |u2: UnitId, m: &ast::Annotation| crate::anotacoes::e_getter_de(program, interner, u2, m, "meta", "protected");
     // As anotações de um membro (o do método, ou o do campo do acessor implícito).
-    let metadados_do_membro = |f: FunctionElementId| -> Option<(UnitId, Vec<&ast::Annotation>)> {
+    let member_metadata = |f: FunctionElementId| -> Option<(UnitId, Vec<&ast::Annotation>)> {
         let fe = program.function(f);
         match fe.node {
             FunctionRef::Function { unit, function } => {
@@ -564,9 +564,9 @@ fn sobrescritas_desnecessarias(
             }
         }
     };
-    let tem_protegido = |f: FunctionElementId| metadados_do_membro(f).is_some_and(|(u2, ms)| ms.iter().any(|m| protegido(u2, m)));
+    let has_protected = |f: FunctionElementId| member_metadata(f).is_some_and(|(u2, ms)| ms.iter().any(|m| protected(u2, m)));
     for d in a.decls.iter() {
-        let (membros, e_interface) = match &d.kind {
+        let (members, e_interface) = match &d.kind {
             DeclKind::Class(x) => (&x.members, true),
             DeclKind::Mixin(x) => (&x.members, true),
             DeclKind::Enum(x) => (&x.members, true),
@@ -576,83 +576,83 @@ fn sobrescritas_desnecessarias(
         if !e_interface {
             continue;
         }
-        for &mid in membros {
+        for &mid in members {
             let m = a.member(mid);
             let MemberKind::Method(fid) = &m.kind else { continue };
             let f = a.function(*fid);
             if f.static_ {
                 continue;
             }
-            let Some(nome) = f.name else { continue };
-            let texto = interner.resolve(nome.sym);
-            if texto == "noSuchMethod" {
+            let Some(the_name) = f.name else { continue };
+            let text = interner.resolve(the_name.sym);
+            if text == "noSuchMethod" {
                 continue;
             }
             // O comentário de documentação.
-            let depois = match m.metadata.last() {
-                Some(x) => dartforge_frontend::fonte::pular_brancos(fonte.as_bytes(), x.span.end),
+            let after = match m.metadata.last() {
+                Some(x) => dartforge_frontend::fonte::pular_brancos(source.as_bytes(), x.span.end),
                 None => m.span.start,
             };
-            if comentarios.dart_doc(fonte, depois).is_some() || m.metadata.iter().rev().any(|x| comentarios.dart_doc(fonte, x.span.start).is_some()) {
+            if comments.dart_doc(source, after).is_some() || m.metadata.iter().rev().any(|x| comments.dart_doc(source, x.span.start).is_some()) {
                 continue;
             }
-            let Some(&proprio) = elementos.get(fid) else { continue };
-            let Some(classe) = program.function(proprio).class else { continue };
-            let especie = match f.kind {
+            let Some(&own) = elems.get(fid) else { continue };
+            let Some(cls) = program.function(own).class else { continue };
+            let kind = match f.kind {
                 ast::FunctionKind::Getter => Especie::Getter,
                 ast::FunctionKind::Setter => Especie::Setter,
                 _ => Especie::Metodo,
             };
-            let chave = match especie {
-                Especie::Setter => interner.lookup(&format!("{texto}_=")),
-                _ => Some(nome.sym),
+            let key = match kind {
+                Especie::Setter => interner.lookup(&format!("{text}_=")),
+                _ => Some(the_name.sym),
             };
-            let Some(chave) = chave else { continue };
-            let Some((dona, herdado)) = herdado_concreto(program, classe, chave, lib, texto.starts_with('_'), especie) else { continue };
+            let Some(key) = key else { continue };
+            let Some((owner, inherited)) = inherited_concrete(program, cls, key, lib, text.starts_with('_'), kind) else { continue };
             // `_addsMetadata`.
-            let herdado_protegido = tem_protegido(herdado);
-            let acrescenta = m.metadata.iter().any(|x| {
+            let inherited_protected = has_protected(inherited);
+            let adds = m.metadata.iter().any(|x| {
                 let e_override = crate::anotacoes::e_getter_de(program, interner, u, x, "dart.core", "override");
-                let e_protegido = protegido(u, x);
-                !(e_override || (e_protegido && herdado_protegido))
+                let is_protected = protected(u, x);
+                !(e_override || (is_protected && inherited_protected))
             });
-            if acrescenta {
+            if adds {
                 continue;
             }
             // `_haveSameDeclaration`.
-            let Some(proprios) = parametros_do_membro(program, interner, table, outline, proprio, None) else { continue };
+            let Some(the_own) = parametros_do_membro(program, interner, table, outline, own, None) else { continue };
             let this_type = {
                 let params: Vec<TypeId> = outline
                     .classes
-                    .get(classe.0 as usize)
+                    .get(cls.0 as usize)
                     .map(|x| x.type_params.iter().map(|p| table.intern(Type::TypeParameter { param: *p, nullable: false })).collect())
                     .unwrap_or_default();
-                table.intern(Type::Interface { class: classe, args: params.into(), nullable: false })
+                table.intern(Type::Interface { class: cls, args: params.into(), nullable: false })
             };
-            let Some(instanciado) = outline.hierarchy.supertype_of(this_type, dona, table, core) else { continue };
-            let Some(herdados) = parametros_do_membro(program, interner, table, outline, herdado, Some((dona, instanciado))) else { continue };
-            let (ret_proprio, ps_proprios) = proprios;
-            let (ret_herdado, ps_herdados) = herdados;
-            if crate::ops::sem_exibicao(ret_proprio, table) != crate::ops::sem_exibicao(ret_herdado, table) || ps_proprios.len() != ps_herdados.len() {
+            let Some(instantiated) = outline.hierarchy.supertype_of(this_type, owner, table, core) else { continue };
+            let Some(the_inherited) = parametros_do_membro(program, interner, table, outline, inherited, Some((owner, instantiated))) else { continue };
+            let (ret_own, ps_own) = the_own;
+            let (ret_inherited, ps_inherited) = the_inherited;
+            if crate::ops::without_display(ret_own, table) != crate::ops::without_display(ret_inherited, table) || ps_own.len() != ps_inherited.len() {
                 continue;
             }
-            let mesmos = ps_proprios.iter().zip(ps_herdados.iter()).all(|(p, q)| {
-                crate::ops::sem_exibicao(p.tipo, table) == crate::ops::sem_exibicao(q.tipo, table)
+            let same = ps_own.iter().zip(ps_inherited.iter()).all(|(p, q)| {
+                crate::ops::without_display(p.tipo, table) == crate::ops::without_display(q.tipo, table)
                     && p.nome == q.nome
                     && p.covariante == q.covariante
                     && p.especie == q.especie
                     && p.padrao == q.padrao
             });
-            if !mesmos {
+            if !same {
                 continue;
             }
             // `_makesPublicFromProtected`.
-            let proprio_protegido = m.metadata.iter().any(|x| protegido(u, x));
-            if !proprio_protegido && herdado_protegido {
+            let own_protected = m.metadata.iter().any(|x| protected(u, x));
+            if !own_protected && inherited_protected {
                 continue;
             }
-            if repassa_ao_super(a, fonte, interner, &comentarios, corpo, f, especie, texto) {
-                out.push((nome.span, "unnecessary_overrides", Vec::new()));
+            if passes_to_super(a, source, interner, &comments, body, f, kind, text) {
+                out.push((the_name.span, "unnecessary_overrides", Vec::new()));
             }
         }
     }
@@ -660,39 +660,39 @@ fn sobrescritas_desnecessarias(
 
 /// `lookUp{Method,Getter,Setter}2(concrete: true, inherited: true)`: a
 /// classe que declara e o membro.
-fn herdado_concreto(program: &Program, classe: ClassId, chave: SymbolId, lib: LibraryId, privado: bool, especie: Especie) -> Option<(ClassId, FunctionElementId)> {
+fn inherited_concrete(program: &Program, cls: ClassId, key: SymbolId, lib: LibraryId, private: bool, kind: Especie) -> Option<(ClassId, FunctionElementId)> {
     let serve = |c: ClassId| -> Option<FunctionElementId> {
         let e = program.class(c);
-        if privado && e.library != lib {
+        if private && e.library != lib {
             return None;
         }
-        let f = *e.instance_members.get(&chave)?;
+        let f = *e.instance_members.get(&key)?;
         let m = program.function(f);
-        let da_especie = match especie {
+        let of_kind = match kind {
             Especie::Metodo => matches!(m.kind, FunctionKind::Function | FunctionKind::Operator),
             Especie::Getter => m.kind == FunctionKind::Getter,
             Especie::Setter => m.kind == FunctionKind::Setter,
         };
-        (!m.abstract_ && da_especie).then_some(f)
+        (!m.abstract_ && of_kind).then_some(f)
     };
-    let mut vistos: HashSet<ClassId> = HashSet::new();
-    let mut atual = Some(classe);
-    let mut primeira = true;
-    while let Some(c) = atual {
-        if !vistos.insert(c) {
+    let mut seen: HashSet<ClassId> = HashSet::new();
+    let mut current = Some(cls);
+    let mut first = true;
+    while let Some(c) = current {
+        if !seen.insert(c) {
             break;
         }
-        if !primeira && let Some(f) = serve(c) {
+        if !first && let Some(f) = serve(c) {
             return Some((c, f));
         }
-        primeira = false;
+        first = false;
         let e = program.class(c);
         for &mx in e.mixin_classes.iter().rev() {
             if let Some(f) = serve(mx) {
                 return Some((mx, f));
             }
         }
-        atual = e.supertype_class;
+        current = e.supertype_class;
     }
     None
 }
@@ -706,15 +706,15 @@ fn parametros_do_membro(
     table: &mut TypeTable,
     outline: &OutlineTypes,
     f: FunctionElementId,
-    instanciado: Option<(ClassId, TypeId)>,
-) -> Option<(TypeId, Vec<ParametroDoMembro>)> {
-    let dados = outline.functions.get(f.0 as usize)?;
-    let mut sig = dados.signature;
-    if let Some((dona, sup)) = instanciado {
-        let params = outline.classes.get(dona.0 as usize).map(|x| x.type_params.clone()).unwrap_or_default();
+    instantiated: Option<(ClassId, TypeId)>,
+) -> Option<(TypeId, Vec<MemberParameter>)> {
+    let data = outline.functions.get(f.0 as usize)?;
+    let mut sig = data.signature;
+    if let Some((owner, sup)) = instantiated {
+        let params = outline.classes.get(owner.0 as usize).map(|x| x.type_params.clone()).unwrap_or_default();
         if let Type::Interface { args, .. } = table.get(sup).clone() {
-            let mapa: HashMap<crate::table::TypeParamId, TypeId> = params.iter().copied().zip(args.iter().copied()).collect();
-            sig = crate::ops::substitute(sig, &mapa, table);
+            let map: HashMap<crate::table::TypeParamId, TypeId> = params.iter().copied().zip(args.iter().copied()).collect();
+            sig = crate::ops::substitute(sig, &map, table);
         }
     }
     let Type::Function { positional, optional, named, ret, .. } = table.get(sig).clone() else { return None };
@@ -723,11 +723,11 @@ fn parametros_do_membro(
     match fe.node {
         FunctionRef::Function { unit, function } => {
             let a = &program.unit(unit).ast;
-            let fonte = program.unit(unit).source.as_str();
+            let source = program.unit(unit).source.as_str();
             let ps = a.function(function).parameters.as_deref().unwrap_or(&[]);
-            let (mut i_pos, mut i_opc) = (0usize, 0usize);
+            let (mut i_pos, mut i_opt) = (0usize, 0usize);
             for p in ps {
-                let tipo = match p.kind {
+                let ty = match p.kind {
                     ParameterKind::Required => {
                         i_pos += 1;
                         *positional.get(i_pos - 1)?
@@ -737,11 +737,11 @@ fn parametros_do_membro(
                         named.iter().find(|(s, _, _)| *s == n).map(|(_, t, _)| *t)?
                     }
                     _ => {
-                        i_opc += 1;
-                        *optional.get(i_opc - 1)?
+                        i_opt += 1;
+                        *optional.get(i_opt - 1)?
                     }
                 };
-                v.push(ParametroDoMembro {
+                v.push(MemberParameter {
                     nome: p.name.map(|n| interner.resolve(n.sym).to_string()).unwrap_or_default(),
                     especie: match p.kind {
                         ParameterKind::Required => 0,
@@ -750,8 +750,8 @@ fn parametros_do_membro(
                         _ => 1,
                     },
                     covariante: p.covariant,
-                    tipo,
-                    padrao: p.default_value.map(|d| dartforge_frontend::fonte::de_expr(a, fonte, interner, d)),
+                    tipo: ty,
+                    padrao: p.default_value.map(|d| dartforge_frontend::fonte::de_expr(a, source, interner, d)),
                 });
             }
         }
@@ -760,18 +760,18 @@ fn parametros_do_membro(
             // `_<nome>`.
             if fe.kind == FunctionKind::Setter {
                 let v_id = fe.variable?;
-                let nome = interner.resolve(program.variable(v_id).name);
-                let covariante = match program.variable(v_id).node {
+                let the_name = interner.resolve(program.variable(v_id).name);
+                let covariant = match program.variable(v_id).node {
                     dartforge_elements::model::VariableRef::Field { unit, member, .. } => match &program.unit(unit).ast.member(member).kind {
                         MemberKind::Field(l) => l.covariant,
                         _ => false,
                     },
                     _ => false,
                 };
-                v.push(ParametroDoMembro {
-                    nome: format!("_{nome}"),
+                v.push(MemberParameter {
+                    nome: format!("_{the_name}"),
                     especie: 0,
-                    covariante,
+                    covariante: covariant,
                     tipo: *positional.first()?,
                     padrao: None,
                 });
@@ -783,46 +783,46 @@ fn parametros_do_membro(
 
 /// O corpo repassa ao `super` (os visitantes do emissor).
 #[allow(clippy::too_many_arguments)]
-fn repassa_ao_super(
+fn passes_to_super(
     a: &ast::Ast,
-    fonte: &str,
+    source: &str,
     interner: &Interner,
-    comentarios: &dartforge_frontend::comentarios::Comentarios,
-    corpo: &UnitBodyTypes,
+    comments: &dartforge_frontend::comentarios::Comentarios,
+    body: &UnitBodyTypes,
     f: &ast::Function,
-    especie: Especie,
-    nome: &str,
+    kind: Especie,
+    the_name: &str,
 ) -> bool {
-    let comentado = |pos: usize| !comentarios.antes_de(fonte, pos).is_empty();
+    let commented = |pos: usize| !comments.antes_de(source, pos).is_empty();
     // `visitSuperExpression`.
-    let super_sem_comentario = |e: ExprId| {
+    let super_without_comment = |e: ExprId| {
         let e = sem_parenteses(a, e);
-        matches!(a.expr(e).kind, ExprKind::Super) && !comentado(a.expr(e).span.start)
+        matches!(a.expr(e).kind, ExprKind::Super) && !commented(a.expr(e).span.start)
     };
     let ps = f.parameters.as_deref().unwrap_or(&[]);
     // O parâmetro do próprio método que a expressão cita (`canonicalElement`).
-    let parametro = |e: ExprId| -> Option<SymbolId> {
+    let parameter = |e: ExprId| -> Option<SymbolId> {
         let e = sem_parenteses(a, e);
-        match (&a.expr(e).kind, corpo.get_resolved(e)) {
+        match (&a.expr(e).kind, body.get_resolved(e)) {
             (ExprKind::Identifier(n), Some(Resolved::Parameter { .. })) if ps.iter().any(|p| p.name.is_some_and(|q| q.sym == n.sym)) => Some(n.sym),
             _ => None,
         }
     };
-    let visitar_expr = |e: ExprId| -> bool {
+    let visit_expr = |e: ExprId| -> bool {
         let e = sem_parenteses(a, e);
-        match especie {
+        match kind {
             Especie::Getter => match &a.expr(e).kind {
-                ExprKind::Property { target, name, .. } if interner.resolve(name.sym) == nome => super_sem_comentario(*target),
+                ExprKind::Property { target, name, .. } if interner.resolve(name.sym) == the_name => super_without_comment(*target),
                 _ => false,
             },
             Especie::Setter => match &a.expr(e).kind {
                 ExprKind::Assign { target, value, .. } => {
                     let [p] = ps else { return false };
-                    if p.name.map(|n| n.sym) != parametro(*value) {
+                    if p.name.map(|n| n.sym) != parameter(*value) {
                         return false;
                     }
                     match &a.expr(sem_parenteses(a, *target)).kind {
-                        ExprKind::Property { target, name, .. } if interner.resolve(name.sym) == nome => super_sem_comentario(*target),
+                        ExprKind::Property { target, name, .. } if interner.resolve(name.sym) == the_name => super_without_comment(*target),
                         _ => false,
                     }
                 }
@@ -831,61 +831,61 @@ fn repassa_ao_super(
             Especie::Metodo if f.kind == ast::FunctionKind::Operator => match &a.expr(e).kind {
                 ExprKind::Binary { op, left, right } => {
                     let [p] = ps else { return false };
-                    texto_do_operador(*op) == Some(nome) && p.name.map(|n| n.sym) == parametro(*right) && super_sem_comentario(*left)
+                    operator_text(*op) == Some(the_name) && p.name.map(|n| n.sym) == parameter(*right) && super_without_comment(*left)
                 }
                 ExprKind::Unary { op, operand } => {
-                    let mesmo = match op {
-                        UnaryOp::Neg => nome == "unary-" || nome == "-",
-                        UnaryOp::BitNot => nome == "~",
+                    let the_same = match op {
+                        UnaryOp::Neg => the_name == "unary-" || the_name == "-",
+                        UnaryOp::BitNot => the_name == "~",
                         _ => false,
                     };
-                    mesmo && ps.is_empty() && super_sem_comentario(*operand)
+                    the_same && ps.is_empty() && super_without_comment(*operand)
                 }
                 _ => false,
             },
             Especie::Metodo => match &a.expr(e).kind {
                 ExprKind::Call { target, arguments } => {
-                    let ExprKind::Property { target: alvo, name, .. } = &a.expr(*target).kind else { return false };
-                    if interner.resolve(name.sym) != nome {
+                    let ExprKind::Property { target: tgt, name, .. } = &a.expr(*target).kind else { return false };
+                    if interner.resolve(name.sym) != the_name {
                         return false;
                     }
                     // `argumentsMatchParameters`.
-                    let posicionais: Vec<SymbolId> = ps.iter().filter(|p| p.kind != ParameterKind::Named).filter_map(|p| p.name.map(|n| n.sym)).collect();
-                    let nomeados: Vec<SymbolId> = ps.iter().filter(|p| p.kind == ParameterKind::Named).filter_map(|p| p.name.map(|n| n.sym)).collect();
+                    let positional_args: Vec<SymbolId> = ps.iter().filter(|p| p.kind != ParameterKind::Named).filter_map(|p| p.name.map(|n| n.sym)).collect();
+                    let named_args: Vec<SymbolId> = ps.iter().filter(|p| p.kind == ParameterKind::Named).filter_map(|p| p.name.map(|n| n.sym)).collect();
                     let mut args_pos: Vec<SymbolId> = Vec::new();
-                    let mut args_nom: Vec<(SymbolId, SymbolId)> = Vec::new();
+                    let mut the_named_args: Vec<(SymbolId, SymbolId)> = Vec::new();
                     for x in arguments.args.iter() {
-                        let Some(el) = parametro(x.value) else { return false };
+                        let Some(el) = parameter(x.value) else { return false };
                         match x.name {
-                            Some(n) => args_nom.push((n.sym, el)),
+                            Some(n) => the_named_args.push((n.sym, el)),
                             None => args_pos.push(el),
                         }
                     }
-                    if posicionais != args_pos || nomeados.len() != args_nom.len() {
+                    if positional_args != args_pos || named_args.len() != the_named_args.len() {
                         return false;
                     }
-                    let todos_nomeados = nomeados.iter().all(|n| {
-                        let externo = ps.iter().find(|p| p.name.is_some_and(|q| q.sym == *n)).and_then(|p| p.public_name.or(p.name)).map(|q| q.sym);
-                        args_nom.iter().any(|(rotulo, el)| Some(*rotulo) == externo && el == n)
+                    let all_named = named_args.iter().all(|n| {
+                        let external = ps.iter().find(|p| p.name.is_some_and(|q| q.sym == *n)).and_then(|p| p.public_name.or(p.name)).map(|q| q.sym);
+                        the_named_args.iter().any(|(label, el)| Some(*label) == external && el == n)
                     });
-                    todos_nomeados && super_sem_comentario(*alvo)
+                    all_named && super_without_comment(*tgt)
                 }
                 _ => false,
             },
         }
     };
     match &f.body {
-        FunctionBody::Expression(e) => visitar_expr(*e),
+        FunctionBody::Expression(e) => visit_expr(*e),
         FunctionBody::Block(b) => {
-            let StmtKind::Block(cmds) = &a.stmt(*b).kind else { return false };
-            let [s] = &cmds[..] else { return false };
+            let StmtKind::Block(the_cmds) = &a.stmt(*b).kind else { return false };
+            let [s] = &the_cmds[..] else { return false };
             match &a.stmt(*s).kind {
-                StmtKind::Expression(e) => visitar_expr(*e),
+                StmtKind::Expression(e) => visit_expr(*e),
                 StmtKind::Return(v) => {
-                    if comentado(a.stmt(*s).span.start) {
+                    if commented(a.stmt(*s).span.start) {
                         return false;
                     }
-                    v.is_some_and(visitar_expr)
+                    v.is_some_and(visit_expr)
                 }
                 _ => false,
             }
@@ -895,7 +895,7 @@ fn repassa_ao_super(
 }
 
 /// O texto do operador binário (o nome do `operator` que ele chama).
-fn texto_do_operador(op: BinaryOp) -> Option<&'static str> {
+fn operator_text(op: BinaryOp) -> Option<&'static str> {
     Some(match op {
         BinaryOp::Add => "+",
         BinaryOp::Sub => "-",
@@ -920,24 +920,24 @@ fn texto_do_operador(op: BinaryOp) -> Option<&'static str> {
 
 /// `no_duplicate_case_values`.
 #[allow(clippy::too_many_arguments)]
-fn casos_duplicados(
+fn duplicate_cases(
     program: &Program,
     interner: &Interner,
     table: &mut TypeTable,
     core: &CoreTypes,
     outline: &OutlineTypes,
-    corpos: &BodyTypes,
-    inferidas: &HashSet<LibraryId>,
+    bodies: &BodyTypes,
+    the_inferred: &HashSet<LibraryId>,
     u: UnitId,
     out: &mut Vec<Achado>,
 ) {
-    let unidade = program.unit(u);
-    let versao = program.library(unidade.library).features.versao();
-    if versao >= dartforge_frontend::features::LanguageVersion::new(3, 0) {
+    let unit_id = program.unit(u);
+    let version = program.library(unit_id.library).features.versao();
+    if version >= dartforge_frontend::features::LanguageVersion::new(3, 0) {
         return;
     }
-    let a = &unidade.ast;
-    let fonte = unidade.source.as_str();
+    let a = &unit_id.ast;
+    let source = unit_id.source.as_str();
     let switches: Vec<&[ast::SwitchCase]> = a
         .stmts
         .iter()
@@ -949,24 +949,24 @@ fn casos_duplicados(
     if switches.is_empty() {
         return;
     }
-    let mut motor = Motor::novo(program, interner, table, core, outline, corpos, inferidas);
-    let cx = Ctx::simples(u, unidade.library);
-    for casos in switches {
-        let mut vistos: Vec<(crate::constantes::valor::Valor, ExprId)> = Vec::new();
-        for caso in casos {
-            let Some(p) = caso.pattern else { continue };
+    let mut engine = Motor::novo(program, interner, table, core, outline, bodies, the_inferred);
+    let cx = Ctx::simples(u, unit_id.library);
+    for the_cases in switches {
+        let mut seen: Vec<(crate::constantes::valor::Valor, ExprId)> = Vec::new();
+        for case in the_cases {
+            let Some(p) = case.pattern else { continue };
             let PatternKind::Constant(e) = &a.pattern(p).kind else { continue };
-            let Constante::Valor(v) = motor.avaliar(&cx, *e, true) else { continue };
+            let Constante::Valor(v) = engine.avaliar(&cx, *e, true) else { continue };
             if v.estado.desconhecido() {
                 continue;
             }
-            match vistos.iter().position(|(w, _)| motor.iguais(&v, w)) {
+            match seen.iter().position(|(w, _)| engine.iguais(&v, w)) {
                 Some(i) => {
-                    let anterior = vistos[i].1;
-                    let args = vec![dartforge_frontend::fonte::de_expr(a, fonte, interner, *e), dartforge_frontend::fonte::de_expr(a, fonte, interner, anterior)];
+                    let previous = seen[i].1;
+                    let args = vec![dartforge_frontend::fonte::de_expr(a, source, interner, *e), dartforge_frontend::fonte::de_expr(a, source, interner, previous)];
                     out.push((a.expr(*e).span, "no_duplicate_case_values", args));
                 }
-                None => vistos.push((v, *e)),
+                None => seen.push((v, *e)),
             }
         }
     }

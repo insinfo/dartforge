@@ -19,7 +19,7 @@
 //!
 //! Escrito sem compilar nem executar (2026-10-05).
 
-use crate::heranca::{Conflito, Heranca, ProvedorDoOutline};
+use crate::heranca::{Conflict, Heranca, ProvedorDoOutline};
 use crate::resolve::OutlineTypes;
 use crate::subtyping::{is_subtype, SubtypeEnv};
 use crate::table::{CoreTypes, Type, TypeId, TypeTable};
@@ -34,44 +34,44 @@ use std::collections::{HashMap, HashSet};
 /// argumentos de tipo, o retorno, os limites dos parâmetros de tipo e os
 /// parâmetros de uma função, os campos de um registro; não o limite de um
 /// parâmetro de tipo).
-fn citados(table: &TypeTable, t: TypeId, saida: &mut Vec<ClassId>, prof: u32) {
+fn cited(table: &TypeTable, t: TypeId, output: &mut Vec<ClassId>, prof: u32) {
     if prof > 64 {
         return;
     }
     match table.get(t).clone() {
         Type::ExtensionType { decl, args, .. } => {
-            saida.push(decl);
+            output.push(decl);
             for a in args.iter() {
-                citados(table, *a, saida, prof + 1);
+                cited(table, *a, output, prof + 1);
             }
         }
         Type::Interface { args, .. } => {
             for a in args.iter() {
-                citados(table, *a, saida, prof + 1);
+                cited(table, *a, output, prof + 1);
             }
         }
-        Type::FutureOr { arg, .. } => citados(table, arg, saida, prof + 1),
+        Type::FutureOr { arg, .. } => cited(table, arg, output, prof + 1),
         Type::Function { type_params, ret, positional, optional, named, .. } => {
-            citados(table, ret, saida, prof + 1);
+            cited(table, ret, output, prof + 1);
             for p in type_params.iter() {
                 let b = table.param(*p).bound;
                 if table.param(*p).explicito {
-                    citados(table, b, saida, prof + 1);
+                    cited(table, b, output, prof + 1);
                 }
             }
             for x in positional.iter().chain(optional.iter()) {
-                citados(table, *x, saida, prof + 1);
+                cited(table, *x, output, prof + 1);
             }
             for (_, x, _) in named.iter() {
-                citados(table, *x, saida, prof + 1);
+                cited(table, *x, output, prof + 1);
             }
         }
         Type::Record { positional, named, .. } => {
             for x in positional.iter() {
-                citados(table, *x, saida, prof + 1);
+                cited(table, *x, output, prof + 1);
             }
             for (_, x) in named.iter() {
-                citados(table, *x, saida, prof + 1);
+                cited(table, *x, output, prof + 1);
             }
         }
         _ => {}
@@ -80,7 +80,7 @@ fn citados(table: &TypeTable, t: TypeId, saida: &mut Vec<ClassId>, prof: u32) {
 
 /// Os nós de componentes fortemente conexas com mais de um nó ou com
 /// auto-laço (`DependencyWalker.evaluateScc`).
-fn em_ciclo(nos: &[ClassId], deps: &HashMap<ClassId, Vec<ClassId>>) -> HashSet<ClassId> {
+fn in_cycle(nodes: &[ClassId], deps: &HashMap<ClassId, Vec<ClassId>>) -> HashSet<ClassId> {
     struct Estado<'a> {
         deps: &'a HashMap<ClassId, Vec<ClassId>>,
         indice: HashMap<ClassId, usize>,
@@ -88,24 +88,24 @@ fn em_ciclo(nos: &[ClassId], deps: &HashMap<ClassId, Vec<ClassId>>) -> HashSet<C
         pilha: Vec<ClassId>,
         na_pilha: HashSet<ClassId>,
         proximo: usize,
-        marcados: HashSet<ClassId>,
+        marked: HashSet<ClassId>,
     }
-    fn conectar(e: &mut Estado<'_>, v: ClassId) {
+    fn connect(e: &mut Estado<'_>, v: ClassId) {
         e.indice.insert(v, e.proximo);
         e.baixo.insert(v, e.proximo);
         e.proximo += 1;
         e.pilha.push(v);
         e.na_pilha.insert(v);
         let mut auto = false;
-        let vizinhos = e.deps.get(&v).cloned().unwrap_or_default();
-        for w in vizinhos {
+        let neighbors = e.deps.get(&v).cloned().unwrap_or_default();
+        for w in neighbors {
             if !e.deps.contains_key(&w) {
                 continue;
             }
             if w == v {
                 auto = true;
             } else if !e.indice.contains_key(&w) {
-                conectar(e, w);
+                connect(e, w);
                 let bw = e.baixo[&w];
                 if bw < e.baixo[&v] {
                     e.baixo.insert(v, bw);
@@ -118,26 +118,26 @@ fn em_ciclo(nos: &[ClassId], deps: &HashMap<ClassId, Vec<ClassId>>) -> HashSet<C
             }
         }
         if e.baixo[&v] == e.indice[&v] {
-            let mut componente = Vec::new();
+            let mut component = Vec::new();
             while let Some(x) = e.pilha.pop() {
                 e.na_pilha.remove(&x);
-                componente.push(x);
+                component.push(x);
                 if x == v {
                     break;
                 }
             }
-            if componente.len() > 1 || auto {
-                e.marcados.extend(componente);
+            if component.len() > 1 || auto {
+                e.marked.extend(component);
             }
         }
     }
-    let mut e = Estado { deps, indice: HashMap::new(), baixo: HashMap::new(), pilha: Vec::new(), na_pilha: HashSet::new(), proximo: 1, marcados: HashSet::new() };
-    for &v in nos {
+    let mut e = Estado { deps, indice: HashMap::new(), baixo: HashMap::new(), pilha: Vec::new(), na_pilha: HashSet::new(), proximo: 1, marked: HashSet::new() };
+    for &v in nodes {
         if !e.indice.contains_key(&v) {
-            conectar(&mut e, v);
+            connect(&mut e, v);
         }
     }
-    e.marcados
+    e.marked
 }
 
 /// `isBottom`: `Never`, ou parâmetro de tipo não anulável cujo limite é
@@ -156,7 +156,7 @@ fn e_fundo(table: &TypeTable, t: TypeId, prof: u32) -> bool {
 
 /// O tipo escrito é literalmente `dynamic` (e não um nome que não resolveu,
 /// que o outline também deixa `dynamic`).
-fn escrito_dynamic(interner: &Interner, a: &ast::Ast, t: ast::TypeId) -> bool {
+fn written_dynamic(interner: &Interner, a: &ast::Ast, t: ast::TypeId) -> bool {
     matches!(&a.ty(t).kind, ast::TypeKind::Named { name, .. } if name.len() == 1 && interner.resolve(name[0].sym) == "dynamic")
 }
 
@@ -171,7 +171,7 @@ fn representacao(program: &Program, outline: &OutlineTypes, table: &TypeTable, i
         let d = program.class(c).decl?;
         let a = &program.unit(d.unit).ast;
         let DeclKind::ExtensionType(et) = &a.decl(d.decl).kind else { return None };
-        if !escrito_dynamic(interner, a, et.representation_type) {
+        if !written_dynamic(interner, a, et.representation_type) {
             return None;
         }
     }
@@ -186,27 +186,27 @@ pub fn verificar(
     outline: &OutlineTypes,
     lib: LibraryId,
 ) -> Vec<(UnitId, Diagnostic)> {
-    let mut saida = Vec::new();
-    let tipos: Vec<ClassId> = program
+    let mut output = Vec::new();
+    let types: Vec<ClassId> = program
         .classes
         .iter()
         .enumerate()
         .filter(|(_, ce)| ce.kind == ClassKind::ExtensionType && ce.decl.is_some_and(|d| !program.unit(d.unit).ast.decl(d.decl).augment))
         .map(|(i, _)| ClassId(i as u32))
         .collect();
-    if !tipos.iter().any(|&t| program.class(t).library == lib) {
-        return saida;
+    if !types.iter().any(|&t| program.class(t).library == lib) {
+        return output;
     }
     // O grafo da representação e o do `implements` (só os tipos de extensão
     // não anuláveis: os outros saem do `interfaces` do elemento).
     let mut deps_rep: HashMap<ClassId, Vec<ClassId>> = HashMap::new();
     let mut deps_impl: HashMap<ClassId, Vec<ClassId>> = HashMap::new();
-    for &t in &tipos {
+    for &t in &types {
         let mut v = Vec::new();
         if let Some(rep) = program.class(t).representation
             && let Some(r) = outline.variables[rep.0 as usize].declared_type
         {
-            citados(table, r, &mut v, 0);
+            cited(table, r, &mut v, 0);
         }
         deps_rep.insert(t, v);
         let interfaces = outline.classes[t.0 as usize].interfaces.clone();
@@ -218,134 +218,134 @@ pub fn verificar(
         }
         deps_impl.insert(t, w);
     }
-    let rep_em_ciclo = em_ciclo(&tipos, &deps_rep);
-    let impl_em_ciclo = em_ciclo(&tipos, &deps_impl);
-    let vazio: [&str; 0] = [];
-    let mut heranca = Heranca::default();
-    for &t in tipos.iter().filter(|&&t| program.class(t).library == lib) {
+    let rep_in_cycle = in_cycle(&types, &deps_rep);
+    let impl_in_cycle = in_cycle(&types, &deps_impl);
+    let empty: [&str; 0] = [];
+    let mut inheritance = Heranca::default();
+    for &t in types.iter().filter(|&&t| program.class(t).library == lib) {
         let ce = program.class(t);
         let Some(d) = ce.decl else { continue };
         let a = &program.unit(d.unit).ast;
         let DeclKind::ExtensionType(et) = &a.decl(d.decl).kind else { continue };
         let u = d.unit;
-        let nome = interner.resolve(et.name.sym).to_string();
-        let rep = if rep_em_ciclo.contains(&t) { None } else { representacao(program, outline, table, interner, t) };
+        let the_name = interner.resolve(et.name.sym).to_string();
+        let rep = if rep_in_cycle.contains(&t) { None } else { representacao(program, outline, table, interner, t) };
 
         // `ResolutionVisitor` (antes do `ErrorVerifier`): o `implements`.
         if let Some(r) = rep {
             let interfaces = outline.classes[t.0 as usize].interfaces.clone();
-            for (k, &escrito) in et.implements.iter().enumerate() {
-                let Some(&tipo) = interfaces.get(k) else { continue };
+            for (k, &written) in et.implements.iter().enumerate() {
+                let Some(&ty) = interfaces.get(k) else { continue };
                 // `_verifyNullability` (`named_type_resolver.dart:388-414`): o
                 // tipo de hierarquia perde o `?` depois do
                 // `NULLABLE_TYPE_IN_IMPLEMENTS_CLAUSE`. O `hasErrorReported`
                 // só vale para o alias que expande a parâmetro de tipo: o nome
                 // indefinido é `InvalidType`, e `isValidExtensionTypeSuperinterface`
                 // (`type_system.dart:1361-1378`) o recusa.
-                let invalido = table.e_invalido(tipo);
-                let tipo = if invalido { tipo } else { crate::ops::non_nullable(tipo, table) };
-                let sp = a.ty(escrito).span;
-                let valido = !invalido
-                    && match table.get(tipo).clone() {
+                let invalid = table.e_invalido(ty);
+                let ty = if invalid { ty } else { crate::ops::non_nullable(ty, table) };
+                let sp = a.ty(written).span;
+                let valid = !invalid
+                    && match table.get(ty).clone() {
                         Type::Interface { class, nullable: false, .. } => {
                             Some(class) != core.function_class && Some(class) != core.null_class && Some(class) != core.record_class
                         }
                         Type::ExtensionType { nullable: false, .. } => true,
                         _ => false,
                     };
-                if !valido {
+                if !valid {
                     // O tipo como o analyzer o escreve: com o alias com que foi
                     // escrito (`implements X` com `typedef X = void Function()`
                     // dá `X`, e `X?` também), salvo `void` e `dynamic` (que
                     // não levam alias), e `InvalidType` para o que não resolveu.
-                    let texto = if invalido {
+                    let text = if invalid {
                         "InvalidType".to_string()
-                    } else if matches!(table.get(tipo), Type::Dynamic | Type::Void) {
-                        let s = crate::ops::sem_exibicao(tipo, table);
+                    } else if matches!(table.get(ty), Type::Dynamic | Type::Void) {
+                        let s = crate::ops::without_display(ty, table);
                         table.format(s, interner, program)
                     } else {
-                        table.format(tipo, interner, program)
+                        table.format(ty, interner, program)
                     };
-                    saida.push((u, Diagnostic::com_codigo(c::EXTENSION_TYPE_IMPLEMENTS_DISALLOWED_TYPE, sp, [texto.as_str()])));
+                    output.push((u, Diagnostic::com_codigo(c::EXTENSION_TYPE_IMPLEMENTS_DISALLOWED_TYPE, sp, [text.as_str()])));
                     continue;
                 }
-                let cabe = {
+                let fits = {
                     let mut env = SubtypeEnv::new(table, &outline.hierarchy, core);
-                    is_subtype(r, tipo, &mut env)
+                    is_subtype(r, ty, &mut env)
                 };
-                if cabe {
+                if fits {
                     continue;
                 }
-                if let Type::ExtensionType { decl, args, .. } = table.get(tipo).clone() {
+                if let Type::ExtensionType { decl, args, .. } = table.get(ty).clone() {
                     let Some(rep_impl) = representacao(program, outline, table, interner, decl) else { continue };
                     let params = outline.classes[decl.0 as usize].type_params.clone();
                     let rep_impl = if params.len() == args.len() {
-                        let mapa: HashMap<_, _> = params.iter().copied().zip(args.iter().copied()).collect();
-                        crate::ops::substitute(rep_impl, &mapa, table)
+                        let map: HashMap<_, _> = params.iter().copied().zip(args.iter().copied()).collect();
+                        crate::ops::substitute(rep_impl, &map, table)
                     } else {
                         rep_impl
                     };
-                    let cabe_na_rep = {
+                    let fits_in_rep = {
                         let mut env = SubtypeEnv::new(table, &outline.hierarchy, core);
                         is_subtype(r, rep_impl, &mut env)
                     };
-                    if !cabe_na_rep {
+                    if !fits_in_rep {
                         let ri = table.format(rep_impl, interner, program);
                         let ni = interner.resolve(program.class(decl).name).to_string();
                         let rd = table.format(r, interner, program);
-                        saida.push((
+                        output.push((
                             u,
                             Diagnostic::com_codigo(
                                 c::EXTENSION_TYPE_IMPLEMENTS_REPRESENTATION_NOT_SUPERTYPE,
                                 sp,
-                                [ri.as_str(), ni.as_str(), rd.as_str(), nome.as_str()],
+                                [ri.as_str(), ni.as_str(), rd.as_str(), the_name.as_str()],
                             ),
                         ));
                     }
                     continue;
                 }
-                let ti = table.format(tipo, interner, program);
+                let ti = table.format(ty, interner, program);
                 let rd = table.format(r, interner, program);
-                saida.push((u, Diagnostic::com_codigo(c::EXTENSION_TYPE_IMPLEMENTS_NOT_SUPERTYPE, sp, [ti.as_str(), rd.as_str()])));
+                output.push((u, Diagnostic::com_codigo(c::EXTENSION_TYPE_IMPLEMENTS_NOT_SUPERTYPE, sp, [ti.as_str(), rd.as_str()])));
             }
         }
 
         // `ErrorVerifier.visitExtensionTypeDeclaration`, na ordem.
-        if rep_em_ciclo.contains(&t) {
-            saida.push((u, Diagnostic::com_codigo(c::EXTENSION_TYPE_REPRESENTATION_DEPENDS_ON_ITSELF, et.name.span, vazio.iter().copied())));
+        if rep_in_cycle.contains(&t) {
+            output.push((u, Diagnostic::com_codigo(c::EXTENSION_TYPE_REPRESENTATION_DEPENDS_ON_ITSELF, et.name.span, empty.iter().copied())));
         } else if let Some(r) = rep
             && e_fundo(table, r, 0)
         {
             let sp = a.ty(et.representation_type).span;
-            saida.push((u, Diagnostic::com_codigo(c::EXTENSION_TYPE_REPRESENTATION_TYPE_BOTTOM, sp, vazio.iter().copied())));
+            output.push((u, Diagnostic::com_codigo(c::EXTENSION_TYPE_REPRESENTATION_TYPE_BOTTOM, sp, empty.iter().copied())));
         }
-        if impl_em_ciclo.contains(&t) {
-            saida.push((u, Diagnostic::com_codigo(c::EXTENSION_TYPE_IMPLEMENTS_ITSELF, et.name.span, vazio.iter().copied())));
+        if impl_in_cycle.contains(&t) {
+            output.push((u, Diagnostic::com_codigo(c::EXTENSION_TYPE_IMPLEMENTS_ITSELF, et.name.span, empty.iter().copied())));
         }
         let interface = {
             let mut p = ProvedorDoOutline { program, interner, core, outline, table: &mut *table };
-            heranca.interface(&mut p, t)
+            inheritance.interface(&mut p, t)
         };
-        for conflito in interface.conflitos.iter() {
+        for conflict in interface.conflicts.iter() {
             // `_checkForExtensionTypeMemberConflicts`: os candidatos (os sem
             // extensão antes dos de extensão) viram as mensagens de contexto.
-            let (n, candidatos): (_, Vec<&crate::heranca::Membro>) = match conflito {
-                Conflito::Candidatos { nome, candidatos } | Conflito::ExtensaoNaoUnica { nome, candidatos } => (nome, candidatos.iter().collect()),
-                Conflito::ExtensaoENaoExtensao { nome, nao_extensao, extensao } => (nome, nao_extensao.iter().chain(extensao.iter()).collect()),
-                Conflito::GetterMetodo { .. } => continue,
+            let (n, candidates): (_, Vec<&crate::heranca::Membro>) = match conflict {
+                Conflict::Candidates { nome: the_name, candidatos: candidates } | Conflict::NonUniqueExtension { nome: the_name, candidatos: candidates } => (the_name, candidates.iter().collect()),
+                Conflict::ExtensionAndNonExtension { nome: the_name, non_extension, extensao: extension } => (the_name, non_extension.iter().chain(extension.iter()).collect()),
+                Conflict::GetterMethod { .. } => continue,
             };
             // O `Name.name` do setter é `x=`; a chave do modelo, `x_=`.
-            let texto = interner.resolve(n.chave);
-            let membro = texto.strip_suffix("_=").map_or_else(|| texto.to_string(), |s| format!("{s}="));
-            let mut d = Diagnostic::com_codigo(c::EXTENSION_TYPE_INHERITED_MEMBER_CONFLICT, et.name.span, [nome.as_str(), membro.as_str()]);
-            for m in candidatos {
+            let text = interner.resolve(n.chave);
+            let member = text.strip_suffix("_=").map_or_else(|| text.to_string(), |s| format!("{s}="));
+            let mut d = Diagnostic::com_codigo(c::EXTENSION_TYPE_INHERITED_MEMBER_CONFLICT, et.name.span, [the_name.as_str(), member.as_str()]);
+            for m in candidates {
                 let Some((mu, span)) = program.nome_nao_sintetico_da_funcao(m.funcao) else { continue };
-                let arquivo = (mu != u).then(|| program.caminho_da_unidade(mu).into());
-                let mensagem = format!("Inherited from '{}'", interner.resolve(program.class(m.classe).name));
-                d.contexto.push(dartforge_diagnostics::Contexto { arquivo, span, mensagem: mensagem.into() });
+                let file = (mu != u).then(|| program.caminho_da_unidade(mu).into());
+                let message = format!("Inherited from '{}'", interner.resolve(program.class(m.classe).name));
+                d.contexto.push(dartforge_diagnostics::Contexto { arquivo: file, span, mensagem: message.into() });
             }
-            saida.push((u, d));
+            output.push((u, d));
         }
     }
-    saida
+    output
 }

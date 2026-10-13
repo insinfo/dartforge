@@ -24,22 +24,22 @@ use dartforge_intern::Interner;
 
 /// Uma versão `maior.menor.correção`, sem pré-lançamento.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Versao(pub u32, pub u32, pub u32);
+pub struct Version(pub u32, pub u32, pub u32);
 
-impl Versao {
+impl Version {
     /// `2.15`, `2.15.0`, `3.0.0-dev.1`: o que falta é zero; o que vem depois
     /// de `-` ou `+` é descartado.
-    pub fn de_texto(texto: &str) -> Option<Versao> {
-        let nucleo = texto.trim().split(['-', '+']).next()?;
-        let mut partes = nucleo.split('.').map(|p| p.parse::<u32>());
-        let maior = partes.next()?.ok()?;
-        let menor = partes.next().unwrap_or(Ok(0)).ok()?;
-        let correcao = partes.next().unwrap_or(Ok(0)).ok()?;
-        Some(Versao(maior, menor, correcao))
+    pub fn de_texto(text: &str) -> Option<Version> {
+        let core_lib = text.trim().split(['-', '+']).next()?;
+        let mut parts = core_lib.split('.').map(|p| p.parse::<u32>());
+        let greater = parts.next()?.ok()?;
+        let less = parts.next().unwrap_or(Ok(0)).ok()?;
+        let fix = parts.next().unwrap_or(Ok(0)).ok()?;
+        Some(Version(greater, less, fix))
     }
 }
 
-impl std::fmt::Display for Versao {
+impl std::fmt::Display for Version {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}.{}.{}", self.0, self.1, self.2)
     }
@@ -49,7 +49,7 @@ impl std::fmt::Display for Versao {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RestricaoDeSdk {
     /// O mínimo (de `^v`, `>=v`, `>v` ou da versão exata); `None` sem piso.
-    pub minimo: Option<Versao>,
+    pub minimo: Option<Version>,
     /// O texto da restrição, com os espaços normalizados (o `toString`).
     pub texto: String,
 }
@@ -57,54 +57,54 @@ pub struct RestricaoDeSdk {
 impl RestricaoDeSdk {
     /// `^3.6.0`, `>=2.12.0 <4.0.0`, `any`, `3.6.0`. `None` para o que não se
     /// lê (uniões com `||`, texto inválido): o verificador não roda.
-    pub fn de_texto(texto: &str) -> Option<RestricaoDeSdk> {
-        let normal = texto.split_whitespace().collect::<Vec<_>>().join(" ");
+    pub fn de_texto(text: &str) -> Option<RestricaoDeSdk> {
+        let normal = text.split_whitespace().collect::<Vec<_>>().join(" ");
         if normal.contains("||") {
             return None;
         }
         if normal.is_empty() || normal == "any" {
             return Some(RestricaoDeSdk { minimo: None, texto: "any".to_string() });
         }
-        let mut minimo = None;
+        let mut minimum = None;
         for parte in normal.split(' ') {
             if let Some(v) = parte.strip_prefix('^').or_else(|| parte.strip_prefix(">=")).or_else(|| parte.strip_prefix('>')) {
-                minimo = Some(Versao::de_texto(v)?);
+                minimum = Some(Version::de_texto(v)?);
             } else if let Some(v) = parte.strip_prefix("<=").or_else(|| parte.strip_prefix('<')) {
-                Versao::de_texto(v)?;
+                Version::de_texto(v)?;
             } else {
-                minimo = Some(Versao::de_texto(parte)?);
+                minimum = Some(Version::de_texto(parte)?);
             }
         }
-        Some(RestricaoDeSdk { minimo, texto: normal })
+        Some(RestricaoDeSdk { minimo: minimum, texto: normal })
     }
 
     /// `requiresAtLeast`: o mínimo da restrição é pelo menos `versao`.
-    fn garante(&self, versao: Versao) -> bool {
-        self.minimo.is_some_and(|m| m >= versao)
+    fn guarantees(&self, version: Version) -> bool {
+        self.minimo.is_some_and(|m| m >= version)
     }
 
     /// `checkTripleShift`: a restrição admite versão anterior à 2.14.0.
-    fn antes_do_deslocamento_triplo(&self) -> bool {
-        self.minimo.is_none_or(|m| m < Versao(2, 14, 0))
+    fn before_triple_shift(&self) -> bool {
+        self.minimo.is_none_or(|m| m < Version(2, 14, 0))
     }
 }
 
 /// A versão do `@Since('x.y')` de uma lista de anotações.
-fn desde(metadata: &[ast::Annotation], a: &ast::Ast, interner: &Interner) -> Option<Versao> {
+fn desde(metadata: &[ast::Annotation], a: &ast::Ast, interner: &Interner) -> Option<Version> {
     metadata.iter().find_map(|m| {
         let args = m.arguments.as_ref()?;
         if m.name.last().map(|n| interner.resolve(n.sym)) != Some("Since") {
             return None;
         }
-        let primeiro = args.args.iter().find(|x| x.name.is_none())?;
-        match &a.expr(primeiro.value).kind {
-            ExprKind::String(lit) => Versao::de_texto(&dartforge_elements::load::string_lit_value(lit)?),
+        let first = args.args.iter().find(|x| x.name.is_none())?;
+        match &a.expr(first.value).kind {
+            ExprKind::String(lit) => Version::de_texto(&dartforge_elements::load::string_lit_value(lit)?),
             _ => None,
         }
     })
 }
 
-fn desde_da_classe(program: &Program, interner: &Interner, c: ClassId) -> Option<Versao> {
+fn since_of_class(program: &Program, interner: &Interner, c: ClassId) -> Option<Version> {
     let e = program.class(c);
     if !program.library(e.library).uri.starts_with("dart:") {
         return None;
@@ -114,12 +114,12 @@ fn desde_da_classe(program: &Program, interner: &Interner, c: ClassId) -> Option
     desde(&a.decl(d.decl).metadata, a, interner)
 }
 
-fn desde_da_variavel(program: &Program, interner: &Interner, v: VariableId) -> Option<Versao> {
+fn since_of_variable(program: &Program, interner: &Interner, v: VariableId) -> Option<Version> {
     let e = program.variable(v);
     if !program.library(e.library).uri.starts_with("dart:") {
         return None;
     }
-    let propria = match e.node {
+    let own = match e.node {
         VariableRef::TopLevel { unit, decl, .. } => {
             let a = &program.unit(unit).ast;
             desde(&a.decl(decl).metadata, a, interner)
@@ -131,51 +131,51 @@ fn desde_da_variavel(program: &Program, interner: &Interner, v: VariableId) -> O
         _ => None,
     };
     // `sinceSdkVersion`: o maior entre o do elemento e o de quem o contém.
-    propria.max(e.class.and_then(|c| desde_da_classe(program, interner, c)))
+    own.max(e.class.and_then(|c| since_of_class(program, interner, c)))
 }
 
-fn desde_da_funcao(program: &Program, interner: &Interner, f: FunctionElementId) -> Option<Versao> {
+fn since_of_function(program: &Program, interner: &Interner, f: FunctionElementId) -> Option<Version> {
     let e = program.function(f);
     if let Some(v) = e.variable {
-        return desde_da_variavel(program, interner, v);
+        return since_of_variable(program, interner, v);
     }
     if !program.library(e.library).uri.starts_with("dart:") {
         return None;
     }
-    let propria = match e.node {
+    let own = match e.node {
         FunctionRef::Constructor { unit, member } => {
             let a = &program.unit(unit).ast;
             desde(&a.member(member).metadata, a, interner)
         }
         FunctionRef::Function { unit, function } => {
             let a = &program.unit(unit).ast;
-            let do_membro = a.members.iter().find(|m| matches!(&m.kind, MemberKind::Method(g) if *g == function)).map(|m| &m.metadata[..]);
-            let da_declaracao = || a.decls.iter().find(|d| matches!(&d.kind, DeclKind::Function(g) if *g == function)).map(|d| &d.metadata[..]);
-            do_membro.or_else(da_declaracao).and_then(|m| desde(m, a, interner))
+            let of_member = a.members.iter().find(|m| matches!(&m.kind, MemberKind::Method(g) if *g == function)).map(|m| &m.metadata[..]);
+            let of_declaration = || a.decls.iter().find(|d| matches!(&d.kind, DeclKind::Function(g) if *g == function)).map(|d| &d.metadata[..]);
+            of_member.or_else(of_declaration).and_then(|m| desde(m, a, interner))
         }
         FunctionRef::None => None,
     };
-    propria.max(e.class.and_then(|c| desde_da_classe(program, interner, c)))
+    own.max(e.class.and_then(|c| since_of_class(program, interner, c)))
 }
 
 /// Os relatos do `SdkConstraintVerifier` na unidade `u`.
 pub fn restricao_de_sdk(
     program: &Program,
     interner: &Interner,
-    corpo: Option<&UnitBodyTypes>,
+    body: Option<&UnitBodyTypes>,
     u: UnitId,
-    restricao: &RestricaoDeSdk,
+    constraint: &RestricaoDeSdk,
 ) -> Vec<Diagnostic> {
     let mut out: Vec<Diagnostic> = Vec::new();
-    let unidade = program.unit(u);
-    let a = &unidade.ast;
+    let unit_id = program.unit(u);
+    let a = &unit_id.ast;
     // `>>>`: o uso e a declaração do operador.
-    if restricao.antes_do_deslocamento_triplo() {
+    if constraint.before_triple_shift() {
         for e in a.exprs.iter() {
             if let ExprKind::Binary { op: BinaryOp::UShr, left, right } = &e.kind {
-                let (de, ate) = (a.expr(*left).span.end, a.expr(*right).span.start);
-                if let Some(k) = unidade.source.get(de..ate).and_then(|t| t.find(">>>")) {
-                    out.push(Diagnostic::com_codigo(w::SDK_VERSION_GT_GT_GT_OPERATOR, Span { start: de + k, end: de + k + 3 }, std::iter::empty::<&str>()));
+                let (of, until) = (a.expr(*left).span.end, a.expr(*right).span.start);
+                if let Some(k) = unit_id.source.get(of..until).and_then(|t| t.find(">>>")) {
+                    out.push(Diagnostic::com_codigo(w::SDK_VERSION_GT_GT_GT_OPERATOR, Span { start: of + k, end: of + k + 3 }, std::iter::empty::<&str>()));
                 }
             }
         }
@@ -188,52 +188,52 @@ pub fn restricao_de_sdk(
         }
     }
     // `_checkSinceSdkVersion`.
-    let mut relatar = |versao: Option<Versao>, span: Span| {
-        let Some(v) = versao else { return };
-        if restricao.garante(v) {
+    let mut report = |version: Option<Version>, span: Span| {
+        let Some(v) = version else { return };
+        if constraint.guarantees(v) {
             return;
         }
         // O ouvinte é um conjunto: um relato por posição.
         if !out.iter().any(|x| x.code == Some(w::SDK_VERSION_SINCE) && x.span == span) {
-            let texto = v.to_string();
-            out.push(Diagnostic::com_codigo(w::SDK_VERSION_SINCE, span, [texto.as_str(), restricao.texto.as_str()]));
+            let text = v.to_string();
+            out.push(Diagnostic::com_codigo(w::SDK_VERSION_SINCE, span, [text.as_str(), constraint.texto.as_str()]));
         }
     };
     // Tipos nomeados: a classe do SDK, no nome.
     for t in a.types.iter() {
         let TypeKind::Named { name, .. } = &t.kind else { continue };
-        let ligacao = match &name[..] {
+        let binding = match &name[..] {
             [n] => program.lookup_na_unidade(u, n.sym),
             [p, n] => program.lookup_prefixed_na_unidade(u, p.sym, n.sym),
             _ => None,
         };
-        if let (Some(Element::Class(c)), Some(ultimo)) = (ligacao.and_then(|b| b.getter), name.last()) {
-            relatar(desde_da_classe(program, interner, c), ultimo.span);
+        if let (Some(Element::Class(c)), Some(last)) = (binding.and_then(|b| b.getter), name.last()) {
+            report(since_of_class(program, interner, c), last.span);
         }
     }
-    if let Some(corpo) = corpo {
+    if let Some(body) = body {
         for (i, expr) in a.exprs.iter().enumerate() {
-            let Some(Some(r)) = corpo.resolved.get(i) else { continue };
-            let no_nome = match &expr.kind {
+            let Some(Some(r)) = body.resolved.get(i) else { continue };
+            let at_name = match &expr.kind {
                 ExprKind::Identifier(n) => n,
                 ExprKind::Property { name, .. } => name,
                 _ => continue,
             };
-            let versao = match r {
-                Resolved::Constructor(f) => desde_da_funcao(program, interner, *f),
-                Resolved::Element(Element::Class(c)) => desde_da_classe(program, interner, *c),
-                Resolved::Element(Element::Function(f)) => desde_da_funcao(program, interner, *f),
-                Resolved::Element(Element::Variable(v)) => desde_da_variavel(program, interner, *v),
+            let version = match r {
+                Resolved::Constructor(f) => since_of_function(program, interner, *f),
+                Resolved::Element(Element::Class(c)) => since_of_class(program, interner, *c),
+                Resolved::Element(Element::Function(f)) => since_of_function(program, interner, *f),
+                Resolved::Element(Element::Variable(v)) => since_of_variable(program, interner, *v),
                 // `_shouldReportEnumIndex`: `index` só com alvo exatamente
                 // `Enum`, o que aqui não se confere.
-                Resolved::Member { .. } | Resolved::ExtensionMember { .. } if interner.resolve(no_nome.sym) == "index" => None,
+                Resolved::Member { .. } | Resolved::ExtensionMember { .. } if interner.resolve(at_name.sym) == "index" => None,
                 Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::ExtensionMember { member: f, .. } => {
-                    desde_da_funcao(program, interner, *f)
+                    since_of_function(program, interner, *f)
                 }
-                Resolved::Member { member: MemberRef::Variable(v), .. } => desde_da_variavel(program, interner, *v),
+                Resolved::Member { member: MemberRef::Variable(v), .. } => since_of_variable(program, interner, *v),
                 _ => None,
             };
-            relatar(versao, no_nome.span);
+            report(version, at_name.span);
         }
     }
     out
@@ -246,15 +246,15 @@ mod testes {
     #[test]
     fn restricoes() {
         let caret = RestricaoDeSdk::de_texto("^3.6.0").unwrap();
-        assert_eq!(caret.minimo, Some(Versao(3, 6, 0)));
-        assert!(caret.garante(Versao(2, 15, 0)) && !caret.garante(Versao(3, 7, 0)));
-        assert!(!caret.antes_do_deslocamento_triplo());
-        let faixa = RestricaoDeSdk::de_texto(">=2.12.0   <4.0.0").unwrap();
-        assert_eq!(faixa.texto, ">=2.12.0 <4.0.0");
-        assert!(faixa.antes_do_deslocamento_triplo() && !faixa.garante(Versao(2, 15, 0)));
-        assert!(RestricaoDeSdk::de_texto("any").unwrap().antes_do_deslocamento_triplo());
+        assert_eq!(caret.minimo, Some(Version(3, 6, 0)));
+        assert!(caret.guarantees(Version(2, 15, 0)) && !caret.guarantees(Version(3, 7, 0)));
+        assert!(!caret.before_triple_shift());
+        let range = RestricaoDeSdk::de_texto(">=2.12.0   <4.0.0").unwrap();
+        assert_eq!(range.texto, ">=2.12.0 <4.0.0");
+        assert!(range.before_triple_shift() && !range.guarantees(Version(2, 15, 0)));
+        assert!(RestricaoDeSdk::de_texto("any").unwrap().before_triple_shift());
         assert!(RestricaoDeSdk::de_texto(">=2.0.0 <3.0.0 || >=3.1.0").is_none());
-        assert_eq!(Versao::de_texto("2.15"), Some(Versao(2, 15, 0)));
-        assert_eq!(Versao::de_texto("3.0.0-dev.1"), Some(Versao(3, 0, 0)));
+        assert_eq!(Version::de_texto("2.15"), Some(Version(2, 15, 0)));
+        assert_eq!(Version::de_texto("3.0.0-dev.1"), Some(Version(3, 0, 0)));
     }
 }

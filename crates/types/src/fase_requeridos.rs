@@ -42,17 +42,17 @@ fn parametros(program: &Program, f: FunctionElementId) -> Option<(&[ast::Paramet
 /// `_requiredAnnotation`: `Some(motivo)` se o parâmetro tem `@required` ou
 /// `@Required(...)`; o motivo é o primeiro argumento posicional, se string
 /// não vazia.
-fn requerido(p: &ast::Parameter, a: &ast::Ast, interner: &Interner) -> Option<Option<String>> {
+fn the_required(p: &ast::Parameter, a: &ast::Ast, interner: &Interner) -> Option<Option<String>> {
     for m in p.metadata.iter() {
-        let nomes: Vec<&str> = m.name.iter().map(|n| interner.resolve(n.sym)).collect();
+        let names: Vec<&str> = m.name.iter().map(|n| interner.resolve(n.sym)).collect();
         match &m.arguments {
-            None if nomes.last() == Some(&"required") => return Some(None),
-            Some(args) if nomes.contains(&"Required") => {
-                let motivo = args.args.iter().find(|x| x.name.is_none()).and_then(|x| match &a.expr(x.value).kind {
+            None if names.last() == Some(&"required") => return Some(None),
+            Some(args) if names.contains(&"Required") => {
+                let reason = args.args.iter().find(|x| x.name.is_none()).and_then(|x| match &a.expr(x.value).kind {
                     ExprKind::String(lit) => dartforge_elements::load::string_lit_value(lit),
                     _ => None,
                 });
-                return Some(motivo.filter(|m| !m.is_empty()));
+                return Some(reason.filter(|m| !m.is_empty()));
             }
             _ => {}
         }
@@ -61,15 +61,15 @@ fn requerido(p: &ast::Parameter, a: &ast::Ast, interner: &Interner) -> Option<Op
 }
 
 /// Os `missing_required_param` da unidade `u`.
-pub fn requeridos_ausentes(program: &Program, interner: &Interner, corpo: &UnitBodyTypes, u: UnitId) -> Vec<Diagnostic> {
+pub fn requeridos_ausentes(program: &Program, interner: &Interner, body: &UnitBodyTypes, u: UnitId) -> Vec<Diagnostic> {
     let mut out = Vec::new();
     // Sem nenhuma das duas anotações internadas, nada a fazer.
     if interner.lookup("required").is_none() && interner.lookup("Required").is_none() {
         return out;
     }
     let a = &program.unit(u).ast;
-    let resolvido = |e: ast::ExprId| corpo.resolved.get(e.0 as usize).and_then(|r| r.as_ref());
-    let funcao_de = |r: &Resolved| match r {
+    let resolved = |e: ast::ExprId| body.resolved.get(e.0 as usize).and_then(|r| r.as_ref());
+    let function_of = |r: &Resolved| match r {
         Resolved::Constructor(f) | Resolved::Element(Element::Function(f)) => Some(*f),
         Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::ExtensionMember { member: f, .. } => Some(*f),
         _ => None,
@@ -78,41 +78,41 @@ pub fn requeridos_ausentes(program: &Program, interner: &Interner, corpo: &UnitB
         let id = ast::ExprId(i as u32);
         // A função chamada, os argumentos e a entidade do relato: o nome do
         // método, ou o nome do construtor inteiro.
-        let (f, argumentos, entidade): (FunctionElementId, &ast::Arguments, Span) = match &e.kind {
+        let (f, args_list, entity): (FunctionElementId, &ast::Arguments, Span) = match &e.kind {
             ExprKind::Call { target, arguments } => {
-                let Some(r) = resolvido(*target).or_else(|| resolvido(id)) else { continue };
-                let Some(f) = funcao_de(r) else { continue };
-                let entidade = match (&a.expr(*target).kind, r) {
+                let Some(r) = resolved(*target).or_else(|| resolved(id)) else { continue };
+                let Some(f) = function_of(r) else { continue };
+                let entity = match (&a.expr(*target).kind, r) {
                     (_, Resolved::Constructor(_)) => a.expr(*target).span,
                     (ExprKind::Identifier(n), _) | (ExprKind::Property { name: n, .. }, _) => n.span,
                     _ => continue,
                 };
-                (f, arguments, entidade)
+                (f, arguments, entity)
             }
             ExprKind::InstanceCreation { ty, constructor, arguments, .. } => {
-                let Some(Resolved::Constructor(f)) = resolvido(id) else { continue };
-                let tipo = &a.types[ty.0 as usize];
+                let Some(Resolved::Constructor(f)) = resolved(id) else { continue };
+                let typ = &a.types[ty.0 as usize];
                 // Sem os argumentos de tipo: o nome do tipo e o do construtor.
-                let fim_do_tipo = match &tipo.kind {
-                    TypeKind::Named { name, .. } => name.last().map_or(tipo.span.end, |n| n.span.end),
-                    _ => tipo.span.end,
+                let type_end = match &typ.kind {
+                    TypeKind::Named { name, .. } => name.last().map_or(typ.span.end, |n| n.span.end),
+                    _ => typ.span.end,
                 };
-                let fim = constructor.map_or(tipo.span.end.max(fim_do_tipo), |k| k.span.end);
-                (*f, arguments, Span { start: tipo.span.start, end: fim })
+                let end = constructor.map_or(typ.span.end.max(type_end), |k| k.span.end);
+                (*f, arguments, Span { start: typ.span.start, end: end })
             }
             _ => continue,
         };
-        let Some((lista, arvore)) = parametros(program, f) else { continue };
-        for p in lista.iter().filter(|p| p.kind == ParameterKind::Named && !p.required) {
-            let Some(nome) = p.name else { continue };
-            let Some(motivo) = requerido(p, arvore, interner) else { continue };
-            if argumentos.args.iter().any(|x| x.name.is_some_and(|n| n.sym == nome.sym)) {
+        let Some((list, tree)) = parametros(program, f) else { continue };
+        for p in list.iter().filter(|p| p.kind == ParameterKind::Named && !p.required) {
+            let Some(the_name) = p.name else { continue };
+            let Some(reason) = the_required(p, tree, interner) else { continue };
+            if args_list.args.iter().any(|x| x.name.is_some_and(|n| n.sym == the_name.sym)) {
                 continue;
             }
-            let texto = interner.resolve(nome.sym);
-            out.push(match motivo {
-                Some(m) => Diagnostic::com_codigo(w::MISSING_REQUIRED_PARAM_WITH_DETAILS, entidade, [texto, m.as_str()]),
-                None => Diagnostic::com_codigo(w::MISSING_REQUIRED_PARAM, entidade, [texto]),
+            let text = interner.resolve(the_name.sym);
+            out.push(match reason {
+                Some(m) => Diagnostic::com_codigo(w::MISSING_REQUIRED_PARAM_WITH_DETAILS, entity, [text, m.as_str()]),
+                None => Diagnostic::com_codigo(w::MISSING_REQUIRED_PARAM, entity, [text]),
             });
         }
     }

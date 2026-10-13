@@ -49,7 +49,7 @@ fn nome_externo(p: &ast::Parameter) -> Option<SymbolId> {
 }
 
 /// O parâmetro de `ps` que recebe o argumento `i` de `args`.
-fn alvo_do_argumento(ps: &[ast::Parameter], args: &ast::Arguments, i: usize) -> Option<usize> {
+fn argument_target(ps: &[ast::Parameter], args: &ast::Arguments, i: usize) -> Option<usize> {
     let a = &args.args[i];
     match a.name {
         Some(n) => ps.iter().position(|p| p.kind == ParameterKind::Named && nome_externo(p) == Some(n.sym)),
@@ -62,11 +62,11 @@ fn alvo_do_argumento(ps: &[ast::Parameter], args: &ast::Arguments, i: usize) -> 
 
 /// `_getCorrespondingParameter`: pelo nome (nomeado) ou pela posição na
 /// lista.
-fn correspondente(ps: &[ast::Parameter], j: usize, outros: &[ast::Parameter]) -> Option<usize> {
+fn corresponding(ps: &[ast::Parameter], j: usize, others: &[ast::Parameter]) -> Option<usize> {
     let p = &ps[j];
     if p.kind == ParameterKind::Named {
-        outros.iter().position(|o| o.kind == ParameterKind::Named && nome_externo(o) == nome_externo(p))
-    } else if j < outros.len() {
+        others.iter().position(|o| o.kind == ParameterKind::Named && nome_externo(o) == nome_externo(p))
+    } else if j < others.len() {
         Some(j)
     } else {
         None
@@ -77,7 +77,7 @@ fn obrigatorio(p: &ast::Parameter) -> bool {
     p.kind == ParameterKind::Required || (p.kind == ParameterKind::Named && p.required)
 }
 
-fn funcao_resolvida(r: Option<&Resolved>) -> Option<FunctionElementId> {
+fn resolved_function(r: Option<&Resolved>) -> Option<FunctionElementId> {
     match r? {
         Resolved::Element(Element::Function(f)) => Some(*f),
         Resolved::Member { member: MemberRef::Function(f), .. } => Some(*f),
@@ -88,8 +88,8 @@ fn funcao_resolvida(r: Option<&Resolved>) -> Option<FunctionElementId> {
 }
 
 /// O construtor `nome` (ou o sem nome) da classe `c`.
-fn construtor(program: &Program, interner: &Interner, c: ClassId, nome: Option<ast::Name>) -> Option<FunctionElementId> {
-    let s = match nome {
+fn construtor(program: &Program, interner: &Interner, c: ClassId, the_name: Option<ast::Name>) -> Option<FunctionElementId> {
+    let s = match the_name {
         Some(n) => n.sym,
         None => interner.lookup("")?,
     };
@@ -98,22 +98,22 @@ fn construtor(program: &Program, interner: &Interner, c: ClassId, nome: Option<a
 
 /// O construtor da superclasse que `k` (da classe `c`) invoca, explícito
 /// (`super.nome(...)`) ou implícito (o sem nome).
-fn construtor_da_superclasse(program: &Program, interner: &Interner, c: ClassId, k: &ast::Constructor) -> Option<FunctionElementId> {
+fn superclass_constructor(program: &Program, interner: &Interner, c: ClassId, k: &ast::Constructor) -> Option<FunctionElementId> {
     if k.factory || k.initializers.iter().any(|i| matches!(i, ast::Initializer::Redirect { .. })) {
         return None;
     }
     let mut sup = program.class(c).supertype_class?;
     // As aplicações sintéticas de mixin repassam os construtores da superclasse.
-    let mut guarda = 0;
-    while program.class(sup).decl.is_none() && guarda < 50 {
+    let mut guard = 0;
+    while program.class(sup).decl.is_none() && guard < 50 {
         sup = program.class(sup).supertype_class?;
-        guarda += 1;
+        guard += 1;
     }
-    let nome = k.initializers.iter().find_map(|i| match i {
+    let the_name = k.initializers.iter().find_map(|i| match i {
         ast::Initializer::Super { constructor, .. } => Some(*constructor),
         _ => None,
     });
-    construtor(program, interner, sup, nome.flatten())
+    construtor(program, interner, sup, the_name.flatten())
 }
 
 /// Os diagnósticos de `lib`.
@@ -124,12 +124,12 @@ pub fn parametros_nao_usados(
     body: &BodyTypes,
     lib: LibraryId,
 ) -> Vec<(UnitId, Diagnostic)> {
-    let mut usados: HashSet<(FunctionElementId, usize)> = HashSet::new();
-    let marcar = |usados: &mut HashSet<(FunctionElementId, usize)>, f: FunctionElementId, args: &ast::Arguments| {
+    let mut used: HashSet<(FunctionElementId, usize)> = HashSet::new();
+    let mark = |used: &mut HashSet<(FunctionElementId, usize)>, f: FunctionElementId, args: &ast::Arguments| {
         if let Some((_, ps)) = parametros(program, f) {
             for i in 0..args.args.len() {
-                if let Some(j) = alvo_do_argumento(ps, args, i) {
-                    usados.insert((f, j));
+                if let Some(j) = argument_target(ps, args, i) {
+                    used.insert((f, j));
                 }
             }
         }
@@ -138,22 +138,22 @@ pub fn parametros_nao_usados(
     // não é chamada (tear-off; `visitSimpleIdentifier`, `:290-305`), e o nome
     // de `this.nome(...)`/`super.nome(...)` (o identificador não está numa
     // `MethodInvocation`).
-    let mut todos: HashSet<FunctionElementId> = HashSet::new();
+    let mut all: HashSet<FunctionElementId> = HashSet::new();
     // Nomes lidos por identificadores, por unidade (`_useIdentifierElement`:
     // ler o parâmetro o usa), com o offset.
-    let mut leituras: Vec<(UnitId, SymbolId, usize)> = Vec::new();
-    let mut atalhos: HashSet<SymbolId> = HashSet::new();
-    let unidades = program.library(lib).units.clone();
-    for &u in &unidades {
+    let mut reads: Vec<(UnitId, SymbolId, usize)> = Vec::new();
+    let mut shorthands: HashSet<SymbolId> = HashSet::new();
+    let units = program.library(lib).units.clone();
+    for &u in &units {
         let a = &program.unit(u).ast;
         let Some(b) = body.units.get(u.0 as usize) else { continue };
         // Alvos de chamada (o nome chamado e o `Property` do método).
-        let mut alvos: HashSet<ast::ExprId> = HashSet::new();
+        let mut targets: HashSet<ast::ExprId> = HashSet::new();
         for e in a.exprs.iter() {
             if let ExprKind::Call { target, .. } = &e.kind {
-                alvos.insert(*target);
+                targets.insert(*target);
                 if let ExprKind::Property { .. } = &a.expr(*target).kind {
-                    alvos.insert(*target);
+                    targets.insert(*target);
                 }
             }
         }
@@ -161,35 +161,35 @@ pub fn parametros_nao_usados(
             let id = ast::ExprId(i as u32);
             match &e.kind {
                 ExprKind::Call { target, arguments } => {
-                    let f = funcao_resolvida(b.get_resolved(id)).or_else(|| funcao_resolvida(b.get_resolved(*target)));
+                    let f = resolved_function(b.get_resolved(id)).or_else(|| resolved_function(b.get_resolved(*target)));
                     if let Some(f) = f {
-                        marcar(&mut usados, f, arguments);
+                        mark(&mut used, f, arguments);
                     }
                 }
                 ExprKind::InstanceCreation { arguments, .. } => {
-                    if let Some(f) = funcao_resolvida(b.get_resolved(id)) {
-                        marcar(&mut usados, f, arguments);
+                    if let Some(f) = resolved_function(b.get_resolved(id)) {
+                        mark(&mut used, f, arguments);
                     }
                 }
                 ExprKind::Identifier(n) => {
-                    leituras.push((u, n.sym, n.span.start));
-                    if !alvos.contains(&id) {
-                        if let Some(f) = funcao_resolvida(b.get_resolved(id)) {
-                            todos.insert(f);
+                    reads.push((u, n.sym, n.span.start));
+                    if !targets.contains(&id) {
+                        if let Some(f) = resolved_function(b.get_resolved(id)) {
+                            all.insert(f);
                         }
                     }
                 }
                 ExprKind::Property { name, .. } => {
-                    if !alvos.contains(&id) {
-                        if let Some(f) = funcao_resolvida(b.get_resolved(id)) {
-                            todos.insert(f);
+                    if !targets.contains(&id) {
+                        if let Some(f) = resolved_function(b.get_resolved(id)) {
+                            all.insert(f);
                         }
                         // `A._named` (tear-off de construtor): pelo nome.
-                        leituras.push((u, name.sym, usize::MAX));
+                        reads.push((u, name.sym, usize::MAX));
                     }
                 }
                 ExprKind::DotShorthand { name, .. } => {
-                    atalhos.insert(name.sym);
+                    shorthands.insert(name.sym);
                 }
                 _ => {}
             }
@@ -197,18 +197,18 @@ pub fn parametros_nao_usados(
     }
     // Argumentos de anotações (`@A(valor: 1)`): o rótulo e a posição usam o
     // parâmetro do construtor.
-    for &u in &unidades {
+    for &u in &units {
         let a = &program.unit(u).ast;
-        let mut anotacoes: Vec<&ast::Annotation> = Vec::new();
+        let mut annotations: Vec<&ast::Annotation> = Vec::new();
         for d in a.decls.iter() {
-            anotacoes.extend(d.metadata.iter());
+            annotations.extend(d.metadata.iter());
         }
         for m in a.members.iter() {
-            anotacoes.extend(m.metadata.iter());
+            annotations.extend(m.metadata.iter());
         }
-        for an in anotacoes {
+        for an in annotations {
             let Some(args) = &an.arguments else { continue };
-            let (classe, ctor) = match &an.name[..] {
+            let (class, ctor) = match &an.name[..] {
                 [c] => (program.lookup_na_unidade(u, c.sym), None),
                 [c, n] => match program.lookup_na_unidade(u, c.sym) {
                     Some(b) if matches!(b.getter, Some(Element::Class(_))) => (Some(b), Some(*n)),
@@ -217,9 +217,9 @@ pub fn parametros_nao_usados(
                 [p, c, n] => (program.lookup_prefixed_na_unidade(u, p.sym, c.sym), Some(*n)),
                 _ => (None, None),
             };
-            if let Some(Element::Class(c)) = classe.and_then(|b| b.getter) {
+            if let Some(Element::Class(c)) = class.and_then(|b| b.getter) {
                 if let Some(f) = construtor(program, interner, c, ctor) {
-                    marcar(&mut usados, f, args);
+                    mark(&mut used, f, args);
                 }
             }
         }
@@ -233,21 +233,21 @@ pub fn parametros_nao_usados(
         for (_, &f) in k.constructors.iter() {
             let FunctionRef::Constructor { unit, member } = program.function(f).node else { continue };
             let MemberKind::Constructor(kk) = &program.unit(unit).ast.member(member).kind else { continue };
-            for ini in kk.initializers.iter() {
-                match ini {
+            for start in kk.initializers.iter() {
+                match start {
                     ast::Initializer::Super { constructor: n, arguments, .. } => {
-                        if let Some(s) = construtor_da_superclasse(program, interner, c, kk) {
-                            marcar(&mut usados, s, arguments);
+                        if let Some(s) = superclass_constructor(program, interner, c, kk) {
+                            mark(&mut used, s, arguments);
                             if n.is_some() {
-                                todos.insert(s);
+                                all.insert(s);
                             }
                         }
                     }
                     ast::Initializer::Redirect { constructor: n, arguments, .. } => {
                         if let Some(s) = construtor(program, interner, c, *n) {
-                            marcar(&mut usados, s, arguments);
+                            mark(&mut used, s, arguments);
                             if n.is_some() {
-                                todos.insert(s);
+                                all.insert(s);
                             }
                         }
                     }
@@ -260,7 +260,7 @@ pub fn parametros_nao_usados(
             if let Some(rd) = &kk.redirect {
                 let ast_u = &program.unit(unit).ast;
                 if let ast::TypeKind::Named { name, .. } = &ast_u.ty(rd.ty).kind {
-                    let alvo = match (&name[..], rd.constructor) {
+                    let tgt = match (&name[..], rd.constructor) {
                         ([cn], ctor) => (program.lookup_na_unidade(unit, cn.sym), ctor),
                         ([a, b], None) => match program.lookup_na_unidade(unit, a.sym) {
                             Some(x) if matches!(x.getter, Some(Element::Class(_))) => (Some(x), Some(*b)),
@@ -270,12 +270,12 @@ pub fn parametros_nao_usados(
                         ([p, cn, n], None) => (program.lookup_prefixed_na_unidade(unit, p.sym, cn.sym), Some(*n)),
                         _ => (None, None),
                     };
-                    if let (Some(Element::Class(dc)), ctor) = (alvo.0.and_then(|b| b.getter), alvo.1) {
+                    if let (Some(Element::Class(dc)), ctor) = (tgt.0.and_then(|b| b.getter), tgt.1) {
                         if let Some(t) = construtor(program, interner, dc, ctor) {
                             if let Some((_, tps)) = parametros(program, t) {
                                 for (j, _) in kk.parameters.iter().enumerate() {
-                                    if let Some(k2) = correspondente(&kk.parameters, j, tps) {
-                                        usados.insert((t, k2));
+                                    if let Some(k2) = corresponding(&kk.parameters, j, tps) {
+                                        used.insert((t, k2));
                                     }
                                 }
                             }
@@ -284,17 +284,17 @@ pub fn parametros_nao_usados(
                 }
             }
             if kk.parameters.iter().any(|p| p.super_) {
-                if let Some(s) = construtor_da_superclasse(program, interner, c, kk) {
+                if let Some(s) = superclass_constructor(program, interner, c, kk) {
                     if let Some((_, sps)) = parametros(program, s) {
                         let mut pos = 0usize;
                         for p in kk.parameters.iter() {
                             if p.kind != ParameterKind::Named && p.super_ {
                                 if let Some((j, _)) = sps.iter().enumerate().filter(|(_, x)| x.kind != ParameterKind::Named).nth(pos) {
-                                    usados.insert((s, j));
+                                    used.insert((s, j));
                                 }
                             } else if p.super_ {
                                 if let Some(j) = sps.iter().position(|x| x.kind == ParameterKind::Named && nome_externo(x) == nome_externo(p)) {
-                                    usados.insert((s, j));
+                                    used.insert((s, j));
                                 }
                             }
                             if p.kind != ParameterKind::Named && p.super_ {
@@ -308,9 +308,9 @@ pub fn parametros_nao_usados(
         if k.kind == ClassKind::Enum {
             if let Some(d) = k.decl {
                 if let DeclKind::Enum(en) = &program.unit(d.unit).ast.decl(d.decl).kind {
-                    for constante in en.constants.iter() {
-                        if let (Some(args), Some(f)) = (&constante.arguments, construtor(program, interner, c, constante.constructor)) {
-                            marcar(&mut usados, f, args);
+                    for constant in en.constants.iter() {
+                        if let (Some(args), Some(f)) = (&constant.arguments, construtor(program, interner, c, constant.constructor)) {
+                            mark(&mut used, f, args);
                         }
                     }
                 }
@@ -318,25 +318,25 @@ pub fn parametros_nao_usados(
         }
     }
 
-    let mut saida = Vec::new();
+    let mut output = Vec::new();
     for (fi, fe) in program.functions.iter().enumerate() {
         let f = FunctionElementId(fi as u32);
         if fe.library != lib {
             continue;
         }
-        let construtor_ = fe.kind == FunctionKind::Constructor;
-        if !(construtor_ || fe.kind == FunctionKind::Function || fe.kind == FunctionKind::Operator) {
+        let constructor_ = fe.kind == FunctionKind::Constructor;
+        if !(constructor_ || fe.kind == FunctionKind::Function || fe.kind == FunctionKind::Operator) {
             continue;
         }
         let Some((unit, ps)) = parametros(program, f) else { continue };
-        if todos.contains(&f) || atalhos.contains(&fe.name) {
+        if all.contains(&f) || shorthands.contains(&fe.name) {
             continue;
         }
         // O nome do construtor nomeado lido como propriedade (tear-off).
-        if construtor_ && leituras.iter().any(|&(_, n, o)| o == usize::MAX && n == fe.name) {
+        if constructor_ && reads.iter().any(|&(_, n, o)| o == usize::MAX && n == fe.name) {
             continue;
         }
-        let regiao = regiao_do_executavel(program, f);
+        let region = executable_region(program, f);
         if !ps.iter().any(|p| p.kind != ParameterKind::Required && !p.required) {
             continue;
         }
@@ -344,71 +344,71 @@ pub fn parametros_nao_usados(
         if !outline.functions[fi].type_params.is_empty() {
             continue;
         }
-        if construtor_ && fe.class.is_some_and(|c| !program.class(c).type_params.is_empty()) {
+        if constructor_ && fe.class.is_some_and(|c| !program.class(c).type_params.is_empty()) {
             continue;
         }
-        if publicamente_acessivel(program, interner, f) {
+        if publicly_accessible(program, interner, f) {
             continue;
         }
-        let superior = match (construtor_, fe.class, program.function(f).node) {
+        let superior = match (constructor_, fe.class, program.function(f).node) {
             (true, Some(c), FunctionRef::Constructor { unit: uu, member }) => match &program.unit(uu).ast.member(member).kind {
-                MemberKind::Constructor(kk) => construtor_da_superclasse(program, interner, c, kk),
+                MemberKind::Constructor(kk) => superclass_constructor(program, interner, c, kk),
                 _ => None,
             },
             _ => None,
         };
-        let sobrescritos = if !construtor_ && !fe.static_ { sobrescritos(program, outline, f) } else { Vec::new() };
+        let overridden = if !constructor_ && !fe.static_ { sobrescritos(program, outline, f) } else { Vec::new() };
         for (j, p) in ps.iter().enumerate() {
             if obrigatorio(p) || p.kind == ParameterKind::Required {
                 continue;
             }
-            let Some(nome) = p.name else { continue };
+            let Some(the_name) = p.name else { continue };
             if p.metadata.iter().any(|m| m.name.iter().any(|n| interner.resolve(n.sym) == "pragma")) {
                 continue;
             }
-            if usados.contains(&(f, j)) {
+            if used.contains(&(f, j)) {
                 continue;
             }
             // Lido no corpo ou nos inicializadores.
-            if let Some((ru, ini, fim)) = regiao {
-                if leituras.iter().any(|&(u, n, o)| u == ru && n == nome.sym && o >= ini && o < fim && o != nome.span.start) {
+            if let Some((ru, start, end)) = region {
+                if reads.iter().any(|&(u, n, o)| u == ru && n == the_name.sym && o >= start && o < end && o != the_name.span.start) {
                     continue;
                 }
             }
             if let Some(s) = superior {
                 if let Some((_, sps)) = parametros(program, s) {
-                    if correspondente(ps, j, sps).is_some_and(|k| obrigatorio(&sps[k])) {
+                    if corresponding(ps, j, sps).is_some_and(|k| obrigatorio(&sps[k])) {
                         continue;
                     }
                 }
             }
-            let mut usado = false;
-            for &o in &sobrescritos {
+            let mut the_used = false;
+            for &o in &overridden {
                 if let Some((_, ops)) = parametros(program, o) {
-                    if let Some(k) = correspondente(ps, j, ops) {
-                        if obrigatorio(&ops[k]) || usados.contains(&(o, k)) {
-                            usado = true;
+                    if let Some(k) = corresponding(ps, j, ops) {
+                        if obrigatorio(&ops[k]) || used.contains(&(o, k)) {
+                            the_used = true;
                             break;
                         }
                     }
                 }
             }
-            if usado {
+            if the_used {
                 continue;
             }
-            let texto = interner.resolve(nome.sym).to_string();
-            saida.push((
+            let text = interner.resolve(the_name.sym).to_string();
+            output.push((
                 unit,
-                Diagnostic::com_codigo(w::UNUSED_ELEMENT_PARAMETER, Span { start: nome.span.start, end: nome.span.end }, [texto]),
+                Diagnostic::com_codigo(w::UNUSED_ELEMENT_PARAMETER, Span { start: the_name.span.start, end: the_name.span.end }, [text]),
             ));
         }
     }
-    saida
+    output
 }
 
 /// O intervalo da declaração do executável (onde as leituras dos
 /// parâmetros contam).
-fn regiao_do_executavel(program: &Program, f: FunctionElementId) -> Option<(UnitId, usize, usize)> {
+fn executable_region(program: &Program, f: FunctionElementId) -> Option<(UnitId, usize, usize)> {
     match program.function(f).node {
         FunctionRef::Function { unit, function } => {
             let s = program.unit(unit).ast.function(function).span;
@@ -423,10 +423,10 @@ fn regiao_do_executavel(program: &Program, f: FunctionElementId) -> Option<(Unit
 }
 
 /// `_isPubliclyAccessible`.
-fn publicamente_acessivel(program: &Program, interner: &Interner, f: FunctionElementId) -> bool {
+fn publicly_accessible(program: &Program, interner: &Interner, f: FunctionElementId) -> bool {
     let fe = program.function(f);
-    let nome = interner.resolve(fe.name);
-    if nome.starts_with('_') {
+    let the_name = interner.resolve(fe.name);
+    if the_name.starts_with('_') {
         return false;
     }
     if let Some(c) = fe.class {

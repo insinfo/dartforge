@@ -27,7 +27,7 @@ use std::collections::HashMap;
 /// Ordem: a cadeia de superclasses, com os mixins de cada aplicação logo
 /// depois dela (o último mixin primeiro — a linearização do Dart); depois o
 /// resto (interfaces), por `ClassId`.
-pub fn supertipos_ordenados(
+pub fn ordered_supertypes(
     program: &Program,
     hierarchy: &ClassHierarchy,
     class: ClassId,
@@ -35,41 +35,41 @@ pub fn supertipos_ordenados(
     let Some(data) = hierarchy.get(class) else {
         return Vec::new();
     };
-    let mut saida: Vec<(ClassId, TypeId)> = Vec::new();
-    let mut vistos: std::collections::HashSet<ClassId> = std::collections::HashSet::new();
-    let mut empurrar = |c: ClassId, saida: &mut Vec<(ClassId, TypeId)>| {
+    let mut output: Vec<(ClassId, TypeId)> = Vec::new();
+    let mut seen: std::collections::HashSet<ClassId> = std::collections::HashSet::new();
+    let mut push = |c: ClassId, output: &mut Vec<(ClassId, TypeId)>| {
         if let Some(&t) = data.supertypes.get(&c)
-            && vistos.insert(c)
+            && seen.insert(c)
         {
-            saida.push((c, t));
+            output.push((c, t));
         }
     };
-    let mut atual = program.classes[class.0 as usize].supertype_class;
+    let mut current = program.classes[class.0 as usize].supertype_class;
     for &m in program.classes[class.0 as usize].mixin_classes.iter().rev() {
-        empurrar(m, &mut saida);
+        push(m, &mut output);
     }
     // A cadeia de superclasses pode ter ciclo (`class C extends C`, erro
     // `recursive_interface_inheritance`): cada classe entra uma vez.
-    let mut cadeia: std::collections::HashSet<ClassId> = std::collections::HashSet::new();
-    while let Some(c) = atual {
-        if !cadeia.insert(c) {
+    let mut chain: std::collections::HashSet<ClassId> = std::collections::HashSet::new();
+    while let Some(c) = current {
+        if !chain.insert(c) {
             break;
         }
-        empurrar(c, &mut saida);
+        push(c, &mut output);
         for &m in program.classes[c.0 as usize].mixin_classes.iter().rev() {
-            empurrar(m, &mut saida);
+            push(m, &mut output);
         }
-        atual = program.classes[c.0 as usize].supertype_class;
+        current = program.classes[c.0 as usize].supertype_class;
     }
-    let mut resto: Vec<(ClassId, TypeId)> = data
+    let mut rest: Vec<(ClassId, TypeId)> = data
         .supertypes
         .iter()
-        .filter(|(c, _)| !saida.iter().any(|(s, _)| s == *c))
+        .filter(|(c, _)| !output.iter().any(|(s, _)| s == *c))
         .map(|(c, t)| (*c, *t))
         .collect();
-    resto.sort_by_key(|(c, _)| c.0);
-    saida.extend(resto);
-    saida
+    rest.sort_by_key(|(c, _)| c.0);
+    output.extend(rest);
+    output
 }
 
 /// Metadados de uma variável local no escopo léxico.
@@ -306,7 +306,7 @@ impl ScopeStack {
 
             // Busca membros herdados na hierarquia
             {
-                for (super_cls, _) in supertipos_ordenados(program, hierarchy, class_id) {
+                for (super_cls, _) in ordered_supertypes(program, hierarchy, class_id) {
                     let super_elem = &program.classes[super_cls.0 as usize];
                     if let Some(&func_id) = super_elem.instance_members.get(&name) {
                         return Some(Resolved::Member {
@@ -518,7 +518,7 @@ impl<'a> MemberResolver<'a> {
 
         // 2. Procura na hierarquia transitiva instanciada
         {
-            for (super_cls, super_ty) in supertipos_ordenados(self.program, self.hierarchy, class_id) {
+            for (super_cls, super_ty) in ordered_supertypes(self.program, self.hierarchy, class_id) {
                 let super_elem = &self.program.classes[super_cls.0 as usize];
 
                 if let Some(&func_id) = super_elem.instance_members.get(&name) {
@@ -715,7 +715,7 @@ impl<'a> MemberResolver<'a> {
 
         // Se implements outras interfaces, busca nelas
         {
-            for (super_cls, super_ty) in supertipos_ordenados(self.program, self.hierarchy, decl) {
+            for (super_cls, super_ty) in ordered_supertypes(self.program, self.hierarchy, decl) {
                 let super_args = match self.table.get(super_ty) {
                     Type::Interface { args, .. } => args.clone(),
                     _ => Box::new([]),
@@ -898,56 +898,56 @@ impl<'a> MemberResolver<'a> {
 /// e começando com `_$`, de uma parte gerada que ainda não existe. A
 /// biblioteca já tem outro erro (o do import ou da parte), então o programa
 /// não passa por válido.
-pub fn deve_ignorar_indefinido(
+pub fn should_ignore_undefined(
     program: &Program,
     interner: &dartforge_intern::Interner,
-    unidade: dartforge_elements::model::UnitId,
-    prefixo: Option<SymbolId>,
-    nome: SymbolId,
+    unit: dartforge_elements::model::UnitId,
+    the_prefix: Option<SymbolId>,
+    the_name: SymbolId,
 ) -> bool {
-    let lib_id = program.unit(unidade).library;
+    let lib_id = program.unit(unit).library;
     let lib = program.library(lib_id);
     for &uid in &lib.units {
         let u = program.unit(uid);
         for (i, d) in u.unit.directives.iter().enumerate() {
             match &d.kind {
                 ast::DirectiveKind::Import { prefix, combinators, .. } => {
-                    if prefix.map(|p| p.sym) != prefixo {
+                    if prefix.map(|p| p.sym) != the_prefix {
                         continue;
                     }
                     // `importedLibrary?.isSynthetic != false`: sem biblioteca
                     // carregada para a diretiva.
-                    let sintetica = !lib
+                    let synthetic = !lib
                         .imports
                         .iter()
                         .any(|im| im.unit == uid && im.directive == i && !program.library(im.library).units.is_empty());
-                    if !sintetica {
+                    if !synthetic {
                         continue;
                     }
                     let mut shows = combinators.iter().filter_map(|c| match c {
                         ast::Combinator::Show(v) => Some(v),
                         ast::Combinator::Hide(_) => None,
                     });
-                    let mut algum_show = false;
+                    let mut some_show = false;
                     for v in shows.by_ref() {
-                        algum_show = true;
-                        if v.iter().any(|n| n.sym == nome) {
+                        some_show = true;
+                        if v.iter().any(|n| n.sym == the_name) {
                             return true;
                         }
                     }
-                    if prefixo.is_some() && !algum_show {
+                    if the_prefix.is_some() && !some_show {
                         return true;
                     }
                 }
-                ast::DirectiveKind::Part { uri } if prefixo.is_none() && interner.resolve(nome).starts_with("_$") => {
-                    let Some(texto) = dartforge_elements::load::string_lit_value(uri) else { continue };
+                ast::DirectiveKind::Part { uri } if the_prefix.is_none() && interner.resolve(the_name).starts_with("_$") => {
+                    let Some(text) = dartforge_elements::load::string_lit_value(uri) else { continue };
                     // `file_paths.isGenerated`, para uma parte cujo arquivo não existe.
-                    let gerado = [".g.dart", ".pb.dart", ".pbenum.dart", ".pbserver.dart", ".pbjson.dart", ".template.dart"]
+                    let generated = [".g.dart", ".pb.dart", ".pbenum.dart", ".pbserver.dart", ".pbjson.dart", ".template.dart"]
                         .iter()
-                        .any(|s| texto.ends_with(s));
-                    let existe =
-                        texto.contains(':') || u.path.as_ref().and_then(|p| p.parent()).is_none_or(|d| d.join(&texto).is_file());
-                    if gerado && !existe {
+                        .any(|s| text.ends_with(s));
+                    let exists =
+                        text.contains(':') || u.path.as_ref().and_then(|p| p.parent()).is_none_or(|d| d.join(&text).is_file());
+                    if generated && !exists {
                         return true;
                     }
                 }
@@ -963,32 +963,32 @@ pub fn deve_ignorar_indefinido(
 /// elementos que os imports (com o `prefixo`) trazem para `nome`, cada um pelo
 /// URI da biblioteca que o declara, com ` (via …)` os imports que o reexportam
 /// quando ela não é importada diretamente; ordenados, entre aspas, com `and`.
-pub fn bibliotecas_ambiguas(
+pub fn ambiguous_libraries(
     program: &Program,
-    unidade: dartforge_elements::model::UnitId,
-    prefixo: Option<SymbolId>,
-    nome: SymbolId,
+    unit: dartforge_elements::model::UnitId,
+    the_prefix: Option<SymbolId>,
+    the_name: SymbolId,
 ) -> String {
     use dartforge_elements::model::Element;
-    let lib = program.unit(unidade).library;
+    let lib = program.unit(unit).library;
     let imports = &program.library(lib).imports;
-    let passa = |cs: &[ast::Combinator]| {
+    let passes = |cs: &[ast::Combinator]| {
         cs.iter().all(|c| match c {
-            ast::Combinator::Show(ns) => ns.iter().any(|n| n.sym == nome),
-            ast::Combinator::Hide(ns) => !ns.iter().any(|n| n.sym == nome),
+            ast::Combinator::Show(ns) => ns.iter().any(|n| n.sym == the_name),
+            ast::Combinator::Hide(ns) => !ns.iter().any(|n| n.sym == the_name),
         })
     };
-    let mut elementos: Vec<Element> = Vec::new();
-    for i in imports.iter().filter(|i| i.prefix == prefixo && passa(&i.combinators)) {
-        if let Some(b) = program.library(i.library).exported.get(&nome) {
+    let mut elements: Vec<Element> = Vec::new();
+    for i in imports.iter().filter(|i| i.prefix == the_prefix && passes(&i.combinators)) {
+        if let Some(b) = program.library(i.library).exported.get(&the_name) {
             if let Some(el) = b.getter.or(b.setter)
-                && !elementos.contains(&el)
+                && !elements.contains(&el)
             {
-                elementos.push(el);
+                elements.push(el);
             }
         }
     }
-    let biblioteca = |el: Element| match el {
+    let library = |el: Element| match el {
         Element::Class(c) => Some(program.class(c).library),
         Element::Extension(x) => Some(program.extension(x).library),
         Element::Typedef(t) => Some(program.typedefs[t.0 as usize].library),
@@ -996,36 +996,36 @@ pub fn bibliotecas_ambiguas(
         Element::Variable(v) => Some(program.variable(v).library),
         Element::Prefix(..) => None,
     };
-    let mut nomes: Vec<String> = Vec::new();
-    for el in elementos {
-        let Some(l) = biblioteca(el) else { continue };
-        let mut texto = program.library(l).uri.clone();
+    let mut names: Vec<String> = Vec::new();
+    for el in elements {
+        let Some(l) = library(el) else { continue };
+        let mut text = program.library(l).uri.clone();
         if !imports.iter().any(|i| i.library == l) {
-            let mut indiretas: Vec<String> = imports
+            let mut indirect: Vec<String> = imports
                 .iter()
-                .filter(|i| passa(&i.combinators) && program.library(i.library).exported.get(&nome).and_then(|b| b.getter.or(b.setter)) == Some(el))
+                .filter(|i| passes(&i.combinators) && program.library(i.library).exported.get(&the_name).and_then(|b| b.getter.or(b.setter)) == Some(el))
                 .map(|i| program.library(i.library).uri.clone())
                 .collect();
-            if !indiretas.is_empty() {
-                texto.push_str(" (via ");
-                if indiretas.len() > 1 {
-                    indiretas.sort();
-                    texto.push_str(&aspas_com_e(&indiretas));
+            if !indirect.is_empty() {
+                text.push_str(" (via ");
+                if indirect.len() > 1 {
+                    indirect.sort();
+                    text.push_str(&quotes_with_and(&indirect));
                 } else {
-                    texto.push_str(&indiretas[0]);
+                    text.push_str(&indirect[0]);
                 }
-                texto.push(')');
+                text.push(')');
             }
         }
-        nomes.push(texto);
+        names.push(text);
     }
-    nomes.sort();
-    aspas_com_e(&nomes)
+    names.sort();
+    quotes_with_and(&names)
 }
 
 /// `quotedAndCommaSeparatedWithAnd`: `'a'`, `'a' and 'b'`, `'a', 'b' and 'c'`.
-fn aspas_com_e(nomes: &[String]) -> String {
-    let q: Vec<String> = nomes.iter().map(|n| format!("'{n}'")).collect();
+fn quotes_with_and(names: &[String]) -> String {
+    let q: Vec<String> = names.iter().map(|n| format!("'{n}'")).collect();
     match q.len() {
         0 => String::new(),
         1 => q[0].clone(),

@@ -31,7 +31,7 @@ pub struct ClassHierarchy {
     /// superinterface leva a uma classe): o `Object` que o fechamento põe no
     /// topo deles é só o de `Object?` (spec de extension types, "Static
     /// analysis of extension types": sem `implements`, `E <: Object?` apenas).
-    pub extensoes_sem_object: HashSet<ClassId>,
+    pub extensions_without_object: HashSet<ClassId>,
 }
 
 impl ClassHierarchy {
@@ -39,7 +39,7 @@ impl ClassHierarchy {
     pub fn new(num_classes: usize) -> Self {
         let mut classes = Vec::with_capacity(num_classes);
         classes.resize_with(num_classes, || None);
-        Self { classes, extensoes_sem_object: HashSet::new() }
+        Self { classes, extensions_without_object: HashSet::new() }
     }
 
     /// Retorna os dados da hierarquia para uma dada classe, se existirem.
@@ -208,38 +208,38 @@ fn compute_class_hierarchy(
     let mut max_depth = 0;
     // `_ClassInterfaceType` de cada ancestral: o resultado da junção (os
     // normalizados pelo `topMerge`) e se já deu erro.
-    let mut juncoes: HashMap<ClassId, (Option<TypeId>, bool)> = HashMap::new();
-    let mut juntar = |supertypes_map: &mut HashMap<ClassId, TypeId>, all_supertypes: &mut Vec<TypeId>, table: &mut TypeTable, c: ClassId, ty: TypeId| {
-        let Some(&anterior) = supertypes_map.get(&c) else {
+    let mut joins: HashMap<ClassId, (Option<TypeId>, bool)> = HashMap::new();
+    let mut join = |supertypes_map: &mut HashMap<ClassId, TypeId>, all_supertypes: &mut Vec<TypeId>, table: &mut TypeTable, c: ClassId, ty: TypeId| {
+        let Some(&previous) = supertypes_map.get(&c) else {
             supertypes_map.insert(c, ty);
             all_supertypes.push(ty);
             return;
         };
-        let estado = juncoes.entry(c).or_insert((None, false));
-        if estado.1 {
+        let state = joins.entry(c).or_insert((None, false));
+        if state.1 {
             return;
         }
-        let atual = match estado.0 {
+        let current = match state.0 {
             Some(a) => a,
             None => {
-                if ty == anterior {
+                if ty == previous {
                     return;
                 }
-                normalize(anterior, table, core)
+                normalize(previous, table, core)
             }
         };
         let n = normalize(ty, table, core);
-        match crate::ops::top_merge(table, core, atual, n) {
+        match crate::ops::top_merge(table, core, current, n) {
             Some(r) => {
-                estado.0 = Some(r);
-                if let Some(pos) = all_supertypes.iter().position(|&x| x == anterior) {
+                state.0 = Some(r);
+                if let Some(pos) = all_supertypes.iter().position(|&x| x == previous) {
                     all_supertypes[pos] = r;
                 }
                 supertypes_map.insert(c, r);
             }
             None => {
-                estado.0 = Some(atual);
-                estado.1 = true;
+                state.0 = Some(current);
+                state.1 = true;
             }
         }
     };
@@ -256,7 +256,7 @@ fn compute_class_hierarchy(
         compute_class_hierarchy(direct_class, immediate, hierarchy, visiting, table, core);
 
         // Insere o próprio supertipo direto (junto ao que já houver)
-        juntar(&mut supertypes_map, &mut all_supertypes, table, direct_class, direct);
+        join(&mut supertypes_map, &mut all_supertypes, table, direct_class, direct);
 
         if let Some(parent_data) = hierarchy.get(direct_class).cloned() {
             if parent_data.depth + 1 > max_depth {
@@ -278,11 +278,11 @@ fn compute_class_hierarchy(
             // trabalhadores (determinismo do nativo). Em conflito o
             // vencedor é arbitrário mas estável, como o "resto por
             // `ClassId`" de `supertipos_ordenados` (`scope.rs`).
-            let mut herdados: Vec<(&ClassId, &TypeId)> = parent_data.supertypes.iter().collect();
-            herdados.sort_by_key(|(c, _)| c.0);
-            for (&ancestor_class, &ancestor_ty) in herdados {
+            let mut the_inherited: Vec<(&ClassId, &TypeId)> = parent_data.supertypes.iter().collect();
+            the_inherited.sort_by_key(|(c, _)| c.0);
+            for (&ancestor_class, &ancestor_ty) in the_inherited {
                 let substituted = substitute(ancestor_ty, &parent_subst, table);
-                juntar(&mut supertypes_map, &mut all_supertypes, table, ancestor_class, substituted);
+                join(&mut supertypes_map, &mut all_supertypes, table, ancestor_class, substituted);
             }
         }
     }

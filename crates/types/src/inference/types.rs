@@ -2,7 +2,7 @@
 //! esquema, `flatten`, construção de tipos do núcleo e resolução de anotações
 //! escritas dentro de corpos.
 
-use super::corpo::Corpo;
+use super::body::Body;
 use super::BodyInferrer;
 use crate::bounds;
 use crate::ops::{non_nullable, nullable, substitute};
@@ -39,7 +39,7 @@ impl<'a> BodyInferrer<'a> {
         nullable(t, self.table)
     }
 
-    pub(crate) fn nao_nulo(&mut self, t: TypeId) -> TypeId {
+    pub(crate) fn non_null(&mut self, t: TypeId) -> TypeId {
         match self.table.get(t) {
             Type::FutureOr { arg, nullable: true } => {
                 let a = *arg;
@@ -50,13 +50,13 @@ impl<'a> BodyInferrer<'a> {
     }
 
     /// `Null <: t`.
-    pub(crate) fn e_anulavel(&mut self, t: TypeId) -> bool {
+    pub(crate) fn the_is_nullable(&mut self, t: TypeId) -> bool {
         let n = self.core.null;
         self.sub(n, t)
     }
 
     /// `t <: Object`.
-    pub(crate) fn e_nao_anulavel(&mut self, t: TypeId) -> bool {
+    pub(crate) fn is_non_nullable(&mut self, t: TypeId) -> bool {
         let o = self.core.object;
         self.sub(t, o)
     }
@@ -71,14 +71,14 @@ impl<'a> BodyInferrer<'a> {
         bounds::is_bottom(t, &env)
     }
 
-    pub(crate) fn e_desconhecido(&self, t: TypeId) -> bool {
+    pub(crate) fn the_is_unknown(&self, t: TypeId) -> bool {
         self.core.is_unknown(self.table, t)
     }
 
 
     /// Fecho maior de um esquema em relação a `_`.
-    pub(crate) fn fecho_maior(&mut self, t: TypeId) -> TypeId {
-        if self.e_desconhecido(t) {
+    pub(crate) fn greatest_closure_of(&mut self, t: TypeId) -> TypeId {
+        if self.the_is_unknown(t) {
             return self.core.object_nullable;
         }
         let mut env = self.env();
@@ -98,16 +98,16 @@ impl<'a> BodyInferrer<'a> {
         self.iface(c, vec![t])
     }
 
-    pub(crate) fn futuro_ou(&mut self, t: TypeId) -> TypeId {
+    pub(crate) fn future_or(&mut self, t: TypeId) -> TypeId {
         self.table.intern(Type::FutureOr { arg: t, nullable: false })
     }
 
-    pub(crate) fn iteravel(&mut self, t: TypeId) -> TypeId {
+    pub(crate) fn iterable(&mut self, t: TypeId) -> TypeId {
         let c = self.core.iterable_class;
         self.iface(c, vec![t])
     }
 
-    pub(crate) fn fluxo_de(&mut self, t: TypeId) -> TypeId {
+    pub(crate) fn flow_of(&mut self, t: TypeId) -> TypeId {
         let c = self.core.stream_class;
         self.iface(c, vec![t])
     }
@@ -122,21 +122,21 @@ impl<'a> BodyInferrer<'a> {
         self.iface(c, vec![t])
     }
 
-    pub(crate) fn tipo_mapa(&mut self, k: TypeId, v: TypeId) -> TypeId {
+    pub(crate) fn map_type(&mut self, k: TypeId, v: TypeId) -> TypeId {
         let c = self.core.map_class;
         self.iface(c, vec![k, v])
     }
 
     /// Um tipo de interface cru (`List` sem argumentos, como o outline às
     /// vezes guarda) ganha os argumentos da instanciação para os limites.
-    pub(crate) fn completar_args(&mut self, t: TypeId) -> TypeId {
+    pub(crate) fn complete_args(&mut self, t: TypeId) -> TypeId {
         match self.table.get(t).clone() {
             Type::Interface { class, args, nullable } if args.is_empty() => {
                 let params = self.outline.classes[class.0 as usize].type_params.clone();
                 if params.is_empty() {
                     return t;
                 }
-                let args = self.instanciar_para_limites(&params);
+                let args = self.instantiate_to_bounds(&params);
                 self.table.intern(Type::Interface { class, args: args.into_boxed_slice(), nullable })
             }
             _ => t,
@@ -145,20 +145,20 @@ impl<'a> BodyInferrer<'a> {
 
     /// Argumentos de `class` em `t` visto como instância dela (`List<int>`
     /// como `Iterable` dá `[int]`), ignorando a anulabilidade de `t`.
-    pub(crate) fn como_instancia_de(&mut self, t: TypeId, class: Option<ClassId>) -> Option<Vec<TypeId>> {
+    pub(crate) fn as_instance_of(&mut self, t: TypeId, class: Option<ClassId>) -> Option<Vec<TypeId>> {
         let class = class?;
-        let t = self.nao_nulo(t);
-        let t = self.completar_args(t);
+        let t = self.non_null(t);
+        let t = self.complete_args(t);
         match self.table.get(t).clone() {
             Type::Interface { class: c, args, .. } if c == class => return Some(args.to_vec()),
             Type::Interface { .. } | Type::ExtensionType { .. } => {}
-            Type::Intersection { bound, .. } => return self.como_instancia_de(bound, Some(class)),
+            Type::Intersection { bound, .. } => return self.as_instance_of(bound, Some(class)),
             Type::TypeParameter { param, .. } if param != self.core.unknown_param => {
                 let b = self.table.param(param).bound;
                 if b == t {
                     return None;
                 }
-                return self.como_instancia_de(b, Some(class));
+                return self.as_instance_of(b, Some(class));
             }
             _ => return None,
         }
@@ -173,7 +173,7 @@ impl<'a> BodyInferrer<'a> {
     pub(crate) fn flatten(&mut self, t: TypeId) -> TypeId {
         match self.table.get(t).clone() {
             Type::Dynamic | Type::Void => t,
-            Type::Intersection { bound, .. } => match self.como_instancia_de(bound, self.core.future_class) {
+            Type::Intersection { bound, .. } => match self.as_instance_of(bound, self.core.future_class) {
                 Some(a) => a[0],
                 None => t,
             },
@@ -185,7 +185,7 @@ impl<'a> BodyInferrer<'a> {
                 }
             }
             ty if ty.is_declared_nullable() => {
-                let s = self.nao_nulo(t);
+                let s = self.non_null(t);
                 let f = self.flatten(s);
                 self.anulavel(f)
             }
@@ -195,12 +195,12 @@ impl<'a> BodyInferrer<'a> {
                     return t;
                 }
                 // `X extends Future<S>`: flatten é S.
-                match self.como_instancia_de(b, self.core.future_class) {
+                match self.as_instance_of(b, self.core.future_class) {
                     Some(a) => a[0],
                     None => t,
                 }
             }
-            _ => match self.como_instancia_de(t, self.core.future_class) {
+            _ => match self.as_instance_of(t, self.core.future_class) {
                 Some(a) => a[0],
                 None => t,
             },
@@ -208,8 +208,8 @@ impl<'a> BodyInferrer<'a> {
     }
 
     /// **futureValueTypeSchema**(`S`) (`inference.md`).
-    pub(crate) fn tipo_valor_futuro_esquema(&mut self, s: TypeId) -> TypeId {
-        if self.e_desconhecido(s) {
+    pub(crate) fn future_value_type_schema(&mut self, s: TypeId) -> TypeId {
+        if self.the_is_unknown(s) {
             return s;
         }
         match self.table.get(s).clone() {
@@ -221,19 +221,19 @@ impl<'a> BodyInferrer<'a> {
     }
 
     /// Atribuível: subtipo, `dynamic` (cast implícito) ou coerção por `call`.
-    pub(crate) fn atribuivel(&mut self, de: TypeId, para: TypeId) -> bool {
-        if self.e_dynamic(de) || self.sub(de, para) {
+    pub(crate) fn atribuivel(&mut self, of: TypeId, for_: TypeId) -> bool {
+        if self.e_dynamic(of) || self.sub(of, for_) {
             return true;
         }
-        if matches!(self.table.get(de), Type::Interface { .. }) {
+        if matches!(self.table.get(of), Type::Interface { .. }) {
             if let Some(call) = self.sym.call {
-                if let Some(m) = self.membro_de_interface(de, call, false) {
+                if let Some(m) = self.interface_member(of, call, false) {
                     if m.metodo {
                         // O `ImplicitCallReference` e, sendo o `call` genérico, a
                         // instanciação pelo contexto (`insertGenericFunctionInstantiation`,
                         // INFERENCIA §8.4).
-                        let t = self.instanciar_funcao_pelo_contexto(m.tipo, para);
-                        return self.sub(t, para);
+                        let t = self.instantiate_function_from_context(m.tipo, for_);
+                        return self.sub(t, for_);
                     }
                 }
             }
@@ -245,23 +245,23 @@ impl<'a> BodyInferrer<'a> {
     /// contexto cujo `flatten`, sem `?`, é tipo de função não genérico
     /// (`insertGenericFunctionInstantiation`, `resolver.dart:1171-1224`); senão
     /// o próprio `f`.
-    pub(crate) fn instanciar_funcao_pelo_contexto(&mut self, f: TypeId, ctx: TypeId) -> TypeId {
+    pub(crate) fn instantiate_function_from_context(&mut self, f: TypeId, ctx: TypeId) -> TypeId {
         let Type::Function { type_params, ret, positional, optional, named, nullable } = self.table.get(f).clone() else { return f };
-        if type_params.is_empty() || self.e_desconhecido(ctx) {
+        if type_params.is_empty() || self.the_is_unknown(ctx) {
             return f;
         }
         let k = self.flatten(ctx);
-        let k = self.nao_nulo(k);
+        let k = self.non_null(k);
         let Type::Function { type_params: tp_ctx, .. } = self.table.get(k).clone() else { return f };
         if !tp_ctx.is_empty() {
             return f;
         }
-        let sem = self.table.intern(Type::Function { type_params: Box::new([]), ret, positional, optional, named, nullable });
+        let without = self.table.intern(Type::Function { type_params: Box::new([]), ret, positional, optional, named, nullable });
         let mut gi = crate::constraints::GenericInferrer::new(&type_params);
         let mut env = self.env();
-        gi.constrain_return(sem, k, &mut env);
+        gi.constrain_return(without, k, &mut env);
         let args = gi.choose_final(&mut env);
-        crate::constraints::instanciar_funcao(f, &args, &mut env)
+        crate::constraints::instantiate_function(f, &args, &mut env)
     }
 
     /// Coerção por `call` (*implicit call tearoff*): um objeto de tipo de
@@ -269,17 +269,17 @@ impl<'a> BodyInferrer<'a> {
     /// do seu `call`. É com esse tipo que o argumento restringe os parâmetros
     /// de tipo de uma chamada genérica (`[1].map(somador)` infere `T` pelo
     /// retorno de `Somador.call`). `None` quando a coerção não se aplica.
-    pub(crate) fn tipo_do_call_implicito(&mut self, de: TypeId, contexto: TypeId) -> Option<TypeId> {
-        if !matches!(self.table.get(contexto), Type::Function { .. }) || !matches!(self.table.get(de), Type::Interface { nullable: false, .. }) {
+    pub(crate) fn implicit_call_type(&mut self, of: TypeId, context: TypeId) -> Option<TypeId> {
+        if !matches!(self.table.get(context), Type::Function { .. }) || !matches!(self.table.get(of), Type::Interface { nullable: false, .. }) {
             return None;
         }
         let call = self.sym.call?;
-        let m = self.membro_de_interface(de, call, false)?;
+        let m = self.interface_member(of, call, false)?;
         m.metodo.then_some(m.tipo)
     }
 
     /// Tipo `this` da classe (argumentos = os próprios parâmetros).
-    pub(crate) fn tipo_this_classe(&mut self, c: ClassId) -> TypeId {
+    pub(crate) fn class_this_type(&mut self, c: ClassId) -> TypeId {
         let params = self.outline.classes[c.0 as usize].type_params.clone();
         let args: Vec<TypeId> = params
             .iter()
@@ -294,36 +294,36 @@ impl<'a> BodyInferrer<'a> {
 
     /// Instanciação para os limites (`instantiate to bounds`) dos parâmetros
     /// de uma classe usada crua (`List` → `List<dynamic>`).
-    pub(crate) fn instanciar_para_limites(&mut self, params: &[TypeParamId]) -> Vec<TypeId> {
-        crate::ops::instanciar_para_limites(params, &[], self.table, self.core)
+    pub(crate) fn instantiate_to_bounds(&mut self, params: &[TypeParamId]) -> Vec<TypeId> {
+        crate::ops::instantiate_to_bounds(params, &[], self.table, self.core)
     }
 
     /// Cópias frescas (reusadas por lista) de parâmetros de tipo, com os
     /// limites reescritos nelas.
-    pub(crate) fn parametros_novos(&mut self, originais: &[TypeParamId]) -> Vec<TypeParamId> {
-        if originais.is_empty() {
+    pub(crate) fn new_parameters(&mut self, original: &[TypeParamId]) -> Vec<TypeParamId> {
+        if original.is_empty() {
             return Vec::new();
         }
-        if let Some(n) = self.params_construtor.get(&originais[0].0) {
+        if let Some(n) = self.constructor_params.get(&original[0].0) {
             return n.clone();
         }
-        let novos: Vec<TypeParamId> = originais
+        let new_: Vec<TypeParamId> = original
             .iter()
             .map(|&p| {
                 let d = self.table.param(p).clone();
                 self.table.alloc_type_param(d.name, TypeParamOwner::GenericFunctionType, d.bound, d.variance)
             })
             .collect();
-        let tipos: Vec<TypeId> = novos.iter().map(|&p| self.table.intern(Type::TypeParameter { param: p, nullable: false })).collect();
-        let mapa = self.mapa(originais, &tipos);
-        for (&p, &o) in novos.iter().zip(originais) {
+        let types: Vec<TypeId> = new_.iter().map(|&p| self.table.intern(Type::TypeParameter { param: p, nullable: false })).collect();
+        let map = self.mapa(original, &types);
+        for (&p, &o) in new_.iter().zip(original) {
             let b = self.table.param(p).bound;
-            let b = self.subst(b, &mapa);
+            let b = self.subst(b, &map);
             self.table.set_type_param_bound(p, b);
             self.table.param_mut(p).explicito = self.table.param(o).explicito;
         }
-        self.params_construtor.insert(originais[0].0, novos.clone());
-        novos
+        self.constructor_params.insert(original[0].0, new_.clone());
+        new_
     }
 
     /// Mapa de substituição `params → args`.
@@ -331,25 +331,25 @@ impl<'a> BodyInferrer<'a> {
         params.iter().copied().zip(args.iter().copied()).collect()
     }
 
-    pub(crate) fn subst(&mut self, t: TypeId, mapa: &HashMap<TypeParamId, TypeId>) -> TypeId {
-        substitute(t, mapa, self.table)
+    pub(crate) fn subst(&mut self, t: TypeId, map: &HashMap<TypeParamId, TypeId>) -> TypeId {
+        substitute(t, map, self.table)
     }
 
     /// Tipo de uma anotação escrita num corpo (parâmetros de tipo em escopo
     /// vêm de `cx`; os membros da classe ou extensão de `cx` escondem os
     /// nomes de topo, como o `InstanceScope` do analyzer).
-    pub(crate) fn tipo_de_anotacao(&mut self, cx: &Corpo, t: ast::TypeId) -> TypeId {
+    pub(crate) fn type_from_annotation(&mut self, cx: &Body, t: ast::TypeId) -> TypeId {
         let unit = cx.unit;
         let lib = cx.lib;
-        let escopo = cx.parametros_de_tipo_visiveis();
-        let antes = std::mem::replace(&mut self.conteiner_de_tipos, (cx.classe, cx.extensao));
-        let estatico_antes = std::mem::replace(&mut self.em_membro_estatico, cx.membro_estatico);
-        let locais = cx.locais_visiveis(self.interner);
-        let locais_antes = std::mem::replace(&mut self.locais_como_tipo, locais);
-        let r = self.resolver_anotacao(unit, lib, t, &escopo);
-        self.locais_como_tipo = locais_antes;
-        self.conteiner_de_tipos = antes;
-        self.em_membro_estatico = estatico_antes;
+        let scope = cx.visible_type_parameters();
+        let before = std::mem::replace(&mut self.type_container, (cx.classe, cx.extensao));
+        let static_before = std::mem::replace(&mut self.in_static_member, cx.static_member);
+        let locals = cx.visible_locals(self.interner);
+        let locals_before = std::mem::replace(&mut self.locals_as_type, locals);
+        let r = self.resolve_annotation(unit, lib, t, &scope);
+        self.locals_as_type = locals_before;
+        self.type_container = before;
+        self.in_static_member = static_before;
         // `TypeAnnotation.type` do analyzer, para as regras que o leem.
         self.body_types.units[unit.0 as usize].tipos_de_anotacoes.insert(t, r);
         r
@@ -358,142 +358,142 @@ impl<'a> BodyInferrer<'a> {
     /// Como [`BodyInferrer::tipo_de_anotacao`], para a anotação que aparece
     /// no `contexto` dado (`is`, `as`, `catch`, argumento de tipo): é o que
     /// escolhe o código de um nome que não é tipo.
-    pub(crate) fn tipo_no_contexto(&mut self, cx: &Corpo, t: ast::TypeId, contexto: crate::resolve::ContextoDeTipo) -> TypeId {
-        self.contexto_de_tipo = contexto;
-        self.tipo_de_anotacao(cx, t)
+    pub(crate) fn type_in_context(&mut self, cx: &Body, t: ast::TypeId, context: crate::resolve::TypeContext) -> TypeId {
+        self.type_context = context;
+        self.type_from_annotation(cx, t)
     }
 
     /// Um argumento de tipo escrito (`f<T>()`, `<T>[]`, `C<T>()`).
-    pub(crate) fn tipo_de_argumento_de_tipo(&mut self, cx: &Corpo, t: ast::TypeId) -> TypeId {
-        self.tipo_no_contexto(cx, t, crate::resolve::ContextoDeTipo::ArgumentoDeTipo)
+    pub(crate) fn type_argument_type(&mut self, cx: &Body, t: ast::TypeId) -> TypeId {
+        self.type_in_context(cx, t, crate::resolve::TypeContext::TypeArgument)
     }
 
     /// Resolve uma anotação e guarda o tipo dela e o de cada tipo aninhado
     /// (argumentos de tipo, partes de função e de registro) no
     /// `tipos_de_anotacoes` (o `NamedType.type` de cada nó do analyzer).
-    pub(crate) fn resolver_anotacao(
+    pub(crate) fn resolve_annotation(
         &mut self,
         unit: UnitId,
         lib: dartforge_elements::model::LibraryId,
         t: ast::TypeId,
-        escopo: &HashMap<dartforge_intern::SymbolId, TypeParamId>,
+        scope: &HashMap<dartforge_intern::SymbolId, TypeParamId>,
     ) -> TypeId {
-        let r = self.resolver_anotacao_sem_registro(unit, lib, t, escopo);
+        let r = self.resolve_annotation_without_recording(unit, lib, t, scope);
         self.body_types.units[unit.0 as usize].tipos_de_anotacoes.insert(t, r);
         r
     }
 
-    fn resolver_anotacao_sem_registro(
+    fn resolve_annotation_without_recording(
         &mut self,
         unit: UnitId,
         lib: dartforge_elements::model::LibraryId,
         t: ast::TypeId,
-        escopo: &HashMap<dartforge_intern::SymbolId, TypeParamId>,
+        scope: &HashMap<dartforge_intern::SymbolId, TypeParamId>,
     ) -> TypeId {
         let node = self.program.unit(unit).ast.ty(t);
-        let anulavel = node.nullable;
+        let is_nullable = node.nullable;
         let span = node.span;
-        let contexto = std::mem::take(&mut self.contexto_de_tipo);
+        let context = std::mem::take(&mut self.type_context);
         let r = match &node.kind {
             ast::TypeKind::Void => return self.core.void_,
             ast::TypeKind::Named { name, args } => {
                 // Faixa dos erros de nome: do prefixo ao fim do nome
                 // (`_getErrorRange`); o número de argumentos vai no tipo todo.
-                let faixa = dartforge_diagnostics::Span { start: name[0].span.start, end: name[name.len() - 1].span.end };
-                let texto = self.interner.resolve(name[name.len() - 1].sym).to_string();
+                let range = dartforge_diagnostics::Span { start: name[0].span.start, end: name[name.len() - 1].span.end };
+                let text = self.interner.resolve(name[name.len() - 1].sym).to_string();
                 // `visitImportPrefixReference`: o prefixo que nomeia um local
                 // ainda não declarado do bloco (`_checkForReferenceBeforeDeclaration`).
                 if name.len() == 2
-                    && let Some(&(decl, true)) = self.locais_como_tipo.get(&name[0].sym)
+                    && let Some(&(decl, true)) = self.locals_as_type.get(&name[0].sym)
                 {
-                    let texto_nome = self.interner.resolve(name[0].sym).to_string();
-                    let msg = format!("{}: '{}'", crate::codes::REFERENCED_BEFORE_DECLARATION.template, texto_nome);
-                    let contexto_msg = format!("The declaration of '{texto_nome}' is here.");
-                    self.diagnostics.push(dartforge_diagnostics::Diagnostic::new(msg, name[0].span).com_contexto(decl, contexto_msg));
-                    self.unidades_dos_avisos.push(self.unidade_corrente);
+                    let name_text = self.interner.resolve(name[0].sym).to_string();
+                    let msg = format!("{}: '{}'", crate::codes::REFERENCED_BEFORE_DECLARATION.template, name_text);
+                    let context_msg = format!("The declaration of '{name_text}' is here.");
+                    self.diagnostics.push(dartforge_diagnostics::Diagnostic::new(msg, name[0].span).com_contexto(decl, context_msg));
+                    self.warning_units.push(self.current_unit);
                 }
                 if name.len() == 2 && name[0].span.start != name[0].span.end {
                     let p = name[0].sym;
-                    let (classe, extensao) = self.conteiner_de_tipos;
-                    let local = escopo.contains_key(&p) || self.locais_como_tipo.contains_key(&p);
-                    if crate::resolve::prefixo_sombreado(self.program, self.interner, unit, p, local, classe, extensao) {
-                        let nome = self.interner.resolve(p).to_string();
-                        self.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::PREFIX_SHADOWED_BY_LOCAL_DECLARATION, name[0].span, &[&nome]);
-                        return self.table.invalido(self.core.dynamic_);
+                    let (cls, extension) = self.type_container;
+                    let local = scope.contains_key(&p) || self.locals_as_type.contains_key(&p);
+                    if crate::resolve::shadowed_prefix(self.program, self.interner, unit, p, local, cls, extension) {
+                        let the_name = self.interner.resolve(p).to_string();
+                        self.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::PREFIX_SHADOWED_BY_LOCAL_DECLARATION, name[0].span, &[&the_name]);
+                        return self.table.invalid(self.core.dynamic_);
                     }
                 }
                 let binding = if name.len() == 2 {
                     self.program.lookup_prefixed_na_unidade(unit, name[0].sym, name[1].sym)
                 } else {
                     let sym = name[0].sym;
-                    if let Some(&pid) = escopo.get(&sym) {
+                    if let Some(&pid) = scope.get(&sym) {
                         if !args.is_empty() {
-                            self.relatar_argumentos_de_tipo(&texto, 0, args.len(), span);
+                            self.report_type_arguments(&text, 0, args.len(), span);
                         }
-                        if self.em_membro_estatico && crate::resolve::param_da_classe(self.table, pid) {
-                            self.aviso_com_codigo(
+                        if self.in_static_member && crate::resolve::class_param(self.table, pid) {
+                            self.warning_with_code(
                                 dartforge_diagnostics::codigos::compile_time_error::TYPE_PARAMETER_REFERENCED_BY_STATIC,
-                                faixa,
+                                range,
                                 &[],
                             );
                         }
                         let tp = self.table.intern(Type::TypeParameter { param: pid, nullable: false });
-                        return if anulavel { self.anulavel(tp) } else { tp };
+                        return if is_nullable { self.anulavel(tp) } else { tp };
                     }
                     // Um local (variável ou função local) com esse nome no
                     // escopo do corpo: o elemento do tipo é ele.
                     // `as`, `is` e argumento de tipo têm os códigos deles
                     // antes (`named_type_resolver.dart:544-596`).
-                    if let Some(&(decl, _)) = self.locais_como_tipo.get(&sym)
-                        && matches!(contexto, crate::resolve::ContextoDeTipo::As | crate::resolve::ContextoDeTipo::Is | crate::resolve::ContextoDeTipo::ArgumentoDeTipo)
+                    if let Some(&(decl, _)) = self.locals_as_type.get(&sym)
+                        && matches!(context, crate::resolve::TypeContext::As | crate::resolve::TypeContext::Is | crate::resolve::TypeContext::TypeArgument)
                     {
                         let _ = decl;
-                        self.relatar_nome_de_tipo(contexto, true, &texto, faixa);
-                        return self.table.invalido(self.core.dynamic_);
+                        self.report_type_name(context, true, &text, range);
+                        return self.table.invalid(self.core.dynamic_);
                     }
-                    if let Some(&(decl, _)) = self.locais_como_tipo.get(&sym) {
-                        let texto_nome = self.interner.resolve(sym).to_string();
-                        let msg = format!("{}: '{}'", crate::codes::REFERENCED_BEFORE_DECLARATION.template, texto_nome);
-                        let contexto = format!("The declaration of '{texto_nome}' is here.");
-                        self.diagnostics.push(dartforge_diagnostics::Diagnostic::new(msg, faixa).com_contexto(decl, contexto));
-                        self.unidades_dos_avisos.push(self.unidade_corrente);
-                        return self.table.invalido(self.core.dynamic_);
+                    if let Some(&(decl, _)) = self.locals_as_type.get(&sym) {
+                        let name_text = self.interner.resolve(sym).to_string();
+                        let msg = format!("{}: '{}'", crate::codes::REFERENCED_BEFORE_DECLARATION.template, name_text);
+                        let context = format!("The declaration of '{name_text}' is here.");
+                        self.diagnostics.push(dartforge_diagnostics::Diagnostic::new(msg, range).com_contexto(decl, context));
+                        self.warning_units.push(self.current_unit);
+                        return self.table.invalid(self.core.dynamic_);
                     }
                     if matches!(self.interner.resolve(sym), "dynamic" | "Never")
                         && self.program.lookup_na_unidade(unit, sym).and_then(|b| b.getter).is_none()
                         && !args.is_empty()
                     {
-                        self.relatar_argumentos_de_tipo(&texto, 0, args.len(), span);
+                        self.report_type_arguments(&text, 0, args.len(), span);
                     }
                     match self.interner.resolve(sym) {
                         "dynamic" if self.program.lookup_na_unidade(unit, sym).is_none() => return self.core.dynamic_,
                         "void" => return self.core.void_,
                         "Never" if self.program.lookup_na_unidade(unit, sym).and_then(|b| b.getter).is_none() => {
-                            return if anulavel { self.table.decorar(self.core.null, crate::table::Exibicao::NeverAnulavel) } else { self.core.never };
+                            return if is_nullable { self.table.decorate(self.core.null, crate::table::Exibicao::NeverAnulavel) } else { self.core.never };
                         }
                         _ => {}
                     }
                     // O escopo de instância esconde o de topo.
-                    let (classe, extensao) = self.conteiner_de_tipos;
-                    if faixa.start != faixa.end {
-                        match crate::resolve::nome_no_conteiner(self.program, self.interner, classe, extensao, sym) {
-                            Some(crate::resolve::NoConteiner::Getter) => {
-                                self.relatar_nome_de_tipo(contexto, true, &texto, faixa);
-                                return self.table.invalido(self.core.dynamic_);
+                    let (cls, extension) = self.type_container;
+                    if range.start != range.end {
+                        match crate::resolve::name_in_container(self.program, self.interner, cls, extension, sym) {
+                            Some(crate::resolve::InContainer::Getter) => {
+                                self.report_type_name(context, true, &text, range);
+                                return self.table.invalid(self.core.dynamic_);
                             }
                             // Só setter: o `LocalScope` do `ResolutionVisitor`
                             // o guarda sob `x=`; a busca segue para fora.
-                            Some(crate::resolve::NoConteiner::SoSetter) | None => {}
+                            Some(crate::resolve::InContainer::OnlySetter) | None => {}
                         }
                     }
                     self.program.lookup_na_unidade(unit, sym)
                 };
                 let args: Vec<ast::TypeId> = args.to_vec();
-                let resolvidos: Vec<TypeId> = args
+                let resolved: Vec<TypeId> = args
                     .iter()
                     .map(|&a| {
-                        self.contexto_de_tipo = crate::resolve::ContextoDeTipo::ArgumentoDeTipo;
-                        self.resolver_anotacao(unit, lib, a, escopo)
+                        self.type_context = crate::resolve::TypeContext::TypeArgument;
+                        self.resolve_annotation(unit, lib, a, scope)
                     })
                     .collect();
                 // Quantos parâmetros o tipo nomeado declara (para o número de
@@ -505,7 +505,7 @@ impl<'a> BodyInferrer<'a> {
                 };
                 if let Some(n) = n_params {
                     if !args.is_empty() && args.len() != n {
-                        self.relatar_argumentos_de_tipo(&texto, n, args.len(), span);
+                        self.report_type_arguments(&text, n, args.len(), span);
                     }
                 }
                 match binding.and_then(|b| b.getter) {
@@ -517,11 +517,11 @@ impl<'a> BodyInferrer<'a> {
                     Some(Element::Class(cid)) => {
                         // Número errado de argumentos de tipo: todos
                         // inválidos (`named_type_resolver.dart:148`).
-                        let resolvidos = match n_params {
-                            Some(n) if !args.is_empty() && args.len() != n => vec![self.table.invalido(self.core.dynamic_); n],
-                            _ => resolvidos,
+                        let resolved = match n_params {
+                            Some(n) if !args.is_empty() && args.len() != n => vec![self.table.invalid(self.core.dynamic_); n],
+                            _ => resolved,
                         };
-                        self.tipo_de_classe_com_args(cid, resolvidos)
+                        self.class_type_with_args(cid, resolved)
                     }
                     // O alias que chega a si mesmo instancia como `dynamic`
                     // (`hasSelfReference`, `auto_referencia`).
@@ -530,23 +530,23 @@ impl<'a> BodyInferrer<'a> {
                     }
                     Some(Element::Typedef(tid)) => {
                         let data = self.outline.typedefs[tid.0 as usize].clone();
-                        let args = if resolvidos.len() == data.type_params.len() {
-                            resolvidos
+                        let args = if resolved.len() == data.type_params.len() {
+                            resolved
                         } else if !args.is_empty() {
-                            vec![self.table.invalido(self.core.dynamic_); data.type_params.len()]
+                            vec![self.table.invalid(self.core.dynamic_); data.type_params.len()]
                         } else {
-                            self.instanciar_para_limites(&data.type_params)
+                            self.instantiate_to_bounds(&data.type_params)
                         };
-                        let mapa = self.mapa(&data.type_params, &args);
-                        let r = self.subst(data.target_type, &mapa);
-                        self.table.decorar(r, crate::table::Exibicao::Alias { typedef: tid, args: args.into_boxed_slice() })
+                        let map = self.mapa(&data.type_params, &args);
+                        let r = self.subst(data.target_type, &map);
+                        self.table.decorate(r, crate::table::Exibicao::Alias { typedef: tid, args: args.into_boxed_slice() })
                     }
                     _ => {
-                        let nome = self.interner.resolve(name[name.len() - 1].sym);
-                        match nome {
+                        let the_name = self.interner.resolve(name[name.len() - 1].sym);
+                        match the_name {
                             "dynamic" if name.len() == 1 => return self.core.dynamic_,
                             "Never" if name.len() == 1 => {
-                                return if anulavel { self.table.decorar(self.core.null, crate::table::Exibicao::NeverAnulavel) } else { self.core.never };
+                                return if is_nullable { self.table.decorate(self.core.null, crate::table::Exibicao::NeverAnulavel) } else { self.core.never };
                             }
                             "Null" if name.len() == 1 => return self.core.null,
                             _ => {
@@ -554,20 +554,20 @@ impl<'a> BodyInferrer<'a> {
                                 // (`NamedTypeResolver`); um nome sintético da
                                 // recuperação (sem largura) e uma referência
                                 // ambígua (relatada à parte) ficam fora.
-                                let ambiguo = binding.is_some_and(|b| b.ambiguous);
-                                if faixa.start != faixa.end && !ambiguo {
-                                    let achou = binding.is_some_and(|b| b.getter.is_some());
-                                    self.relatar_nome_de_tipo(contexto, achou, &texto, faixa);
+                                let ambiguous = binding.is_some_and(|b| b.ambiguous);
+                                if range.start != range.end && !ambiguous {
+                                    let found = binding.is_some_and(|b| b.getter.is_some());
+                                    self.report_type_name(context, found, &text, range);
                                 }
                                 // O tipo de recuperação: `InvalidType`.
-                                self.table.invalido(self.core.dynamic_)
+                                self.table.invalid(self.core.dynamic_)
                             }
                         }
                     }
                 }
             }
             ast::TypeKind::Function { return_type, type_params, parameters } => {
-                let mut local = escopo.clone();
+                let mut local = scope.clone();
                 let mut tps = Vec::new();
                 for tp in type_params.iter() {
                     let pid = self.table.alloc_type_param(
@@ -576,18 +576,18 @@ impl<'a> BodyInferrer<'a> {
                         self.core.object_nullable,
                         Variance::Unspecified,
                     );
-                    self.table.sem_tipo_padrao.insert(pid);
+                    self.table.without_default_type.insert(pid);
                     local.insert(tp.name.sym, pid);
                     tps.push(pid);
                 }
                 for (tp, &pid) in type_params.iter().zip(tps.iter()) {
                     if let Some(b) = tp.bound {
-                        let bt = self.resolver_anotacao(unit, lib, b, &local);
+                        let bt = self.resolve_annotation(unit, lib, b, &local);
                         self.table.set_type_param_bound(pid, bt);
                     }
                 }
                 let ret = match return_type {
-                    Some(r) => self.resolver_anotacao(unit, lib, *r, &local),
+                    Some(r) => self.resolve_annotation(unit, lib, *r, &local),
                     None => self.core.dynamic_,
                 };
                 let (pos, opt, named) = self.tipos_de_parametros(unit, lib, parameters, &local);
@@ -603,12 +603,12 @@ impl<'a> BodyInferrer<'a> {
             ast::TypeKind::Record { positional, named } => {
                 let positional: Vec<ast::TypeId> = positional.to_vec();
                 let named: Vec<(dartforge_intern::SymbolId, ast::TypeId)> = named.iter().map(|(n, t)| (n.sym, *t)).collect();
-                let pos: Vec<TypeId> = positional.iter().map(|&t| self.resolver_anotacao(unit, lib, t, escopo)).collect();
-                let nm: Vec<_> = named.iter().map(|(n, t)| (*n, self.resolver_anotacao(unit, lib, *t, escopo))).collect();
+                let pos: Vec<TypeId> = positional.iter().map(|&t| self.resolve_annotation(unit, lib, t, scope)).collect();
+                let nm: Vec<_> = named.iter().map(|(n, t)| (*n, self.resolve_annotation(unit, lib, *t, scope))).collect();
                 self.table.intern(Type::Record { positional: pos.into_boxed_slice(), named: nm.into_boxed_slice(), nullable: false })
             }
         };
-        if anulavel {
+        if is_nullable {
             self.anulavel(r)
         } else {
             r
@@ -616,30 +616,30 @@ impl<'a> BodyInferrer<'a> {
     }
 
     /// Nome de tipo que não resolve para tipo, no código do contexto.
-    fn relatar_nome_de_tipo(&mut self, contexto: crate::resolve::ContextoDeTipo, achou: bool, nome: &str, faixa: dartforge_diagnostics::Span) {
+    fn report_type_name(&mut self, context: crate::resolve::TypeContext, found: bool, the_name: &str, range: dartforge_diagnostics::Span) {
         // O nome sintético não é relatado (`reportNullOrNonTypeElement`).
-        if nome.is_empty() {
+        if the_name.is_empty() {
             return;
         }
-        let d = crate::resolve::diagnostico_de_nome_de_tipo(contexto, achou, nome, faixa);
+        let d = crate::resolve::type_name_diagnostic(context, found, the_name, range);
         let args: Vec<&str> = d.args.iter().map(|a| &**a).collect();
-        let codigo = d.code.expect("com código");
-        self.aviso_com_codigo(codigo, faixa, &args);
+        let code = d.code.expect("com código");
+        self.warning_with_code(code, range, &args);
     }
 
     /// `WRONG_NUMBER_OF_TYPE_ARGUMENTS` no tipo inteiro.
-    pub(crate) fn relatar_argumentos_de_tipo(&mut self, nome: &str, parametros: usize, argumentos: usize, span: dartforge_diagnostics::Span) {
-        let (p, a) = (parametros.to_string(), argumentos.to_string());
-        self.aviso_com_codigo(
+    pub(crate) fn report_type_arguments(&mut self, the_name: &str, params_list: usize, arguments: usize, span: dartforge_diagnostics::Span) {
+        let (p, a) = (params_list.to_string(), arguments.to_string());
+        self.warning_with_code(
             dartforge_diagnostics::codigos::compile_time_error::WRONG_NUMBER_OF_TYPE_ARGUMENTS,
             span,
-            &[nome, &p, &a],
+            &[the_name, &p, &a],
         );
     }
 
     /// `extensionTypeErasure` (o tipo de representação no lugar de cada tipo
     /// de extensão).
-    pub(crate) fn apagar_extensao(&mut self, t: TypeId) -> TypeId {
+    pub(crate) fn erase_extension(&mut self, t: TypeId) -> TypeId {
         let outline = &*self.outline;
         let program = self.program;
         let rep = |decl: ClassId, args: &[TypeId], table: &mut crate::table::TypeTable| -> Option<TypeId> {
@@ -649,16 +649,16 @@ impl<'a> BodyInferrer<'a> {
             if params.is_empty() || params.len() != args.len() {
                 return Some(t);
             }
-            let mapa: HashMap<TypeParamId, TypeId> = params.iter().copied().zip(args.iter().copied()).collect();
-            Some(crate::ops::substitute(t, &mapa, table))
+            let map: HashMap<TypeParamId, TypeId> = params.iter().copied().zip(args.iter().copied()).collect();
+            Some(crate::ops::substitute(t, &map, table))
         };
         crate::ops::erase_extension_type(t, self.table, &rep)
     }
 
     /// `C<args>` (com instanciação para os limites se faltarem argumentos).
-    pub(crate) fn tipo_de_classe_com_args(&mut self, cid: ClassId, args: Vec<TypeId>) -> TypeId {
+    pub(crate) fn class_type_with_args(&mut self, cid: ClassId, args: Vec<TypeId>) -> TypeId {
         let params = self.outline.classes[cid.0 as usize].type_params.clone();
-        let args = if args.len() == params.len() { args } else { self.instanciar_para_limites(&params) };
+        let args = if args.len() == params.len() { args } else { self.instantiate_to_bounds(&params) };
         let class = self.program.class(cid);
         if class.kind == ClassKind::ExtensionType {
             return self.table.intern(Type::ExtensionType { decl: cid, args: args.into_boxed_slice(), nullable: false });
@@ -676,13 +676,13 @@ impl<'a> BodyInferrer<'a> {
         unit: UnitId,
         lib: dartforge_elements::model::LibraryId,
         parameters: &[ast::Parameter],
-        escopo: &HashMap<dartforge_intern::SymbolId, TypeParamId>,
+        scope: &HashMap<dartforge_intern::SymbolId, TypeParamId>,
     ) -> (Vec<TypeId>, Vec<TypeId>, Vec<(dartforge_intern::SymbolId, TypeId, bool)>) {
         let mut pos = Vec::new();
         let mut opt = Vec::new();
         let mut named = Vec::new();
         for p in parameters.iter() {
-            let t = self.tipo_de_parametro_escrito(unit, lib, p, escopo).unwrap_or(self.core.dynamic_);
+            let t = self.written_parameter_type(unit, lib, p, scope).unwrap_or(self.core.dynamic_);
             match p.kind {
                 ast::ParameterKind::Required => pos.push(t),
                 ast::ParameterKind::Optional => opt.push(t),
@@ -697,15 +697,15 @@ impl<'a> BodyInferrer<'a> {
     }
 
     /// Tipo escrito de um parâmetro (inclusive a forma antiga `int f(int x)`).
-    pub(crate) fn tipo_de_parametro_escrito(
+    pub(crate) fn written_parameter_type(
         &mut self,
         unit: UnitId,
         lib: dartforge_elements::model::LibraryId,
         p: &ast::Parameter,
-        escopo: &HashMap<dartforge_intern::SymbolId, TypeParamId>,
+        scope: &HashMap<dartforge_intern::SymbolId, TypeParamId>,
     ) -> Option<TypeId> {
         if let Some(fps) = &p.function_parameters {
-            let mut local = escopo.clone();
+            let mut local = scope.clone();
             let mut tps = Vec::new();
             for tp in p.function_type_params.iter() {
                 let pid = self.table.alloc_type_param(
@@ -714,12 +714,12 @@ impl<'a> BodyInferrer<'a> {
                     self.core.object_nullable,
                     Variance::Unspecified,
                 );
-                self.table.sem_tipo_padrao.insert(pid);
+                self.table.without_default_type.insert(pid);
                 local.insert(tp.name.sym, pid);
                 tps.push(pid);
             }
             let ret = match p.ty {
-                Some(r) => self.resolver_anotacao(unit, lib, r, &local),
+                Some(r) => self.resolve_annotation(unit, lib, r, &local),
                 None => self.core.dynamic_,
             };
             let (pos, opt, named) = self.tipos_de_parametros(unit, lib, fps, &local);
@@ -733,6 +733,6 @@ impl<'a> BodyInferrer<'a> {
             });
             return Some(f);
         }
-        p.ty.map(|t| self.resolver_anotacao(unit, lib, t, escopo))
+        p.ty.map(|t| self.resolve_annotation(unit, lib, t, scope))
     }
 }

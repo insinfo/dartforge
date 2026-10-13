@@ -36,18 +36,18 @@ pub fn podem_ser_const(
     table: &mut TypeTable,
     core: &CoreTypes,
     outline: &OutlineTypes,
-    corpos: &BodyTypes,
-    inferidas: &HashSet<LibraryId>,
+    bodies: &BodyTypes,
+    the_inferred: &HashSet<LibraryId>,
     u: UnitId,
 ) -> PodemSerConst {
     let mut r = PodemSerConst::default();
-    let unidade = program.unit(u);
-    let a = &unidade.ast;
-    let lib = unidade.library;
-    let Some(corpo) = corpos.units.get(u.0 as usize) else { return r };
+    let unit = program.unit(u);
+    let a = &unit.ast;
+    let lib = unit.library;
+    let Some(body) = bodies.units.get(u.0 as usize) else { return r };
     let pais = crate::lints_tipados::pais_da_unidade(program, u);
-    let mut criacoes: Vec<ExprId> = Vec::new();
-    let mut literais: Vec<ExprId> = Vec::new();
+    let mut creations: Vec<ExprId> = Vec::new();
+    let mut literals: Vec<ExprId> = Vec::new();
     for (k, e) in a.exprs.iter().enumerate() {
         let id = ExprId(k as u32);
         match &e.kind {
@@ -55,31 +55,31 @@ pub fn podem_ser_const(
                 if *keyword == Some(ast::CreationKeyword::Const) || pais.em_contexto_constante(a, id) {
                     continue;
                 }
-                if let Some(Resolved::Constructor(f)) = corpo.get_resolved(id)
+                if let Some(Resolved::Constructor(f)) = body.get_resolved(id)
                     && program.function(*f).const_
                 {
-                    criacoes.push(id);
+                    creations.push(id);
                 }
             }
             ExprKind::Call { .. } => {
                 if pais.em_contexto_constante(a, id) {
                     continue;
                 }
-                if let Some(Resolved::Constructor(f)) = corpo.get_resolved(id)
+                if let Some(Resolved::Constructor(f)) = body.get_resolved(id)
                     && program.function(*f).const_
                 {
-                    criacoes.push(id);
+                    creations.push(id);
                 }
             }
             ExprKind::List { const_: false, .. } | ExprKind::SetOrMap { const_: false, .. } => {
                 if !pais.em_contexto_constante(a, id) {
-                    literais.push(id);
+                    literals.push(id);
                 }
             }
             _ => {}
         }
     }
-    let construtores: Vec<ast::MemberId> = a
+    let constructors: Vec<ast::MemberId> = a
         .members
         .iter()
         .enumerate()
@@ -88,22 +88,22 @@ pub fn podem_ser_const(
             _ => None,
         })
         .collect();
-    if criacoes.is_empty() && literais.is_empty() && construtores.is_empty() {
+    if creations.is_empty() && literals.is_empty() && constructors.is_empty() {
         return r;
     }
-    let mut motor = Motor::novo(program, interner, table, core, outline, corpos, inferidas);
-    for e in criacoes {
-        if crate::constantes::verificador::criacao_pode_ser_const(&mut motor, lib, u, e) {
+    let mut engine = Motor::novo(program, interner, table, core, outline, bodies, the_inferred);
+    for e in creations {
+        if crate::constantes::verifier::creation_can_be_const(&mut engine, lib, u, e) {
             r.criacoes.insert(e);
         }
     }
-    for e in literais {
-        if crate::constantes::verificador::literal_pode_ser_const(&mut motor, lib, u, e) {
+    for e in literals {
+        if crate::constantes::verifier::literal_can_be_const(&mut engine, lib, u, e) {
             r.literais.insert(e);
         }
     }
-    for m in construtores {
-        if crate::constantes::verificador::construtor_pode_ser_const(&mut motor, lib, u, m) {
+    for m in constructors {
+        if crate::constantes::verifier::constructor_can_be_const(&mut engine, lib, u, m) {
             r.construtores.insert(m);
         }
     }

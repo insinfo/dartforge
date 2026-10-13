@@ -30,7 +30,7 @@ struct Contexto<'p, 't> {
 }
 
 /// `_ClassInterfaceType`.
-struct Coletor {
+struct Collector {
     objeto: bool,
     simples: TypeId,
     atual: Option<TypeId>,
@@ -48,7 +48,7 @@ impl Contexto<'_, '_> {
     }
 
     /// `_ClassInterfaceType.update`.
-    fn atualizar(&mut self, col: &mut Coletor, t: TypeId) {
+    fn atualizar(&mut self, col: &mut Collector, t: TypeId) {
         if col.erro.is_some() {
             return;
         }
@@ -58,17 +58,17 @@ impl Contexto<'_, '_> {
             }
             col.atual = Some(ops::normalize(col.simples, self.table, self.core));
         }
-        let atual = col.atual.expect("atual");
+        let current = col.atual.expect("atual");
         let nt = ops::normalize(t, self.table, self.core);
         // `_merge`: `Object` e `Object?` dão o não anulável.
-        let r = if col.objeto && self.anulavel(atual) != self.anulavel(nt) {
-            Some(if self.anulavel(atual) { nt } else { atual })
+        let r = if col.objeto && self.anulavel(current) != self.anulavel(nt) {
+            Some(if self.anulavel(current) { nt } else { current })
         } else {
-            self.top_merge(atual, nt, 0)
+            self.top_merge(current, nt, 0)
         };
         match r {
             Some(x) => col.atual = Some(x),
-            None => col.erro = Some((atual, t)),
+            None => col.erro = Some((current, t)),
         }
     }
 
@@ -95,7 +95,7 @@ impl Contexto<'_, '_> {
     }
 
     /// `isValidExtensionTypeSuperinterface`.
-    fn superinterface_de_extensao(&self, t: TypeId) -> bool {
+    fn extension_superinterface(&self, t: TypeId) -> bool {
         match self.table.get(t) {
             Type::Interface { class, nullable: false, .. } => {
                 Some(*class) != self.core.function_class && Some(*class) != self.core.null_class && Some(*class) != self.core.record_class
@@ -109,12 +109,12 @@ impl Contexto<'_, '_> {
     /// restrições `on`, interfaces, mixins.
     fn diretos(&mut self, c: ClassId) -> Vec<TypeId> {
         let ce = self.program.class(c);
-        let dados = self.outline.classes[c.0 as usize].clone();
+        let data = self.outline.classes[c.0 as usize].clone();
         let mut v = Vec::new();
         match ce.kind {
             ClassKind::Class | ClassKind::MixinApplication => {
                 if Some(c) != self.core.object_class {
-                    match dados.supertype {
+                    match data.supertype {
                         Some(t) if self.interface_valida(t) && matches!(self.elemento(t).map(|(k, _)| self.program.class(k).kind), Some(ClassKind::Class | ClassKind::MixinApplication)) => v.push(t),
                         _ => v.push(self.core.object),
                     }
@@ -126,7 +126,7 @@ impl Contexto<'_, '_> {
                 }
             }
             ClassKind::Mixin => {
-                let on: Vec<TypeId> = dados.on.iter().copied().filter(|&t| self.interface_valida(t)).collect();
+                let on: Vec<TypeId> = data.on.iter().copied().filter(|&t| self.interface_valida(t)).collect();
                 if on.is_empty() {
                     v.push(self.core.object);
                 } else {
@@ -136,10 +136,10 @@ impl Contexto<'_, '_> {
             ClassKind::ExtensionType => {}
         }
         if ce.kind == ClassKind::ExtensionType {
-            v.extend(dados.interfaces.iter().copied().filter(|&t| self.superinterface_de_extensao(t)));
+            v.extend(data.interfaces.iter().copied().filter(|&t| self.extension_superinterface(t)));
         } else {
-            v.extend(dados.interfaces.iter().copied().filter(|&t| self.interface_valida(t)));
-            v.extend(dados.mixins.iter().copied().filter(|&t| self.interface_valida(t)));
+            v.extend(data.interfaces.iter().copied().filter(|&t| self.interface_valida(t)));
+            v.extend(data.mixins.iter().copied().filter(|&t| self.interface_valida(t)));
         }
         v
     }
@@ -150,39 +150,39 @@ impl Contexto<'_, '_> {
             return h.clone();
         }
         self.memo.insert(c, Rc::new((Vec::new(), Vec::new())));
-        let mut ordem: Vec<ClassId> = Vec::new();
-        let mut coletores: HashMap<ClassId, Coletor> = HashMap::new();
-        let adicionar = |cx: &mut Self, t: TypeId, ordem: &mut Vec<ClassId>, coletores: &mut HashMap<ClassId, Coletor>| {
+        let mut order: Vec<ClassId> = Vec::new();
+        let mut collectors: HashMap<ClassId, Collector> = HashMap::new();
+        let add = |cx: &mut Self, t: TypeId, order: &mut Vec<ClassId>, collectors: &mut HashMap<ClassId, Collector>| {
             let Some((el, _)) = cx.elemento(t) else { return };
-            match coletores.get_mut(&el) {
+            match collectors.get_mut(&el) {
                 Some(col) => cx.atualizar(col, t),
                 None => {
-                    ordem.push(el);
-                    coletores.insert(el, Coletor { objeto: Some(el) == cx.core.object_class, simples: t, atual: None, erro: None });
+                    order.push(el);
+                    collectors.insert(el, Collector { objeto: Some(el) == cx.core.object_class, simples: t, atual: None, erro: None });
                 }
             }
         };
         for t in self.diretos(c) {
-            adicionar(self, t, &mut ordem, &mut coletores);
+            add(self, t, &mut order, &mut collectors);
             let Some((el, args)) = self.elemento(t) else { continue };
             let params = self.outline.classes[el.0 as usize].type_params.clone();
-            let mapa: HashMap<TypeParamId, TypeId> = params.iter().copied().zip(args.iter().copied()).collect();
+            let map: HashMap<TypeParamId, TypeId> = params.iter().copied().zip(args.iter().copied()).collect();
             let h = self.hierarquia(el);
-            for &cru in h.0.iter() {
-                let novo = if mapa.is_empty() { cru } else { ops::substitute(cru, &mapa, self.table) };
-                adicionar(self, novo, &mut ordem, &mut coletores);
+            for &raw in h.0.iter() {
+                let new_ = if map.is_empty() { raw } else { ops::substitute(raw, &map, self.table) };
+                add(self, new_, &mut order, &mut collectors);
             }
         }
         let mut interfaces = Vec::new();
-        let mut erros = Vec::new();
-        for el in ordem {
-            let col = &coletores[&el];
+        let mut errors = Vec::new();
+        for el in order {
+            let col = &collectors[&el];
             if let Some(e) = col.erro {
-                erros.push(e);
+                errors.push(e);
             }
             interfaces.push(col.atual.unwrap_or(col.simples));
         }
-        let r = Rc::new((interfaces, erros));
+        let r = Rc::new((interfaces, errors));
         self.memo.insert(c, r.clone());
         r
     }
@@ -198,7 +198,7 @@ pub fn conflitos_genericos(
     core: &CoreTypes,
     outline: &OutlineTypes,
     lib: LibraryId,
-    aberta: &dyn Fn(ClassId) -> bool,
+    open: &dyn Fn(ClassId) -> bool,
 ) -> Vec<(UnitId, Diagnostic)> {
     let enum_ = program
         .classes
@@ -206,11 +206,11 @@ pub fn conflitos_genericos(
         .position(|ce| ce.decl.is_some() && program.library(ce.library).uri == "dart:core" && interner.resolve(ce.name) == "Enum")
         .map(|i| ClassId(i as u32));
     let mut cx = Contexto { program, core, outline, table, enum_, memo: HashMap::new() };
-    let mut saida = Vec::new();
-    let mut vistos: HashSet<ClassId> = HashSet::new();
+    let mut output = Vec::new();
+    let mut seen: HashSet<ClassId> = HashSet::new();
     for (i, ce) in program.classes.iter().enumerate() {
         let id = ClassId(i as u32);
-        if ce.library != lib || !vistos.insert(id) {
+        if ce.library != lib || !seen.insert(id) {
             continue;
         }
         let Some(d) = ce.decl else { continue };
@@ -219,30 +219,30 @@ pub fn conflitos_genericos(
         if decl.augment {
             continue;
         }
-        let (nome, especie, chamado) = match &decl.kind {
-            DeclKind::Class(x) if x.mixin_application => (x.name, "class", aberta(id)),
+        let (name, kind, callee) = match &decl.kind {
+            DeclKind::Class(x) if x.mixin_application => (x.name, "class", open(id)),
             DeclKind::Class(x) => {
-                let tem = x.extends.is_some() || !x.with.is_empty() || !x.implements.is_empty();
-                (x.name, "class", tem && aberta(id))
+                let has = x.extends.is_some() || !x.with.is_empty() || !x.implements.is_empty();
+                (x.name, "class", has && open(id))
             }
             DeclKind::Enum(x) => {
-                let tem = !x.with.is_empty() || !x.implements.is_empty();
-                (x.name, "enum", tem && aberta(id))
+                let has = !x.with.is_empty() || !x.implements.is_empty();
+                (x.name, "enum", has && open(id))
             }
-            DeclKind::Mixin(x) => (x.name, "mixin", (!x.on.is_empty() || !x.implements.is_empty()) && aberta(id)),
+            DeclKind::Mixin(x) => (x.name, "mixin", (!x.on.is_empty() || !x.implements.is_empty()) && open(id)),
             DeclKind::ExtensionType(x) => (x.name, "extension type", true),
             _ => continue,
         };
-        if !chamado {
+        if !callee {
             continue;
         }
         let h = cx.hierarquia(id);
-        let texto = interner.resolve(nome.sym).to_string();
-        for &(primeiro, segundo) in h.1.iter() {
-            let a1 = cx.table.format_sem_alias(primeiro, interner, program);
-            let a2 = cx.table.format_sem_alias(segundo, interner, program);
-            saida.push((d.unit, Diagnostic::com_codigo(c::CONFLICTING_GENERIC_INTERFACES, nome.span, [especie, texto.as_str(), a1.as_str(), a2.as_str()])));
+        let text = interner.resolve(name.sym).to_string();
+        for &(first, second) in h.1.iter() {
+            let a1 = cx.table.format_sem_alias(first, interner, program);
+            let a2 = cx.table.format_sem_alias(second, interner, program);
+            output.push((d.unit, Diagnostic::com_codigo(c::CONFLICTING_GENERIC_INTERFACES, name.span, [kind, text.as_str(), a1.as_str(), a2.as_str()])));
         }
     }
-    saida
+    output
 }

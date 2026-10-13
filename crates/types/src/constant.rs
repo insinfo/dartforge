@@ -72,7 +72,7 @@ impl<'a> ConstantEvaluator<'a> {
         match &expr.kind {
             ast::ExprKind::Int(span) => {
                 let text = &self.program.unit(unit_id).source[span.start as usize..span.end as usize];
-                inteiro_literal(text).map(ConstValue::Int)
+                integer_literal(text).map(ConstValue::Int)
             }
             ast::ExprKind::Double(span) => {
                 let text = &self.program.unit(unit_id).source[span.start as usize..span.end as usize];
@@ -364,16 +364,16 @@ impl<'a> ConstantEvaluator<'a> {
 /// 2^64 dá a volta em complemento de dois, como na VM.
 /// O valor de um literal `double`: sem os `_`; um expoente sem dígito
 /// (`1e`, `1e+`) vale como o token sintético do scanner, com `0` no fim.
-pub fn real_literal(texto: &str) -> Option<f64> {
-    let mut t = texto.trim().replace('_', "");
+pub fn real_literal(the_text: &str) -> Option<f64> {
+    let mut t = the_text.trim().replace('_', "");
     if t.ends_with(['e', 'E', '+', '-']) {
         t.push('0');
     }
     t.parse::<f64>().ok()
 }
 
-pub fn inteiro_literal(texto: &str) -> Option<i64> {
-    let t: String = texto.trim().chars().filter(|c| *c != '_').collect();
+pub fn integer_literal(the_text: &str) -> Option<i64> {
+    let t: String = the_text.trim().chars().filter(|c| *c != '_').collect();
     if let Some(h) = t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
         // `0x` sem dígito: o token sintético do scanner vale 0.
         if h.is_empty() {

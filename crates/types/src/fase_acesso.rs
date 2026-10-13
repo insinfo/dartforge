@@ -20,7 +20,7 @@
 //! selada é a da declaração sem o comentário de documentação.
 //! Escrito sem compilar nem executar (2026-10-04).
 
-use crate::fase_deprecado::{da_funcao, da_variavel, do_elemento};
+use crate::fase_deprecado::{of_function, of_variable, of_element};
 use crate::resolve::OutlineTypes;
 use crate::resolved::{MemberRef, Resolved, UnitBodyTypes};
 use dartforge_diagnostics::codigos::warning as w;
@@ -31,29 +31,29 @@ use dartforge_intern::Interner;
 
 /// O elemento referido: as anotações dele, a unidade em que está declarado
 /// e a classe que o contém.
-struct Referido<'p> {
+struct Referenced<'p> {
     anotacoes: &'p [ast::Annotation],
     unidade: UnitId,
     classe: Option<ClassId>,
     /// Classe, enum ou mixin: fora da regra do `@visibleForTemplate`.
-    e_tipo: bool,
+    is_type: bool,
 }
 
-fn referido<'p>(program: &'p Program, r: &Resolved) -> Option<Referido<'p>> {
-    let (achado, classe, e_tipo) = match r {
-        Resolved::Constructor(f) | Resolved::Element(Element::Function(f)) => (da_funcao(program, *f), program.function(*f).class, false),
+fn referenced<'p>(program: &'p Program, r: &Resolved) -> Option<Referenced<'p>> {
+    let (finding, class, is_type) = match r {
+        Resolved::Constructor(f) | Resolved::Element(Element::Function(f)) => (of_function(program, *f), program.function(*f).class, false),
         Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::ExtensionMember { member: f, .. } => {
-            (da_funcao(program, *f), program.function(*f).class, false)
+            (of_function(program, *f), program.function(*f).class, false)
         }
         Resolved::Element(Element::Variable(v)) | Resolved::Member { member: MemberRef::Variable(v), .. } => {
-            (da_variavel(program, *v), program.variable(*v).class, false)
+            (of_variable(program, *v), program.variable(*v).class, false)
         }
-        Resolved::Element(e @ Element::Class(_)) => (do_elemento(program, *e), None, true),
-        Resolved::Element(e @ (Element::Typedef(_) | Element::Extension(_))) => (do_elemento(program, *e), None, false),
+        Resolved::Element(e @ Element::Class(_)) => (of_element(program, *e), None, true),
+        Resolved::Element(e @ (Element::Typedef(_) | Element::Extension(_))) => (of_element(program, *e), None, false),
         _ => return None,
     };
-    let (anotacoes, unidade) = achado?;
-    Some(Referido { anotacoes, unidade, classe, e_tipo })
+    let (annotations, unit) = finding?;
+    Some(Referenced { anotacoes: annotations, unidade: unit, classe: class, is_type })
 }
 
 /// As anotações da declaração de uma classe.
@@ -67,149 +67,149 @@ pub fn acessos_invalidos(
     program: &Program,
     interner: &Interner,
     outline: &OutlineTypes,
-    corpo: Option<&UnitBodyTypes>,
+    body: Option<&UnitBodyTypes>,
     u: UnitId,
-    mesmo_pacote: &dyn Fn(LibraryId) -> bool,
+    same_package: &dyn Fn(LibraryId) -> bool,
 ) -> Vec<Diagnostic> {
     let mut out: Vec<Diagnostic> = Vec::new();
-    let nomes = ["internal", "protected", "visibleForTemplate", "visibleForTesting", "visibleForOverriding", "sealed"];
-    if !nomes.iter().any(|n| interner.lookup(n).is_some()) {
+    let names = ["internal", "protected", "visibleForTemplate", "visibleForTesting", "visibleForOverriding", "sealed"];
+    if !names.iter().any(|n| interner.lookup(n).is_some()) {
         return out;
     }
-    let unidade = program.unit(u);
-    let a = &unidade.ast;
-    let lib = unidade.library;
-    let tem = |metadata: &[ast::Annotation], nome: &str| metadata.iter().any(|m| m.name.last().is_some_and(|n| interner.resolve(n.sym) == nome));
+    let unit = program.unit(u);
+    let a = &unit.ast;
+    let lib = unit.library;
+    let has = |metadata: &[ast::Annotation], the_name: &str| metadata.iter().any(|m| m.name.last().is_some_and(|n| interner.resolve(n.sym) == the_name));
     // `_inTemplateSource` e `inTestDir`, pelo caminho do arquivo.
-    let caminho = unidade.path.as_ref().map(|p| p.to_string_lossy().replace('\\', "/")).unwrap_or_default();
-    let em_template = caminho.contains(".template");
-    let em_teste = ["/test/", "/integration_test/", "/test_driver/", "/testing/"].iter().any(|d| caminho.contains(d));
+    let path = unit.path.as_ref().map(|p| p.to_string_lossy().replace('\\', "/")).unwrap_or_default();
+    let in_template = path.contains(".template");
+    let in_test = ["/test/", "/integration_test/", "/test_driver/", "/testing/"].iter().any(|d| path.contains(d));
     // As classes desta unidade, pela posição: `_enclosingClass`.
-    let classes_daqui: Vec<(Span, ClassId)> = program
+    let local_classes: Vec<(Span, ClassId)> = program
         .classes
         .iter()
         .enumerate()
         .filter(|(_, c)| c.library == lib && matches!(c.kind, ClassKind::Class | ClassKind::Mixin | ClassKind::Enum))
         .filter_map(|(i, c)| c.decl.filter(|d| d.unit == u).map(|d| (a.decl(d.decl).span, ClassId(i as u32))))
         .collect();
-    let classe_em = |s: Span| classes_daqui.iter().find(|(r, _)| r.start <= s.start && s.end <= r.end).map(|(_, c)| *c);
+    let class_in = |s: Span| local_classes.iter().find(|(r, _)| r.start <= s.start && s.end <= r.end).map(|(_, c)| *c);
     // O método que contém a posição, com o nome dele.
-    let metodo_em = |s: Span| {
+    let method_in = |s: Span| {
         a.members.iter().find_map(|m| match &m.kind {
             MemberKind::Method(f) if m.span.start <= s.start && s.end <= m.span.end => a.function(*f).name.map(|n| interner.resolve(n.sym)),
             _ => None,
         })
     };
-    let herda = |de: Option<ClassId>, definidora: ClassId| {
-        de.is_some_and(|c| c == definidora || outline.hierarchy.get(c).is_some_and(|d| d.supertypes.contains_key(&definidora)))
+    let inherits = |of: Option<ClassId>, defining: ClassId| {
+        of.is_some_and(|c| c == defining || outline.hierarchy.get(c).is_some_and(|d| d.supertypes.contains_key(&defining)))
     };
     // `_checkForInvalidInternalAccess` e `_checkForOtherInvalidAccess`.
-    let mut checar = |alvo: &Referido<'_>, span: Span, nome: &str, onde: Span, via_super: bool| {
-        let dona = program.unit(alvo.unidade);
+    let mut check = |tgt: &Referenced<'_>, span: Span, the_name: &str, where_: Span, via_super: bool| {
+        let owner = program.unit(tgt.unidade);
         // `_inCurrentLibrary`.
-        if dona.library == lib {
+        if owner.library == lib {
             return;
         }
-        let mut relatar = |d: Diagnostic| {
+        let mut report = |d: Diagnostic| {
             if !out.iter().any(|x| x.code == d.code && x.span == d.span) {
                 out.push(d);
             }
         };
-        if tem(alvo.anotacoes, "internal") && !mesmo_pacote(dona.library) {
-            relatar(Diagnostic::com_codigo(w::INVALID_USE_OF_INTERNAL_MEMBER, span, [nome]));
+        if has(tgt.anotacoes, "internal") && !same_package(owner.library) {
+            report(Diagnostic::com_codigo(w::INVALID_USE_OF_INTERNAL_MEMBER, span, [the_name]));
         }
-        let protegido = tem(alvo.anotacoes, "protected");
-        if protegido && alvo.classe.is_some_and(|definidora| herda(classe_em(onde), definidora)) {
+        let protected = has(tgt.anotacoes, "protected");
+        if protected && tgt.classe.is_some_and(|defining| inherits(class_in(where_), defining)) {
             return;
         }
-        let da_dona = alvo.classe.map_or(&[][..], |c| da_classe(program, c));
-        let para_template = !alvo.e_tipo
-            && (tem(alvo.anotacoes, "visibleForTemplate") || tem(da_dona, "visibleForTemplate"))
-            && !(tem(alvo.anotacoes, "visibleOutsideTemplate") || tem(da_dona, "visibleOutsideTemplate"));
-        if para_template && em_template {
+        let of_owner = tgt.classe.map_or(&[][..], |c| da_classe(program, c));
+        let for_template = !tgt.is_type
+            && (has(tgt.anotacoes, "visibleForTemplate") || has(of_owner, "visibleForTemplate"))
+            && !(has(tgt.anotacoes, "visibleOutsideTemplate") || has(of_owner, "visibleOutsideTemplate"));
+        if for_template && in_template {
             return;
         }
-        let para_teste = tem(alvo.anotacoes, "visibleForTesting");
-        if para_teste && em_teste {
+        let for_test = has(tgt.anotacoes, "visibleForTesting");
+        if for_test && in_test {
             return;
         }
-        let para_sobrescrita = tem(alvo.anotacoes, "visibleForOverriding");
+        let for_override = has(tgt.anotacoes, "visibleForOverriding");
         // `super.m()` dentro do próprio `m` é o uso previsto.
-        if para_sobrescrita && via_super && metodo_em(onde) == Some(nome) {
+        if for_override && via_super && method_in(where_) == Some(the_name) {
             return;
         }
-        let uri = dona.uri.as_str();
-        if protegido {
-            relatar(Diagnostic::com_codigo(w::INVALID_USE_OF_PROTECTED_MEMBER, span, [nome, uri]));
+        let uri = owner.uri.as_str();
+        if protected {
+            report(Diagnostic::com_codigo(w::INVALID_USE_OF_PROTECTED_MEMBER, span, [the_name, uri]));
         }
-        if para_template {
-            relatar(Diagnostic::com_codigo(w::INVALID_USE_OF_VISIBLE_FOR_TEMPLATE_MEMBER, span, [nome, uri]));
+        if for_template {
+            report(Diagnostic::com_codigo(w::INVALID_USE_OF_VISIBLE_FOR_TEMPLATE_MEMBER, span, [the_name, uri]));
         }
-        if para_teste {
-            relatar(Diagnostic::com_codigo(w::INVALID_USE_OF_VISIBLE_FOR_TESTING_MEMBER, span, [nome, uri]));
+        if for_test {
+            report(Diagnostic::com_codigo(w::INVALID_USE_OF_VISIBLE_FOR_TESTING_MEMBER, span, [the_name, uri]));
         }
-        if para_sobrescrita {
-            relatar(Diagnostic::com_codigo(w::INVALID_USE_OF_VISIBLE_FOR_OVERRIDING_MEMBER, span, [nome]));
+        if for_override {
+            report(Diagnostic::com_codigo(w::INVALID_USE_OF_VISIBLE_FOR_OVERRIDING_MEMBER, span, [the_name]));
         }
     };
     // Tipos nomeados (`verifyNamedType`).
     for t in a.types.iter() {
         let TypeKind::Named { name, .. } = &t.kind else { continue };
-        let ligacao = match &name[..] {
+        let binding = match &name[..] {
             [n] => program.lookup_na_unidade(u, n.sym),
             [p, n] => program.lookup_prefixed_na_unidade(u, p.sym, n.sym),
             _ => None,
         };
-        let (Some(e @ (Element::Class(_) | Element::Typedef(_))), Some(ultimo)) = (ligacao.and_then(|b| b.getter), name.last()) else {
+        let (Some(e @ (Element::Class(_) | Element::Typedef(_))), Some(last)) = (binding.and_then(|b| b.getter), name.last()) else {
             continue;
         };
-        if let Some(alvo) = referido(program, &Resolved::Element(e)) {
-            checar(&alvo, ultimo.span, interner.resolve(ultimo.sym), t.span, false);
+        if let Some(tgt) = referenced(program, &Resolved::Element(e)) {
+            check(&tgt, last.span, interner.resolve(last.sym), t.span, false);
         }
     }
     // Identificadores e propriedades resolvidos (`verify`).
-    if let Some(corpo) = corpo {
+    if let Some(body) = body {
         for (i, expr) in a.exprs.iter().enumerate() {
-            let Some(Some(r)) = corpo.resolved.get(i) else { continue };
-            let (no_nome, via_super) = match &expr.kind {
+            let Some(Some(r)) = body.resolved.get(i) else { continue };
+            let (at_name, via_super) = match &expr.kind {
                 ExprKind::Identifier(n) => (*n, false),
                 ExprKind::Property { name, target, .. } => (*name, matches!(a.expr(*target).kind, ExprKind::Super)),
                 _ => continue,
             };
-            let Some(alvo) = referido(program, r) else { continue };
+            let Some(tgt) = referenced(program, r) else { continue };
             // Um construtor leva o nome inteiro como está escrito (`C.nome`).
-            let (span, nome) = match r {
-                Resolved::Constructor(_) => (expr.span, unidade.source.get(expr.span.start..expr.span.end).unwrap_or("")),
-                _ => (no_nome.span, interner.resolve(no_nome.sym)),
+            let (span, the_name) = match r {
+                Resolved::Constructor(_) => (expr.span, unit.source.get(expr.span.start..expr.span.end).unwrap_or("")),
+                _ => (at_name.span, interner.resolve(at_name.sym)),
             };
-            checar(&alvo, span, nome, expr.span, via_super);
+            check(&tgt, span, the_name, expr.span, via_super);
         }
     }
     // `_checkForInvalidSealedSuperclass`: classe, aplicação de mixin e
     // mixin desta unidade.
-    for (i, classe) in program.classes.iter().enumerate() {
-        if classe.library != lib || !matches!(classe.kind, ClassKind::Class | ClassKind::Mixin) {
+    for (i, class) in program.classes.iter().enumerate() {
+        if class.library != lib || !matches!(class.kind, ClassKind::Class | ClassKind::Mixin) {
             continue;
         }
-        let Some(decl) = classe.decl.filter(|d| d.unit == u) else { continue };
+        let Some(decl) = class.decl.filter(|d| d.unit == u) else { continue };
         if !matches!(a.decl(decl.decl).kind, DeclKind::Class(_) | DeclKind::Mixin(_)) {
             continue;
         }
         let cid = ClassId(i as u32);
-        let Some(dados) = outline.hierarchy.get(cid) else { continue };
-        let mut supertipos: Vec<ClassId> = dados.supertypes.keys().copied().filter(|s| *s != cid).collect();
-        supertipos.sort_by_key(|c| c.0);
-        for s in supertipos {
-            let superclasse = program.class(s);
-            if !tem(da_classe(program, s), "sealed") || mesmo_pacote(superclasse.library) {
+        let Some(data) = outline.hierarchy.get(cid) else { continue };
+        let mut supertypes: Vec<ClassId> = data.supertypes.keys().copied().filter(|s| *s != cid).collect();
+        supertypes.sort_by_key(|c| c.0);
+        for s in supertypes {
+            let superclass = program.class(s);
+            if !has(da_classe(program, s), "sealed") || same_package(superclass.library) {
                 continue;
             }
-            let codigo = if classe.kind == ClassKind::Mixin && classe.on_classes.contains(&s) {
+            let code = if class.kind == ClassKind::Mixin && class.on_classes.contains(&s) {
                 w::MIXIN_ON_SEALED_CLASS
             } else {
                 w::SUBTYPE_OF_SEALED_CLASS
             };
-            out.push(Diagnostic::com_codigo(codigo, a.decl(decl.decl).span, [interner.resolve(superclasse.name)]));
+            out.push(Diagnostic::com_codigo(code, a.decl(decl.decl).span, [interner.resolve(superclass.name)]));
         }
     }
     out

@@ -3,8 +3,8 @@
 //! elementos (inclusive `...`, `if`, `for`) gerando restrições; e a decisão
 //! conjunto × mapa para `{}` pelos elementos e pelo contexto.
 
-use super::corpo::Corpo;
-use super::expr::{self, inferir, inferir_livre};
+use super::body::Body;
+use super::expr::{self, inferir, infer_free};
 use super::BodyInferrer;
 use crate::codes::*;
 use crate::constraints::GenericInferrer;
@@ -21,41 +21,41 @@ enum Forma {
 
 impl<'a> BodyInferrer<'a> {
     /// Três parâmetros de tipo auxiliares (E, K, V) para os literais.
-    fn params_colecao(&mut self) -> [TypeParamId; 3] {
+    fn collection_params(&mut self) -> [TypeParamId; 3] {
         let o = self.core.object_nullable;
-        if let Some(p) = self.params_colecao_cache {
+        if let Some(p) = self.collection_params_cache {
             return p;
         }
         // Os nomes do SDK (`List<E>`/`Set<E>`, `Map<K, V>`): aparecem no
         // `COULD_NOT_INFER` do literal.
-        let sem_nome = self.table.param(self.core.unknown_param).name;
-        let nomes = ["E", "K", "V"].map(|n| self.interner.lookup(n).unwrap_or(sem_nome));
-        let mk = |t: &mut crate::table::TypeTable, nome| t.alloc_type_param(nome, crate::table::TypeParamOwner::GenericFunctionType, o, crate::table::Variance::Unspecified);
-        let p = [mk(self.table, nomes[0]), mk(self.table, nomes[1]), mk(self.table, nomes[2])];
-        self.params_colecao_cache = Some(p);
+        let unnamed = self.table.param(self.core.unknown_param).name;
+        let names = ["E", "K", "V"].map(|n| self.interner.lookup(n).unwrap_or(unnamed));
+        let mk = |t: &mut crate::table::TypeTable, name| t.alloc_type_param(name, crate::table::TypeParamOwner::GenericFunctionType, o, crate::table::Variance::Unspecified);
+        let p = [mk(self.table, names[0]), mk(self.table, names[1]), mk(self.table, names[2])];
+        self.collection_params_cache = Some(p);
         p
     }
 }
 
 /// Classificação sintática dos elementos de `{...}`: `Some(true)` mapa,
 /// `Some(false)` conjunto, `None` indeciso (só espalhamentos ou vazio).
-fn forma_pelos_elementos(els: &[CollectionElement]) -> Option<bool> {
+fn shape_from_elements(els: &[CollectionElement]) -> Option<bool> {
     for el in els {
         match el {
             CollectionElement::MapEntry { .. } => return Some(true),
             CollectionElement::Expression(_) | CollectionElement::NullAwareExpression(_) => return Some(false),
             CollectionElement::If { then, else_, .. } => {
-                if let Some(f) = forma_pelos_elementos(std::slice::from_ref(then)) {
+                if let Some(f) = shape_from_elements(std::slice::from_ref(then)) {
                     return Some(f);
                 }
                 if let Some(e) = else_ {
-                    if let Some(f) = forma_pelos_elementos(std::slice::from_ref(e)) {
+                    if let Some(f) = shape_from_elements(std::slice::from_ref(e)) {
                         return Some(f);
                     }
                 }
             }
             CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => {
-                if let Some(f) = forma_pelos_elementos(std::slice::from_ref(body)) {
+                if let Some(f) = shape_from_elements(std::slice::from_ref(body)) {
                     return Some(f);
                 }
             }
@@ -66,37 +66,37 @@ fn forma_pelos_elementos(els: &[CollectionElement]) -> Option<bool> {
 }
 
 /// Infere um literal de coleção.
-pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx: TypeId) -> TypeId {
+pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx: TypeId) -> TypeId {
     let a = &inf.program.unit(cx.unit).ast;
     // `Some(ambos)`: o literal é ambíguo (`ambos`: o `_BOTH`).
-    let mut ambigua: Option<bool> = None;
+    let mut ambiguous: Option<bool> = None;
     // `{…}` sem argumentos de tipo: depois da visita, os tipos dos
     // elementos decidem a forma de novo (`_inferSetOrMapLiteralType`).
-    let mut chaves = false;
-    let (mut forma, type_args, elements, const_) = match &a.expr(e).kind {
+    let mut keys = false;
+    let (mut shape, type_args, elements, const_) = match &a.expr(e).kind {
         ExprKind::List { const_, type_args, elements } => (Forma::Lista, type_args, elements, *const_),
         ExprKind::SetOrMap { const_, type_args, elements } => {
-            let forma = match type_args.len() {
+            let shape = match type_args.len() {
                 1 => Forma::Conjunto,
                 2 => Forma::Mapa,
-                _ => match forma_pelos_elementos(elements) {
+                _ => match shape_from_elements(elements) {
                     Some(true) => {
-                        chaves = true;
+                        keys = true;
                         Forma::Mapa
                     }
                     Some(false) => {
-                        chaves = true;
+                        keys = true;
                         Forma::Conjunto
                     }
                     None => {
-                        chaves = true;
-                        let (f, amb) = forma_pelo_contexto(inf, cx, elements, ctx);
-                        ambigua = amb;
+                        keys = true;
+                        let (f, the_amb) = shape_from_context(inf, cx, elements, ctx);
+                        ambiguous = the_amb;
                         f
                     }
                 },
             };
-            (forma, type_args, elements, *const_)
+            (shape, type_args, elements, *const_)
         }
         _ => unreachable!(),
     };
@@ -107,16 +107,16 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
     // `const <Never>[]`, como na VM (o `Router<T>` do angel3; sem isto o
     // literal saía `List<dynamic>` no nativo e o argumento padrão falhava na
     // conferência do parâmetro, docs/NATIVO-PROJETOS-REAIS.md C12).
-    let ctx = if const_ && type_args.is_empty() && !inf.e_desconhecido(ctx) {
+    let ctx = if const_ && type_args.is_empty() && !inf.the_is_unknown(ctx) {
         let mut ps = Vec::new();
-        params_no_tipo(inf.table, ctx, &mut ps);
+        params_in_type(inf.table, ctx, &mut ps);
         // Só as variáveis de tipo em escopo (classe, método, funções
         // envolventes): as da invocação genérica sendo inferida (o `T` de
         // `Stream.fromIterable(const [1])`) não são variáveis livres do
         // literal — a CFE as tem como `_` no contexto
         // (type_schema_environment.dart `setupGenericTypeInference`).
-        let visiveis = cx.parametros_de_tipo_visiveis();
-        ps.retain(|p| visiveis.values().any(|q| q == p));
+        let visible = cx.visible_type_parameters();
+        ps.retain(|p| visible.values().any(|q| q == p));
         if ps.is_empty() {
             ctx
         } else {
@@ -127,27 +127,27 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
         ctx
     };
     let t = if !type_args.is_empty() {
-        let args: Vec<TypeId> = type_args.iter().map(|&t| inf.tipo_de_argumento_de_tipo(cx, t)).collect();
-        let (ce, ck, cv) = match forma {
+        let args: Vec<TypeId> = type_args.iter().map(|&t| inf.type_argument_type(cx, t)).collect();
+        let (ce, ck, cv) = match shape {
             Forma::Mapa => (inf.core.dynamic_, args[0], args.get(1).copied().unwrap_or(inf.core.dynamic_)),
             _ => (args[0], inf.core.dynamic_, inf.core.dynamic_),
         };
         for el in elements {
-            visitar(inf, cx, el, forma, [ce, ck, cv], None);
+            visitar(inf, cx, el, shape, [ce, ck, cv], None);
         }
-        tipo_final(inf, forma, &args)
+        final_type(inf, shape, &args)
     } else {
-        let p = inf.params_colecao();
-        let params: Vec<TypeParamId> = match forma {
+        let p = inf.collection_params();
+        let params: Vec<TypeParamId> = match shape {
             Forma::Mapa => vec![p[1], p[2]],
             _ => vec![p[0]],
         };
         let vars: Vec<TypeId> = params.iter().map(|&x| inf.table.intern(Type::TypeParameter { param: x, nullable: false })).collect();
-        let ret = tipo_final(inf, forma, &vars);
+        let ret = final_type(inf, shape, &vars);
         let mut gi = GenericInferrer::new(&params);
-        gi.metadados_genericos = inf.program.library(cx.lib).features.tem(dartforge_frontend::Feature::GenericMetadata);
-        if !inf.e_desconhecido(ctx) {
-            gi.com_origem(crate::constraints::Origem::Retorno { declarado: ret, contexto: ctx });
+        gi.generic_metadata = inf.program.library(cx.lib).features.tem(dartforge_frontend::Feature::GenericMetadata);
+        if !inf.the_is_unknown(ctx) {
+            gi.with_origin(crate::constraints::Origem::Retorno { declarado: ret, contexto: ctx });
             let mut env = inf.env();
             gi.constrain_return(ret, ctx, &mut env);
         }
@@ -155,12 +155,12 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
         let prelim = gi.choose_preliminary(&mut env);
         drop(env);
         let d = inf.core.dynamic_;
-        let ctxs = match forma {
+        let ctxs = match shape {
             Forma::Mapa => [d, prelim[0], prelim[1]],
             _ => [prelim[0], d, d],
         };
         for el in elements {
-            visitar(inf, cx, el, forma, ctxs, Some((&mut gi, &params[..])));
+            visitar(inf, cx, el, shape, ctxs, Some((&mut gi, &params[..])));
         }
         // `_inferSetOrMapLiteralType` (`typed_literal_resolver.dart:516-597`):
         // depois da visita, os tipos dos elementos decidem antes do contexto
@@ -174,79 +174,79 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
         // sem contexto, recebe os tipos dos elementos (`_toSetType`/
         // `_toMapType`, `:740-815`).
         let mut gi = gi;
-        if chaves && ambigua.is_none() {
-            let infos: Vec<Admite> = elements.iter().map(|el| admite(inf, el, true)).collect();
-            let conjunto = infos.iter().all(|a| a.pode_conjunto()) && infos.iter().any(|a| a.deve_conjunto());
-            let mapa = infos.iter().all(|a| a.pode_mapa()) && infos.iter().any(|a| a.deve_mapa());
-            let decidida = if conjunto {
+        if keys && ambiguous.is_none() {
+            let infos: Vec<Admits> = elements.iter().map(|el| admits(inf, el, true)).collect();
+            let set = infos.iter().all(|a| a.can_set()) && infos.iter().any(|a| a.must_set());
+            let map = infos.iter().all(|a| a.can_map()) && infos.iter().any(|a| a.must_map());
+            let decided = if set {
                 Some(Forma::Conjunto)
-            } else if mapa {
+            } else if map {
                 Some(Forma::Mapa)
-            } else if let Some(f) = forma_pelo_tipo_do_contexto(inf, ctx) {
+            } else if let Some(f) = shape_from_context_type(inf, ctx) {
                 Some(f)
             } else if elements.is_empty() {
                 Some(Forma::Mapa)
             } else {
                 None
             };
-            let outra = match decidida {
+            let other = match decided {
                 None => {
-                    ambigua = Some(infos.iter().any(|a| a.deve_mapa()) && infos.iter().any(|a| a.deve_conjunto()));
+                    ambiguous = Some(infos.iter().any(|a| a.must_map()) && infos.iter().any(|a| a.must_set()));
                     None
                 }
-                Some(f) if f != forma => Some(f),
+                Some(f) if f != shape => Some(f),
                 Some(_) => None,
             };
-            if let Some(nova) = outra {
-                forma = nova;
-                let ps: Vec<TypeParamId> = match nova {
+            if let Some(new_) = other {
+                shape = new_;
+                let ps: Vec<TypeParamId> = match new_ {
                     Forma::Mapa => vec![p[1], p[2]],
                     _ => vec![p[0]],
                 };
                 gi = GenericInferrer::new(&ps);
-                gi.metadados_genericos = inf.program.library(cx.lib).features.tem(dartforge_frontend::Feature::GenericMetadata);
+                gi.generic_metadata = inf.program.library(cx.lib).features.tem(dartforge_frontend::Feature::GenericMetadata);
                 let d = inf.core.dynamic_;
                 for a in &infos {
-                    let mut g: Inferidor<'_> = Some((&mut gi, &ps[..]));
-                    if nova == Forma::Mapa {
-                        restringir(inf, &mut g, a.chave.unwrap_or(d), 0);
-                        restringir(inf, &mut g, a.valor.unwrap_or(d), 1);
+                    let mut g: Inferrer<'_> = Some((&mut gi, &ps[..]));
+                    if new_ == Forma::Mapa {
+                        restrict(inf, &mut g, a.chave.unwrap_or(d), 0);
+                        restrict(inf, &mut g, a.valor.unwrap_or(d), 1);
                     } else {
-                        restringir(inf, &mut g, a.elemento.unwrap_or(d), 0);
+                        restrict(inf, &mut g, a.elemento.unwrap_or(d), 0);
                     }
                 }
             }
         }
         let (interner, program) = (inf.interner, inf.program);
         let mut env = inf.env();
-        let finais = gi.choose_final(&mut env);
+        let finals = gi.choose_final(&mut env);
         // O `chooseFinalTypes` com o relator e o literal como entidade (o
         // literal ambíguo sai da inferência sem ele).
-        let falhas = if ambigua.is_none() { gi.falhas(&finais, &mut env, interner, program) } else { Vec::new() };
+        let failures = if ambiguous.is_none() { gi.failures(&finals, &mut env, interner, program) } else { Vec::new() };
         drop(env);
         let sp = inf.span_expr(cx.unit, e);
-        for (nome, sufixo) in falhas {
-            inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::COULD_NOT_INFER, sp, &[&nome, &sufixo]);
+        for (name, suffix) in failures {
+            inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::COULD_NOT_INFER, sp, &[&name, &suffix]);
         }
-        tipo_final(inf, forma, &finais)
+        final_type(inf, shape, &finals)
     };
     if const_ {
-        validar_colecao_const(inf, cx, e);
+        validate_const_collection(inf, cx, e);
     }
     // `_inferSetOrMapLiteralType` (`typed_literal_resolver.dart:579-597`):
     // ambíguo, o literal inteiro relata e fica `dynamic` (sem a verificação
     // dos elementos, que só roda em mapa ou conjunto).
-    if let Some(ambos) = ambigua {
+    if let Some(both) = ambiguous {
         let sp = inf.span_expr(cx.unit, e);
-        let codigo = if ambos {
+        let code = if both {
             dartforge_diagnostics::codigos::compile_time_error::AMBIGUOUS_SET_OR_MAP_LITERAL_BOTH
         } else {
             dartforge_diagnostics::codigos::compile_time_error::AMBIGUOUS_SET_OR_MAP_LITERAL_EITHER
         };
-        inf.aviso_com_codigo(codigo, sp, &[]);
+        inf.warning_with_code(code, sp, &[]);
         return inf.core.dynamic_;
     }
-    verificar_elementos(inf, cx, elements, forma, t, const_, false);
+    verify_elements(inf, cx, elements, shape, t, const_, false);
     t
 }
 
@@ -258,69 +258,69 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
 /// avaliação pode não visitar), para não duplicar o relato.
 /// Objeto (com `call`) num contexto de tipo de função: a conversão implícita
 /// de `call` muda o tipo; fica de fora (sem a regra completa, nada relatar).
-fn tearoff_implicita(inf: &BodyInferrer<'_>, de: TypeId, para: TypeId) -> bool {
-    matches!(inf.table.get(para), Type::Function { .. } | Type::FutureOr { .. })
-        && matches!(inf.table.get(de), Type::Interface { .. } | Type::ExtensionType { .. } | Type::TypeParameter { .. } | Type::Intersection { .. })
+fn implicit_tearoff(inf: &BodyInferrer<'_>, of: TypeId, for_: TypeId) -> bool {
+    matches!(inf.table.get(for_), Type::Function { .. } | Type::FutureOr { .. })
+        && matches!(inf.table.get(of), Type::Interface { .. } | Type::ExtensionType { .. } | Type::TypeParameter { .. } | Type::Intersection { .. })
 }
 
-fn verificar_elementos(
+fn verify_elements(
     inf: &mut BodyInferrer<'_>,
-    cx: &Corpo,
+    cx: &Body,
     elements: &[CollectionElement],
-    forma: Forma,
+    shape: Forma,
     t: TypeId,
     const_: bool,
-    em_controle: bool,
+    in_control: bool,
 ) {
     use dartforge_diagnostics::codigos::compile_time_error as ce;
     let args: Vec<TypeId> = match inf.table.get(t) {
         Type::Interface { args, .. } => args.to_vec(),
         _ => return,
     };
-    let relatar = !const_ || em_controle;
+    let report = !const_ || in_control;
     for el in elements {
         match el {
-            CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) if forma != Forma::Mapa => {
+            CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) if shape != Forma::Mapa => {
                 let Some(e_t) = args.first().copied() else { continue };
                 let Some(tx) = inf.body_types.units[cx.unit.0 as usize].get_type(*x) else { continue };
-                let tx = if matches!(el, CollectionElement::NullAwareExpression(_)) { inf.nao_nulo(tx) } else { tx };
-                if !relatar || matches!(inf.table.get(tx), Type::Void) || inf.atribuivel(tx, e_t) || tearoff_implicita(inf, tx, e_t) {
+                let tx = if matches!(el, CollectionElement::NullAwareExpression(_)) { inf.non_null(tx) } else { tx };
+                if !report || matches!(inf.table.get(tx), Type::Void) || inf.atribuivel(tx, e_t) || implicit_tearoff(inf, tx, e_t) {
                     continue;
                 }
-                let codigo = if forma == Forma::Lista { ce::LIST_ELEMENT_TYPE_NOT_ASSIGNABLE } else { ce::SET_ELEMENT_TYPE_NOT_ASSIGNABLE };
+                let code = if shape == Forma::Lista { ce::LIST_ELEMENT_TYPE_NOT_ASSIGNABLE } else { ce::SET_ELEMENT_TYPE_NOT_ASSIGNABLE };
                 let sp = inf.span_expr(cx.unit, *x);
-                inf.aviso_com_args(codigo, sp, &[crate::exibicao::Arg::Tipo(tx), crate::exibicao::Arg::Tipo(e_t)]);
+                inf.warning_with_args(code, sp, &[crate::exibicao::Arg::Tipo(tx), crate::exibicao::Arg::Tipo(e_t)]);
             }
-            CollectionElement::MapEntry { key, value, null_aware_key, null_aware_value } if forma == Forma::Mapa => {
-                if !relatar || args.len() < 2 {
+            CollectionElement::MapEntry { key, value, null_aware_key, null_aware_value } if shape == Forma::Mapa => {
+                if !report || args.len() < 2 {
                     continue;
                 }
-                let tipos = &inf.body_types.units[cx.unit.0 as usize];
-                let (Some(tk), Some(tv)) = (tipos.get_type(*key), tipos.get_type(*value)) else { continue };
+                let types = &inf.body_types.units[cx.unit.0 as usize];
+                let (Some(tk), Some(tv)) = (types.get_type(*key), types.get_type(*value)) else { continue };
                 // `_verifyMapLiteralEntry` (3.13.4 `literal_element_verifier.dart:144-172`):
                 // a chave (depois o valor) `void` para a entrada quando tem
                 // o `?` ou quando o tipo dela no mapa não é `void` (o
                 // `use_of_void_result` sai na inferência); com `<K, void>`,
                 // o valor `void` segue para a conferência da chave.
                 let void = |t: TypeId| matches!(inf.table.get(t), Type::Void);
-                let (chave_void, valor_void) = (void(tk), void(tv));
-                if chave_void && (*null_aware_key || !void(args[0])) {
+                let (void_key, void_value) = (void(tk), void(tv));
+                if void_key && (*null_aware_key || !void(args[0])) {
                     continue;
                 }
-                if valor_void && (*null_aware_value || !void(args[1])) {
+                if void_value && (*null_aware_value || !void(args[1])) {
                     continue;
                 }
-                let tk = if *null_aware_key { inf.nao_nulo(tk) } else { tk };
-                let tv = if *null_aware_value { inf.nao_nulo(tv) } else { tv };
-                for (x, tx, alvo, codigo) in [(*key, tk, args[0], ce::MAP_KEY_TYPE_NOT_ASSIGNABLE), (*value, tv, args[1], ce::MAP_VALUE_TYPE_NOT_ASSIGNABLE)] {
-                    if !inf.atribuivel(tx, alvo) && !tearoff_implicita(inf, tx, alvo) {
+                let tk = if *null_aware_key { inf.non_null(tk) } else { tk };
+                let tv = if *null_aware_value { inf.non_null(tv) } else { tv };
+                for (x, tx, tgt, code) in [(*key, tk, args[0], ce::MAP_KEY_TYPE_NOT_ASSIGNABLE), (*value, tv, args[1], ce::MAP_VALUE_TYPE_NOT_ASSIGNABLE)] {
+                    if !inf.atribuivel(tx, tgt) && !implicit_tearoff(inf, tx, tgt) {
                         let sp = inf.span_expr(cx.unit, x);
-                        inf.aviso_com_args(codigo, sp, &[crate::exibicao::Arg::Tipo(tx), crate::exibicao::Arg::Tipo(alvo)]);
+                        inf.warning_with_args(code, sp, &[crate::exibicao::Arg::Tipo(tx), crate::exibicao::Arg::Tipo(tgt)]);
                     }
                 }
             }
             CollectionElement::Spread { value, null_aware } => {
-                if !relatar {
+                if !report {
                     continue;
                 }
                 let Some(tx) = inf.body_types.units[cx.unit.0 as usize].get_type(*value) else { continue };
@@ -338,15 +338,15 @@ fn verificar_elementos(
                 if inf.sub(tx, never) {
                     continue;
                 }
-                let nulo = inf.core.null;
-                if inf.sub(tx, nulo) {
+                let the_null = inf.core.null;
+                if inf.sub(tx, the_null) {
                     if !*null_aware {
                         let sp = inf.span_expr(cx.unit, *value);
-                        inf.aviso_com_codigo(ce::NOT_NULL_AWARE_NULL_SPREAD, sp, &[]);
+                        inf.warning_with_code(ce::NOT_NULL_AWARE_NULL_SPREAD, sp, &[]);
                     }
                     continue;
                 }
-                let tx = inf.nao_nulo(tx);
+                let tx = inf.non_null(tx);
                 if inf.e_dynamic(tx) || matches!(inf.table.get(tx), Type::Never | Type::Null | Type::Void) {
                     continue;
                 }
@@ -354,39 +354,39 @@ fn verificar_elementos(
                 // `_verifySpreadForListOrSet`/`_verifySpreadForMap`
                 // (`literal_element_verifier.dart:176-213`, `:267-303`): o que
                 // não é `Iterable`/`Map`.
-                let classe = if forma == Forma::Mapa { inf.core.map_class } else { inf.core.iterable_class };
-                if inf.como_instancia_de(tx, classe).is_none() {
-                    let codigo = if forma == Forma::Mapa { ce::NOT_MAP_SPREAD } else { ce::NOT_ITERABLE_SPREAD };
-                    inf.aviso_com_codigo(codigo, sp, &[]);
+                let cls = if shape == Forma::Mapa { inf.core.map_class } else { inf.core.iterable_class };
+                if inf.as_instance_of(tx, cls).is_none() {
+                    let code = if shape == Forma::Mapa { ce::NOT_MAP_SPREAD } else { ce::NOT_ITERABLE_SPREAD };
+                    inf.warning_with_code(code, sp, &[]);
                     continue;
                 }
-                if forma == Forma::Mapa {
-                    let Some(m) = inf.como_instancia_de(tx, inf.core.map_class) else { continue };
+                if shape == Forma::Mapa {
+                    let Some(m) = inf.as_instance_of(tx, inf.core.map_class) else { continue };
                     if args.len() < 2 || m.len() < 2 {
                         continue;
                     }
-                    for (de, para, codigo) in [(m[0], args[0], ce::MAP_KEY_TYPE_NOT_ASSIGNABLE), (m[1], args[1], ce::MAP_VALUE_TYPE_NOT_ASSIGNABLE)] {
-                        if !inf.atribuivel(de, para) && !tearoff_implicita(inf, de, para) {
-                            inf.aviso_com_args(codigo, sp, &[crate::exibicao::Arg::Tipo(de), crate::exibicao::Arg::Tipo(para)]);
+                    for (of, for_, code) in [(m[0], args[0], ce::MAP_KEY_TYPE_NOT_ASSIGNABLE), (m[1], args[1], ce::MAP_VALUE_TYPE_NOT_ASSIGNABLE)] {
+                        if !inf.atribuivel(of, for_) && !implicit_tearoff(inf, of, for_) {
+                            inf.warning_with_args(code, sp, &[crate::exibicao::Arg::Tipo(of), crate::exibicao::Arg::Tipo(for_)]);
                         }
                     }
                 } else {
-                    let Some(i) = inf.como_instancia_de(tx, inf.core.iterable_class) else { continue };
-                    let (Some(de), Some(para)) = (i.first().copied(), args.first().copied()) else { continue };
-                    if !inf.atribuivel(de, para) && !tearoff_implicita(inf, de, para) {
-                        let codigo = if forma == Forma::Lista { ce::LIST_ELEMENT_TYPE_NOT_ASSIGNABLE } else { ce::SET_ELEMENT_TYPE_NOT_ASSIGNABLE };
-                        inf.aviso_com_args(codigo, sp, &[crate::exibicao::Arg::Tipo(de), crate::exibicao::Arg::Tipo(para)]);
+                    let Some(i) = inf.as_instance_of(tx, inf.core.iterable_class) else { continue };
+                    let (Some(of), Some(for_)) = (i.first().copied(), args.first().copied()) else { continue };
+                    if !inf.atribuivel(of, for_) && !implicit_tearoff(inf, of, for_) {
+                        let code = if shape == Forma::Lista { ce::LIST_ELEMENT_TYPE_NOT_ASSIGNABLE } else { ce::SET_ELEMENT_TYPE_NOT_ASSIGNABLE };
+                        inf.warning_with_args(code, sp, &[crate::exibicao::Arg::Tipo(of), crate::exibicao::Arg::Tipo(for_)]);
                     }
                 }
             }
             CollectionElement::If { then, else_, .. } => {
-                verificar_elementos(inf, cx, std::slice::from_ref(&**then), forma, t, const_, true);
+                verify_elements(inf, cx, std::slice::from_ref(&**then), shape, t, const_, true);
                 if let Some(e) = else_ {
-                    verificar_elementos(inf, cx, std::slice::from_ref(&**e), forma, t, const_, true);
+                    verify_elements(inf, cx, std::slice::from_ref(&**e), shape, t, const_, true);
                 }
             }
             CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => {
-                verificar_elementos(inf, cx, std::slice::from_ref(&**body), forma, t, const_, true);
+                verify_elements(inf, cx, std::slice::from_ref(&**body), shape, t, const_, true);
             }
             // Entrada `k: v` numa lista ou num conjunto (o `forList`/`forSet`
             // do `LiteralElementVerifier`, `literal_element_verifier.dart:93-100`):
@@ -398,8 +398,8 @@ fn verificar_elementos(
                 }
                 let k = inf.span_expr(cx.unit, *key);
                 let v = inf.span_expr(cx.unit, *value);
-                let inicio = if *null_aware_key { recuar_interrogacao(inf, cx, k.start) } else { k.start };
-                inf.aviso_com_codigo(ce::MAP_ENTRY_NOT_IN_MAP, Span { start: inicio, end: v.end }, &[]);
+                let start = if *null_aware_key { back_up_question_mark(inf, cx, k.start) } else { k.start };
+                inf.warning_with_code(ce::MAP_ENTRY_NOT_IN_MAP, Span { start: start, end: v.end }, &[]);
             }
             // Expressão (ou `?e`) num mapa (`:79-85`, `:107-114`).
             CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) => {
@@ -407,87 +407,87 @@ fn verificar_elementos(
                     continue;
                 }
                 let s = inf.span_expr(cx.unit, *x);
-                let inicio = if matches!(el, CollectionElement::NullAwareExpression(_)) { recuar_interrogacao(inf, cx, s.start) } else { s.start };
-                inf.aviso_com_codigo(ce::EXPRESSION_IN_MAP, Span { start: inicio, end: s.end }, &[]);
+                let start = if matches!(el, CollectionElement::NullAwareExpression(_)) { back_up_question_mark(inf, cx, s.start) } else { s.start };
+                inf.warning_with_code(ce::EXPRESSION_IN_MAP, Span { start: start, end: s.end }, &[]);
             }
         }
     }
 }
 
 /// O início do elemento null-aware: o `?` antes de `i`, saltando brancos.
-fn recuar_interrogacao(inf: &BodyInferrer<'_>, cx: &Corpo, i: usize) -> usize {
-    let fonte = inf.program.unit(cx.unit).source.as_bytes();
+fn back_up_question_mark(inf: &BodyInferrer<'_>, cx: &Body, i: usize) -> usize {
+    let source = inf.program.unit(cx.unit).source.as_bytes();
     let mut j = i;
-    while j > 0 && fonte[j - 1].is_ascii_whitespace() {
+    while j > 0 && source[j - 1].is_ascii_whitespace() {
         j -= 1;
     }
-    if j > 0 && fonte[j - 1] == b'?' { j - 1 } else { i }
+    if j > 0 && source[j - 1] == b'?' { j - 1 } else { i }
 }
 
 /// As variáveis de tipo que aparecem em `t`.
-fn params_no_tipo(table: &crate::table::TypeTable, t: TypeId, saida: &mut Vec<TypeParamId>) {
+fn params_in_type(table: &crate::table::TypeTable, t: TypeId, output: &mut Vec<TypeParamId>) {
     match table.get(t) {
         Type::TypeParameter { param, .. } => {
-            if !saida.contains(param) {
-                saida.push(*param);
+            if !output.contains(param) {
+                output.push(*param);
             }
         }
         Type::Interface { args, .. } | Type::ExtensionType { args, .. } => {
             for a in args.iter() {
-                params_no_tipo(table, *a, saida);
+                params_in_type(table, *a, output);
             }
         }
-        Type::FutureOr { arg, .. } => params_no_tipo(table, *arg, saida),
+        Type::FutureOr { arg, .. } => params_in_type(table, *arg, output),
         Type::Function { ret, positional, optional, named, .. } => {
-            params_no_tipo(table, *ret, saida);
+            params_in_type(table, *ret, output);
             for a in positional.iter().chain(optional.iter()) {
-                params_no_tipo(table, *a, saida);
+                params_in_type(table, *a, output);
             }
             for (_, a, _) in named.iter() {
-                params_no_tipo(table, *a, saida);
+                params_in_type(table, *a, output);
             }
         }
         Type::Record { positional, named, .. } => {
             for a in positional.iter() {
-                params_no_tipo(table, *a, saida);
+                params_in_type(table, *a, output);
             }
             for (_, a) in named.iter() {
-                params_no_tipo(table, *a, saida);
+                params_in_type(table, *a, output);
             }
         }
         _ => {}
     }
 }
 
-fn tipo_final(inf: &mut BodyInferrer<'_>, forma: Forma, args: &[TypeId]) -> TypeId {
-    match forma {
+fn final_type(inf: &mut BodyInferrer<'_>, shape: Forma, args: &[TypeId]) -> TypeId {
+    match shape {
         Forma::Lista => inf.lista(args[0]),
         Forma::Conjunto => inf.conjunto(args[0]),
-        Forma::Mapa => inf.tipo_mapa(args[0], args[1]),
+        Forma::Mapa => inf.map_type(args[0], args[1]),
     }
 }
 
 /// `_InferredCollectionElementTypeInformation`: o que um elemento admite
 /// (`Some` = tipo de elemento / chave / valor conhecido).
 #[derive(Clone, Copy)]
-struct Admite {
+struct Admits {
     elemento: Option<TypeId>,
     chave: Option<TypeId>,
     valor: Option<TypeId>,
 }
 
-impl Admite {
-    fn pode_mapa(&self) -> bool {
+impl Admits {
+    fn can_map(&self) -> bool {
         self.chave.is_some() || self.valor.is_some()
     }
-    fn pode_conjunto(&self) -> bool {
+    fn can_set(&self) -> bool {
         self.elemento.is_some()
     }
-    fn deve_mapa(&self) -> bool {
-        self.pode_mapa() && self.elemento.is_none()
+    fn must_map(&self) -> bool {
+        self.can_map() && self.elemento.is_none()
     }
-    fn deve_conjunto(&self) -> bool {
-        self.pode_conjunto() && self.chave.is_none() && self.valor.is_none()
+    fn must_set(&self) -> bool {
+        self.can_set() && self.chave.is_none() && self.valor.is_none()
     }
 }
 
@@ -497,55 +497,55 @@ impl Admite {
 /// dela, pelos de todo elemento visitado (`espalhamentos_visitados`: a
 /// expressão, a sem `?` do `?e`, e a chave e o valor da entrada, sem `?` nos
 /// `?k`/`?v`).
-fn admite(inf: &mut BodyInferrer<'_>, el: &CollectionElement, depois: bool) -> Admite {
-    let nada = Admite { elemento: None, chave: None, valor: None };
-    let tipo = |inf: &BodyInferrer<'_>, x: &dartforge_frontend::ast::ExprId| {
-        if depois { inf.espalhamentos_visitados.get(x).copied() } else { inf.espalhamentos_inferidos.get(x).copied() }
+fn admits(inf: &mut BodyInferrer<'_>, el: &CollectionElement, after: bool) -> Admits {
+    let nothing = Admits { elemento: None, chave: None, valor: None };
+    let ty = |inf: &BodyInferrer<'_>, x: &dartforge_frontend::ast::ExprId| {
+        if after { inf.visited_spreads.get(x).copied() } else { inf.inferred_spreads.get(x).copied() }
     };
     match el {
-        CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) => Admite { elemento: tipo(inf, x), chave: None, valor: None },
-        CollectionElement::MapEntry { key, value, .. } => Admite { elemento: None, chave: tipo(inf, key), valor: tipo(inf, value) },
+        CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) => Admits { elemento: ty(inf, x), chave: None, valor: None },
+        CollectionElement::MapEntry { key, value, .. } => Admits { elemento: None, chave: ty(inf, key), valor: ty(inf, value) },
         CollectionElement::Spread { value, null_aware } => {
-            let Some(t) = tipo(inf, value) else { return nada };
-            if let Some(a) = inf.como_instancia_de(t, inf.core.iterable_class) {
-                return Admite { elemento: a.first().copied(), chave: None, valor: None };
+            let Some(t) = ty(inf, value) else { return nothing };
+            if let Some(a) = inf.as_instance_of(t, inf.core.iterable_class) {
+                return Admits { elemento: a.first().copied(), chave: None, valor: None };
             }
-            if let Some(a) = inf.como_instancia_de(t, inf.core.map_class) {
-                return Admite { elemento: None, chave: a.first().copied(), valor: a.get(1).copied() };
+            if let Some(a) = inf.as_instance_of(t, inf.core.map_class) {
+                return Admits { elemento: None, chave: a.first().copied(), valor: a.get(1).copied() };
             }
             if inf.e_dynamic(t) {
-                return Admite { elemento: Some(t), chave: Some(t), valor: Some(t) };
+                return Admits { elemento: Some(t), chave: Some(t), valor: Some(t) };
             }
             let n = inf.core.never;
             // `isSubtypeOf(expressionType, nullNone)` (`:413-420`): `X extends
             // Null` também.
             let null = inf.core.null;
             if inf.sub(t, n) || (*null_aware && inf.sub(t, null)) {
-                return Admite { elemento: Some(n), chave: Some(n), valor: Some(n) };
+                return Admits { elemento: Some(n), chave: Some(n), valor: Some(n) };
             }
-            nada
+            nothing
         }
-        CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => admite(inf, body, depois),
+        CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => admits(inf, body, after),
         CollectionElement::If { then, else_, .. } => {
-            let a = admite(inf, then, depois);
+            let a = admits(inf, then, after);
             let Some(e) = else_ else { return a };
-            let b = admite(inf, e, depois);
-            let dinamico = |x: &Admite, inf: &BodyInferrer<'_>| [x.elemento, x.chave, x.valor].iter().all(|t| t.is_some_and(|t| inf.e_dynamic(t)));
-            let ou_dinamico = |t: Option<TypeId>, d: TypeId| t.map(|_| d);
-            if dinamico(&a, inf) {
+            let b = admits(inf, e, after);
+            let dynamic = |x: &Admits, inf: &BodyInferrer<'_>| [x.elemento, x.chave, x.valor].iter().all(|t| t.is_some_and(|t| inf.e_dynamic(t)));
+            let or_dynamic = |t: Option<TypeId>, d: TypeId| t.map(|_| d);
+            if dynamic(&a, inf) {
                 let d = a.elemento.expect("dinâmico");
-                return Admite { elemento: ou_dinamico(b.elemento, d), chave: ou_dinamico(b.chave, d), valor: ou_dinamico(b.valor, d) };
+                return Admits { elemento: or_dynamic(b.elemento, d), chave: or_dynamic(b.chave, d), valor: or_dynamic(b.valor, d) };
             }
-            if dinamico(&b, inf) {
+            if dynamic(&b, inf) {
                 let d = b.elemento.expect("dinâmico");
-                return Admite { elemento: ou_dinamico(a.elemento, d), chave: ou_dinamico(a.chave, d), valor: ou_dinamico(a.valor, d) };
+                return Admits { elemento: or_dynamic(a.elemento, d), chave: or_dynamic(a.chave, d), valor: or_dynamic(a.valor, d) };
             }
-            let mut juntar = |x: Option<TypeId>, y: Option<TypeId>| match (x, y) {
+            let mut join = |x: Option<TypeId>, y: Option<TypeId>| match (x, y) {
                 (None, y) => y,
                 (x, None) => x,
                 (Some(x), Some(y)) => Some(inf.up(x, y)),
             };
-            Admite { elemento: juntar(a.elemento, b.elemento), chave: juntar(a.chave, b.chave), valor: juntar(a.valor, b.valor) }
+            Admits { elemento: join(a.elemento, b.elemento), chave: join(a.chave, b.chave), valor: join(a.valor, b.valor) }
         }
     }
 }
@@ -556,8 +556,8 @@ fn admite(inf: &mut BodyInferrer<'_>, el: &CollectionElement, depois: bool) -> A
 /// exige, conjunto; todos admitem mapa e algum o exige, mapa; vazio, mapa;
 /// senão o literal é ambíguo (`Some(mustBeAMap && mustBeASet)` no segundo
 /// campo; a visita segue como mapa, e o tipo fica `dynamic`).
-fn forma_pelo_contexto(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, els: &[CollectionElement], ctx: TypeId) -> (Forma, Option<bool>) {
-    if let Some(f) = forma_pelo_tipo_do_contexto(inf, ctx) {
+fn shape_from_context(inf: &mut BodyInferrer<'_>, cx: &mut Body, els: &[CollectionElement], ctx: TypeId) -> (Forma, Option<bool>) {
+    if let Some(f) = shape_from_context_type(inf, ctx) {
         return (f, None);
     }
     if els.is_empty() {
@@ -566,84 +566,84 @@ fn forma_pelo_contexto(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, els: &[Collec
     // Os espalhamentos são inferidos sem contexto; o tipo fica guardado para
     // a visita dos elementos. Só os que não dependem de variáveis do próprio
     // elemento (fora de `for` e de `if-case`) podem ser inferidos antes.
-    fn antecipaveis(els: &[CollectionElement]) -> bool {
+    fn anticipatable(els: &[CollectionElement]) -> bool {
         els.iter().all(|el| match el {
             CollectionElement::If { case_pattern: None, then, else_, .. } => {
-                antecipaveis(std::slice::from_ref(then)) && else_.as_ref().is_none_or(|e| antecipaveis(std::slice::from_ref(e)))
+                anticipatable(std::slice::from_ref(then)) && else_.as_ref().is_none_or(|e| anticipatable(std::slice::from_ref(e)))
             }
             CollectionElement::If { .. } | CollectionElement::For { .. } | CollectionElement::ForIn { .. } => false,
             _ => true,
         })
     }
-    fn inferir_espalhamentos(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, els: &[CollectionElement]) {
+    fn infer_spreads(inf: &mut BodyInferrer<'_>, cx: &mut Body, els: &[CollectionElement]) {
         let u = inf.core.unknown;
         for el in els {
             match el {
                 CollectionElement::Spread { value, .. } => {
                     let t = inferir(inf, cx, *value, u);
-                    inf.espalhamentos_inferidos.insert(*value, t);
+                    inf.inferred_spreads.insert(*value, t);
                 }
                 CollectionElement::If { then, else_, .. } => {
-                    inferir_espalhamentos(inf, cx, std::slice::from_ref(then));
+                    infer_spreads(inf, cx, std::slice::from_ref(then));
                     if let Some(e) = else_ {
-                        inferir_espalhamentos(inf, cx, std::slice::from_ref(e));
+                        infer_spreads(inf, cx, std::slice::from_ref(e));
                     }
                 }
                 _ => {}
             }
         }
     }
-    if !antecipaveis(els) {
+    if !anticipatable(els) {
         // Espalhamento dentro de `for`/`if-case`: o primeiro de topo que é
         // `Iterable` ou `Map` decide, sem relato de ambiguidade.
         let u = inf.core.unknown;
-        let mut forma = None;
+        let mut shape = None;
         for el in els {
             if let CollectionElement::Spread { value, .. } = el {
                 let t = inferir(inf, cx, *value, u);
-                inf.espalhamentos_inferidos.insert(*value, t);
-                let t = inf.nao_nulo(t);
-                if forma.is_none() {
-                    if inf.como_instancia_de(t, inf.core.iterable_class).is_some() {
-                        forma = Some(Forma::Conjunto);
-                    } else if inf.como_instancia_de(t, inf.core.map_class).is_some() {
-                        forma = Some(Forma::Mapa);
+                inf.inferred_spreads.insert(*value, t);
+                let t = inf.non_null(t);
+                if shape.is_none() {
+                    if inf.as_instance_of(t, inf.core.iterable_class).is_some() {
+                        shape = Some(Forma::Conjunto);
+                    } else if inf.as_instance_of(t, inf.core.map_class).is_some() {
+                        shape = Some(Forma::Mapa);
                     }
                 }
             }
         }
-        return (forma.unwrap_or(Forma::Mapa), None);
+        return (shape.unwrap_or(Forma::Mapa), None);
     }
-    inferir_espalhamentos(inf, cx, els);
-    let infos: Vec<Admite> = els.iter().map(|el| admite(inf, el, false)).collect();
-    let pode_conjunto = infos.iter().all(|a| a.pode_conjunto());
-    let deve_conjunto = infos.iter().any(|a| a.deve_conjunto());
-    let pode_mapa = infos.iter().all(|a| a.pode_mapa());
-    let deve_mapa = infos.iter().any(|a| a.deve_mapa());
-    if pode_conjunto && deve_conjunto {
+    infer_spreads(inf, cx, els);
+    let infos: Vec<Admits> = els.iter().map(|el| admits(inf, el, false)).collect();
+    let can_set = infos.iter().all(|a| a.can_set());
+    let must_set = infos.iter().any(|a| a.must_set());
+    let can_map = infos.iter().all(|a| a.can_map());
+    let must_map = infos.iter().any(|a| a.must_map());
+    if can_set && must_set {
         return (Forma::Conjunto, None);
     }
-    if pode_mapa && deve_mapa {
+    if can_map && must_map {
         return (Forma::Mapa, None);
     }
-    (Forma::Mapa, Some(deve_mapa && deve_conjunto))
+    (Forma::Mapa, Some(must_map && must_set))
 }
 
 /// A forma que o contexto (`Map`/`Iterable`) impõe, se impõe.
-fn forma_pelo_tipo_do_contexto(inf: &mut BodyInferrer<'_>, ctx: TypeId) -> Option<Forma> {
-    if !inf.e_desconhecido(ctx) {
-        let k = inf.fecho_maior(ctx);
-        let k = inf.nao_nulo(k);
-        let e_mapa = inf.como_instancia_de(k, inf.core.map_class).is_some() || matches!(inf.table.get(k), Type::Interface { class, .. } if Some(*class) == inf.core.map_class);
-        let e_iter = inf.como_instancia_de(k, inf.core.iterable_class).is_some();
-        if e_iter && !e_mapa {
+fn shape_from_context_type(inf: &mut BodyInferrer<'_>, ctx: TypeId) -> Option<Forma> {
+    if !inf.the_is_unknown(ctx) {
+        let k = inf.greatest_closure_of(ctx);
+        let k = inf.non_null(k);
+        let is_map = inf.as_instance_of(k, inf.core.map_class).is_some() || matches!(inf.table.get(k), Type::Interface { class, .. } if Some(*class) == inf.core.map_class);
+        let e_iter = inf.as_instance_of(k, inf.core.iterable_class).is_some();
+        if e_iter && !is_map {
             return Some(Forma::Conjunto);
         }
-        if e_mapa && !e_iter {
+        if is_map && !e_iter {
             return Some(Forma::Mapa);
         }
         if let Type::FutureOr { arg, .. } = inf.table.get(k).clone() {
-            if inf.como_instancia_de(arg, inf.core.iterable_class).is_some() {
+            if inf.as_instance_of(arg, inf.core.iterable_class).is_some() {
                 return Some(Forma::Conjunto);
             }
         }
@@ -651,90 +651,90 @@ fn forma_pelo_tipo_do_contexto(inf: &mut BodyInferrer<'_>, ctx: TypeId) -> Optio
     None
 }
 
-type Inferidor<'g> = Option<(&'g mut GenericInferrer, &'g [TypeParamId])>;
+type Inferrer<'g> = Option<(&'g mut GenericInferrer, &'g [TypeParamId])>;
 
-fn restringir(inf: &mut BodyInferrer<'_>, gi: &mut Inferidor<'_>, t: TypeId, i: usize) {
+fn restrict(inf: &mut BodyInferrer<'_>, gi: &mut Inferrer<'_>, t: TypeId, i: usize) {
     if let Some((g, params)) = gi {
         let v = inf.table.intern(Type::TypeParameter { param: params[i], nullable: false });
         // `_toListType`/`_toSetType`/`_toMapType`
         // (`typed_literal_resolver.dart:460-490`, `:740-815`): parâmetros
         // sintéticos `element`, `key` e `value`, sem `genericClass` (a origem
         // é `Parameter '…'`).
-        let parametro = if params.len() == 2 { ["key", "value"][i] } else { "element" };
-        g.com_origem(crate::constraints::Origem::Argumento { parametro: parametro.to_string(), declarado: v, argumento: t, prefixo: None });
+        let parameter = if params.len() == 2 { ["key", "value"][i] } else { "element" };
+        g.with_origin(crate::constraints::Origem::Argumento { parametro: parameter.to_string(), declarado: v, argumento: t, prefixo: None });
         let mut env = inf.env();
         g.constrain_argument(t, v, &mut env);
     }
 }
 
 /// Visita um elemento, gerando restrições. `ctxs = [E, K, V]`.
-fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, el: &CollectionElement, forma: Forma, ctxs: [TypeId; 3], mut gi: Inferidor<'_>) {
+fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, shape: Forma, ctxs: [TypeId; 3], mut gi: Inferrer<'_>) {
     let u = inf.core.unknown;
     match el {
         CollectionElement::Expression(x) => {
-            let c = if forma == Forma::Mapa { u } else { ctxs[0] };
+            let c = if shape == Forma::Mapa { u } else { ctxs[0] };
             let t = inferir(inf, cx, *x, c);
             // Com argumentos de tipo escritos (sem inferência) e elemento
             // não `void`: valor `void` é `use_of_void_result`
             // (`LiteralElementVerifier._verifyElement`, só em lista e
             // conjunto; no mapa a expressão é `EXPRESSION_IN_MAP`).
-            if gi.is_none() && forma != Forma::Mapa && !matches!(inf.table.get(c), Type::Void) {
-                super::expr::uso_de_void(inf, cx, *x, t);
+            if gi.is_none() && shape != Forma::Mapa && !matches!(inf.table.get(c), Type::Void) {
+                super::expr::void_use(inf, cx, *x, t);
             }
-            inf.espalhamentos_visitados.insert(*x, t);
-            if forma != Forma::Mapa {
-                restringir(inf, &mut gi, t, 0);
+            inf.visited_spreads.insert(*x, t);
+            if shape != Forma::Mapa {
+                restrict(inf, &mut gi, t, 0);
             }
         }
         CollectionElement::NullAwareExpression(x) => {
-            let c = if forma == Forma::Mapa || inf.e_desconhecido(ctxs[0]) { u } else { inf.anulavel(ctxs[0]) };
+            let c = if shape == Forma::Mapa || inf.the_is_unknown(ctxs[0]) { u } else { inf.anulavel(ctxs[0]) };
             let t = inferir(inf, cx, *x, c);
             // O `void` do valor antes da promoção (`:107-112`).
-            if gi.is_none() && forma != Forma::Mapa && !matches!(inf.table.get(ctxs[0]), Type::Void) {
-                super::expr::uso_de_void(inf, cx, *x, t);
+            if gi.is_none() && shape != Forma::Mapa && !matches!(inf.table.get(ctxs[0]), Type::Void) {
+                super::expr::void_use(inf, cx, *x, t);
             }
-            let t = inf.nao_nulo(t);
-            inf.espalhamentos_visitados.insert(*x, t);
-            if forma != Forma::Mapa {
-                restringir(inf, &mut gi, t, 0);
+            let t = inf.non_null(t);
+            inf.visited_spreads.insert(*x, t);
+            if shape != Forma::Mapa {
+                restrict(inf, &mut gi, t, 0);
             }
         }
         CollectionElement::MapEntry { key, value, null_aware_key, null_aware_value } => {
-            let ck = if *null_aware_key && !inf.e_desconhecido(ctxs[1]) { inf.anulavel(ctxs[1]) } else { ctxs[1] };
-            let cv = if *null_aware_value && !inf.e_desconhecido(ctxs[2]) { inf.anulavel(ctxs[2]) } else { ctxs[2] };
+            let ck = if *null_aware_key && !inf.the_is_unknown(ctxs[1]) { inf.anulavel(ctxs[1]) } else { ctxs[1] };
+            let cv = if *null_aware_value && !inf.the_is_unknown(ctxs[2]) { inf.anulavel(ctxs[2]) } else { ctxs[2] };
             let tk = inferir(inf, cx, *key, ck);
             let tv = inferir(inf, cx, *value, cv);
             // `_verifyMapLiteralEntry` (`literal_element_verifier.dart:130-141`):
             // a chave `void` encerra a entrada, sem olhar o valor.
             if gi.is_none() {
-                let chave_void = !matches!(inf.table.get(ck), Type::Void) && super::expr::uso_de_void(inf, cx, *key, tk);
-                if !chave_void && !matches!(inf.table.get(cv), Type::Void) {
-                    super::expr::uso_de_void(inf, cx, *value, tv);
+                let void_key = !matches!(inf.table.get(ck), Type::Void) && super::expr::void_use(inf, cx, *key, tk);
+                if !void_key && !matches!(inf.table.get(cv), Type::Void) {
+                    super::expr::void_use(inf, cx, *value, tv);
                 }
             }
-            let tk = if *null_aware_key { inf.nao_nulo(tk) } else { tk };
-            let tv = if *null_aware_value { inf.nao_nulo(tv) } else { tv };
-            inf.espalhamentos_visitados.insert(*key, tk);
-            inf.espalhamentos_visitados.insert(*value, tv);
-            restringir(inf, &mut gi, tk, 0);
-            restringir(inf, &mut gi, tv, 1);
+            let tk = if *null_aware_key { inf.non_null(tk) } else { tk };
+            let tv = if *null_aware_value { inf.non_null(tv) } else { tv };
+            inf.visited_spreads.insert(*key, tk);
+            inf.visited_spreads.insert(*value, tv);
+            restrict(inf, &mut gi, tk, 0);
+            restrict(inf, &mut gi, tv, 1);
         }
         CollectionElement::Spread { value, null_aware } => {
-            let c = match forma {
-                Forma::Mapa => inf.tipo_mapa(ctxs[1], ctxs[2]),
-                _ => inf.iteravel(ctxs[0]),
+            let c = match shape {
+                Forma::Mapa => inf.map_type(ctxs[1], ctxs[2]),
+                _ => inf.iterable(ctxs[0]),
             };
             let c = if *null_aware { inf.anulavel(c) } else { c };
-            let t = match inf.espalhamentos_inferidos.remove(value) {
+            let t = match inf.inferred_spreads.remove(value) {
                 Some(t) => t,
                 None => inferir(inf, cx, *value, c),
             };
-            inf.espalhamentos_visitados.insert(*value, t);
+            inf.visited_spreads.insert(*value, t);
             if *null_aware {
-                super::expr::espalhamento_nulo_desnecessario(inf, cx, *value, t);
+                super::expr::unnecessary_null_spread(inf, cx, *value, t);
             } else {
                 // `ResolverVisitor.visitSpreadElement` (`resolver.dart:3673-3692`).
-                super::expr::desreferencia_anulavel(inf, cx, *value, t, dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_USE_OF_NULLABLE_VALUE_IN_SPREAD);
+                super::expr::nullable_dereference(inf, cx, *value, t, dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_USE_OF_NULLABLE_VALUE_IN_SPREAD);
             }
             // `_computeElementType` / `_inferCollectionElementType`
             // (`typed_literal_resolver.dart:203-226, 380-425`), pelo tipo da
@@ -743,145 +743,145 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, el: &CollectionElement, f
             // `...?` (sem, `dynamic` na lista e nada no mapa); o resto,
             // `dynamic` na lista.
             let t0 = t;
-            let t = inf.nao_nulo(t);
+            let t = inf.non_null(t);
             let (never, null) = (inf.core.never, inf.core.null);
-            let abaixo_de_never = inf.sub(t0, never);
-            let abaixo_de_null = !abaixo_de_never && inf.sub(t0, null);
-            let uma = |inf: &mut BodyInferrer<'_>, gi: &mut _, x: TypeId| {
-                restringir(inf, gi, x, 0);
-                if forma == Forma::Mapa {
-                    restringir(inf, gi, x, 1);
+            let below_never = inf.sub(t0, never);
+            let below_null = !below_never && inf.sub(t0, null);
+            let one = |inf: &mut BodyInferrer<'_>, gi: &mut _, x: TypeId| {
+                restrict(inf, gi, x, 0);
+                if shape == Forma::Mapa {
+                    restrict(inf, gi, x, 1);
                 }
             };
             if inf.e_dynamic(t) {
                 let d = inf.core.dynamic_;
-                uma(inf, &mut gi, d);
-            } else if abaixo_de_never || (abaixo_de_null && *null_aware) {
-                uma(inf, &mut gi, never);
-            } else if abaixo_de_null {
-                if forma != Forma::Mapa {
+                one(inf, &mut gi, d);
+            } else if below_never || (below_null && *null_aware) {
+                one(inf, &mut gi, never);
+            } else if below_null {
+                if shape != Forma::Mapa {
                     let d = inf.core.dynamic_;
-                    restringir(inf, &mut gi, d, 0);
+                    restrict(inf, &mut gi, d, 0);
                 }
-            } else if forma == Forma::Mapa {
-                if let Some(args) = inf.como_instancia_de(t, inf.core.map_class) {
-                    restringir(inf, &mut gi, args[0], 0);
-                    restringir(inf, &mut gi, args[1], 1);
+            } else if shape == Forma::Mapa {
+                if let Some(args) = inf.as_instance_of(t, inf.core.map_class) {
+                    restrict(inf, &mut gi, args[0], 0);
+                    restrict(inf, &mut gi, args[1], 1);
                 }
-            } else if let Some(args) = inf.como_instancia_de(t, inf.core.iterable_class) {
-                restringir(inf, &mut gi, args[0], 0);
+            } else if let Some(args) = inf.as_instance_of(t, inf.core.iterable_class) {
+                restrict(inf, &mut gi, args[0], 0);
             } else {
                 let d = inf.core.dynamic_;
-                restringir(inf, &mut gi, d, 0);
+                restrict(inf, &mut gi, d, 0);
             }
         }
         CollectionElement::If { condition, case_pattern, guard, then, else_ } => {
-            let antes = cx.fluxo.clone();
+            let before = cx.flow.clone();
             let (vf, ff) = match case_pattern {
                 Some(p) => {
-                    let t = inferir_livre(inf, cx, *condition);
-                    cx.empurrar_escopo();
-                    let r = super::padroes::caso(inf, cx, *p, t, *guard, Some(*condition));
+                    let t = infer_free(inf, cx, *condition);
+                    cx.push_scope();
+                    let r = super::patterns::caso(inf, cx, *p, t, *guard, Some(*condition));
                     r
                 }
-                None => expr::condicao_verificada(inf, cx, *condition),
+                None => expr::checked_condition(inf, cx, *condition),
             };
-            cx.fluxo = vf;
+            cx.flow = vf;
             // `visitIfElement`: cada ramo fecha um bloco básico
             // (`nullSafetyDeadCodeVerifier.flowEnd(ifTrue/ifFalse)`).
-            let abre = entrar_ramo(inf, cx, then);
-            reborrow_visitar(inf, cx, then, forma, ctxs, &mut gi);
-            sair_ramo(cx, abre);
+            let open = enter_branch(inf, cx, then);
+            reborrow_visit(inf, cx, then, shape, ctxs, &mut gi);
+            exit_branch(cx, open);
             if case_pattern.is_some() {
-                cx.tirar_escopo();
+                cx.pop_scope();
             }
-            let depois_then = std::mem::replace(&mut cx.fluxo, ff);
+            let after_then = std::mem::replace(&mut cx.flow, ff);
             if let Some(e) = else_ {
-                let abre = entrar_ramo(inf, cx, e);
-                reborrow_visitar(inf, cx, e, forma, ctxs, &mut gi);
-                sair_ramo(cx, abre);
+                let open = enter_branch(inf, cx, e);
+                reborrow_visit(inf, cx, e, shape, ctxs, &mut gi);
+                exit_branch(cx, open);
             }
-            let depois_else = std::mem::replace(&mut cx.fluxo, antes);
-            cx.fluxo = inf.juntar(&depois_then, &depois_else);
+            let after_else = std::mem::replace(&mut cx.flow, before);
+            cx.flow = inf.juntar(&after_then, &after_else);
         }
         CollectionElement::For { init, condition, updates, body, .. } => {
-            cx.empurrar_escopo();
+            cx.push_scope();
             if let Some(i) = init {
-                super::instrucoes::inicializacao_de_for(inf, cx, i);
+                super::statements::for_initialization(inf, cx, i);
             }
             // Inicialização que não completa (`[for (var (i) = throw 0; c; u) e]`),
             // como no comando `for`: o primeiro nó morto é a condição, e o
             // `flowEnd` que o encerra (o do corpo da função) vai dele ao fim
             // da última atualização (o pai é o `ForParts`); o resto do
             // elemento fica no mesmo trecho.
-            let morto_no_inicio = !cx.fluxo.alcancavel && cx.trecho_morto.is_none();
-            if morto_no_inicio {
+            let dead_at_start = !cx.flow.alcancavel && cx.dead_code.is_none();
+            if dead_at_start {
                 let a = &inf.program.unit(cx.unit).ast;
                 if let (Some(c), Some(u)) = (condition, updates.last()) {
                     let sp = dartforge_diagnostics::Span { start: a.expr(*c).span.start, end: a.expr(*u).span.end };
                     inf.aviso(crate::codes::DEAD_CODE.template.to_string(), sp);
                 }
-                cx.trecho_morto = Some(usize::MAX);
+                cx.dead_code = Some(usize::MAX);
             }
             // `for_conditionBegin`: o que o laço escreve — a condição, as
             // atualizações e o corpo (o `AssignedVariables` do nó inteiro,
             // como no comando `for`) — perde a promoção e deixa de estar
             // definitivamente não atribuído (junção conservadora do laço).
-            let mut partes = vec![super::instrucoes::Parte::Elemento(body)];
+            let mut parts = vec![super::statements::Parte::Elemento(body)];
             if let Some(c) = condition {
-                partes.push(super::instrucoes::Parte::Expr(*c));
+                parts.push(super::statements::Parte::Expr(*c));
             }
             for u2 in updates.iter() {
-                partes.push(super::instrucoes::Parte::Expr(*u2));
+                parts.push(super::statements::Parte::Expr(*u2));
             }
-            let (escritas, capturadas) = super::instrucoes::escritas_em(inf, cx, &partes);
-            cx.fluxo.juncao_conservadora(&escritas, &capturadas);
-            let antes = cx.fluxo.clone();
+            let (writes, captured) = super::statements::writes_in(inf, cx, &parts);
+            cx.flow.conservative_join(&writes, &captured);
+            let before = cx.flow.clone();
             if let Some(c) = condition {
-                let (vf, _ff) = expr::condicao_verificada(inf, cx, *c);
-                cx.fluxo = vf;
+                let (vf, _ff) = expr::checked_condition(inf, cx, *c);
+                cx.flow = vf;
             }
-            reborrow_visitar(inf, cx, body, forma, ctxs, &mut gi);
+            reborrow_visit(inf, cx, body, shape, ctxs, &mut gi);
             for u2 in updates.iter() {
-                inferir_livre(inf, cx, *u2);
+                infer_free(inf, cx, *u2);
             }
-            cx.fluxo = antes;
-            if morto_no_inicio {
-                cx.trecho_morto = if condition.is_some() && updates.is_empty() { Some(0) } else { None };
+            cx.flow = before;
+            if dead_at_start {
+                cx.dead_code = if condition.is_some() && updates.is_empty() { Some(0) } else { None };
             }
-            cx.tirar_escopo();
+            cx.pop_scope();
         }
         CollectionElement::ForIn { await_, target, iterable, body } => {
-            cx.empurrar_escopo();
-            let escrita = super::instrucoes::cabecalho_for_in(inf, cx, target, *iterable, *await_);
+            cx.push_scope();
+            let write = super::statements::for_in_header(inf, cx, target, *iterable, *await_);
             // `forEach_bodyBegin`: o que o corpo escreve, como no comando
             // `for-in` (junção conservadora do laço); o estado daí entra no
             // `forEach_end`, juntado ao do fim do corpo.
-            let (escritas, capturadas) = super::instrucoes::escritas_em(inf, cx, &[super::instrucoes::Parte::Elemento(body)]);
-            cx.fluxo.juncao_conservadora(&escritas, &capturadas);
-            let antes = cx.fluxo.clone();
-            if let Some(x) = escrita {
+            let (writes, captured) = super::statements::writes_in(inf, cx, &[super::statements::Parte::Elemento(body)]);
+            cx.flow.conservative_join(&writes, &captured);
+            let before = cx.flow.clone();
+            if let Some(x) = write {
                 x.aplicar(inf, cx);
             }
-            reborrow_visitar(inf, cx, body, forma, ctxs, &mut gi);
-            let depois = std::mem::replace(&mut cx.fluxo, antes);
-            let antes = cx.fluxo.clone();
-            cx.fluxo = inf.juntar(&depois, &antes);
-            cx.tirar_escopo();
+            reborrow_visit(inf, cx, body, shape, ctxs, &mut gi);
+            let after = std::mem::replace(&mut cx.flow, before);
+            let before = cx.flow.clone();
+            cx.flow = inf.juntar(&after, &before);
+            cx.pop_scope();
         }
     }
 }
 
-fn reborrow_visitar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, el: &CollectionElement, forma: Forma, ctxs: [TypeId; 3], gi: &mut Inferidor<'_>) {
-    let sub: Inferidor<'_> = match gi {
+fn reborrow_visit(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, shape: Forma, ctxs: [TypeId; 3], gi: &mut Inferrer<'_>) {
+    let sub: Inferrer<'_> = match gi {
         Some((g, p)) => Some((&mut **g, *p)),
         None => None,
     };
-    visitar(inf, cx, el, forma, ctxs, sub);
+    visitar(inf, cx, el, shape, ctxs, sub);
 }
 
 /// Diagnósticos de coleções `const` (chaves/elementos repetidos, não constantes).
-pub(crate) fn validar_colecao_const(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId) {
+pub(crate) fn validate_const_collection(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId) {
     let unit = cx.unit;
     let a = &inf.program.unit(unit).ast;
     let mut subs = Vec::new();
@@ -890,17 +890,17 @@ pub(crate) fn validar_colecao_const(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: E
         let mut diags: Vec<(String, dartforge_diagnostics::Span)> = Vec::new();
         match &a.expr(e).kind {
             ExprKind::SetOrMap { elements, .. } => {
-                let e_mapa = elements.iter().any(|el| matches!(el, CollectionElement::MapEntry { .. }));
-                let mut vistos = Vec::new();
+                let is_map = elements.iter().any(|el| matches!(el, CollectionElement::MapEntry { .. }));
+                let mut seen = Vec::new();
                 for el in elements.iter() {
                     match el {
-                        CollectionElement::MapEntry { key, value, .. } if e_mapa => {
+                        CollectionElement::MapEntry { key, value, .. } if is_map => {
                             match av.evaluate_expr(unit, *key) {
                                 Some(v) => {
-                                    if vistos.contains(&v) {
+                                    if seen.contains(&v) {
                                         diags.push((EQUAL_KEYS_IN_CONST_MAP.template.to_string(), a.expr(*key).span));
                                     } else {
-                                        vistos.push(v);
+                                        seen.push(v);
                                     }
                                 }
                                 None => diags.push((CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE.template.to_string(), a.expr(*key).span)),
@@ -911,13 +911,13 @@ pub(crate) fn validar_colecao_const(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: E
                             subs.push(*key);
                             subs.push(*value);
                         }
-                        CollectionElement::Expression(x) if !e_mapa => {
+                        CollectionElement::Expression(x) if !is_map => {
                             match av.evaluate_expr(unit, *x) {
                                 Some(v) => {
-                                    if vistos.contains(&v) {
+                                    if seen.contains(&v) {
                                         diags.push((EQUAL_ELEMENTS_IN_CONST_SET.template.to_string(), a.expr(*x).span));
                                     } else {
-                                        vistos.push(v);
+                                        seen.push(v);
                                     }
                                 }
                                 None => diags.push((CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE.template.to_string(), a.expr(*x).span)),
@@ -944,8 +944,8 @@ pub(crate) fn validar_colecao_const(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: E
             // tipos do SDK): "não constante" só quando a expressão de fato
             // não é constante (especificação, "Constants").
             if m == CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE.template {
-                let alvo = a.exprs.iter().position(|x| x.span == s).map(|i| ExprId(i as u32));
-                if alvo.is_some_and(|x| inf.e_constante(cx, x)) {
+                let tgt = a.exprs.iter().position(|x| x.span == s).map(|i| ExprId(i as u32));
+                if tgt.is_some_and(|x| inf.is_constant(cx, x)) {
                     continue;
                 }
             }
@@ -953,55 +953,55 @@ pub(crate) fn validar_colecao_const(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: E
         }
     }
     for s in subs {
-        validar_colecao_const(inf, cx, s);
+        validate_const_collection(inf, cx, s);
     }
 }
 
 /// A faixa de um elemento de coleção (o nó do `flowEnd`).
-fn faixa_do_elemento(inf: &BodyInferrer<'_>, cx: &Corpo, el: &CollectionElement) -> dartforge_diagnostics::Span {
+fn element_range(inf: &BodyInferrer<'_>, cx: &Body, el: &CollectionElement) -> dartforge_diagnostics::Span {
     let a = &inf.program.unit(cx.unit).ast;
-    let fonte = inf.program.unit(cx.unit).source.as_str();
-    let antes = |inicio: usize, palavra: &str| -> usize {
-        fonte.get(..inicio).and_then(|s| s.rfind(palavra)).unwrap_or(inicio)
+    let source = inf.program.unit(cx.unit).source.as_str();
+    let before = |start: usize, keyword: &str| -> usize {
+        source.get(..start).and_then(|s| s.rfind(keyword)).unwrap_or(start)
     };
     match el {
         CollectionElement::Expression(e) => a.expr(*e).span,
         CollectionElement::NullAwareExpression(e) => {
             let s = a.expr(*e).span;
-            dartforge_diagnostics::Span { start: antes(s.start, "?"), end: s.end }
+            dartforge_diagnostics::Span { start: before(s.start, "?"), end: s.end }
         }
         CollectionElement::MapEntry { key, value, .. } => dartforge_diagnostics::Span { start: a.expr(*key).span.start, end: a.expr(*value).span.end },
         CollectionElement::Spread { value, .. } => {
             let s = a.expr(*value).span;
-            dartforge_diagnostics::Span { start: antes(s.start, "..."), end: s.end }
+            dartforge_diagnostics::Span { start: before(s.start, "..."), end: s.end }
         }
         CollectionElement::If { condition, then, else_, .. } => {
-            let fim = faixa_do_elemento(inf, cx, else_.as_deref().unwrap_or(then)).end;
-            dartforge_diagnostics::Span { start: antes(a.expr(*condition).span.start, "if"), end: fim }
+            let end = element_range(inf, cx, else_.as_deref().unwrap_or(then)).end;
+            dartforge_diagnostics::Span { start: before(a.expr(*condition).span.start, "if"), end: end }
         }
         CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => {
-            let b = faixa_do_elemento(inf, cx, body);
-            let ini = fonte.get(..b.start).and_then(|s| s.rfind("for")).unwrap_or(b.start);
-            dartforge_diagnostics::Span { start: ini, end: b.end }
+            let b = element_range(inf, cx, body);
+            let begin = source.get(..b.start).and_then(|s| s.rfind("for")).unwrap_or(b.start);
+            dartforge_diagnostics::Span { start: begin, end: b.end }
         }
     }
 }
 
 /// Entra no ramo de um `if` de coleção como bloco básico: se ele começa
 /// inalcançável e não há trecho aberto, o trecho é o ramo inteiro.
-fn entrar_ramo(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, el: &CollectionElement) -> bool {
-    let sp = faixa_do_elemento(inf, cx, el);
-    let abre = !cx.fluxo.alcancavel && cx.trecho_morto.is_none();
-    if abre {
+fn enter_branch(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement) -> bool {
+    let sp = element_range(inf, cx, el);
+    let open = !cx.flow.alcancavel && cx.dead_code.is_none();
+    if open {
         inf.aviso(crate::codes::DEAD_CODE.template.to_string(), sp);
     }
-    super::instrucoes::entrar_fluxo(cx, sp.end);
-    if abre {
-        cx.trecho_morto = Some(cx.fins_de_fluxo.len());
+    super::statements::enter_flow(cx, sp.end);
+    if open {
+        cx.dead_code = Some(cx.flow_ends.len());
     }
-    abre
+    open
 }
 
-fn sair_ramo(cx: &mut Corpo, _abre: bool) {
-    super::instrucoes::sair_fluxo(cx);
+fn exit_branch(cx: &mut Body, _open: bool) {
+    super::statements::exit_flow(cx);
 }

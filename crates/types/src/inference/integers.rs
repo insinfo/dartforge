@@ -6,7 +6,7 @@
 //!
 //! Escrito sem compilar nem executar (2026-10-05).
 
-use super::corpo::Corpo;
+use super::body::Body;
 use super::BodyInferrer;
 use crate::table::TypeId;
 use dartforge_frontend::ast::ExprId;
@@ -15,16 +15,16 @@ use dartforge_frontend::ast::ExprId;
 type Natural = Vec<u32>;
 
 /// `BigInt.tryParse`: decimal ou `0x`/`0X`.
-fn natural_de(texto: &str) -> Option<Natural> {
-    let (digitos, base) = match texto.strip_prefix("0x").or_else(|| texto.strip_prefix("0X")) {
+fn natural_of(text: &str) -> Option<Natural> {
+    let (digits, base) = match text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")) {
         Some(h) => (h, 16u32),
-        None => (texto, 10u32),
+        None => (text, 10u32),
     };
-    if digitos.is_empty() {
+    if digits.is_empty() {
         return None;
     }
     let mut n: Natural = vec![0];
-    for c in digitos.chars() {
+    for c in digits.chars() {
         let d = c.to_digit(base)?;
         let mut vai = d as u64;
         for limbo in n.iter_mut() {
@@ -45,7 +45,7 @@ fn natural_de(texto: &str) -> Option<Natural> {
 /// `bitLength`.
 fn bits(n: &Natural) -> u32 {
     match n.last() {
-        Some(&topo) if !(n.len() == 1 && topo == 0) => (n.len() as u32 - 1) * 32 + (32 - topo.leading_zeros()),
+        Some(&top) if !(n.len() == 1 && top == 0) => (n.len() as u32 - 1) * 32 + (32 - top.leading_zeros()),
         _ => 0,
     }
 }
@@ -57,14 +57,14 @@ fn bit(n: &Natural, i: u32) -> bool {
 
 /// `isValidAsInteger`: o `int.tryParse` da VM (decimal até `2^63 - 1`, ou
 /// `2^63` com o `-`; hexadecimal até `0xFFFFFFFFFFFFFFFF`).
-fn valido_como_inteiro(texto: &str, negado: bool) -> bool {
-    let Some(n) = natural_de(texto) else { return false };
-    let hex = texto.starts_with("0x") || texto.starts_with("0X");
+fn valid_as_integer(text: &str, the_negated: bool) -> bool {
+    let Some(n) = natural_of(text) else { return false };
+    let hex = text.starts_with("0x") || text.starts_with("0X");
     let b = bits(&n);
     if hex {
         // `int.tryParse` da VM: o hexadecimal positivo vale até 64 bits (dá a
         // volta); com o `-`, só até `2^63`.
-        if negado {
+        if the_negated {
             return b < 64 || (b == 64 && (0..63).all(|i| !bit(&n, i)));
         }
         return b <= 64;
@@ -73,16 +73,16 @@ fn valido_como_inteiro(texto: &str, negado: bool) -> bool {
         return true;
     }
     // `2^63` exato só com o `-`.
-    b == 64 && negado && (0..63).all(|i| !bit(&n, i))
+    b == 64 && the_negated && (0..63).all(|i| !bit(&n, i))
 }
 
 /// `isValidAsDouble`: menos de 16 caracteres, até 53 bits, ou os bits abaixo
 /// dos 53 mais altos todos zero sem passar de `double.maxFinite`.
-fn valido_como_double(texto: &str) -> bool {
-    if texto.len() < 16 {
+fn valid_as_double(text: &str) -> bool {
+    if text.len() < 16 {
         return true;
     }
-    let Some(n) = natural_de(texto) else { return false };
+    let Some(n) = natural_of(text) else { return false };
     let b = bits(&n);
     if b <= 53 {
         return true;
@@ -95,38 +95,38 @@ fn valido_como_double(texto: &str) -> bool {
 
 /// `BigInt.toDouble` (arredondado ao mais próximo, empate para o par) com o
 /// teto de `double.maxFinite`.
-fn mais_proximo(n: &Natural) -> f64 {
+fn nearest(n: &Natural) -> f64 {
     let b = bits(n);
     if b <= 64 {
         let v = n.first().copied().unwrap_or(0) as u64 | (n.get(1).copied().unwrap_or(0) as u64) << 32;
         return v as f64;
     }
-    let deslocamento = b - 64;
-    let mut topo: u64 = 0;
+    let shift = b - 64;
+    let mut top: u64 = 0;
     for i in 0..64 {
-        if bit(n, deslocamento + i) {
-            topo |= 1 << i;
+        if bit(n, shift + i) {
+            top |= 1 << i;
         }
     }
     // Os bits de baixo só desempatam: o bit mais baixo de `topo` fica
     // abaixo da mantissa.
-    if (0..deslocamento).any(|i| bit(n, i)) {
-        topo |= 1;
+    if (0..shift).any(|i| bit(n, i)) {
+        top |= 1;
     }
-    let v = topo as f64 * 2f64.powi(deslocamento as i32);
+    let v = top as f64 * 2f64.powi(shift as i32);
     if v.is_finite() { v } else { f64::MAX }
 }
 
 /// `BigInt.from(double).toString()` de um `double` inteiro e finito.
-fn decimal_de(d: f64) -> String {
+fn decimal_of(d: f64) -> String {
     let bits_do_double = d.to_bits();
-    let expoente = ((bits_do_double >> 52) & 0x7ff) as i32;
-    let fracao = bits_do_double & ((1u64 << 52) - 1);
-    if expoente == 0 {
+    let exponent = ((bits_do_double >> 52) & 0x7ff) as i32;
+    let fraction = bits_do_double & ((1u64 << 52) - 1);
+    if exponent == 0 {
         return (d as u64).to_string();
     }
-    let mantissa = fracao | (1u64 << 52);
-    let e = expoente - 1075;
+    let mantissa = fraction | (1u64 << 52);
+    let e = exponent - 1075;
     if e <= 0 {
         return (mantissa >> (-e) as u32).to_string();
     }
@@ -135,30 +135,30 @@ fn decimal_de(d: f64) -> String {
     for _ in 0..e {
         let mut vai = 0u32;
         for limbo in n.iter_mut() {
-            let novo = (*limbo << 1) | vai;
+            let new_ = (*limbo << 1) | vai;
             vai = *limbo >> 31;
-            *limbo = novo;
+            *limbo = new_;
         }
         if vai > 0 {
             n.push(vai);
         }
     }
     // Divisões sucessivas por 10^9.
-    let mut partes: Vec<u32> = Vec::new();
+    let mut parts: Vec<u32> = Vec::new();
     while !(n.len() == 1 && n[0] == 0) && !n.is_empty() {
-        let mut resto = 0u64;
+        let mut rest = 0u64;
         for limbo in n.iter_mut().rev() {
-            let v = (resto << 32) | *limbo as u64;
+            let v = (rest << 32) | *limbo as u64;
             *limbo = (v / 1_000_000_000) as u32;
-            resto = v % 1_000_000_000;
+            rest = v % 1_000_000_000;
         }
-        partes.push(resto as u32);
+        parts.push(rest as u32);
         while n.len() > 1 && n.last() == Some(&0) {
             n.pop();
         }
     }
-    let mut s = partes.last().map(|p| p.to_string()).unwrap_or_else(|| "0".to_string());
-    for p in partes.iter().rev().skip(1) {
+    let mut s = parts.last().map(|p| p.to_string()).unwrap_or_else(|| "0".to_string());
+    for p in parts.iter().rev().skip(1) {
         s.push_str(&format!("{p:09}"));
     }
     s
@@ -166,28 +166,28 @@ fn decimal_de(d: f64) -> String {
 
 /// `_checkForOutOfRange` no literal inteiro `e` de tipo estático `tipo`;
 /// `negado` quando o pai é o `-` unário.
-pub(crate) fn literal_fora_do_alcance(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, tipo: TypeId, negado: bool) {
+pub(crate) fn literal_out_of_range(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, ty: TypeId, the_negated: bool) {
     use dartforge_diagnostics::codigos::compile_time_error as c;
     let sp = inf.span_expr(cx.unit, e);
-    let lexema = &inf.program.unit(cx.unit).source[sp.start..sp.end];
+    let lexeme = &inf.program.unit(cx.unit).source[sp.start..sp.end];
     // `0x` sem dígito: o scanner relata `MISSING_HEX_DIGIT` e completa o
     // token com um `0` sintético (`tokenizeHex`,
     // `appendSyntheticSubstringToken(…, "0")`): o lexema vira `0x0`.
-    if lexema.eq_ignore_ascii_case("0x") {
+    if lexeme.eq_ignore_ascii_case("0x") {
         return;
     }
-    let fonte: String = lexema.chars().filter(|ch| *ch != '_').collect();
-    let como_double = tipo == inf.core.double;
-    let valido = if como_double { valido_como_double(&fonte) } else { valido_como_inteiro(&fonte, negado) };
-    if valido {
+    let source: String = lexeme.chars().filter(|ch| *ch != '_').collect();
+    let as_double = ty == inf.core.double;
+    let valid = if as_double { valid_as_double(&source) } else { valid_as_integer(&source, the_negated) };
+    if valid {
         return;
     }
-    let primeiro = if negado { format!("-{lexema}") } else { lexema.to_string() };
-    if como_double {
-        let proximo = natural_de(&fonte).map(|n| decimal_de(mais_proximo(&n))).unwrap_or_default();
-        inf.aviso_com_codigo(c::INTEGER_LITERAL_IMPRECISE_AS_DOUBLE, sp, &[&primeiro, &proximo]);
+    let first = if the_negated { format!("-{lexeme}") } else { lexeme.to_string() };
+    if as_double {
+        let next_ = natural_of(&source).map(|n| decimal_of(nearest(&n))).unwrap_or_default();
+        inf.warning_with_code(c::INTEGER_LITERAL_IMPRECISE_AS_DOUBLE, sp, &[&first, &next_]);
     } else {
-        inf.aviso_com_codigo(c::INTEGER_LITERAL_OUT_OF_RANGE, sp, &[&primeiro]);
+        inf.warning_with_code(c::INTEGER_LITERAL_OUT_OF_RANGE, sp, &[&first]);
     }
 }
 
@@ -196,21 +196,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn alcance_dos_inteiros() {
-        assert!(valido_como_inteiro("9223372036854775807", false));
-        assert!(!valido_como_inteiro("9223372036854775808", false));
-        assert!(valido_como_inteiro("9223372036854775808", true));
-        assert!(!valido_como_inteiro("9223372036854775809", true));
-        assert!(valido_como_inteiro("0xFFFFFFFFFFFFFFFF", false));
-        assert!(!valido_como_inteiro("0x10000000000000000", false));
+    fn integer_range() {
+        assert!(valid_as_integer("9223372036854775807", false));
+        assert!(!valid_as_integer("9223372036854775808", false));
+        assert!(valid_as_integer("9223372036854775808", true));
+        assert!(!valid_as_integer("9223372036854775809", true));
+        assert!(valid_as_integer("0xFFFFFFFFFFFFFFFF", false));
+        assert!(!valid_as_integer("0x10000000000000000", false));
     }
 
     #[test]
-    fn doubles_exatos() {
-        assert!(valido_como_double("9007199254740992"));
-        assert!(!valido_como_double("9007199254740993"));
-        assert_eq!(decimal_de(9007199254740992.0), "9007199254740992");
-        assert_eq!(decimal_de(mais_proximo(&natural_de("9007199254740993").unwrap())), "9007199254740992");
-        assert_eq!(decimal_de(1e20), "100000000000000000000");
+    fn exact_doubles() {
+        assert!(valid_as_double("9007199254740992"));
+        assert!(!valid_as_double("9007199254740993"));
+        assert_eq!(decimal_of(9007199254740992.0), "9007199254740992");
+        assert_eq!(decimal_of(nearest(&natural_of("9007199254740993").unwrap())), "9007199254740992");
+        assert_eq!(decimal_of(1e20), "100000000000000000000");
     }
 }

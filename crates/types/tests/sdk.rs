@@ -28,7 +28,7 @@ fn get_sdk() -> Option<(PathBuf, SdkLayout)> {
     Some((lib_dir, layout))
 }
 
-fn carregar_sdk_completo() -> Option<(Program, Interner, TypeTable, CoreTypes, OutlineTypes)> {
+fn load_full_sdk() -> Option<(Program, Interner, TypeTable, CoreTypes, OutlineTypes)> {
     let (_lib_dir, sdk) = get_sdk()?;
 
     let tmp = tempdir().unwrap();
@@ -82,27 +82,27 @@ fn outline_do_sdk_resolve() {
 
     let (outline, types_diags) = resolve_outline(&program, &interner, &mut table, &core);
 
-    let mut total_elementos = 0;
-    total_elementos += program.classes.len();
-    total_elementos += program.functions.len();
-    total_elementos += program.variables.len();
-    total_elementos += program.typedefs.len();
-    total_elementos += program.extensions.len();
+    let mut total_elements = 0;
+    total_elements += program.classes.len();
+    total_elements += program.functions.len();
+    total_elements += program.variables.len();
+    total_elements += program.typedefs.len();
+    total_elements += program.extensions.len();
 
-    let total_anotacoes = outline.functions.len() + outline.variables.len() + outline.classes.len();
+    let total_annotations = outline.functions.len() + outline.variables.len() + outline.classes.len();
 
     println!("============================================================");
     println!(" Estatísticas de Resolução do SDK Dart 3.6.2 (dartforge-types)");
     println!("============================================================");
     println!("Bibliotecas carregadas:         {}", program.libraries.len());
     println!("Unidades (arquivos .dart):      {}", program.units.len());
-    println!("Elementos totais no outline:    {}", total_elementos);
+    println!("Elementos totais no outline:    {}", total_elements);
     println!("  - Classes / Mixins / Enums:   {}", program.classes.len());
     println!("  - Funções / Métodos / Ctors:  {}", program.functions.len());
     println!("  - Variáveis / Campos:         {}", program.variables.len());
     println!("  - Typedefs:                   {}", program.typedefs.len());
     println!("  - Extensions:                 {}", program.extensions.len());
-    println!("Anotações resolvidas:           {}", total_anotacoes);
+    println!("Anotações resolvidas:           {}", total_annotations);
     println!("TypeIds únicos (hash-consed):   {}", table.len());
     println!(
         "Payload bytes da TypeTable:     {} bytes ({:.2} KB / {:.2} MB)",
@@ -119,8 +119,8 @@ fn outline_do_sdk_resolve() {
 
 #[test]
 #[ignore]
-fn hierarquia_do_sdk_instancia() {
-    let Some((program, mut interner, mut table, core, outline)) = carregar_sdk_completo() else {
+fn sdk_hierarchy_instantiates() {
+    let Some((program, mut interner, mut table, core, outline)) = load_full_sdk() else {
         eprintln!("SDK não disponível, pulando.");
         return;
     };
@@ -197,8 +197,8 @@ fn hierarquia_do_sdk_instancia() {
 
 #[test]
 #[ignore]
-fn subtipagem_conhecida() {
-    let Some((program, mut interner, mut table, core, outline)) = carregar_sdk_completo() else {
+fn known_subtyping() {
+    let Some((program, mut interner, mut table, core, outline)) = load_full_sdk() else {
         eprintln!("SDK não disponível, pulando.");
         return;
     };

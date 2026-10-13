@@ -22,7 +22,7 @@
 
 use crate::despejo::formatar;
 use crate::resolve::OutlineTypes;
-use crate::table::{Type, TypeId, TypeParamId, TypeTable, Variance as Declarada};
+use crate::table::{Type, TypeId, TypeParamId, TypeTable, Variance as Declared};
 use dartforge_diagnostics::{Diagnostic, Span, codigos::compile_time_error as c};
 use dartforge_elements::model::{FunctionRef, LibraryId, Program, UnitId, VariableRef};
 use dartforge_frontend::ast::{self, DeclKind, MemberKind};
@@ -67,7 +67,7 @@ impl V {
         V::de(self as u8 | o as u8)
     }
 
-    fn maior_ou_igual(self, o: V) -> bool {
+    fn greater_or_equal(self, o: V) -> bool {
         match self {
             V::Unrelated => true,
             V::Covariant => matches!(o, V::Covariant | V::Invariant),
@@ -86,17 +86,17 @@ impl V {
     }
 
     /// A variância de um parâmetro de tipo (sem modificador: covariante).
-    fn do_parametro(d: Declarada) -> V {
+    fn of_parameter(d: Declared) -> V {
         match d {
-            Declarada::Unspecified | Declarada::Covariant => V::Covariant,
-            Declarada::Contravariant => V::Contravariant,
-            Declarada::Invariant => V::Invariant,
+            Declared::Unspecified | Declared::Covariant => V::Covariant,
+            Declared::Contravariant => V::Contravariant,
+            Declared::Invariant => V::Invariant,
         }
     }
 }
 
 /// `computeVarianceInType`: a variância de `x` em `t`.
-fn variancia_em(table: &TypeTable, outline: &OutlineTypes, x: TypeParamId, t: TypeId) -> V {
+fn variance_in(table: &TypeTable, outline: &OutlineTypes, x: TypeParamId, t: TypeId) -> V {
     match table.get(t) {
         Type::TypeParameter { param, .. } | Type::Intersection { param, .. } => {
             if *param == x {
@@ -118,14 +118,14 @@ fn variancia_em(table: &TypeTable, outline: &OutlineTypes, x: TypeParamId, t: Ty
             for (i, &a) in args.iter().enumerate() {
                 let pv = params
                     .get(i)
-                    .map_or(V::Covariant, |&p| V::do_parametro(table.param(p).variance));
-                r = r.meet(pv.combine(variancia_em(table, outline, x, a)));
+                    .map_or(V::Covariant, |&p| V::of_parameter(table.param(p).variance));
+                r = r.meet(pv.combine(variance_in(table, outline, x, a)));
             }
             r
         }
         // `FutureOr<T>` é uma interface de parâmetro covariante no analyzer.
         Type::FutureOr { arg, .. } => {
-            V::Unrelated.meet(V::Covariant.combine(variancia_em(table, outline, x, *arg)))
+            V::Unrelated.meet(V::Covariant.combine(variance_in(table, outline, x, *arg)))
         }
         Type::Function {
             type_params,
@@ -135,10 +135,10 @@ fn variancia_em(table: &TypeTable, outline: &OutlineTypes, x: TypeParamId, t: Ty
             named,
             ..
         } => {
-            let mut r = variancia_em(table, outline, x, *ret);
+            let mut r = variance_in(table, outline, x, *ret);
             for &tp in type_params.iter() {
                 let d = table.param(tp);
-                if variancia_em(table, outline, x, d.bound) != V::Unrelated {
+                if variance_in(table, outline, x, d.bound) != V::Unrelated {
                     r = V::Invariant;
                 }
             }
@@ -147,7 +147,7 @@ fn variancia_em(table: &TypeTable, outline: &OutlineTypes, x: TypeParamId, t: Ty
                 .chain(optional.iter())
                 .chain(named.iter().map(|(_, t, _)| t))
             {
-                r = r.meet(V::Contravariant.combine(variancia_em(table, outline, x, p)));
+                r = r.meet(V::Contravariant.combine(variance_in(table, outline, x, p)));
             }
             r
         }
@@ -165,38 +165,38 @@ pub fn variancia(
     outline: &OutlineTypes,
     lib: LibraryId,
 ) -> Vec<(UnitId, Diagnostic)> {
-    let mut saida = Vec::new();
-    let unidades = &program.library(lib).units;
-    let mut funcoes: HashMap<(UnitId, u32), usize> = HashMap::new();
+    let mut output = Vec::new();
+    let units = &program.library(lib).units;
+    let mut functions: HashMap<(UnitId, u32), usize> = HashMap::new();
     for (i, e) in program.functions.iter().enumerate() {
         if let FunctionRef::Function { unit, function } = e.node
-            && unidades.contains(&unit)
+            && units.contains(&unit)
         {
-            funcoes.insert((unit, function.0), i);
+            functions.insert((unit, function.0), i);
         }
     }
-    let mut campos: HashMap<(UnitId, u32), usize> = HashMap::new();
+    let mut fields: HashMap<(UnitId, u32), usize> = HashMap::new();
     for (i, v) in program.variables.iter().enumerate() {
         if let VariableRef::Field {
             unit,
             member,
             index: 0,
         } = v.node
-            && unidades.contains(&unit)
+            && units.contains(&unit)
         {
-            campos.insert((unit, member.0), i);
+            fields.insert((unit, member.0), i);
         }
     }
-    for (i, classe) in program.classes.iter().enumerate() {
-        if classe.library != lib {
+    for (i, cls) in program.classes.iter().enumerate() {
+        if cls.library != lib {
             continue;
         }
-        let Some(decl) = classe.decl else { continue };
-        let Some(dados) = outline.classes.get(i) else {
+        let Some(decl) = cls.decl else { continue };
+        let Some(data) = outline.classes.get(i) else {
             continue;
         };
         let ast_ = &program.unit(decl.unit).ast;
-        let (tps, membros): (&[ast::TypeParameter], &[ast::MemberId]) =
+        let (tps, members): (&[ast::TypeParameter], &[ast::MemberId]) =
             match &ast_.decl(decl.decl).kind {
                 DeclKind::Class(d) => (&d.type_params, &d.members),
                 DeclKind::Mixin(d) => (&d.type_params, &d.members),
@@ -204,48 +204,48 @@ pub fn variancia(
                 DeclKind::ExtensionType(d) => (&d.type_params, &d.members),
                 _ => continue,
             };
-        if tps.len() != dados.type_params.len() {
+        if tps.len() != data.type_params.len() {
             continue;
         }
         let mut diags = Vec::new();
-        let relatar = |span: Span, x: TypeParamId, v: V, diags: &mut Vec<Diagnostic>| {
-            let d = V::do_parametro(table.param(x).variance);
-            if !v.maior_ou_igual(d) {
-                let nome = interner.resolve(table.param(x).name);
+        let report = |span: Span, x: TypeParamId, v: V, diags: &mut Vec<Diagnostic>| {
+            let d = V::of_parameter(table.param(x).variance);
+            if !v.greater_or_equal(d) {
+                let name = interner.resolve(table.param(x).name);
                 diags.push(Diagnostic::com_codigo(
                     c::WRONG_TYPE_PARAMETER_VARIANCE_POSITION,
                     span,
-                    [d.palavra(), nome, v.palavra()],
+                    [d.palavra(), name, v.palavra()],
                 ));
             }
         };
-        let explicitos: Vec<TypeParamId> = dados
+        let explicit: Vec<TypeParamId> = data
             .type_params
             .iter()
             .copied()
-            .filter(|&p| table.param(p).variance != Declarada::Unspecified)
+            .filter(|&p| table.param(p).variance != Declared::Unspecified)
             .collect();
         // Membros, na ordem da fonte.
-        if !explicitos.is_empty() {
-            for &m in membros {
+        if !explicit.is_empty() {
+            for &m in members {
                 match &ast_.member(m).kind {
                     MemberKind::Field(vl) => {
-                        let Some(primeira) = vl.variables.first() else {
+                        let Some(first) = vl.variables.first() else {
                             continue;
                         };
-                        let Some(tipo) = campos
+                        let Some(ty) = fields
                             .get(&(decl.unit, m.0))
                             .and_then(|&v| outline.variables.get(v))
                             .and_then(|d| d.declared_type.or(d.inferred))
                         else {
                             continue;
                         };
-                        for &x in &explicitos {
-                            let v = variancia_em(table, outline, x, tipo);
-                            relatar(primeira.name.span, x, v, &mut diags);
+                        for &x in &explicit {
+                            let v = variance_in(table, outline, x, ty);
+                            report(first.name.span, x, v, &mut diags);
                             if !vl.final_ && !vl.covariant {
-                                relatar(
-                                    primeira.name.span,
+                                report(
+                                    first.name.span,
                                     x,
                                     V::Contravariant.combine(v),
                                     &mut diags,
@@ -254,39 +254,39 @@ pub fn variancia(
                         }
                     }
                     MemberKind::Method(f) => {
-                        let Some(&fid) = funcoes.get(&(decl.unit, f.0)) else {
+                        let Some(&fid) = functions.get(&(decl.unit, f.0)) else {
                             continue;
                         };
-                        let Some(dados_f) = outline.functions.get(fid) else {
+                        let Some(data_f) = outline.functions.get(fid) else {
                             continue;
                         };
                         let af = ast_.function(*f);
-                        for &x in &explicitos {
-                            for (tp, &p) in af.type_params.iter().zip(dados_f.type_params.iter()) {
+                        for &x in &explicit {
+                            for (tp, &p) in af.type_params.iter().zip(data_f.type_params.iter()) {
                                 if tp.bound.is_none() {
                                     continue;
                                 }
-                                let v = V::Invariant.combine(variancia_em(
+                                let v = V::Invariant.combine(variance_in(
                                     table,
                                     outline,
                                     x,
                                     table.param(p).bound,
                                 ));
-                                relatar(tp.span, x, v, &mut diags);
+                                report(tp.span, x, v, &mut diags);
                             }
                             if let Some(ps) = &af.parameters {
-                                for (p, dp) in ps.iter().zip(dados_f.parameters.iter()) {
+                                for (p, dp) in ps.iter().zip(data_f.parameters.iter()) {
                                     if p.covariant {
                                         continue;
                                     }
                                     let v = V::Contravariant
-                                        .combine(variancia_em(table, outline, x, dp.ty));
-                                    relatar(p.span, x, v, &mut diags);
+                                        .combine(variance_in(table, outline, x, dp.ty));
+                                    report(p.span, x, v, &mut diags);
                                 }
                             }
                             if let Some(rt) = af.return_type {
-                                let v = variancia_em(table, outline, x, dados_f.return_type);
-                                relatar(ast_.ty(rt).span, x, v, &mut diags);
+                                let v = variance_in(table, outline, x, data_f.return_type);
+                                report(ast_.ty(rt).span, x, v, &mut diags);
                             }
                         }
                     }
@@ -295,19 +295,19 @@ pub fn variancia(
             }
         }
         // Supertipos diretos: superclasse, interfaces, mixins e restrições `on`.
-        let supers: Vec<TypeId> = dados
+        let supers: Vec<TypeId> = data
             .supertype
             .iter()
-            .chain(dados.interfaces.iter())
-            .chain(dados.mixins.iter())
-            .chain(dados.on.iter())
+            .chain(data.interfaces.iter())
+            .chain(data.mixins.iter())
+            .chain(data.on.iter())
             .copied()
             .collect();
         // O supertipo exibido é o do elemento (`supertype`, `interfaces`,
         // `mixins`, `superclassConstraints`), que guarda o alias escrito nos
         // argumentos (`Covariant<CovFunction<T>>`): a anotação da cláusula
         // de mesma estrutura.
-        let escritos: Vec<TypeId> = {
+        let written_ones: Vec<TypeId> = {
             let (e, w, i, o): (Option<ast::TypeId>, &[ast::TypeId], &[ast::TypeId], &[ast::TypeId]) =
                 match &ast_.decl(decl.decl).kind {
                     DeclKind::Class(d) => (d.extends, &d.with, &d.implements, &[]),
@@ -324,90 +324,90 @@ pub fn variancia(
                 .collect()
         };
         for &s in &supers {
-            for (tp, &x) in tps.iter().zip(dados.type_params.iter()) {
-                let v = variancia_em(table, outline, x, s);
-                let d = V::do_parametro(table.param(x).variance);
-                if v.maior_ou_igual(d) {
+            for (tp, &x) in tps.iter().zip(data.type_params.iter()) {
+                let v = variance_in(table, outline, x, s);
+                let d = V::of_parameter(table.param(x).variance);
+                if v.greater_or_equal(d) {
                     continue;
                 }
-                let nome = interner.resolve(tp.name.sym);
-                let estrutura = table.format_sem_alias(s, interner, program);
-                let exibido = match escritos
+                let name = interner.resolve(tp.name.sym);
+                let structure = table.format_sem_alias(s, interner, program);
+                let displayed = match written_ones
                     .iter()
-                    .find(|&&w| table.format_sem_alias(w, interner, program) == estrutura)
+                    .find(|&&w| table.format_sem_alias(w, interner, program) == structure)
                 {
                     Some(&w) => table.format(w, interner, program),
                     None => formatar(table, s, interner, program),
                 };
-                if table.param(x).variance == Declarada::Unspecified {
+                if table.param(x).variance == Declared::Unspecified {
                     diags.push(Diagnostic::com_codigo(
                         c::WRONG_TYPE_PARAMETER_VARIANCE_IN_SUPERINTERFACE,
                         tp.name.span,
-                        [nome, exibido.as_str()],
+                        [name, displayed.as_str()],
                     ));
                 } else {
                     diags.push(Diagnostic::com_codigo(
                         c::WRONG_EXPLICIT_TYPE_PARAMETER_VARIANCE_IN_SUPERINTERFACE,
                         tp.name.span,
-                        [nome, d.palavra(), v.palavra(), exibido.as_str()],
+                        [name, d.palavra(), v.palavra(), displayed.as_str()],
                     ));
                 }
             }
         }
-        saida.extend(diags.into_iter().map(|d| (decl.unit, d)));
+        output.extend(diags.into_iter().map(|d| (decl.unit, d)));
     }
-    saida
+    output
 }
 
 /// A variância do `NonCovariantTypeParameterPositionVisitor`
 /// (`analyzer/lib/src/dart/element/non_covariant_type_parameter_position.dart`).
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Posicao {
-    Covariante,
-    Contravariante,
-    Invariante,
+    CovariantPos,
+    ContravariantPos,
+    InvariantPos,
 }
 
 impl Posicao {
     /// `Variance.combine`.
-    fn com(self, outra: Posicao) -> Posicao {
-        if self == Posicao::Invariante || outra == Posicao::Invariante {
-            Posicao::Invariante
-        } else if self == outra {
-            Posicao::Covariante
+    fn the_with(self, other: Posicao) -> Posicao {
+        if self == Posicao::InvariantPos || other == Posicao::InvariantPos {
+            Posicao::InvariantPos
+        } else if self == other {
+            Posicao::CovariantPos
         } else {
-            Posicao::Contravariante
+            Posicao::ContravariantPos
         }
     }
 }
 
 /// O parâmetro de tipo `x` aparece em `t` numa posição não covariante.
-fn em_posicao_nao_covariante(table: &TypeTable, x: TypeParamId, t: TypeId, v: Posicao, prof: u32) -> bool {
+fn in_non_covariant_position(table: &TypeTable, x: TypeParamId, t: TypeId, v: Posicao, prof: u32) -> bool {
     if prof > 64 {
         return false;
     }
     match table.get(t) {
-        Type::TypeParameter { param, .. } => v != Posicao::Covariante && *param == x,
-        Type::Interface { args, .. } | Type::ExtensionType { args, .. } => args.iter().any(|a| em_posicao_nao_covariante(table, x, *a, v, prof + 1)),
-        Type::FutureOr { arg, .. } => em_posicao_nao_covariante(table, x, *arg, v, prof + 1),
+        Type::TypeParameter { param, .. } => v != Posicao::CovariantPos && *param == x,
+        Type::Interface { args, .. } | Type::ExtensionType { args, .. } => args.iter().any(|a| in_non_covariant_position(table, x, *a, v, prof + 1)),
+        Type::FutureOr { arg, .. } => in_non_covariant_position(table, x, *arg, v, prof + 1),
         Type::Record { positional, named, .. } => {
-            positional.iter().any(|a| em_posicao_nao_covariante(table, x, *a, v, prof + 1))
-                || named.iter().any(|(_, a)| em_posicao_nao_covariante(table, x, *a, v, prof + 1))
+            positional.iter().any(|a| in_non_covariant_position(table, x, *a, v, prof + 1))
+                || named.iter().any(|(_, a)| in_non_covariant_position(table, x, *a, v, prof + 1))
         }
         Type::Function { type_params, ret, positional, optional, named, .. } => {
-            if em_posicao_nao_covariante(table, x, *ret, v, prof + 1) {
+            if in_non_covariant_position(table, x, *ret, v, prof + 1) {
                 return true;
             }
             // Os limites escritos dos parâmetros de tipo da função: invariante.
             for tp in type_params.iter() {
                 let d = table.param(*tp);
-                if d.explicito && em_posicao_nao_covariante(table, x, d.bound, Posicao::Invariante, prof + 1) {
+                if d.explicito && in_non_covariant_position(table, x, d.bound, Posicao::InvariantPos, prof + 1) {
                     return true;
                 }
             }
-            let contra = v.com(Posicao::Contravariante);
-            positional.iter().chain(optional.iter()).any(|a| em_posicao_nao_covariante(table, x, *a, contra, prof + 1))
-                || named.iter().any(|(_, a, _)| em_posicao_nao_covariante(table, x, *a, contra, prof + 1))
+            let against = v.the_with(Posicao::ContravariantPos);
+            positional.iter().chain(optional.iter()).any(|a| in_non_covariant_position(table, x, *a, against, prof + 1))
+                || named.iter().any(|(_, a, _)| in_non_covariant_position(table, x, *a, against, prof + 1))
         }
         _ => false,
     }
@@ -418,23 +418,23 @@ fn em_posicao_nao_covariante(table: &TypeTable, x: TypeParamId, t: TypeId, v: Po
 /// parâmetro de tipo de um tipo de extensão que aparece numa posição não
 /// covariante do tipo de representação, no nó do parâmetro de tipo.
 pub fn posicoes_nao_covariantes_na_representacao(program: &Program, table: &TypeTable, outline: &OutlineTypes, lib: LibraryId) -> Vec<(UnitId, Diagnostic)> {
-    let mut saida = Vec::new();
+    let mut output = Vec::new();
     for (i, k) in program.classes.iter().enumerate() {
         if k.library != lib || k.kind != dartforge_elements::model::ClassKind::ExtensionType {
             continue;
         }
         let (Some(d), Some(rep)) = (k.decl, k.representation) else { continue };
         let Some(t) = outline.variables.get(rep.0 as usize).and_then(|x| x.declared_type) else { continue };
-        let Some(formais) = outline.classes.get(i).map(|x| x.type_params.clone()) else { continue };
+        let Some(formals) = outline.classes.get(i).map(|x| x.type_params.clone()) else { continue };
         let a = &program.unit(d.unit).ast;
         let DeclKind::ExtensionType(x) = &a.decl(d.decl).kind else { continue };
-        for (tp, &pid) in x.type_params.iter().zip(formais.iter()) {
-            if em_posicao_nao_covariante(table, pid, t, Posicao::Covariante, 0) {
-                let inicio = tp.metadata.first().map_or(tp.span.start, |m| m.span.start.min(tp.span.start));
-                let sp = Span { start: inicio, end: tp.span.end };
-                saida.push((d.unit, Diagnostic::com_codigo(c::NON_COVARIANT_TYPE_PARAMETER_POSITION_IN_REPRESENTATION_TYPE, sp, std::iter::empty::<&str>())));
+        for (tp, &pid) in x.type_params.iter().zip(formals.iter()) {
+            if in_non_covariant_position(table, pid, t, Posicao::CovariantPos, 0) {
+                let start = tp.metadata.first().map_or(tp.span.start, |m| m.span.start.min(tp.span.start));
+                let sp = Span { start: start, end: tp.span.end };
+                output.push((d.unit, Diagnostic::com_codigo(c::NON_COVARIANT_TYPE_PARAMETER_POSITION_IN_REPRESENTATION_TYPE, sp, std::iter::empty::<&str>())));
             }
         }
     }
-    saida
+    output
 }

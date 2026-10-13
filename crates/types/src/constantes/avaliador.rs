@@ -26,13 +26,13 @@ use std::rc::Rc;
 
 /// `InvalidConstant`.
 #[derive(Clone, Debug)]
-pub struct Invalida {
+pub struct Invalid {
     pub codigo: Codigo,
     pub unidade: UnitId,
     pub span: Span,
     pub args: Vec<String>,
-    pub evitar_relato: bool,
-    pub nao_resolvida: bool,
+    pub avoid_report: bool,
+    pub unresolved: bool,
     pub excecao: bool,
     /// `contextMessages`: unidade, intervalo e texto (a unidade decide o
     /// arquivo da mensagem quando o erro é relatado).
@@ -43,14 +43,14 @@ pub struct Invalida {
 #[derive(Clone, Debug)]
 pub enum Constante {
     Valor(Valor),
-    Invalida(Box<Invalida>),
+    Invalid(Box<Invalid>),
 }
 
 impl Constante {
     pub fn valor(&self) -> Option<&Valor> {
         match self {
             Constante::Valor(v) => Some(v),
-            Constante::Invalida(_) => None,
+            Constante::Invalid(_) => None,
         }
     }
 }
@@ -62,7 +62,7 @@ impl Constante {
 pub struct Ctx {
     pub unidade: UnitId,
     pub lib: LibraryId,
-    pub lexico: Option<Rc<HashMap<SymbolId, Valor>>>,
+    pub lexical: Option<Rc<HashMap<SymbolId, Valor>>>,
     pub tipos: Option<Rc<HashMap<TypeParamId, TypeId>>>,
     /// O relator do visitante é o do `ConstantVerifier` (e não um que
     /// descarta): os erros de `_valueOf` saem.
@@ -70,15 +70,15 @@ pub struct Ctx {
 }
 
 impl Ctx {
-    pub fn simples(unidade: UnitId, lib: LibraryId) -> Ctx {
-        Ctx { unidade, lib, lexico: None, tipos: None, relatar: false }
+    pub fn simples(unit_id: UnitId, lib: LibraryId) -> Ctx {
+        Ctx { unidade: unit_id, lib, lexical: None, tipos: None, relatar: false }
     }
 }
 
 #[derive(Clone)]
-enum EstadoVar {
-    EmCurso,
-    Pronta(Constante),
+enum VarState {
+    InProgress,
+    Ready(Constante),
 }
 
 /// O motor de avaliação (`ConstantEvaluationEngine` com os resultados
@@ -91,36 +91,36 @@ pub struct Motor<'a> {
     pub outline: &'a OutlineTypes,
     pub body: &'a BodyTypes,
     /// Bibliotecas cujos corpos (e inicializadores) foram inferidos.
-    pub inferidas: &'a HashSet<LibraryId>,
-    vars: HashMap<VariableId, EstadoVar>,
-    pilha_vars: Vec<VariableId>,
-    ciclicos: HashSet<VariableId>,
+    pub the_inferred: &'a HashSet<LibraryId>,
+    vars: HashMap<VariableId, VarState>,
+    vars_stack: Vec<VariableId>,
+    cyclic: HashSet<VariableId>,
     /// Valores padrão já avaliados, pela expressão.
     padroes: HashMap<(UnitId, ExprId), Constante>,
     /// Constantes locais: pelo offset do nome, a lista e o índice.
-    locais_da_unidade: HashMap<UnitId, HashMap<usize, (ast::StmtId, usize)>>,
+    unit_locals: HashMap<UnitId, HashMap<usize, (ast::StmtId, usize)>>,
     locais: HashMap<(UnitId, usize), Option<Constante>>,
     /// Construtores em avaliação (ciclo: `isCycleFree` falso).
-    construtores_em_curso: Vec<FunctionElementId>,
+    constructors_in_progress: Vec<FunctionElementId>,
     /// O grafo de dependências de constantes e quem está em ciclo
     /// ([`super::ciclos::computar`], antes do verificador de cada biblioteca).
-    pub grafo: super::ciclos::Estado,
+    pub grafo: super::cycles::Estado,
     /// Argumentos posicionais diretos de uma criação constante: o
     /// `genericError` deles é `CONST_WITH_NON_CONSTANT_ARGUMENT`.
-    args_de_criacao: HashSet<(UnitId, ExprId)>,
+    creation_args: HashSet<(UnitId, ExprId)>,
     /// Erros relatados pelo próprio visitante (`_valueOf`) quando `relatar`.
-    pub relatos: Vec<Invalida>,
+    pub relatos: Vec<Invalid>,
     /// O analyzer 3.6.2 lançaria aqui (a exaustividade, ver
     /// [`crate::table::TypeTable::sem_tipo_padrao`]).
-    pub quebra_do_analyzer: bool,
+    pub analyzer_break: bool,
     /// Quando `Some`, o verificador guarda aqui, por (unidade, offset do
     /// `switch`), as testemunhas com partes de cada `non_exhaustive_switch_*`
     /// (o `diagnostic.data` do analyzer, usado pelo `AddMissingSwitchCases`).
-    pub testemunhas: Option<HashMap<(UnitId, usize), Vec<Vec<super::exaustividade::ParteDeTestemunha>>>>,
+    pub witnesses: Option<HashMap<(UnitId, usize), Vec<Vec<super::exhaustiveness::ParteDeTestemunha>>>>,
     /// Offsets dos nomes de parâmetros formais, por unidade inferida (a
     /// inferência resolve a leitura de um parâmetro como a de um local).
     parametros: HashMap<UnitId, HashSet<usize>>,
-    profundidade: u32,
+    depth: u32,
     sym_identical: Option<SymbolId>,
     sym_length: Option<SymbolId>,
     sym_from_environment: Option<SymbolId>,
@@ -139,12 +139,12 @@ impl<'a> Motor<'a> {
         core: &'a CoreTypes,
         outline: &'a OutlineTypes,
         body: &'a BodyTypes,
-        inferidas: &'a HashSet<LibraryId>,
+        the_inferred: &'a HashSet<LibraryId>,
     ) -> Self {
-        let mut parametros: HashMap<UnitId, HashSet<usize>> = HashMap::new();
+        let mut params_list: HashMap<UnitId, HashSet<usize>> = HashMap::new();
         for (i, u) in program.units.iter().enumerate() {
-            if inferidas.contains(&u.library) {
-                parametros.insert(UnitId(i as u32), offsets_de_parametros(&u.ast));
+            if the_inferred.contains(&u.library) {
+                params_list.insert(UnitId(i as u32), parameter_offsets(&u.ast));
             }
         }
         Motor {
@@ -154,21 +154,21 @@ impl<'a> Motor<'a> {
             core,
             outline,
             body,
-            inferidas,
+            the_inferred,
             vars: HashMap::new(),
-            pilha_vars: Vec::new(),
-            ciclicos: HashSet::new(),
+            vars_stack: Vec::new(),
+            cyclic: HashSet::new(),
             padroes: HashMap::new(),
-            locais_da_unidade: HashMap::new(),
+            unit_locals: HashMap::new(),
             locais: HashMap::new(),
-            construtores_em_curso: Vec::new(),
-            grafo: super::ciclos::Estado::default(),
-            args_de_criacao: HashSet::new(),
+            constructors_in_progress: Vec::new(),
+            grafo: super::cycles::Estado::default(),
+            creation_args: HashSet::new(),
             relatos: Vec::new(),
-            quebra_do_analyzer: false,
-            testemunhas: None,
-            parametros,
-            profundidade: 0,
+            analyzer_break: false,
+            witnesses: None,
+            parametros: params_list,
+            depth: 0,
             sym_identical: interner.lookup("identical"),
             sym_length: interner.lookup("length"),
             sym_from_environment: interner.lookup("fromEnvironment"),
@@ -187,8 +187,8 @@ impl<'a> Motor<'a> {
         self.ast(u).expr(e).span
     }
 
-    fn inferida(&self, u: UnitId) -> bool {
-        self.inferidas.contains(&self.program.unit(u).library)
+    fn inferred_(&self, u: UnitId) -> bool {
+        self.the_inferred.contains(&self.program.unit(u).library)
     }
 
     /// Tipo estático de `e` (`dynamic` numa unidade não inferida).
@@ -202,9 +202,9 @@ impl<'a> Motor<'a> {
 
     /// O tipo estático de `e` é o de recuperação (`InvalidType`): o tipo
     /// registrado inválido, ou o local de inicializador inválido.
-    pub(crate) fn tipo_invalido(&self, u: UnitId, e: ExprId) -> bool {
+    pub(crate) fn invalid_type(&self, u: UnitId, e: ExprId) -> bool {
         self.body.units.get(u.0 as usize).is_some_and(|b| {
-            b.tipos_invalidos.contains(&e) || b.get_type(e).is_some_and(|t| self.table.e_invalido(t))
+            b.invalid_types.contains(&e) || b.get_type(e).is_some_and(|t| self.table.e_invalido(t))
         })
     }
 
@@ -218,7 +218,7 @@ impl<'a> Motor<'a> {
     }
 
     /// Sem o alias (`getDisplayString()`): onde o analyzer já passa texto.
-    pub fn formatar_sem_alias(&self, t: TypeId) -> String {
+    pub fn format_without_alias(&self, t: TypeId) -> String {
         self.table.format_sem_alias(t, self.interner, self.program)
     }
 
@@ -233,8 +233,8 @@ impl<'a> Motor<'a> {
             if params.is_empty() || params.len() != args.len() {
                 return Some(t);
             }
-            let mapa: HashMap<TypeParamId, TypeId> = params.iter().copied().zip(args.iter().copied()).collect();
-            Some(crate::ops::substitute(t, &mapa, table))
+            let map: HashMap<TypeParamId, TypeId> = params.iter().copied().zip(args.iter().copied()).collect();
+            Some(crate::ops::substitute(t, &map, table))
         };
         crate::ops::erase_extension_type(t, self.table, &rep)
     }
@@ -242,7 +242,7 @@ impl<'a> Motor<'a> {
     /// `runtimeTypeMatch`: o tipo do objeto é subtipo do tipo apagado. Um
     /// objeto de tipo `dynamic` (expressão não resolvida) casa com tudo.
     pub fn casa(&mut self, v: &Valor, t: TypeId) -> bool {
-        if v.tipo == self.core.dynamic_ || matches!(v.estado, Estado::Null { invalido: true }) {
+        if v.tipo == self.core.dynamic_ || matches!(v.estado, Estado::Null { invalid: true }) {
             return true;
         }
         let t = self.apagar(t);
@@ -254,18 +254,18 @@ impl<'a> Motor<'a> {
         a == self.core.dynamic_ || self.sub(a, b)
     }
 
-    fn valor(&mut self, tipo: TypeId, estado: Estado) -> Valor {
-        let tipo = self.apagar(tipo);
-        Valor::novo(tipo, estado)
+    fn valor(&mut self, typ: TypeId, state: Estado) -> Valor {
+        let typ = self.apagar(typ);
+        Valor::novo(typ, state)
     }
 
-    pub fn desconhecido(&mut self, tipo: TypeId) -> Valor {
-        let tipo = self.apagar(tipo);
-        let elemento = match self.table.get(tipo) {
+    pub fn desconhecido(&mut self, typ: TypeId) -> Valor {
+        let typ = self.apagar(typ);
+        let element = match self.table.get(typ) {
             Type::Interface { class, args, .. } if Some(*class) == self.core.list_class && args.len() == 1 => Some(args[0]),
             _ => None,
         };
-        Valor::desconhecido(self.table, self.core, tipo, elemento)
+        Valor::desconhecido(self.table, self.core, typ, element)
     }
 
     fn interface(&mut self, class: Option<ClassId>, args: Vec<TypeId>) -> TypeId {
@@ -277,25 +277,25 @@ impl<'a> Motor<'a> {
 
     // -- Erros ---------------------------------------------------------------
 
-    pub fn erro(&self, u: UnitId, span: Span, codigo: Codigo) -> Invalida {
-        Invalida { codigo, unidade: u, span, args: Vec::new(), evitar_relato: false, nao_resolvida: false, excecao: false, contexto: Vec::new() }
+    pub fn erro(&self, u: UnitId, span: Span, code: Codigo) -> Invalid {
+        Invalid { codigo: code, unidade: u, span, args: Vec::new(), avoid_report: false, unresolved: false, excecao: false, contexto: Vec::new() }
     }
 
     /// `ConstructorElement.displayName`: `C` ou `C.nome`.
-    fn exibicao_do_construtor(&self, f: FunctionElementId) -> String {
+    fn constructor_display(&self, f: FunctionElementId) -> String {
         let fe = self.program.function(f);
-        let classe = fe.class.map(|k| self.interner.resolve(self.program.class(k).name).to_string()).unwrap_or_default();
-        let nome = self.interner.resolve(fe.name);
-        if nome.is_empty() || nome == "new" {
-            classe
+        let cls = fe.class.map(|k| self.interner.resolve(self.program.class(k).name).to_string()).unwrap_or_default();
+        let the_name = self.interner.resolve(fe.name);
+        if the_name.is_empty() || the_name == "new" {
+            cls
         } else {
-            format!("{classe}.{nome}")
+            format!("{cls}.{the_name}")
         }
     }
 
     /// `_constructor.source`: a unidade da declaração do construtor (a da
     /// classe, no sintético).
-    fn unidade_do_construtor(&self, f: FunctionElementId) -> Option<UnitId> {
+    fn constructor_unit(&self, f: FunctionElementId) -> Option<UnitId> {
         let fe = self.program.function(f);
         match fe.node {
             FunctionRef::Function { unit, .. } | FunctionRef::Constructor { unit, .. } => Some(unit),
@@ -305,63 +305,63 @@ impl<'a> Motor<'a> {
 
     /// `_checkInitializers`: o erro (que não é de execução) no inicializador
     /// passa ao nó da criação; sem contexto ainda, ganha o de onde ocorre.
-    fn erro_no_inicializador(&self, i: &Invalida, f: Option<FunctionElementId>, onde: &str, erro: ErroEm) -> Invalida {
+    fn error_in_initializer(&self, i: &Invalid, f: Option<FunctionElementId>, where_: &str, error: ErrorAt) -> Invalid {
         let mut n = i.clone();
         if n.contexto.is_empty() {
             if let Some(f) = f {
-                if let Some(u) = self.unidade_do_construtor(f) {
-                    let texto = format!("The error is in the {onde} of '{}', and occurs here.", self.exibicao_do_construtor(f));
-                    n.contexto.push((u, i.span, texto));
+                if let Some(u) = self.constructor_unit(f) {
+                    let text = format!("The error is in the {where_} of '{}', and occurs here.", self.constructor_display(f));
+                    n.contexto.push((u, i.span, text));
                 }
             }
         }
-        n.unidade = erro.unidade;
-        n.span = erro.span;
+        n.unidade = error.unidade;
+        n.span = error.span;
         n
     }
 
     /// `_stackTraceContextMessage`: no nome do construtor que chama (nenhum
     /// no sintético, cujo `nameOffset` é -1).
-    fn pilha_de_construtores(&self, super_: FunctionElementId, f: FunctionElementId) -> Option<(UnitId, Span, String)> {
+    fn constructor_stack(&self, super_: FunctionElementId, f: FunctionElementId) -> Option<(UnitId, Span, String)> {
         if !matches!(self.program.function(f).node, FunctionRef::Constructor { .. }) {
             return None;
         }
         let (u, span) = self.program.nome_nao_sintetico_da_funcao(f)?;
-        let quem = self.exibicao_do_construtor(f);
-        let texto = format!("The evaluated constructor '{}' is called by '{quem}' and '{quem}' is defined here.", self.exibicao_do_construtor(super_));
-        Some((u, span, texto))
+        let who = self.constructor_display(f);
+        let text = format!("The evaluated constructor '{}' is called by '{who}' and '{who}' is defined here.", self.constructor_display(super_));
+        Some((u, span, text))
     }
 
-    fn inv(&self, u: UnitId, e: ExprId, codigo: Codigo) -> R {
-        Constante::Invalida(Box::new(self.erro(u, self.span(u, e), codigo)))
+    fn inv(&self, u: UnitId, e: ExprId, code: Codigo) -> R {
+        Constante::Invalid(Box::new(self.erro(u, self.span(u, e), code)))
     }
 
     /// `InvalidConstant.genericError`.
-    fn generico(&self, u: UnitId, e: ExprId, nao_resolvida: bool) -> R {
-        let codigo = if self.args_de_criacao.contains(&(u, e)) { c::CONST_WITH_NON_CONSTANT_ARGUMENT } else { c::INVALID_CONSTANT };
-        let mut i = self.erro(u, self.span(u, e), codigo);
-        i.nao_resolvida = nao_resolvida;
-        Constante::Invalida(Box::new(i))
+    fn generic(&self, u: UnitId, e: ExprId, unresolved: bool) -> R {
+        let code = if self.creation_args.contains(&(u, e)) { c::CONST_WITH_NON_CONSTANT_ARGUMENT } else { c::INVALID_CONSTANT };
+        let mut i = self.erro(u, self.span(u, e), code);
+        i.unresolved = unresolved;
+        Constante::Invalid(Box::new(i))
     }
 
     fn excecao(&self, u: UnitId, e: ExprId, x: Excecao) -> R {
         let mut i = self.erro(u, self.span(u, e), x.codigo);
-        i.excecao = x.de_execucao;
-        Constante::Invalida(Box::new(i))
+        i.excecao = x.runtime;
+        Constante::Invalid(Box::new(i))
     }
 
     // -- Expressões ----------------------------------------------------------
 
     /// `evaluateConstant`: `em_const` diz se o nó está num contexto
     /// constante (`inConstantContext`).
-    pub fn avaliar(&mut self, cx: &Ctx, e: ExprId, em_const: bool) -> R {
-        if self.profundidade > 400 {
-            return self.generico(cx.unidade, e, true);
+    pub fn avaliar(&mut self, cx: &Ctx, e: ExprId, in_const: bool) -> R {
+        if self.depth > 400 {
+            return self.generic(cx.unidade, e, true);
         }
-        self.profundidade += 1;
-        let r = self.avaliar_no(cx, e, em_const);
-        self.profundidade -= 1;
-        self.instanciar_referencia(cx, e, r)
+        self.depth += 1;
+        let r = self.evaluate_at(cx, e, in_const);
+        self.depth -= 1;
+        self.instantiate_reference(cx, e, r)
     }
 
     /// `visitFunctionReference` sem argumentos escritos (3.6.2
@@ -371,7 +371,7 @@ impl<'a> Motor<'a> {
     /// `_instantiateFunctionType` (`:1939-1959`): o valor cuja função é
     /// genérica (o tipo **do elemento**) fica com esse tipo instanciado pelos
     /// argumentos e depois substituído pelo ambiente do construtor.
-    fn instanciar_referencia(&mut self, cx: &Ctx, e: ExprId, r: R) -> R {
+    fn instantiate_reference(&mut self, cx: &Ctx, e: ExprId, r: R) -> R {
         let Constante::Valor(mut val) = r else { return r };
         let u = cx.unidade;
         // O tear-off de construtor é `ConstructorReference`
@@ -382,7 +382,7 @@ impl<'a> Motor<'a> {
         let Some(args) = self.body.units.get(u.0 as usize).and_then(|b| b.instanciacao_de_tearoff(e)).map(|a| a.to_vec()) else {
             return Constante::Valor(val);
         };
-        if self.instanciacao_com_parametro(cx, e) {
+        if self.instantiation_with_parameter(cx, e) {
             return self.inv(u, e, c::CONST_WITH_TYPE_PARAMETERS_FUNCTION_TEAROFF);
         }
         let Estado::Funcao { elemento: Funcao::Elemento(f), .. } = val.estado else { return Constante::Valor(val) };
@@ -393,9 +393,9 @@ impl<'a> Motor<'a> {
         if type_params.is_empty() || args.is_empty() || type_params.len() != args.len() {
             return Constante::Valor(val);
         }
-        let sem = self.table.intern(Type::Function { type_params: Box::new([]), ret, positional, optional, named, nullable });
+        let without = self.table.intern(Type::Function { type_params: Box::new([]), ret, positional, optional, named, nullable });
         let m: HashMap<TypeParamId, TypeId> = type_params.iter().copied().zip(args.iter().copied()).collect();
-        let t = crate::ops::substitute(sem, &m, self.table);
+        let t = crate::ops::substitute(without, &m, self.table);
         val.tipo = match &cx.tipos {
             Some(m) => crate::ops::substitute(t, m, self.table),
             None => t,
@@ -403,13 +403,13 @@ impl<'a> Motor<'a> {
         Constante::Valor(val)
     }
 
-    fn avaliar_no(&mut self, cx: &Ctx, e: ExprId, em_const: bool) -> R {
+    fn evaluate_at(&mut self, cx: &Ctx, e: ExprId, in_const: bool) -> R {
         let u = cx.unidade;
         let a = self.ast(u);
         match &a.expr(e).kind {
             ExprKind::Int(span) => {
                 let t = &self.program.unit(u).source[span.start..span.end];
-                let v = crate::constant::inteiro_literal(t);
+                let v = crate::constant::integer_literal(t);
                 if self.estatico(u, e) == self.core.double {
                     let d = v.map(|i| i as f64).or_else(|| t.replace('_', "").parse::<f64>().ok());
                     Constante::Valor(Valor::novo(self.core.double, Estado::Double(d)))
@@ -423,187 +423,187 @@ impl<'a> Motor<'a> {
             }
             ExprKind::Bool(b) => Constante::Valor(Valor::bool_(self.core, Some(*b))),
             ExprKind::Null => Constante::Valor(Valor::nulo(self.core)),
-            ExprKind::String(lit) => self.string(cx, e, lit, em_const),
-            ExprKind::Symbol(partes) => {
-                let s: Vec<&str> = partes.iter().map(|n| self.interner.resolve(n.sym)).collect();
+            ExprKind::String(lit) => self.string(cx, e, lit, in_const),
+            ExprKind::Symbol(parts) => {
+                let s: Vec<&str> = parts.iter().map(|n| self.interner.resolve(n.sym)).collect();
                 Constante::Valor(Valor::novo(self.core.symbol, Estado::Simbolo(Some(s.join(".").into()))))
             }
             ExprKind::Identifier(n) => {
-                if let Some(v) = cx.lexico.as_ref().and_then(|l| l.get(&n.sym)) {
+                if let Some(v) = cx.lexical.as_ref().and_then(|l| l.get(&n.sym)) {
                     return Constante::Valor(v.clone());
                 }
-                self.valor_constante(cx, e, e, true)
+                self.constant_value(cx, e, e, true)
             }
-            ExprKind::Parenthesized(x) => self.avaliar(cx, *x, em_const),
+            ExprKind::Parenthesized(x) => self.avaliar(cx, *x, in_const),
             ExprKind::List { const_, elements, .. } => {
-                if !(*const_ || em_const) {
+                if !(*const_ || in_const) {
                     return self.inv(u, e, c::MISSING_CONST_IN_LIST_LITERAL);
                 }
-                let tipo = self.estatico(u, e);
-                let elemento = match self.table.get(tipo) {
+                let typ = self.estatico(u, e);
+                let element = match self.table.get(typ) {
                     Type::Interface { args, .. } if args.len() == 1 => args[0],
                     _ => self.core.dynamic_,
                 };
-                let elemento = self.apagar(elemento);
-                let tipo_lista = self.interface(self.core.list_class, vec![elemento]);
-                let mut lista = Vec::new();
-                if let Some(i) = self.construir_lista(cx, &mut lista, elements, true) {
+                let element = self.apagar(element);
+                let list_type = self.interface(self.core.list_class, vec![element]);
+                let mut list = Vec::new();
+                if let Some(i) = self.build_list(cx, &mut list, elements, true) {
                     return match i {
-                        Ok(()) => Constante::Valor(self.desconhecido(tipo_lista)),
-                        Err(i) => Constante::Invalida(i),
+                        Ok(()) => Constante::Valor(self.desconhecido(list_type)),
+                        Err(i) => Constante::Invalid(i),
                     };
                 }
-                Constante::Valor(self.valor(tipo_lista, Estado::Lista { elemento, elementos: Rc::new(lista), desconhecida: false }))
+                Constante::Valor(self.valor(list_type, Estado::Lista { elemento: element, elementos: Rc::new(list), unknown: false }))
             }
             ExprKind::SetOrMap { const_, elements, .. } => {
-                let tipo = self.estatico(u, e);
-                let (classe, args) = match self.table.get(tipo) {
+                let typ = self.estatico(u, e);
+                let (cls, args) = match self.table.get(typ) {
                     Type::Interface { class, args, .. } => (Some(*class), args.to_vec()),
                     _ => (None, Vec::new()),
                 };
-                let e_conjunto = classe.is_some() && classe == self.core.set_class;
-                let e_mapa = classe.is_some() && classe == self.core.map_class;
-                if !e_conjunto {
-                    if !(*const_ || em_const) {
+                let is_set = cls.is_some() && cls == self.core.set_class;
+                let is_map = cls.is_some() && cls == self.core.map_class;
+                if !is_set {
+                    if !(*const_ || in_const) {
                         return self.inv(u, e, c::MISSING_CONST_IN_MAP_LITERAL);
                     }
                     let (k, v) = if args.len() >= 2 { (args[0], args[1]) } else { (self.core.dynamic_, self.core.dynamic_) };
-                    let tipo_mapa = self.interface(self.core.map_class, vec![k, v]);
-                    let mut mapa = Vec::new();
-                    return match self.construir_mapa(cx, &mut mapa, elements) {
-                        Some(Ok(())) => Constante::Valor(self.desconhecido(tipo_mapa)),
+                    let map_type = self.interface(self.core.map_class, vec![k, v]);
+                    let mut map = Vec::new();
+                    return match self.build_map(cx, &mut map, elements) {
+                        Some(Ok(())) => Constante::Valor(self.desconhecido(map_type)),
                         Some(Err(mut i)) => {
-                            if !e_mapa {
-                                i.evitar_relato = true;
+                            if !is_map {
+                                i.avoid_report = true;
                             }
-                            Constante::Invalida(i)
+                            Constante::Invalid(i)
                         }
-                        None => Constante::Valor(self.valor(tipo_mapa, Estado::Mapa { entradas: Rc::new(mapa), desconhecido: false })),
+                        None => Constante::Valor(self.valor(map_type, Estado::Mapa { entradas: Rc::new(map), desconhecido: false })),
                     };
                 }
-                if !(*const_ || em_const) {
+                if !(*const_ || in_const) {
                     return self.inv(u, e, c::MISSING_CONST_IN_SET_LITERAL);
                 }
                 let el = args.first().copied().unwrap_or(self.core.dynamic_);
-                let tipo_conj = self.interface(self.core.set_class, vec![el]);
-                let mut conj = Vec::new();
-                match self.construir_conjunto(cx, &mut conj, elements) {
-                    Some(Ok(())) => Constante::Valor(self.desconhecido(tipo_conj)),
-                    Some(Err(i)) => Constante::Invalida(i),
-                    None => Constante::Valor(self.valor(tipo_conj, Estado::Conjunto { elementos: Rc::new(conj), desconhecido: false })),
+                let set_type = self.interface(self.core.set_class, vec![el]);
+                let mut set = Vec::new();
+                match self.build_set(cx, &mut set, elements) {
+                    Some(Ok(())) => Constante::Valor(self.desconhecido(set_type)),
+                    Some(Err(i)) => Constante::Invalid(i),
+                    None => Constante::Valor(self.valor(set_type, Estado::Conjunto { elementos: Rc::new(set), desconhecido: false })),
                 }
             }
             ExprKind::Record { const_, positional, named } => {
-                let filho_const = *const_ || em_const;
+                let const_child = *const_ || in_const;
                 let mut pos = Vec::new();
                 for &x in positional.iter() {
-                    match self.avaliar(cx, x, filho_const) {
+                    match self.avaliar(cx, x, const_child) {
                         Constante::Valor(v) => pos.push(v),
                         i => return i,
                     }
                 }
-                let mut nom = Vec::new();
+                let mut the_named = Vec::new();
                 for (n, x) in named.iter() {
-                    match self.avaliar(cx, *x, filho_const) {
-                        Constante::Valor(v) => nom.push((n.sym, v)),
+                    match self.avaliar(cx, *x, const_child) {
+                        Constante::Valor(v) => the_named.push((n.sym, v)),
                         i => return i,
                     }
                 }
-                let mut nomeados_t: Vec<(SymbolId, TypeId)> = nom.iter().map(|(n, v)| (*n, v.tipo)).collect();
-                nomeados_t.sort_by_key(|(n, _)| *n);
-                let tipo = self.table.intern(Type::Record {
+                let mut named_t: Vec<(SymbolId, TypeId)> = the_named.iter().map(|(n, v)| (*n, v.tipo)).collect();
+                named_t.sort_by_key(|(n, _)| *n);
+                let typ = self.table.intern(Type::Record {
                     positional: pos.iter().map(|v| v.tipo).collect(),
-                    named: nomeados_t.into_boxed_slice(),
+                    named: named_t.into_boxed_slice(),
                     nullable: false,
                 });
-                Constante::Valor(Valor::novo(tipo, Estado::Registro { posicionais: Rc::new(pos), nomeados: Rc::new(nom) }))
+                Constante::Valor(Valor::novo(typ, Estado::Registro { posicionais: Rc::new(pos), nomeados: Rc::new(the_named) }))
             }
             ExprKind::InstanceCreation { keyword, arguments, constructor, .. } => {
-                if !matches!(keyword, Some(ast::CreationKeyword::Const)) && !(keyword.is_none() && em_const) {
-                    return self.generico(u, e, false);
+                if !matches!(keyword, Some(ast::CreationKeyword::Const)) && !(keyword.is_none() && in_const) {
+                    return self.generic(u, e, false);
                 }
                 let Some(Resolved::Constructor(f)) = self.resolvido(u, e) else {
                     // O construtor encaminhado de uma aplicação de mixin.
-                    if let Some((f, tipo)) = self.construtor_encaminhado(u, e, constructor.map(|n| n.sym)) {
-                        let kw = self.palavra_de_criacao(u, e, keyword.is_some());
-                        let r = self.chamar_construtor(cx, e, f, arguments, kw, Some(tipo));
-                        return self.formatar_erro_de_construtor(u, e, r);
+                    if let Some((f, typ)) = self.forwarded_constructor(u, e, constructor.map(|n| n.sym)) {
+                        let kw = self.creation_keyword(u, e, keyword.is_some());
+                        let r = self.call_constructor(cx, e, f, arguments, kw, Some(typ));
+                        return self.format_constructor_error(u, e, r);
                     }
                     // `const E(0)` pelo construtor primário de um tipo de
                     // extensão (sem função no modelo): a representação.
-                    let estatico = self.body.units.get(u.0 as usize).and_then(|b| b.get_type(e));
-                    if let Some(t) = estatico
+                    let static_ = self.body.units.get(u.0 as usize).and_then(|b| b.get_type(e));
+                    if let Some(t) = static_
                         && let Type::ExtensionType { decl: k, .. } = self.table.get(t).clone()
-                        && let Some(r) = self.primario_de_extensao(cx, e, k, constructor.map(|n| n.sym), arguments, true)
+                        && let Some(r) = self.extension_primary(cx, e, k, constructor.map(|n| n.sym), arguments, true)
                     {
                         return r;
                     }
                     return self.inv(u, e, c::INVALID_CONSTANT);
                 };
-                let kw = self.palavra_de_criacao(u, e, keyword.is_some());
-                let r = self.chamar_construtor(cx, e, *f, arguments, kw, None);
-                self.formatar_erro_de_construtor(u, e, r)
+                let kw = self.creation_keyword(u, e, keyword.is_some());
+                let r = self.call_constructor(cx, e, *f, arguments, kw, None);
+                self.format_constructor_error(u, e, r)
             }
             ExprKind::Call { target, arguments } => {
                 if let Some(Resolved::Constructor(f)) = self.resolvido(u, e) {
                     // Criação implícita: constante só num contexto constante.
-                    if !em_const {
-                        return self.generico(u, e, false);
+                    if !in_const {
+                        return self.generic(u, e, false);
                     }
                     let f = *f;
-                    let r = self.chamar_construtor(cx, e, f, arguments, None, None);
-                    return self.formatar_erro_de_construtor(u, e, r);
+                    let r = self.call_constructor(cx, e, f, arguments, None, None);
+                    return self.format_constructor_error(u, e, r);
                 }
-                let alvo = *target;
+                let tgt = *target;
                 // O construtor primário de um tipo de extensão (`A(true)`,
                 // `A.n(1)`), que o modelo não guarda como função: a criação
                 // vale a representação (`_fieldMap[representation]`, 3.6.2
                 // `evaluation.dart:2573-2578`), o argumento avaliado.
-                if let Some(r) = self.criacao_por_primario_de_extensao(cx, e, alvo, arguments, em_const) {
+                if let Some(r) = self.creation_via_extension_primary(cx, e, tgt, arguments, in_const) {
                     return r;
                 }
                 // `assert(…)` como expressão é `FunctionExpressionInvocation`
                 // (o `visitNode` genérico), não `MethodInvocation`.
-                let e_metodo = matches!(a.expr(alvo).kind, ExprKind::Identifier(_) | ExprKind::Property { .. })
+                let is_method = matches!(a.expr(tgt).kind, ExprKind::Identifier(_) | ExprKind::Property { .. })
                     && !a.invocacoes_de_assert.contains(&e);
-                if !e_metodo {
-                    return self.generico(u, e, false);
+                if !is_method {
+                    return self.generic(u, e, false);
                 }
                 // `identical(a, b)` de `dart:core`.
-                if let ExprKind::Identifier(n) = &a.expr(alvo).kind {
+                if let ExprKind::Identifier(n) = &a.expr(tgt).kind {
                     if Some(n.sym) == self.sym_identical && arguments.args.len() == 2 && arguments.args.iter().all(|x| x.name.is_none()) {
-                        if let Some(Resolved::Element(Element::Function(f))) = self.resolvido(u, alvo) {
+                        if let Some(Resolved::Element(Element::Function(f))) = self.resolvido(u, tgt) {
                             if Some(self.program.function(*f).library) == self.core.core_library {
                                 let (x, y) = (arguments.args[0].value, arguments.args[1].value);
-                                let l = match self.avaliar(cx, x, em_const) {
+                                let l = match self.avaliar(cx, x, in_const) {
                                     Constante::Valor(v) => v,
                                     i => return i,
                                 };
-                                let r = match self.avaliar(cx, y, em_const) {
+                                let r = match self.avaliar(cx, y, in_const) {
                                     Constante::Valor(v) => v,
                                     i => return i,
                                 };
-                                let b = self.identico(&l, &r);
+                                let b = self.identical(&l, &r);
                                 return Constante::Valor(Valor::bool_(self.core, b));
                             }
                         }
                     }
                 }
-                if self.tipo_invalido(u, e) {
+                if self.invalid_type(u, e) {
                     let mut i = self.erro(u, self.span(u, e), c::INVALID_CONSTANT);
-                    i.nao_resolvida = true;
-                    return Constante::Invalida(Box::new(i));
+                    i.unresolved = true;
+                    return Constante::Invalid(Box::new(i));
                 }
                 self.inv(u, e, c::CONST_EVAL_METHOD_INVOCATION)
             }
-            ExprKind::Property { target, name, .. } => self.propriedade(cx, e, *target, *name, em_const),
+            ExprKind::Property { target, name, .. } => self.propriedade(cx, e, *target, *name, in_const),
             ExprKind::TypeArguments { target, .. } => {
                 // Literal de tipo genérico ou instanciação de função: o
                 // valor exato do tipo não é reconstruído aqui.
-                match self.avaliar(cx, *target, em_const) {
+                match self.avaliar(cx, *target, in_const) {
                     Constante::Valor(v) => match v.estado {
                         Estado::Tipo(_) => Constante::Valor(Valor::novo(self.core.type_, Estado::Tipo(None))),
-                        Estado::Funcao { elemento, .. } => {
+                        Estado::Funcao { elemento: element, .. } => {
                             // `_instantiateFunctionType`: o tipo instanciado
                             // passa pela substituição do construtor.
                             let t = self.estatico(u, e);
@@ -611,41 +611,41 @@ impl<'a> Motor<'a> {
                                 Some(m) => crate::ops::substitute(t, m, self.table),
                                 None => t,
                             };
-                            Constante::Valor(self.valor(t, Estado::Funcao { elemento, args: None }))
+                            Constante::Valor(self.valor(t, Estado::Funcao { elemento: element, args: None }))
                         }
                         _ => self.inv(u, e, c::INVALID_CONSTANT),
                     },
                     i => i,
                 }
             }
-            ExprKind::Unary { op, operand } => self.unario(cx, e, *op, *operand, em_const),
-            ExprKind::Binary { op, left, right } => self.binario(cx, e, *op, *left, *right, em_const),
+            ExprKind::Unary { op, operand } => self.unary(cx, e, *op, *operand, in_const),
+            ExprKind::Binary { op, left, right } => self.binary(cx, e, *op, *left, *right, in_const),
             ExprKind::Conditional { condition, then, else_ } => {
-                let cond = match self.avaliar(cx, *condition, em_const) {
+                let cond = match self.avaliar(cx, *condition, in_const) {
                     Constante::Valor(v) => v,
                     i => return i,
                 };
                 if !cond.estado.e_bool() {
                     return self.inv(u, *condition, c::CONST_EVAL_TYPE_BOOL);
                 }
-                match cond.como_bool() {
+                match cond.as_bool() {
                     Some(true) => {
-                        if let Some(i) = self.nao_potencialmente_constante(cx, *else_) {
+                        if let Some(i) = self.not_potentially_constant(cx, *else_) {
                             return i;
                         }
-                        self.avaliar(cx, *then, em_const)
+                        self.avaliar(cx, *then, in_const)
                     }
                     Some(false) => {
-                        if let Some(i) = self.nao_potencialmente_constante(cx, *then) {
+                        if let Some(i) = self.not_potentially_constant(cx, *then) {
                             return i;
                         }
-                        self.avaliar(cx, *else_, em_const)
+                        self.avaliar(cx, *else_, in_const)
                     }
                     None => {
-                        if let i @ Constante::Invalida(_) = self.avaliar(cx, *then, em_const) {
+                        if let i @ Constante::Invalid(_) = self.avaliar(cx, *then, in_const) {
                             return i;
                         }
-                        if let i @ Constante::Invalida(_) = self.avaliar(cx, *else_, em_const) {
+                        if let i @ Constante::Invalid(_) = self.avaliar(cx, *else_, in_const) {
                             return i;
                         }
                         let t = self.estatico(u, e);
@@ -654,7 +654,7 @@ impl<'a> Motor<'a> {
                 }
             }
             ExprKind::Is { value, negated, .. } => {
-                let v = match self.avaliar(cx, *value, em_const) {
+                let v = match self.avaliar(cx, *value, in_const) {
                     Constante::Valor(v) => v,
                     i => return i,
                 };
@@ -665,13 +665,13 @@ impl<'a> Motor<'a> {
             }
             ExprKind::As { value, ty } => {
                 let ty = *ty;
-                let v = match self.avaliar(cx, *value, em_const) {
+                let v = match self.avaliar(cx, *value, in_const) {
                     Constante::Valor(v) => v,
                     i => return i,
                 };
                 // `node.type.type` (`visitAsExpression`): o tipo escrito, não
                 // o estático do `as` (que a instanciação implícita muda).
-                let alvo = self
+                let tgt = self
                     .body
                     .units
                     .get(u.0 as usize)
@@ -681,15 +681,15 @@ impl<'a> Motor<'a> {
                 // O tipo do `as` com o ambiente léxico do construtor aplicado
                 // (`_substitution`, `x as List<T>` em `C<int>`): só o que
                 // ainda menciona parâmetro de tipo fica sem conferir.
-                let alvo = match &cx.tipos {
-                    Some(m) => crate::ops::substitute(alvo, m, self.table),
-                    None => alvo,
+                let tgt = match &cx.tipos {
+                    Some(m) => crate::ops::substitute(tgt, m, self.table),
+                    None => tgt,
                 };
-                if v.tipo == self.core.dynamic_ || alvo == self.core.dynamic_ || self.menciona_parametro(alvo) {
+                if v.tipo == self.core.dynamic_ || tgt == self.core.dynamic_ || self.mentions_parameter(tgt) {
                     return Constante::Valor(v);
                 }
-                let alvo = self.apagar(alvo);
-                if !self.sub(v.tipo, alvo) {
+                let tgt = self.apagar(tgt);
+                if !self.sub(v.tipo, tgt) {
                     return self.inv(u, e, c::CONST_EVAL_THROWS_EXCEPTION);
                 }
                 Constante::Valor(v)
@@ -700,61 +700,61 @@ impl<'a> Motor<'a> {
                     Some(Resolved::Element(Element::Class(d))) => {
                         let d = *d;
                         let ExprKind::DotShorthand { name, .. } = &a.expr(e).kind else { unreachable!() };
-                        match self.membro_estatico_variavel(d, name.sym) {
-                            Some(v) => self.valor_de_referencia_a_variavel(cx, e, v),
-                            None => self.generico(u, e, false),
+                        match self.static_variable_member(d, name.sym) {
+                            Some(v) => self.variable_reference_value(cx, e, v),
+                            None => self.generic(u, e, false),
                         }
                     }
-                    _ => self.generico(u, e, true),
+                    _ => self.generic(u, e, true),
                 }
             }
-            _ => self.generico(u, e, false),
+            _ => self.generic(u, e, false),
         }
     }
 
-    pub(crate) fn menciona_parametro(&self, t: TypeId) -> bool {
+    pub(crate) fn mentions_parameter(&self, t: TypeId) -> bool {
         match self.table.get(t) {
             Type::TypeParameter { .. } | Type::Intersection { .. } => true,
-            Type::Interface { args, .. } | Type::ExtensionType { args, .. } => args.iter().any(|a| self.menciona_parametro(*a)),
-            Type::FutureOr { arg, .. } => self.menciona_parametro(*arg),
+            Type::Interface { args, .. } | Type::ExtensionType { args, .. } => args.iter().any(|a| self.mentions_parameter(*a)),
+            Type::FutureOr { arg, .. } => self.mentions_parameter(*arg),
             Type::Function { ret, positional, optional, named, .. } => {
-                self.menciona_parametro(*ret)
-                    || positional.iter().chain(optional.iter()).any(|a| self.menciona_parametro(*a))
-                    || named.iter().any(|(_, a, _)| self.menciona_parametro(*a))
+                self.mentions_parameter(*ret)
+                    || positional.iter().chain(optional.iter()).any(|a| self.mentions_parameter(*a))
+                    || named.iter().any(|(_, a, _)| self.mentions_parameter(*a))
             }
             Type::Record { positional, named, .. } => {
-                positional.iter().any(|a| self.menciona_parametro(*a)) || named.iter().any(|(_, a)| self.menciona_parametro(*a))
+                positional.iter().any(|a| self.mentions_parameter(*a)) || named.iter().any(|(_, a)| self.mentions_parameter(*a))
             }
             _ => false,
         }
     }
 
     /// O span da palavra-chave `new`/`const` de uma criação explícita.
-    fn palavra_de_criacao(&self, u: UnitId, e: ExprId, tem: bool) -> Option<Span> {
-        if !tem {
+    fn creation_keyword(&self, u: UnitId, e: ExprId, has: bool) -> Option<Span> {
+        if !has {
             return None;
         }
         let s = self.span(u, e);
-        let fonte = &self.program.unit(u).source;
-        let texto = fonte.get(s.start..s.end)?;
-        let n = texto.find(|c: char| !c.is_ascii_alphabetic()).unwrap_or(texto.len());
+        let source = &self.program.unit(u).source;
+        let text = source.get(s.start..s.end)?;
+        let n = text.find(|c: char| !c.is_ascii_alphabetic()).unwrap_or(text.len());
         Some(Span { start: s.start, end: s.start + n })
     }
 
     /// `evaluateAndFormatErrorsInConstructorCall`: uma exceção de execução
     /// vira `CONST_EVAL_THROWS_EXCEPTION` na criação.
-    pub fn formatar_erro_de_construtor(&self, u: UnitId, e: ExprId, r: R) -> R {
+    pub fn format_constructor_error(&self, u: UnitId, e: ExprId, r: R) -> R {
         match r {
-            Constante::Invalida(i) if i.excecao => {
+            Constante::Invalid(i) if i.excecao => {
                 let mut n = self.erro(u, self.span(u, e), c::CONST_EVAL_THROWS_EXCEPTION);
-                n.evitar_relato = i.evitar_relato;
+                n.avoid_report = i.avoid_report;
                 // O contexto da exceção, no arquivo da biblioteca
                 // (`library.source`), depois dos que o erro já tinha.
-                let texto = dartforge_diagnostics::Diagnostic::com_codigo(i.codigo, i.span, i.args.iter().map(|s| s.as_str())).message;
-                let definidora = self.program.library(self.program.unit(u).library).units.first().copied().unwrap_or(u);
+                let text = dartforge_diagnostics::Diagnostic::com_codigo(i.codigo, i.span, i.args.iter().map(|s| s.as_str())).message;
+                let defining = self.program.library(self.program.unit(u).library).units.first().copied().unwrap_or(u);
                 n.contexto = i.contexto.clone();
-                n.contexto.push((definidora, i.span, format!("The exception is '{texto}' and occurs here.")));
-                Constante::Invalida(Box::new(n))
+                n.contexto.push((defining, i.span, format!("The exception is '{text}' and occurs here.")));
+                Constante::Invalid(Box::new(n))
             }
             r => r,
         }
@@ -762,36 +762,36 @@ impl<'a> Motor<'a> {
 
     // -- Strings ---------------------------------------------------------------
 
-    fn string(&mut self, cx: &Ctx, e: ExprId, lit: &ast::StringLit, em_const: bool) -> R {
+    fn string(&mut self, cx: &Ctx, e: ExprId, lit: &ast::StringLit, in_const: bool) -> R {
         let u = cx.unidade;
         let mut acc: Vec<u16> = Vec::new();
-        let mut desconhecida = false;
+        let mut unknown = false;
         for p in lit.parts.iter() {
             match p {
                 ast::StringPart::Text(t) => acc.extend(t.code_units()),
                 ast::StringPart::Interpolation(x) => {
-                    let v = match self.avaliar(cx, *x, em_const) {
+                    let v = match self.avaliar(cx, *x, in_const) {
                         Constante::Valor(v) => v,
                         i => return i,
                     };
-                    if !v.estado.e_bool_num_string_ou_nulo() {
-                        let s = self.span_de_interpolacao(u, *x);
-                        return Constante::Invalida(Box::new(self.erro(u, s, c::CONST_EVAL_TYPE_BOOL_NUM_STRING)));
+                    if !v.estado.is_bool_num_string_or_null() {
+                        let s = self.interpolation_span(u, *x);
+                        return Constante::Invalid(Box::new(self.erro(u, s, c::CONST_EVAL_TYPE_BOOL_NUM_STRING)));
                     }
                     match v.estado.para_texto(&|_| String::new(), &|_| String::new()) {
                         Ok(Estado::Str(Some(s))) => acc.extend(s.iter()),
-                        Ok(_) => desconhecida = true,
+                        Ok(_) => unknown = true,
                         Err(x) => return self.excecao(u, e, x),
                     }
                 }
             }
         }
-        let st = if desconhecida { None } else { Some(acc.into()) };
+        let st = if unknown { None } else { Some(acc.into()) };
         Constante::Valor(Valor::novo(self.core.string, Estado::Str(st)))
     }
 
     /// O intervalo do `InterpolationExpression`: `$x` ou `${e}`.
-    fn span_de_interpolacao(&self, u: UnitId, x: ExprId) -> Span {
+    fn interpolation_span(&self, u: UnitId, x: ExprId) -> Span {
         let s = self.span(u, x);
         let b = self.program.unit(u).source.as_bytes();
         if s.start >= 1 && b[s.start - 1] == b'$' {
@@ -806,8 +806,8 @@ impl<'a> Motor<'a> {
             while j < b.len() && b[j].is_ascii_whitespace() {
                 j += 1;
             }
-            let fim = if j < b.len() && b[j] == b'}' { j + 1 } else { s.end };
-            return Span { start: i - 2, end: fim };
+            let end = if j < b.len() && b[j] == b'}' { j + 1 } else { s.end };
+            return Span { start: i - 2, end: end };
         }
         s
     }
@@ -816,46 +816,46 @@ impl<'a> Motor<'a> {
 
     /// `_buildListConstant`: `None` completa; `Some(Ok(()))` desconhecida
     /// (condição de `if` desconhecida); `Some(Err)` erro.
-    fn construir_lista(
+    fn build_list(
         &mut self,
         cx: &Ctx,
-        lista: &mut Vec<Valor>,
-        elementos: &[CollectionElement],
-        filho_const: bool,
-    ) -> Option<Result<(), Box<Invalida>>> {
+        list: &mut Vec<Valor>,
+        elems: &[CollectionElement],
+        const_child: bool,
+    ) -> Option<Result<(), Box<Invalid>>> {
         let u = cx.unidade;
-        for el in elementos {
+        for el in elems {
             match el {
-                CollectionElement::Expression(x) => match self.avaliar(cx, *x, filho_const) {
-                    Constante::Valor(v) => lista.push(v),
-                    Constante::Invalida(i) => return Some(Err(i)),
+                CollectionElement::Expression(x) => match self.avaliar(cx, *x, const_child) {
+                    Constante::Valor(v) => list.push(v),
+                    Constante::Invalid(i) => return Some(Err(i)),
                 },
                 CollectionElement::For { .. } | CollectionElement::ForIn { .. } => {
-                    return Some(Err(Box::new(self.erro(u, self.span_de_elemento(u, el), c::CONST_EVAL_FOR_ELEMENT))));
+                    return Some(Err(Box::new(self.erro(u, self.element_span(u, el), c::CONST_EVAL_FOR_ELEMENT))));
                 }
                 CollectionElement::If { condition, case_pattern, then, else_, .. } => {
                     if case_pattern.is_some() {
-                        return Some(Err(Box::new(self.erro(u, self.span_de_elemento(u, el), c::INVALID_CONSTANT))));
+                        return Some(Err(Box::new(self.erro(u, self.element_span(u, el), c::INVALID_CONSTANT))));
                     }
-                    let cond = match self.avaliar(cx, *condition, filho_const) {
+                    let cond = match self.avaliar(cx, *condition, const_child) {
                         Constante::Valor(v) => v,
-                        Constante::Invalida(i) => return Some(Err(i)),
+                        Constante::Invalid(i) => return Some(Err(i)),
                     };
-                    if cond.desconhecido_de_fato() {
+                    if cond.actually_unknown() {
                         return Some(Ok(()));
                     }
-                    match cond.como_bool() {
+                    match cond.as_bool() {
                         None => {
                             return Some(Err(Box::new(self.erro(u, self.span(u, *condition), c::NON_BOOL_CONDITION))));
                         }
                         Some(true) => {
-                            if let Some(Err(i)) = self.construir_lista(cx, lista, std::slice::from_ref(then), filho_const) {
+                            if let Some(Err(i)) = self.build_list(cx, list, std::slice::from_ref(then), const_child) {
                                 return Some(Err(i));
                             }
                         }
                         Some(false) => {
                             if let Some(el) = else_ {
-                                if let Some(Err(i)) = self.construir_lista(cx, lista, std::slice::from_ref(el), filho_const) {
+                                if let Some(Err(i)) = self.build_list(cx, list, std::slice::from_ref(el), const_child) {
                                     return Some(Err(i));
                                 }
                             }
@@ -863,91 +863,91 @@ impl<'a> Motor<'a> {
                     }
                 }
                 CollectionElement::MapEntry { .. } => {
-                    return Some(Err(Box::new(self.erro(u, self.span_de_elemento(u, el), c::MAP_ENTRY_NOT_IN_MAP))));
+                    return Some(Err(Box::new(self.erro(u, self.element_span(u, el), c::MAP_ENTRY_NOT_IN_MAP))));
                 }
                 CollectionElement::Spread { value, null_aware } => {
-                    let v = match self.avaliar(cx, *value, filho_const) {
+                    let v = match self.avaliar(cx, *value, const_child) {
                         Constante::Valor(v) => v,
-                        Constante::Invalida(i) => return Some(Err(i)),
+                        Constante::Invalid(i) => return Some(Err(i)),
                     };
-                    if v.estado.e_nulo() && *null_aware {
+                    if v.estado.is_null() && *null_aware {
                         continue;
                     }
-                    match v.como_lista().or_else(|| v.como_conjunto()) {
-                        Some(xs) => lista.extend(xs.iter().cloned()),
+                    match v.as_list().or_else(|| v.as_set()) {
+                        Some(xs) => list.extend(xs.iter().cloned()),
                         None => {
                             return Some(Err(Box::new(self.erro(u, self.span(u, *value), c::CONST_SPREAD_EXPECTED_LIST_OR_SET))));
                         }
                     }
                 }
                 CollectionElement::NullAwareExpression(x) => {
-                    let v = match self.avaliar(cx, *x, filho_const) {
+                    let v = match self.avaliar(cx, *x, const_child) {
                         Constante::Valor(v) => v,
-                        Constante::Invalida(i) => return Some(Err(i)),
+                        Constante::Invalid(i) => return Some(Err(i)),
                     };
-                    if v.estado.e_nulo() {
+                    if v.estado.is_null() {
                         continue;
                     }
-                    lista.push(v);
+                    list.push(v);
                 }
             }
         }
         None
     }
 
-    fn construir_conjunto(&mut self, cx: &Ctx, conj: &mut Vec<Valor>, elementos: &[CollectionElement]) -> Option<Result<(), Box<Invalida>>> {
+    fn build_set(&mut self, cx: &Ctx, set: &mut Vec<Valor>, elems: &[CollectionElement]) -> Option<Result<(), Box<Invalid>>> {
         let u = cx.unidade;
-        for el in elementos {
+        for el in elems {
             match el {
                 CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) => match self.avaliar(cx, *x, true) {
                     Constante::Valor(v) => {
-                        if matches!(el, CollectionElement::NullAwareExpression(_)) && v.estado.e_nulo() {
+                        if matches!(el, CollectionElement::NullAwareExpression(_)) && v.estado.is_null() {
                             continue;
                         }
-                        self.inserir_no_conjunto(conj, v);
+                        self.insert_into_set(set, v);
                     }
-                    Constante::Invalida(i) => return Some(Err(i)),
+                    Constante::Invalid(i) => return Some(Err(i)),
                 },
                 CollectionElement::For { .. } | CollectionElement::ForIn { .. } => {
-                    return Some(Err(Box::new(self.erro(u, self.span_de_elemento(u, el), c::CONST_EVAL_FOR_ELEMENT))));
+                    return Some(Err(Box::new(self.erro(u, self.element_span(u, el), c::CONST_EVAL_FOR_ELEMENT))));
                 }
                 CollectionElement::If { condition, case_pattern, then, else_, .. } => {
                     if case_pattern.is_some() {
-                        return Some(Err(Box::new(self.erro(u, self.span_de_elemento(u, el), c::INVALID_CONSTANT))));
+                        return Some(Err(Box::new(self.erro(u, self.element_span(u, el), c::INVALID_CONSTANT))));
                     }
                     let cond = match self.avaliar(cx, *condition, true) {
                         Constante::Valor(v) => v,
-                        Constante::Invalida(i) => return Some(Err(i)),
+                        Constante::Invalid(i) => return Some(Err(i)),
                     };
-                    if cond.desconhecido_de_fato() {
+                    if cond.actually_unknown() {
                         return Some(Ok(()));
                     }
-                    let ramo = match cond.como_bool() {
+                    let branch = match cond.as_bool() {
                         None => return Some(Err(Box::new(self.erro(u, self.span(u, *condition), c::NON_BOOL_CONDITION)))),
                         Some(true) => Some(&**then),
                         Some(false) => else_.as_deref(),
                     };
-                    if let Some(r) = ramo {
-                        if let Some(Err(i)) = self.construir_conjunto(cx, conj, std::slice::from_ref(r)) {
+                    if let Some(r) = branch {
+                        if let Some(Err(i)) = self.build_set(cx, set, std::slice::from_ref(r)) {
                             return Some(Err(i));
                         }
                     }
                 }
                 CollectionElement::MapEntry { .. } => {
-                    return Some(Err(Box::new(self.erro(u, self.span_de_elemento(u, el), c::MAP_ENTRY_NOT_IN_MAP))));
+                    return Some(Err(Box::new(self.erro(u, self.element_span(u, el), c::MAP_ENTRY_NOT_IN_MAP))));
                 }
                 CollectionElement::Spread { value, null_aware } => {
                     let v = match self.avaliar(cx, *value, true) {
                         Constante::Valor(v) => v,
-                        Constante::Invalida(i) => return Some(Err(i)),
+                        Constante::Invalid(i) => return Some(Err(i)),
                     };
-                    if v.estado.e_nulo() && *null_aware {
+                    if v.estado.is_null() && *null_aware {
                         continue;
                     }
-                    match v.como_conjunto().or_else(|| v.como_lista()) {
+                    match v.as_set().or_else(|| v.as_list()) {
                         Some(xs) => {
                             for x in xs.iter() {
-                                self.inserir_no_conjunto(conj, x.clone());
+                                self.insert_into_set(set, x.clone());
                             }
                         }
                         None => {
@@ -960,40 +960,40 @@ impl<'a> Motor<'a> {
         None
     }
 
-    fn inserir_no_conjunto(&mut self, conj: &mut Vec<Valor>, v: Valor) {
-        if !conj.iter().any(|x| self.iguais(x, &v)) {
-            conj.push(v);
+    fn insert_into_set(&mut self, set: &mut Vec<Valor>, v: Valor) {
+        if !set.iter().any(|x| self.iguais(x, &v)) {
+            set.push(v);
         }
     }
 
-    fn construir_mapa(&mut self, cx: &Ctx, mapa: &mut Vec<(Valor, Valor)>, elementos: &[CollectionElement]) -> Option<Result<(), Box<Invalida>>> {
+    fn build_map(&mut self, cx: &Ctx, map: &mut Vec<(Valor, Valor)>, elems: &[CollectionElement]) -> Option<Result<(), Box<Invalid>>> {
         let u = cx.unidade;
-        for el in elementos {
+        for el in elems {
             match el {
                 CollectionElement::Expression(_) | CollectionElement::NullAwareExpression(_) => {
-                    return Some(Err(Box::new(self.erro(u, self.span_de_elemento(u, el), c::EXPRESSION_IN_MAP))));
+                    return Some(Err(Box::new(self.erro(u, self.element_span(u, el), c::EXPRESSION_IN_MAP))));
                 }
                 CollectionElement::For { .. } | CollectionElement::ForIn { .. } => {
-                    return Some(Err(Box::new(self.erro(u, self.span_de_elemento(u, el), c::CONST_EVAL_FOR_ELEMENT))));
+                    return Some(Err(Box::new(self.erro(u, self.element_span(u, el), c::CONST_EVAL_FOR_ELEMENT))));
                 }
                 CollectionElement::If { condition, case_pattern, then, else_, .. } => {
                     if case_pattern.is_some() {
-                        return Some(Err(Box::new(self.erro(u, self.span_de_elemento(u, el), c::INVALID_CONSTANT))));
+                        return Some(Err(Box::new(self.erro(u, self.element_span(u, el), c::INVALID_CONSTANT))));
                     }
                     let cond = match self.avaliar(cx, *condition, true) {
                         Constante::Valor(v) => v,
-                        Constante::Invalida(i) => return Some(Err(i)),
+                        Constante::Invalid(i) => return Some(Err(i)),
                     };
-                    if cond.desconhecido_de_fato() {
+                    if cond.actually_unknown() {
                         return Some(Ok(()));
                     }
-                    let ramo = match cond.como_bool() {
+                    let branch = match cond.as_bool() {
                         None => return Some(Err(Box::new(self.erro(u, self.span(u, *condition), c::NON_BOOL_CONDITION)))),
                         Some(true) => Some(&**then),
                         Some(false) => else_.as_deref(),
                     };
-                    if let Some(r) = ramo {
-                        if let Some(Err(i)) = self.construir_mapa(cx, mapa, std::slice::from_ref(r)) {
+                    if let Some(r) = branch {
+                        if let Some(Err(i)) = self.build_map(cx, map, std::slice::from_ref(r)) {
                             return Some(Err(i));
                         }
                     }
@@ -1003,36 +1003,36 @@ impl<'a> Motor<'a> {
                     let v = self.avaliar(cx, *value, true);
                     let k = match k {
                         Constante::Valor(k) => k,
-                        Constante::Invalida(i) => return Some(Err(i)),
+                        Constante::Invalid(i) => return Some(Err(i)),
                     };
                     let v = match v {
                         Constante::Valor(v) => v,
-                        Constante::Invalida(i) => return Some(Err(i)),
+                        Constante::Invalid(i) => return Some(Err(i)),
                     };
-                    if (*null_aware_key && k.estado.e_nulo()) || (*null_aware_value && v.estado.e_nulo()) {
+                    if (*null_aware_key && k.estado.is_null()) || (*null_aware_value && v.estado.is_null()) {
                         continue;
                     }
-                    if let Some(p) = mapa.iter().position(|(x, _)| self.iguais(x, &k)) {
-                        mapa[p].1 = v;
+                    if let Some(p) = map.iter().position(|(x, _)| self.iguais(x, &k)) {
+                        map[p].1 = v;
                     } else {
-                        mapa.push((k, v));
+                        map.push((k, v));
                     }
                 }
                 CollectionElement::Spread { value, null_aware } => {
                     let v = match self.avaliar(cx, *value, true) {
                         Constante::Valor(v) => v,
-                        Constante::Invalida(i) => return Some(Err(i)),
+                        Constante::Invalid(i) => return Some(Err(i)),
                     };
-                    if v.estado.e_nulo() && *null_aware {
+                    if v.estado.is_null() && *null_aware {
                         continue;
                     }
-                    match v.como_mapa() {
+                    match v.as_map() {
                         Some(xs) => {
                             for (k, x) in xs.iter() {
-                                if let Some(p) = mapa.iter().position(|(y, _)| self.iguais(y, k)) {
-                                    mapa[p].1 = x.clone();
+                                if let Some(p) = map.iter().position(|(y, _)| self.iguais(y, k)) {
+                                    map[p].1 = x.clone();
                                 } else {
-                                    mapa.push((k.clone(), x.clone()));
+                                    map.push((k.clone(), x.clone()));
                                 }
                             }
                         }
@@ -1045,47 +1045,47 @@ impl<'a> Motor<'a> {
     }
 
     /// O intervalo de um elemento de coleção.
-    pub fn span_de_elemento(&self, u: UnitId, el: &CollectionElement) -> Span {
+    pub fn element_span(&self, u: UnitId, el: &CollectionElement) -> Span {
         let a = self.ast(u);
-        let fonte = self.program.unit(u).source.as_bytes();
+        let source = self.program.unit(u).source.as_bytes();
         match el {
             CollectionElement::Expression(x) => a.expr(*x).span,
             CollectionElement::NullAwareExpression(x) => {
                 let s = a.expr(*x).span;
-                Span { start: recuar_ate(fonte, s.start, b'?'), end: s.end }
+                Span { start: back_up_to(source, s.start, b'?'), end: s.end }
             }
             CollectionElement::MapEntry { key, value, .. } => {
                 let (k, v) = (a.expr(*key).span, a.expr(*value).span);
-                Span { start: recuar_ate(fonte, k.start, b'?'), end: v.end }
+                Span { start: back_up_to(source, k.start, b'?'), end: v.end }
             }
             CollectionElement::Spread { value, .. } => {
                 let s = a.expr(*value).span;
-                Span { start: recuar_palavra(fonte, s.start, &["...?", "..."]), end: s.end }
+                Span { start: back_up_word(source, s.start, &["...?", "..."]), end: s.end }
             }
             CollectionElement::If { condition, then, else_, .. } => {
                 let s = a.expr(*condition).span;
-                let fim = else_.as_ref().map(|x| self.span_de_elemento(u, x)).unwrap_or_else(|| self.span_de_elemento(u, then)).end;
-                Span { start: recuar_palavra(fonte, s.start, &["if"]), end: fim }
+                let end = else_.as_ref().map(|x| self.element_span(u, x)).unwrap_or_else(|| self.element_span(u, then)).end;
+                Span { start: back_up_word(source, s.start, &["if"]), end: end }
             }
             CollectionElement::For { body, init, condition, updates, .. } => {
-                let fim = self.span_de_elemento(u, body).end;
-                let primeiro = condition
+                let end = self.element_span(u, body).end;
+                let first = condition
                     .map(|x| a.expr(x).span.start)
                     .or_else(|| updates.first().map(|x| a.expr(*x).span.start))
-                    .unwrap_or(fim);
+                    .unwrap_or(end);
                 let _ = init;
-                Span { start: inicio_de_for(fonte, primeiro), end: fim }
+                Span { start: inicio_de_for(source, first), end: end }
             }
             CollectionElement::ForIn { body, iterable, .. } => {
-                let fim = self.span_de_elemento(u, body).end;
-                Span { start: inicio_de_for(fonte, a.expr(*iterable).span.start), end: fim }
+                let end = self.element_span(u, body).end;
+                Span { start: inicio_de_for(source, a.expr(*iterable).span.start), end: end }
             }
         }
     }
 
     // -- Operadores ------------------------------------------------------------
 
-    fn e_de_extensao(&self, u: UnitId, e: ExprId) -> Option<Codigo> {
+    fn is_of_extension(&self, u: UnitId, e: ExprId) -> Option<Codigo> {
         match self.resolvido(u, e)? {
             Resolved::ExtensionMember { .. } => Some(c::CONST_EVAL_EXTENSION_METHOD),
             Resolved::Member { class, .. } if self.program.class(*class).kind == ClassKind::ExtensionType => {
@@ -1095,28 +1095,28 @@ impl<'a> Motor<'a> {
         }
     }
 
-    fn unario(&mut self, cx: &Ctx, e: ExprId, op: UnaryOp, operand: ExprId, em_const: bool) -> R {
+    fn unary(&mut self, cx: &Ctx, e: ExprId, op: UnaryOp, operand: ExprId, in_const: bool) -> R {
         let u = cx.unidade;
-        if let Some(codigo) = self.e_de_extensao(u, e) {
-            return self.inv(u, e, codigo);
+        if let Some(code) = self.is_of_extension(u, e) {
+            return self.inv(u, e, code);
         }
         // Pós-fixos (`a++`, `a!`) não têm visita própria (`visitNode`): o
         // erro genérico no nó. `visitPrefixExpression`: o operando primeiro
         // (o erro dele vence); só então `++`/`--` são o erro genérico.
         if matches!(op, UnaryOp::PostfixInc | UnaryOp::PostfixDec | UnaryOp::NullAssert) {
-            return self.generico(u, e, false);
+            return self.generic(u, e, false);
         }
-        let v = match self.avaliar(cx, operand, em_const) {
+        let v = match self.avaliar(cx, operand, in_const) {
             Constante::Valor(v) => v,
             i => return i,
         };
         if !matches!(op, UnaryOp::Neg | UnaryOp::Not | UnaryOp::BitNot) {
-            return self.generico(u, e, false);
+            return self.generic(u, e, false);
         }
         let r = match op {
-            UnaryOp::Not => v.estado.nao_logico().map(|s| (self.core.bool_, s)),
-            UnaryOp::BitNot => v.estado.negar_bits().map(|s| (self.core.int, s)),
-            _ => v.estado.negar().map(|s| {
+            UnaryOp::Not => v.estado.logical_not().map(|s| (self.core.bool_, s)),
+            UnaryOp::BitNot => v.estado.negate_bits().map(|s| (self.core.int, s)),
+            _ => v.estado.negate().map(|s| {
                 let t = if matches!(s, Estado::Double(_)) { self.core.double } else { self.core.int };
                 (t, s)
             }),
@@ -1127,20 +1127,20 @@ impl<'a> Motor<'a> {
         }
     }
 
-    fn binario(&mut self, cx: &Ctx, e: ExprId, op: BinaryOp, left: ExprId, right: ExprId, em_const: bool) -> R {
+    fn binary(&mut self, cx: &Ctx, e: ExprId, op: BinaryOp, left: ExprId, right: ExprId, in_const: bool) -> R {
         let u = cx.unidade;
-        if let Some(codigo) = self.e_de_extensao(u, e) {
-            return self.inv(u, e, codigo);
+        if let Some(code) = self.is_of_extension(u, e) {
+            return self.inv(u, e, code);
         }
-        let l = match self.avaliar(cx, left, em_const) {
+        let l = match self.avaliar(cx, left, in_const) {
             Constante::Valor(v) => v,
             i => return i,
         };
         match op {
             BinaryOp::And | BinaryOp::Or => {
-                let curto = if op == BinaryOp::And { Some(false) } else { Some(true) };
-                if l.como_bool() == curto {
-                    if let Some(i) = self.nao_potencialmente_constante(cx, right) {
+                let short_circuit = if op == BinaryOp::And { Some(false) } else { Some(true) };
+                if l.as_bool() == short_circuit {
+                    if let Some(i) = self.not_potentially_constant(cx, right) {
                         return i;
                     }
                 }
@@ -1148,12 +1148,12 @@ impl<'a> Motor<'a> {
                 let r = (|| -> Result<Estado, Excecao> {
                     match &l.estado {
                         Estado::Bool(v) => {
-                            if *v == curto {
+                            if *v == short_circuit {
                                 return Ok(Estado::Bool(*v));
                             }
-                            let d = match self.avaliar(cx, right, em_const) {
+                            let d = match self.avaliar(cx, right, in_const) {
                                 Constante::Valor(d) => d,
-                                Constante::Invalida(i) => return Err(Excecao::nova(i.codigo)),
+                                Constante::Invalid(i) => return Err(Excecao::nova(i.codigo)),
                             };
                             if !d.estado.e_bool() {
                                 return Err(Excecao::nova(c::CONST_EVAL_TYPE_BOOL));
@@ -1172,17 +1172,17 @@ impl<'a> Motor<'a> {
                 };
             }
             BinaryOp::IfNull => {
-                if !l.estado.e_nulo() {
-                    if let Some(i) = self.nao_potencialmente_constante(cx, right) {
+                if !l.estado.is_null() {
+                    if let Some(i) = self.not_potentially_constant(cx, right) {
                         return i;
                     }
                     return Constante::Valor(l);
                 }
-                return self.avaliar(cx, right, em_const);
+                return self.avaliar(cx, right, in_const);
             }
             _ => {}
         }
-        let r = match self.avaliar(cx, right, em_const) {
+        let r = match self.avaliar(cx, right, in_const) {
             Constante::Valor(v) => v,
             i => return i,
         };
@@ -1190,16 +1190,16 @@ impl<'a> Motor<'a> {
             BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor => {
                 if l.estado.e_bool() && r.estado.e_bool() {
                     let s = match op {
-                        BinaryOp::BitAnd => l.estado.e_logico(&r.estado),
-                        BinaryOp::BitOr => l.estado.ou_logico(&r.estado),
-                        _ => l.estado.xor_logico(&r.estado),
+                        BinaryOp::BitAnd => l.estado.logical_and(&r.estado),
+                        BinaryOp::BitOr => l.estado.logical_or(&r.estado),
+                        _ => l.estado.logical_xor(&r.estado),
                     };
                     s.map(|s| (self.core.bool_, s))
                 } else if l.estado.e_int() && r.estado.e_int() {
                     let s = match op {
                         BinaryOp::BitAnd => l.estado.e_bit(&r.estado),
-                        BinaryOp::BitOr => l.estado.ou_bit(&r.estado),
-                        _ => l.estado.xor_bit(&r.estado),
+                        BinaryOp::BitOr => l.estado.bit_or(&r.estado),
+                        _ => l.estado.bit_xor(&r.estado),
                     };
                     s.map(|s| (self.core.int, s))
                 } else {
@@ -1208,25 +1208,25 @@ impl<'a> Motor<'a> {
             }
             BinaryOp::Eq | BinaryOp::NotEq => {
                 let lib = cx.lib;
-                self.igual_igual(lib, &l, &r).map(|b| {
+                self.equal_equal(lib, &l, &r).map(|b| {
                     let b = if op == BinaryOp::NotEq { b.map(|x| !x) } else { b };
                     (self.core.bool_, Estado::Bool(b))
                 })
             }
-            BinaryOp::Gt => l.estado.maior(&r.estado).map(|s| (self.core.bool_, s)),
-            BinaryOp::GtEq => l.estado.maior_ou_igual(&r.estado).map(|s| (self.core.bool_, s)),
-            BinaryOp::Lt => l.estado.menor(&r.estado).map(|s| (self.core.bool_, s)),
-            BinaryOp::LtEq => l.estado.menor_ou_igual(&r.estado).map(|s| (self.core.bool_, s)),
-            BinaryOp::Shl => l.estado.desloca_esquerda(&r.estado).map(|s| (self.core.int, s)),
-            BinaryOp::Shr => l.estado.desloca_direita(&r.estado).map(|s| (self.core.int, s)),
-            BinaryOp::UShr => l.estado.desloca_direita_logico(&r.estado).map(|s| (self.core.int, s)),
-            BinaryOp::TruncDiv => l.estado.dividir_inteiro(&r.estado).map(|s| (self.core.int, s)),
+            BinaryOp::Gt => l.estado.greater(&r.estado).map(|s| (self.core.bool_, s)),
+            BinaryOp::GtEq => l.estado.greater_or_equal(&r.estado).map(|s| (self.core.bool_, s)),
+            BinaryOp::Lt => l.estado.less(&r.estado).map(|s| (self.core.bool_, s)),
+            BinaryOp::LtEq => l.estado.less_or_equal(&r.estado).map(|s| (self.core.bool_, s)),
+            BinaryOp::Shl => l.estado.shift_left(&r.estado).map(|s| (self.core.int, s)),
+            BinaryOp::Shr => l.estado.shift_right(&r.estado).map(|s| (self.core.int, s)),
+            BinaryOp::UShr => l.estado.logical_shift_right(&r.estado).map(|s| (self.core.int, s)),
+            BinaryOp::TruncDiv => l.estado.integer_divide(&r.estado).map(|s| (self.core.int, s)),
             BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
                 let s = match op {
                     BinaryOp::Add => l.estado.somar(&r.estado),
-                    BinaryOp::Sub => l.estado.subtrair(&r.estado),
-                    BinaryOp::Mul => l.estado.multiplicar(&r.estado),
-                    BinaryOp::Div => l.estado.dividir(&r.estado),
+                    BinaryOp::Sub => l.estado.subtract(&r.estado),
+                    BinaryOp::Mul => l.estado.multiply(&r.estado),
+                    BinaryOp::Div => l.estado.divide(&r.estado),
                     _ => l.estado.resto(&r.estado),
                 };
                 s.map(|s| {
@@ -1238,7 +1238,7 @@ impl<'a> Motor<'a> {
                     (t, s)
                 })
             }
-            _ => return self.generico(u, e, false),
+            _ => return self.generic(u, e, false),
         };
         match res {
             Ok((t, s)) => Constante::Valor(Valor::novo(t, s)),
@@ -1247,24 +1247,24 @@ impl<'a> Motor<'a> {
     }
 
     /// `equalEqual`: com `patterns` ligado (3.0+), primitiva ou `double`.
-    fn igual_igual(&mut self, lib: LibraryId, l: &Valor, r: &Valor) -> Result<Option<bool>, Excecao> {
-        if l.estado.e_nulo() || r.estado.e_nulo() {
-            return Ok(Some(l.estado.e_nulo() && r.estado.e_nulo()));
+    fn equal_equal(&mut self, lib: LibraryId, l: &Valor, r: &Valor) -> Result<Option<bool>, Excecao> {
+        if l.estado.is_null() || r.estado.is_null() {
+            return Ok(Some(l.estado.is_null() && r.estado.is_null()));
         }
-        let padroes = self.program.library(lib).features.versao() >= dartforge_frontend::features::LanguageVersion::new(3, 0);
-        let pode = if padroes {
-            matches!(l.estado, Estado::Double(_)) || self.igualdade_primitiva(l, lib)
+        let patterns = self.program.library(lib).features.versao() >= dartforge_frontend::features::LanguageVersion::new(3, 0);
+        let can = if patterns {
+            matches!(l.estado, Estado::Double(_)) || self.primitive_equality(l, lib)
         } else {
-            l.estado.e_bool_num_string_ou_nulo()
+            l.estado.is_bool_num_string_or_null()
         };
-        if !pode {
+        if !can {
             return Err(Excecao::nova(c::CONST_EVAL_TYPE_BOOL_NUM_STRING));
         }
-        Ok(self.identico_estado(&l.estado, &r.estado))
+        Ok(self.identical_state(&l.estado, &r.estado))
     }
 
     /// `identical` (`isIdentical2`).
-    pub fn identico(&mut self, l: &Valor, r: &Valor) -> Option<bool> {
+    pub fn identical(&mut self, l: &Valor, r: &Valor) -> Option<bool> {
         let (int, double) = (self.core.int, self.core.double);
         if (l.tipo == int && r.tipo == double) || (l.tipo == double && r.tipo == int) {
             return None;
@@ -1272,11 +1272,11 @@ impl<'a> Motor<'a> {
         if l.tipo != r.tipo {
             return Some(false);
         }
-        self.identico_estado(&l.estado, &r.estado)
+        self.identical_state(&l.estado, &r.estado)
     }
 
     /// `InstanceState.isIdentical` (e `equalEqual`, que é o mesmo aqui).
-    fn identico_estado(&mut self, l: &Estado, r: &Estado) -> Option<bool> {
+    fn identical_state(&mut self, l: &Estado, r: &Estado) -> Option<bool> {
         match (l, r) {
             (Estado::Bool(a), b) => {
                 let a = (*a)?;
@@ -1317,7 +1317,7 @@ impl<'a> Motor<'a> {
                     _ => Some(false),
                 }
             }
-            (Estado::Null { .. }, b) => Some(b.e_nulo()),
+            (Estado::Null { .. }, b) => Some(b.is_null()),
             (Estado::Simbolo(a), b) => {
                 let a = a.as_ref()?;
                 match b {
@@ -1336,29 +1336,29 @@ impl<'a> Motor<'a> {
                 Estado::Funcao { elemento: b, args: y } => Some(a == b && x == y),
                 _ => Some(false),
             },
-            (Estado::Lista { desconhecida, .. }, b) | (Estado::Conjunto { desconhecido: desconhecida, .. }, b) | (Estado::Mapa { desconhecido: desconhecida, .. }, b)
-                if *desconhecida || b.desconhecido() =>
+            (Estado::Lista { unknown, .. }, b) | (Estado::Conjunto { desconhecido: unknown, .. }, b) | (Estado::Mapa { desconhecido: unknown, .. }, b)
+                if *unknown || b.desconhecido() =>
             {
                 None
             }
             (Estado::Registro { .. }, _) => {
-                if !self.estados_iguais(l, r) {
+                if !self.equal_states(l, r) {
                     Some(false)
                 } else {
                     None
                 }
             }
-            _ => Some(self.estados_iguais(l, r)),
+            _ => Some(self.equal_states(l, r)),
         }
     }
 
     /// `==` de `DartObjectImpl` (a igualdade estrutural das chaves de mapa e
     /// dos elementos de conjunto).
     pub fn iguais(&mut self, a: &Valor, b: &Valor) -> bool {
-        a.tipo == b.tipo && self.estados_iguais(&a.estado, &b.estado)
+        a.tipo == b.tipo && self.equal_states(&a.estado, &b.estado)
     }
 
-    fn estados_iguais(&mut self, a: &Estado, b: &Estado) -> bool {
+    fn equal_states(&mut self, a: &Estado, b: &Estado) -> bool {
         // Valor não conhecido (constante de outra biblioteca, opaca) não é
         // provadamente igual a nada: dois `CompileTimeErrorCode.X` vindos
         // de fora não são o mesmo elemento de conjunto.
@@ -1396,22 +1396,22 @@ impl<'a> Motor<'a> {
     }
 
     /// `hasPrimitiveEquality`.
-    pub fn igualdade_primitiva(&mut self, v: &Valor, lib: LibraryId) -> bool {
+    pub fn primitive_equality(&mut self, v: &Valor, lib: LibraryId) -> bool {
         match &v.estado {
-            Estado::Registro { posicionais, nomeados } => {
-                let (p, n) = (posicionais.clone(), nomeados.clone());
-                p.iter().all(|x| self.igualdade_primitiva(x, lib)) && n.iter().all(|(_, x)| self.igualdade_primitiva(x, lib))
+            Estado::Registro { posicionais: positional_args, nomeados: named_args } => {
+                let (p, n) = (positional_args.clone(), named_args.clone());
+                p.iter().all(|x| self.primitive_equality(x, lib)) && n.iter().all(|(_, x)| self.primitive_equality(x, lib))
             }
             Estado::Generico { .. } => {
                 let Type::Interface { class, .. } = self.table.get(v.tipo).clone() else { return false };
-                let padroes = self.program.library(lib).features.versao() >= dartforge_frontend::features::LanguageVersion::new(3, 0);
+                let patterns = self.program.library(lib).features.versao() >= dartforge_frontend::features::LanguageVersion::new(3, 0);
                 let eq = self.interner.lookup("==");
                 let hash = self.interner.lookup("hashCode");
-                let de_object = |m: &Motor<'_>, s: Option<SymbolId>| match s.and_then(|s| m.membro_concreto(class, s)) {
+                let of_object = |m: &Motor<'_>, s: Option<SymbolId>| match s.and_then(|s| m.concrete_member(class, s)) {
                     Some(c) => Some(c) == m.core.object_class,
                     None => true,
                 };
-                de_object(self, eq) && (!padroes || de_object(self, hash))
+                of_object(self, eq) && (!patterns || of_object(self, hash))
             }
             Estado::Double(_) => false,
             _ => true,
@@ -1420,90 +1420,90 @@ impl<'a> Motor<'a> {
 
     /// A classe que declara o membro de instância concreto `nome` visto de
     /// `c` (superclasses e mixins, na ordem de busca).
-    fn membro_concreto(&self, c: ClassId, nome: SymbolId) -> Option<ClassId> {
-        let mut atual = Some(c);
-        let mut vistos = 0;
-        while let Some(k) = atual {
-            vistos += 1;
-            if vistos > 100 {
+    fn concrete_member(&self, c: ClassId, the_name: SymbolId) -> Option<ClassId> {
+        let mut current = Some(c);
+        let mut seen = 0;
+        while let Some(k) = current {
+            seen += 1;
+            if seen > 100 {
                 return None;
             }
-            let classe = self.program.class(k);
-            if let Some(f) = classe.instance_members.get(&nome) {
+            let cls = self.program.class(k);
+            if let Some(f) = cls.instance_members.get(&the_name) {
                 if !self.program.function(*f).abstract_ {
                     return Some(k);
                 }
             }
-            for m in classe.mixin_classes.iter().rev() {
-                if let Some(f) = self.program.class(*m).instance_members.get(&nome) {
+            for m in cls.mixin_classes.iter().rev() {
+                if let Some(f) = self.program.class(*m).instance_members.get(&the_name) {
                     if !self.program.function(*f).abstract_ {
                         return Some(*m);
                     }
                 }
             }
-            atual = classe.supertype_class;
+            current = cls.supertype_class;
         }
         None
     }
 
     // -- Nomes -----------------------------------------------------------------
 
-    fn propriedade(&mut self, cx: &Ctx, e: ExprId, alvo: ExprId, nome: ast::Name, em_const: bool) -> R {
+    fn propriedade(&mut self, cx: &Ctx, e: ExprId, tgt: ExprId, the_name: ast::Name, in_const: bool) -> R {
         let u = cx.unidade;
         let a = self.ast(u);
-        let alvo_simples = matches!(a.expr(alvo).kind, ExprKind::Identifier(_));
-        let res_alvo = self.resolvido(u, alvo).cloned();
-        match res_alvo {
+        let simple_target = matches!(a.expr(tgt).kind, ExprKind::Identifier(_));
+        let res_target = self.resolvido(u, tgt).cloned();
+        match res_target {
             // Constante de topo importada com prefixo; do prefixo adiado,
             // o erro de biblioteca adiada no nome (`visitPrefixedIdentifier`,
             // 3.6.2 `evaluation.dart:1108-1115`).
             Some(Resolved::Prefix(_)) | Some(Resolved::Element(Element::Prefix(..))) => {
-                if self.prefixo_adiado(u, alvo) {
-                    return self.erro_de_biblioteca_adiada(u, e, nome.span);
+                if self.deferred_prefix(u, tgt) {
+                    return self.deferred_library_error(u, e, the_name.span);
                 }
-                return self.valor_constante(cx, e, e, true);
+                return self.constant_value(cx, e, e, true);
             }
             // `p.Ext.m` (`visitPropertyAccess`, `:1176-1185`): com `p`
             // adiado, o erro no nome da extensão.
             Some(Resolved::Element(Element::Extension(_))) => {
-                if let ExprKind::Property { target: p, name: nome_ext, .. } = &a.expr(alvo).kind
+                if let ExprKind::Property { target: p, name: ext_name, .. } = &a.expr(tgt).kind
                     && matches!(self.resolvido(u, *p), Some(Resolved::Prefix(_)) | Some(Resolved::Element(Element::Prefix(..))))
-                    && self.prefixo_adiado(u, *p)
+                    && self.deferred_prefix(u, *p)
                 {
-                    let sp = nome_ext.span;
-                    return self.erro_de_biblioteca_adiada(u, e, sp);
+                    let sp = ext_name.span;
+                    return self.deferred_library_error(u, e, sp);
                 }
-                return self.valor_constante(cx, e, e, true);
+                return self.constant_value(cx, e, e, true);
             }
             _ => {}
         }
-        if let Some(Resolved::Element(Element::Class(k))) = &res_alvo {
-            if self.program.class(*k).kind == ClassKind::ExtensionType && !alvo_simples {
-                return self.valor_constante(cx, e, e, true);
+        if let Some(Resolved::Element(Element::Class(k))) = &res_target {
+            if self.program.class(*k).kind == ClassKind::ExtensionType && !simple_target {
+                return self.constant_value(cx, e, e, true);
             }
         }
-        let prefixo = match self.avaliar(cx, alvo, em_const) {
+        let prefix = match self.avaliar(cx, tgt, in_const) {
             Constante::Valor(v) => v,
             i => return i,
         };
-        let e_interface = alvo_simples && matches!(res_alvo, Some(Resolved::Element(Element::Class(_) | Element::Typedef(_))));
+        let e_interface = simple_target && matches!(res_target, Some(Resolved::Element(Element::Class(_) | Element::Typedef(_))));
         // `C<T>.new`, `C.nome`: o `ConstructorReference` (tear-off de
         // construtor), não um acesso a propriedade do `Type`.
         if matches!(self.resolvido(u, e), Some(Resolved::Constructor(_))) {
-            return self.valor_constante(cx, e, e, true);
+            return self.constant_value(cx, e, e, true);
         }
         if !e_interface {
-            if let Some(r) = self.acesso_a_propriedade(u, e, &prefixo, nome) {
+            if let Some(r) = self.property_access(u, e, &prefix, the_name) {
                 return r;
             }
         }
-        self.valor_constante(cx, e, e, true)
+        self.constant_value(cx, e, e, true)
     }
 
     /// `PrefixedIdentifier.isDeferred` (3.6.2 `ast.dart:14386-14396`): o
     /// prefixo `p` (um identificador) é de exatamente um import da unidade, e
     /// esse import é `deferred`.
-    fn prefixo_adiado(&self, u: UnitId, p: ExprId) -> bool {
+    fn deferred_prefix(&self, u: UnitId, p: ExprId) -> bool {
         let ExprKind::Identifier(n) = &self.ast(u).expr(p).kind else {
             return false;
         };
@@ -1518,9 +1518,9 @@ impl<'a> Motor<'a> {
     /// `_getDeferredLibraryError` (3.6.2 `evaluation.dart:1873-1933`): o código
     /// pelo primeiro ancestral de `no` que o decide, no `alvo`; sem nenhum,
     /// `INVALID_CONSTANT` no próprio `no`.
-    fn erro_de_biblioteca_adiada(&self, u: UnitId, no: ExprId, alvo: Span) -> R {
-        match self.codigo_de_biblioteca_adiada(u, no) {
-            Some(codigo) => Constante::Invalida(Box::new(self.erro(u, alvo, codigo))),
+    fn deferred_library_error(&self, u: UnitId, no: ExprId, tgt: Span) -> R {
+        match self.deferred_library_code(u, no) {
+            Some(code) => Constante::Invalid(Box::new(self.erro(u, tgt, code))),
             None => self.inv(u, no, c::INVALID_CONSTANT),
         }
     }
@@ -1533,16 +1533,16 @@ impl<'a> Motor<'a> {
     /// pai não é expressão (instrução, padrão, valor padrão…), a subida continua
     /// pela menor expressão que contém o trecho (uma expressão de função, um
     /// `switch` de expressão, a coleção do `if (… case …)`).
-    fn codigo_de_biblioteca_adiada(&self, u: UnitId, no: ExprId) -> Option<Codigo> {
+    fn deferred_library_code(&self, u: UnitId, no: ExprId) -> Option<Codigo> {
         let a = self.ast(u);
         let pais = crate::lints_tipados::pais_da_unidade(self.program, u);
         let lib = self.program.unit(u).library;
-        let antes_de_3 = self.program.library(lib).features.versao() < dartforge_frontend::features::LanguageVersion::new(3, 0);
-        let contem = |de: Span, sp: Span| de.start <= sp.start && sp.end <= de.end;
-        let mut atual = no;
+        let before_3 = self.program.library(lib).features.versao() < dartforge_frontend::features::LanguageVersion::new(3, 0);
+        let contains = |of: Span, sp: Span| of.start <= sp.start && sp.end <= of.end;
+        let mut current = no;
         for _ in 0..a.exprs.len() + 1 {
-            let sp = a.expr(atual).span;
-            let proximo = match pais.pai(atual) {
+            let sp = a.expr(current).span;
+            let next_ = match pais.pai(current) {
                 dartforge_frontend::pais::Pai::Expr(p) => Some(p),
                 dartforge_frontend::pais::Pai::Anotacao => return Some(c::INVALID_ANNOTATION_CONSTANT_VALUE_FROM_DEFERRED_LIBRARY),
                 dartforge_frontend::pais::Pai::Variavel { .. } => return Some(c::CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE_FROM_DEFERRED_LIBRARY),
@@ -1551,14 +1551,14 @@ impl<'a> Motor<'a> {
                 dartforge_frontend::pais::Pai::ConstanteDeEnum => return None,
                 dartforge_frontend::pais::Pai::PadraoConstante { .. } => {
                     // No `case` de um `switch` de instrução, o código do caso.
-                    let em_caso = a.stmts.iter().any(|s| match &s.kind {
+                    let in_case = a.stmts.iter().any(|s| match &s.kind {
                         ast::StmtKind::Switch { cases, .. } => {
-                            cases.iter().any(|k| k.pattern.is_some_and(|p| contem(a.pattern(p).span, sp)))
+                            cases.iter().any(|k| k.pattern.is_some_and(|p| contains(a.pattern(p).span, sp)))
                         }
                         _ => false,
                     });
-                    if em_caso {
-                        return Some(if antes_de_3 {
+                    if in_case {
+                        return Some(if before_3 {
                             c::NON_CONSTANT_CASE_EXPRESSION_FROM_DEFERRED_LIBRARY
                         } else {
                             c::PATTERN_CONSTANT_FROM_DEFERRED_LIBRARY
@@ -1567,99 +1567,99 @@ impl<'a> Motor<'a> {
                     None
                 }
                 dartforge_frontend::pais::Pai::Fronteira => {
-                    let padrao = |ps: &[ast::Parameter]| ps.iter().any(|p| p.default_value == Some(atual));
-                    fn aninhado(ps: &[ast::Parameter], atual: ExprId) -> bool {
+                    let pattern = |ps: &[ast::Parameter]| ps.iter().any(|p| p.default_value == Some(current));
+                    fn nested(ps: &[ast::Parameter], current: ExprId) -> bool {
                         ps.iter().any(|p| {
-                            p.default_value == Some(atual) || p.function_parameters.as_deref().is_some_and(|fs| aninhado(fs, atual))
+                            p.default_value == Some(current) || p.function_parameters.as_deref().is_some_and(|fs| nested(fs, current))
                         })
                     }
-                    let e_padrao = a.members.iter().any(|m| matches!(&m.kind, ast::MemberKind::Constructor(k) if padrao(&k.parameters) || aninhado(&k.parameters, atual)))
-                        || a.functions.iter().any(|f| f.parameters.as_deref().is_some_and(|ps| aninhado(ps, atual)))
-                        || a.types.iter().any(|t| matches!(&t.kind, ast::TypeKind::Function { parameters, .. } if aninhado(parameters, atual)));
-                    if e_padrao {
+                    let is_pattern = a.members.iter().any(|m| matches!(&m.kind, ast::MemberKind::Constructor(k) if pattern(&k.parameters) || nested(&k.parameters, current)))
+                        || a.functions.iter().any(|f| f.parameters.as_deref().is_some_and(|ps| nested(ps, current)))
+                        || a.types.iter().any(|t| matches!(&t.kind, ast::TypeKind::Function { parameters, .. } if nested(parameters, current)));
+                    if is_pattern {
                         return Some(c::NON_CONSTANT_DEFAULT_VALUE_FROM_DEFERRED_LIBRARY);
                     }
                     None
                 }
             };
             // O pai que não é expressão: a menor expressão que contém o trecho.
-            let p = match proximo {
+            let p = match next_ {
                 Some(p) => p,
                 None => {
-                    let mut melhor: Option<(usize, ExprId)> = None;
+                    let mut best: Option<(usize, ExprId)> = None;
                     for (i, x) in a.exprs.iter().enumerate() {
                         let id = ExprId(i as u32);
-                        if id == atual || !contem(x.span, sp) || x.span == sp {
+                        if id == current || !contains(x.span, sp) || x.span == sp {
                             continue;
                         }
                         let tam = x.span.end - x.span.start;
-                        if melhor.is_none_or(|(t, _)| tam < t) {
-                            melhor = Some((tam, id));
+                        if best.is_none_or(|(t, _)| tam < t) {
+                            best = Some((tam, id));
                         }
                     }
-                    match melhor {
+                    match best {
                         Some((_, id)) => id,
                         None => return None,
                     }
                 }
             };
-            if let Some(codigo) = self.papel_na_subida(u, p, sp, no) {
-                return Some(codigo);
+            if let Some(code) = self.role_on_ascent(u, p, sp, no) {
+                return Some(code);
             }
-            atual = p;
+            current = p;
         }
         None
     }
 
     /// O código que a expressão `p`, pai do trecho `filho`, decide na subida.
-    fn papel_na_subida(&self, u: UnitId, p: ExprId, filho: Span, no: ExprId) -> Option<Codigo> {
+    fn role_on_ascent(&self, u: UnitId, p: ExprId, child: Span, no: ExprId) -> Option<Codigo> {
         let a = self.ast(u);
-        let contem = |de: Span, sp: Span| de.start <= sp.start && sp.end <= de.end;
+        let contains = |of: Span, sp: Span| of.start <= sp.start && sp.end <= of.end;
         // O elemento de coleção que contém o filho, do mais fundo ao mais raso.
-        fn elemento(a: &ast::Ast, el: &ast::CollectionElement, filho: Span, no: ExprId, contem: &dyn Fn(Span, Span) -> bool) -> Option<Option<Codigo>> {
+        fn elemento(a: &ast::Ast, el: &ast::CollectionElement, child: Span, no: ExprId, contains: &dyn Fn(Span, Span) -> bool) -> Option<Option<Codigo>> {
             let span = |e: ExprId| a.expr(e).span;
             match el {
                 ast::CollectionElement::Expression(e) | ast::CollectionElement::NullAwareExpression(e) => {
-                    contem(span(*e), filho).then_some(None)
+                    contains(span(*e), child).then_some(None)
                 }
                 ast::CollectionElement::MapEntry { key, value, .. } => {
-                    if contem(span(*key), filho) {
+                    if contains(span(*key), child) {
                         Some(Some(c::NON_CONSTANT_MAP_KEY_FROM_DEFERRED_LIBRARY))
-                    } else if contem(span(*value), filho) {
+                    } else if contains(span(*value), child) {
                         Some(Some(c::NON_CONSTANT_MAP_VALUE_FROM_DEFERRED_LIBRARY))
                     } else {
                         None
                     }
                 }
                 ast::CollectionElement::Spread { value, .. } => {
-                    contem(span(*value), filho).then_some(Some(c::SPREAD_EXPRESSION_FROM_DEFERRED_LIBRARY))
+                    contains(span(*value), child).then_some(Some(c::SPREAD_EXPRESSION_FROM_DEFERRED_LIBRARY))
                 }
                 ast::CollectionElement::If { condition, case_pattern, guard, then, else_ } => {
                     for sub in std::iter::once(&**then).chain(else_.as_deref()) {
-                        if let Some(r) = elemento(a, sub, filho, no, contem) {
+                        if let Some(r) = elemento(a, sub, child, no, contains) {
                             return Some(r);
                         }
                     }
-                    let dentro = contem(span(*condition), filho)
-                        || case_pattern.is_some_and(|p| contem(a.pattern(p).span, filho))
-                        || guard.is_some_and(|g| contem(span(g), filho));
-                    if !dentro {
+                    let inside = contains(span(*condition), child)
+                        || case_pattern.is_some_and(|p| contains(a.pattern(p).span, child))
+                        || guard.is_some_and(|g| contains(span(g), child));
+                    if !inside {
                         return None;
                     }
                     Some((*condition == no).then_some(c::IF_ELEMENT_CONDITION_FROM_DEFERRED_LIBRARY))
                 }
                 ast::CollectionElement::For { condition, updates, body, .. } => {
-                    if let Some(r) = elemento(a, body, filho, no, contem) {
+                    if let Some(r) = elemento(a, body, child, no, contains) {
                         return Some(r);
                     }
-                    let dentro = condition.is_some_and(|x| contem(span(x), filho)) || updates.iter().any(|x| contem(span(*x), filho));
-                    dentro.then_some(None)
+                    let inside = condition.is_some_and(|x| contains(span(x), child)) || updates.iter().any(|x| contains(span(*x), child));
+                    inside.then_some(None)
                 }
                 ast::CollectionElement::ForIn { iterable, body, .. } => {
-                    if let Some(r) = elemento(a, body, filho, no, contem) {
+                    if let Some(r) = elemento(a, body, child, no, contains) {
                         return Some(r);
                     }
-                    contem(span(*iterable), filho).then_some(None)
+                    contains(span(*iterable), child).then_some(None)
                 }
             }
         }
@@ -1676,7 +1676,7 @@ impl<'a> Motor<'a> {
                     c::SET_ELEMENT_FROM_DEFERRED_LIBRARY
                 };
                 for el in elements.iter() {
-                    if let Some(r) = elemento(a, el, filho, no, &contem) {
+                    if let Some(r) = elemento(a, el, child, no, &contains) {
                         return Some(r.unwrap_or(do_literal));
                     }
                 }
@@ -1687,11 +1687,11 @@ impl<'a> Motor<'a> {
     }
 
     /// `_evaluatePropertyAccess`.
-    fn acesso_a_propriedade(&mut self, u: UnitId, e: ExprId, alvo: &Valor, nome: ast::Name) -> Option<R> {
+    fn property_access(&mut self, u: UnitId, e: ExprId, tgt: &Valor, the_name: ast::Name) -> Option<R> {
         let res = self.resolvido(u, e).cloned();
-        let estatico = |m: &Motor<'_>, f: FunctionElementId| m.program.function(f).static_;
+        let static_ = |m: &Motor<'_>, f: FunctionElementId| m.program.function(f).static_;
         match &res {
-            Some(Resolved::Member { member: MemberRef::Function(f), .. }) if estatico(self, *f) => return None,
+            Some(Resolved::Member { member: MemberRef::Function(f), .. }) if static_(self, *f) => return None,
             Some(Resolved::Member { member: MemberRef::Variable(v), .. }) if self.program.variable(*v).static_ => return None,
             Some(Resolved::ExtensionMember { .. }) => return Some(self.inv(u, e, c::CONST_EVAL_EXTENSION_METHOD)),
             Some(Resolved::Member { class, .. }) if self.program.class(*class).kind == ClassKind::ExtensionType => {
@@ -1699,49 +1699,49 @@ impl<'a> Motor<'a> {
             }
             _ => {}
         }
-        if Some(nome.sym) == self.sym_length && alvo.tipo == self.core.string {
-            return Some(match alvo.estado.comprimento() {
+        if Some(the_name.sym) == self.sym_length && tgt.tipo == self.core.string {
+            return Some(match tgt.estado.comprimento() {
                 Ok(s) => Constante::Valor(Valor::novo(self.core.int, s)),
                 Err(x) => self.excecao(u, e, x),
             });
         }
         let mut i = self.erro(u, self.span(u, e), c::CONST_EVAL_PROPERTY_ACCESS);
-        i.args = vec![self.interner.resolve(nome.sym).to_string(), self.formatar(alvo.tipo)];
-        Some(Constante::Invalida(Box::new(i)))
+        i.args = vec![self.interner.resolve(the_name.sym).to_string(), self.formatar(tgt.tipo)];
+        Some(Constante::Invalid(Box::new(i)))
     }
 
     /// `alvo(args)` que cria pelo construtor primário de um tipo de extensão:
     /// o alvo é o tipo (`A`) ou `A.nome` com o nome do primário. Fora de
     /// contexto constante é o genérico; o primário sem `const`, também.
-    fn criacao_por_primario_de_extensao(&mut self, cx: &Ctx, e: ExprId, alvo: ExprId, arguments: &ast::Arguments, em_const: bool) -> Option<R> {
+    fn creation_via_extension_primary(&mut self, cx: &Ctx, e: ExprId, tgt: ExprId, arguments: &ast::Arguments, in_const: bool) -> Option<R> {
         let u = cx.unidade;
         let a = self.ast(u);
-        let (classe, nome) = match &a.expr(alvo).kind {
-            ExprKind::Identifier(_) => (self.resolvido(u, alvo).cloned(), None),
+        let (cls, the_name) = match &a.expr(tgt).kind {
+            ExprKind::Identifier(_) => (self.resolvido(u, tgt).cloned(), None),
             ExprKind::Property { target, name, .. } => (self.resolvido(u, *target).cloned(), Some(name.sym)),
             _ => return None,
         };
-        let Some(Resolved::Element(Element::Class(k))) = classe else { return None };
-        self.primario_de_extensao(cx, e, k, nome, arguments, em_const)
+        let Some(Resolved::Element(Element::Class(k))) = cls else { return None };
+        self.extension_primary(cx, e, k, the_name, arguments, in_const)
     }
 
     /// A criação pelo construtor primário do tipo de extensão `k` (`nome`: o
     /// do construtor escrito): vale a representação, o argumento avaliado.
-    fn primario_de_extensao(&mut self, cx: &Ctx, e: ExprId, k: ClassId, nome: Option<SymbolId>, arguments: &ast::Arguments, em_const: bool) -> Option<R> {
+    fn extension_primary(&mut self, cx: &Ctx, e: ExprId, k: ClassId, the_name: Option<SymbolId>, arguments: &ast::Arguments, in_const: bool) -> Option<R> {
         let u = cx.unidade;
         let d = self.program.class(k).decl?;
         let ast::DeclKind::ExtensionType(et) = &self.ast(d.unit).decl(d.decl).kind else { return None };
-        let do_primario = match (nome, et.constructor) {
+        let of_primary = match (the_name, et.constructor) {
             (None, None) => true,
             (Some(n), Some(c)) => n == c.sym,
             (Some(n), None) => self.interner.resolve(n) == "new",
             (None, Some(_)) => false,
         };
-        if !do_primario {
+        if !of_primary {
             return None;
         }
-        if !em_const || !et.const_ {
-            return Some(self.generico(u, e, false));
+        if !in_const || !et.const_ {
+            return Some(self.generic(u, e, false));
         }
         let x = arguments.args.iter().find(|x| x.name.is_none())?;
         Some(self.avaliar(cx, x.value, true))
@@ -1751,9 +1751,9 @@ impl<'a> Motor<'a> {
     /// `FunctionReference` sem argumentos escritos) com algum argumento que
     /// menciona parâmetro de tipo depois do ambiente léxico do construtor
     /// (3.6.2 `evaluation.dart:862-876`).
-    fn instanciacao_com_parametro(&mut self, cx: &Ctx, e: ExprId) -> bool {
-        let inferidos: Option<Vec<TypeId>> = self.body.units.get(cx.unidade.0 as usize).and_then(|b| b.instanciacao_de_tearoff(e)).map(|a| a.to_vec());
-        let Some(args) = inferidos else { return false };
+    fn instantiation_with_parameter(&mut self, cx: &Ctx, e: ExprId) -> bool {
+        let inferred: Option<Vec<TypeId>> = self.body.units.get(cx.unidade.0 as usize).and_then(|b| b.instanciacao_de_tearoff(e)).map(|a| a.to_vec());
+        let Some(args) = inferred else { return false };
         // Só o argumento que é ele mesmo um parâmetro de tipo passa pelo
         // `_lexicalTypeEnvironment` (`:866-871`); `List<U>` fica como está.
         args.iter().any(|&a| {
@@ -1761,22 +1761,22 @@ impl<'a> Motor<'a> {
                 (Type::TypeParameter { param, .. }, Some(m)) => m.get(param).copied().unwrap_or(a),
                 _ => a,
             };
-            self.menciona_parametro(a)
+            self.mentions_parameter(a)
         })
     }
 
     /// `_getConstantValue` do elemento a que `e` resolve (`erro_em` é o nó
     /// do erro).
-    fn valor_constante(&mut self, cx: &Ctx, e: ExprId, erro_em: ExprId, com_identificador: bool) -> R {
+    fn constant_value(&mut self, cx: &Ctx, e: ExprId, error_at: ExprId, with_identifier: bool) -> R {
         let u = cx.unidade;
         let res = self.resolvido(u, e).cloned();
-        let _ = com_identificador;
+        let _ = with_identifier;
         match res {
             Some(Resolved::Element(Element::Variable(v))) | Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => {
                 // A variável que guarda uma função genérica, instanciada
                 // implicitamente: o valor primeiro, depois os argumentos.
-                let r = self.valor_de_referencia_a_variavel(cx, erro_em, v);
-                if matches!(r, Constante::Valor(_)) && self.instanciacao_com_parametro(cx, e) {
+                let r = self.variable_reference_value(cx, error_at, v);
+                if matches!(r, Constante::Valor(_)) && self.instantiation_with_parameter(cx, e) {
                     return self.inv(u, e, c::CONST_WITH_TYPE_PARAMETERS_FUNCTION_TEAROFF);
                 }
                 return r;
@@ -1800,25 +1800,25 @@ impl<'a> Motor<'a> {
                     && self.program.class(k).kind == ClassKind::Enum
                     && self.interner.resolve(fe.name) == "values"
                 {
-                    return self.valores_do_enum(u, erro_em, k);
+                    return self.valores_do_enum(u, error_at, k);
                 }
                 if fe.kind == FunctionKind::ImplicitAccessor {
                     if let Some(v) = fe.variable {
-                        return self.valor_de_referencia_a_variavel(cx, erro_em, v);
+                        return self.variable_reference_value(cx, error_at, v);
                     }
                 }
-                let estatica = fe.class.is_none() && fe.extension.is_none() || fe.static_;
-                if estatica && matches!(fe.kind, FunctionKind::Function | FunctionKind::Operator) {
+                let the_static_ = fe.class.is_none() && fe.extension.is_none() || fe.static_;
+                if the_static_ && matches!(fe.kind, FunctionKind::Function | FunctionKind::Operator) {
                     // Instanciação implícita do tear-off genérico
                     // (`visitFunctionReference` sem argumentos escritos, 3.6.2
                     // `evaluation.dart:862-876`): um argumento inferido que
                     // menciona parâmetro de tipo (depois do ambiente léxico do
                     // construtor) é `CONST_WITH_TYPE_PARAMETERS_FUNCTION_TEAROFF`.
-                    if self.instanciacao_com_parametro(cx, e) {
+                    if self.instantiation_with_parameter(cx, e) {
                         return self.inv(u, e, c::CONST_WITH_TYPE_PARAMETERS_FUNCTION_TEAROFF);
                     }
                     let t = self.outline.functions.get(f.0 as usize).map(|d| d.signature).unwrap_or(self.core.dynamic_);
-                    let t = if self.inferida(u) { self.estatico(u, e) } else { t };
+                    let t = if self.inferred_(u) { self.estatico(u, e) } else { t };
                     // `_instantiateFunctionType` (`evaluation.dart:1939-1959`):
                     // o tipo instanciado passa pela substituição do construtor.
                     let t = match &cx.tipos {
@@ -1851,10 +1851,10 @@ impl<'a> Motor<'a> {
                     let t = *t;
                     return Constante::Valor(Valor::novo(self.core.type_, Estado::Tipo(Some(t))));
                 }
-                return self.inv(u, erro_em, c::CONST_TYPE_PARAMETER);
+                return self.inv(u, error_at, c::CONST_TYPE_PARAMETER);
             }
             Some(Resolved::Local(_)) => {
-                if let Some(r) = self.valor_de_local(cx, e, erro_em) {
+                if let Some(r) = self.local_value(cx, e, error_at) {
                     return r;
                 }
             }
@@ -1862,7 +1862,7 @@ impl<'a> Motor<'a> {
             // liga o nome ao local adiante (`REFERENCED_BEFORE_DECLARATION`),
             // e a constante em ciclo vale o inválido calado.
             None if self.body.units.get(u.0 as usize).and_then(|b| b.declaracao_local(e)).is_some() => {
-                if let Some(r) = self.valor_de_local(cx, e, erro_em) {
+                if let Some(r) = self.local_value(cx, e, error_at) {
                     return r;
                 }
             }
@@ -1880,75 +1880,75 @@ impl<'a> Motor<'a> {
                 _ => {}
             }
         }
-        if !self.inferida(u) {
+        if !self.inferred_(u) {
             let t = self.estatico(u, e);
             return Constante::Valor(self.desconhecido(t));
         }
-        if self.tipo_invalido(u, e) {
-            return self.generico(u, erro_em, true);
+        if self.invalid_type(u, e) {
+            return self.generic(u, error_at, true);
         }
-        self.generico(u, erro_em, false)
+        self.generic(u, error_at, false)
     }
 
     /// O valor de `E.values`: `List<E>` com o valor de cada constante, na
     /// ordem; uma constante inválida invalida a lista (sem relato próprio).
-    fn valores_do_enum(&mut self, u: UnitId, erro_em: ExprId, k: ClassId) -> R {
+    fn valores_do_enum(&mut self, u: UnitId, error_at: ExprId, k: ClassId) -> R {
         let n = self.program.class(k).type_params.len();
-        let elemento = self.table.intern(Type::Interface { class: k, args: vec![self.core.dynamic_; n].into_boxed_slice(), nullable: false });
-        let elemento = self.apagar(elemento);
-        let tipo = self.interface(self.core.list_class, vec![elemento]);
-        let mut lista = Vec::new();
+        let element = self.table.intern(Type::Interface { class: k, args: vec![self.core.dynamic_; n].into_boxed_slice(), nullable: false });
+        let element = self.apagar(element);
+        let typ = self.interface(self.core.list_class, vec![element]);
+        let mut list = Vec::new();
         for v in self.program.class(k).enum_constants.clone() {
             match self.valor_de_variavel(v) {
-                Some(Constante::Valor(x)) => lista.push(x),
+                Some(Constante::Valor(x)) => list.push(x),
                 // Uma constante inválida (num ciclo com o próprio `values`,
                 // `e1(values)`): o `values` fica inválido como variável `const`
                 // de resultado inválido, calado (`avoidReporting`,
                 // `evaluation.dart:1867-1878`).
-                Some(Constante::Invalida(_)) => {
-                    let mut i = self.erro(u, self.span(u, erro_em), c::INVALID_CONSTANT);
-                    i.nao_resolvida = true;
-                    i.evitar_relato = true;
-                    return Constante::Invalida(Box::new(i));
+                Some(Constante::Invalid(_)) => {
+                    let mut i = self.erro(u, self.span(u, error_at), c::INVALID_CONSTANT);
+                    i.unresolved = true;
+                    i.avoid_report = true;
+                    return Constante::Invalid(Box::new(i));
                 }
-                None => return self.generico(u, erro_em, true),
+                None => return self.generic(u, error_at, true),
             }
         }
-        Constante::Valor(self.valor(tipo, Estado::Lista { elemento, elementos: Rc::new(lista), desconhecida: false }))
+        Constante::Valor(self.valor(typ, Estado::Lista { elemento: element, elementos: Rc::new(list), unknown: false }))
     }
 
     /// O membro estático variável `nome` de `d` (constante de enum ou campo
     /// estático).
-    fn membro_estatico_variavel(&self, d: ClassId, nome: SymbolId) -> Option<VariableId> {
+    fn static_variable_member(&self, d: ClassId, the_name: SymbolId) -> Option<VariableId> {
         let k = self.program.class(d);
         k.enum_constants
             .iter()
             .chain(k.fields.iter())
             .copied()
-            .find(|v| self.program.variable(*v).name == nome && self.program.variable(*v).static_)
+            .find(|v| self.program.variable(*v).name == the_name && self.program.variable(*v).static_)
     }
 
     /// Referência a uma variável de topo ou estática: o valor dela, se é
     /// `const`; senão o erro genérico no nó.
-    fn valor_de_referencia_a_variavel(&mut self, cx: &Ctx, erro_em: ExprId, v: VariableId) -> R {
+    fn variable_reference_value(&mut self, cx: &Ctx, error_at: ExprId, v: VariableId) -> R {
         let u = cx.unidade;
         let var = self.program.variable(v);
         if var.const_ {
             return match self.valor_de_variavel(v) {
                 Some(Constante::Valor(x)) => Constante::Valor(x),
-                Some(Constante::Invalida(_)) => {
-                    let mut i = self.erro(u, self.span(u, erro_em), c::INVALID_CONSTANT);
-                    i.nao_resolvida = true;
-                    i.evitar_relato = true;
-                    Constante::Invalida(Box::new(i))
+                Some(Constante::Invalid(_)) => {
+                    let mut i = self.erro(u, self.span(u, error_at), c::INVALID_CONSTANT);
+                    i.unresolved = true;
+                    i.avoid_report = true;
+                    Constante::Invalid(Box::new(i))
                 }
-                None => self.generico(u, erro_em, true),
+                None => self.generic(u, error_at, true),
             };
         }
-        if self.tipo_invalido(u, erro_em) {
-            return self.generico(u, erro_em, true);
+        if self.invalid_type(u, error_at) {
+            return self.generic(u, error_at, true);
         }
-        self.generico(u, erro_em, false)
+        self.generic(u, error_at, false)
     }
 
     /// `ElementAnnotation.computeConstantValue` da anotação `m`, escrita na
@@ -1956,11 +1956,11 @@ impl<'a> Motor<'a> {
     /// `@p.C(…)`, `@p.C.n(…)`, com os argumentos de tipo que a inferência
     /// registrou para a lista de argumentos) ou a leitura de variável
     /// (`@x`, `@p.x`, `@C.x`). `None` quando não resolve ou não é constante.
-    pub fn avaliar_anotacao(&mut self, u: UnitId, m: &ast::Annotation) -> Option<Valor> {
+    pub fn evaluate_annotation(&mut self, u: UnitId, m: &ast::Annotation) -> Option<Valor> {
         let lib = self.program.unit(u).library;
         let cx = Ctx::simples(u, lib);
-        let nomes: Vec<SymbolId> = m.name.iter().map(|n| n.sym).collect();
-        let (alvo, membro) = match nomes.as_slice() {
+        let names: Vec<SymbolId> = m.name.iter().map(|n| n.sym).collect();
+        let (tgt, mem) = match names.as_slice() {
             [c] => (self.program.lookup_na_unidade(u, *c).and_then(|b| b.getter), None),
             [a, b] => match self.program.lookup_na_unidade(u, *a).and_then(|x| x.getter) {
                 Some(el @ Element::Class(_)) => (Some(el), Some(*b)),
@@ -1969,39 +1969,39 @@ impl<'a> Motor<'a> {
             [p, c, n] => (self.program.lookup_prefixed_na_unidade(u, *p, *c).and_then(|x| x.getter), Some(*n)),
             _ => (None, None),
         };
-        match (alvo?, &m.arguments) {
+        match (tgt?, &m.arguments) {
             (Element::Class(c), Some(args)) => {
-                let chave = membro.or_else(|| self.interner.lookup(""))?;
-                let f = *self.program.class(c).constructors.get(&chave)?;
+                let the_key = mem.or_else(|| self.interner.lookup(""))?;
+                let f = *self.program.class(c).constructors.get(&the_key)?;
                 let n = self.program.class(c).type_params.len();
-                let argumentos: Vec<TypeId> = match self.body.units.get(u.0 as usize).and_then(|b| b.instanciacao(args.span.start)) {
+                let args_list: Vec<TypeId> = match self.body.units.get(u.0 as usize).and_then(|b| b.instanciacao(args.span.start)) {
                     Some(v) if v.len() == n => v.to_vec(),
                     _ => vec![self.core.dynamic_; n],
                 };
-                let tipo = self.table.intern(Type::Interface { class: c, args: argumentos.into_boxed_slice(), nullable: false });
-                let erro = ErroEm { unidade: u, span: m.span };
-                match self.avaliar_chamada(&cx, erro, f, tipo, &Argumentos::Ast(args), None, true) {
+                let typ = self.table.intern(Type::Interface { class: c, args: args_list.into_boxed_slice(), nullable: false });
+                let error = ErrorAt { unidade: u, span: m.span };
+                match self.evaluate_call(&cx, error, f, typ, &Argumentos::Ast(args), None, true) {
                     Constante::Valor(v) => Some(v),
-                    Constante::Invalida(_) => None,
+                    Constante::Invalid(_) => None,
                 }
             }
             (Element::Class(c), None) => {
-                let v = self.membro_estatico_variavel(c, membro?)?;
+                let v = self.static_variable_member(c, mem?)?;
                 match self.valor_de_variavel(v)? {
                     Constante::Valor(x) => Some(x),
-                    Constante::Invalida(_) => None,
+                    Constante::Invalid(_) => None,
                 }
             }
             (Element::Variable(v), None) => match self.valor_de_variavel(v)? {
                 Constante::Valor(x) => Some(x),
-                Constante::Invalida(_) => None,
+                Constante::Invalid(_) => None,
             },
             (Element::Function(g), None) => {
                 // A leitura de uma variável de topo pelo getter sintético.
                 let v = self.program.function(g).variable?;
                 match self.valor_de_variavel(v)? {
                     Constante::Valor(x) => Some(x),
-                    Constante::Invalida(_) => None,
+                    Constante::Invalid(_) => None,
                 }
             }
             _ => None,
@@ -2015,11 +2015,11 @@ impl<'a> Motor<'a> {
     /// `ForElement`, `FunctionExpression`, `PatternAssignment` ou
     /// `SwitchExpression`. Os nós de uma expressão nascem antes dela, em ids
     /// contíguos e dentro do intervalo dela.
-    fn nao_serializavel(&self, u: UnitId, init: ExprId) -> bool {
-        fn tem_for(el: &ast::CollectionElement) -> bool {
+    fn not_serializable(&self, u: UnitId, init: ExprId) -> bool {
+        fn has_for(el: &ast::CollectionElement) -> bool {
             match el {
                 ast::CollectionElement::For { .. } | ast::CollectionElement::ForIn { .. } => true,
-                ast::CollectionElement::If { then, else_, .. } => tem_for(then) || else_.as_deref().is_some_and(tem_for),
+                ast::CollectionElement::If { then, else_, .. } => has_for(then) || else_.as_deref().is_some_and(has_for),
                 _ => false,
             }
         }
@@ -2032,12 +2032,12 @@ impl<'a> Motor<'a> {
             if x.span.start < sp.start || x.span.end > sp.end {
                 break;
             }
-            let ruim = match &x.kind {
+            let bad = match &x.kind {
                 ExprKind::FunctionExpression(_) | ExprKind::PatternAssign { .. } | ExprKind::Switch { .. } => true,
-                ExprKind::List { elements, .. } | ExprKind::SetOrMap { elements, .. } => elements.iter().any(tem_for),
+                ExprKind::List { elements, .. } | ExprKind::SetOrMap { elements, .. } => elements.iter().any(has_for),
                 _ => false,
             };
-            if ruim {
+            if bad {
                 return true;
             }
         }
@@ -2046,11 +2046,11 @@ impl<'a> Motor<'a> {
 
     pub fn valor_de_variavel(&mut self, v: VariableId) -> Option<Constante> {
         match self.vars.get(&v) {
-            Some(EstadoVar::Pronta(r)) => return Some(r.clone()),
-            Some(EstadoVar::EmCurso) => {
-                if let Some(p) = self.pilha_vars.iter().position(|x| *x == v) {
-                    let ciclo: Vec<VariableId> = self.pilha_vars[p..].to_vec();
-                    self.ciclicos.extend(ciclo);
+            Some(VarState::Ready(r)) => return Some(r.clone()),
+            Some(VarState::InProgress) => {
+                if let Some(p) = self.vars_stack.iter().position(|x| *x == v) {
+                    let cycle: Vec<VariableId> = self.vars_stack[p..].to_vec();
+                    self.cyclic.extend(cycle);
                 }
                 return None;
             }
@@ -2059,23 +2059,23 @@ impl<'a> Motor<'a> {
         // O componente do grafo de dependências a que a variável pertence
         // tem ciclo (`generateCycleError`): o resultado guardado é o
         // inválido no nome dela, e quem a lê recebe um inválido calado.
-        if self.grafo.variaveis_em_ciclo.contains(&v) {
+        if self.grafo.variables_in_cycle.contains(&v) {
             // A constante de enum também: o erro no nome dela.
-            let unidade = match self.program.variable(v).node {
+            let unit_id = match self.program.variable(v).node {
                 VariableRef::TopLevel { unit, .. } | VariableRef::Field { unit, .. } | VariableRef::EnumConstant { unit, .. } => Some(unit),
                 _ => None,
             };
-            if let (Some(unidade), Some(nome)) = (unidade, self.span_do_nome_da_variavel(v)) {
-                let r = Constante::Invalida(Box::new(self.erro(unidade, nome, c::RECURSIVE_COMPILE_TIME_CONSTANT)));
-                self.vars.insert(v, EstadoVar::Pronta(r.clone()));
+            if let (Some(unit_id), Some(the_name)) = (unit_id, self.variable_name_span(v)) {
+                let r = Constante::Invalid(Box::new(self.erro(unit_id, the_name, c::RECURSIVE_COMPILE_TIME_CONSTANT)));
+                self.vars.insert(v, VarState::Ready(r.clone()));
                 return Some(r);
             }
         }
         let var = self.program.variable(v);
         let lib = var.library;
-        let tipo_var = self.outline.variables[v.0 as usize].declared_type.or(self.outline.variables[v.0 as usize].inferred);
-        let tipo_var = tipo_var.unwrap_or(self.core.dynamic_);
-        let (unidade, inicial) = match var.node {
+        let var_type = self.outline.variables[v.0 as usize].declared_type.or(self.outline.variables[v.0 as usize].inferred);
+        let var_type = var_type.unwrap_or(self.core.dynamic_);
+        let (unit_id, initial) = match var.node {
             VariableRef::TopLevel { unit, decl, index } => match &self.ast(unit).decl(decl).kind {
                 ast::DeclKind::Variables(l) => (unit, l.variables.get(index).and_then(|x| x.initializer)),
                 _ => (unit, None),
@@ -2085,22 +2085,22 @@ impl<'a> Motor<'a> {
                 _ => (unit, None),
             },
             VariableRef::EnumConstant { unit, decl, index } => {
-                self.vars.insert(v, EstadoVar::EmCurso);
-                self.pilha_vars.push(v);
-                let r = self.valor_de_enum(v, unit, decl, index);
-                self.pilha_vars.pop();
-                self.vars.insert(v, EstadoVar::Pronta(r.clone()));
+                self.vars.insert(v, VarState::InProgress);
+                self.vars_stack.push(v);
+                let r = self.enum_value(v, unit, decl, index);
+                self.vars_stack.pop();
+                self.vars.insert(v, VarState::Ready(r.clone()));
                 return Some(r);
             }
-            _ => return Some(Constante::Valor(self.desconhecido(tipo_var))),
+            _ => return Some(Constante::Valor(self.desconhecido(var_type))),
         };
-        let Some(init) = inicial else {
-            let r = Constante::Valor(self.desconhecido(tipo_var));
+        let Some(init) = initial else {
+            let r = Constante::Valor(self.desconhecido(var_type));
             return Some(r);
         };
-        if !self.inferidas.contains(&lib) {
-            let r = Constante::Valor(self.desconhecido(tipo_var));
-            self.vars.insert(v, EstadoVar::Pronta(r.clone()));
+        if !self.the_inferred.contains(&lib) {
+            let r = Constante::Valor(self.desconhecido(var_type));
+            self.vars.insert(v, VarState::Ready(r.clone()));
             return Some(r);
         }
         // `DetachNodes._detachConstVariable` (3.6.2 `summary2/detach_nodes.dart:103-115`,
@@ -2109,26 +2109,26 @@ impl<'a> Motor<'a> {
         // função, atribuição de padrão ou `switch` de expressão vira um
         // identificador sintético; o `evaluationResult` é inválido, no
         // inicializador.
-        if self.nao_serializavel(unidade, init) {
-            let r = Constante::Invalida(Box::new(self.erro(unidade, self.span(unidade, init), c::INVALID_CONSTANT)));
-            self.vars.insert(v, EstadoVar::Pronta(r.clone()));
+        if self.not_serializable(unit_id, init) {
+            let r = Constante::Invalid(Box::new(self.erro(unit_id, self.span(unit_id, init), c::INVALID_CONSTANT)));
+            self.vars.insert(v, VarState::Ready(r.clone()));
             return Some(r);
         }
-        self.vars.insert(v, EstadoVar::EmCurso);
-        self.pilha_vars.push(v);
-        let cx = Ctx::simples(unidade, lib);
+        self.vars.insert(v, VarState::InProgress);
+        self.vars_stack.push(v);
+        let cx = Ctx::simples(unit_id, lib);
         let const_ = self.program.variable(v).const_;
-        let salvo = std::mem::take(&mut self.args_de_criacao);
+        let saved = std::mem::take(&mut self.creation_args);
         let mut r = self.avaliar(&cx, init, const_);
-        self.args_de_criacao = salvo;
-        self.pilha_vars.pop();
+        self.creation_args = saved;
+        self.vars_stack.pop();
         if let Constante::Valor(x) = &r {
-            if const_ && !self.casa(x, tipo_var) {
-                let estatico = self.estatico(unidade, init);
-                if self.atribuivel(estatico, tipo_var) {
-                    let mut i = self.erro(unidade, self.span(unidade, init), c::VARIABLE_TYPE_MISMATCH);
-                    i.args = vec![self.formatar(x.tipo), self.formatar(tipo_var)];
-                    r = Constante::Invalida(Box::new(i));
+            if const_ && !self.casa(x, var_type) {
+                let static_ = self.estatico(unit_id, init);
+                if self.atribuivel(static_, var_type) {
+                    let mut i = self.erro(unit_id, self.span(unit_id, init), c::VARIABLE_TYPE_MISMATCH);
+                    i.args = vec![self.formatar(x.tipo), self.formatar(var_type)];
+                    r = Constante::Invalid(Box::new(i));
                 }
             }
         }
@@ -2137,15 +2137,15 @@ impl<'a> Motor<'a> {
                 x.variavel = Some(v);
             }
         }
-        if self.ciclicos.contains(&v) {
-            let nome = self.span_do_nome_da_variavel(v).unwrap_or(Span { start: 0, end: 0 });
-            r = Constante::Invalida(Box::new(self.erro(unidade, nome, c::RECURSIVE_COMPILE_TIME_CONSTANT)));
+        if self.cyclic.contains(&v) {
+            let the_name = self.variable_name_span(v).unwrap_or(Span { start: 0, end: 0 });
+            r = Constante::Invalid(Box::new(self.erro(unit_id, the_name, c::RECURSIVE_COMPILE_TIME_CONSTANT)));
         }
-        self.vars.insert(v, EstadoVar::Pronta(r.clone()));
+        self.vars.insert(v, VarState::Ready(r.clone()));
         Some(r)
     }
 
-    pub fn span_do_nome_da_variavel(&self, v: VariableId) -> Option<Span> {
+    pub fn variable_name_span(&self, v: VariableId) -> Option<Span> {
         match self.program.variable(v).node {
             VariableRef::TopLevel { unit, decl, index } => match &self.ast(unit).decl(decl).kind {
                 ast::DeclKind::Variables(l) => l.variables.get(index).map(|x| x.name.span),
@@ -2164,7 +2164,7 @@ impl<'a> Motor<'a> {
     }
 
     /// Uma constante de enum: o objeto com `index` e `_name`.
-    fn valor_de_enum(&mut self, v: VariableId, unit: UnitId, decl: ast::DeclId, index: usize) -> Constante {
+    fn enum_value(&mut self, v: VariableId, unit: UnitId, decl: ast::DeclId, index: usize) -> Constante {
         let _ = (unit, decl);
         let Some(k) = self.program.variable(v).class else {
             return Constante::Valor(Valor::novo(self.core.dynamic_, Estado::Generico { campos: Rc::new(Vec::new()), desconhecido: true }));
@@ -2172,64 +2172,64 @@ impl<'a> Motor<'a> {
         // O tipo da constante (a instanciação escrita, `a<int>()`, ou a dos
         // limites), como o `DartObject` do analyzer.
         let vd = &self.outline.variables[v.0 as usize];
-        let tipo = match vd.declared_type.or(vd.inferred) {
+        let typ = match vd.declared_type.or(vd.inferred) {
             Some(t) => t,
             None => {
                 let n = self.program.class(k).type_params.len();
                 self.table.intern(Type::Interface { class: k, args: vec![self.core.dynamic_; n].into_boxed_slice(), nullable: false })
             }
         };
-        let nome = self.interner.resolve(self.program.variable(v).name);
-        let mut campos = vec![
+        let the_name = self.interner.resolve(self.program.variable(v).name);
+        let mut the_fields = vec![
             (Campo::Indice, Valor::novo(self.core.int, Estado::Int(Some(index as i64)))),
-            (Campo::NomeDoEnum, Valor::novo(self.core.string, Estado::Str(Some(texto(nome))))),
+            (Campo::EnumName, Valor::novo(self.core.string, Estado::Str(Some(texto(the_name))))),
         ];
         // O inicializador da constante é a criação `E.nome(args)` com a
         // declaração da constante como nó de erro (`_errorNodes`,
         // `evaluation.dart:39-61`); a exceção de avaliação vira
         // `CONST_EVAL_THROWS_EXCEPTION` nela (`:350-376`).
         let lib = self.program.class(k).library;
-        if self.inferidas.contains(&lib)
+        if self.the_inferred.contains(&lib)
             && let ast::DeclKind::Enum(en) = &self.ast(unit).decl(decl).kind
             && let Some(cst) = en.constants.get(index)
         {
-            let chave = match cst.constructor {
+            let the_key = match cst.constructor {
                 Some(n) if self.interner.resolve(n.sym) != "new" => Some(n.sym),
                 _ => self.interner.lookup(""),
             };
             // O primário (3.13) numa biblioteca sem o recurso: o oráculo 3.13.4
             // não o avalia.
-            let primario_desligado = |f: FunctionElementId| {
+            let primary_disabled = |f: FunctionElementId| {
                 matches!(self.program.function(f).node, FunctionRef::Constructor { member, .. } if en.primary_constructor == Some(member))
                     && !self.program.library(lib).features.tem(dartforge_frontend::Feature::PrimaryConstructors)
             };
-            if let Some(&f) = chave.and_then(|c| self.program.class(k).constructors.get(&c))
-                && !primario_desligado(f)
+            if let Some(&f) = the_key.and_then(|c| self.program.class(k).constructors.get(&c))
+                && !primary_disabled(f)
             {
                 let span = Span { start: cst.name.span.start, end: cst.span.end };
-                let erro = ErroEm { unidade: unit, span };
+                let error = ErrorAt { unidade: unit, span };
                 let cx = Ctx::simples(unit, lib);
-                let vazio = Argumentos::Valores { posicionais: Vec::new(), nomeados: Vec::new() };
+                let empty = Argumentos::Values { posicionais: Vec::new(), nomeados: Vec::new() };
                 let r = match &cst.arguments {
-                    Some(a) => self.avaliar_chamada(&cx, erro, f, tipo, &Argumentos::Ast(a), None, true),
-                    None => self.avaliar_chamada(&cx, erro, f, tipo, &vazio, None, true),
+                    Some(a) => self.evaluate_call(&cx, error, f, typ, &Argumentos::Ast(a), None, true),
+                    None => self.evaluate_call(&cx, error, f, typ, &empty, None, true),
                 };
                 match r {
-                    Constante::Invalida(i) if i.excecao => {
+                    Constante::Invalid(i) if i.excecao => {
                         let mut n = self.erro(unit, span, c::CONST_EVAL_THROWS_EXCEPTION);
-                        n.evitar_relato = i.evitar_relato;
+                        n.avoid_report = i.avoid_report;
                         let msg = dartforge_diagnostics::Diagnostic::com_codigo(i.codigo, i.span, i.args.iter().map(|s| s.as_str())).message;
-                        let definidora = self.program.library(self.program.unit(unit).library).units.first().copied().unwrap_or(unit);
+                        let defining = self.program.library(self.program.unit(unit).library).units.first().copied().unwrap_or(unit);
                         n.contexto = i.contexto.clone();
-                        n.contexto.push((definidora, i.span, format!("The exception is '{msg}' and occurs here.")));
-                        return Constante::Invalida(Box::new(n));
+                        n.contexto.push((defining, i.span, format!("The exception is '{msg}' and occurs here.")));
+                        return Constante::Invalid(Box::new(n));
                     }
-                    Constante::Invalida(i) => return Constante::Invalida(i),
+                    Constante::Invalid(i) => return Constante::Invalid(i),
                     Constante::Valor(x) => {
                         if let Estado::Generico { campos: c2, .. } = &x.estado {
                             for par in c2.iter() {
-                                if !matches!(par.0, Campo::Indice | Campo::NomeDoEnum) {
-                                    campos.push(par.clone());
+                                if !matches!(par.0, Campo::Indice | Campo::EnumName) {
+                                    the_fields.push(par.clone());
                                 }
                             }
                         }
@@ -2237,59 +2237,59 @@ impl<'a> Motor<'a> {
                 }
             }
         }
-        Constante::Valor(Valor { tipo, estado: Estado::Generico { campos: Rc::new(campos), desconhecido: false }, variavel: Some(v) })
+        Constante::Valor(Valor { tipo: typ, estado: Estado::Generico { campos: Rc::new(the_fields), desconhecido: false }, variavel: Some(v) })
     }
 
     /// Constante local: a declaração pelo offset do nome.
-    fn valor_de_local(&mut self, cx: &Ctx, e: ExprId, erro_em: ExprId) -> Option<R> {
+    fn local_value(&mut self, cx: &Ctx, e: ExprId, error_at: ExprId) -> Option<R> {
         let u = cx.unidade;
         let offset = self.body.units.get(u.0 as usize)?.declaracao_local(e)?;
-        if !self.locais_da_unidade.contains_key(&u) {
-            let mapa = locais_constantes(self.ast(u));
-            self.locais_da_unidade.insert(u, mapa);
+        if !self.unit_locals.contains_key(&u) {
+            let map = constant_locals(self.ast(u));
+            self.unit_locals.insert(u, map);
         }
-        let Some(&(stmt, i)) = self.locais_da_unidade[&u].get(&offset) else {
+        let Some(&(stmt, i)) = self.unit_locals[&u].get(&offset) else {
             // Local que não é `const`: o erro genérico.
             return None;
         };
         if let Some(r) = self.locais.get(&(u, offset)) {
             return Some(match r {
                 Some(Constante::Valor(v)) => Constante::Valor(v.clone()),
-                Some(Constante::Invalida(_)) => {
-                    let mut x = self.erro(u, self.span(u, erro_em), c::INVALID_CONSTANT);
-                    x.nao_resolvida = true;
-                    x.evitar_relato = true;
-                    Constante::Invalida(Box::new(x))
+                Some(Constante::Invalid(_)) => {
+                    let mut x = self.erro(u, self.span(u, error_at), c::INVALID_CONSTANT);
+                    x.unresolved = true;
+                    x.avoid_report = true;
+                    Constante::Invalid(Box::new(x))
                 }
-                None => self.generico(u, erro_em, true),
+                None => self.generic(u, error_at, true),
             });
         }
-        let r = self.valor_de_local_declarado(u, cx.lib, stmt, i);
+        let r = self.declared_local_value(u, cx.lib, stmt, i);
         Some(match r {
             Constante::Valor(v) => Constante::Valor(v),
-            Constante::Invalida(_) => {
-                let mut x = self.erro(u, self.span(u, erro_em), c::INVALID_CONSTANT);
-                x.nao_resolvida = true;
-                x.evitar_relato = true;
-                Constante::Invalida(Box::new(x))
+            Constante::Invalid(_) => {
+                let mut x = self.erro(u, self.span(u, error_at), c::INVALID_CONSTANT);
+                x.unresolved = true;
+                x.avoid_report = true;
+                Constante::Invalid(Box::new(x))
             }
         })
     }
 
     /// O valor da constante local `i` da lista em `stmt` (guardado).
-    pub fn valor_de_local_declarado(&mut self, u: UnitId, lib: LibraryId, stmt: ast::StmtId, i: usize) -> Constante {
-        let lista = match &self.ast(u).stmt(stmt).kind {
+    pub fn declared_local_value(&mut self, u: UnitId, lib: LibraryId, stmt: ast::StmtId, i: usize) -> Constante {
+        let list = match &self.ast(u).stmt(stmt).kind {
             ast::StmtKind::Variables(l) => l,
             ast::StmtKind::For { init: Some(ast::ForInit::Variables(l)), .. } => l,
-            _ => return Constante::Valor(Valor::novo(self.core.dynamic_, Estado::Null { invalido: true })),
+            _ => return Constante::Valor(Valor::novo(self.core.dynamic_, Estado::Null { invalid: true })),
         };
-        let var = &lista.variables[i];
+        let var = &list.variables[i];
         let offset = var.name.span.start;
         if let Some(Some(r)) = self.locais.get(&(u, offset)) {
             return r.clone();
         }
-        if self.grafo.locais_em_ciclo.contains(&(u, offset)) {
-            let r = Constante::Invalida(Box::new(self.erro(u, var.name.span, c::RECURSIVE_COMPILE_TIME_CONSTANT)));
+        if self.grafo.locals_in_cycle.contains(&(u, offset)) {
+            let r = Constante::Invalid(Box::new(self.erro(u, var.name.span, c::RECURSIVE_COMPILE_TIME_CONSTANT)));
             self.locais.insert((u, offset), Some(r.clone()));
             return r;
         }
@@ -2298,17 +2298,17 @@ impl<'a> Motor<'a> {
         };
         self.locais.insert((u, offset), None);
         let cx = Ctx::simples(u, lib);
-        let salvo = std::mem::take(&mut self.args_de_criacao);
+        let saved = std::mem::take(&mut self.creation_args);
         let mut r = self.avaliar(&cx, init, true);
-        self.args_de_criacao = salvo;
+        self.creation_args = saved;
         if let Constante::Valor(x) = &r {
-            let tipo = self.body.units[u.0 as usize].tipo_local(offset).unwrap_or(self.core.dynamic_);
-            if !self.casa(x, tipo) {
-                let estatico = self.estatico(u, init);
-                if self.atribuivel(estatico, tipo) {
+            let typ = self.body.units[u.0 as usize].tipo_local(offset).unwrap_or(self.core.dynamic_);
+            if !self.casa(x, typ) {
+                let static_ = self.estatico(u, init);
+                if self.atribuivel(static_, typ) {
                     let mut i = self.erro(u, self.span(u, init), c::VARIABLE_TYPE_MISMATCH);
-                    i.args = vec![self.formatar(x.tipo), self.formatar(tipo)];
-                    r = Constante::Invalida(Box::new(i));
+                    i.args = vec![self.formatar(x.tipo), self.formatar(typ)];
+                    r = Constante::Invalid(Box::new(i));
                 }
             }
         }
@@ -2317,17 +2317,17 @@ impl<'a> Motor<'a> {
     }
 
     /// O local lido por `e` é um parâmetro formal.
-    pub fn local_parametro(&self, u: UnitId, e: ExprId) -> bool {
+    pub fn parameter_local(&self, u: UnitId, e: ExprId) -> bool {
         let Some(offset) = self.body.units.get(u.0 as usize).and_then(|b| b.declaracao_local(e)) else { return false };
         self.parametros.get(&u).is_some_and(|s| s.contains(&offset))
     }
 
     /// O local lido por `e` é uma constante (`const`).
-    pub fn local_constante(&self, u: UnitId, e: ExprId) -> bool {
+    pub fn constant_local(&self, u: UnitId, e: ExprId) -> bool {
         let Some(offset) = self.body.units.get(u.0 as usize).and_then(|b| b.declaracao_local(e)) else { return false };
-        match self.locais_da_unidade.get(&u) {
+        match self.unit_locals.get(&u) {
             Some(m) => m.contains_key(&offset),
-            None => locais_constantes(self.ast(u)).contains_key(&offset),
+            None => constant_locals(self.ast(u)).contains_key(&offset),
         }
     }
 
@@ -2335,19 +2335,19 @@ impl<'a> Motor<'a> {
 
     /// `_reportNotPotentialConstants`: o primeiro nó que não é
     /// potencialmente constante, como `INVALID_CONSTANT`.
-    fn nao_potencialmente_constante(&self, cx: &Ctx, e: ExprId) -> Option<R> {
+    fn not_potentially_constant(&self, cx: &Ctx, e: ExprId) -> Option<R> {
         let lib_nnbd = true;
         let _ = lib_nnbd;
-        let mut nos = Vec::new();
-        super::potencial::coletar(self, cx, e, &mut nos);
-        let n = nos.first()?;
-        Some(Constante::Invalida(Box::new(self.erro(cx.unidade, *n, c::INVALID_CONSTANT))))
+        let mut nodes = Vec::new();
+        super::potential::coletar(self, cx, e, &mut nodes);
+        let n = nodes.first()?;
+        Some(Constante::Invalid(Box::new(self.erro(cx.unidade, *n, c::INVALID_CONSTANT))))
     }
 
     // -- Construtores ----------------------------------------------------------
 
     /// O tipo de uma criação: o estático do nó, senão a classe crua.
-    fn tipo_de_criacao(&mut self, u: UnitId, e: ExprId, f: FunctionElementId) -> TypeId {
+    fn creation_type(&mut self, u: UnitId, e: ExprId, f: FunctionElementId) -> TypeId {
         let t = self.estatico(u, e);
         if matches!(self.table.get(t), Type::Interface { .. } | Type::ExtensionType { .. }) {
             return t;
@@ -2363,151 +2363,151 @@ impl<'a> Motor<'a> {
     /// modelo): o de mesmo nome da primeira superclasse que não é aplicação de
     /// mixin, com o tipo da criação (`B`). A avaliação do encaminhador é a do
     /// construtor da superclasse com os mesmos argumentos.
-    fn construtor_encaminhado(&self, u: UnitId, e: ExprId, nome: Option<SymbolId>) -> Option<(FunctionElementId, TypeId)> {
-        let tipo = self.estatico(u, e);
-        let Type::Interface { class, .. } = self.table.get(tipo) else { return None };
+    fn forwarded_constructor(&self, u: UnitId, e: ExprId, the_name: Option<SymbolId>) -> Option<(FunctionElementId, TypeId)> {
+        let typ = self.estatico(u, e);
+        let Type::Interface { class, .. } = self.table.get(typ) else { return None };
         if self.program.class(*class).kind != ClassKind::MixinApplication {
             return None;
         }
         // `C.new` e `C()` são o construtor sem nome (o símbolo vazio).
-        let vazio = self.interner.lookup("");
-        let chave = match nome {
+        let empty = self.interner.lookup("");
+        let the_key = match the_name {
             Some(n) if self.interner.resolve(n) != "new" => Some(n),
-            _ => vazio,
+            _ => empty,
         };
-        let mut atual = self.program.class(*class).supertype_class;
+        let mut current = self.program.class(*class).supertype_class;
         for _ in 0..64 {
-            let k = atual?;
-            let classe = self.program.class(k);
-            if classe.kind != ClassKind::MixinApplication {
-                return chave.and_then(|k| classe.constructors.get(&k).copied()).map(|f| (f, tipo));
+            let k = current?;
+            let cls = self.program.class(k);
+            if cls.kind != ClassKind::MixinApplication {
+                return the_key.and_then(|k| cls.constructors.get(&k).copied()).map(|f| (f, typ));
             }
-            atual = classe.supertype_class;
+            current = cls.supertype_class;
         }
         None
     }
 
-    fn chamar_construtor(
+    fn call_constructor(
         &mut self,
         cx: &Ctx,
         e: ExprId,
         f: FunctionElementId,
         args: &ast::Arguments,
-        palavra: Option<Span>,
-        tipo: Option<TypeId>,
+        the_keyword: Option<Span>,
+        typ: Option<TypeId>,
     ) -> R {
         let u = cx.unidade;
-        let tipo = match tipo {
+        let typ = match typ {
             Some(t) => t,
-            None => self.tipo_de_criacao(u, e, f),
+            None => self.creation_type(u, e, f),
         };
-        let erro = ErroEm { unidade: u, span: self.span(u, e) };
+        let error = ErrorAt { unidade: u, span: self.span(u, e) };
         for arg in args.args.iter() {
             if arg.name.is_none() {
-                self.args_de_criacao.insert((u, arg.value));
+                self.creation_args.insert((u, arg.value));
             }
         }
-        self.avaliar_chamada(cx, erro, f, tipo, &Argumentos::Ast(args), palavra, true)
+        self.evaluate_call(cx, error, f, typ, &Argumentos::Ast(args), the_keyword, true)
     }
 
     /// Avalia a chamada do construtor `f` com os argumentos (`ConstantVisitor`
     /// de `cx` para eles), relatando em `erro`.
-    fn avaliar_chamada(
+    fn evaluate_call(
         &mut self,
         cx: &Ctx,
-        erro: ErroEm,
+        error: ErrorAt,
         f: FunctionElementId,
-        tipo: TypeId,
+        typ: TypeId,
         args: &Argumentos<'_>,
-        palavra: Option<Span>,
-        em_const_args: bool,
+        the_keyword: Option<Span>,
+        in_const_args: bool,
     ) -> R {
         // T3: o `const` é o da declaração pública (no SDK, o patch de
         // `bool.fromEnvironment` e dos irmãos é uma fábrica sem `const`).
         let fe = self.program.function(self.program.publico(f));
         if !fe.const_ {
-            let span = palavra.unwrap_or(erro.span);
-            return Constante::Invalida(Box::new(self.erro(erro.unidade, span, c::CONST_WITH_NON_CONST)));
+            let span = the_keyword.unwrap_or(error.span);
+            return Constante::Invalid(Box::new(self.erro(error.unidade, span, c::CONST_WITH_NON_CONST)));
         }
-        if self.construtores_em_curso.contains(&f) || self.construtores_em_curso.len() > 64 {
-            return Constante::Valor(self.desconhecido(tipo));
+        if self.constructors_in_progress.contains(&f) || self.constructors_in_progress.len() > 64 {
+            return Constante::Valor(self.desconhecido(typ));
         }
         // Argumentos (`_valueOf`: o não resolvido é relatado e vira um
         // objeto fictício do tipo do parâmetro).
         let params = self.outline.functions.get(f.0 as usize).map(|d| d.parameters.clone()).unwrap_or_default();
-        let mut posicionais: Vec<Valor> = Vec::new();
-        let mut nomeados: Vec<(SymbolId, Valor, Option<(UnitId, Span, TypeId)>)> = Vec::new();
-        let mut alvos_posicionais: Vec<Option<(UnitId, Span, TypeId)>> = Vec::new();
+        let mut positional_args: Vec<Valor> = Vec::new();
+        let mut named_args: Vec<(SymbolId, Valor, Option<(UnitId, Span, TypeId)>)> = Vec::new();
+        let mut positional_targets: Vec<Option<(UnitId, Span, TypeId)>> = Vec::new();
         match args {
             Argumentos::Ast(a) => {
                 let mut i_pos = 0usize;
                 let u = cx.unidade;
                 for arg in a.args.iter() {
-                    let tipo_param = match arg.name {
+                    let type_param = match arg.name {
                         Some(n) => params.iter().find(|p| p.externo.or(p.name) == Some(n.sym)).map(|p| p.ty),
                         None => params.get(i_pos).map(|p| p.ty),
                     }
                     .unwrap_or(self.core.dynamic_);
-                    let v = self.valor_de(cx, arg.value, tipo_param, em_const_args);
+                    let v = self.value_of(cx, arg.value, type_param, in_const_args);
                     let v = match v {
                         Constante::Valor(v) => v,
                         i => return i,
                     };
-                    let alvo = Some((u, self.span(u, arg.value), self.estatico(u, arg.value)));
+                    let tgt = Some((u, self.span(u, arg.value), self.estatico(u, arg.value)));
                     match arg.name {
                         Some(n) => {
                             let s = Span { start: n.span.start, end: self.span(u, arg.value).end };
-                            nomeados.push((n.sym, v, Some((u, s, self.estatico(u, arg.value)))));
+                            named_args.push((n.sym, v, Some((u, s, self.estatico(u, arg.value)))));
                         }
                         None => {
-                            posicionais.push(v);
-                            alvos_posicionais.push(alvo);
+                            positional_args.push(v);
+                            positional_targets.push(tgt);
                             i_pos += 1;
                         }
                     }
                 }
             }
-            Argumentos::Valores { posicionais: p, nomeados: n } => {
-                posicionais = p.clone();
-                alvos_posicionais = vec![None; p.len()];
-                nomeados = n.iter().map(|(s, v)| (*s, v.clone(), None)).collect();
+            Argumentos::Values { posicionais: p, nomeados: n } => {
+                positional_args = p.clone();
+                positional_targets = vec![None; p.len()];
+                named_args = n.iter().map(|(s, v)| (*s, v.clone(), None)).collect();
             }
         }
         // Redirecionamentos de factory `const` até um construtor que não é.
-        let (f, tipo) = self.seguir_redirecionamentos(f, tipo);
+        let (f, typ) = self.follow_redirections(f, typ);
         // O construtor não é livre de ciclo (`isCycleFree`,
         // `evaluation.dart:3090-3099`): um desconhecido do tipo, sem erro.
-        if self.grafo.construtores_em_ciclo.contains(&f) {
-            return Constante::Valor(self.desconhecido(tipo));
+        if self.grafo.constructors_in_cycle.contains(&f) {
+            return Constante::Valor(self.desconhecido(typ));
         }
         let fe = self.program.function(f);
-        let Some(k) = fe.class else { return Constante::Valor(self.desconhecido(tipo)) };
-        if fe.factory || !self.inferidas.contains(&fe.library) || fe.kind == FunctionKind::SyntheticConstructor && self.program.class(k).kind == ClassKind::MixinApplication {
-            return self.chamar_factory(erro, f, tipo, &posicionais, &nomeados);
+        let Some(k) = fe.class else { return Constante::Valor(self.desconhecido(typ)) };
+        if fe.factory || !self.the_inferred.contains(&fe.library) || fe.kind == FunctionKind::SyntheticConstructor && self.program.class(k).kind == ClassKind::MixinApplication {
+            return self.call_factory(error, f, typ, &positional_args, &named_args);
         }
-        self.construtores_em_curso.push(f);
-        let r = self.chamar_gerador(erro, f, k, tipo, posicionais, alvos_posicionais, nomeados);
-        self.construtores_em_curso.pop();
+        self.constructors_in_progress.push(f);
+        let r = self.call_generator(error, f, k, typ, positional_args, positional_targets, named_args);
+        self.constructors_in_progress.pop();
         r
     }
 
     /// `_valueOf`.
-    fn valor_de(&mut self, cx: &Ctx, e: ExprId, tipo_padrao: TypeId, em_const: bool) -> R {
-        match self.avaliar(cx, e, em_const) {
-            Constante::Invalida(i) if i.nao_resolvida => {
-                if cx.relatar && !i.evitar_relato {
+    fn value_of(&mut self, cx: &Ctx, e: ExprId, default_type: TypeId, in_const: bool) -> R {
+        match self.avaliar(cx, e, in_const) {
+            Constante::Invalid(i) if i.unresolved => {
+                if cx.relatar && !i.avoid_report {
                     self.relatos.push((*i).clone());
                 }
-                let t = self.apagar(tipo_padrao);
-                Constante::Valor(Valor::novo(t, Estado::Null { invalido: true }))
+                let t = self.apagar(default_type);
+                Constante::Valor(Valor::novo(t, Estado::Null { invalid: true }))
             }
             r => r,
         }
     }
 
     /// `_followConstantRedirectionChain`.
-    fn seguir_redirecionamentos(&mut self, mut f: FunctionElementId, mut tipo: TypeId) -> (FunctionElementId, TypeId) {
-        let mut vistos = vec![f];
+    fn follow_redirections(&mut self, mut f: FunctionElementId, mut typ: TypeId) -> (FunctionElementId, TypeId) {
+        let mut seen = vec![f];
         loop {
             let fe = self.program.function(f);
             if !fe.factory {
@@ -2518,135 +2518,135 @@ impl<'a> Motor<'a> {
             {
                 break;
             }
-            let Some((g, t)) = self.alvo_de_redirecionamento(f, tipo) else { break };
-            if !self.program.function(self.program.publico(g)).const_ || vistos.contains(&g) {
+            let Some((g, t)) = self.redirection_target(f, typ) else { break };
+            if !self.program.function(self.program.publico(g)).const_ || seen.contains(&g) {
                 break;
             }
-            vistos.push(g);
+            seen.push(g);
             f = g;
-            tipo = t;
+            typ = t;
         }
-        (f, tipo)
+        (f, typ)
     }
 
     /// O construtor para o qual a factory `f` redireciona (`= C.nome`), e o
     /// tipo instanciado.
-    fn alvo_de_redirecionamento(&mut self, f: FunctionElementId, tipo: TypeId) -> Option<(FunctionElementId, TypeId)> {
+    fn redirection_target(&mut self, f: FunctionElementId, typ: TypeId) -> Option<(FunctionElementId, TypeId)> {
         let FunctionRef::Constructor { unit, member } = self.program.function(f).node else { return None };
         let ast::MemberKind::Constructor(k) = &self.ast(unit).member(member).kind else { return None };
         let r = k.redirect.as_ref()?;
         let ast::TypeKind::Named { name, .. } = &self.ast(unit).ty(r.ty).kind else { return None };
         // `C.nome` sem prefixo de import é a classe `C` e o construtor `nome`
         // (o parser não distingue de um tipo prefixado).
-        let mut construtor = r.constructor.map(|n| n.sym);
+        let mut the_constructor = r.constructor.map(|n| n.sym);
         let b = match &name[..] {
             [n] => self.program.lookup_na_unidade(unit, n.sym),
             [p, n] => match self.program.lookup_prefixed_na_unidade(unit, p.sym, n.sym) {
                 Some(b) => Some(b),
-                None if construtor.is_none() => {
-                    construtor = Some(n.sym);
+                None if the_constructor.is_none() => {
+                    the_constructor = Some(n.sym);
                     self.program.lookup_na_unidade(unit, p.sym)
                 }
                 None => None,
             },
             _ => None,
         }?;
-        let Some(Element::Class(alvo)) = b.getter else { return None };
-        let chave = match construtor {
+        let Some(Element::Class(tgt)) = b.getter else { return None };
+        let the_key = match the_constructor {
             Some(n) => n,
             None => self.interner.lookup("")?,
         };
-        let g = *self.program.class(alvo).constructors.get(&chave)?;
+        let g = *self.program.class(tgt).constructors.get(&the_key)?;
         // Os argumentos de tipo passam pela declaração: o alvo é tratado com
         // os do tipo original quando a classe é a mesma; senão, cru.
-        let t = match self.table.get(tipo) {
-            Type::Interface { class, .. } if *class == alvo => tipo,
+        let t = match self.table.get(typ) {
+            Type::Interface { class, .. } if *class == tgt => typ,
             _ => {
-                let n = self.program.class(alvo).type_params.len();
-                self.table.intern(Type::Interface { class: alvo, args: vec![self.core.dynamic_; n].into_boxed_slice(), nullable: false })
+                let n = self.program.class(tgt).type_params.len();
+                self.table.intern(Type::Interface { class: tgt, args: vec![self.core.dynamic_; n].into_boxed_slice(), nullable: false })
             }
         };
         Some((g, t))
     }
 
     /// `evaluateFactoryConstructorCall`.
-    fn chamar_factory(
+    fn call_factory(
         &mut self,
-        erro: ErroEm,
+        error: ErrorAt,
         f: FunctionElementId,
-        tipo: TypeId,
-        posicionais: &[Valor],
-        nomeados: &[(SymbolId, Valor, Option<(UnitId, Span, TypeId)>)],
+        typ: TypeId,
+        positional_args: &[Valor],
+        named_args: &[(SymbolId, Valor, Option<(UnitId, Span, TypeId)>)],
     ) -> R {
         let fe = self.program.function(f);
-        let nome = fe.name;
-        let classe = fe.class;
-        let de_core = Some(fe.library) == self.core.core_library;
-        let primeiro = posicionais.first();
-        let n_args = posicionais.len() + nomeados.len();
-        let excecao = |m: &Motor<'_>| Constante::Invalida(Box::new(m.erro(erro.unidade, erro.span, c::CONST_EVAL_THROWS_EXCEPTION)));
-        if de_core && Some(nome) == self.sym_from_environment {
+        let the_name = fe.name;
+        let cls = fe.class;
+        let of_core = Some(fe.library) == self.core.core_library;
+        let first = positional_args.first();
+        let n_args = positional_args.len() + named_args.len();
+        let exception = |m: &Motor<'_>| Constante::Invalid(Box::new(m.erro(error.unidade, error.span, c::CONST_EVAL_THROWS_EXCEPTION)));
+        if of_core && Some(the_name) == self.sym_from_environment {
             // `_checkFromEnvironmentArguments`.
             let ok = (1..=2).contains(&n_args)
-                && posicionais.len() == 1
-                && primeiro.is_some_and(|p| p.tipo == self.core.string)
-                && (nomeados.is_empty()
-                    || nomeados.len() == 1
-                        && Some(nomeados[0].0) == self.sym_default_value
-                        && (nomeados[0].1.tipo == tipo || nomeados[0].1.tipo == self.core.null));
+                && positional_args.len() == 1
+                && first.is_some_and(|p| p.tipo == self.core.string)
+                && (named_args.is_empty()
+                    || named_args.len() == 1
+                        && Some(named_args[0].0) == self.sym_default_value
+                        && (named_args[0].1.tipo == typ || named_args[0].1.tipo == self.core.null));
             if !ok {
-                return excecao(self);
+                return exception(self);
             }
-            return Constante::Valor(self.desconhecido(tipo));
+            return Constante::Valor(self.desconhecido(typ));
         }
-        if de_core && Some(nome) == self.sym_has_environment && classe.is_some() && classe == self.core.bool_class {
+        if of_core && Some(the_name) == self.sym_has_environment && cls.is_some() && cls == self.core.bool_class {
             return Constante::Valor(Valor::bool_(self.core, None));
         }
-        if de_core
-            && self.interner.resolve(nome).is_empty()
-            && classe.is_some_and(|k| self.interner.resolve(self.program.class(k).name) == "Symbol")
+        if of_core
+            && self.interner.resolve(the_name).is_empty()
+            && cls.is_some_and(|k| self.interner.resolve(self.program.class(k).name) == "Symbol")
             && n_args == 1
         {
-            let ok = posicionais.len() == 1 && primeiro.is_some_and(|p| p.tipo == self.core.string && p.como_texto().is_some());
+            let ok = positional_args.len() == 1 && first.is_some_and(|p| p.tipo == self.core.string && p.como_texto().is_some());
             if !ok {
-                return excecao(self);
+                return exception(self);
             }
-            let s = String::from_utf16_lossy(primeiro.unwrap().como_texto().unwrap());
-            return Constante::Valor(Valor::novo(tipo, Estado::Simbolo(Some(s.into()))));
+            let s = String::from_utf16_lossy(first.unwrap().como_texto().unwrap());
+            return Constante::Valor(Valor::novo(typ, Estado::Simbolo(Some(s.into()))));
         }
-        let t = self.apagar(tipo);
+        let t = self.apagar(typ);
         Constante::Valor(self.desconhecido(t))
     }
 
     /// `evaluateGenerativeConstructorCall`.
     #[allow(clippy::too_many_arguments)]
-    fn chamar_gerador(
+    fn call_generator(
         &mut self,
-        erro: ErroEm,
+        error: ErrorAt,
         f: FunctionElementId,
         k: ClassId,
-        tipo: TypeId,
-        posicionais: Vec<Valor>,
-        alvos_posicionais: Vec<Option<(UnitId, Span, TypeId)>>,
-        nomeados: Vec<(SymbolId, Valor, Option<(UnitId, Span, TypeId)>)>,
+        typ: TypeId,
+        positional_args: Vec<Valor>,
+        positional_targets: Vec<Option<(UnitId, Span, TypeId)>>,
+        named_args: Vec<(SymbolId, Valor, Option<(UnitId, Span, TypeId)>)>,
     ) -> R {
         let lib = self.program.function(f).library;
         // Substituição dos parâmetros de tipo da classe.
-        let params_classe = self.outline.classes.get(k.0 as usize).map(|d| d.type_params.clone()).unwrap_or_default();
-        let args_tipo: Vec<TypeId> = match self.table.get(tipo) {
+        let class_params = self.outline.classes.get(k.0 as usize).map(|d| d.type_params.clone()).unwrap_or_default();
+        let type_args: Vec<TypeId> = match self.table.get(typ) {
             Type::Interface { args, .. } | Type::ExtensionType { args, .. } => args.to_vec(),
             _ => Vec::new(),
         };
-        let mut mapa_tipos: HashMap<TypeParamId, TypeId> = HashMap::new();
-        if params_classe.len() == args_tipo.len() {
-            for (p, a) in params_classe.iter().zip(args_tipo.iter()) {
-                mapa_tipos.insert(*p, *a);
+        let mut types_map: HashMap<TypeParamId, TypeId> = HashMap::new();
+        if class_params.len() == type_args.len() {
+            for (p, a) in class_params.iter().zip(type_args.iter()) {
+                types_map.insert(*p, *a);
             }
         }
         let subst = |m: &mut Motor<'_>, t: TypeId| -> TypeId {
-            if mapa_tipos.is_empty() { t } else { crate::ops::substitute(t, &mapa_tipos, m.table) }
+            if types_map.is_empty() { t } else { crate::ops::substitute(t, &types_map, m.table) }
         };
-        let mut campos: Vec<(Campo, Valor)> = Vec::new();
+        let mut the_fields: Vec<(Campo, Valor)> = Vec::new();
         // `_checkFields`: campos `final` com inicializador na declaração.
         let fields = self.program.class(k).fields.clone();
         for v in fields {
@@ -2654,125 +2654,125 @@ impl<'a> Motor<'a> {
             if !(var.final_ || var.const_) || var.static_ || var.late {
                 continue;
             }
-            let tem_init = match var.node {
+            let has_init = match var.node {
                 VariableRef::Field { unit, member, index } => match &self.ast(unit).member(member).kind {
                     ast::MemberKind::Field(l) => l.variables.get(index).and_then(|x| x.initializer).map(|x| (unit, x)),
                     _ => None,
                 },
                 _ => None,
             };
-            let Some((fu, fx)) = tem_init else { continue };
+            let Some((fu, fx)) = has_init else { continue };
             let Some(Constante::Valor(x)) = self.valor_de_variavel(v) else { continue };
-            let declarado = self.outline.variables[v.0 as usize].declared_type.or(self.outline.variables[v.0 as usize].inferred).unwrap_or(self.core.dynamic_);
-            let tipo_campo = subst(self, declarado);
-            if !self.casa(&x, tipo_campo) {
+            let declared = self.outline.variables[v.0 as usize].declared_type.or(self.outline.variables[v.0 as usize].inferred).unwrap_or(self.core.dynamic_);
+            let field_type = subst(self, declared);
+            if !self.casa(&x, field_type) {
                 // `hasTypeParameterReference(field.type)`: o tipo declarado do
                 // campo, antes da substituição (`final T x` com `C<String>`),
                 // faz do descasamento uma exceção da avaliação — relatada como
                 // `CONST_EVAL_THROWS_EXCEPTION` na criação, com a mensagem do
                 // campo de contexto.
-                let excecao = self.menciona_parametro(declarado);
-                let (eu, es) = if fu == erro.unidade || true { (fu, self.span(fu, fx)) } else { (erro.unidade, erro.span) };
+                let exception = self.mentions_parameter(declared);
+                let (eu, es) = if fu == error.unidade || true { (fu, self.span(fu, fx)) } else { (error.unidade, error.span) };
                 let mut i = self.erro(eu, es, c::CONST_CONSTRUCTOR_FIELD_TYPE_MISMATCH);
-                i.args = vec![self.formatar(x.tipo), self.interner.resolve(var.name).to_string(), self.formatar(tipo_campo)];
-                i.excecao = excecao;
-                return Constante::Invalida(Box::new(i));
+                i.args = vec![self.formatar(x.tipo), self.interner.resolve(var.name).to_string(), self.formatar(field_type)];
+                i.excecao = exception;
+                return Constante::Invalid(Box::new(i));
             }
-            campos.push((Campo::Nome(var.name), x));
+            the_fields.push((Campo::Nome(var.name), x));
         }
         // `_checkParameters`.
         let FunctionRef::Constructor { unit: cu, member } = self.program.function(f).node else {
             // Construtor sintético: sem parâmetros nem inicializadores.
-            let g = self.completar_gerador(erro, f, k, tipo, lib, campos, None, Vec::new(), HashMap::new(), mapa_tipos);
-            return self.terminar_gerador(g);
+            let g = self.complete_generator(error, f, k, typ, lib, the_fields, None, Vec::new(), HashMap::new(), types_map);
+            return self.finish_generator(g);
         };
         let ast::MemberKind::Constructor(ctor) = &self.ast(cu).member(member).kind else {
-            return Constante::Valor(self.desconhecido(tipo));
+            return Constante::Valor(self.desconhecido(typ));
         };
-        let params_tipos = self.outline.functions.get(f.0 as usize).map(|d| d.parameters.clone()).unwrap_or_default();
-        let mut lexico: HashMap<SymbolId, Valor> = HashMap::new();
+        let type_params_list = self.outline.functions.get(f.0 as usize).map(|d| d.parameters.clone()).unwrap_or_default();
+        let mut lexical: HashMap<SymbolId, Valor> = HashMap::new();
         let mut i_pos = 0usize;
         for (i, p) in ctor.parameters.iter().enumerate() {
-            let Some(nome) = p.name else { continue };
-            let externo = p.nome_externo().map(|n| n.sym).unwrap_or(nome.sym);
-            let tipo_p = params_tipos.get(i).map(|d| d.ty).unwrap_or(self.core.dynamic_);
-            let tipo_p = subst(self, tipo_p);
-            let (mut valor, alvo) = if p.kind == ast::ParameterKind::Named {
-                match nomeados.iter().find(|(n, _, _)| *n == externo) {
+            let Some(the_name) = p.name else { continue };
+            let external = p.nome_externo().map(|n| n.sym).unwrap_or(the_name.sym);
+            let type_p = type_params_list.get(i).map(|d| d.ty).unwrap_or(self.core.dynamic_);
+            let type_p = subst(self, type_p);
+            let (mut the_value, tgt) = if p.kind == ast::ParameterKind::Named {
+                match named_args.iter().find(|(n, _, _)| *n == external) {
                     Some((_, v, a)) => (Some(v.clone()), *a),
                     None => (None, None),
                 }
             } else {
-                let r = (posicionais.get(i_pos).cloned(), alvos_posicionais.get(i_pos).copied().flatten());
+                let r = (positional_args.get(i_pos).cloned(), positional_targets.get(i_pos).copied().flatten());
                 i_pos += 1;
                 r
             };
             // Só o opcional (`isOptional`) recebe o padrão; o nomeado
             // `required` ausente fica sem valor.
-            if valor.is_none() && p.kind != ast::ParameterKind::Required && !p.required {
-                valor = match p.default_value {
+            if the_value.is_none() && p.kind != ast::ParameterKind::Required && !p.required {
+                the_value = match p.default_value {
                     // `super.x` sem padrão: o do parâmetro do construtor super.
                     None if p.super_ => {
-                        let indice = ctor.parameters[..i].iter().filter(|q| q.super_ && q.kind != ast::ParameterKind::Named).count();
-                        Some(self.padrao_herdado(f, nome.sym, p.kind == ast::ParameterKind::Named, indice, 0).unwrap_or_else(|| Valor::nulo(self.core)))
+                        let idx = ctor.parameters[..i].iter().filter(|q| q.super_ && q.kind != ast::ParameterKind::Named).count();
+                        Some(self.inherited_default(f, the_name.sym, p.kind == ast::ParameterKind::Named, idx, 0).unwrap_or_else(|| Valor::nulo(self.core)))
                     }
                     None => Some(Valor::nulo(self.core)),
                     Some(d) => match self.valor_padrao(cu, lib, d) {
                         Constante::Valor(v) => Some(v),
-                        Constante::Invalida(_) => None,
+                        Constante::Invalid(_) => None,
                     },
                 };
             }
-            let Some(valor) = valor else { continue };
-            let (au, aspan, aestatico) = match alvo {
+            let Some(the_value) = the_value else { continue };
+            let (au, aspan, astatic) = match tgt {
                 Some((u, s, t)) => (u, s, Some(t)),
-                None => (erro.unidade, erro.span, None),
+                None => (error.unidade, error.span, None),
             };
-            let invalido = matches!(valor.estado, Estado::Null { invalido: true });
-            if !invalido && !self.casa(&valor, tipo_p) {
-                let excecao = aestatico.is_some_and(|t| self.atribuivel(t, tipo_p));
+            let invalid = matches!(the_value.estado, Estado::Null { invalid: true });
+            if !invalid && !self.casa(&the_value, type_p) {
+                let exception = astatic.is_some_and(|t| self.atribuivel(t, type_p));
                 let mut e = self.erro(au, aspan, c::CONST_CONSTRUCTOR_PARAM_TYPE_MISMATCH);
-                e.args = vec![self.formatar_sem_alias(valor.tipo), self.formatar_sem_alias(tipo_p)];
-                e.excecao = excecao;
-                return Constante::Invalida(Box::new(e));
+                e.args = vec![self.format_without_alias(the_value.tipo), self.format_without_alias(type_p)];
+                e.excecao = exception;
+                return Constante::Invalid(Box::new(e));
             }
             if p.this_ {
-                let campo = self.program.class(k).fields.iter().copied().find(|v| self.program.variable(*v).name == nome.sym && !self.program.variable(*v).static_);
-                if let Some(campo) = campo {
-                    let tipo_campo = self.outline.variables[campo.0 as usize].declared_type.or(self.outline.variables[campo.0 as usize].inferred).unwrap_or(self.core.dynamic_);
-                    let tipo_campo = subst(self, tipo_campo);
-                    if tipo_campo != tipo_p && !invalido && !self.casa(&valor, tipo_campo) {
+                let field = self.program.class(k).fields.iter().copied().find(|v| self.program.variable(*v).name == the_name.sym && !self.program.variable(*v).static_);
+                if let Some(field) = field {
+                    let field_type = self.outline.variables[field.0 as usize].declared_type.or(self.outline.variables[field.0 as usize].inferred).unwrap_or(self.core.dynamic_);
+                    let field_type = subst(self, field_type);
+                    if field_type != type_p && !invalid && !self.casa(&the_value, field_type) {
                         let mut e = self.erro(au, aspan, c::CONST_CONSTRUCTOR_PARAM_TYPE_MISMATCH);
-                        e.args = vec![self.formatar_sem_alias(valor.tipo), self.formatar_sem_alias(tipo_campo)];
-                        return Constante::Invalida(Box::new(e));
+                        e.args = vec![self.format_without_alias(the_value.tipo), self.format_without_alias(field_type)];
+                        return Constante::Invalid(Box::new(e));
                     }
-                    if campos.iter().any(|(c, _)| *c == Campo::Nome(nome.sym)) {
-                        return Constante::Invalida(Box::new(self.erro(erro.unidade, erro.span, c::CONST_EVAL_THROWS_EXCEPTION)));
+                    if the_fields.iter().any(|(c, _)| *c == Campo::Nome(the_name.sym)) {
+                        return Constante::Invalid(Box::new(self.erro(error.unidade, error.span, c::CONST_EVAL_THROWS_EXCEPTION)));
                     }
-                    campos.push((Campo::Nome(nome.sym), valor.clone()));
+                    the_fields.push((Campo::Nome(the_name.sym), the_value.clone()));
                 }
             }
-            lexico.insert(nome.sym, valor);
+            lexical.insert(the_name.sym, the_value);
         }
         // Parâmetros `super.x`: argumentos implícitos da chamada ao super.
-        let mut super_implicitos: (Vec<Valor>, Vec<(SymbolId, Valor)>) = (Vec::new(), Vec::new());
+        let mut implicit_supers: (Vec<Valor>, Vec<(SymbolId, Valor)>) = (Vec::new(), Vec::new());
         for p in ctor.parameters.iter() {
             if !p.super_ {
                 continue;
             }
             let Some(n) = p.name else { continue };
-            let Some(v) = lexico.get(&n.sym).cloned() else { continue };
+            let Some(v) = lexical.get(&n.sym).cloned() else { continue };
             if p.kind == ast::ParameterKind::Named {
-                super_implicitos.1.push((n.sym, v));
+                implicit_supers.1.push((n.sym, v));
             } else {
-                super_implicitos.0.push(v);
+                implicit_supers.0.push(v);
             }
         }
         let inits: Vec<&ast::Initializer> = ctor.initializers.iter().collect();
         let g = self
-            .completar_gerador(erro, f, k, tipo, lib, campos, Some((cu, inits)), super_implicitos.0, lexico, mapa_tipos)
-            .con_super_nomeados(super_implicitos.1);
-        self.terminar_gerador(g)
+            .complete_generator(error, f, k, typ, lib, the_fields, Some((cu, inits)), implicit_supers.0, lexical, types_map)
+            .con_super_named(implicit_supers.1);
+        self.finish_generator(g)
     }
 
     /// `SuperFormalParameterElementImpl.evaluationResult` (3.6.2
@@ -2782,7 +2782,7 @@ impl<'a> Motor<'a> {
     /// nome, o posicional pela posição entre os `super.` posicionais), sem
     /// conferir o tipo; em cadeia, se aquele também é `super.` sem padrão.
     /// `None`: sem parâmetro correspondente (o valor fica `null`).
-    fn padrao_herdado(&mut self, f: FunctionElementId, nome: SymbolId, nomeado: bool, indice: usize, prof: u32) -> Option<Valor> {
+    fn inherited_default(&mut self, f: FunctionElementId, the_name: SymbolId, named_one: bool, idx: usize, prof: u32) -> Option<Valor> {
         if prof > 16 {
             return None;
         }
@@ -2790,34 +2790,34 @@ impl<'a> Motor<'a> {
         let k = self.program.function(f).class?;
         let sup = self.program.class(k).supertype_class?;
         let ast::MemberKind::Constructor(ctor) = &self.ast(unit).member(member).kind else { return None };
-        let super_nome = ctor.initializers.iter().find_map(|i| match i {
+        let super_name = ctor.initializers.iter().find_map(|i| match i {
             ast::Initializer::Super { constructor, .. } => Some(constructor.map(|n| n.sym)),
             _ => None,
         });
-        let chave = super_nome.flatten().or_else(|| self.interner.lookup(""))?;
-        let g = *self.program.class(sup).constructors.get(&chave)?;
+        let the_key = super_name.flatten().or_else(|| self.interner.lookup(""))?;
+        let g = *self.program.class(sup).constructors.get(&the_key)?;
         let g = self.program.publico(g);
         let FunctionRef::Constructor { unit: gu, member: gm } = self.program.function(g).node else { return None };
         let ast::MemberKind::Constructor(gc) = &self.ast(gu).member(gm).kind else { return None };
-        let alvo = if nomeado {
-            gc.parameters.iter().position(|q| q.kind == ast::ParameterKind::Named && q.name.is_some_and(|n| n.sym == nome))
+        let tgt = if named_one {
+            gc.parameters.iter().position(|q| q.kind == ast::ParameterKind::Named && q.name.is_some_and(|n| n.sym == the_name))
         } else {
-            gc.parameters.iter().enumerate().filter(|(_, q)| q.kind != ast::ParameterKind::Named).nth(indice).map(|(j, _)| j)
+            gc.parameters.iter().enumerate().filter(|(_, q)| q.kind != ast::ParameterKind::Named).nth(idx).map(|(j, _)| j)
         }?;
-        let q = &gc.parameters[alvo];
+        let q = &gc.parameters[tgt];
         match q.default_value {
             Some(d) => {
                 let glib = self.program.unit(gu).library;
                 match self.valor_padrao(gu, glib, d) {
                     Constante::Valor(v) => Some(v),
-                    Constante::Invalida(_) => None,
+                    Constante::Invalid(_) => None,
                 }
             }
             None if q.super_ => {
-                let qnome = q.name?.sym;
-                let qnomeado = q.kind == ast::ParameterKind::Named;
-                let qindice = gc.parameters[..alvo].iter().filter(|r| r.super_ && r.kind != ast::ParameterKind::Named).count();
-                self.padrao_herdado(g, qnome, qnomeado, qindice, prof + 1)
+                let qname = q.name?.sym;
+                let qnamed = q.kind == ast::ParameterKind::Named;
+                let qindex = gc.parameters[..tgt].iter().filter(|r| r.super_ && r.kind != ast::ParameterKind::Named).count();
+                self.inherited_default(g, qname, qnamed, qindex, prof + 1)
             }
             None => Some(Valor::nulo(self.core)),
         }
@@ -2825,24 +2825,24 @@ impl<'a> Motor<'a> {
 
     /// `_checkInitializers`, `_checkSuperConstructorCall` e o objeto.
     #[allow(clippy::too_many_arguments)]
-    fn completar_gerador(
+    fn complete_generator(
         &mut self,
-        erro: ErroEm,
+        error: ErrorAt,
         f: FunctionElementId,
         k: ClassId,
-        tipo: TypeId,
+        typ: TypeId,
         lib: LibraryId,
-        mut campos: Vec<(Campo, Valor)>,
+        mut the_fields: Vec<(Campo, Valor)>,
         inits: Option<(UnitId, Vec<&ast::Initializer>)>,
-        super_posicionais: Vec<Valor>,
-        lexico: HashMap<SymbolId, Valor>,
-        mapa_tipos: HashMap<TypeParamId, TypeId>,
+        super_positional_args: Vec<Valor>,
+        lexical: HashMap<SymbolId, Valor>,
+        types_map: HashMap<TypeParamId, TypeId>,
     ) -> Gerador {
-        let lexico = Rc::new(lexico);
-        let tipos = Rc::new(mapa_tipos);
-        let unidade_ctor = inits.as_ref().map(|(u, _)| *u).unwrap_or(erro.unidade);
-        let cxi = Ctx { unidade: unidade_ctor, lib, lexico: Some(lexico.clone()), tipos: Some(tipos.clone()), relatar: false };
-        let mut super_nome: Option<SymbolId> = None;
+        let lexical = Rc::new(lexical);
+        let types = Rc::new(types_map);
+        let ctor_unit = inits.as_ref().map(|(u, _)| *u).unwrap_or(error.unidade);
+        let cxi = Ctx { unidade: ctor_unit, lib, lexical: Some(lexical.clone()), tipos: Some(types.clone()), relatar: false };
+        let mut super_name: Option<SymbolId> = None;
         let mut super_args: Option<(UnitId, Vec<ast::Argument>)> = None;
         if let Some((cu, inits)) = inits {
             for init in inits {
@@ -2851,43 +2851,43 @@ impl<'a> Motor<'a> {
                         let r = self.avaliar(&cxi, *value, false);
                         match r {
                             Constante::Valor(v) => {
-                                if campos.iter().any(|(c, _)| *c == Campo::Nome(name.sym)) {
-                                    return Gerador::pronto(Constante::Invalida(Box::new(self.erro(erro.unidade, erro.span, c::CONST_EVAL_THROWS_EXCEPTION))));
+                                if the_fields.iter().any(|(c, _)| *c == Campo::Nome(name.sym)) {
+                                    return Gerador::ready(Constante::Invalid(Box::new(self.erro(error.unidade, error.span, c::CONST_EVAL_THROWS_EXCEPTION))));
                                 }
-                                let campo = self.program.class(k).fields.iter().copied().find(|x| self.program.variable(*x).name == name.sym && !self.program.variable(*x).static_);
-                                if let Some(campo) = campo {
-                                    let tc = self.outline.variables[campo.0 as usize].declared_type.or(self.outline.variables[campo.0 as usize].inferred).unwrap_or(self.core.dynamic_);
-                                    let tc = if tipos.is_empty() { tc } else { crate::ops::substitute(tc, &tipos, self.table) };
+                                let field = self.program.class(k).fields.iter().copied().find(|x| self.program.variable(*x).name == name.sym && !self.program.variable(*x).static_);
+                                if let Some(field) = field {
+                                    let tc = self.outline.variables[field.0 as usize].declared_type.or(self.outline.variables[field.0 as usize].inferred).unwrap_or(self.core.dynamic_);
+                                    let tc = if types.is_empty() { tc } else { crate::ops::substitute(tc, &types, self.table) };
                                     if !self.casa(&v, tc) {
-                                        let estatico = self.estatico(cu, *value);
-                                        let excecao = self.atribuivel(estatico, tc);
-                                        let (eu, es) = if excecao { (cu, self.span(cu, *value)) } else { (erro.unidade, erro.span) };
+                                        let static_ = self.estatico(cu, *value);
+                                        let exception = self.atribuivel(static_, tc);
+                                        let (eu, es) = if exception { (cu, self.span(cu, *value)) } else { (error.unidade, error.span) };
                                         let mut i = self.erro(eu, es, c::CONST_CONSTRUCTOR_FIELD_TYPE_MISMATCH);
                                         i.args = vec![self.formatar(v.tipo), self.interner.resolve(name.sym).to_string(), self.formatar(tc)];
-                                        i.excecao = excecao;
-                                        return Gerador::pronto(Constante::Invalida(Box::new(i)));
+                                        i.excecao = exception;
+                                        return Gerador::ready(Constante::Invalid(Box::new(i)));
                                     }
                                 }
-                                campos.push((Campo::Nome(name.sym), v));
+                                the_fields.push((Campo::Nome(name.sym), v));
                             }
-                            Constante::Invalida(i) if !i.excecao => {
-                                let n = self.erro_no_inicializador(&i, Some(f), "field initializer", erro);
-                                return Gerador::pronto(Constante::Invalida(Box::new(n)));
+                            Constante::Invalid(i) if !i.excecao => {
+                                let n = self.error_in_initializer(&i, Some(f), "field initializer", error);
+                                return Gerador::ready(Constante::Invalid(Box::new(n)));
                             }
-                            r => return Gerador::pronto(r),
+                            r => return Gerador::ready(r),
                         }
                     }
                     ast::Initializer::Super { constructor, arguments, .. } => {
-                        super_nome = constructor.map(|n| n.sym);
+                        super_name = constructor.map(|n| n.sym);
                         super_args = Some((cu, arguments.args.to_vec()));
                     }
                     ast::Initializer::Redirect { constructor, arguments, .. } => {
-                        let chave = constructor.map(|n| n.sym).or_else(|| self.interner.lookup(""));
-                        let alvo = chave.and_then(|c| self.program.class(k).constructors.get(&c).copied());
-                        if let Some(g) = alvo {
+                        let the_key = constructor.map(|n| n.sym).or_else(|| self.interner.lookup(""));
+                        let tgt = the_key.and_then(|c| self.program.class(k).constructors.get(&c).copied());
+                        if let Some(g) = tgt {
                             if self.program.function(self.program.publico(g)).const_ {
-                                let r = self.avaliar_chamada(&cxi, erro, g, tipo, &Argumentos::Ast(arguments), None, false);
-                                return Gerador::pronto(r);
+                                let r = self.evaluate_call(&cxi, error, g, typ, &Argumentos::Ast(arguments), None, false);
+                                return Gerador::ready(r);
                             }
                         }
                     }
@@ -2895,7 +2895,7 @@ impl<'a> Motor<'a> {
                         let r = self.avaliar(&cxi, *condition, false);
                         match r {
                             Constante::Valor(v) => {
-                                if !v.estado.e_bool() || v.como_bool() == Some(false) {
+                                if !v.estado.e_bool() || v.as_bool() == Some(false) {
                                     let mut i = None;
                                     if let Some(m) = message {
                                         if let Constante::Valor(mv) = self.avaliar(&cxi, *m, false) {
@@ -2909,123 +2909,123 @@ impl<'a> Motor<'a> {
                                     }
                                     let mut i = i.unwrap_or_else(|| self.erro(cu, *span, c::CONST_EVAL_ASSERTION_FAILURE));
                                     i.excecao = true;
-                                    return Gerador::pronto(Constante::Invalida(Box::new(i)));
+                                    return Gerador::ready(Constante::Invalid(Box::new(i)));
                                 }
                             }
-                            Constante::Invalida(i) if !i.excecao => {
-                                let n = self.erro_no_inicializador(&i, Some(f), "assert initializer", erro);
-                                return Gerador::pronto(Constante::Invalida(Box::new(n)));
+                            Constante::Invalid(i) if !i.excecao => {
+                                let n = self.error_in_initializer(&i, Some(f), "assert initializer", error);
+                                return Gerador::ready(Constante::Invalid(Box::new(n)));
                             }
-                            r => return Gerador::pronto(r),
+                            r => return Gerador::ready(r),
                         }
                     }
                 }
             }
         }
         Gerador {
-            motor_pronto: None,
+            ready_engine: None,
             f: Some(f),
-            erro,
+            erro: error,
             k,
-            tipo,
-            campos,
-            super_nome,
+            tipo: typ,
+            campos: the_fields,
+            super_name,
             super_args,
-            super_posicionais,
-            super_nomeados: Vec::new(),
+            super_positional_args,
+            super_named_args: Vec::new(),
             cxi,
         }
     }
 
     /// `_checkSuperConstructorCall` e o objeto final.
-    fn terminar_gerador(&mut self, g: Gerador) -> R {
-        if let Some(r) = g.motor_pronto {
+    fn finish_generator(&mut self, g: Gerador) -> R {
+        if let Some(r) = g.ready_engine {
             return r;
         }
-        let Gerador { f, erro, k, tipo, mut campos, super_nome, super_args, super_posicionais, super_nomeados, cxi, .. } = g;
-        let classe = self.program.class(k);
-        if let Some(sup) = classe.supertype_class {
+        let Gerador { f, erro: error, k, tipo: typ, campos: mut the_fields, super_name, super_args, super_positional_args, super_named_args, cxi, .. } = g;
+        let cls = self.program.class(k);
+        if let Some(sup) = cls.supertype_class {
             if Some(sup) != self.core.object_class {
-                let chave = super_nome.or_else(|| self.interner.lookup(""));
-                let alvo = chave.and_then(|c| self.program.class(sup).constructors.get(&c).copied());
-                if let Some(g) = alvo {
+                let the_key = super_name.or_else(|| self.interner.lookup(""));
+                let tgt = the_key.and_then(|c| self.program.class(sup).constructors.get(&c).copied());
+                if let Some(g) = tgt {
                     if self.program.function(self.program.publico(g)).const_ {
-                        let tipo_super = self.outline.classes.get(k.0 as usize).and_then(|d| d.supertype).unwrap_or(self.core.dynamic_);
-                        let tipo_super = match cxi.tipos.as_ref() {
-                            Some(m) if !m.is_empty() => crate::ops::substitute(tipo_super, m, self.table),
-                            _ => tipo_super,
+                        let super_type = self.outline.classes.get(k.0 as usize).and_then(|d| d.supertype).unwrap_or(self.core.dynamic_);
+                        let super_type = match cxi.tipos.as_ref() {
+                            Some(m) if !m.is_empty() => crate::ops::substitute(super_type, m, self.table),
+                            _ => super_type,
                         };
                         let r = match super_args {
                             Some((cu, args)) => {
-                                let a = ast::Arguments { span: erro.span, type_args: Box::new([]), args: args.into_boxed_slice() };
+                                let a = ast::Arguments { span: error.span, type_args: Box::new([]), args: args.into_boxed_slice() };
                                 let cx = Ctx { unidade: cu, ..cxi.clone() };
-                                if super_posicionais.is_empty() && super_nomeados.is_empty() {
-                                    self.avaliar_chamada(&cx, erro, g, tipo_super, &Argumentos::Ast(&a), None, false)
+                                if super_positional_args.is_empty() && super_named_args.is_empty() {
+                                    self.evaluate_call(&cx, error, g, super_type, &Argumentos::Ast(&a), None, false)
                                 } else {
                                     // Argumentos escritos mais os de `super.x`.
-                                    let mut pos = super_posicionais.clone();
-                                    let mut nom: Vec<(SymbolId, Valor)> = super_nomeados.clone();
+                                    let mut pos = super_positional_args.clone();
+                                    let mut the_named: Vec<(SymbolId, Valor)> = super_named_args.clone();
                                     for arg in a.args.iter() {
                                         match self.avaliar(&cx, arg.value, false) {
                                             Constante::Valor(v) => match arg.name {
-                                                Some(n) => nom.push((n.sym, v)),
+                                                Some(n) => the_named.push((n.sym, v)),
                                                 None => pos.push(v),
                                             },
                                             i => return i,
                                         }
                                     }
-                                    self.avaliar_chamada(&cx, erro, g, tipo_super, &Argumentos::Valores { posicionais: pos, nomeados: nom }, None, false)
+                                    self.evaluate_call(&cx, error, g, super_type, &Argumentos::Values { posicionais: pos, nomeados: the_named }, None, false)
                                 }
                             }
-                            None => self.avaliar_chamada(
+                            None => self.evaluate_call(
                                 &cxi,
-                                erro,
+                                error,
                                 g,
-                                tipo_super,
-                                &Argumentos::Valores { posicionais: super_posicionais, nomeados: super_nomeados },
+                                super_type,
+                                &Argumentos::Values { posicionais: super_positional_args, nomeados: super_named_args },
                                 None,
                                 false,
                             ),
                         };
                         match r {
-                            Constante::Valor(v) => campos.push((Campo::Super, v)),
-                            Constante::Invalida(i) if !i.excecao => {
+                            Constante::Valor(v) => the_fields.push((Campo::Super, v)),
+                            Constante::Invalid(i) if !i.excecao => {
                                 let mut n = if i.contexto.is_empty() {
-                                    self.erro_no_inicializador(&i, f, "super constructor invocation", erro)
+                                    self.error_in_initializer(&i, f, "super constructor invocation", error)
                                 } else {
                                     let mut n = (*i).clone();
-                                    n.unidade = erro.unidade;
-                                    n.span = erro.span;
+                                    n.unidade = error.unidade;
+                                    n.span = error.span;
                                     n
                                 };
                                 if !i.contexto.is_empty() {
-                                    if let Some(x) = f.and_then(|f| self.pilha_de_construtores(g, f)) {
+                                    if let Some(x) = f.and_then(|f| self.constructor_stack(g, f)) {
                                         n.contexto.push(x);
                                     }
                                 }
-                                return Constante::Invalida(Box::new(n));
+                                return Constante::Invalid(Box::new(n));
                             }
-                            Constante::Invalida(mut i) => {
-                                if let Some(x) = f.and_then(|f| self.pilha_de_construtores(g, f)) {
+                            Constante::Invalid(mut i) => {
+                                if let Some(x) = f.and_then(|f| self.constructor_stack(g, f)) {
                                     i.contexto.push(x);
                                 }
-                                return Constante::Invalida(i);
+                                return Constante::Invalid(i);
                             }
                         }
                     }
                 }
             }
         }
-        if classe.kind == ClassKind::ExtensionType {
-            if let Some(rep) = classe.representation {
-                let nome = self.program.variable(rep).name;
-                if let Some((_, v)) = campos.iter().find(|(c, _)| *c == Campo::Nome(nome)) {
+        if cls.kind == ClassKind::ExtensionType {
+            if let Some(rep) = cls.representation {
+                let the_name = self.program.variable(rep).name;
+                if let Some((_, v)) = the_fields.iter().find(|(c, _)| *c == Campo::Nome(the_name)) {
                     return Constante::Valor(v.clone());
                 }
             }
         }
-        let t = self.apagar(tipo);
-        Constante::Valor(Valor::novo(t, Estado::Generico { campos: Rc::new(campos), desconhecido: false }))
+        let t = self.apagar(typ);
+        Constante::Valor(Valor::novo(t, Estado::Generico { campos: Rc::new(the_fields), desconhecido: false }))
     }
 
     /// Valor padrão de um parâmetro (guardado pela expressão).
@@ -3034,22 +3034,22 @@ impl<'a> Motor<'a> {
             return r.clone();
         }
         let cx = Ctx::simples(u, lib);
-        let salvo = std::mem::take(&mut self.args_de_criacao);
+        let saved = std::mem::take(&mut self.creation_args);
         let r = self.avaliar(&cx, d, false);
-        self.args_de_criacao = salvo;
+        self.creation_args = saved;
         self.padroes.insert((u, d), r.clone());
         r
     }
 
     /// O resultado da avaliação do padrão `d` (para o verificador).
-    pub fn resultado_padrao(&mut self, u: UnitId, lib: LibraryId, d: ExprId) -> Constante {
+    pub fn default_result(&mut self, u: UnitId, lib: LibraryId, d: ExprId) -> Constante {
         self.valor_padrao(u, lib, d)
     }
 }
 
 /// Onde um erro de construtor é relatado (`_errorNode`).
 #[derive(Clone, Copy, Debug)]
-pub struct ErroEm {
+pub struct ErrorAt {
     pub unidade: UnitId,
     pub span: Span,
 }
@@ -3058,73 +3058,73 @@ pub struct ErroEm {
 /// (super implícito, `super.x`).
 enum Argumentos<'x> {
     Ast(&'x ast::Arguments),
-    Valores { posicionais: Vec<Valor>, nomeados: Vec<(SymbolId, Valor)> },
+    Values { posicionais: Vec<Valor>, nomeados: Vec<(SymbolId, Valor)> },
 }
 
 /// O estado entre os inicializadores e a chamada ao super.
 struct Gerador {
-    motor_pronto: Option<Constante>,
+    ready_engine: Option<Constante>,
     /// O construtor avaliado (`_constructor`), para as mensagens de contexto.
     f: Option<FunctionElementId>,
-    erro: ErroEm,
+    erro: ErrorAt,
     k: ClassId,
     tipo: TypeId,
     campos: Vec<(Campo, Valor)>,
-    super_nome: Option<SymbolId>,
+    super_name: Option<SymbolId>,
     super_args: Option<(UnitId, Vec<ast::Argument>)>,
-    super_posicionais: Vec<Valor>,
-    super_nomeados: Vec<(SymbolId, Valor)>,
+    super_positional_args: Vec<Valor>,
+    super_named_args: Vec<(SymbolId, Valor)>,
     cxi: Ctx,
 }
 
 impl Gerador {
-    fn pronto(r: Constante) -> Gerador {
+    fn ready(r: Constante) -> Gerador {
         Gerador {
-            motor_pronto: Some(r),
+            ready_engine: Some(r),
             f: None,
-            erro: ErroEm { unidade: UnitId(0), span: Span { start: 0, end: 0 } },
+            erro: ErrorAt { unidade: UnitId(0), span: Span { start: 0, end: 0 } },
             k: ClassId(0),
             tipo: TypeId(0),
             campos: Vec::new(),
-            super_nome: None,
+            super_name: None,
             super_args: None,
-            super_posicionais: Vec::new(),
-            super_nomeados: Vec::new(),
+            super_positional_args: Vec::new(),
+            super_named_args: Vec::new(),
             cxi: Ctx::simples(UnitId(0), LibraryId(0)),
         }
     }
 
-    fn con_super_nomeados(mut self, n: Vec<(SymbolId, Valor)>) -> Gerador {
-        self.super_nomeados = n;
+    fn con_super_named(mut self, n: Vec<(SymbolId, Valor)>) -> Gerador {
+        self.super_named_args = n;
         self
     }
 }
 
 /// Recua de `i` sobre espaços até o byte `b` (inclusive), se ele vier logo antes.
-fn recuar_ate(fonte: &[u8], i: usize, b: u8) -> usize {
+fn back_up_to(source: &[u8], i: usize, b: u8) -> usize {
     let mut j = i;
-    while j > 0 && fonte[j - 1].is_ascii_whitespace() {
+    while j > 0 && source[j - 1].is_ascii_whitespace() {
         j -= 1;
     }
-    if j > 0 && fonte[j - 1] == b { j - 1 } else { i }
+    if j > 0 && source[j - 1] == b { j - 1 } else { i }
 }
 
 /// Recua de `i` sobre espaços até uma das palavras (a primeira que casar).
-fn recuar_palavra(fonte: &[u8], i: usize, palavras: &[&str]) -> usize {
+fn back_up_word(source: &[u8], i: usize, words: &[&str]) -> usize {
     let mut j = i;
-    while j > 0 && fonte[j - 1].is_ascii_whitespace() {
+    while j > 0 && source[j - 1].is_ascii_whitespace() {
         j -= 1;
     }
     // `if (cond)`: pula o `(`.
-    if j > 0 && fonte[j - 1] == b'(' {
+    if j > 0 && source[j - 1] == b'(' {
         j -= 1;
-        while j > 0 && fonte[j - 1].is_ascii_whitespace() {
+        while j > 0 && source[j - 1].is_ascii_whitespace() {
             j -= 1;
         }
     }
-    for p in palavras {
+    for p in words {
         let p = p.as_bytes();
-        if j >= p.len() && &fonte[j - p.len()..j] == p {
+        if j >= p.len() && &source[j - p.len()..j] == p {
             return j - p.len();
         }
     }
@@ -3132,27 +3132,27 @@ fn recuar_palavra(fonte: &[u8], i: usize, palavras: &[&str]) -> usize {
 }
 
 /// O início do `for` que envolve a posição `i` (o `for` mais próximo antes).
-fn inicio_de_for(fonte: &[u8], i: usize) -> usize {
-    let mut j = i.min(fonte.len());
+fn inicio_de_for(source: &[u8], i: usize) -> usize {
+    let mut j = i.min(source.len());
     let mut prof = 0i32;
     while j > 0 {
         j -= 1;
-        match fonte[j] {
+        match source[j] {
             b')' => prof += 1,
             b'(' => {
                 if prof == 0 {
                     let mut k = j;
-                    while k > 0 && fonte[k - 1].is_ascii_whitespace() {
+                    while k > 0 && source[k - 1].is_ascii_whitespace() {
                         k -= 1;
                     }
-                    if k >= 3 && &fonte[k - 3..k] == b"for" {
+                    if k >= 3 && &source[k - 3..k] == b"for" {
                         let mut s = k - 3;
                         // `await for`
                         let mut w = s;
-                        while w > 0 && fonte[w - 1].is_ascii_whitespace() {
+                        while w > 0 && source[w - 1].is_ascii_whitespace() {
                             w -= 1;
                         }
-                        if w >= 5 && &fonte[w - 5..w] == b"await" {
+                        if w >= 5 && &source[w - 5..w] == b"await" {
                             s = w - 5;
                         }
                         return s;
@@ -3169,18 +3169,18 @@ fn inicio_de_for(fonte: &[u8], i: usize) -> usize {
 
 /// As constantes locais de uma unidade: pelo offset do nome, o comando
 /// (`Variables` ou `for`) e o índice na lista.
-pub(super) fn locais_constantes(a: &ast::Ast) -> HashMap<usize, (ast::StmtId, usize)> {
+pub(super) fn constant_locals(a: &ast::Ast) -> HashMap<usize, (ast::StmtId, usize)> {
     let mut m = HashMap::new();
     for (i, s) in a.stmts.iter().enumerate() {
-        let lista = match &s.kind {
+        let list = match &s.kind {
             ast::StmtKind::Variables(l) => l,
             ast::StmtKind::For { init: Some(ast::ForInit::Variables(l)), .. } => l,
             _ => continue,
         };
-        if !lista.const_ {
+        if !list.const_ {
             continue;
         }
-        for (j, v) in lista.variables.iter().enumerate() {
+        for (j, v) in list.variables.iter().enumerate() {
             m.insert(v.name.span.start, (ast::StmtId(i as u32), j));
         }
     }
@@ -3189,7 +3189,7 @@ pub(super) fn locais_constantes(a: &ast::Ast) -> HashMap<usize, (ast::StmtId, us
 
 /// Os offsets dos nomes de todos os parâmetros formais de uma unidade
 /// (funções, construtores, tipos de função e parâmetros-função).
-fn offsets_de_parametros(a: &ast::Ast) -> HashSet<usize> {
+fn parameter_offsets(a: &ast::Ast) -> HashSet<usize> {
     fn params(ps: &[ast::Parameter], s: &mut HashSet<usize>) {
         for p in ps {
             if let Some(n) = p.name {

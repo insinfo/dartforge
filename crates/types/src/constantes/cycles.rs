@@ -22,8 +22,8 @@
 //! analyzer. Elementos de bibliotecas cujos corpos não foram inferidos
 //! contam como já avaliados: não viram nó.
 
-use super::avaliador::{locais_constantes, Motor};
-use super::grafo::{Caminhante, Grafo};
+use super::avaliador::{constant_locals, Motor};
+use super::graph::{Walker, Grafo};
 use crate::resolved::{MemberRef, Resolved};
 use crate::table::Type;
 use dartforge_elements::model::{
@@ -50,7 +50,7 @@ pub enum Alvo {
     /// Constante local: a unidade e o offset do nome.
     Local(UnitId, usize),
     /// Anotação: o índice em `Estado::anotacoes`.
-    Anot(u32),
+    Annot(u32),
     /// O campo `const` sintético `values` de um enum, cujo inicializador é
     /// a lista das constantes (`LibraryBuilder.buildEnumChildren`): depende
     /// de todas elas, e `e1(values)` fecha um ciclo.
@@ -97,9 +97,9 @@ impl Indices {
 /// O que persiste no [`Motor`] entre as bibliotecas.
 #[derive(Debug, Default)]
 pub struct Estado {
-    caminhante: Caminhante,
+    walker: Walker,
     nos: Vec<Alvo>,
-    por_alvo: HashMap<Alvo, usize>,
+    by_target: HashMap<Alvo, usize>,
     /// `isConstantEvaluated` de cada nó.
     avaliados: Vec<bool>,
     /// As dependências de cada anotação, calculadas quando ela é achada
@@ -109,11 +109,11 @@ pub struct Estado {
     locais: HashMap<UnitId, HashMap<usize, (StmtId, usize)>>,
     indices: Option<Indices>,
     /// Construtores com `isCycleFree == false`.
-    pub construtores_em_ciclo: HashSet<FunctionElementId>,
+    pub constructors_in_cycle: HashSet<FunctionElementId>,
     /// Variáveis cujo resultado é o inválido de ciclo.
-    pub variaveis_em_ciclo: HashSet<VariableId>,
+    pub variables_in_cycle: HashSet<VariableId>,
     /// Idem, constantes locais (unidade e offset do nome).
-    pub locais_em_ciclo: HashSet<(UnitId, usize)>,
+    pub locals_in_cycle: HashSet<(UnitId, usize)>,
 }
 
 impl Estado {
@@ -123,55 +123,55 @@ impl Estado {
     }
 
     /// O inicializador da constante local declarada em `offset`.
-    fn inicializador_local(&mut self, m: &Motor<'_>, u: UnitId, offset: usize) -> Option<Option<ExprId>> {
+    fn local_initializer(&mut self, m: &Motor<'_>, u: UnitId, offset: usize) -> Option<Option<ExprId>> {
         let a = m.ast(u);
-        let mapa = self.locais.entry(u).or_insert_with(|| locais_constantes(a));
-        let &(stmt, i) = mapa.get(&offset)?;
-        let lista = match &a.stmt(stmt).kind {
+        let map = self.locais.entry(u).or_insert_with(|| constant_locals(a));
+        let &(stmt, i) = map.get(&offset)?;
+        let list = match &a.stmt(stmt).kind {
             StmtKind::Variables(l) => l,
             StmtKind::For { init: Some(ast::ForInit::Variables(l)), .. } => l,
             _ => return None,
         };
-        Some(lista.variables.get(i).and_then(|x| x.initializer))
+        Some(list.variables.get(i).and_then(|x| x.initializer))
     }
 }
 
 /// Acha os ciclos de constantes de `lib` e os guarda em `m.grafo`. Roda
 /// antes do verificador, que lê o resultado.
-pub fn computar(m: &mut Motor<'_>, lib: LibraryId) {
-    if !m.inferidas.contains(&lib) {
+pub fn compute(m: &mut Motor<'_>, lib: LibraryId) {
+    if !m.the_inferred.contains(&lib) {
         return;
     }
-    let mut est = std::mem::take(&mut m.grafo);
-    if est.indices.is_none() {
-        est.indices = Some(Indices::novo(m.program));
+    let mut st = std::mem::take(&mut m.grafo);
+    if st.indices.is_none() {
+        st.indices = Some(Indices::novo(m.program));
     }
-    let mut caminhante = std::mem::take(&mut est.caminhante);
+    let mut walker = std::mem::take(&mut st.walker);
     {
-        let motor: &Motor<'_> = m;
-        let program = motor.program;
+        let engine: &Motor<'_> = m;
+        let program = engine.program;
         // Os alvos, unidade por unidade: os do `ConstantFinder` e depois
         // as dependências das expressões constantes soltas.
-        let mut ordem: Vec<Alvo> = Vec::new();
+        let mut order: Vec<Alvo> = Vec::new();
         for &u in &program.library(lib).units {
             if program.unit(u).role == UnitRole::Patch {
                 continue;
             }
-            let mut p = Passeio::novo(motor, &mut est, u, false);
+            let mut p = Walk::novo(engine, &mut st, u, false);
             p.unidade();
-            let Passeio { alvos, soltas, .. } = p;
-            ordem.extend(alvos);
-            ordem.extend(soltas);
+            let Walk { alvos: targets, loose, .. } = p;
+            order.extend(targets);
+            order.extend(loose);
         }
-        let mut g = G { m: motor, est: &mut est };
-        for alvo in ordem {
-            if let Some(no) = g.no(alvo) {
-                caminhante.percorrer(&mut g, no);
+        let mut g = G { m: engine, est: &mut st };
+        for tgt in order {
+            if let Some(no) = g.no(tgt) {
+                walker.percorrer(&mut g, no);
             }
         }
     }
-    est.caminhante = caminhante;
-    m.grafo = est;
+    st.walker = walker;
+    m.grafo = st;
 }
 
 /// O inicializador escrito de uma variável de topo ou de um campo.
@@ -192,7 +192,7 @@ fn inicializador(m: &Motor<'_>, v: VariableId) -> Option<(UnitId, ExprId)> {
 /// A variável é um `ConstVariableElement`: `const`, constante de enum, ou
 /// `final` de instância de um enum ou de uma classe com algum construtor
 /// `const` (`constFieldsForFinalInstance`). As outras estão sempre avaliadas.
-fn elemento_constante(m: &Motor<'_>, v: VariableId) -> bool {
+fn constant_element(m: &Motor<'_>, v: VariableId) -> bool {
     let program = m.program;
     let var = program.variable(v);
     if var.const_ || matches!(var.node, VariableRef::EnumConstant { .. }) {
@@ -202,22 +202,22 @@ fn elemento_constante(m: &Motor<'_>, v: VariableId) -> bool {
         return false;
     }
     let Some(k) = var.class else { return false };
-    let classe = program.class(k);
-    match classe.kind {
+    let cls = program.class(k);
+    match cls.kind {
         ClassKind::Enum => true,
-        ClassKind::Class => classe.constructors.values().any(|f| program.function(program.publico(*f)).const_),
+        ClassKind::Class => cls.constructors.values().any(|f| program.function(program.publico(*f)).const_),
         _ => false,
     }
 }
 
 /// A superclasse declarada de `k`: as classes sintéticas `S&M` de uma
 /// cláusula `with` não contam (o `superclass` do analyzer é `S`).
-pub(super) fn superclasse_declarada(program: &Program, k: ClassId) -> Option<ClassId> {
+pub(super) fn declared_superclass(program: &Program, k: ClassId) -> Option<ClassId> {
     let mut sup = program.class(k).supertype_class?;
-    let mut passos = 0;
-    while program.class(sup).kind == ClassKind::MixinApplication && program.class(sup).decl.is_none() && passos < 64 {
+    let mut steps = 0;
+    while program.class(sup).kind == ClassKind::MixinApplication && program.class(sup).decl.is_none() && steps < 64 {
         sup = program.class(sup).supertype_class?;
-        passos += 1;
+        steps += 1;
     }
     Some(sup)
 }
@@ -232,35 +232,35 @@ struct G<'p, 'a> {
 impl<'a> G<'_, 'a> {
     /// O nó de `alvo`; `None` quando o elemento é de uma biblioteca opaca
     /// (conta como avaliado).
-    fn no(&mut self, alvo: Alvo) -> Option<usize> {
+    fn no(&mut self, tgt: Alvo) -> Option<usize> {
         let program = self.m.program;
-        match alvo {
-            Alvo::Var(v) if !self.m.inferidas.contains(&program.variable(v).library) => return None,
-            Alvo::Ctor(f) if !self.m.inferidas.contains(&program.function(f).library) => return None,
+        match tgt {
+            Alvo::Var(v) if !self.m.the_inferred.contains(&program.variable(v).library) => return None,
+            Alvo::Ctor(f) if !self.m.the_inferred.contains(&program.function(f).library) => return None,
             _ => {}
         }
-        if let Some(&i) = self.est.por_alvo.get(&alvo) {
+        if let Some(&i) = self.est.by_target.get(&tgt) {
             return Some(i);
         }
-        let sempre = match alvo {
-            Alvo::Var(v) => !elemento_constante(self.m, v),
+        let always = match tgt {
+            Alvo::Var(v) => !constant_element(self.m, v),
             _ => false,
         };
         let i = self.est.nos.len();
-        self.est.nos.push(alvo);
-        self.est.por_alvo.insert(alvo, i);
-        self.est.avaliados.push(sempre);
+        self.est.nos.push(tgt);
+        self.est.by_target.insert(tgt, i);
+        self.est.avaliados.push(always);
         Some(i)
     }
 
     /// O `ReferenceFinder` sobre o que `f` visita, na unidade `u`.
-    fn referencias(&mut self, u: UnitId, f: impl FnOnce(&mut Passeio<'_, 'a>)) -> Vec<Alvo> {
-        let mut p = Passeio::novo(self.m, &mut *self.est, u, true);
+    fn referencias(&mut self, u: UnitId, f: impl FnOnce(&mut Walk<'_, 'a>)) -> Vec<Alvo> {
+        let mut p = Walk::novo(self.m, &mut *self.est, u, true);
         f(&mut p);
         p.saida
     }
 
-    fn de_variavel(&mut self, v: VariableId) -> Vec<Alvo> {
+    fn of_variable(&mut self, v: VariableId) -> Vec<Alvo> {
         let m = self.m;
         let program = m.program;
         let var = program.variable(v);
@@ -274,8 +274,8 @@ impl<'a> G<'_, 'a> {
             }
             let mut deps = Vec::new();
             if let Some(k) = var.class {
-                let chave = cst.constructor.map(|n| n.sym).or_else(|| m.interner.lookup(""));
-                if let Some(g) = chave.and_then(|c| program.class(k).constructors.get(&c).copied()) {
+                let the_key = cst.constructor.map(|n| n.sym).or_else(|| m.interner.lookup(""));
+                if let Some(g) = the_key.and_then(|c| program.class(k).constructors.get(&c).copied()) {
                     if program.function(program.publico(g)).const_ {
                         deps.push(Alvo::Ctor(g));
                     }
@@ -296,16 +296,16 @@ impl<'a> G<'_, 'a> {
         }
     }
 
-    fn de_construtor(&mut self, f: FunctionElementId) -> Vec<Alvo> {
+    fn of_constructor(&mut self, f: FunctionElementId) -> Vec<Alvo> {
         let m = self.m;
         let program = m.program;
-        let publico = program.function(program.publico(f));
-        if !publico.const_ {
+        let public = program.function(program.publico(f));
+        if !public.const_ {
             return Vec::new();
         }
         let fe = program.function(f);
-        let Some(classe) = fe.class else { return Vec::new() };
-        let vazio = m.interner.lookup("");
+        let Some(cls) = fe.class else { return Vec::new() };
+        let empty = m.interner.lookup("");
         let no = match fe.node {
             FunctionRef::Constructor { unit, member } => match &m.ast(unit).member(member).kind {
                 MemberKind::Constructor(k) => Some((unit, k)),
@@ -313,21 +313,21 @@ impl<'a> G<'_, 'a> {
             },
             _ => None,
         };
-        if publico.factory || no.is_some_and(|(_, k)| k.factory) {
+        if public.factory || no.is_some_and(|(_, k)| k.factory) {
             // `getConstRedirectedConstructor`: só o alvo `const` do
             // redirecionamento; o `Symbol` de `dart:core` é exceção.
-            let e_symbol = m.interner.resolve(program.class(classe).name) == "Symbol" && Some(fe.library) == m.core.core_library;
+            let e_symbol = m.interner.resolve(program.class(cls).name) == "Symbol" && Some(fe.library) == m.core.core_library;
             if e_symbol {
                 return Vec::new();
             }
-            let alvo = no.and_then(|(unit, k)| alvo_de_redirecionamento(m, unit, k));
-            return match alvo {
+            let tgt = no.and_then(|(unit, k)| redirection_target(m, unit, k));
+            return match tgt {
                 Some(g) if program.function(program.publico(g)).const_ => vec![Alvo::Ctor(g)],
                 _ => Vec::new(),
             };
         }
         let mut deps = Vec::new();
-        let mut super_implicito = true;
+        let mut implicit_super = true;
         if let Some((unit, k)) = no {
             for init in k.initializers.iter() {
                 match init {
@@ -345,11 +345,11 @@ impl<'a> G<'_, 'a> {
                         }));
                     }
                     ast::Initializer::Super { constructor, arguments, .. } => {
-                        super_implicito = false;
+                        implicit_super = false;
                         // O alvo, `const` ou não.
-                        let chave = constructor.map(|n| n.sym).or(vazio);
-                        let sup = program.class(classe).supertype_class;
-                        if let Some(g) = chave.and_then(|c| sup.and_then(|s| program.class(s).constructors.get(&c).copied())) {
+                        let the_key = constructor.map(|n| n.sym).or(empty);
+                        let sup = program.class(cls).supertype_class;
+                        if let Some(g) = the_key.and_then(|c| sup.and_then(|s| program.class(s).constructors.get(&c).copied())) {
                             deps.push(Alvo::Ctor(g));
                         }
                         deps.extend(self.referencias(unit, |p| {
@@ -359,9 +359,9 @@ impl<'a> G<'_, 'a> {
                         }));
                     }
                     ast::Initializer::Redirect { constructor, arguments, .. } => {
-                        super_implicito = false;
-                        let chave = constructor.map(|n| n.sym).or(vazio);
-                        if let Some(g) = chave.and_then(|c| program.class(classe).constructors.get(&c).copied()) {
+                        implicit_super = false;
+                        let the_key = constructor.map(|n| n.sym).or(empty);
+                        if let Some(g) = the_key.and_then(|c| program.class(cls).constructors.get(&c).copied()) {
                             deps.push(Alvo::Ctor(g));
                         }
                         deps.extend(self.referencias(unit, |p| {
@@ -373,12 +373,12 @@ impl<'a> G<'_, 'a> {
                 }
             }
         }
-        if super_implicito {
+        if implicit_super {
             // Sem `super(...)`/`this(...)` escrito: o construtor sem nome da
             // superclasse, se é `const` e a superclasse não é `Object`.
-            if let Some(sup) = superclasse_declarada(program, classe) {
+            if let Some(sup) = declared_superclass(program, cls) {
                 if Some(sup) != m.core.object_class {
-                    if let Some(g) = vazio.and_then(|c| program.class(sup).constructors.get(&c).copied()) {
+                    if let Some(g) = empty.and_then(|c| program.class(sup).constructors.get(&c).copied()) {
                         if program.function(program.publico(g)).const_ {
                             deps.push(Alvo::Ctor(g));
                         }
@@ -387,7 +387,7 @@ impl<'a> G<'_, 'a> {
             }
         }
         // Todo campo de instância `final`/`const` com inicializador.
-        for &v in program.class(classe).fields.iter() {
+        for &v in program.class(cls).fields.iter() {
             let var = program.variable(v);
             if (var.final_ || var.const_) && !var.static_ && inicializador(m, v).is_some() {
                 deps.push(Alvo::Var(v));
@@ -406,43 +406,43 @@ impl<'a> G<'_, 'a> {
 }
 
 /// O construtor para o qual a factory `k` redireciona (`= C.nome`).
-fn alvo_de_redirecionamento(m: &Motor<'_>, unit: UnitId, k: &ast::Constructor) -> Option<FunctionElementId> {
+fn redirection_target(m: &Motor<'_>, unit: UnitId, k: &ast::Constructor) -> Option<FunctionElementId> {
     let program = m.program;
     let r = k.redirect.as_ref()?;
-    let (alvo, construtor) = crate::redirecionamento::classe_e_construtor(program, unit, r)?;
-    let chave = match construtor {
+    let (tgt, ctor) = crate::redirection::class_and_constructor(program, unit, r)?;
+    let the_key = match ctor {
         Some(n) => n.sym,
         None => m.interner.lookup("")?,
     };
-    program.class(alvo).constructors.get(&chave).copied()
+    program.class(tgt).constructors.get(&the_key).copied()
 }
 
 impl Grafo for G<'_, '_> {
     fn dependencias(&mut self, no: usize) -> Vec<usize> {
-        let alvo = self.est.nos[no];
-        let deps: Vec<Alvo> = match alvo {
-            Alvo::Var(v) => self.de_variavel(v),
-            Alvo::Ctor(f) => self.de_construtor(f),
+        let tgt = self.est.nos[no];
+        let deps: Vec<Alvo> = match tgt {
+            Alvo::Var(v) => self.of_variable(v),
+            Alvo::Ctor(f) => self.of_constructor(f),
             Alvo::Param(u, _, Some(d)) => self.referencias(u, |p| p.expr(d, false)),
             Alvo::Param(_, _, None) => Vec::new(),
-            Alvo::Local(u, offset) => match self.est.inicializador_local(self.m, u, offset) {
+            Alvo::Local(u, offset) => match self.est.local_initializer(self.m, u, offset) {
                 Some(Some(init)) => self.referencias(u, |p| p.expr(init, true)),
                 _ => Vec::new(),
             },
-            Alvo::Anot(i) => self.est.anotacoes[i as usize].clone(),
+            Alvo::Annot(i) => self.est.anotacoes[i as usize].clone(),
             Alvo::Values(k) => self.m.program.class(k).enum_constants.iter().map(|&v| Alvo::Var(v)).collect(),
         };
         deps.into_iter().filter_map(|d| self.no(d)).collect()
     }
 
-    fn avaliado(&self, no: usize) -> bool {
+    fn evaluated(&self, no: usize) -> bool {
         self.est.avaliados[no]
     }
 
     fn avaliar(&mut self, no: usize) {
         let m = self.m;
-        let alvo = self.est.nos[no];
-        let pronto = match alvo {
+        let tgt = self.est.nos[no];
+        let ready = match tgt {
             // Sem inicializador não há resultado a guardar: o nó fica por
             // avaliar, como no analyzer.
             Alvo::Var(v) => {
@@ -450,34 +450,34 @@ impl Grafo for G<'_, '_> {
             }
             // Só o construtor `const` fica computado.
             Alvo::Ctor(f) => m.program.function(m.program.publico(f)).const_,
-            Alvo::Param(..) | Alvo::Anot(_) | Alvo::Values(_) => true,
-            Alvo::Local(u, offset) => matches!(self.est.inicializador_local(m, u, offset), Some(Some(_))),
+            Alvo::Param(..) | Alvo::Annot(_) | Alvo::Values(_) => true,
+            Alvo::Local(u, offset) => matches!(self.est.local_initializer(m, u, offset), Some(Some(_))),
         };
-        if pronto {
+        if ready {
             self.est.avaliados[no] = true;
         }
     }
 
-    fn avaliar_componente(&mut self, nos: &[usize]) {
-        for &no in nos {
-            let alvo = self.est.nos[no];
-            match alvo {
+    fn evaluate_component(&mut self, nodes: &[usize]) {
+        for &no in nodes {
+            let tgt = self.est.nos[no];
+            match tgt {
                 Alvo::Var(v) => {
-                    self.est.variaveis_em_ciclo.insert(v);
+                    self.est.variables_in_cycle.insert(v);
                     self.est.avaliados[no] = true;
                 }
                 // O construtor de um ciclo nunca fica avaliado.
                 Alvo::Ctor(f) => {
-                    self.est.construtores_em_ciclo.insert(f);
+                    self.est.constructors_in_cycle.insert(f);
                 }
                 Alvo::Local(u, offset) => {
-                    self.est.locais_em_ciclo.insert((u, offset));
+                    self.est.locals_in_cycle.insert((u, offset));
                     self.est.avaliados[no] = true;
                 }
                 // O parâmetro é uma variável para `generateCycleError`: fica
                 // com o inválido guardado.
                 // O `values` sintético não tem nome a relatar.
-                Alvo::Param(..) | Alvo::Anot(_) | Alvo::Values(_) => self.est.avaliados[no] = true,
+                Alvo::Param(..) | Alvo::Annot(_) | Alvo::Values(_) => self.est.avaliados[no] = true,
             }
         }
     }
@@ -489,7 +489,7 @@ impl Grafo for G<'_, '_> {
 /// com `referencias`, é o `ReferenceFinder` (o que acha vai a `saida`);
 /// sem, é o `ConstantFinder` (`alvos`) junto com o
 /// `ConstantExpressionsDependenciesFinder` (`soltas`).
-struct Passeio<'p, 'a> {
+struct Walk<'p, 'a> {
     m: &'p Motor<'a>,
     est: &'p mut Estado,
     u: UnitId,
@@ -497,49 +497,49 @@ struct Passeio<'p, 'a> {
     referencias: bool,
     saida: Vec<Alvo>,
     alvos: Vec<Alvo>,
-    soltas: Vec<Alvo>,
+    loose: Vec<Alvo>,
     /// As dependências soltas já vistas (o conjunto do original é ordenado
     /// pela inserção).
-    vistas: HashSet<Alvo>,
+    the_seen: HashSet<Alvo>,
     /// A classe (ou mixin, enum, extension type) do membro visitado.
     classe: Option<ClassId>,
     /// `treatFinalInstanceVarAsConst`: dentro de uma classe com algum
     /// construtor `const`.
-    finais_como_const: bool,
-    padroes_ligados: bool,
+    finals_as_const: bool,
+    patterns_enabled: bool,
 }
 
-impl<'p, 'a> Passeio<'p, 'a> {
-    fn novo(m: &'p Motor<'a>, est: &'p mut Estado, u: UnitId, referencias: bool) -> Self {
+impl<'p, 'a> Walk<'p, 'a> {
+    fn novo(m: &'p Motor<'a>, st: &'p mut Estado, u: UnitId, references: bool) -> Self {
         let program = m.program;
         let lib = program.unit(u).library;
-        let padroes_ligados = program.library(lib).features.versao() >= LanguageVersion::new(3, 0);
-        Passeio {
+        let patterns_enabled = program.library(lib).features.versao() >= LanguageVersion::new(3, 0);
+        Walk {
             m,
-            est,
+            est: st,
             u,
             a: m.ast(u),
-            referencias,
+            referencias: references,
             saida: Vec::new(),
             alvos: Vec::new(),
-            soltas: Vec::new(),
-            vistas: HashSet::new(),
+            loose: Vec::new(),
+            the_seen: HashSet::new(),
             classe: None,
-            finais_como_const: false,
-            padroes_ligados,
+            finals_as_const: false,
+            patterns_enabled,
         }
     }
 
     /// `_find`: as referências do que `f` visita viram dependências soltas.
-    fn soltar(&mut self, f: impl FnOnce(&mut Self)) {
-        let guardada = std::mem::take(&mut self.saida);
-        let antes = std::mem::replace(&mut self.referencias, true);
+    fn release(&mut self, f: impl FnOnce(&mut Self)) {
+        let stored = std::mem::take(&mut self.saida);
+        let before = std::mem::replace(&mut self.referencias, true);
         f(self);
-        self.referencias = antes;
-        let achadas = std::mem::replace(&mut self.saida, guardada);
-        for x in achadas {
-            if self.vistas.insert(x) {
-                self.soltas.push(x);
+        self.referencias = before;
+        let found = std::mem::replace(&mut self.saida, stored);
+        for x in found {
+            if self.the_seen.insert(x) {
+                self.loose.push(x);
             }
         }
     }
@@ -566,7 +566,7 @@ impl<'p, 'a> Passeio<'p, 'a> {
         let program = self.m.program;
         let decl = a.decl(d);
         self.anotacoes(&decl.metadata);
-        let classe = self.est.indices.as_ref().and_then(|x| x.classes.get(&(self.u, d)).copied());
+        let cls = self.est.indices.as_ref().and_then(|x| x.classes.get(&(self.u, d)).copied());
         match &decl.kind {
             DeclKind::Variables(l) => {
                 for (i, var) in l.variables.iter().enumerate() {
@@ -582,27 +582,27 @@ impl<'p, 'a> Passeio<'p, 'a> {
             }
             DeclKind::Function(f) => self.funcao(*f),
             DeclKind::Class(k) => {
-                self.classe = classe;
-                self.finais_como_const =
+                self.classe = cls;
+                self.finals_as_const =
                     k.members.iter().any(|mid| matches!(&a.member(*mid).kind, MemberKind::Constructor(c) if c.const_));
                 self.membros(&k.members);
-                self.finais_como_const = false;
+                self.finals_as_const = false;
                 self.classe = None;
             }
             DeclKind::Mixin(k) => {
-                self.classe = classe;
+                self.classe = cls;
                 self.membros(&k.members);
                 self.classe = None;
             }
             DeclKind::Enum(k) => {
-                self.classe = classe;
+                self.classe = cls;
                 for (i, cst) in k.constants.iter().enumerate() {
                     if let Some(args) = &cst.arguments {
                         for x in args.args.iter() {
                             self.expr(x.value, true);
                         }
                     }
-                    if let Some(v) = classe.and_then(|c| program.class(c).enum_constants.get(i).copied()) {
+                    if let Some(v) = cls.and_then(|c| program.class(c).enum_constants.get(i).copied()) {
                         self.alvos.push(Alvo::Var(v));
                     }
                 }
@@ -611,7 +611,7 @@ impl<'p, 'a> Passeio<'p, 'a> {
             }
             DeclKind::Extension(k) => self.membros(&k.members),
             DeclKind::ExtensionType(k) => {
-                self.classe = classe;
+                self.classe = cls;
                 self.membros(&k.members);
                 self.classe = None;
             }
@@ -619,17 +619,17 @@ impl<'p, 'a> Passeio<'p, 'a> {
         }
     }
 
-    fn membros(&mut self, membros: &'a [ast::MemberId]) {
+    fn membros(&mut self, members: &'a [ast::MemberId]) {
         let a = self.a;
-        for &mid in membros {
-            let membro = a.member(mid);
-            self.anotacoes(&membro.metadata);
-            match &membro.kind {
+        for &mid in members {
+            let mem = a.member(mid);
+            self.anotacoes(&mem.metadata);
+            match &mem.kind {
                 MemberKind::Field(l) => {
                     for (i, var) in l.variables.iter().enumerate() {
                         let Some(init) = var.initializer else { continue };
                         self.expr(init, l.const_);
-                        if l.const_ || self.finais_como_const && l.final_ && !l.static_ {
+                        if l.const_ || self.finals_as_const && l.final_ && !l.static_ {
                             let v = self.est.indices.as_ref().and_then(|x| x.campos.get(&(self.u, mid, i)).copied());
                             if let Some(v) = v {
                                 self.alvos.push(Alvo::Var(v));
@@ -716,62 +716,62 @@ impl<'p, 'a> Passeio<'p, 'a> {
         }
         for an in ms {
             let mut deps = Vec::new();
-            if let Some(x) = self.elemento_da_anotacao(an) {
+            if let Some(x) = self.annotation_element(an) {
                 deps.push(x);
             }
             if let Some(args) = &an.arguments {
-                let guardada = std::mem::take(&mut self.saida);
+                let stored = std::mem::take(&mut self.saida);
                 self.referencias = true;
                 for x in args.args.iter() {
                     self.expr(x.value, true);
                 }
                 self.referencias = false;
-                deps.extend(std::mem::replace(&mut self.saida, guardada));
+                deps.extend(std::mem::replace(&mut self.saida, stored));
             }
             let i = self.est.anotacoes.len() as u32;
             self.est.anotacoes.push(deps);
-            self.alvos.push(Alvo::Anot(i));
+            self.alvos.push(Alvo::Annot(i));
         }
     }
 
-    fn elemento_da_anotacao(&self, an: &ast::Annotation) -> Option<Alvo> {
+    fn annotation_element(&self, an: &ast::Annotation) -> Option<Alvo> {
         let program = self.m.program;
         let u = self.u;
-        let vazio = self.m.interner.lookup("");
-        let estatica = |k: ClassId, nome: SymbolId| -> Option<VariableId> {
-            let classe = program.class(k);
-            classe.enum_constants.iter().chain(classe.fields.iter()).copied().find(|v| {
+        let empty = self.m.interner.lookup("");
+        let static_ = |k: ClassId, the_name: SymbolId| -> Option<VariableId> {
+            let cls = program.class(k);
+            cls.enum_constants.iter().chain(cls.fields.iter()).copied().find(|v| {
                 let x = program.variable(*v);
-                x.name == nome && x.static_
+                x.name == the_name && x.static_
             })
         };
-        let de_classe = |k: ClassId, nome: Option<SymbolId>| -> Option<Alvo> {
-            if let Some(v) = nome.and_then(|n| estatica(k, n)) {
+        let of_class = |k: ClassId, the_name: Option<SymbolId>| -> Option<Alvo> {
+            if let Some(v) = the_name.and_then(|n| static_(k, n)) {
                 return Some(Alvo::Var(v));
             }
-            let chave = nome.or(vazio)?;
-            program.class(k).constructors.get(&chave).map(|f| Alvo::Ctor(*f))
+            let the_key = the_name.or(empty)?;
+            program.class(k).constructors.get(&the_key).map(|f| Alvo::Ctor(*f))
         };
-        let de_elemento = |el: Option<Element>, nome: Option<SymbolId>| -> Option<Alvo> {
+        let of_element = |el: Option<Element>, the_name: Option<SymbolId>| -> Option<Alvo> {
             match el? {
-                Element::Variable(v) if nome.is_none() => Some(Alvo::Var(v)),
-                Element::Function(f) if nome.is_none() => program.function(f).variable.map(Alvo::Var),
-                Element::Class(k) => de_classe(k, nome),
+                Element::Variable(v) if the_name.is_none() => Some(Alvo::Var(v)),
+                Element::Function(f) if the_name.is_none() => program.function(f).variable.map(Alvo::Var),
+                Element::Class(k) => of_class(k, the_name),
                 _ => None,
             }
         };
         match &an.name[..] {
             [n] => {
-                if let Some(v) = self.classe.and_then(|k| estatica(k, n.sym)) {
+                if let Some(v) = self.classe.and_then(|k| static_(k, n.sym)) {
                     return Some(Alvo::Var(v));
                 }
-                de_elemento(program.lookup_na_unidade(u, n.sym).and_then(|b| b.getter), None)
+                of_element(program.lookup_na_unidade(u, n.sym).and_then(|b| b.getter), None)
             }
             [x, y] => match program.lookup_prefixed_na_unidade(u, x.sym, y.sym) {
-                Some(b) => de_elemento(b.getter, None),
-                None => de_elemento(program.lookup_na_unidade(u, x.sym).and_then(|b| b.getter), Some(y.sym)),
+                Some(b) => of_element(b.getter, None),
+                None => of_element(program.lookup_na_unidade(u, x.sym).and_then(|b| b.getter), Some(y.sym)),
             },
-            [p, k, n] => de_elemento(program.lookup_prefixed_na_unidade(u, p.sym, k.sym).and_then(|b| b.getter), Some(n.sym)),
+            [p, k, n] => of_element(program.lookup_prefixed_na_unidade(u, p.sym, k.sym).and_then(|b| b.getter), Some(n.sym)),
             _ => None,
         }
     }
@@ -800,8 +800,8 @@ impl<'p, 'a> Passeio<'p, 'a> {
         }
     }
 
-    fn alvo_de_for_in(&mut self, alvo: &'a ast::ForInTarget) {
-        match alvo {
+    fn alvo_de_for_in(&mut self, tgt: &'a ast::ForInTarget) {
+        match tgt {
             ast::ForInTarget::Declared { metadata, .. } => self.anotacoes(metadata),
             ast::ForInTarget::Pattern { pattern, .. } => self.padrao(*pattern),
             ast::ForInTarget::Expression(e) => self.expr(*e, false),
@@ -861,14 +861,14 @@ impl<'p, 'a> Passeio<'p, 'a> {
             }
             StmtKind::Switch { value, cases } => {
                 self.expr(*value, false);
-                for caso in cases.iter() {
-                    if let Some(p) = caso.pattern {
+                for case in cases.iter() {
+                    if let Some(p) = case.pattern {
                         self.padrao(p);
                     }
-                    if let Some(g) = caso.guard {
+                    if let Some(g) = case.guard {
                         self.expr(g, false);
                     }
-                    for x in caso.body.iter() {
+                    for x in case.body.iter() {
                         self.stmt(*x);
                     }
                 }
@@ -906,19 +906,19 @@ impl<'p, 'a> Passeio<'p, 'a> {
                 if self.referencias {
                     self.expr(e, true);
                 } else {
-                    self.soltar(|s| s.expr(e, true));
+                    self.release(|s| s.expr(e, true));
                 }
             }
             // `case nome:` (o parser guarda como variável): a constante de
             // topo com esse nome, como o verificador a lê.
-            PatternKind::Variable { final_: false, var_: false, ty: None, name } if self.padroes_ligados => {
+            PatternKind::Variable { final_: false, var_: false, ty: None, name } if self.patterns_enabled => {
                 let program = self.m.program;
                 if let Some(Element::Variable(v)) = program.lookup_na_unidade(self.u, name.sym).and_then(|b| b.getter) {
                     if program.variable(v).const_ {
                         if self.referencias {
                             self.saida.push(Alvo::Var(v));
-                        } else if self.vistas.insert(Alvo::Var(v)) {
-                            self.soltas.push(Alvo::Var(v));
+                        } else if self.the_seen.insert(Alvo::Var(v)) {
+                            self.loose.push(Alvo::Var(v));
                         }
                     }
                 }
@@ -928,7 +928,7 @@ impl<'p, 'a> Passeio<'p, 'a> {
                 if self.referencias {
                     self.expr(e, true);
                 } else {
-                    self.soltar(|s| s.expr(e, true));
+                    self.release(|s| s.expr(e, true));
                 }
             }
             PatternKind::Or(x, y) | PatternKind::And(x, y) => {
@@ -947,11 +947,11 @@ impl<'p, 'a> Passeio<'p, 'a> {
             }
             PatternKind::Map { entries, .. } => {
                 for en in entries.iter() {
-                    let chave = en.key;
+                    let the_key = en.key;
                     if self.referencias {
-                        self.expr(chave, true);
+                        self.expr(the_key, true);
                     } else {
-                        self.soltar(|s| s.expr(chave, true));
+                        self.release(|s| s.expr(the_key, true));
                     }
                     self.padrao(en.value);
                 }
@@ -1002,7 +1002,7 @@ impl<'p, 'a> Passeio<'p, 'a> {
             Some(Resolved::Local(_)) | None => {
                 let offset = m.body.units.get(self.u.0 as usize).and_then(|b| b.declaracao_local(e));
                 if let Some(offset) = offset {
-                    if self.est.inicializador_local(m, self.u, offset).is_some() {
+                    if self.est.local_initializer(m, self.u, offset).is_some() {
                         self.saida.push(Alvo::Local(self.u, offset));
                     }
                 }
@@ -1019,7 +1019,7 @@ impl<'p, 'a> Passeio<'p, 'a> {
 
     /// Uma criação de instância: `e_const` é o `isConst` do nó (o `const`
     /// escrito, ou a criação implícita num contexto constante).
-    fn criacao(&mut self, e: ExprId, e_const: bool, em_const: bool, args: &'a ast::Arguments) {
+    fn criacao(&mut self, e: ExprId, e_const: bool, in_const: bool, args: &'a ast::Arguments) {
         if self.referencias {
             if e_const {
                 if let Some(Resolved::Constructor(f)) = self.m.resolvido(self.u, e) {
@@ -1030,13 +1030,13 @@ impl<'p, 'a> Passeio<'p, 'a> {
                 }
             }
             for x in args.args.iter() {
-                self.expr(x.value, em_const || e_const);
+                self.expr(x.value, in_const || e_const);
             }
         } else if e_const {
-            self.soltar(|s| s.expr(e, em_const));
+            self.release(|s| s.expr(e, in_const));
         } else {
             for x in args.args.iter() {
-                self.expr(x.value, em_const);
+                self.expr(x.value, in_const);
             }
         }
     }
@@ -1080,7 +1080,7 @@ impl<'p, 'a> Passeio<'p, 'a> {
         }
     }
 
-    fn expr(&mut self, e: ExprId, em_const: bool) {
+    fn expr(&mut self, e: ExprId, in_const: bool) {
         let a = self.a;
         let u = self.u;
         match &a.expr(e).kind {
@@ -1089,27 +1089,27 @@ impl<'p, 'a> Passeio<'p, 'a> {
                 let e_const = match keyword {
                     Some(ast::CreationKeyword::Const) => true,
                     Some(ast::CreationKeyword::New) => false,
-                    None => em_const,
+                    None => in_const,
                 };
-                self.criacao(e, e_const, em_const, arguments);
+                self.criacao(e, e_const, in_const, arguments);
             }
             ExprKind::Call { target, arguments } => {
                 if matches!(self.m.resolvido(u, e), Some(Resolved::Constructor(_))) {
                     // Criação implícita: constante num contexto constante
                     // (ou com o `const` do atalho de ponto).
-                    let atalho_const = matches!(a.expr(*target).kind, ExprKind::DotShorthand { const_: true, .. });
-                    self.criacao(e, em_const || atalho_const, em_const, arguments);
+                    let const_shorthand = matches!(a.expr(*target).kind, ExprKind::DotShorthand { const_: true, .. });
+                    self.criacao(e, in_const || const_shorthand, in_const, arguments);
                     return;
                 }
-                self.expr(*target, em_const);
+                self.expr(*target, in_const);
                 for x in arguments.args.iter() {
-                    self.expr(x.value, em_const);
+                    self.expr(x.value, in_const);
                 }
             }
             ExprKind::List { const_, elements, .. } => {
-                let c = *const_ || em_const;
+                let c = *const_ || in_const;
                 if c && !self.referencias {
-                    self.soltar(|s| s.expr(e, em_const));
+                    self.release(|s| s.expr(e, in_const));
                     return;
                 }
                 for el in elements.iter() {
@@ -1117,28 +1117,28 @@ impl<'p, 'a> Passeio<'p, 'a> {
                 }
             }
             ExprKind::SetOrMap { const_, elements, .. } => {
-                let c = *const_ || em_const;
+                let c = *const_ || in_const;
                 if !self.referencias {
                     if c {
-                        self.soltar(|s| s.expr(e, em_const));
+                        self.release(|s| s.expr(e, in_const));
                         return;
                     }
                     // Sem `const`: as chaves de um mapa e os elementos de um
                     // conjunto são avaliados para a checagem de unicidade.
-                    let classe = match self.m.table.get(self.m.estatico(u, e)) {
+                    let cls = match self.m.table.get(self.m.estatico(u, e)) {
                         Type::Interface { class, .. } => Some(*class),
                         _ => None,
                     };
-                    if classe.is_some() && classe == self.m.core.map_class {
+                    if cls.is_some() && cls == self.m.core.map_class {
                         for el in elements.iter() {
                             if let CollectionElement::MapEntry { key, .. } = el {
-                                let chave = *key;
-                                self.soltar(|s| s.expr(chave, false));
+                                let the_key = *key;
+                                self.release(|s| s.expr(the_key, false));
                             }
                         }
-                    } else if classe.is_some() && classe == self.m.core.set_class {
+                    } else if cls.is_some() && cls == self.m.core.set_class {
                         for el in elements.iter() {
-                            self.soltar(|s| s.elemento(el, false));
+                            self.release(|s| s.elemento(el, false));
                         }
                     }
                 }
@@ -1147,9 +1147,9 @@ impl<'p, 'a> Passeio<'p, 'a> {
                 }
             }
             ExprKind::Record { const_, positional, named } => {
-                let c = *const_ || em_const;
+                let c = *const_ || in_const;
                 if c && !self.referencias {
-                    self.soltar(|s| s.expr(e, em_const));
+                    self.release(|s| s.expr(e, in_const));
                     return;
                 }
                 for x in positional.iter().chain(named.iter().map(|(_, x)| x)) {
@@ -1160,53 +1160,53 @@ impl<'p, 'a> Passeio<'p, 'a> {
             ExprKind::String(lit) => {
                 for p in lit.parts.iter() {
                     if let ast::StringPart::Interpolation(x) = p {
-                        self.expr(*x, em_const);
+                        self.expr(*x, in_const);
                     }
                 }
             }
-            ExprKind::Parenthesized(x) | ExprKind::Await(x) | ExprKind::Throw(x) => self.expr(*x, em_const),
+            ExprKind::Parenthesized(x) | ExprKind::Await(x) | ExprKind::Throw(x) => self.expr(*x, in_const),
             ExprKind::Property { target, .. } => {
-                self.expr(*target, em_const);
+                self.expr(*target, in_const);
                 self.referencia(e);
             }
             ExprKind::Index { target, index, .. } => {
-                self.expr(*target, em_const);
-                self.expr(*index, em_const);
+                self.expr(*target, in_const);
+                self.expr(*index, in_const);
             }
-            ExprKind::TypeArguments { target, .. } => self.expr(*target, em_const),
-            ExprKind::Unary { operand, .. } => self.expr(*operand, em_const),
+            ExprKind::TypeArguments { target, .. } => self.expr(*target, in_const),
+            ExprKind::Unary { operand, .. } => self.expr(*operand, in_const),
             ExprKind::Binary { left, right, .. } => {
-                self.expr(*left, em_const);
-                self.expr(*right, em_const);
+                self.expr(*left, in_const);
+                self.expr(*right, in_const);
             }
             ExprKind::Conditional { condition, then, else_ } => {
-                self.expr(*condition, em_const);
-                self.expr(*then, em_const);
-                self.expr(*else_, em_const);
+                self.expr(*condition, in_const);
+                self.expr(*then, in_const);
+                self.expr(*else_, in_const);
             }
-            ExprKind::Is { value, .. } | ExprKind::As { value, .. } => self.expr(*value, em_const),
+            ExprKind::Is { value, .. } | ExprKind::As { value, .. } => self.expr(*value, in_const),
             ExprKind::Assign { target, value, .. } => {
-                self.expr(*target, em_const);
-                self.expr(*value, em_const);
+                self.expr(*target, in_const);
+                self.expr(*value, in_const);
             }
             ExprKind::PatternAssign { pattern, value } => {
                 self.padrao(*pattern);
-                self.expr(*value, em_const);
+                self.expr(*value, in_const);
             }
             ExprKind::Cascade { target, sections, .. } => {
-                self.expr(*target, em_const);
+                self.expr(*target, in_const);
                 for s in sections.iter() {
-                    self.expr(*s, em_const);
+                    self.expr(*s, in_const);
                 }
             }
             ExprKind::Switch { value, cases } => {
-                self.expr(*value, em_const);
-                for caso in cases.iter() {
-                    self.padrao(caso.pattern);
-                    if let Some(g) = caso.guard {
+                self.expr(*value, in_const);
+                for case in cases.iter() {
+                    self.padrao(case.pattern);
+                    if let Some(g) = case.guard {
                         self.expr(g, false);
                     }
-                    self.expr(caso.body, em_const);
+                    self.expr(case.body, in_const);
                 }
             }
             _ => {}

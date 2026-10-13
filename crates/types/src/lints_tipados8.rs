@@ -23,38 +23,38 @@ use dartforge_frontend::ast::{self, ExprId, ExprKind, FunctionBody, MemberKind, 
 use std::collections::HashSet;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Variancia {
+enum Variance_ {
     Saida,
     Entrada,
-    Ambas,
+    Both,
 }
 
-impl Variancia {
-    fn inversa(self) -> Variancia {
+impl Variance_ {
+    fn inverse(self) -> Variance_ {
         match self {
-            Variancia::Saida => Variancia::Entrada,
-            Variancia::Entrada => Variancia::Saida,
-            Variancia::Ambas => Variancia::Ambas,
+            Variance_::Saida => Variance_::Entrada,
+            Variance_::Entrada => Variance_::Saida,
+            Variance_::Both => Variance_::Both,
         }
     }
 }
 
 /// Os achados na unidade `u`.
 #[allow(clippy::too_many_arguments)]
-pub fn achados(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: &OutlineTypes, corpo: &UnitBodyTypes, u: UnitId) -> Vec<Achado> {
+pub fn achados(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: &OutlineTypes, body: &UnitBodyTypes, u: UnitId) -> Vec<Achado> {
     let mut out = Vec::new();
-    futureor_void(program, table, outline, corpo, u, &mut out);
-    lambdas(program, table, core, outline, corpo, u, &mut out);
+    futureor_void(program, table, outline, body, u, &mut out);
+    lambdas(program, table, core, outline, body, u, &mut out);
     out
 }
 
 /// `avoid_futureor_void`.
-fn futureor_void(program: &Program, table: &TypeTable, outline: &OutlineTypes, corpo: &UnitBodyTypes, u: UnitId, out: &mut Vec<Achado>) {
+fn futureor_void(program: &Program, table: &TypeTable, outline: &OutlineTypes, body: &UnitBodyTypes, u: UnitId, out: &mut Vec<Achado>) {
     let a = &program.unit(u).ast;
-    let resolvido = |t: ast::TypeId| corpo.tipos_de_anotacoes.get(&t).copied().or_else(|| outline.tipos_escritos.get(&(u, t)).copied());
-    let mut achados: HashSet<(usize, usize)> = HashSet::new();
+    let resolved = |t: ast::TypeId| body.tipos_de_anotacoes.get(&t).copied().or_else(|| outline.tipos_escritos.get(&(u, t)).copied());
+    let mut findings: HashSet<(usize, usize)> = HashSet::new();
     // As variâncias dos parâmetros de tipo do elemento de um tipo nomeado.
-    let variancias = |t: TypeId| -> Option<Vec<Option<ast::Variance>>> {
+    let variances = |t: TypeId| -> Option<Vec<Option<ast::Variance>>> {
         let (class, _) = match table.get(t) {
             Type::Interface { class, args, .. } | Type::ExtensionType { decl: class, args, .. } => (*class, args.len()),
             _ => return None,
@@ -72,60 +72,60 @@ fn futureor_void(program: &Program, table: &TypeTable, outline: &OutlineTypes, c
     fn checar(
         a: &ast::Ast,
         table: &TypeTable,
-        resolvido: &dyn Fn(ast::TypeId) -> Option<TypeId>,
-        variancias: &dyn Fn(TypeId) -> Option<Vec<Option<ast::Variance>>>,
-        v: Variancia,
+        resolved: &dyn Fn(ast::TypeId) -> Option<TypeId>,
+        variances: &dyn Fn(TypeId) -> Option<Vec<Option<ast::Variance>>>,
+        v: Variance_,
         t: ast::TypeId,
-        achados: &mut HashSet<(usize, usize)>,
+        findings: &mut HashSet<(usize, usize)>,
     ) {
         match &a.ty(t).kind {
             TypeKind::Named { args, .. } => {
-                let tipo = resolvido(t);
+                let typ = resolved(t);
                 if !args.is_empty() {
-                    let vs = tipo.and_then(variancias).filter(|x| x.len() == args.len());
+                    let vs = typ.and_then(variances).filter(|x| x.len() == args.len());
                     match vs {
                         Some(vs) => {
                             for (arg, var) in args.iter().zip(vs) {
                                 let pv = match var {
                                     None | Some(ast::Variance::Out) => v,
-                                    Some(ast::Variance::In) => v.inversa(),
-                                    Some(ast::Variance::Inout) => Variancia::Ambas,
+                                    Some(ast::Variance::In) => v.inverse(),
+                                    Some(ast::Variance::Inout) => Variance_::Both,
                                 };
-                                checar(a, table, resolvido, variancias, pv, *arg, achados);
+                                checar(a, table, resolved, variances, pv, *arg, findings);
                             }
                         }
                         None => {
                             for arg in args.iter() {
-                                checar(a, table, resolvido, variancias, v, *arg, achados);
+                                checar(a, table, resolved, variances, v, *arg, findings);
                             }
                         }
                     }
                 }
-                let Some(tipo) = tipo else { return };
-                if v == Variancia::Entrada {
+                let Some(typ) = typ else { return };
+                if v == Variance_::Entrada {
                     return;
                 }
-                if let Type::FutureOr { arg, .. } = table.get(tipo)
+                if let Type::FutureOr { arg, .. } = table.get(typ)
                     && matches!(table.get(*arg), Type::Void)
                 {
                     let sp = a.ty(t).span;
-                    achados.insert((sp.start, sp.end));
+                    findings.insert((sp.start, sp.end));
                 }
             }
             TypeKind::Function { return_type, parameters, .. } => {
                 if let Some(r) = return_type {
-                    checar(a, table, resolvido, variancias, v, *r, achados);
+                    checar(a, table, resolved, variances, v, *r, findings);
                 }
                 for p in parameters.iter() {
-                    parametro(a, table, resolvido, variancias, v.inversa(), p, achados);
+                    parametro(a, table, resolved, variances, v.inverse(), p, findings);
                 }
             }
             TypeKind::Record { positional, named } => {
                 for x in positional.iter() {
-                    checar(a, table, resolvido, variancias, v, *x, achados);
+                    checar(a, table, resolved, variances, v, *x, findings);
                 }
                 for (_, x) in named.iter() {
-                    checar(a, table, resolvido, variancias, v, *x, achados);
+                    checar(a, table, resolved, variances, v, *x, findings);
                 }
             }
             _ => {}
@@ -134,42 +134,42 @@ fn futureor_void(program: &Program, table: &TypeTable, outline: &OutlineTypes, c
     fn parametro(
         a: &ast::Ast,
         table: &TypeTable,
-        resolvido: &dyn Fn(ast::TypeId) -> Option<TypeId>,
-        variancias: &dyn Fn(TypeId) -> Option<Vec<Option<ast::Variance>>>,
-        v: Variancia,
+        resolved: &dyn Fn(ast::TypeId) -> Option<TypeId>,
+        variances: &dyn Fn(TypeId) -> Option<Vec<Option<ast::Variance>>>,
+        v: Variance_,
         p: &ast::Parameter,
-        achados: &mut HashSet<(usize, usize)>,
+        findings: &mut HashSet<(usize, usize)>,
     ) {
-        if let Some(internos) = &p.function_parameters {
+        if let Some(internal) = &p.function_parameters {
             if let Some(r) = p.ty {
-                checar(a, table, resolvido, variancias, v, r, achados);
+                checar(a, table, resolved, variances, v, r, findings);
             }
             for tp in p.function_type_params.iter() {
                 if let Some(b) = tp.bound {
-                    checar(a, table, resolvido, variancias, Variancia::Ambas, b, achados);
+                    checar(a, table, resolved, variances, Variance_::Both, b, findings);
                 }
             }
-            for q in internos.iter() {
-                parametro(a, table, resolvido, variancias, v.inversa(), q, achados);
+            for q in internal.iter() {
+                parametro(a, table, resolved, variances, v.inverse(), q, findings);
             }
             return;
         }
         if let Some(t) = p.ty {
-            checar(a, table, resolvido, variancias, v, t, achados);
+            checar(a, table, resolved, variances, v, t, findings);
         }
     }
-    let saida = Variancia::Saida;
-    let ch = |v: Variancia, t: ast::TypeId, achados: &mut HashSet<(usize, usize)>| checar(a, table, &resolvido, &variancias, v, t, achados);
+    let output = Variance_::Saida;
+    let ch = |v: Variance_, t: ast::TypeId, findings: &mut HashSet<(usize, usize)>| checar(a, table, &resolved, &variances, v, t, findings);
     // `as`, `is`, padrões de cast e de objeto.
     for e in a.exprs.iter() {
         match &e.kind {
-            ExprKind::As { ty, .. } | ExprKind::Is { ty, .. } => ch(saida, *ty, &mut achados),
+            ExprKind::As { ty, .. } | ExprKind::Is { ty, .. } => ch(output, *ty, &mut findings),
             _ => {}
         }
     }
     for p in a.patterns.iter() {
         match &p.kind {
-            PatternKind::Cast { ty, .. } | PatternKind::Object { ty, .. } => ch(saida, *ty, &mut achados),
+            PatternKind::Cast { ty, .. } | PatternKind::Object { ty, .. } => ch(output, *ty, &mut findings),
             _ => {}
         }
     }
@@ -180,29 +180,29 @@ fn futureor_void(program: &Program, table: &TypeTable, outline: &OutlineTypes, c
                 // `class C = S with M`: o `S` não está num `ExtendsClause`.
                 let extends = if x.mixin_application { None } else { x.extends };
                 for t in extends.iter().chain(x.with.iter()).chain(x.implements.iter()) {
-                    ch(saida, *t, &mut achados);
+                    ch(output, *t, &mut findings);
                 }
             }
             ast::DeclKind::Mixin(x) => {
                 for t in x.on.iter().chain(x.implements.iter()) {
-                    ch(saida, *t, &mut achados);
+                    ch(output, *t, &mut findings);
                 }
             }
             ast::DeclKind::Enum(x) => {
                 for t in x.with.iter().chain(x.implements.iter()) {
-                    ch(saida, *t, &mut achados);
+                    ch(output, *t, &mut findings);
                 }
             }
-            ast::DeclKind::Extension(x) => ch(saida, x.on, &mut achados),
+            ast::DeclKind::Extension(x) => ch(output, x.on, &mut findings),
             ast::DeclKind::ExtensionType(x) => {
-                ch(saida, x.representation_type, &mut achados);
+                ch(output, x.representation_type, &mut findings);
                 for t in x.implements.iter() {
-                    ch(saida, *t, &mut achados);
+                    ch(output, *t, &mut findings);
                 }
             }
             ast::DeclKind::Variables(l) => {
                 if let Some(t) = l.ty {
-                    ch(saida, t, &mut achados);
+                    ch(output, t, &mut findings);
                 }
             }
             _ => {}
@@ -212,14 +212,14 @@ fn futureor_void(program: &Program, table: &TypeTable, outline: &OutlineTypes, c
         if let MemberKind::Field(l) = &m.kind
             && let Some(t) = l.ty
         {
-            ch(saida, t, &mut achados);
+            ch(output, t, &mut findings);
         }
     }
     for s in a.stmts.iter() {
         match &s.kind {
             StmtKind::Variables(l) | StmtKind::For { init: Some(ast::ForInit::Variables(l)), .. } => {
                 if let Some(t) = l.ty {
-                    ch(saida, t, &mut achados);
+                    ch(output, t, &mut findings);
                 }
             }
             _ => {}
@@ -247,8 +247,8 @@ fn futureor_void(program: &Program, table: &TypeTable, outline: &OutlineTypes, c
     fn de_parametros(ps: &[ast::Parameter], limites: &mut Vec<ast::TypeId>) {
         for p in ps.iter() {
             limites.extend(p.function_type_params.iter().filter_map(|q| q.bound));
-            if let Some(internos) = &p.function_parameters {
-                de_parametros(internos, limites);
+            if let Some(internal) = &p.function_parameters {
+                de_parametros(internal, limites);
             }
         }
     }
@@ -267,35 +267,35 @@ fn futureor_void(program: &Program, table: &TypeTable, outline: &OutlineTypes, c
         }
     }
     for b in limites {
-        ch(Variancia::Ambas, b, &mut achados);
+        ch(Variance_::Both, b, &mut findings);
     }
     // Funções declaradas e métodos: o retorno e os parâmetros (de entrada).
-    let mut declaradas: Vec<ast::FunctionId> = Vec::new();
+    let mut the_declared: Vec<ast::FunctionId> = Vec::new();
     for d in a.decls.iter() {
         if let ast::DeclKind::Function(f) = &d.kind {
-            declaradas.push(*f);
+            the_declared.push(*f);
         }
     }
     for m in a.members.iter() {
         if let MemberKind::Method(f) = &m.kind {
-            declaradas.push(*f);
+            the_declared.push(*f);
         }
     }
     for s in a.stmts.iter() {
         if let StmtKind::Function(f) = &s.kind {
-            declaradas.push(*f);
+            the_declared.push(*f);
         }
     }
-    for fid in declaradas {
+    for fid in the_declared {
         let f = a.function(fid);
         if let Some(r) = f.return_type {
-            ch(saida, r, &mut achados);
+            ch(output, r, &mut findings);
         }
         for p in f.parameters.as_deref().unwrap_or(&[]) {
-            parametro(a, table, &resolvido, &variancias, Variancia::Entrada, p, &mut achados);
+            parametro(a, table, &resolved, &variances, Variance_::Entrada, p, &mut findings);
         }
     }
-    let mut v: Vec<(usize, usize)> = achados.into_iter().collect();
+    let mut v: Vec<(usize, usize)> = findings.into_iter().collect();
     v.sort();
     for (i, f) in v {
         out.push((Span { start: i, end: f }, "avoid_futureor_void", Vec::new()));
@@ -304,31 +304,31 @@ fn futureor_void(program: &Program, table: &TypeTable, outline: &OutlineTypes, c
 
 /// O parâmetro `nome` da função ou do construtor mais de dentro que contém
 /// `e` e o declara (o elemento de `Resolved::Parameter`).
-fn parametro_declarado(a: &ast::Ast, e: Span, nome: dartforge_intern::SymbolId) -> Option<&ast::Parameter> {
-    let mut melhor: Option<(usize, &ast::Parameter)> = None;
-    let mut listas: Vec<(Span, &[ast::Parameter])> = Vec::new();
+fn declared_parameter(a: &ast::Ast, e: Span, the_name: dartforge_intern::SymbolId) -> Option<&ast::Parameter> {
+    let mut best: Option<(usize, &ast::Parameter)> = None;
+    let mut lists: Vec<(Span, &[ast::Parameter])> = Vec::new();
     for f in a.functions.iter() {
         if let Some(ps) = f.parameters.as_deref() {
-            listas.push((f.span, ps));
+            lists.push((f.span, ps));
         }
     }
     for m in a.members.iter() {
         if let MemberKind::Constructor(k) = &m.kind {
-            listas.push((m.span, &k.parameters[..]));
+            lists.push((m.span, &k.parameters[..]));
         }
     }
-    for (sp, ps) in listas {
+    for (sp, ps) in lists {
         if e.start < sp.start || e.end > sp.end {
             continue;
         }
-        if let Some(p) = ps.iter().find(|p| p.name.is_some_and(|n| n.sym == nome)) {
-            let tamanho = sp.end - sp.start;
-            if melhor.is_none_or(|(t, _)| tamanho < t) {
-                melhor = Some((tamanho, p));
+        if let Some(p) = ps.iter().find(|p| p.name.is_some_and(|n| n.sym == the_name)) {
+            let size = sp.end - sp.start;
+            if best.is_none_or(|(t, _)| size < t) {
+                best = Some((size, p));
             }
         }
     }
-    melhor.map(|(_, p)| p)
+    best.map(|(_, p)| p)
 }
 
 /// O `isFinal` do elemento do local declarado em `d` (o offset do nome):
@@ -354,7 +354,7 @@ fn local_final(a: &ast::Ast, d: usize) -> bool {
         if *final_ {
             return true;
         }
-        let contem = |q: ast::PatternId| {
+        let contains = |q: ast::PatternId| {
             let sp = a.pattern(q).span;
             sp.start <= d && d < sp.end
         };
@@ -363,7 +363,7 @@ fn local_final(a: &ast::Ast, d: usize) -> bool {
                 StmtKind::PatternVariables { final_, pattern, .. }
                 | StmtKind::For { init: Some(ast::ForInit::Pattern { final_, pattern, .. }), .. }
                 | StmtKind::ForIn { target: ast::ForInTarget::Pattern { final_, pattern }, .. }
-                    if contem(*pattern) =>
+                    if contains(*pattern) =>
                 {
                     return *final_;
                 }
@@ -376,18 +376,18 @@ fn local_final(a: &ast::Ast, d: usize) -> bool {
 }
 
 /// O `isFinal` de uma variável do modelo (pelo getter sintético dela).
-fn variavel_final(program: &Program, v: dartforge_elements::model::VariableId) -> bool {
+fn final_variable(program: &Program, v: dartforge_elements::model::VariableId) -> bool {
     let x = program.variable(v);
     x.final_ && !x.const_ && !x.late
 }
 
 /// O `isFinal` de uma função do modelo: o getter sintético segue a
 /// variável; o getter escrito não é final; o resto não é variável.
-fn funcao_final(program: &Program, f: dartforge_elements::model::FunctionElementId) -> bool {
+fn final_function(program: &Program, f: dartforge_elements::model::FunctionElementId) -> bool {
     let g = program.function(f);
     match g.kind {
         FunctionKind::Getter | FunctionKind::Setter => match (g.node, g.variable) {
-            (FunctionRef::None, Some(v)) => variavel_final(program, v),
+            (FunctionRef::None, Some(v)) => final_variable(program, v),
             _ => false,
         },
         _ => true,
@@ -396,46 +396,46 @@ fn funcao_final(program: &Program, f: dartforge_elements::model::FunctionElement
 
 /// `unnecessary_lambdas`.
 #[allow(clippy::too_many_arguments)]
-fn lambdas(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: &OutlineTypes, corpo: &UnitBodyTypes, u: UnitId, out: &mut Vec<Achado>) {
-    let unidade = program.unit(u);
-    let a = &unidade.ast;
-    let biblioteca = program.library(unidade.library);
-    let tearoffs = biblioteca.features.versao() >= dartforge_frontend::features::LanguageVersion::new(2, 15);
-    let sem_parenteses = |mut e: ExprId| {
+fn lambdas(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: &OutlineTypes, body: &UnitBodyTypes, u: UnitId, out: &mut Vec<Achado>) {
+    let unit = program.unit(u);
+    let a = &unit.ast;
+    let library = program.library(unit.library);
+    let tearoffs = library.features.versao() >= dartforge_frontend::features::LanguageVersion::new(2, 15);
+    let without_parentheses = |mut e: ExprId| {
         while let ExprKind::Parenthesized(x) = &a.expr(e).kind {
             e = *x;
         }
         e
     };
     // `isFinal` do `staticElement` de um identificador (o nulo conta).
-    let elemento_final = |e: ExprId| -> bool {
-        match corpo.get_resolved(e) {
-            Some(Resolved::Local(_)) => corpo.declaracao_local(e).is_some_and(|d| local_final(a, d)),
-            Some(Resolved::Parameter { name, .. }) => parametro_declarado(a, a.expr(e).span, *name).is_some_and(|p| p.final_),
-            Some(Resolved::Member { member: MemberRef::Variable(v), .. }) | Some(Resolved::Element(Element::Variable(v))) => variavel_final(program, *v),
-            Some(Resolved::Member { member: MemberRef::Function(f), .. }) | Some(Resolved::Element(Element::Function(f))) => funcao_final(program, *f),
-            Some(Resolved::ExtensionMember { member, .. }) => funcao_final(program, *member),
+    let final_element = |e: ExprId| -> bool {
+        match body.get_resolved(e) {
+            Some(Resolved::Local(_)) => body.declaracao_local(e).is_some_and(|d| local_final(a, d)),
+            Some(Resolved::Parameter { name, .. }) => declared_parameter(a, a.expr(e).span, *name).is_some_and(|p| p.final_),
+            Some(Resolved::Member { member: MemberRef::Variable(v), .. }) | Some(Resolved::Element(Element::Variable(v))) => final_variable(program, *v),
+            Some(Resolved::Member { member: MemberRef::Function(f), .. }) | Some(Resolved::Element(Element::Function(f))) => final_function(program, *f),
+            Some(Resolved::ExtensionMember { member, .. }) => final_function(program, *member),
             _ => true,
         }
     };
     // O identificador `p` que nomeia um prefixo de importação adiada.
-    let prefixo_adiado = |e: ExprId| -> bool {
+    let deferred_prefix = |e: ExprId| -> bool {
         let ExprKind::Identifier(n) = &a.expr(e).kind else { return false };
         if matches!(
-            corpo.get_resolved(e),
+            body.get_resolved(e),
             Some(Resolved::Local(_)) | Some(Resolved::Parameter { .. }) | Some(Resolved::Member { .. }) | Some(Resolved::ExtensionMember { .. })
-        ) || matches!(corpo.get_resolved(e), Some(Resolved::Element(x)) if !matches!(x, Element::Prefix(..)))
+        ) || matches!(body.get_resolved(e), Some(Resolved::Element(x)) if !matches!(x, Element::Prefix(..)))
         {
             return false;
         }
-        biblioteca.imports.iter().any(|i| i.unit == u && i.prefix == Some(n.sym) && i.deferred)
+        library.imports.iter().any(|i| i.unit == u && i.prefix == Some(n.sym) && i.deferred)
     };
     // `mightBeDeferred`: o identificador simples ou o prefixo de `p.x`.
-    let pode_ser_adiado = |e: Option<ExprId>| -> bool {
+    let can_be_deferred = |e: Option<ExprId>| -> bool {
         let Some(e) = e else { return false };
         match &a.expr(e).kind {
-            ExprKind::Identifier(_) => prefixo_adiado(e),
-            ExprKind::Property { target, null_aware: false, .. } => prefixo_adiado(*target),
+            ExprKind::Identifier(_) => deferred_prefix(e),
+            ExprKind::Property { target, null_aware: false, .. } => deferred_prefix(*target),
             _ => false,
         }
     };
@@ -447,9 +447,9 @@ fn lambdas(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: 
             continue;
         }
         let ps: &[ast::Parameter] = f.parameters.as_deref().unwrap_or(&[]);
-        let (inv, corpo_de_expressao) = match &f.body {
+        let (inv, expression_body) = match &f.body {
             FunctionBody::Block(b) => match &a.stmt(*b).kind {
-                StmtKind::Block(cmds) if cmds.len() == 1 => match &a.stmt(cmds[0]).kind {
+                StmtKind::Block(the_cmds) if the_cmds.len() == 1 => match &a.stmt(the_cmds[0]).kind {
                     StmtKind::Expression(x) | StmtKind::Return(Some(x)) => (*x, false),
                     _ => continue,
                 },
@@ -459,50 +459,50 @@ fn lambdas(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: 
             _ => continue,
         };
         // A criação de instância (`C(e)`, `new C(e)`, `p.C.n(e)`).
-        let criacao: Option<(ExprId, &ast::Arguments, bool)> = match &a.expr(inv).kind {
+        let creation: Option<(ExprId, &ast::Arguments, bool)> = match &a.expr(inv).kind {
             ExprKind::InstanceCreation { keyword, ty, arguments, .. } => {
-                let adiado = match &a.ty(*ty).kind {
-                    TypeKind::Named { name, .. } if name.len() == 2 => biblioteca.imports.iter().any(|i| i.unit == u && i.prefix == Some(name[0].sym) && i.deferred),
+                let deferred = match &a.ty(*ty).kind {
+                    TypeKind::Named { name, .. } if name.len() == 2 => library.imports.iter().any(|i| i.unit == u && i.prefix == Some(name[0].sym) && i.deferred),
                     _ => false,
                 };
-                let constante = matches!(keyword, Some(ast::CreationKeyword::Const));
-                Some((inv, &**arguments, adiado || constante))
+                let constant = matches!(keyword, Some(ast::CreationKeyword::Const));
+                Some((inv, &**arguments, deferred || constant))
             }
-            ExprKind::Call { target, arguments } if matches!(corpo.get_resolved(inv), Some(Resolved::Constructor(_))) => {
+            ExprKind::Call { target, arguments } if matches!(body.get_resolved(inv), Some(Resolved::Constructor(_))) => {
                 // O identificador mais à esquerda do nome do construtor.
                 let mut x = *target;
-                let mut partes = 0;
+                let mut parts = 0;
                 while let ExprKind::Property { target: t, .. } = &a.expr(x).kind {
                     x = *t;
-                    partes += 1;
+                    parts += 1;
                 }
-                let adiado = partes > 0 && prefixo_adiado(x);
-                Some((inv, &**arguments, adiado))
+                let deferred = parts > 0 && deferred_prefix(x);
+                Some((inv, &**arguments, deferred))
             }
             _ => None,
         };
-        if let Some((criada, arguments, pula)) = criacao {
+        if let Some((created, arguments, skips)) = creation {
             // Só no corpo de expressão, com tear-offs de construtor.
-            if !corpo_de_expressao || !tearoffs || pula {
+            if !expression_body || !tearoffs || skips {
                 continue;
             }
-            let (Some(tipo_closure), Some(Resolved::Constructor(kf))) = (corpo.get_type(id), corpo.get_resolved(criada)) else { continue };
-            let Some(dados) = outline.functions.get(kf.0 as usize) else { continue };
-            let mut tipo_construtor = dados.signature;
+            let (Some(closure_type), Some(Resolved::Constructor(kf))) = (body.get_type(id), body.get_resolved(created)) else { continue };
+            let Some(data) = outline.functions.get(kf.0 as usize) else { continue };
+            let mut constructor_type = data.signature;
             // O `ConstructorMember` instanciado pelos argumentos do tipo criado.
-            if let Some(classe) = program.function(*kf).class
-                && let Some(criado) = corpo.get_type(criada)
-                && let Type::Interface { args, .. } = table.get(criado).clone()
+            if let Some(cls) = program.function(*kf).class
+                && let Some(the_created) = body.get_type(created)
+                && let Type::Interface { args, .. } = table.get(the_created).clone()
             {
-                let params = outline.classes.get(classe.0 as usize).map(|x| x.type_params.clone()).unwrap_or_default();
-                let mapa: std::collections::HashMap<crate::table::TypeParamId, TypeId> = params.iter().copied().zip(args.iter().copied()).collect();
-                tipo_construtor = crate::ops::substitute(tipo_construtor, &mapa, table);
+                let params = outline.classes.get(cls.0 as usize).map(|x| x.type_params.clone()).unwrap_or_default();
+                let map: std::collections::HashMap<crate::table::TypeParamId, TypeId> = params.iter().copied().zip(args.iter().copied()).collect();
+                constructor_type = crate::ops::substitute(constructor_type, &map, table);
             }
-            let atribuivel = {
+            let assignable = {
                 let mut env = SubtypeEnv::new(table, &outline.hierarchy, core);
-                is_subtype(tipo_construtor, tipo_closure, &mut env)
+                is_subtype(constructor_type, closure_type, &mut env)
             };
-            if !atribuivel {
+            if !assignable {
                 continue;
             }
             if arguments.args.iter().any(|x| x.name.is_some() || !matches!(a.expr(x.value).kind, ExprKind::Identifier(_))) {
@@ -511,8 +511,8 @@ fn lambdas(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: 
             if ps.len() != arguments.args.len() {
                 continue;
             }
-            let iguais = arguments.args.iter().zip(ps.iter()).all(|(x, p)| matches!(&a.expr(x.value).kind, ExprKind::Identifier(n) if Some(n.sym) == p.name.map(|q| q.sym)));
-            if iguais {
+            let equal = arguments.args.iter().zip(ps.iter()).all(|(x, p)| matches!(&a.expr(x.value).kind, ExprKind::Identifier(n) if Some(n.sym) == p.name.map(|q| q.sym)));
+            if equal {
                 out.push((e.span, "unnecessary_lambdas", Vec::new()));
             }
             continue;
@@ -523,50 +523,50 @@ fn lambdas(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: 
         // O parâmetro da closure a que `x` resolve: os parâmetros de uma
         // expressão de função ficam no escopo como locais declarados no nome
         // deles.
-        let parametro_da_closure = |x: ExprId| -> Option<dartforge_intern::SymbolId> {
+        let closure_parameter = |x: ExprId| -> Option<dartforge_intern::SymbolId> {
             let ExprKind::Identifier(n) = &a.expr(x).kind else { return None };
             let p = ps.iter().find(|p| p.name.is_some_and(|q| q.sym == n.sym))?;
-            match corpo.get_resolved(x) {
+            match body.get_resolved(x) {
                 Some(Resolved::Parameter { .. }) => Some(n.sym),
-                Some(Resolved::Local(_)) if corpo.declaracao_local(x) == p.name.map(|q| q.span.start) => Some(n.sym),
+                Some(Resolved::Local(_)) if body.declaracao_local(x) == p.name.map(|q| q.span.start) => Some(n.sym),
                 _ => None,
             }
         };
-        let elemento_do_argumento = |x: ExprId| -> Option<dartforge_intern::SymbolId> { parametro_da_closure(sem_parenteses(x)) };
-        let posicionais: Vec<dartforge_intern::SymbolId> = ps.iter().filter(|p| p.kind != ParameterKind::Named).filter_map(|p| p.name.map(|n| n.sym)).collect();
-        let nomeados: Vec<dartforge_intern::SymbolId> = ps.iter().filter(|p| p.kind == ParameterKind::Named).filter_map(|p| p.name.map(|n| n.sym)).collect();
+        let argument_element = |x: ExprId| -> Option<dartforge_intern::SymbolId> { closure_parameter(without_parentheses(x)) };
+        let positional_args: Vec<dartforge_intern::SymbolId> = ps.iter().filter(|p| p.kind != ParameterKind::Named).filter_map(|p| p.name.map(|n| n.sym)).collect();
+        let named_args: Vec<dartforge_intern::SymbolId> = ps.iter().filter(|p| p.kind == ParameterKind::Named).filter_map(|p| p.name.map(|n| n.sym)).collect();
         let mut args_pos = Vec::new();
-        let mut args_nom: Vec<(dartforge_intern::SymbolId, Option<dartforge_intern::SymbolId>)> = Vec::new();
-        let mut casam = true;
+        let mut the_named_args: Vec<(dartforge_intern::SymbolId, Option<dartforge_intern::SymbolId>)> = Vec::new();
+        let mut the_matches = true;
         for x in arguments.args.iter() {
-            let el = elemento_do_argumento(x.value);
+            let el = argument_element(x.value);
             match x.name {
-                Some(n) => args_nom.push((n.sym, el)),
+                Some(n) => the_named_args.push((n.sym, el)),
                 None => match el {
                     Some(el) => args_pos.push(el),
                     None => {
-                        casam = false;
+                        the_matches = false;
                         break;
                     }
                 },
             }
         }
-        if !casam || posicionais != args_pos || nomeados.len() != args_nom.len() {
+        if !the_matches || positional_args != args_pos || named_args.len() != the_named_args.len() {
             continue;
         }
-        if !nomeados.iter().all(|n| args_nom.iter().any(|(r, el)| r == n && *el == Some(*n))) {
+        if !named_args.iter().all(|n| the_named_args.iter().any(|(r, el)| r == n && *el == Some(*n))) {
             continue;
         }
         let params: HashSet<dartforge_intern::SymbolId> = ps.iter().filter_map(|p| p.name.map(|n| n.sym)).collect();
         // O identificador que referencia um parâmetro da closure.
-        let e_parametro = |x: ExprId| -> bool {
+        let is_parameter = |x: ExprId| -> bool {
             matches!(&a.expr(x).kind, ExprKind::Identifier(n) if params.contains(&n.sym))
-                && parametro_da_closure(x).is_some()
+                && closure_parameter(x).is_some()
                 && a.expr(x).span.start >= f.span.start
                 && a.expr(x).span.end <= f.span.end
         };
         // `_FinalExpressionChecker.isFinalNode`.
-        fn final_no(a: &ast::Ast, e_parametro: &dyn Fn(ExprId) -> bool, elemento_final: &dyn Fn(ExprId) -> bool, e: Option<ExprId>) -> bool {
+        fn final_no(a: &ast::Ast, is_parameter: &dyn Fn(ExprId) -> bool, final_element: &dyn Fn(ExprId) -> bool, e: Option<ExprId>) -> bool {
             let Some(mut e) = e else { return true };
             while let ExprKind::Parenthesized(x) = &a.expr(e).kind {
                 e = *x;
@@ -574,82 +574,82 @@ fn lambdas(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: 
             match &a.expr(e).kind {
                 ExprKind::FunctionExpression(g) => {
                     let sp = a.function(*g).span;
-                    !a.exprs.iter().enumerate().any(|(k, x)| x.span.start >= sp.start && x.span.end <= sp.end && e_parametro(ExprId(k as u32)))
+                    !a.exprs.iter().enumerate().any(|(k, x)| x.span.start >= sp.start && x.span.end <= sp.end && is_parameter(ExprId(k as u32)))
                 }
                 // `PrefixedIdentifier` e `PropertyAccess`: o alvo e o nome.
-                ExprKind::Property { target, .. } => final_no(a, e_parametro, elemento_final, Some(*target)) && elemento_final(e),
-                ExprKind::Identifier(_) => !e_parametro(e) && elemento_final(e),
+                ExprKind::Property { target, .. } => final_no(a, is_parameter, final_element, Some(*target)) && final_element(e),
+                ExprKind::Identifier(_) => !is_parameter(e) && final_element(e),
                 _ => false,
             }
         }
-        if !crate::lints_tipados4::e_invocacao_de_metodo(program, a, corpo, *target) {
+        if !crate::lints_tipados4::e_invocacao_de_metodo(program, a, body, *target) {
             // `FunctionExpressionInvocation`.
-            if pode_ser_adiado(Some(*target)) {
+            if can_be_deferred(Some(*target)) {
                 continue;
             }
-            if final_no(a, &e_parametro, &elemento_final, Some(*target)) {
+            if final_no(a, &is_parameter, &final_element, Some(*target)) {
                 out.push((e.span, "unnecessary_lambdas", Vec::new()));
             }
             continue;
         }
         // `MethodInvocation`.
-        let (alvo, null_aware) = match &a.expr(*target).kind {
+        let (tgt, null_aware) = match &a.expr(*target).kind {
             ExprKind::Property { target: t, null_aware, .. } => (Some(*t), *null_aware),
             ExprKind::Identifier(_) => (None, false),
             _ => continue,
         };
-        if pode_ser_adiado(alvo) {
+        if can_be_deferred(tgt) {
             continue;
         }
         // `staticInvokeType`: o tipo do membro, instanciado pelos argumentos
         // de tipo da chamada.
-        let Some(mut tearoff) = corpo.get_type(*target) else { continue };
-        if let Some(inst) = corpo.instanciacao(arguments.span.start).map(|x| x.to_vec())
+        let Some(mut tearoff) = body.get_type(*target) else { continue };
+        if let Some(inst) = body.instanciacao(arguments.span.start).map(|x| x.to_vec())
             && let Type::Function { type_params, .. } = table.get(tearoff)
             && type_params.len() == inst.len()
         {
             let mut env = SubtypeEnv::new(table, &outline.hierarchy, core);
-            tearoff = crate::constraints::instanciar_funcao(tearoff, &inst, &mut env);
+            tearoff = crate::constraints::instantiate_function(tearoff, &inst, &mut env);
         }
         // O pai da closure: o argumento nomeado (o tipo estático é o da
         // própria closure) ou a declaração de variável.
-        let pai_nomeado = a.exprs.iter().any(|x| match &x.kind {
+        let named_parent = a.exprs.iter().any(|x| match &x.kind {
             ExprKind::Call { arguments, .. } | ExprKind::InstanceCreation { arguments, .. } => arguments.args.iter().any(|y| y.value == id && y.name.is_some()),
             _ => false,
         });
-        let destino: Option<Option<TypeId>> = if pai_nomeado {
-            Some(corpo.get_type(id))
+        let destination: Option<Option<TypeId>> = if named_parent {
+            Some(body.get_type(id))
         } else {
             let mut d = None;
             for s in a.stmts.iter() {
                 if let StmtKind::Variables(l) | StmtKind::For { init: Some(ast::ForInit::Variables(l)), .. } = &s.kind
                     && let Some(v) = l.variables.iter().find(|v| v.initializer == Some(id))
                 {
-                    d = Some(corpo.tipo_local(v.name.span.start));
+                    d = Some(body.tipo_local(v.name.span.start));
                 }
             }
             if d.is_none() {
-                let tipo_da_variavel = |r: VariableRef| {
+                let variable_type = |r: VariableRef| {
                     program.variables.iter().position(|x| x.node == r).and_then(|i| outline.variables.get(i)).and_then(|x| x.declared_type.or(x.inferred))
                 };
                 for (mi, m) in a.members.iter().enumerate() {
                     if let MemberKind::Field(l) = &m.kind
                         && let Some(index) = l.variables.iter().position(|v| v.initializer == Some(id))
                     {
-                        d = Some(tipo_da_variavel(VariableRef::Field { unit: u, member: ast::MemberId(mi as u32), index }));
+                        d = Some(variable_type(VariableRef::Field { unit: u, member: ast::MemberId(mi as u32), index }));
                     }
                 }
                 for (di, x) in a.decls.iter().enumerate() {
                     if let ast::DeclKind::Variables(l) = &x.kind
                         && let Some(index) = l.variables.iter().position(|v| v.initializer == Some(id))
                     {
-                        d = Some(tipo_da_variavel(VariableRef::TopLevel { unit: u, decl: ast::DeclId(di as u32), index }));
+                        d = Some(variable_type(VariableRef::TopLevel { unit: u, decl: ast::DeclId(di as u32), index }));
                     }
                 }
             }
             d
         };
-        if let Some(dt) = destino {
+        if let Some(dt) = destination {
             let Some(dt) = dt else { continue };
             let mut env = SubtypeEnv::new(table, &outline.hierarchy, core);
             if !is_subtype(tearoff, dt, &mut env) {
@@ -657,29 +657,29 @@ fn lambdas(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: 
             }
         }
         // `containsNullAwareInvocationInChain`.
-        let mut cadeia_nula = null_aware;
-        let mut x = alvo;
+        let mut null_chain = null_aware;
+        let mut x = tgt;
         while let Some(y) = x {
             match &a.expr(y).kind {
                 ExprKind::Property { target, null_aware, .. } => {
-                    cadeia_nula |= *null_aware;
+                    null_chain |= *null_aware;
                     x = Some(*target);
                 }
-                ExprKind::Call { target, .. } if crate::lints_tipados4::e_invocacao_de_metodo(program, a, corpo, *target) => match &a.expr(*target).kind {
+                ExprKind::Call { target, .. } if crate::lints_tipados4::e_invocacao_de_metodo(program, a, body, *target) => match &a.expr(*target).kind {
                     ExprKind::Property { target: t, null_aware, .. } => {
-                        cadeia_nula |= *null_aware;
+                        null_chain |= *null_aware;
                         x = Some(*t);
                     }
                     _ => break,
                 },
                 ExprKind::Index { target, null_aware, .. } => {
-                    cadeia_nula |= *null_aware;
+                    null_chain |= *null_aware;
                     x = Some(*target);
                 }
                 _ => break,
             }
         }
-        if !cadeia_nula && final_no(a, &e_parametro, &elemento_final, alvo) && elemento_final(*target) && arguments.type_args.is_empty() {
+        if !null_chain && final_no(a, &is_parameter, &final_element, tgt) && final_element(*target) && arguments.type_args.is_empty() {
             out.push((e.span, "unnecessary_lambdas", Vec::new()));
         }
     }
