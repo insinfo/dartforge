@@ -11,7 +11,7 @@ use dartforge_frontend::ast::{self, CollectionElement, ExprId, ExprKind, UnaryOp
 /// Where the constructor's parameters count as constants: inside the
 /// initializers of a `const` constructor (the evaluator's lexical
 /// environment, or the verification of the initializers).
-pub fn coletar(m: &Motor<'_>, cx: &Ctx, e: ExprId, nodes: &mut Vec<Span>) {
+pub fn the_collect(m: &Motor<'_>, cx: &Ctx, e: ExprId, nodes: &mut Vec<Span>) {
     collect_into(m, cx, e, cx.lexical.is_some(), true, nodes);
 }
 
@@ -30,7 +30,7 @@ pub fn collect_into(m: &Motor<'_>, cx: &Ctx, e: ExprId, params_list: bool, in_co
                 }
             }
         }
-        ExprKind::Identifier(_) => identificador(m, cx, e, params_list, nodes),
+        ExprKind::Identifier(_) => identifier(m, cx, e, params_list, nodes),
         ExprKind::InstanceCreation { keyword, .. } => {
             if !matches!(keyword, Some(ast::CreationKeyword::Const)) {
                 nodes.push(span);
@@ -43,7 +43,7 @@ pub fn collect_into(m: &Motor<'_>, cx: &Ctx, e: ExprId, params_list: bool, in_co
             if matches!(a.expr(*target).kind, ExprKind::DotShorthand { const_: true, .. }) {
                 return;
             }
-            if let Some(Resolved::Constructor(_)) = m.resolvido(u, e) {
+            if let Some(Resolved::Constructor(_)) = m.resolved(u, e) {
                 if !in_const {
                     nodes.push(span);
                 }
@@ -53,7 +53,7 @@ pub fn collect_into(m: &Motor<'_>, cx: &Ctx, e: ExprId, params_list: bool, in_co
             if arguments.args.len() == 2 {
                 if let ExprKind::Identifier(n) = &a.expr(*target).kind {
                     if m.interner.resolve(n.sym) == "identical" {
-                        if let Some(Resolved::Element(Element::Function(f))) = m.resolvido(u, *target) {
+                        if let Some(Resolved::Element(Element::Function(f))) = m.resolved(u, *target) {
                             if Some(m.program.function(*f).library) == m.core.core_library {
                                 collect_into(m, cx, arguments.args[0].value, params_list, in_const, nodes);
                                 collect_into(m, cx, arguments.args[1].value, params_list, in_const, nodes);
@@ -90,7 +90,7 @@ pub fn collect_into(m: &Motor<'_>, cx: &Ctx, e: ExprId, params_list: bool, in_co
                 _ => {}
             }
             for el in elements.iter() {
-                elemento(m, cx, el, params_list, nodes);
+                element(m, cx, el, params_list, nodes);
             }
         }
         ExprKind::Parenthesized(x) => collect_into(m, cx, *x, params_list, in_const, nodes),
@@ -121,7 +121,7 @@ pub fn collect_into(m: &Motor<'_>, cx: &Ctx, e: ExprId, params_list: bool, in_co
         }
         ExprKind::Property { target, name, .. } => {
             if matches!(a.expr(*target).kind, ExprKind::Identifier(_)) {
-                identificador(m, cx, e, params_list, nodes);
+                identifier(m, cx, e, params_list, nodes);
                 return;
             }
             // `PropertyAccess`.
@@ -150,7 +150,7 @@ pub fn collect_into(m: &Motor<'_>, cx: &Ctx, e: ExprId, params_list: bool, in_co
         // (getter, non-constant variable, name that does not resolve) reports
         // the name after the dot (`propertyName`).
         ExprKind::DotShorthand { name, .. } => {
-            let ok = match m.resolvido(u, e) {
+            let ok = match m.resolved(u, e) {
                 Some(Resolved::Element(Element::Class(d))) => {
                     let k = m.program.class(*d);
                     match k.static_members.get(&name.sym) {
@@ -178,7 +178,7 @@ pub fn collect_into(m: &Motor<'_>, cx: &Ctx, e: ExprId, params_list: bool, in_co
         ExprKind::TypeArguments { target, .. } => {
             // `FunctionReference`/`TypeLiteral`: the type arguments are accepted;
             // the function is collected.
-            if !matches!(m.resolvido(u, *target), Some(Resolved::Element(Element::Class(_) | Element::Typedef(_)))) {
+            if !matches!(m.resolved(u, *target), Some(Resolved::Element(Element::Class(_) | Element::Typedef(_)))) {
                 collect_into(m, cx, *target, params_list, in_const, nodes);
             }
         }
@@ -235,7 +235,7 @@ fn constant_type(m: &Motor<'_>, u: dartforge_elements::model::UnitId, t: ast::Ty
     }
 }
 
-fn elemento(m: &Motor<'_>, cx: &Ctx, el: &CollectionElement, params_list: bool, nodes: &mut Vec<Span>) {
+fn element(m: &Motor<'_>, cx: &Ctx, el: &CollectionElement, params_list: bool, nodes: &mut Vec<Span>) {
     match el {
         CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) => collect_into(m, cx, *x, params_list, true, nodes),
         CollectionElement::MapEntry { key, value, .. } => {
@@ -249,9 +249,9 @@ fn elemento(m: &Motor<'_>, cx: &Ctx, el: &CollectionElement, params_list: bool, 
                 return;
             }
             collect_into(m, cx, *condition, params_list, true, nodes);
-            elemento(m, cx, then, params_list, nodes);
+            element(m, cx, then, params_list, nodes);
             if let Some(x) = else_ {
-                elemento(m, cx, x, params_list, nodes);
+                element(m, cx, x, params_list, nodes);
             }
         }
         CollectionElement::For { .. } | CollectionElement::ForIn { .. } => nodes.push(m.element_span(cx.unidade, el)),
@@ -261,7 +261,7 @@ fn elemento(m: &Motor<'_>, cx: &Ctx, el: &CollectionElement, params_list: bool, 
 /// A getter that reads a variable: `Some(Some(const))`; a getter without a
 /// variable: `Some(None)`; something else: `None`.
 fn getter_variable(m: &Motor<'_>, cx: &Ctx, e: ExprId) -> Option<Option<bool>> {
-    match m.resolvido(cx.unidade, e)? {
+    match m.resolved(cx.unidade, e)? {
         Resolved::Element(Element::Variable(v)) | Resolved::Member { member: MemberRef::Variable(v), .. } => {
             Some(Some(m.program.variable(*v).const_))
         }
@@ -278,11 +278,11 @@ fn getter_variable(m: &Motor<'_>, cx: &Ctx, e: ExprId) -> Option<Option<bool>> {
 }
 
 /// `_identifier` (simple or prefixed identifier `a.b`).
-fn identificador(m: &Motor<'_>, cx: &Ctx, e: ExprId, params_list: bool, nodes: &mut Vec<Span>) {
+fn identifier(m: &Motor<'_>, cx: &Ctx, e: ExprId, params_list: bool, nodes: &mut Vec<Span>) {
     let u = cx.unidade;
     let a = m.ast(u);
     let span = a.expr(e).span;
-    let res = m.resolvido(u, e);
+    let res = m.resolved(u, e);
     if let ExprKind::Property { target, name, .. } = &a.expr(e).kind {
         if m.interner.resolve(name.sym) == "length" {
             collect_into(m, cx, *target, params_list, true, nodes);
@@ -291,7 +291,7 @@ fn identificador(m: &Motor<'_>, cx: &Ctx, e: ExprId, params_list: bool, nodes: &
         if let Some(Resolved::Member { member: MemberRef::Function(f), .. }) = res {
             let fe = m.program.function(*f);
             if fe.static_ && matches!(fe.kind, FunctionKind::Function | FunctionKind::Operator) {
-                if !matches!(m.resolvido(u, *target), Some(Resolved::Element(Element::Class(_) | Element::Typedef(_)))) {
+                if !matches!(m.resolved(u, *target), Some(Resolved::Element(Element::Class(_) | Element::Typedef(_)))) {
                     nodes.push(span);
                 }
                 return;

@@ -23,7 +23,7 @@
 //! evaluated: they do not become nodes.
 
 use super::avaliador::{constant_locals, Motor};
-use super::graph::{Walker, Grafo};
+use super::graph::{Walker, Graph};
 use crate::resolved::{MemberRef, Resolved};
 use crate::table::Type;
 use dartforge_elements::model::{
@@ -39,7 +39,7 @@ use std::collections::{HashMap, HashSet};
 
 /// A constant evaluation target (`ConstantEvaluationTarget`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Alvo {
+pub enum Target {
     /// Top-level variable, field or enum constant.
     Var(VariableId),
     Ctor(FunctionElementId),
@@ -61,29 +61,29 @@ pub enum Alvo {
 /// The indices of the program's declarations, by tree node.
 #[derive(Debug, Default)]
 struct Indices {
-    topo: HashMap<(UnitId, ast::DeclId, usize), VariableId>,
-    campos: HashMap<(UnitId, ast::MemberId, usize), VariableId>,
-    construtores: HashMap<(UnitId, ast::MemberId), FunctionElementId>,
+    top: HashMap<(UnitId, ast::DeclId, usize), VariableId>,
+    fields: HashMap<(UnitId, ast::MemberId, usize), VariableId>,
+    constructors: HashMap<(UnitId, ast::MemberId), FunctionElementId>,
     classes: HashMap<(UnitId, ast::DeclId), ClassId>,
 }
 
 impl Indices {
-    fn novo(program: &Program) -> Self {
+    fn new(program: &Program) -> Self {
         let mut x = Indices::default();
         for (i, v) in program.variables.iter().enumerate() {
             match v.node {
                 VariableRef::TopLevel { unit, decl, index } => {
-                    x.topo.insert((unit, decl, index), VariableId(i as u32));
+                    x.top.insert((unit, decl, index), VariableId(i as u32));
                 }
                 VariableRef::Field { unit, member, index } => {
-                    x.campos.insert((unit, member, index), VariableId(i as u32));
+                    x.fields.insert((unit, member, index), VariableId(i as u32));
                 }
                 _ => {}
             }
         }
         for (i, f) in program.functions.iter().enumerate() {
             if let FunctionRef::Constructor { unit, member } = f.node {
-                x.construtores.insert((unit, member), FunctionElementId(i as u32));
+                x.constructors.insert((unit, member), FunctionElementId(i as u32));
             }
         }
         for (i, k) in program.classes.iter().enumerate() {
@@ -97,17 +97,17 @@ impl Indices {
 
 /// What persists in the [`Motor`] across libraries.
 #[derive(Debug, Default)]
-pub struct Estado {
+pub struct State {
     walker: Walker,
-    nos: Vec<Alvo>,
-    by_target: HashMap<Alvo, usize>,
+    nodes: Vec<Target>,
+    by_target: HashMap<Target, usize>,
     /// `isConstantEvaluated` of each node.
-    avaliados: Vec<bool>,
+    evaluated: Vec<bool>,
     /// The dependencies of each annotation, computed when it is found (nothing
     /// depends on an annotation: it only starts walks).
-    anotacoes: Vec<Vec<Alvo>>,
+    annotations: Vec<Vec<Target>>,
     /// The local constants of each unit, by the name's offset.
-    locais: HashMap<UnitId, HashMap<usize, (StmtId, usize)>>,
+    locals: HashMap<UnitId, HashMap<usize, (StmtId, usize)>>,
     indices: Option<Indices>,
     /// Constructors with `isCycleFree == false`.
     pub constructors_in_cycle: HashSet<FunctionElementId>,
@@ -117,16 +117,16 @@ pub struct Estado {
     pub locals_in_cycle: HashSet<(UnitId, usize)>,
 }
 
-impl Estado {
+impl State {
     /// The constructor declared in member `mid` of unit `u`.
-    pub fn construtor_de(&self, u: UnitId, mid: ast::MemberId) -> Option<FunctionElementId> {
-        self.indices.as_ref()?.construtores.get(&(u, mid)).copied()
+    pub fn constructor_of(&self, u: UnitId, mid: ast::MemberId) -> Option<FunctionElementId> {
+        self.indices.as_ref()?.constructors.get(&(u, mid)).copied()
     }
 
     /// The initializer of the local constant declared at `offset`.
     fn local_initializer(&mut self, m: &Motor<'_>, u: UnitId, offset: usize) -> Option<Option<ExprId>> {
         let a = m.ast(u);
-        let map = self.locais.entry(u).or_insert_with(|| constant_locals(a));
+        let map = self.locals.entry(u).or_insert_with(|| constant_locals(a));
         let &(stmt, i) = map.get(&offset)?;
         let list = match &a.stmt(stmt).kind {
             StmtKind::Variables(l) => l,
@@ -143,9 +143,9 @@ pub fn compute(m: &mut Motor<'_>, lib: LibraryId) {
     if !m.the_inferred.contains(&lib) {
         return;
     }
-    let mut st = std::mem::take(&mut m.grafo);
+    let mut st = std::mem::take(&mut m.graph);
     if st.indices.is_none() {
-        st.indices = Some(Indices::novo(m.program));
+        st.indices = Some(Indices::new(m.program));
     }
     let mut walker = std::mem::take(&mut st.walker);
     {
@@ -153,30 +153,30 @@ pub fn compute(m: &mut Motor<'_>, lib: LibraryId) {
         let program = engine.program;
         // The targets, unit by unit: those of `ConstantFinder` and then the
         // dependencies of the loose constant expressions.
-        let mut order: Vec<Alvo> = Vec::new();
+        let mut order: Vec<Target> = Vec::new();
         for &u in &program.library(lib).units {
             if program.unit(u).role == UnitRole::Patch {
                 continue;
             }
             let mut p = Walk::novo(engine, &mut st, u, false);
-            p.unidade();
-            let Walk { alvos: targets, loose, .. } = p;
+            p.unit();
+            let Walk { targets, loose, .. } = p;
             order.extend(targets);
             order.extend(loose);
         }
-        let mut g = G { m: engine, est: &mut st };
+        let mut g = G { m: engine, st: &mut st };
         for tgt in order {
             if let Some(no) = g.no(tgt) {
-                walker.percorrer(&mut g, no);
+                walker.traverse(&mut g, no);
             }
         }
     }
     st.walker = walker;
-    m.grafo = st;
+    m.graph = st;
 }
 
 /// The written initializer of a top-level variable or a field.
-fn inicializador(m: &Motor<'_>, v: VariableId) -> Option<(UnitId, ExprId)> {
+fn the_initializer(m: &Motor<'_>, v: VariableId) -> Option<(UnitId, ExprId)> {
     match m.program.variable(v).node {
         VariableRef::TopLevel { unit, decl, index } => match &m.ast(unit).decl(decl).kind {
             DeclKind::Variables(l) => l.variables.get(index).and_then(|x| x.initializer).map(|x| (unit, x)),
@@ -227,41 +227,41 @@ pub(super) fn declared_superclass(program: &Program, k: ClassId) -> Option<Class
 
 struct G<'p, 'a> {
     m: &'p Motor<'a>,
-    est: &'p mut Estado,
+    st: &'p mut State,
 }
 
 impl<'a> G<'_, 'a> {
     /// The node of `tgt`; `None` when the element is from an opaque library
     /// (counts as evaluated).
-    fn no(&mut self, tgt: Alvo) -> Option<usize> {
+    fn no(&mut self, tgt: Target) -> Option<usize> {
         let program = self.m.program;
         match tgt {
-            Alvo::Var(v) if !self.m.the_inferred.contains(&program.variable(v).library) => return None,
-            Alvo::Ctor(f) if !self.m.the_inferred.contains(&program.function(f).library) => return None,
+            Target::Var(v) if !self.m.the_inferred.contains(&program.variable(v).library) => return None,
+            Target::Ctor(f) if !self.m.the_inferred.contains(&program.function(f).library) => return None,
             _ => {}
         }
-        if let Some(&i) = self.est.by_target.get(&tgt) {
+        if let Some(&i) = self.st.by_target.get(&tgt) {
             return Some(i);
         }
         let always = match tgt {
-            Alvo::Var(v) => !constant_element(self.m, v),
+            Target::Var(v) => !constant_element(self.m, v),
             _ => false,
         };
-        let i = self.est.nos.len();
-        self.est.nos.push(tgt);
-        self.est.by_target.insert(tgt, i);
-        self.est.avaliados.push(always);
+        let i = self.st.nodes.len();
+        self.st.nodes.push(tgt);
+        self.st.by_target.insert(tgt, i);
+        self.st.evaluated.push(always);
         Some(i)
     }
 
     /// The `ReferenceFinder` over what `f` visits, in unit `u`.
-    fn referencias(&mut self, u: UnitId, f: impl FnOnce(&mut Walk<'_, 'a>)) -> Vec<Alvo> {
-        let mut p = Walk::novo(self.m, &mut *self.est, u, true);
+    fn references(&mut self, u: UnitId, f: impl FnOnce(&mut Walk<'_, 'a>)) -> Vec<Target> {
+        let mut p = Walk::novo(self.m, &mut *self.st, u, true);
         f(&mut p);
-        p.saida
+        p.output
     }
 
-    fn of_variable(&mut self, v: VariableId) -> Vec<Alvo> {
+    fn of_variable(&mut self, v: VariableId) -> Vec<Target> {
         let m = self.m;
         let program = m.program;
         let var = program.variable(v);
@@ -278,12 +278,12 @@ impl<'a> G<'_, 'a> {
                 let the_key = cst.constructor.map(|n| n.sym).or_else(|| m.interner.lookup(""));
                 if let Some(g) = the_key.and_then(|c| program.class(k).constructors.get(&c).copied()) {
                     if program.function(program.publico(g)).const_ {
-                        deps.push(Alvo::Ctor(g));
+                        deps.push(Target::Ctor(g));
                     }
                 }
             }
             if let Some(args) = &cst.arguments {
-                deps.extend(self.referencias(unit, |p| {
+                deps.extend(self.references(unit, |p| {
                     for x in args.args.iter() {
                         p.expr(x.value, true);
                     }
@@ -291,13 +291,13 @@ impl<'a> G<'_, 'a> {
             }
             return deps;
         }
-        match inicializador(m, v) {
-            Some((unit, init)) => self.referencias(unit, |p| p.expr(init, var.const_)),
+        match the_initializer(m, v) {
+            Some((unit, init)) => self.references(unit, |p| p.expr(init, var.const_)),
             None => Vec::new(),
         }
     }
 
-    fn of_constructor(&mut self, f: FunctionElementId) -> Vec<Alvo> {
+    fn of_constructor(&mut self, f: FunctionElementId) -> Vec<Target> {
         let m = self.m;
         let program = m.program;
         let public = program.function(program.publico(f));
@@ -323,7 +323,7 @@ impl<'a> G<'_, 'a> {
             }
             let tgt = no.and_then(|(unit, k)| redirection_target(m, unit, k));
             return match tgt {
-                Some(g) if program.function(program.publico(g)).const_ => vec![Alvo::Ctor(g)],
+                Some(g) if program.function(program.publico(g)).const_ => vec![Target::Ctor(g)],
                 _ => Vec::new(),
             };
         }
@@ -334,11 +334,11 @@ impl<'a> G<'_, 'a> {
                 match init {
                     ast::Initializer::Field { value, .. } => {
                         let value = *value;
-                        deps.extend(self.referencias(unit, |p| p.expr(value, false)));
+                        deps.extend(self.references(unit, |p| p.expr(value, false)));
                     }
                     ast::Initializer::Assert { condition, message, .. } => {
                         let (condition, message) = (*condition, *message);
-                        deps.extend(self.referencias(unit, |p| {
+                        deps.extend(self.references(unit, |p| {
                             p.expr(condition, false);
                             if let Some(x) = message {
                                 p.expr(x, false);
@@ -351,9 +351,9 @@ impl<'a> G<'_, 'a> {
                         let the_key = constructor.map(|n| n.sym).or(empty);
                         let sup = program.class(cls).supertype_class;
                         if let Some(g) = the_key.and_then(|c| sup.and_then(|s| program.class(s).constructors.get(&c).copied())) {
-                            deps.push(Alvo::Ctor(g));
+                            deps.push(Target::Ctor(g));
                         }
-                        deps.extend(self.referencias(unit, |p| {
+                        deps.extend(self.references(unit, |p| {
                             for x in arguments.args.iter() {
                                 p.expr(x.value, false);
                             }
@@ -363,9 +363,9 @@ impl<'a> G<'_, 'a> {
                         implicit_super = false;
                         let the_key = constructor.map(|n| n.sym).or(empty);
                         if let Some(g) = the_key.and_then(|c| program.class(cls).constructors.get(&c).copied()) {
-                            deps.push(Alvo::Ctor(g));
+                            deps.push(Target::Ctor(g));
                         }
-                        deps.extend(self.referencias(unit, |p| {
+                        deps.extend(self.references(unit, |p| {
                             for x in arguments.args.iter() {
                                 p.expr(x.value, false);
                             }
@@ -381,7 +381,7 @@ impl<'a> G<'_, 'a> {
                 if Some(sup) != m.core.object_class {
                     if let Some(g) = empty.and_then(|c| program.class(sup).constructors.get(&c).copied()) {
                         if program.function(program.publico(g)).const_ {
-                            deps.push(Alvo::Ctor(g));
+                            deps.push(Target::Ctor(g));
                         }
                     }
                 }
@@ -390,15 +390,15 @@ impl<'a> G<'_, 'a> {
         // Every `final`/`const` instance field with an initializer.
         for &v in program.class(cls).fields.iter() {
             let var = program.variable(v);
-            if (var.final_ || var.const_) && !var.static_ && inicializador(m, v).is_some() {
-                deps.push(Alvo::Var(v));
+            if (var.final_ || var.const_) && !var.static_ && the_initializer(m, v).is_some() {
+                deps.push(Target::Var(v));
             }
         }
         // All the parameters.
         if let Some((unit, k)) = no {
             for p in k.parameters.iter() {
                 if p.kind != ast::ParameterKind::Required {
-                    deps.push(Alvo::Param(unit, p.span.start, p.default_value));
+                    deps.push(Target::Param(unit, p.span.start, p.default_value));
                 }
             }
         }
@@ -418,67 +418,67 @@ fn redirection_target(m: &Motor<'_>, unit: UnitId, k: &ast::Constructor) -> Opti
     program.class(tgt).constructors.get(&the_key).copied()
 }
 
-impl Grafo for G<'_, '_> {
-    fn dependencias(&mut self, no: usize) -> Vec<usize> {
-        let tgt = self.est.nos[no];
-        let deps: Vec<Alvo> = match tgt {
-            Alvo::Var(v) => self.of_variable(v),
-            Alvo::Ctor(f) => self.of_constructor(f),
-            Alvo::Param(u, _, Some(d)) => self.referencias(u, |p| p.expr(d, false)),
-            Alvo::Param(_, _, None) => Vec::new(),
-            Alvo::Local(u, offset) => match self.est.local_initializer(self.m, u, offset) {
-                Some(Some(init)) => self.referencias(u, |p| p.expr(init, true)),
+impl Graph for G<'_, '_> {
+    fn dependencies(&mut self, no: usize) -> Vec<usize> {
+        let tgt = self.st.nodes[no];
+        let deps: Vec<Target> = match tgt {
+            Target::Var(v) => self.of_variable(v),
+            Target::Ctor(f) => self.of_constructor(f),
+            Target::Param(u, _, Some(d)) => self.references(u, |p| p.expr(d, false)),
+            Target::Param(_, _, None) => Vec::new(),
+            Target::Local(u, offset) => match self.st.local_initializer(self.m, u, offset) {
+                Some(Some(init)) => self.references(u, |p| p.expr(init, true)),
                 _ => Vec::new(),
             },
-            Alvo::Annot(i) => self.est.anotacoes[i as usize].clone(),
-            Alvo::Values(k) => self.m.program.class(k).enum_constants.iter().map(|&v| Alvo::Var(v)).collect(),
+            Target::Annot(i) => self.st.annotations[i as usize].clone(),
+            Target::Values(k) => self.m.program.class(k).enum_constants.iter().map(|&v| Target::Var(v)).collect(),
         };
         deps.into_iter().filter_map(|d| self.no(d)).collect()
     }
 
     fn evaluated(&self, no: usize) -> bool {
-        self.est.avaliados[no]
+        self.st.evaluated[no]
     }
 
-    fn avaliar(&mut self, no: usize) {
+    fn evaluate(&mut self, no: usize) {
         let m = self.m;
-        let tgt = self.est.nos[no];
+        let tgt = self.st.nodes[no];
         let ready = match tgt {
             // Without an initializer there is no result to store: the node stays
             // unevaluated, as in the analyzer.
-            Alvo::Var(v) => {
-                matches!(m.program.variable(v).node, VariableRef::EnumConstant { .. }) || inicializador(m, v).is_some()
+            Target::Var(v) => {
+                matches!(m.program.variable(v).node, VariableRef::EnumConstant { .. }) || the_initializer(m, v).is_some()
             }
             // Only a `const` constructor becomes computed.
-            Alvo::Ctor(f) => m.program.function(m.program.publico(f)).const_,
-            Alvo::Param(..) | Alvo::Annot(_) | Alvo::Values(_) => true,
-            Alvo::Local(u, offset) => matches!(self.est.local_initializer(m, u, offset), Some(Some(_))),
+            Target::Ctor(f) => m.program.function(m.program.publico(f)).const_,
+            Target::Param(..) | Target::Annot(_) | Target::Values(_) => true,
+            Target::Local(u, offset) => matches!(self.st.local_initializer(m, u, offset), Some(Some(_))),
         };
         if ready {
-            self.est.avaliados[no] = true;
+            self.st.evaluated[no] = true;
         }
     }
 
     fn evaluate_component(&mut self, nodes: &[usize]) {
         for &no in nodes {
-            let tgt = self.est.nos[no];
+            let tgt = self.st.nodes[no];
             match tgt {
-                Alvo::Var(v) => {
-                    self.est.variables_in_cycle.insert(v);
-                    self.est.avaliados[no] = true;
+                Target::Var(v) => {
+                    self.st.variables_in_cycle.insert(v);
+                    self.st.evaluated[no] = true;
                 }
                 // A constructor in a cycle never becomes evaluated.
-                Alvo::Ctor(f) => {
-                    self.est.constructors_in_cycle.insert(f);
+                Target::Ctor(f) => {
+                    self.st.constructors_in_cycle.insert(f);
                 }
-                Alvo::Local(u, offset) => {
-                    self.est.locals_in_cycle.insert((u, offset));
-                    self.est.avaliados[no] = true;
+                Target::Local(u, offset) => {
+                    self.st.locals_in_cycle.insert((u, offset));
+                    self.st.evaluated[no] = true;
                 }
                 // A parameter is a variable for `generateCycleError`: it keeps the
                 // stored invalid value.
                 // The synthetic `values` has no name to report.
-                Alvo::Param(..) | Alvo::Annot(_) | Alvo::Values(_) => self.est.avaliados[no] = true,
+                Target::Param(..) | Target::Annot(_) | Target::Values(_) => self.st.evaluated[no] = true,
             }
         }
     }
@@ -492,18 +492,18 @@ impl Grafo for G<'_, '_> {
 /// `ConstantExpressionsDependenciesFinder` (`loose`).
 struct Walk<'p, 'a> {
     m: &'p Motor<'a>,
-    est: &'p mut Estado,
+    est: &'p mut State,
     u: UnitId,
     a: &'a ast::Ast,
-    referencias: bool,
-    saida: Vec<Alvo>,
-    alvos: Vec<Alvo>,
-    loose: Vec<Alvo>,
+    references: bool,
+    output: Vec<Target>,
+    targets: Vec<Target>,
+    loose: Vec<Target>,
     /// The loose dependencies already seen (the original's set is ordered by
     /// insertion).
-    the_seen: HashSet<Alvo>,
+    the_seen: HashSet<Target>,
     /// The class (or mixin, enum, extension type) of the visited member.
-    classe: Option<ClassId>,
+    class: Option<ClassId>,
     /// `treatFinalInstanceVarAsConst`: inside a class with some `const`
     /// constructor.
     finals_as_const: bool,
@@ -511,7 +511,7 @@ struct Walk<'p, 'a> {
 }
 
 impl<'p, 'a> Walk<'p, 'a> {
-    fn novo(m: &'p Motor<'a>, st: &'p mut Estado, u: UnitId, references: bool) -> Self {
+    fn novo(m: &'p Motor<'a>, st: &'p mut State, u: UnitId, references: bool) -> Self {
         let program = m.program;
         let lib = program.unit(u).library;
         let patterns_enabled = program.library(lib).features.versao() >= LanguageVersion::new(3, 0);
@@ -520,12 +520,12 @@ impl<'p, 'a> Walk<'p, 'a> {
             est: st,
             u,
             a: m.ast(u),
-            referencias: references,
-            saida: Vec::new(),
-            alvos: Vec::new(),
+            references,
+            output: Vec::new(),
+            targets: Vec::new(),
             loose: Vec::new(),
             the_seen: HashSet::new(),
-            classe: None,
+            class: None,
             finals_as_const: false,
             patterns_enabled,
         }
@@ -533,11 +533,11 @@ impl<'p, 'a> Walk<'p, 'a> {
 
     /// `_find`: the references of what `f` visits become loose dependencies.
     fn release(&mut self, f: impl FnOnce(&mut Self)) {
-        let stored = std::mem::take(&mut self.saida);
-        let before = std::mem::replace(&mut self.referencias, true);
+        let stored = std::mem::take(&mut self.output);
+        let before = std::mem::replace(&mut self.references, true);
         f(self);
-        self.referencias = before;
-        let found = std::mem::replace(&mut self.saida, stored);
+        self.references = before;
+        let found = std::mem::replace(&mut self.output, stored);
         for x in found {
             if self.the_seen.insert(x) {
                 self.loose.push(x);
@@ -547,7 +547,7 @@ impl<'p, 'a> Walk<'p, 'a> {
 
     // -- Declarations ------------------------------------------------------------
 
-    fn unidade(&mut self) {
+    fn unit(&mut self) {
         let program = self.m.program;
         let cu = &program.unit(self.u).unit;
         for d in cu.directives.iter() {
@@ -555,18 +555,18 @@ impl<'p, 'a> Walk<'p, 'a> {
             if matches!(d.kind, ast::DirectiveKind::Part { .. } | ast::DirectiveKind::PartOf { .. }) {
                 continue;
             }
-            self.anotacoes(&d.metadata);
+            self.annotations(&d.metadata);
         }
         for &d in cu.declarations.iter() {
-            self.declaracao(d);
+            self.declaration(d);
         }
     }
 
-    fn declaracao(&mut self, d: ast::DeclId) {
+    fn declaration(&mut self, d: ast::DeclId) {
         let a = self.a;
         let program = self.m.program;
         let decl = a.decl(d);
-        self.anotacoes(&decl.metadata);
+        self.annotations(&decl.metadata);
         let cls = self.est.indices.as_ref().and_then(|x| x.classes.get(&(self.u, d)).copied());
         match &decl.kind {
             DeclKind::Variables(l) => {
@@ -574,29 +574,29 @@ impl<'p, 'a> Walk<'p, 'a> {
                     let Some(init) = var.initializer else { continue };
                     self.expr(init, l.const_);
                     if l.const_ {
-                        let v = self.est.indices.as_ref().and_then(|x| x.topo.get(&(self.u, d, i)).copied());
+                        let v = self.est.indices.as_ref().and_then(|x| x.top.get(&(self.u, d, i)).copied());
                         if let Some(v) = v {
-                            self.alvos.push(Alvo::Var(v));
+                            self.targets.push(Target::Var(v));
                         }
                     }
                 }
             }
-            DeclKind::Function(f) => self.funcao(*f),
+            DeclKind::Function(f) => self.function(*f),
             DeclKind::Class(k) => {
-                self.classe = cls;
+                self.class = cls;
                 self.finals_as_const =
                     k.members.iter().any(|mid| matches!(&a.member(*mid).kind, MemberKind::Constructor(c) if c.const_));
-                self.membros(&k.members);
+                self.members(&k.members);
                 self.finals_as_const = false;
-                self.classe = None;
+                self.class = None;
             }
             DeclKind::Mixin(k) => {
-                self.classe = cls;
-                self.membros(&k.members);
-                self.classe = None;
+                self.class = cls;
+                self.members(&k.members);
+                self.class = None;
             }
             DeclKind::Enum(k) => {
-                self.classe = cls;
+                self.class = cls;
                 for (i, cst) in k.constants.iter().enumerate() {
                     if let Some(args) = &cst.arguments {
                         for x in args.args.iter() {
@@ -604,43 +604,43 @@ impl<'p, 'a> Walk<'p, 'a> {
                         }
                     }
                     if let Some(v) = cls.and_then(|c| program.class(c).enum_constants.get(i).copied()) {
-                        self.alvos.push(Alvo::Var(v));
+                        self.targets.push(Target::Var(v));
                     }
                 }
-                self.membros(&k.members);
-                self.classe = None;
+                self.members(&k.members);
+                self.class = None;
             }
-            DeclKind::Extension(k) => self.membros(&k.members),
+            DeclKind::Extension(k) => self.members(&k.members),
             DeclKind::ExtensionType(k) => {
-                self.classe = cls;
-                self.membros(&k.members);
-                self.classe = None;
+                self.class = cls;
+                self.members(&k.members);
+                self.class = None;
             }
             DeclKind::Typedef(_) => {}
         }
     }
 
-    fn membros(&mut self, members: &'a [ast::MemberId]) {
+    fn members(&mut self, members: &'a [ast::MemberId]) {
         let a = self.a;
         for &mid in members {
             let mem = a.member(mid);
-            self.anotacoes(&mem.metadata);
+            self.annotations(&mem.metadata);
             match &mem.kind {
                 MemberKind::Field(l) => {
                     for (i, var) in l.variables.iter().enumerate() {
                         let Some(init) = var.initializer else { continue };
                         self.expr(init, l.const_);
                         if l.const_ || self.finals_as_const && l.final_ && !l.static_ {
-                            let v = self.est.indices.as_ref().and_then(|x| x.campos.get(&(self.u, mid, i)).copied());
+                            let v = self.est.indices.as_ref().and_then(|x| x.fields.get(&(self.u, mid, i)).copied());
                             if let Some(v) = v {
-                                self.alvos.push(Alvo::Var(v));
+                                self.targets.push(Target::Var(v));
                             }
                         }
                     }
                 }
-                MemberKind::Method(f) => self.funcao(*f),
+                MemberKind::Method(f) => self.function(*f),
                 MemberKind::Constructor(k) => {
-                    self.parametros(&k.parameters);
+                    self.parameters(&k.parameters);
                     for init in k.initializers.iter() {
                         match init {
                             ast::Initializer::Field { value, .. } => self.expr(*value, false),
@@ -657,16 +657,16 @@ impl<'p, 'a> Walk<'p, 'a> {
                             }
                         }
                     }
-                    self.corpo(&k.body);
+                    self.body(&k.body);
                     // The `const` constructor and all its parameters, after the
                     // children.
                     if k.const_ {
-                        let f = self.est.indices.as_ref().and_then(|x| x.construtores.get(&(self.u, mid)).copied());
+                        let f = self.est.indices.as_ref().and_then(|x| x.constructors.get(&(self.u, mid)).copied());
                         if let Some(f) = f {
-                            self.alvos.push(Alvo::Ctor(f));
+                            self.targets.push(Target::Ctor(f));
                             for p in k.parameters.iter() {
                                 if p.kind != ast::ParameterKind::Required {
-                                    self.alvos.push(Alvo::Param(self.u, p.span.start, p.default_value));
+                                    self.targets.push(Target::Param(self.u, p.span.start, p.default_value));
                                 }
                             }
                         }
@@ -676,31 +676,31 @@ impl<'p, 'a> Walk<'p, 'a> {
         }
     }
 
-    fn funcao(&mut self, f: ast::FunctionId) {
+    fn function(&mut self, f: ast::FunctionId) {
         let a = self.a;
         let func = a.function(f);
         if let Some(ps) = &func.parameters {
-            self.parametros(ps);
+            self.parameters(ps);
         }
-        self.corpo(&func.body);
+        self.body(&func.body);
     }
 
-    fn parametros(&mut self, ps: &'a [ast::Parameter]) {
+    fn parameters(&mut self, ps: &'a [ast::Parameter]) {
         for p in ps {
-            self.anotacoes(&p.metadata);
+            self.annotations(&p.metadata);
             if let Some(fp) = &p.function_parameters {
-                self.parametros(fp);
+                self.parameters(fp);
             }
             if let Some(d) = p.default_value {
                 self.expr(d, false);
-                if !self.referencias {
-                    self.alvos.push(Alvo::Param(self.u, p.span.start, Some(d)));
+                if !self.references {
+                    self.targets.push(Target::Param(self.u, p.span.start, Some(d)));
                 }
             }
         }
     }
 
-    fn corpo(&mut self, b: &ast::FunctionBody) {
+    fn body(&mut self, b: &ast::FunctionBody) {
         match b {
             ast::FunctionBody::Block(s) => self.stmt(*s),
             ast::FunctionBody::Expression(e) => self.expr(*e, false),
@@ -711,8 +711,8 @@ impl<'p, 'a> Walk<'p, 'a> {
     /// The annotations of a declaration: each one is a target, with the element
     /// it resolves to (the getter's variable, or the constructor) and the
     /// references of the arguments as dependencies.
-    fn anotacoes(&mut self, ms: &'a [ast::Annotation]) {
-        if self.referencias {
+    fn annotations(&mut self, ms: &'a [ast::Annotation]) {
+        if self.references {
             return;
         }
         for an in ms {
@@ -721,21 +721,21 @@ impl<'p, 'a> Walk<'p, 'a> {
                 deps.push(x);
             }
             if let Some(args) = &an.arguments {
-                let stored = std::mem::take(&mut self.saida);
-                self.referencias = true;
+                let stored = std::mem::take(&mut self.output);
+                self.references = true;
                 for x in args.args.iter() {
                     self.expr(x.value, true);
                 }
-                self.referencias = false;
-                deps.extend(std::mem::replace(&mut self.saida, stored));
+                self.references = false;
+                deps.extend(std::mem::replace(&mut self.output, stored));
             }
-            let i = self.est.anotacoes.len() as u32;
-            self.est.anotacoes.push(deps);
-            self.alvos.push(Alvo::Annot(i));
+            let i = self.est.annotations.len() as u32;
+            self.est.annotations.push(deps);
+            self.targets.push(Target::Annot(i));
         }
     }
 
-    fn annotation_element(&self, an: &ast::Annotation) -> Option<Alvo> {
+    fn annotation_element(&self, an: &ast::Annotation) -> Option<Target> {
         let program = self.m.program;
         let u = self.u;
         let empty = self.m.interner.lookup("");
@@ -746,25 +746,25 @@ impl<'p, 'a> Walk<'p, 'a> {
                 x.name == the_name && x.static_
             })
         };
-        let of_class = |k: ClassId, the_name: Option<SymbolId>| -> Option<Alvo> {
+        let of_class = |k: ClassId, the_name: Option<SymbolId>| -> Option<Target> {
             if let Some(v) = the_name.and_then(|n| static_(k, n)) {
-                return Some(Alvo::Var(v));
+                return Some(Target::Var(v));
             }
             let the_key = the_name.or(empty)?;
-            program.class(k).constructors.get(&the_key).map(|f| Alvo::Ctor(*f))
+            program.class(k).constructors.get(&the_key).map(|f| Target::Ctor(*f))
         };
-        let of_element = |el: Option<Element>, the_name: Option<SymbolId>| -> Option<Alvo> {
+        let of_element = |el: Option<Element>, the_name: Option<SymbolId>| -> Option<Target> {
             match el? {
-                Element::Variable(v) if the_name.is_none() => Some(Alvo::Var(v)),
-                Element::Function(f) if the_name.is_none() => program.function(f).variable.map(Alvo::Var),
+                Element::Variable(v) if the_name.is_none() => Some(Target::Var(v)),
+                Element::Function(f) if the_name.is_none() => program.function(f).variable.map(Target::Var),
                 Element::Class(k) => of_class(k, the_name),
                 _ => None,
             }
         };
         match &an.name[..] {
             [n] => {
-                if let Some(v) = self.classe.and_then(|k| static_(k, n.sym)) {
-                    return Some(Alvo::Var(v));
+                if let Some(v) = self.class.and_then(|k| static_(k, n.sym)) {
+                    return Some(Target::Var(v));
                 }
                 of_element(program.lookup_na_unidade(u, n.sym).and_then(|b| b.getter), None)
             }
@@ -779,32 +779,32 @@ impl<'p, 'a> Walk<'p, 'a> {
 
     // -- Comandos ------------------------------------------------------------------
 
-    fn lista_local(&mut self, l: &'a ast::VariableList) {
+    fn local_list(&mut self, l: &'a ast::VariableList) {
         for var in l.variables.iter() {
             let Some(init) = var.initializer else { continue };
             self.expr(init, l.const_);
-            if l.const_ && !self.referencias {
-                self.alvos.push(Alvo::Local(self.u, var.name.span.start));
+            if l.const_ && !self.references {
+                self.targets.push(Target::Local(self.u, var.name.span.start));
             }
         }
     }
 
-    fn inicio_de_for(&mut self, init: &'a Option<ast::ForInit>) {
+    fn for_start(&mut self, init: &'a Option<ast::ForInit>) {
         match init {
-            Some(ast::ForInit::Variables(l)) => self.lista_local(l),
+            Some(ast::ForInit::Variables(l)) => self.local_list(l),
             Some(ast::ForInit::Expression(e)) => self.expr(*e, false),
             Some(ast::ForInit::Pattern { pattern, value, .. }) => {
-                self.padrao(*pattern);
+                self.pattern(*pattern);
                 self.expr(*value, false);
             }
             None => {}
         }
     }
 
-    fn alvo_de_for_in(&mut self, tgt: &'a ast::ForInTarget) {
+    fn for_in_target(&mut self, tgt: &'a ast::ForInTarget) {
         match tgt {
-            ast::ForInTarget::Declared { metadata, .. } => self.anotacoes(metadata),
-            ast::ForInTarget::Pattern { pattern, .. } => self.padrao(*pattern),
+            ast::ForInTarget::Declared { metadata, .. } => self.annotations(metadata),
+            ast::ForInTarget::Pattern { pattern, .. } => self.pattern(*pattern),
             ast::ForInTarget::Expression(e) => self.expr(*e, false),
         }
     }
@@ -817,17 +817,17 @@ impl<'p, 'a> Walk<'p, 'a> {
                     self.stmt(*x);
                 }
             }
-            StmtKind::Variables(l) => self.lista_local(l),
+            StmtKind::Variables(l) => self.local_list(l),
             StmtKind::PatternVariables { pattern, value, .. } => {
-                self.padrao(*pattern);
+                self.pattern(*pattern);
                 self.expr(*value, false);
             }
-            StmtKind::Function(f) => self.funcao(*f),
+            StmtKind::Function(f) => self.function(*f),
             StmtKind::Expression(e) => self.expr(*e, false),
             StmtKind::If { condition, case_pattern, guard, then, else_ } => {
                 self.expr(*condition, false);
                 if let Some(p) = case_pattern {
-                    self.padrao(*p);
+                    self.pattern(*p);
                 }
                 if let Some(g) = guard {
                     self.expr(*g, false);
@@ -838,7 +838,7 @@ impl<'p, 'a> Walk<'p, 'a> {
                 }
             }
             StmtKind::For { init, condition, updates, body, .. } => {
-                self.inicio_de_for(init);
+                self.for_start(init);
                 if let Some(c) = condition {
                     self.expr(*c, false);
                 }
@@ -848,7 +848,7 @@ impl<'p, 'a> Walk<'p, 'a> {
                 self.stmt(*body);
             }
             StmtKind::ForIn { target, iterable, body, .. } => {
-                self.alvo_de_for_in(target);
+                self.for_in_target(target);
                 self.expr(*iterable, false);
                 self.stmt(*body);
             }
@@ -864,7 +864,7 @@ impl<'p, 'a> Walk<'p, 'a> {
                 self.expr(*value, false);
                 for case in cases.iter() {
                     if let Some(p) = case.pattern {
-                        self.padrao(p);
+                        self.pattern(p);
                     }
                     if let Some(g) = case.guard {
                         self.expr(g, false);
@@ -898,13 +898,13 @@ impl<'p, 'a> Walk<'p, 'a> {
 
     // -- Patterns --------------------------------------------------------------------
 
-    fn padrao(&mut self, p: PatternId) {
+    fn pattern(&mut self, p: PatternId) {
         let a = self.a;
         match &a.pattern(p).kind {
             // `ConstantPattern.expression` and `SwitchCase.expression`.
             PatternKind::Constant(e) => {
                 let e = *e;
-                if self.referencias {
+                if self.references {
                     self.expr(e, true);
                 } else {
                     self.release(|s| s.expr(e, true));
@@ -916,32 +916,32 @@ impl<'p, 'a> Walk<'p, 'a> {
                 let program = self.m.program;
                 if let Some(Element::Variable(v)) = program.lookup_na_unidade(self.u, name.sym).and_then(|b| b.getter) {
                     if program.variable(v).const_ {
-                        if self.referencias {
-                            self.saida.push(Alvo::Var(v));
-                        } else if self.the_seen.insert(Alvo::Var(v)) {
-                            self.loose.push(Alvo::Var(v));
+                        if self.references {
+                            self.output.push(Target::Var(v));
+                        } else if self.the_seen.insert(Target::Var(v)) {
+                            self.loose.push(Target::Var(v));
                         }
                     }
                 }
             }
             PatternKind::Relational { value, .. } => {
                 let e = *value;
-                if self.referencias {
+                if self.references {
                     self.expr(e, true);
                 } else {
                     self.release(|s| s.expr(e, true));
                 }
             }
             PatternKind::Or(x, y) | PatternKind::And(x, y) => {
-                self.padrao(*x);
-                self.padrao(*y);
+                self.pattern(*x);
+                self.pattern(*y);
             }
-            PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) => self.padrao(*x),
-            PatternKind::Cast { pattern, .. } => self.padrao(*pattern),
+            PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) => self.pattern(*x),
+            PatternKind::Cast { pattern, .. } => self.pattern(*pattern),
             PatternKind::List { elements, .. } => {
                 for el in elements.iter() {
                     match el {
-                        ast::ListPatternElement::Pattern(x) | ast::ListPatternElement::Rest(Some(x)) => self.padrao(*x),
+                        ast::ListPatternElement::Pattern(x) | ast::ListPatternElement::Rest(Some(x)) => self.pattern(*x),
                         _ => {}
                     }
                 }
@@ -949,17 +949,17 @@ impl<'p, 'a> Walk<'p, 'a> {
             PatternKind::Map { entries, .. } => {
                 for en in entries.iter() {
                     let the_key = en.key;
-                    if self.referencias {
+                    if self.references {
                         self.expr(the_key, true);
                     } else {
                         self.release(|s| s.expr(the_key, true));
                     }
-                    self.padrao(en.value);
+                    self.pattern(en.value);
                 }
             }
             PatternKind::Record { fields } | PatternKind::Object { fields, .. } => {
                 for f in fields.iter() {
-                    self.padrao(f.pattern);
+                    self.pattern(f.pattern);
                 }
             }
             _ => {}
@@ -970,13 +970,13 @@ impl<'p, 'a> Walk<'p, 'a> {
 
     /// The reference that node `e` itself is: the `const` variable (direct or
     /// through the getter), top-level, static or local.
-    fn referencia(&mut self, e: ExprId) {
-        if !self.referencias {
+    fn reference(&mut self, e: ExprId) {
+        if !self.references {
             return;
         }
         let m = self.m;
         let program = m.program;
-        let v = match m.resolvido(self.u, e) {
+        let v = match m.resolved(self.u, e) {
             Some(Resolved::Element(Element::Variable(v))) | Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => {
                 Some(*v)
             }
@@ -993,7 +993,7 @@ impl<'p, 'a> Walk<'p, 'a> {
                         && program.class(k).kind == ClassKind::Enum
                         && m.interner.resolve(fe.name) == "values"
                     {
-                        self.saida.push(Alvo::Values(k));
+                        self.output.push(Target::Values(k));
                     }
                     None
                 }
@@ -1004,7 +1004,7 @@ impl<'p, 'a> Walk<'p, 'a> {
                 let offset = m.body.units.get(self.u.0 as usize).and_then(|b| b.declaracao_local(e));
                 if let Some(offset) = offset {
                     if self.est.local_initializer(m, self.u, offset).is_some() {
-                        self.saida.push(Alvo::Local(self.u, offset));
+                        self.output.push(Target::Local(self.u, offset));
                     }
                 }
                 None
@@ -1013,20 +1013,20 @@ impl<'p, 'a> Walk<'p, 'a> {
         };
         if let Some(v) = v {
             if program.variable(v).const_ {
-                self.saida.push(Alvo::Var(v));
+                self.output.push(Target::Var(v));
             }
         }
     }
 
     /// An instance creation: `e_const` is the node's `isConst` (the written
     /// `const`, or the implicit creation in a constant context).
-    fn criacao(&mut self, e: ExprId, e_const: bool, in_const: bool, args: &'a ast::Arguments) {
-        if self.referencias {
+    fn creation(&mut self, e: ExprId, e_const: bool, in_const: bool, args: &'a ast::Arguments) {
+        if self.references {
             if e_const {
-                if let Some(Resolved::Constructor(f)) = self.m.resolvido(self.u, e) {
+                if let Some(Resolved::Constructor(f)) = self.m.resolved(self.u, e) {
                     let program = self.m.program;
                     if program.function(program.publico(*f)).const_ {
-                        self.saida.push(Alvo::Ctor(*f));
+                        self.output.push(Target::Ctor(*f));
                     }
                 }
             }
@@ -1042,7 +1042,7 @@ impl<'p, 'a> Walk<'p, 'a> {
         }
     }
 
-    fn elemento(&mut self, el: &'a CollectionElement, c: bool) {
+    fn element(&mut self, el: &'a CollectionElement, c: bool) {
         match el {
             CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) => self.expr(*x, c),
             CollectionElement::MapEntry { key, value, .. } => {
@@ -1053,30 +1053,30 @@ impl<'p, 'a> Walk<'p, 'a> {
             CollectionElement::If { condition, case_pattern, guard, then, else_ } => {
                 self.expr(*condition, c);
                 if let Some(p) = case_pattern {
-                    self.padrao(*p);
+                    self.pattern(*p);
                 }
                 if let Some(g) = guard {
                     self.expr(*g, c);
                 }
-                self.elemento(then, c);
+                self.element(then, c);
                 if let Some(x) = else_ {
-                    self.elemento(x, c);
+                    self.element(x, c);
                 }
             }
             CollectionElement::For { init, condition, updates, body, .. } => {
-                self.inicio_de_for(init);
+                self.for_start(init);
                 if let Some(x) = condition {
                     self.expr(*x, c);
                 }
                 for x in updates.iter() {
                     self.expr(*x, c);
                 }
-                self.elemento(body, c);
+                self.element(body, c);
             }
             CollectionElement::ForIn { target, iterable, body, .. } => {
-                self.alvo_de_for_in(target);
+                self.for_in_target(target);
                 self.expr(*iterable, c);
-                self.elemento(body, c);
+                self.element(body, c);
             }
         }
     }
@@ -1085,21 +1085,21 @@ impl<'p, 'a> Walk<'p, 'a> {
         let a = self.a;
         let u = self.u;
         match &a.expr(e).kind {
-            ExprKind::Identifier(_) | ExprKind::DotShorthand { .. } => self.referencia(e),
+            ExprKind::Identifier(_) | ExprKind::DotShorthand { .. } => self.reference(e),
             ExprKind::InstanceCreation { keyword, arguments, .. } => {
                 let e_const = match keyword {
                     Some(ast::CreationKeyword::Const) => true,
                     Some(ast::CreationKeyword::New) => false,
                     None => in_const,
                 };
-                self.criacao(e, e_const, in_const, arguments);
+                self.creation(e, e_const, in_const, arguments);
             }
             ExprKind::Call { target, arguments } => {
-                if matches!(self.m.resolvido(u, e), Some(Resolved::Constructor(_))) {
+                if matches!(self.m.resolved(u, e), Some(Resolved::Constructor(_))) {
                     // Implicit creation: constant in a constant context
                     // (or with the dot shorthand's `const`).
                     let const_shorthand = matches!(a.expr(*target).kind, ExprKind::DotShorthand { const_: true, .. });
-                    self.criacao(e, in_const || const_shorthand, in_const, arguments);
+                    self.creation(e, in_const || const_shorthand, in_const, arguments);
                     return;
                 }
                 self.expr(*target, in_const);
@@ -1109,24 +1109,24 @@ impl<'p, 'a> Walk<'p, 'a> {
             }
             ExprKind::List { const_, elements, .. } => {
                 let c = *const_ || in_const;
-                if c && !self.referencias {
+                if c && !self.references {
                     self.release(|s| s.expr(e, in_const));
                     return;
                 }
                 for el in elements.iter() {
-                    self.elemento(el, c);
+                    self.element(el, c);
                 }
             }
             ExprKind::SetOrMap { const_, elements, .. } => {
                 let c = *const_ || in_const;
-                if !self.referencias {
+                if !self.references {
                     if c {
                         self.release(|s| s.expr(e, in_const));
                         return;
                     }
                     // Without `const`: the keys of a map and the elements of a set
                     // are evaluated for the uniqueness check.
-                    let cls = match self.m.table.get(self.m.estatico(u, e)) {
+                    let cls = match self.m.table.get(self.m.the_static(u, e)) {
                         Type::Interface { class, .. } => Some(*class),
                         _ => None,
                     };
@@ -1139,17 +1139,17 @@ impl<'p, 'a> Walk<'p, 'a> {
                         }
                     } else if cls.is_some() && cls == self.m.core.set_class {
                         for el in elements.iter() {
-                            self.release(|s| s.elemento(el, false));
+                            self.release(|s| s.element(el, false));
                         }
                     }
                 }
                 for el in elements.iter() {
-                    self.elemento(el, c);
+                    self.element(el, c);
                 }
             }
             ExprKind::Record { const_, positional, named } => {
                 let c = *const_ || in_const;
-                if c && !self.referencias {
+                if c && !self.references {
                     self.release(|s| s.expr(e, in_const));
                     return;
                 }
@@ -1157,7 +1157,7 @@ impl<'p, 'a> Walk<'p, 'a> {
                     self.expr(*x, c);
                 }
             }
-            ExprKind::FunctionExpression(f) => self.funcao(*f),
+            ExprKind::FunctionExpression(f) => self.function(*f),
             ExprKind::String(lit) => {
                 for p in lit.parts.iter() {
                     if let ast::StringPart::Interpolation(x) = p {
@@ -1168,7 +1168,7 @@ impl<'p, 'a> Walk<'p, 'a> {
             ExprKind::Parenthesized(x) | ExprKind::Await(x) | ExprKind::Throw(x) => self.expr(*x, in_const),
             ExprKind::Property { target, .. } => {
                 self.expr(*target, in_const);
-                self.referencia(e);
+                self.reference(e);
             }
             ExprKind::Index { target, index, .. } => {
                 self.expr(*target, in_const);
@@ -1191,7 +1191,7 @@ impl<'p, 'a> Walk<'p, 'a> {
                 self.expr(*value, in_const);
             }
             ExprKind::PatternAssign { pattern, value } => {
-                self.padrao(*pattern);
+                self.pattern(*pattern);
                 self.expr(*value, in_const);
             }
             ExprKind::Cascade { target, sections, .. } => {
@@ -1203,7 +1203,7 @@ impl<'p, 'a> Walk<'p, 'a> {
             ExprKind::Switch { value, cases } => {
                 self.expr(*value, in_const);
                 for case in cases.iter() {
-                    self.padrao(case.pattern);
+                    self.pattern(case.pattern);
                     if let Some(g) = case.guard {
                         self.expr(g, false);
                     }

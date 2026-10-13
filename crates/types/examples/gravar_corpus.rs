@@ -25,7 +25,7 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
-const MARCA: &str = "/*@*/";
+const MARK: &str = "/*@*/";
 
 fn programs(dir: &Path, v: &mut Vec<PathBuf>) {
     let mut es: Vec<PathBuf> = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().path()).collect();
@@ -93,7 +93,7 @@ fn main() {
             let before = String::from_utf16_lossy(&u16[..start.min(u16.len())]);
             let lin = before.matches('\n').count() + 1;
             let col = before.chars().count() - before.rfind('\n').map(|p| before[..=p].chars().count()).unwrap_or(0) + 1;
-            let mark = u8::from(before.trim_end_matches(' ').ends_with(MARCA));
+            let mark = u8::from(before.trim_end_matches(' ').ends_with(MARK));
             let end = (start + comp.min(60)).min(u16.len());
             let snippet = String::from_utf16_lossy(&u16[start.min(end)..end]);
             let snippet = snippet.split_whitespace().collect::<Vec<_>>().join(" ");

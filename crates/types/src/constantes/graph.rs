@@ -19,10 +19,10 @@
 //! [`Grafo::evaluate_component`], which marks the cycle.
 
 /// The graph the walker traverses. Nodes are dense indices.
-pub trait Grafo {
+pub trait Graph {
     /// The direct dependencies of `no`, in the order the analyzer reports them
     /// (`computeDependencies`). Called at most once per node.
-    fn dependencias(&mut self, no: usize) -> Vec<usize>;
+    fn dependencies(&mut self, no: usize) -> Vec<usize>;
     /// The node already has a result (`isConstantEvaluated`): a variable with a
     /// stored value, an already computed `const` constructor outside a cycle, an
     /// annotation with a value; a non-`const` variable and a parameter without a
@@ -31,7 +31,7 @@ pub trait Grafo {
     /// A single-node component without self-reference: computes the value
     /// (`computeConstantValue`). All dependencies are already evaluated or
     /// marked as a cycle.
-    fn avaliar(&mut self, no: usize);
+    fn evaluate(&mut self, no: usize);
     /// A component with a cycle, from the top of the stack down (the node that
     /// closes the component is the last one): each variable gets the cycle error
     /// and each constructor stops being cycle-free (`generateCycleError`).
@@ -43,87 +43,87 @@ pub trait Grafo {
 #[derive(Debug, Default)]
 pub struct Walker {
     /// `_index` of each node (0 = never seen).
-    indice: Vec<u32>,
+    index: Vec<u32>,
     /// `_lowLink` of each node.
     less: Vec<u32>,
     /// The dependencies of each node, requested from the graph once.
-    dependencias: Vec<Option<Vec<usize>>>,
+    dependencies: Vec<Option<Vec<usize>>>,
 }
 
 /// A `strongConnect` frame (the original's recursion, made explicit: a chain
 /// of constants may be deeper than the thread's stack).
-struct Quadro {
+struct Frame {
     no: usize,
     /// The next dependency to examine.
-    proxima: usize,
+    next: usize,
     /// The node depends on itself (`hasTrivialCycle`).
     trivial: bool,
 }
 
 impl Walker {
-    pub fn novo() -> Self {
+    pub fn new() -> Self {
         Self::default()
     }
 
     fn ensure(&mut self, no: usize) {
-        if no >= self.indice.len() {
-            self.indice.resize(no + 1, 0);
+        if no >= self.index.len() {
+            self.index.resize(no + 1, 0);
             self.less.resize(no + 1, 0);
-            self.dependencias.resize_with(no + 1, || None);
+            self.dependencies.resize_with(no + 1, || None);
         }
     }
 
     /// `walk(start)`: evaluates `start` and everything it depends on, in
     /// dependency order, handing each strongly connected component to the graph.
-    pub fn percorrer<G: Grafo>(&mut self, g: &mut G, start: usize) {
+    pub fn traverse<G: Graph>(&mut self, g: &mut G, start: usize) {
         if g.evaluated(start) {
             return;
         }
         // The counter restarts on each walk; the node indices do not.
         let mut counter: u32 = 1;
         let mut stack: Vec<usize> = Vec::new();
-        let mut frames: Vec<Quadro> = Vec::new();
-        self.abrir(start, &mut counter, &mut stack, &mut frames);
+        let mut frames: Vec<Frame> = Vec::new();
+        self.open(start, &mut counter, &mut stack, &mut frames);
         while let Some(top) = frames.len().checked_sub(1) {
             let no = frames[top].no;
-            if self.dependencias[no].is_none() {
-                let deps = g.dependencias(no);
+            if self.dependencies[no].is_none() {
+                let deps = g.dependencies(no);
                 for &d in &deps {
                     self.ensure(d);
                 }
-                self.dependencias[no] = Some(deps);
+                self.dependencies[no] = Some(deps);
             }
-            let next_ = frames[top].proxima;
-            let dep = self.dependencias[no].as_ref().and_then(|d| d.get(next_).copied());
+            let next_ = frames[top].next;
+            let dep = self.dependencies[no].as_ref().and_then(|d| d.get(next_).copied());
             match dep {
                 Some(dep) => {
-                    frames[top].proxima += 1;
+                    frames[top].next += 1;
                     if g.evaluated(dep) {
                         continue;
                     }
                     if dep == no {
                         frames[top].trivial = true;
-                    } else if self.indice[dep] == 0 {
+                    } else if self.index[dep] == 0 {
                         // Goes down; the child's lowest index comes back up on return
                         // (below, when its frame closes).
-                        self.abrir(dep, &mut counter, &mut stack, &mut frames);
-                    } else if self.indice[dep] < self.less[no] {
+                        self.open(dep, &mut counter, &mut stack, &mut frames);
+                    } else if self.index[dep] < self.less[no] {
                         // Already seen (in this walk or an earlier one, without having
                         // been evaluated): its index, as it is.
-                        self.less[no] = self.indice[dep];
+                        self.less[no] = self.index[dep];
                     }
                 }
                 None => {
                     // All dependencies seen: closes the node.
                     let trivial = frames[top].trivial;
                     frames.pop();
-                    if self.less[no] == self.indice[no] {
+                    if self.less[no] == self.index[no] {
                         if stack.last() == Some(&no) {
                             stack.pop();
                             if trivial {
                                 g.evaluate_component(&[no]);
                             } else {
-                                g.avaliar(no);
+                                g.evaluate(no);
                             }
                         } else {
                             let mut component = Vec::new();
@@ -149,13 +149,13 @@ impl Walker {
     }
 
     /// The start of `strongConnect(no)`: numbers the node and pushes it.
-    fn abrir(&mut self, no: usize, counter: &mut u32, stack: &mut Vec<usize>, frames: &mut Vec<Quadro>) {
+    fn open(&mut self, no: usize, counter: &mut u32, stack: &mut Vec<usize>, frames: &mut Vec<Frame>) {
         self.ensure(no);
-        self.indice[no] = *counter;
+        self.index[no] = *counter;
         self.less[no] = *counter;
         *counter += 1;
         stack.push(no);
-        frames.push(Quadro { no, proxima: 0, trivial: false });
+        frames.push(Frame { no, next: 0, trivial: false });
     }
 }
 
@@ -166,10 +166,10 @@ mod testes {
     /// A test graph: the edges, which nodes are constructors (never evaluated
     /// after a cycle, and evaluated after `avaliar`), and what happened.
     struct Test {
-        arestas: Vec<Vec<usize>>,
-        avaliados: Vec<bool>,
-        construtor: Vec<bool>,
-        simples: Vec<usize>,
+        edges: Vec<Vec<usize>>,
+        evaluated: Vec<bool>,
+        constructor: Vec<bool>,
+        simple: Vec<usize>,
         cycles: Vec<Vec<usize>>,
     }
 
@@ -180,34 +180,34 @@ mod testes {
             for &c in constructors {
                 constructor[c] = true;
             }
-            Test { arestas: edges, avaliados: vec![false; n], construtor: constructor, simples: Vec::new(), cycles: Vec::new() }
+            Test { edges, evaluated: vec![false; n], constructor, simple: Vec::new(), cycles: Vec::new() }
         }
 
         fn run(&mut self, order: &[usize]) {
-            let mut c = Walker::novo();
+            let mut c = Walker::new();
             for &no in order {
-                c.percorrer(self, no);
+                c.traverse(self, no);
             }
         }
     }
 
-    impl Grafo for Test {
-        fn dependencias(&mut self, no: usize) -> Vec<usize> {
-            self.arestas[no].clone()
+    impl Graph for Test {
+        fn dependencies(&mut self, no: usize) -> Vec<usize> {
+            self.edges[no].clone()
         }
         fn evaluated(&self, no: usize) -> bool {
-            self.avaliados[no]
+            self.evaluated[no]
         }
-        fn avaliar(&mut self, no: usize) {
-            self.avaliados[no] = true;
-            self.simples.push(no);
+        fn evaluate(&mut self, no: usize) {
+            self.evaluated[no] = true;
+            self.simple.push(no);
         }
         fn evaluate_component(&mut self, nodes: &[usize]) {
             // A variable in a cycle keeps the stored invalid value (evaluated);
             // a constructor in a cycle never becomes evaluated.
             for &n in nodes {
-                if !self.construtor[n] {
-                    self.avaliados[n] = true;
+                if !self.constructor[n] {
+                    self.evaluated[n] = true;
                 }
             }
             let mut v = nodes.to_vec();
@@ -221,7 +221,7 @@ mod testes {
         // 0 → 1 → 2
         let mut g = Test::novo(vec![vec![1], vec![2], vec![]], &[]);
         g.run(&[0, 1, 2]);
-        assert_eq!(g.simples, vec![2, 1, 0]);
+        assert_eq!(g.simple, vec![2, 1, 0]);
         assert!(g.cycles.is_empty());
     }
 
@@ -231,7 +231,7 @@ mod testes {
         let mut g = Test::novo(vec![vec![1], vec![2], vec![0], vec![0]], &[]);
         g.run(&[0, 1, 2, 3]);
         assert_eq!(g.cycles, vec![vec![0, 1, 2]]);
-        assert_eq!(g.simples, vec![3]);
+        assert_eq!(g.simple, vec![3]);
     }
 
     #[test]
@@ -240,7 +240,7 @@ mod testes {
         let mut g = Test::novo(vec![vec![0]], &[]);
         g.run(&[0]);
         assert_eq!(g.cycles, vec![vec![0]]);
-        assert!(g.simples.is_empty());
+        assert!(g.simple.is_empty());
     }
 
     #[test]
@@ -255,7 +255,7 @@ mod testes {
         assert_eq!(g.cycles, vec![vec![0, 1], vec![2, 3]]);
         // The walk of `C.a`, alone, closes a single-node component (the old
         // index of `C()` is not lower than its own): it is "computed".
-        assert_eq!(g.simples, vec![1]);
+        assert_eq!(g.simple, vec![1]);
     }
 
     #[test]
@@ -268,6 +268,6 @@ mod testes {
         assert_eq!(g.cycles, vec![vec![2, 3]]);
         // `w` and `w2` come out clean; the following walks of the two
         // constructors, each alone, consider them computed.
-        assert_eq!(g.simples, vec![1, 0, 2, 3]);
+        assert_eq!(g.simple, vec![1, 0, 2, 3]);
     }
 }

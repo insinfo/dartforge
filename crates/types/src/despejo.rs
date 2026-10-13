@@ -28,25 +28,25 @@ pub const NOT_VISITED: TypeId = TypeId(u32::MAX);
 #[derive(Debug, Clone)]
 pub struct Line {
     pub offset: usize,
-    pub comprimento: usize,
+    pub length: usize,
     pub no: &'static str,
-    pub tipo: String,
+    pub ty: String,
     pub resolution: String,
 }
 
 /// A dumped unit (file).
-pub struct Unidade {
+pub struct Unit {
     /// Path with `/`.
-    pub caminho: String,
-    pub linhas: Vec<Line>,
+    pub path: String,
+    pub lines: Vec<Line>,
 }
 
 /// Result of dumping a program.
 pub struct Dump {
     /// Units outside the SDK, sorted by path.
-    pub unidades: Vec<Unidade>,
+    pub units: Vec<Unit>,
     /// Warnings from the outline and the bodies.
-    pub avisos: Vec<Diagnostic>,
+    pub warnings: Vec<Diagnostic>,
     pub not_visited: usize,
     pub inference_time: std::time::Duration,
 }
@@ -79,13 +79,13 @@ pub fn dump(entry: &Path, sdk: &SdkLayout, packages: Option<&Path>) -> Dump {
         .into_iter()
         .map(|(path, ui)| {
             let lines = unit_lines(&prog, &bodies, &table, &interner, UnitId(ui as u32));
-            not_visited += lines.iter().filter(|l| l.tipo == "?").count();
-            Unidade { caminho: path, linhas: lines }
+            not_visited += lines.iter().filter(|l| l.ty == "?").count();
+            Unit { path, lines }
         })
         .collect();
     let mut warnings = diags_outline;
     warnings.extend(diags);
-    Dump { unidades: units, avisos: warnings, not_visited, inference_time }
+    Dump { units, warnings, not_visited, inference_time }
 }
 
 /// Lines of a unit, sorted by UTF-16 `(offset, comprimento)`.
@@ -114,10 +114,10 @@ pub fn unit_lines(prog: &Program, bodies: &BodyTypes, table: &TypeTable, interne
                 .map(|r| format_resolution(r, prog, interner))
                 .unwrap_or_else(|| "-".into());
             let (start, end) = (utf16(e.span.start), utf16(e.span.end));
-            Line { offset: start, comprimento: end - start, no: name_in(&e.kind), tipo: typ, resolution }
+            Line { offset: start, length: end - start, no: name_in(&e.kind), ty: typ, resolution }
         })
         .collect();
-    lines.sort_by_key(|l| (l.offset, l.comprimento));
+    lines.sort_by_key(|l| (l.offset, l.length));
     lines
 }
 
@@ -270,24 +270,24 @@ pub fn formatar(t: &TypeTable, ty: TypeId, i: &Interner, p: &Program) -> String 
 // -------------------------------------------------------------------
 
 /// Lines of a file: `(offset, comprimento) -> [(nó, typ)]`.
-pub type Bloco = BTreeMap<(usize, usize), Vec<(String, String)>>;
+pub type Block = BTreeMap<(usize, usize), Vec<(String, String)>>;
 
 /// An expression whose type diverges from the oracle.
 #[derive(Debug, Clone)]
 pub struct Divergence {
-    pub ini: usize,
-    pub fim: usize,
+    pub start: usize,
+    pub end: usize,
     pub no: String,
     pub ours: String,
     pub in_oracle: String,
-    pub oraculo: String,
+    pub oracle: String,
 }
 
 /// Result of comparing a file.
 #[derive(Debug, Default)]
 pub struct Comparison {
     pub compared: usize,
-    pub iguais: usize,
+    pub equal: usize,
     /// Sorted by start and, for the same start, from largest to smallest.
     pub divergences: Vec<Divergence>,
 }
@@ -295,15 +295,15 @@ pub struct Comparison {
 impl Comparison {
     /// Indices of the divergences that are a **cause**: no other divergence is
     /// strictly contained in it (the ones that contain it are cascade).
-    pub fn causas(&self) -> Vec<usize> {
+    pub fn causes(&self) -> Vec<usize> {
         let div = &self.divergences;
         let mut v = Vec::new();
         for i in 0..div.len() {
-            let (start, end) = (div[i].ini, div[i].fim);
+            let (start, end) = (div[i].start, div[i].end);
             let contained = div[i + 1..]
                 .iter()
-                .take_while(|d| d.ini < end)
-                .any(|d| d.fim <= end && (d.ini, d.fim) != (start, end));
+                .take_while(|d| d.start < end)
+                .any(|d| d.end <= end && (d.start, d.end) != (start, end));
             if !contained {
                 v.push(i);
             }
@@ -314,7 +314,7 @@ impl Comparison {
 
 /// Compares our block with the oracle's (only the expressions the oracle
 /// types; `-` is a node without a type, such as a class name).
-pub fn compare_block(ours: &Bloco, oracle: &Bloco) -> Comparison {
+pub fn compare_block(ours: &Block, oracle: &Block) -> Comparison {
     let mut c = Comparison::default();
     for (&(start, comp), the_ours) in ours {
         let Some(orcs) = oracle.get(&(start, comp)) else { continue };
@@ -325,36 +325,36 @@ pub fn compare_block(ours: &Bloco, oracle: &Bloco) -> Comparison {
         for (no, typ) in the_ours {
             c.compared += 1;
             if orcs.iter().any(|o| &o.1 == typ) {
-                c.iguais += 1;
+                c.equal += 1;
                 continue;
             }
             c.divergences.push(Divergence {
-                ini: start,
-                fim: start + comp,
+                start,
+                end: start + comp,
                 no: no.clone(),
                 ours: typ.clone(),
                 in_oracle: orcs[0].0.clone(),
-                oraculo: orcs[0].1.clone(),
+                oracle: orcs[0].1.clone(),
             });
         }
     }
-    c.divergences.sort_by(|a, b| (a.ini, std::cmp::Reverse(a.fim)).cmp(&(b.ini, std::cmp::Reverse(b.fim))));
+    c.divergences.sort_by(|a, b| (a.start, std::cmp::Reverse(a.end)).cmp(&(b.start, std::cmp::Reverse(b.end))));
     c
 }
 
 /// Block from the dump lines.
-pub fn line_block(lines: &[Line]) -> Bloco {
-    let mut b = Bloco::new();
+pub fn line_block(lines: &[Line]) -> Block {
+    let mut b = Block::new();
     for l in lines {
-        b.entry((l.offset, l.comprimento)).or_default().push((l.no.to_string(), l.tipo.clone()));
+        b.entry((l.offset, l.length)).or_default().push((l.no.to_string(), l.ty.clone()));
     }
     b
 }
 
 /// Block from a corpus `.esperado.tsv` (`linha coluna offset
 /// comprimento nó tipo elemento marca trecho`).
-pub fn expected_block(text: &str) -> Bloco {
-    let mut b = Bloco::new();
+pub fn expected_block(text: &str) -> Block {
+    let mut b = Block::new();
     for l in text.lines() {
         if l.starts_with('#') {
             continue;
@@ -379,7 +379,7 @@ fn without_args(s: &str) -> &str {
 }
 
 /// Shape of the difference between our type and the oracle's.
-pub fn forma(ours: &str, oracle: &str) -> &'static str {
+pub fn shape(ours: &str, oracle: &str) -> &'static str {
     if ours == "?" {
         return "not visited";
     }

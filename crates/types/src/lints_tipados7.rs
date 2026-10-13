@@ -6,7 +6,7 @@
 //! `try` (which silences it).
 //! Written without compiling or running (2026-10-05).
 
-use crate::lints_tipados::Achado;
+use crate::lints_tipados::Finding;
 use crate::resolve::OutlineTypes;
 use crate::resolved::UnitBodyTypes;
 use crate::subtyping::{is_subtype, SubtypeEnv};
@@ -16,7 +16,7 @@ use dartforge_elements::model::{FunctionRef, Program, UnitId};
 use dartforge_frontend::ast::{ExprId, ExprKind, FunctionBody, StmtKind};
 use std::collections::HashMap;
 
-fn sem_parenteses(a: &dartforge_frontend::ast::Ast, mut e: ExprId) -> ExprId {
+fn without_parentheses(a: &dartforge_frontend::ast::Ast, mut e: ExprId) -> ExprId {
     while let ExprKind::Parenthesized(x) = &a.expr(e).kind {
         e = *x;
     }
@@ -24,7 +24,7 @@ fn sem_parenteses(a: &dartforge_frontend::ast::Ast, mut e: ExprId) -> ExprId {
 }
 
 /// The findings in unit `u`.
-pub fn achados(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: &OutlineTypes, the_body: &UnitBodyTypes, u: UnitId) -> Vec<Achado> {
+pub fn achados(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: &OutlineTypes, the_body: &UnitBodyTypes, u: UnitId) -> Vec<Finding> {
     let mut out = Vec::new();
     let a = &program.unit(u).ast;
     let e_future = |table: &TypeTable, t: TypeId| matches!(table.get(t), Type::Interface { class, .. } if Some(*class) == core.future_class);
@@ -72,7 +72,7 @@ pub fn achados(program: &Program, table: &mut TypeTable, core: &CoreTypes, outli
         })
         .collect();
     for (no, e) in cases {
-        let x = sem_parenteses(a, e);
+        let x = without_parentheses(a, e);
         let ExprKind::Await(target) = &a.expr(x).kind else { continue };
         let Some(t) = the_body.get_type(*target).filter(|t| !core.is_unknown(table, *t)) else { continue };
         if !e_future(table, t) {

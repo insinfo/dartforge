@@ -18,30 +18,30 @@ use dartforge_intern::SymbolId;
 pub(crate) struct Membro {
     pub resolved: Resolved,
     /// Getter/field: the value's type; setter: the parameter's type; method: the function type.
-    pub tipo: TypeId,
+    pub ty: TypeId,
     /// Method or operator (invocable/tear-off), as opposed to getter/field/setter.
-    pub metodo: bool,
+    pub method: bool,
     /// The declared function (for whoever needs the element).
     #[allow(dead_code)]
-    pub funcao: Option<FunctionElementId>,
+    pub function: Option<FunctionElementId>,
     pub of_extension: bool,
 }
 
 /// Result of a member lookup on a receiver.
 #[derive(Debug, Clone)]
-pub(crate) enum Busca {
+pub(crate) enum Search {
     /// A `dynamic` (or invalid) receiver: dynamic dispatch.
     Dinamico,
     /// A `Never` receiver: the access has type `Never`.
     NeverType,
-    Achado(Membro),
+    Finding(Membro),
     Missing,
 }
 
 /// Inference as the inheritance's provider: the type of an implicit accessor
 /// is the field's, inferred on demand.
-impl<'a> crate::heranca::Provedor<'a> for BodyInferrer<'a> {
-    fn programa(&self) -> &'a dartforge_elements::model::Program {
+impl<'a> crate::heranca::Provider<'a> for BodyInferrer<'a> {
+    fn program(&self) -> &'a dartforge_elements::model::Program {
         self.program
     }
     fn interner(&self) -> &'a dartforge_intern::Interner {
@@ -50,13 +50,13 @@ impl<'a> crate::heranca::Provedor<'a> for BodyInferrer<'a> {
     fn core(&self) -> &'a crate::table::CoreTypes {
         self.core
     }
-    fn tabela(&mut self) -> &mut crate::table::TypeTable {
+    fn table(&mut self) -> &mut crate::table::TypeTable {
         &mut *self.table
     }
     fn class_data(&self, c: ClassId) -> crate::resolve::ClassTypeData {
         self.outline.classes[c.0 as usize].clone()
     }
-    fn tipo_do_membro(&mut self, f: FunctionElementId) -> TypeId {
+    fn member_type(&mut self, f: FunctionElementId) -> TypeId {
         let tv = match self.program.function(f).variable {
             // When looking up what a field of class `c` overrides (the
             // `getOverridden2` of `_inferAccessorOrField`), the members declared in
@@ -89,9 +89,9 @@ impl<'a> crate::heranca::Provedor<'a> for BodyInferrer<'a> {
             // decide the result; the others stay provisional.
             Some(v)
                 if self.program.function(f).kind == FunctionKind::ImplicitAccessor
-                    && self.nome_da_busca.is_some_and(|n| n != self.program.variable(v).name)
+                    && self.lookup_name.is_some_and(|n| n != self.program.variable(v).name)
                     && !self.variable_stack.is_empty()
-                    && matches!(self.vars_state[v.0 as usize], super::VarState::Pendente)
+                    && matches!(self.vars_state[v.0 as usize], super::VarState::Pending)
                     && self.outline.variables.get(v.0 as usize).is_some_and(|d| d.declared_type.is_none()) =>
             {
                 self.provisional_inheritance = true;
@@ -124,11 +124,11 @@ impl<'a> BodyInferrer<'a> {
         // interfaces it needs in its own manager).
         let base = self.interner.resolve(key);
         let base = base.strip_suffix('=').map_or(Some(key), |b| self.interner.lookup(b));
-        let saved_name = std::mem::replace(&mut self.nome_da_busca, base);
-        let mut h = std::mem::take(&mut self.heranca);
-        let finding = h.membro(self, cls, name, concrete, None, to_super);
-        self.heranca = h;
-        self.nome_da_busca = saved_name;
+        let saved_name = std::mem::replace(&mut self.lookup_name, base);
+        let mut h = std::mem::take(&mut self.inheritance);
+        let finding = h.member(self, cls, name, concrete, None, to_super);
+        self.inheritance = h;
+        self.lookup_name = saved_name;
         self.after_provisional_lookup(finding.as_ref());
         finding
     }
@@ -142,7 +142,7 @@ impl<'a> BodyInferrer<'a> {
         if !self.provisional_inheritance || self.declared_untyped.is_some() {
             return;
         }
-        self.heranca = crate::heranca::Heranca::default();
+        self.inheritance = crate::heranca::Heranca::default();
         self.provisional_inheritance = false;
         if let Some(m) = finding
             && self.program.function(m.funcao).kind == FunctionKind::ImplicitAccessor
@@ -162,11 +162,11 @@ impl<'a> BodyInferrer<'a> {
         let name = crate::heranca::Nome::novo(self.interner, lib, key);
         let base = self.interner.resolve(key);
         let base = base.strip_suffix('=').map_or(Some(key), |b| self.interner.lookup(b));
-        let saved_name = std::mem::replace(&mut self.nome_da_busca, base);
-        let mut h = std::mem::take(&mut self.heranca);
+        let saved_name = std::mem::replace(&mut self.lookup_name, base);
+        let mut h = std::mem::take(&mut self.inheritance);
         let finding = h.herdado(self, cls, name);
-        self.heranca = h;
-        self.nome_da_busca = saved_name;
+        self.inheritance = h;
+        self.lookup_name = saved_name;
         self.after_provisional_lookup(finding.as_ref());
         finding
     }
@@ -174,10 +174,10 @@ impl<'a> BodyInferrer<'a> {
     /// The value of an interface member derived from its function type: the
     /// getter's return, the setter's parameter, the method's type.
     fn inheritance_member_type(&self, m: &crate::heranca::Membro) -> (TypeId, bool) {
-        match (m.especie, self.table.get(m.tipo)) {
-            (crate::heranca::Especie::Getter, Type::Function { ret, .. }) => (*ret, false),
-            (crate::heranca::Especie::Setter, Type::Function { positional, .. }) => (positional.first().copied().unwrap_or(self.core.dynamic_), false),
-            (crate::heranca::Especie::Metodo, _) => (m.tipo, true),
+        match (m.kind, self.table.get(m.ty)) {
+            (crate::heranca::Kind::Getter, Type::Function { ret, .. }) => (*ret, false),
+            (crate::heranca::Kind::Setter, Type::Function { positional, .. }) => (positional.first().copied().unwrap_or(self.core.dynamic_), false),
+            (crate::heranca::Kind::Metodo, _) => (m.ty, true),
             _ => (self.core.dynamic_, false),
         }
     }
@@ -226,10 +226,10 @@ impl<'a> BodyInferrer<'a> {
             // single assignment); the element model only creates it for non-final
             // fields.
             let m = self.interface_member_key(recv, name, false)?;
-            let e_late_final = match m.funcao.map(|f| self.program.function(f)) {
+            let e_late_final = match m.function.map(|f| self.program.function(f)) {
                 Some(fe) if fe.kind == FunctionKind::ImplicitAccessor => fe.variable.is_some_and(|v| {
                     let ve = self.program.variable(v);
-                    ve.late && ve.final_ && self.inicializador(v).is_none()
+                    ve.late && ve.final_ && self.initializer(v).is_none()
                 }),
                 _ => false,
             };
@@ -253,8 +253,8 @@ impl<'a> BodyInferrer<'a> {
                 // interface's, over the class's parameters.
                 let m = self.inheritance_member(class, key, false, false)?;
                 let f = m.funcao;
-                let owner = self.program.function(f).class.unwrap_or(m.classe);
-                let (t, method) = if m.sintetico {
+                let owner = self.program.function(f).class.unwrap_or(m.class);
+                let (t, method) = if m.synthetic {
                     let (t, method) = self.inheritance_member_type(&m);
                     (self.substitute_from_owner(recv, class, class, t), method)
                 } else {
@@ -266,9 +266,9 @@ impl<'a> BodyInferrer<'a> {
                 let member = MemberRef::Function(f);
                 Some(Membro {
                     resolved: Resolved::Member { class: owner, member, via_super: false },
-                    tipo: t,
-                    metodo: method,
-                    funcao: Some(f),
+                    ty: t,
+                    method,
+                    function: Some(f),
                     of_extension: false,
                 })
             }
@@ -286,7 +286,7 @@ impl<'a> BodyInferrer<'a> {
             }
             Type::Function { .. } => {
                 if !setter && Some(name) == self.sym.call {
-                    return Some(Membro { resolved: Resolved::Dynamic, tipo: recv, metodo: true, funcao: None, of_extension: false });
+                    return Some(Membro { resolved: Resolved::Dynamic, ty: recv, method: true, function: None, of_extension: false });
                 }
                 let f = self.core.function;
                 self.interface_member(f, name, setter)
@@ -295,14 +295,14 @@ impl<'a> BodyInferrer<'a> {
                 if !setter {
                     for (n, t) in named.iter() {
                         if *n == name {
-                            return Some(Membro { resolved: Resolved::Dynamic, tipo: *t, metodo: false, funcao: None, of_extension: false });
+                            return Some(Membro { resolved: Resolved::Dynamic, ty: *t, method: false, function: None, of_extension: false });
                         }
                     }
                     let s = self.interner.resolve(name);
                     if let Some(d) = s.strip_prefix('$') {
                         if let Ok(i) = d.parse::<usize>() {
                             if i >= 1 && i <= positional.len() {
-                                return Some(Membro { resolved: Resolved::Dynamic, tipo: positional[i - 1], metodo: false, funcao: None, of_extension: false });
+                                return Some(Membro { resolved: Resolved::Dynamic, ty: positional[i - 1], method: false, function: None, of_extension: false });
                             }
                         }
                     }
@@ -334,9 +334,9 @@ impl<'a> BodyInferrer<'a> {
         let ty = self.substitute_from_owner(recv, class, class, t);
         Some(Membro {
             resolved: Resolved::Member { class, member: MemberRef::Variable(rep), via_super: false },
-            tipo: ty,
-            metodo: false,
-            funcao: None,
+            ty,
+            method: false,
+            function: None,
             of_extension: false,
         })
     }
@@ -365,30 +365,30 @@ impl<'a> BodyInferrer<'a> {
         if args.len() != params.len() {
             return t;
         }
-        let map = self.mapa(&params, &args);
+        let map = self.map(&params, &args);
         self.subst(t, &map)
     }
 
     /// Full lookup: interface, then extensions accessible in `lib`.
-    pub(crate) fn lookup_member(&mut self, lib: LibraryId, recv: TypeId, name: SymbolId, setter: bool) -> Busca {
+    pub(crate) fn lookup_member(&mut self, lib: LibraryId, recv: TypeId, name: SymbolId, setter: bool) -> Search {
         self.extension_ambiguity = None;
         let b = self.lookup_member_unambiguous(lib, recv, name, setter);
         // Ambiguous extensions: the analyzer does not resolve (invalid type) and
         // only reports the ambiguity.
-        if matches!(b, Busca::Missing) && self.extension_ambiguity.is_some() {
-            return Busca::Dinamico;
+        if matches!(b, Search::Missing) && self.extension_ambiguity.is_some() {
+            return Search::Dinamico;
         }
         b
     }
 
-    fn lookup_member_unambiguous(&mut self, lib: LibraryId, recv: TypeId, name: SymbolId, setter: bool) -> Busca {
+    fn lookup_member_unambiguous(&mut self, lib: LibraryId, recv: TypeId, name: SymbolId, setter: bool) -> Search {
         match self.table.get(recv) {
-            Type::Dynamic => return Busca::Dinamico,
-            Type::Never => return Busca::NeverType,
+            Type::Dynamic => return Search::Dinamico,
+            Type::Never => return Search::NeverType,
             _ => {}
         }
         if self.the_is_unknown(recv) {
-            return Busca::Dinamico;
+            return Search::Dinamico;
         }
         // A type parameter bounded by `dynamic` (`isDynamicBounded`,
         // `type_property_resolver.dart:81-90`): only `Object`'s members, and the
@@ -411,9 +411,9 @@ impl<'a> BodyInferrer<'a> {
             if matches!(self.table.get(b), Type::Dynamic) {
                 let o = self.core.object;
                 if let Some(m) = self.interface_member(o, name, setter) {
-                    return Busca::Achado(m);
+                    return Search::Finding(m);
                 }
-                return Busca::Dinamico;
+                return Search::Dinamico;
             }
         }
         let nullable = self.the_is_nullable(recv) && !matches!(self.table.get(recv), Type::Null);
@@ -422,38 +422,38 @@ impl<'a> BodyInferrer<'a> {
         if nullable {
             let o = self.core.object;
             if let Some(m) = self.interface_member(o, name, setter) {
-                return Busca::Achado(m);
+                return Search::Finding(m);
             }
             if let Some(m) = self.extension_member(lib, recv, name, setter) {
-                return Busca::Achado(m);
+                return Search::Finding(m);
             }
         }
         if let Some(m) = self.interface_member(recv, name, setter) {
-            return Busca::Achado(m);
+            return Search::Finding(m);
         }
         // `_lookupInterfaceType` also looks for the pair (a getter's setter
         // `name=`, a setter's getter; `[]=` for `[]` and vice versa): if the
         // interface has one of them, `_hasGetterOrSetter` holds and extensions
         // are not consulted (`type_property_resolver.dart:181-185, 251-281`).
-        let par = if Some(name) == self.sym.indice {
+        let par = if Some(name) == self.sym.index {
             self.sym.set_index.and_then(|s| self.interface_member(recv, s, false))
         } else if Some(name) == self.sym.set_index {
-            self.sym.indice.and_then(|s| self.interface_member(recv, s, false))
+            self.sym.index.and_then(|s| self.interface_member(recv, s, false))
         } else {
             self.interface_member(recv, name, !setter)
         };
         if par.is_some() {
-            return Busca::Missing;
+            return Search::Missing;
         }
         if let Some(m) = self.extension_member(lib, recv, name, setter) {
-            return Busca::Achado(m);
+            return Search::Finding(m);
         }
         // `TypePropertyResolver`'s last resort: `Object`'s interface (an
         // extension type without `implements` does not have it in its own).
         if !nullable {
             let o = self.core.object;
             if let Some(m) = self.interface_member(o, name, setter) {
-                return Busca::Achado(m);
+                return Search::Finding(m);
             }
         }
         // `f.call` with `f` of type `Function` (from `dart:core`): no error and
@@ -463,9 +463,9 @@ impl<'a> BodyInferrer<'a> {
             && Some(name) == self.sym.call
             && matches!(self.table.get(recv), Type::Interface { class, .. } if Some(*class) == self.core.function_class)
         {
-            return Busca::Dinamico;
+            return Search::Dinamico;
         }
-        Busca::Missing
+        Search::Missing
     }
 
     /// Accessing `name` on a potentially nullable receiver requires a null
@@ -515,7 +515,7 @@ impl<'a> BodyInferrer<'a> {
     }
 
     /// Arguments of extension `e` for the receiver, if it applies.
-    pub(crate) fn extensao_aplicavel(&mut self, e: ExtensionId, recv: TypeId) -> Option<Vec<TypeId>> {
+    pub(crate) fn applicable_extension(&mut self, e: ExtensionId, recv: TypeId) -> Option<Vec<TypeId>> {
         let data = self.outline.extensions[e.0 as usize].clone();
         if data.type_params.is_empty() {
             return if self.sub(recv, data.on) { Some(Vec::new()) } else { None };
@@ -525,14 +525,14 @@ impl<'a> BodyInferrer<'a> {
         // Iterable<T>` with `T` in `L` would constrain nothing.
         let new_ = self.new_parameters(&data.type_params);
         let types: Vec<TypeId> = new_.iter().map(|&p| self.table.intern(Type::TypeParameter { param: p, nullable: false })).collect();
-        let m0 = self.mapa(&data.type_params, &types);
+        let m0 = self.map(&data.type_params, &types);
         let on_novo = self.subst(data.on, &m0);
         let mut inf = GenericInferrer::new(&new_);
         let mut env = self.env();
         inf.constrain_argument(recv, on_novo, &mut env);
         let args = inf.choose_final(&mut env);
         drop(env);
-        let map = self.mapa(&data.type_params, &args);
+        let map = self.map(&data.type_params, &args);
         let on = self.subst(data.on, &map);
         if !self.sub(recv, on) {
             return None;
@@ -558,10 +558,10 @@ impl<'a> BodyInferrer<'a> {
         // the chosen one without the requested member does not resolve.
         // Operators only by themselves.
         let identifier = self.interner.resolve(name).chars().next().is_some_and(|c| c.is_alphabetic() || c == '_' || c == '$');
-        let par = if Some(name) == self.sym.indice {
+        let par = if Some(name) == self.sym.index {
             self.sym.set_index
         } else if Some(name) == self.sym.set_index {
-            self.sym.indice
+            self.sym.index
         } else if !identifier {
             None
         } else if setter {
@@ -574,9 +574,9 @@ impl<'a> BodyInferrer<'a> {
         for &e in exts.iter() {
             let members = &self.program.extension(e).instance_members;
             let Some(&f) = members.get(&key).or_else(|| par.and_then(|k| members.get(&k))) else { continue };
-            if let Some(args) = self.extensao_aplicavel(e, recv) {
+            if let Some(args) = self.applicable_extension(e, recv) {
                 let data = self.outline.extensions[e.0 as usize].clone();
-                let map = self.mapa(&data.type_params, &args);
+                let map = self.map(&data.type_params, &args);
                 let on = self.subst(data.on, &map);
                 candidates.push((e, f, args, on));
             }
@@ -666,9 +666,9 @@ impl<'a> BodyInferrer<'a> {
         self.body_types.extensoes_usadas.insert((lib, e));
         let (t, method) = self.declared_member_type(f, setter);
         let data = self.outline.extensions[e.0 as usize].clone();
-        let map = self.mapa(&data.type_params, &args);
+        let map = self.map(&data.type_params, &args);
         let t = self.subst(t, &map);
-        Some(Membro { resolved: Resolved::ExtensionMember { extension: e, member: f }, tipo: t, metodo: method, funcao: Some(f), of_extension: true })
+        Some(Membro { resolved: Resolved::ExtensionMember { extension: e, member: f }, ty: t, method, function: Some(f), of_extension: true })
     }
 
     /// `_isMoreSpecific` (`extension_member_resolver.dart:382-418`): outside the
@@ -700,7 +700,7 @@ impl<'a> BodyInferrer<'a> {
     fn on_at_bounds(&mut self, e: ExtensionId) -> TypeId {
         let data = self.outline.extensions[e.0 as usize].clone();
         let args = self.instantiate_to_bounds(&data.type_params);
-        let map = self.mapa(&data.type_params, &args);
+        let map = self.map(&data.type_params, &args);
         self.subst(data.on, &map)
     }
 
@@ -725,12 +725,12 @@ impl<'a> BodyInferrer<'a> {
         let (t, method) = self.declared_member_type(f, setter);
         let data = self.outline.extensions[e.0 as usize].clone();
         let t = if data.type_params.len() == args.len() {
-            let map = self.mapa(&data.type_params, args);
+            let map = self.map(&data.type_params, args);
             self.subst(t, &map)
         } else {
             t
         };
-        Some(Membro { resolved: Resolved::ExtensionMember { extension: e, member: f }, tipo: t, metodo: method, funcao: Some(f), of_extension: true })
+        Some(Membro { resolved: Resolved::ExtensionMember { extension: e, member: f }, ty: t, method, function: Some(f), of_extension: true })
     }
 
     /// `lookupStaticGetter` (and, without it, `lookupStaticMethod`) or
@@ -784,7 +784,7 @@ impl<'a> BodyInferrer<'a> {
     /// `TypeSystemImpl.resolveToBound`: a type parameter (without `?`) through
     /// its bound, an intersection through its bound, until a type that is
     /// neither.
-    pub(crate) fn resolver_ao_limite(&self, t: TypeId) -> TypeId {
+    pub(crate) fn resolve_to_bound(&self, t: TypeId) -> TypeId {
         let mut base = t;
         for _ in 0..64 {
             match self.table.get(base) {
@@ -869,9 +869,9 @@ impl<'a> BodyInferrer<'a> {
                 let t = self.variable_type(v);
                 return Some(Membro {
                     resolved: Resolved::Member { class: cls, member: MemberRef::Variable(v), via_super: false },
-                    tipo: t,
-                    metodo: false,
-                    funcao: None,
+                    ty: t,
+                    method: false,
+                    function: None,
                     of_extension: false,
                 });
             }
@@ -887,9 +887,9 @@ impl<'a> BodyInferrer<'a> {
                 let (t, method) = self.declared_member_type(f, setter);
                 return Some(Membro {
                     resolved: Resolved::Member { class: cls, member, via_super: false },
-                    tipo: t,
-                    metodo: method,
-                    funcao: Some(f),
+                    ty: t,
+                    method,
+                    function: Some(f),
                     of_extension: false,
                 });
             }
@@ -911,16 +911,16 @@ impl<'a> BodyInferrer<'a> {
             let t = self.variable_type(v);
             return Some(Membro {
                 resolved: Resolved::Element(dartforge_elements::model::Element::Variable(v)),
-                tipo: t,
-                metodo: false,
-                funcao: None,
+                ty: t,
+                method: false,
+                function: None,
                 of_extension: true,
             });
         }
         let key = if setter { self.setter_key(name)? } else { name };
         let &f = self.program.extension(e).static_members.get(&key)?;
         let (t, method) = self.declared_member_type(f, setter);
-        Some(Membro { resolved: Resolved::ExtensionMember { extension: e, member: f }, tipo: t, metodo: method, funcao: Some(f), of_extension: true })
+        Some(Membro { resolved: Resolved::ExtensionMember { extension: e, member: f }, ty: t, method, function: Some(f), of_extension: true })
     }
 
     /// Member declared directly in the body of a class/extension (lexical

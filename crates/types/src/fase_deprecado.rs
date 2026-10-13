@@ -25,7 +25,7 @@
 //!
 //! Written without compiling or running (2026-10-04; redone on 2026-10-05).
 
-use crate::lints_tipados::Achado;
+use crate::lints_tipados::Finding;
 use crate::resolved::{MemberRef, Resolved, UnitBodyTypes};
 use crate::table::{Type, TypeTable};
 use dartforge_diagnostics::codigos::hint as h;
@@ -167,31 +167,31 @@ fn deprecated_library(program: &Program, interner: &Interner, lib: LibraryId) ->
 
 /// Who visits: the `BestPracticesVerifier` (the warning) or the lint visitor.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Modo {
-    Aviso,
+enum Mode {
+    Warning,
     Lint,
 }
 
 /// A reportable use: the node, the display name, the message and the
 /// element's library.
-struct Uso {
+struct Use {
     span: Span,
-    nome: String,
-    mensagem: Option<String>,
+    name: String,
+    message: Option<String>,
     lib: LibraryId,
 }
 
 /// A deprecatable element: its metadata, the unit, the library and the
 /// display name.
-struct Alvo<'p> {
+struct Target<'p> {
     metadata: &'p [ast::Annotation],
-    unidade: UnitId,
+    unit: UnitId,
     nome: String,
 }
 
 /// The core of the verifier over unit `u`.
-fn verificar(program: &Program, interner: &Interner, table: &TypeTable, body: Option<&UnitBodyTypes>, u: UnitId, mode: Modo) -> Vec<Uso> {
-    let mut out: Vec<Uso> = Vec::new();
+fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Option<&UnitBodyTypes>, u: UnitId, mode: Mode) -> Vec<Use> {
+    let mut out: Vec<Use> = Vec::new();
     // Without either of the two interned annotations, nothing to do.
     if interner.lookup("deprecated").is_none() && interner.lookup("Deprecated").is_none() {
         return out;
@@ -226,22 +226,22 @@ fn verificar(program: &Program, interner: &Interner, table: &TypeTable, body: Op
                 // parameters only in the lint.
                 let optional = p.kind != ParameterKind::Required;
                 let simple_or_field = !p.super_ && p.function_parameters.is_none();
-                if (optional || (mode == Modo::Lint && simple_or_field)) && dep(&p.metadata) {
+                if (optional || (mode == Mode::Lint && simple_or_field)) && dep(&p.metadata) {
                     regions.push(p.span);
                 }
             }
         }
     }
     let in_deprecated = |s: Span| regions.iter().any(|r| r.start <= s.start && s.end <= r.end);
-    let mut report = |span: Span, tgt: Alvo<'_>| {
+    let mut report = |span: Span, tgt: Target<'_>| {
         if in_deprecated(span) {
             return;
         }
-        let Some(message) = deprecated(program, interner, tgt.unidade, tgt.metadata) else { return };
-        let lib = program.unit(tgt.unidade).library;
+        let Some(message) = deprecated(program, interner, tgt.unit, tgt.metadata) else { return };
+        let lib = program.unit(tgt.unit).library;
         // The analyzer's listener is a set: one report per position.
-        if !out.iter().any(|x| x.span == span && x.nome == tgt.nome) {
-            out.push(Uso { span, nome: tgt.nome, mensagem: message, lib });
+        if !out.iter().any(|x| x.span == span && x.name == tgt.nome) {
+            out.push(Use { span, name: tgt.nome, message, lib });
         }
     };
     let text = |s: dartforge_intern::SymbolId| interner.resolve(s).to_string();
@@ -256,8 +256,8 @@ fn verificar(program: &Program, interner: &Interner, table: &TypeTable, body: Op
         let t = interner.resolve(k.name);
         t.strip_suffix("_=").or_else(|| t.strip_suffix('=')).unwrap_or(t).to_string()
     };
-    let function_target = |f: FunctionElementId| of_function(program, f).map(|(metadata, unit_id)| Alvo { metadata, unidade: unit_id, nome: function_name(f) });
-    let element_target = |e: Element| -> Option<Alvo<'_>> {
+    let function_target = |f: FunctionElementId| of_function(program, f).map(|(metadata, unit_id)| Target { metadata, unit: unit_id, nome: function_name(f) });
+    let element_target = |e: Element| -> Option<Target<'_>> {
         let the_name = match e {
             Element::Class(c) => text(program.class(c).name),
             Element::Typedef(t) => text(program.typedef(t).name),
@@ -266,12 +266,12 @@ fn verificar(program: &Program, interner: &Interner, table: &TypeTable, body: Op
             Element::Variable(v) => text(program.variable(v).name),
             Element::Prefix(..) => return None,
         };
-        of_element(program, e).map(|(metadata, unit_id)| Alvo { metadata, unidade: unit_id, nome: the_name })
+        of_element(program, e).map(|(metadata, unit_id)| Target { metadata, unit: unit_id, nome: the_name })
     };
-    let variable_target = |v: VariableId| of_variable(program, v).map(|(metadata, unit_id)| Alvo { metadata, unidade: unit_id, nome: text(program.variable(v).name) });
+    let variable_target = |v: VariableId| of_variable(program, v).map(|(metadata, unit_id)| Target { metadata, unit: unit_id, nome: text(program.variable(v).name) });
     // The element of a resolution (locals and parameters are not included:
     // `_isLocalParameter` silences the parameter inside its own function).
-    let resolved_target = |r: &Resolved| -> Option<Alvo<'_>> {
+    let resolved_target = |r: &Resolved| -> Option<Target<'_>> {
         match r {
             Resolved::Constructor(f) => function_target(*f),
             Resolved::Element(e) => element_target(*e),
@@ -281,7 +281,7 @@ fn verificar(program: &Program, interner: &Interner, table: &TypeTable, body: Op
         }
     };
     // The getter that accompanies a written setter (the `readElement`).
-    let read = |r: &Resolved| -> Option<Alvo<'_>> {
+    let read = |r: &Resolved| -> Option<Target<'_>> {
         let f = match r {
             Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::ExtensionMember { member: f, .. } | Resolved::Element(Element::Function(f)) => *f,
             _ => return None,
@@ -341,7 +341,7 @@ fn verificar(program: &Program, interner: &Interner, table: &TypeTable, body: Op
         if let Some(first) = program.library(tgt).units.first().copied()
             && let Some(d) = program.unit(first).unit.directives.iter().find(|d| matches!(d.kind, DirectiveKind::Library { .. }))
         {
-            report(directive.span, Alvo { metadata: &d.metadata, unidade: first, nome: program.library(tgt).uri.clone() });
+            report(directive.span, Target { metadata: &d.metadata, unit: first, nome: program.library(tgt).uri.clone() });
         }
         let the_combinators = match &directive.kind {
             DirectiveKind::Import { combinators, .. } | DirectiveKind::Export { combinators, .. } => combinators,
@@ -382,7 +382,7 @@ fn verificar(program: &Program, interner: &Interner, table: &TypeTable, body: Op
         _ => a.expr(x).span,
     };
     // The operator resolved on the node itself (`staticElement`).
-    let operator = |e: ExprId| -> Option<Alvo<'_>> {
+    let operator = |e: ExprId| -> Option<Target<'_>> {
         match body.get_resolved(e)? {
             Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::ExtensionMember { member: f, .. } => function_target(*f),
             _ => None,
@@ -390,7 +390,7 @@ fn verificar(program: &Program, interner: &Interner, table: &TypeTable, body: Op
     };
     // `_invocationArguments`: the arguments passed to non-required deprecated
     // parameters, outside the function that declares them.
-    let args_list = |f: FunctionElementId, args: &ast::Arguments, the_call: Span, report: &mut dyn FnMut(Span, Alvo<'_>)| {
+    let args_list = |f: FunctionElementId, args: &ast::Arguments, the_call: Span, report: &mut dyn FnMut(Span, Target<'_>)| {
         let (ps, pu, owner) = match program.function(f).node {
             FunctionRef::Function { unit, function } => {
                 let x = program.unit(unit).ast.function(function);
@@ -425,7 +425,7 @@ fn verificar(program: &Program, interner: &Interner, table: &TypeTable, body: Op
                 Some(n) => n.span,
                 None => a.expr(x.value).span,
             };
-            report(span, Alvo { metadata: &p.metadata, unidade: pu, nome: text(the_name.sym) });
+            report(span, Target { metadata: &p.metadata, unit: pu, nome: text(the_name.sym) });
         }
     };
     // The element invoked by a method call.
@@ -531,7 +531,7 @@ fn verificar(program: &Program, interner: &Interner, table: &TypeTable, body: Op
                     args_list(*f, arguments, expr.span, &mut report);
                     continue;
                 }
-                if crate::lints_tipados4::e_invocacao_de_metodo(program, a, body, *target) {
+                if crate::lints_tipados4::is_method_invocation(program, a, body, *target) {
                     if let Some(f) = invoked(*target) {
                         args_list(f, arguments, expr.span, &mut report);
                     }
@@ -589,7 +589,7 @@ fn verificar(program: &Program, interner: &Interner, table: &TypeTable, body: Op
 
     // 5. Object pattern fields (only in the warning): at the field name, or at
     // that of the shorthand's variable.
-    if mode == Modo::Aviso {
+    if mode == Mode::Warning {
         for p in a.patterns.iter() {
             let PatternKind::Object { ty, fields } = &p.kind else { continue };
             let cls = match body.tipos_de_anotacoes.get(ty).map(|x| table.get(*x)) {
@@ -657,18 +657,18 @@ pub fn usos_de_deprecados(
     same_package: &dyn Fn(LibraryId) -> bool,
 ) -> Vec<Diagnostic> {
     let mut out: Vec<Diagnostic> = Vec::new();
-    for x in verificar(program, interner, table, body, u, Modo::Aviso) {
+    for x in verify(program, interner, table, body, u, Mode::Warning) {
         let the_same = same_package(x.lib);
-        let d = match x.mensagem.as_deref().map(str::trim).filter(|m| !m.is_empty() && *m != ".") {
+        let d = match x.message.as_deref().map(str::trim).filter(|m| !m.is_empty() && *m != ".") {
             None => {
                 let code = if the_same { h::DEPRECATED_MEMBER_USE_FROM_SAME_PACKAGE } else { h::DEPRECATED_MEMBER_USE };
-                Diagnostic::com_codigo(code, x.span, [x.nome.as_str()])
+                Diagnostic::com_codigo(code, x.span, [x.name.as_str()])
             }
             Some(m) => {
                 let dotted = if m.ends_with(['.', '?', '!']) { m.to_string() } else { format!("{m}.") };
                 let code =
                     if the_same { h::DEPRECATED_MEMBER_USE_FROM_SAME_PACKAGE_WITH_MESSAGE } else { h::DEPRECATED_MEMBER_USE_WITH_MESSAGE };
-                Diagnostic::com_codigo(code, x.span, [x.nome.as_str(), dotted.as_str()])
+                Diagnostic::com_codigo(code, x.span, [x.name.as_str(), dotted.as_str()])
             }
         };
         if !out.iter().any(|y| y.code == d.code && y.span == d.span) {
@@ -688,22 +688,22 @@ pub fn lint_do_mesmo_pacote(
     body: Option<&UnitBodyTypes>,
     u: UnitId,
     same_package: &dyn Fn(LibraryId) -> bool,
-) -> Vec<Achado> {
-    let mut out: Vec<Achado> = Vec::new();
-    for x in verificar(program, interner, table, body, u, Modo::Lint) {
+) -> Vec<Finding> {
+    let mut out: Vec<Finding> = Vec::new();
+    for x in verify(program, interner, table, body, u, Mode::Lint) {
         if !same_package(x.lib) {
             continue;
         }
-        let normalized = x.mensagem.as_deref().map(str::trim);
+        let normalized = x.message.as_deref().map(str::trim);
         match normalized.filter(|m| !m.is_empty() && *m != ".") {
-            None => out.push((x.span, "deprecated_member_use_from_same_package_without_message", vec![x.nome])),
+            None => out.push((x.span, "deprecated_member_use_from_same_package_without_message", vec![x.name])),
             Some(_) => {
                 // The lint emitter appends the period to the original message (without the
                 // `trim`).
-                let original = x.mensagem.clone().unwrap_or_default();
+                let original = x.message.clone().unwrap_or_default();
                 let m = normalized.unwrap_or_default();
                 let dotted = if m.ends_with(['.', '?', '!']) { m.to_string() } else { format!("{original}.") };
-                out.push((x.span, "deprecated_member_use_from_same_package_with_message", vec![x.nome, dotted]));
+                out.push((x.span, "deprecated_member_use_from_same_package_with_message", vec![x.name, dotted]));
             }
         }
     }
@@ -778,7 +778,7 @@ fn formal_parameters(program: &Program, f: FunctionElementId) -> Option<(&[ast::
 }
 
 /// `ParameterElement.isOptional`: optional positional, or named non-`required`.
-fn opcional(p: &ast::Parameter) -> bool {
+fn the_optional(p: &ast::Parameter) -> bool {
     match p.kind {
         ParameterKind::Required => false,
         ParameterKind::Named => !p.required,
@@ -878,7 +878,7 @@ pub fn opcionais_depreciados(program: &Program, interner: &Interner, body: Optio
                     }
                     // `methodInvocation`: at the method name; a local function
                     // (`LocalFunctionElement`) does not count.
-                    if crate::lints_tipados4::e_invocacao_de_metodo(program, a, body, *target) {
+                    if crate::lints_tipados4::is_method_invocation(program, a, body, *target) {
                         let f = match body.get_resolved(*target) {
                             Some(Resolved::Member { member: MemberRef::Function(f), .. })
                             | Some(Resolved::ExtensionMember { member: f, .. })
@@ -948,7 +948,7 @@ pub fn opcionais_depreciados(program: &Program, interner: &Interner, body: Optio
                 if p.kind != ParameterKind::Named {
                     count += 1;
                 }
-                if !opcional(p) || !deprecated_with_type(program, interner, pu, &p.metadata, "optional") {
+                if !the_optional(p) || !deprecated_with_type(program, interner, pu, &p.metadata, "optional") {
                     continue;
                 }
                 if p.kind != ParameterKind::Named {
@@ -1004,7 +1004,7 @@ pub fn opcionais_depreciados(program: &Program, interner: &Interner, body: Optio
             if p.kind != ParameterKind::Named {
                 count += 1;
             }
-            if !opcional(p) || !deprecated_with_type(program, interner, pu, &p.metadata, "optional") {
+            if !the_optional(p) || !deprecated_with_type(program, interner, pu, &p.metadata, "optional") {
                 continue;
             }
             if p.kind != ParameterKind::Named {

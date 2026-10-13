@@ -43,7 +43,7 @@ use dartforge_intern::Interner;
 /// The test directories of `CompilationUnitExtension.inTestDir`.
 const TEST_DIRECTORIES: [&str; 4] = ["test", "integration_test", "test_driver", "testing"];
 
-fn dentro(a: Span, b: Span) -> bool {
+fn inside(a: Span, b: Span) -> bool {
     a.start >= b.start && a.end <= b.end
 }
 
@@ -68,7 +68,7 @@ fn marked_library(program: &Program, interner: &Interner, u: UnitId) -> bool {
 /// function.
 struct LocalDeclaration<'a> {
     metadata: &'a [ast::Annotation],
-    funcao: bool,
+    function: bool,
 }
 
 /// The metadata of a statement (`Ast::metadados_locais`).
@@ -77,36 +77,36 @@ fn statement_metadata(a: &ast::Ast, s: StmtId) -> &[ast::Annotation] {
 }
 
 /// The parameter of `ps` declared at offset `decl`.
-fn parametro_em(ps: &[ast::Parameter], decl: usize) -> Option<&ast::Parameter> {
+fn parameter_at(ps: &[ast::Parameter], decl: usize) -> Option<&ast::Parameter> {
     ps.iter().find(|p| p.name.is_some_and(|n| n.span.start == decl))
 }
 
 /// The declaration of the local declared at offset `decl`: parameter, local
 /// variable, local function or `for-in` variable.
-fn declaracao_local(a: &ast::Ast, decl: usize) -> Option<LocalDeclaration<'_>> {
+fn local_declaration(a: &ast::Ast, decl: usize) -> Option<LocalDeclaration<'_>> {
     for f in a.functions.iter() {
-        if let Some(p) = f.parameters.as_deref().and_then(|ps| parametro_em(ps, decl)) {
-            return Some(LocalDeclaration { metadata: &p.metadata, funcao: false });
+        if let Some(p) = f.parameters.as_deref().and_then(|ps| parameter_at(ps, decl)) {
+            return Some(LocalDeclaration { metadata: &p.metadata, function: false });
         }
     }
     for m in a.members.iter() {
         if let MemberKind::Constructor(k) = &m.kind
-            && let Some(p) = parametro_em(&k.parameters, decl)
+            && let Some(p) = parameter_at(&k.parameters, decl)
         {
-            return Some(LocalDeclaration { metadata: &p.metadata, funcao: false });
+            return Some(LocalDeclaration { metadata: &p.metadata, function: false });
         }
     }
     for (i, s) in a.stmts.iter().enumerate() {
         let id = StmtId(i as u32);
         match &s.kind {
             StmtKind::Variables(l) if l.variables.iter().any(|v| v.name.span.start == decl) => {
-                return Some(LocalDeclaration { metadata: statement_metadata(a, id), funcao: false });
+                return Some(LocalDeclaration { metadata: statement_metadata(a, id), function: false });
             }
             StmtKind::Function(f) if a.function(*f).name.is_some_and(|n| n.span.start == decl) => {
-                return Some(LocalDeclaration { metadata: statement_metadata(a, id), funcao: true });
+                return Some(LocalDeclaration { metadata: statement_metadata(a, id), function: true });
             }
             StmtKind::ForIn { target: ForInTarget::Declared { metadata, name, .. }, .. } if name.span.start == decl => {
-                return Some(LocalDeclaration { metadata, funcao: false });
+                return Some(LocalDeclaration { metadata, function: false });
             }
             _ => {}
         }
@@ -130,7 +130,7 @@ fn parameter_declaration(a: &ast::Ast, e: Span, the_name: dartforge_intern::Symb
         }
     }
     for (sp, ps) in lists {
-        if !dentro(e, sp) {
+        if !inside(e, sp) {
             continue;
         }
         if let Some(p) = ps.iter().find(|p| p.name.is_some_and(|n| n.sym == the_name)) {
@@ -140,7 +140,7 @@ fn parameter_declaration(a: &ast::Ast, e: Span, the_name: dartforge_intern::Symb
             }
         }
     }
-    best.map(|(_, p)| LocalDeclaration { metadata: &p.metadata, funcao: false })
+    best.map(|(_, p)| LocalDeclaration { metadata: &p.metadata, function: false })
 }
 
 /// `hasOrInheritsDoNotStore` of the resolved element `r` of expression `e`
@@ -152,7 +152,7 @@ fn marked_element(program: &Program, interner: &Interner, u: UnitId, body: &Unit
         // neither a class nor a unit).
         Resolved::Local(_) => body
             .declaracao_local(e)
-            .and_then(|d| declaracao_local(a, d))
+            .and_then(|d| local_declaration(a, d))
             .is_some_and(|d| the_marked(program, interner, u, d.metadata)),
         Resolved::Parameter { name, .. } => {
             parameter_declaration(a, a.expr(e).span, *name).is_some_and(|d| the_marked(program, interner, u, d.metadata))
@@ -190,7 +190,7 @@ fn e_tear_off(program: &Program, a: &ast::Ast, body: &UnitBodyTypes, e: ExprId, 
         Resolved::Element(Element::Function(f)) | Resolved::Member { member: MemberRef::Function(f), .. } => *f,
         Resolved::ExtensionMember { member, .. } => *member,
         // A local function is a `FunctionElement`.
-        Resolved::Local(_) => return body.declaracao_local(e).and_then(|d| declaracao_local(a, d)).is_some_and(|d| d.funcao),
+        Resolved::Local(_) => return body.declaracao_local(e).and_then(|d| local_declaration(a, d)).is_some_and(|d| d.function),
         _ => return false,
     };
     let g = program.function(f);
@@ -333,7 +333,7 @@ pub fn guardados_e_devolvidos(program: &Program, interner: &Interner, body: &Uni
     }
     for e in returned {
         let sp = a.expr(e).span;
-        if marked.iter().any(|&m| dentro(sp, m)) {
+        if marked.iter().any(|&m| inside(sp, m)) {
             continue;
         }
         let mut findings = Vec::new();
@@ -342,7 +342,7 @@ pub fn guardados_e_devolvidos(program: &Program, interner: &Interner, body: &Uni
             continue;
         }
         // The nearest function or method declaration that contains the return.
-        let Some(owner) = declarations.iter().filter(|x| dentro(sp, x.0)).min_by_key(|x| x.0.end - x.0.start) else { continue };
+        let Some(owner) = declarations.iter().filter(|x| inside(sp, x.0)).min_by_key(|x| x.0.end - x.0.start) else { continue };
         for (s, the_name) in findings {
             out.push(Diagnostic::com_codigo(w::RETURN_OF_DO_NOT_STORE, s, [the_name.as_str(), owner.1.as_str()]));
         }

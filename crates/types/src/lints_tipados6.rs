@@ -45,7 +45,7 @@ pub fn podem_ser_const(
     let a = &unit.ast;
     let lib = unit.library;
     let Some(body) = bodies.units.get(u.0 as usize) else { return r };
-    let pais = crate::lints_tipados::pais_da_unidade(program, u);
+    let pais = crate::lints_tipados::unit_parents(program, u);
     let mut creations: Vec<ExprId> = Vec::new();
     let mut literals: Vec<ExprId> = Vec::new();
     for (k, e) in a.exprs.iter().enumerate() {

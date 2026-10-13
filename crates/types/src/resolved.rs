@@ -265,13 +265,13 @@ pub struct BodyTypes {
 /// the body.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VisibleLocal {
-    pub nome: SymbolId,
+    pub name: SymbolId,
     /// Declared type (written or inferred from the initializer).
-    pub tipo: TypeId,
+    pub ty: TypeId,
     /// Offset of the name in the declaration.
     pub offset: usize,
     /// Declared as a local function (`void f() {}` inside a body).
-    pub funcao: bool,
+    pub function: bool,
 }
 
 /// The lexical scope captured at the probed identifier (see
@@ -281,17 +281,17 @@ pub struct VisibleLocal {
 pub struct EscopoSondado {
     /// Visible locals, from innermost to outermost; a shadowed name appears only
     /// once (the innermost declaration).
-    pub locais: Vec<VisibleLocal>,
+    pub locals: Vec<VisibleLocal>,
     /// Type parameters visible by name.
-    pub parametros_de_tipo: Vec<(SymbolId, TypeParamId)>,
+    pub type_parameters: Vec<(SymbolId, TypeParamId)>,
     /// Class (or mixin, enum, extension type) of the enclosing member.
-    pub classe: Option<ClassId>,
+    pub class: Option<ClassId>,
     /// Extension of the enclosing member.
-    pub extensao: Option<ExtensionId>,
+    pub extension: Option<ExtensionId>,
     /// Without `this`: static member, top level or factory constructor.
-    pub estatico: bool,
+    pub the_static: bool,
     /// Type of `this`, when there is one.
-    pub tipo_this: Option<TypeId>,
+    pub this_type: Option<TypeId>,
     /// Library of the body.
-    pub biblioteca: Option<LibraryId>,
+    pub library: Option<LibraryId>,
 }

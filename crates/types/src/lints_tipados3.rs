@@ -27,7 +27,7 @@
 //! missing inference data, not an `InvalidType`.
 //! Written without compiling or running (2026-10-05).
 
-use crate::lints_tipados::Achado;
+use crate::lints_tipados::Finding;
 use crate::resolve::OutlineTypes;
 use crate::resolved::{MemberRef, Resolved, UnitBodyTypes};
 use crate::subtyping::{SubtypeEnv, is_subtype};
@@ -38,14 +38,14 @@ use dartforge_frontend::ast::{self, AssignOp, BinaryOp, DeclKind, ExprId, ExprKi
 use dartforge_intern::Interner;
 use std::collections::HashMap;
 
-fn sem_parenteses(a: &ast::Ast, mut e: ExprId) -> ExprId {
+fn without_parentheses(a: &ast::Ast, mut e: ExprId) -> ExprId {
     while let ExprKind::Parenthesized(x) = &a.expr(e).kind {
         e = *x;
     }
     e
 }
 
-fn dentro(a: Span, b: Span) -> bool {
+fn inside(a: Span, b: Span) -> bool {
     a.start >= b.start && a.end <= b.end
 }
 
@@ -60,7 +60,7 @@ fn class_of(program: &Program, interner: &Interner, lib: Option<LibraryId>, the_
 
 /// The static type of the expression, without what inference did not
 /// determine.
-fn tipo(body: &UnitBodyTypes, core: &CoreTypes, table: &TypeTable, e: ExprId) -> Option<TypeId> {
+fn typ(body: &UnitBodyTypes, core: &CoreTypes, table: &TypeTable, e: ExprId) -> Option<TypeId> {
     body.get_type(e).filter(|t| !core.is_unknown(table, *t))
 }
 
@@ -108,8 +108,8 @@ pub fn achados(
     outline: &OutlineTypes,
     body: &UnitBodyTypes,
     u: UnitId,
-) -> Vec<Achado> {
-    let mut out: Vec<Achado> = Vec::new();
+) -> Vec<Finding> {
+    let mut out: Vec<Finding> = Vec::new();
     let a = &program.unit(u).ast;
     let cascades = cascade_targets(a);
     let real = |x: ExprId| if matches!(a.expr(x).kind, ExprKind::CascadeTarget) { cascades.get(&x).copied() } else { Some(x) };
@@ -125,7 +125,7 @@ pub fn achados(
 
 /// `use_truncating_division`: `(a / b).toInt()` with `a` and `b` `int` and
 /// the `/` from `dart:core`.
-fn truncating_divide(interner: &Interner, table: &TypeTable, core: &CoreTypes, body: &UnitBodyTypes, a: &ast::Ast, out: &mut Vec<Achado>) {
+fn truncating_divide(interner: &Interner, table: &TypeTable, core: &CoreTypes, body: &UnitBodyTypes, a: &ast::Ast, out: &mut Vec<Finding>) {
     for e in a.exprs.iter() {
         let ExprKind::Call { target, arguments } = &e.kind else { continue };
         if !arguments.args.is_empty() {
@@ -135,8 +135,8 @@ fn truncating_divide(interner: &Interner, table: &TypeTable, core: &CoreTypes, b
         if interner.resolve(name.sym) != "toInt" || !matches!(a.expr(*tgt).kind, ExprKind::Parenthesized(_)) {
             continue;
         }
-        let ExprKind::Binary { op: BinaryOp::Div, left, right } = &a.expr(sem_parenteses(a, *tgt)).kind else { continue };
-        let int = |x: ExprId| tipo(body, core, table, x).is_some_and(|t| is_of_class(table, t, core.int_class));
+        let ExprKind::Binary { op: BinaryOp::Div, left, right } = &a.expr(without_parentheses(a, *tgt)).kind else { continue };
+        let int = |x: ExprId| typ(body, core, table, x).is_some_and(|t| is_of_class(table, t, core.int_class));
         if int(*left) && int(*right) {
             out.push((e.span, "use_truncating_division", Vec::new()));
         }
@@ -147,7 +147,7 @@ fn truncating_divide(interner: &Interner, table: &TypeTable, core: &CoreTypes, b
 /// with `x` a parameter or local variable, the resolved types equal to
 /// `double` and `int` (`is!` also counts: the emitter does not look at the
 /// `!`).
-fn double_e_int(table: &mut TypeTable, core: &CoreTypes, body: &UnitBodyTypes, a: &ast::Ast, out: &mut Vec<Achado>) {
+fn double_e_int(table: &mut TypeTable, core: &CoreTypes, body: &UnitBodyTypes, a: &ast::Ast, out: &mut Vec<Finding>) {
     for s in a.stmts.iter() {
         let StmtKind::If { condition, else_: Some(otherwise), .. } = &s.kind else { continue };
         let StmtKind::If { condition: c2, .. } = &a.stmt(*otherwise).kind else { continue };
@@ -194,7 +194,7 @@ fn only_throw_errors(
     outline: &OutlineTypes,
     body: &UnitBodyTypes,
     a: &ast::Ast,
-    out: &mut Vec<Achado>,
+    out: &mut Vec<Finding>,
 ) {
     let exception = class_of(program, interner, core.core_library, "Exception");
     let error = class_of(program, interner, core.core_library, "Error");
@@ -221,7 +221,7 @@ fn only_throw_errors(
                 | ExprKind::SetOrMap { .. }
                 | ExprKind::Record { .. }
         );
-        let throwable = match tipo(body, core, table, *x) {
+        let throwable = match typ(body, core, table, *x) {
             None => true,
             Some(t) => {
                 if matches!(table.get(t), Type::Never) {
@@ -252,7 +252,7 @@ fn runtime_type_to_string(
     u: UnitId,
     a: &ast::Ast,
     real: &dyn Fn(ExprId) -> Option<ExprId>,
-    out: &mut Vec<Achado>,
+    out: &mut Vec<Finding>,
 ) {
     let the_name = |s: dartforge_intern::SymbolId| interner.resolve(s);
     // `_canSkip`: the regions where the rule does not act.
@@ -306,7 +306,7 @@ fn runtime_type_to_string(
             _ => {}
         }
     }
-    let skips = |s: Span| outside.iter().any(|&r| dentro(s, r));
+    let skips = |s: Span| outside.iter().any(|&r| inside(s, r));
     // `_isRuntimeTypeAccess`: `this.runtimeType`, `super.runtimeType`, or the
     // identifier `runtimeType` whose element is a getter.
     let e_getter = |r: Option<&Resolved>| match r {
@@ -356,12 +356,12 @@ fn dynamic_calls(
     body: &UnitBodyTypes,
     a: &ast::Ast,
     real: &dyn Fn(ExprId) -> Option<ExprId>,
-    out: &mut Vec<Achado>,
+    out: &mut Vec<Finding>,
 ) {
     let the_name = |s: dartforge_intern::SymbolId| interner.resolve(s);
-    let ty = |e: ExprId| tipo(body, core, table, e);
+    let ty = |e: ExprId| typ(body, core, table, e);
     let dynamic = |e: ExprId| ty(e).is_some_and(|t| matches!(table.get(t), Type::Dynamic));
-    let as_ = |x: ExprId| matches!(a.expr(sem_parenteses(a, x)).kind, ExprKind::As { .. });
+    let as_ = |x: ExprId| matches!(a.expr(without_parentheses(a, x)).kind, ExprKind::As { .. });
     let mut findings: Vec<Span> = Vec::new();
     // `_reportIfDynamic`.
     let if_dynamic = |x: Option<ExprId>, findings: &mut Vec<Span>| -> bool {
@@ -480,7 +480,7 @@ fn unrelated_equality(
     outline: &OutlineTypes,
     body: &UnitBodyTypes,
     u: UnitId,
-    out: &mut Vec<Achado>,
+    out: &mut Vec<Finding>,
 ) {
     let unit = program.unit(u);
     let a = &unit.ast;
@@ -503,11 +503,11 @@ fn unrelated_equality(
             continue;
         }
         // `node.staticType?.isDartCoreBool`.
-        let Some(tb) = tipo(body, core, table, ExprId(k as u32)) else { continue };
+        let Some(tb) = typ(body, core, table, ExprId(k as u32)) else { continue };
         if !is_of_class(table, tb, core.bool_class) {
             continue;
         }
-        let (Some(te), Some(td)) = (tipo(body, core, table, *left), tipo(body, core, table, *right)) else { continue };
+        let (Some(te), Some(td)) = (typ(body, core, table, *left), typ(body, core, table, *right)) else { continue };
         // The operator token: the first one after the left operand.
         let i = dartforge_frontend::fonte::pular_brancos(unit.source.as_bytes(), a.expr(*left).span.end);
         cases.push((Span { start: i, end: i + 2 }, "unrelated_type_equality_checks_in_expression", te, td));
@@ -515,7 +515,7 @@ fn unrelated_equality(
     for (k, p) in a.patterns.iter().enumerate() {
         let PatternKind::Relational { op: BinaryOp::Eq | BinaryOp::NotEq, value } = &p.kind else { continue };
         let Some(&the_value) = body.tipos_casados.get(&PatternId(k as u32)) else { continue };
-        let Some(the_operand) = tipo(body, core, table, *value) else { continue };
+        let Some(the_operand) = typ(body, core, table, *value) else { continue };
         cases.push((p.span, "unrelated_type_equality_checks_in_pattern", the_value, the_operand));
     }
     for (span, code, l, r) in cases {
@@ -572,7 +572,7 @@ impl Relation<'_> {
     }
 
     /// The type parameter (also promoted) and its written bound.
-    fn parametro(&self, t: TypeId) -> Option<Option<TypeId>> {
+    fn parameter(&self, t: TypeId) -> Option<Option<TypeId>> {
         let param = match self.table.get(t) {
             Type::TypeParameter { param, .. } | Type::Intersection { param, .. } => *param,
             _ => return None,
@@ -605,7 +605,7 @@ impl Relation<'_> {
         if let (Some((el, al)), Some((er, ar))) = (self.interface(pl), self.interface(pr)) {
             return self.unrelated_interfaces(el, &al, er, &ar);
         }
-        if let (Some(bl), Some(br)) = (self.parametro(pl), self.parametro(pr)) {
+        if let (Some(bl), Some(br)) = (self.parameter(pl), self.parameter(pr)) {
             return match (bl, br) {
                 (Some(x), Some(y)) => self.unrelated(x, y),
                 _ => false,
@@ -650,7 +650,7 @@ impl Relation<'_> {
                 let c = self.program.class(*class);
                 if matches!(c.kind, ClassKind::Class | ClassKind::MixinApplication)
                     && let Some(call) = self.call
-                    && crate::fase_super::concreto(self.program, *class, true, call, c.library, false, true)
+                    && crate::fase_super::the_concrete(self.program, *class, true, call, c.library, false, true)
                 {
                     return false;
                 }

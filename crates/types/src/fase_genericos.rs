@@ -19,7 +19,7 @@ use dartforge_intern::Interner;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-struct Contexto<'p, 't> {
+struct Context<'p, 't> {
     program: &'p Program,
     core: &'p CoreTypes,
     outline: &'p OutlineTypes,
@@ -31,14 +31,14 @@ struct Contexto<'p, 't> {
 
 /// `_ClassInterfaceType`.
 struct Collector {
-    objeto: bool,
-    simples: TypeId,
-    atual: Option<TypeId>,
-    erro: Option<(TypeId, TypeId)>,
+    object: bool,
+    simple: TypeId,
+    current: Option<TypeId>,
+    error: Option<(TypeId, TypeId)>,
 }
 
-impl Contexto<'_, '_> {
-    fn anulavel(&self, t: TypeId) -> bool {
+impl Context<'_, '_> {
+    fn nullable(&self, t: TypeId) -> bool {
         self.table.get(t).is_declared_nullable()
     }
 
@@ -48,32 +48,32 @@ impl Contexto<'_, '_> {
     }
 
     /// `_ClassInterfaceType.update`.
-    fn atualizar(&mut self, col: &mut Collector, t: TypeId) {
-        if col.erro.is_some() {
+    fn update(&mut self, col: &mut Collector, t: TypeId) {
+        if col.error.is_some() {
             return;
         }
-        if col.atual.is_none() {
-            if self.table.canonico(t) == self.table.canonico(col.simples) {
+        if col.current.is_none() {
+            if self.table.canonico(t) == self.table.canonico(col.simple) {
                 return;
             }
-            col.atual = Some(ops::normalize(col.simples, self.table, self.core));
+            col.current = Some(ops::normalize(col.simple, self.table, self.core));
         }
-        let current = col.atual.expect("current");
+        let current = col.current.expect("current");
         let nt = ops::normalize(t, self.table, self.core);
         // `_merge`: `Object` and `Object?` give the non-nullable one.
-        let r = if col.objeto && self.anulavel(current) != self.anulavel(nt) {
-            Some(if self.anulavel(current) { nt } else { current })
+        let r = if col.object && self.nullable(current) != self.nullable(nt) {
+            Some(if self.nullable(current) { nt } else { current })
         } else {
             self.top_merge(current, nt, 0)
         };
         match r {
-            Some(x) => col.atual = Some(x),
-            None => col.erro = Some((current, t)),
+            Some(x) => col.current = Some(x),
+            None => col.error = Some((current, t)),
         }
     }
 
     /// The element of an interface type (class, mixin, enum or extension type).
-    fn elemento(&self, t: TypeId) -> Option<(ClassId, Box<[TypeId]>)> {
+    fn element(&self, t: TypeId) -> Option<(ClassId, Box<[TypeId]>)> {
         match self.table.get(t) {
             Type::Interface { class, args, .. } => Some((*class, args.clone())),
             Type::ExtensionType { decl, args, .. } => Some((*decl, args.clone())),
@@ -82,7 +82,7 @@ impl Contexto<'_, '_> {
     }
 
     /// `_isInterfaceTypeInterface`.
-    fn interface_valida(&self, t: TypeId) -> bool {
+    fn valid_interface(&self, t: TypeId) -> bool {
         match self.table.get(t) {
             Type::Interface { class, nullable: false, .. } => {
                 !matches!(self.program.class(*class).kind, ClassKind::Enum | ClassKind::ExtensionType)
@@ -106,7 +106,7 @@ impl Contexto<'_, '_> {
 
     /// The direct supertypes in `_getHierarchy` order: supertype, `on`
     /// constraints, interfaces, mixins.
-    fn diretos(&mut self, c: ClassId) -> Vec<TypeId> {
+    fn direct(&mut self, c: ClassId) -> Vec<TypeId> {
         let ce = self.program.class(c);
         let data = self.outline.classes[c.0 as usize].clone();
         let mut v = Vec::new();
@@ -114,7 +114,7 @@ impl Contexto<'_, '_> {
             ClassKind::Class | ClassKind::MixinApplication => {
                 if Some(c) != self.core.object_class {
                     match data.supertype {
-                        Some(t) if self.interface_valida(t) && matches!(self.elemento(t).map(|(k, _)| self.program.class(k).kind), Some(ClassKind::Class | ClassKind::MixinApplication)) => v.push(t),
+                        Some(t) if self.valid_interface(t) && matches!(self.element(t).map(|(k, _)| self.program.class(k).kind), Some(ClassKind::Class | ClassKind::MixinApplication)) => v.push(t),
                         _ => v.push(self.core.object),
                     }
                 }
@@ -125,7 +125,7 @@ impl Contexto<'_, '_> {
                 }
             }
             ClassKind::Mixin => {
-                let on: Vec<TypeId> = data.on.iter().copied().filter(|&t| self.interface_valida(t)).collect();
+                let on: Vec<TypeId> = data.on.iter().copied().filter(|&t| self.valid_interface(t)).collect();
                 if on.is_empty() {
                     v.push(self.core.object);
                 } else {
@@ -137,14 +137,14 @@ impl Contexto<'_, '_> {
         if ce.kind == ClassKind::ExtensionType {
             v.extend(data.interfaces.iter().copied().filter(|&t| self.extension_superinterface(t)));
         } else {
-            v.extend(data.interfaces.iter().copied().filter(|&t| self.interface_valida(t)));
-            v.extend(data.mixins.iter().copied().filter(|&t| self.interface_valida(t)));
+            v.extend(data.interfaces.iter().copied().filter(|&t| self.valid_interface(t)));
+            v.extend(data.mixins.iter().copied().filter(|&t| self.valid_interface(t)));
         }
         v
     }
 
     /// `_getHierarchy(element)`.
-    fn hierarquia(&mut self, c: ClassId) -> Rc<(Vec<TypeId>, Vec<(TypeId, TypeId)>)> {
+    fn hierarchy(&mut self, c: ClassId) -> Rc<(Vec<TypeId>, Vec<(TypeId, TypeId)>)> {
         if let Some(h) = self.memo.get(&c) {
             return h.clone();
         }
@@ -152,21 +152,21 @@ impl Contexto<'_, '_> {
         let mut order: Vec<ClassId> = Vec::new();
         let mut collectors: HashMap<ClassId, Collector> = HashMap::new();
         let add = |cx: &mut Self, t: TypeId, order: &mut Vec<ClassId>, collectors: &mut HashMap<ClassId, Collector>| {
-            let Some((el, _)) = cx.elemento(t) else { return };
+            let Some((el, _)) = cx.element(t) else { return };
             match collectors.get_mut(&el) {
-                Some(col) => cx.atualizar(col, t),
+                Some(col) => cx.update(col, t),
                 None => {
                     order.push(el);
-                    collectors.insert(el, Collector { objeto: Some(el) == cx.core.object_class, simples: t, atual: None, erro: None });
+                    collectors.insert(el, Collector { object: Some(el) == cx.core.object_class, simple: t, current: None, error: None });
                 }
             }
         };
-        for t in self.diretos(c) {
+        for t in self.direct(c) {
             add(self, t, &mut order, &mut collectors);
-            let Some((el, args)) = self.elemento(t) else { continue };
+            let Some((el, args)) = self.element(t) else { continue };
             let params = self.outline.classes[el.0 as usize].type_params.clone();
             let map: HashMap<TypeParamId, TypeId> = params.iter().copied().zip(args.iter().copied()).collect();
-            let h = self.hierarquia(el);
+            let h = self.hierarchy(el);
             for &raw in h.0.iter() {
                 let new_ = if map.is_empty() { raw } else { ops::substitute(raw, &map, self.table) };
                 add(self, new_, &mut order, &mut collectors);
@@ -176,10 +176,10 @@ impl Contexto<'_, '_> {
         let mut errors = Vec::new();
         for el in order {
             let col = &collectors[&el];
-            if let Some(e) = col.erro {
+            if let Some(e) = col.error {
                 errors.push(e);
             }
-            interfaces.push(col.atual.unwrap_or(col.simples));
+            interfaces.push(col.current.unwrap_or(col.simple));
         }
         let r = Rc::new((interfaces, errors));
         self.memo.insert(c, r.clone());
@@ -204,7 +204,7 @@ pub fn conflitos_genericos(
         .iter()
         .position(|ce| ce.decl.is_some() && program.library(ce.library).uri == "dart:core" && interner.resolve(ce.name) == "Enum")
         .map(|i| ClassId(i as u32));
-    let mut cx = Contexto { program, core, outline, table, enum_, memo: HashMap::new() };
+    let mut cx = Context { program, core, outline, table, enum_, memo: HashMap::new() };
     let mut output = Vec::new();
     let mut seen: HashSet<ClassId> = HashSet::new();
     for (i, ce) in program.classes.iter().enumerate() {
@@ -235,7 +235,7 @@ pub fn conflitos_genericos(
         if !callee {
             continue;
         }
-        let h = cx.hierarquia(id);
+        let h = cx.hierarchy(id);
         let text = interner.resolve(name.sym).to_string();
         for &(first, second) in h.1.iter() {
             let a1 = cx.table.format_sem_alias(first, interner, program);

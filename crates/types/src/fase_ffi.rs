@@ -74,13 +74,13 @@ const TYPED_DATA_ADDRESS: [&str; 10] = [
 
 /// `_PrimitiveDartType`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Primitivo {
+enum Primitive {
     Double,
     Int,
     Bool,
     Void,
     Handle,
-    Nenhum,
+    None_,
 }
 
 /// `_FfiTypeCheckDirection`.
@@ -106,28 +106,28 @@ struct Allows {
     empty_struct: bool,
     array: bool,
     handle: bool,
-    opaco: bool,
+    opaque: bool,
 }
 
 /// The value of an annotation (`DartObject`), with the fields the verifier
 /// consults (`getField`).
 struct Instance {
     /// The class of the value's type.
-    classe: ClassId,
+    class: ClassId,
     /// The type of the value (`Native<T>`).
-    tipo: TypeId,
+    ty: TypeId,
     /// `isLeaf`.
     is_leaf: Option<bool>,
     /// `memberAlignment`.
-    alinhamento: Option<i64>,
+    alignment: Option<i64>,
     /// `dimensions` (`toListValue` of the `toIntValue`s).
-    lista: Option<Vec<i64>>,
+    list: Option<Vec<i64>>,
     /// `dimension1` a `dimension5`.
     dimensions: [Option<i64>; 5],
     /// `variableLength`.
-    variavel: Option<bool>,
+    variable: Option<bool>,
     /// The types of the values of `mapping`.
-    mapa: Option<Vec<TypeId>>,
+    map: Option<Vec<TypeId>>,
 }
 
 /// The element an annotation refers to (`Annotation.element`).
@@ -136,14 +136,14 @@ enum AnnotationTarget {
     Construtor(ClassId, FunctionElementId),
     Classe(ClassId),
     Variavel(VariableId),
-    Outro,
+    Other,
 }
 
 /// The node of a declaration that `_checkFfiNative` examines.
 #[derive(Clone, Copy)]
 enum No {
     Funcao(ast::FunctionId),
-    VariavelDeTopo(ast::DeclId, usize),
+    TopLevelVariable(ast::DeclId, usize),
     Campo(ast::MemberId, usize),
     /// Local function: its type.
     Local(TypeId),
@@ -151,7 +151,7 @@ enum No {
 
 /// The declared element (`declarationElement`).
 #[derive(Clone, Copy)]
-enum Declaracao {
+enum Declaration {
     Variavel(VariableId),
     Funcao(FunctionElementId),
     Local(TypeId),
@@ -165,17 +165,17 @@ enum ConstantRef {
 }
 
 /// The type table, loose until the engine is precise.
-enum Tabela<'a> {
-    Livre(&'a mut TypeTable),
-    Motor(Box<Motor<'a>>),
+enum Table<'a> {
+    Free(&'a mut TypeTable),
+    Engine(Box<Motor<'a>>),
     Empty,
 }
 
 #[derive(Default)]
 struct Indices {
-    funcoes: HashMap<u32, FunctionElementId>,
-    topo: HashMap<(u32, usize), VariableId>,
-    campos: HashMap<(u32, usize), VariableId>,
+    functions: HashMap<u32, FunctionElementId>,
+    top: HashMap<(u32, usize), VariableId>,
+    fields: HashMap<(u32, usize), VariableId>,
     classes: HashMap<u32, ClassId>,
 }
 
@@ -184,15 +184,15 @@ struct V<'a> {
     interner: &'a Interner,
     core: &'a CoreTypes,
     outline: &'a OutlineTypes,
-    corpos: &'a BodyTypes,
+    bodies: &'a BodyTypes,
     the_inferred: &'a HashSet<LibraryId>,
-    corpo: &'a UnitBodyTypes,
+    body: &'a UnitBodyTypes,
     u: UnitId,
     a: &'a ast::Ast,
-    fonte: &'a str,
+    source: &'a str,
     ffi: LibraryId,
     typed_data: Option<LibraryId>,
-    t: Tabela<'a>,
+    t: Table<'a>,
     out: Vec<Diagnostic>,
     cascades: HashMap<ExprId, ExprId>,
     pais: Pais,
@@ -201,7 +201,7 @@ struct V<'a> {
     /// the children).
     bracket_indices: Vec<Span>,
     /// The 3.6.2 `FfiVerifier` threw (see [`QuebraDoAnalyzer`]).
-    quebra: bool,
+    the_break: bool,
 }
 
 /// The analyzer 3.6.2 `FfiVerifier` throws an exception on the unit: the
@@ -212,7 +212,7 @@ struct V<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct QuebraDoAnalyzer;
 
-fn nome_da_biblioteca(interner: &Interner, l: &Library) -> String {
+fn library_name(interner: &Interner, l: &Library) -> String {
     l.name.as_ref().map(|n| n.iter().map(|s| interner.resolve(*s)).collect::<Vec<_>>().join(".")).unwrap_or_default()
 }
 
@@ -229,10 +229,10 @@ pub fn verificar<'a>(
     the_inferred: &'a HashSet<LibraryId>,
     u: UnitId,
 ) -> Result<Vec<Diagnostic>, QuebraDoAnalyzer> {
-    let Some(ffi) = program.libraries.iter().position(|l| nome_da_biblioteca(interner, l) == "dart.ffi").map(|i| LibraryId(i as u32)) else {
+    let Some(ffi) = program.libraries.iter().position(|l| library_name(interner, l) == "dart.ffi").map(|i| LibraryId(i as u32)) else {
         return Ok(Vec::new());
     };
-    let typed_data = program.libraries.iter().position(|l| nome_da_biblioteca(interner, l) == "dart.typed_data").map(|i| LibraryId(i as u32));
+    let typed_data = program.libraries.iter().position(|l| library_name(interner, l) == "dart.typed_data").map(|i| LibraryId(i as u32));
     let Some(body) = bodies.units.get(u.0 as usize) else { return Ok(Vec::new()) };
     let unit_id = program.unit(u);
     let a = &unit_id.ast;
@@ -242,28 +242,28 @@ pub fn verificar<'a>(
         interner,
         core,
         outline,
-        corpos: bodies,
+        bodies,
         the_inferred,
-        corpo: body,
+        body,
         u,
         a,
-        fonte: &unit_id.source,
+        source: &unit_id.source,
         ffi,
         typed_data,
-        t: Tabela::Livre(table),
+        t: Table::Free(table),
         out: Vec::new(),
         cascades: crate::fase_catch_error::cascade_targets(a),
-        pais: crate::lints_tipados::pais_da_unidade(program, u),
+        pais: crate::lints_tipados::unit_parents(program, u),
         indices: None,
         bracket_indices,
-        quebra: false,
+        the_break: false,
     };
-    v.declaracoes();
-    if v.quebra {
+    v.declarations();
+    if v.the_break {
         return Err(QuebraDoAnalyzer);
     }
-    v.expressoes();
-    if v.quebra {
+    v.expressions();
+    if v.the_break {
         return Err(QuebraDoAnalyzer);
     }
     Ok(v.out)
@@ -272,53 +272,53 @@ pub fn verificar<'a>(
 impl<'a> V<'a> {
     // -- Infraestrutura --------------------------------------------------------
 
-    fn tabela(&mut self) -> &mut TypeTable {
+    fn table(&mut self) -> &mut TypeTable {
         match &mut self.t {
-            Tabela::Livre(t) => &mut **t,
-            Tabela::Motor(m) => &mut *m.table,
-            Tabela::Empty => unreachable!("tabela emprestada"),
+            Table::Free(t) => &mut **t,
+            Table::Engine(m) => &mut *m.table,
+            Table::Empty => unreachable!("tabela emprestada"),
         }
     }
 
     fn table_ref(&self) -> &TypeTable {
         match &self.t {
-            Tabela::Livre(t) => &**t,
-            Tabela::Motor(m) => &*m.table,
-            Tabela::Empty => unreachable!("tabela emprestada"),
+            Table::Free(t) => &**t,
+            Table::Engine(m) => &*m.table,
+            Table::Empty => unreachable!("tabela emprestada"),
         }
     }
 
-    fn motor(&mut self) -> &mut Motor<'a> {
-        if let Tabela::Livre(_) = self.t
-            && let Tabela::Livre(t) = std::mem::replace(&mut self.t, Tabela::Empty)
+    fn engine(&mut self) -> &mut Motor<'a> {
+        if let Table::Free(_) = self.t
+            && let Table::Free(t) = std::mem::replace(&mut self.t, Table::Empty)
         {
-            self.t = Tabela::Motor(Box::new(Motor::novo(self.program, self.interner, t, self.core, self.outline, self.corpos, self.the_inferred)));
+            self.t = Table::Engine(Box::new(Motor::novo(self.program, self.interner, t, self.core, self.outline, self.bodies, self.the_inferred)));
         }
         match &mut self.t {
-            Tabela::Motor(m) => &mut **m,
+            Table::Engine(m) => &mut **m,
             _ => unreachable!("engine created above"),
         }
     }
 
-    fn tipo(&self, t: TypeId) -> Type {
+    fn ty(&self, t: TypeId) -> Type {
         self.table_ref().get(t).clone()
     }
 
     fn sub(&mut self, a: TypeId, b: TypeId) -> bool {
         let outline = self.outline;
         let core = self.core;
-        let mut env = SubtypeEnv::new(self.tabela(), &outline.hierarchy, core);
+        let mut env = SubtypeEnv::new(self.table(), &outline.hierarchy, core);
         is_subtype(a, b, &mut env)
     }
 
-    fn relatar(&mut self, code: Codigo, span: Span, args: &[Arg<'_>]) {
+    fn report(&mut self, code: Codigo, span: Span, args: &[Arg<'_>]) {
         let (texts, context) = Exibidor { table: self.table_ref(), interner: self.interner, program: self.program }.arguments_and_context(args);
         let mut d = Diagnostic::com_codigo(code, span, texts);
         d.contexto.extend(context);
         self.out.push(d);
     }
 
-    fn nome(&self, s: SymbolId) -> &'a str {
+    fn name(&self, s: SymbolId) -> &'a str {
         self.interner.resolve(s)
     }
 
@@ -341,7 +341,7 @@ impl<'a> V<'a> {
     }
 
     /// `Annotation.name` (the identifier, prefixed or not).
-    fn nome_da_anotacao(&self, m: &ast::Annotation) -> Span {
+    fn annotation_name(&self, m: &ast::Annotation) -> Span {
         match (m.name.first(), m.name.get(1).or(m.name.first())) {
             (Some(a), Some(b)) => Span { start: a.span.start, end: b.span.end },
             _ => m.span,
@@ -352,20 +352,20 @@ impl<'a> V<'a> {
         self.cascades.get(&e).copied().unwrap_or(e)
     }
 
-    fn pai(&self, e: ExprId) -> Option<ExprId> {
+    fn parent(&self, e: ExprId) -> Option<ExprId> {
         match self.pais.pai(e) {
             Pai::Expr(p) => Some(p),
             _ => None,
         }
     }
 
-    fn tipo_escrito(&self, t: ast::TypeId) -> Option<TypeId> {
-        self.corpo.tipos_de_anotacoes.get(&t).or_else(|| self.outline.tipos_escritos.get(&(self.u, t))).copied()
+    fn written_type(&self, t: ast::TypeId) -> Option<TypeId> {
+        self.body.tipos_de_anotacoes.get(&t).or_else(|| self.outline.tipos_escritos.get(&(self.u, t))).copied()
     }
 
     /// `typeArgumentTypes` of the invocation whose argument list is `args`.
-    fn instanciacao(&self, args: &ast::Arguments) -> Vec<TypeId> {
-        self.corpo.instanciacao(args.span.start).map(|v| v.to_vec()).unwrap_or_default()
+    fn instantiation(&self, args: &ast::Arguments) -> Vec<TypeId> {
+        self.body.instanciacao(args.span.start).map(|v| v.to_vec()).unwrap_or_default()
     }
 
     fn indices(&mut self) -> &Indices {
@@ -376,16 +376,16 @@ impl<'a> V<'a> {
                 if let FunctionRef::Function { unit, function } = f.node
                     && unit == u
                 {
-                    ix.funcoes.insert(function.0, FunctionElementId(i as u32));
+                    ix.functions.insert(function.0, FunctionElementId(i as u32));
                 }
             }
             for (i, v) in self.program.variables.iter().enumerate() {
                 match v.node {
                     VariableRef::TopLevel { unit, decl, index } if unit == u => {
-                        ix.topo.insert((decl.0, index), VariableId(i as u32));
+                        ix.top.insert((decl.0, index), VariableId(i as u32));
                     }
                     VariableRef::Field { unit, member, index } if unit == u => {
-                        ix.campos.insert((member.0, index), VariableId(i as u32));
+                        ix.fields.insert((member.0, index), VariableId(i as u32));
                     }
                     _ => {}
                 }
@@ -402,12 +402,12 @@ impl<'a> V<'a> {
         self.indices.as_ref().expect("indices built")
     }
 
-    fn declaracao(&mut self, no: No) -> Option<Declaracao> {
+    fn declaration(&mut self, no: No) -> Option<Declaration> {
         Some(match no {
-            No::Funcao(f) => Declaracao::Funcao(*self.indices().funcoes.get(&f.0)?),
-            No::VariavelDeTopo(d, i) => Declaracao::Variavel(*self.indices().topo.get(&(d.0, i))?),
-            No::Campo(m, i) => Declaracao::Variavel(*self.indices().campos.get(&(m.0, i))?),
-            No::Local(t) => Declaracao::Local(t),
+            No::Funcao(f) => Declaration::Funcao(*self.indices().functions.get(&f.0)?),
+            No::TopLevelVariable(d, i) => Declaration::Variavel(*self.indices().top.get(&(d.0, i))?),
+            No::Campo(m, i) => Declaration::Variavel(*self.indices().fields.get(&(m.0, i))?),
+            No::Local(t) => Declaration::Local(t),
         })
     }
 
@@ -419,7 +419,7 @@ impl<'a> V<'a> {
 
     fn ffi_class(&self, c: ClassId, the_name: &str) -> bool {
         let k = self.program.class(c);
-        k.library == self.ffi && self.nome(k.name) == the_name
+        k.library == self.ffi && self.name(k.name) == the_name
     }
 
     fn ffi_class_by_name(&self, the_name: &str) -> Option<ClassId> {
@@ -432,7 +432,7 @@ impl<'a> V<'a> {
 
     fn ffi_extension(&self, x: ExtensionId, names: &[&str]) -> bool {
         let e = self.program.extension(x);
-        e.library == self.ffi && e.name.is_some_and(|n| names.contains(&self.nome(n)))
+        e.library == self.ffi && e.name.is_some_and(|n| names.contains(&self.name(n)))
     }
 
     fn compound(&self, c: ClassId) -> bool {
@@ -441,7 +441,7 @@ impl<'a> V<'a> {
 
     /// The element of an `InterfaceType` (class, enum, mixin, extension type,
     /// `Null`).
-    fn classe_do_tipo(&self, t: TypeId) -> Option<ClassId> {
+    fn class_of_type(&self, t: TypeId) -> Option<ClassId> {
         match self.table_ref().get(t) {
             Type::Interface { class, .. } => Some(*class),
             Type::ExtensionType { decl, .. } => Some(*decl),
@@ -467,12 +467,12 @@ impl<'a> V<'a> {
     }
 
     fn e_ffi_t(&self, t: TypeId, the_name: &str) -> bool {
-        matches!(self.table_ref().get(t), Type::Interface { .. }) && self.classe_do_tipo(t).is_some_and(|c| self.ffi_class(c, the_name))
+        matches!(self.table_ref().get(t), Type::Interface { .. }) && self.class_of_type(t).is_some_and(|c| self.ffi_class(c, the_name))
     }
 
     /// `element.supertype` of the type.
     fn superclass(&self, t: TypeId) -> Option<ClassId> {
-        self.classe_do_tipo(t).and_then(|c| self.program.class(c).supertype_class)
+        self.class_of_type(t).and_then(|c| self.program.class(c).supertype_class)
     }
 
     fn compound_subtype(&self, t: TypeId) -> bool {
@@ -507,7 +507,7 @@ impl<'a> V<'a> {
         matches!(self.table_ref().get(t), Type::Void)
     }
 
-    fn e_parametro(&self, t: TypeId) -> bool {
+    fn is_parameter(&self, t: TypeId) -> bool {
         matches!(self.table_ref().get(t), Type::TypeParameter { .. })
     }
 
@@ -518,11 +518,11 @@ impl<'a> V<'a> {
 
     /// `isTypedData`: only the lists that correspond to a `Pointer`.
     fn e_typed_data(&self, t: TypeId) -> bool {
-        let Some(c) = self.classe_do_tipo(t) else { return false };
+        let Some(c) = self.class_of_type(t) else { return false };
         if !self.typed_data_class(c) {
             return false;
         }
-        let the_name = self.nome(self.program.class(c).name);
+        let the_name = self.name(self.program.class(c).name);
         if !the_name.ends_with("List") {
             return false;
         }
@@ -533,18 +533,18 @@ impl<'a> V<'a> {
     }
 
     /// `_primitiveNativeType`.
-    fn primitivo(&self, t: TypeId) -> Primitivo {
-        let Some(c) = self.classe_do_tipo(t) else { return Primitivo::Nenhum };
+    fn primitive(&self, t: TypeId) -> Primitive {
+        let Some(c) = self.class_of_type(t) else { return Primitive::None_ };
         if !self.of_ffi(c) {
-            return Primitivo::Nenhum;
+            return Primitive::None_;
         }
-        match self.nome(self.program.class(c).name) {
-            "Int8" | "Int16" | "Int32" | "Int64" | "Uint8" | "Uint16" | "Uint32" | "Uint64" | "IntPtr" => Primitivo::Int,
-            "Float" | "Double" => Primitivo::Double,
-            "Bool" => Primitivo::Bool,
-            "Void" => Primitivo::Void,
-            "Handle" => Primitivo::Handle,
-            _ => Primitivo::Nenhum,
+        match self.name(self.program.class(c).name) {
+            "Int8" | "Int16" | "Int32" | "Int64" | "Uint8" | "Uint16" | "Uint32" | "Uint64" | "IntPtr" => Primitive::Int,
+            "Float" | "Double" => Primitive::Double,
+            "Bool" => Primitive::Bool,
+            "Void" => Primitive::Void,
+            "Handle" => Primitive::Handle,
+            _ => Primitive::None_,
         }
     }
 
@@ -562,7 +562,7 @@ impl<'a> V<'a> {
         n
     }
 
-    fn tipo_da_variavel(&self, v: VariableId) -> TypeId {
+    fn variable_type(&self, v: VariableId) -> TypeId {
         self.outline.variables.get(v.0 as usize).and_then(|d| d.declared_type.or(d.inferred)).unwrap_or(self.core.dynamic_)
     }
 
@@ -574,7 +574,7 @@ impl<'a> V<'a> {
         let mut names: HashSet<SymbolId> = HashSet::new();
         for &f in &k.fields {
             names.insert(self.program.variable(f).name);
-            v.push(self.tipo_da_variavel(f));
+            v.push(self.variable_type(f));
         }
         let members = || k.instance_members.values().chain(k.static_members.values()).copied();
         for f in members() {
@@ -611,17 +611,17 @@ impl<'a> V<'a> {
 
     /// `_isSized`.
     fn sized(&self, t: TypeId) -> bool {
-        match self.primitivo(t) {
-            Primitivo::Double | Primitivo::Int | Primitivo::Bool => true,
-            Primitivo::Void | Primitivo::Handle => false,
-            Primitivo::Nenhum => {
+        match self.primitive(t) {
+            Primitive::Double | Primitive::Int | Primitive::Bool => true,
+            Primitive::Void | Primitive::Handle => false,
+            Primitive::None_ => {
                 self.compound_subtype(t) || self.e_ffi_t(t, "Pointer") || self.e_ffi_t(t, "Array") || self.abi_subtype(t)
             }
         }
     }
 
     /// `flattenVarArgs`.
-    fn achatar(&self, v: &[TypeId]) -> Vec<TypeId> {
+    fn flatten(&self, v: &[TypeId]) -> Vec<TypeId> {
         let Some(&last) = v.last() else { return Vec::new() };
         if !self.e_ffi_t(last, "VarArgs") {
             return v.to_vec();
@@ -640,14 +640,14 @@ impl<'a> V<'a> {
 
     /// `_isValidFfiNativeFunctionType`.
     fn valid_native_function(&self, t: TypeId) -> bool {
-        let Type::Function { positional, optional, named, ret, .. } = self.tipo(t) else { return false };
+        let Type::Function { positional, optional, named, ret, .. } = self.ty(t) else { return false };
         if !named.is_empty() || !optional.is_empty() {
             return false;
         }
         if !self.valid_native(ret, Allows { void_: true, handle: true, ..Allows::default() }) {
             return false;
         }
-        self.achatar(&positional).into_iter().all(|x| self.valid_native(x, Allows { handle: true, ..Allows::default() }))
+        self.flatten(&positional).into_iter().all(|x| self.valid_native(x, Allows { handle: true, ..Allows::default() }))
     }
 
     /// `_isValidFfiNativeType`.
@@ -658,11 +658,11 @@ impl<'a> V<'a> {
         if !self.e_interface(t) {
             return false;
         }
-        match self.primitivo(t) {
-            Primitivo::Void => return p.void_,
-            Primitivo::Handle => return p.handle,
-            Primitivo::Double | Primitivo::Int | Primitivo::Bool => return true,
-            Primitivo::Nenhum => {}
+        match self.primitive(t) {
+            Primitive::Void => return p.void_,
+            Primitive::Handle => return p.handle,
+            Primitive::Double | Primitive::Int | Primitive::Bool => return true,
+            Primitive::None_ => {}
         }
         let args = self.arguments_of_type(t);
         if self.e_ffi_t(t, "NativeFunction") {
@@ -670,12 +670,12 @@ impl<'a> V<'a> {
         }
         if self.e_ffi_t(t, "Pointer") {
             let [x] = args.as_slice() else { return false };
-            let everything = Allows { void_: true, empty_struct: true, handle: true, opaco: true, array: false };
+            let everything = Allows { void_: true, empty_struct: true, handle: true, opaque: true, array: false };
             return self.valid_native(*x, everything) || self.compound_subtype(*x) || self.e_ffi_t(*x, "NativeType");
         }
         if self.compound_subtype(t) {
             if !p.empty_struct
-                && let Some(c) = self.classe_do_tipo(t)
+                && let Some(c) = self.class_of_type(t)
                 && self.empty_struct(c)
             {
                 return false;
@@ -683,7 +683,7 @@ impl<'a> V<'a> {
             return true;
         }
         if self.e_ffi_t(t, "Opaque") {
-            return p.opaco;
+            return p.opaque;
         }
         if self.opaque_subtype(t) || self.abi_subtype(t) {
             return true;
@@ -699,7 +699,7 @@ impl<'a> V<'a> {
         if self.table_ref().format_sem_alias(t, self.interner, self.program) == "NativeFieldWrapperClass1" {
             return true;
         }
-        let start = self.classe_do_tipo(t).and_then(|c| self.program.class(c).supertype_class);
+        let start = self.class_of_type(t).and_then(|c| self.program.class(c).supertype_class);
         self.chain_has_nfwc1(start)
     }
 
@@ -711,7 +711,7 @@ impl<'a> V<'a> {
                 break;
             }
             let k = self.program.class(c);
-            if self.nome(k.name) == "NativeFieldWrapperClass1" && k.type_params.is_empty() {
+            if self.name(k.name) == "NativeFieldWrapperClass1" && k.type_params.is_empty() {
                 return true;
             }
             current = k.supertype_class;
@@ -722,7 +722,7 @@ impl<'a> V<'a> {
     /// `_extendsNativeFieldWrapperClass1(cls.thisType)`.
     fn class_extends_nfwc1(&self, c: ClassId) -> bool {
         let k = self.program.class(c);
-        (self.nome(k.name) == "NativeFieldWrapperClass1" && k.type_params.is_empty()) || self.chain_has_nfwc1(k.supertype_class)
+        (self.name(k.name) == "NativeFieldWrapperClass1" && k.type_params.is_empty()) || self.chain_has_nfwc1(k.supertype_class)
     }
 
     /// `_isValidTypedData`.
@@ -733,14 +733,14 @@ impl<'a> V<'a> {
         let args = self.arguments_of_type(native);
         let [element] = args.as_slice() else { return false };
         let element_name = match self.table_ref().get(*element) {
-            Type::TypeParameter { param, .. } => Some(self.nome(self.table_ref().param(*param).name)),
-            _ => self.classe_do_tipo(*element).map(|c| self.nome(self.program.class(c).name)),
+            Type::TypeParameter { param, .. } => Some(self.name(self.table_ref().param(*param).name)),
+            _ => self.class_of_type(*element).map(|c| self.name(self.program.class(c).name)),
         };
-        let Some(dc) = self.classe_do_tipo(dart) else { return false };
+        let Some(dc) = self.class_of_type(dart) else { return false };
         if !self.typed_data_class(dc) {
             return false;
         }
-        let dart_name = self.nome(self.program.class(dc).name);
+        let dart_name = self.name(self.program.class(dc).name);
         match element_name {
             Some("Float") => dart_name == "Float32List",
             Some("Double") => dart_name == "Float64List",
@@ -751,25 +751,25 @@ impl<'a> V<'a> {
 
     /// `_validateCompatibleNativeType`.
     fn compat_native(&mut self, dir: Direction, dart: TypeId, native: TypeId, nfw: bool, functions: bool) -> bool {
-        let prim = self.primitivo(native);
+        let prim = self.primitive(native);
         let super_abi = matches!(self.table_ref().get(native), Type::Interface { .. })
-            && self.superclass(native).is_some_and(|s| self.nome(self.program.class(s).name) == "AbiSpecificInteger");
-        if prim == Primitivo::Int || super_abi {
+            && self.superclass(native).is_some_and(|s| self.name(self.program.class(s).name) == "AbiSpecificInteger");
+        if prim == Primitive::Int || super_abi {
             return self.e_int(dart);
         }
-        if prim == Primitivo::Double {
+        if prim == Primitive::Double {
             return self.e_double(dart);
         }
-        if prim == Primitivo::Bool {
+        if prim == Primitive::Bool {
             return self.e_bool(dart);
         }
-        if prim == Primitivo::Void {
+        if prim == Primitive::Void {
             return dir == Direction::DartToNative || self.e_void(dart);
         }
         if self.e_void(dart) {
             return false;
         }
-        if prim == Primitivo::Handle {
+        if prim == Primitive::Handle {
             return match dir {
                 Direction::DartToNative => true,
                 Direction::NativeToDart => {
@@ -780,7 +780,7 @@ impl<'a> V<'a> {
         }
         if self.e_interface(dart) && self.e_interface(native) {
             if nfw && self.extends_nfwc1(dart) {
-                return self.e_ffi_t(native, "Pointer") && matches!(self.arguments_of_type(native).as_slice(), [x] if self.primitivo(*x) == Primitivo::Void);
+                return self.e_ffi_t(native, "Pointer") && matches!(self.arguments_of_type(native).as_slice(), [x] if self.primitive(*x) == Primitive::Void);
             }
             if self.valid_typed_data(native, dart) {
                 return true;
@@ -802,11 +802,11 @@ impl<'a> V<'a> {
         let (
             Type::Function { type_params: tpd, ret: rd, positional: pd, optional: od, named: nd, .. },
             Type::Function { type_params: tpn, ret: rn, positional: pn, optional: on, named: nn, .. },
-        ) = (self.tipo(dart), self.tipo(native))
+        ) = (self.ty(dart), self.ty(native))
         else {
             return false;
         };
-        let pn = self.achatar(&pn);
+        let pn = self.flatten(&pn);
         if pd.len() != pn.len() {
             return false;
         }
@@ -832,7 +832,7 @@ impl<'a> V<'a> {
     }
 
     /// `isAssignableTo` without `strict-casts`.
-    fn atribuivel(&mut self, of: TypeId, for_: TypeId) -> bool {
+    fn assignable(&mut self, of: TypeId, for_: TypeId) -> bool {
         if self.sub(of, for_) || self.table_ref().e_invalido(of) {
             return true;
         }
@@ -840,7 +840,7 @@ impl<'a> V<'a> {
         if let Type::Interface { nullable: false, .. } = self.table_ref().get(of)
             && self.accepts_function(for_)
             && let Some(the_call) = self.call_type(of)
-            && self.atribuivel(the_call, for_)
+            && self.assignable(the_call, for_)
         {
             return true;
         }
@@ -859,7 +859,7 @@ impl<'a> V<'a> {
 
     /// `getCallMethodType`: the interface's `call` method, instantiated.
     fn call_type(&mut self, t: TypeId) -> Option<TypeId> {
-        let Type::Interface { class, args, .. } = self.tipo(t) else { return None };
+        let Type::Interface { class, args, .. } = self.ty(t) else { return None };
         let call = self.interner.lookup("call")?;
         // The class and the superclasses, in lookup order.
         let mut owner = Some(class);
@@ -887,9 +887,9 @@ impl<'a> V<'a> {
             let arguments_k = self.arguments_of_type(seen);
             let formals_k = self.outline.classes.get(k.0 as usize).map(|d| d.type_params.to_vec()).unwrap_or_default();
             let map_k: HashMap<crate::table::TypeParamId, TypeId> = formals_k.iter().copied().zip(arguments_k).collect();
-            sig = crate::ops::substitute(sig, &map_k, self.tabela());
+            sig = crate::ops::substitute(sig, &map_k, self.table());
         }
-        Some(crate::ops::substitute(sig, &map_class, self.tabela()))
+        Some(crate::ops::substitute(sig, &map_class, self.table()))
     }
 
     // -- Annotations ----------------------------------------------------------
@@ -897,9 +897,9 @@ impl<'a> V<'a> {
     /// `Annotation.element` of annotation `m`, written in unit `u`.
     fn annotation_target(&self, u: UnitId, m: &ast::Annotation) -> AnnotationTarget {
         let a = &self.program.unit(u).ast;
-        let Some(first) = m.name.first() else { return AnnotationTarget::Outro };
+        let Some(first) = m.name.first() else { return AnnotationTarget::Other };
         if crate::anotacoes::sombreado(a, self.interner, m.span.start, first.sym) {
-            return AnnotationTarget::Outro;
+            return AnnotationTarget::Other;
         }
         let p = self.program;
         let (tgt, mem) = match &m.name[..] {
@@ -930,7 +930,7 @@ impl<'a> V<'a> {
                 let key = mem.or_else(|| self.interner.lookup(""));
                 match key.and_then(|k| p.class(c).constructors.get(&k)) {
                     Some(&f) => AnnotationTarget::Construtor(c, f),
-                    None => AnnotationTarget::Outro,
+                    None => AnnotationTarget::Other,
                 }
             }
             (Some(Element::Class(c)), false, None) => AnnotationTarget::Classe(c),
@@ -938,15 +938,15 @@ impl<'a> V<'a> {
                 let k = p.class(c);
                 match k.enum_constants.iter().chain(k.fields.iter()).copied().find(|v| p.variable(*v).name == n && p.variable(*v).static_) {
                     Some(v) => AnnotationTarget::Variavel(v),
-                    None => AnnotationTarget::Outro,
+                    None => AnnotationTarget::Other,
                 }
             }
             (Some(Element::Variable(v)), false, None) => AnnotationTarget::Variavel(v),
             (Some(Element::Function(g)), false, None) => match p.function(g).variable {
                 Some(v) => AnnotationTarget::Variavel(v),
-                None => AnnotationTarget::Outro,
+                None => AnnotationTarget::Other,
             },
-            _ => AnnotationTarget::Outro,
+            _ => AnnotationTarget::Other,
         }
     }
 
@@ -999,26 +999,26 @@ impl<'a> V<'a> {
             ExprKind::InstanceCreation { arguments, .. } | ExprKind::Call { arguments, .. } => Some(&**arguments),
             _ => None,
         };
-        let resolved = self.corpos.units.get(unit_id.0 as usize).and_then(|b| b.get_resolved(initial));
+        let resolved = self.bodies.units.get(unit_id.0 as usize).and_then(|b| b.get_resolved(initial));
         if let (Some(args), Some(Resolved::Constructor(f))) = (args, resolved)
             && let Some(c) = self.program.function(*f).class
         {
             return self.assemble(unit_id, c, *f, args);
         }
-        let the_value = match self.motor().valor_de_variavel(v)? {
+        let the_value = match self.engine().valor_de_variavel(v)? {
             Constante::Valor(x) => x,
             Constante::Invalid(_) => return None,
         };
-        let cls = self.classe_do_tipo(the_value.tipo)?;
+        let cls = self.class_of_type(the_value.tipo)?;
         Some(Instance {
-            classe: cls,
-            tipo: the_value.tipo,
+            class: cls,
+            ty: the_value.tipo,
             is_leaf: None,
-            alinhamento: None,
-            lista: None,
+            alignment: None,
+            list: None,
             dimensions: [None; 5],
-            variavel: None,
-            mapa: None,
+            variable: None,
+            map: None,
         })
     }
 
@@ -1026,20 +1026,20 @@ impl<'a> V<'a> {
     /// `args` (written in unit `u`).
     fn assemble(&mut self, u: UnitId, c: ClassId, f: FunctionElementId, args: &'a ast::Arguments) -> Option<Instance> {
         let n = self.program.class(c).type_params.len();
-        let type_arguments = match self.corpos.units.get(u.0 as usize).and_then(|b| b.instanciacao(args.span.start)) {
+        let type_arguments = match self.bodies.units.get(u.0 as usize).and_then(|b| b.instanciacao(args.span.start)) {
             Some(v) if v.len() == n => v.to_vec(),
             _ => vec![self.core.dynamic_; n],
         };
-        let typ = self.tabela().intern(Type::Interface { class: c, args: type_arguments.into_boxed_slice(), nullable: false });
+        let typ = self.table().intern(Type::Interface { class: c, args: type_arguments.into_boxed_slice(), nullable: false });
         let mut i = Instance {
-            classe: c,
-            tipo: typ,
+            class: c,
+            ty: typ,
             is_leaf: None,
-            alinhamento: None,
-            lista: None,
+            alignment: None,
+            list: None,
             dimensions: [None; 5],
-            variavel: None,
-            mapa: None,
+            variable: None,
+            map: None,
         };
         if !self.of_ffi(c) {
             return Some(i);
@@ -1051,7 +1051,7 @@ impl<'a> V<'a> {
         let mut positional_args: Vec<Valor> = Vec::new();
         let mut named_args: Vec<(SymbolId, Valor)> = Vec::new();
         for x in args.args.iter() {
-            let Constante::Valor(v) = self.motor().avaliar(&cx, x.value, true) else { return None };
+            let Constante::Valor(v) = self.engine().avaliar(&cx, x.value, true) else { return None };
             match x.name {
                 Some(n) => named_args.push((n.sym, v)),
                 None => positional_args.push(v),
@@ -1065,11 +1065,11 @@ impl<'a> V<'a> {
             Estado::Lista { elementos: elems, unknown: false, .. } => Some(elems.iter().filter_map(integer).collect::<Vec<i64>>()),
             _ => None,
         };
-        let cls = self.nome(self.program.class(c).name);
-        let ctor = self.nome(self.program.function(f).name);
+        let cls = self.name(self.program.class(c).name);
+        let ctor = self.name(self.program.function(f).name);
         match (cls, ctor) {
             ("Native", "") => {
-                i.is_leaf = match named_args.iter().find(|(n, _)| self.nome(*n) == "isLeaf") {
+                i.is_leaf = match named_args.iter().find(|(n, _)| self.name(*n) == "isLeaf") {
                     Some((_, v)) => match &v.estado {
                         Estado::Bool(b) => *b,
                         _ => None,
@@ -1077,30 +1077,30 @@ impl<'a> V<'a> {
                     None => Some(false),
                 };
             }
-            ("Packed", "") => i.alinhamento = positional_args.first().and_then(integer),
+            ("Packed", "") => i.alignment = positional_args.first().and_then(integer),
             ("Array", "") => {
                 for k in 0..5 {
                     i.dimensions[k] = positional_args.get(k).and_then(integer);
                 }
-                i.variavel = Some(false);
+                i.variable = Some(false);
             }
             ("Array", "multi") => {
-                i.lista = positional_args.first().and_then(list);
-                i.variavel = Some(false);
+                i.list = positional_args.first().and_then(list);
+                i.variable = Some(false);
             }
             ("Array", "variable") => {
                 i.dimensions[0] = Some(0);
                 for k in 0..4 {
                     i.dimensions[k + 1] = positional_args.get(k).and_then(integer);
                 }
-                i.variavel = Some(true);
+                i.variable = Some(true);
             }
             ("Array", "variableMulti") => {
-                i.lista = positional_args.first().and_then(list);
-                i.variavel = Some(true);
+                i.list = positional_args.first().and_then(list);
+                i.variable = Some(true);
             }
             ("AbiSpecificIntegerMapping", "") => {
-                i.mapa = positional_args.first().and_then(|v| match &v.estado {
+                i.map = positional_args.first().and_then(|v| match &v.estado {
                     Estado::Mapa { entradas: entries, desconhecido: false } => Some(entries.iter().map(|(_, x)| x.tipo).collect()),
                     _ => None,
                 });
@@ -1111,22 +1111,22 @@ impl<'a> V<'a> {
     }
 
     /// The annotations of a function or variable declaration, with the unit.
-    fn element_annotations(&self, d: Declaracao) -> (UnitId, &'a [ast::Annotation]) {
+    fn element_annotations(&self, d: Declaration) -> (UnitId, &'a [ast::Annotation]) {
         let p = self.program;
         match d {
-            Declaracao::Funcao(f) => {
+            Declaration::Funcao(f) => {
                 let unit_id = match p.function(f).node {
                     FunctionRef::Function { unit, .. } | FunctionRef::Constructor { unit, .. } => unit,
                     FunctionRef::None => return (self.u, &[]),
                 };
                 (unit_id, crate::fase_resultado::function_annotations(p, f))
             }
-            Declaracao::Variavel(v) => match p.variable(v).node {
+            Declaration::Variavel(v) => match p.variable(v).node {
                 VariableRef::TopLevel { unit, decl, .. } => (unit, &p.unit(unit).ast.decls[decl.0 as usize].metadata[..]),
                 VariableRef::Field { unit, member, .. } => (unit, &p.unit(unit).ast.member(member).metadata[..]),
                 _ => (self.u, &[]),
             },
-            Declaracao::Local(_) => (self.u, &[]),
+            Declaration::Local(_) => (self.u, &[]),
         }
     }
 
@@ -1141,7 +1141,7 @@ impl<'a> V<'a> {
             ExprKind::Property { target, .. } if matches!(a.expr(*target).kind, ExprKind::Identifier(_)) => {}
             _ => return None,
         }
-        let r = self.corpo.get_resolved(e)?.clone();
+        let r = self.body.get_resolved(e)?.clone();
         let p = self.program;
         let of_field = |v: VariableId| {
             let x = p.variable(v);
@@ -1163,7 +1163,7 @@ impl<'a> V<'a> {
         match r {
             Resolved::Local(_) => {
                 let u = self.u;
-                self.motor().constant_local(u, e).then_some(ConstantRef::Local)
+                self.engine().constant_local(u, e).then_some(ConstantRef::Local)
             }
             Resolved::Parameter { name, .. } => {
                 let par = self.declared_parameter(a.expr(e).span.start, name)?;
@@ -1234,9 +1234,9 @@ impl<'a> V<'a> {
         let u = self.u;
         let lib = self.program.unit(u).library;
         let r = match self.constant_reference(e)? {
-            ConstantRef::Variavel(v) => self.motor().valor_de_variavel(v)?,
-            ConstantRef::Local => self.motor().avaliar(&Ctx::simples(u, lib), e, true),
-            ConstantRef::Parametro(Some(d)) => self.motor().default_result(u, lib, d),
+            ConstantRef::Variavel(v) => self.engine().valor_de_variavel(v)?,
+            ConstantRef::Local => self.engine().avaliar(&Ctx::simples(u, lib), e, true),
+            ConstantRef::Parametro(Some(d)) => self.engine().default_result(u, lib, d),
             ConstantRef::Parametro(None) => return None,
         };
         match r {
@@ -1251,7 +1251,7 @@ impl<'a> V<'a> {
     /// `_isLeaf`.
     fn the_is_leaf(&mut self, args: &'a ast::Arguments) -> bool {
         for x in args.args.iter() {
-            if x.name.is_some_and(|n| self.nome(n.sym) == "isLeaf") {
+            if x.name.is_some_and(|n| self.name(n.sym) == "isLeaf") {
                 return self.constant_bool(x.value).unwrap_or(false);
             }
         }
@@ -1261,16 +1261,16 @@ impl<'a> V<'a> {
     /// `_validateIsLeafIsConst`.
     fn validate_constant_leaf(&mut self, args: &'a ast::Arguments) {
         for x in args.args.iter() {
-            if x.name.is_some_and(|n| self.nome(n.sym) == "isLeaf") && !self.e_const(x.value) {
+            if x.name.is_some_and(|n| self.name(n.sym) == "isLeaf") && !self.e_const(x.value) {
                 let s = self.span(x.value);
-                self.relatar(cf::ARGUMENT_MUST_BE_A_CONSTANT, s, &[Arg::from("isLeaf")]);
+                self.report(cf::ARGUMENT_MUST_BE_A_CONSTANT, s, &[Arg::from("isLeaf")]);
             }
         }
     }
 
     // -- Declarations ----------------------------------------------------------
 
-    fn declaracoes(&mut self) {
+    fn declarations(&mut self) {
         let a = self.a;
         let u = self.u;
         let program = self.program;
@@ -1283,13 +1283,13 @@ impl<'a> V<'a> {
             match &d.kind {
                 DeclKind::Class(x) => {
                     if !x.mixin_application {
-                        self.classe(di, d, x);
+                        self.class(di, d, x);
                     }
                 }
-                DeclKind::Mixin(x) => self.membros(&x.members, None),
-                DeclKind::Enum(x) => self.membros(&x.members, None),
-                DeclKind::ExtensionType(x) => self.membros(&x.members, None),
-                DeclKind::Extension(x) => self.membros(&x.members, None),
+                DeclKind::Mixin(x) => self.members(&x.members, None),
+                DeclKind::Enum(x) => self.members(&x.members, None),
+                DeclKind::ExtensionType(x) => self.members(&x.members, None),
+                DeclKind::Extension(x) => self.members(&x.members, None),
                 DeclKind::Function(fid) => {
                     let f = a.function(*fid);
                     if let Some(n) = f.name {
@@ -1298,7 +1298,7 @@ impl<'a> V<'a> {
                 }
                 DeclKind::Variables(l) => {
                     for (i, v) in l.variables.iter().enumerate() {
-                        self.check_native(v.name.span, No::VariavelDeTopo(ast::DeclId(di as u32), i), &d.metadata, &[], l.external);
+                        self.check_native(v.name.span, No::TopLevelVariable(ast::DeclId(di as u32), i), &d.metadata, &[], l.external);
                     }
                 }
                 DeclKind::Typedef(_) => {}
@@ -1313,7 +1313,7 @@ impl<'a> V<'a> {
             if self.inside_index(f.span) {
                 continue;
             }
-            let Some(t) = self.corpo.tipo_local(n.span.start) else { continue };
+            let Some(t) = self.body.tipo_local(n.span.start) else { continue };
             self.check_native(n.span, No::Local(t), metadata, f.parameters.as_deref().unwrap_or(&[]), f.external);
         }
     }
@@ -1323,12 +1323,12 @@ impl<'a> V<'a> {
         let mut happened = false;
         for m in metadata {
             let Some(inst) = self.annotation_instance(self.u, m) else { continue };
-            if !self.ffi_class(inst.classe, "DefaultAsset") {
+            if !self.ffi_class(inst.class, "DefaultAsset") {
                 continue;
             }
             if happened {
-                let s = self.nome_da_anotacao(m);
-                self.relatar(cf::FFI_NATIVE_INVALID_DUPLICATE_DEFAULT_ASSET, s, &[]);
+                let s = self.annotation_name(m);
+                self.report(cf::FFI_NATIVE_INVALID_DUPLICATE_DEFAULT_ASSET, s, &[]);
             }
             happened = true;
         }
@@ -1351,9 +1351,9 @@ impl<'a> V<'a> {
     }
 
     /// `name2.lexeme` of the `NamedType`.
-    fn lexema(&self, t: ast::TypeId) -> &'a str {
+    fn lexeme(&self, t: ast::TypeId) -> &'a str {
         match &self.a.ty(t).kind {
-            TypeKind::Named { name, .. } => name.last().map_or("", |n| self.nome(n.sym)),
+            TypeKind::Named { name, .. } => name.last().map_or("", |n| self.name(n.sym)),
             _ => "",
         }
     }
@@ -1365,22 +1365,22 @@ impl<'a> V<'a> {
     }
 
     /// `allSupertypes` (without the class itself).
-    fn supertipos(&self, c: ClassId) -> Vec<ClassId> {
+    fn supertypes(&self, c: ClassId) -> Vec<ClassId> {
         self.outline.hierarchy.get(c).map(|h| h.supertypes.keys().copied().filter(|k| *k != c).collect()).unwrap_or_default()
     }
 
     /// `NamedType.isCompoundSubtype`.
     fn compound_named(&self, c: ClassId) -> bool {
-        self.e_class_element(c) && self.supertipos(c).into_iter().any(|k| self.compound(k))
+        self.e_class_element(c) && self.supertypes(c).into_iter().any(|k| self.compound(k))
     }
 
     /// `NamedType.isAbiSpecificIntegerSubtype`.
     fn abi_named(&self, c: ClassId) -> bool {
-        self.e_class_element(c) && self.supertipos(c).into_iter().any(|k| self.ffi_class(k, "AbiSpecificInteger"))
+        self.e_class_element(c) && self.supertypes(c).into_iter().any(|k| self.ffi_class(k, "AbiSpecificInteger"))
     }
 
     /// `visitClassDeclaration`.
-    fn classe(&mut self, di: usize, d: &'a ast::Decl, x: &'a ast::ClassDecl) {
+    fn class(&mut self, di: usize, d: &'a ast::Decl, x: &'a ast::ClassDecl) {
         let a = self.a;
         let mut compound: Option<(ClassId, &'a str)> = None;
         let c = if x.extends.is_some() || !x.implements.is_empty() || !x.with.is_empty() {
@@ -1389,15 +1389,15 @@ impl<'a> V<'a> {
             None
         };
         if let (Some(c), Some(sup)) = (c, x.extends) {
-            let lexeme = self.lexema(sup);
-            let class_name = self.nome(x.name.sym);
+            let lexeme = self.lexeme(sup);
+            let class_name = self.name(x.name.sym);
             match self.named_type_element(sup, &x.type_params) {
                 Some(Element::Class(sc)) if self.e_class_element(sc) && self.of_ffi(sc) => {
-                    let the_name = self.nome(self.program.class(sc).name);
+                    let the_name = self.name(self.program.class(sc).name);
                     if the_name == "Struct" || the_name == "Union" {
                         compound = Some((c, lexeme));
                         if self.empty_struct(c) {
-                            self.relatar(cf::EMPTY_STRUCT, x.name.span, &[Arg::from(class_name), Arg::from(the_name)]);
+                            self.report(cf::EMPTY_STRUCT, x.name.span, &[Arg::from(class_name), Arg::from(the_name)]);
                         }
                         if the_name == "Struct" {
                             self.validate_packed(&d.metadata);
@@ -1409,7 +1409,7 @@ impl<'a> V<'a> {
                 }
                 Some(Element::Class(sc)) if self.compound_named(sc) || self.abi_named(sc) => {
                     let s = a.ty(sup).span;
-                    self.relatar(cf::SUBTYPE_OF_STRUCT_CLASS_IN_EXTENDS, s, &[Arg::from(class_name), Arg::from(lexeme)]);
+                    self.report(cf::SUBTYPE_OF_STRUCT_CLASS_IN_EXTENDS, s, &[Arg::from(class_name), Arg::from(lexeme)]);
                 }
                 _ => {}
             }
@@ -1421,26 +1421,26 @@ impl<'a> V<'a> {
             self.check_supertype(x, t, cf::SUBTYPE_OF_STRUCT_CLASS_IN_WITH);
         }
         if let Some((c, _)) = compound {
-            let class_name = self.nome(x.name.sym);
+            let class_name = self.name(x.name.sym);
             if !x.type_params.is_empty() {
-                self.relatar(cf::GENERIC_STRUCT_SUBCLASS, x.name.span, &[Arg::from(class_name)]);
+                self.report(cf::GENERIC_STRUCT_SUBCLASS, x.name.span, &[Arg::from(class_name)]);
             }
             if !x.implements.is_empty()
                 && let Some(fin) = self.ffi_class_by_name("Finalizable")
-                && self.supertipos(c).contains(&fin)
+                && self.supertypes(c).contains(&fin)
             {
-                self.relatar(cf::COMPOUND_IMPLEMENTS_FINALIZABLE, x.name.span, &[Arg::from(class_name)]);
+                self.report(cf::COMPOUND_IMPLEMENTS_FINALIZABLE, x.name.span, &[Arg::from(class_name)]);
             }
         }
-        self.membros_da_classe(&x.members, compound);
+        self.class_members(&x.members, compound);
     }
 
     /// `checkSupertype` of `implements` and `with`.
     fn check_supertype(&mut self, x: &'a ast::ClassDecl, t: ast::TypeId, code: Codigo) {
         let el = self.named_type_element(t, &x.type_params);
         let the_name = match el {
-            Some(Element::Class(c)) => Some(self.nome(self.program.class(c).name)),
-            Some(Element::Typedef(td)) => Some(self.nome(self.program.typedef(td).name)),
+            Some(Element::Class(c)) => Some(self.name(self.program.class(c).name)),
+            Some(Element::Typedef(td)) => Some(self.name(self.program.typedef(td).name)),
             _ => None,
         };
         if matches!(the_name, Some("Allocator" | "Finalizable")) {
@@ -1450,17 +1450,17 @@ impl<'a> V<'a> {
             && (self.compound_named(c) || self.abi_named(c))
         {
             let s = self.a.ty(t).span;
-            let class_name = self.nome(x.name.sym);
-            let lexeme = self.lexema(t);
-            self.relatar(code, s, &[Arg::from(class_name), Arg::from(lexeme)]);
+            let class_name = self.name(x.name.sym);
+            let lexeme = self.lexeme(t);
+            self.report(code, s, &[Arg::from(class_name), Arg::from(lexeme)]);
         }
     }
 
-    fn membros(&mut self, members: &'a [ast::MemberId], compound: Option<(ClassId, &'a str)>) {
-        self.membros_da_classe(members, compound);
+    fn members(&mut self, members: &'a [ast::MemberId], compound: Option<(ClassId, &'a str)>) {
+        self.class_members(members, compound);
     }
 
-    fn membros_da_classe(&mut self, members: &'a [ast::MemberId], compound: Option<(ClassId, &'a str)>) {
+    fn class_members(&mut self, members: &'a [ast::MemberId], compound: Option<(ClassId, &'a str)>) {
         let a = self.a;
         for &mid in members {
             let m = a.member(mid);
@@ -1490,12 +1490,12 @@ impl<'a> V<'a> {
         let packed: Vec<&'a ast::Annotation> = metadata.iter().filter(|m| self.ffi_constructor(u, m, "Packed")).collect();
         let Some(&the_first) = packed.first() else { return };
         for m in &packed[1..] {
-            self.relatar(cf::PACKED_ANNOTATION, m.span, &[]);
+            self.report(cf::PACKED_ANNOTATION, m.span, &[]);
         }
-        let the_value = self.annotation_instance(u, the_first).and_then(|i| i.alinhamento);
+        let the_value = self.annotation_instance(u, the_first).and_then(|i| i.alignment);
         if !matches!(the_value, Some(1 | 2 | 4 | 8 | 16)) {
             let s = the_first.arguments.as_ref().and_then(|x| x.args.first()).map_or(the_first.span, |x| self.argument_span(x));
-            self.relatar(cf::PACKED_ANNOTATION_ALIGNMENT, s, &[]);
+            self.report(cf::PACKED_ANNOTATION_ALIGNMENT, s, &[]);
         }
     }
 
@@ -1505,7 +1505,7 @@ impl<'a> V<'a> {
             && x.members.len() == 1
             && matches!(&self.a.member(x.members[0]).kind, MemberKind::Constructor(k) if k.const_);
         if !the_valid {
-            self.relatar(cf::ABI_SPECIFIC_INTEGER_INVALID, x.name.span, &[]);
+            self.report(cf::ABI_SPECIFIC_INTEGER_INVALID, x.name.span, &[]);
         }
     }
 
@@ -1514,12 +1514,12 @@ impl<'a> V<'a> {
         let u = self.u;
         let maps: Vec<&'a ast::Annotation> = metadata.iter().filter(|m| self.ffi_constructor(u, m, "AbiSpecificIntegerMapping")).collect();
         let Some(&the_first) = maps.first() else {
-            self.relatar(cf::ABI_SPECIFIC_INTEGER_MAPPING_MISSING, the_name.span, &[]);
+            self.report(cf::ABI_SPECIFIC_INTEGER_MAPPING_MISSING, the_name.span, &[]);
             return;
         };
         for m in &maps[1..] {
-            let s = self.nome_da_anotacao(m);
-            self.relatar(cf::ABI_SPECIFIC_INTEGER_MAPPING_EXTRA, s, &[]);
+            let s = self.annotation_name(m);
+            self.report(cf::ABI_SPECIFIC_INTEGER_MAPPING_EXTRA, s, &[]);
         }
         let Some(args) = &the_first.arguments else { return };
         for x in args.args.iter() {
@@ -1529,27 +1529,27 @@ impl<'a> V<'a> {
             let ExprKind::SetOrMap { elements, .. } = &self.a.expr(x.value).kind else { continue };
             for el in elements.iter() {
                 let CollectionElement::MapEntry { value, .. } = el else { continue };
-                let Some(t) = self.corpo.get_type(*value) else { continue };
+                let Some(t) = self.body.get_type(*value) else { continue };
                 if !self.e_interface(t) {
                     continue;
                 }
-                let Some(c) = self.classe_do_tipo(t) else { continue };
-                let n = self.nome(self.program.class(c).name);
+                let Some(c) = self.class_of_type(t) else { continue };
+                let n = self.name(self.program.class(c).name);
                 if !FIXED_INTEGERS.contains(&n) {
                     let s = self.span(*value);
-                    self.relatar(cf::ABI_SPECIFIC_INTEGER_MAPPING_UNSUPPORTED, s, &[Arg::from(n)]);
+                    self.report(cf::ABI_SPECIFIC_INTEGER_MAPPING_UNSUPPORTED, s, &[Arg::from(n)]);
                 }
             }
             return;
         }
-        let Some(values) = self.annotation_instance(u, the_first).and_then(|i| i.mapa) else { return };
+        let Some(values) = self.annotation_instance(u, the_first).and_then(|i| i.map) else { return };
         let Some(first) = args.args.first() else { return };
         let s = self.argument_span(first);
         for t in values {
-            let Some(c) = self.classe_do_tipo(t) else { continue };
-            let n = self.nome(self.program.class(c).name);
+            let Some(c) = self.class_of_type(t) else { continue };
+            let n = self.name(self.program.class(c).name);
             if !FIXED_INTEGERS.contains(&n) {
-                self.relatar(cf::ABI_SPECIFIC_INTEGER_MAPPING_UNSUPPORTED, s, &[Arg::from(n)]);
+                self.report(cf::ABI_SPECIFIC_INTEGER_MAPPING_UNSUPPORTED, s, &[Arg::from(n)]);
             }
         }
     }
@@ -1561,25 +1561,25 @@ impl<'a> V<'a> {
         }
         let Some(the_first) = l.variables.first() else { return };
         if !l.external {
-            self.relatar(cf::FIELD_MUST_BE_EXTERNAL_IN_STRUCT, the_first.name.span, &[]);
+            self.report(cf::FIELD_MUST_BE_EXTERNAL_IN_STRUCT, the_first.name.span, &[]);
         }
         let Some(ty) = l.ty else {
-            self.relatar(cf::MISSING_FIELD_TYPE_IN_STRUCT, the_first.name.span, &[]);
+            self.report(cf::MISSING_FIELD_TYPE_IN_STRUCT, the_first.name.span, &[]);
             return;
         };
         let type_span = self.a.ty(ty).span;
-        let Some(declared) = self.tipo_escrito(ty) else { return };
-        let (tree, source, interner) = (self.a, self.fonte, self.interner);
+        let Some(declared) = self.written_type(ty) else { return };
+        let (tree, source, interner) = (self.a, self.source, self.interner);
         let type_source = move || dartforge_frontend::fonte::de_tipo(tree, source, interner, ty);
         if self.table_ref().get(declared).is_declared_nullable() {
             let text = type_source();
-            self.relatar(cf::INVALID_FIELD_TYPE_IN_STRUCT, type_span, &[Arg::from(text)]);
+            self.report(cf::INVALID_FIELD_TYPE_IN_STRUCT, type_span, &[Arg::from(text)]);
         } else if self.e_int(declared) {
-            self.validate_annotations(type_span, declared, &m.metadata, Primitivo::Int, sup);
+            self.validate_annotations(type_span, declared, &m.metadata, Primitive::Int, sup);
         } else if self.e_double(declared) {
-            self.validate_annotations(type_span, declared, &m.metadata, Primitivo::Double, sup);
+            self.validate_annotations(type_span, declared, &m.metadata, Primitive::Double, sup);
         } else if self.e_bool(declared) {
-            self.validate_annotations(type_span, declared, &m.metadata, Primitivo::Bool, sup);
+            self.validate_annotations(type_span, declared, &m.metadata, Primitive::Bool, sup);
         } else if self.e_ffi_t(declared, "Pointer") {
             self.without_annotations(&m.metadata);
         } else if self.e_ffi_t(declared, "Array") {
@@ -1590,16 +1590,16 @@ impl<'a> V<'a> {
                     TypeKind::Named { args, .. } if !args.is_empty() => self.a.ty(args[0]).span,
                     _ => type_span,
                 };
-                self.relatar(cf::NON_SIZED_TYPE_ARGUMENT, s, &[Arg::from("Array"), Arg::Tipo(*arg)]);
+                self.report(cf::NON_SIZED_TYPE_ARGUMENT, s, &[Arg::from("Array"), Arg::Type_(*arg)]);
             }
             let dimensions = self.array_dimensions(declared);
             let last = self.is_last_field(c, mid, members);
             self.validate_size(type_span, &m.metadata, dimensions, last);
         } else if self.compound_subtype(declared) {
-            if let Some(k) = self.classe_do_tipo(declared)
+            if let Some(k) = self.class_of_type(declared)
                 && self.empty_struct(k)
             {
-                let the_name = self.nome(self.program.class(k).name);
+                let the_name = self.name(self.program.class(k).name);
                 let the_supertype = self
                     .outline
                     .classes
@@ -1607,11 +1607,11 @@ impl<'a> V<'a> {
                     .and_then(|d| d.supertype)
                     .map(|t| self.table_ref().format_sem_alias(t, self.interner, self.program))
                     .unwrap_or_default();
-                self.relatar(cf::EMPTY_STRUCT, m.span, &[Arg::from(the_name), Arg::from(the_supertype)]);
+                self.report(cf::EMPTY_STRUCT, m.span, &[Arg::from(the_name), Arg::from(the_supertype)]);
             }
         } else {
             let text = type_source();
-            self.relatar(cf::INVALID_FIELD_TYPE_IN_STRUCT, type_span, &[Arg::from(text)]);
+            self.report(cf::INVALID_FIELD_TYPE_IN_STRUCT, type_span, &[Arg::from(text)]);
         }
     }
 
@@ -1619,7 +1619,7 @@ impl<'a> V<'a> {
     /// of the class (`fields.reversed`, with the synthetic ones of the accessors
     /// after the declared ones).
     fn is_last_field(&mut self, c: ClassId, mid: ast::MemberId, members: &'a [ast::MemberId]) -> bool {
-        let Some(&first) = self.indices().campos.get(&(mid.0, 0)) else { return false };
+        let Some(&first) = self.indices().fields.get(&(mid.0, 0)) else { return false };
         let k = self.program.class(c);
         let mut last: Option<Option<VariableId>> = None;
         let mut the_declared: HashSet<SymbolId> = HashSet::new();
@@ -1654,7 +1654,7 @@ impl<'a> V<'a> {
     }
 
     /// `_validateAnnotations`.
-    fn validate_annotations(&mut self, type_span: Span, declared: TypeId, metadata: &'a [ast::Annotation], the_required: Primitivo, sup: &'a str) {
+    fn validate_annotations(&mut self, type_span: Span, declared: TypeId, metadata: &'a [ast::Annotation], the_required: Primitive, sup: &'a str) {
         let u = self.u;
         let mut found = false;
         let mut extras: Vec<&'a ast::Annotation> = Vec::new();
@@ -1683,30 +1683,30 @@ impl<'a> V<'a> {
         if !extras.is_empty() {
             let mut rest = &extras[..];
             if !found {
-                self.relatar(cf::MISMATCHED_ANNOTATION_ON_STRUCT_FIELD, extras[0].span, &[]);
+                self.report(cf::MISMATCHED_ANNOTATION_ON_STRUCT_FIELD, extras[0].span, &[]);
                 rest = &extras[1..];
             }
             for m in rest {
-                self.relatar(cf::EXTRA_ANNOTATION_ON_STRUCT_FIELD, m.span, &[]);
+                self.report(cf::EXTRA_ANNOTATION_ON_STRUCT_FIELD, m.span, &[]);
             }
         } else if !found {
-            self.relatar(cf::MISSING_ANNOTATION_ON_STRUCT_FIELD, type_span, &[Arg::Tipo(declared), Arg::from(sup)]);
+            self.report(cf::MISSING_ANNOTATION_ON_STRUCT_FIELD, type_span, &[Arg::Type_(declared), Arg::from(sup)]);
         }
     }
 
     /// `_typeForAnnotation`.
-    fn annotation_type(&self, tgt: AnnotationTarget) -> Primitivo {
-        let AnnotationTarget::Construtor(c, _) = tgt else { return Primitivo::Nenhum };
+    fn annotation_type(&self, tgt: AnnotationTarget) -> Primitive {
+        let AnnotationTarget::Construtor(c, _) = tgt else { return Primitive::None_ };
         let k = self.program.class(c);
-        match self.nome(k.name) {
-            "Int8" | "Int16" | "Int32" | "Int64" | "Uint8" | "Uint16" | "Uint32" | "Uint64" | "IntPtr" => Primitivo::Int,
-            "Float" | "Double" => Primitivo::Double,
-            "Bool" => Primitivo::Bool,
+        match self.name(k.name) {
+            "Int8" | "Int16" | "Int32" | "Int64" | "Uint8" | "Uint16" | "Uint32" | "Uint64" | "IntPtr" => Primitive::Int,
+            "Float" | "Double" => Primitive::Double,
+            "Bool" => Primitive::Bool,
             _ => {
                 if k.supertype_class.is_some_and(|s| self.ffi_class(s, "AbiSpecificInteger")) {
-                    Primitivo::Int
+                    Primitive::Int
                 } else {
-                    Primitivo::Nenhum
+                    Primitive::None_
                 }
             }
         }
@@ -1717,7 +1717,7 @@ impl<'a> V<'a> {
         let u = self.u;
         for m in metadata {
             if self.annotation_ffi_class(u, m).is_some() {
-                self.relatar(cf::ANNOTATION_ON_POINTER_FIELD, m.span, &[]);
+                self.report(cf::ANNOTATION_ON_POINTER_FIELD, m.span, &[]);
             }
         }
     }
@@ -1727,17 +1727,17 @@ impl<'a> V<'a> {
         let u = self.u;
         let arrays: Vec<&'a ast::Annotation> = metadata.iter().filter(|m| self.ffi_constructor(u, m, "Array")).collect();
         let Some(&the_first) = arrays.first() else {
-            self.relatar(cf::MISSING_SIZE_ANNOTATION_CARRAY, error, &[]);
+            self.report(cf::MISSING_SIZE_ANNOTATION_CARRAY, error, &[]);
             return;
         };
         for m in &arrays[1..] {
-            self.relatar(cf::EXTRA_SIZE_ANNOTATION_CARRAY, m.span, &[]);
+            self.report(cf::EXTRA_SIZE_ANNOTATION_CARRAY, m.span, &[]);
         }
         // `arraySizeDimensions`.
         let (dimensions, variable) = match self.annotation_instance(u, the_first) {
             Some(i) => {
-                let variable = i.variavel.unwrap_or(false);
-                match i.lista {
+                let variable = i.variable.unwrap_or(false);
+                match i.list {
                     Some(l) => {
                         let mut d = Vec::new();
                         if variable {
@@ -1752,10 +1752,10 @@ impl<'a> V<'a> {
             None => (Vec::new(), false),
         };
         if dimensions.len() != expected_dimensions {
-            self.relatar(cf::SIZE_ANNOTATION_DIMENSIONS, the_first.span, &[]);
+            self.report(cf::SIZE_ANNOTATION_DIMENSIONS, the_first.span, &[]);
         }
         if variable && !allows_variable {
-            self.relatar(cf::VARIABLE_LENGTH_ARRAY_NOT_LAST, the_first.span, &[]);
+            self.report(cf::VARIABLE_LENGTH_ARRAY_NOT_LAST, the_first.span, &[]);
         }
         // The argument nodes: the elements of the single list, or the arguments.
         let mut nodes: Vec<Span> = Vec::new();
@@ -1764,7 +1764,7 @@ impl<'a> V<'a> {
                 [x] if x.name.is_none() && matches!(self.a.expr(x.value).kind, ExprKind::List { .. }) => {
                     if let ExprKind::List { elements, .. } = &self.a.expr(x.value).kind {
                         for el in elements.iter() {
-                            let s = self.motor().element_span(u, el);
+                            let s = self.engine().element_span(u, el);
                             nodes.push(s);
                         }
                     }
@@ -1798,12 +1798,12 @@ impl<'a> V<'a> {
                     match nodes.get(i) {
                         Some(&s) => s,
                         None => {
-                            self.quebra = true;
+                            self.the_break = true;
                             return;
                         }
                     }
                 };
-                self.relatar(cf::NON_POSITIVE_ARRAY_DIMENSION, s, &[]);
+                self.report(cf::NON_POSITIVE_ARRAY_DIMENSION, s, &[]);
             }
         }
     }
@@ -1826,33 +1826,33 @@ impl<'a> V<'a> {
                 continue;
             }
             let Some(inst) = self.annotation_instance(u, m) else { continue };
-            if !self.ffi_class(inst.classe, "Native") {
+            if !self.ffi_class(inst.class, "Native") {
                 continue;
             }
             if happened {
-                let s = self.nome_da_anotacao(m);
-                self.relatar(cf::FFI_NATIVE_INVALID_MULTIPLE_ANNOTATIONS, s, &[]);
+                let s = self.annotation_name(m);
+                self.report(cf::FFI_NATIVE_INVALID_MULTIPLE_ANNOTATIONS, s, &[]);
                 break;
             }
             happened = true;
             if !external {
-                self.relatar(cf::FFI_NATIVE_MUST_BE_EXTERNAL, the_name, &[]);
+                self.report(cf::FFI_NATIVE_MUST_BE_EXTERNAL, the_name, &[]);
             }
-            let Some(decl) = self.declaracao(no) else { continue };
-            let Some(&signature) = self.arguments_of_type(inst.tipo).first() else { continue };
+            let Some(decl) = self.declaration(no) else { continue };
+            let Some(&signature) = self.arguments_of_type(inst.ty).first() else { continue };
             if matches!(self.table_ref().get(signature), Type::Function { .. }) {
                 match decl {
-                    Declaracao::Funcao(_) | Declaracao::Local(_) => self.check_native_function(the_name, decl, signature, inst.is_leaf, parameters),
-                    Declaracao::Variavel(_) => self.relatar(cf::NATIVE_FIELD_INVALID_TYPE, the_name, &[Arg::Tipo(signature)]),
+                    Declaration::Funcao(_) | Declaration::Local(_) => self.check_native_function(the_name, decl, signature, inst.is_leaf, parameters),
+                    Declaration::Variavel(_) => self.report(cf::NATIVE_FIELD_INVALID_TYPE, the_name, &[Arg::Type_(signature)]),
                 }
             } else {
                 let func = match decl {
-                    Declaracao::Funcao(f) => !matches!(self.program.function(f).kind, FunctionKind::Getter | FunctionKind::Setter),
-                    Declaracao::Local(_) => true,
-                    Declaracao::Variavel(_) => false,
+                    Declaration::Funcao(f) => !matches!(self.program.function(f).kind, FunctionKind::Getter | FunctionKind::Setter),
+                    Declaration::Local(_) => true,
+                    Declaration::Variavel(_) => false,
                 };
                 if func {
-                    self.relatar(cf::MUST_BE_A_NATIVE_FUNCTION_TYPE, the_name, &[Arg::from("T"), Arg::from("Native")]);
+                    self.report(cf::MUST_BE_A_NATIVE_FUNCTION_TYPE, the_name, &[Arg::from("T"), Arg::from("Native")]);
                 } else {
                     self.check_native_field(the_name, decl, metadata, signature, false);
                 }
@@ -1861,11 +1861,11 @@ impl<'a> V<'a> {
     }
 
     /// The type of the i-th formal parameter of the declaration.
-    fn parameter_type(&self, d: Declaracao, i: usize, parameters: &'a [ast::Parameter]) -> Option<TypeId> {
+    fn parameter_type(&self, d: Declaration, i: usize, parameters: &'a [ast::Parameter]) -> Option<TypeId> {
         match d {
-            Declaracao::Funcao(f) => self.outline.functions.get(f.0 as usize).and_then(|x| x.parameters.get(i)).map(|p| p.ty),
-            Declaracao::Local(t) => {
-                let Type::Function { positional, optional, named, .. } = self.tipo(t) else { return None };
+            Declaration::Funcao(f) => self.outline.functions.get(f.0 as usize).and_then(|x| x.parameters.get(i)).map(|p| p.ty),
+            Declaration::Local(t) => {
+                let Type::Function { positional, optional, named, .. } = self.ty(t) else { return None };
                 let p = parameters.get(i)?;
                 match p.kind {
                     ParameterKind::Required => positional.get(parameters[..i].iter().filter(|x| x.kind == ParameterKind::Required).count()).copied(),
@@ -1876,20 +1876,20 @@ impl<'a> V<'a> {
                     }
                 }
             }
-            Declaracao::Variavel(_) => None,
+            Declaration::Variavel(_) => None,
         }
     }
 
     /// `_checkFfiNativeFunction`.
-    fn check_native_function(&mut self, the_name: Span, d: Declaracao, signature: TypeId, is_leaf: Option<bool>, parameters: &'a [ast::Parameter]) {
+    fn check_native_function(&mut self, the_name: Span, d: Declaration, signature: TypeId, is_leaf: Option<bool>, parameters: &'a [ast::Parameter]) {
         if is_leaf == Some(true) {
             self.leaf_without_handles(signature, the_name);
         }
-        let Type::Function { type_params, ret, positional, optional, named, nullable } = self.tipo(signature) else { return };
-        let mut ffi_types = self.achatar(&positional);
+        let Type::Function { type_params, ret, positional, optional, named, nullable } = self.ty(signature) else { return };
+        let mut ffi_types = self.flatten(&positional);
         let mut ffi_positional = positional.to_vec();
         let of_instance = match d {
-            Declaracao::Funcao(f) => {
+            Declaration::Funcao(f) => {
                 let g = self.program.function(f);
                 (g.class.is_some() || g.extension.is_some()) && !g.static_
             }
@@ -1899,18 +1899,18 @@ impl<'a> V<'a> {
         if of_instance {
             if formals + 1 != ffi_types.len() {
                 let (a, b) = ((formals + 1).to_string(), ffi_types.len().to_string());
-                self.relatar(cf::FFI_NATIVE_UNEXPECTED_NUMBER_OF_PARAMETERS_WITH_RECEIVER, the_name, &[Arg::from(a), Arg::from(b)]);
+                self.report(cf::FFI_NATIVE_UNEXPECTED_NUMBER_OF_PARAMETERS_WITH_RECEIVER, the_name, &[Arg::from(a), Arg::from(b)]);
                 return;
             }
             if let Some(&receiver) = positional.first()
                 && self.e_ffi_t(receiver, "Pointer")
             {
                 let extends = match d {
-                    Declaracao::Funcao(f) => self.program.function(f).class.is_some_and(|c| self.class_extends_nfwc1(c)),
+                    Declaration::Funcao(f) => self.program.function(f).class.is_some_and(|c| self.class_extends_nfwc1(c)),
                     _ => false,
                 };
                 if !extends {
-                    self.relatar(cf::FFI_NATIVE_ONLY_CLASSES_EXTENDING_NATIVEFIELDWRAPPERCLASS1_CAN_BE_POINTER, the_name, &[]);
+                    self.report(cf::FFI_NATIVE_ONLY_CLASSES_EXTENDING_NATIVEFIELDWRAPPERCLASS1_CAN_BE_POINTER, the_name, &[]);
                 }
             }
             ffi_types.remove(0);
@@ -1919,7 +1919,7 @@ impl<'a> V<'a> {
             }
         } else if formals != ffi_types.len() {
             let (a, b) = (ffi_types.len().to_string(), formals.to_string());
-            self.relatar(cf::FFI_NATIVE_UNEXPECTED_NUMBER_OF_PARAMETERS, the_name, &[Arg::from(a), Arg::from(b)]);
+            self.report(cf::FFI_NATIVE_UNEXPECTED_NUMBER_OF_PARAMETERS, the_name, &[Arg::from(a), Arg::from(b)]);
             return;
         }
         for i in 0..formals {
@@ -1932,16 +1932,16 @@ impl<'a> V<'a> {
                     && (self.e_ffi_t(t, "Pointer") || self.extends_nfwc1(t) || self.e_typed_data(t))
             });
             if !ok {
-                self.relatar(cf::FFI_NATIVE_ONLY_CLASSES_EXTENDING_NATIVEFIELDWRAPPERCLASS1_CAN_BE_POINTER, the_name, &[]);
+                self.report(cf::FFI_NATIVE_ONLY_CLASSES_EXTENDING_NATIVEFIELDWRAPPERCLASS1_CAN_BE_POINTER, the_name, &[]);
             }
         }
         let dart_type = match d {
-            Declaracao::Funcao(f) => self.outline.functions.get(f.0 as usize).map(|x| x.signature),
-            Declaracao::Local(t) => Some(t),
-            Declaracao::Variavel(_) => None,
+            Declaration::Funcao(f) => self.outline.functions.get(f.0 as usize).map(|x| x.signature),
+            Declaration::Local(t) => Some(t),
+            Declaration::Variavel(_) => None,
         };
         let Some(dart_type) = dart_type else { return };
-        let native = self.tabela().intern(Type::Function {
+        let native = self.table().intern(Type::Function {
             type_params,
             ret,
             positional: ffi_positional.into_boxed_slice(),
@@ -1950,30 +1950,30 @@ impl<'a> V<'a> {
             nullable,
         });
         if !self.valid_native_function(native) {
-            self.relatar(cf::MUST_BE_A_NATIVE_FUNCTION_TYPE, the_name, &[Arg::Tipo(native), Arg::from("Native")]);
+            self.report(cf::MUST_BE_A_NATIVE_FUNCTION_TYPE, the_name, &[Arg::Type_(native), Arg::from("Native")]);
             return;
         }
         if !self.compat_functions(Direction::NativeToDart, dart_type, native, true, true) {
-            self.relatar(cf::MUST_BE_A_SUBTYPE, the_name, &[Arg::Tipo(native), Arg::Tipo(dart_type), Arg::from("Native")]);
+            self.report(cf::MUST_BE_A_SUBTYPE, the_name, &[Arg::Type_(native), Arg::Type_(dart_type), Arg::from("Native")]);
         }
     }
 
     /// `_checkFfiNativeField`.
-    fn check_native_field(&mut self, the_name: Span, d: Declaracao, metadata: &'a [ast::Annotation], signature: TypeId, allows_variable: bool) {
+    fn check_native_field(&mut self, the_name: Span, d: Declaration, metadata: &'a [ast::Annotation], signature: TypeId, allows_variable: bool) {
         let typ = match d {
-            Declaracao::Variavel(v) => {
+            Declaration::Variavel(v) => {
                 let x = self.program.variable(v);
                 if (x.class.is_some() || x.extension.is_some()) && !x.static_ {
-                    self.relatar(cf::NATIVE_FIELD_NOT_STATIC, the_name, &[]);
+                    self.report(cf::NATIVE_FIELD_NOT_STATIC, the_name, &[]);
                 }
-                self.tipo_da_variavel(v)
+                self.variable_type(v)
             }
-            Declaracao::Funcao(f) => {
+            Declaration::Funcao(f) => {
                 // The accessor: the type of the synthetic variable (the return type of the
                 // getter of the same name, or the setter's parameter).
                 let g = self.program.function(f);
                 if let Some(v) = g.variable {
-                    self.tipo_da_variavel(v)
+                    self.variable_type(v)
                 } else {
                     let getter = if g.kind == FunctionKind::Getter {
                         Some(f)
@@ -1991,7 +1991,7 @@ impl<'a> V<'a> {
                                 let tgt = self.program.library(g.library).declared.get(&g.name).and_then(|b| b.getter);
                                 match tgt {
                                     Some(Element::Function(h)) if self.program.function(h).kind == FunctionKind::Getter => {
-                                        return self.check_typed_field(the_name, metadata, signature, allows_variable, self.retorno(h));
+                                        return self.check_typed_field(the_name, metadata, signature, allows_variable, self.the_return(h));
                                     }
                                     _ => {
                                         let t = self.setter_parameter(f);
@@ -2003,20 +2003,20 @@ impl<'a> V<'a> {
                         map.get(&g.name).copied().filter(|h| self.program.function(*h).kind == FunctionKind::Getter)
                     };
                     match getter {
-                        Some(h) => self.retorno(h),
+                        Some(h) => self.the_return(h),
                         None => self.setter_parameter(f),
                     }
                 }
             }
-            Declaracao::Local(_) => {
-                self.relatar(cf::NATIVE_FIELD_NOT_STATIC, the_name, &[]);
+            Declaration::Local(_) => {
+                self.report(cf::NATIVE_FIELD_NOT_STATIC, the_name, &[]);
                 return;
             }
         };
         self.check_typed_field(the_name, metadata, signature, allows_variable, typ);
     }
 
-    fn retorno(&self, f: FunctionElementId) -> TypeId {
+    fn the_return(&self, f: FunctionElementId) -> TypeId {
         self.outline.functions.get(f.0 as usize).map_or(self.core.dynamic_, |d| d.return_type)
     }
 
@@ -2031,63 +2031,63 @@ impl<'a> V<'a> {
             if self.e_ffi_t(typ, "Pointer") || self.compound_subtype(typ) || self.e_ffi_t(typ, "Array") {
                 signature = typ;
             } else {
-                self.relatar(cf::NATIVE_FIELD_MISSING_TYPE, the_name, &[]);
+                self.report(cf::NATIVE_FIELD_MISSING_TYPE, the_name, &[]);
                 return;
             }
         }
         if !self.compat_native(Direction::NativeToDart, typ, signature, false, true) {
-            self.relatar(cf::MUST_BE_A_SUBTYPE, the_name, &[Arg::Tipo(typ), Arg::Tipo(signature), Arg::from("Native")]);
+            self.report(cf::MUST_BE_A_SUBTYPE, the_name, &[Arg::Type_(typ), Arg::Type_(signature), Arg::from("Native")]);
         } else if self.e_ffi_t(signature, "Array") {
             let d = self.array_dimensions(signature);
             self.validate_size(the_name, metadata, d, allows_variable);
         } else if self.e_ffi_t(signature, "Handle") || self.e_ffi_t(signature, "NativeFunction") {
-            self.relatar(cf::NATIVE_FIELD_INVALID_TYPE, the_name, &[Arg::Tipo(signature)]);
+            self.report(cf::NATIVE_FIELD_INVALID_TYPE, the_name, &[Arg::Type_(signature)]);
         }
     }
 
     /// `_validateFfiLeafCallUsesNoHandles`.
     fn leaf_without_handles(&mut self, native: TypeId, span: Span) {
-        let Type::Function { ret, positional, .. } = self.tipo(native) else { return };
-        if self.primitivo(ret) == Primitivo::Handle {
-            self.relatar(cf::LEAF_CALL_MUST_NOT_RETURN_HANDLE, span, &[]);
+        let Type::Function { ret, positional, .. } = self.ty(native) else { return };
+        if self.primitive(ret) == Primitive::Handle {
+            self.report(cf::LEAF_CALL_MUST_NOT_RETURN_HANDLE, span, &[]);
         }
         for p in positional.iter() {
-            if self.primitivo(*p) == Primitivo::Handle {
-                self.relatar(cf::LEAF_CALL_MUST_NOT_TAKE_HANDLE, span, &[]);
+            if self.primitive(*p) == Primitive::Handle {
+                self.report(cf::LEAF_CALL_MUST_NOT_TAKE_HANDLE, span, &[]);
             }
         }
     }
 
     // -- Expressions -----------------------------------------------------------
 
-    fn expressoes(&mut self) {
+    fn expressions(&mut self) {
         let a = self.a;
         for (i, e) in a.exprs.iter().enumerate() {
             let id = ExprId(i as u32);
             match &e.kind {
                 ExprKind::Call { target, arguments } => {
                     if !self.inside_index(e.span) {
-                        self.chamada(id, *target, arguments);
+                        self.call(id, *target, arguments);
                     }
                 }
                 ExprKind::InstanceCreation { ty, constructor, arguments, .. } => {
                     if self.inside_index(e.span) {
                         continue;
                     }
-                    if let Some(Resolved::Constructor(f)) = self.corpo.get_resolved(id) {
+                    if let Some(Resolved::Constructor(f)) = self.body.get_resolved(id) {
                         let start = a.ty(*ty).span.start;
                         let end = constructor.map_or(a.ty(*ty).span.end, |n| n.span.end);
-                        self.criacao(id, *f, Span { start: start, end: end }, arguments);
+                        self.creation(id, *f, Span { start: start, end: end }, arguments);
                     }
                 }
                 ExprKind::Index { target, .. } => {
                     if !self.inside_index(e.span) {
-                        self.indice(id, *target);
+                        self.index(id, *target);
                     }
                 }
                 ExprKind::Property { target, name, .. } => {
                     if !self.inside_index(e.span) {
-                        self.propriedade(id, *target, *name);
+                        self.property(id, *target, *name);
                     }
                 }
                 _ => {}
@@ -2097,14 +2097,14 @@ impl<'a> V<'a> {
 
     /// `MethodInvocation` and `FunctionExpressionInvocation` (and the implicit
     /// creation, which the analyzer rewrites into `InstanceCreationExpression`).
-    fn chamada(&mut self, id: ExprId, target: ExprId, args: &'a ast::Arguments) {
+    fn call(&mut self, id: ExprId, target: ExprId, args: &'a ast::Arguments) {
         let a = self.a;
-        match self.corpo.get_resolved(id) {
+        match self.body.get_resolved(id) {
             Some(Resolved::ExtensionMember { extension, member }) => {
                 // `the_value<T>(n)`: the `call` of `AllocatorAlloc`. A written `.call(…)` is a
                 // `MethodInvocation`, which is not checked.
-                let written = matches!(&a.expr(target).kind, ExprKind::Property { name, .. } if self.nome(name.sym) == "call");
-                if !written && self.ffi_extension(*extension, &["AllocatorAlloc"]) && self.nome(self.program.function(*member).name) == "call" {
+                let written = matches!(&a.expr(target).kind, ExprKind::Property { name, .. } if self.name(name.sym) == "call");
+                if !written && self.ffi_extension(*extension, &["AllocatorAlloc"]) && self.name(self.program.function(*member).name) == "call" {
                     self.validate_allocation(id, args);
                 }
                 if !written {
@@ -2113,13 +2113,13 @@ impl<'a> V<'a> {
             }
             Some(Resolved::Constructor(f)) => {
                 let s = self.span(target);
-                self.criacao(id, *f, s, args);
+                self.creation(id, *f, s, args);
                 return;
             }
             _ => {}
         }
         let (method_name, r) = match &a.expr(target).kind {
-            ExprKind::Property { name, .. } | ExprKind::Identifier(name) => (*name, self.corpo.get_resolved(target)),
+            ExprKind::Property { name, .. } | ExprKind::Identifier(name) => (*name, self.body.get_resolved(target)),
             _ => return,
         };
         let f = match r {
@@ -2131,7 +2131,7 @@ impl<'a> V<'a> {
         if g.kind != FunctionKind::Function {
             return;
         }
-        let the_name = self.nome(g.name);
+        let the_name = self.name(g.name);
         if let Some(c) = g.class {
             if self.ffi_class(c, "Pointer") {
                 match the_name {
@@ -2141,7 +2141,7 @@ impl<'a> V<'a> {
                 }
             } else if self.compound(c) {
                 if the_name == "create" {
-                    let cls = self.nome(self.program.class(c).name);
+                    let cls = self.name(self.program.class(c).name);
                     self.validate_create(id, args, cls);
                 }
             } else if self.ffi_class(c, "Native") && the_name == "addressOf" {
@@ -2161,7 +2161,7 @@ impl<'a> V<'a> {
     }
 
     /// The receiver (`realTarget`) of the invocation whose method name is `target`.
-    fn receptor(&self, target: ExprId) -> Option<ExprId> {
+    fn receiver(&self, target: ExprId) -> Option<ExprId> {
         match &self.a.expr(target).kind {
             ExprKind::Property { target: r, .. } => Some(self.real_target(*r)),
             _ => None,
@@ -2169,13 +2169,13 @@ impl<'a> V<'a> {
     }
 
     /// `visitInstanceCreationExpression`.
-    fn criacao(&mut self, id: ExprId, f: FunctionElementId, constructor_name: Span, args: &'a ast::Arguments) {
+    fn creation(&mut self, id: ExprId, f: FunctionElementId, constructor_name: Span, args: &'a ast::Arguments) {
         let g = self.program.function(f);
         let Some(c) = g.class else { return };
         let sup = self.program.class(c).supertype_class;
         if sup.is_some_and(|s| self.compound(s)) && self.e_class_element(c) {
             if !self.program.function(self.program.publico(f)).factory {
-                self.relatar(cf::CREATION_OF_STRUCT_OR_UNION, constructor_name, &[]);
+                self.report(cf::CREATION_OF_STRUCT_OR_UNION, constructor_name, &[]);
             }
         } else if self.ffi_class(c, "NativeCallable") {
             self.validate_native_callable(id, f, constructor_name, args);
@@ -2184,67 +2184,67 @@ impl<'a> V<'a> {
 
     /// `_validateNativeCallable`.
     fn validate_native_callable(&mut self, id: ExprId, f: FunctionElementId, constructor_name: Span, args: &'a ast::Arguments) {
-        let the_name = self.nome(self.program.function(f).name);
+        let the_name = self.name(self.program.function(f).name);
         let isolated = the_name == "isolateLocal";
         let n = args.args.len();
         if !(n == 1 || (isolated && n == 2)) {
             return;
         }
-        let Some(st) = self.corpo.get_type(id) else { return };
+        let Some(st) = self.body.get_type(id) else { return };
         let Some(&argument) = self.arguments_of_type(st).first() else { return };
         if !self.valid_native_function(argument) {
-            self.relatar(cf::MUST_BE_A_NATIVE_FUNCTION_TYPE, constructor_name, &[Arg::Tipo(argument), Arg::from("NativeCallable")]);
+            self.report(cf::MUST_BE_A_NATIVE_FUNCTION_TYPE, constructor_name, &[Arg::Type_(argument), Arg::from("NativeCallable")]);
             return;
         }
         let f0 = &args.args[0];
-        let ft = self.corpo.get_type(f0.value).unwrap_or(self.core.dynamic_);
+        let ft = self.body.get_type(f0.value).unwrap_or(self.core.dynamic_);
         if !self.compat_functions(Direction::DartToNative, ft, argument, false, false) {
             let s = self.argument_span(f0);
-            self.relatar(cf::MUST_BE_A_SUBTYPE, s, &[Arg::Tipo(ft), Arg::Tipo(argument), Arg::from("NativeCallable")]);
+            self.report(cf::MUST_BE_A_SUBTYPE, s, &[Arg::Type_(ft), Arg::Type_(argument), Arg::from("NativeCallable")]);
             return;
         }
-        let Type::Function { ret, .. } = self.tipo(argument) else { return };
+        let Type::Function { ret, .. } = self.ty(argument) else { return };
         if isolated {
-            if self.primitivo(ret) == Primitivo::Void || self.e_ffi_t(ret, "Pointer") || self.e_ffi_t(ret, "Handle") || self.compound_subtype(ret) {
+            if self.primitive(ret) == Primitive::Void || self.e_ffi_t(ret, "Pointer") || self.e_ffi_t(ret, "Handle") || self.compound_subtype(ret) {
                 if n != 1 {
                     let s = self.argument_span(&args.args[1]);
-                    self.relatar(cf::INVALID_EXCEPTION_VALUE, s, &[Arg::from(the_name)]);
+                    self.report(cf::INVALID_EXCEPTION_VALUE, s, &[Arg::from(the_name)]);
                 }
             } else if n != 2 {
                 let s = self.span(id);
-                self.relatar(cf::MISSING_EXCEPTION_VALUE, s, &[Arg::from(the_name)]);
+                self.report(cf::MISSING_EXCEPTION_VALUE, s, &[Arg::from(the_name)]);
             } else {
                 // `(arguments[1] as NamedExpression)` (3.6.2; `as NamedArgument` in
                 // 3.13.4): an `exceptionalReturn` passed as a positional
                 // (`isolateLocal(f, 0)`) makes the cast throw, and the whole library ends
                 // up without diagnostics ([`QuebraDoAnalyzer`]).
                 if args.args[1].name.is_none() {
-                    self.quebra = true;
+                    self.the_break = true;
                     return;
                 }
                 let e = args.args[1].value;
-                let et = self.corpo.get_type(e).unwrap_or(self.core.dynamic_);
+                let et = self.body.get_type(e).unwrap_or(self.core.dynamic_);
                 let s = self.span(e);
                 if !self.compat_native(Direction::DartToNative, et, ret, false, false) {
-                    self.relatar(cf::MUST_BE_A_SUBTYPE, s, &[Arg::Tipo(et), Arg::Tipo(ret), Arg::from(the_name)]);
+                    self.report(cf::MUST_BE_A_SUBTYPE, s, &[Arg::Type_(et), Arg::Type_(ret), Arg::from(the_name)]);
                 }
                 if !self.e_const(e) {
-                    self.relatar(cf::ARGUMENT_MUST_BE_A_CONSTANT, s, &[Arg::from("exceptionalReturn")]);
+                    self.report(cf::ARGUMENT_MUST_BE_A_CONSTANT, s, &[Arg::from("exceptionalReturn")]);
                 }
             }
-        } else if self.primitivo(ret) != Primitivo::Void {
+        } else if self.primitive(ret) != Primitive::Void {
             let s = self.argument_span(f0);
-            self.relatar(cf::MUST_RETURN_VOID, s, &[Arg::Tipo(ret)]);
+            self.report(cf::MUST_RETURN_VOID, s, &[Arg::Type_(ret)]);
         }
     }
 
     /// `_validateAllocate`.
     fn validate_allocation(&mut self, id: ExprId, args: &'a ast::Arguments) {
-        let types = self.instanciacao(args);
+        let types = self.instantiation(args);
         let [t] = types.as_slice() else { return };
         if !self.valid_native(*t, Allows { void_: true, empty_struct: true, ..Allows::default() }) {
             let s = self.span(id);
-            self.relatar(cf::NON_CONSTANT_TYPE_ARGUMENT, s, &[Arg::from("AllocatorAlloc.call")]);
+            self.report(cf::NON_CONSTANT_TYPE_ARGUMENT, s, &[Arg::from("AllocatorAlloc.call")]);
         }
     }
 
@@ -2254,72 +2254,72 @@ impl<'a> V<'a> {
         if !(1..=2).contains(&n) {
             return;
         }
-        let Some(&t) = self.instanciacao(args).first() else { return };
+        let Some(&t) = self.instantiation(args).first() else { return };
         if !self.valid_native_function(t) {
             let s = args.type_args.first().map_or(method_name.span, |&x| self.a.ty(x).span);
-            self.relatar(cf::MUST_BE_A_NATIVE_FUNCTION_TYPE, s, &[Arg::Tipo(t), Arg::from("fromFunction")]);
+            self.report(cf::MUST_BE_A_NATIVE_FUNCTION_TYPE, s, &[Arg::Type_(t), Arg::from("fromFunction")]);
             return;
         }
         let f0 = &args.args[0];
-        let ft = self.corpo.get_type(f0.value).unwrap_or(self.core.dynamic_);
+        let ft = self.body.get_type(f0.value).unwrap_or(self.core.dynamic_);
         if !self.compat_functions(Direction::DartToNative, ft, t, false, false) {
             let s = self.argument_span(f0);
-            self.relatar(cf::MUST_BE_A_SUBTYPE, s, &[Arg::Tipo(ft), Arg::Tipo(t), Arg::from("fromFunction")]);
+            self.report(cf::MUST_BE_A_SUBTYPE, s, &[Arg::Type_(ft), Arg::Type_(t), Arg::from("fromFunction")]);
             return;
         }
-        let Type::Function { ret: r, .. } = self.tipo(t) else { return };
-        if self.primitivo(r) == Primitivo::Void || self.e_ffi_t(r, "Pointer") || self.e_ffi_t(r, "Handle") || self.compound_subtype(r) {
+        let Type::Function { ret: r, .. } = self.ty(t) else { return };
+        if self.primitive(r) == Primitive::Void || self.e_ffi_t(r, "Pointer") || self.e_ffi_t(r, "Handle") || self.compound_subtype(r) {
             if n != 1 {
                 let s = self.argument_span(&args.args[1]);
-                self.relatar(cf::INVALID_EXCEPTION_VALUE, s, &[Arg::from("fromFunction")]);
+                self.report(cf::INVALID_EXCEPTION_VALUE, s, &[Arg::from("fromFunction")]);
             }
         } else if n != 2 {
-            self.relatar(cf::MISSING_EXCEPTION_VALUE, method_name.span, &[Arg::from("fromFunction")]);
+            self.report(cf::MISSING_EXCEPTION_VALUE, method_name.span, &[Arg::from("fromFunction")]);
         } else {
             let x = &args.args[1];
-            let et = self.corpo.get_type(x.value).unwrap_or(self.core.dynamic_);
+            let et = self.body.get_type(x.value).unwrap_or(self.core.dynamic_);
             let s = self.argument_span(x);
             if !self.compat_native(Direction::DartToNative, et, r, false, false) {
-                self.relatar(cf::MUST_BE_A_SUBTYPE, s, &[Arg::Tipo(et), Arg::Tipo(r), Arg::from("fromFunction")]);
+                self.report(cf::MUST_BE_A_SUBTYPE, s, &[Arg::Type_(et), Arg::Type_(r), Arg::from("fromFunction")]);
             }
             let constant = x.name.is_none() && self.e_const(x.value);
             if !constant {
-                self.relatar(cf::ARGUMENT_MUST_BE_A_CONSTANT, s, &[Arg::from("exceptionalReturn")]);
+                self.report(cf::ARGUMENT_MUST_BE_A_CONSTANT, s, &[Arg::from("exceptionalReturn")]);
             }
         }
     }
 
     /// `_validateElementAt`.
     fn validate_element_at(&mut self, id: ExprId, target: ExprId) {
-        let Some(r) = self.receptor(target) else { return };
-        let Some(tt) = self.corpo.get_type(r) else { return };
+        let Some(r) = self.receiver(target) else { return };
+        let Some(tt) = self.body.get_type(r) else { return };
         if !self.e_ffi_t(tt, "Pointer") {
             return;
         }
         let Some(&t) = self.arguments_of_type(tt).first() else { return };
         if !self.valid_native(t, Allows { void_: true, empty_struct: true, ..Allows::default() }) {
             let s = self.span(id);
-            self.relatar(cf::NON_CONSTANT_TYPE_ARGUMENT, s, &[Arg::from("elementAt")]);
+            self.report(cf::NON_CONSTANT_TYPE_ARGUMENT, s, &[Arg::from("elementAt")]);
         }
     }
 
     /// `_validateCreate`.
     fn validate_create(&mut self, id: ExprId, args: &'a ast::Arguments, cls: &str) {
-        let types = self.instanciacao(args);
+        let types = self.instantiation(args);
         let [t] = types.as_slice() else { return };
         if !self.valid_native(*t, Allows::default()) {
             let s = self.span(id);
-            self.relatar(cf::NON_CONSTANT_TYPE_ARGUMENT, s, &[Arg::from(format!("{cls}.create"))]);
+            self.report(cf::NON_CONSTANT_TYPE_ARGUMENT, s, &[Arg::from(format!("{cls}.create"))]);
         }
     }
 
     /// `_validateSizeOf`.
     fn validate_size_of(&mut self, id: ExprId, args: &'a ast::Arguments) {
-        let types = self.instanciacao(args);
+        let types = self.instantiation(args);
         let [t] = types.as_slice() else { return };
         if !self.valid_native(*t, Allows { void_: true, empty_struct: true, ..Allows::default() }) {
             let s = self.span(id);
-            self.relatar(cf::NON_CONSTANT_TYPE_ARGUMENT, s, &[Arg::from("sizeOf")]);
+            self.report(cf::NON_CONSTANT_TYPE_ARGUMENT, s, &[Arg::from("sizeOf")]);
         }
     }
 
@@ -2328,15 +2328,15 @@ impl<'a> V<'a> {
         let written_ones = &args.type_args;
         let error_span = written_ones.first().map_or(self.span(id), |&x| self.a.ty(x).span);
         if let [x] = &written_ones[..]
-            && let Some(t) = self.tipo_escrito(*x)
-            && self.e_parametro(t)
+            && let Some(t) = self.written_type(*x)
+            && self.is_parameter(t)
         {
             let s = self.a.ty(*x).span;
-            self.relatar(cf::NON_CONSTANT_TYPE_ARGUMENT, s, &[Arg::from("asFunction")]);
+            self.report(cf::NON_CONSTANT_TYPE_ARGUMENT, s, &[Arg::from("asFunction")]);
             return;
         }
-        if let Some(tgt) = self.receptor(target)
-            && let Some(tt) = self.corpo.get_type(tgt)
+        if let Some(tgt) = self.receiver(target)
+            && let Some(tt) = self.body.get_type(tgt)
             && self.e_ffi_t(tt, "Pointer")
         {
             let Some(&t) = self.arguments_of_type(tt).first() else { return };
@@ -2344,20 +2344,20 @@ impl<'a> V<'a> {
                 return;
             }
             let Some(&argument) = self.arguments_of_type(t).first() else { return };
-            if self.e_parametro(argument) {
+            if self.is_parameter(argument) {
                 let s = self.span(tgt);
-                self.relatar(cf::NON_CONSTANT_TYPE_ARGUMENT, s, &[Arg::from("asFunction")]);
+                self.report(cf::NON_CONSTANT_TYPE_ARGUMENT, s, &[Arg::from("asFunction")]);
                 return;
             }
             if !self.valid_native_function(argument) {
-                self.relatar(cf::NON_NATIVE_FUNCTION_TYPE_ARGUMENT_TO_POINTER, error_span, &[Arg::Tipo(t)]);
+                self.report(cf::NON_NATIVE_FUNCTION_TYPE_ARGUMENT_TO_POINTER, error_span, &[Arg::Type_(t)]);
                 return;
             }
-            let Some(&f) = self.instanciacao(args).first() else { return };
+            let Some(&f) = self.instantiation(args).first() else { return };
             let leaf = self.the_is_leaf(args);
             if !self.compat_functions(Direction::NativeToDart, f, argument, false, false) {
                 let s = self.span(id);
-                self.relatar(cf::MUST_BE_A_SUBTYPE, s, &[Arg::Tipo(argument), Arg::Tipo(f), Arg::from("asFunction")]);
+                self.report(cf::MUST_BE_A_SUBTYPE, s, &[Arg::Type_(argument), Arg::Type_(f), Arg::from("asFunction")]);
             }
             if leaf {
                 self.leaf_without_handles(argument, method_name.span);
@@ -2372,17 +2372,17 @@ impl<'a> V<'a> {
         if written_ones.len() != 2 {
             return;
         }
-        let types = self.instanciacao(args);
+        let types = self.instantiation(args);
         let (Some(&s), Some(&f)) = (types.first(), types.get(1)) else { return };
         let span0 = self.a.ty(written_ones[0]).span;
         let span1 = self.a.ty(written_ones[1]).span;
         if !self.valid_native_function(s) {
-            self.relatar(cf::MUST_BE_A_NATIVE_FUNCTION_TYPE, span0, &[Arg::Tipo(s), Arg::from("lookupFunction")]);
+            self.report(cf::MUST_BE_A_NATIVE_FUNCTION_TYPE, span0, &[Arg::Type_(s), Arg::from("lookupFunction")]);
             return;
         }
         let leaf = self.the_is_leaf(args);
         if !self.compat_functions(Direction::NativeToDart, f, s, false, false) {
-            self.relatar(cf::MUST_BE_A_SUBTYPE, span1, &[Arg::Tipo(s), Arg::Tipo(f), Arg::from("lookupFunction")]);
+            self.report(cf::MUST_BE_A_SUBTYPE, span1, &[Arg::Type_(s), Arg::Type_(f), Arg::from("lookupFunction")]);
         }
         self.validate_constant_leaf(args);
         if leaf {
@@ -2391,7 +2391,7 @@ impl<'a> V<'a> {
     }
 
     /// The (non-synthetic) element an identifier references.
-    fn referenced_element(&self, e: ExprId) -> Option<Declaracao> {
+    fn referenced_element(&self, e: ExprId) -> Option<Declaration> {
         match &self.a.expr(e).kind {
             ExprKind::Identifier(_) => {}
             ExprKind::Property { target, .. } if matches!(self.a.expr(*target).kind, ExprKind::Identifier(_)) => {}
@@ -2399,21 +2399,21 @@ impl<'a> V<'a> {
         }
         let p = self.program;
         let through_function = |f: FunctionElementId| match p.function(f).variable {
-            Some(v) => Declaracao::Variavel(v),
-            None => Declaracao::Funcao(f),
+            Some(v) => Declaration::Variavel(v),
+            None => Declaration::Funcao(f),
         };
-        match self.corpo.get_resolved(e)? {
+        match self.body.get_resolved(e)? {
             Resolved::Element(Element::Function(f)) => Some(through_function(*f)),
-            Resolved::Element(Element::Variable(v)) => Some(Declaracao::Variavel(*v)),
+            Resolved::Element(Element::Variable(v)) => Some(Declaration::Variavel(*v)),
             Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::ExtensionMember { member: f, .. } => Some(through_function(*f)),
-            Resolved::Member { member: MemberRef::Variable(v), .. } => Some(Declaracao::Variavel(*v)),
+            Resolved::Member { member: MemberRef::Variable(v), .. } => Some(Declaration::Variavel(*v)),
             _ => None,
         }
     }
 
     /// `_validateNativeAddressOf`.
     fn validate_address_of(&mut self, id: ExprId, args: &'a ast::Arguments) {
-        let types = self.instanciacao(args);
+        let types = self.instantiation(args);
         if types.len() != 1 || args.args.len() != 1 {
             return;
         }
@@ -2425,30 +2425,30 @@ impl<'a> V<'a> {
             let (unit_id, metadata) = self.element_annotations(r);
             for m in metadata {
                 let Some(inst) = self.annotation_instance(unit_id, m) else { continue };
-                if !self.ffi_class(inst.classe, "Native") {
+                if !self.ffi_class(inst.class, "Native") {
                     continue;
                 }
-                let Some(&native) = self.arguments_of_type(inst.tipo).first() else { continue };
+                let Some(&native) = self.arguments_of_type(inst.ty).first() else { continue };
                 let s = self.span(id);
                 if matches!(self.table_ref().get(native), Type::Function { .. }) {
                     if !self.e_ffi_t(tgt, "NativeFunction") {
-                        self.relatar(cf::MUST_BE_A_NATIVE_FUNCTION_TYPE, s, &[Arg::Tipo(tgt), Arg::from("Native.addressOf")]);
+                        self.report(cf::MUST_BE_A_NATIVE_FUNCTION_TYPE, s, &[Arg::Type_(tgt), Arg::from("Native.addressOf")]);
                     } else if let Some(&target_function) = self.arguments_of_type(tgt).first()
-                        && !self.atribuivel(native, target_function)
+                        && !self.assignable(native, target_function)
                     {
-                        self.relatar(cf::MUST_BE_A_SUBTYPE, s, &[Arg::Tipo(native), Arg::Tipo(target_function), Arg::from("Native.addressOf")]);
+                        self.report(cf::MUST_BE_A_SUBTYPE, s, &[Arg::Type_(native), Arg::Type_(target_function), Arg::from("Native.addressOf")]);
                     }
                 } else {
                     let mut native = native;
                     if matches!(self.table_ref().get(native), Type::Dynamic)
                         && !self.table_ref().e_invalido(native)
-                        && let Some(st) = self.corpo.get_type(argument.value)
+                        && let Some(st) = self.body.get_type(argument.value)
                         && (self.e_ffi_t(st, "Pointer") || self.compound_subtype(st) || self.e_ffi_t(st, "Array"))
                     {
                         native = st;
                     }
-                    if !self.atribuivel(native, tgt) {
-                        self.relatar(cf::MUST_BE_A_SUBTYPE, s, &[Arg::Tipo(native), Arg::Tipo(tgt), Arg::from("Native.addressOf")]);
+                    if !self.assignable(native, tgt) {
+                        self.report(cf::MUST_BE_A_SUBTYPE, s, &[Arg::Type_(native), Arg::Type_(tgt), Arg::from("Native.addressOf")]);
                     }
                 }
                 valid = true;
@@ -2457,46 +2457,46 @@ impl<'a> V<'a> {
         }
         if !valid {
             let s = self.argument_span(argument);
-            self.relatar(cf::ARGUMENT_MUST_BE_NATIVE, s, &[]);
+            self.report(cf::ARGUMENT_MUST_BE_NATIVE, s, &[]);
         }
     }
 
     /// `visitIndexExpression`: the `[]` of `StructPointer`, `StructArray`,
     /// `UnionPointer` and `UnionArray`.
-    fn indice(&mut self, id: ExprId, target: ExprId) {
-        let Some(Resolved::ExtensionMember { extension, member }) = self.corpo.get_resolved(id) else { return };
-        if !self.ffi_extension(*extension, &["StructPointer", "StructArray", "UnionPointer", "UnionArray"]) || self.nome(self.program.function(*member).name) != "[]" {
+    fn index(&mut self, id: ExprId, target: ExprId) {
+        let Some(Resolved::ExtensionMember { extension, member }) = self.body.get_resolved(id) else { return };
+        if !self.ffi_extension(*extension, &["StructPointer", "StructArray", "UnionPointer", "UnionArray"]) || self.name(self.program.function(*member).name) != "[]" {
             return;
         }
         let tgt = self.real_target(target);
-        let Some(t) = self.corpo.get_type(tgt) else { return };
+        let Some(t) = self.body.get_type(tgt) else { return };
         if !self.valid_native(t, Allows { empty_struct: true, array: true, ..Allows::default() }) {
             let s = self.span(id);
-            self.relatar(cf::NON_CONSTANT_TYPE_ARGUMENT, s, &[Arg::from("[]")]);
+            self.report(cf::NON_CONSTANT_TYPE_ARGUMENT, s, &[Arg::from("[]")]);
         }
     }
 
     /// `visitPrefixedIdentifier` and `visitPropertyAccess`: `ref` and `address`.
-    fn propriedade(&mut self, id: ExprId, target: ExprId, the_name: ast::Name) {
-        let Some(Resolved::ExtensionMember { extension, member }) = self.corpo.get_resolved(id) else { return };
+    fn property(&mut self, id: ExprId, target: ExprId, the_name: ast::Name) {
+        let Some(Resolved::ExtensionMember { extension, member }) = self.body.get_resolved(id) else { return };
         let (x, f) = (*extension, *member);
         if self.program.function(f).kind == FunctionKind::Setter {
             return;
         }
-        let member_name = self.nome(self.program.function(f).name);
+        let member_name = self.name(self.program.function(f).name);
         if self.ffi_extension(x, &["StructPointer", "UnionPointer"]) {
             if member_name == "ref" {
                 let tgt = self.real_target(target);
-                let Some(t) = self.corpo.get_type(tgt) else { return };
+                let Some(t) = self.body.get_type(tgt) else { return };
                 if !self.valid_native(t, Allows { empty_struct: true, ..Allows::default() }) {
                     let s = self.span(id);
-                    self.relatar(cf::NON_CONSTANT_TYPE_ARGUMENT, s, &[Arg::from("ref")]);
+                    self.report(cf::NON_CONSTANT_TYPE_ARGUMENT, s, &[Arg::from("ref")]);
                 }
             }
         } else if self.ffi_extension(x, &COMPOUND_ADDRESS) || self.ffi_extension(x, &PRIMITIVE_ADDRESS) || self.ffi_extension(x, &TYPED_DATA_ADDRESS) {
             if member_name == "address" {
                 self.validate_address_position(id, the_name.span);
-                let the_extension = self.program.extension(x).name.map(|n| self.nome(n)).unwrap_or("");
+                let the_extension = self.program.extension(x).name.map(|n| self.name(n)).unwrap_or("");
                 self.validate_address_receiver(target, the_extension, the_name.span);
             }
         }
@@ -2507,19 +2507,19 @@ impl<'a> V<'a> {
     fn validate_address_position(&mut self, no: ExprId, error: Span) {
         let a = self.a;
         let mut current = no;
-        if let Some(p) = self.pai(no)
+        if let Some(p) = self.parent(no)
             && let ExprKind::Property { target, name, .. } = &a.expr(p).kind
             && *target == no
-            && self.nome(name.sym) == "cast"
-            && let Some(Resolved::Member { member: MemberRef::Function(f), .. }) = self.corpo.get_resolved(p)
+            && self.name(name.sym) == "cast"
+            && let Some(Resolved::Member { member: MemberRef::Function(f), .. }) = self.body.get_resolved(p)
             && self.program.function(*f).kind == FunctionKind::Function
             && self.program.function(*f).class.is_some_and(|c| self.ffi_class(c, "Pointer"))
-            && let Some(c) = self.pai(p)
+            && let Some(c) = self.parent(p)
             && matches!(&a.expr(c).kind, ExprKind::Call { target, .. } if *target == p)
         {
             current = c;
         }
-        let ok = match self.pai(current) {
+        let ok = match self.parent(current) {
             Some(g) => match &a.expr(g).kind {
                 ExprKind::Call { target, arguments } => {
                     *target != current && arguments.args.iter().any(|x| x.name.is_none() && x.value == current) && self.leaf_call(*target)
@@ -2529,7 +2529,7 @@ impl<'a> V<'a> {
             None => false,
         };
         if !ok {
-            self.relatar(cf::ADDRESS_POSITION, error, &[]);
+            self.report(cf::ADDRESS_POSITION, error, &[]);
         }
     }
 
@@ -2539,7 +2539,7 @@ impl<'a> V<'a> {
         if !matches!(self.a.expr(tgt).kind, ExprKind::Identifier(_) | ExprKind::Property { .. }) {
             return false;
         }
-        let f = match self.corpo.get_resolved(tgt) {
+        let f = match self.body.get_resolved(tgt) {
             Some(Resolved::Element(Element::Function(f))) => *f,
             Some(Resolved::Member { member: MemberRef::Function(f), .. }) | Some(Resolved::ExtensionMember { member: f, .. }) => *f,
             _ => return false,
@@ -2547,10 +2547,10 @@ impl<'a> V<'a> {
         if self.program.function(f).kind != FunctionKind::Function {
             return false;
         }
-        let (unit_id, metadata) = self.element_annotations(Declaracao::Funcao(f));
+        let (unit_id, metadata) = self.element_annotations(Declaration::Funcao(f));
         for m in metadata {
             let Some(inst) = self.annotation_instance(unit_id, m) else { continue };
-            if self.ffi_class(inst.classe, "Native") && inst.is_leaf == Some(true) {
+            if self.ffi_class(inst.class, "Native") && inst.is_leaf == Some(true) {
                 return true;
             }
         }
@@ -2566,18 +2566,18 @@ impl<'a> V<'a> {
         let ok = match &self.a.expr(receiver).kind {
             // Element of an `Array` or of a typed list.
             ExprKind::Index { target, .. } => {
-                let t = self.corpo.get_type(self.real_target(*target));
+                let t = self.body.get_type(self.real_target(*target));
                 t.is_some_and(|t| self.e_ffi_t(t, "Array") || self.e_typed_data(t))
             }
             // Field of a `Struct` or `Union`.
             ExprKind::Property { target, .. } => {
-                let t = self.corpo.get_type(self.real_target(*target));
+                let t = self.body.get_type(self.real_target(*target));
                 t.is_some_and(|t| self.compound_subtype(t))
             }
             _ => false,
         };
         if !ok {
-            self.relatar(cf::ADDRESS_RECEIVER, error, &[]);
+            self.report(cf::ADDRESS_RECEIVER, error, &[]);
         }
     }
 }

@@ -33,9 +33,9 @@ use dartforge_intern::Interner;
 /// The referenced element: its annotations, the unit in which it is declared
 /// and the class that contains it.
 struct Referenced<'p> {
-    anotacoes: &'p [ast::Annotation],
-    unidade: UnitId,
-    classe: Option<ClassId>,
+    annotations: &'p [ast::Annotation],
+    unit: UnitId,
+    class: Option<ClassId>,
     /// Class, enum or mixin: outside the `@visibleForTemplate` rule.
     is_type: bool,
 }
@@ -54,11 +54,11 @@ fn referenced<'p>(program: &'p Program, r: &Resolved) -> Option<Referenced<'p>> 
         _ => return None,
     };
     let (annotations, unit) = finding?;
-    Some(Referenced { anotacoes: annotations, unidade: unit, classe: class, is_type })
+    Some(Referenced { annotations, unit, class, is_type })
 }
 
 /// The annotations of a class declaration.
-fn da_classe(program: &Program, c: ClassId) -> &[ast::Annotation] {
+fn of_class(program: &Program, c: ClassId) -> &[ast::Annotation] {
     program.class(c).decl.map_or(&[][..], |d| &program.unit(d.unit).ast.decl(d.decl).metadata[..])
 }
 
@@ -106,7 +106,7 @@ pub fn acessos_invalidos(
     };
     // `_checkForInvalidInternalAccess` and `_checkForOtherInvalidAccess`.
     let mut check = |tgt: &Referenced<'_>, span: Span, the_name: &str, where_: Span, via_super: bool| {
-        let owner = program.unit(tgt.unidade);
+        let owner = program.unit(tgt.unit);
         // `_inCurrentLibrary`.
         if owner.library == lib {
             return;
@@ -116,25 +116,25 @@ pub fn acessos_invalidos(
                 out.push(d);
             }
         };
-        if has(tgt.anotacoes, "internal") && !same_package(owner.library) {
+        if has(tgt.annotations, "internal") && !same_package(owner.library) {
             report(Diagnostic::com_codigo(w::INVALID_USE_OF_INTERNAL_MEMBER, span, [the_name]));
         }
-        let protected = has(tgt.anotacoes, "protected");
-        if protected && tgt.classe.is_some_and(|defining| inherits(class_in(where_), defining)) {
+        let protected = has(tgt.annotations, "protected");
+        if protected && tgt.class.is_some_and(|defining| inherits(class_in(where_), defining)) {
             return;
         }
-        let of_owner = tgt.classe.map_or(&[][..], |c| da_classe(program, c));
+        let of_owner = tgt.class.map_or(&[][..], |c| of_class(program, c));
         let for_template = !tgt.is_type
-            && (has(tgt.anotacoes, "visibleForTemplate") || has(of_owner, "visibleForTemplate"))
-            && !(has(tgt.anotacoes, "visibleOutsideTemplate") || has(of_owner, "visibleOutsideTemplate"));
+            && (has(tgt.annotations, "visibleForTemplate") || has(of_owner, "visibleForTemplate"))
+            && !(has(tgt.annotations, "visibleOutsideTemplate") || has(of_owner, "visibleOutsideTemplate"));
         if for_template && in_template {
             return;
         }
-        let for_test = has(tgt.anotacoes, "visibleForTesting");
+        let for_test = has(tgt.annotations, "visibleForTesting");
         if for_test && in_test {
             return;
         }
-        let for_override = has(tgt.anotacoes, "visibleForOverriding");
+        let for_override = has(tgt.annotations, "visibleForOverriding");
         // `super.m()` inside `m` itself is the intended use.
         if for_override && via_super && method_in(where_) == Some(the_name) {
             return;
@@ -202,7 +202,7 @@ pub fn acessos_invalidos(
         supertypes.sort_by_key(|c| c.0);
         for s in supertypes {
             let superclass = program.class(s);
-            if !has(da_classe(program, s), "sealed") || same_package(superclass.library) {
+            if !has(of_class(program, s), "sealed") || same_package(superclass.library) {
                 continue;
             }
             let code = if class.kind == ClassKind::Mixin && class.on_classes.contains(&s) {

@@ -14,7 +14,7 @@
 //!
 //! Written without compiling or running (2026-10-05).
 
-use crate::heranca::{combinar, Conflict, Especie, Heranca, Membro, Nome, ProvedorDoOutline};
+use crate::heranca::{combine, Conflict, Kind, Heranca, Membro, Nome, ProvedorDoOutline};
 use crate::resolve::OutlineTypes;
 use crate::table::{CoreTypes, TypeTable};
 use dartforge_diagnostics::codigos::compile_time_error as c;
@@ -26,7 +26,7 @@ use std::collections::{HashMap, HashSet};
 
 /// The analyzer's `Name.name`: a setter is `x=` (the model's key is `x_=`).
 fn member_name(interner: &Interner, n: &Nome) -> String {
-    let text = interner.resolve(n.chave);
+    let text = interner.resolve(n.key);
     text.strip_suffix("_=").map_or_else(|| text.to_string(), |s| format!("{s}="))
 }
 
@@ -35,8 +35,8 @@ fn displayed_candidates(program: &Program, interner: &Interner, table: &TypeTabl
     candidates
         .iter()
         .map(|m| {
-            let class = interner.resolve(program.class(m.classe).name);
-            let ty = table.format_sem_alias(m.tipo, interner, program);
+            let class = interner.resolve(program.class(m.class).name);
+            let ty = table.format_sem_alias(m.ty, interner, program);
             format!("{class}.{name} ({ty})")
         })
         .collect::<Vec<_>>()
@@ -44,7 +44,7 @@ fn displayed_candidates(program: &Program, interner: &Interner, table: &TypeTabl
 }
 
 /// The name and the members of a class, mixin, enum or alias declaration.
-fn declaracao(program: &Program, c: ClassId) -> Option<(UnitId, ast::Name, &[ast::MemberId])> {
+fn declaration(program: &Program, c: ClassId) -> Option<(UnitId, ast::Name, &[ast::MemberId])> {
     let d = program.class(c).decl?;
     let a = &program.unit(d.unit).ast;
     let decl = a.decl(d.decl);
@@ -81,7 +81,7 @@ pub fn methods_without_combined_signature(
     let mut inheritance = Heranca::default();
     let mut output = Vec::new();
     for &cid in classes {
-        let Some((u, _, members)) = declaracao(program, cid) else { continue };
+        let Some((u, _, members)) = declaration(program, cid) else { continue };
         let a = &program.unit(u).ast;
         let lib = program.class(cid).library;
         for &m in members {
@@ -98,12 +98,12 @@ pub fn methods_without_combined_signature(
             }
             let name = Nome::novo(interner, lib, program.function(f).name);
             let mut p = ProvedorDoOutline { program, interner, core, outline, table: &mut *table };
-            let Some(overridden) = inheritance.sobrescritos(&mut p, cid, name) else { continue };
-            if overridden.is_empty() || overridden.iter().any(|s| s.especie != Especie::Metodo) {
+            let Some(overridden) = inheritance.overridden(&mut p, cid, name) else { continue };
+            if overridden.is_empty() || overridden.iter().any(|s| s.kind != Kind::Metodo) {
                 continue;
             }
             let mut conflicts: Vec<Conflict> = Vec::new();
-            if combinar(&mut p, cid, &overridden, true, name, Some(&mut conflicts)).is_some() {
+            if combine(&mut p, cid, &overridden, true, name, Some(&mut conflicts)).is_some() {
                 continue;
             }
             let name_text = member_name(interner, &name);
@@ -128,7 +128,7 @@ pub fn inconsistencias(
     let mut inheritance = Heranca::default();
     let mut output = Vec::new();
     for &cid in classes {
-        let Some((u, class_name, _)) = declaracao(program, cid) else { continue };
+        let Some((u, class_name, _)) = declaration(program, cid) else { continue };
         let interface = {
             let mut p = ProvedorDoOutline { program, interner, core, outline, table: &mut *table };
             inheritance.interface(&mut p, cid)
@@ -140,8 +140,8 @@ pub fn inconsistencias(
             match conflict {
                 Conflict::GetterMethod { nome: name, getter, metodo: method } => {
                     let n = member_name(interner, name);
-                    let g = interner.resolve(program.class(getter.classe).name).to_string();
-                    let m = interner.resolve(program.class(method.classe).name).to_string();
+                    let g = interner.resolve(program.class(getter.class).name).to_string();
+                    let m = interner.resolve(program.class(method.class).name).to_string();
                     if seen.insert((true, n.clone(), format!("{g}\u{0}{m}"))) {
                         output.push((u, Diagnostic::com_codigo(c::INCONSISTENT_INHERITANCE_GETTER_AND_METHOD, class_name.span, [n.as_str(), g.as_str(), m.as_str()])));
                     }
@@ -160,7 +160,7 @@ pub fn inconsistencias(
     // `_reportNoCombinedSuperSignature`, in the member loop (after the
     // conflicts of all classes: different offsets).
     for (cid, _, n, explanation) in methods_without_combined_signature(program, interner, table, core, outline, classes) {
-        let Some((u, _, _)) = declaracao(program, cid) else { continue };
+        let Some((u, _, _)) = declaration(program, cid) else { continue };
         let class = interner.resolve(program.class(cid).name).to_string();
         output.push((u, Diagnostic::com_codigo(c::NO_COMBINED_SUPER_SIGNATURE, n.span, [class.as_str(), explanation.as_str()])));
     }

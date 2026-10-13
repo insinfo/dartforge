@@ -135,7 +135,7 @@ pub struct TypeTable {
     /// same structure as the target (`get` returns the target's), outside
     /// hash-consing; they only exist with [`TypeTable::preservar_exibicao`] on
     /// (analysis: parity, LSP), never in compilation.
-    exibicao: HashMap<TypeId, Exibicao>,
+    display: HashMap<TypeId, Exibicao>,
     decorated: HashMap<(TypeId, Exibicao), TypeId>,
     canonical: HashMap<TypeId, TypeId>,
     /// Enables the creation of decorated types ([`TypeTable::decorate`]).
@@ -183,7 +183,7 @@ impl TypeTable {
             lookup: HashMap::with_capacity(1024),
             type_params: Vec::with_capacity(256),
             payload_bytes: 0,
-            exibicao: HashMap::new(),
+            display: HashMap::new(),
             decorated: HashMap::new(),
             canonical: HashMap::new(),
             preservar_exibicao: false,
@@ -206,7 +206,7 @@ impl TypeTable {
         let id = TypeId(self.types.len() as u32);
         let structure = self.types[c.0 as usize].clone();
         self.types.push(structure);
-        self.exibicao.insert(id, ex.clone());
+        self.display.insert(id, ex.clone());
         self.canonical.insert(id, c);
         self.decorated.insert((c, ex), id);
         id
@@ -264,15 +264,15 @@ impl TypeTable {
 
     /// Whether no decorated type was created.
     pub fn empty_display(&self) -> bool {
-        self.exibicao.is_empty()
+        self.display.is_empty()
     }
 
     /// The display decoration of `t`, if any.
     pub fn exibicao(&self, t: TypeId) -> Option<&Exibicao> {
-        if self.exibicao.is_empty() {
+        if self.display.is_empty() {
             return None;
         }
-        self.exibicao.get(&t)
+        self.display.get(&t)
     }
 
     /// Returns the number of unique types interned in the table.
@@ -457,15 +457,15 @@ impl TypeTable {
     /// messages: the `getDisplayString(preferTypeAlias: true)` with which the
     /// analyzer's `ErrorReporter` converts the argument types.
     pub fn format(&self, ty: TypeId, interner: &Interner, program: &Program) -> String {
-        self.formatar(ty, interner, program, true, &[])
+        self.format_with(ty, interner, program, true, &[])
     }
 
     /// `getDisplayString()` without the alias (`DartType.toString`).
     pub fn format_sem_alias(&self, ty: TypeId, interner: &Interner, program: &Program) -> String {
-        self.formatar(ty, interner, program, false, &[])
+        self.format_with(ty, interner, program, false, &[])
     }
 
-    fn formatar(&self, ty: TypeId, interner: &Interner, program: &Program, alias: bool, ren: &[(TypeParamId, String)]) -> String {
+    fn format_with(&self, ty: TypeId, interner: &Interner, program: &Program, alias: bool, ren: &[(TypeParamId, String)]) -> String {
         match self.exibicao(ty) {
             Some(Exibicao::NeverAnulavel) => return "Never?".to_string(),
             Some(Exibicao::Invalido) => return "InvalidType".to_string(),
@@ -475,7 +475,7 @@ impl TypeTable {
                 if args.is_empty() {
                     return format!("{the_name}{q}");
                 }
-                let a: Vec<String> = args.iter().map(|&x| self.formatar(x, interner, program, alias, ren)).collect();
+                let a: Vec<String> = args.iter().map(|&x| self.format_with(x, interner, program, alias, ren)).collect();
                 return format!("{the_name}<{}>{q}", a.join(", "));
             }
             _ => {}
@@ -498,7 +498,7 @@ impl TypeTable {
                 } else {
                     let formatted_args: Vec<String> = args
                         .iter()
-                        .map(|&a| self.formatar(a, interner, program, alias, ren))
+                        .map(|&a| self.format_with(a, interner, program, alias, ren))
                         .collect();
                     format!("{name}<{}>{q}", formatted_args.join(", "))
                 }
@@ -519,12 +519,12 @@ impl TypeTable {
                 let ren: &[(TypeParamId, String)] = &ren2;
                 let mut p_strs = Vec::new();
                 for &p in positional.iter() {
-                    p_strs.push(self.formatar(p, interner, program, alias, ren));
+                    p_strs.push(self.format_with(p, interner, program, alias, ren));
                 }
                 if !optional.is_empty() {
                     let opt_strs: Vec<String> = optional
                         .iter()
-                        .map(|&p| self.formatar(p, interner, program, alias, ren))
+                        .map(|&p| self.format_with(p, interner, program, alias, ren))
                         .collect();
                     p_strs.push(format!("[{}]", opt_strs.join(", ")));
                 }
@@ -538,12 +538,12 @@ impl TypeTable {
                         .into_iter()
                         .map(|(n, t, req)| {
                             let r = if *req { "required " } else { "" };
-                            format!("{r}{} {}", self.formatar(*t, interner, program, alias, ren), interner.resolve(*n))
+                            format!("{r}{} {}", self.format_with(*t, interner, program, alias, ren), interner.resolve(*n))
                         })
                         .collect();
                     p_strs.push(format!("{{{}}}", named_strs.join(", ")));
                 }
-                let ret_str = self.formatar(*ret, interner, program, alias, ren);
+                let ret_str = self.format_with(*ret, interner, program, alias, ren);
                 // Generic: `T Function<T>(T)`, with the bound when it is not `Object?`.
                 let tps = match t {
                     Type::Function { type_params, .. } if !type_params.is_empty() => {
@@ -559,7 +559,7 @@ impl TypeTable {
                                         the_name.to_string()
                                     }
                                     Type::Dynamic => the_name.to_string(),
-                                    _ => format!("{the_name} extends {}", self.formatar(d.bound, interner, program, alias, ren)),
+                                    _ => format!("{the_name} extends {}", self.format_with(d.bound, interner, program, alias, ren)),
                                 }
                             })
                             .collect();
@@ -577,7 +577,7 @@ impl TypeTable {
                 let q = if *nullable { "?" } else { "" };
                 let mut parts = Vec::new();
                 for &p in positional.iter() {
-                    parts.push(self.formatar(p, interner, program, alias, ren));
+                    parts.push(self.format_with(p, interner, program, alias, ren));
                 }
                 // Like the analyzer: named ones between braces, and `(int,)` with a
                 // single positional one.
@@ -587,7 +587,7 @@ impl TypeTable {
                     order.sort_by(|a, b| interner.resolve(a.0).cmp(interner.resolve(b.0)));
                     let named_args: Vec<String> = order
                         .into_iter()
-                        .map(|(n, t)| format!("{} {}", self.formatar(*t, interner, program, alias, ren), interner.resolve(*n)))
+                        .map(|(n, t)| format!("{} {}", self.format_with(*t, interner, program, alias, ren), interner.resolve(*n)))
                         .collect();
                     parts.push(format!("{{{}}}", named_args.join(", ")));
                 } else if positional.len() == 1 {
@@ -597,7 +597,7 @@ impl TypeTable {
             }
             Type::FutureOr { arg, nullable } => {
                 let q = if *nullable { "?" } else { "" };
-                format!("FutureOr<{}>{q}", self.formatar(*arg, interner, program, alias, ren))
+                format!("FutureOr<{}>{q}", self.format_with(*arg, interner, program, alias, ren))
             }
             Type::TypeParameter { param, nullable } => {
                 let q = if *nullable { "?" } else { "" };
@@ -613,7 +613,7 @@ impl TypeTable {
             Type::Intersection { param, bound } => {
                 // The promoted parameter uses the renamed name, when there is one.
                 let the_name = ren.iter().rev().find(|(p, _)| p == param).map(|(_, n)| n.as_str()).unwrap_or(interner.resolve(self.param(*param).name));
-                format!("{the_name} & {}", self.formatar(*bound, interner, program, alias, ren))
+                format!("{the_name} & {}", self.format_with(*bound, interner, program, alias, ren))
             }
             Type::ExtensionType {
                 decl,
@@ -627,7 +627,7 @@ impl TypeTable {
                 } else {
                     let formatted_args: Vec<String> = args
                         .iter()
-                        .map(|&a| self.formatar(a, interner, program, alias, ren))
+                        .map(|&a| self.format_with(a, interner, program, alias, ren))
                         .collect();
                     format!("{name}<{}>{q}", formatted_args.join(", "))
                 }

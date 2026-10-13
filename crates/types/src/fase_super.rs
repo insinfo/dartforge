@@ -92,7 +92,7 @@ fn annotated_above(program: &Program, interner: &Interner, class: ClassId, lib: 
 /// `lookUpConcrete…` starting from `start`: the class itself (with
 /// `with_itself`), its mixins from last to first, and so on along the
 /// superclass chain; the first non-abstract member of the requested kind.
-pub(crate) fn concreto(program: &Program, start: ClassId, with_itself: bool, key: SymbolId, lib: LibraryId, private: bool, method: bool) -> bool {
+pub(crate) fn the_concrete(program: &Program, start: ClassId, with_itself: bool, key: SymbolId, lib: LibraryId, private: bool, method: bool) -> bool {
     let serve = |c: ClassId| {
         let e = program.class(c);
         if private && e.library != lib {
@@ -216,17 +216,17 @@ pub fn sem_chamada_ao_super(program: &Program, interner: &Interner, lib: Library
                     .iter()
                     .chain(class.mixin_classes.iter())
                     .chain(class.on_classes.iter().filter(|_| class.kind == ClassKind::Mixin))
-                    .any(|c| concreto(program, *c, true, the_name.sym, lib, private, true)),
+                    .any(|c| the_concrete(program, *c, true, the_name.sym, lib, private, true)),
                 // `lookUpInheritedConcreteGetter` / `…Setter`.
                 FunctionKind::Getter => {
-                    concreto(program, cid, false, the_name.sym, lib, private, false)
+                    the_concrete(program, cid, false, the_name.sym, lib, private, false)
                         || (class.kind == ClassKind::Mixin
-                            && class.on_classes.iter().any(|c| concreto(program, *c, true, the_name.sym, lib, private, false)))
+                            && class.on_classes.iter().any(|c| the_concrete(program, *c, true, the_name.sym, lib, private, false)))
                 }
                 FunctionKind::Setter => setter_key.is_some_and(|k| {
-                    concreto(program, cid, false, k, lib, private, false)
+                    the_concrete(program, cid, false, k, lib, private, false)
                         || (class.kind == ClassKind::Mixin
-                            && class.on_classes.iter().any(|c| concreto(program, *c, true, k, lib, private, false)))
+                            && class.on_classes.iter().any(|c| the_concrete(program, *c, true, k, lib, private, false)))
                 }),
             };
             if !has_concrete {

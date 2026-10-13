@@ -35,7 +35,7 @@ impl<'a> BodyInferrer<'a> {
         bounds::down(a, b, &mut env)
     }
 
-    pub(crate) fn anulavel(&mut self, t: TypeId) -> TypeId {
+    pub(crate) fn nullable(&mut self, t: TypeId) -> TypeId {
         nullable(t, self.table)
     }
 
@@ -66,7 +66,7 @@ impl<'a> BodyInferrer<'a> {
     }
 
     /// **BOTTOM**(`t`).
-    pub(crate) fn e_fundo(&mut self, t: TypeId) -> bool {
+    pub(crate) fn is_bottom(&mut self, t: TypeId) -> bool {
         let env = self.env();
         bounds::is_bottom(t, &env)
     }
@@ -93,7 +93,7 @@ impl<'a> BodyInferrer<'a> {
         }
     }
 
-    pub(crate) fn futuro(&mut self, t: TypeId) -> TypeId {
+    pub(crate) fn future(&mut self, t: TypeId) -> TypeId {
         let c = self.core.future_class;
         self.iface(c, vec![t])
     }
@@ -112,12 +112,12 @@ impl<'a> BodyInferrer<'a> {
         self.iface(c, vec![t])
     }
 
-    pub(crate) fn lista(&mut self, t: TypeId) -> TypeId {
+    pub(crate) fn list(&mut self, t: TypeId) -> TypeId {
         let c = self.core.list_class;
         self.iface(c, vec![t])
     }
 
-    pub(crate) fn conjunto(&mut self, t: TypeId) -> TypeId {
+    pub(crate) fn set(&mut self, t: TypeId) -> TypeId {
         let c = self.core.set_class;
         self.iface(c, vec![t])
     }
@@ -180,7 +180,7 @@ impl<'a> BodyInferrer<'a> {
             },
             Type::FutureOr { arg, nullable: n } => {
                 if n {
-                    self.anulavel(arg)
+                    self.nullable(arg)
                 } else {
                     arg
                 }
@@ -188,7 +188,7 @@ impl<'a> BodyInferrer<'a> {
             ty if ty.is_declared_nullable() => {
                 let s = self.non_null(t);
                 let f = self.flatten(s);
-                self.anulavel(f)
+                self.nullable(f)
             }
             Type::TypeParameter { param, .. } if param != self.core.unknown_param => {
                 let b = self.table.param(param).bound;
@@ -223,18 +223,18 @@ impl<'a> BodyInferrer<'a> {
 
     /// Assignable: subtype, `dynamic` (implicit cast) or coercion through
     /// `call`.
-    pub(crate) fn atribuivel(&mut self, of: TypeId, for_: TypeId) -> bool {
+    pub(crate) fn assignable(&mut self, of: TypeId, for_: TypeId) -> bool {
         if self.e_dynamic(of) || self.sub(of, for_) {
             return true;
         }
         if matches!(self.table.get(of), Type::Interface { .. }) {
             if let Some(call) = self.sym.call {
                 if let Some(m) = self.interface_member(of, call, false) {
-                    if m.metodo {
+                    if m.method {
                         // The `ImplicitCallReference` and, the `call` being generic, the
                         // instantiation from the context (`insertGenericFunctionInstantiation`,
                         // INFERENCIA §8.4).
-                        let t = self.instantiate_function_from_context(m.tipo, for_);
+                        let t = self.instantiate_function_from_context(m.ty, for_);
                         return self.sub(t, for_);
                     }
                 }
@@ -278,7 +278,7 @@ impl<'a> BodyInferrer<'a> {
         }
         let call = self.sym.call?;
         let m = self.interface_member(of, call, false)?;
-        m.metodo.then_some(m.tipo)
+        m.method.then_some(m.ty)
     }
 
     /// The class's `this` type (arguments = its own parameters).
@@ -318,7 +318,7 @@ impl<'a> BodyInferrer<'a> {
             })
             .collect();
         let types: Vec<TypeId> = new_.iter().map(|&p| self.table.intern(Type::TypeParameter { param: p, nullable: false })).collect();
-        let map = self.mapa(original, &types);
+        let map = self.map(original, &types);
         for (&p, &o) in new_.iter().zip(original) {
             let b = self.table.param(p).bound;
             let b = self.subst(b, &map);
@@ -330,7 +330,7 @@ impl<'a> BodyInferrer<'a> {
     }
 
     /// Substitution map `params → args`.
-    pub(crate) fn mapa(&self, params: &[TypeParamId], args: &[TypeId]) -> HashMap<TypeParamId, TypeId> {
+    pub(crate) fn map(&self, params: &[TypeParamId], args: &[TypeId]) -> HashMap<TypeParamId, TypeId> {
         params.iter().copied().zip(args.iter().copied()).collect()
     }
 
@@ -345,7 +345,7 @@ impl<'a> BodyInferrer<'a> {
         let unit = cx.unit;
         let lib = cx.lib;
         let scope = cx.visible_type_parameters();
-        let before = std::mem::replace(&mut self.type_container, (cx.classe, cx.extensao));
+        let before = std::mem::replace(&mut self.type_container, (cx.class, cx.extension));
         let static_before = std::mem::replace(&mut self.in_static_member, cx.static_member);
         let locals = cx.visible_locals(self.interner);
         let locals_before = std::mem::replace(&mut self.locals_as_type, locals);
@@ -441,7 +441,7 @@ impl<'a> BodyInferrer<'a> {
                             );
                         }
                         let tp = self.table.intern(Type::TypeParameter { param: pid, nullable: false });
-                        return if is_nullable { self.anulavel(tp) } else { tp };
+                        return if is_nullable { self.nullable(tp) } else { tp };
                     }
                     // A local (variable or local function) with that name in the body's
                     // scope: the type's element is it.
@@ -539,7 +539,7 @@ impl<'a> BodyInferrer<'a> {
                         } else {
                             self.instantiate_to_bounds(&data.type_params)
                         };
-                        let map = self.mapa(&data.type_params, &args);
+                        let map = self.map(&data.type_params, &args);
                         let r = self.subst(data.target_type, &map);
                         self.table.decorate(r, crate::table::Exibicao::Alias { typedef: tid, args: args.into_boxed_slice() })
                     }
@@ -591,7 +591,7 @@ impl<'a> BodyInferrer<'a> {
                     Some(r) => self.resolve_annotation(unit, lib, *r, &local),
                     None => self.core.dynamic_,
                 };
-                let (pos, opt, named) = self.tipos_de_parametros(unit, lib, parameters, &local);
+                let (pos, opt, named) = self.parameter_types(unit, lib, parameters, &local);
                 self.table.intern(Type::Function {
                     type_params: tps.into_boxed_slice(),
                     ret,
@@ -610,7 +610,7 @@ impl<'a> BodyInferrer<'a> {
             }
         };
         if is_nullable {
-            self.anulavel(r)
+            self.nullable(r)
         } else {
             r
         }
@@ -672,7 +672,7 @@ impl<'a> BodyInferrer<'a> {
     }
 
     /// Types (positional, optional, named) of a written parameter list.
-    pub(crate) fn tipos_de_parametros(
+    pub(crate) fn parameter_types(
         &mut self,
         unit: UnitId,
         lib: dartforge_elements::model::LibraryId,
@@ -723,7 +723,7 @@ impl<'a> BodyInferrer<'a> {
                 Some(r) => self.resolve_annotation(unit, lib, r, &local),
                 None => self.core.dynamic_,
             };
-            let (pos, opt, named) = self.tipos_de_parametros(unit, lib, fps, &local);
+            let (pos, opt, named) = self.parameter_types(unit, lib, fps, &local);
             let f = self.table.intern(Type::Function {
                 type_params: tps.into_boxed_slice(),
                 ret,

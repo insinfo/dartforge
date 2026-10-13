@@ -40,7 +40,7 @@ enum V {
 }
 
 impl V {
-    fn de(bits: u8) -> V {
+    fn of(bits: u8) -> V {
         match bits {
             0 => V::Unrelated,
             1 => V::Covariant,
@@ -64,7 +64,7 @@ impl V {
     }
 
     fn meet(self, o: V) -> V {
-        V::de(self as u8 | o as u8)
+        V::of(self as u8 | o as u8)
     }
 
     fn greater_or_equal(self, o: V) -> bool {
@@ -76,7 +76,7 @@ impl V {
         }
     }
 
-    fn palavra(self) -> &'static str {
+    fn keyword(self) -> &'static str {
         match self {
             V::Unrelated => "",
             V::Covariant => "out",
@@ -215,7 +215,7 @@ pub fn variancia(
                 diags.push(Diagnostic::com_codigo(
                     c::WRONG_TYPE_PARAMETER_VARIANCE_POSITION,
                     span,
-                    [d.palavra(), name, v.palavra()],
+                    [d.keyword(), name, v.keyword()],
                 ));
             }
         };
@@ -349,7 +349,7 @@ pub fn variancia(
                     diags.push(Diagnostic::com_codigo(
                         c::WRONG_EXPLICIT_TYPE_PARAMETER_VARIANCE_IN_SUPERINTERFACE,
                         tp.name.span,
-                        [name, d.palavra(), v.palavra(), displayed.as_str()],
+                        [name, d.keyword(), v.keyword(), displayed.as_str()],
                     ));
                 }
             }
@@ -362,32 +362,32 @@ pub fn variancia(
 /// The variance of `NonCovariantTypeParameterPositionVisitor`
 /// (`analyzer/lib/src/dart/element/non_covariant_type_parameter_position.dart`).
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Posicao {
+enum Position {
     CovariantPos,
     ContravariantPos,
     InvariantPos,
 }
 
-impl Posicao {
+impl Position {
     /// `Variance.combine`.
-    fn the_with(self, other: Posicao) -> Posicao {
-        if self == Posicao::InvariantPos || other == Posicao::InvariantPos {
-            Posicao::InvariantPos
+    fn the_with(self, other: Position) -> Position {
+        if self == Position::InvariantPos || other == Position::InvariantPos {
+            Position::InvariantPos
         } else if self == other {
-            Posicao::CovariantPos
+            Position::CovariantPos
         } else {
-            Posicao::ContravariantPos
+            Position::ContravariantPos
         }
     }
 }
 
 /// The type parameter `x` appears in `t` in a non-covariant position.
-fn in_non_covariant_position(table: &TypeTable, x: TypeParamId, t: TypeId, v: Posicao, prof: u32) -> bool {
+fn in_non_covariant_position(table: &TypeTable, x: TypeParamId, t: TypeId, v: Position, prof: u32) -> bool {
     if prof > 64 {
         return false;
     }
     match table.get(t) {
-        Type::TypeParameter { param, .. } => v != Posicao::CovariantPos && *param == x,
+        Type::TypeParameter { param, .. } => v != Position::CovariantPos && *param == x,
         Type::Interface { args, .. } | Type::ExtensionType { args, .. } => args.iter().any(|a| in_non_covariant_position(table, x, *a, v, prof + 1)),
         Type::FutureOr { arg, .. } => in_non_covariant_position(table, x, *arg, v, prof + 1),
         Type::Record { positional, named, .. } => {
@@ -401,11 +401,11 @@ fn in_non_covariant_position(table: &TypeTable, x: TypeParamId, t: TypeId, v: Po
             // The written bounds of the function's type parameters: invariant.
             for tp in type_params.iter() {
                 let d = table.param(*tp);
-                if d.explicito && in_non_covariant_position(table, x, d.bound, Posicao::InvariantPos, prof + 1) {
+                if d.explicito && in_non_covariant_position(table, x, d.bound, Position::InvariantPos, prof + 1) {
                     return true;
                 }
             }
-            let against = v.the_with(Posicao::ContravariantPos);
+            let against = v.the_with(Position::ContravariantPos);
             positional.iter().chain(optional.iter()).any(|a| in_non_covariant_position(table, x, *a, against, prof + 1))
                 || named.iter().any(|(_, a, _)| in_non_covariant_position(table, x, *a, against, prof + 1))
         }
@@ -429,7 +429,7 @@ pub fn posicoes_nao_covariantes_na_representacao(program: &Program, table: &Type
         let a = &program.unit(d.unit).ast;
         let DeclKind::ExtensionType(x) = &a.decl(d.decl).kind else { continue };
         for (tp, &pid) in x.type_params.iter().zip(formals.iter()) {
-            if in_non_covariant_position(table, pid, t, Posicao::CovariantPos, 0) {
+            if in_non_covariant_position(table, pid, t, Position::CovariantPos, 0) {
                 let start = tp.metadata.first().map_or(tp.span.start, |m| m.span.start.min(tp.span.start));
                 let sp = Span { start: start, end: tp.span.end };
                 output.push((d.unit, Diagnostic::com_codigo(c::NON_COVARIANT_TYPE_PARAMETER_POSITION_IN_REPRESENTATION_TYPE, sp, std::iter::empty::<&str>())));

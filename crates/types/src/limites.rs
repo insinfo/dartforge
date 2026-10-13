@@ -31,7 +31,7 @@ use std::collections::{HashMap, HashSet};
 /// Variance of a position (the analyzer's `Variance`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Variance_ {
-    Nenhuma,
+    None_,
     Co,
     Contra,
     In,
@@ -39,10 +39,10 @@ enum Variance_ {
 
 impl Variance_ {
     /// `Variance.combine`: the sign of a position inside another.
-    fn combinar(self, other: Variance_) -> Variance_ {
+    fn combine(self, other: Variance_) -> Variance_ {
         use Variance_::*;
         match (self, other) {
-            (Nenhuma, _) | (_, Nenhuma) => Nenhuma,
+            (None_, _) | (_, None_) => None_,
             (In, _) | (_, In) => In,
             (a, b) if a == b => Co,
             _ => Contra,
@@ -50,10 +50,10 @@ impl Variance_ {
     }
 
     /// `Variance.meet`: two occurrences of the same parameter.
-    fn juntar(self, other: Variance_) -> Variance_ {
+    fn join(self, other: Variance_) -> Variance_ {
         use Variance_::*;
         match (self, other) {
-            (Nenhuma, x) | (x, Nenhuma) => x,
+            (None_, x) | (x, None_) => x,
             (a, b) if a == b => a,
             _ => In,
         }
@@ -62,9 +62,9 @@ impl Variance_ {
 
 /// The element of a named type and its arguments.
 struct Parts {
-    nome: String,
+    name: String,
     params: Vec<TypeParamId>,
-    tipos: Vec<TypeId>,
+    types: Vec<TypeId>,
     of_extension: bool,
     /// The alias target (the variances of the parameters in the inversion).
     alias_target: Option<TypeId>,
@@ -80,7 +80,7 @@ struct Verifier<'a> {
     /// Names of type parameters declared somewhere in the unit.
     parameter_names: HashSet<SymbolId>,
     /// The resolved types of the unit's bodies.
-    corpo: Option<&'a crate::resolved::UnitBodyTypes>,
+    body: Option<&'a crate::resolved::UnitBodyTypes>,
 }
 
 /// The `type_argument_not_matching_bounds` of the written types in a unit.
@@ -94,7 +94,7 @@ pub fn argumentos_fora_dos_limites(
     unit: UnitId,
 ) -> Vec<Diagnostic> {
     let a = &program.unit(unit).ast;
-    let mut v = Verifier { program, interner, table, core, outline, unit, parameter_names: HashSet::new(), corpo: body };
+    let mut v = Verifier { program, interner, table, core, outline, unit, parameter_names: HashSet::new(), body };
     v.parameter_names = parameter_names(a, &program.unit(unit).unit);
     let without_super = without_super_bound(a, &program.unit(unit).unit);
     // A creation without written arguments is checked with the inferred
@@ -116,8 +116,8 @@ pub fn argumentos_fora_dos_limites(
             }
             let super_allowed = !without_super.contains(&id);
             match v.registered(id) {
-                Some(r) => v.conferir_tipo(r, t.span, args, super_allowed, &mut out),
-                None if !args.is_empty() => v.conferir(t.span, name, args, super_allowed, &mut out),
+                Some(r) => v.check_type(r, t.span, args, super_allowed, &mut out),
+                None if !args.is_empty() => v.check(t.span, name, args, super_allowed, &mut out),
                 None => {}
             }
         }
@@ -152,7 +152,7 @@ fn swap_top_and_bottom(v: &mut Verifier<'_>, t: TypeId, va: Variance_) -> TypeId
             let mut new_ = Vec::with_capacity(args.len());
             for (&x, &p) in args.iter().zip(params.iter()) {
                 let vp = variance_in(v.table, tgt, p, Variance_::Co);
-                new_.push(swap_top_and_bottom(v, x, vp.combinar(va)));
+                new_.push(swap_top_and_bottom(v, x, vp.combine(va)));
             }
             let r = v.subst(tgt, &params, &new_);
             let r = if is_nullable { crate::ops::nullable(r, v.table) } else { r };
@@ -174,7 +174,7 @@ fn swap_top_and_bottom(v: &mut Verifier<'_>, t: TypeId, va: Variance_) -> TypeId
         }
         Type::Function { type_params, ret, positional, optional, named, nullable } => {
             let ret = swap_top_and_bottom(v, ret, va);
-            let against = va.combinar(Variance_::Contra);
+            let against = va.combine(Variance_::Contra);
             let positional: Vec<TypeId> = positional.iter().map(|&x| swap_top_and_bottom(v, x, against)).collect();
             let optional: Vec<TypeId> = optional.iter().map(|&x| swap_top_and_bottom(v, x, against)).collect();
             let named: Vec<(SymbolId, TypeId, bool)> = named.iter().map(|&(n, x, r)| (n, swap_top_and_bottom(v, x, against), r)).collect();
@@ -223,7 +223,7 @@ pub fn enum_instanciado_aos_limites(
             continue;
         }
         let args = crate::ops::instantiate_to_bounds(&params, &[], table, core);
-        let mut v = Verifier { program, interner, table: &mut *table, core, outline, unit: d.unit, parameter_names: HashSet::new(), corpo: None };
+        let mut v = Verifier { program, interner, table: &mut *table, core, outline, unit: d.unit, parameter_names: HashSet::new(), body: None };
         let inverted: Vec<TypeId> = args.iter().map(|&t| swap_top_and_bottom(&mut v, t, Variance_::Co)).collect();
         let mut well_bounded = true;
         for (k, &p) in params.iter().enumerate() {
@@ -260,7 +260,7 @@ pub fn argumentos_inferidos_fora_dos_limites(
     unit: UnitId,
 ) -> Vec<Diagnostic> {
     let a = &program.unit(unit).ast;
-    let mut v = Verifier { program, interner, table, core, outline, unit, parameter_names: HashSet::new(), corpo: Some(body) };
+    let mut v = Verifier { program, interner, table, core, outline, unit, parameter_names: HashSet::new(), body: Some(body) };
     let mut out = Vec::new();
     for (i, e) in a.exprs.iter().enumerate() {
         let id = ast::ExprId(i as u32);
@@ -303,9 +303,9 @@ pub fn argumentos_inferidos_fora_dos_limites(
             let bnd = v.table.param(p).bound;
             let bnd = v.subst(bnd, &params, &types);
             if !v.sub(types[i], bnd) {
-                let ta = v.formatar(types[i]);
+                let ta = v.format(types[i]);
                 let the_name = interner.resolve(v.table.param(p).name).to_string();
-                let l = v.formatar(bnd);
+                let l = v.format(bnd);
                 out.push(Diagnostic::com_codigo(c::TYPE_ARGUMENT_NOT_MATCHING_BOUNDS, span, [ta.as_str(), the_name.as_str(), l.as_str()]));
             }
         }
@@ -333,7 +333,7 @@ impl Verifier<'_> {
         crate::ops::substitute(t, &map, self.table)
     }
 
-    fn formatar(&self, t: TypeId) -> String {
+    fn format(&self, t: TypeId) -> String {
         self.table.format(t, self.interner, self.program)
     }
 
@@ -342,13 +342,13 @@ impl Verifier<'_> {
         self.outline
             .tipos_escritos
             .get(&(self.unit, t))
-            .or_else(|| self.corpo.and_then(|c| c.tipos_de_anotacoes.get(&t)))
+            .or_else(|| self.body.and_then(|c| c.tipos_de_anotacoes.get(&t)))
             .copied()
     }
 
     /// The type of a written argument: the recorded one, or the one resolved
     /// here.
-    fn tipo_do_no(&mut self, t: ast::TypeId) -> Option<TypeId> {
+    fn node_type(&mut self, t: ast::TypeId) -> Option<TypeId> {
         match self.registered(t) {
             Some(r) => Some(r),
             None => self.resolver(t),
@@ -358,11 +358,11 @@ impl Verifier<'_> {
     /// `_checkForTypeArgumentNotMatchingBounds` over the resolved type `t` of a
     /// `NamedType` with range `typ`, with the written arguments `written_ones`
     /// (empty: raw type).
-    fn conferir_tipo(&mut self, t: TypeId, typ: Span, written_ones: &[ast::TypeId], super_allowed: bool, out: &mut Vec<Diagnostic>) {
+    fn check_type(&mut self, t: TypeId, typ: Span, written_ones: &[ast::TypeId], super_allowed: bool, out: &mut Vec<Diagnostic>) {
         if self.table.e_invalido(t) {
             return;
         }
-        let Some(parts) = self.partes(t) else { return };
+        let Some(parts) = self.parts(t) else { return };
         self.check_parts(t, parts, typ, written_ones, super_allowed, out);
     }
 
@@ -370,7 +370,7 @@ impl Verifier<'_> {
     /// built here, which without the display decoration does not keep the
     /// alias).
     fn check_parts(&mut self, t: TypeId, parts: Parts, typ: Span, written_ones: &[ast::TypeId], super_allowed: bool, out: &mut Vec<Diagnostic>) {
-        let Parts { nome: the_name, params, tipos: types, of_extension, alias_target } = parts;
+        let Parts { name: the_name, params, types, of_extension, alias_target } = parts;
         if params.is_empty() || params.len() != types.len() {
             return;
         }
@@ -388,7 +388,7 @@ impl Verifier<'_> {
         if problems.is_empty() {
             return;
         }
-        let list = |v: &mut Self, xs: &[TypeId]| xs.iter().map(|&x| v.formatar(x)).collect::<Vec<_>>().join(", ");
+        let list = |v: &mut Self, xs: &[TypeId]| xs.iter().map(|&x| v.format(x)).collect::<Vec<_>>().join(", ");
         let mut context: Vec<String> = Vec::new();
         if written_ones.is_empty() {
             context.push(format!("The raw type was instantiated as '{the_name}<{}>', and is not regular-bounded.", list(self, &types)));
@@ -409,7 +409,7 @@ impl Verifier<'_> {
         let mut inv = Vec::with_capacity(types.len());
         for (&x, &p) in types.iter().zip(params.iter()) {
             let va = match alias_target {
-                Some(tgt) => variance_in(self.table, tgt, p, Variance_::Co).combinar(Variance_::Co),
+                Some(tgt) => variance_in(self.table, tgt, p, Variance_::Co).combine(Variance_::Co),
                 None => Variance_::Co,
             };
             inv.push(swap_top_and_bottom(self, x, va));
@@ -430,7 +430,7 @@ impl Verifier<'_> {
     /// The element name, the parameters and the type arguments of `t`
     /// (`type.alias` before `InterfaceType`), and whether it is an extension
     /// type.
-    fn partes(&self, t: TypeId) -> Option<Parts> {
+    fn parts(&self, t: TypeId) -> Option<Parts> {
         if let Some(crate::table::Exibicao::Alias { typedef, args }) = self.table.exibicao(t) {
             return Some(self.alias_parts(*typedef, args.to_vec(), t));
         }
@@ -445,9 +445,9 @@ impl Verifier<'_> {
     fn alias_parts(&self, typedef: dartforge_elements::model::TypedefId, types: Vec<TypeId>, t: TypeId) -> Parts {
         let d = &self.outline.typedefs[typedef.0 as usize];
         Parts {
-            nome: self.interner.resolve(self.program.typedef(typedef).name).to_string(),
+            name: self.interner.resolve(self.program.typedef(typedef).name).to_string(),
             params: d.type_params.to_vec(),
-            tipos: types,
+            types,
             of_extension: matches!(self.table.get(t), Type::ExtensionType { .. }),
             alias_target: Some(d.target_type),
         }
@@ -455,9 +455,9 @@ impl Verifier<'_> {
 
     fn class_parts(&self, c: dartforge_elements::model::ClassId, types: Vec<TypeId>) -> Parts {
         Parts {
-            nome: self.interner.resolve(self.program.class(c).name).to_string(),
+            name: self.interner.resolve(self.program.class(c).name).to_string(),
             params: self.outline.classes[c.0 as usize].type_params.to_vec(),
-            tipos: types,
+            types,
             of_extension: self.program.class(c).kind == dartforge_elements::model::ClassKind::ExtensionType,
             alias_target: None,
         }
@@ -474,9 +474,9 @@ impl Verifier<'_> {
         out: &mut Vec<Diagnostic>,
     ) {
         let span = no.map(|x| self.ast().ty(x).span).unwrap_or(typ);
-        let a = self.formatar(arg);
+        let a = self.format(arg);
         let the_name = self.interner.resolve(self.table.param(p).name).to_string();
-        let l = self.formatar(bnd);
+        let l = self.format(bnd);
         let mut d = Diagnostic::com_codigo(c::TYPE_ARGUMENT_NOT_MATCHING_BOUNDS, span, [a.as_str(), the_name.as_str(), l.as_str()]);
         for m in context {
             d.contexto.push(dartforge_diagnostics::Contexto { arquivo: None, span: typ, mensagem: m.as_str().into() });
@@ -489,7 +489,7 @@ impl Verifier<'_> {
     /// and the creation `C<T>()` without `new` (`ConstructorName`: does not
     /// accept).
     fn expression_named_types(&mut self, out: &mut Vec<Diagnostic>) {
-        let Some(body) = self.corpo else { return };
+        let Some(body) = self.body else { return };
         let a = &self.program.unit(self.unit).ast;
         // The `C<T>` that are the target of `.the_name`.
         let mut of_constructor: HashSet<ast::ExprId> = HashSet::new();
@@ -539,18 +539,18 @@ impl Verifier<'_> {
                 continue;
             }
             let Some(el) = el else { continue };
-            let Some((params, alias_target)) = self.parametros(el) else { continue };
+            let Some((params, alias_target)) = self.parameters(el) else { continue };
             if params.len() != written_ones.len() || params.is_empty() {
                 continue;
             }
-            let Some(types) = written_ones.iter().map(|&x| self.tipo_do_no(x)).collect::<Option<Vec<TypeId>>>() else { continue };
+            let Some(types) = written_ones.iter().map(|&x| self.node_type(x)).collect::<Option<Vec<TypeId>>>() else { continue };
             let Some((t, parts)) = self.assemble(el, alias_target, &params, types) else { continue };
             self.check_parts(t, parts, span, &written_ones, super_allowed, out);
         }
     }
 
     /// The element that the written name designates in the unit's scope.
-    fn elemento(&self, name: &[ast::Name]) -> Option<Element> {
+    fn element(&self, name: &[ast::Name]) -> Option<Element> {
         if name.iter().any(|n| self.parameter_names.contains(&n.sym)) {
             return None;
         }
@@ -566,7 +566,7 @@ impl Verifier<'_> {
     }
 
     /// Type parameters (and the target, if an alias) of the generic element.
-    fn parametros(&self, el: Element) -> Option<(Vec<TypeParamId>, Option<TypeId>)> {
+    fn parameters(&self, el: Element) -> Option<(Vec<TypeParamId>, Option<TypeId>)> {
         match el {
             Element::Class(c) => Some((self.outline.classes[c.0 as usize].type_params.to_vec(), None)),
             Element::Typedef(t) => {
@@ -585,18 +585,18 @@ impl Verifier<'_> {
     /// A `NamedType` with written arguments that no resolution recorded: the
     /// element through the unit's scope (`Tipo.constructor` by the first name)
     /// and the arguments recorded or resolved here.
-    fn conferir(&mut self, typ: Span, name: &[ast::Name], args: &[ast::TypeId], super_allowed: bool, out: &mut Vec<Diagnostic>) {
-        let el = match self.elemento(name) {
+    fn check(&mut self, typ: Span, name: &[ast::Name], args: &[ast::TypeId], super_allowed: bool, out: &mut Vec<Diagnostic>) {
+        let el = match self.element(name) {
             Some(el) => Some(el),
-            None if name.len() == 2 => self.elemento(&name[..1]),
+            None if name.len() == 2 => self.element(&name[..1]),
             None => None,
         };
         let Some(el) = el else { return };
-        let Some((params, tgt)) = self.parametros(el) else { return };
+        let Some((params, tgt)) = self.parameters(el) else { return };
         if params.len() != args.len() || params.is_empty() {
             return;
         }
-        let Some(types) = args.iter().map(|&x| self.tipo_do_no(x)).collect::<Option<Vec<TypeId>>>() else { return };
+        let Some(types) = args.iter().map(|&x| self.node_type(x)).collect::<Option<Vec<TypeId>>>() else { return };
         let Some((t, parts)) = self.assemble(el, tgt, &params, types) else { return };
         self.check_parts(t, parts, typ, args, super_allowed, out);
     }
@@ -644,7 +644,7 @@ impl Verifier<'_> {
                         _ => {}
                     }
                 }
-                let el = self.elemento(&name)?;
+                let el = self.element(&name)?;
                 let types = args.iter().map(|&x| self.resolver(x)).collect::<Option<Vec<TypeId>>>()?;
                 match el {
                     Element::Class(cid) => {
@@ -742,38 +742,38 @@ fn variance_in(table: &TypeTable, t: TypeId, p: TypeParamId, va: Variance_) -> V
     match table.get(t) {
         Type::TypeParameter { param, .. } if *param == p => va,
         Type::Interface { args, .. } | Type::ExtensionType { args, .. } => {
-            args.iter().fold(Variance_::Nenhuma, |acc, &a| acc.juntar(variance_in(table, a, p, va)))
+            args.iter().fold(Variance_::None_, |acc, &a| acc.join(variance_in(table, a, p, va)))
         }
         Type::FutureOr { arg, .. } => variance_in(table, *arg, p, va),
         Type::Function { type_params, ret, positional, optional, named, .. } => {
-            let against = va.combinar(Variance_::Contra);
+            let against = va.combine(Variance_::Contra);
             let mut v = variance_in(table, *ret, p, va);
             for &x in positional.iter().chain(optional.iter()) {
-                v = v.juntar(variance_in(table, x, p, against));
+                v = v.join(variance_in(table, x, p, against));
             }
             for (_, x, _) in named.iter() {
-                v = v.juntar(variance_in(table, *x, p, against));
+                v = v.join(variance_in(table, *x, p, against));
             }
             // In the bounds of the function's type parameters: invariant.
             for &tp in type_params.iter() {
-                if variance_in(table, table.param(tp).bound, p, va) != Variance_::Nenhuma {
-                    v = v.juntar(Variance_::In);
+                if variance_in(table, table.param(tp).bound, p, va) != Variance_::None_ {
+                    v = v.join(Variance_::In);
                 }
             }
             v
         }
         Type::Record { positional, named, .. } => {
-            let mut v = Variance_::Nenhuma;
+            let mut v = Variance_::None_;
             for &x in positional.iter() {
-                v = v.juntar(variance_in(table, x, p, va));
+                v = v.join(variance_in(table, x, p, va));
             }
             for (_, x) in named.iter() {
-                v = v.juntar(variance_in(table, *x, p, va));
+                v = v.join(variance_in(table, *x, p, va));
             }
             v
         }
         Type::Intersection { bound, .. } => variance_in(table, *bound, p, va),
-        _ => Variance_::Nenhuma,
+        _ => Variance_::None_,
     }
 }
 

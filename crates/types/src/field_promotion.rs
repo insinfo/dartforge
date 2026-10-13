@@ -21,7 +21,7 @@ use std::collections::{HashMap, HashSet};
 #[derive(Debug, Default, Clone)]
 pub struct NonPromotionInfo {
     /// Non-final or `external` fields (`conflictingFields`).
-    pub campos: Vec<VariableId>,
+    pub fields: Vec<VariableId>,
     /// Getters concretos (`conflictingGetters`).
     pub getters: Vec<FunctionElementId>,
     /// Concrete classes with a `noSuchMethod` forwarder
@@ -131,7 +131,7 @@ fn abstract_field(program: &Program, v: VariableId) -> bool {
 }
 
 /// `_FieldPromotability.perform` for a library.
-pub fn calcular(program: &Program, interner: &Interner, lib: LibraryId) -> LibraryPromotion {
+pub fn compute(program: &Program, interner: &Interner, lib: LibraryId) -> LibraryPromotion {
     let the_enabled = enabled(program, lib);
     let mut info: HashMap<SymbolId, NonPromotionInfo> = HashMap::new();
     let mut interface: HashMap<ClassId, HashSet<SymbolId>> = HashMap::new();
@@ -164,7 +164,7 @@ pub fn calcular(program: &Program, interner: &Interner, lib: LibraryId) -> Libra
                     implemented.get_mut(&c).unwrap().insert(ve.name);
                 }
                 if ve.external || !ve.final_ {
-                    info.entry(ve.name).or_default().campos.push(v);
+                    info.entry(ve.name).or_default().fields.push(v);
                 } else if the_enabled {
                     possible_fields.push(v);
                 }

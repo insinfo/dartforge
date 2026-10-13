@@ -17,32 +17,32 @@ use dartforge_frontend::ast::{self, DeclKind, ExprKind, ForInTarget, ForInit, Fu
 use dartforge_intern::{Interner, SymbolId};
 
 /// The names declared by a pattern (its variables).
-fn variaveis_do_padrao(a: &ast::Ast, p: PatternId, output: &mut Vec<ast::Name>) {
+fn pattern_variables(a: &ast::Ast, p: PatternId, output: &mut Vec<ast::Name>) {
     match &a.pattern(p).kind {
         PatternKind::Variable { name, .. } => output.push(*name),
         PatternKind::Or(l, r) | PatternKind::And(l, r) => {
-            variaveis_do_padrao(a, *l, output);
-            variaveis_do_padrao(a, *r, output);
+            pattern_variables(a, *l, output);
+            pattern_variables(a, *r, output);
         }
         PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) | PatternKind::Cast { pattern: x, .. } => {
-            variaveis_do_padrao(a, *x, output)
+            pattern_variables(a, *x, output)
         }
         PatternKind::List { elements, .. } => {
             for e in elements.iter() {
                 match e {
-                    ast::ListPatternElement::Pattern(x) | ast::ListPatternElement::Rest(Some(x)) => variaveis_do_padrao(a, *x, output),
+                    ast::ListPatternElement::Pattern(x) | ast::ListPatternElement::Rest(Some(x)) => pattern_variables(a, *x, output),
                     ast::ListPatternElement::Rest(None) => {}
                 }
             }
         }
         PatternKind::Map { entries, .. } => {
             for e in entries.iter() {
-                variaveis_do_padrao(a, e.value, output);
+                pattern_variables(a, e.value, output);
             }
         }
         PatternKind::Record { fields } | PatternKind::Object { fields, .. } => {
             for f in fields.iter() {
-                variaveis_do_padrao(a, f.pattern, output);
+                pattern_variables(a, f.pattern, output);
             }
         }
         _ => {}
@@ -54,7 +54,7 @@ fn variaveis_do_padrao(a: &ast::Ast, p: PatternId, output: &mut Vec<ast::Name>) 
 /// constant, not a variable.
 fn declared_in_pattern(a: &ast::Ast, p: PatternId, refutable: bool, output: &mut Vec<ast::Name>) {
     let mut all: Vec<ast::Name> = Vec::new();
-    variaveis_do_padrao(a, p, &mut all);
+    pattern_variables(a, p, &mut all);
     if !refutable {
         output.extend(all);
         return;
@@ -398,16 +398,16 @@ pub enum InvokedElement {
     Construtor(dartforge_elements::model::ClassId, dartforge_elements::model::FunctionElementId),
     Classe(dartforge_elements::model::ClassId),
     Getter(dartforge_elements::model::FunctionElementId),
-    Outro,
+    Other,
 }
 
 /// The [`InvokedElement`] of annotation `m`, written in unit `u`.
 pub fn invoked_element(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation) -> InvokedElement {
     use dartforge_elements::model::FunctionKind;
     let a = &program.unit(u).ast;
-    let Some(first) = m.name.first() else { return InvokedElement::Outro };
+    let Some(first) = m.name.first() else { return InvokedElement::Other };
     if sombreado(a, interner, m.span.start, first.sym) {
-        return InvokedElement::Outro;
+        return InvokedElement::Other;
     }
     let (tgt, member) = match &m.name[..] {
         [c] => (program.lookup_na_unidade(u, c.sym).and_then(|b| b.getter), None),
@@ -425,32 +425,32 @@ pub fn invoked_element(program: &Program, interner: &Interner, u: UnitId, m: &as
             FunctionKind::ImplicitAccessor => e.variable.is_some_and(|v| program.variable(v).getter == Some(f)),
             _ => false,
         };
-        if e_getter { InvokedElement::Getter(f) } else { InvokedElement::Outro }
+        if e_getter { InvokedElement::Getter(f) } else { InvokedElement::Other }
     };
     match (tgt, m.arguments.is_some(), member) {
         (Some(Element::Class(c)), true, _) => {
             let the_key = member.or_else(|| interner.lookup(""));
             match the_key.and_then(|k| program.class(c).constructors.get(&k)) {
                 Some(&f) => InvokedElement::Construtor(c, f),
-                None => InvokedElement::Outro,
+                None => InvokedElement::Other,
             }
         }
         (Some(Element::Class(c)), false, None) => InvokedElement::Classe(c),
         (Some(Element::Class(c)), false, Some(n)) => match program.class(c).static_members.get(&n) {
             Some(&f) => getter(f),
-            None => InvokedElement::Outro,
+            None => InvokedElement::Other,
         },
         (Some(Element::Variable(v)), _, None) => match program.variable(v).getter {
             Some(f) => InvokedElement::Getter(f),
-            None => InvokedElement::Outro,
+            None => InvokedElement::Other,
         },
         (Some(Element::Function(g)), _, None) => getter(g),
-        _ => InvokedElement::Outro,
+        _ => InvokedElement::Other,
     }
 }
 
 /// The library name (`library a.b;`), like `LibraryElement.name`.
-pub fn nome_da_biblioteca(program: &Program, interner: &Interner, l: dartforge_elements::model::LibraryId) -> String {
+pub fn library_name(program: &Program, interner: &Interner, l: dartforge_elements::model::LibraryId) -> String {
     program.library(l).name.as_ref().map(|n| n.iter().map(|s| interner.resolve(*s)).collect::<Vec<_>>().join(".")).unwrap_or_default()
 }
 
@@ -460,7 +460,7 @@ pub fn e_getter_de(program: &Program, interner: &Interner, u: UnitId, m: &ast::A
     match invoked_element(program, interner, u, m) {
         InvokedElement::Getter(f) => {
             let e = program.function(f);
-            interner.resolve(e.name) == the_name && nome_da_biblioteca(program, interner, e.library) == library
+            interner.resolve(e.name) == the_name && library_name(program, interner, e.library) == library
         }
         _ => false,
     }
@@ -472,7 +472,7 @@ pub fn e_construtor_de(program: &Program, interner: &Interner, u: UnitId, m: &as
     match invoked_element(program, interner, u, m) {
         InvokedElement::Construtor(c, _) => {
             let k = program.class(c);
-            interner.resolve(k.name) == class && nome_da_biblioteca(program, interner, k.library) == library
+            interner.resolve(k.name) == class && library_name(program, interner, k.library) == library
         }
         _ => false,
     }

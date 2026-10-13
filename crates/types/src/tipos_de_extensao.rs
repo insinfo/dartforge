@@ -81,21 +81,21 @@ fn cited(table: &TypeTable, t: TypeId, output: &mut Vec<ClassId>, prof: u32) {
 /// The nodes of strongly connected components with more than one node or
 /// with a self-loop (`DependencyWalker.evaluateScc`).
 fn in_cycle(nodes: &[ClassId], deps: &HashMap<ClassId, Vec<ClassId>>) -> HashSet<ClassId> {
-    struct Estado<'a> {
+    struct State<'a> {
         deps: &'a HashMap<ClassId, Vec<ClassId>>,
-        indice: HashMap<ClassId, usize>,
-        baixo: HashMap<ClassId, usize>,
-        pilha: Vec<ClassId>,
-        na_pilha: HashSet<ClassId>,
-        proximo: usize,
+        index: HashMap<ClassId, usize>,
+        low: HashMap<ClassId, usize>,
+        stack: Vec<ClassId>,
+        on_stack: HashSet<ClassId>,
+        next: usize,
         marked: HashSet<ClassId>,
     }
-    fn connect(e: &mut Estado<'_>, v: ClassId) {
-        e.indice.insert(v, e.proximo);
-        e.baixo.insert(v, e.proximo);
-        e.proximo += 1;
-        e.pilha.push(v);
-        e.na_pilha.insert(v);
+    fn connect(e: &mut State<'_>, v: ClassId) {
+        e.index.insert(v, e.next);
+        e.low.insert(v, e.next);
+        e.next += 1;
+        e.stack.push(v);
+        e.on_stack.insert(v);
         let mut auto = false;
         let neighbors = e.deps.get(&v).cloned().unwrap_or_default();
         for w in neighbors {
@@ -104,23 +104,23 @@ fn in_cycle(nodes: &[ClassId], deps: &HashMap<ClassId, Vec<ClassId>>) -> HashSet
             }
             if w == v {
                 auto = true;
-            } else if !e.indice.contains_key(&w) {
+            } else if !e.index.contains_key(&w) {
                 connect(e, w);
-                let bw = e.baixo[&w];
-                if bw < e.baixo[&v] {
-                    e.baixo.insert(v, bw);
+                let bw = e.low[&w];
+                if bw < e.low[&v] {
+                    e.low.insert(v, bw);
                 }
-            } else if e.na_pilha.contains(&w) {
-                let iw = e.indice[&w];
-                if iw < e.baixo[&v] {
-                    e.baixo.insert(v, iw);
+            } else if e.on_stack.contains(&w) {
+                let iw = e.index[&w];
+                if iw < e.low[&v] {
+                    e.low.insert(v, iw);
                 }
             }
         }
-        if e.baixo[&v] == e.indice[&v] {
+        if e.low[&v] == e.index[&v] {
             let mut component = Vec::new();
-            while let Some(x) = e.pilha.pop() {
-                e.na_pilha.remove(&x);
+            while let Some(x) = e.stack.pop() {
+                e.on_stack.remove(&x);
                 component.push(x);
                 if x == v {
                     break;
@@ -131,9 +131,9 @@ fn in_cycle(nodes: &[ClassId], deps: &HashMap<ClassId, Vec<ClassId>>) -> HashSet
             }
         }
     }
-    let mut e = Estado { deps, indice: HashMap::new(), baixo: HashMap::new(), pilha: Vec::new(), na_pilha: HashSet::new(), proximo: 1, marked: HashSet::new() };
+    let mut e = State { deps, index: HashMap::new(), low: HashMap::new(), stack: Vec::new(), on_stack: HashSet::new(), next: 1, marked: HashSet::new() };
     for &v in nodes {
-        if !e.indice.contains_key(&v) {
+        if !e.index.contains_key(&v) {
             connect(&mut e, v);
         }
     }
@@ -142,14 +142,14 @@ fn in_cycle(nodes: &[ClassId], deps: &HashMap<ClassId, Vec<ClassId>>) -> HashSet
 
 /// `isBottom`: `Never`, or a non-nullable type parameter whose bound is
 /// bottom.
-fn e_fundo(table: &TypeTable, t: TypeId, prof: u32) -> bool {
+fn is_bottom(table: &TypeTable, t: TypeId, prof: u32) -> bool {
     if prof > 16 {
         return false;
     }
     match table.get(t) {
         Type::Never => true,
-        Type::TypeParameter { param, nullable: false } => e_fundo(table, table.param(*param).bound, prof + 1),
-        Type::Intersection { bound, .. } => e_fundo(table, *bound, prof + 1),
+        Type::TypeParameter { param, nullable: false } => is_bottom(table, table.param(*param).bound, prof + 1),
+        Type::Intersection { bound, .. } => is_bottom(table, *bound, prof + 1),
         _ => false,
     }
 }
@@ -161,7 +161,7 @@ fn written_dynamic(interner: &Interner, a: &ast::Ast, t: ast::TypeId) -> bool {
 }
 
 /// The type of the declared representation (`InvalidType` becomes `None`).
-fn representacao(program: &Program, outline: &OutlineTypes, table: &TypeTable, interner: &Interner, c: ClassId) -> Option<TypeId> {
+fn the_representation(program: &Program, outline: &OutlineTypes, table: &TypeTable, interner: &Interner, c: ClassId) -> Option<TypeId> {
     let v = program.class(c).representation?;
     let t = outline.variables[v.0 as usize].declared_type?;
     if table.e_invalido(t) {
@@ -229,7 +229,7 @@ pub fn verificar(
         let DeclKind::ExtensionType(et) = &a.decl(d.decl).kind else { continue };
         let u = d.unit;
         let the_name = interner.resolve(et.name.sym).to_string();
-        let rep = if rep_in_cycle.contains(&t) { None } else { representacao(program, outline, table, interner, t) };
+        let rep = if rep_in_cycle.contains(&t) { None } else { the_representation(program, outline, table, interner, t) };
 
         // `ResolutionVisitor` (before `ErrorVerifier`): the `implements`.
         if let Some(r) = rep {
@@ -277,7 +277,7 @@ pub fn verificar(
                     continue;
                 }
                 if let Type::ExtensionType { decl, args, .. } = table.get(ty).clone() {
-                    let Some(rep_impl) = representacao(program, outline, table, interner, decl) else { continue };
+                    let Some(rep_impl) = the_representation(program, outline, table, interner, decl) else { continue };
                     let params = outline.classes[decl.0 as usize].type_params.clone();
                     let rep_impl = if params.len() == args.len() {
                         let map: HashMap<_, _> = params.iter().copied().zip(args.iter().copied()).collect();
@@ -314,7 +314,7 @@ pub fn verificar(
         if rep_in_cycle.contains(&t) {
             output.push((u, Diagnostic::com_codigo(c::EXTENSION_TYPE_REPRESENTATION_DEPENDS_ON_ITSELF, et.name.span, empty.iter().copied())));
         } else if let Some(r) = rep
-            && e_fundo(table, r, 0)
+            && is_bottom(table, r, 0)
         {
             let sp = a.ty(et.representation_type).span;
             output.push((u, Diagnostic::com_codigo(c::EXTENSION_TYPE_REPRESENTATION_TYPE_BOTTOM, sp, empty.iter().copied())));
@@ -336,13 +336,13 @@ pub fn verificar(
                 Conflict::GetterMethod { .. } => continue,
             };
             // The setter's `Name.name` is `x=`; the model key, `x_=`.
-            let text = interner.resolve(n.chave);
+            let text = interner.resolve(n.key);
             let member = text.strip_suffix("_=").map_or_else(|| text.to_string(), |s| format!("{s}="));
             let mut d = Diagnostic::com_codigo(c::EXTENSION_TYPE_INHERITED_MEMBER_CONFLICT, et.name.span, [the_name.as_str(), member.as_str()]);
             for m in candidates {
                 let Some((mu, span)) = program.nome_nao_sintetico_da_funcao(m.funcao) else { continue };
                 let file = (mu != u).then(|| program.caminho_da_unidade(mu).into());
-                let message = format!("Inherited from '{}'", interner.resolve(program.class(m.classe).name));
+                let message = format!("Inherited from '{}'", interner.resolve(program.class(m.class).name));
                 d.contexto.push(dartforge_diagnostics::Contexto { arquivo: file, span, mensagem: message.into() });
             }
             output.push((u, d));

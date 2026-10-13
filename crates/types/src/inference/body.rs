@@ -2,7 +2,7 @@
 //! parameters, function stack (for `return`/`yield`), cascade receivers and
 //! the current flow model.
 
-use super::flow::Fluxo;
+use super::flow::Flow;
 use super::BodyInferrer;
 use crate::resolved::LocalId;
 use crate::table::{TypeId, TypeParamId};
@@ -14,9 +14,9 @@ use std::collections::{HashMap, HashSet};
 /// A local variable (including parameters, pattern variables and local functions).
 #[derive(Debug, Clone)]
 pub(crate) struct Local {
-    pub nome: SymbolId,
+    pub name: SymbolId,
     /// Declared type (written or inferred from the initializer).
-    pub tipo: TypeId,
+    pub ty: TypeId,
     pub final_: bool,
     pub late: bool,
     pub const_: bool,
@@ -24,7 +24,7 @@ pub(crate) struct Local {
     pub offset: usize,
     /// Type not yet known (`var x;` without an initializer has `dynamic`, but a
     /// local function being inferred is not available).
-    pub funcao_local: bool,
+    pub local_function: bool,
 }
 
 /// What a name resolves to in a block scope.
@@ -42,14 +42,14 @@ pub(crate) enum Nome {
 /// point.
 #[derive(Debug, Clone)]
 pub(crate) struct FunctionCtx {
-    pub modificador: ast::AsyncModifier,
+    pub modifier: ast::AsyncModifier,
     /// The `imposedType` of a function literal's `BodyInferenceContext`: the
     /// return of the context's function type (except `dynamic`/`_`), against
     /// which `yield` is checked (`function_expression_resolver.dart:37-48`).
     pub closure_imposed: Option<TypeId>,
     /// Declared return type (or imposed by the context); `None` when the return
     /// is being inferred.
-    pub retorno: Option<TypeId>,
+    pub the_return: Option<TypeId>,
     /// Context schema for the `return`/`yield` expressions.
     pub return_context: TypeId,
     /// Types of the returned (or yielded) expressions, for inference.
@@ -64,7 +64,7 @@ pub(crate) struct FunctionCtx {
     pub returned_expressions: Vec<(ast::ExprId, TypeId)>,
     /// The executable that declares the return, for `return_of_invalid_type`;
     /// `None` in closures and generative constructors (other rules).
-    pub executavel: Option<Executavel>,
+    pub executable: Option<Executable>,
     /// `hasLegalReturnType`: false after `illegal_*_return_type`, which silences
     /// the check of the returned expressions.
     pub legal_return: bool,
@@ -74,8 +74,8 @@ pub(crate) struct FunctionCtx {
 /// `EnclosingExecutableContext`): `return_of_invalid_type` says "function",
 /// "method" or "constructor" and the name.
 #[derive(Debug, Clone)]
-pub(crate) struct Executavel {
-    pub especie: ExecutableKind,
+pub(crate) struct Executable {
+    pub kind: ExecutableKind,
     pub nome: String,
 }
 
@@ -85,7 +85,7 @@ pub(crate) enum ExecutableKind {
     /// class ones): a `PropertyAccessorElement` counts as a function.
     Funcao,
     /// Method or operator of a class or extension.
-    Metodo,
+    Method,
     /// Factory constructor.
     Construtor,
 }
@@ -94,16 +94,16 @@ pub(crate) enum ExecutableKind {
 pub(crate) struct Body {
     pub unit: UnitId,
     pub lib: LibraryId,
-    pub classe: Option<ClassId>,
-    pub extensao: Option<ExtensionId>,
+    pub class: Option<ClassId>,
+    pub extension: Option<ExtensionId>,
     /// Without `this` (static member, top level, factory constructor...).
-    pub estatico: bool,
-    pub locais: Vec<Local>,
+    pub the_static: bool,
+    pub locals: Vec<Local>,
     /// Declarations of local functions (distinct from final variables with a function type).
-    pub funcoes_locais: HashSet<LocalId>,
-    pub escopos: Vec<Vec<(SymbolId, Nome)>>,
-    pub flow: Fluxo,
-    pub funcoes: Vec<FunctionCtx>,
+    pub local_functions: HashSet<LocalId>,
+    pub scopes: Vec<Vec<(SymbolId, Nome)>>,
+    pub flow: Flow,
+    pub functions: Vec<FunctionCtx>,
     pub cascades: Vec<TypeId>,
     /// The target of each open cascade (the sections' `realTarget`).
     pub cascade_targets: Vec<ast::ExprId>,
@@ -122,7 +122,7 @@ pub(crate) struct Body {
     pub forced_version: Option<(Base, u32)>,
     /// Typing the pattern of a `case`/`if-case` (refutable): a bare identifier
     /// is a constant (`case _padrao:`), not a new variable.
-    pub padrao_refutavel: bool,
+    pub refutable_pattern: bool,
     /// A refutable pattern already reported in an irrefutable context
     /// (`refutablePatternInIrrefutableContext`): what is below it is analyzed as
     /// refutable (`context.makeRefutable()`), without reporting again or
@@ -159,17 +159,17 @@ pub(crate) struct Body {
     pub static_member: bool,
     /// Stack of `break`/`continue` targets (labels and loops): flow models
     /// accumulated at the jumps.
-    pub saltos: Vec<JumpTarget>,
+    pub jumps: Vec<JumpTarget>,
     /// Type of `this` (class, mixin, enum, extension type or the extension's `on`).
-    pub tipo_this: Option<TypeId>,
+    pub this_type: Option<TypeId>,
     /// Names written inside closures (write capture, which prevents promotion).
-    pub written_in_closure: Vec<super::statements::Escrita>,
+    pub written_in_closure: Vec<super::statements::Write>,
     /// Labels of the labeled statement whose body is the next loop/`switch`.
     pub pending_labels: Vec<SymbolId>,
     /// The symbol `_` when the library has wildcards (Dart 3.7): declaring `_`
     /// creates the local (it has a `LocalId` and a type) but does not bind the
     /// name.
-    pub curinga: Option<SymbolId>,
+    pub wildcard: Option<SymbolId>,
     /// Dot shorthands (3.10): the context of the selector chain, by the root's
     /// `DotShorthand` expression (see `atalhos`).
     pub shorthand_context: HashMap<u32, TypeId>,
@@ -181,14 +181,14 @@ pub(crate) struct Body {
     /// with `assignedVariables.anywhere`).
     /// Computed at the first closure (most bodies have none).
     /// `(written_ones outside de literais, written_ones dentro de literais)` of the member.
-    pub written_in_body: Option<(Vec<super::statements::Escrita>, Vec<super::statements::Escrita>)>,
+    pub written_in_body: Option<(Vec<super::statements::Write>, Vec<super::statements::Write>)>,
     /// The top-level body, for computing `written_in_body` on demand.
-    pub raiz: Raiz,
+    pub root: Root,
     /// Promotable properties (Dart 3.2) already referenced:
     /// `(base, versão de escrita da base, name) -> local sintético` that carries
     /// the property's flow model (the `_promotableProperties` of the base's SSA
     /// node).
-    pub campos: HashMap<(Base, u32, SymbolId), LocalId>,
+    pub fields: HashMap<(Base, u32, SymbolId), LocalId>,
     /// Non-promotable properties: the generations (one per read that became a
     /// promotion target), from oldest to newest (the `_nonPromotableProperties`
     /// with the `previousSsaNode` of each node).
@@ -199,10 +199,10 @@ pub(crate) struct Body {
     /// promotions that `this` never uses (only why-not-promoted sees them).
     pub local_this: Option<LocalId>,
     /// Flows from before each `?.` of the chains in progress.
-    pub cadeias: Vec<super::flow::Fluxo>,
+    pub chains: Vec<super::flow::Flow>,
     /// Condition variables (§7.10): `(true_, false_, versão)` of the value
     /// written to the variable, restored when it is read as a condition.
-    pub conditions: HashMap<LocalId, (Fluxo, Fluxo, u32)>,
+    pub conditions: HashMap<LocalId, (Flow, Flow, u32)>,
     /// Explicit extension overrides (`E(x)`, R-EXT-02): the call `E(x)` → the
     /// extension and its type arguments.
     pub overlays: HashMap<ast::ExprId, (ExtensionId, Vec<TypeId>)>,
@@ -247,43 +247,43 @@ pub(crate) enum Base {
 
 /// Top-level body being inferred.
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum Raiz {
-    Nada,
+pub(crate) enum Root {
+    Nothing,
     Funcao(ast::FunctionId),
     Construtor(ast::MemberId),
 }
 
 /// Jump destination.
 pub(crate) struct JumpTarget {
-    pub rotulos: Vec<SymbolId>,
+    pub labels: Vec<SymbolId>,
     /// It is a loop or a `switch` (target of an unlabeled `break`/`continue`).
-    pub laco: bool,
+    pub the_loop: bool,
     pub e_switch: bool,
-    pub breaks: Vec<Fluxo>,
-    pub continues: Vec<Fluxo>,
+    pub breaks: Vec<Flow>,
+    pub continues: Vec<Flow>,
 }
 
 impl Body {
-    pub fn novo(inf: &mut BodyInferrer<'_>, unit: UnitId, class: Option<ClassId>, extension: Option<ExtensionId>, static_: bool) -> Self {
+    pub fn new(inf: &mut BodyInferrer<'_>, unit: UnitId, class: Option<ClassId>, extension: Option<ExtensionId>, static_: bool) -> Self {
         let lib = inf.program.unit(unit).library;
         inf.current_unit = Some(unit);
         let mut cx = Body {
             unit,
             lib,
-            classe: class,
-            extensao: extension,
-            estatico: static_,
-            locais: Vec::new(),
-            funcoes_locais: HashSet::new(),
-            escopos: vec![Vec::new()],
-            flow: Fluxo::alcancavel(),
-            funcoes: Vec::new(),
+            class,
+            extension,
+            the_static: static_,
+            locals: Vec::new(),
+            local_functions: HashSet::new(),
+            scopes: vec![Vec::new()],
+            flow: Flow::reachable(),
+            functions: Vec::new(),
             cascades: Vec::new(),
             cascade_targets: Vec::new(),
             cascade_bases: Vec::new(),
             variable_initializer: false,
             forced_version: None,
-            padrao_refutavel: false,
+            refutable_pattern: false,
             forced_refutable: false,
             negated_literal: None,
             variables_in_guard: Vec::new(),
@@ -293,20 +293,20 @@ impl Body {
             matching: None,
             switch_scrutinee: None,
             static_member: false,
-            saltos: Vec::new(),
-            tipo_this: None,
+            jumps: Vec::new(),
+            this_type: None,
             written_in_closure: Vec::new(),
             pending_labels: Vec::new(),
-            curinga: None,
+            wildcard: None,
             shorthand_context: HashMap::new(),
             reported_shorthands: std::collections::HashSet::new(),
             written_in_body: None,
-            raiz: Raiz::Nada,
-            campos: HashMap::new(),
+            root: Root::Nothing,
+            fields: HashMap::new(),
             generations: HashMap::new(),
             read_generation: HashMap::new(),
             local_this: None,
-            cadeias: Vec::new(),
+            chains: Vec::new(),
             conditions: HashMap::new(),
             overlays: HashMap::new(),
             flow_ends: Vec::new(),
@@ -317,7 +317,7 @@ impl Body {
             dead_origin: None,
         };
         if inf.program.library(lib).features.tem(dartforge_frontend::Feature::WildcardVariables) {
-            cx.curinga = inf.interner.lookup("_");
+            cx.wildcard = inf.interner.lookup("_");
         }
         // The class/extension's type parameters are always in scope (even in
         // static members, where using them is an error).
@@ -325,22 +325,22 @@ impl Body {
             let ps = inf.outline.classes[c.0 as usize].type_params.clone();
             for p in ps.iter() {
                 let name = inf.table.param(*p).name;
-                cx.escopos[0].push((name, Nome::TypeParam(*p)));
+                cx.scopes[0].push((name, Nome::TypeParam(*p)));
             }
             if !static_ {
-                cx.tipo_this = Some(inf.class_this_type(c));
+                cx.this_type = Some(inf.class_this_type(c));
             }
         } else if let Some(e) = extension {
             let ps = inf.outline.extensions[e.0 as usize].type_params.clone();
             for p in ps.iter() {
                 let name = inf.table.param(*p).name;
-                cx.escopos[0].push((name, Nome::TypeParam(*p)));
+                cx.scopes[0].push((name, Nome::TypeParam(*p)));
             }
             if !static_ {
-                cx.tipo_this = Some(inf.outline.extensions[e.0 as usize].on);
+                cx.this_type = Some(inf.outline.extensions[e.0 as usize].on);
             }
         }
-        cx.escopos.push(Vec::new());
+        cx.scopes.push(Vec::new());
         cx
     }
 
@@ -350,13 +350,13 @@ impl Body {
         let (class, extension) = (v.class, v.extension);
         // Instance field initializers do not see `this` (only the `late` ones do).
         let static_ = v.static_ || (class.is_none() && extension.is_none()) || !v.late;
-        let mut cx = Body::novo(inf, unit, class, extension, static_);
+        let mut cx = Body::new(inf, unit, class, extension, static_);
         cx.static_member = v.static_ && (class.is_some() || extension.is_some());
         cx.variable_initializer = (class.is_some() || extension.is_some()) && (v.static_ || !v.late);
         if !v.static_ && v.late {
-            cx.estatico = false;
+            cx.the_static = false;
             if let Some(c) = class {
-                cx.tipo_this = Some(inf.class_this_type(c));
+                cx.this_type = Some(inf.class_this_type(c));
             }
         }
         // A non-`late` instance field sees the primary constructor's
@@ -379,43 +379,43 @@ impl Body {
             && !fe.factory
             && !matches!(fe.kind, dartforge_elements::model::FunctionKind::Constructor)
             && (class.is_some() || extension.is_some());
-        let mut cx = Body::novo(inf, unit, class, extension, static_);
+        let mut cx = Body::new(inf, unit, class, extension, static_);
         cx.static_member = static_member;
         cx
     }
 
     pub fn push_scope(&mut self) {
-        self.escopos.push(Vec::new());
+        self.scopes.push(Vec::new());
     }
 
     pub fn pop_scope(&mut self) {
-        if self.escopos.len() > 1 {
-            self.escopos.pop();
+        if self.scopes.len() > 1 {
+            self.scopes.pop();
         }
     }
 
     /// Declares a local in the innermost scope.
-    pub fn declarar(&mut self, local: Local) -> LocalId {
-        let id = LocalId(self.locais.len() as u32);
-        let name = local.nome;
-        self.locais.push(local);
-        if self.curinga == Some(name) {
-            self.flow.declarar(id);
+    pub fn declare(&mut self, local: Local) -> LocalId {
+        let id = LocalId(self.locals.len() as u32);
+        let name = local.name;
+        self.locals.push(local);
+        if self.wildcard == Some(name) {
+            self.flow.declare(id);
             return id;
         }
-        if let Some(e) = self.escopos.last_mut() {
+        if let Some(e) = self.scopes.last_mut() {
             e.push((name, Nome::Local(id)));
         }
-        self.flow.declarar(id);
+        self.flow.declare(id);
         id
     }
 
     /// Records a name declared further ahead in the current block.
     pub fn declare_forward(&mut self, name: SymbolId, span: dartforge_diagnostics::Span) {
-        if self.curinga == Some(name) {
+        if self.wildcard == Some(name) {
             return;
         }
-        if let Some(e) = self.escopos.last_mut() {
+        if let Some(e) = self.scopes.last_mut() {
             e.push((name, Nome::Forward(span)));
         }
     }
@@ -423,10 +423,10 @@ impl Body {
     /// Synthetic local (without a name in scope): the promotion target of a
     /// field.
     pub fn declare_synthetic(&mut self, local: Local) -> LocalId {
-        let id = LocalId(self.locais.len() as u32);
-        self.locais.push(local);
-        self.flow.declarar(id);
-        self.flow.inicializar(id);
+        let id = LocalId(self.locals.len() as u32);
+        self.locals.push(local);
+        self.flow.declare(id);
+        self.flow.initialize(id);
         id
     }
 
@@ -440,23 +440,23 @@ impl Body {
                 Some((Base::Local(b), v)) if *b == base => Some(*v),
                 _ => None,
             }).collect();
-            self.campos.retain(|(b, v, _), _| *b != Base::Local(base) || (stored.contains(v) && *v != current));
+            self.fields.retain(|(b, v, _), _| *b != Base::Local(base) || (stored.contains(v) && *v != current));
             return;
         }
-        self.campos.retain(|(b, _, _), _| *b != Base::Local(base));
+        self.fields.retain(|(b, _, _), _| *b != Base::Local(base));
     }
 
     /// The local is the synthetic one of a property (stable or a generation).
     pub fn is_property(&self, id: LocalId) -> bool {
-        self.campos.values().any(|&v| v == id) || self.read_generation.values().any(|&v| v == id)
+        self.fields.values().any(|&v| v == id) || self.read_generation.values().any(|&v| v == id)
     }
 
     /// `infoFor`: a synthetic local whose model was lost at a join (created in
     /// only one of the branches) comes back as new.
     pub fn ensure_model(&mut self, id: LocalId) {
-        if self.flow.modelo(id).is_none() {
-            self.flow.declarar(id);
-            self.flow.inicializar(id);
+        if self.flow.model(id).is_none() {
+            self.flow.declare(id);
+            self.flow.initialize(id);
         }
     }
 
@@ -469,20 +469,20 @@ impl Body {
             return v;
         }
         match base {
-            Base::Local(id) if !self.is_property(id) => self.flow.versao(id).unwrap_or(0),
+            Base::Local(id) if !self.is_property(id) => self.flow.version(id).unwrap_or(0),
             _ => 0,
         }
     }
 
     pub fn declare_type_param(&mut self, name: SymbolId, p: TypeParamId) {
-        if let Some(e) = self.escopos.last_mut() {
+        if let Some(e) = self.scopes.last_mut() {
             e.push((name, Nome::TypeParam(p)));
         }
     }
 
     /// A name in the block scopes (from the innermost outwards).
-    pub fn buscar(&self, name: SymbolId) -> Option<Nome> {
-        for e in self.escopos.iter().rev() {
+    pub fn lookup(&self, name: SymbolId) -> Option<Nome> {
+        for e in self.scopes.iter().rev() {
             for (n, r) in e.iter().rev() {
                 if *n == name {
                     return Some(*r);
@@ -493,7 +493,7 @@ impl Body {
     }
 
     pub fn local(&self, id: LocalId) -> &Local {
-        &self.locais[id.0 as usize]
+        &self.locals[id.0 as usize]
     }
 
     /// The visible locals (declared or ahead in the block) by name, with the
@@ -502,14 +502,14 @@ impl Body {
     /// `named_type_resolver.dart:611-621`).
     pub fn visible_locals(&self, interner: &dartforge_intern::Interner) -> HashMap<SymbolId, (dartforge_diagnostics::Span, bool)> {
         let mut m = HashMap::new();
-        for e in self.escopos.iter() {
+        for e in self.scopes.iter() {
             for (n, r) in e.iter() {
                 match r {
                     Nome::TypeParam(_) => {
                         m.remove(n);
                     }
                     Nome::Local(id) => {
-                        let l = &self.locais[id.0 as usize];
+                        let l = &self.locals[id.0 as usize];
                         let start = l.offset;
                         m.insert(*n, (dartforge_diagnostics::Span { start: start, end: start + interner.resolve(*n).len() }, false));
                     }
@@ -525,7 +525,7 @@ impl Body {
     /// Type parameters visible by name (for resolving annotations).
     pub fn visible_type_parameters(&self) -> HashMap<SymbolId, TypeParamId> {
         let mut m = HashMap::new();
-        for e in self.escopos.iter() {
+        for e in self.scopes.iter() {
             for (n, r) in e.iter() {
                 match r {
                     Nome::TypeParam(p) => {
@@ -546,14 +546,14 @@ impl Body {
     pub fn visible_scope(&self) -> crate::resolved::EscopoSondado {
         let mut seen: HashSet<SymbolId> = HashSet::new();
         let mut output = crate::resolved::EscopoSondado {
-            classe: self.classe,
-            extensao: self.extensao,
-            estatico: self.estatico,
-            tipo_this: self.tipo_this,
-            biblioteca: Some(self.lib),
+            class: self.class,
+            extension: self.extension,
+            the_static: self.the_static,
+            this_type: self.this_type,
+            library: Some(self.lib),
             ..Default::default()
         };
-        for e in self.escopos.iter().rev() {
+        for e in self.scopes.iter().rev() {
             for (n, r) in e.iter().rev() {
                 if !seen.insert(*n) {
                     continue;
@@ -561,14 +561,14 @@ impl Body {
                 match r {
                     Nome::Local(id) => {
                         let l = self.local(*id);
-                        output.locais.push(crate::resolved::VisibleLocal {
-                            nome: l.nome,
-                            tipo: l.tipo,
+                        output.locals.push(crate::resolved::VisibleLocal {
+                            name: l.name,
+                            ty: l.ty,
                             offset: l.offset,
-                            funcao: self.funcoes_locais.contains(id),
+                            function: self.local_functions.contains(id),
                         });
                     }
-                    Nome::TypeParam(p) => output.parametros_de_tipo.push((*n, *p)),
+                    Nome::TypeParam(p) => output.type_parameters.push((*n, *p)),
                     // Declared ahead: it cannot be used here yet.
                     Nome::Forward(_) => {}
                 }

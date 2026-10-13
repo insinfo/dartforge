@@ -18,7 +18,7 @@ use dartforge_frontend::ast::{self, ExprKind, FunctionBody, StmtKind};
 use dartforge_intern::{Interner, SymbolId};
 
 /// `TypeSystemImpl.isNullable`.
-fn anulavel(table: &TypeTable, t: TypeId) -> bool {
+fn is_nullable(table: &TypeTable, t: TypeId) -> bool {
     match table.get(t) {
         Type::Dynamic | Type::Void | Type::Null => true,
         Type::Never => false,
@@ -27,8 +27,8 @@ fn anulavel(table: &TypeTable, t: TypeId) -> bool {
         | Type::Record { nullable, .. }
         | Type::TypeParameter { nullable, .. }
         | Type::ExtensionType { nullable, .. } => *nullable,
-        Type::FutureOr { arg, nullable } => *nullable || anulavel(table, *arg),
-        Type::Intersection { bound, .. } => anulavel(table, *bound),
+        Type::FutureOr { arg, nullable } => *nullable || is_nullable(table, *arg),
+        Type::Intersection { bound, .. } => is_nullable(table, *bound),
     }
 }
 
@@ -63,7 +63,7 @@ pub fn parametro_de_igualdade_anulavel(
             Type::Interface { class, .. } => Some(*class) == core.object_class,
             _ => false,
         };
-        if !object_or_dynamic || !anulavel(table, p.ty) {
+        if !object_or_dynamic || !is_nullable(table, p.ty) {
             continue;
         }
         let Some(the_name) = af.name else { continue };

@@ -4,7 +4,7 @@
 //! map decision for `{}` from the elements and the context.
 
 use super::body::Body;
-use super::expr::{self, inferir, infer_free};
+use super::expr::{self, infer, infer_free};
 use super::BodyInferrer;
 use crate::codes::*;
 use crate::constraints::GenericInferrer;
@@ -13,10 +13,10 @@ use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{CollectionElement, ExprId, ExprKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Forma {
+enum Shape {
     Lista,
-    Conjunto,
-    Mapa,
+    Set,
+    Map,
 }
 
 impl<'a> BodyInferrer<'a> {
@@ -74,19 +74,19 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx:
     // decide the shape again (`_inferSetOrMapLiteralType`).
     let mut keys = false;
     let (mut shape, type_args, elements, const_) = match &a.expr(e).kind {
-        ExprKind::List { const_, type_args, elements } => (Forma::Lista, type_args, elements, *const_),
+        ExprKind::List { const_, type_args, elements } => (Shape::Lista, type_args, elements, *const_),
         ExprKind::SetOrMap { const_, type_args, elements } => {
             let shape = match type_args.len() {
-                1 => Forma::Conjunto,
-                2 => Forma::Mapa,
+                1 => Shape::Set,
+                2 => Shape::Map,
                 _ => match shape_from_elements(elements) {
                     Some(true) => {
                         keys = true;
-                        Forma::Mapa
+                        Shape::Map
                     }
                     Some(false) => {
                         keys = true;
-                        Forma::Conjunto
+                        Shape::Set
                     }
                     None => {
                         keys = true;
@@ -130,17 +130,17 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx:
     let t = if !type_args.is_empty() {
         let args: Vec<TypeId> = type_args.iter().map(|&t| inf.type_argument_type(cx, t)).collect();
         let (ce, ck, cv) = match shape {
-            Forma::Mapa => (inf.core.dynamic_, args[0], args.get(1).copied().unwrap_or(inf.core.dynamic_)),
+            Shape::Map => (inf.core.dynamic_, args[0], args.get(1).copied().unwrap_or(inf.core.dynamic_)),
             _ => (args[0], inf.core.dynamic_, inf.core.dynamic_),
         };
         for el in elements {
-            visitar(inf, cx, el, shape, [ce, ck, cv], None);
+            visit(inf, cx, el, shape, [ce, ck, cv], None);
         }
         final_type(inf, shape, &args)
     } else {
         let p = inf.collection_params();
         let params: Vec<TypeParamId> = match shape {
-            Forma::Mapa => vec![p[1], p[2]],
+            Shape::Map => vec![p[1], p[2]],
             _ => vec![p[0]],
         };
         let vars: Vec<TypeId> = params.iter().map(|&x| inf.table.intern(Type::TypeParameter { param: x, nullable: false })).collect();
@@ -148,7 +148,7 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx:
         let mut gi = GenericInferrer::new(&params);
         gi.generic_metadata = inf.program.library(cx.lib).features.tem(dartforge_frontend::Feature::GenericMetadata);
         if !inf.the_is_unknown(ctx) {
-            gi.with_origin(crate::constraints::Origem::Retorno { declarado: ret, contexto: ctx });
+            gi.with_origin(crate::constraints::Origin::Return { declarado: ret, contexto: ctx });
             let mut env = inf.env();
             gi.constrain_return(ret, ctx, &mut env);
         }
@@ -157,11 +157,11 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx:
         drop(env);
         let d = inf.core.dynamic_;
         let ctxs = match shape {
-            Forma::Mapa => [d, prelim[0], prelim[1]],
+            Shape::Map => [d, prelim[0], prelim[1]],
             _ => [prelim[0], d, d],
         };
         for el in elements {
-            visitar(inf, cx, el, shape, ctxs, Some((&mut gi, &params[..])));
+            visit(inf, cx, el, shape, ctxs, Some((&mut gi, &params[..])));
         }
         // `_inferSetOrMapLiteralType` (`typed_literal_resolver.dart:516-597`):
         // after the visit, the element types decide before the context: if all
@@ -180,13 +180,13 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx:
             let set = infos.iter().all(|a| a.can_set()) && infos.iter().any(|a| a.must_set());
             let map = infos.iter().all(|a| a.can_map()) && infos.iter().any(|a| a.must_map());
             let decided = if set {
-                Some(Forma::Conjunto)
+                Some(Shape::Set)
             } else if map {
-                Some(Forma::Mapa)
+                Some(Shape::Map)
             } else if let Some(f) = shape_from_context_type(inf, ctx) {
                 Some(f)
             } else if elements.is_empty() {
-                Some(Forma::Mapa)
+                Some(Shape::Map)
             } else {
                 None
             };
@@ -201,7 +201,7 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx:
             if let Some(new_) = other {
                 shape = new_;
                 let ps: Vec<TypeParamId> = match new_ {
-                    Forma::Mapa => vec![p[1], p[2]],
+                    Shape::Map => vec![p[1], p[2]],
                     _ => vec![p[0]],
                 };
                 gi = GenericInferrer::new(&ps);
@@ -209,11 +209,11 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx:
                 let d = inf.core.dynamic_;
                 for a in &infos {
                     let mut g: Inferrer<'_> = Some((&mut gi, &ps[..]));
-                    if new_ == Forma::Mapa {
-                        restrict(inf, &mut g, a.chave.unwrap_or(d), 0);
-                        restrict(inf, &mut g, a.valor.unwrap_or(d), 1);
+                    if new_ == Shape::Map {
+                        restrict(inf, &mut g, a.key.unwrap_or(d), 0);
+                        restrict(inf, &mut g, a.value.unwrap_or(d), 1);
                     } else {
-                        restrict(inf, &mut g, a.elemento.unwrap_or(d), 0);
+                        restrict(inf, &mut g, a.element.unwrap_or(d), 0);
                     }
                 }
             }
@@ -269,7 +269,7 @@ fn verify_elements(
     inf: &mut BodyInferrer<'_>,
     cx: &Body,
     elements: &[CollectionElement],
-    shape: Forma,
+    shape: Shape,
     t: TypeId,
     const_: bool,
     in_control: bool,
@@ -282,18 +282,18 @@ fn verify_elements(
     let report = !const_ || in_control;
     for el in elements {
         match el {
-            CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) if shape != Forma::Mapa => {
+            CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) if shape != Shape::Map => {
                 let Some(e_t) = args.first().copied() else { continue };
                 let Some(tx) = inf.body_types.units[cx.unit.0 as usize].get_type(*x) else { continue };
                 let tx = if matches!(el, CollectionElement::NullAwareExpression(_)) { inf.non_null(tx) } else { tx };
-                if !report || matches!(inf.table.get(tx), Type::Void) || inf.atribuivel(tx, e_t) || implicit_tearoff(inf, tx, e_t) {
+                if !report || matches!(inf.table.get(tx), Type::Void) || inf.assignable(tx, e_t) || implicit_tearoff(inf, tx, e_t) {
                     continue;
                 }
-                let code = if shape == Forma::Lista { ce::LIST_ELEMENT_TYPE_NOT_ASSIGNABLE } else { ce::SET_ELEMENT_TYPE_NOT_ASSIGNABLE };
+                let code = if shape == Shape::Lista { ce::LIST_ELEMENT_TYPE_NOT_ASSIGNABLE } else { ce::SET_ELEMENT_TYPE_NOT_ASSIGNABLE };
                 let sp = inf.span_expr(cx.unit, *x);
-                inf.warning_with_args(code, sp, &[crate::exibicao::Arg::Tipo(tx), crate::exibicao::Arg::Tipo(e_t)]);
+                inf.warning_with_args(code, sp, &[crate::exibicao::Arg::Type_(tx), crate::exibicao::Arg::Type_(e_t)]);
             }
-            CollectionElement::MapEntry { key, value, null_aware_key, null_aware_value } if shape == Forma::Mapa => {
+            CollectionElement::MapEntry { key, value, null_aware_key, null_aware_value } if shape == Shape::Map => {
                 if !report || args.len() < 2 {
                     continue;
                 }
@@ -314,9 +314,9 @@ fn verify_elements(
                 let tk = if *null_aware_key { inf.non_null(tk) } else { tk };
                 let tv = if *null_aware_value { inf.non_null(tv) } else { tv };
                 for (x, tx, tgt, code) in [(*key, tk, args[0], ce::MAP_KEY_TYPE_NOT_ASSIGNABLE), (*value, tv, args[1], ce::MAP_VALUE_TYPE_NOT_ASSIGNABLE)] {
-                    if !inf.atribuivel(tx, tgt) && !implicit_tearoff(inf, tx, tgt) {
+                    if !inf.assignable(tx, tgt) && !implicit_tearoff(inf, tx, tgt) {
                         let sp = inf.span_expr(cx.unit, x);
-                        inf.warning_with_args(code, sp, &[crate::exibicao::Arg::Tipo(tx), crate::exibicao::Arg::Tipo(tgt)]);
+                        inf.warning_with_args(code, sp, &[crate::exibicao::Arg::Type_(tx), crate::exibicao::Arg::Type_(tgt)]);
                     }
                 }
             }
@@ -355,28 +355,28 @@ fn verify_elements(
                 // `_verifySpreadForListOrSet`/`_verifySpreadForMap`
                 // (`literal_element_verifier.dart:176-213`, `:267-303`): whatever is
                 // not an `Iterable`/`Map`.
-                let cls = if shape == Forma::Mapa { inf.core.map_class } else { inf.core.iterable_class };
+                let cls = if shape == Shape::Map { inf.core.map_class } else { inf.core.iterable_class };
                 if inf.as_instance_of(tx, cls).is_none() {
-                    let code = if shape == Forma::Mapa { ce::NOT_MAP_SPREAD } else { ce::NOT_ITERABLE_SPREAD };
+                    let code = if shape == Shape::Map { ce::NOT_MAP_SPREAD } else { ce::NOT_ITERABLE_SPREAD };
                     inf.warning_with_code(code, sp, &[]);
                     continue;
                 }
-                if shape == Forma::Mapa {
+                if shape == Shape::Map {
                     let Some(m) = inf.as_instance_of(tx, inf.core.map_class) else { continue };
                     if args.len() < 2 || m.len() < 2 {
                         continue;
                     }
                     for (of, for_, code) in [(m[0], args[0], ce::MAP_KEY_TYPE_NOT_ASSIGNABLE), (m[1], args[1], ce::MAP_VALUE_TYPE_NOT_ASSIGNABLE)] {
-                        if !inf.atribuivel(of, for_) && !implicit_tearoff(inf, of, for_) {
-                            inf.warning_with_args(code, sp, &[crate::exibicao::Arg::Tipo(of), crate::exibicao::Arg::Tipo(for_)]);
+                        if !inf.assignable(of, for_) && !implicit_tearoff(inf, of, for_) {
+                            inf.warning_with_args(code, sp, &[crate::exibicao::Arg::Type_(of), crate::exibicao::Arg::Type_(for_)]);
                         }
                     }
                 } else {
                     let Some(i) = inf.as_instance_of(tx, inf.core.iterable_class) else { continue };
                     let (Some(of), Some(for_)) = (i.first().copied(), args.first().copied()) else { continue };
-                    if !inf.atribuivel(of, for_) && !implicit_tearoff(inf, of, for_) {
-                        let code = if shape == Forma::Lista { ce::LIST_ELEMENT_TYPE_NOT_ASSIGNABLE } else { ce::SET_ELEMENT_TYPE_NOT_ASSIGNABLE };
-                        inf.warning_with_args(code, sp, &[crate::exibicao::Arg::Tipo(of), crate::exibicao::Arg::Tipo(for_)]);
+                    if !inf.assignable(of, for_) && !implicit_tearoff(inf, of, for_) {
+                        let code = if shape == Shape::Lista { ce::LIST_ELEMENT_TYPE_NOT_ASSIGNABLE } else { ce::SET_ELEMENT_TYPE_NOT_ASSIGNABLE };
+                        inf.warning_with_args(code, sp, &[crate::exibicao::Arg::Type_(of), crate::exibicao::Arg::Type_(for_)]);
                     }
                 }
             }
@@ -461,11 +461,11 @@ fn params_in_type(table: &crate::table::TypeTable, t: TypeId, output: &mut Vec<T
     }
 }
 
-fn final_type(inf: &mut BodyInferrer<'_>, shape: Forma, args: &[TypeId]) -> TypeId {
+fn final_type(inf: &mut BodyInferrer<'_>, shape: Shape, args: &[TypeId]) -> TypeId {
     match shape {
-        Forma::Lista => inf.lista(args[0]),
-        Forma::Conjunto => inf.conjunto(args[0]),
-        Forma::Mapa => inf.map_type(args[0], args[1]),
+        Shape::Lista => inf.list(args[0]),
+        Shape::Set => inf.set(args[0]),
+        Shape::Map => inf.map_type(args[0], args[1]),
     }
 }
 
@@ -473,23 +473,23 @@ fn final_type(inf: &mut BodyInferrer<'_>, shape: Forma, args: &[TypeId]) -> Type
 /// (`Some` = known element / key / value type).
 #[derive(Clone, Copy)]
 struct Admits {
-    elemento: Option<TypeId>,
-    chave: Option<TypeId>,
-    valor: Option<TypeId>,
+    element: Option<TypeId>,
+    key: Option<TypeId>,
+    value: Option<TypeId>,
 }
 
 impl Admits {
     fn can_map(&self) -> bool {
-        self.chave.is_some() || self.valor.is_some()
+        self.key.is_some() || self.value.is_some()
     }
     fn can_set(&self) -> bool {
-        self.elemento.is_some()
+        self.element.is_some()
     }
     fn must_map(&self) -> bool {
-        self.can_map() && self.elemento.is_none()
+        self.can_map() && self.element.is_none()
     }
     fn must_set(&self) -> bool {
-        self.can_set() && self.chave.is_none() && self.valor.is_none()
+        self.can_set() && self.key.is_none() && self.value.is_none()
     }
 }
 
@@ -500,30 +500,30 @@ impl Admits {
 /// (`visited_spreads`: the expression, the one without `?` of `?e`,
 /// and the entry's key and value, without `?` in `?k`/`?v`).
 fn admits(inf: &mut BodyInferrer<'_>, el: &CollectionElement, after: bool) -> Admits {
-    let nothing = Admits { elemento: None, chave: None, valor: None };
+    let nothing = Admits { element: None, key: None, value: None };
     let ty = |inf: &BodyInferrer<'_>, x: &dartforge_frontend::ast::ExprId| {
         if after { inf.visited_spreads.get(x).copied() } else { inf.inferred_spreads.get(x).copied() }
     };
     match el {
-        CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) => Admits { elemento: ty(inf, x), chave: None, valor: None },
-        CollectionElement::MapEntry { key, value, .. } => Admits { elemento: None, chave: ty(inf, key), valor: ty(inf, value) },
+        CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) => Admits { element: ty(inf, x), key: None, value: None },
+        CollectionElement::MapEntry { key, value, .. } => Admits { element: None, key: ty(inf, key), value: ty(inf, value) },
         CollectionElement::Spread { value, null_aware } => {
             let Some(t) = ty(inf, value) else { return nothing };
             if let Some(a) = inf.as_instance_of(t, inf.core.iterable_class) {
-                return Admits { elemento: a.first().copied(), chave: None, valor: None };
+                return Admits { element: a.first().copied(), key: None, value: None };
             }
             if let Some(a) = inf.as_instance_of(t, inf.core.map_class) {
-                return Admits { elemento: None, chave: a.first().copied(), valor: a.get(1).copied() };
+                return Admits { element: None, key: a.first().copied(), value: a.get(1).copied() };
             }
             if inf.e_dynamic(t) {
-                return Admits { elemento: Some(t), chave: Some(t), valor: Some(t) };
+                return Admits { element: Some(t), key: Some(t), value: Some(t) };
             }
             let n = inf.core.never;
             // `isSubtypeOf(expressionType, nullNone)` (`:413-420`): `X extends
             // Null` too.
             let null = inf.core.null;
             if inf.sub(t, n) || (*null_aware && inf.sub(t, null)) {
-                return Admits { elemento: Some(n), chave: Some(n), valor: Some(n) };
+                return Admits { element: Some(n), key: Some(n), value: Some(n) };
             }
             nothing
         }
@@ -532,22 +532,22 @@ fn admits(inf: &mut BodyInferrer<'_>, el: &CollectionElement, after: bool) -> Ad
             let a = admits(inf, then, after);
             let Some(e) = else_ else { return a };
             let b = admits(inf, e, after);
-            let dynamic = |x: &Admits, inf: &BodyInferrer<'_>| [x.elemento, x.chave, x.valor].iter().all(|t| t.is_some_and(|t| inf.e_dynamic(t)));
+            let dynamic = |x: &Admits, inf: &BodyInferrer<'_>| [x.element, x.key, x.value].iter().all(|t| t.is_some_and(|t| inf.e_dynamic(t)));
             let or_dynamic = |t: Option<TypeId>, d: TypeId| t.map(|_| d);
             if dynamic(&a, inf) {
-                let d = a.elemento.expect("dynamic");
-                return Admits { elemento: or_dynamic(b.elemento, d), chave: or_dynamic(b.chave, d), valor: or_dynamic(b.valor, d) };
+                let d = a.element.expect("dynamic");
+                return Admits { element: or_dynamic(b.element, d), key: or_dynamic(b.key, d), value: or_dynamic(b.value, d) };
             }
             if dynamic(&b, inf) {
-                let d = b.elemento.expect("dynamic");
-                return Admits { elemento: or_dynamic(a.elemento, d), chave: or_dynamic(a.chave, d), valor: or_dynamic(a.valor, d) };
+                let d = b.element.expect("dynamic");
+                return Admits { element: or_dynamic(a.element, d), key: or_dynamic(a.key, d), value: or_dynamic(a.value, d) };
             }
             let mut join = |x: Option<TypeId>, y: Option<TypeId>| match (x, y) {
                 (None, y) => y,
                 (x, None) => x,
                 (Some(x), Some(y)) => Some(inf.up(x, y)),
             };
-            Admits { elemento: join(a.elemento, b.elemento), chave: join(a.chave, b.chave), valor: join(a.valor, b.valor) }
+            Admits { element: join(a.element, b.element), key: join(a.key, b.key), value: join(a.value, b.value) }
         }
     }
 }
@@ -559,12 +559,12 @@ fn admits(inf: &mut BodyInferrer<'_>, el: &CollectionElement, after: bool) -> Ad
 /// require it, map; empty, map; otherwise the literal is ambiguous
 /// (`Some(mustBeAMap && mustBeASet)` in the second field; the visit goes on
 /// as a map, and the type becomes `dynamic`).
-fn shape_from_context(inf: &mut BodyInferrer<'_>, cx: &mut Body, els: &[CollectionElement], ctx: TypeId) -> (Forma, Option<bool>) {
+fn shape_from_context(inf: &mut BodyInferrer<'_>, cx: &mut Body, els: &[CollectionElement], ctx: TypeId) -> (Shape, Option<bool>) {
     if let Some(f) = shape_from_context_type(inf, ctx) {
         return (f, None);
     }
     if els.is_empty() {
-        return (Forma::Mapa, None);
+        return (Shape::Map, None);
     }
     // The spreads are inferred without a context; the type is kept for the
     // visit of the elements. Only those that do not depend on variables of
@@ -584,7 +584,7 @@ fn shape_from_context(inf: &mut BodyInferrer<'_>, cx: &mut Body, els: &[Collecti
         for el in els {
             match el {
                 CollectionElement::Spread { value, .. } => {
-                    let t = inferir(inf, cx, *value, u);
+                    let t = infer(inf, cx, *value, u);
                     inf.inferred_spreads.insert(*value, t);
                 }
                 CollectionElement::If { then, else_, .. } => {
@@ -604,19 +604,19 @@ fn shape_from_context(inf: &mut BodyInferrer<'_>, cx: &mut Body, els: &[Collecti
         let mut shape = None;
         for el in els {
             if let CollectionElement::Spread { value, .. } = el {
-                let t = inferir(inf, cx, *value, u);
+                let t = infer(inf, cx, *value, u);
                 inf.inferred_spreads.insert(*value, t);
                 let t = inf.non_null(t);
                 if shape.is_none() {
                     if inf.as_instance_of(t, inf.core.iterable_class).is_some() {
-                        shape = Some(Forma::Conjunto);
+                        shape = Some(Shape::Set);
                     } else if inf.as_instance_of(t, inf.core.map_class).is_some() {
-                        shape = Some(Forma::Mapa);
+                        shape = Some(Shape::Map);
                     }
                 }
             }
         }
-        return (shape.unwrap_or(Forma::Mapa), None);
+        return (shape.unwrap_or(Shape::Map), None);
     }
     infer_spreads(inf, cx, els);
     let infos: Vec<Admits> = els.iter().map(|el| admits(inf, el, false)).collect();
@@ -625,30 +625,30 @@ fn shape_from_context(inf: &mut BodyInferrer<'_>, cx: &mut Body, els: &[Collecti
     let can_map = infos.iter().all(|a| a.can_map());
     let must_map = infos.iter().any(|a| a.must_map());
     if can_set && must_set {
-        return (Forma::Conjunto, None);
+        return (Shape::Set, None);
     }
     if can_map && must_map {
-        return (Forma::Mapa, None);
+        return (Shape::Map, None);
     }
-    (Forma::Mapa, Some(must_map && must_set))
+    (Shape::Map, Some(must_map && must_set))
 }
 
 /// The shape that the context (`Map`/`Iterable`) imposes, if it does.
-fn shape_from_context_type(inf: &mut BodyInferrer<'_>, ctx: TypeId) -> Option<Forma> {
+fn shape_from_context_type(inf: &mut BodyInferrer<'_>, ctx: TypeId) -> Option<Shape> {
     if !inf.the_is_unknown(ctx) {
         let k = inf.greatest_closure_of(ctx);
         let k = inf.non_null(k);
         let is_map = inf.as_instance_of(k, inf.core.map_class).is_some() || matches!(inf.table.get(k), Type::Interface { class, .. } if Some(*class) == inf.core.map_class);
         let e_iter = inf.as_instance_of(k, inf.core.iterable_class).is_some();
         if e_iter && !is_map {
-            return Some(Forma::Conjunto);
+            return Some(Shape::Set);
         }
         if is_map && !e_iter {
-            return Some(Forma::Mapa);
+            return Some(Shape::Map);
         }
         if let Type::FutureOr { arg, .. } = inf.table.get(k).clone() {
             if inf.as_instance_of(arg, inf.core.iterable_class).is_some() {
-                return Some(Forma::Conjunto);
+                return Some(Shape::Set);
             }
         }
     }
@@ -665,49 +665,49 @@ fn restrict(inf: &mut BodyInferrer<'_>, gi: &mut Inferrer<'_>, t: TypeId, i: usi
         // parameters `element`, `key` and `value`, without `genericClass` (the
         // origin is `Parameter '…'`).
         let parameter = if params.len() == 2 { ["key", "value"][i] } else { "element" };
-        g.with_origin(crate::constraints::Origem::Argumento { parametro: parameter.to_string(), declarado: v, argumento: t, prefixo: None });
+        g.with_origin(crate::constraints::Origin::Argument { parametro: parameter.to_string(), declarado: v, argumento: t, prefixo: None });
         let mut env = inf.env();
         g.constrain_argument(t, v, &mut env);
     }
 }
 
 /// Visits an element, generating constraints. `ctxs = [E, K, V]`.
-fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, shape: Forma, ctxs: [TypeId; 3], mut gi: Inferrer<'_>) {
+fn visit(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, shape: Shape, ctxs: [TypeId; 3], mut gi: Inferrer<'_>) {
     let u = inf.core.unknown;
     match el {
         CollectionElement::Expression(x) => {
-            let c = if shape == Forma::Mapa { u } else { ctxs[0] };
-            let t = inferir(inf, cx, *x, c);
+            let c = if shape == Shape::Map { u } else { ctxs[0] };
+            let t = infer(inf, cx, *x, c);
             // With written type arguments (no inference) and a non-`void`
             // element: a `void` value is `use_of_void_result`
             // (`LiteralElementVerifier._verifyElement`, only in lists and sets;
             // in a map the expression is `EXPRESSION_IN_MAP`).
-            if gi.is_none() && shape != Forma::Mapa && !matches!(inf.table.get(c), Type::Void) {
+            if gi.is_none() && shape != Shape::Map && !matches!(inf.table.get(c), Type::Void) {
                 super::expr::void_use(inf, cx, *x, t);
             }
             inf.visited_spreads.insert(*x, t);
-            if shape != Forma::Mapa {
+            if shape != Shape::Map {
                 restrict(inf, &mut gi, t, 0);
             }
         }
         CollectionElement::NullAwareExpression(x) => {
-            let c = if shape == Forma::Mapa || inf.the_is_unknown(ctxs[0]) { u } else { inf.anulavel(ctxs[0]) };
-            let t = inferir(inf, cx, *x, c);
+            let c = if shape == Shape::Map || inf.the_is_unknown(ctxs[0]) { u } else { inf.nullable(ctxs[0]) };
+            let t = infer(inf, cx, *x, c);
             // The value's `void` before promotion (`:107-112`).
-            if gi.is_none() && shape != Forma::Mapa && !matches!(inf.table.get(ctxs[0]), Type::Void) {
+            if gi.is_none() && shape != Shape::Map && !matches!(inf.table.get(ctxs[0]), Type::Void) {
                 super::expr::void_use(inf, cx, *x, t);
             }
             let t = inf.non_null(t);
             inf.visited_spreads.insert(*x, t);
-            if shape != Forma::Mapa {
+            if shape != Shape::Map {
                 restrict(inf, &mut gi, t, 0);
             }
         }
         CollectionElement::MapEntry { key, value, null_aware_key, null_aware_value } => {
-            let ck = if *null_aware_key && !inf.the_is_unknown(ctxs[1]) { inf.anulavel(ctxs[1]) } else { ctxs[1] };
-            let cv = if *null_aware_value && !inf.the_is_unknown(ctxs[2]) { inf.anulavel(ctxs[2]) } else { ctxs[2] };
-            let tk = inferir(inf, cx, *key, ck);
-            let tv = inferir(inf, cx, *value, cv);
+            let ck = if *null_aware_key && !inf.the_is_unknown(ctxs[1]) { inf.nullable(ctxs[1]) } else { ctxs[1] };
+            let cv = if *null_aware_value && !inf.the_is_unknown(ctxs[2]) { inf.nullable(ctxs[2]) } else { ctxs[2] };
+            let tk = infer(inf, cx, *key, ck);
+            let tv = infer(inf, cx, *value, cv);
             // `_verifyMapLiteralEntry` (`literal_element_verifier.dart:130-141`):
             // a `void` key ends the entry, without looking at the value.
             if gi.is_none() {
@@ -725,13 +725,13 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, sh
         }
         CollectionElement::Spread { value, null_aware } => {
             let c = match shape {
-                Forma::Mapa => inf.map_type(ctxs[1], ctxs[2]),
+                Shape::Map => inf.map_type(ctxs[1], ctxs[2]),
                 _ => inf.iterable(ctxs[0]),
             };
-            let c = if *null_aware { inf.anulavel(c) } else { c };
+            let c = if *null_aware { inf.nullable(c) } else { c };
             let t = match inf.inferred_spreads.remove(value) {
                 Some(t) => t,
-                None => inferir(inf, cx, *value, c),
+                None => infer(inf, cx, *value, c),
             };
             inf.visited_spreads.insert(*value, t);
             if *null_aware {
@@ -753,7 +753,7 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, sh
             let below_null = !below_never && inf.sub(t0, null);
             let one = |inf: &mut BodyInferrer<'_>, gi: &mut _, x: TypeId| {
                 restrict(inf, gi, x, 0);
-                if shape == Forma::Mapa {
+                if shape == Shape::Map {
                     restrict(inf, gi, x, 1);
                 }
             };
@@ -763,11 +763,11 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, sh
             } else if below_never || (below_null && *null_aware) {
                 one(inf, &mut gi, never);
             } else if below_null {
-                if shape != Forma::Mapa {
+                if shape != Shape::Map {
                     let d = inf.core.dynamic_;
                     restrict(inf, &mut gi, d, 0);
                 }
-            } else if shape == Forma::Mapa {
+            } else if shape == Shape::Map {
                 if let Some(args) = inf.as_instance_of(t, inf.core.map_class) {
                     restrict(inf, &mut gi, args[0], 0);
                     restrict(inf, &mut gi, args[1], 1);
@@ -785,7 +785,7 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, sh
                 Some(p) => {
                     let t = infer_free(inf, cx, *condition);
                     cx.push_scope();
-                    let r = super::patterns::caso(inf, cx, *p, t, *guard, Some(*condition));
+                    let r = super::patterns::case(inf, cx, *p, t, *guard, Some(*condition));
                     r
                 }
                 None => expr::checked_condition(inf, cx, *condition),
@@ -806,7 +806,7 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, sh
                 exit_branch(cx, open);
             }
             let after_else = std::mem::replace(&mut cx.flow, before);
-            cx.flow = inf.juntar(&after_then, &after_else);
+            cx.flow = inf.join(&after_then, &after_else);
         }
         CollectionElement::For { init, condition, updates, body, .. } => {
             cx.push_scope();
@@ -818,12 +818,12 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, sh
             // the `flowEnd` that ends it (the function body's) goes from it to the
             // end of the last update (the parent is the `ForParts`); the rest of the
             // element stays in the same fragment.
-            let dead_at_start = !cx.flow.alcancavel && cx.dead_code.is_none();
+            let dead_at_start = !cx.flow.reachable && cx.dead_code.is_none();
             if dead_at_start {
                 let a = &inf.program.unit(cx.unit).ast;
                 if let (Some(c), Some(u)) = (condition, updates.last()) {
                     let sp = dartforge_diagnostics::Span { start: a.expr(*c).span.start, end: a.expr(*u).span.end };
-                    inf.aviso(crate::codes::DEAD_CODE.template.to_string(), sp);
+                    inf.warning(crate::codes::DEAD_CODE.template.to_string(), sp);
                 }
                 cx.dead_code = Some(usize::MAX);
             }
@@ -865,23 +865,23 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, sh
             cx.flow.conservative_join(&writes, &captured);
             let before = cx.flow.clone();
             if let Some(x) = write {
-                x.aplicar(inf, cx);
+                x.apply(inf, cx);
             }
             reborrow_visit(inf, cx, body, shape, ctxs, &mut gi);
             let after = std::mem::replace(&mut cx.flow, before);
             let before = cx.flow.clone();
-            cx.flow = inf.juntar(&after, &before);
+            cx.flow = inf.join(&after, &before);
             cx.pop_scope();
         }
     }
 }
 
-fn reborrow_visit(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, shape: Forma, ctxs: [TypeId; 3], gi: &mut Inferrer<'_>) {
+fn reborrow_visit(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, shape: Shape, ctxs: [TypeId; 3], gi: &mut Inferrer<'_>) {
     let sub: Inferrer<'_> = match gi {
         Some((g, p)) => Some((&mut **g, *p)),
         None => None,
     };
-    visitar(inf, cx, el, shape, ctxs, sub);
+    visit(inf, cx, el, shape, ctxs, sub);
 }
 
 /// Diagnostics of `const` collections (repeated keys/elements, non-constant ones).
@@ -953,7 +953,7 @@ pub(crate) fn validate_const_collection(inf: &mut BodyInferrer<'_>, cx: &Body, e
                     continue;
                 }
             }
-            inf.aviso(m, s);
+            inf.warning(m, s);
         }
     }
     for s in subs {
@@ -995,9 +995,9 @@ fn element_range(inf: &BodyInferrer<'_>, cx: &Body, el: &CollectionElement) -> d
 /// unreachable and no fragment is open, the fragment is the whole branch.
 fn enter_branch(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement) -> bool {
     let sp = element_range(inf, cx, el);
-    let open = !cx.flow.alcancavel && cx.dead_code.is_none();
+    let open = !cx.flow.reachable && cx.dead_code.is_none();
     if open {
-        inf.aviso(crate::codes::DEAD_CODE.template.to_string(), sp);
+        inf.warning(crate::codes::DEAD_CODE.template.to_string(), sp);
     }
     super::statements::enter_flow(cx, sp.end);
     if open {

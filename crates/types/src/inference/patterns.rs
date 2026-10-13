@@ -4,9 +4,9 @@
 //! assignments by pattern.
 
 use super::body::{Body, Local, Nome};
-use super::expr::{self, declarar_local, inferir, infer_free};
-use super::flow::Fluxo;
-use super::members::Busca;
+use super::expr::{self, declare_local, infer, infer_free};
+use super::flow::Flow;
+use super::members::Search;
 use super::BodyInferrer;
 use crate::constraints::GenericInferrer;
 use crate::table::{Type, TypeId};
@@ -18,7 +18,7 @@ pub(crate) use matching::{declared_variables, Matching};
 
 /// The analyzer's pattern flow (T6) is in use in this body.
 pub(crate) fn pattern_flow_enabled(inf: &BodyInferrer<'_>) -> bool {
-    matching::ligado(inf)
+    matching::enabled(inf)
 }
 
 /// Type schema of a pattern (`_` where nothing constrains).
@@ -46,7 +46,7 @@ pub(crate) fn schema(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId) -> Typ
             if inf.the_is_unknown(s) {
                 s
             } else {
-                inf.anulavel(s)
+                inf.nullable(s)
             }
         }
         PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) => schema(inf, cx, *x),
@@ -63,7 +63,7 @@ pub(crate) fn schema(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId) -> Typ
                 }
                 acc
             };
-            inf.lista(el)
+            inf.list(el)
         }
         PatternKind::Map { type_args, .. } => {
             let (k, v) = if type_args.len() == 2 {
@@ -81,7 +81,7 @@ pub(crate) fn schema(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId) -> Typ
                 let s = schema(inf, cx, x);
                 match n {
                     Some(n) => nm.push((n.sym, s)),
-                    None => match nome_implicito(inf, cx, x) {
+                    None => match implicit_name(inf, cx, x) {
                         Some(sym) if implicit_named_field(inf, cx, p, x) => nm.push((sym, s)),
                         _ => pos.push(s),
                     },
@@ -97,12 +97,12 @@ pub(crate) fn schema(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId) -> Typ
 }
 
 /// `:x` in a named record/object field uses the variable's name.
-fn nome_implicito(inf: &BodyInferrer<'_>, cx: &Body, p: PatternId) -> Option<dartforge_intern::SymbolId> {
+fn implicit_name(inf: &BodyInferrer<'_>, cx: &Body, p: PatternId) -> Option<dartforge_intern::SymbolId> {
     let a = &inf.program.unit(cx.unit).ast;
     match &a.pattern(p).kind {
         PatternKind::Variable { name, .. } => Some(name.sym),
-        PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) => nome_implicito(inf, cx, *x),
-        PatternKind::Cast { pattern, .. } => nome_implicito(inf, cx, *pattern),
+        PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) => implicit_name(inf, cx, *x),
+        PatternKind::Cast { pattern, .. } => implicit_name(inf, cx, *pattern),
         _ => None,
     }
 }
@@ -139,7 +139,7 @@ fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId
         PatternKind::Wildcard { .. } => {}
         PatternKind::Variable { final_: f2, var_, ty, name } => {
             let (f2, ty, name) = (*f2, *ty, *name);
-            if cx.padrao_refutavel && !*var_ && !f2 && ty.is_none() {
+            if cx.refutable_pattern && !*var_ && !f2 && ty.is_none() {
                 // `case limite:`: a constant (the name of a const), not a variable that
                 // hides the constant and has no value.
                 return;
@@ -147,14 +147,14 @@ fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId
             // With `var`, `final` or a type, it is a declaration even in an
             // assignment (`DeclaredVariablePattern`).
             if assignment && !*var_ && !f2 && ty.is_none() {
-                if let Some(Nome::Local(id)) = cx.buscar(name.sym) {
+                if let Some(Nome::Local(id)) = cx.lookup(name.sym) {
                     super::expr::write_in_primary(inf, cx, id, name.span);
                     if inf.registrar_locais {
                         let offset = cx.local(id).offset;
                         inf.body_types.units[cx.unit.0 as usize].declaracoes_de_padroes.insert(p, offset);
                     }
-                    let decl = cx.local(id).tipo;
-                    let mut f = std::mem::replace(&mut cx.flow, Fluxo::alcancavel());
+                    let decl = cx.local(id).ty;
+                    let mut f = std::mem::replace(&mut cx.flow, Flow::reachable());
                     let reason = super::flow::NonPromotionReason::Escrita { nome: name.sym, span: name.span };
                     inf.assign_flow(&mut f, id, decl, t, Some(reason));
                     cx.flow = f;
@@ -171,11 +171,11 @@ fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId
             };
             let inv = ty.is_some_and(|x| invalid_annotation(inf, cx, x, typ));
             record_pattern_type(inf, cx, p, typ, inv);
-            declarar_local(inf, cx, Local { nome: name.sym, tipo: typ, final_: final_ || f2, late: false, const_: false, offset: name.span.start, funcao_local: false }, true);
+            declare_local(inf, cx, Local { name: name.sym, ty: typ, final_: final_ || f2, late: false, const_: false, offset: name.span.start, local_function: false }, true);
         }
         PatternKind::Constant(e) => {
             let e = *e;
-            inferir(inf, cx, e, t);
+            infer(inf, cx, e, t);
         }
         PatternKind::Relational { op, value } => {
             let (op, value) = (*op, *value);
@@ -218,7 +218,7 @@ fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId
                 inf.as_instance_of(t, inf.core.list_class).map(|a| a[0]).unwrap_or(inf.core.object_nullable)
             };
             {
-                let the_required = inf.lista(el);
+                let the_required = inf.list(el);
                 let inv = type_args.first().is_some_and(|&x| invalid_annotation(inf, cx, x, el));
                 record_pattern_type(inf, cx, p, the_required, inv);
                 let sp = inf.program.unit(cx.unit).ast.pattern(p).span;
@@ -232,7 +232,7 @@ fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId
                 match e {
                     ListPatternElement::Pattern(x) => type_check(inf, cx, x, el, final_, assignment),
                     ListPatternElement::Rest(Some(x)) => {
-                        let l = inf.lista(el);
+                        let l = inf.list(el);
                         type_check(inf, cx, x, l, final_, assignment);
                     }
                     ListPatternElement::Rest(None) => {}
@@ -257,7 +257,7 @@ fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId
             }
             let es: Vec<(ExprId, PatternId)> = entries.iter().map(|e| (e.key, e.value)).collect();
             for (key, val) in es {
-                inferir(inf, cx, key, k);
+                infer(inf, cx, key, k);
                 type_check(inf, cx, val, v, final_, assignment);
             }
         }
@@ -270,7 +270,7 @@ fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId
             };
             let mut ipos = 0;
             for (n, x, _) in fields {
-                let the_name = n.map(|n| n.sym).or_else(|| if implicit_named_field(inf, cx, p, x) { nome_implicito(inf, cx, x) } else { None });
+                let the_name = n.map(|n| n.sym).or_else(|| if implicit_named_field(inf, cx, p, x) { implicit_name(inf, cx, x) } else { None });
                 let ft = match (&rec, the_name) {
                     (Some((_, named)), Some(nm)) => named.iter().find(|(s, _)| *s == nm).map(|(_, t)| *t),
                     (Some((pos, _)), None) => {
@@ -295,10 +295,10 @@ fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId
                 never_matches(inf, cx, t, obj, sp);
             }
             for (n, x) in fields {
-                let the_name = n.map(|n| n.sym).or_else(|| nome_implicito(inf, cx, x));
+                let the_name = n.map(|n| n.sym).or_else(|| implicit_name(inf, cx, x));
                 let ft = match the_name {
                     Some(nm) => match inf.lookup_member(cx.lib, obj, nm, false) {
-                        Busca::Achado(m) => {
+                        Search::Finding(m) => {
                             // A member of an extension or extension type: exhaustiveness reads it as
                             // an `ExtensionKey` (the object's type is erased).
                             let of_extension_type = matches!(
@@ -307,11 +307,11 @@ fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId
                                     if inf.program.class(*class).kind == dartforge_elements::model::ClassKind::ExtensionType
                             );
                             if m.of_extension || of_extension_type {
-                                inf.body_types.units[cx.unit.0 as usize].extension_fields.insert(x, m.tipo);
+                                inf.body_types.units[cx.unit.0 as usize].extension_fields.insert(x, m.ty);
                             }
-                            m.tipo
+                            m.ty
                         }
-                        Busca::NeverType => inf.core.never,
+                        Search::NeverType => inf.core.never,
                         _ => inf.core.dynamic_,
                     },
                     None => inf.core.dynamic_,
@@ -352,7 +352,7 @@ fn invalid_annotation(inf: &BodyInferrer<'_>, cx: &Body, x: ast::TypeId, r: Type
 /// Reported at the written type (variable, wildcard, cast, object) or at the
 /// pattern (list).
 fn never_matches(inf: &mut BodyInferrer<'_>, cx: &Body, matched: TypeId, the_required: TypeId, span: dartforge_diagnostics::Span) {
-    if !cx.padrao_refutavel || span.start == span.end {
+    if !cx.refutable_pattern || span.start == span.end {
         return;
     }
     if can_be_subtype(inf, matched, the_required, 0) {
@@ -361,7 +361,7 @@ fn never_matches(inf: &mut BodyInferrer<'_>, cx: &Body, matched: TypeId, the_req
     inf.warning_with_args(
         dartforge_diagnostics::codigos::warning::PATTERN_NEVER_MATCHES_VALUE_TYPE,
         span,
-        &[crate::exibicao::Arg::Tipo(matched), crate::exibicao::Arg::Tipo(the_required)],
+        &[crate::exibicao::Arg::Type_(matched), crate::exibicao::Arg::Type_(the_required)],
     );
 }
 
@@ -400,11 +400,11 @@ pub(crate) fn can_be_subtype(inf: &mut BodyInferrer<'_>, left: TypeId, right: Ty
         _ => {}
     }
     if let Type::FutureOr { arg, .. } = inf.table.get(left).clone() {
-        let fut = inf.futuro(arg);
+        let fut = inf.future(arg);
         return can_be_subtype(inf, arg, right, prof + 1) || can_be_subtype(inf, fut, right, prof + 1);
     }
     if let Type::FutureOr { arg, .. } = inf.table.get(right).clone() {
-        let fut = inf.futuro(arg);
+        let fut = inf.future(arg);
         return can_be_subtype(inf, left, arg, prof + 1) || can_be_subtype(inf, left, fut, prof + 1);
     }
     if let (Type::Interface { class: lc, args: la, .. }, Type::Interface { class: rc, args: ra, .. }) =
@@ -545,9 +545,9 @@ fn object_pattern_type(inf: &mut BodyInferrer<'_>, cx: &Body, ty: ast::TypeId, m
                     gi.constrain_return(this, matched, &mut env);
                     let args = gi.choose_final(&mut env);
                     drop(env);
-                    let map = inf.mapa(&params, &args);
+                    let map = inf.map(&params, &args);
                     let t = inf.subst(this, &map);
-                    return if node.nullable { inf.anulavel(t) } else { t };
+                    return if node.nullable { inf.nullable(t) } else { t };
                 }
             }
         }
@@ -559,7 +559,7 @@ fn object_pattern_type(inf: &mut BodyInferrer<'_>, cx: &Body, ty: ast::TypeId, m
 /// (`promoteForPattern`, R-FLU-14): the written type of a variable or
 /// wildcard, non-null for `p?`/`p!`/`!= null`, cast, object pattern; `None`
 /// if the pattern does not narrow.
-fn tipo_casado(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId, t: TypeId) -> Option<TypeId> {
+fn matched_type(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId, t: TypeId) -> Option<TypeId> {
     let a = &inf.program.unit(cx.unit).ast;
     match &a.pattern(p).kind {
         PatternKind::Variable { ty: Some(x), .. } | PatternKind::Wildcard { ty: Some(x) } => {
@@ -569,17 +569,17 @@ fn tipo_casado(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId, t: TypeId) -
         PatternKind::NullCheck(x) | PatternKind::NullAssert(x) => {
             let x = *x;
             let nn = inf.non_null(t);
-            Some(tipo_casado(inf, cx, x, nn).unwrap_or(nn))
+            Some(matched_type(inf, cx, x, nn).unwrap_or(nn))
         }
         PatternKind::Relational { op: ast::BinaryOp::NotEq, value } if matches!(a.expr(*value).kind, ast::ExprKind::Null) => Some(inf.non_null(t)),
         PatternKind::Parenthesized(x) => {
             let x = *x;
-            tipo_casado(inf, cx, x, t)
+            matched_type(inf, cx, x, t)
         }
         PatternKind::And(x, y) => {
             let (x, y) = (*x, *y);
-            let tx = tipo_casado(inf, cx, x, t);
-            tipo_casado(inf, cx, y, tx.unwrap_or(t)).or(tx)
+            let tx = matched_type(inf, cx, x, t);
+            matched_type(inf, cx, y, tx.unwrap_or(t)).or(tx)
         }
         PatternKind::Cast { ty, .. } => {
             let ty = *ty;
@@ -597,9 +597,9 @@ fn tipo_casado(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId, t: TypeId) -
 /// `(matched, não matched)`. `scrutinee`: the matched expression; a promotable
 /// variable is promoted to the matched type on the matching branch, before
 /// the guard (R-FLU-14).
-pub(crate) fn caso(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId, guard: Option<ExprId>, scrutinee: Option<ExprId>) -> (Fluxo, Fluxo) {
-    if matching::ligado(inf) {
-        return matching::caso(inf, cx, p, t, guard, scrutinee);
+pub(crate) fn case(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId, guard: Option<ExprId>, scrutinee: Option<ExprId>) -> (Flow, Flow) {
+    if matching::enabled(inf) {
+        return matching::the_case(inf, cx, p, t, guard, scrutinee);
     }
     let before = cx.flow.clone();
     // The scrutinee is resolved in the outer scope, before the pattern
@@ -607,15 +607,15 @@ pub(crate) fn caso(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: T
     // pattern's `e` shadows the scrutinee, and it is the scrutinee (not the
     // new variable, of the field's type) that the case promotes.
     let target = scrutinee.and_then(|e| expr::promotion_target(inf, cx, e));
-    let refutable_before = std::mem::replace(&mut cx.padrao_refutavel, true);
+    let refutable_before = std::mem::replace(&mut cx.refutable_pattern, true);
     type_check(inf, cx, p, t, false, false);
-    cx.padrao_refutavel = refutable_before;
+    cx.refutable_pattern = refutable_before;
     let mut yes = cx.flow.clone();
     if let Some(id) = target
-        && let Some(tc) = tipo_casado(inf, cx, p, t)
+        && let Some(tc) = matched_type(inf, cx, p, t)
     {
-        let decl = cx.local(id).tipo;
-        inf.promover(&mut yes, id, decl, tc);
+        let decl = cx.local(id).ty;
+        inf.promote(&mut yes, id, decl, tc);
         cx.flow = yes.clone();
     }
     // A pattern that matches any value of the type (`case _:`,
@@ -625,7 +625,7 @@ pub(crate) fn caso(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: T
     if let Some(g) = guard {
         let (gv, gf) = expr::checked_condition(inf, cx, g);
         yes = gv;
-        not_ = inf.juntar(&not_, &gf);
+        not_ = inf.join(&not_, &gf);
     }
     cx.flow = yes.clone();
     (yes, not_)
@@ -668,10 +668,10 @@ fn irrefutable(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId, t: TypeId) -
 }
 
 /// `var (a, b) = e;` / `final [x] = e;`
-pub(crate) fn declaracao(inf: &mut BodyInferrer<'_>, cx: &mut Body, final_: bool, p: PatternId, the_value: ExprId) {
+pub(crate) fn declaration(inf: &mut BodyInferrer<'_>, cx: &mut Body, final_: bool, p: PatternId, the_value: ExprId) {
     let s = schema(inf, cx, p);
-    let t = inferir(inf, cx, the_value, s);
-    if matching::ligado(inf) {
+    let t = infer(inf, cx, the_value, s);
+    if matching::enabled(inf) {
         matching::irrefutable(inf, cx, p, t, final_, false, Some(the_value));
         return;
     }
@@ -681,7 +681,7 @@ pub(crate) fn declaracao(inf: &mut BodyInferrer<'_>, cx: &mut Body, final_: bool
 /// Declares the variables of a pattern matched with `t`
 /// (`for (var (a, b) in …)`).
 pub(crate) fn declare_by_type(inf: &mut BodyInferrer<'_>, cx: &mut Body, final_: bool, p: PatternId, t: TypeId) {
-    if matching::ligado(inf) {
+    if matching::enabled(inf) {
         matching::irrefutable(inf, cx, p, t, final_, false, None);
         return;
     }
@@ -702,27 +702,27 @@ pub(crate) fn pattern_assignment(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: P
         q = *i;
     }
     let local = match &inf.program.unit(cx.unit).ast.pattern(q).kind {
-        PatternKind::Variable { name, ty: None, .. } => match cx.buscar(name.sym) {
+        PatternKind::Variable { name, ty: None, .. } => match cx.lookup(name.sym) {
             Some(Nome::Local(id)) => Some(id),
             _ => None,
         },
         _ => None,
     };
     let (t, saved_condition) = if local.is_some() && expr::is_condition_form(inf, cx, the_value) {
-        let (yes, not_) = expr::condicao(inf, cx, the_value);
-        cx.flow = inf.juntar(&yes, &not_);
+        let (yes, not_) = expr::the_condition(inf, cx, the_value);
+        cx.flow = inf.join(&yes, &not_);
         let t = inf.body_types.units[cx.unit.0 as usize].get_type(the_value).unwrap_or(inf.core.bool_);
         (t, Some((yes, not_)))
     } else {
-        (inferir(inf, cx, the_value, s), None)
+        (infer(inf, cx, the_value, s), None)
     };
-    if matching::ligado(inf) {
+    if matching::enabled(inf) {
         matching::irrefutable(inf, cx, p, t, false, true, None);
     } else {
         type_check(inf, cx, p, t, false, true);
     }
     if let (Some(id), Some((yes, not_))) = (local, saved_condition)
-        && let Some(version) = cx.flow.versao(id)
+        && let Some(version) = cx.flow.version(id)
     {
         cx.conditions.insert(id, (yes, not_, version));
     }
@@ -733,8 +733,8 @@ pub(crate) fn pattern_assignment(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: P
 fn assignment_schema(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId) -> TypeId {
     let a = &inf.program.unit(cx.unit).ast;
     match &a.pattern(p).kind {
-        PatternKind::Variable { name, ty: None, .. } => match cx.buscar(name.sym) {
-            Some(Nome::Local(id)) => cx.local(id).tipo,
+        PatternKind::Variable { name, ty: None, .. } => match cx.lookup(name.sym) {
+            Some(Nome::Local(id)) => cx.local(id).ty,
             _ => inf.core.unknown,
         },
         PatternKind::Record { fields } => {
@@ -761,7 +761,7 @@ pub(crate) fn switch_expression(inf: &mut BodyInferrer<'_>, cx: &mut Body, the_v
     let before = cx.flow.clone();
     let mut not_matched = before.clone();
     let mut types: Vec<TypeId> = Vec::new();
-    let mut exits: Vec<Fluxo> = Vec::new();
+    let mut exits: Vec<Flow> = Vec::new();
     let outer_scrutinee = cx.switch_scrutinee.replace(None);
     for c in cases {
         cx.flow = not_matched.clone();
@@ -769,22 +769,22 @@ pub(crate) fn switch_expression(inf: &mut BodyInferrer<'_>, cx: &mut Body, the_v
         // The case is a basic block (`flowEnd` at `resolver.dart:874`). A case
         // that no value reaches is entirely dead code; a case whose pattern never
         // matches, from the body to the end (Appendix B of §B).
-        let new_ = matching::ligado(inf);
+        let new_ = matching::enabled(inf);
         if new_ {
             super::statements::enter_flow(cx, c.span.end);
-            if !cx.flow.alcancavel && cx.dead_code.is_none() {
-                inf.aviso(crate::codes::DEAD_CODE.template.to_string(), c.span);
+            if !cx.flow.reachable && cx.dead_code.is_none() {
+                inf.warning(crate::codes::DEAD_CODE.template.to_string(), c.span);
                 cx.dead_code = Some(cx.flow_ends.len());
             }
         }
-        let (yes, not_) = caso(inf, cx, c.pattern, t, c.guard, Some(the_value));
+        let (yes, not_) = case(inf, cx, c.pattern, t, c.guard, Some(the_value));
         cx.flow = yes;
-        if new_ && !cx.flow.alcancavel && cx.dead_code.is_none() {
+        if new_ && !cx.flow.reachable && cx.dead_code.is_none() {
             let start = inf.span_expr(cx.unit, c.body).start;
-            inf.aviso(crate::codes::DEAD_CODE.template.to_string(), dartforge_diagnostics::Span { start: start, end: c.span.end });
+            inf.warning(crate::codes::DEAD_CODE.template.to_string(), dartforge_diagnostics::Span { start: start, end: c.span.end });
             cx.dead_code = Some(cx.flow_ends.len());
         }
-        let tc = inferir(inf, cx, c.body, ctx);
+        let tc = infer(inf, cx, c.body, ctx);
         if new_ {
             super::statements::exit_flow(cx);
         }
@@ -841,9 +841,9 @@ pub(crate) fn relational_pattern(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: P
         inf.null_warning(t, dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_OPERATOR_INVOCATION_OF_NULLABLE_VALUE, token, &[the_name]);
     }
     let operator = match inf.interner.lookup(the_name).map(|s| inf.lookup_member(cx.lib, t, s, false)) {
-        Some(Busca::Achado(m)) => match {
+        Some(Search::Finding(m)) => match {
             inf.body_types.units[cx.unit.0 as usize].relational_operators.insert(p, m.resolved.clone());
-            inf.table.get(m.tipo).clone()
+            inf.table.get(m.ty).clone()
         } {
             Type::Function { positional, ret, .. } => positional.first().copied().map(|p| (p, ret)),
             _ => None,
@@ -851,13 +851,13 @@ pub(crate) fn relational_pattern(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: P
         _ => None,
     };
     let ctx = match operator {
-        Some((p, _)) if equality => inf.anulavel(p),
+        Some((p, _)) if equality => inf.nullable(p),
         Some((p, _)) => p,
         None => u,
     };
-    let tv = inferir(inf, cx, value, ctx);
+    let tv = infer(inf, cx, value, ctx);
     if let Some((parameter, return_)) = operator {
-        if !inf.atribuivel(tv, ctx) {
+        if !inf.assignable(tv, ctx) {
             let sp = inf.span_expr(cx.unit, value);
             let a1 = inf.table.format(tv, inf.interner, inf.program);
             let a2 = inf.table.format(parameter, inf.interner, inf.program);
@@ -868,7 +868,7 @@ pub(crate) fn relational_pattern(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: P
             );
         }
         let bool_ = inf.core.bool_;
-        if !inf.atribuivel(return_, bool_) {
+        if !inf.assignable(return_, bool_) {
             let start = inf.program.unit(cx.unit).ast.pattern(p).span.start;
             let token = dartforge_diagnostics::Span { start: start, end: start + lexeme.len() };
             inf.warning_with_code(

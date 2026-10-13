@@ -37,7 +37,7 @@ use dartforge_intern::Interner;
 use std::collections::HashMap;
 
 /// The lexeme of a binary operator.
-fn lexema(op: BinaryOp) -> &'static str {
+fn lexeme(op: BinaryOp) -> &'static str {
     match op {
         BinaryOp::Add => "+",
         BinaryOp::Sub => "-",
@@ -66,7 +66,7 @@ fn lexema(op: BinaryOp) -> &'static str {
 
 /// `(leitura, escrita)` of an assignment/increment target: the context of
 /// `inGetterContext`/`inSetterContext`.
-fn contexto(a: &ast::Ast, pais: &dartforge_frontend::pais::Pais, e: ast::ExprId) -> (bool, bool) {
+fn context(a: &ast::Ast, pais: &dartforge_frontend::pais::Pais, e: ast::ExprId) -> (bool, bool) {
     match pais.pai(e) {
         Pai::Expr(p) => match &a.expr(p).kind {
             ExprKind::Assign { op, target, .. } if *target == e => match op {
@@ -99,7 +99,7 @@ fn names_invoked_through_super(program: &Program, m: ClassId) -> Vec<String> {
     if bodies.is_empty() {
         return Vec::new();
     }
-    let pais = crate::lints_tipados::pais_da_unidade(program, d.unit);
+    let pais = crate::lints_tipados::unit_parents(program, d.unit);
     let e_super = |e: ast::ExprId| matches!(a.expr(e).kind, ExprKind::Super);
     let mut findings: Vec<(usize, usize, Vec<String>)> = Vec::new();
     for (i, ex) in a.exprs.iter().enumerate() {
@@ -122,7 +122,7 @@ fn names_invoked_through_super(program: &Program, m: ClassId) -> Vec<String> {
                     Vec::new()
                 } else {
                     let the_name = unit.source[name.span.start..name.span.end].to_string();
-                    let (le, writes) = contexto(a, &pais, id);
+                    let (le, writes) = context(a, &pais, id);
                     let mut v = Vec::new();
                     if le {
                         v.push(the_name.clone());
@@ -134,7 +134,7 @@ fn names_invoked_through_super(program: &Program, m: ClassId) -> Vec<String> {
                 }
             }
             ExprKind::Index { target, .. } if e_super(*target) => {
-                let (le, writes) = contexto(a, &pais, id);
+                let (le, writes) = context(a, &pais, id);
                 let mut v = Vec::new();
                 if le {
                     v.push("[]".to_string());
@@ -144,7 +144,7 @@ fn names_invoked_through_super(program: &Program, m: ClassId) -> Vec<String> {
                 }
                 v
             }
-            ExprKind::Binary { op, left, .. } if e_super(*left) => vec![lexema(*op).to_string()],
+            ExprKind::Binary { op, left, .. } if e_super(*left) => vec![lexeme(*op).to_string()],
             ExprKind::Unary { op: UnaryOp::Neg, operand } if e_super(*operand) => vec!["unary-".to_string()],
             ExprKind::Unary { op: UnaryOp::BitNot, operand } if e_super(*operand) => vec!["~".to_string()],
             _ => Vec::new(),
@@ -330,14 +330,14 @@ pub fn decisoes(
                         // `getMember(mixinType, name, forSuper: true)`: the mixin's own `super`
                         // (the constraints), seen through the mixin's arguments.
                         let Some(do_mixin) = interface_do_mixin.super_implemented.last().and_then(|mp| mp.get(&n)).cloned() else { continue };
-                        let mixin_type = if map.is_empty() { do_mixin.tipo } else { ops::substitute(do_mixin.tipo, &map, table) };
-                        let this_one = type_for_subtype(table, core, super_member_of.tipo, &super_member_of.the_covariant);
+                        let mixin_type = if map.is_empty() { do_mixin.ty } else { ops::substitute(do_mixin.ty, &map, table) };
+                        let this_one = type_for_subtype(table, core, super_member_of.ty, &super_member_of.the_covariant);
                         let correct = {
                             let mut env = SubtypeEnv::new(table, &outline.hierarchy, core);
                             is_subtype(this_one, mixin_type, &mut env)
                         };
                         if !correct {
-                            let (t1, t2) = (table.format(mixin_type, interner, program), table.format(super_member_of.tipo, interner, program));
+                            let (t1, t2) = (table.format(mixin_type, interner, program), table.format(super_member_of.ty, interner, program));
                             decision = Some(Diagnostic::com_codigo(c::MIXIN_APPLICATION_CONCRETE_SUPER_INVOKED_MEMBER_TYPE, sp, [the_name.as_str(), t1.as_str(), t2.as_str()]));
                             break;
                         }

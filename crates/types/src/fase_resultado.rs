@@ -102,16 +102,16 @@ fn variable_unit(program: &Program, v: VariableId) -> Option<UnitId> {
 }
 
 /// What the use-result annotation says.
-struct Uso {
+struct Use {
     /// `UseResult('msg')` or `message:`.
-    mensagem: Option<String>,
+    message: Option<String>,
     /// `UseResult.unless(parameterDefined: 'p')`.
-    parametro: Option<String>,
+    parameter: Option<String>,
 }
 
 /// The first `@useResult` or `@UseResult(...)` annotation of the list. `a` is
 /// the tree of the unit in which the annotation is written.
-fn uso_de_resultado(metadata: &[ast::Annotation], a: &ast::Ast, interner: &Interner) -> Option<Uso> {
+fn result_use(metadata: &[ast::Annotation], a: &ast::Ast, interner: &Interner) -> Option<Use> {
     let text_of = |e: ExprId| match &a.expr(e).kind {
         ExprKind::String(lit) => dartforge_elements::load::string_lit_value(lit),
         _ => None,
@@ -120,13 +120,13 @@ fn uso_de_resultado(metadata: &[ast::Annotation], a: &ast::Ast, interner: &Inter
         let names: Vec<&str> = m.name.iter().map(|n| interner.resolve(n.sym)).collect();
         match &m.arguments {
             // `@useResult`: a constant getter, without a message.
-            None if names.last() == Some(&"useResult") => return Some(Uso { mensagem: None, parametro: None }),
+            None if names.last() == Some(&"useResult") => return Some(Use { message: None, parameter: None }),
             Some(args) if names.contains(&"UseResult") => {
                 let named = |the_name: &str| {
                     args.args.iter().find(|x| x.name.is_some_and(|n| interner.resolve(n.sym) == the_name)).and_then(|x| text_of(x.value))
                 };
                 let positional = args.args.iter().find(|x| x.name.is_none()).and_then(|x| text_of(x.value));
-                return Some(Uso { mensagem: positional.or_else(|| named("message")), parametro: named("parameterDefined") });
+                return Some(Use { message: positional.or_else(|| named("message")), parameter: named("parameterDefined") });
             }
             _ => {}
         }
@@ -244,7 +244,7 @@ pub fn resultados_nao_usados(program: &Program, interner: &Interner, the_body: &
         };
         let (metadata, where_) = element_annotations(program, r);
         let Some(where_) = where_ else { continue };
-        let Some(use_) = uso_de_resultado(metadata, &program.unit(where_).ast, interner) else { continue };
+        let Some(use_) = result_use(metadata, &program.unit(where_).ast, interner) else { continue };
         // A call without `new` that resolves to a constructor is an instance
         // creation: marks the whole node, with the constructor name.
         let (span, the_name) = match r {
@@ -257,12 +257,12 @@ pub fn resultados_nao_usados(program: &Program, interner: &Interner, the_body: &
             _ => (span, the_name),
         };
         // `_passesUsingParam`: the call passes the `unless` parameter.
-        if let (Some(p), Some(args), false) = (&use_.parametro, args_list, matches!(r, Resolved::Constructor(_)))
+        if let (Some(p), Some(args), false) = (&use_.parameter, args_list, matches!(r, Resolved::Constructor(_)))
             && args.args.iter().any(|x| x.name.is_some_and(|n| interner.resolve(n.sym) == p))
         {
             continue;
         }
-        match use_.mensagem.as_deref().filter(|m| !m.is_empty()) {
+        match use_.message.as_deref().filter(|m| !m.is_empty()) {
             None => out.push(Diagnostic::com_codigo(w::UNUSED_RESULT, span, [the_name.as_str()])),
             Some(m) => out.push(Diagnostic::com_codigo(w::UNUSED_RESULT_WITH_MESSAGE, span, [the_name.as_str(), m])),
         }

@@ -29,7 +29,7 @@ pub struct Version(pub u32, pub u32, pub u32);
 impl Version {
     /// `2.15`, `2.15.0`, `3.0.0-dev.1`: missing parts are zero; whatever comes
     /// after `-` or `+` is discarded.
-    pub fn de_texto(text: &str) -> Option<Version> {
+    pub fn from_text(text: &str) -> Option<Version> {
         let core_lib = text.trim().split(['-', '+']).next()?;
         let mut parts = core_lib.split('.').map(|p| p.parse::<u32>());
         let greater = parts.next()?.ok()?;
@@ -50,9 +50,9 @@ impl std::fmt::Display for Version {
 pub struct RestricaoDeSdk {
     /// The minimum (from `^v`, `>=v`, `>v` or the exact version); `None` without
     /// a lower bound.
-    pub minimo: Option<Version>,
+    pub minimum: Option<Version>,
     /// The constraint text, with normalized spaces (the `toString`).
-    pub texto: String,
+    pub text: String,
 }
 
 impl RestricaoDeSdk {
@@ -64,34 +64,34 @@ impl RestricaoDeSdk {
             return None;
         }
         if normal.is_empty() || normal == "any" {
-            return Some(RestricaoDeSdk { minimo: None, texto: "any".to_string() });
+            return Some(RestricaoDeSdk { minimum: None, text: "any".to_string() });
         }
         let mut minimum = None;
         for parte in normal.split(' ') {
             if let Some(v) = parte.strip_prefix('^').or_else(|| parte.strip_prefix(">=")).or_else(|| parte.strip_prefix('>')) {
-                minimum = Some(Version::de_texto(v)?);
+                minimum = Some(Version::from_text(v)?);
             } else if let Some(v) = parte.strip_prefix("<=").or_else(|| parte.strip_prefix('<')) {
-                Version::de_texto(v)?;
+                Version::from_text(v)?;
             } else {
-                minimum = Some(Version::de_texto(parte)?);
+                minimum = Some(Version::from_text(parte)?);
             }
         }
-        Some(RestricaoDeSdk { minimo: minimum, texto: normal })
+        Some(RestricaoDeSdk { minimum, text: normal })
     }
 
     /// `requiresAtLeast`: the constraint's minimum is at least `version`.
     fn guarantees(&self, version: Version) -> bool {
-        self.minimo.is_some_and(|m| m >= version)
+        self.minimum.is_some_and(|m| m >= version)
     }
 
     /// `checkTripleShift`: the constraint admits a version earlier than 2.14.0.
     fn before_triple_shift(&self) -> bool {
-        self.minimo.is_none_or(|m| m < Version(2, 14, 0))
+        self.minimum.is_none_or(|m| m < Version(2, 14, 0))
     }
 }
 
 /// The `@Since('x.y')` version from a list of annotations.
-fn desde(metadata: &[ast::Annotation], a: &ast::Ast, interner: &Interner) -> Option<Version> {
+fn since(metadata: &[ast::Annotation], a: &ast::Ast, interner: &Interner) -> Option<Version> {
     metadata.iter().find_map(|m| {
         let args = m.arguments.as_ref()?;
         if m.name.last().map(|n| interner.resolve(n.sym)) != Some("Since") {
@@ -99,7 +99,7 @@ fn desde(metadata: &[ast::Annotation], a: &ast::Ast, interner: &Interner) -> Opt
         }
         let first = args.args.iter().find(|x| x.name.is_none())?;
         match &a.expr(first.value).kind {
-            ExprKind::String(lit) => Version::de_texto(&dartforge_elements::load::string_lit_value(lit)?),
+            ExprKind::String(lit) => Version::from_text(&dartforge_elements::load::string_lit_value(lit)?),
             _ => None,
         }
     })
@@ -112,7 +112,7 @@ fn since_of_class(program: &Program, interner: &Interner, c: ClassId) -> Option<
     }
     let d = e.decl?;
     let a = &program.unit(d.unit).ast;
-    desde(&a.decl(d.decl).metadata, a, interner)
+    since(&a.decl(d.decl).metadata, a, interner)
 }
 
 fn since_of_variable(program: &Program, interner: &Interner, v: VariableId) -> Option<Version> {
@@ -123,11 +123,11 @@ fn since_of_variable(program: &Program, interner: &Interner, v: VariableId) -> O
     let own = match e.node {
         VariableRef::TopLevel { unit, decl, .. } => {
             let a = &program.unit(unit).ast;
-            desde(&a.decl(decl).metadata, a, interner)
+            since(&a.decl(decl).metadata, a, interner)
         }
         VariableRef::Field { unit, member, .. } => {
             let a = &program.unit(unit).ast;
-            desde(&a.member(member).metadata, a, interner)
+            since(&a.member(member).metadata, a, interner)
         }
         _ => None,
     };
@@ -146,13 +146,13 @@ fn since_of_function(program: &Program, interner: &Interner, f: FunctionElementI
     let own = match e.node {
         FunctionRef::Constructor { unit, member } => {
             let a = &program.unit(unit).ast;
-            desde(&a.member(member).metadata, a, interner)
+            since(&a.member(member).metadata, a, interner)
         }
         FunctionRef::Function { unit, function } => {
             let a = &program.unit(unit).ast;
             let of_member = a.members.iter().find(|m| matches!(&m.kind, MemberKind::Method(g) if *g == function)).map(|m| &m.metadata[..]);
             let of_declaration = || a.decls.iter().find(|d| matches!(&d.kind, DeclKind::Function(g) if *g == function)).map(|d| &d.metadata[..]);
-            of_member.or_else(of_declaration).and_then(|m| desde(m, a, interner))
+            of_member.or_else(of_declaration).and_then(|m| since(m, a, interner))
         }
         FunctionRef::None => None,
     };
@@ -197,7 +197,7 @@ pub fn restricao_de_sdk(
         // The listener is a set: one report per position.
         if !out.iter().any(|x| x.code == Some(w::SDK_VERSION_SINCE) && x.span == span) {
             let text = v.to_string();
-            out.push(Diagnostic::com_codigo(w::SDK_VERSION_SINCE, span, [text.as_str(), constraint.texto.as_str()]));
+            out.push(Diagnostic::com_codigo(w::SDK_VERSION_SINCE, span, [text.as_str(), constraint.text.as_str()]));
         }
     };
     // Named types: the SDK class, at the name.
@@ -245,17 +245,17 @@ mod testes {
     use super::*;
 
     #[test]
-    fn restricoes() {
+    fn constraints() {
         let caret = RestricaoDeSdk::de_texto("^3.6.0").unwrap();
-        assert_eq!(caret.minimo, Some(Version(3, 6, 0)));
+        assert_eq!(caret.minimum, Some(Version(3, 6, 0)));
         assert!(caret.guarantees(Version(2, 15, 0)) && !caret.guarantees(Version(3, 7, 0)));
         assert!(!caret.before_triple_shift());
         let range = RestricaoDeSdk::de_texto(">=2.12.0   <4.0.0").unwrap();
-        assert_eq!(range.texto, ">=2.12.0 <4.0.0");
+        assert_eq!(range.text, ">=2.12.0 <4.0.0");
         assert!(range.before_triple_shift() && !range.guarantees(Version(2, 15, 0)));
         assert!(RestricaoDeSdk::de_texto("any").unwrap().before_triple_shift());
         assert!(RestricaoDeSdk::de_texto(">=2.0.0 <3.0.0 || >=3.1.0").is_none());
-        assert_eq!(Version::de_texto("2.15"), Some(Version(2, 15, 0)));
-        assert_eq!(Version::de_texto("3.0.0-dev.1"), Some(Version(3, 0, 0)));
+        assert_eq!(Version::from_text("2.15"), Some(Version(2, 15, 0)));
+        assert_eq!(Version::from_text("3.0.0-dev.1"), Some(Version(3, 0, 0)));
     }
 }

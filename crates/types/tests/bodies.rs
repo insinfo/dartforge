@@ -1821,17 +1821,17 @@ fn types_with_sdk(source: &str) -> Option<Vec<(String, String)>> {
         .stack_size(1 << 28)
         .spawn(move || {
             let d = dartforge_types::despejo::dump(&main, &sdk, None);
-            d.unidades.into_iter().next().expect("dumped unit").linhas
+            d.units.into_iter().next().expect("dumped unit").lines
         })
         .unwrap()
         .join()
         .unwrap();
     // ASCII source: UTF-16 offsets = byte offsets.
-    Some(lines.into_iter().map(|l| (source[l.offset..l.offset + l.comprimento].to_string(), l.tipo)).collect())
+    Some(lines.into_iter().map(|l| (source[l.offset..l.offset + l.length].to_string(), l.ty)).collect())
 }
 
 /// Type of the `n`-th (from 0) expression whose text is `snippet`.
-fn tipo_de<'a>(types: &'a [(String, String)], snippet: &str, n: usize) -> &'a str {
+fn type_of<'a>(types: &'a [(String, String)], snippet: &str, n: usize) -> &'a str {
     types
         .iter()
         .filter(|(t, _)| t == snippet)
@@ -1855,9 +1855,9 @@ void f(B b) { print(b.lista); }",
     ) else {
         return;
     };
-    assert_eq!(tipo_de(&t, "[]", 0), "List<double>");
-    assert_eq!(tipo_de(&t, "v", 0), "int");
-    assert_eq!(tipo_de(&t, "b.lista", 0), "List<double>");
+    assert_eq!(type_of(&t, "[]", 0), "List<double>");
+    assert_eq!(type_of(&t, "v", 0), "int");
+    assert_eq!(type_of(&t, "b.lista", 0), "List<double>");
 }
 
 #[test]
@@ -1874,10 +1874,10 @@ void f() { A a = A(); var o = O(); var p = P(); print([a, o, p, g]); }",
     ) else {
         return;
     };
-    assert_eq!(tipo_de(&t, "A()", 0), "A<num, num>");
-    assert_eq!(tipo_de(&t, "O()", 0), "O<Object?>");
-    assert_eq!(tipo_de(&t, "P()", 0), "P<dynamic>");
-    assert_eq!(tipo_de(&t, "g", 0), "void Function<T, U extends Object?>(T, U)");
+    assert_eq!(type_of(&t, "A()", 0), "A<num, num>");
+    assert_eq!(type_of(&t, "O()", 0), "O<Object?>");
+    assert_eq!(type_of(&t, "P()", 0), "P<dynamic>");
+    assert_eq!(type_of(&t, "g", 0), "void Function<T, U extends Object?>(T, U)");
 }
 
 #[test]
@@ -1890,9 +1890,9 @@ void f() { var r = h((u) => u.isEven, (t) => t * 2, 1); print(r); }",
     ) else {
         return;
     };
-    assert_eq!(tipo_de(&t, "(u) => u.isEven", 0), "bool Function(int)");
-    assert_eq!(tipo_de(&t, "(t) => t * 2", 0), "int Function(int)");
-    assert_eq!(tipo_de(&t, "r", 0), "bool");
+    assert_eq!(type_of(&t, "(u) => u.isEven", 0), "bool Function(int)");
+    assert_eq!(type_of(&t, "(t) => t * 2", 0), "int Function(int)");
+    assert_eq!(type_of(&t, "r", 0), "bool");
 }
 
 #[test]
@@ -1910,9 +1910,9 @@ fn generator_without_yield_and_empty_return_like_analyzer_3_6_2() {
     ) else {
         return;
     };
-    assert_eq!(tipo_de(&t, "() sync* {}", 0), "Iterable<dynamic> Function()");
-    assert_eq!(tipo_de(&t, "() sync* { yield 1; return; }", 0), "Iterable<int?> Function()");
-    assert_eq!(tipo_de(&t, "() async* { yield 1; }", 0), "Stream<int> Function()");
+    assert_eq!(type_of(&t, "() sync* {}", 0), "Iterable<dynamic> Function()");
+    assert_eq!(type_of(&t, "() sync* { yield 1; return; }", 0), "Iterable<int?> Function()");
+    assert_eq!(type_of(&t, "() async* { yield 1; }", 0), "Stream<int> Function()");
 }
 
 #[test]
@@ -1930,9 +1930,9 @@ fn if_null_with_non_completing_rhs_promotes_lhs() {
     ) else {
         return;
     };
-    assert_eq!(tipo_de(&t, "y", 1), "int");
-    assert_eq!(tipo_de(&t, "[z, y]", 0), "List<int>");
-    assert_eq!(tipo_de(&t, "w", 1), "int?");
+    assert_eq!(type_of(&t, "y", 1), "int");
+    assert_eq!(type_of(&t, "[z, y]", 0), "List<int>");
+    assert_eq!(type_of(&t, "w", 1), "int?");
 }
 
 #[test]
@@ -1949,8 +1949,8 @@ fn completing_finally_carries_promotions_past_try() {
     ) else {
         return;
     };
-    assert_eq!(tipo_de(&t, "o", 1), "int");
-    assert_eq!(tipo_de(&t, "x", 1), "int");
+    assert_eq!(type_of(&t, "o", 1), "int");
+    assert_eq!(type_of(&t, "x", 1), "int");
 }
 
 #[test]
@@ -1967,8 +1967,8 @@ void f(J j, K k) { print([j.v, k.v]); }",
     ) else {
         return;
     };
-    assert_eq!(tipo_de(&t, "j.v", 0), "int");
-    assert_eq!(tipo_de(&t, "k.v", 0), "int");
+    assert_eq!(type_of(&t, "j.v", 0), "int");
+    assert_eq!(type_of(&t, "k.v", 0), "int");
 }
 
 #[test]
@@ -1987,9 +1987,9 @@ void f(bool b, Never n) {
     ) else {
         return;
     };
-    assert_eq!(tipo_de(&t, "falha().x", 0), "InvalidType");
-    assert_eq!(tipo_de(&t, "falha().hashCode", 0), "int");
-    assert_eq!(tipo_de(&t, "n.x", 0), "Never");
+    assert_eq!(type_of(&t, "falha().x", 0), "InvalidType");
+    assert_eq!(type_of(&t, "falha().hashCode", 0), "int");
+    assert_eq!(type_of(&t, "n.x", 0), "Never");
 }
 
 /// The `dead_code` fragments as the analyzer's `NullSafetyDeadCodeVerifier`

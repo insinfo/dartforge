@@ -61,20 +61,20 @@ fn inference_corpus_against_oracle() {
                 let path = std::fs::canonicalize(prog).unwrap_or(prog.clone());
                 let target = path.to_string_lossy().replace('\\', "/");
                 let target = target.trim_start_matches("//?/");
-                let Some(u) = d.unidades.iter().find(|u| u.caminho.eq_ignore_ascii_case(target)).or(d.unidades.first()) else {
+                let Some(u) = d.units.iter().find(|u| u.path.eq_ignore_ascii_case(target)).or(d.units.first()) else {
                     panic!("{rel}: unit not dumped");
                 };
-                let c = compare_block(&line_block(&u.linhas), &expected_block(&text));
+                let c = compare_block(&line_block(&u.lines), &expected_block(&text));
                 compared += c.compared;
                 divergent += c.divergences.len();
                 for x in &c.divergences {
-                    current.insert(format!("{rel}:{}:{}\t{}\tnós={}\toráculo={}", x.ini, x.fim - x.ini, x.no, x.ours, x.oraculo));
+                    current.insert(format!("{rel}:{}:{}\t{}\tnós={}\toráculo={}", x.start, x.end - x.start, x.no, x.ours, x.oracle));
                 }
-                for a in &d.avisos {
+                for a in &d.warnings {
                     warnings += 1;
                     current.insert(format!("{rel}:aviso:{}\t{}", a.span.start, a.message.replace(['\n', '\t'], " ")));
                 }
-                if c.divergences.is_empty() && d.avisos.is_empty() {
+                if c.divergences.is_empty() && d.warnings.is_empty() {
                     equal += 1;
                 }
             }

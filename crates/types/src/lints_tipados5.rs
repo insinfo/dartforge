@@ -23,7 +23,7 @@
 //! Written without compiling or running (2026-10-05).
 
 use crate::constantes::avaliador::{Constante, Motor};
-use crate::lints_tipados::Achado;
+use crate::lints_tipados::Finding;
 use crate::resolve::OutlineTypes;
 use crate::resolved::{BodyTypes, MemberRef, Resolved, UnitBodyTypes};
 use crate::subtyping::{is_subtype, SubtypeEnv};
@@ -34,7 +34,7 @@ use dartforge_frontend::ast::{self, ExprId, ExprKind, Initializer, MemberKind, P
 use dartforge_intern::Interner;
 use std::collections::{HashMap, HashSet};
 
-fn sem_parenteses(a: &ast::Ast, mut e: ExprId) -> ExprId {
+fn without_parentheses(a: &ast::Ast, mut e: ExprId) -> ExprId {
     while let ExprKind::Parenthesized(x) = &a.expr(e).kind {
         e = *x;
     }
@@ -52,8 +52,8 @@ pub fn achados(
     bodies: &BodyTypes,
     the_inferred: &HashSet<LibraryId>,
     u: UnitId,
-) -> Vec<Achado> {
-    let mut out: Vec<Achado> = Vec::new();
+) -> Vec<Finding> {
+    let mut out: Vec<Finding> = Vec::new();
     let Some(body) = bodies.units.get(u.0 as usize) else { return out };
     exhaustive_cases(program, interner, table, core, outline, bodies, the_inferred, u, &mut out);
     named_constants_and_declarations(program, interner, table, core, outline, bodies, the_inferred, u, &mut out);
@@ -63,7 +63,7 @@ pub fn achados(
 }
 
 /// The `thisType` of a class.
-fn tipo_this(table: &mut TypeTable, outline: &OutlineTypes, c: ClassId) -> TypeId {
+fn this_type(table: &mut TypeTable, outline: &OutlineTypes, c: ClassId) -> TypeId {
     let params: Vec<TypeId> = outline
         .classes
         .get(c.0 as usize)
@@ -83,7 +83,7 @@ fn exhaustive_cases(
     bodies: &BodyTypes,
     the_inferred: &HashSet<LibraryId>,
     u: UnitId,
-    out: &mut Vec<Achado>,
+    out: &mut Vec<Finding>,
 ) {
     let unit_id = program.unit(u);
     let a = &unit_id.ast;
@@ -113,7 +113,7 @@ fn exhaustive_cases(
     for (span, the_value, the_cases) in switches {
         let Some(t) = body.get_type(the_value) else { continue };
         let Type::Interface { class, .. } = table.get(t).clone() else { continue };
-        let this_t = tipo_this(table, outline, class);
+        let this_t = this_type(table, outline, class);
         candidates.push((span, the_value, the_cases, class, this_t));
     }
     if candidates.is_empty() {
@@ -207,7 +207,7 @@ fn exhaustive_cases(
                 p = *x;
             }
             let PatternKind::Constant(e) = &a.pattern(p).kind else { continue };
-            let e = sem_parenteses(a, *e);
+            let e = without_parentheses(a, *e);
             if !matches!(a.expr(e).kind, ExprKind::Identifier(_) | ExprKind::Property { .. }) {
                 continue;
             }
@@ -253,14 +253,14 @@ fn named_constants_and_declarations(
     bodies: &BodyTypes,
     the_inferred: &HashSet<LibraryId>,
     u: UnitId,
-    out: &mut Vec<Achado>,
+    out: &mut Vec<Finding>,
 ) {
     let unit_id = program.unit(u);
     let a = &unit_id.ast;
     let source = unit_id.source.as_str();
     let lib = unit_id.library;
     let Some(body) = bodies.units.get(u.0 as usize) else { return };
-    let pais = crate::lints_tipados::pais_da_unidade(program, u);
+    let pais = crate::lints_tipados::unit_parents(program, u);
     // `use_named_constants`: the constant creations of a class.
     let mut creations: Vec<(ExprId, ClassId)> = Vec::new();
     for (k, e) in a.exprs.iter().enumerate() {
@@ -388,7 +388,7 @@ fn super_parameters(
     outline: &OutlineTypes,
     body: &UnitBodyTypes,
     u: UnitId,
-    out: &mut Vec<Achado>,
+    out: &mut Vec<Finding>,
 ) {
     let unit_id = program.unit(u);
     // `Feature.super_parameters` (2.17).
@@ -566,7 +566,7 @@ fn named_parameters(
     let mut m = HashMap::new();
     let Some(data) = outline.functions.get(f.0 as usize) else { return m };
     let mut sig = data.signature;
-    let this_t = tipo_this(table, outline, cls);
+    let this_t = this_type(table, outline, cls);
     if let Some(inst) = outline.hierarchy.supertype_of(this_t, sup, table, core)
         && let Type::Interface { args, .. } = table.get(inst).clone()
     {
@@ -600,7 +600,7 @@ impl Js<'_> {
         &self.program.library(l).uri
     }
 
-    fn limite(&self, table: &TypeTable, t: TypeId) -> TypeId {
+    fn bound(&self, table: &TypeTable, t: TypeId) -> TypeId {
         match table.get(t) {
             Type::TypeParameter { param, .. } => table.param(*param).bound,
             Type::Intersection { bound, .. } => *bound,
@@ -611,14 +611,14 @@ impl Js<'_> {
     /// `isDartJsInteropType`.
     fn dart_js(&self, table: &TypeTable, t: TypeId) -> bool {
         match table.get(t) {
-            Type::TypeParameter { .. } | Type::Intersection { .. } => self.dart_js(table, self.limite(table, t)),
+            Type::TypeParameter { .. } | Type::Intersection { .. } => self.dart_js(table, self.bound(table, t)),
             Type::ExtensionType { decl, .. } => self.uri(self.program.class(*decl).library) == "dart:js_interop",
             _ => false,
         }
     }
 
     /// The declared representation type of an extension type.
-    fn representacao(&self, decl: ClassId) -> Option<TypeId> {
+    fn representation(&self, decl: ClassId) -> Option<TypeId> {
         let v = self.program.class(decl).representation?;
         self.outline.variables.get(v.0 as usize)?.declared_type
     }
@@ -660,8 +660,8 @@ impl Js<'_> {
             return false;
         }
         match table.get(t) {
-            Type::TypeParameter { .. } | Type::Intersection { .. } => self.js_user(table, self.limite(table, t), prof + 1),
-            Type::ExtensionType { decl, .. } => self.representacao(*decl).is_some_and(|r| self.dart_js(table, r) || self.js_user(table, r, prof + 1)),
+            Type::TypeParameter { .. } | Type::Intersection { .. } => self.js_user(table, self.bound(table, t), prof + 1),
+            Type::ExtensionType { decl, .. } => self.representation(*decl).is_some_and(|r| self.dart_js(table, r) || self.js_user(table, r, prof + 1)),
             Type::Interface { class, .. } => self.static_interop(*class),
             _ => false,
         }
@@ -669,7 +669,7 @@ impl Js<'_> {
 
     /// `isWasmIncompatibleJsInterop`.
     fn incompatible(&self, table: &TypeTable, t: TypeId) -> bool {
-        let (Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. }) = table.get(self.limite(table, t)) else { return false };
+        let (Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. }) = table.get(self.bound(table, t)) else { return false };
         let k = self.program.class(*class);
         let has_js = k.decl.is_some_and(|r| {
             let a = &self.program.unit(r.unit).ast;
@@ -686,19 +686,19 @@ impl Js<'_> {
     }
 
     /// `EraseNonJSInteropTypes.perform`.
-    fn apagar(&self, table: &mut TypeTable, t: TypeId, keep_user: bool, seen: &mut HashSet<TypeParamId>) -> TypeId {
+    fn erase(&self, table: &mut TypeTable, t: TypeId, keep_user: bool, seen: &mut HashSet<TypeParamId>) -> TypeId {
         let keeps = if keep_user { self.js_user(table, t, 0) } else { self.dart_js(table, t) };
         match table.get(t).clone() {
             Type::Interface { class, args, nullable } => {
                 if keeps {
-                    return tipo_this(table, self.outline, class);
+                    return this_type(table, self.outline, class);
                 }
                 if self.static_interop(class)
                     && let Some(jo) = self.js_object
                 {
                     return table.intern(Type::ExtensionType { decl: jo, args: Box::new([]), nullable: false });
                 }
-                let new_: Vec<TypeId> = args.iter().map(|x| self.apagar(table, *x, keep_user, seen)).collect();
+                let new_: Vec<TypeId> = args.iter().map(|x| self.erase(table, *x, keep_user, seen)).collect();
                 table.intern(Type::Interface { class, args: new_.into(), nullable })
             }
             Type::ExtensionType { decl, args, nullable } => {
@@ -712,11 +712,11 @@ impl Js<'_> {
                     return table.intern(Type::ExtensionType { decl, args: params.into(), nullable: false });
                 }
                 // The erasure: the instantiated representation.
-                let Some(rep) = self.representacao(decl) else { return t };
+                let Some(rep) = self.representation(decl) else { return t };
                 let params = self.outline.classes.get(decl.0 as usize).map(|x| x.type_params.clone()).unwrap_or_default();
                 let map: HashMap<TypeParamId, TypeId> = params.iter().copied().zip(args.iter().copied()).collect();
                 let inst = crate::ops::substitute(rep, &map, table);
-                let erased = self.apagar(table, inst, keep_user, seen);
+                let erased = self.erase(table, inst, keep_user, seen);
                 if nullable { crate::ops::nullable(erased, table) } else { erased }
             }
             Type::TypeParameter { param, .. } => {
@@ -724,18 +724,18 @@ impl Js<'_> {
                     return t;
                 }
                 let bnd = table.param(param).bound;
-                let the_new_ = self.apagar(table, bnd, keep_user, seen);
+                let the_new_ = self.erase(table, bnd, keep_user, seen);
                 table.intern(Type::Intersection { param, bound: the_new_ })
             }
             Type::Intersection { param, bound } => {
                 if !seen.insert(param) {
                     return t;
                 }
-                let the_new_ = self.apagar(table, bound, keep_user, seen);
+                let the_new_ = self.erase(table, bound, keep_user, seen);
                 table.intern(Type::Intersection { param, bound: the_new_ })
             }
             Type::FutureOr { arg, nullable } => {
-                let a2 = self.apagar(table, arg, keep_user, seen);
+                let a2 = self.erase(table, arg, keep_user, seen);
                 table.intern(Type::FutureOr { arg: a2, nullable })
             }
             _ => t,
@@ -759,12 +759,12 @@ impl Js<'_> {
         crate::ops::erase_extension_type(t, table, &rep)
     }
 
-    fn nao_anulavel(&self, table: &TypeTable, t: TypeId) -> bool {
+    fn non_nullable(&self, table: &TypeTable, t: TypeId) -> bool {
         match table.get(t) {
             Type::Dynamic | Type::Void | Type::Null => false,
-            Type::Intersection { bound, .. } => self.nao_anulavel(table, *bound),
-            Type::TypeParameter { param, nullable } => !*nullable && self.nao_anulavel(table, table.param(*param).bound),
-            Type::FutureOr { arg, nullable } => !*nullable && self.nao_anulavel(table, *arg),
+            Type::Intersection { bound, .. } => self.non_nullable(table, *bound),
+            Type::TypeParameter { param, nullable } => !*nullable && self.non_nullable(table, table.param(*param).bound),
+            Type::FutureOr { arg, nullable } => !*nullable && self.non_nullable(table, *arg),
             Type::Interface { nullable, .. } | Type::ExtensionType { nullable, .. } => !*nullable,
             Type::Function { nullable, .. } | Type::Record { nullable, .. } => !*nullable,
             Type::Never => true,
@@ -779,9 +779,9 @@ impl Js<'_> {
     /// The emitter's `eraseTypes`: decides the code (once) and returns the types
     /// to continue the comparison.
     fn erase_pair(&self, table: &mut TypeTable, l: TypeId, r: TypeId, check: bool, code: &mut Option<&'static str>) -> (TypeId, TypeId) {
-        let el0 = self.apagar(table, l, false, &mut HashSet::new());
+        let el0 = self.erase(table, l, false, &mut HashSet::new());
         let mut el = crate::ops::non_nullable(el0, table);
-        let er0 = self.apagar(table, r, false, &mut HashSet::new());
+        let er0 = self.erase(table, r, false, &mut HashSet::new());
         let mut er = crate::ops::non_nullable(er0, table);
         let l_js = self.dart_js(table, el);
         let r_js = self.dart_js(table, er);
@@ -800,8 +800,8 @@ impl Js<'_> {
                         "invalid_runtime_check_with_js_interop_types_dart_is_js"
                     });
                 } else if l_sub && l_js && r_js && self.js_user(table, r, 0) {
-                    let ul = self.apagar(table, l, true, &mut HashSet::new());
-                    let ur = self.apagar(table, r, true, &mut HashSet::new());
+                    let ul = self.erase(table, l, true, &mut HashSet::new());
+                    let ur = self.erase(table, r, true, &mut HashSet::new());
                     if !self.sub(table, ul, ur) {
                         *code = Some("invalid_runtime_check_with_js_interop_types_js_is_unrelated_js");
                     }
@@ -831,8 +831,8 @@ impl Js<'_> {
             return true;
         }
         let (l, r) = self.erase_pair(table, l, r, check, code);
-        let l_nullable = !self.nao_anulavel(table, l);
-        let r_nullable = !self.nao_anulavel(table, r);
+        let l_nullable = !self.non_nullable(table, l);
+        let r_nullable = !self.non_nullable(table, r);
         if matches!(table.get(l), Type::Null) {
             return r_nullable;
         }
@@ -849,11 +849,11 @@ impl Js<'_> {
             _ => {}
         }
         if let Type::FutureOr { arg, .. } = table.get(l).clone() {
-            let fut = self.futuro(table, arg);
+            let fut = self.future(table, arg);
             return self.can(table, arg, r, check, code, prof + 1) || self.can(table, fut, r, check, code, prof + 1);
         }
         if let Type::FutureOr { arg, .. } = table.get(r).clone() {
-            let fut = self.futuro(table, arg);
+            let fut = self.future(table, arg);
             return self.can(table, l, arg, check, code, prof + 1) || self.can(table, l, fut, check, code, prof + 1);
         }
         if let (Type::Interface { class: lc, args: la, .. }, Type::Interface { class: rc, args: ra, .. }) = (table.get(l).clone(), table.get(r).clone()) {
@@ -893,7 +893,7 @@ impl Js<'_> {
         true
     }
 
-    fn futuro(&self, table: &mut TypeTable, arg: TypeId) -> TypeId {
+    fn future(&self, table: &mut TypeTable, arg: TypeId) -> TypeId {
         match self.core.future_class {
             Some(c) => table.intern(Type::Interface { class: c, args: Box::new([arg]), nullable: false }),
             None => arg,
@@ -911,7 +911,7 @@ fn js_checks(
     outline: &OutlineTypes,
     body: &UnitBodyTypes,
     u: UnitId,
-    out: &mut Vec<Achado>,
+    out: &mut Vec<Finding>,
 ) {
     let a = &program.unit(u).ast;
     let Some(lib_js) = program.libraries.iter().position(|l| l.uri == "dart:js_interop").map(|i| LibraryId(i as u32)) else { return };

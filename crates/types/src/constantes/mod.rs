@@ -42,7 +42,7 @@ pub fn testemunhas_de_switch(
 ) -> std::collections::HashMap<(UnitId, usize), Vec<Vec<ParteDeTestemunha>>> {
     let mut m = avaliador::Motor::novo(program, interner, table, core, outline, body, the_inferred);
     m.witnesses = Some(std::collections::HashMap::new());
-    let _ = verifier::verificar(&mut m, lib);
+    let _ = verifier::the_verify(&mut m, lib);
     m.witnesses.take().unwrap_or_default()
 }
 
@@ -50,7 +50,7 @@ pub fn testemunhas_de_switch(
 /// libraries whose bodies `body` has (the others are treated as opaque:
 /// their constant values are unknown).
 #[allow(clippy::too_many_arguments)]
-pub fn verificar(
+pub fn verify(
     program: &Program,
     interner: &Interner,
     table: &mut TypeTable,
@@ -83,7 +83,7 @@ pub fn verificar_com_quebras(
     let mut broken = Vec::new();
     for &lib in libs {
         m.analyzer_break = false;
-        out.extend(verifier::verificar(&mut m, lib));
+        out.extend(verifier::the_verify(&mut m, lib));
         if m.analyzer_break && program.referencia_da_biblioteca(lib) == dartforge_diagnostics::Referencia::V3_6 {
             broken.push(lib);
         }

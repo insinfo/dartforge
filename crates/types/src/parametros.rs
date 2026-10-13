@@ -32,7 +32,7 @@ use dartforge_intern::{Interner, SymbolId};
 use std::collections::HashSet;
 
 /// The written formal parameters of `f` (`None` without a node).
-fn parametros<'p>(program: &'p Program, f: FunctionElementId) -> Option<(UnitId, &'p [ast::Parameter])> {
+fn params_list<'p>(program: &'p Program, f: FunctionElementId) -> Option<(UnitId, &'p [ast::Parameter])> {
     match program.function(f).node {
         FunctionRef::Function { unit, function } => {
             program.unit(unit).ast.function(function).parameters.as_deref().map(|p| (unit, p))
@@ -45,7 +45,7 @@ fn parametros<'p>(program: &'p Program, f: FunctionElementId) -> Option<(UnitId,
     }
 }
 
-fn nome_externo(p: &ast::Parameter) -> Option<SymbolId> {
+fn external_name(p: &ast::Parameter) -> Option<SymbolId> {
     p.public_name.or(p.name).map(|n| n.sym)
 }
 
@@ -53,7 +53,7 @@ fn nome_externo(p: &ast::Parameter) -> Option<SymbolId> {
 fn argument_target(ps: &[ast::Parameter], args: &ast::Arguments, i: usize) -> Option<usize> {
     let a = &args.args[i];
     match a.name {
-        Some(n) => ps.iter().position(|p| p.kind == ParameterKind::Named && nome_externo(p) == Some(n.sym)),
+        Some(n) => ps.iter().position(|p| p.kind == ParameterKind::Named && external_name(p) == Some(n.sym)),
         None => {
             let pos = args.args[..i].iter().filter(|x| x.name.is_none()).count();
             ps.iter().enumerate().filter(|(_, p)| p.kind != ParameterKind::Named).nth(pos).map(|(j, _)| j)
@@ -66,7 +66,7 @@ fn argument_target(ps: &[ast::Parameter], args: &ast::Arguments, i: usize) -> Op
 fn corresponding(ps: &[ast::Parameter], j: usize, others: &[ast::Parameter]) -> Option<usize> {
     let p = &ps[j];
     if p.kind == ParameterKind::Named {
-        others.iter().position(|o| o.kind == ParameterKind::Named && nome_externo(o) == nome_externo(p))
+        others.iter().position(|o| o.kind == ParameterKind::Named && external_name(o) == external_name(p))
     } else if j < others.len() {
         Some(j)
     } else {
@@ -74,7 +74,7 @@ fn corresponding(ps: &[ast::Parameter], j: usize, others: &[ast::Parameter]) -> 
     }
 }
 
-fn obrigatorio(p: &ast::Parameter) -> bool {
+fn the_required(p: &ast::Parameter) -> bool {
     p.kind == ParameterKind::Required || (p.kind == ParameterKind::Named && p.required)
 }
 
@@ -89,7 +89,7 @@ fn resolved_function(r: Option<&Resolved>) -> Option<FunctionElementId> {
 }
 
 /// The constructor `the_name` (or the unnamed one) of class `c`.
-fn construtor(program: &Program, interner: &Interner, c: ClassId, the_name: Option<ast::Name>) -> Option<FunctionElementId> {
+fn the_constructor(program: &Program, interner: &Interner, c: ClassId, the_name: Option<ast::Name>) -> Option<FunctionElementId> {
     let s = match the_name {
         Some(n) => n.sym,
         None => interner.lookup("")?,
@@ -114,7 +114,7 @@ fn superclass_constructor(program: &Program, interner: &Interner, c: ClassId, k:
         ast::Initializer::Super { constructor, .. } => Some(*constructor),
         _ => None,
     });
-    construtor(program, interner, sup, the_name.flatten())
+    the_constructor(program, interner, sup, the_name.flatten())
 }
 
 /// The diagnostics of `lib`.
@@ -127,7 +127,7 @@ pub fn parametros_nao_usados(
 ) -> Vec<(UnitId, Diagnostic)> {
     let mut used: HashSet<(FunctionElementId, usize)> = HashSet::new();
     let mark = |used: &mut HashSet<(FunctionElementId, usize)>, f: FunctionElementId, args: &ast::Arguments| {
-        if let Some((_, ps)) = parametros(program, f) {
+        if let Some((_, ps)) = params_list(program, f) {
             for i in 0..args.args.len() {
                 if let Some(j) = argument_target(ps, args, i) {
                     used.insert((f, j));
@@ -219,7 +219,7 @@ pub fn parametros_nao_usados(
                 _ => (None, None),
             };
             if let Some(Element::Class(c)) = class.and_then(|b| b.getter) {
-                if let Some(f) = construtor(program, interner, c, ctor) {
+                if let Some(f) = the_constructor(program, interner, c, ctor) {
                     mark(&mut used, f, args);
                 }
             }
@@ -245,7 +245,7 @@ pub fn parametros_nao_usados(
                         }
                     }
                     ast::Initializer::Redirect { constructor: n, arguments, .. } => {
-                        if let Some(s) = construtor(program, interner, c, *n) {
+                        if let Some(s) = the_constructor(program, interner, c, *n) {
                             mark(&mut used, s, arguments);
                             if n.is_some() {
                                 all.insert(s);
@@ -272,8 +272,8 @@ pub fn parametros_nao_usados(
                         _ => (None, None),
                     };
                     if let (Some(Element::Class(dc)), ctor) = (tgt.0.and_then(|b| b.getter), tgt.1) {
-                        if let Some(t) = construtor(program, interner, dc, ctor) {
-                            if let Some((_, tps)) = parametros(program, t) {
+                        if let Some(t) = the_constructor(program, interner, dc, ctor) {
+                            if let Some((_, tps)) = params_list(program, t) {
                                 for (j, _) in kk.parameters.iter().enumerate() {
                                     if let Some(k2) = corresponding(&kk.parameters, j, tps) {
                                         used.insert((t, k2));
@@ -286,7 +286,7 @@ pub fn parametros_nao_usados(
             }
             if kk.parameters.iter().any(|p| p.super_) {
                 if let Some(s) = superclass_constructor(program, interner, c, kk) {
-                    if let Some((_, sps)) = parametros(program, s) {
+                    if let Some((_, sps)) = params_list(program, s) {
                         let mut pos = 0usize;
                         for p in kk.parameters.iter() {
                             if p.kind != ParameterKind::Named && p.super_ {
@@ -294,7 +294,7 @@ pub fn parametros_nao_usados(
                                     used.insert((s, j));
                                 }
                             } else if p.super_ {
-                                if let Some(j) = sps.iter().position(|x| x.kind == ParameterKind::Named && nome_externo(x) == nome_externo(p)) {
+                                if let Some(j) = sps.iter().position(|x| x.kind == ParameterKind::Named && external_name(x) == external_name(p)) {
                                     used.insert((s, j));
                                 }
                             }
@@ -310,7 +310,7 @@ pub fn parametros_nao_usados(
             if let Some(d) = k.decl {
                 if let DeclKind::Enum(en) = &program.unit(d.unit).ast.decl(d.decl).kind {
                     for constant in en.constants.iter() {
-                        if let (Some(args), Some(f)) = (&constant.arguments, construtor(program, interner, c, constant.constructor)) {
+                        if let (Some(args), Some(f)) = (&constant.arguments, the_constructor(program, interner, c, constant.constructor)) {
                             mark(&mut used, f, args);
                         }
                     }
@@ -329,7 +329,7 @@ pub fn parametros_nao_usados(
         if !(constructor_ || fe.kind == FunctionKind::Function || fe.kind == FunctionKind::Operator) {
             continue;
         }
-        let Some((unit, ps)) = parametros(program, f) else { continue };
+        let Some((unit, ps)) = params_list(program, f) else { continue };
         if all.contains(&f) || shorthands.contains(&fe.name) {
             continue;
         }
@@ -358,9 +358,9 @@ pub fn parametros_nao_usados(
             },
             _ => None,
         };
-        let overridden = if !constructor_ && !fe.static_ { sobrescritos(program, outline, f) } else { Vec::new() };
+        let overridden = if !constructor_ && !fe.static_ { the_overridden(program, outline, f) } else { Vec::new() };
         for (j, p) in ps.iter().enumerate() {
-            if obrigatorio(p) || p.kind == ParameterKind::Required {
+            if the_required(p) || p.kind == ParameterKind::Required {
                 continue;
             }
             let Some(the_name) = p.name else { continue };
@@ -377,17 +377,17 @@ pub fn parametros_nao_usados(
                 }
             }
             if let Some(s) = superior {
-                if let Some((_, sps)) = parametros(program, s) {
-                    if corresponding(ps, j, sps).is_some_and(|k| obrigatorio(&sps[k])) {
+                if let Some((_, sps)) = params_list(program, s) {
+                    if corresponding(ps, j, sps).is_some_and(|k| the_required(&sps[k])) {
                         continue;
                     }
                 }
             }
             let mut the_used = false;
             for &o in &overridden {
-                if let Some((_, ops)) = parametros(program, o) {
+                if let Some((_, ops)) = params_list(program, o) {
                     if let Some(k) = corresponding(ps, j, ops) {
-                        if obrigatorio(&ops[k]) || used.contains(&(o, k)) {
+                        if the_required(&ops[k]) || used.contains(&(o, k)) {
                             the_used = true;
                             break;
                         }
@@ -447,7 +447,7 @@ fn publicly_accessible(program: &Program, interner: &Interner, f: FunctionElemen
 
 /// The members that the instance method `f` overrides (`getOverridden2`):
 /// those with the same name in the supertypes.
-fn sobrescritos(program: &Program, outline: &OutlineTypes, f: FunctionElementId) -> Vec<FunctionElementId> {
+fn the_overridden(program: &Program, outline: &OutlineTypes, f: FunctionElementId) -> Vec<FunctionElementId> {
     let fe = program.function(f);
     let Some(c) = fe.class else { return Vec::new() };
     let mut r = Vec::new();

@@ -21,24 +21,24 @@ use std::collections::HashMap;
 
 /// Constraint `lower <: X <: upper` (either side may be `_`).
 #[derive(Debug, Clone, Copy)]
-struct Restricao {
+struct Constraint {
     param: usize,
     lower: TypeId,
     upper: TypeId,
     /// Index into `GenericInferrer::origens` (`TypeConstraintOrigin`).
-    origem: Option<usize>,
+    origin: Option<usize>,
 }
 
 /// The origin of a constraint, for the `COULD_NOT_INFER` message
 /// (`fe76:type_inference/type_constraint.dart:173-330`).
 #[derive(Debug, Clone)]
-pub enum Origem {
+pub enum Origin {
     /// `TypeConstraintFromArgument`: `Parameter 'p' declared as '…' but
     /// argument is '…'.`; `prefixo` replaces `Parameter 'p'` (`List element`,
     /// `Map key`, `Map value`).
-    Argumento { parametro: String, declarado: TypeId, argumento: TypeId, prefixo: Option<String> },
+    Argument { parametro: String, declarado: TypeId, argumento: TypeId, prefixo: Option<String> },
     /// `TypeConstraintFromReturnType`.
-    Retorno { declarado: TypeId, contexto: TypeId },
+    Return { declarado: TypeId, contexto: TypeId },
     /// `TypeConstraintFromFunctionContext`.
     Funcao { declarado: TypeId, contexto: TypeId },
 }
@@ -46,10 +46,10 @@ pub enum Origem {
 /// Type argument inferrer for a set of parameters `L`.
 pub struct GenericInferrer {
     pub params: Vec<TypeParamId>,
-    restricoes: Vec<Restricao>,
+    constraints: Vec<Constraint>,
     /// Choices already fixed (known types) from previous rounds.
     the_fixed: Vec<Option<TypeId>>,
-    origens: Vec<Origem>,
+    origins: Vec<Origin>,
     current_origin: Option<usize>,
     /// `genericMetadataIsEnabled` (2.14): without it, a candidate that is a
     /// generic function type is `COULD_NOT_INFER` (`generic_inferrer.dart:302-322`).
@@ -58,21 +58,21 @@ pub struct GenericInferrer {
 
 impl GenericInferrer {
     pub fn new(params: &[TypeParamId]) -> Self {
-        Self { params: params.to_vec(), restricoes: Vec::new(), the_fixed: vec![None; params.len()], origens: Vec::new(), current_origin: None, generic_metadata: true }
+        Self { params: params.to_vec(), constraints: Vec::new(), the_fixed: vec![None; params.len()], origins: Vec::new(), current_origin: None, generic_metadata: true }
     }
 
     /// The origin of the constraints generated next.
-    pub fn with_origin(&mut self, o: Origem) {
-        self.origens.push(o);
-        self.current_origin = Some(self.origens.len() - 1);
+    pub fn with_origin(&mut self, o: Origin) {
+        self.origins.push(o);
+        self.current_origin = Some(self.origins.len() - 1);
     }
 
     /// `arg <: param` (the parameters of `L` are in `param`).
     pub fn constrain_argument(&mut self, arg: TypeId, param: TypeId, env: &mut SubtypeEnv) -> bool {
-        let mark = self.restricoes.len();
+        let mark = self.constraints.len();
         let ok = self.try_match(arg, param, false, env);
         if !ok {
-            self.restricoes.truncate(mark);
+            self.constraints.truncate(mark);
         } else {
             self.discard_fixed(mark);
         }
@@ -81,10 +81,10 @@ impl GenericInferrer {
 
     /// `declared <: context` (the parameters of `L` are in `declared`).
     pub fn constrain_return(&mut self, declared: TypeId, context: TypeId, env: &mut SubtypeEnv) -> bool {
-        let mark = self.restricoes.len();
+        let mark = self.constraints.len();
         let ok = self.try_match(declared, context, true, env);
         if !ok {
-            self.restricoes.truncate(mark);
+            self.constraints.truncate(mark);
         } else {
             self.discard_fixed(mark);
         }
@@ -110,11 +110,11 @@ impl GenericInferrer {
         }
         if left {
             if let Some(i) = self.index(p, env) {
-                self.restricoes.push(Restricao { param: i, lower: env.core.unknown, upper: q, origem: self.current_origin });
+                self.constraints.push(Constraint { param: i, lower: env.core.unknown, upper: q, origin: self.current_origin });
                 return true;
             }
         } else if let Some(i) = self.index(q, env) {
-            self.restricoes.push(Restricao { param: i, lower: p, upper: env.core.unknown, origem: self.current_origin });
+            self.constraints.push(Constraint { param: i, lower: p, upper: env.core.unknown, origin: self.current_origin });
             return true;
         }
         if p == q {
@@ -130,11 +130,11 @@ impl GenericInferrer {
                 }
             }
             if let Some(fq0) = future_of(q0, env) {
-                let mark = self.restricoes.len();
-                if self.try_match(p, fq0, left, env) && self.restricoes.len() > mark {
+                let mark = self.constraints.len();
+                if self.try_match(p, fq0, left, env) && self.constraints.len() > mark {
                     return true;
                 }
-                self.restricoes.truncate(mark);
+                self.constraints.truncate(mark);
                 if self.sub(p, q0, left, env) {
                     return true;
                 }
@@ -157,11 +157,11 @@ impl GenericInferrer {
                     return true;
                 }
             }
-            let mark = self.restricoes.len();
-            if self.try_match(p, q0, left, env) && self.restricoes.len() > mark {
+            let mark = self.constraints.len();
+            if self.try_match(p, q0, left, env) && self.constraints.len() > mark {
                 return true;
             }
-            self.restricoes.truncate(mark);
+            self.constraints.truncate(mark);
             let n = env.core.null;
             if self.sub(p, n, left, env) {
                 return true;
@@ -171,22 +171,22 @@ impl GenericInferrer {
         // P is FutureOr<P0>.
         if let Type::FutureOr { arg: p0, nullable: false } = tp {
             let Some(fp0) = future_of(p0, env) else { return false };
-            let mark = self.restricoes.len();
+            let mark = self.constraints.len();
             if self.try_match(fp0, q, left, env) && self.try_match(p0, q, left, env) {
                 return true;
             }
-            self.restricoes.truncate(mark);
+            self.constraints.truncate(mark);
             return false;
         }
         // P is P0?.
         if tp.is_declared_nullable() {
             let p0 = non_nullable(p, env.table);
-            let mark = self.restricoes.len();
+            let mark = self.constraints.len();
             let n = env.core.null;
             if self.try_match(p0, q, left, env) && self.try_match(n, q, left, env) {
                 return true;
             }
-            self.restricoes.truncate(mark);
+            self.constraints.truncate(mark);
             return false;
         }
         // Q top.
@@ -235,17 +235,17 @@ impl GenericInferrer {
                     // by the declared variance of each parameter (contravariant swaps the sides
                     // and the schema; invariant, both).
                     let params: Vec<crate::table::TypeParamId> = env.hierarchy.get(*c0).map(|d| d.type_params.to_vec()).unwrap_or_default();
-                    let mark = self.restricoes.len();
+                    let mark = self.constraints.len();
                     for (i, (x, y)) in a0.iter().zip(a1.iter()).enumerate() {
                         let variance = params.get(i).map(|&p| env.table.param(p).variance).unwrap_or_default();
                         let co = !matches!(variance, crate::table::Variance::Contravariant);
                         let against = matches!(variance, crate::table::Variance::Contravariant | crate::table::Variance::Invariant);
                         if co && !self.try_match(*x, *y, left, env) {
-                            self.restricoes.truncate(mark);
+                            self.constraints.truncate(mark);
                             return false;
                         }
                         if against && !self.try_match(*y, *x, !left, env) {
-                            self.restricoes.truncate(mark);
+                            self.constraints.truncate(mark);
                             return false;
                         }
                     }
@@ -287,7 +287,7 @@ impl GenericInferrer {
             let p1: Vec<TypeId> = p1.iter().map(|t| s(*t, env)).collect();
             let o1: Vec<TypeId> = o1.iter().map(|t| s(*t, env)).collect();
             let n1: Vec<_> = n1.iter().map(|(n, t, r)| (*n, s(*t, env), *r)).collect();
-            let mark = self.restricoes.len();
+            let mark = self.constraints.len();
             let ok = (|| {
                 if !self.try_match(*r0, r1, left, env) {
                     return false;
@@ -333,7 +333,7 @@ impl GenericInferrer {
                 true
             })();
             if !ok {
-                self.restricoes.truncate(mark);
+                self.constraints.truncate(mark);
             }
             return ok;
         }
@@ -349,16 +349,16 @@ impl GenericInferrer {
             if p0.len() != p1.len() || n0.len() != n1.len() {
                 return false;
             }
-            let mark = self.restricoes.len();
+            let mark = self.constraints.len();
             for (a, b) in p0.iter().zip(p1.iter()) {
                 if !self.try_match(*a, *b, left, env) {
-                    self.restricoes.truncate(mark);
+                    self.constraints.truncate(mark);
                     return false;
                 }
             }
             for ((at, a), (nb, b)) in n0.iter().zip(n1.iter()) {
                 if at != nb || !self.try_match(*a, *b, left, env) {
-                    self.restricoes.truncate(mark);
+                    self.constraints.truncate(mark);
                     return false;
                 }
             }
@@ -369,27 +369,27 @@ impl GenericInferrer {
 
     /// Attempt with rollback on failure.
     fn sub(&mut self, p: TypeId, q: TypeId, left: bool, env: &mut SubtypeEnv) -> bool {
-        let mark = self.restricoes.len();
+        let mark = self.constraints.len();
         if self.try_match(p, q, left, env) {
             true
         } else {
-            self.restricoes.truncate(mark);
+            self.constraints.truncate(mark);
             false
         }
     }
 
     /// Merged constraint of a parameter: `UP` of the lower ones, `DOWN` of the upper ones.
-    fn fundir(&self, i: usize, env: &mut SubtypeEnv) -> (TypeId, TypeId) {
+    fn merge(&self, i: usize, env: &mut SubtypeEnv) -> (TypeId, TypeId) {
         let mut lower = env.core.unknown;
         let mut upper = env.core.unknown;
-        for r in self.restricoes.iter().filter(|r| r.param == i) {
+        for r in self.constraints.iter().filter(|r| r.param == i) {
             lower = up(lower, r.lower, env);
             upper = down(upper, r.upper, env);
         }
         (lower, upper)
     }
 
-    fn escolher(lower: TypeId, upper: TypeId, grounded: bool, env: &mut SubtypeEnv) -> TypeId {
+    fn choose(lower: TypeId, upper: TypeId, grounded: bool, env: &mut SubtypeEnv) -> TypeId {
         if !has_unknown(lower, env) {
             return lower;
         }
@@ -406,7 +406,7 @@ impl GenericInferrer {
     }
 
     /// Declared bound of parameter `i`, if written (not the implicit `Object?`).
-    fn limite(&self, i: usize, current: &[TypeId], env: &mut SubtypeEnv) -> Option<TypeId> {
+    fn bound(&self, i: usize, current: &[TypeId], env: &mut SubtypeEnv) -> Option<TypeId> {
         let b = env.table.param(self.params[i]).bound;
         if b == env.core.object_nullable || matches!(env.table.get(b), Type::Dynamic) {
             return None;
@@ -421,7 +421,7 @@ impl GenericInferrer {
     /// `B` as unknowns. In `f<X extends A<X>>(C())`, with `C <: B <: A<B>`,
     /// `C <# A<X>` gives `B <: X`, and the solution becomes `UP(C, B) = B`
     /// (before 3.7, `X = C` and the bound was violated).
-    pub fn restringir_pelos_limites(&mut self, env: &mut SubtypeEnv) {
+    pub fn restrict_by_bounds(&mut self, env: &mut SubtypeEnv) {
         for i in 0..self.params.len() {
             if self.the_fixed[i].is_some() {
                 continue;
@@ -430,18 +430,18 @@ impl GenericInferrer {
             if b == env.core.object_nullable || matches!(env.table.get(b), Type::Dynamic) {
                 continue;
             }
-            let (lower, _) = self.fundir(i, env);
+            let (lower, _) = self.merge(i, env);
             if has_unknown(lower, env) {
                 continue;
             }
-            let current: Vec<TypeId> = (0..self.params.len()).map(|j| self.fundir(j, env).0).collect();
-            let bnd = self.limite(i, &current, env);
+            let current: Vec<TypeId> = (0..self.params.len()).map(|j| self.merge(j, env).0).collect();
+            let bnd = self.bound(i, &current, env);
             if bnd.is_some_and(|l| !has_unknown(l, env) && is_subtype(lower, l, env)) {
                 continue;
             }
-            let mark = self.restricoes.len();
+            let mark = self.constraints.len();
             if !self.try_match(lower, b, false, env) {
-                self.restricoes.truncate(mark);
+                self.constraints.truncate(mark);
             } else {
                 self.discard_fixed(mark);
             }
@@ -456,9 +456,9 @@ impl GenericInferrer {
     fn discard_fixed(&mut self, mark: usize) {
         let the_fixed = &self.the_fixed;
         let mut i = mark;
-        while i < self.restricoes.len() {
-            if the_fixed[self.restricoes[i].param].is_some() {
-                self.restricoes.remove(i);
+        while i < self.constraints.len() {
+            if the_fixed[self.constraints[i].param].is_some() {
+                self.constraints.remove(i);
             } else {
                 i += 1;
             }
@@ -474,16 +474,16 @@ impl GenericInferrer {
                 types[i] = f;
                 continue;
             }
-            let (lower, upper) = self.fundir(i, env);
-            let t = Self::escolher(lower, upper, false, env);
+            let (lower, upper) = self.merge(i, env);
+            let t = Self::choose(lower, upper, false, env);
             if has_unknown(t, env) {
                 types[i] = t;
                 continue;
             }
-            let t = match self.limite(i, &types, env) {
+            let t = match self.bound(i, &types, env) {
                 Some(b) => {
                     let upper2 = down(upper, b, env);
-                    Self::escolher(lower, upper2, false, env)
+                    Self::choose(lower, upper2, false, env)
                 }
                 None => t,
             };
@@ -509,11 +509,11 @@ impl GenericInferrer {
                 known[i] = true;
                 continue;
             }
-            let (lower, mut upper) = self.fundir(i, env);
-            if let Some(b) = self.limite(i, &types, env) {
+            let (lower, mut upper) = self.merge(i, env);
+            if let Some(b) = self.bound(i, &types, env) {
                 upper = down(upper, b, env);
             }
-            let t = Self::escolher(lower, upper, true, env);
+            let t = Self::choose(lower, upper, true, env);
             types[i] = t;
             known[i] = !has_unknown(t, env);
         }
@@ -553,14 +553,14 @@ impl GenericInferrer {
         let mut inferred: Vec<TypeId> = vec![env.core.unknown; n];
         let mut output = Vec::new();
         for i in 0..n {
-            let (lower, mut upper) = self.fundir(i, env);
+            let (lower, mut upper) = self.merge(i, env);
             let bnd = self.written_bound(i, &inferred, env);
             if let Some(b) = bnd {
                 upper = down(upper, b, env);
             }
             let t = match self.the_fixed[i] {
                 Some(f) => f,
-                None => Self::escolher(lower, upper, true, env),
+                None => Self::choose(lower, upper, true, env),
             };
             inferred[i] = t;
         }
@@ -608,7 +608,7 @@ impl GenericInferrer {
                 let map: HashMap<TypeParamId, TypeId> = self.params.iter().copied().zip(finals.iter().copied()).collect();
                 let b = substitute(d.bound, &map, env.table);
                 let dynamic = matches!(env.table.get(finals[i]), Type::Dynamic)
-                    && self.restricoes.iter().any(|r| r.param == i && matches!(env.table.get(r.lower), Type::Dynamic));
+                    && self.constraints.iter().any(|r| r.param == i && matches!(env.table.get(r.lower), Type::Dynamic));
                 if !dynamic && !is_subtype(finals[i], b, env) {
                     let name = interner.resolve(d.name).to_string();
                     let args: Vec<String> = finals.iter().map(|&x| fmt(env, x)).collect();
@@ -641,8 +641,8 @@ impl GenericInferrer {
     ) -> Option<String> {
         let fmt = |env: &SubtypeEnv, t: TypeId| env.table.format_sem_alias(t, interner, program);
         let t = vector[i];
-        let own: Vec<Restricao> = self.restricoes.iter().filter(|r| r.param == i).copied().collect();
-        let satisfies = |r: &Restricao, env: &mut SubtypeEnv| {
+        let own: Vec<Constraint> = self.constraints.iter().filter(|r| r.param == i).copied().collect();
+        let satisfies = |r: &Constraint, env: &mut SubtypeEnv| {
             let ok_l = env.core.is_unknown(env.table, r.lower) || {
                 let l = schema_least(r.lower, env);
                 is_subtype(l, t, env)
@@ -674,26 +674,26 @@ impl GenericInferrer {
         let mut by_origin: Vec<(Option<usize>, bool)> = Vec::new();
         for r in &own {
             let ok = satisfies(r, env);
-            match by_origin.iter_mut().find(|(o, _)| *o == r.origem) {
+            match by_origin.iter_mut().find(|(o, _)| *o == r.origin) {
                 Some(x) => x.1 &= ok,
-                None => by_origin.push((r.origem, ok)),
+                None => by_origin.push((r.origin, ok)),
             }
         }
         let mut lines_ns: Vec<Vec<String>> = Vec::new();
         let mut lines_s: Vec<Vec<String>> = Vec::new();
         for (o, ok) in &by_origin {
-            let parts = match o.and_then(|o| self.origens.get(o)) {
-                Some(Origem::Argumento { parametro: parameter, declarado: the_declared, argumento: argument, prefixo: prefix }) => vec![
+            let parts = match o.and_then(|o| self.origins.get(o)) {
+                Some(Origin::Argument { parametro: parameter, declarado: the_declared, argumento: argument, prefixo: prefix }) => vec![
                     prefix.clone().unwrap_or_else(|| format!("Parameter '{parameter}'")),
                     format!("declared as     '{}'", fmt(env, *the_declared)),
                     format!("but argument is '{}'.", fmt(env, *argument)),
                 ],
-                Some(Origem::Retorno { declarado: the_declared, contexto: the_context }) => vec![
+                Some(Origin::Return { declarado: the_declared, contexto: the_context }) => vec![
                     "Return type".to_string(),
                     format!("declared as '{}'", fmt(env, *the_declared)),
                     format!("used where  '{}' is required.", fmt(env, *the_context)),
                 ],
-                Some(Origem::Funcao { declarado: the_declared, contexto: the_context }) => vec![
+                Some(Origin::Funcao { declarado: the_declared, contexto: the_context }) => vec![
                     "Function type".to_string(),
                     format!("declared as '{}'", fmt(env, *the_declared)),
                     format!("used where  '{}' is required.", fmt(env, *the_context)),
@@ -746,7 +746,7 @@ Consider passing explicit type argument(s) to the generic.
 
     /// Whether the final types satisfy the collected constraints.
     pub fn satisfied(&self, types: &[TypeId], env: &mut SubtypeEnv) -> bool {
-        for r in &self.restricoes {
+        for r in &self.constraints {
             let t = types[r.param];
             if !env.core.is_unknown(env.table, r.lower) {
                 let l = schema_least(r.lower, env);

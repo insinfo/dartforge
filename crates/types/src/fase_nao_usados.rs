@@ -69,27 +69,27 @@ enum El {
 
 #[derive(Default)]
 struct Used {
-    elementos: HashSet<El>,
-    membros: HashSet<El>,
+    elements: HashSet<El>,
+    members: HashSet<El>,
     read_values: HashSet<El>,
     unresolved: HashSet<SymbolId>,
 }
 
-fn dentro(a: Span, b: Span) -> bool {
+fn inside(a: Span, b: Span) -> bool {
     a.start >= b.start && a.end <= b.end
 }
 
-fn privado(interner: &Interner, s: SymbolId) -> bool {
+fn private(interner: &Interner, s: SymbolId) -> bool {
     interner.resolve(s).starts_with('_')
 }
 
-struct Contexto<'a> {
+struct Context<'a> {
     program: &'a Program,
     interner: &'a Interner,
     lib: LibraryId,
 }
 
-impl Contexto<'_> {
+impl Context<'_> {
     /// The element of a function member (the synthetic accessor counts through
     /// the variable).
     fn of_function(&self, f: FunctionElementId) -> El {
@@ -118,7 +118,7 @@ impl Contexto<'_> {
     }
 
     /// The library of the element.
-    fn biblioteca(&self, e: El) -> LibraryId {
+    fn library(&self, e: El) -> LibraryId {
         let p = self.program;
         match e {
             El::Classe(c) => p.class(c).library,
@@ -154,7 +154,7 @@ impl Contexto<'_> {
     }
 
     /// The getter corresponding to a setter (`correspondingGetter`).
-    fn getter_de(&self, e: El) -> Option<El> {
+    fn getter_of(&self, e: El) -> Option<El> {
         match e {
             El::Setter(v) => Some(El::Getter(v)),
             El::Funcao(f) if self.program.function(f).kind == FunctionKind::Setter => {
@@ -183,7 +183,7 @@ impl Contexto<'_> {
 
     /// `_isPubliclyAccessible` of a method, accessor or constructor.
     fn accessible(&self, e: El, the_name: SymbolId) -> bool {
-        if privado(self.interner, the_name) {
+        if private(self.interner, the_name) {
             return false;
         }
         let p = self.program;
@@ -204,12 +204,12 @@ impl Contexto<'_> {
             if k.kind == ClassKind::Enum && ctor && !factory {
                 return false;
             }
-            if privado(self.interner, k.name) && (static_ || ctor) {
+            if private(self.interner, k.name) && (static_ || ctor) {
                 return false;
             }
         }
         if let Some(x) = extension {
-            return p.extension(x).name.is_some_and(|n| !privado(self.interner, n));
+            return p.extension(x).name.is_some_and(|n| !private(self.interner, n));
         }
         true
     }
@@ -217,16 +217,16 @@ impl Contexto<'_> {
 
 /// `_overriddenElements`: the `getOverridden2` in the member's class, by the
 /// `Name` of the verified library (`e.declaration` of each one).
-fn sobrescritos(cx: &Contexto<'_>, h: &mut crate::heranca::Heranca, p: &mut crate::heranca::ProvedorDoOutline<'_, '_>, e: El) -> Vec<El> {
+fn overridden(cx: &Context<'_>, h: &mut crate::heranca::Heranca, p: &mut crate::heranca::ProvedorDoOutline<'_, '_>, e: El) -> Vec<El> {
     let Some((Some(c), _, text)) = cx.member_key(e) else { return Vec::new() };
     let Some(s) = cx.interner.lookup(&text) else { return Vec::new() };
     let the_name = crate::heranca::Nome::novo(cx.interner, cx.lib, s);
-    h.sobrescritos(p, c, the_name).unwrap_or_default().into_iter().map(|m| cx.of_function(m.funcao)).collect()
+    h.overridden(p, c, the_name).unwrap_or_default().into_iter().map(|m| cx.of_function(m.funcao)).collect()
 }
 
 /// `_overridesUsedElement`.
 fn overrides_used(
-    cx: &Contexto<'_>,
+    cx: &Context<'_>,
     h: &mut crate::heranca::Heranca,
     p: &mut crate::heranca::ProvedorDoOutline<'_, '_>,
     e: El,
@@ -236,8 +236,8 @@ fn overrides_used(
     if !seen.insert(e) {
         return false;
     }
-    for o in sobrescritos(cx, h, p, e) {
-        if used.membros.contains(&o) || overrides_used(cx, h, p, o, used, seen) {
+    for o in overridden(cx, h, p, e) {
+        if used.members.contains(&o) || overrides_used(cx, h, p, o, used, seen) {
             return true;
         }
     }
@@ -275,7 +275,7 @@ fn types_without_interface_use(a: &ast::Ast) -> HashSet<ast::TypeId> {
                         descend(a, b, v);
                     }
                 }
-                parametros(a, parameters, v);
+                params_list(a, parameters, v);
             }
             TypeKind::Record { positional, named } => {
                 for &x in positional.iter() {
@@ -287,7 +287,7 @@ fn types_without_interface_use(a: &ast::Ast) -> HashSet<ast::TypeId> {
             }
         }
     }
-    fn parametros(a: &ast::Ast, ps: &[ast::Parameter], v: &mut HashSet<ast::TypeId>) {
+    fn params_list(a: &ast::Ast, ps: &[ast::Parameter], v: &mut HashSet<ast::TypeId>) {
         for p in ps.iter() {
             if let Some(x) = p.ty {
                 descend(a, x, v);
@@ -298,7 +298,7 @@ fn types_without_interface_use(a: &ast::Ast) -> HashSet<ast::TypeId> {
                 }
             }
             if let Some(f) = &p.function_parameters {
-                parametros(a, f, v);
+                params_list(a, f, v);
             }
         }
     }
@@ -312,7 +312,7 @@ fn types_without_interface_use(a: &ast::Ast) -> HashSet<ast::TypeId> {
 /// and that of the `is`.
 fn types_without_interface_use_roots(a: &ast::Ast) -> HashSet<ast::TypeId> {
     let mut v = HashSet::new();
-    fn lista(l: &ast::VariableList, v: &mut HashSet<ast::TypeId>) {
+    fn list(l: &ast::VariableList, v: &mut HashSet<ast::TypeId>) {
         if let Some(t) = l.ty {
             v.insert(t);
         }
@@ -321,7 +321,7 @@ fn types_without_interface_use_roots(a: &ast::Ast) -> HashSet<ast::TypeId> {
         match el {
             ast::CollectionElement::For { init, body, .. } => {
                 if let Some(ForInit::Variables(l)) = init {
-                    lista(l, v);
+                    list(l, v);
                 }
                 of_collection(body, v);
             }
@@ -337,12 +337,12 @@ fn types_without_interface_use_roots(a: &ast::Ast) -> HashSet<ast::TypeId> {
     }
     for d in a.decls.iter() {
         if let DeclKind::Variables(l) = &d.kind {
-            lista(l, &mut v);
+            list(l, &mut v);
         }
     }
     for s in a.stmts.iter() {
         match &s.kind {
-            StmtKind::Variables(l) | StmtKind::For { init: Some(ForInit::Variables(l)), .. } => lista(l, &mut v),
+            StmtKind::Variables(l) | StmtKind::For { init: Some(ForInit::Variables(l)), .. } => list(l, &mut v),
             _ => {}
         }
     }
@@ -366,7 +366,7 @@ fn types_without_interface_use_roots(a: &ast::Ast) -> HashSet<ast::TypeId> {
 /// constructor of `dart.core` with the `name` field equal to
 /// `vm:entry-point`) or, with `js`, `@JS(…)` (the `JS` constructor of the
 /// `_js_annotations` library) in a list of annotations of unit `u`.
-fn marked(cx: &Contexto<'_>, engine: &mut Option<Motor<'_>>, u: UnitId, metadata: &[ast::Annotation], js: bool) -> bool {
+fn marked(cx: &Context<'_>, engine: &mut Option<Motor<'_>>, u: UnitId, metadata: &[ast::Annotation], js: bool) -> bool {
     let p = cx.program;
     let library_name = |l: LibraryId| {
         p.library(l).name.as_ref().map(|n| n.iter().map(|s| cx.interner.resolve(*s)).collect::<Vec<_>>().join(".")).unwrap_or_default()
@@ -416,7 +416,7 @@ pub fn elementos_nao_usados(
     the_inferred: &HashSet<LibraryId>,
     lib: LibraryId,
 ) -> Vec<(UnitId, Diagnostic)> {
-    let cx = Contexto { program, interner, lib };
+    let cx = Context { program, interner, lib };
     let mut used = Used::default();
     let units: Vec<UnitId> = program.library(lib).units.iter().copied().filter(|u| program.unit(*u).role != UnitRole::Patch).collect();
     let decl_class = |u: UnitId, d: ast::DeclId| {
@@ -440,7 +440,7 @@ pub fn elementos_nao_usados(
     for &u in &units {
         let a = &program.unit(u).ast;
         let Some(the_body) = bodies.units.get(u.0 as usize) else { continue };
-        let pais = crate::lints_tipados::pais_da_unidade(program, u);
+        let pais = crate::lints_tipados::unit_parents(program, u);
         // The classes (`ClassDeclaration`) and the executables (declared functions
         // and methods) that contain each place.
         let classes: Vec<(Span, ClassId)> = a
@@ -465,11 +465,11 @@ pub fn elementos_nao_usados(
                 executables.push((a.function(*f).span, e));
             }
         }
-        let class_in = |s: Span| classes.iter().filter(|(r, _)| dentro(s, *r)).min_by_key(|(r, _)| r.end - r.start).map(|x| x.1);
-        let executable_in = |s: Span| executables.iter().filter(|(r, _)| dentro(s, *r)).min_by_key(|(r, _)| r.end - r.start).map(|x| x.1);
+        let class_in = |s: Span| classes.iter().filter(|(r, _)| inside(s, *r)).min_by_key(|(r, _)| r.end - r.start).map(|x| x.1);
+        let executable_in = |s: Span| executables.iter().filter(|(r, _)| inside(s, *r)).min_by_key(|(r, _)| r.end - r.start).map(|x| x.1);
         // `_useIdentifierElement`.
         let use_it = |used: &mut Used, e: El, where_: Span| {
-            if cx.biblioteca(e) != lib {
+            if cx.library(e) != lib {
                 return;
             }
             if let El::Classe(c) = e
@@ -482,12 +482,12 @@ pub fn elementos_nao_usados(
             {
                 return;
             }
-            used.elementos.insert(e);
+            used.elements.insert(e);
         };
         // `_addMemberAndCorrespondingGetter`.
-        let read_member = |used: &mut Used, e: El| match cx.getter_de(e) {
+        let read_member = |used: &mut Used, e: El| match cx.getter_of(e) {
             Some(g) => {
-                used.membros.insert(g);
+                used.members.insert(g);
                 used.read_values.insert(g);
             }
             None if matches!(e, El::Setter(_)) => {}
@@ -552,11 +552,11 @@ pub fn elementos_nao_usados(
                     };
                     match write {
                         Some(f) => {
-                            used.membros.insert(cx.of_function(f));
+                            used.members.insert(cx.of_function(f));
                         }
                         None if !assignment_target => {
                             if let Some(el) = executable(the_body.get_resolved(id)) {
-                                used.membros.insert(el);
+                                used.members.insert(el);
                             }
                         }
                         None => {}
@@ -573,20 +573,20 @@ pub fn elementos_nao_usados(
                 // call.
                 ExprKind::DotShorthand { name, .. } => {
                     if let Some(Resolved::Element(Element::Class(d))) = the_body.get_resolved(id) {
-                        if cx.biblioteca(El::Classe(*d)) == lib {
-                            used.elementos.insert(El::Classe(*d));
+                        if cx.library(El::Classe(*d)) == lib {
+                            used.elements.insert(El::Classe(*d));
                         }
                         if let Some(&f) = program.class(*d).static_members.get(&name.sym) {
                             let el = cx.of_function(f);
                             use_it(&mut used, el, ex.span);
-                            used.membros.insert(el);
+                            used.members.insert(el);
                             read_member(&mut used, el);
                         } else if let Some(&v) = program.class(*d).enum_constants.iter().find(|&&v| program.variable(v).name == name.sym) {
                             // The enum constant (`.v`) has no getter in the model: read like that of
                             // `_E.v`.
                             let el = El::Getter(v);
                             use_it(&mut used, el, ex.span);
-                            used.membros.insert(el);
+                            used.members.insert(el);
                             read_member(&mut used, el);
                         }
                     }
@@ -599,7 +599,7 @@ pub fn elementos_nao_usados(
                     if matches!(ex.kind, ExprKind::Call { .. })
                         && let Some(el) = executable(the_body.get_resolved(id))
                     {
-                        used.elementos.insert(el);
+                        used.elements.insert(el);
                     }
                     if let Some(Resolved::Constructor(f)) = the_body.get_resolved(id) {
                         let written = match &ex.kind {
@@ -610,7 +610,7 @@ pub fn elementos_nao_usados(
                         let named_one = !interner.resolve(program.function(*f).name).is_empty();
                         if written && named_one {
                             use_it(&mut used, El::Funcao(*f), ex.span);
-                            used.membros.insert(El::Funcao(*f));
+                            used.members.insert(El::Funcao(*f));
                         }
                     }
                     continue;
@@ -654,7 +654,7 @@ pub fn elementos_nao_usados(
                             if program.variable(v).class.is_none() && program.variable(v).extension.is_some() =>
                         {
                             if read_value {
-                                used.membros.insert(El::Getter(v));
+                                used.members.insert(El::Getter(v));
                                 read_member(&mut used, El::Getter(v));
                             }
                             if written {
@@ -664,13 +664,13 @@ pub fn elementos_nao_usados(
                         // The top-level variable (synthetic accessors).
                         El::Variavel(v) | El::Getter(v) | El::Setter(v) if program.variable(v).class.is_none() => {
                             if read_value {
-                                used.elementos.insert(El::Variavel(v));
+                                used.elements.insert(El::Variavel(v));
                             }
                         }
                         // The explicit top-level accessor.
                         El::Funcao(f) if matches!(program.function(f).kind, FunctionKind::Getter | FunctionKind::Setter) => {
                             if read_value {
-                                used.membros.insert(el);
+                                used.members.insert(el);
                                 read_member(&mut used, el);
                             }
                             if written {
@@ -685,7 +685,7 @@ pub fn elementos_nao_usados(
                                 // (`_useIdentifierElement`, 3.6.2
                                 // `unused_local_elements_verifier.dart:284`).
                                 if !simple_assignment {
-                                    let getter = if program.function(f).kind == FunctionKind::Getter { Some(el) } else { cx.getter_de(el) };
+                                    let getter = if program.function(f).kind == FunctionKind::Getter { Some(el) } else { cx.getter_of(el) };
                                     if let Some(g) = getter {
                                         use_it(&mut used, g, ex.span);
                                     }
@@ -725,7 +725,7 @@ pub fn elementos_nao_usados(
                         targets.push(el_write);
                         // The `readElement` of the compound assignment and of `++`/`--`.
                         if !simple_assignment && !(read_value || !written) {
-                            targets.push(cx.getter_de(el_write).unwrap_or(el_read));
+                            targets.push(cx.getter_of(el_write).unwrap_or(el_read));
                         }
                     }
                     for el in targets {
@@ -733,7 +733,7 @@ pub fn elementos_nao_usados(
                         if matches!(el, El::Funcao(f) if executable_in(ex.span) == Some(f)) {
                             continue;
                         }
-                        used.membros.insert(el);
+                        used.members.insert(el);
                         if read_value {
                             read_member(&mut used, el);
                         }
@@ -743,7 +743,7 @@ pub fn elementos_nao_usados(
                     let el = cx.of_function(*member);
                     use_it(&mut used, el, ex.span);
                     if !matches!(el, El::Funcao(f) if executable_in(ex.span) == Some(f)) {
-                        used.membros.insert(el);
+                        used.members.insert(el);
                         if read_value {
                             read_member(&mut used, el);
                         }
@@ -751,7 +751,7 @@ pub fn elementos_nao_usados(
                 }
                 Some(Resolved::Constructor(f)) => {
                     use_it(&mut used, El::Funcao(*f), ex.span);
-                    used.membros.insert(El::Funcao(*f));
+                    used.members.insert(El::Funcao(*f));
                 }
             }
         }
@@ -765,14 +765,14 @@ pub fn elementos_nao_usados(
                     let Some(el) = cx.of_element(*e) else { continue };
                     match el {
                         El::Variavel(v) | El::Getter(v) | El::Setter(v) if program.variable(v).class.is_none() && program.variable(v).extension.is_some() => {
-                            used.membros.insert(El::Getter(v));
+                            used.members.insert(El::Getter(v));
                             read_member(&mut used, El::Getter(v));
                         }
                         El::Variavel(v) | El::Getter(v) | El::Setter(v) if program.variable(v).class.is_none() => {
-                            used.elementos.insert(El::Variavel(v));
+                            used.elements.insert(El::Variavel(v));
                         }
                         El::Funcao(f) if matches!(program.function(f).kind, FunctionKind::Getter | FunctionKind::Setter) => {
-                            used.membros.insert(el);
+                            used.members.insert(el);
                             read_member(&mut used, el);
                         }
                         _ => use_it(&mut used, el, where_),
@@ -787,13 +787,13 @@ pub fn elementos_nao_usados(
                         },
                     };
                     use_it(&mut used, el, where_);
-                    used.membros.insert(el);
+                    used.members.insert(el);
                     read_member(&mut used, el);
                 }
                 Resolved::ExtensionMember { member, .. } => {
                     let el = cx.of_function(*member);
                     use_it(&mut used, el, where_);
-                    used.membros.insert(el);
+                    used.members.insert(el);
                     read_member(&mut used, el);
                 }
                 _ => {}
@@ -810,7 +810,7 @@ pub fn elementos_nao_usados(
                     Some(Resolved::Member { member: MemberRef::Function(g), .. }) | Some(Resolved::ExtensionMember { member: g, .. }) => cx.of_function(*g),
                     _ => continue,
                 };
-                used.membros.insert(el);
+                used.members.insert(el);
                 read_member(&mut used, el);
             }
         }
@@ -822,7 +822,7 @@ pub fn elementos_nao_usados(
                 Resolved::Member { member: MemberRef::Function(g), .. } | Resolved::ExtensionMember { member: g, .. } => cx.of_function(*g),
                 _ => continue,
             };
-            used.membros.insert(el);
+            used.members.insert(el);
             read_member(&mut used, el);
         }
 
@@ -860,7 +860,7 @@ pub fn elementos_nao_usados(
             for k in x.constants.iter() {
                 let the_name = k.constructor.map(|n| n.sym).or_else(|| interner.lookup(""));
                 if let Some(f) = the_name.and_then(|n| program.class(c).constructors.get(&n)) {
-                    used.elementos.insert(El::Funcao(*f));
+                    used.elements.insert(El::Funcao(*f));
                 }
             }
         }
@@ -881,13 +881,13 @@ pub fn elementos_nao_usados(
                 && let Some(cls) = program.function(eu).class
                 && matches!(program.class(cls).kind, ClassKind::Enum | ClassKind::ExtensionType)
             {
-                used.elementos.insert(El::Classe(cls));
+                used.elements.insert(El::Classe(cls));
             }
             let mut mark = |c: ClassId, n: Option<ast::Name>| {
                 let Some(n) = n else { return };
                 if let Some(&f) = program.class(c).constructors.get(&n.sym) {
                     use_it(&mut used, El::Funcao(f), m.span);
-                    used.membros.insert(El::Funcao(f));
+                    used.members.insert(El::Funcao(f));
                 }
             };
             // The redirection is resolved even in a duplicate constructor (which also
@@ -916,14 +916,14 @@ pub fn elementos_nao_usados(
         for d in a.decls.iter() {
             let DeclKind::Typedef(t) = &d.kind else { continue };
             let ast::TypedefKind::Alias(ty) = &t.kind else { continue };
-            if privado(interner, t.name.sym) {
+            if private(interner, t.name.sym) {
                 continue;
             }
             let Some(tgt) = outline.tipos_escritos.get(&(u, *ty)) else { continue };
             if let crate::table::Type::Interface { class, .. } | crate::table::Type::ExtensionType { decl: class, .. } = table.get(*tgt) {
                 for (n, f) in program.class(*class).constructors.iter() {
-                    if !privado(interner, *n) {
-                        used.elementos.insert(El::Funcao(*f));
+                    if !private(interner, *n) {
+                        used.elements.insert(El::Funcao(*f));
                     }
                 }
             }
@@ -975,22 +975,22 @@ pub fn elementos_nao_usados(
         output.push((u, Diagnostic::com_codigo(code, n.span, [displayed.as_str()])));
     };
     let used_element = |el: El, metadata: &[ast::Annotation], u: UnitId, engine: &mut Option<Motor<'_>>| {
-        used.elementos.contains(&el) || marked(&cx, engine, u, metadata, false)
+        used.elements.contains(&el) || marked(&cx, engine, u, metadata, false)
     };
     let used_member = |el: El, the_name: SymbolId, metadata: &[ast::Annotation], u: UnitId, engine: &mut Option<Motor<'_>>| {
         cx.accessible(el, the_name)
             || marked(&cx, engine, u, metadata, false)
-            || used.membros.contains(&el)
-            || used.elementos.contains(&el)
+            || used.members.contains(&el)
+            || used.elements.contains(&el)
             || override_used.contains(&el)
     };
     // `_isReadMember` of a field or enum constant.
     let read_value = |v: VariableId| {
         let x = program.variable(v);
         let static_ = x.static_ || x.const_ && x.class.is_some_and(|c| program.class(c).kind == ClassKind::Enum);
-        let private_container = x.class.is_some_and(|c| privado(interner, program.class(c).name))
-            || x.extension.is_some_and(|e| program.extension(e).name.is_none_or(|n| privado(interner, n)));
-        if !privado(interner, x.name) && !(private_container && static_) {
+        let private_container = x.class.is_some_and(|c| private(interner, program.class(c).name))
+            || x.extension.is_some_and(|e| program.extension(e).name.is_none_or(|n| private(interner, n)));
+        if !private(interner, x.name) && !(private_container && static_) {
             return true;
         }
         if used.read_values.contains(&El::Getter(v)) || used.unresolved.contains(&x.name) {
@@ -1032,7 +1032,7 @@ pub fn elementos_nao_usados(
                     // verifier (there is no `visitClassTypeAlias`): it is never reported.
                     if let Some(c) = decl_class(u, did)
                         && !x.mixin_application
-                        && privado(interner, x.name.sym)
+                        && private(interner, x.name.sym)
                         && !used_element(El::Classe(c), &d.metadata, u, &mut engine)
                         && !marked(&cx, &mut engine, u, &d.metadata, true)
                     {
@@ -1043,7 +1043,7 @@ pub fn elementos_nao_usados(
                 DeclKind::Mixin(x) => {
                     members = &x.members;
                     if let Some(c) = decl_class(u, did)
-                        && privado(interner, x.name.sym)
+                        && private(interner, x.name.sym)
                         && !used_element(El::Classe(c), &d.metadata, u, &mut engine)
                     {
                         report(u, w::UNUSED_ELEMENT, x.name, interner.resolve(x.name.sym).to_string());
@@ -1052,7 +1052,7 @@ pub fn elementos_nao_usados(
                 DeclKind::Enum(x) => {
                     members = &x.members;
                     if let Some(c) = decl_class(u, did)
-                        && privado(interner, x.name.sym)
+                        && private(interner, x.name.sym)
                         && !used_element(El::Classe(c), &d.metadata, u, &mut engine)
                     {
                         report(u, w::UNUSED_ELEMENT, x.name, interner.resolve(x.name.sym).to_string());
@@ -1071,7 +1071,7 @@ pub fn elementos_nao_usados(
                 DeclKind::ExtensionType(x) => {
                     members = &x.members;
                     if let Some(c) = decl_class(u, did)
-                        && privado(interner, x.name.sym)
+                        && private(interner, x.name.sym)
                         && !used_element(El::Classe(c), &d.metadata, u, &mut engine)
                     {
                         report(u, w::UNUSED_ELEMENT, x.name, interner.resolve(x.name.sym).to_string());
@@ -1081,7 +1081,7 @@ pub fn elementos_nao_usados(
                 DeclKind::Typedef(t) => {
                     let tgt = program.typedefs.iter().position(|e| e.decl.unit == u && e.decl.decl == did).map(|i| TypedefId(i as u32));
                     if let Some(tid) = tgt
-                        && privado(interner, t.name.sym)
+                        && private(interner, t.name.sym)
                         && !used_element(El::Typedef(tid), &d.metadata, u, &mut engine)
                     {
                         report(u, w::UNUSED_ELEMENT, t.name, interner.resolve(t.name.sym).to_string());
@@ -1093,7 +1093,7 @@ pub fn elementos_nao_usados(
                     let el = cx.of_function(e);
                     let the_used = match g.kind {
                         ast::FunctionKind::Getter | ast::FunctionKind::Setter => used_member(el, n.sym, &d.metadata, u, &mut engine),
-                        _ => !privado(interner, n.sym) || used_element(el, &d.metadata, u, &mut engine),
+                        _ => !private(interner, n.sym) || used_element(el, &d.metadata, u, &mut engine),
                     };
                     if !the_used {
                         report(u, w::UNUSED_ELEMENT, n, interner.resolve(n.sym).to_string());
@@ -1103,7 +1103,7 @@ pub fn elementos_nao_usados(
                     let vs = variables_of(u, Some(did), None);
                     for (i, v) in l.variables.iter().enumerate() {
                         if let Some(&id) = vs.get(&i)
-                            && privado(interner, v.name.sym)
+                            && private(interner, v.name.sym)
                             && !used_element(El::Variavel(id), &d.metadata, u, &mut engine)
                         {
                             report(u, w::UNUSED_ELEMENT, v.name, interner.resolve(v.name.sym).to_string());

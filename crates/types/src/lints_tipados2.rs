@@ -28,7 +28,7 @@
 //! Written without compiling or running (2026-10-05).
 
 use crate::constantes::avaliador::{Constante, Ctx, Motor};
-use crate::lints_tipados::Achado;
+use crate::lints_tipados::Finding;
 use crate::resolve::OutlineTypes;
 use crate::resolved::{BodyTypes, MemberRef, Resolved};
 use crate::table::{CoreTypes, Type, TypeId, TypeTable};
@@ -38,7 +38,7 @@ use dartforge_frontend::ast::{self, AssignOp, BinaryOp, CollectionElement, ExprI
 use dartforge_intern::{Interner, SymbolId};
 use std::collections::{HashMap, HashSet};
 
-fn sem_parenteses(a: &ast::Ast, mut e: ExprId) -> ExprId {
+fn without_parentheses(a: &ast::Ast, mut e: ExprId) -> ExprId {
     while let ExprKind::Parenthesized(x) = &a.expr(e).kind {
         e = *x;
     }
@@ -135,17 +135,17 @@ fn queried_identifiers(interner: &Interner, a: &ast::Ast) -> Vec<ExprId> {
 
 /// The children of the element `getChildren(elemento, the_name)` (by
 /// `displayName`: the setter `the_name=` also counts).
-fn has_child(program: &Program, interner: &Interner, owner: Dono, the_name: &str) -> bool {
+fn has_child(program: &Program, interner: &Interner, owner: Owner, the_name: &str) -> bool {
     let symbols: Vec<SymbolId> = [interner.lookup(the_name), interner.lookup(&format!("{the_name}_="))].into_iter().flatten().collect();
     let has = |m: &HashMap<SymbolId, dartforge_elements::model::FunctionElementId>| symbols.iter().any(|s| m.contains_key(s));
     match owner {
-        Dono::Classe(c) => {
+        Owner::Class(c) => {
             let e = program.class(c);
             has(&e.instance_members)
                 || has(&e.static_members)
                 || e.fields.iter().chain(e.enum_constants.iter()).any(|v| interner.resolve(program.variable(*v).name) == the_name)
         }
-        Dono::Extensao(x) => {
+        Owner::Extension(x) => {
             let e = program.extension(x);
             has(&e.instance_members) || has(&e.static_members) || e.fields.iter().any(|v| interner.resolve(program.variable(*v).name) == the_name)
         }
@@ -153,13 +153,13 @@ fn has_child(program: &Program, interner: &Interner, owner: Dono, the_name: &str
 }
 
 #[derive(Clone, Copy)]
-enum Dono {
-    Classe(ClassId),
-    Extensao(dartforge_elements::model::ExtensionId),
+enum Owner {
+    Class(ClassId),
+    Extension(dartforge_elements::model::ExtensionId),
 }
 
 /// The element that declares the resolved member (`enclosingElement3`).
-fn member_owner(program: &Program, r: &Resolved) -> Option<Dono> {
+fn member_owner(program: &Program, r: &Resolved) -> Option<Owner> {
     let (cls, extension) = match r {
         Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::ExtensionMember { member: f, .. } => {
             let g = program.function(*f);
@@ -171,7 +171,7 @@ fn member_owner(program: &Program, r: &Resolved) -> Option<Dono> {
         }
         _ => return None,
     };
-    cls.map(Dono::Classe).or(extension.map(Dono::Extensao))
+    cls.map(Owner::Class).or(extension.map(Owner::Extension))
 }
 
 /// The findings of this module's typed rules in unit `u`.
@@ -185,8 +185,8 @@ pub fn achados(
     bodies: &BodyTypes,
     the_inferred: &HashSet<LibraryId>,
     u: UnitId,
-) -> Vec<Achado> {
-    let mut out: Vec<Achado> = Vec::new();
+) -> Vec<Finding> {
+    let mut out: Vec<Finding> = Vec::new();
     let unit = program.unit(u);
     let a = &unit.ast;
     let source = unit.source.as_str();
@@ -224,7 +224,7 @@ pub fn achados(
         targets.iter().any(|k| implements(t, *k))
     };
     let ty = |e: ExprId| the_body.get_type(e).filter(|t| !core.is_unknown(table, *t));
-    let pais = crate::lints_tipados::pais_da_unidade(program, u);
+    let pais = crate::lints_tipados::unit_parents(program, u);
 
     // The `assert`s in the initializer list of a `const` constructor.
     let mut asserts_const: Vec<Span> = Vec::new();
@@ -242,11 +242,11 @@ pub fn achados(
     // `_isUnassignedIndexOf`: `x.indexOf(v)` or `x.indexOf(v, 0)` with `x`
     // an `Iterable` or a `String` (through parentheses and `as`).
     let of_index = |e: ExprId| {
-        let mut e = sem_parenteses(a, e);
+        let mut e = without_parentheses(a, e);
         while let ExprKind::As { value, .. } = &a.expr(e).kind {
             e = *value;
         }
-        let e = sem_parenteses(a, e);
+        let e = without_parentheses(a, e);
         let ExprKind::Call { target, arguments } = &a.expr(e).kind else { return false };
         if matches!(the_body.get_resolved(e), Some(Resolved::Constructor(_))) {
             return false;
@@ -270,7 +270,7 @@ pub fn achados(
         match &e.kind {
             // `avoid_bool_literals_in_conditional_expressions`.
             ExprKind::Conditional { then, else_, .. } => {
-                let (x, y) = (sem_parenteses(a, *then), sem_parenteses(a, *else_));
+                let (x, y) = (without_parentheses(a, *then), without_parentheses(a, *else_));
                 let boolean = |z: ExprId| ty(z).is_some_and(|t| non_null(t, core.bool_class));
                 if boolean(x) && boolean(y) && (matches!(a.expr(x).kind, ExprKind::Bool(_)) || matches!(a.expr(y).kind, ExprKind::Bool(_))) {
                     out.push((e.span, "avoid_bool_literals_in_conditional_expressions", Vec::new()));
@@ -374,7 +374,7 @@ pub fn achados(
             // `prefer_is_not_empty`: `!x.isEmpty`, with the element that declares
             // `isEmpty` having a child `isNotEmpty`.
             ExprKind::Unary { op: UnaryOp::Not, operand } => {
-                let tgt = sem_parenteses(a, *operand);
+                let tgt = without_parentheses(a, *operand);
                 if let ExprKind::Property { target, name, .. } = &a.expr(tgt).kind
                     && !matches!(a.expr(*target).kind, ExprKind::CascadeTarget)
                     && interner.resolve(name.sym) == "isEmpty"
@@ -411,7 +411,7 @@ pub fn achados(
                         the_body.get_resolved(*target),
                         Some(Resolved::Member { .. } | Resolved::Element(_) | Resolved::ExtensionMember { .. })
                     );
-                if matches!(a.expr(sem_parenteses(a, *value)).kind, ExprKind::Null) && !to_setter {
+                if matches!(a.expr(without_parentheses(a, *value)).kind, ExprKind::Null) && !to_setter {
                     out.push((e.span, "unnecessary_null_aware_assignments", Vec::new()));
                 }
             }

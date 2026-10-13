@@ -25,7 +25,7 @@ pub(crate) enum NonPromotionReason {
     /// `PropertyNotPromotedForNonInherentReason` (without): the name, the member
     /// (`propertyMember`) and whether field promotion applies in the body's
     /// library (`fieldPromotionEnabled`).
-    Propriedade { nome: SymbolId, membro: FunctionElementId, inherent: Option<WhyNotPromoted>, enabled: bool },
+    Property { nome: SymbolId, membro: FunctionElementId, inherent: Option<WhyNotPromoted>, enabled: bool },
     /// `ThisNotPromoted`.
     This,
 }
@@ -34,9 +34,9 @@ pub(crate) enum NonPromotionReason {
 /// that a write undid.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct History {
-    pub tipo: TypeId,
-    pub motivo: NonPromotionReason,
-    pub anterior: Option<Rc<History>>,
+    pub ty: TypeId,
+    pub reason: NonPromotionReason,
+    pub previous: Option<Rc<History>>,
 }
 
 /// Write versions (the SSA of `flow-analysis.md`): each write and each join
@@ -51,7 +51,7 @@ fn new_version() -> u32 {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct VarModel {
     /// Promotion chain: the last one is the current type.
-    pub cadeia: Vec<TypeId>,
+    pub chain: Vec<TypeId>,
     /// Types of interest (tested on some path).
     pub tested: Vec<TypeId>,
     pub assigned: bool,
@@ -59,26 +59,26 @@ pub(crate) struct VarModel {
     /// Written by a closure: no longer promotes.
     pub captured: bool,
     /// Version of the last write (0: declared and never written).
-    pub versao: u32,
+    pub version: u32,
     /// `nonPromotionHistory`.
     pub history: Option<Rc<History>>,
 }
 
 /// Flow state at a point (`FlowModel`).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Fluxo {
-    pub alcancavel: bool,
+pub(crate) struct Flow {
+    pub reachable: bool,
     pub vars: Vec<Option<VarModel>>,
 }
 
-impl Fluxo {
-    pub fn alcancavel() -> Self {
-        Fluxo { alcancavel: true, vars: Vec::new() }
+impl Flow {
+    pub fn reachable() -> Self {
+        Flow { reachable: true, vars: Vec::new() }
     }
 
     pub fn unreachable(&self) -> Self {
         let mut f = self.clone();
-        f.alcancavel = false;
+        f.reachable = false;
         f
     }
 
@@ -90,47 +90,47 @@ impl Fluxo {
         &mut self.vars[i]
     }
 
-    pub fn declarar(&mut self, id: LocalId) {
+    pub fn declare(&mut self, id: LocalId) {
         *self.slot(id) = Some(VarModel {
-            cadeia: Vec::new(),
+            chain: Vec::new(),
             tested: Vec::new(),
             assigned: false,
             unassigned: true,
             captured: false,
-            versao: 0,
+            version: 0,
             history: None,
         });
     }
 
     /// Declaration with a value (initializer, parameter, loop variable).
-    pub fn inicializar(&mut self, id: LocalId) {
+    pub fn initialize(&mut self, id: LocalId) {
         if let Some(m) = self.slot(id) {
             m.assigned = true;
             m.unassigned = false;
-            m.versao = new_version();
+            m.version = new_version();
         }
     }
 
     /// Current write version of a variable.
-    pub fn versao(&self, id: LocalId) -> Option<u32> {
-        self.modelo(id).map(|m| m.versao)
+    pub fn version(&self, id: LocalId) -> Option<u32> {
+        self.model(id).map(|m| m.version)
     }
 
-    pub fn modelo(&self, id: LocalId) -> Option<&VarModel> {
+    pub fn model(&self, id: LocalId) -> Option<&VarModel> {
         self.vars.get(id.0 as usize).and_then(|m| m.as_ref())
     }
 
     pub fn assigned(&self, id: LocalId) -> bool {
-        self.modelo(id).is_some_and(|m| m.assigned)
+        self.model(id).is_some_and(|m| m.assigned)
     }
 
     pub fn unassigned(&self, id: LocalId) -> bool {
-        self.modelo(id).is_some_and(|m| m.unassigned)
+        self.model(id).is_some_and(|m| m.unassigned)
     }
 
     /// Current (promoted) type of a variable.
     pub fn current_type(&self, id: LocalId, declared: TypeId) -> TypeId {
-        self.modelo(id).and_then(|m| m.cadeia.last().copied()).unwrap_or(declared)
+        self.model(id).and_then(|m| m.chain.last().copied()).unwrap_or(declared)
     }
 
     /// A write in a closure: no promotion and, as in the `conservativeJoin` of
@@ -139,10 +139,10 @@ impl Fluxo {
         if let Some(m) = self.slot(id) {
             // `writeCapture`: no promotions, no tested types and no history.
             m.captured = true;
-            m.cadeia.clear();
+            m.chain.clear();
             m.tested.clear();
             m.unassigned = false;
-            m.versao = new_version();
+            m.version = new_version();
             m.history = None;
         }
     }
@@ -154,18 +154,18 @@ impl Fluxo {
         // the history).
         for &id in captured {
             if let Some(m) = self.slot(id) {
-                m.cadeia.clear();
+                m.chain.clear();
                 m.unassigned = false;
                 m.captured = true;
-                m.versao = new_version();
+                m.version = new_version();
                 m.history = None;
             }
         }
         for &id in writes {
             if let Some(m) = self.slot(id) {
-                m.cadeia.clear();
+                m.chain.clear();
                 m.unassigned = false;
-                m.versao = new_version();
+                m.version = new_version();
                 m.history = None;
             }
         }
@@ -174,11 +174,11 @@ impl Fluxo {
 
 impl<'a> BodyInferrer<'a> {
     /// `join(M1, M2)`.
-    pub(crate) fn juntar(&mut self, a: &Fluxo, b: &Fluxo) -> Fluxo {
-        if !a.alcancavel {
+    pub(crate) fn join(&mut self, a: &Flow, b: &Flow) -> Flow {
+        if !a.reachable {
             return b.clone();
         }
-        if !b.alcancavel {
+        if !b.reachable {
             return a.clone();
         }
         if a == b {
@@ -192,37 +192,37 @@ impl<'a> BodyInferrer<'a> {
                 _ => None,
             });
         }
-        Fluxo { alcancavel: true, vars }
+        Flow { reachable: true, vars }
     }
 
     /// Joins a list of models (empty → unreachable starting from `base`).
-    pub(crate) fn join_all(&mut self, base: &Fluxo, list: &[Fluxo]) -> Fluxo {
+    pub(crate) fn join_all(&mut self, base: &Flow, list: &[Flow]) -> Flow {
         let mut it = list.iter();
         let Some(p) = it.next() else { return base.unreachable() };
         let mut acc = p.clone();
         for f in it {
-            acc = self.juntar(&acc, f);
+            acc = self.join(&acc, f);
         }
         acc
     }
 
     /// `promote(x, T)`: promotion by a type test (`is`, `as`, `!= null`).
-    pub(crate) fn promover(&mut self, flow: &mut Fluxo, id: LocalId, declared: TypeId, t: TypeId) {
+    pub(crate) fn promote(&mut self, flow: &mut Flow, id: LocalId, declared: TypeId, t: TypeId) {
         self.promote_tested(flow, id, declared, t, t);
     }
 
     /// Promotes to `t` recording `the_tested` as a type of interest (the false
     /// branch of `x is T` tests `T` and promotes to `factor(S, T)`; the
     /// analyzer's `_finishTypeTest`).
-    pub(crate) fn promote_tested(&mut self, flow: &mut Fluxo, id: LocalId, declared: TypeId, t: TypeId, the_tested: TypeId) {
+    pub(crate) fn promote_tested(&mut self, flow: &mut Flow, id: LocalId, declared: TypeId, t: TypeId, the_tested: TypeId) {
         // Also in unreachable code: the model's `tryPromoteForTypeCheck` does
         // not look at reachability (`flow_analysis.dart`), and dead code stays
         // resolved with the promotions.
-        let Some(m) = flow.modelo(id).cloned() else { return };
+        let Some(m) = flow.model(id).cloned() else { return };
         if m.captured {
             return;
         }
-        let s = m.cadeia.last().copied().unwrap_or(declared);
+        let s = m.chain.last().copied().unwrap_or(declared);
         // `tryPromoteForTypeCheck` (3.6.2 `flow_analysis.dart:2534-2542`):
         // `tryPromoteToType` gives `T` when `T <: S`, and only does not promote
         // when the result is the previous type itself. Mutual and different
@@ -264,12 +264,12 @@ impl<'a> BodyInferrer<'a> {
                 mm.tested.push(the_tested);
             }
             if let Some(t1) = t1 {
-                mm.cadeia.push(t1);
+                mm.chain.push(t1);
             }
         }
         if let Some(t1) = t1 {
             if matches!(self.table.get(t1), Type::Never) {
-                flow.alcancavel = false;
+                flow.reachable = false;
             }
         }
     }
@@ -279,8 +279,8 @@ impl<'a> BodyInferrer<'a> {
     /// the factored type goes straight into the chain, without the true branch's
     /// `tryPromoteToType` (`FutureOr<void>` minus `Future` is `void`, which is a
     /// supertype), and `T` is recorded as tested.
-    pub(crate) fn promote_factored(&mut self, flow: &mut Fluxo, id: LocalId, factored: Option<TypeId>, the_tested: TypeId) {
-        let Some(m) = flow.modelo(id) else { return };
+    pub(crate) fn promote_factored(&mut self, flow: &mut Flow, id: LocalId, factored: Option<TypeId>, the_tested: TypeId) {
+        let Some(m) = flow.model(id) else { return };
         if m.captured {
             return;
         }
@@ -289,17 +289,17 @@ impl<'a> BodyInferrer<'a> {
                 mm.tested.push(the_tested);
             }
             if let Some(t) = factored {
-                mm.cadeia.push(t);
+                mm.chain.push(t);
             }
         }
     }
 
     /// `promoteToNonNull(x)`.
-    pub(crate) fn promote_non_null(&mut self, flow: &mut Fluxo, id: LocalId, declared: TypeId) {
+    pub(crate) fn promote_non_null(&mut self, flow: &mut Flow, id: LocalId, declared: TypeId) {
         let current = flow.current_type(id, declared);
         let nn = self.non_null_promotion(current);
         if nn != current {
-            self.promover(flow, id, declared, nn);
+            self.promote(flow, id, declared, nn);
         }
     }
 
@@ -326,22 +326,22 @@ impl<'a> BodyInferrer<'a> {
     /// `rebaseForward` (§7.10): the promotions stored in a condition variable
     /// apply again over the current state, for the variables that were not
     /// written since then (same version).
-    pub(crate) fn reapply(&mut self, current: &Fluxo, stored: &Fluxo) -> Fluxo {
-        if !stored.alcancavel {
+    pub(crate) fn reapply(&mut self, current: &Flow, stored: &Flow) -> Flow {
+        if !stored.reachable {
             return current.unreachable();
         }
         let mut r = current.clone();
         for (i, g) in stored.vars.iter().enumerate() {
             let Some(g) = g else { continue };
             let Some(Some(c)) = r.vars.get(i) else { continue };
-            if g.versao != c.versao || c.captured {
+            if g.version != c.version || c.captured {
                 continue;
             }
             let mut c = c.clone();
-            let before = (c.cadeia.len(), c.tested.len());
-            for &t in &g.cadeia {
-                if !c.cadeia.contains(&t) && c.cadeia.last().is_none_or(|&l| self.sub(t, l)) {
-                    c.cadeia.push(t);
+            let before = (c.chain.len(), c.tested.len());
+            for &t in &g.chain {
+                if !c.chain.contains(&t) && c.chain.last().is_none_or(|&l| self.sub(t, l)) {
+                    c.chain.push(t);
                 }
             }
             for &t in &g.tested {
@@ -350,7 +350,7 @@ impl<'a> BodyInferrer<'a> {
                 }
             }
             // `_identicalOrNew`: a new model does not carry the history.
-            if (c.cadeia.len(), c.tested.len()) != before {
+            if (c.chain.len(), c.tested.len()) != before {
                 c.history = None;
             }
             r.vars[i] = Some(c);
@@ -361,24 +361,24 @@ impl<'a> BodyInferrer<'a> {
     /// `assign(x, T)`: demotes and applies promotion by type of interest.
     /// `reason`: the write's `DemoteViaExplicitWrite`, which goes into the
     /// history of each undone type.
-    pub(crate) fn assign_flow(&mut self, flow: &mut Fluxo, id: LocalId, declared: TypeId, written: TypeId, reason: Option<NonPromotionReason>) {
+    pub(crate) fn assign_flow(&mut self, flow: &mut Flow, id: LocalId, declared: TypeId, written: TypeId, reason: Option<NonPromotionReason>) {
         self.write_flow(flow, id, declared, written, true, reason);
     }
 
     /// A write with or without promotion by type of interest (the
     /// initialization of a `final` variable or one without a written type does
     /// not promote, `_initialize`).
-    pub(crate) fn write_flow(&mut self, flow: &mut Fluxo, id: LocalId, declared: TypeId, written: TypeId, toi: bool, reason: Option<NonPromotionReason>) {
-        let Some(m) = flow.modelo(id).cloned() else { return };
+    pub(crate) fn write_flow(&mut self, flow: &mut Flow, id: LocalId, declared: TypeId, written: TypeId, toi: bool, reason: Option<NonPromotionReason>) {
+        let Some(m) = flow.model(id).cloned() else { return };
         let mut m = m;
         let assigned_before = m.assigned;
         m.assigned = true;
         m.unassigned = false;
-        m.versao = new_version();
+        m.version = new_version();
         if m.captured {
             m.history = None;
         } else {
-            let chain_before = m.cadeia.clone();
+            let chain_before = m.chain.clone();
             // A written `InvalidType` is a subtype of everything (it promotes to the
             // non-nullable of the declared type like a `Never`); writing `dynamic`
             // to a typed local is an implicit cast: the effective written type is
@@ -394,15 +394,15 @@ impl<'a> BodyInferrer<'a> {
             // remains is a prefix; each undone type goes into the history, from
             // the last to the first (the first undone ends up in front).
             let mut chain: Vec<TypeId> = Vec::new();
-            for &t in &m.cadeia {
+            for &t in &m.chain {
                 if self.sub(written, t) {
                     chain.push(t);
                 }
             }
             let mut history = m.history.clone();
             if let Some(reason) = &reason {
-                for &t in m.cadeia[chain.len()..].iter().rev() {
-                    history = Some(Rc::new(History { tipo: t, motivo: reason.clone(), anterior: history }));
+                for &t in m.chain[chain.len()..].iter().rev() {
+                    history = Some(Rc::new(History { ty: t, reason: reason.clone(), previous: history }));
                 }
             }
             // toi_promote
@@ -461,13 +461,13 @@ impl<'a> BodyInferrer<'a> {
                 }
                 m.history = history;
             }
-            m.cadeia = chain;
+            m.chain = chain;
         }
         *flow_slot(flow, id) = Some(m);
     }
 }
 
-fn flow_slot(f: &mut Fluxo, id: LocalId) -> &mut Option<VarModel> {
+fn flow_slot(f: &mut Flow, id: LocalId) -> &mut Option<VarModel> {
     let i = id.0 as usize;
     if f.vars.len() <= i {
         f.vars.resize(i + 1, None);
@@ -481,7 +481,7 @@ fn flow_slot(f: &mut Fluxo, id: LocalId) -> &mut Option<VarModel> {
 fn join_model(a: &VarModel, b: &VarModel) -> VarModel {
     let mut r = join_model_without_history(a, b);
     let equal = |x: &VarModel, r: &VarModel| {
-        x.cadeia == r.cadeia && x.tested == r.tested && x.assigned == r.assigned && x.unassigned == r.unassigned && x.captured == r.captured && x.versao == r.versao
+        x.chain == r.chain && x.tested == r.tested && x.assigned == r.assigned && x.unassigned == r.unassigned && x.captured == r.captured && x.version == r.version
     };
     r.history = if equal(a, &r) {
         a.history.clone()
@@ -494,7 +494,7 @@ fn join_model(a: &VarModel, b: &VarModel) -> VarModel {
 }
 
 fn join_model_without_history(a: &VarModel, b: &VarModel) -> VarModel {
-    let chain: Vec<TypeId> = a.cadeia.iter().copied().filter(|t| b.cadeia.contains(t)).collect();
+    let chain: Vec<TypeId> = a.chain.iter().copied().filter(|t| b.chain.contains(t)).collect();
     let mut tested = a.tested.clone();
     for t in &b.tested {
         if !tested.contains(t) {
@@ -502,12 +502,12 @@ fn join_model_without_history(a: &VarModel, b: &VarModel) -> VarModel {
         }
     }
     VarModel {
-        cadeia: chain,
+        chain,
         tested,
         assigned: a.assigned && b.assigned,
         unassigned: a.unassigned && b.unassigned,
         captured: a.captured || b.captured,
-        versao: if a.versao == b.versao { a.versao } else { new_version() },
+        version: if a.version == b.version { a.version } else { new_version() },
         history: None,
     }
 }

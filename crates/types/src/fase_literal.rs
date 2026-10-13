@@ -27,10 +27,10 @@ use std::collections::HashSet;
 /// A candidate creation: the unit, the expression, the name to report and
 /// whether it was written with `new`.
 struct Candidate {
-    unidade: UnitId,
+    unit: UnitId,
     lib: LibraryId,
     expr: ExprId,
-    nome: String,
+    name: String,
     with_new: bool,
 }
 
@@ -88,7 +88,7 @@ pub fn construtores_literais(
                     .iter()
                     .any(|m| crate::fase_resultado::meta_annotation(program, interner, where_, m, "literal"));
                 if marked {
-                    candidates.push(Candidate { unidade: u, lib, expr: id, nome: the_name, with_new });
+                    candidates.push(Candidate { unit: u, lib, expr: id, name: the_name, with_new });
                 }
             }
         }
@@ -98,12 +98,12 @@ pub fn construtores_literais(
     }
     let mut engine = Motor::novo(program, interner, table, core, outline, bodies, the_inferred);
     for c in candidates {
-        if !crate::constantes::verifier::creation_can_be_const(&mut engine, c.lib, c.unidade, c.expr) {
+        if !crate::constantes::verifier::creation_can_be_const(&mut engine, c.lib, c.unit, c.expr) {
             continue;
         }
         let code = if c.with_new { w::NON_CONST_CALL_TO_LITERAL_CONSTRUCTOR_USING_NEW } else { w::NON_CONST_CALL_TO_LITERAL_CONSTRUCTOR };
-        let span = program.unit(c.unidade).ast.expr(c.expr).span;
-        out.push((c.unidade, Diagnostic::com_codigo(code, span, [c.nome.as_str()])));
+        let span = program.unit(c.unit).ast.expr(c.expr).span;
+        out.push((c.unit, Diagnostic::com_codigo(code, span, [c.name.as_str()])));
     }
     out
 }

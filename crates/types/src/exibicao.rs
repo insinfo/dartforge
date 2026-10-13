@@ -21,23 +21,23 @@ use std::collections::HashMap;
 pub enum Arg<'a> {
     /// A `DartType`: with alias, and disambiguated against the other types of
     /// the same report.
-    Tipo(TypeId),
+    Type_(TypeId),
     /// A text that the official emitter took from `getDisplayString()` before
     /// passing it: without alias and without disambiguation.
     TypeWithoutAlias(TypeId),
     /// `String`, `int` or element name: as it came.
-    Texto(Cow<'a, str>),
+    Text(Cow<'a, str>),
 }
 
 impl<'a> From<&'a str> for Arg<'a> {
     fn from(s: &'a str) -> Self {
-        Arg::Texto(Cow::Borrowed(s))
+        Arg::Text(Cow::Borrowed(s))
     }
 }
 
 impl From<String> for Arg<'_> {
     fn from(s: String) -> Self {
-        Arg::Texto(Cow::Owned(s))
+        Arg::Text(Cow::Owned(s))
     }
 }
 
@@ -59,7 +59,7 @@ impl Exibidor<'_> {
     }
 
     /// `_convertTypeNames`: the text of each argument, in order.
-    pub fn argumentos(&self, args: &[Arg<'_>]) -> Vec<String> {
+    pub fn arguments(&self, args: &[Arg<'_>]) -> Vec<String> {
         self.arguments_and_context(args).0
     }
 
@@ -73,15 +73,15 @@ impl Exibidor<'_> {
         let mut output: Vec<String> = args
             .iter()
             .map(|a| match a {
-                Arg::Tipo(t) => self.tipo(*t, true),
+                Arg::Type_(t) => self.tipo(*t, true),
                 Arg::TypeWithoutAlias(t) => self.tipo(*t, false),
-                Arg::Texto(s) => s.to_string(),
+                Arg::Text(s) => s.to_string(),
             })
             .collect();
         // The type arguments grouped by text, in the order they appear.
         let mut groups: Vec<(String, Vec<(usize, TypeId)>)> = Vec::new();
         for (i, a) in args.iter().enumerate() {
-            let Arg::Tipo(t) = a else { continue };
+            let Arg::Type_(t) = a else { continue };
             let position = groups.iter().position(|(name, _)| *name == output[i]);
             match position {
                 Some(k) => groups[k].1.push((i, *t)),
@@ -97,7 +97,7 @@ impl Exibidor<'_> {
             let mut elements_of: Vec<Vec<ClassId>> = Vec::with_capacity(members.len());
             for &(_, t) in &members {
                 let mut els = Vec::new();
-                self.elementos(t, &mut els, 0);
+                self.elements(t, &mut els, 0);
                 for &c in &els {
                     let list = by_name.entry(self.program.class(c).name).or_default();
                     if !list.contains(&c) {
@@ -113,7 +113,7 @@ impl Exibidor<'_> {
                     let snippet = format!("{} is defined in {}", self.interner.resolve(element_name), self.file_of(c));
                     // The context message is output for every element (outside the `if` in
                     // the analyzer).
-                    if let Some(span) = self.nome_da_classe(c) {
+                    if let Some(span) = self.class_name(c) {
                         context.push(dartforge_diagnostics::Contexto { arquivo: Some(self.file_of(c).into()), span, mensagem: snippet.clone().into() });
                     }
                     if by_name.get(&element_name).is_none_or(|l| l.len() < 2) {
@@ -134,7 +134,7 @@ impl Exibidor<'_> {
 
     /// The range of the class name (`nameOffset`/`nameLength`); none for a
     /// synthetic one.
-    fn nome_da_classe(&self, c: ClassId) -> Option<dartforge_diagnostics::Span> {
+    fn class_name(&self, c: ClassId) -> Option<dartforge_diagnostics::Span> {
         use dartforge_frontend::ast::DeclKind;
         let d = self.program.class(c).decl?;
         let n = match &self.program.unit(d.unit).ast.decl(d.decl).kind {
@@ -152,21 +152,21 @@ impl Exibidor<'_> {
     /// type and through the type arguments of an interface, in visiting order
     /// and without repetition; never inside a record. An element already seen
     /// is not walked again.
-    fn elementos(&self, t: TypeId, out: &mut Vec<ClassId>, prof: u32) {
+    fn elements(&self, t: TypeId, out: &mut Vec<ClassId>, prof: u32) {
         if prof > 32 {
             return;
         }
         match self.table.get(t) {
             Type::Function { ret, positional, optional, named, .. } => {
-                self.elementos(*ret, out, prof + 1);
+                self.elements(*ret, out, prof + 1);
                 for &p in positional.iter().chain(optional.iter()) {
-                    self.elementos(p, out, prof + 1);
+                    self.elements(p, out, prof + 1);
                 }
                 // The named ones in the analyzer's order (alphabetical).
                 let mut order: Vec<&(SymbolId, TypeId, bool)> = named.iter().collect();
                 order.sort_by(|a, b| self.interner.resolve(a.0).cmp(self.interner.resolve(b.0)));
                 for (_, p, _) in order {
-                    self.elementos(*p, out, prof + 1);
+                    self.elements(*p, out, prof + 1);
                 }
             }
             Type::Interface { class, args, .. } | Type::ExtensionType { decl: class, args, .. } => {
@@ -176,12 +176,12 @@ impl Exibidor<'_> {
                 // An unnamed element does not count, but its arguments do.
                 out.push(*class);
                 for &a in args.iter() {
-                    self.elementos(a, out, prof + 1);
+                    self.elements(a, out, prof + 1);
                 }
             }
             // `FutureOr<T>` is a `dart:async` interface for the analyzer: the element
             // is always the same, only the argument matters.
-            Type::FutureOr { arg, .. } => self.elementos(*arg, out, prof + 1),
+            Type::FutureOr { arg, .. } => self.elements(*arg, out, prof + 1),
             _ => {}
         }
     }

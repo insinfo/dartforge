@@ -49,23 +49,23 @@ fn main() {
         .stack_size(1 << 30)
         .spawn(move || {
             let d = dump(&entry, &sdk, packages.as_deref());
-            eprintln!("inference: {:?}; warnings: {}", d.inference_time, d.avisos.len());
+            eprintln!("inference: {:?}; warnings: {}", d.inference_time, d.warnings.len());
             let mut out = std::io::BufWriter::new(std::fs::File::create(output.expect("-o")).unwrap());
             let mut total = 0usize;
-            for u in &d.unidades {
-                for l in &u.linhas {
-                    writeln!(out, "{}\t{}\t{}\t{}\t{}\t{}", u.caminho, l.offset, l.comprimento, l.no, l.tipo, l.resolution).unwrap();
+            for u in &d.units {
+                for l in &u.lines {
+                    writeln!(out, "{}\t{}\t{}\t{}\t{}\t{}", u.path, l.offset, l.length, l.no, l.ty, l.resolution).unwrap();
                 }
-                total += u.linhas.len();
+                total += u.lines.len();
             }
-            eprintln!("dump: {} units, {total} expressions, {} not visited", d.unidades.len(), d.not_visited);
+            eprintln!("dump: {} units, {total} expressions, {} not visited", d.units.len(), d.not_visited);
             if let Some(a) = files {
-                let list: Vec<&str> = d.unidades.iter().map(|u| u.caminho.as_str()).collect();
+                let list: Vec<&str> = d.units.iter().map(|u| u.path.as_str()).collect();
                 std::fs::write(a, list.join("\n")).unwrap();
             }
             if let Some(a) = warnings {
                 let mut f = std::io::BufWriter::new(std::fs::File::create(a).unwrap());
-                for x in &d.avisos {
+                for x in &d.warnings {
                     writeln!(f, "{}\t{}", x.span.start, x.message.replace('\n', " ")).unwrap();
                 }
             }

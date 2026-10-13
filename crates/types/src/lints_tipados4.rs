@@ -33,7 +33,7 @@
 //! Written without compiling or running (2026-10-05).
 
 use crate::constantes::avaliador::{Constante, Ctx, Motor};
-use crate::lints_tipados::Achado;
+use crate::lints_tipados::Finding;
 use crate::resolve::OutlineTypes;
 use crate::resolved::{BodyTypes, MemberRef, Resolved, UnitBodyTypes};
 use crate::table::{CoreTypes, Type, TypeId, TypeTable};
@@ -43,14 +43,14 @@ use dartforge_frontend::ast::{self, BinaryOp, DeclKind, ExprId, ExprKind, Functi
 use dartforge_intern::{Interner, SymbolId};
 use std::collections::{HashMap, HashSet};
 
-fn sem_parenteses(a: &ast::Ast, mut e: ExprId) -> ExprId {
+fn without_parentheses(a: &ast::Ast, mut e: ExprId) -> ExprId {
     while let ExprKind::Parenthesized(x) = &a.expr(e).kind {
         e = *x;
     }
     e
 }
 
-fn dentro(a: Span, b: Span) -> bool {
+fn inside(a: Span, b: Span) -> bool {
     a.start >= b.start && a.end <= b.end
 }
 
@@ -97,7 +97,7 @@ fn cascade_targets(a: &ast::Ast) -> HashMap<ExprId, ExprId> {
 
 /// The call is an analyzer `MethodInvocation` (the name does not resolve to
 /// a variable or a getter, which become `FunctionExpressionInvocation`).
-pub(crate) fn e_invocacao_de_metodo(program: &Program, a: &ast::Ast, body: &UnitBodyTypes, tgt: ExprId) -> bool {
+pub(crate) fn is_method_invocation(program: &Program, a: &ast::Ast, body: &UnitBodyTypes, tgt: ExprId) -> bool {
     if !matches!(a.expr(tgt).kind, ExprKind::Identifier(_) | ExprKind::Property { .. }) {
         return false;
     }
@@ -130,8 +130,8 @@ pub fn achados(
     bodies: &BodyTypes,
     the_inferred: &HashSet<LibraryId>,
     u: UnitId,
-) -> Vec<Achado> {
-    let mut out: Vec<Achado> = Vec::new();
+) -> Vec<Finding> {
+    let mut out: Vec<Finding> = Vec::new();
     let Some(body) = bodies.units.get(u.0 as usize) else { return out };
     the_collections(program, interner, table, core, outline, body, u, &mut out);
     void_checks(program, table, core, outline, body, u, &mut out);
@@ -142,11 +142,11 @@ pub fn achados(
 
 /// A `_MethodDefinition` definition.
 struct Definition {
-    metodo: &'static str,
+    method: &'static str,
     /// The class (`dart:core`), or the interface by name and library.
-    classe: Option<ClassId>,
-    por_nome: Option<(&'static str, &'static str)>,
-    indice: usize,
+    class: Option<ClassId>,
+    by_name: Option<(&'static str, &'static str)>,
+    index: usize,
 }
 
 /// `collection_methods_unrelated_type`.
@@ -159,18 +159,18 @@ fn the_collections(
     outline: &OutlineTypes,
     body: &UnitBodyTypes,
     u: UnitId,
-    out: &mut Vec<Achado>,
+    out: &mut Vec<Finding>,
 ) {
     let a = &program.unit(u).ast;
     let cascades = cascade_targets(a);
-    let def = |method, cls: Option<ClassId>, idx| Definition { metodo: method, classe: cls, por_nome: None, indice: idx };
+    let def = |method, cls: Option<ClassId>, idx| Definition { method, class: cls, by_name: None, index: idx };
     let methods = [
         def("contains", core.iterable_class, 0),
         def("remove", core.list_class, 0),
         def("containsKey", core.map_class, 0),
         def("containsValue", core.map_class, 1),
         def("remove", core.map_class, 0),
-        Definition { metodo: "remove", classe: None, por_nome: Some(("dart.collection", "Queue")), indice: 0 },
+        Definition { method: "remove", class: None, by_name: Some(("dart.collection", "Queue")), index: 0 },
         def("lookup", core.set_class, 0),
         def("remove", core.set_class, 0),
     ];
@@ -178,10 +178,10 @@ fn the_collections(
     let library_name = |l: LibraryId| program.library(l).name.as_ref().map(|n| n.iter().map(|s| interner.resolve(*s)).collect::<Vec<_>>().join("."));
     // `collectionTypeFor`: o `asInstanceOf`.
     let collection = |table: &mut TypeTable, t: TypeId, d: &Definition| -> Option<TypeId> {
-        if let Some(c) = d.classe {
+        if let Some(c) = d.class {
             return outline.hierarchy.supertype_of(t, c, table, core);
         }
-        let (library, interface) = d.por_nome?;
+        let (library, interface) = d.by_name?;
         let class_of = |t: TypeId| match table.get(t) {
             Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. } => Some(*class),
             _ => None,
@@ -206,7 +206,7 @@ fn the_collections(
         let mut best: Option<(Span, TypeId)> = None;
         for &did in &program.unit(u).unit.declarations {
             let d = a.decl(did);
-            if !dentro(span, d.span) {
+            if !inside(span, d.span) {
                 continue;
             }
             let t = match &d.kind {
@@ -235,7 +235,7 @@ fn the_collections(
     for e in a.exprs.iter() {
         match &e.kind {
             ExprKind::Call { target, arguments } => {
-                if arguments.args.len() != 1 || !e_invocacao_de_metodo(program, a, body, *target) {
+                if arguments.args.len() != 1 || !is_method_invocation(program, a, body, *target) {
                     continue;
                 }
                 let (tgt, the_name) = match &a.expr(*target).kind {
@@ -244,7 +244,7 @@ fn the_collections(
                     _ => continue,
                 };
                 let the_name = interner.resolve(the_name.sym);
-                let candidates: Vec<&Definition> = methods.iter().filter(|d| d.metodo == the_name).collect();
+                let candidates: Vec<&Definition> = methods.iter().filter(|d| d.method == the_name).collect();
                 if candidates.is_empty() {
                     continue;
                 }
@@ -292,7 +292,7 @@ fn the_collections(
     for (span, arg, col, d) in the_cases {
         let Some(ta) = body.get_type(arg).filter(|t| !core.is_unknown(table, *t)) else { continue };
         let Type::Interface { args, .. } = table.get(col).clone() else { continue };
-        let Some(&arg_type) = args.get(d.indice) else { continue };
+        let Some(&arg_type) = args.get(d.index) else { continue };
         let mut rel = crate::lints_tipados3::Relation { program, table: &mut *table, core, outline, future_or, call: interner.lookup("call") };
         if rel.unrelated(ta, arg_type) {
             let args_list = vec![crate::despejo::formatar(table, ta, interner, program), crate::despejo::formatar(table, arg_type, interner, program)];
@@ -355,7 +355,7 @@ fn check_void(program: &Program, table: &TypeTable, core: &CoreTypes, expected: 
 }
 
 /// `void_checks`.
-fn void_checks(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: &OutlineTypes, body: &UnitBodyTypes, u: UnitId, out: &mut Vec<Achado>) {
+fn void_checks(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: &OutlineTypes, body: &UnitBodyTypes, u: UnitId, out: &mut Vec<Finding>) {
     let table: &TypeTable = table;
     let a = &program.unit(u).ast;
     let ty = |e: ExprId| body.get_type(e).filter(|t| !core.is_unknown(table, *t));
@@ -363,7 +363,7 @@ fn void_checks(program: &Program, table: &mut TypeTable, core: &CoreTypes, outli
         ExprKind::FunctionExpression(f) => !matches!(a.function(*f).body, FunctionBody::Expression(_)),
         _ => false,
     };
-    let report = |span: Span, out: &mut Vec<Achado>| out.push((span, "void_checks", Vec::new()));
+    let report = |span: Span, out: &mut Vec<Finding>| out.push((span, "void_checks", Vec::new()));
     // Assignments.
     for (k, e) in a.exprs.iter().enumerate() {
         let id = ExprId(k as u32);
@@ -425,14 +425,14 @@ fn void_checks(program: &Program, table: &mut TypeTable, core: &CoreTypes, outli
             .functions
             .iter()
             .enumerate()
-            .filter(|(_, f)| dentro(s.span, f.span))
+            .filter(|(_, f)| inside(s.span, f.span))
             .min_by_key(|(_, f)| f.span.end - f.span.start)
             .map(|(k, f)| (ast::FunctionId(k as u32), f.span));
         let Some((f, fspan)) = innermost else { continue };
         // A constructor inside the function (does not happen) or the function
         // inside a constructor: the innermost one wins; a constructor more
         // inner than the function removes the check.
-        if constructors.iter().any(|c| dentro(s.span, *c) && dentro(*c, fspan) && *c != fspan) {
+        if constructors.iter().any(|c| inside(s.span, *c) && inside(*c, fspan) && *c != fspan) {
             continue;
         }
         if let (Some(expected), Some(t)) = (function_return(f), ty(*v))
@@ -448,7 +448,7 @@ fn void_checks(program: &Program, table: &mut TypeTable, core: &CoreTypes, outli
             ExprKind::InstanceCreation { arguments, .. } => arguments,
             ExprKind::Call { target, arguments } => {
                 let constructor = matches!(body.get_resolved(id), Some(Resolved::Constructor(_)));
-                if !constructor && !e_invocacao_de_metodo(program, a, body, *target) {
+                if !constructor && !is_method_invocation(program, a, body, *target) {
                     continue;
                 }
                 arguments
@@ -465,29 +465,29 @@ fn void_checks(program: &Program, table: &mut TypeTable, core: &CoreTypes, outli
     }
     // The assigned variable pattern.
     let mut assigned: Vec<ast::PatternId> = Vec::new();
-    fn variaveis(a: &ast::Ast, p: ast::PatternId, v: &mut Vec<ast::PatternId>) {
+    fn variables(a: &ast::Ast, p: ast::PatternId, v: &mut Vec<ast::PatternId>) {
         match &a.pattern(p).kind {
             PatternKind::Variable { .. } => v.push(p),
             PatternKind::Or(x, y) | PatternKind::And(x, y) => {
-                variaveis(a, *x, v);
-                variaveis(a, *y, v);
+                variables(a, *x, v);
+                variables(a, *y, v);
             }
-            PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) | PatternKind::Cast { pattern: x, .. } => variaveis(a, *x, v),
+            PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) | PatternKind::Cast { pattern: x, .. } => variables(a, *x, v),
             PatternKind::List { elements, .. } => {
                 for el in elements.iter() {
                     if let ast::ListPatternElement::Pattern(x) | ast::ListPatternElement::Rest(Some(x)) = el {
-                        variaveis(a, *x, v);
+                        variables(a, *x, v);
                     }
                 }
             }
             PatternKind::Map { entries, .. } => {
                 for en in entries.iter() {
-                    variaveis(a, en.value, v);
+                    variables(a, en.value, v);
                 }
             }
             PatternKind::Record { fields } | PatternKind::Object { fields, .. } => {
                 for f in fields.iter() {
-                    variaveis(a, f.pattern, v);
+                    variables(a, f.pattern, v);
                 }
             }
             _ => {}
@@ -495,7 +495,7 @@ fn void_checks(program: &Program, table: &mut TypeTable, core: &CoreTypes, outli
     }
     for e in a.exprs.iter() {
         if let ExprKind::PatternAssign { pattern, .. } = &e.kind {
-            variaveis(a, *pattern, &mut assigned);
+            variables(a, *pattern, &mut assigned);
         }
     }
     for p in assigned {
@@ -509,7 +509,7 @@ fn void_checks(program: &Program, table: &mut TypeTable, core: &CoreTypes, outli
 
 /// The member kind: method (including operators), getter or setter.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Especie {
+enum Kind {
     Metodo,
     Getter,
     Setter,
@@ -518,13 +518,13 @@ enum Especie {
 /// A parameter of a member: name, kind, written `covariant`, type and the
 /// `defaultValueCode`.
 struct MemberParameter {
-    nome: String,
+    name: String,
     /// `_sameKind`: 0 required (positional or named `required`), 1 optional
     /// positional, 2 optional named.
-    especie: u8,
-    covariante: bool,
-    tipo: TypeId,
-    padrao: Option<String>,
+    kind: u8,
+    covariant: bool,
+    ty: TypeId,
+    pattern: Option<String>,
 }
 
 /// `unnecessary_overrides`.
@@ -537,7 +537,7 @@ fn unnecessary_overrides(
     outline: &OutlineTypes,
     body: &UnitBodyTypes,
     u: UnitId,
-    out: &mut Vec<Achado>,
+    out: &mut Vec<Finding>,
 ) {
     let unit_id = program.unit(u);
     let a = &unit_id.ast;
@@ -601,12 +601,12 @@ fn unnecessary_overrides(
             let Some(&own) = elems.get(fid) else { continue };
             let Some(cls) = program.function(own).class else { continue };
             let kind = match f.kind {
-                ast::FunctionKind::Getter => Especie::Getter,
-                ast::FunctionKind::Setter => Especie::Setter,
-                _ => Especie::Metodo,
+                ast::FunctionKind::Getter => Kind::Getter,
+                ast::FunctionKind::Setter => Kind::Setter,
+                _ => Kind::Metodo,
             };
             let key = match kind {
-                Especie::Setter => interner.lookup(&format!("{text}_=")),
+                Kind::Setter => interner.lookup(&format!("{text}_=")),
                 _ => Some(the_name.sym),
             };
             let Some(key) = key else { continue };
@@ -622,7 +622,7 @@ fn unnecessary_overrides(
                 continue;
             }
             // `_haveSameDeclaration`.
-            let Some(the_own) = parametros_do_membro(program, interner, table, outline, own, None) else { continue };
+            let Some(the_own) = member_parameters(program, interner, table, outline, own, None) else { continue };
             let this_type = {
                 let params: Vec<TypeId> = outline
                     .classes
@@ -632,18 +632,18 @@ fn unnecessary_overrides(
                 table.intern(Type::Interface { class: cls, args: params.into(), nullable: false })
             };
             let Some(instantiated) = outline.hierarchy.supertype_of(this_type, owner, table, core) else { continue };
-            let Some(the_inherited) = parametros_do_membro(program, interner, table, outline, inherited, Some((owner, instantiated))) else { continue };
+            let Some(the_inherited) = member_parameters(program, interner, table, outline, inherited, Some((owner, instantiated))) else { continue };
             let (ret_own, ps_own) = the_own;
             let (ret_inherited, ps_inherited) = the_inherited;
             if crate::ops::without_display(ret_own, table) != crate::ops::without_display(ret_inherited, table) || ps_own.len() != ps_inherited.len() {
                 continue;
             }
             let same = ps_own.iter().zip(ps_inherited.iter()).all(|(p, q)| {
-                crate::ops::without_display(p.tipo, table) == crate::ops::without_display(q.tipo, table)
-                    && p.nome == q.nome
-                    && p.covariante == q.covariante
-                    && p.especie == q.especie
-                    && p.padrao == q.padrao
+                crate::ops::without_display(p.ty, table) == crate::ops::without_display(q.ty, table)
+                    && p.name == q.name
+                    && p.covariant == q.covariant
+                    && p.kind == q.kind
+                    && p.pattern == q.pattern
             });
             if !same {
                 continue;
@@ -662,7 +662,7 @@ fn unnecessary_overrides(
 
 /// `lookUp{Method,Getter,Setter}2(concrete: true, inherited: true)`: the
 /// declaring class and the member.
-fn inherited_concrete(program: &Program, cls: ClassId, key: SymbolId, lib: LibraryId, private: bool, kind: Especie) -> Option<(ClassId, FunctionElementId)> {
+fn inherited_concrete(program: &Program, cls: ClassId, key: SymbolId, lib: LibraryId, private: bool, kind: Kind) -> Option<(ClassId, FunctionElementId)> {
     let serve = |c: ClassId| -> Option<FunctionElementId> {
         let e = program.class(c);
         if private && e.library != lib {
@@ -671,9 +671,9 @@ fn inherited_concrete(program: &Program, cls: ClassId, key: SymbolId, lib: Libra
         let f = *e.instance_members.get(&key)?;
         let m = program.function(f);
         let of_kind = match kind {
-            Especie::Metodo => matches!(m.kind, FunctionKind::Function | FunctionKind::Operator),
-            Especie::Getter => m.kind == FunctionKind::Getter,
-            Especie::Setter => m.kind == FunctionKind::Setter,
+            Kind::Metodo => matches!(m.kind, FunctionKind::Function | FunctionKind::Operator),
+            Kind::Getter => m.kind == FunctionKind::Getter,
+            Kind::Setter => m.kind == FunctionKind::Setter,
         };
         (!m.abstract_ && of_kind).then_some(f)
     };
@@ -702,7 +702,7 @@ fn inherited_concrete(program: &Program, cls: ClassId, key: SymbolId, lib: Libra
 /// The return type and the parameters (in written order) of a member;
 /// `instantiated`: the owner class and the instantiated supertype in which the
 /// member is seen (the substitution of its type parameters).
-fn parametros_do_membro(
+fn member_parameters(
     program: &Program,
     interner: &Interner,
     table: &mut TypeTable,
@@ -744,16 +744,16 @@ fn parametros_do_membro(
                     }
                 };
                 v.push(MemberParameter {
-                    nome: p.name.map(|n| interner.resolve(n.sym).to_string()).unwrap_or_default(),
-                    especie: match p.kind {
+                    name: p.name.map(|n| interner.resolve(n.sym).to_string()).unwrap_or_default(),
+                    kind: match p.kind {
                         ParameterKind::Required => 0,
                         ParameterKind::Named if p.required => 0,
                         ParameterKind::Named => 2,
                         _ => 1,
                     },
-                    covariante: p.covariant,
-                    tipo: ty,
-                    padrao: p.default_value.map(|d| dartforge_frontend::fonte::de_expr(a, source, interner, d)),
+                    covariant: p.covariant,
+                    ty,
+                    pattern: p.default_value.map(|d| dartforge_frontend::fonte::de_expr(a, source, interner, d)),
                 });
             }
         }
@@ -771,11 +771,11 @@ fn parametros_do_membro(
                     _ => false,
                 };
                 v.push(MemberParameter {
-                    nome: format!("_{the_name}"),
-                    especie: 0,
-                    covariante: covariant,
-                    tipo: *positional.first()?,
-                    padrao: None,
+                    name: format!("_{the_name}"),
+                    kind: 0,
+                    covariant,
+                    ty: *positional.first()?,
+                    pattern: None,
                 });
             }
         }
@@ -792,45 +792,45 @@ fn passes_to_super(
     comments: &dartforge_frontend::comentarios::Comentarios,
     body: &UnitBodyTypes,
     f: &ast::Function,
-    kind: Especie,
+    kind: Kind,
     the_name: &str,
 ) -> bool {
     let commented = |pos: usize| !comments.antes_de(source, pos).is_empty();
     // `visitSuperExpression`.
     let super_without_comment = |e: ExprId| {
-        let e = sem_parenteses(a, e);
+        let e = without_parentheses(a, e);
         matches!(a.expr(e).kind, ExprKind::Super) && !commented(a.expr(e).span.start)
     };
     let ps = f.parameters.as_deref().unwrap_or(&[]);
     // The method's own parameter that the expression cites (`canonicalElement`).
     let parameter = |e: ExprId| -> Option<SymbolId> {
-        let e = sem_parenteses(a, e);
+        let e = without_parentheses(a, e);
         match (&a.expr(e).kind, body.get_resolved(e)) {
             (ExprKind::Identifier(n), Some(Resolved::Parameter { .. })) if ps.iter().any(|p| p.name.is_some_and(|q| q.sym == n.sym)) => Some(n.sym),
             _ => None,
         }
     };
     let visit_expr = |e: ExprId| -> bool {
-        let e = sem_parenteses(a, e);
+        let e = without_parentheses(a, e);
         match kind {
-            Especie::Getter => match &a.expr(e).kind {
+            Kind::Getter => match &a.expr(e).kind {
                 ExprKind::Property { target, name, .. } if interner.resolve(name.sym) == the_name => super_without_comment(*target),
                 _ => false,
             },
-            Especie::Setter => match &a.expr(e).kind {
+            Kind::Setter => match &a.expr(e).kind {
                 ExprKind::Assign { target, value, .. } => {
                     let [p] = ps else { return false };
                     if p.name.map(|n| n.sym) != parameter(*value) {
                         return false;
                     }
-                    match &a.expr(sem_parenteses(a, *target)).kind {
+                    match &a.expr(without_parentheses(a, *target)).kind {
                         ExprKind::Property { target, name, .. } if interner.resolve(name.sym) == the_name => super_without_comment(*target),
                         _ => false,
                     }
                 }
                 _ => false,
             },
-            Especie::Metodo if f.kind == ast::FunctionKind::Operator => match &a.expr(e).kind {
+            Kind::Metodo if f.kind == ast::FunctionKind::Operator => match &a.expr(e).kind {
                 ExprKind::Binary { op, left, right } => {
                     let [p] = ps else { return false };
                     operator_text(*op) == Some(the_name) && p.name.map(|n| n.sym) == parameter(*right) && super_without_comment(*left)
@@ -845,7 +845,7 @@ fn passes_to_super(
                 }
                 _ => false,
             },
-            Especie::Metodo => match &a.expr(e).kind {
+            Kind::Metodo => match &a.expr(e).kind {
                 ExprKind::Call { target, arguments } => {
                     let ExprKind::Property { target: tgt, name, .. } = &a.expr(*target).kind else { return false };
                     if interner.resolve(name.sym) != the_name {
@@ -931,7 +931,7 @@ fn duplicate_cases(
     bodies: &BodyTypes,
     the_inferred: &HashSet<LibraryId>,
     u: UnitId,
-    out: &mut Vec<Achado>,
+    out: &mut Vec<Finding>,
 ) {
     let unit_id = program.unit(u);
     let version = program.library(unit_id.library).features.versao();
@@ -959,7 +959,7 @@ fn duplicate_cases(
             let Some(p) = case.pattern else { continue };
             let PatternKind::Constant(e) = &a.pattern(p).kind else { continue };
             let Constante::Valor(v) = engine.avaliar(&cx, *e, true) else { continue };
-            if v.estado.desconhecido() {
+            if v.estado.unknown() {
                 continue;
             }
             match seen.iter().position(|(w, _)| engine.iguais(&v, w)) {

@@ -12,7 +12,7 @@
 //!
 //! Written without compiling or running (2026-10-05).
 
-use crate::lints_tipados::Achado;
+use crate::lints_tipados::Finding;
 use crate::resolve::OutlineTypes;
 use crate::resolved::{MemberRef, Resolved, UnitBodyTypes};
 use crate::subtyping::{is_subtype, SubtypeEnv};
@@ -24,16 +24,16 @@ use std::collections::HashSet;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Variance_ {
-    Saida,
-    Entrada,
+    Exit,
+    Entry,
     Both,
 }
 
 impl Variance_ {
     fn inverse(self) -> Variance_ {
         match self {
-            Variance_::Saida => Variance_::Entrada,
-            Variance_::Entrada => Variance_::Saida,
+            Variance_::Exit => Variance_::Entry,
+            Variance_::Entry => Variance_::Exit,
             Variance_::Both => Variance_::Both,
         }
     }
@@ -41,7 +41,7 @@ impl Variance_ {
 
 /// The findings in unit `u`.
 #[allow(clippy::too_many_arguments)]
-pub fn achados(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: &OutlineTypes, body: &UnitBodyTypes, u: UnitId) -> Vec<Achado> {
+pub fn achados(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: &OutlineTypes, body: &UnitBodyTypes, u: UnitId) -> Vec<Finding> {
     let mut out = Vec::new();
     futureor_void(program, table, outline, body, u, &mut out);
     lambdas(program, table, core, outline, body, u, &mut out);
@@ -49,7 +49,7 @@ pub fn achados(program: &Program, table: &mut TypeTable, core: &CoreTypes, outli
 }
 
 /// `avoid_futureor_void`.
-fn futureor_void(program: &Program, table: &TypeTable, outline: &OutlineTypes, body: &UnitBodyTypes, u: UnitId, out: &mut Vec<Achado>) {
+fn futureor_void(program: &Program, table: &TypeTable, outline: &OutlineTypes, body: &UnitBodyTypes, u: UnitId, out: &mut Vec<Finding>) {
     let a = &program.unit(u).ast;
     let resolved = |t: ast::TypeId| body.tipos_de_anotacoes.get(&t).copied().or_else(|| outline.tipos_escritos.get(&(u, t)).copied());
     let mut findings: HashSet<(usize, usize)> = HashSet::new();
@@ -69,7 +69,7 @@ fn futureor_void(program: &Program, table: &TypeTable, outline: &OutlineTypes, b
         };
         Some(tps.iter().map(|p| p.variance.map(|v| v.0)).collect())
     };
-    fn checar(
+    fn check(
         a: &ast::Ast,
         table: &TypeTable,
         resolved: &dyn Fn(ast::TypeId) -> Option<TypeId>,
@@ -91,18 +91,18 @@ fn futureor_void(program: &Program, table: &TypeTable, outline: &OutlineTypes, b
                                     Some(ast::Variance::In) => v.inverse(),
                                     Some(ast::Variance::Inout) => Variance_::Both,
                                 };
-                                checar(a, table, resolved, variances, pv, *arg, findings);
+                                check(a, table, resolved, variances, pv, *arg, findings);
                             }
                         }
                         None => {
                             for arg in args.iter() {
-                                checar(a, table, resolved, variances, v, *arg, findings);
+                                check(a, table, resolved, variances, v, *arg, findings);
                             }
                         }
                     }
                 }
                 let Some(typ) = typ else { return };
-                if v == Variance_::Entrada {
+                if v == Variance_::Entry {
                     return;
                 }
                 if let Type::FutureOr { arg, .. } = table.get(typ)
@@ -114,24 +114,24 @@ fn futureor_void(program: &Program, table: &TypeTable, outline: &OutlineTypes, b
             }
             TypeKind::Function { return_type, parameters, .. } => {
                 if let Some(r) = return_type {
-                    checar(a, table, resolved, variances, v, *r, findings);
+                    check(a, table, resolved, variances, v, *r, findings);
                 }
                 for p in parameters.iter() {
-                    parametro(a, table, resolved, variances, v.inverse(), p, findings);
+                    parameter(a, table, resolved, variances, v.inverse(), p, findings);
                 }
             }
             TypeKind::Record { positional, named } => {
                 for x in positional.iter() {
-                    checar(a, table, resolved, variances, v, *x, findings);
+                    check(a, table, resolved, variances, v, *x, findings);
                 }
                 for (_, x) in named.iter() {
-                    checar(a, table, resolved, variances, v, *x, findings);
+                    check(a, table, resolved, variances, v, *x, findings);
                 }
             }
             _ => {}
         }
     }
-    fn parametro(
+    fn parameter(
         a: &ast::Ast,
         table: &TypeTable,
         resolved: &dyn Fn(ast::TypeId) -> Option<TypeId>,
@@ -142,24 +142,24 @@ fn futureor_void(program: &Program, table: &TypeTable, outline: &OutlineTypes, b
     ) {
         if let Some(internal) = &p.function_parameters {
             if let Some(r) = p.ty {
-                checar(a, table, resolved, variances, v, r, findings);
+                check(a, table, resolved, variances, v, r, findings);
             }
             for tp in p.function_type_params.iter() {
                 if let Some(b) = tp.bound {
-                    checar(a, table, resolved, variances, Variance_::Both, b, findings);
+                    check(a, table, resolved, variances, Variance_::Both, b, findings);
                 }
             }
             for q in internal.iter() {
-                parametro(a, table, resolved, variances, v.inverse(), q, findings);
+                parameter(a, table, resolved, variances, v.inverse(), q, findings);
             }
             return;
         }
         if let Some(t) = p.ty {
-            checar(a, table, resolved, variances, v, t, findings);
+            check(a, table, resolved, variances, v, t, findings);
         }
     }
-    let output = Variance_::Saida;
-    let ch = |v: Variance_, t: ast::TypeId, findings: &mut HashSet<(usize, usize)>| checar(a, table, &resolved, &variances, v, t, findings);
+    let output = Variance_::Exit;
+    let ch = |v: Variance_, t: ast::TypeId, findings: &mut HashSet<(usize, usize)>| check(a, table, &resolved, &variances, v, t, findings);
     // `as`, `is`, cast and object patterns.
     for e in a.exprs.iter() {
         match &e.kind {
@@ -244,26 +244,26 @@ fn futureor_void(program: &Program, table: &TypeTable, outline: &OutlineTypes, b
     }
     // The type parameters of function parameters (`void f(T g<T extends X>())`),
     // in any parameter list.
-    fn de_parametros(ps: &[ast::Parameter], limites: &mut Vec<ast::TypeId>) {
+    fn of_parameters(ps: &[ast::Parameter], limites: &mut Vec<ast::TypeId>) {
         for p in ps.iter() {
             limites.extend(p.function_type_params.iter().filter_map(|q| q.bound));
             if let Some(internal) = &p.function_parameters {
-                de_parametros(internal, limites);
+                of_parameters(internal, limites);
             }
         }
     }
     for t in a.types.iter() {
         if let TypeKind::Function { type_params, parameters, .. } = &t.kind {
             limites.extend(type_params.iter().filter_map(|p| p.bound));
-            de_parametros(parameters, &mut limites);
+            of_parameters(parameters, &mut limites);
         }
     }
     for f in a.functions.iter() {
-        de_parametros(f.parameters.as_deref().unwrap_or(&[]), &mut limites);
+        of_parameters(f.parameters.as_deref().unwrap_or(&[]), &mut limites);
     }
     for m in a.members.iter() {
         if let MemberKind::Constructor(k) = &m.kind {
-            de_parametros(&k.parameters, &mut limites);
+            of_parameters(&k.parameters, &mut limites);
         }
     }
     for b in limites {
@@ -292,7 +292,7 @@ fn futureor_void(program: &Program, table: &TypeTable, outline: &OutlineTypes, b
             ch(output, r, &mut findings);
         }
         for p in f.parameters.as_deref().unwrap_or(&[]) {
-            parametro(a, table, &resolved, &variances, Variance_::Entrada, p, &mut findings);
+            parameter(a, table, &resolved, &variances, Variance_::Entry, p, &mut findings);
         }
     }
     let mut v: Vec<(usize, usize)> = findings.into_iter().collect();
@@ -396,7 +396,7 @@ fn final_function(program: &Program, f: dartforge_elements::model::FunctionEleme
 
 /// `unnecessary_lambdas`.
 #[allow(clippy::too_many_arguments)]
-fn lambdas(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: &OutlineTypes, body: &UnitBodyTypes, u: UnitId, out: &mut Vec<Achado>) {
+fn lambdas(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: &OutlineTypes, body: &UnitBodyTypes, u: UnitId, out: &mut Vec<Finding>) {
     let unit = program.unit(u);
     let a = &unit.ast;
     let library = program.library(unit.library);
@@ -582,7 +582,7 @@ fn lambdas(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: 
                 _ => false,
             }
         }
-        if !crate::lints_tipados4::e_invocacao_de_metodo(program, a, body, *target) {
+        if !crate::lints_tipados4::is_method_invocation(program, a, body, *target) {
             // `FunctionExpressionInvocation`.
             if can_be_deferred(Some(*target)) {
                 continue;
@@ -665,7 +665,7 @@ fn lambdas(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: 
                     null_chain |= *null_aware;
                     x = Some(*target);
                 }
-                ExprKind::Call { target, .. } if crate::lints_tipados4::e_invocacao_de_metodo(program, a, body, *target) => match &a.expr(*target).kind {
+                ExprKind::Call { target, .. } if crate::lints_tipados4::is_method_invocation(program, a, body, *target) => match &a.expr(*target).kind {
                     ExprKind::Property { target: t, null_aware, .. } => {
                         null_chain |= *null_aware;
                         x = Some(*t);

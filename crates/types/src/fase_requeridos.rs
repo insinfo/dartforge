@@ -22,7 +22,7 @@ use dartforge_intern::Interner;
 
 /// The declared parameters of a function, method or constructor, with the
 /// tree they are in.
-fn parametros(program: &Program, f: FunctionElementId) -> Option<(&[ast::Parameter], &ast::Ast)> {
+fn params_list(program: &Program, f: FunctionElementId) -> Option<(&[ast::Parameter], &ast::Ast)> {
     match program.function(f).node {
         FunctionRef::Function { unit, function } => {
             let a = &program.unit(unit).ast;
@@ -102,7 +102,7 @@ pub fn requeridos_ausentes(program: &Program, interner: &Interner, body: &UnitBo
             }
             _ => continue,
         };
-        let Some((list, tree)) = parametros(program, f) else { continue };
+        let Some((list, tree)) = params_list(program, f) else { continue };
         for p in list.iter().filter(|p| p.kind == ParameterKind::Named && !p.required) {
             let Some(the_name) = p.name else { continue };
             let Some(reason) = the_required(p, tree, interner) else { continue };

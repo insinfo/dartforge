@@ -9,7 +9,7 @@
 //! that were not inferred, like the SDK's) becomes a valid unknown value
 //! (`validWithUnknownValue`): no error is proven about it.
 
-use super::valor::{texto, Campo, Estado, Excecao, Funcao, Valor};
+use super::valor::{the_text, Campo, Estado, Exception, Funcao, Valor};
 use crate::resolve::OutlineTypes;
 use crate::resolved::{BodyTypes, MemberRef, Resolved};
 use crate::subtyping::{is_subtype, SubtypeEnv};
@@ -27,16 +27,16 @@ use std::rc::Rc;
 /// `InvalidConstant`.
 #[derive(Clone, Debug)]
 pub struct Invalid {
-    pub codigo: Codigo,
-    pub unidade: UnitId,
+    pub code: Codigo,
+    pub unit: UnitId,
     pub span: Span,
     pub args: Vec<String>,
     pub avoid_report: bool,
     pub unresolved: bool,
-    pub excecao: bool,
+    pub exception: bool,
     /// `contextMessages`: unit, range and text (the unit decides the file of the
     /// message when the error is reported).
-    pub contexto: Vec<(UnitId, Span, String)>,
+    pub context: Vec<(UnitId, Span, String)>,
 }
 
 /// `Constant`: a valid value or an error.
@@ -64,15 +64,15 @@ pub struct Ctx {
     pub unidade: UnitId,
     pub lib: LibraryId,
     pub lexical: Option<Rc<HashMap<SymbolId, Valor>>>,
-    pub tipos: Option<Rc<HashMap<TypeParamId, TypeId>>>,
+    pub types: Option<Rc<HashMap<TypeParamId, TypeId>>>,
     /// The visitor's reporter is the `ConstantVerifier`'s (and not one that
     /// discards): the errors of `_valueOf` come out.
-    pub relatar: bool,
+    pub report: bool,
 }
 
 impl Ctx {
     pub fn simples(unit_id: UnitId, lib: LibraryId) -> Ctx {
-        Ctx { unidade: unit_id, lib, lexical: None, tipos: None, relatar: false }
+        Ctx { unidade: unit_id, lib, lexical: None, types: None, report: false }
     }
 }
 
@@ -97,15 +97,15 @@ pub struct Motor<'a> {
     vars_stack: Vec<VariableId>,
     cyclic: HashSet<VariableId>,
     /// Default values already evaluated, by expression.
-    padroes: HashMap<(UnitId, ExprId), Constante>,
+    patterns: HashMap<(UnitId, ExprId), Constante>,
     /// Local constants: by the name's offset, the list and the index.
     unit_locals: HashMap<UnitId, HashMap<usize, (ast::StmtId, usize)>>,
-    locais: HashMap<(UnitId, usize), Option<Constante>>,
+    locals: HashMap<(UnitId, usize), Option<Constante>>,
     /// Constructors being evaluated (cycle: `isCycleFree` false).
     constructors_in_progress: Vec<FunctionElementId>,
     /// The constant dependency graph and who is in a cycle
     /// ([`super::cycles::compute`], before each library's verifier).
-    pub grafo: super::cycles::Estado,
+    pub graph: super::cycles::State,
     /// Direct positional arguments of a constant creation: their
     /// `genericError` is `CONST_WITH_NON_CONSTANT_ARGUMENT`.
     creation_args: HashSet<(UnitId, ExprId)>,
@@ -120,7 +120,7 @@ pub struct Motor<'a> {
     pub witnesses: Option<HashMap<(UnitId, usize), Vec<Vec<super::exhaustiveness::ParteDeTestemunha>>>>,
     /// Offsets of the names of formal parameters, per inferred unit (inference
     /// resolves a read of a parameter as that of a local).
-    parametros: HashMap<UnitId, HashSet<usize>>,
+    parameters: HashMap<UnitId, HashSet<usize>>,
     depth: u32,
     sym_identical: Option<SymbolId>,
     sym_length: Option<SymbolId>,
@@ -159,16 +159,16 @@ impl<'a> Motor<'a> {
             vars: HashMap::new(),
             vars_stack: Vec::new(),
             cyclic: HashSet::new(),
-            padroes: HashMap::new(),
+            patterns: HashMap::new(),
             unit_locals: HashMap::new(),
-            locais: HashMap::new(),
+            locals: HashMap::new(),
             constructors_in_progress: Vec::new(),
-            grafo: super::cycles::Estado::default(),
+            graph: super::cycles::State::default(),
             creation_args: HashSet::new(),
             relatos: Vec::new(),
             analyzer_break: false,
             witnesses: None,
-            parametros: params_list,
+            parameters: params_list,
             depth: 0,
             sym_identical: interner.lookup("identical"),
             sym_length: interner.lookup("length"),
@@ -193,11 +193,11 @@ impl<'a> Motor<'a> {
     }
 
     /// Static type of `e` (`dynamic` in a unit that was not inferred).
-    pub fn estatico(&self, u: UnitId, e: ExprId) -> TypeId {
+    pub fn the_static(&self, u: UnitId, e: ExprId) -> TypeId {
         self.body.units.get(u.0 as usize).and_then(|b| b.get_type(e)).unwrap_or(self.core.dynamic_)
     }
 
-    pub fn resolvido(&self, u: UnitId, e: ExprId) -> Option<&'a Resolved> {
+    pub fn resolved(&self, u: UnitId, e: ExprId) -> Option<&'a Resolved> {
         self.body.units.get(u.0 as usize).and_then(|b| b.get_resolved(e))
     }
 
@@ -214,7 +214,7 @@ impl<'a> Motor<'a> {
         is_subtype(a, b, &mut env)
     }
 
-    pub fn formatar(&self, t: TypeId) -> String {
+    pub fn format(&self, t: TypeId) -> String {
         self.table.format(t, self.interner, self.program)
     }
 
@@ -243,7 +243,7 @@ impl<'a> Motor<'a> {
 
     /// `runtimeTypeMatch`: the object's type is a subtype of the erased type. An
     /// object of type `dynamic` (unresolved expression) matches everything.
-    pub fn casa(&mut self, v: &Valor, t: TypeId) -> bool {
+    pub fn matches_type(&mut self, v: &Valor, t: TypeId) -> bool {
         if v.tipo == self.core.dynamic_ || matches!(v.estado, Estado::Null { invalid: true }) {
             return true;
         }
@@ -252,16 +252,16 @@ impl<'a> Motor<'a> {
     }
 
     /// `isAssignableTo` of the static type.
-    pub fn atribuivel(&mut self, a: TypeId, b: TypeId) -> bool {
+    pub fn assignable(&mut self, a: TypeId, b: TypeId) -> bool {
         a == self.core.dynamic_ || self.sub(a, b)
     }
 
     fn valor(&mut self, typ: TypeId, state: Estado) -> Valor {
         let typ = self.apagar(typ);
-        Valor::novo(typ, state)
+        Valor::new(typ, state)
     }
 
-    pub fn desconhecido(&mut self, typ: TypeId) -> Valor {
+    pub fn unknown(&mut self, typ: TypeId) -> Valor {
         let typ = self.apagar(typ);
         let element = match self.table.get(typ) {
             Type::Interface { class, args, .. } if Some(*class) == self.core.list_class && args.len() == 1 => Some(args[0]),
@@ -279,8 +279,8 @@ impl<'a> Motor<'a> {
 
     // -- Errors --------------------------------------------------------------
 
-    pub fn erro(&self, u: UnitId, span: Span, code: Codigo) -> Invalid {
-        Invalid { codigo: code, unidade: u, span, args: Vec::new(), avoid_report: false, unresolved: false, excecao: false, contexto: Vec::new() }
+    pub fn error(&self, u: UnitId, span: Span, code: Codigo) -> Invalid {
+        Invalid { code, unit: u, span, args: Vec::new(), avoid_report: false, unresolved: false, exception: false, context: Vec::new() }
     }
 
     /// `ConstructorElement.displayName`: `C` or `C.the_name`.
@@ -310,15 +310,15 @@ impl<'a> Motor<'a> {
     /// it occurs.
     fn error_in_initializer(&self, i: &Invalid, f: Option<FunctionElementId>, where_: &str, error: ErrorAt) -> Invalid {
         let mut n = i.clone();
-        if n.contexto.is_empty() {
+        if n.context.is_empty() {
             if let Some(f) = f {
                 if let Some(u) = self.constructor_unit(f) {
                     let text = format!("The error is in the {where_} of '{}', and occurs here.", self.constructor_display(f));
-                    n.contexto.push((u, i.span, text));
+                    n.context.push((u, i.span, text));
                 }
             }
         }
-        n.unidade = error.unidade;
+        n.unit = error.unidade;
         n.span = error.span;
         n
     }
@@ -336,20 +336,20 @@ impl<'a> Motor<'a> {
     }
 
     fn inv(&self, u: UnitId, e: ExprId, code: Codigo) -> R {
-        Constante::Invalid(Box::new(self.erro(u, self.span(u, e), code)))
+        Constante::Invalid(Box::new(self.error(u, self.span(u, e), code)))
     }
 
     /// `InvalidConstant.genericError`.
     fn generic(&self, u: UnitId, e: ExprId, unresolved: bool) -> R {
         let code = if self.creation_args.contains(&(u, e)) { c::CONST_WITH_NON_CONSTANT_ARGUMENT } else { c::INVALID_CONSTANT };
-        let mut i = self.erro(u, self.span(u, e), code);
+        let mut i = self.error(u, self.span(u, e), code);
         i.unresolved = unresolved;
         Constante::Invalid(Box::new(i))
     }
 
-    fn excecao(&self, u: UnitId, e: ExprId, x: Excecao) -> R {
-        let mut i = self.erro(u, self.span(u, e), x.codigo);
-        i.excecao = x.runtime;
+    fn exception(&self, u: UnitId, e: ExprId, x: Exception) -> R {
+        let mut i = self.error(u, self.span(u, e), x.code);
+        i.exception = x.runtime;
         Constante::Invalid(Box::new(i))
     }
 
@@ -379,7 +379,7 @@ impl<'a> Motor<'a> {
         let u = cx.unidade;
         // A constructor tear-off is a `ConstructorReference`
         // (`visitConstructorReference`), not a `FunctionReference`.
-        if matches!(self.resolvido(u, e), Some(Resolved::Constructor(_))) {
+        if matches!(self.resolved(u, e), Some(Resolved::Constructor(_))) {
             return Constante::Valor(val);
         }
         let Some(args) = self.body.units.get(u.0 as usize).and_then(|b| b.instanciacao_de_tearoff(e)).map(|a| a.to_vec()) else {
@@ -399,7 +399,7 @@ impl<'a> Motor<'a> {
         let without = self.table.intern(Type::Function { type_params: Box::new([]), ret, positional, optional, named, nullable });
         let m: HashMap<TypeParamId, TypeId> = type_params.iter().copied().zip(args.iter().copied()).collect();
         let t = crate::ops::substitute(without, &m, self.table);
-        val.tipo = match &cx.tipos {
+        val.tipo = match &cx.types {
             Some(m) => crate::ops::substitute(t, m, self.table),
             None => t,
         };
@@ -413,23 +413,23 @@ impl<'a> Motor<'a> {
             ExprKind::Int(span) => {
                 let t = &self.program.unit(u).source[span.start..span.end];
                 let v = crate::constant::integer_literal(t);
-                if self.estatico(u, e) == self.core.double {
+                if self.the_static(u, e) == self.core.double {
                     let d = v.map(|i| i as f64).or_else(|| t.replace('_', "").parse::<f64>().ok());
-                    Constante::Valor(Valor::novo(self.core.double, Estado::Double(d)))
+                    Constante::Valor(Valor::new(self.core.double, Estado::Double(d)))
                 } else {
-                    Constante::Valor(Valor::novo(self.core.int, Estado::Int(v)))
+                    Constante::Valor(Valor::new(self.core.int, Estado::Int(v)))
                 }
             }
             ExprKind::Double(span) => {
                 let t = &self.program.unit(u).source[span.start..span.end];
-                Constante::Valor(Valor::novo(self.core.double, Estado::Double(crate::constant::real_literal(t))))
+                Constante::Valor(Valor::new(self.core.double, Estado::Double(crate::constant::real_literal(t))))
             }
             ExprKind::Bool(b) => Constante::Valor(Valor::bool_(self.core, Some(*b))),
-            ExprKind::Null => Constante::Valor(Valor::nulo(self.core)),
+            ExprKind::Null => Constante::Valor(Valor::null(self.core)),
             ExprKind::String(lit) => self.string(cx, e, lit, in_const),
             ExprKind::Symbol(parts) => {
                 let s: Vec<&str> = parts.iter().map(|n| self.interner.resolve(n.sym)).collect();
-                Constante::Valor(Valor::novo(self.core.symbol, Estado::Simbolo(Some(s.join(".").into()))))
+                Constante::Valor(Valor::new(self.core.symbol, Estado::Simbolo(Some(s.join(".").into()))))
             }
             ExprKind::Identifier(n) => {
                 if let Some(v) = cx.lexical.as_ref().and_then(|l| l.get(&n.sym)) {
@@ -442,7 +442,7 @@ impl<'a> Motor<'a> {
                 if !(*const_ || in_const) {
                     return self.inv(u, e, c::MISSING_CONST_IN_LIST_LITERAL);
                 }
-                let typ = self.estatico(u, e);
+                let typ = self.the_static(u, e);
                 let element = match self.table.get(typ) {
                     Type::Interface { args, .. } if args.len() == 1 => args[0],
                     _ => self.core.dynamic_,
@@ -452,14 +452,14 @@ impl<'a> Motor<'a> {
                 let mut list = Vec::new();
                 if let Some(i) = self.build_list(cx, &mut list, elements, true) {
                     return match i {
-                        Ok(()) => Constante::Valor(self.desconhecido(list_type)),
+                        Ok(()) => Constante::Valor(self.unknown(list_type)),
                         Err(i) => Constante::Invalid(i),
                     };
                 }
                 Constante::Valor(self.valor(list_type, Estado::Lista { elemento: element, elementos: Rc::new(list), unknown: false }))
             }
             ExprKind::SetOrMap { const_, elements, .. } => {
-                let typ = self.estatico(u, e);
+                let typ = self.the_static(u, e);
                 let (cls, args) = match self.table.get(typ) {
                     Type::Interface { class, args, .. } => (Some(*class), args.to_vec()),
                     _ => (None, Vec::new()),
@@ -474,7 +474,7 @@ impl<'a> Motor<'a> {
                     let map_type = self.interface(self.core.map_class, vec![k, v]);
                     let mut map = Vec::new();
                     return match self.build_map(cx, &mut map, elements) {
-                        Some(Ok(())) => Constante::Valor(self.desconhecido(map_type)),
+                        Some(Ok(())) => Constante::Valor(self.unknown(map_type)),
                         Some(Err(mut i)) => {
                             if !is_map {
                                 i.avoid_report = true;
@@ -491,9 +491,9 @@ impl<'a> Motor<'a> {
                 let set_type = self.interface(self.core.set_class, vec![el]);
                 let mut set = Vec::new();
                 match self.build_set(cx, &mut set, elements) {
-                    Some(Ok(())) => Constante::Valor(self.desconhecido(set_type)),
+                    Some(Ok(())) => Constante::Valor(self.unknown(set_type)),
                     Some(Err(i)) => Constante::Invalid(i),
-                    None => Constante::Valor(self.valor(set_type, Estado::Conjunto { elementos: Rc::new(set), desconhecido: false })),
+                    None => Constante::Valor(self.valor(set_type, Estado::Set { elementos: Rc::new(set), desconhecido: false })),
                 }
             }
             ExprKind::Record { const_, positional, named } => {
@@ -519,13 +519,13 @@ impl<'a> Motor<'a> {
                     named: named_t.into_boxed_slice(),
                     nullable: false,
                 });
-                Constante::Valor(Valor::novo(typ, Estado::Registro { posicionais: Rc::new(pos), nomeados: Rc::new(the_named) }))
+                Constante::Valor(Valor::new(typ, Estado::Registro { posicionais: Rc::new(pos), nomeados: Rc::new(the_named) }))
             }
             ExprKind::InstanceCreation { keyword, arguments, constructor, .. } => {
                 if !matches!(keyword, Some(ast::CreationKeyword::Const)) && !(keyword.is_none() && in_const) {
                     return self.generic(u, e, false);
                 }
-                let Some(Resolved::Constructor(f)) = self.resolvido(u, e) else {
+                let Some(Resolved::Constructor(f)) = self.resolved(u, e) else {
                     // The forwarded constructor of a mixin application.
                     if let Some((f, typ)) = self.forwarded_constructor(u, e, constructor.map(|n| n.sym)) {
                         let kw = self.creation_keyword(u, e, keyword.is_some());
@@ -548,7 +548,7 @@ impl<'a> Motor<'a> {
                 self.format_constructor_error(u, e, r)
             }
             ExprKind::Call { target, arguments } => {
-                if let Some(Resolved::Constructor(f)) = self.resolvido(u, e) {
+                if let Some(Resolved::Constructor(f)) = self.resolved(u, e) {
                     // Implicit creation: constant only in a constant context.
                     if !in_const {
                         return self.generic(u, e, false);
@@ -575,7 +575,7 @@ impl<'a> Motor<'a> {
                 // `identical(a, b)` from `dart:core`.
                 if let ExprKind::Identifier(n) = &a.expr(tgt).kind {
                     if Some(n.sym) == self.sym_identical && arguments.args.len() == 2 && arguments.args.iter().all(|x| x.name.is_none()) {
-                        if let Some(Resolved::Element(Element::Function(f))) = self.resolvido(u, tgt) {
+                        if let Some(Resolved::Element(Element::Function(f))) = self.resolved(u, tgt) {
                             if Some(self.program.function(*f).library) == self.core.core_library {
                                 let (x, y) = (arguments.args[0].value, arguments.args[1].value);
                                 let l = match self.avaliar(cx, x, in_const) {
@@ -593,24 +593,24 @@ impl<'a> Motor<'a> {
                     }
                 }
                 if self.invalid_type(u, e) {
-                    let mut i = self.erro(u, self.span(u, e), c::INVALID_CONSTANT);
+                    let mut i = self.error(u, self.span(u, e), c::INVALID_CONSTANT);
                     i.unresolved = true;
                     return Constante::Invalid(Box::new(i));
                 }
                 self.inv(u, e, c::CONST_EVAL_METHOD_INVOCATION)
             }
-            ExprKind::Property { target, name, .. } => self.propriedade(cx, e, *target, *name, in_const),
+            ExprKind::Property { target, name, .. } => self.property(cx, e, *target, *name, in_const),
             ExprKind::TypeArguments { target, .. } => {
                 // Generic type literal or function instantiation: the exact
                 // value of the type is not reconstructed here.
                 match self.avaliar(cx, *target, in_const) {
                     Constante::Valor(v) => match v.estado {
-                        Estado::Tipo(_) => Constante::Valor(Valor::novo(self.core.type_, Estado::Tipo(None))),
+                        Estado::Tipo(_) => Constante::Valor(Valor::new(self.core.type_, Estado::Tipo(None))),
                         Estado::Funcao { elemento: element, .. } => {
                             // `_instantiateFunctionType`: the instantiated type goes
                             // through the constructor's substitution.
-                            let t = self.estatico(u, e);
-                            let t = match &cx.tipos {
+                            let t = self.the_static(u, e);
+                            let t = match &cx.types {
                                 Some(m) => crate::ops::substitute(t, m, self.table),
                                 None => t,
                             };
@@ -651,8 +651,8 @@ impl<'a> Motor<'a> {
                         if let i @ Constante::Invalid(_) = self.avaliar(cx, *else_, in_const) {
                             return i;
                         }
-                        let t = self.estatico(u, e);
-                        Constante::Valor(self.desconhecido(t))
+                        let t = self.the_static(u, e);
+                        Constante::Valor(self.unknown(t))
                     }
                 }
             }
@@ -680,11 +680,11 @@ impl<'a> Motor<'a> {
                     .get(u.0 as usize)
                     .and_then(|b| b.tipos_de_anotacoes.get(&ty).copied())
                     .or_else(|| self.outline.tipos_escritos.get(&(u, ty)).copied())
-                    .unwrap_or_else(|| self.estatico(u, e));
+                    .unwrap_or_else(|| self.the_static(u, e));
                 // The type of the `as` with the constructor's lexical environment
                 // applied (`_substitution`, `x as List<T>` in `C<int>`): only what
                 // still mentions a type parameter is left unchecked.
-                let tgt = match &cx.tipos {
+                let tgt = match &cx.types {
                     Some(m) => crate::ops::substitute(tgt, m, self.table),
                     None => tgt,
                 };
@@ -699,7 +699,7 @@ impl<'a> Motor<'a> {
             }
             ExprKind::DotShorthand { .. } => {
                 // A shorthand resolved to a static member or enum constant.
-                match self.resolvido(u, e) {
+                match self.resolved(u, e) {
                     Some(Resolved::Element(Element::Class(d))) => {
                         let d = *d;
                         let ExprKind::DotShorthand { name, .. } = &a.expr(e).kind else { unreachable!() };
@@ -748,15 +748,15 @@ impl<'a> Motor<'a> {
     /// `CONST_EVAL_THROWS_EXCEPTION` at the creation.
     pub fn format_constructor_error(&self, u: UnitId, e: ExprId, r: R) -> R {
         match r {
-            Constante::Invalid(i) if i.excecao => {
-                let mut n = self.erro(u, self.span(u, e), c::CONST_EVAL_THROWS_EXCEPTION);
+            Constante::Invalid(i) if i.exception => {
+                let mut n = self.error(u, self.span(u, e), c::CONST_EVAL_THROWS_EXCEPTION);
                 n.avoid_report = i.avoid_report;
                 // The exception's context, in the library's file
                 // (`library.source`), after those the error already had.
-                let text = dartforge_diagnostics::Diagnostic::com_codigo(i.codigo, i.span, i.args.iter().map(|s| s.as_str())).message;
+                let text = dartforge_diagnostics::Diagnostic::com_codigo(i.code, i.span, i.args.iter().map(|s| s.as_str())).message;
                 let defining = self.program.library(self.program.unit(u).library).units.first().copied().unwrap_or(u);
-                n.contexto = i.contexto.clone();
-                n.contexto.push((defining, i.span, format!("The exception is '{text}' and occurs here.")));
+                n.context = i.context.clone();
+                n.context.push((defining, i.span, format!("The exception is '{text}' and occurs here.")));
                 Constante::Invalid(Box::new(n))
             }
             r => r,
@@ -779,18 +779,18 @@ impl<'a> Motor<'a> {
                     };
                     if !v.estado.is_bool_num_string_or_null() {
                         let s = self.interpolation_span(u, *x);
-                        return Constante::Invalid(Box::new(self.erro(u, s, c::CONST_EVAL_TYPE_BOOL_NUM_STRING)));
+                        return Constante::Invalid(Box::new(self.error(u, s, c::CONST_EVAL_TYPE_BOOL_NUM_STRING)));
                     }
-                    match v.estado.para_texto(&|_| String::new(), &|_| String::new()) {
+                    match v.estado.to_text(&|_| String::new(), &|_| String::new()) {
                         Ok(Estado::Str(Some(s))) => acc.extend(s.iter()),
                         Ok(_) => unknown = true,
-                        Err(x) => return self.excecao(u, e, x),
+                        Err(x) => return self.exception(u, e, x),
                     }
                 }
             }
         }
         let st = if unknown { None } else { Some(acc.into()) };
-        Constante::Valor(Valor::novo(self.core.string, Estado::Str(st)))
+        Constante::Valor(Valor::new(self.core.string, Estado::Str(st)))
     }
 
     /// The range of the `InterpolationExpression`: `$x` or `${e}`.
@@ -834,11 +834,11 @@ impl<'a> Motor<'a> {
                     Constante::Invalid(i) => return Some(Err(i)),
                 },
                 CollectionElement::For { .. } | CollectionElement::ForIn { .. } => {
-                    return Some(Err(Box::new(self.erro(u, self.element_span(u, el), c::CONST_EVAL_FOR_ELEMENT))));
+                    return Some(Err(Box::new(self.error(u, self.element_span(u, el), c::CONST_EVAL_FOR_ELEMENT))));
                 }
                 CollectionElement::If { condition, case_pattern, then, else_, .. } => {
                     if case_pattern.is_some() {
-                        return Some(Err(Box::new(self.erro(u, self.element_span(u, el), c::INVALID_CONSTANT))));
+                        return Some(Err(Box::new(self.error(u, self.element_span(u, el), c::INVALID_CONSTANT))));
                     }
                     let cond = match self.avaliar(cx, *condition, const_child) {
                         Constante::Valor(v) => v,
@@ -849,7 +849,7 @@ impl<'a> Motor<'a> {
                     }
                     match cond.as_bool() {
                         None => {
-                            return Some(Err(Box::new(self.erro(u, self.span(u, *condition), c::NON_BOOL_CONDITION))));
+                            return Some(Err(Box::new(self.error(u, self.span(u, *condition), c::NON_BOOL_CONDITION))));
                         }
                         Some(true) => {
                             if let Some(Err(i)) = self.build_list(cx, list, std::slice::from_ref(then), const_child) {
@@ -866,7 +866,7 @@ impl<'a> Motor<'a> {
                     }
                 }
                 CollectionElement::MapEntry { .. } => {
-                    return Some(Err(Box::new(self.erro(u, self.element_span(u, el), c::MAP_ENTRY_NOT_IN_MAP))));
+                    return Some(Err(Box::new(self.error(u, self.element_span(u, el), c::MAP_ENTRY_NOT_IN_MAP))));
                 }
                 CollectionElement::Spread { value, null_aware } => {
                     let v = match self.avaliar(cx, *value, const_child) {
@@ -879,7 +879,7 @@ impl<'a> Motor<'a> {
                     match v.as_list().or_else(|| v.as_set()) {
                         Some(xs) => list.extend(xs.iter().cloned()),
                         None => {
-                            return Some(Err(Box::new(self.erro(u, self.span(u, *value), c::CONST_SPREAD_EXPECTED_LIST_OR_SET))));
+                            return Some(Err(Box::new(self.error(u, self.span(u, *value), c::CONST_SPREAD_EXPECTED_LIST_OR_SET))));
                         }
                     }
                 }
@@ -912,11 +912,11 @@ impl<'a> Motor<'a> {
                     Constante::Invalid(i) => return Some(Err(i)),
                 },
                 CollectionElement::For { .. } | CollectionElement::ForIn { .. } => {
-                    return Some(Err(Box::new(self.erro(u, self.element_span(u, el), c::CONST_EVAL_FOR_ELEMENT))));
+                    return Some(Err(Box::new(self.error(u, self.element_span(u, el), c::CONST_EVAL_FOR_ELEMENT))));
                 }
                 CollectionElement::If { condition, case_pattern, then, else_, .. } => {
                     if case_pattern.is_some() {
-                        return Some(Err(Box::new(self.erro(u, self.element_span(u, el), c::INVALID_CONSTANT))));
+                        return Some(Err(Box::new(self.error(u, self.element_span(u, el), c::INVALID_CONSTANT))));
                     }
                     let cond = match self.avaliar(cx, *condition, true) {
                         Constante::Valor(v) => v,
@@ -926,7 +926,7 @@ impl<'a> Motor<'a> {
                         return Some(Ok(()));
                     }
                     let branch = match cond.as_bool() {
-                        None => return Some(Err(Box::new(self.erro(u, self.span(u, *condition), c::NON_BOOL_CONDITION)))),
+                        None => return Some(Err(Box::new(self.error(u, self.span(u, *condition), c::NON_BOOL_CONDITION)))),
                         Some(true) => Some(&**then),
                         Some(false) => else_.as_deref(),
                     };
@@ -937,7 +937,7 @@ impl<'a> Motor<'a> {
                     }
                 }
                 CollectionElement::MapEntry { .. } => {
-                    return Some(Err(Box::new(self.erro(u, self.element_span(u, el), c::MAP_ENTRY_NOT_IN_MAP))));
+                    return Some(Err(Box::new(self.error(u, self.element_span(u, el), c::MAP_ENTRY_NOT_IN_MAP))));
                 }
                 CollectionElement::Spread { value, null_aware } => {
                     let v = match self.avaliar(cx, *value, true) {
@@ -954,7 +954,7 @@ impl<'a> Motor<'a> {
                             }
                         }
                         None => {
-                            return Some(Err(Box::new(self.erro(u, self.span(u, *value), c::CONST_SPREAD_EXPECTED_LIST_OR_SET))));
+                            return Some(Err(Box::new(self.error(u, self.span(u, *value), c::CONST_SPREAD_EXPECTED_LIST_OR_SET))));
                         }
                     }
                 }
@@ -974,14 +974,14 @@ impl<'a> Motor<'a> {
         for el in elems {
             match el {
                 CollectionElement::Expression(_) | CollectionElement::NullAwareExpression(_) => {
-                    return Some(Err(Box::new(self.erro(u, self.element_span(u, el), c::EXPRESSION_IN_MAP))));
+                    return Some(Err(Box::new(self.error(u, self.element_span(u, el), c::EXPRESSION_IN_MAP))));
                 }
                 CollectionElement::For { .. } | CollectionElement::ForIn { .. } => {
-                    return Some(Err(Box::new(self.erro(u, self.element_span(u, el), c::CONST_EVAL_FOR_ELEMENT))));
+                    return Some(Err(Box::new(self.error(u, self.element_span(u, el), c::CONST_EVAL_FOR_ELEMENT))));
                 }
                 CollectionElement::If { condition, case_pattern, then, else_, .. } => {
                     if case_pattern.is_some() {
-                        return Some(Err(Box::new(self.erro(u, self.element_span(u, el), c::INVALID_CONSTANT))));
+                        return Some(Err(Box::new(self.error(u, self.element_span(u, el), c::INVALID_CONSTANT))));
                     }
                     let cond = match self.avaliar(cx, *condition, true) {
                         Constante::Valor(v) => v,
@@ -991,7 +991,7 @@ impl<'a> Motor<'a> {
                         return Some(Ok(()));
                     }
                     let branch = match cond.as_bool() {
-                        None => return Some(Err(Box::new(self.erro(u, self.span(u, *condition), c::NON_BOOL_CONDITION)))),
+                        None => return Some(Err(Box::new(self.error(u, self.span(u, *condition), c::NON_BOOL_CONDITION)))),
                         Some(true) => Some(&**then),
                         Some(false) => else_.as_deref(),
                     };
@@ -1039,7 +1039,7 @@ impl<'a> Motor<'a> {
                                 }
                             }
                         }
-                        None => return Some(Err(Box::new(self.erro(u, self.span(u, *value), c::CONST_SPREAD_EXPECTED_MAP)))),
+                        None => return Some(Err(Box::new(self.error(u, self.span(u, *value), c::CONST_SPREAD_EXPECTED_MAP)))),
                     }
                 }
             }
@@ -1077,11 +1077,11 @@ impl<'a> Motor<'a> {
                     .or_else(|| updates.first().map(|x| a.expr(*x).span.start))
                     .unwrap_or(end);
                 let _ = init;
-                Span { start: inicio_de_for(source, first), end: end }
+                Span { start: for_start(source, first), end: end }
             }
             CollectionElement::ForIn { body, iterable, .. } => {
                 let end = self.element_span(u, body).end;
-                Span { start: inicio_de_for(source, a.expr(*iterable).span.start), end: end }
+                Span { start: for_start(source, a.expr(*iterable).span.start), end: end }
             }
         }
     }
@@ -1089,7 +1089,7 @@ impl<'a> Motor<'a> {
     // -- Operadores ------------------------------------------------------------
 
     fn is_of_extension(&self, u: UnitId, e: ExprId) -> Option<Codigo> {
-        match self.resolvido(u, e)? {
+        match self.resolved(u, e)? {
             Resolved::ExtensionMember { .. } => Some(c::CONST_EVAL_EXTENSION_METHOD),
             Resolved::Member { class, .. } if self.program.class(*class).kind == ClassKind::ExtensionType => {
                 Some(c::CONST_EVAL_EXTENSION_TYPE_METHOD)
@@ -1126,8 +1126,8 @@ impl<'a> Motor<'a> {
             }),
         };
         match r {
-            Ok((t, s)) => Constante::Valor(Valor::novo(t, s)),
-            Err(x) => self.excecao(u, e, x),
+            Ok((t, s)) => Constante::Valor(Valor::new(t, s)),
+            Err(x) => self.exception(u, e, x),
         }
     }
 
@@ -1149,7 +1149,7 @@ impl<'a> Motor<'a> {
                     }
                 }
                 // `lazyAnd`/`lazyOr`.
-                let r = (|| -> Result<Estado, Excecao> {
+                let r = (|| -> Result<Estado, Exception> {
                     match &l.estado {
                         Estado::Bool(v) => {
                             if *v == short_circuit {
@@ -1157,22 +1157,22 @@ impl<'a> Motor<'a> {
                             }
                             let d = match self.avaliar(cx, right, in_const) {
                                 Constante::Valor(d) => d,
-                                Constante::Invalid(i) => return Err(Excecao::nova(i.codigo)),
+                                Constante::Invalid(i) => return Err(Exception::new(i.code)),
                             };
                             if !d.estado.e_bool() {
-                                return Err(Excecao::nova(c::CONST_EVAL_TYPE_BOOL));
+                                return Err(Exception::new(c::CONST_EVAL_TYPE_BOOL));
                             }
                             if v.is_none() {
                                 return Ok(Estado::Bool(None));
                             }
-                            d.estado.para_bool()
+                            d.estado.to_bool()
                         }
-                        _ => Err(Excecao::nova(c::CONST_EVAL_TYPE_BOOL)),
+                        _ => Err(Exception::new(c::CONST_EVAL_TYPE_BOOL)),
                     }
                 })();
                 return match r {
-                    Ok(s) => Constante::Valor(Valor::novo(self.core.bool_, s)),
-                    Err(x) => self.excecao(u, e, x),
+                    Ok(s) => Constante::Valor(Valor::new(self.core.bool_, s)),
+                    Err(x) => self.exception(u, e, x),
                 };
             }
             BinaryOp::IfNull => {
@@ -1190,7 +1190,7 @@ impl<'a> Motor<'a> {
             Constante::Valor(v) => v,
             i => return i,
         };
-        let res: Result<(TypeId, Estado), Excecao> = match op {
+        let res: Result<(TypeId, Estado), Exception> = match op {
             BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor => {
                 if l.estado.e_bool() && r.estado.e_bool() {
                     let s = match op {
@@ -1207,7 +1207,7 @@ impl<'a> Motor<'a> {
                     };
                     s.map(|s| (self.core.int, s))
                 } else {
-                    Err(Excecao::nova(c::CONST_EVAL_TYPE_BOOL_INT))
+                    Err(Exception::new(c::CONST_EVAL_TYPE_BOOL_INT))
                 }
             }
             BinaryOp::Eq | BinaryOp::NotEq => {
@@ -1227,11 +1227,11 @@ impl<'a> Motor<'a> {
             BinaryOp::TruncDiv => l.estado.integer_divide(&r.estado).map(|s| (self.core.int, s)),
             BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
                 let s = match op {
-                    BinaryOp::Add => l.estado.somar(&r.estado),
+                    BinaryOp::Add => l.estado.add(&r.estado),
                     BinaryOp::Sub => l.estado.subtract(&r.estado),
                     BinaryOp::Mul => l.estado.multiply(&r.estado),
                     BinaryOp::Div => l.estado.divide(&r.estado),
-                    _ => l.estado.resto(&r.estado),
+                    _ => l.estado.rest(&r.estado),
                 };
                 s.map(|s| {
                     let t = match s {
@@ -1245,13 +1245,13 @@ impl<'a> Motor<'a> {
             _ => return self.generic(u, e, false),
         };
         match res {
-            Ok((t, s)) => Constante::Valor(Valor::novo(t, s)),
-            Err(x) => self.excecao(u, e, x),
+            Ok((t, s)) => Constante::Valor(Valor::new(t, s)),
+            Err(x) => self.exception(u, e, x),
         }
     }
 
     /// `equalEqual`: with `patterns` on (3.0+), primitive or `double`.
-    fn equal_equal(&mut self, lib: LibraryId, l: &Valor, r: &Valor) -> Result<Option<bool>, Excecao> {
+    fn equal_equal(&mut self, lib: LibraryId, l: &Valor, r: &Valor) -> Result<Option<bool>, Exception> {
         if l.estado.is_null() || r.estado.is_null() {
             return Ok(Some(l.estado.is_null() && r.estado.is_null()));
         }
@@ -1262,7 +1262,7 @@ impl<'a> Motor<'a> {
             l.estado.is_bool_num_string_or_null()
         };
         if !can {
-            return Err(Excecao::nova(c::CONST_EVAL_TYPE_BOOL_NUM_STRING));
+            return Err(Exception::new(c::CONST_EVAL_TYPE_BOOL_NUM_STRING));
         }
         Ok(self.identical_state(&l.estado, &r.estado))
     }
@@ -1340,8 +1340,8 @@ impl<'a> Motor<'a> {
                 Estado::Funcao { elemento: b, args: y } => Some(a == b && x == y),
                 _ => Some(false),
             },
-            (Estado::Lista { unknown, .. }, b) | (Estado::Conjunto { desconhecido: unknown, .. }, b) | (Estado::Mapa { desconhecido: unknown, .. }, b)
-                if *unknown || b.desconhecido() =>
+            (Estado::Lista { unknown, .. }, b) | (Estado::Set { desconhecido: unknown, .. }, b) | (Estado::Mapa { desconhecido: unknown, .. }, b)
+                if *unknown || b.unknown() =>
             {
                 None
             }
@@ -1366,7 +1366,7 @@ impl<'a> Motor<'a> {
         // A value that is not known (an opaque constant from another library) is
         // not provably equal to anything: two `CompileTimeErrorCode.X` coming
         // from outside are not the same set element.
-        if a.desconhecido() || b.desconhecido() {
+        if a.unknown() || b.unknown() {
             return false;
         }
         match (a, b) {
@@ -1379,7 +1379,7 @@ impl<'a> Motor<'a> {
             (Estado::Tipo(x), Estado::Tipo(y)) => x == y,
             (Estado::Funcao { elemento: x, args: p }, Estado::Funcao { elemento: y, args: q }) => x == y && p == q,
             (Estado::Lista { elementos: x, .. }, Estado::Lista { elementos: y, .. })
-            | (Estado::Conjunto { elementos: x, .. }, Estado::Conjunto { elementos: y, .. }) => {
+            | (Estado::Set { elementos: x, .. }, Estado::Set { elementos: y, .. }) => {
                 x.len() == y.len() && x.iter().zip(y.iter()).all(|(p, q)| self.iguais(p, q))
             }
             (Estado::Mapa { entradas: x, .. }, Estado::Mapa { entradas: y, .. }) => {
@@ -1452,11 +1452,11 @@ impl<'a> Motor<'a> {
 
     // -- Names -----------------------------------------------------------------
 
-    fn propriedade(&mut self, cx: &Ctx, e: ExprId, tgt: ExprId, the_name: ast::Name, in_const: bool) -> R {
+    fn property(&mut self, cx: &Ctx, e: ExprId, tgt: ExprId, the_name: ast::Name, in_const: bool) -> R {
         let u = cx.unidade;
         let a = self.ast(u);
         let simple_target = matches!(a.expr(tgt).kind, ExprKind::Identifier(_));
-        let res_target = self.resolvido(u, tgt).cloned();
+        let res_target = self.resolved(u, tgt).cloned();
         match res_target {
             // A top-level constant imported with a prefix; for a deferred prefix,
             // the deferred library error at the name (`visitPrefixedIdentifier`,
@@ -1471,7 +1471,7 @@ impl<'a> Motor<'a> {
             // deferred, the error at the extension's name.
             Some(Resolved::Element(Element::Extension(_))) => {
                 if let ExprKind::Property { target: p, name: ext_name, .. } = &a.expr(tgt).kind
-                    && matches!(self.resolvido(u, *p), Some(Resolved::Prefix(_)) | Some(Resolved::Element(Element::Prefix(..))))
+                    && matches!(self.resolved(u, *p), Some(Resolved::Prefix(_)) | Some(Resolved::Element(Element::Prefix(..))))
                     && self.deferred_prefix(u, *p)
                 {
                     let sp = ext_name.span;
@@ -1493,7 +1493,7 @@ impl<'a> Motor<'a> {
         let e_interface = simple_target && matches!(res_target, Some(Resolved::Element(Element::Class(_) | Element::Typedef(_))));
         // `C<T>.new`, `C.the_name`: the `ConstructorReference` (constructor
         // tear-off), not a property access on the `Type`.
-        if matches!(self.resolvido(u, e), Some(Resolved::Constructor(_))) {
+        if matches!(self.resolved(u, e), Some(Resolved::Constructor(_))) {
             return self.constant_value(cx, e, e, true);
         }
         if !e_interface {
@@ -1524,7 +1524,7 @@ impl<'a> Motor<'a> {
     /// `INVALID_CONSTANT` at `no` itself.
     fn deferred_library_error(&self, u: UnitId, no: ExprId, tgt: Span) -> R {
         match self.deferred_library_code(u, no) {
-            Some(code) => Constante::Invalid(Box::new(self.erro(u, tgt, code))),
+            Some(code) => Constante::Invalid(Box::new(self.error(u, tgt, code))),
             None => self.inv(u, no, c::INVALID_CONSTANT),
         }
     }
@@ -1540,7 +1540,7 @@ impl<'a> Motor<'a> {
     /// an `if (… case …)`).
     fn deferred_library_code(&self, u: UnitId, no: ExprId) -> Option<Codigo> {
         let a = self.ast(u);
-        let pais = crate::lints_tipados::pais_da_unidade(self.program, u);
+        let pais = crate::lints_tipados::unit_parents(self.program, u);
         let lib = self.program.unit(u).library;
         let before_3 = self.program.library(lib).features.versao() < dartforge_frontend::features::LanguageVersion::new(3, 0);
         let contains = |of: Span, sp: Span| of.start <= sp.start && sp.end <= of.end;
@@ -1624,7 +1624,7 @@ impl<'a> Motor<'a> {
         let contains = |of: Span, sp: Span| of.start <= sp.start && sp.end <= of.end;
         // The collection element that contains the child, from deepest to
         // shallowest.
-        fn elemento(a: &ast::Ast, el: &ast::CollectionElement, child: Span, no: ExprId, contains: &dyn Fn(Span, Span) -> bool) -> Option<Option<Codigo>> {
+        fn the_element(a: &ast::Ast, el: &ast::CollectionElement, child: Span, no: ExprId, contains: &dyn Fn(Span, Span) -> bool) -> Option<Option<Codigo>> {
             let span = |e: ExprId| a.expr(e).span;
             match el {
                 ast::CollectionElement::Expression(e) | ast::CollectionElement::NullAwareExpression(e) => {
@@ -1644,7 +1644,7 @@ impl<'a> Motor<'a> {
                 }
                 ast::CollectionElement::If { condition, case_pattern, guard, then, else_ } => {
                     for sub in std::iter::once(&**then).chain(else_.as_deref()) {
-                        if let Some(r) = elemento(a, sub, child, no, contains) {
+                        if let Some(r) = the_element(a, sub, child, no, contains) {
                             return Some(r);
                         }
                     }
@@ -1657,14 +1657,14 @@ impl<'a> Motor<'a> {
                     Some((*condition == no).then_some(c::IF_ELEMENT_CONDITION_FROM_DEFERRED_LIBRARY))
                 }
                 ast::CollectionElement::For { condition, updates, body, .. } => {
-                    if let Some(r) = elemento(a, body, child, no, contains) {
+                    if let Some(r) = the_element(a, body, child, no, contains) {
                         return Some(r);
                     }
                     let inside = condition.is_some_and(|x| contains(span(x), child)) || updates.iter().any(|x| contains(span(*x), child));
                     inside.then_some(None)
                 }
                 ast::CollectionElement::ForIn { iterable, body, .. } => {
-                    if let Some(r) = elemento(a, body, child, no, contains) {
+                    if let Some(r) = the_element(a, body, child, no, contains) {
                         return Some(r);
                     }
                     contains(span(*iterable), child).then_some(None)
@@ -1673,7 +1673,7 @@ impl<'a> Motor<'a> {
         }
         match &a.expr(p).kind {
             ExprKind::InstanceCreation { .. } => Some(c::CONST_CONSTRUCTOR_CONSTANT_FROM_DEFERRED_LIBRARY),
-            ExprKind::Call { .. } if matches!(self.resolvido(u, p), Some(Resolved::Constructor(_))) => {
+            ExprKind::Call { .. } if matches!(self.resolved(u, p), Some(Resolved::Constructor(_))) => {
                 Some(c::CONST_CONSTRUCTOR_CONSTANT_FROM_DEFERRED_LIBRARY)
             }
             ExprKind::Record { .. } => Some(c::NON_CONSTANT_RECORD_FIELD_FROM_DEFERRED_LIBRARY),
@@ -1684,7 +1684,7 @@ impl<'a> Motor<'a> {
                     c::SET_ELEMENT_FROM_DEFERRED_LIBRARY
                 };
                 for el in elements.iter() {
-                    if let Some(r) = elemento(a, el, child, no, &contains) {
+                    if let Some(r) = the_element(a, el, child, no, &contains) {
                         return Some(r.unwrap_or(do_literal));
                     }
                 }
@@ -1696,7 +1696,7 @@ impl<'a> Motor<'a> {
 
     /// `_evaluatePropertyAccess`.
     fn property_access(&mut self, u: UnitId, e: ExprId, tgt: &Valor, the_name: ast::Name) -> Option<R> {
-        let res = self.resolvido(u, e).cloned();
+        let res = self.resolved(u, e).cloned();
         let static_ = |m: &Motor<'_>, f: FunctionElementId| m.program.function(f).static_;
         match &res {
             Some(Resolved::Member { member: MemberRef::Function(f), .. }) if static_(self, *f) => return None,
@@ -1708,13 +1708,13 @@ impl<'a> Motor<'a> {
             _ => {}
         }
         if Some(the_name.sym) == self.sym_length && tgt.tipo == self.core.string {
-            return Some(match tgt.estado.comprimento() {
-                Ok(s) => Constante::Valor(Valor::novo(self.core.int, s)),
-                Err(x) => self.excecao(u, e, x),
+            return Some(match tgt.estado.length() {
+                Ok(s) => Constante::Valor(Valor::new(self.core.int, s)),
+                Err(x) => self.exception(u, e, x),
             });
         }
-        let mut i = self.erro(u, self.span(u, e), c::CONST_EVAL_PROPERTY_ACCESS);
-        i.args = vec![self.interner.resolve(the_name.sym).to_string(), self.formatar(tgt.tipo)];
+        let mut i = self.error(u, self.span(u, e), c::CONST_EVAL_PROPERTY_ACCESS);
+        i.args = vec![self.interner.resolve(the_name.sym).to_string(), self.format(tgt.tipo)];
         Some(Constante::Invalid(Box::new(i)))
     }
 
@@ -1726,8 +1726,8 @@ impl<'a> Motor<'a> {
         let u = cx.unidade;
         let a = self.ast(u);
         let (cls, the_name) = match &a.expr(tgt).kind {
-            ExprKind::Identifier(_) => (self.resolvido(u, tgt).cloned(), None),
-            ExprKind::Property { target, name, .. } => (self.resolvido(u, *target).cloned(), Some(name.sym)),
+            ExprKind::Identifier(_) => (self.resolved(u, tgt).cloned(), None),
+            ExprKind::Property { target, name, .. } => (self.resolved(u, *target).cloned(), Some(name.sym)),
             _ => return None,
         };
         let Some(Resolved::Element(Element::Class(k))) = cls else { return None };
@@ -1767,7 +1767,7 @@ impl<'a> Motor<'a> {
         // Only an argument that is itself a type parameter goes through
         // `_lexicalTypeEnvironment` (`:866-871`); `List<U>` stays as it is.
         args.iter().any(|&a| {
-            let a = match (self.table.get(a), &cx.tipos) {
+            let a = match (self.table.get(a), &cx.types) {
                 (Type::TypeParameter { param, .. }, Some(m)) => m.get(param).copied().unwrap_or(a),
                 _ => a,
             };
@@ -1779,7 +1779,7 @@ impl<'a> Motor<'a> {
     /// error node).
     fn constant_value(&mut self, cx: &Ctx, e: ExprId, error_at: ExprId, with_identifier: bool) -> R {
         let u = cx.unidade;
-        let res = self.resolvido(u, e).cloned();
+        let res = self.resolved(u, e).cloned();
         let _ = with_identifier;
         match res {
             Some(Resolved::Element(Element::Variable(v))) | Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => {
@@ -1809,7 +1809,7 @@ impl<'a> Motor<'a> {
                     && self.program.class(k).kind == ClassKind::Enum
                     && self.interner.resolve(fe.name) == "values"
                 {
-                    return self.valores_do_enum(u, error_at, k);
+                    return self.enum_values(u, error_at, k);
                 }
                 if fe.kind == FunctionKind::ImplicitAccessor {
                     if let Some(v) = fe.variable {
@@ -1827,10 +1827,10 @@ impl<'a> Motor<'a> {
                         return self.inv(u, e, c::CONST_WITH_TYPE_PARAMETERS_FUNCTION_TEAROFF);
                     }
                     let t = self.outline.functions.get(f.0 as usize).map(|d| d.signature).unwrap_or(self.core.dynamic_);
-                    let t = if self.inferred_(u) { self.estatico(u, e) } else { t };
+                    let t = if self.inferred_(u) { self.the_static(u, e) } else { t };
                     // `_instantiateFunctionType` (`evaluation.dart:1939-1959`):
                     // the instantiated type goes through the constructor's substitution.
-                    let t = match &cx.tipos {
+                    let t = match &cx.types {
                         Some(m) => crate::ops::substitute(t, m, self.table),
                         None => t,
                     };
@@ -1838,7 +1838,7 @@ impl<'a> Motor<'a> {
                 }
             }
             Some(Resolved::Constructor(f)) => {
-                let t = self.estatico(u, e);
+                let t = self.the_static(u, e);
                 return Constante::Valor(self.valor(t, Estado::Funcao { elemento: Funcao::Elemento(f), args: None }));
             }
             Some(Resolved::Element(Element::Class(k))) => {
@@ -1850,15 +1850,15 @@ impl<'a> Motor<'a> {
                     self.table.intern(Type::Interface { class: k, args: args.into_boxed_slice(), nullable: false })
                 };
                 let t = self.apagar(t);
-                return Constante::Valor(Valor::novo(self.core.type_, Estado::Tipo(Some(t))));
+                return Constante::Valor(Valor::new(self.core.type_, Estado::Tipo(Some(t))));
             }
             Some(Resolved::Element(Element::Typedef(_))) => {
-                return Constante::Valor(Valor::novo(self.core.type_, Estado::Tipo(None)));
+                return Constante::Valor(Valor::new(self.core.type_, Estado::Tipo(None)));
             }
             Some(Resolved::TypeParameter(tp)) => {
-                if let Some(t) = cx.tipos.as_ref().and_then(|m| m.get(&tp)) {
+                if let Some(t) = cx.types.as_ref().and_then(|m| m.get(&tp)) {
                     let t = *t;
-                    return Constante::Valor(Valor::novo(self.core.type_, Estado::Tipo(Some(t))));
+                    return Constante::Valor(Valor::new(self.core.type_, Estado::Tipo(Some(t))));
                 }
                 return self.inv(u, error_at, c::CONST_TYPE_PARAMETER);
             }
@@ -1881,17 +1881,17 @@ impl<'a> Motor<'a> {
         if let ExprKind::Identifier(n) = &self.ast(u).expr(e).kind {
             match self.interner.resolve(n.sym) {
                 "dynamic" if res.is_none() => {
-                    return Constante::Valor(Valor::novo(self.core.type_, Estado::Tipo(Some(self.core.dynamic_))));
+                    return Constante::Valor(Valor::new(self.core.type_, Estado::Tipo(Some(self.core.dynamic_))));
                 }
                 "Never" if res.is_none() => {
-                    return Constante::Valor(Valor::novo(self.core.type_, Estado::Tipo(Some(self.core.never))));
+                    return Constante::Valor(Valor::new(self.core.type_, Estado::Tipo(Some(self.core.never))));
                 }
                 _ => {}
             }
         }
         if !self.inferred_(u) {
-            let t = self.estatico(u, e);
-            return Constante::Valor(self.desconhecido(t));
+            let t = self.the_static(u, e);
+            return Constante::Valor(self.unknown(t));
         }
         if self.invalid_type(u, e) {
             return self.generic(u, error_at, true);
@@ -1902,7 +1902,7 @@ impl<'a> Motor<'a> {
     /// The value of `E.values`: `List<E>` with the value of each constant, in
     /// order; an invalid constant invalidates the list (without its own
     /// report).
-    fn valores_do_enum(&mut self, u: UnitId, error_at: ExprId, k: ClassId) -> R {
+    fn enum_values(&mut self, u: UnitId, error_at: ExprId, k: ClassId) -> R {
         let n = self.program.class(k).type_params.len();
         let element = self.table.intern(Type::Interface { class: k, args: vec![self.core.dynamic_; n].into_boxed_slice(), nullable: false });
         let element = self.apagar(element);
@@ -1915,7 +1915,7 @@ impl<'a> Motor<'a> {
                 // `values` becomes invalid like a `const` variable with an invalid
                 // result, silenced (`avoidReporting`, `evaluation.dart:1867-1878`).
                 Some(Constante::Invalid(_)) => {
-                    let mut i = self.erro(u, self.span(u, error_at), c::INVALID_CONSTANT);
+                    let mut i = self.error(u, self.span(u, error_at), c::INVALID_CONSTANT);
                     i.unresolved = true;
                     i.avoid_report = true;
                     return Constante::Invalid(Box::new(i));
@@ -1946,7 +1946,7 @@ impl<'a> Motor<'a> {
             return match self.valor_de_variavel(v) {
                 Some(Constante::Valor(x)) => Constante::Valor(x),
                 Some(Constante::Invalid(_)) => {
-                    let mut i = self.erro(u, self.span(u, error_at), c::INVALID_CONSTANT);
+                    let mut i = self.error(u, self.span(u, error_at), c::INVALID_CONSTANT);
                     i.unresolved = true;
                     i.avoid_report = true;
                     Constante::Invalid(Box::new(i))
@@ -2068,14 +2068,14 @@ impl<'a> Motor<'a> {
         // The component of the dependency graph that the variable belongs to
         // has a cycle (`generateCycleError`): the stored result is the
         // invalid one at its name, and whoever reads it gets a silenced invalid.
-        if self.grafo.variables_in_cycle.contains(&v) {
+        if self.graph.variables_in_cycle.contains(&v) {
             // Also the enum constant: the error at its name.
             let unit_id = match self.program.variable(v).node {
                 VariableRef::TopLevel { unit, .. } | VariableRef::Field { unit, .. } | VariableRef::EnumConstant { unit, .. } => Some(unit),
                 _ => None,
             };
             if let (Some(unit_id), Some(the_name)) = (unit_id, self.variable_name_span(v)) {
-                let r = Constante::Invalid(Box::new(self.erro(unit_id, the_name, c::RECURSIVE_COMPILE_TIME_CONSTANT)));
+                let r = Constante::Invalid(Box::new(self.error(unit_id, the_name, c::RECURSIVE_COMPILE_TIME_CONSTANT)));
                 self.vars.insert(v, VarState::Ready(r.clone()));
                 return Some(r);
             }
@@ -2101,14 +2101,14 @@ impl<'a> Motor<'a> {
                 self.vars.insert(v, VarState::Ready(r.clone()));
                 return Some(r);
             }
-            _ => return Some(Constante::Valor(self.desconhecido(var_type))),
+            _ => return Some(Constante::Valor(self.unknown(var_type))),
         };
         let Some(init) = initial else {
-            let r = Constante::Valor(self.desconhecido(var_type));
+            let r = Constante::Valor(self.unknown(var_type));
             return Some(r);
         };
         if !self.the_inferred.contains(&lib) {
-            let r = Constante::Valor(self.desconhecido(var_type));
+            let r = Constante::Valor(self.unknown(var_type));
             self.vars.insert(v, VarState::Ready(r.clone()));
             return Some(r);
         }
@@ -2118,7 +2118,7 @@ impl<'a> Motor<'a> {
         // pattern assignment or a `switch` expression becomes a synthetic
         // identifier; the `evaluationResult` is invalid, at the initializer.
         if self.not_serializable(unit_id, init) {
-            let r = Constante::Invalid(Box::new(self.erro(unit_id, self.span(unit_id, init), c::INVALID_CONSTANT)));
+            let r = Constante::Invalid(Box::new(self.error(unit_id, self.span(unit_id, init), c::INVALID_CONSTANT)));
             self.vars.insert(v, VarState::Ready(r.clone()));
             return Some(r);
         }
@@ -2131,23 +2131,23 @@ impl<'a> Motor<'a> {
         self.creation_args = saved;
         self.vars_stack.pop();
         if let Constante::Valor(x) = &r {
-            if const_ && !self.casa(x, var_type) {
-                let static_ = self.estatico(unit_id, init);
-                if self.atribuivel(static_, var_type) {
-                    let mut i = self.erro(unit_id, self.span(unit_id, init), c::VARIABLE_TYPE_MISMATCH);
-                    i.args = vec![self.formatar(x.tipo), self.formatar(var_type)];
+            if const_ && !self.matches_type(x, var_type) {
+                let static_ = self.the_static(unit_id, init);
+                if self.assignable(static_, var_type) {
+                    let mut i = self.error(unit_id, self.span(unit_id, init), c::VARIABLE_TYPE_MISMATCH);
+                    i.args = vec![self.format(x.tipo), self.format(var_type)];
                     r = Constante::Invalid(Box::new(i));
                 }
             }
         }
         if let Constante::Valor(x) = &mut r {
             if const_ {
-                x.variavel = Some(v);
+                x.variable = Some(v);
             }
         }
         if self.cyclic.contains(&v) {
             let the_name = self.variable_name_span(v).unwrap_or(Span { start: 0, end: 0 });
-            r = Constante::Invalid(Box::new(self.erro(unit_id, the_name, c::RECURSIVE_COMPILE_TIME_CONSTANT)));
+            r = Constante::Invalid(Box::new(self.error(unit_id, the_name, c::RECURSIVE_COMPILE_TIME_CONSTANT)));
         }
         self.vars.insert(v, VarState::Ready(r.clone()));
         Some(r)
@@ -2175,7 +2175,7 @@ impl<'a> Motor<'a> {
     fn enum_value(&mut self, v: VariableId, unit: UnitId, decl: ast::DeclId, index: usize) -> Constante {
         let _ = (unit, decl);
         let Some(k) = self.program.variable(v).class else {
-            return Constante::Valor(Valor::novo(self.core.dynamic_, Estado::Generico { campos: Rc::new(Vec::new()), desconhecido: true }));
+            return Constante::Valor(Valor::new(self.core.dynamic_, Estado::Generico { campos: Rc::new(Vec::new()), desconhecido: true }));
         };
         // The constant's type (the written instantiation, `a<int>()`, or the one
         // from the bounds), like the analyzer's `DartObject`.
@@ -2189,8 +2189,8 @@ impl<'a> Motor<'a> {
         };
         let the_name = self.interner.resolve(self.program.variable(v).name);
         let mut the_fields = vec![
-            (Campo::Indice, Valor::novo(self.core.int, Estado::Int(Some(index as i64)))),
-            (Campo::EnumName, Valor::novo(self.core.string, Estado::Str(Some(texto(the_name))))),
+            (Campo::Indice, Valor::new(self.core.int, Estado::Int(Some(index as i64)))),
+            (Campo::EnumName, Valor::new(self.core.string, Estado::Str(Some(the_text(the_name))))),
         ];
         // The constant's initializer is the creation `E.the_name(args)` with the
         // constant's declaration as the error node (`_errorNodes`,
@@ -2223,13 +2223,13 @@ impl<'a> Motor<'a> {
                     None => self.evaluate_call(&cx, error, f, typ, &empty, None, true),
                 };
                 match r {
-                    Constante::Invalid(i) if i.excecao => {
-                        let mut n = self.erro(unit, span, c::CONST_EVAL_THROWS_EXCEPTION);
+                    Constante::Invalid(i) if i.exception => {
+                        let mut n = self.error(unit, span, c::CONST_EVAL_THROWS_EXCEPTION);
                         n.avoid_report = i.avoid_report;
-                        let msg = dartforge_diagnostics::Diagnostic::com_codigo(i.codigo, i.span, i.args.iter().map(|s| s.as_str())).message;
+                        let msg = dartforge_diagnostics::Diagnostic::com_codigo(i.code, i.span, i.args.iter().map(|s| s.as_str())).message;
                         let defining = self.program.library(self.program.unit(unit).library).units.first().copied().unwrap_or(unit);
-                        n.contexto = i.contexto.clone();
-                        n.contexto.push((defining, i.span, format!("The exception is '{msg}' and occurs here.")));
+                        n.context = i.context.clone();
+                        n.context.push((defining, i.span, format!("The exception is '{msg}' and occurs here.")));
                         return Constante::Invalid(Box::new(n));
                     }
                     Constante::Invalid(i) => return Constante::Invalid(i),
@@ -2245,7 +2245,7 @@ impl<'a> Motor<'a> {
                 }
             }
         }
-        Constante::Valor(Valor { tipo: typ, estado: Estado::Generico { campos: Rc::new(the_fields), desconhecido: false }, variavel: Some(v) })
+        Constante::Valor(Valor { tipo: typ, estado: Estado::Generico { campos: Rc::new(the_fields), desconhecido: false }, variable: Some(v) })
     }
 
     /// Local constant: the declaration by the name's offset.
@@ -2260,11 +2260,11 @@ impl<'a> Motor<'a> {
             // A local that is not `const`: the generic error.
             return None;
         };
-        if let Some(r) = self.locais.get(&(u, offset)) {
+        if let Some(r) = self.locals.get(&(u, offset)) {
             return Some(match r {
                 Some(Constante::Valor(v)) => Constante::Valor(v.clone()),
                 Some(Constante::Invalid(_)) => {
-                    let mut x = self.erro(u, self.span(u, error_at), c::INVALID_CONSTANT);
+                    let mut x = self.error(u, self.span(u, error_at), c::INVALID_CONSTANT);
                     x.unresolved = true;
                     x.avoid_report = true;
                     Constante::Invalid(Box::new(x))
@@ -2276,7 +2276,7 @@ impl<'a> Motor<'a> {
         Some(match r {
             Constante::Valor(v) => Constante::Valor(v),
             Constante::Invalid(_) => {
-                let mut x = self.erro(u, self.span(u, error_at), c::INVALID_CONSTANT);
+                let mut x = self.error(u, self.span(u, error_at), c::INVALID_CONSTANT);
                 x.unresolved = true;
                 x.avoid_report = true;
                 Constante::Invalid(Box::new(x))
@@ -2289,45 +2289,45 @@ impl<'a> Motor<'a> {
         let list = match &self.ast(u).stmt(stmt).kind {
             ast::StmtKind::Variables(l) => l,
             ast::StmtKind::For { init: Some(ast::ForInit::Variables(l)), .. } => l,
-            _ => return Constante::Valor(Valor::novo(self.core.dynamic_, Estado::Null { invalid: true })),
+            _ => return Constante::Valor(Valor::new(self.core.dynamic_, Estado::Null { invalid: true })),
         };
         let var = &list.variables[i];
         let offset = var.name.span.start;
-        if let Some(Some(r)) = self.locais.get(&(u, offset)) {
+        if let Some(Some(r)) = self.locals.get(&(u, offset)) {
             return r.clone();
         }
-        if self.grafo.locals_in_cycle.contains(&(u, offset)) {
-            let r = Constante::Invalid(Box::new(self.erro(u, var.name.span, c::RECURSIVE_COMPILE_TIME_CONSTANT)));
-            self.locais.insert((u, offset), Some(r.clone()));
+        if self.graph.locals_in_cycle.contains(&(u, offset)) {
+            let r = Constante::Invalid(Box::new(self.error(u, var.name.span, c::RECURSIVE_COMPILE_TIME_CONSTANT)));
+            self.locals.insert((u, offset), Some(r.clone()));
             return r;
         }
         let Some(init) = var.initializer else {
-            return Constante::Valor(Valor::nulo(self.core));
+            return Constante::Valor(Valor::null(self.core));
         };
-        self.locais.insert((u, offset), None);
+        self.locals.insert((u, offset), None);
         let cx = Ctx::simples(u, lib);
         let saved = std::mem::take(&mut self.creation_args);
         let mut r = self.avaliar(&cx, init, true);
         self.creation_args = saved;
         if let Constante::Valor(x) = &r {
             let typ = self.body.units[u.0 as usize].tipo_local(offset).unwrap_or(self.core.dynamic_);
-            if !self.casa(x, typ) {
-                let static_ = self.estatico(u, init);
-                if self.atribuivel(static_, typ) {
-                    let mut i = self.erro(u, self.span(u, init), c::VARIABLE_TYPE_MISMATCH);
-                    i.args = vec![self.formatar(x.tipo), self.formatar(typ)];
+            if !self.matches_type(x, typ) {
+                let static_ = self.the_static(u, init);
+                if self.assignable(static_, typ) {
+                    let mut i = self.error(u, self.span(u, init), c::VARIABLE_TYPE_MISMATCH);
+                    i.args = vec![self.format(x.tipo), self.format(typ)];
                     r = Constante::Invalid(Box::new(i));
                 }
             }
         }
-        self.locais.insert((u, offset), Some(r.clone()));
+        self.locals.insert((u, offset), Some(r.clone()));
         r
     }
 
     /// The local read by `e` is a formal parameter.
     pub fn parameter_local(&self, u: UnitId, e: ExprId) -> bool {
         let Some(offset) = self.body.units.get(u.0 as usize).and_then(|b| b.declaracao_local(e)) else { return false };
-        self.parametros.get(&u).is_some_and(|s| s.contains(&offset))
+        self.parameters.get(&u).is_some_and(|s| s.contains(&offset))
     }
 
     /// The local read by `e` is a constant (`const`).
@@ -2347,16 +2347,16 @@ impl<'a> Motor<'a> {
         let lib_nnbd = true;
         let _ = lib_nnbd;
         let mut nodes = Vec::new();
-        super::potential::coletar(self, cx, e, &mut nodes);
+        super::potential::the_collect(self, cx, e, &mut nodes);
         let n = nodes.first()?;
-        Some(Constante::Invalid(Box::new(self.erro(cx.unidade, *n, c::INVALID_CONSTANT))))
+        Some(Constante::Invalid(Box::new(self.error(cx.unidade, *n, c::INVALID_CONSTANT))))
     }
 
     // -- Constructors ----------------------------------------------------------
 
     /// The type of a creation: the node's static type, otherwise the raw class.
     fn creation_type(&mut self, u: UnitId, e: ExprId, f: FunctionElementId) -> TypeId {
-        let t = self.estatico(u, e);
+        let t = self.the_static(u, e);
         if matches!(self.table.get(t), Type::Interface { .. } | Type::ExtensionType { .. }) {
             return t;
         }
@@ -2373,7 +2373,7 @@ impl<'a> Motor<'a> {
     /// forwarder is evaluating the superclass constructor with the same
     /// arguments.
     fn forwarded_constructor(&self, u: UnitId, e: ExprId, the_name: Option<SymbolId>) -> Option<(FunctionElementId, TypeId)> {
-        let typ = self.estatico(u, e);
+        let typ = self.the_static(u, e);
         let Type::Interface { class, .. } = self.table.get(typ) else { return None };
         if self.program.class(*class).kind != ClassKind::MixinApplication {
             return None;
@@ -2437,10 +2437,10 @@ impl<'a> Motor<'a> {
         let fe = self.program.function(self.program.publico(f));
         if !fe.const_ {
             let span = the_keyword.unwrap_or(error.span);
-            return Constante::Invalid(Box::new(self.erro(error.unidade, span, c::CONST_WITH_NON_CONST)));
+            return Constante::Invalid(Box::new(self.error(error.unidade, span, c::CONST_WITH_NON_CONST)));
         }
         if self.constructors_in_progress.contains(&f) || self.constructors_in_progress.len() > 64 {
-            return Constante::Valor(self.desconhecido(typ));
+            return Constante::Valor(self.unknown(typ));
         }
         // Arguments (`_valueOf`: an unresolved one is reported and becomes a
         // fictitious object of the parameter's type).
@@ -2463,11 +2463,11 @@ impl<'a> Motor<'a> {
                         Constante::Valor(v) => v,
                         i => return i,
                     };
-                    let tgt = Some((u, self.span(u, arg.value), self.estatico(u, arg.value)));
+                    let tgt = Some((u, self.span(u, arg.value), self.the_static(u, arg.value)));
                     match arg.name {
                         Some(n) => {
                             let s = Span { start: n.span.start, end: self.span(u, arg.value).end };
-                            named_args.push((n.sym, v, Some((u, s, self.estatico(u, arg.value)))));
+                            named_args.push((n.sym, v, Some((u, s, self.the_static(u, arg.value)))));
                         }
                         None => {
                             positional_args.push(v);
@@ -2487,11 +2487,11 @@ impl<'a> Motor<'a> {
         let (f, typ) = self.follow_redirections(f, typ);
         // The constructor is not cycle-free (`isCycleFree`,
         // `evaluation.dart:3090-3099`): an unknown of the type, without an error.
-        if self.grafo.constructors_in_cycle.contains(&f) {
-            return Constante::Valor(self.desconhecido(typ));
+        if self.graph.constructors_in_cycle.contains(&f) {
+            return Constante::Valor(self.unknown(typ));
         }
         let fe = self.program.function(f);
-        let Some(k) = fe.class else { return Constante::Valor(self.desconhecido(typ)) };
+        let Some(k) = fe.class else { return Constante::Valor(self.unknown(typ)) };
         if fe.factory || !self.the_inferred.contains(&fe.library) || fe.kind == FunctionKind::SyntheticConstructor && self.program.class(k).kind == ClassKind::MixinApplication {
             return self.call_factory(error, f, typ, &positional_args, &named_args);
         }
@@ -2505,11 +2505,11 @@ impl<'a> Motor<'a> {
     fn value_of(&mut self, cx: &Ctx, e: ExprId, default_type: TypeId, in_const: bool) -> R {
         match self.avaliar(cx, e, in_const) {
             Constante::Invalid(i) if i.unresolved => {
-                if cx.relatar && !i.avoid_report {
+                if cx.report && !i.avoid_report {
                     self.relatos.push((*i).clone());
                 }
                 let t = self.apagar(default_type);
-                Constante::Valor(Valor::novo(t, Estado::Null { invalid: true }))
+                Constante::Valor(Valor::new(t, Estado::Null { invalid: true }))
             }
             r => r,
         }
@@ -2595,7 +2595,7 @@ impl<'a> Motor<'a> {
         let of_core = Some(fe.library) == self.core.core_library;
         let first = positional_args.first();
         let n_args = positional_args.len() + named_args.len();
-        let exception = |m: &Motor<'_>| Constante::Invalid(Box::new(m.erro(error.unidade, error.span, c::CONST_EVAL_THROWS_EXCEPTION)));
+        let exception = |m: &Motor<'_>| Constante::Invalid(Box::new(m.error(error.unidade, error.span, c::CONST_EVAL_THROWS_EXCEPTION)));
         if of_core && Some(the_name) == self.sym_from_environment {
             // `_checkFromEnvironmentArguments`.
             let ok = (1..=2).contains(&n_args)
@@ -2608,7 +2608,7 @@ impl<'a> Motor<'a> {
             if !ok {
                 return exception(self);
             }
-            return Constante::Valor(self.desconhecido(typ));
+            return Constante::Valor(self.unknown(typ));
         }
         if of_core && Some(the_name) == self.sym_has_environment && cls.is_some() && cls == self.core.bool_class {
             return Constante::Valor(Valor::bool_(self.core, None));
@@ -2618,15 +2618,15 @@ impl<'a> Motor<'a> {
             && cls.is_some_and(|k| self.interner.resolve(self.program.class(k).name) == "Symbol")
             && n_args == 1
         {
-            let ok = positional_args.len() == 1 && first.is_some_and(|p| p.tipo == self.core.string && p.como_texto().is_some());
+            let ok = positional_args.len() == 1 && first.is_some_and(|p| p.tipo == self.core.string && p.as_text().is_some());
             if !ok {
                 return exception(self);
             }
-            let s = String::from_utf16_lossy(first.unwrap().como_texto().unwrap());
-            return Constante::Valor(Valor::novo(typ, Estado::Simbolo(Some(s.into()))));
+            let s = String::from_utf16_lossy(first.unwrap().as_text().unwrap());
+            return Constante::Valor(Valor::new(typ, Estado::Simbolo(Some(s.into()))));
         }
         let t = self.apagar(typ);
-        Constante::Valor(self.desconhecido(t))
+        Constante::Valor(self.unknown(t))
     }
 
     /// `evaluateGenerativeConstructorCall`.
@@ -2676,7 +2676,7 @@ impl<'a> Motor<'a> {
             let Some(Constante::Valor(x)) = self.valor_de_variavel(v) else { continue };
             let declared = self.outline.variables[v.0 as usize].declared_type.or(self.outline.variables[v.0 as usize].inferred).unwrap_or(self.core.dynamic_);
             let field_type = subst(self, declared);
-            if !self.casa(&x, field_type) {
+            if !self.matches_type(&x, field_type) {
                 // `hasTypeParameterReference(field.type)`: the field's declared type,
                 // before the substitution (`final T x` with `C<String>`), makes the
                 // mismatch an evaluation exception, reported as
@@ -2684,9 +2684,9 @@ impl<'a> Motor<'a> {
                 // context message.
                 let exception = self.mentions_parameter(declared);
                 let (eu, es) = if fu == error.unidade || true { (fu, self.span(fu, fx)) } else { (error.unidade, error.span) };
-                let mut i = self.erro(eu, es, c::CONST_CONSTRUCTOR_FIELD_TYPE_MISMATCH);
-                i.args = vec![self.formatar(x.tipo), self.interner.resolve(var.name).to_string(), self.formatar(field_type)];
-                i.excecao = exception;
+                let mut i = self.error(eu, es, c::CONST_CONSTRUCTOR_FIELD_TYPE_MISMATCH);
+                i.args = vec![self.format(x.tipo), self.interner.resolve(var.name).to_string(), self.format(field_type)];
+                i.exception = exception;
                 return Constante::Invalid(Box::new(i));
             }
             the_fields.push((Campo::Nome(var.name), x));
@@ -2698,7 +2698,7 @@ impl<'a> Motor<'a> {
             return self.finish_generator(g);
         };
         let ast::MemberKind::Constructor(ctor) = &self.ast(cu).member(member).kind else {
-            return Constante::Valor(self.desconhecido(typ));
+            return Constante::Valor(self.unknown(typ));
         };
         let type_params_list = self.outline.functions.get(f.0 as usize).map(|d| d.parameters.clone()).unwrap_or_default();
         let mut lexical: HashMap<SymbolId, Valor> = HashMap::new();
@@ -2725,10 +2725,10 @@ impl<'a> Motor<'a> {
                     // `super.x` without a default: that of the super constructor's parameter.
                     None if p.super_ => {
                         let idx = ctor.parameters[..i].iter().filter(|q| q.super_ && q.kind != ast::ParameterKind::Named).count();
-                        Some(self.inherited_default(f, the_name.sym, p.kind == ast::ParameterKind::Named, idx, 0).unwrap_or_else(|| Valor::nulo(self.core)))
+                        Some(self.inherited_default(f, the_name.sym, p.kind == ast::ParameterKind::Named, idx, 0).unwrap_or_else(|| Valor::null(self.core)))
                     }
-                    None => Some(Valor::nulo(self.core)),
-                    Some(d) => match self.valor_padrao(cu, lib, d) {
+                    None => Some(Valor::null(self.core)),
+                    Some(d) => match self.default_value(cu, lib, d) {
                         Constante::Valor(v) => Some(v),
                         Constante::Invalid(_) => None,
                     },
@@ -2740,11 +2740,11 @@ impl<'a> Motor<'a> {
                 None => (error.unidade, error.span, None),
             };
             let invalid = matches!(the_value.estado, Estado::Null { invalid: true });
-            if !invalid && !self.casa(&the_value, type_p) {
-                let exception = astatic.is_some_and(|t| self.atribuivel(t, type_p));
-                let mut e = self.erro(au, aspan, c::CONST_CONSTRUCTOR_PARAM_TYPE_MISMATCH);
+            if !invalid && !self.matches_type(&the_value, type_p) {
+                let exception = astatic.is_some_and(|t| self.assignable(t, type_p));
+                let mut e = self.error(au, aspan, c::CONST_CONSTRUCTOR_PARAM_TYPE_MISMATCH);
                 e.args = vec![self.format_without_alias(the_value.tipo), self.format_without_alias(type_p)];
-                e.excecao = exception;
+                e.exception = exception;
                 return Constante::Invalid(Box::new(e));
             }
             if p.this_ {
@@ -2752,13 +2752,13 @@ impl<'a> Motor<'a> {
                 if let Some(field) = field {
                     let field_type = self.outline.variables[field.0 as usize].declared_type.or(self.outline.variables[field.0 as usize].inferred).unwrap_or(self.core.dynamic_);
                     let field_type = subst(self, field_type);
-                    if field_type != type_p && !invalid && !self.casa(&the_value, field_type) {
-                        let mut e = self.erro(au, aspan, c::CONST_CONSTRUCTOR_PARAM_TYPE_MISMATCH);
+                    if field_type != type_p && !invalid && !self.matches_type(&the_value, field_type) {
+                        let mut e = self.error(au, aspan, c::CONST_CONSTRUCTOR_PARAM_TYPE_MISMATCH);
                         e.args = vec![self.format_without_alias(the_value.tipo), self.format_without_alias(field_type)];
                         return Constante::Invalid(Box::new(e));
                     }
                     if the_fields.iter().any(|(c, _)| *c == Campo::Nome(the_name.sym)) {
-                        return Constante::Invalid(Box::new(self.erro(error.unidade, error.span, c::CONST_EVAL_THROWS_EXCEPTION)));
+                        return Constante::Invalid(Box::new(self.error(error.unidade, error.span, c::CONST_EVAL_THROWS_EXCEPTION)));
                     }
                     the_fields.push((Campo::Nome(the_name.sym), the_value.clone()));
                 }
@@ -2820,7 +2820,7 @@ impl<'a> Motor<'a> {
         match q.default_value {
             Some(d) => {
                 let glib = self.program.unit(gu).library;
-                match self.valor_padrao(gu, glib, d) {
+                match self.default_value(gu, glib, d) {
                     Constante::Valor(v) => Some(v),
                     Constante::Invalid(_) => None,
                 }
@@ -2831,7 +2831,7 @@ impl<'a> Motor<'a> {
                 let qindex = gc.parameters[..tgt].iter().filter(|r| r.super_ && r.kind != ast::ParameterKind::Named).count();
                 self.inherited_default(g, qname, qnamed, qindex, prof + 1)
             }
-            None => Some(Valor::nulo(self.core)),
+            None => Some(Valor::null(self.core)),
         }
     }
 
@@ -2849,11 +2849,11 @@ impl<'a> Motor<'a> {
         super_positional_args: Vec<Valor>,
         lexical: HashMap<SymbolId, Valor>,
         types_map: HashMap<TypeParamId, TypeId>,
-    ) -> Gerador {
+    ) -> Generator {
         let lexical = Rc::new(lexical);
         let types = Rc::new(types_map);
         let ctor_unit = inits.as_ref().map(|(u, _)| *u).unwrap_or(error.unidade);
-        let cxi = Ctx { unidade: ctor_unit, lib, lexical: Some(lexical.clone()), tipos: Some(types.clone()), relatar: false };
+        let cxi = Ctx { unidade: ctor_unit, lib, lexical: Some(lexical.clone()), types: Some(types.clone()), report: false };
         let mut super_name: Option<SymbolId> = None;
         let mut super_args: Option<(UnitId, Vec<ast::Argument>)> = None;
         if let Some((cu, inits)) = inits {
@@ -2864,29 +2864,29 @@ impl<'a> Motor<'a> {
                         match r {
                             Constante::Valor(v) => {
                                 if the_fields.iter().any(|(c, _)| *c == Campo::Nome(name.sym)) {
-                                    return Gerador::ready(Constante::Invalid(Box::new(self.erro(error.unidade, error.span, c::CONST_EVAL_THROWS_EXCEPTION))));
+                                    return Generator::ready(Constante::Invalid(Box::new(self.error(error.unidade, error.span, c::CONST_EVAL_THROWS_EXCEPTION))));
                                 }
                                 let field = self.program.class(k).fields.iter().copied().find(|x| self.program.variable(*x).name == name.sym && !self.program.variable(*x).static_);
                                 if let Some(field) = field {
                                     let tc = self.outline.variables[field.0 as usize].declared_type.or(self.outline.variables[field.0 as usize].inferred).unwrap_or(self.core.dynamic_);
                                     let tc = if types.is_empty() { tc } else { crate::ops::substitute(tc, &types, self.table) };
-                                    if !self.casa(&v, tc) {
-                                        let static_ = self.estatico(cu, *value);
-                                        let exception = self.atribuivel(static_, tc);
+                                    if !self.matches_type(&v, tc) {
+                                        let static_ = self.the_static(cu, *value);
+                                        let exception = self.assignable(static_, tc);
                                         let (eu, es) = if exception { (cu, self.span(cu, *value)) } else { (error.unidade, error.span) };
-                                        let mut i = self.erro(eu, es, c::CONST_CONSTRUCTOR_FIELD_TYPE_MISMATCH);
-                                        i.args = vec![self.formatar(v.tipo), self.interner.resolve(name.sym).to_string(), self.formatar(tc)];
-                                        i.excecao = exception;
-                                        return Gerador::ready(Constante::Invalid(Box::new(i)));
+                                        let mut i = self.error(eu, es, c::CONST_CONSTRUCTOR_FIELD_TYPE_MISMATCH);
+                                        i.args = vec![self.format(v.tipo), self.interner.resolve(name.sym).to_string(), self.format(tc)];
+                                        i.exception = exception;
+                                        return Generator::ready(Constante::Invalid(Box::new(i)));
                                     }
                                 }
                                 the_fields.push((Campo::Nome(name.sym), v));
                             }
-                            Constante::Invalid(i) if !i.excecao => {
+                            Constante::Invalid(i) if !i.exception => {
                                 let n = self.error_in_initializer(&i, Some(f), "field initializer", error);
-                                return Gerador::ready(Constante::Invalid(Box::new(n)));
+                                return Generator::ready(Constante::Invalid(Box::new(n)));
                             }
-                            r => return Gerador::ready(r),
+                            r => return Generator::ready(r),
                         }
                     }
                     ast::Initializer::Super { constructor, arguments, .. } => {
@@ -2899,7 +2899,7 @@ impl<'a> Motor<'a> {
                         if let Some(g) = tgt {
                             if self.program.function(self.program.publico(g)).const_ {
                                 let r = self.evaluate_call(&cxi, error, g, typ, &Argumentos::Ast(arguments), None, false);
-                                return Gerador::ready(r);
+                                return Generator::ready(r);
                             }
                         }
                     }
@@ -2911,36 +2911,36 @@ impl<'a> Motor<'a> {
                                     let mut i = None;
                                     if let Some(m) = message {
                                         if let Constante::Valor(mv) = self.avaliar(&cxi, *m, false) {
-                                            if let Some(t) = mv.como_texto() {
-                                                let mut x = self.erro(cu, *span, c::CONST_EVAL_ASSERTION_FAILURE_WITH_MESSAGE);
+                                            if let Some(t) = mv.as_text() {
+                                                let mut x = self.error(cu, *span, c::CONST_EVAL_ASSERTION_FAILURE_WITH_MESSAGE);
                                                 x.args = vec![String::from_utf16_lossy(t)];
-                                                x.excecao = true;
+                                                x.exception = true;
                                                 i = Some(x);
                                             }
                                         }
                                     }
-                                    let mut i = i.unwrap_or_else(|| self.erro(cu, *span, c::CONST_EVAL_ASSERTION_FAILURE));
-                                    i.excecao = true;
-                                    return Gerador::ready(Constante::Invalid(Box::new(i)));
+                                    let mut i = i.unwrap_or_else(|| self.error(cu, *span, c::CONST_EVAL_ASSERTION_FAILURE));
+                                    i.exception = true;
+                                    return Generator::ready(Constante::Invalid(Box::new(i)));
                                 }
                             }
-                            Constante::Invalid(i) if !i.excecao => {
+                            Constante::Invalid(i) if !i.exception => {
                                 let n = self.error_in_initializer(&i, Some(f), "assert initializer", error);
-                                return Gerador::ready(Constante::Invalid(Box::new(n)));
+                                return Generator::ready(Constante::Invalid(Box::new(n)));
                             }
-                            r => return Gerador::ready(r),
+                            r => return Generator::ready(r),
                         }
                     }
                 }
             }
         }
-        Gerador {
+        Generator {
             ready_engine: None,
             f: Some(f),
-            erro: error,
+            error,
             k,
-            tipo: typ,
-            campos: the_fields,
+            ty: typ,
+            fields: the_fields,
             super_name,
             super_args,
             super_positional_args,
@@ -2950,11 +2950,11 @@ impl<'a> Motor<'a> {
     }
 
     /// `_checkSuperConstructorCall` and the final object.
-    fn finish_generator(&mut self, g: Gerador) -> R {
+    fn finish_generator(&mut self, g: Generator) -> R {
         if let Some(r) = g.ready_engine {
             return r;
         }
-        let Gerador { f, erro: error, k, tipo: typ, campos: mut the_fields, super_name, super_args, super_positional_args, super_named_args, cxi, .. } = g;
+        let Generator { f, error, k, ty: typ, fields: mut the_fields, super_name, super_args, super_positional_args, super_named_args, cxi, .. } = g;
         let cls = self.program.class(k);
         if let Some(sup) = cls.supertype_class {
             if Some(sup) != self.core.object_class {
@@ -2963,7 +2963,7 @@ impl<'a> Motor<'a> {
                 if let Some(g) = tgt {
                     if self.program.function(self.program.publico(g)).const_ {
                         let super_type = self.outline.classes.get(k.0 as usize).and_then(|d| d.supertype).unwrap_or(self.core.dynamic_);
-                        let super_type = match cxi.tipos.as_ref() {
+                        let super_type = match cxi.types.as_ref() {
                             Some(m) if !m.is_empty() => crate::ops::substitute(super_type, m, self.table),
                             _ => super_type,
                         };
@@ -3001,25 +3001,25 @@ impl<'a> Motor<'a> {
                         };
                         match r {
                             Constante::Valor(v) => the_fields.push((Campo::Super, v)),
-                            Constante::Invalid(i) if !i.excecao => {
-                                let mut n = if i.contexto.is_empty() {
+                            Constante::Invalid(i) if !i.exception => {
+                                let mut n = if i.context.is_empty() {
                                     self.error_in_initializer(&i, f, "super constructor invocation", error)
                                 } else {
                                     let mut n = (*i).clone();
-                                    n.unidade = error.unidade;
+                                    n.unit = error.unidade;
                                     n.span = error.span;
                                     n
                                 };
-                                if !i.contexto.is_empty() {
+                                if !i.context.is_empty() {
                                     if let Some(x) = f.and_then(|f| self.constructor_stack(g, f)) {
-                                        n.contexto.push(x);
+                                        n.context.push(x);
                                     }
                                 }
                                 return Constante::Invalid(Box::new(n));
                             }
                             Constante::Invalid(mut i) => {
                                 if let Some(x) = f.and_then(|f| self.constructor_stack(g, f)) {
-                                    i.contexto.push(x);
+                                    i.context.push(x);
                                 }
                                 return Constante::Invalid(i);
                             }
@@ -3037,25 +3037,25 @@ impl<'a> Motor<'a> {
             }
         }
         let t = self.apagar(typ);
-        Constante::Valor(Valor::novo(t, Estado::Generico { campos: Rc::new(the_fields), desconhecido: false }))
+        Constante::Valor(Valor::new(t, Estado::Generico { campos: Rc::new(the_fields), desconhecido: false }))
     }
 
     /// Default value of a parameter (cached by expression).
-    fn valor_padrao(&mut self, u: UnitId, lib: LibraryId, d: ExprId) -> Constante {
-        if let Some(r) = self.padroes.get(&(u, d)) {
+    fn default_value(&mut self, u: UnitId, lib: LibraryId, d: ExprId) -> Constante {
+        if let Some(r) = self.patterns.get(&(u, d)) {
             return r.clone();
         }
         let cx = Ctx::simples(u, lib);
         let saved = std::mem::take(&mut self.creation_args);
         let r = self.avaliar(&cx, d, false);
         self.creation_args = saved;
-        self.padroes.insert((u, d), r.clone());
+        self.patterns.insert((u, d), r.clone());
         r
     }
 
     /// The result of evaluating the default `d` (for the verifier).
     pub fn default_result(&mut self, u: UnitId, lib: LibraryId, d: ExprId) -> Constante {
-        self.valor_padrao(u, lib, d)
+        self.default_value(u, lib, d)
     }
 }
 
@@ -3074,14 +3074,14 @@ enum Argumentos<'x> {
 }
 
 /// The state between the initializers and the super call.
-struct Gerador {
+struct Generator {
     ready_engine: Option<Constante>,
     /// The evaluated constructor (`_constructor`), for the context messages.
     f: Option<FunctionElementId>,
-    erro: ErrorAt,
+    error: ErrorAt,
     k: ClassId,
-    tipo: TypeId,
-    campos: Vec<(Campo, Valor)>,
+    ty: TypeId,
+    fields: Vec<(Campo, Valor)>,
     super_name: Option<SymbolId>,
     super_args: Option<(UnitId, Vec<ast::Argument>)>,
     super_positional_args: Vec<Valor>,
@@ -3089,15 +3089,15 @@ struct Gerador {
     cxi: Ctx,
 }
 
-impl Gerador {
-    fn ready(r: Constante) -> Gerador {
-        Gerador {
+impl Generator {
+    fn ready(r: Constante) -> Generator {
+        Generator {
             ready_engine: Some(r),
             f: None,
-            erro: ErrorAt { unidade: UnitId(0), span: Span { start: 0, end: 0 } },
+            error: ErrorAt { unidade: UnitId(0), span: Span { start: 0, end: 0 } },
             k: ClassId(0),
-            tipo: TypeId(0),
-            campos: Vec::new(),
+            ty: TypeId(0),
+            fields: Vec::new(),
             super_name: None,
             super_args: None,
             super_positional_args: Vec::new(),
@@ -3106,7 +3106,7 @@ impl Gerador {
         }
     }
 
-    fn con_super_named(mut self, n: Vec<(SymbolId, Valor)>) -> Gerador {
+    fn con_super_named(mut self, n: Vec<(SymbolId, Valor)>) -> Generator {
         self.super_named_args = n;
         self
     }
@@ -3146,7 +3146,7 @@ fn back_up_word(source: &[u8], i: usize, words: &[&str]) -> usize {
 
 /// The start of the `for` that encloses position `i` (the nearest `for`
 /// before it).
-fn inicio_de_for(source: &[u8], i: usize) -> usize {
+fn for_start(source: &[u8], i: usize) -> usize {
     let mut j = i.min(source.len());
     let mut prof = 0i32;
     while j > 0 {

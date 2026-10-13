@@ -49,7 +49,7 @@ use dartforge_frontend::ast::{self, DeclKind, ExprId, ExprKind, FunctionBody, In
 use dartforge_frontend::fonte::fim_do_parametro_funcao;
 use dartforge_intern::{Interner, SymbolId};
 
-fn dentro(a: Span, b: Span) -> bool {
+fn inside(a: Span, b: Span) -> bool {
     a.start >= b.start && a.end <= b.end
 }
 
@@ -99,7 +99,7 @@ pub fn falhas_de_inferencia(
     let cited = |regions: &[Span], declaration: usize| {
         a.exprs.iter().enumerate().any(|(k, e)| {
             matches!(e.kind, ExprKind::Identifier(_))
-                && regions.iter().any(|&r| dentro(e.span, r))
+                && regions.iter().any(|&r| inside(e.span, r))
                 && body.declaracao_local(ExprId(k as u32)) == Some(declaration)
         })
     };
@@ -132,7 +132,7 @@ pub fn falhas_de_inferencia(
     let mut inheritance = crate::heranca::Heranca::default();
     let mut provider = crate::heranca::ProvedorDoOutline { program, interner, core, outline, table };
     let mut overrides =
-        |c: ClassId, key: Option<SymbolId>| crate::fase_override::sobrescreve(&mut inheritance, &mut provider, c, lib, key);
+        |c: ClassId, key: Option<SymbolId>| crate::fase_override::the_overrides(&mut inheritance, &mut provider, c, lib, key);
 
     // `visitFunctionDeclaration`: the top-level and the local functions.
     let mut the_declared: std::collections::HashSet<ast::FunctionId> = std::collections::HashSet::new();

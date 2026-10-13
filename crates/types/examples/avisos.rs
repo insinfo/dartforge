@@ -26,13 +26,13 @@ fn main() {
     let a: Vec<String> = std::env::args().skip(1).collect();
     std::thread::Builder::new()
         .stack_size(1 << 30)
-        .spawn(move || executar(a))
+        .spawn(move || run(a))
         .unwrap()
         .join()
         .unwrap();
 }
 
-fn executar(a: Vec<String>) {
+fn run(a: Vec<String>) {
     let (sdk, entry, packages, requested): (SdkLayout, PathBuf, Option<PathBuf>, Vec<String>) = match a[0].as_str() {
         "projeto" => {
             let dir = SdkLayout::discover().unwrap_or_else(|| PathBuf::from("C:/tools/dartsdk-3.6.2/lib"));

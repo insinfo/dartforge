@@ -66,7 +66,7 @@ fn future_or_base(inf: &BodyInferrer<'_>, mut t: TypeId) -> TypeId {
 
 /// The context displayed in the message: without `FutureOr` and without the
 /// `?` (analyzer 3.13.4 shows `Object` for the context `Object?`).
-fn exibir(inf: &mut BodyInferrer<'_>, t: TypeId) -> String {
+fn display(inf: &mut BodyInferrer<'_>, t: TypeId) -> String {
     let base = future_or_base(inf, t);
     let base = inf.non_null(base);
     // The analyzer passes the text ready-made (`getDisplayString()`, without
@@ -82,7 +82,7 @@ fn exibir(inf: &mut BodyInferrer<'_>, t: TypeId) -> String {
 ///
 /// A private declaration from another library is not denoted (analyzer
 /// 3.13.4 treats the context as absent).
-fn declaracao(inf: &BodyInferrer<'_>, cx: &Body, ctx: TypeId, the_name: SymbolId) -> Option<ClassId> {
+fn declaration(inf: &BodyInferrer<'_>, cx: &Body, ctx: TypeId, the_name: SymbolId) -> Option<ClassId> {
     let mut t = ctx;
     let d = loop {
         match inf.table.get(t) {
@@ -110,12 +110,12 @@ fn declaracao(inf: &BodyInferrer<'_>, cx: &Body, ctx: TypeId, the_name: SymbolId
 /// `D` has the constructor with key `k`: declared, the primary of an
 /// extension type, or the implicit unnamed one of a class without
 /// constructors.
-fn tem_construtor(inf: &BodyInferrer<'_>, d: ClassId, k: SymbolId) -> bool {
+fn has_constructor(inf: &BodyInferrer<'_>, d: ClassId, k: SymbolId) -> bool {
     if inf.constructor_or_primary(d, k).is_some() {
         return true;
     }
     let class = inf.program.class(d);
-    Some(k) == inf.sym.vazio
+    Some(k) == inf.sym.empty
         && class.constructors.is_empty()
         && matches!(class.kind, ClassKind::Class | ClassKind::MixinApplication)
 }
@@ -123,7 +123,7 @@ fn tem_construtor(inf: &BodyInferrer<'_>, d: ClassId, k: SymbolId) -> bool {
 /// The key of constructor `the_name` (`new` = the unnamed one).
 fn constructor_key(inf: &BodyInferrer<'_>, the_name: SymbolId) -> Option<SymbolId> {
     if Some(the_name) == inf.sym.new_ {
-        inf.sym.vazio
+        inf.sym.empty
     } else {
         Some(the_name)
     }
@@ -137,12 +137,12 @@ fn has_member(inf: &BodyInferrer<'_>, d: ClassId, the_name: SymbolId) -> bool {
             .enum_constants
             .iter()
             .any(|v| inf.program.variable(*v).name == the_name)
-        || constructor_key(inf, the_name).is_some_and(|k| tem_construtor(inf, d, k))
+        || constructor_key(inf, the_name).is_some_and(|k| has_constructor(inf, d, k))
 }
 
 /// The type of `D.the_name` as a value: static getter/field, enum constant,
 /// static method (tear-off) or constructor (tear-off).
-fn tipo_do_membro(inf: &mut BodyInferrer<'_>, d: ClassId, the_name: SymbolId) -> Option<TypeId> {
+fn member_type(inf: &mut BodyInferrer<'_>, d: ClassId, the_name: SymbolId) -> Option<TypeId> {
     let class = inf.program.class(d);
     if let Some(&fid) = class.static_members.get(&the_name) {
         let f = inf.program.function(fid);
@@ -167,12 +167,12 @@ fn tipo_do_membro(inf: &mut BodyInferrer<'_>, d: ClassId, the_name: SymbolId) ->
     match inf.constructor_or_primary(d, k) {
         Some(Some(fid)) => Some(inf.outline.functions[fid.0 as usize].signature),
         Some(None) => Some(inf.primary_signature(d)),
-        None => tem_construtor(inf, d, k).then_some(inf.core.dynamic_),
+        None => has_constructor(inf, d, k).then_some(inf.core.dynamic_),
     }
 }
 
 /// `.the_name` without a call: getter, field, enum constant or tear-off.
-pub(crate) fn valor(
+pub(crate) fn value_(
     inf: &mut BodyInferrer<'_>,
     cx: &mut Body,
     e: ExprId,
@@ -181,7 +181,7 @@ pub(crate) fn valor(
 ) -> TypeId {
     let ctx = cx.shorthand_context.remove(&e.0).unwrap_or(ctx);
     let reported = cx.reported_shorthands.remove(&e.0);
-    match declaracao(inf, cx, ctx, the_name) {
+    match declaration(inf, cx, ctx, the_name) {
         Some(d) => {
             resolver(inf, cx, e, Resolved::Element(Element::Class(d)));
             // `PropertyElementResolver.resolveDotShorthand` (main checkout,
@@ -203,13 +203,13 @@ pub(crate) fn valor(
                     );
                 }
             }
-            match tipo_do_membro(inf, d, the_name) {
+            match member_type(inf, d, the_name) {
                 Some(t) => t,
                 None => {
                     if !reported {
                         let (text, span) = name_and_span(inf, cx, e);
-                        let ty = exibir(inf, ctx);
-                        relatar(inf, "CompileTimeErrorCode.DOT_SHORTHAND_UNDEFINED_GETTER", span, &[&text, &ty]);
+                        let ty = display(inf, ctx);
+                        report(inf, "CompileTimeErrorCode.DOT_SHORTHAND_UNDEFINED_GETTER", span, &[&text, &ty]);
                     }
                     inf.core.dynamic_
                 }
@@ -218,7 +218,7 @@ pub(crate) fn valor(
         None => {
             if !reported {
                 let span = inf.program.unit(cx.unit).ast.expr(e).span;
-                relatar(inf, "CompileTimeErrorCode.DOT_SHORTHAND_MISSING_CONTEXT", span, &[]);
+                report(inf, "CompileTimeErrorCode.DOT_SHORTHAND_MISSING_CONTEXT", span, &[]);
             }
             inf.core.dynamic_
         }
@@ -227,7 +227,7 @@ pub(crate) fn valor(
 
 /// Reports by the code's unique name (all three are from the 3.13.4
 /// supplement of `dartforge_diagnostics`' table).
-fn relatar(inf: &mut BodyInferrer<'_>, unique: &str, span: dartforge_diagnostics::Span, args: &[&str]) {
+fn report(inf: &mut BodyInferrer<'_>, unique: &str, span: dartforge_diagnostics::Span, args: &[&str]) {
     if let Some(code) = dartforge_diagnostics::Codigo::por_unico(unique) {
         inf.warning_with_code(code, span, args);
     }
@@ -261,16 +261,16 @@ pub(crate) fn construction(
     };
     let (the_name, const_) = (name.sym, *const_);
     let ctx_chain = cx.shorthand_context.get(&tgt.0).copied().unwrap_or(ctx);
-    let Some(d) = declaracao(inf, cx, ctx_chain, the_name) else {
+    let Some(d) = declaration(inf, cx, ctx_chain, the_name) else {
         // Without a declaration in the context: the creation `const .id(…)` has
         // no context; the invocation `.id(…)` does not find the member in `_`.
         if const_ {
             let span = inf.program.unit(cx.unit).ast.expr(e).span;
-            relatar(inf, "CompileTimeErrorCode.DOT_SHORTHAND_MISSING_CONTEXT", span, &[]);
+            report(inf, "CompileTimeErrorCode.DOT_SHORTHAND_MISSING_CONTEXT", span, &[]);
         } else {
             let (text, span) = name_and_span(inf, cx, tgt);
-            let ty = exibir(inf, ctx_chain);
-            relatar(inf, "CompileTimeErrorCode.DOT_SHORTHAND_UNDEFINED_INVOCATION", span, &[&text, &ty]);
+            let ty = display(inf, ctx_chain);
+            report(inf, "CompileTimeErrorCode.DOT_SHORTHAND_UNDEFINED_INVOCATION", span, &[&text, &ty]);
         }
         cx.reported_shorthands.insert(tgt.0);
         return None;
@@ -309,12 +309,12 @@ pub(crate) fn construction(
         if const_ {
             let (text, span) = name_and_span(inf, cx, tgt);
             let cls = inf.interner.resolve(inf.program.class(d).name).to_string();
-            relatar(inf, "CompileTimeErrorCode.CONST_WITH_UNDEFINED_CONSTRUCTOR", span, &[&cls, &text]);
+            report(inf, "CompileTimeErrorCode.CONST_WITH_UNDEFINED_CONSTRUCTOR", span, &[&cls, &text]);
             cx.reported_shorthands.insert(tgt.0);
         } else if !has_member(inf, d, the_name) {
             let (text, span) = name_and_span(inf, cx, tgt);
-            let ty = exibir(inf, ctx_chain);
-            relatar(inf, "CompileTimeErrorCode.DOT_SHORTHAND_UNDEFINED_INVOCATION", span, &[&text, &ty]);
+            let ty = display(inf, ctx_chain);
+            report(inf, "CompileTimeErrorCode.DOT_SHORTHAND_UNDEFINED_INVOCATION", span, &[&text, &ty]);
             cx.reported_shorthands.insert(tgt.0);
         }
         return None;
@@ -336,7 +336,7 @@ pub(crate) fn construction(
         } else if let Some(sp) = super::calls::type_list_range(inf, cx.unit, &arguments.type_args) {
             let (text, _) = name_and_span(inf, cx, tgt);
             let cls = inf.interner.resolve(k.name).to_string();
-            relatar(inf, "CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_DOT_SHORTHAND_CONSTRUCTOR", sp, &[&cls, &text]);
+            report(inf, "CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_DOT_SHORTHAND_CONSTRUCTOR", sp, &[&cls, &text]);
         }
     }
     // The constructor invocation through the creation's common path
@@ -352,7 +352,7 @@ pub(crate) fn construction(
     // (`'new'`, `'named'`).
     let (text, span) = name_and_span(inf, cx, tgt);
     super::calls::define_target(inf, Some(text), span);
-    let r = super::calls::construir(inf, cx, Some(e), d, Some(fid), None, arguments, ctx);
+    let r = super::calls::build(inf, cx, Some(e), d, Some(fid), None, arguments, ctx);
     inf.arity_target = None;
     Some(r)
 }

@@ -131,14 +131,14 @@ pub struct OutlineTypes {
 #[derive(Debug, Clone)]
 pub struct FieldOverride {
     /// The overriding member (getter, setter or method).
-    pub funcao: FunctionElementId,
+    pub function: FunctionElementId,
     /// The overridden field.
-    pub campo: dartforge_elements::model::VariableId,
+    pub field: dartforge_elements::model::VariableId,
     /// Type parameters of the field's class -> arguments as seen from the
     /// overrider's class.
     pub subst: Vec<(TypeParamId, TypeId)>,
     /// `None`: the return; `Some(i)`: the i-th parameter.
-    pub parametro: Option<usize>,
+    pub parameter: Option<usize>,
 }
 
 /// Where a type name appears: the `parent` of the `NamedType` that
@@ -346,7 +346,7 @@ pub struct OutlineResolver<'a> {
     /// The container (class, mixin, enum, extension type or extension) whose
     /// members are in scope in the annotation being resolved: the analyzer's
     /// `InstanceScope` (docs/ANALISADOR-PARIDADE-PLANO.md §3.3).
-    conteiner: Option<Container>,
+    container: Option<Container>,
     /// The context of the annotation that the next call to `resolve_annotation`
     /// resolves (read and cleared on entry; type arguments set it to
     /// [`TypeContext::TypeArgument`]).
@@ -391,7 +391,7 @@ impl<'a> OutlineResolver<'a> {
             core,
             diagnostics: Vec::new(),
             warning_units: Vec::new(),
-            conteiner: None,
+            container: None,
             type_context: TypeContext::Normal,
             static_member: false,
             class_type_params: vec![Box::new([]); num_classes],
@@ -451,7 +451,7 @@ impl<'a> OutlineResolver<'a> {
     /// The name `sym` in the instance scope of the container being resolved
     /// ([`name_in_container`]).
     fn in_container(&self, sym: SymbolId) -> Option<InContainer> {
-        let (the_class, extension) = match self.conteiner? {
+        let (the_class, extension) = match self.container? {
             Container::Classe(c) => (Some(c), None),
             Container::Extensao(e) => (None, Some(e)),
         };
@@ -641,7 +641,7 @@ impl<'a> OutlineResolver<'a> {
 
     /// The `typedef` reaches itself (`hasSelfReference`): instantiates as
     /// `dynamic` (`TypeAliasElementImpl.instantiate`, `element.dart:9690-9696`).
-    fn typedef_auto_referente(&mut self, id: TypedefId) -> bool {
+    fn self_referencing_typedef(&mut self, id: TypedefId) -> bool {
         let i = id.0 as usize;
         if let Some(r) = self.self_referencing_typedefs[i] {
             return r;
@@ -1021,10 +1021,10 @@ impl<'a> OutlineResolver<'a> {
                     if let MemberKind::Field(var_list) = &mem_node.kind {
                         let scope = self.get_enclosing_type_param_scope(var.class, var.extension);
                         if let Some(ast_ty) = var_list.ty {
-                            self.conteiner = container_of(var.class, var.extension);
+                            self.container = container_of(var.class, var.extension);
                             self.static_member = var.static_;
                             let ty = self.resolve_annotation(unit, ast_ty, var.library, &scope);
-                            self.conteiner = None;
+                            self.container = None;
                             self.static_member = false;
                             (Some(ty), Some(ty))
                         } else {
@@ -1253,13 +1253,13 @@ impl<'a> OutlineResolver<'a> {
         hierarchy: &ClassHierarchy,
         variables: &[VariableTypeData],
     ) -> (TypeId, TypeId, Box<[ParameterTypeData]>, Box<[TypeParamId]>) {
-        self.conteiner = container_of(func.class, func.extension);
+        self.container = container_of(func.class, func.extension);
         self.static_member = func.static_
             && !func.factory
             && func.kind != FunctionKind::Constructor
             && (func.class.is_some() || func.extension.is_some());
         let r = self.resolve_function_signature_in_scope(func_id, func, hierarchy, variables);
-        self.conteiner = None;
+        self.container = None;
         self.static_member = false;
         r
     }
@@ -1644,7 +1644,7 @@ impl<'a> OutlineResolver<'a> {
         };
         let params = self.class_type_params[sup.0 as usize].clone();
         let subst = params.iter().copied().zip(args.iter().copied()).collect();
-        self.field_overrides.push(FieldOverride { funcao: func_id, campo: v, subst, parametro: parameter });
+        self.field_overrides.push(FieldOverride { function: func_id, field: v, subst, parameter });
     }
 
     /// Inherited return type (override inference): that of the overridden
@@ -1952,7 +1952,7 @@ impl<'a> OutlineResolver<'a> {
                                         })
                                     }
                                 }
-                                Some(Element::Typedef(tid)) if self.typedef_auto_referente(tid) => self.core.dynamic_,
+                                Some(Element::Typedef(tid)) if self.self_referencing_typedef(tid) => self.core.dynamic_,
                                 Some(Element::Typedef(tid)) => {
                                     let resolved_args: Vec<TypeId> = args
                                         .iter()
@@ -2020,7 +2020,7 @@ impl<'a> OutlineResolver<'a> {
                     let prefix = name[0].sym;
                     let member = name[1].sym;
                     if name[0].span.start != name[0].span.end {
-                        let (the_class, extension) = match self.conteiner {
+                        let (the_class, extension) = match self.container {
                             Some(Container::Classe(c)) => (Some(c), None),
                             Some(Container::Extensao(e)) => (None, Some(e)),
                             None => (None, None),
@@ -2079,7 +2079,7 @@ impl<'a> OutlineResolver<'a> {
                                     })
                                 }
                             }
-                            Some(Element::Typedef(tid)) if self.typedef_auto_referente(tid) => self.core.dynamic_,
+                            Some(Element::Typedef(tid)) if self.self_referencing_typedef(tid) => self.core.dynamic_,
                             Some(Element::Typedef(tid)) => {
                                 let resolved_args: Vec<TypeId> = args
                                     .iter()

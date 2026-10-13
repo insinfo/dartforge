@@ -51,12 +51,12 @@ use dartforge_frontend::ast::{self, AsyncModifier, ExprId, ExprKind, FunctionBod
 use dartforge_intern::Interner;
 use std::collections::HashMap;
 
-fn dentro(a: Span, b: Span) -> bool {
+fn inside(a: Span, b: Span) -> bool {
     a.start >= b.start && a.end <= b.end
 }
 
 /// `flatten`: `Future<Y>` and `FutureOr<Y>` give `Y` (nullable with them).
-fn achatar(table: &mut TypeTable, core: &CoreTypes, t: TypeId) -> TypeId {
+fn flatten(table: &mut TypeTable, core: &CoreTypes, t: TypeId) -> TypeId {
     let (y, is_nullable) = match table.get(t) {
         Type::Interface { class, args, nullable } if Some(*class) == core.future_class && args.len() == 1 => (args[0], *nullable),
         Type::FutureOr { arg, nullable } => (*arg, *nullable),
@@ -110,7 +110,7 @@ struct Verifier<'a> {
     core: &'a CoreTypes,
     outline: &'a OutlineTypes,
     stack_trace: Option<TypeId>,
-    saida: Vec<Diagnostic>,
+    output: Vec<Diagnostic>,
 }
 
 impl Verifier<'_> {
@@ -120,11 +120,11 @@ impl Verifier<'_> {
     }
 
     /// `isAssignableTo` without `strict-casts`.
-    fn atribuivel(&mut self, a: TypeId, b: TypeId) -> bool {
+    fn assignable(&mut self, a: TypeId, b: TypeId) -> bool {
         matches!(self.table.get(a), Type::Dynamic) || self.sub(a, b)
     }
 
-    fn formatar(&self, t: TypeId) -> String {
+    fn format(&self, t: TypeId) -> String {
         self.table.format(t, self.interner, self.program)
     }
 
@@ -132,8 +132,8 @@ impl Verifier<'_> {
     fn handler(&mut self, where_: Span, ty: TypeId, expected_return: TypeId, check_first: bool) {
         let Type::Function { positional, optional, named, .. } = self.table.get(ty).clone() else { return };
         let report = |v: &mut Self| {
-            let args = [v.formatar(ty), v.formatar(expected_return)];
-            v.saida.push(Diagnostic::com_codigo(warning::ARGUMENT_TYPE_NOT_ASSIGNABLE_TO_ERROR_HANDLER, where_, args));
+            let args = [v.format(ty), v.format(expected_return)];
+            v.output.push(Diagnostic::com_codigo(warning::ARGUMENT_TYPE_NOT_ASSIGNABLE_TO_ERROR_HANDLER, where_, args));
         };
         // The parameters in order: positional, optional, named.
         let positional_args: Vec<TypeId> = positional.iter().chain(optional.iter()).copied().collect();
@@ -176,7 +176,7 @@ pub fn retornos_de_catch_error(
     let stack_trace = class_of(program, interner, core.core_library, "StackTrace").map(|c| table.intern(Type::Interface { class: c, args: Box::new([]), nullable: false }));
     let stream = class_of(program, interner, core.async_library, "Stream");
     let subscription = class_of(program, interner, core.async_library, "StreamSubscription");
-    let mut v = Verifier { program, interner, table, core, outline, stack_trace, saida: Vec::new() };
+    let mut v = Verifier { program, interner, table, core, outline, stack_trace, output: Vec::new() };
     let cascades = cascade_targets(a);
     let ty = |e: ExprId, v: &Verifier<'_>| body.get_type(e).filter(|t| !core.is_unknown(&*v.table, *t));
     for (k, e) in a.exprs.iter().enumerate() {
@@ -223,9 +223,9 @@ pub fn retornos_de_catch_error(
             } else if let Some(t) = function_type(callback, &v) {
                 // `_checkReturnType`.
                 let Type::Function { ret, .. } = *v.table.get(t) else { continue };
-                if !v.atribuivel(ret, expected) {
-                    let args = [v.formatar(ret), v.formatar(expected)];
-                    v.saida.push(Diagnostic::com_codigo(warning::RETURN_TYPE_INVALID_FOR_CATCH_ERROR, a.expr(callback).span, args));
+                if !v.assignable(ret, expected) {
+                    let args = [v.format(ret), v.format(expected)];
+                    v.output.push(Diagnostic::com_codigo(warning::RETURN_TYPE_INVALID_FOR_CATCH_ERROR, a.expr(callback).span, args));
                 }
                 v.handler(a.expr(callback).span, t, expected, true);
             }
@@ -256,7 +256,7 @@ pub fn retornos_de_catch_error(
             v.handler(a.expr(arg.value).span, t, empty, is_function_literal(arg.value));
         }
     }
-    v.saida
+    v.output
 }
 
 /// The `return`s of the closure of the `onError` of `catchError` (not those
@@ -278,9 +278,9 @@ fn closure_returns(v: &mut Verifier<'_>, a: &ast::Ast, source: &str, body: &Unit
         }
         FunctionBody::Block(b) => {
             let region = a.stmt(*b).span;
-            let from_inside: Vec<Span> = a.functions.iter().map(|g| g.span).filter(|&s| dentro(s, region) && s != f.span).collect();
+            let from_inside: Vec<Span> = a.functions.iter().map(|g| g.span).filter(|&s| inside(s, region) && s != f.span).collect();
             for s in a.stmts.iter() {
-                if !dentro(s.span, region) || from_inside.iter().any(|&d| dentro(s.span, d)) {
+                if !inside(s.span, region) || from_inside.iter().any(|&d| inside(s.span, d)) {
                     continue;
                 }
                 match &s.kind {
@@ -288,7 +288,7 @@ fn closure_returns(v: &mut Verifier<'_>, a: &ast::Ast, source: &str, body: &Unit
                     // `_checkReturnWithoutValue` with `T_v = X`.
                     StmtKind::Return(None) if !x_empty_dynamic_or_null => {
                         let end = if source.get(s.span.start..).is_some_and(|t| t.starts_with("return")) { s.span.start + 6 } else { s.span.end };
-                        v.saida.push(Diagnostic::com_codigo(compile_time_error::RETURN_WITHOUT_VALUE, Span { start: s.span.start, end: end }, std::iter::empty::<&str>()));
+                        v.output.push(Diagnostic::com_codigo(compile_time_error::RETURN_WITHOUT_VALUE, Span { start: s.span.start, end: end }, std::iter::empty::<&str>()));
                     }
                     _ => {}
                 }
@@ -301,20 +301,20 @@ fn closure_returns(v: &mut Verifier<'_>, a: &ast::Ast, source: &str, body: &Unit
         if v.core.is_unknown(&*v.table, s) {
             continue;
         }
-        let flattened = achatar(v.table, v.core, s);
+        let flattened = flatten(v.table, v.core, s);
         let empty_dynamic_or_null = |tb: &TypeTable, k: TypeId| matches!(tb.get(k), Type::Void | Type::Dynamic | Type::Null);
         let error = if matches!(v.table.get(x), Type::Void) {
             !empty_dynamic_or_null(&*v.table, flattened)
         } else if matches!(v.table.get(flattened), Type::Void) {
             !matches!(v.table.get(x), Type::Void | Type::Dynamic)
         } else {
-            let assignable = v.atribuivel(s, x);
+            let assignable = v.assignable(s, x);
             let sub = v.sub(flattened, x);
             !assignable && !sub
         };
         if error {
-            let args = [v.formatar(s), v.formatar(expected)];
-            v.saida.push(Diagnostic::com_codigo(warning::RETURN_OF_INVALID_TYPE_FROM_CATCH_ERROR, a.expr(r).span, args));
+            let args = [v.format(s), v.format(expected)];
+            v.output.push(Diagnostic::com_codigo(warning::RETURN_OF_INVALID_TYPE_FROM_CATCH_ERROR, a.expr(r).span, args));
         }
     }
 }

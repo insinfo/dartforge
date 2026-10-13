@@ -28,7 +28,7 @@ pub fn broken_bounds(program: &Program) -> HashSet<(DeclRef, usize)> {
         let u = UnitId(ui as u32);
         let lib = unit.library;
         for (di, d) in unit.ast.decls.iter().enumerate() {
-            let Some(tps) = parametros_de(&d.kind) else { continue };
+            let Some(tps) = parameters_of(&d.kind) else { continue };
             let target = DeclRef { unit: u, decl: ast::DeclId(di as u32) };
             let mut cycles: Vec<Vec<(DeclRef, usize)>> = Vec::new();
             for (i, tp) in tps.iter().enumerate() {
@@ -37,8 +37,8 @@ pub fn broken_bounds(program: &Program) -> HashSet<(DeclRef, usize)> {
                     continue;
                 }
                 let scope: Vec<SymbolId> = tps.iter().map(|p| p.name.sym).collect();
-                let mut search = Busca { programa: program, lib, alvo: target, broken: &broken, visited: Vec::new() };
-                cycles.extend(search.caminhos((target, i), u, &unit.ast, b, &mut scope.clone()));
+                let mut search = Search { program, lib, target, broken: &broken, visited: Vec::new() };
+                cycles.extend(search.paths((target, i), u, &unit.ast, b, &mut scope.clone()));
             }
             for cycle in cycles {
                 broken.extend(cycle);
@@ -51,7 +51,7 @@ pub fn broken_bounds(program: &Program) -> HashSet<(DeclRef, usize)> {
 /// The type parameters of the declarations that `DefaultTypesBuilder` walks
 /// and that a raw type can name (class, mixin, enum, extension type,
 /// `typedef`); extensions and functions are not targets of a raw type.
-fn parametros_de(k: &DeclKind) -> Option<&[TypeParameter]> {
+fn parameters_of(k: &DeclKind) -> Option<&[TypeParameter]> {
     match k {
         DeclKind::Class(x) => Some(&x.type_params),
         DeclKind::Mixin(x) => Some(&x.type_params),
@@ -62,32 +62,32 @@ fn parametros_de(k: &DeclKind) -> Option<&[TypeParameter]> {
     }
 }
 
-struct Busca<'a> {
-    programa: &'a Program,
+struct Search<'a> {
+    program: &'a Program,
     lib: LibraryId,
-    alvo: DeclRef,
+    target: DeclRef,
     broken: &'a HashSet<(DeclRef, usize)>,
     visited: Vec<DeclRef>,
 }
 
-impl Busca<'_> {
-    fn declaracao(&self, u: UnitId, the_name: &[ast::Name], scope: &[SymbolId]) -> Option<DeclRef> {
+impl Search<'_> {
+    fn declaration(&self, u: UnitId, the_name: &[ast::Name], scope: &[SymbolId]) -> Option<DeclRef> {
         let b = match the_name {
             [n] if scope.contains(&n.sym) => return None,
-            [n] => self.programa.lookup_na_unidade(u, n.sym),
-            [p, n] => self.programa.lookup_prefixed_na_unidade(u, p.sym, n.sym),
+            [n] => self.program.lookup_na_unidade(u, n.sym),
+            [p, n] => self.program.lookup_prefixed_na_unidade(u, p.sym, n.sym),
             _ => None,
         }?;
         let (lib, decl) = match b.getter? {
-            Element::Class(id) => (self.programa.class(id).library, self.programa.class(id).decl?),
-            Element::Typedef(id) => (self.programa.typedef(id).library, self.programa.typedef(id).decl),
+            Element::Class(id) => (self.program.class(id).library, self.program.class(id).decl?),
+            Element::Typedef(id) => (self.program.typedef(id).library, self.program.typedef(id).decl),
             _ => return None,
         };
         (lib == self.lib).then_some(decl)
     }
 
     /// `_findRawTypePathsToDeclaration(início, t, target, visited)`.
-    fn caminhos(
+    fn paths(
         &mut self,
         start: (DeclRef, usize),
         u: UnitId,
@@ -98,20 +98,20 @@ impl Busca<'_> {
         let mut output = Vec::new();
         match &a.ty(t).kind {
             TypeKind::Named { name, args } if args.is_empty() => {
-                let Some(d) = self.declaracao(u, name, scope) else { return output };
-                if d == self.alvo {
+                let Some(d) = self.declaration(u, name, scope) else { return output };
+                if d == self.target {
                     output.push(vec![start]);
                 } else if !self.visited.contains(&d) {
                     self.visited.push(d);
-                    let a_d = &self.programa.unit(d.unit).ast;
-                    if let Some(tps) = parametros_de(&a_d.decl(d.decl).kind) {
+                    let a_d = &self.program.unit(d.unit).ast;
+                    if let Some(tps) = parameters_of(&a_d.decl(d.decl).kind) {
                         let scope_d: Vec<SymbolId> = tps.iter().map(|p| p.name.sym).collect();
                         for (j, tp) in tps.iter().enumerate() {
                             let Some(b) = tp.bound else { continue };
                             if self.broken.contains(&(d, j)) {
                                 continue;
                             }
-                            for tail in self.caminhos((d, j), d.unit, a_d, b, &mut scope_d.clone()) {
+                            for tail in self.paths((d, j), d.unit, a_d, b, &mut scope_d.clone()) {
                                 let mut c = vec![start];
                                 c.extend(tail);
                                 output.push(c);
@@ -123,21 +123,21 @@ impl Busca<'_> {
             }
             TypeKind::Named { args, .. } => {
                 for &x in args.iter() {
-                    output.extend(self.caminhos(start, u, a, x, scope));
+                    output.extend(self.paths(start, u, a, x, scope));
                 }
             }
             TypeKind::Function { return_type, type_params, parameters } => {
                 let n = scope.len();
                 scope.extend(type_params.iter().map(|p| p.name.sym));
                 if let Some(r) = return_type {
-                    output.extend(self.caminhos(start, u, a, *r, scope));
+                    output.extend(self.paths(start, u, a, *r, scope));
                 }
                 for p in type_params.iter() {
                     if let Some(b) = p.bound {
-                        output.extend(self.caminhos(start, u, a, b, scope));
+                        output.extend(self.paths(start, u, a, b, scope));
                     }
                 }
-                self.parametros(start, u, a, parameters, scope, &mut output);
+                self.parameters(start, u, a, parameters, scope, &mut output);
                 scope.truncate(n);
             }
             TypeKind::Record { .. } | TypeKind::Void => {}
@@ -147,7 +147,7 @@ impl Busca<'_> {
 
     /// The parameter types of a function type; a function-style parameter
     /// (`int f(A x)`) is a function type with the written return type.
-    fn parametros(
+    fn parameters(
         &mut self,
         start: (DeclRef, usize),
         u: UnitId,
@@ -160,15 +160,15 @@ impl Busca<'_> {
             let n = scope.len();
             scope.extend(p.function_type_params.iter().map(|x| x.name.sym));
             if let Some(t) = p.ty {
-                output.extend(self.caminhos(start, u, a, t, scope));
+                output.extend(self.paths(start, u, a, t, scope));
             }
             if let Some(inner) = &p.function_parameters {
                 for tp in p.function_type_params.iter() {
                     if let Some(b) = tp.bound {
-                        output.extend(self.caminhos(start, u, a, b, scope));
+                        output.extend(self.paths(start, u, a, b, scope));
                     }
                 }
-                self.parametros(start, u, a, inner, scope, output);
+                self.parameters(start, u, a, inner, scope, output);
             }
             scope.truncate(n);
         }

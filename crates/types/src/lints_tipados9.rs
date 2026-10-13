@@ -18,7 +18,7 @@
 
 use crate::constantes::avaliador::{Constante, Ctx, Motor};
 use crate::constantes::valor::Valor;
-use crate::lints_tipados::Achado;
+use crate::lints_tipados::Finding;
 use crate::resolve::OutlineTypes;
 use crate::resolved::{BodyTypes, MemberRef, Resolved};
 use crate::subtyping::{is_subtype, SubtypeEnv};
@@ -29,7 +29,7 @@ use dartforge_intern::Interner;
 use std::collections::HashSet;
 
 /// The written parameters of a model function, with the unit.
-fn parametros_de(program: &Program, f: FunctionElementId) -> Option<(UnitId, &[ast::Parameter])> {
+fn parameters_of(program: &Program, f: FunctionElementId) -> Option<(UnitId, &[ast::Parameter])> {
     match program.function(f).node {
         FunctionRef::Function { unit, function } => Some((unit, program.unit(unit).ast.function(function).parameters.as_deref().unwrap_or(&[]))),
         FunctionRef::Constructor { unit, member } => match &program.unit(unit).ast.member(member).kind {
@@ -60,11 +60,11 @@ fn redirected(program: &Program, interner: &Interner, f: FunctionElementId) -> O
 /// A written parameter with its owner function (for `super.x`).
 #[derive(Clone, Copy)]
 struct Param<'p> {
-    dono: Option<FunctionElementId>,
-    unidade: UnitId,
+    owner: Option<FunctionElementId>,
+    unit: UnitId,
     p: &'p ast::Parameter,
     /// The index in the written list.
-    indice: usize,
+    index: usize,
 }
 
 struct Cx<'m, 'p> {
@@ -72,7 +72,7 @@ struct Cx<'m, 'p> {
     interner: &'p Interner,
     core: &'p CoreTypes,
     outline: &'p OutlineTypes,
-    motor: Motor<'m>,
+    engine: Motor<'m>,
 }
 
 impl<'p> Cx<'_, 'p> {
@@ -81,32 +81,32 @@ impl<'p> Cx<'_, 'p> {
     }
 
     /// `computeConstantValue` of the optional parameter.
-    fn padrao(&mut self, q: Param<'p>, prof: u32) -> Option<Valor> {
+    fn pattern(&mut self, q: Param<'p>, prof: u32) -> Option<Valor> {
         if prof > 32 {
             return None;
         }
         if let Some(d) = q.p.default_value {
-            let lib = self.lib(q.unidade);
-            return match self.motor.default_result(q.unidade, lib, d) {
+            let lib = self.lib(q.unit);
+            return match self.engine.default_result(q.unit, lib, d) {
                 Constante::Valor(v) => Some(v),
                 Constante::Invalid(_) => None,
             };
         }
         if !q.p.super_ {
-            return Some(Valor::nulo(self.core));
+            return Some(Valor::null(self.core));
         }
         // `_superConstructorParameterDefaultValue`.
-        let f = q.dono?;
-        let sup = self.parametro_do_super(f, q)?;
-        let v = self.padrao(sup, prof + 1)?;
-        let own = self.outline.functions.get(f.0 as usize)?.parameters.get(q.indice)?.ty;
-        let mut env = SubtypeEnv::new(self.motor.table, &self.outline.hierarchy, self.core);
+        let f = q.owner?;
+        let sup = self.super_parameter(f, q)?;
+        let v = self.pattern(sup, prof + 1)?;
+        let own = self.outline.functions.get(f.0 as usize)?.parameters.get(q.index)?.ty;
+        let mut env = SubtypeEnv::new(self.engine.table, &self.outline.hierarchy, self.core);
         is_subtype(v.tipo, own, &mut env).then_some(v)
     }
 
     /// `superConstructorParameter`: the parameter with the same name (named) or
     /// at the same position among the positional `super.x`.
-    fn parametro_do_super(&self, f: FunctionElementId, q: Param<'p>) -> Option<Param<'p>> {
+    fn super_parameter(&self, f: FunctionElementId, q: Param<'p>) -> Option<Param<'p>> {
         let program = self.program;
         let FunctionRef::Constructor { unit, member } = program.function(f).node else { return None };
         let MemberKind::Constructor(k) = &program.unit(unit).ast.member(member).kind else { return None };
@@ -121,7 +121,7 @@ impl<'p> Cx<'_, 'p> {
             None => self.interner.lookup("")?,
         };
         let g = *program.class(sup).constructors.get(&key)?;
-        let (gu, gps) = parametros_de(program, g)?;
+        let (gu, gps) = parameters_of(program, g)?;
         let tgt = if q.p.kind == ParameterKind::Named {
             let n = q.p.nome_externo()?.sym;
             gps.iter().position(|x| x.kind == ParameterKind::Named && x.nome_externo().is_some_and(|m| m.sym == n))?
@@ -130,39 +130,39 @@ impl<'p> Cx<'_, 'p> {
             let positional: Vec<usize> = gps.iter().enumerate().filter(|(_, x)| x.kind != ParameterKind::Named).map(|(j, _)| j).collect();
             *positional.get(i)?
         };
-        Some(Param { dono: Some(g), unidade: gu, p: &gps[tgt], indice: tgt })
+        Some(Param { owner: Some(g), unit: gu, p: &gps[tgt], index: tgt })
     }
 
     /// `checkArgument`. `report`: the reported node, when it is not the value
     /// (the whole `NamedExpression` on the redirecting factory path, which does
     /// not unwrap it).
     #[allow(clippy::too_many_arguments)]
-    fn checar(&mut self, u: UnitId, pais: &dartforge_frontend::pais::Pais, value: ExprId, param: Option<Param<'p>>, report: Option<dartforge_diagnostics::Span>, out: &mut Vec<Achado>) {
+    fn check(&mut self, u: UnitId, pais: &dartforge_frontend::pais::Pais, value: ExprId, param: Option<Param<'p>>, report: Option<dartforge_diagnostics::Span>, out: &mut Vec<Finding>) {
         let Some(q) = param else { return };
         if q.p.kind != ParameterKind::Optional && q.p.kind != ParameterKind::Named {
             return;
         }
-        if q.p.required || q.p.metadata.iter().any(|m| crate::fase_resultado::meta_annotation(self.program, self.interner, q.unidade, m, "required")) {
+        if q.p.required || q.p.metadata.iter().any(|m| crate::fase_resultado::meta_annotation(self.program, self.interner, q.unit, m, "required")) {
             return;
         }
-        let Some(pattern) = self.padrao(q, 0) else { return };
-        if pattern.estado.desconhecido() {
+        let Some(pattern) = self.pattern(q, 0) else { return };
+        if pattern.estado.unknown() {
             return;
         }
         let a = &self.program.unit(u).ast;
         let cx = Ctx::simples(u, self.lib(u));
         let in_const = pais.em_contexto_constante(a, value);
-        let Constante::Valor(v) = self.motor.avaliar(&cx, value, in_const) else { return };
-        if v.estado.desconhecido() {
+        let Constante::Valor(v) = self.engine.avaliar(&cx, value, in_const) else { return };
+        if v.estado.unknown() {
             return;
         }
-        if self.motor.iguais(&v, &pattern) {
+        if self.engine.iguais(&v, &pattern) {
             out.push((report.unwrap_or(a.expr(value).span), "avoid_redundant_argument_values", Vec::new()));
         }
     }
 
     /// `check`: the `staticParameterElement` of each argument.
-    fn lista(&mut self, u: UnitId, pais: &dartforge_frontend::pais::Pais, args: &ast::Arguments, tgt: Option<(Option<FunctionElementId>, UnitId, &'p [ast::Parameter])>, out: &mut Vec<Achado>) {
+    fn list(&mut self, u: UnitId, pais: &dartforge_frontend::pais::Pais, args: &ast::Arguments, tgt: Option<(Option<FunctionElementId>, UnitId, &'p [ast::Parameter])>, out: &mut Vec<Finding>) {
         for i in (0..args.args.len()).rev() {
             let x = args.args[i];
             let param = tgt.and_then(|(owner, pu, ps)| {
@@ -173,9 +173,9 @@ impl<'p> Cx<'_, 'p> {
                         ps.iter().enumerate().filter(|(_, p)| p.kind != ParameterKind::Named).nth(k).map(|(j, _)| j)
                     }
                 };
-                index.map(|j| Param { dono: owner, unidade: pu, p: &ps[j], indice: j })
+                index.map(|j| Param { owner, unit: pu, p: &ps[j], index: j })
             });
-            self.checar(u, pais, x.value, param, None, out);
+            self.check(u, pais, x.value, param, None, out);
             if param.is_some_and(|q| q.p.kind == ParameterKind::Optional) {
                 break;
             }
@@ -183,17 +183,17 @@ impl<'p> Cx<'_, 'p> {
     }
 
     /// `visitInstanceCreationExpression`.
-    fn criacao(&mut self, u: UnitId, pais: &dartforge_frontend::pais::Pais, args: &ast::Arguments, ctor: Option<FunctionElementId>, out: &mut Vec<Achado>) {
+    fn creation(&mut self, u: UnitId, pais: &dartforge_frontend::pais::Pais, args: &ast::Arguments, ctor: Option<FunctionElementId>, out: &mut Vec<Finding>) {
         let Some(k) = ctor else {
-            self.lista(u, pais, args, None, out);
+            self.list(u, pais, args, None, out);
             return;
         };
-        let target_of = |f: FunctionElementId| parametros_de(self.program, f).map(|(pu, ps)| (Some(f), pu, ps));
+        let target_of = |f: FunctionElementId| parameters_of(self.program, f).map(|(pu, ps)| (Some(f), pu, ps));
         let factory = matches!(self.program.function(k).node, FunctionRef::Constructor { unit, member } if matches!(&self.program.unit(unit).ast.member(member).kind, MemberKind::Constructor(c) if c.factory));
         let mut redirected_to = if factory { redirected(self.program, self.interner, k) } else { None };
         if !factory || redirected_to.is_none() {
             let tgt = target_of(k);
-            self.lista(u, pais, args, tgt, out);
+            self.list(u, pais, args, tgt, out);
             return;
         }
         let mut seen: HashSet<FunctionElementId> = HashSet::from([k]);
@@ -220,9 +220,9 @@ impl<'p> Cx<'_, 'p> {
                     (j < ps.len() && ps[j].kind != ParameterKind::Named).then_some(j)
                 }
             };
-            let param = index.map(|j| Param { dono: owner, unidade: pu, p: &ps[j], indice: j });
+            let param = index.map(|j| Param { owner, unit: pu, p: &ps[j], index: j });
             let report = x.name.map(|n| dartforge_diagnostics::Span { start: n.span.start, end: self.program.unit(u).ast.expr(x.value).span.end });
-            self.checar(u, pais, x.value, param, report, out);
+            self.check(u, pais, x.value, param, report, out);
             if param.is_some_and(|q| q.p.kind == ParameterKind::Optional) {
                 break;
             }
@@ -241,7 +241,7 @@ pub fn achados(
     bodies: &BodyTypes,
     the_inferred: &HashSet<LibraryId>,
     u: UnitId,
-) -> Vec<Achado> {
+) -> Vec<Finding> {
     let mut out = Vec::new();
     let unit_id = program.unit(u);
     let a = &unit_id.ast;
@@ -249,7 +249,7 @@ pub fn achados(
     let before_3 = program.library(unit_id.library).features.versao().major < 3;
     let pais = dartforge_frontend::pais::Pais::novo(a, &unit_id.unit, unit_id.source.as_str(), before_3);
     let engine = Motor::novo(program, interner, table, core, outline, bodies, the_inferred);
-    let mut cx = Cx { program, interner, core, outline, motor: engine };
+    let mut cx = Cx { program, interner, core, outline, engine };
     // The local function declared at `d` (the name's offset).
     let local = |d: usize| -> Option<&[ast::Parameter]> {
         a.stmts.iter().find_map(|s| match &s.kind {
@@ -269,7 +269,7 @@ pub fn achados(
         if program.function(f).kind == dartforge_elements::model::FunctionKind::Getter {
             return None;
         }
-        parametros_de(program, f).map(|(pu, ps)| (Some(f), pu, ps))
+        parameters_of(program, f).map(|(pu, ps)| (Some(f), pu, ps))
     };
     for (k, e) in a.exprs.iter().enumerate() {
         let id = ExprId(k as u32);
@@ -279,19 +279,19 @@ pub fn achados(
                     Some(Resolved::Constructor(f)) => Some(*f),
                     _ => None,
                 };
-                cx.criacao(u, &pais, arguments, ctor, &mut out);
+                cx.creation(u, &pais, arguments, ctor, &mut out);
             }
             ExprKind::Call { target, arguments } => {
                 if let Some(Resolved::Constructor(f)) = body.get_resolved(id) {
-                    cx.criacao(u, &pais, arguments, Some(*f), &mut out);
+                    cx.creation(u, &pais, arguments, Some(*f), &mut out);
                     continue;
                 }
                 if arguments.args.is_empty() {
                     continue;
                 }
-                if crate::lints_tipados4::e_invocacao_de_metodo(program, a, body, *target) {
+                if crate::lints_tipados4::is_method_invocation(program, a, body, *target) {
                     let tgt = of_function(*target);
-                    cx.lista(u, &pais, arguments, tgt, &mut out);
+                    cx.list(u, &pais, arguments, tgt, &mut out);
                     continue;
                 }
                 // `FunctionExpressionInvocation`: the tear-off of a declared
@@ -301,7 +301,7 @@ pub fn achados(
                     f = *x;
                 }
                 let tgt = if matches!(a.expr(f).kind, ExprKind::Identifier(_) | ExprKind::Property { .. }) { of_function(f) } else { None };
-                cx.lista(u, &pais, arguments, tgt, &mut out);
+                cx.list(u, &pais, arguments, tgt, &mut out);
             }
             _ => {}
         }
@@ -323,8 +323,8 @@ pub fn achados(
             };
             let tgt = key
                 .and_then(|c| program.class(class).constructors.get(&c).copied())
-                .and_then(|f| parametros_de(program, f).map(|(pu, ps)| (Some(f), pu, ps)));
-            cx.lista(u, &pais, args, tgt, &mut out);
+                .and_then(|f| parameters_of(program, f).map(|(pu, ps)| (Some(f), pu, ps)));
+            cx.list(u, &pais, args, tgt, &mut out);
         }
     }
     out

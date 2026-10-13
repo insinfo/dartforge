@@ -24,7 +24,7 @@ use dartforge_intern::SymbolId;
 use std::rc::Rc;
 
 /// `ElementKind.displayName` of a class.
-fn especie(program: &Program, c: ClassId) -> &'static str {
+fn the_kind(program: &Program, c: ClassId) -> &'static str {
     match program.class(c).kind {
         ClassKind::Class | ClassKind::MixinApplication => "class",
         ClassKind::Mixin => "mixin",
@@ -35,7 +35,7 @@ fn especie(program: &Program, c: ClassId) -> &'static str {
 
 /// A context message at a point of `u` (the file, when it is not the
 /// error's).
-fn contexto(program: &Program, error_unit: UnitId, u: UnitId, span: Span, message: String) -> Contexto {
+fn context(program: &Program, error_unit: UnitId, u: UnitId, span: Span, message: String) -> Contexto {
     Contexto { arquivo: (u != error_unit).then(|| program.caminho_da_unidade(u).into()), span, mensagem: message.into() }
 }
 
@@ -45,7 +45,7 @@ impl BodyInferrer<'_> {
         if let Some(p) = self.promotion_by_library.get(&lib) {
             return p.clone();
         }
-        let p = Rc::new(field_promotion::calcular(self.program, self.interner, lib));
+        let p = Rc::new(field_promotion::compute(self.program, self.interner, lib));
         self.promotion_by_library.insert(lib, p.clone());
         p
     }
@@ -109,18 +109,18 @@ impl BodyInferrer<'_> {
     /// reason for each type is kept).
     pub(crate) fn record_local_non_promotion(&mut self, cx: &Body, e: ExprId, id: LocalId) {
         let key = (cx.unit, e);
-        let Some(m) = cx.flow.modelo(id) else {
+        let Some(m) = cx.flow.model(id) else {
             self.non_promotions.remove(&key);
             return;
         };
-        let current = m.cadeia.last().copied().unwrap_or(cx.local(id).tipo);
+        let current = m.chain.last().copied().unwrap_or(cx.local(id).ty);
         let mut history = m.history.clone();
         let mut r: Vec<(TypeId, NonPromotionReason)> = Vec::new();
         while let Some(no) = history {
-            if !self.sub(current, no.tipo) && !r.iter().any(|(t, _)| *t == no.tipo) {
-                r.push((no.tipo, no.motivo.clone()));
+            if !self.sub(current, no.ty) && !r.iter().any(|(t, _)| *t == no.ty) {
+                r.push((no.ty, no.reason.clone()));
             }
-            history = no.anterior.clone();
+            history = no.previous.clone();
         }
         if r.is_empty() {
             self.non_promotions.remove(&key);
@@ -141,9 +141,9 @@ impl BodyInferrer<'_> {
                 if Some(g) == own {
                     continue;
                 }
-                if let Some(m) = cx.flow.modelo(g) {
-                    if !m.cadeia.is_empty() {
-                        lists.push(m.cadeia.clone());
+                if let Some(m) = cx.flow.model(g) {
+                    if !m.chain.is_empty() {
+                        lists.push(m.chain.clone());
                     }
                 }
             }
@@ -155,7 +155,7 @@ impl BodyInferrer<'_> {
         let name = property_key.2;
         let inherent = self.why_not_promoted(name, f);
         let enabled = field_promotion::enabled(self.program, cx.lib);
-        let reason = NonPromotionReason::Propriedade { nome: name, membro: f, inherent, enabled };
+        let reason = NonPromotionReason::Property { nome: name, membro: f, inherent, enabled };
         let mut r: Vec<(TypeId, NonPromotionReason)> = Vec::new();
         for l in lists {
             for t in l {
@@ -171,8 +171,8 @@ impl BodyInferrer<'_> {
     /// promoted type of `this`, with `ThisNotPromoted`.
     fn this_reasons(&self, cx: &Body) -> Vec<(TypeId, NonPromotionReason)> {
         let Some(id) = cx.local_this else { return Vec::new() };
-        let Some(m) = cx.flow.modelo(id) else { return Vec::new() };
-        m.cadeia.iter().map(|&t| (t, NonPromotionReason::This)).collect()
+        let Some(m) = cx.flow.model(id) else { return Vec::new() };
+        m.chain.iter().map(|&t| (t, NonPromotionReason::This)).collect()
     }
 
     /// `computeWhyNotPromotedMessages(errorEntity, whyNotPromoted(target))`: the
@@ -210,7 +210,7 @@ impl BodyInferrer<'_> {
                 vec![Contexto { arquivo: None, span: *span, mensagem: text.into() }]
             }
             NonPromotionReason::This => vec![Contexto { arquivo: None, span: error, mensagem: "'this' can't be promoted".into() }],
-            NonPromotionReason::Propriedade { nome: name, membro: member, inherent, enabled } => {
+            NonPromotionReason::Property { nome: name, membro: member, inherent, enabled } => {
                 let program = self.program;
                 let fe = program.function(*member);
                 // `receiverElement is PropertyAccessorElement`: only getters.
@@ -230,9 +230,9 @@ impl BodyInferrer<'_> {
                             WhyNotPromoted::NonFinal => format!("'{text}' refers to a non-final field so it couldn't be promoted."),
                         };
                         if let Some((u, s)) = where_ {
-                            r.push(contexto(program, cx.unit, u, s, message));
+                            r.push(context(program, cx.unit, u, s, message));
                             if !enabled {
-                                r.push(contexto(program, cx.unit, u, s, unavailable));
+                                r.push(context(program, cx.unit, u, s, unavailable));
                             }
                         }
                     }
@@ -241,30 +241,30 @@ impl BodyInferrer<'_> {
                         if let Some(i) = info.info.get(name) {
                             let conflict = |ty: &str, c: Option<ClassId>| {
                                 let (k, n) = match c {
-                                    Some(c) => (especie(program, c), self.interner.resolve(program.class(c).name).to_string()),
+                                    Some(c) => (the_kind(program, c), self.interner.resolve(program.class(c).name).to_string()),
                                     None => ("class", String::new()),
                                 };
                                 format!("'{text}' couldn't be promoted because there is a conflicting {ty} in {k} '{n}'")
                             };
-                            for &v in &i.campos {
+                            for &v in &i.fields {
                                 if let Some((u, s)) = program.nome_da_variavel(v) {
-                                    r.push(contexto(program, cx.unit, u, s, conflict("non-promotable field", program.variable(v).class)));
+                                    r.push(context(program, cx.unit, u, s, conflict("non-promotable field", program.variable(v).class)));
                                 }
                             }
                             for &g in &i.getters {
                                 if let Some((u, s)) = program.nome_nao_sintetico_da_funcao(g) {
-                                    r.push(contexto(program, cx.unit, u, s, conflict("getter", program.function(g).class)));
+                                    r.push(context(program, cx.unit, u, s, conflict("getter", program.function(g).class)));
                                 }
                             }
                             for &c in &i.nsm_classes {
                                 if let Some((u, s)) = program.nome_da_classe(c) {
-                                    r.push(contexto(program, cx.unit, u, s, conflict("noSuchMethod forwarder", Some(c))));
+                                    r.push(context(program, cx.unit, u, s, conflict("noSuchMethod forwarder", Some(c))));
                                 }
                             }
                         }
                         if !enabled {
                             if let Some((u, s)) = where_ {
-                                r.push(contexto(program, cx.unit, u, s, unavailable));
+                                r.push(context(program, cx.unit, u, s, unavailable));
                             }
                         }
                     }

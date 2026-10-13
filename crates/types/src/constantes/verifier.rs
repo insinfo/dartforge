@@ -6,7 +6,7 @@
 //! of `const` constructors.
 
 use super::avaliador::{Constante, Ctx, Invalid, Motor};
-use super::exhaustiveness::{Caso, Entrada, Exhaustiveness};
+use super::exhaustiveness::{Case, Entry, Exhaustiveness};
 use super::valor::{Estado, Valor};
 use crate::resolved::Resolved;
 use crate::table::{Type, TypeId};
@@ -73,11 +73,11 @@ pub const CODIGOS: &[&str] = &[
 struct Verifier<'m, 'a> {
     m: &'m mut Motor<'a>,
     lib: LibraryId,
-    unidade: UnitId,
-    saida: Vec<(UnitId, Diagnostic)>,
+    unit: UnitId,
+    output: Vec<(UnitId, Diagnostic)>,
     /// `(unit_id, mem, índice)` → variable; `(unit_id, decl, índice)` → variable.
-    campos: HashMap<(UnitId, ast::MemberId, usize), VariableId>,
-    topo: HashMap<(UnitId, ast::DeclId, usize), VariableId>,
+    fields: HashMap<(UnitId, ast::MemberId, usize), VariableId>,
+    top: HashMap<(UnitId, ast::DeclId, usize), VariableId>,
     /// The class (declaration) of each member.
     member_class: HashMap<(UnitId, ast::MemberId), ClassId>,
     patterns_enabled: bool,
@@ -144,7 +144,7 @@ pub fn creation_can_be_const(m: &mut Motor<'_>, lib: LibraryId, unit_id: UnitId,
         ExprKind::InstanceCreation { arguments, .. } | ExprKind::Call { arguments, .. } => &**arguments,
         _ => return false,
     };
-    let Some(Resolved::Constructor(f)) = m.resolvido(unit_id, e) else { return false };
+    let Some(Resolved::Constructor(f)) = m.resolved(unit_id, e) else { return false };
     if !program.function(*f).const_ {
         return false;
     }
@@ -152,10 +152,10 @@ pub fn creation_can_be_const(m: &mut Motor<'_>, lib: LibraryId, unit_id: UnitId,
     let mut v = Verifier {
         m,
         lib,
-        unidade: unit_id,
-        saida: Vec::new(),
-        campos: HashMap::new(),
-        topo: HashMap::new(),
+        unit: unit_id,
+        output: Vec::new(),
+        fields: HashMap::new(),
+        top: HashMap::new(),
         member_class: HashMap::new(),
         patterns_enabled,
         the_default_values: HashMap::new(),
@@ -163,7 +163,7 @@ pub fn creation_can_be_const(m: &mut Motor<'_>, lib: LibraryId, unit_id: UnitId,
         in_constant_expression: false,
     };
     v.constant_creation(a, e, args_list);
-    !v.saida.iter().any(|(_, d)| d.code.is_some_and(|c| CONSTANT_ERRORS.contains(&c.info().unico)))
+    !v.output.iter().any(|(_, d)| d.code.is_some_and(|c| CONSTANT_ERRORS.contains(&c.info().unico)))
 }
 
 /// A verifier without the library's tables (the lint queries).
@@ -172,10 +172,10 @@ fn standalone_verifier<'v, 'm>(m: &'v mut Motor<'m>, lib: LibraryId, unit_id: Un
     Verifier {
         m,
         lib,
-        unidade: unit_id,
-        saida: Vec::new(),
-        campos: HashMap::new(),
-        topo: HashMap::new(),
+        unit: unit_id,
+        output: Vec::new(),
+        fields: HashMap::new(),
+        top: HashMap::new(),
         member_class: HashMap::new(),
         patterns_enabled,
         the_default_values: HashMap::new(),
@@ -191,7 +191,7 @@ pub fn literal_can_be_const(m: &mut Motor<'_>, lib: LibraryId, unit_id: UnitId, 
     let a = m.ast(unit_id);
     let mut v = standalone_verifier(m, lib, unit_id);
     v.expr(a, e, true);
-    !v.saida.iter().any(|(_, d)| d.code.is_some_and(|c| CONSTANT_ERRORS.contains(&c.info().unico)))
+    !v.output.iter().any(|(_, d)| d.code.is_some_and(|c| CONSTANT_ERRORS.contains(&c.info().unico)))
 }
 
 /// `ConstructorDeclaration.canBeConst` (`analyzer/lib/src/lint/linter.dart`):
@@ -229,7 +229,7 @@ pub fn constructor_can_be_const(m: &mut Motor<'_>, lib: LibraryId, unit_id: Unit
         }
     }
     if !k.factory {
-        for fm in v.membros_da_classe(a, cls) {
+        for fm in v.class_members(a, cls) {
             let MemberKind::Field(l) = &a.member(fm).kind else { continue };
             if l.static_ {
                 continue;
@@ -244,11 +244,11 @@ pub fn constructor_can_be_const(m: &mut Motor<'_>, lib: LibraryId, unit_id: Unit
         }
     }
     v.default_values(a, &k.parameters);
-    !v.saida.iter().any(|(_, d)| d.code.is_some_and(|c| CONSTANT_ERRORS.contains(&c.info().unico)))
+    !v.output.iter().any(|(_, d)| d.code.is_some_and(|c| CONSTANT_ERRORS.contains(&c.info().unico)))
 }
 
 /// The constant errors of the units of `lib`.
-pub fn verificar(m: &mut Motor<'_>, lib: LibraryId) -> Vec<(UnitId, Diagnostic)> {
+pub fn the_verify(m: &mut Motor<'_>, lib: LibraryId) -> Vec<(UnitId, Diagnostic)> {
     // The cycles come from the dependency graph, before any evaluation
     // (`computeConstants`).
     super::cycles::compute(m, lib);
@@ -277,10 +277,10 @@ pub fn verificar(m: &mut Motor<'_>, lib: LibraryId) -> Vec<(UnitId, Diagnostic)>
     let mut v = Verifier {
         m,
         lib,
-        unidade: UnitId(0),
-        saida: Vec::new(),
-        campos: the_fields,
-        topo: top,
+        unit: UnitId(0),
+        output: Vec::new(),
+        fields: the_fields,
+        top,
         member_class,
         patterns_enabled,
         the_default_values: HashMap::new(),
@@ -291,20 +291,20 @@ pub fn verificar(m: &mut Motor<'_>, lib: LibraryId) -> Vec<(UnitId, Diagnostic)>
         if program.unit(u).role == dartforge_elements::model::UnitRole::Patch {
             continue;
         }
-        v.unidade = u;
+        v.unit = u;
         v.the_default_values.clear();
         v.key_values.clear();
         let a = v.m.ast(u);
         for &d in &program.unit(u).unit.declarations {
-            v.declaracao(a, d);
+            v.declaration(a, d);
         }
         // `visitAnnotation`: the arguments of an annotation that creates with a
         // `const` constructor (`_validateConstantArguments`).
         for m in dartforge_frontend::pais::todas_as_anotacoes(a, &program.unit(u).unit) {
-            v.anotacao(m);
+            v.annotation(m);
         }
     }
-    v.saida
+    v.output
 }
 
 impl Verifier<'_, '_> {
@@ -315,7 +315,7 @@ impl Verifier<'_, '_> {
     /// otherwise, `CONST_WITH_NON_CONST` at the `const` keyword.
     fn non_const_forwarded(&mut self, ty: ast::TypeId, mut the_constructor: Option<ast::Name>, span: Span) {
         let program = self.m.program;
-        let u = self.unidade;
+        let u = self.unit;
         let class = match self.annotation_type(ty).map(|t| self.m.table.get(t).clone()) {
             Some(Type::Interface { class, .. }) => class,
             _ => {
@@ -351,7 +351,7 @@ impl Verifier<'_, '_> {
         let Some(the_key) = the_key else { return };
         let Some(e_const) = self.const_forwarded_constructor(*class, the_key, 0) else { return };
         if !e_const {
-            self.relatar(c::CONST_WITH_NON_CONST, Span { start: span.start, end: span.start + 5 }, Vec::new());
+            self.report(c::CONST_WITH_NON_CONST, Span { start: span.start, end: span.start + 5 }, Vec::new());
         }
     }
 
@@ -380,11 +380,11 @@ impl Verifier<'_, '_> {
     /// `ConstantVerifier.visitAnnotation`: the element is a `const` constructor
     /// with an argument list; each argument is evaluated, and one that is not
     /// constant is `CONST_WITH_NON_CONSTANT_ARGUMENT`.
-    fn anotacao(&mut self, m: &ast::Annotation) {
+    fn annotation(&mut self, m: &ast::Annotation) {
         let Some(args) = &m.arguments else { return };
         let program = self.m.program;
         let interner = self.m.interner;
-        let Some(el) = crate::anotacoes::annotation_element(program, interner, self.unidade, m) else { return };
+        let Some(el) = crate::anotacoes::annotation_element(program, interner, self.unit, m) else { return };
         let cls = match el {
             dartforge_elements::model::Element::Class(c) => c,
             dartforge_elements::model::Element::Typedef(td) => match self.m.table.get(self.m.outline.typedefs[td.0 as usize].target_type) {
@@ -412,34 +412,34 @@ impl Verifier<'_, '_> {
     }
 
     fn cx(&self) -> Ctx {
-        Ctx::simples(self.unidade, self.lib)
+        Ctx::simples(self.unit, self.lib)
     }
 
-    fn relatar(&mut self, code: Codigo, span: Span, args: Vec<String>) {
-        self.saida.push((self.unidade, Diagnostic::com_codigo(code, span, args)));
+    fn report(&mut self, code: Codigo, span: Span, args: Vec<String>) {
+        self.output.push((self.unit, Diagnostic::com_codigo(code, span, args)));
     }
 
     /// The error with its code and the `contextMessages` (in each one's file,
     /// when it is not this unit's).
     fn report_with_context(&mut self, i: &Invalid) {
-        let mut d = Diagnostic::com_codigo(i.codigo, i.span, i.args.clone());
-        for (u, span, text) in &i.contexto {
-            let file = (*u != self.unidade).then(|| self.m.program.caminho_da_unidade(*u).into());
+        let mut d = Diagnostic::com_codigo(i.code, i.span, i.args.clone());
+        for (u, span, text) in &i.context {
+            let file = (*u != self.unit).then(|| self.m.program.caminho_da_unidade(*u).into());
             d.contexto.push(dartforge_diagnostics::Contexto { arquivo: file, span: *span, mensagem: text.as_str().into() });
         }
-        self.saida.push((self.unidade, d));
+        self.output.push((self.unit, d));
     }
 
     /// `_reportError`: the specific code carries the context messages; the
     /// default one does not.
     fn report_invalid(&mut self, i: &Invalid, the_pattern: Option<Codigo>) {
-        if i.avoid_report || i.unidade != self.unidade {
+        if i.avoid_report || i.unit != self.unit {
             return;
         }
-        if SPECIFIC.contains(&i.codigo) {
+        if SPECIFIC.contains(&i.code) {
             self.report_with_context(i);
         } else if let Some(p) = the_pattern {
-            self.relatar(p, i.span, Vec::new());
+            self.report(p, i.span, Vec::new());
         }
     }
 
@@ -456,7 +456,7 @@ impl Verifier<'_, '_> {
 
     // -- Declarations -------------------------------------------------------------
 
-    fn declaracao(&mut self, a: &ast::Ast, d: ast::DeclId) {
+    fn declaration(&mut self, a: &ast::Ast, d: ast::DeclId) {
         let decl = a.decl(d);
         match &decl.kind {
             DeclKind::Variables(l) => {
@@ -464,18 +464,18 @@ impl Verifier<'_, '_> {
                     if let Some(init) = var.initializer {
                         self.expr(a, init, l.const_);
                         if l.const_ {
-                            if let Some(&v) = self.topo.get(&(self.unidade, d, i)) {
+                            if let Some(&v) = self.top.get(&(self.unit, d, i)) {
                                 self.variable_result(v, true);
                             }
                         }
                     }
                 }
             }
-            DeclKind::Function(f) => self.funcao(a, *f),
-            DeclKind::Class(k) => self.membros(a, &k.members),
-            DeclKind::Mixin(k) => self.membros(a, &k.members),
+            DeclKind::Function(f) => self.function(a, *f),
+            DeclKind::Class(k) => self.members(a, &k.members),
+            DeclKind::Mixin(k) => self.members(a, &k.members),
             DeclKind::Enum(k) => {
-                let unit_id = self.unidade;
+                let unit_id = self.unit;
                 let cls = self.m.program.classes.iter().position(|c| c.decl.is_some_and(|r| r.unit == unit_id && r.decl == d));
                 for (i, cst) in k.constants.iter().enumerate() {
                     if let Some(args) = &cst.arguments {
@@ -497,10 +497,10 @@ impl Verifier<'_, '_> {
                         self.variable_result(v, false);
                     }
                 }
-                self.membros(a, &k.members);
+                self.members(a, &k.members);
             }
-            DeclKind::Extension(k) => self.membros(a, &k.members),
-            DeclKind::ExtensionType(k) => self.membros(a, &k.members),
+            DeclKind::Extension(k) => self.members(a, &k.members),
+            DeclKind::ExtensionType(k) => self.members(a, &k.members),
             DeclKind::Typedef(_) => {}
         }
     }
@@ -513,7 +513,7 @@ impl Verifier<'_, '_> {
         }
     }
 
-    fn membros(&mut self, a: &ast::Ast, members: &[ast::MemberId]) {
+    fn members(&mut self, a: &ast::Ast, members: &[ast::MemberId]) {
         for &mid in members {
             let mem = a.member(mid);
             match &mem.kind {
@@ -521,7 +521,7 @@ impl Verifier<'_, '_> {
                     for (i, var) in l.variables.iter().enumerate() {
                         let Some(init) = var.initializer else { continue };
                         let const_class = !l.static_
-                            && self.member_class.get(&(self.unidade, mid)).copied().is_some_and(|k| {
+                            && self.member_class.get(&(self.unit, mid)).copied().is_some_and(|k| {
                                 self.m.program.class(k).kind == dartforge_elements::model::ClassKind::Class && self.has_const_generative_constructor(k)
                             });
                         let before = std::mem::replace(&mut self.in_constant_expression, const_class);
@@ -545,9 +545,9 @@ impl Verifier<'_, '_> {
                                 continue;
                             }
                         }
-                        let Some(&v) = self.campos.get(&(self.unidade, mid, i)) else { continue };
+                        let Some(&v) = self.fields.get(&(self.unit, mid, i)) else { continue };
                         if !l.static_ {
-                            let cls = self.member_class.get(&(self.unidade, mid)).copied();
+                            let cls = self.member_class.get(&(self.unit, mid)).copied();
                             let has = cls.is_some_and(|k| self.has_const_generative_constructor(k));
                             let is_class = cls.is_some_and(|k| self.m.program.class(k).kind == dartforge_elements::model::ClassKind::Class);
                             if is_class && !has {
@@ -562,8 +562,8 @@ impl Verifier<'_, '_> {
                         self.variable_result(v, l.const_);
                     }
                 }
-                MemberKind::Method(f) => self.funcao(a, *f),
-                MemberKind::Constructor(k) => self.construtor(a, mid, k),
+                MemberKind::Method(f) => self.function(a, *f),
+                MemberKind::Constructor(k) => self.constructor(a, mid, k),
             }
         }
     }
@@ -622,7 +622,7 @@ impl Verifier<'_, '_> {
         // or without a primary header) is a `PrimaryConstructorBody`, not a
         // constructor declaration (3.13.4).
         if data.kind == ClassKind::Enum && !k.const_ && !k.factory && !k.parte_primaria {
-            self.relatar(c::NON_CONST_GENERATIVE_ENUM_CONSTRUCTOR, header, Vec::new());
+            self.report(c::NON_CONST_GENERATIVE_ENUM_CONSTRUCTOR, header, Vec::new());
         }
         if !k.const_ || k.factory {
             return;
@@ -641,7 +641,7 @@ impl Verifier<'_, '_> {
                 .map(|x| x.span)
                 .collect();
             for s in throws {
-                self.relatar(c::CONST_CONSTRUCTOR_THROWS_EXCEPTION, s, Vec::new());
+                self.report(c::CONST_CONSTRUCTOR_THROWS_EXCEPTION, s, Vec::new());
             }
         }
         // Instance fields of the mixins in the `with` clause: every field that
@@ -671,7 +671,7 @@ impl Verifier<'_, '_> {
         // name, or only the first token.
         let primary = self.is_primary(a, mid, k);
         let range = if primary {
-            let source = &program.unit(self.unidade).source;
+            let source = &program.unit(self.unit).source;
             let start = if k.const_ {
                 let before = source[..k.class_name.span.start].trim_end();
                 if before.ends_with("const") { before.len() - "const".len() } else { k.class_name.span.start }
@@ -688,11 +688,11 @@ impl Verifier<'_, '_> {
             k.class_name.span
         };
         if mixin_fields.len() == 1 {
-            self.relatar(c::CONST_CONSTRUCTOR_WITH_MIXIN_WITH_FIELD, range, mixin_fields);
+            self.report(c::CONST_CONSTRUCTOR_WITH_MIXIN_WITH_FIELD, range, mixin_fields);
             return;
         }
         if mixin_fields.len() > 1 {
-            self.relatar(c::CONST_CONSTRUCTOR_WITH_MIXIN_WITH_FIELDS, range, vec![mixin_fields.join(", ")]);
+            self.report(c::CONST_CONSTRUCTOR_WITH_MIXIN_WITH_FIELDS, range, vec![mixin_fields.join(", ")]);
             return;
         }
         // The superclass constructor that this one invokes (the written one, or
@@ -726,7 +726,7 @@ impl Verifier<'_, '_> {
                         // the 3.13 variant of the code uses: T2, case c04).
                         let the_name = interner.resolve(data.name).to_string();
                         let superior = interner.resolve(program.class(sup).name).to_string();
-                        self.relatar(c::CONST_CONSTRUCTOR_WITH_NON_CONST_SUPER, span, vec![the_name, superior]);
+                        self.report(c::CONST_CONSTRUCTOR_WITH_NON_CONST_SUPER, span, vec![the_name, superior]);
                         return;
                     }
                 }
@@ -737,7 +737,7 @@ impl Verifier<'_, '_> {
         // `const`. In 3.13.4 (`link.dart:284-323`, `_computeHasNonFinalField`)
         // only a field with storage counts: `abstract int x;` does not (in
         // 3.6.2, `element.dart:329-356`, it does).
-        let reference_313 = program.referencia(self.unidade) == dartforge_diagnostics::Referencia::V3_13;
+        let reference_313 = program.referencia(self.unit) == dartforge_diagnostics::Referencia::V3_13;
         if data.kind == ClassKind::Class {
             let mut queue: Vec<ClassId> = vec![cls];
             let mut seen: Vec<ClassId> = Vec::new();
@@ -764,21 +764,21 @@ impl Verifier<'_, '_> {
                 // (`class const A()`: `const`; `class const A.n()`:
                 // `const A.n`).
                 let span = if primary { range } else { header };
-                self.relatar(c::CONST_CONSTRUCTOR_WITH_NON_FINAL_FIELD, span, Vec::new());
+                self.report(c::CONST_CONSTRUCTOR_WITH_NON_FINAL_FIELD, span, Vec::new());
             }
         }
     }
 
-    fn construtor(&mut self, a: &ast::Ast, mid: ast::MemberId, k: &ast::Constructor) {
+    fn constructor(&mut self, a: &ast::Ast, mid: ast::MemberId, k: &ast::Constructor) {
         self.constructor_rules(a, mid, k);
         if k.const_ {
             // The generative constructor of a cycle (the factory ones belong to
             // `ErrorVerifier`): at the name of the header's class.
             let in_cycle = self
                 .m
-                .grafo
-                .construtor_de(self.unidade, mid)
-                .is_some_and(|f| self.m.grafo.constructors_in_cycle.contains(&f));
+                .graph
+                .constructor_of(self.unit, mid)
+                .is_some_and(|f| self.m.graph.constructors_in_cycle.contains(&f));
             // The primary constructor (3.13) is a `PrimaryConstructorDeclaration`:
             // `visitConstructorDeclaration` does not go through it. In 3.13.4 the
             // report goes from the type name (or the `new`) to the end of the name
@@ -786,12 +786,12 @@ impl Verifier<'_, '_> {
             let primary = self.is_primary(a, mid, k);
             if in_cycle && !k.factory && !primary {
                 let span = match k.name {
-                    Some(n) if self.m.program.referencia(self.unidade) == dartforge_diagnostics::Referencia::V3_13 => {
+                    Some(n) if self.m.program.referencia(self.unit) == dartforge_diagnostics::Referencia::V3_13 => {
                         Span { start: k.class_name.span.start, end: n.span.end }
                     }
                     _ => k.class_name.span,
                 };
-                self.relatar(c::RECURSIVE_CONSTANT_CONSTRUCTOR, span, Vec::new());
+                self.report(c::RECURSIVE_CONSTANT_CONSTRUCTOR, span, Vec::new());
             }
             // `_validateConstructorInitializers`: potencialmente constantes.
             let cx = Ctx { lexical: None, ..self.cx() };
@@ -807,7 +807,7 @@ impl Verifier<'_, '_> {
                     let mut nodes = Vec::new();
                     super::potential::collect_into(self.m, &cx, x, true, false, &mut nodes);
                     for n in nodes {
-                        self.relatar(c::INVALID_CONSTANT, n, Vec::new());
+                        self.report(c::INVALID_CONSTANT, n, Vec::new());
                     }
                 }
             }
@@ -833,7 +833,7 @@ impl Verifier<'_, '_> {
                 }
             }
         }
-        self.corpo(a, &k.body);
+        self.body(a, &k.body);
     }
 
     /// `_validateFieldInitializers`: instance fields with an initializer that is
@@ -846,7 +846,7 @@ impl Verifier<'_, '_> {
         let Some(k) = self.class_of(a, mid) else { return };
         let e_enum = self.m.program.class(k).kind == dartforge_elements::model::ClassKind::Enum;
         let Some(the_keyword) = self.const_keyword(a, mid) else { return };
-        let members: Vec<ast::MemberId> = self.membros_da_classe(a, k);
+        let members: Vec<ast::MemberId> = self.class_members(a, k);
         for fm in members {
             let MemberKind::Field(l) = &a.member(fm).kind else { continue };
             if l.static_ {
@@ -867,7 +867,7 @@ impl Verifier<'_, '_> {
                 };
                 if invalid {
                     let the_name = self.m.interner.resolve(var.name.sym).to_string();
-                    self.relatar(c::CONST_CONSTRUCTOR_WITH_FIELD_INITIALIZED_BY_NON_CONST, the_keyword, vec![the_name]);
+                    self.report(c::CONST_CONSTRUCTOR_WITH_FIELD_INITIALIZED_BY_NON_CONST, the_keyword, vec![the_name]);
                 }
             }
         }
@@ -878,7 +878,7 @@ impl Verifier<'_, '_> {
         for (i, f) in self.m.program.functions.iter().enumerate() {
             let _ = i;
             if let dartforge_elements::model::FunctionRef::Constructor { unit, member } = f.node {
-                if unit == self.unidade && member == mid {
+                if unit == self.unit && member == mid {
                     return f.class;
                 }
             }
@@ -886,9 +886,9 @@ impl Verifier<'_, '_> {
         None
     }
 
-    fn membros_da_classe(&self, a: &ast::Ast, k: ClassId) -> Vec<ast::MemberId> {
+    fn class_members(&self, a: &ast::Ast, k: ClassId) -> Vec<ast::MemberId> {
         let Some(d) = self.m.program.class(k).decl else { return Vec::new() };
-        if d.unit != self.unidade {
+        if d.unit != self.unit {
             return Vec::new();
         }
         match &a.decl(d.decl).kind {
@@ -903,7 +903,7 @@ impl Verifier<'_, '_> {
     /// The constructor's `const` token.
     fn const_keyword(&self, a: &ast::Ast, mid: ast::MemberId) -> Option<Span> {
         let s = a.member(mid).span;
-        let source = &self.m.program.unit(self.unidade).source;
+        let source = &self.m.program.unit(self.unit).source;
         let t = source.get(s.start..s.end)?;
         let mut i = 0;
         let b = t.as_bytes();
@@ -916,12 +916,12 @@ impl Verifier<'_, '_> {
         None
     }
 
-    fn funcao(&mut self, a: &ast::Ast, f: ast::FunctionId) {
+    fn function(&mut self, a: &ast::Ast, f: ast::FunctionId) {
         let func = a.function(f);
         if let Some(ps) = &func.parameters {
             self.default_values(a, ps);
         }
-        self.corpo(a, &func.body);
+        self.body(a, &func.body);
     }
 
     /// `_validateDefaultValues`.
@@ -934,17 +934,17 @@ impl Verifier<'_, '_> {
             // `defaultValue.typeOrThrow is InvalidType` (3.6.2
             // `constant_verifier.dart:825-826`): the error was already reported
             // (the undefined name, for example).
-            if self.m.invalid_type(self.unidade, d) {
+            if self.m.invalid_type(self.unit, d) {
                 continue;
             }
-            let r = self.m.default_result(self.unidade, self.lib, d);
+            let r = self.m.default_result(self.unit, self.lib, d);
             if let Constante::Invalid(i) = r {
                 self.report_invalid(&i, Some(c::NON_CONSTANT_DEFAULT_VALUE));
             }
         }
     }
 
-    fn corpo(&mut self, a: &ast::Ast, b: &ast::FunctionBody) {
+    fn body(&mut self, a: &ast::Ast, b: &ast::FunctionBody) {
         match b {
             ast::FunctionBody::Block(s) => self.stmt(a, *s),
             ast::FunctionBody::Expression(e) => self.expr(a, *e, false),
@@ -966,7 +966,7 @@ impl Verifier<'_, '_> {
                     if let Some(init) = var.initializer {
                         self.expr(a, init, l.const_);
                         if l.const_ {
-                            let r = self.m.declared_local_value(self.unidade, self.lib, s, i);
+                            let r = self.m.declared_local_value(self.unit, self.lib, s, i);
                             if let Constante::Invalid(x) = r {
                                 self.report_invalid(&x, Some(c::CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE));
                             }
@@ -976,14 +976,14 @@ impl Verifier<'_, '_> {
             }
             StmtKind::PatternVariables { pattern, value, .. } => {
                 self.expr(a, *value, false);
-                self.padrao(a, *pattern);
+                self.pattern(a, *pattern);
             }
-            StmtKind::Function(f) => self.funcao(a, *f),
+            StmtKind::Function(f) => self.function(a, *f),
             StmtKind::Expression(e) => self.expr(a, *e, false),
             StmtKind::If { condition, case_pattern, guard, then, else_ } => {
                 self.expr(a, *condition, false);
                 if let Some(p) = case_pattern {
-                    self.padrao(a, *p);
+                    self.pattern(a, *p);
                 }
                 if let Some(g) = guard {
                     self.expr(a, *g, false);
@@ -1005,7 +1005,7 @@ impl Verifier<'_, '_> {
                     Some(ast::ForInit::Expression(e)) => self.expr(a, *e, false),
                     Some(ast::ForInit::Pattern { pattern, value, .. }) => {
                         self.expr(a, *value, false);
-                        self.padrao(a, *pattern);
+                        self.pattern(a, *pattern);
                     }
                     None => {}
                 }
@@ -1019,7 +1019,7 @@ impl Verifier<'_, '_> {
             }
             StmtKind::ForIn { target, iterable, body, .. } => {
                 if let ast::ForInTarget::Pattern { pattern, .. } = target {
-                    self.padrao(a, *pattern);
+                    self.pattern(a, *pattern);
                 }
                 self.expr(a, *iterable, false);
                 self.stmt(a, *body);
@@ -1033,12 +1033,12 @@ impl Verifier<'_, '_> {
                 for case in cases.iter() {
                     if let Some(p) = case.pattern {
                         if self.patterns_enabled {
-                            self.padrao(a, p);
+                            self.pattern(a, p);
                         } else if let PatternKind::Variable { name, .. } = &a.pattern(p).kind
-                            && self.m.body.units[self.unidade.0 as usize].non_constant_name_patterns.contains(&p)
+                            && self.m.body.units[self.unit.0 as usize].non_constant_name_patterns.contains(&p)
                         {
                             // The old `case the_name:` (the expression of the `SwitchCase`).
-                            self.relatar(c::NON_CONSTANT_CASE_EXPRESSION, name.span, Vec::new());
+                            self.report(c::NON_CONSTANT_CASE_EXPRESSION, name.span, Vec::new());
                         } else if let PatternKind::Constant(e) = &a.pattern(p).kind {
                             // `_validateSwitchStatement_nullSafety`.
                             let e = unparenthesize(a, *e);
@@ -1050,9 +1050,9 @@ impl Verifier<'_, '_> {
                                 && !v.actually_unknown()
                                 && !self.m.primitive_equality(&v, self.lib)
                             {
-                                let sp = self.m.span(self.unidade, e);
-                                let typ = self.m.formatar(v.tipo);
-                                self.relatar(c::CASE_EXPRESSION_TYPE_IMPLEMENTS_EQUALS, sp, vec![typ]);
+                                let sp = self.m.span(self.unit, e);
+                                let typ = self.m.format(v.tipo);
+                                self.report(c::CASE_EXPRESSION_TYPE_IMPLEMENTS_EQUALS, sp, vec![typ]);
                             }
                         }
                     }
@@ -1064,7 +1064,7 @@ impl Verifier<'_, '_> {
                     }
                 }
                 if self.patterns_enabled {
-                    let the_cases: Vec<Caso> = cases.iter().map(|k| Caso { padrao: k.pattern, stored: k.guard.is_some() }).collect();
+                    let the_cases: Vec<Case> = cases.iter().map(|k| Case { pattern: k.pattern, stored: k.guard.is_some() }).collect();
                     let start = a.stmt(s).span.start;
                     let pos: Vec<usize> = cases.iter().map(|k| self.case_keyword_start(k)).collect();
                     self.exhaustiveness(a, *value, start, &the_cases, &pos, false);
@@ -1215,7 +1215,7 @@ impl Verifier<'_, '_> {
         }
     }
 
-    fn padrao(&mut self, a: &ast::Ast, p: PatternId) {
+    fn pattern(&mut self, a: &ast::Ast, p: PatternId) {
         match &a.pattern(p).kind {
             PatternKind::Constant(e) => {
                 // `const (List<T>)`: the type literal right inside the
@@ -1226,18 +1226,18 @@ impl Verifier<'_, '_> {
                 if let ExprKind::Parenthesized(x) = a.expr(*e).kind
                     && let ExprKind::TypeArguments { target, type_args } = &a.expr(x).kind
                     && matches!(
-                        self.m.body.units[self.unidade.0 as usize].get_resolved(*target),
+                        self.m.body.units[self.unit.0 as usize].get_resolved(*target),
                         Some(crate::resolved::Resolved::Element(dartforge_elements::model::Element::Class(_) | dartforge_elements::model::Element::Typedef(_)))
                     )
                     && type_args.iter().any(|&t| self.annotation_type(t).is_some_and(|r| self.m.mentions_parameter(r)))
                 {
-                    self.relatar(c::CONST_TYPE_PARAMETER, a.expr(x).span, Vec::new());
+                    self.report(c::CONST_TYPE_PARAMETER, a.expr(x).span, Vec::new());
                     return;
                 }
                 let e = unparenthesize(a, *e);
                 // `expression.typeOrThrow is InvalidType` (3.6.2
                 // `constant_verifier.dart:133-135`).
-                if self.m.invalid_type(self.unidade, e) {
+                if self.m.invalid_type(self.unit, e) {
                     return;
                 }
                 let r = self.evaluate_and_report(e, false, c::CONSTANT_PATTERN_WITH_NON_CONSTANT_EXPRESSION);
@@ -1249,15 +1249,15 @@ impl Verifier<'_, '_> {
                     // types).
                     if self.patterns_enabled
                         && self.m.primitive_equality(&v, self.lib)
-                        && let Some(&matched) = self.m.body.units[self.unidade.0 as usize].tipos_casados.get(&p)
+                        && let Some(&matched) = self.m.body.units[self.unit.0 as usize].tipos_casados.get(&p)
                     {
                         let matched = self.erase_extension(matched);
                         if !self.can_be_equal(v.tipo, matched, 0) {
                             let displayer = crate::exibicao::Exibidor { table: &*self.m.table, interner: self.m.interner, program: self.m.program };
-                            let (texts, context) = displayer.arguments_and_context(&[crate::exibicao::Arg::Tipo(matched), crate::exibicao::Arg::Tipo(v.tipo)]);
+                            let (texts, context) = displayer.arguments_and_context(&[crate::exibicao::Arg::Type_(matched), crate::exibicao::Arg::Type_(v.tipo)]);
                             let mut d = Diagnostic::com_codigo(dartforge_diagnostics::codigos::warning::CONSTANT_PATTERN_NEVER_MATCHES_VALUE_TYPE, a.pattern(p).span, texts);
                             d.contexto.extend(context);
-                            self.saida.push((self.unidade, d));
+                            self.output.push((self.unit, d));
                             self.the_default_values.insert(p, v);
                             return;
                         }
@@ -1269,13 +1269,13 @@ impl Verifier<'_, '_> {
             // `case the_name:` (the parser stores it as a variable): the top-level
             // constant with that name, for exhaustiveness.
             PatternKind::Variable { final_: false, var_: false, ty: None, name } if self.patterns_enabled => {
-                if self.m.body.units[self.unidade.0 as usize].non_constant_name_patterns.contains(&p) {
-                    self.relatar(c::CONSTANT_PATTERN_WITH_NON_CONSTANT_EXPRESSION, name.span, Vec::new());
+                if self.m.body.units[self.unit.0 as usize].non_constant_name_patterns.contains(&p) {
+                    self.report(c::CONSTANT_PATTERN_WITH_NON_CONSTANT_EXPRESSION, name.span, Vec::new());
                     return;
                 }
                 let program = self.m.program;
                 if let Some(dartforge_elements::model::Element::Variable(v)) =
-                    program.lookup_na_unidade(self.unidade, name.sym).and_then(|b| b.getter)
+                    program.lookup_na_unidade(self.unit, name.sym).and_then(|b| b.getter)
                 {
                     if let Some(Constante::Valor(val)) = self.m.valor_de_variavel(v) {
                         self.the_default_values.insert(p, val);
@@ -1287,15 +1287,15 @@ impl Verifier<'_, '_> {
                 self.evaluate_and_report(*value, false, c::NON_CONSTANT_RELATIONAL_PATTERN_EXPRESSION);
             }
             PatternKind::Or(x, y) | PatternKind::And(x, y) => {
-                self.padrao(a, *x);
-                self.padrao(a, *y);
+                self.pattern(a, *x);
+                self.pattern(a, *y);
             }
-            PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) => self.padrao(a, *x),
-            PatternKind::Cast { pattern, .. } => self.padrao(a, *pattern),
+            PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) => self.pattern(a, *x),
+            PatternKind::Cast { pattern, .. } => self.pattern(a, *pattern),
             PatternKind::List { elements, .. } => {
                 for el in elements.iter() {
                     match el {
-                        ast::ListPatternElement::Pattern(x) | ast::ListPatternElement::Rest(Some(x)) => self.padrao(a, *x),
+                        ast::ListPatternElement::Pattern(x) | ast::ListPatternElement::Rest(Some(x)) => self.pattern(a, *x),
                         _ => {}
                     }
                 }
@@ -1311,7 +1311,7 @@ impl Verifier<'_, '_> {
                 let mut unique: Vec<(Valor, Span)> = Vec::new();
                 let mut the_repeated: Vec<(Span, Span)> = Vec::new();
                 for en in entries.iter() {
-                    self.padrao(a, en.value);
+                    self.pattern(a, en.value);
                     if let Constante::Valor(v) = self.evaluate_and_report(en.key, false, c::NON_CONSTANT_MAP_PATTERN_KEY) {
                         let known = !(v.actually_unknown() || matches!(v.estado, Estado::Null { invalid: true }));
                         if known {
@@ -1332,12 +1332,12 @@ impl Verifier<'_, '_> {
                 // `equalKeysInMapPattern`: the context is the first key.
                 for (sp, original) in the_repeated {
                     let d = Diagnostic::com_codigo(c::EQUAL_KEYS_IN_MAP_PATTERN, sp, Vec::<String>::new()).com_contexto(original, "The first key with this value.");
-                    self.saida.push((self.unidade, d));
+                    self.output.push((self.unit, d));
                 }
             }
             PatternKind::Record { fields } | PatternKind::Object { fields, .. } => {
                 for f in fields.iter() {
-                    self.padrao(a, f.pattern);
+                    self.pattern(a, f.pattern);
                 }
             }
             _ => {}
@@ -1347,13 +1347,13 @@ impl Verifier<'_, '_> {
     // -- Expressions --------------------------------------------------------------
 
     fn expr(&mut self, a: &ast::Ast, e: ExprId, in_const: bool) {
-        let u = self.unidade;
+        let u = self.unit;
         match &a.expr(e).kind {
             ExprKind::InstanceCreation { keyword, arguments, ty, constructor } => {
                 let const_ = matches!(keyword, Some(ast::CreationKeyword::Const));
                 // `_checkForConstWithNonConst` with the forwarded constructor of a
                 // mixin application (inference does not resolve it).
-                if const_ && !matches!(self.m.resolvido(u, e), Some(Resolved::Constructor(_))) {
+                if const_ && !matches!(self.m.resolved(u, e), Some(Resolved::Constructor(_))) {
                     self.non_const_forwarded(*ty, *constructor, a.expr(e).span);
                 }
                 // `visitInstanceCreationExpression` (`isConst`: `const`, or
@@ -1370,7 +1370,7 @@ impl Verifier<'_, '_> {
                 }
             }
             ExprKind::Call { target, arguments } => {
-                if in_const && matches!(self.m.resolvido(u, e), Some(Resolved::Constructor(_))) {
+                if in_const && matches!(self.m.resolved(u, e), Some(Resolved::Constructor(_))) {
                     // The `NamedType` of the creation without `new`: the call's type
                     // arguments or those of the `C<T>` before `.the_name`.
                     let mut written_ones: Vec<ast::TypeId> = arguments.type_args.to_vec();
@@ -1401,12 +1401,12 @@ impl Verifier<'_, '_> {
                     }
                 }
                 if c {
-                    let typ = self.m.estatico(u, e);
+                    let typ = self.m.the_static(u, e);
                     let element = match self.m.table.get(typ) {
                         Type::Interface { args, .. } if args.len() == 1 => args[0],
                         _ => self.m.core.dynamic_,
                     };
-                    let mut lv = Literal { tipo: LiteralType::Lista(element), the_unique: Vec::new(), duplicados: Vec::new() };
+                    let mut lv = Literal { ty: LiteralType::Lista(element), the_unique: Vec::new(), duplicates: Vec::new() };
                     for el in elements.iter() {
                         self.verify_element(a, &mut lv, el);
                     }
@@ -1418,7 +1418,7 @@ impl Verifier<'_, '_> {
                     self.child_element(a, el, c);
                 }
                 if c {
-                    let typ = self.m.estatico(u, e);
+                    let typ = self.m.the_static(u, e);
                     let (cls, args) = match self.m.table.get(typ) {
                         Type::Interface { class, args, .. } => (Some(*class), args.to_vec()),
                         _ => (None, Vec::new()),
@@ -1438,27 +1438,27 @@ impl Verifier<'_, '_> {
                         }
                     }
                     let tl = if cls.is_some() && cls == self.m.core.set_class && args.len() == 1 {
-                        Some(LiteralType::Conjunto(args[0]))
+                        Some(LiteralType::Set(args[0]))
                     } else if cls.is_some() && cls == self.m.core.map_class && args.len() == 2 {
                         Some(LiteralType::Mapa(args[0], args[1]))
                     } else {
                         None
                     };
                     if let Some(tl) = tl {
-                        let mut lv = Literal { tipo: tl, the_unique: Vec::new(), duplicados: Vec::new() };
+                        let mut lv = Literal { ty: tl, the_unique: Vec::new(), duplicates: Vec::new() };
                         for el in elements.iter() {
                             self.verify_element(a, &mut lv, el);
                         }
                         // `equalKeysInConstMap`/`equalElementsInConstSet`: the context
                         // is the first one with the same value.
-                        let (code, context) = if matches!(lv.tipo, LiteralType::Mapa(..)) {
+                        let (code, context) = if matches!(lv.ty, LiteralType::Mapa(..)) {
                             (c::EQUAL_KEYS_IN_CONST_MAP, "The first key with this value.")
                         } else {
                             (c::EQUAL_ELEMENTS_IN_CONST_SET, "The first element with this value.")
                         };
-                        for (dup, original) in std::mem::take(&mut lv.duplicados) {
+                        for (dup, original) in std::mem::take(&mut lv.duplicates) {
                             let d = Diagnostic::com_codigo(code, dup, Vec::<String>::new()).com_contexto(original, context);
-                            self.saida.push((self.unidade, d));
+                            self.output.push((self.unit, d));
                         }
                     }
                 } else {
@@ -1476,7 +1476,7 @@ impl Verifier<'_, '_> {
                     }
                 }
             }
-            ExprKind::FunctionExpression(f) => self.funcao(a, *f),
+            ExprKind::FunctionExpression(f) => self.function(a, *f),
             ExprKind::String(lit) => {
                 for p in lit.parts.iter() {
                     if let ast::StringPart::Interpolation(x) = p {
@@ -1506,7 +1506,7 @@ impl Verifier<'_, '_> {
             ExprKind::TypeArguments { target, type_args } => {
                 // `visitFunctionReference`: the instantiation of a function (not
                 // the type literal, of type `Type`).
-                if (in_const || self.in_constant_expression) && self.m.estatico(u, e) != self.m.core.type_ {
+                if (in_const || self.in_constant_expression) && self.m.the_static(u, e) != self.m.core.type_ {
                     for &x in type_args.iter() {
                         self.without_type_parameters(a, x, c::CONST_WITH_TYPE_PARAMETERS_FUNCTION_TEAROFF, &[]);
                     }
@@ -1536,7 +1536,7 @@ impl Verifier<'_, '_> {
                 self.expr(a, *value, in_const);
             }
             ExprKind::PatternAssign { pattern, value } => {
-                self.padrao(a, *pattern);
+                self.pattern(a, *pattern);
                 self.expr(a, *value, in_const);
             }
             ExprKind::Cascade { target, sections, .. } => {
@@ -1548,13 +1548,13 @@ impl Verifier<'_, '_> {
             ExprKind::Switch { value, cases } => {
                 self.expr(a, *value, in_const);
                 for case in cases.iter() {
-                    self.padrao(a, case.pattern);
+                    self.pattern(a, case.pattern);
                     if let Some(g) = case.guard {
                         self.expr(a, g, false);
                     }
                     self.expr(a, case.body, in_const);
                 }
-                let the_cases: Vec<Caso> = cases.iter().map(|k| Caso { padrao: Some(k.pattern), stored: k.guard.is_some() }).collect();
+                let the_cases: Vec<Case> = cases.iter().map(|k| Case { pattern: Some(k.pattern), stored: k.guard.is_some() }).collect();
                 let start = a.expr(e).span.start;
                 let pos: Vec<usize> = cases.iter().map(|k| self.case_arrow(a, k)).collect();
                 self.exhaustiveness(a, *value, start, &the_cases, &pos, true);
@@ -1569,8 +1569,8 @@ impl Verifier<'_, '_> {
     /// arrow), `NON_EXHAUSTIVE_SWITCH_*` (at the `switch` keyword) and
     /// `UNREACHABLE_SWITCH_DEFAULT` (at the `default` keyword). `pos` is the
     /// start of each case's token.
-    fn exhaustiveness(&mut self, a: &ast::Ast, the_value: ExprId, switch_start: usize, the_cases: &[Caso], pos: &[usize], expression: bool) {
-        let u = self.unidade;
+    fn exhaustiveness(&mut self, a: &ast::Ast, the_value: ExprId, switch_start: usize, the_cases: &[Case], pos: &[usize], expression: bool) {
+        let u = self.unit;
         let body = self.m.body;
         let the_body = &body.units[u.0 as usize];
         if the_body.invalid_types.contains(&the_value) {
@@ -1582,10 +1582,10 @@ impl Verifier<'_, '_> {
         let version_3_3 = program.library(self.lib).features.versao() >= dartforge_frontend::features::LanguageVersion::new(3, 3);
         let the_default_values = std::mem::take(&mut self.the_default_values);
         let key_values = std::mem::take(&mut self.key_values);
-        let entry = Entrada {
+        let entry = Entry {
             ast: a,
             source: source,
-            tipos_de_padroes: &the_body.tipos_de_padroes,
+            pattern_types: &the_body.tipos_de_padroes,
             extension_fields: &the_body.extension_fields,
             invalid_patterns: &the_body.invalid_patterns,
             the_default_values: &the_default_values,
@@ -1593,25 +1593,25 @@ impl Verifier<'_, '_> {
             version_3_3,
         };
         let collect = self.m.witnesses.is_some();
-        let mut ex = Exhaustiveness::nova(self.m, self.lib);
+        let mut ex = Exhaustiveness::new(self.m, self.lib);
         ex.collect_parts = collect;
         let must = expression || ex.always_exhaustive(t, 0);
-        let r = ex.verificar(&entry, t, the_cases);
+        let r = ex.verify(&entry, t, the_cases);
         drop(ex);
         self.the_default_values = the_default_values;
         self.key_values = key_values;
         let Some(r) = r else { return };
-        let mut parts = r.partes;
+        let mut parts = r.parts;
         for i in r.unreachable {
             let n = if expression { 2 } else { 4 };
-            self.relatar(w::UNREACHABLE_SWITCH_CASE, Span { start: pos[i], end: pos[i] + n }, Vec::new());
+            self.report(w::UNREACHABLE_SWITCH_CASE, Span { start: pos[i], end: pos[i] + n }, Vec::new());
         }
-        let default = the_cases.iter().position(|k| k.padrao.is_none());
-        match (r.witness, r.correcao) {
+        let default = the_cases.iter().position(|k| k.pattern.is_none());
+        match (r.witness, r.fix) {
             (Some(tw), Some(co)) => {
                 if must && default.is_none() {
                     let code = if expression { c::NON_EXHAUSTIVE_SWITCH_EXPRESSION } else { c::NON_EXHAUSTIVE_SWITCH_STATEMENT };
-                    let typ = self.m.formatar(t);
+                    let typ = self.m.format(t);
                     // The fourth argument only exists for the "private" variant of
                     // 3.13.4 (`constant_verifier.dart` from main, case c29 of
                     // `corpus/especificacao/t2/v`): the value is from an enum of
@@ -1630,8 +1630,8 @@ impl Verifier<'_, '_> {
                     if private {
                         args.push(String::new());
                     }
-                    self.relatar(code, Span { start: switch_start, end: switch_start + 6 }, args);
-                    let u = self.unidade;
+                    self.report(code, Span { start: switch_start, end: switch_start + 6 }, args);
+                    let u = self.unit;
                     if let Some(map) = self.m.witnesses.as_mut() {
                         map.insert((u, switch_start), std::mem::take(&mut parts));
                     }
@@ -1640,7 +1640,7 @@ impl Verifier<'_, '_> {
             _ => {
                 if let Some(d) = default {
                     if must {
-                        self.relatar(w::UNREACHABLE_SWITCH_DEFAULT, Span { start: pos[d], end: pos[d] + 7 }, Vec::new());
+                        self.report(w::UNREACHABLE_SWITCH_DEFAULT, Span { start: pos[d], end: pos[d] + 7 }, Vec::new());
                     }
                 }
             }
@@ -1650,21 +1650,21 @@ impl Verifier<'_, '_> {
     /// The start of the `case`/`default` keyword of a `switch` case (after the
     /// labels).
     fn case_keyword_start(&self, k: &ast::SwitchCase) -> usize {
-        let source = self.m.program.unit(self.unidade).source.as_bytes();
+        let source = self.m.program.unit(self.unit).source.as_bytes();
         let mut i = k.span.start;
         if let Some(l) = k.labels.last() {
-            i = pular_brancos(source, l.span.end);
+            i = skip_blanks(source, l.span.end);
             if source.get(i) == Some(&b':') {
                 i += 1;
             }
-            i = pular_brancos(source, i);
+            i = skip_blanks(source, i);
         }
         i
     }
 
     /// The start of the `=>` arrow of a `switch` expression case.
     fn case_arrow(&self, a: &ast::Ast, k: &ast::SwitchExprCase) -> usize {
-        let source = self.m.program.unit(self.unidade).source.as_bytes();
+        let source = self.m.program.unit(self.unit).source.as_bytes();
         let end = match k.guard {
             Some(g) => a.expr(g).span.end,
             None => a.pattern(k.pattern).span.end,
@@ -1672,7 +1672,7 @@ impl Verifier<'_, '_> {
         let bnd = a.expr(k.body).span.start;
         let mut i = end;
         while i + 1 < source.len() && i < bnd && !(source[i] == b'=' && source[i + 1] == b'>') {
-            let j = pular_brancos(source, i);
+            let j = skip_blanks(source, i);
             i = if j > i { j } else { i + 1 };
         }
         i
@@ -1689,7 +1689,7 @@ impl Verifier<'_, '_> {
             CollectionElement::If { condition, case_pattern, guard, then, else_ } => {
                 self.expr(a, *condition, in_const);
                 if let Some(p) = case_pattern {
-                    self.padrao(a, *p);
+                    self.pattern(a, *p);
                 }
                 if let Some(g) = guard {
                     self.expr(a, *g, in_const);
@@ -1719,21 +1719,21 @@ impl Verifier<'_, '_> {
     /// reports (with the real reporter: unresolved arguments too); with a value,
     /// continues into the arguments.
     fn constant_creation(&mut self, a: &ast::Ast, e: ExprId, arguments: &ast::Arguments) {
-        if !matches!(self.m.resolvido(self.unidade, e), Some(Resolved::Constructor(_))) {
+        if !matches!(self.m.resolved(self.unit, e), Some(Resolved::Constructor(_))) {
             return;
         }
-        let cx = Ctx { relatar: true, ..self.cx() };
+        let cx = Ctx { report: true, ..self.cx() };
         let before = self.m.relatos.len();
         let r = self.m.avaliar(&cx, e, true);
         let reports: Vec<Invalid> = self.m.relatos.drain(before..).collect();
         for i in reports {
-            if i.unidade == self.unidade && !i.avoid_report {
+            if i.unit == self.unit && !i.avoid_report {
                 self.report_with_context(&i);
             }
         }
         match r {
             Constante::Invalid(i) => {
-                if !i.avoid_report && i.unidade == self.unidade {
+                if !i.avoid_report && i.unit == self.unit {
                     self.report_with_context(&i);
                 }
             }
@@ -1750,36 +1750,36 @@ impl Verifier<'_, '_> {
     fn literal_code(t: &LiteralType) -> Codigo {
         match t {
             LiteralType::Lista(_) => c::NON_CONSTANT_LIST_ELEMENT,
-            LiteralType::Conjunto(_) => c::NON_CONSTANT_SET_ELEMENT,
+            LiteralType::Set(_) => c::NON_CONSTANT_SET_ELEMENT,
             LiteralType::Mapa(..) => c::NON_CONSTANT_MAP_ELEMENT,
         }
     }
 
     fn verify_element(&mut self, a: &ast::Ast, lv: &mut Literal, el: &CollectionElement) -> bool {
-        let u = self.unidade;
-        let code = Self::literal_code(&lv.tipo);
+        let u = self.unit;
+        let code = Self::literal_code(&lv.ty);
         match el {
             CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) => {
                 let Constante::Valor(v) = self.evaluate_and_report(*x, true, code) else { return false };
                 let span = self.m.span(u, *x);
-                match lv.tipo {
+                match lv.ty {
                     LiteralType::Lista(t) => {
-                        if !self.m.casa(&v, t) {
-                            let args = vec![self.m.formatar(v.tipo), self.m.formatar(t)];
-                            self.relatar(c::LIST_ELEMENT_TYPE_NOT_ASSIGNABLE, span, args);
+                        if !self.m.matches_type(&v, t) {
+                            let args = vec![self.m.format(v.tipo), self.m.format(t)];
+                            self.report(c::LIST_ELEMENT_TYPE_NOT_ASSIGNABLE, span, args);
                             return false;
                         }
                         true
                     }
-                    LiteralType::Conjunto(t) => {
-                        if !self.m.casa(&v, t) {
-                            let args = vec![self.m.formatar(v.tipo), self.m.formatar(t)];
-                            self.relatar(c::SET_ELEMENT_TYPE_NOT_ASSIGNABLE, span, args);
+                    LiteralType::Set(t) => {
+                        if !self.m.matches_type(&v, t) {
+                            let args = vec![self.m.format(v.tipo), self.m.format(t)];
+                            self.report(c::SET_ELEMENT_TYPE_NOT_ASSIGNABLE, span, args);
                             return false;
                         }
                         if !self.m.primitive_equality(&v, self.lib) {
-                            let args = vec![self.m.formatar(v.tipo)];
-                            self.relatar(c::CONST_SET_ELEMENT_NOT_PRIMITIVE_EQUALITY, span, args);
+                            let args = vec![self.m.format(v.tipo)];
+                            self.report(c::CONST_SET_ELEMENT_NOT_PRIMITIVE_EQUALITY, span, args);
                             return false;
                         }
                         self.record_unique(lv, v, span);
@@ -1790,7 +1790,7 @@ impl Verifier<'_, '_> {
             }
             CollectionElement::For { .. } | CollectionElement::ForIn { .. } => {
                 let s = self.m.element_span(u, el);
-                self.relatar(c::CONST_EVAL_FOR_ELEMENT, s, Vec::new());
+                self.report(c::CONST_EVAL_FOR_ELEMENT, s, Vec::new());
                 false
             }
             CollectionElement::If { condition, then, else_, case_pattern, .. } => {
@@ -1820,26 +1820,26 @@ impl Verifier<'_, '_> {
                 }
             }
             CollectionElement::MapEntry { key, value, .. } => {
-                let LiteralType::Mapa(tk, tv) = lv.tipo else { return false };
+                let LiteralType::Mapa(tk, tv) = lv.ty else { return false };
                 let k = self.evaluate_and_report(*key, true, c::NON_CONSTANT_MAP_KEY);
                 let v = self.evaluate_and_report(*value, true, c::NON_CONSTANT_MAP_VALUE);
                 if let Constante::Valor(k) = k {
                     let span = self.m.span(u, *key);
-                    if !self.m.casa(&k, tk) {
-                        let args = vec![self.m.formatar(k.tipo), self.m.formatar(tk)];
-                        self.relatar(c::MAP_KEY_TYPE_NOT_ASSIGNABLE, span, args);
+                    if !self.m.matches_type(&k, tk) {
+                        let args = vec![self.m.format(k.tipo), self.m.format(tk)];
+                        self.report(c::MAP_KEY_TYPE_NOT_ASSIGNABLE, span, args);
                     }
                     if !self.m.primitive_equality(&k, self.lib) {
-                        let args = vec![self.m.formatar(k.tipo)];
-                        self.relatar(c::CONST_MAP_KEY_NOT_PRIMITIVE_EQUALITY, span, args);
+                        let args = vec![self.m.format(k.tipo)];
+                        self.report(c::CONST_MAP_KEY_NOT_PRIMITIVE_EQUALITY, span, args);
                     }
                     self.record_unique(lv, k, span);
                 }
                 if let Constante::Valor(v) = v {
-                    if !self.m.casa(&v, tv) {
+                    if !self.m.matches_type(&v, tv) {
                         let span = self.m.span(u, *value);
-                        let args = vec![self.m.formatar(v.tipo), self.m.formatar(tv)];
-                        self.relatar(c::MAP_VALUE_TYPE_NOT_ASSIGNABLE, span, args);
+                        let args = vec![self.m.format(v.tipo), self.m.format(tv)];
+                        self.report(c::MAP_VALUE_TYPE_NOT_ASSIGNABLE, span, args);
                     }
                 }
                 true
@@ -1847,24 +1847,24 @@ impl Verifier<'_, '_> {
             CollectionElement::Spread { value, null_aware } => {
                 let Constante::Valor(v) = self.evaluate_and_report(*value, true, code) else { return false };
                 let span = self.m.span(u, *value);
-                match lv.tipo {
-                    LiteralType::Lista(_) | LiteralType::Conjunto(_) => {
+                match lv.ty {
+                    LiteralType::Lista(_) | LiteralType::Set(_) => {
                         let list = v.as_list().cloned();
                         let set = v.as_set().cloned();
                         let Some(items) = list.clone().or(set) else {
                             if v.estado.is_null() && *null_aware {
                                 return true;
                             }
-                            self.relatar(c::CONST_SPREAD_EXPECTED_LIST_OR_SET, span, Vec::new());
+                            self.report(c::CONST_SPREAD_EXPECTED_LIST_OR_SET, span, Vec::new());
                             return false;
                         };
-                        if matches!(lv.tipo, LiteralType::Lista(_)) {
+                        if matches!(lv.ty, LiteralType::Lista(_)) {
                             return true;
                         }
                         if list.is_some() && !items.iter().all(|x| self.m.primitive_equality(x, self.lib)) {
                             let s = self.m.element_span(u, el);
-                            let args = vec![self.m.formatar(v.tipo)];
-                            self.relatar(c::CONST_SET_ELEMENT_NOT_PRIMITIVE_EQUALITY, s, args);
+                            let args = vec![self.m.format(v.tipo)];
+                            self.report(c::CONST_SET_ELEMENT_NOT_PRIMITIVE_EQUALITY, s, args);
                             return false;
                         }
                         for x in items.iter() {
@@ -1884,7 +1884,7 @@ impl Verifier<'_, '_> {
                                 true
                             }
                             None => {
-                                self.relatar(c::CONST_SPREAD_EXPECTED_MAP, span, Vec::new());
+                                self.report(c::CONST_SPREAD_EXPECTED_MAP, span, Vec::new());
                                 false
                             }
                         }
@@ -1916,7 +1916,7 @@ impl Verifier<'_, '_> {
                 if let Some(p) = parameter
                     && !allowed.contains(&p)
                 {
-                    self.relatar(code, annotation.span, Vec::new());
+                    self.report(code, annotation.span, Vec::new());
                     return;
                 }
                 for &y in args.iter() {
@@ -1954,7 +1954,7 @@ impl Verifier<'_, '_> {
     /// through an alias).
     fn referenced_constructor(&self, a: &ast::Ast, base: ExprId, the_name: ast::Name) -> bool {
         let program = self.m.program;
-        let u = self.unidade;
+        let u = self.unit;
         let el = match &a.expr(base).kind {
             ExprKind::Identifier(n) => program.lookup_na_unidade(u, n.sym).and_then(|b| b.getter),
             ExprKind::Property { target: p, name: n, .. } => match &a.expr(*p).kind {
@@ -1978,7 +1978,7 @@ impl Verifier<'_, '_> {
     }
 
     fn annotation_type(&self, x: ast::TypeId) -> Option<TypeId> {
-        let u = self.unidade;
+        let u = self.unit;
         self.m.body.units.get(u.0 as usize).and_then(|b| b.tipos_de_anotacoes.get(&x).copied()).or_else(|| self.m.outline.tipos_escritos.get(&(u, x)).copied())
     }
 
@@ -1995,7 +1995,7 @@ impl Verifier<'_, '_> {
             ast::TypeKind::Named { name, args } => {
                 if is_parameter(self, x).is_some() {
                     let lexeme = name.last().map(|n| self.m.interner.resolve(n.sym).to_string()).unwrap_or_default();
-                    self.relatar(code, annotation.span, vec![lexeme]);
+                    self.report(code, annotation.span, vec![lexeme]);
                 } else {
                     for &y in args.iter() {
                         self.const_type_argument(a, y, code);
@@ -2024,8 +2024,8 @@ impl Verifier<'_, '_> {
     fn const_type_field(&mut self, a: &ast::Ast, y: ast::TypeId, code: Codigo) {
         match self.annotation_type(y) {
             Some(r) if matches!(self.m.table.get(r), Type::TypeParameter { .. }) => {
-                let displayed = self.m.formatar(r);
-                self.relatar(code, a.ty(y).span, vec![displayed]);
+                let displayed = self.m.format(r);
+                self.report(code, a.ty(y).span, vec![displayed]);
             }
             _ => self.const_type_argument(a, y, code),
         }
@@ -2037,8 +2037,8 @@ impl Verifier<'_, '_> {
     /// without an error, equal to a previous one:
     /// `EQUAL_ELEMENTS_IN_SET`/`EQUAL_KEYS_IN_MAP` at the repeated one.
     fn duplicates_in_non_constant_literal(&mut self, _a: &ast::Ast, e: ExprId, elements: &[CollectionElement]) {
-        let u = self.unidade;
-        let typ = self.m.estatico(u, e);
+        let u = self.unit;
+        let typ = self.m.the_static(u, e);
         let cls = match self.m.table.get(typ) {
             Type::Interface { class, .. } => Some(*class),
             _ => None,
@@ -2068,7 +2068,7 @@ impl Verifier<'_, '_> {
             let repeated = seen.iter().any(|y| self.m.iguais(y, &v));
             if repeated {
                 let sp = self.m.span(u, x);
-                self.relatar(code, sp, Vec::new());
+                self.report(code, sp, Vec::new());
             } else {
                 seen.push(v);
             }
@@ -2082,8 +2082,8 @@ impl Verifier<'_, '_> {
         for (x, s) in lv.the_unique.iter() {
             if self.m.iguais(x, &v) {
                 let original = *s;
-                if !lv.duplicados.iter().any(|(d, _)| *d == span) {
-                    lv.duplicados.push((span, original));
+                if !lv.duplicates.iter().any(|(d, _)| *d == span) {
+                    lv.duplicates.push((span, original));
                 }
                 return;
             }
@@ -2096,13 +2096,13 @@ impl Verifier<'_, '_> {
         let _ = a;
         let cx = self.cx();
         let mut nodes: Vec<(Span, Codigo)> = Vec::new();
-        let base = Self::literal_code(&lv.tipo);
+        let base = Self::literal_code(&lv.ty);
         self.collect_element(&cx, el, base, &mut nodes);
         if nodes.is_empty() {
             return true;
         }
         for (s, code) in nodes {
-            self.relatar(code, s, Vec::new());
+            self.report(code, s, Vec::new());
         }
         false
     }
@@ -2139,18 +2139,18 @@ impl Verifier<'_, '_> {
 
 enum LiteralType {
     Lista(TypeId),
-    Conjunto(TypeId),
+    Set(TypeId),
     Mapa(TypeId, TypeId),
 }
 
 struct Literal {
-    tipo: LiteralType,
+    ty: LiteralType,
     the_unique: Vec<(Valor, Span)>,
-    duplicados: Vec<(Span, Span)>,
+    duplicates: Vec<(Span, Span)>,
 }
 
 /// Skips whitespace and comments starting at `i`.
-fn pular_brancos(f: &[u8], mut i: usize) -> usize {
+fn skip_blanks(f: &[u8], mut i: usize) -> usize {
     loop {
         while i < f.len() && f[i].is_ascii_whitespace() {
             i += 1;
