@@ -1202,3 +1202,104 @@ Medidos e descartados nesta rodada:
    `limitless_ui`).
 4. O `polyfill` do DOM (2,7 KB não minificados) em todo programa, mesmo sem
    `dart:html`.
+
+## 13. Rodada de 2026-10-13, tarde (macOS): nomes de propriedade compartilhados
+
+Medido antes de mexer (o binário do fim da §12): `print('hi')` 52.007 bytes,
+`limitless_ui` 3.726.961 (gz 1.099.111), `new_sali` 7.854.243 (gz 2.188.550).
+Cada passo foi validado sozinho com o corpus diferencial 241/241 nos dois
+perfis (e o `corpus/moderno` 26/26 a partir da §13.6), o `limitless_ui` com o
+e2e 15/15 e as 47 rotas sem erro no Chrome, e o `new_sali` carregando sem
+erro.
+
+### 13.1 Nomes de propriedade compartilhados (`properties.rs`, `minify.rs`)
+
+A saída do `dart2js` tem 8.331 nomes de propriedade distintos no
+`limitless_ui`; a nossa tinha 20.722, e 14.773 deles com três caracteres
+(`e.wje`, `e.KZt`): cada campo de *view* (`_el_0`, `_expr_3`) é um nome
+privado por biblioteca, e o renomeio dava um nome curto distinto a cada um.
+O `dart2js` dá aos campos nomes por posição na classe (`a`, `b`, `c`), e
+classes sem relação repetem os mesmos.
+
+Agora dois nomes renomeados podem receber o mesmo nome curto quando nenhum
+objeto pode carregar os dois. Do modelo de elementos sai, para cada classe
+sem subtipos, o **grupo de coabitação**: os nomes JS dos membros de
+instância de toda a cadeia de supertipos (superclasses, *mixins*,
+interfaces — um encaminhador de `noSuchMethod` põe os membros da interface
+na classe — e `on`), na grafia pública e na privada/armazenamento do perfil
+de produção. Nomes de estáticos, construtores, membros de topo, classes e
+os *helpers* do runtime são **solitários** (vivem em funções construtoras e
+objetos de biblioteca), e um nome renomeado que nenhum grupo conhece também
+é tratado como solitário. A atribuição continua por frequência; um nome
+compartilhável recebe o menor alvo que nenhum nome dos seus grupos e nenhum
+solitário usa. Os nomes que chegam ao runtime como *string* (`dsend`,
+`dload`, `in`) continuam reservados, como antes.
+
+`limitless_ui` −88 KB brutos e **−44 KB gzip**; `new_sali` −118 KB e
+**−70 KB gzip**: as *views* de bibliotecas diferentes passam a se escrever
+com as mesmas letras, e o gzip as encontra. Quase todo nome de propriedade
+fica com um ou dois caracteres. `DARTFORGE_JSPROD_SHARED_NAMES=0` desliga.
+
+### 13.2 Remendos do piso (`sdk_patches.rs`)
+
+* `getThrown` (vivo em todo programa com `catch`) reconhecia o estouro de
+  pilha com `message.contains('call stack')`; o caminho genérico de
+  `String.contains` (o argumento é um `Pattern`) mantinha `allMatches`, os
+  iteráveis de casamento, `Iterable` e `StringBuffer`. O teste com a
+  *string* literal é o `includes` do JavaScript.
+* `getReifiedType` chamava `getRtiForRecord` para um `RecordImpl`, e com ele
+  `_Universe.bind` e os rtis de ligação. A conta virou um *getter* de
+  `RecordImpl` (`_reifiedRti`), vivo só onde um *record* é criado.
+
+`print('hi')` 52,0 → 49,0 KB. `DARTFORGE_JSPROD_FLOOR_PATCHES=0` desliga.
+
+### 13.3 Operadores vivos por seletor (`world`, `verify.rs`)
+
+O mundo mantinha todo operador de toda classe instanciada (o `JSNumber` e o
+`JSString` inteiros em todo programa). Com o SDK no mundo, os usos binários,
+unários, de índice, compostos e de padrão (`< 5`, listas, mapas) registram o
+seletor do operador restrito ao receptor; os operadores de número que o
+emissor escreve como operador do JavaScript (`+ - * / & | ^ < > <= >=` com
+número à esquerda e número ou `dynamic` à direita, `-x`, `~x`) não registram
+nada. O verificador passou a ler os usos de operador no texto
+(`x[$modulo]`, pelo prelúdio `var $modulo = dartx["%"]`, e `a["+"](b)`) como
+rede de segurança; no corpus ele não precisou corrigir nenhum.
+`print('hi')` 49,0 → 47,8 KB. `DARTFORGE_JSPROD_OPERATOR_SELECTORS=0`
+desliga.
+
+### 13.4 O *polyfill* do DOM só com `dart:html`
+
+O `dart.global` chamava o `polyfill` do DDC (`NodeList.prototype.get`, os
+construtores `AudioContext`/`FontFaceSet`… que as classes nativas do
+`dart:html` registram) em todo programa. O mundo segura o `polyfill` de
+`dart:_runtime` até uma função do `dart:html` ou da família
+(`dartforge_world::DOM_LIBRARIES`) ficar viva, e sem isso a chamada sai do
+texto do `global`. `print('hi')` 47,8 → 46,3 KB; o `limitless_ui` (que usa
+`package:web`) perde 1,5 KB; o `new_sali` (`dart:html`) mantém.
+`DARTFORGE_JSPROD_DOM_POLYFILL=0` desliga.
+
+### 13.5 Sem os nomes dos campos `late` (decisão do dono)
+
+Como o `dart2js -O2` em diante (`omitLateNames`), o perfil de produção
+escreve `LateInitializationError: Field '' has not been initialized.` (e
+`Local ''`, `has already been initialized`), conferido contra a saída do
+`dart2js -O2` para campos, variáveis de topo e locais. Os mapas do
+`dart.lateFields` levam `0` no lugar do nome. O desenvolvimento continua
+idêntico à VM. `DARTFORGE_JSPROD_LATE_NAMES=0` mantém os nomes.
+
+O diferencial compara a produção com a referência com essa única troca
+aplicada às linhas de `LateInitializationError` (`report::omit_late_names`),
+desligada quando o compilador mantém os nomes, e o relatório nomeia cada
+programa em que ela valeu (`ok 56_late (late names omitted in production,
+as dart2js -O2)`). No corpus, só o `56_late` imprime a mensagem.
+`limitless_ui` −66 KB brutos e −22 KB gzip; `new_sali` −68 KB e −20 KB.
+
+### 13.6 Correções no caminho
+
+* Constante de enum citada por atalho de ponto (`opcional(.vermelho)`) não
+  nascia: desde a §12.3 as constantes vivem uma a uma, e o `static_member`
+  do mundo só olhava as funções estáticas (`corpus/moderno/330`).
+* O teste ignorado `tests/identity.rs` do `emit_js_production` (sem filtro e
+  com `AllLive` emitem o mesmo texto) quebrou com os literais estáticos
+  ansiosos da §11.3: as escolhas de emissão do perfil de produção que não
+  são poda perguntam `Liveness::production`, e o `AllLive` diz que não.
