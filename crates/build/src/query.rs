@@ -22,16 +22,16 @@ pub enum Query {
     ActiveGlobs {
         dir: PathBuf,
         pattern: String,
-        candidatos: Vec<(String, bool)>,
+        candidates: Vec<(String, bool)>,
     },
     /// Public API of a library (plus the annotations).
-    ApiBiblioteca(String),
+    LibraryApi(String),
     /// Surface of a declaration: signature, annotations, public members.
     Declaration { library: String, name: String },
     /// Term of an engine index (e.g. `("ng.seletor", "x-y")`).
-    Indice { espaco: &'static str, termo: String },
+    Index { space: &'static str, term: String },
     /// Conservative: the text of all the library's units.
-    FonteBiblioteca(String),
+    LibrarySource(String),
 }
 
 impl Query {
@@ -48,10 +48,10 @@ impl Query {
     pub fn semantic(&self) -> bool {
         matches!(
             self,
-            Query::ApiBiblioteca(_)
+            Query::LibraryApi(_)
                 | Query::Declaration { .. }
-                | Query::Indice { .. }
-                | Query::FonteBiblioteca(_)
+                | Query::Index { .. }
+                | Query::LibrarySource(_)
         )
     }
 }

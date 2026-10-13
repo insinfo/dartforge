@@ -443,7 +443,7 @@ pub(crate) fn emit_extension_type(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut W
             static_fields.push(vid);
         }
     }
-    crate::linha!(w, "{cref} = class {cname} {{");
+    crate::emit_line!(w, "{cref} = class {cname} {{");
     w.push_raw(&cw.out);
     w.line("};");
     // Static fields: lazy, like those of a class.
@@ -482,7 +482,7 @@ pub(crate) fn emit_extension_type(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut W
         lazy.push(entry);
     }
     if !lazy.is_empty() {
-        crate::linha!(w, "dart.defineLazy({cref}, {{");
+        crate::emit_line!(w, "dart.defineLazy({cref}, {{");
         w.push_raw(&indent(&lazy.join(",\n")));
         w.push_raw("\n});\n");
     }
@@ -616,7 +616,7 @@ pub(crate) fn constructor_text(ctx: &Ctx, m: &ModState, c: ClassId, unit: dartfo
     for p in ctor.parameters.iter() {
         if p.this_ && p.name.map(|n| n.sym) == rep_name {
             if let Some(l) = p.name.and_then(|n| e.lookup_local(n.sym)) {
-                crate::linha!(body, "$this = {};", l.js);
+                crate::emit_line!(body, "$this = {};", l.js);
             }
         }
     }
@@ -625,21 +625,21 @@ pub(crate) fn constructor_text(ctx: &Ctx, m: &ModState, c: ClassId, unit: dartfo
             ast::Initializer::Field { value, .. } => {
                 let (js, _) = e.emit_expr(*value, Some(&rep));
                 flush_stmts(&mut e, &mut body);
-                crate::linha!(body, "$this = {};", js.code);
+                crate::emit_line!(body, "$this = {};", js.code);
             }
             ast::Initializer::Redirect { constructor, arguments, .. } => {
                 let n = constructor.map(|n| ctx.name(n.sym).to_string()).unwrap_or_default();
                 let args: Vec<Ty> = ctx.class_params[c.0 as usize].iter().map(|p| Ty::Param { id: p.id, name: p.name.clone(), nullable: false }).collect();
                 let (js, _) = e.ext_type_construct(c, args, true, &n, arguments, None);
                 flush_stmts(&mut e, &mut body);
-                crate::linha!(body, "$this = {};", js.code);
+                crate::emit_line!(body, "$this = {};", js.code);
             }
             ast::Initializer::Assert { .. } if e.ctx.filter.is_some_and(|f| !f.keep_asserts()) => {}
             ast::Initializer::Assert { condition, message, .. } => {
                 let (cjs, _) = e.emit_cond(*condition);
                 let msg = message.map(|mm| e.emit_expr(mm, None).0.code).unwrap_or("null".into());
                 flush_stmts(&mut e, &mut body);
-                crate::linha!(body, "if (!({cjs})) dart.assertFailed({msg}, null, 0, 0, \"\");");
+                crate::emit_line!(body, "if (!({cjs})) dart.assertFailed({msg}, null, 0, 0, \"\");");
             }
             ast::Initializer::Super { .. } => {}
         }
@@ -653,7 +653,7 @@ pub(crate) fn constructor_text(ctx: &Ctx, m: &ModState, c: ClassId, unit: dartfo
     if has_body {
         e.emit_body(&ctor.body);
         let text = std::mem::take(&mut e.w.out);
-        crate::linha!(body, "(() => {{");
+        crate::emit_line!(body, "(() => {{");
         body.push_raw(&indent(&text));
         body.push_raw("\n");
         body.line("})();");

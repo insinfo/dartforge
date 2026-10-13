@@ -67,7 +67,7 @@ pub enum SavedOrigin {
 pub struct SavedAction {
     pub key: String,
     pub origin: SavedOrigin,
-    pub motivo: Option<String>,
+    pub reason: Option<String>,
     pub queries: Vec<(Query, Option<Digest>)>,
     pub outputs: Vec<(AssetId, Option<Digest>)>,
     pub from_support: Vec<AssetId>,
@@ -131,9 +131,9 @@ fn query_json(c: &Query) -> Option<Value> {
         Query::ActiveGlobs {
             dir,
             pattern,
-            candidatos,
+            candidates,
         } => {
-            json!({"t": "glob_ativos", "p": path_str(dir)?, "padrao": pattern, "candidatos": candidatos})
+            json!({"t": "glob_ativos", "p": path_str(dir)?, "padrao": pattern, "candidatos": candidates})
         }
         _ => return None,
     })
@@ -157,7 +157,7 @@ fn query_from_json(v: &Value) -> Option<Query> {
             Query::ActiveGlobs {
                 dir: p()?,
                 pattern: pattern()?,
-                candidatos: candidates,
+                candidates: candidates,
             }
         }
         _ => return None,
@@ -204,7 +204,7 @@ fn action_json(a: &SavedAction) -> Option<Value> {
     Some(json!({
         "chave": a.key,
         "origem": origin,
-        "motivo": a.motivo,
+        "motivo": a.reason,
         "consultas": queries,
         "saidas": outputs,
         "do_apoio": ids(&a.from_support),
@@ -239,7 +239,7 @@ fn action_from_json(v: &Value) -> Option<SavedAction> {
     Some(SavedAction {
         key: v.get("chave")?.as_str()?.to_string(),
         origin: origin,
-        motivo: v.get("motivo").and_then(Value::as_str).map(str::to_string),
+        reason: v.get("motivo").and_then(Value::as_str).map(str::to_string),
         queries: queries,
         outputs: outputs,
         from_support: ids_from(v.get("do_apoio"))?,
@@ -354,7 +354,7 @@ mod tests {
         let action = SavedAction {
             key: "k".into(),
             origin: SavedOrigin::Native("sass_builder:sass_builder".into()),
-            motivo: None,
+            reason: None,
             queries: vec![
                 (Query::File("/p/lib/a.scss".into()), Some(d)),
                 (Query::Exists("/p/lib/b.scss".into()), None),
@@ -362,7 +362,7 @@ mod tests {
                     Query::ActiveGlobs {
                         dir: "/p".into(),
                         pattern: "lib/**".into(),
-                        candidatos: vec![("lib/a.g.dart".into(), true)],
+                        candidates: vec![("lib/a.g.dart".into(), true)],
                     },
                     Some(d),
                 ),
@@ -392,7 +392,7 @@ mod tests {
         std::fs::write(dir.path().join("blobs").join(hex(&d)), b"other").unwrap();
         assert!(read_blob(dir.path(), &d).is_none());
         // A semantic query cannot be persisted.
-        assert!(!persistable(&Query::ApiBiblioteca(
+        assert!(!persistable(&Query::LibraryApi(
             "package:p/a.dart".into()
         )));
         // An unreferenced blob goes away on the next write.

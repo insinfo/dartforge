@@ -336,7 +336,7 @@ pub fn cfe_error_line(s: &Output) -> Option<usize> {
 /// `at bytes S..E` (offset in the source); the line is counted in the entry.
 pub fn forge_error_line(text: &str, source: &str) -> Option<usize> {
     // Only the error lines: the type warnings (`aviso: … at bytes …`) also
-    // carry an offset, and may belong to another unit. The `erro` prefix is
+    // carry an offset, and may belong to another unit. The `error` prefix is
     // the dartforge CLI's diagnostic text.
     let start: Option<usize> = text.lines().filter(|l| l.trim_start().starts_with("erro")).find_map(|l| {
         let (_, rest) = l.rsplit_once(" at bytes ")?;

@@ -90,12 +90,12 @@ impl Profile {
 
     /// `build_config` ≥ 1.2.0: the top-level `triggers` key exists (otherwise
     /// `$checkKeys` rejects it like any unknown key).
-    pub fn aceita_triggers(&self) -> bool {
+    pub fn accepts_triggers(&self) -> bool {
         at_least(self.build_config, Version(1, 2, 0))
     }
 
     /// `build_config` ≥ 1.3.0: `post_process_builders.<x>.build_to`.
-    pub fn aceita_build_to_pos(&self) -> bool {
+    pub fn accepts_post_process_build_to(&self) -> bool {
         at_least(self.build_config, Version(1, 3, 0))
     }
 
@@ -109,10 +109,10 @@ impl Profile {
     /// Triggers decide whether a step with `run_only_if_triggered: true`
     /// runs: `build_runner` ≥ 2.7.0 or, without `build_runner`,
     /// `build_config` ≥ 1.2.0.
-    pub fn dispara(&self) -> bool {
+    pub fn uses_triggers(&self) -> bool {
         match self.build_runner {
             Some(v) => v >= Version(2, 7, 0),
-            None => self.aceita_triggers(),
+            None => self.accepts_triggers(),
         }
     }
 

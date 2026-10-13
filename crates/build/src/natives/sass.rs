@@ -43,7 +43,7 @@ impl NativeGenerator for SassNative {
         "sass_builder:sass_builder"
     }
 
-    fn cobre(&self, _factory: &str) -> bool {
+    fn covers(&self, _factory: &str) -> bool {
         true
     }
 
@@ -85,7 +85,7 @@ impl NativeGenerator for SassNative {
                 Some(Value::Text(v)) if v == "expanded" => Estilo::Expandido,
                 Some(Value::Text(v)) if v == "compressed" => Estilo::Comprimido,
                 Some(_) => {
-                    s.recusas.insert(
+                    s.refusals.insert(
                         a.natural_input.clone(),
                         "sass: unknown outputStyle (the official builder warns)".into(),
                     );
@@ -93,7 +93,7 @@ impl NativeGenerator for SassNative {
                 }
             };
             let Some(source) = ctx.read(&a.natural_input) else {
-                s.recusas
+                s.refusals
                     .insert(a.natural_input.clone(), "sass: unreadable input".into());
                 continue;
             };
@@ -115,7 +115,7 @@ impl NativeGenerator for SassNative {
                 Ok(f) => f,
                 Err(m) => {
                     let first = m.lines().next().unwrap_or_default().to_owned();
-                    s.recusas.insert(
+                    s.refusals.insert(
                         a.natural_input.clone(),
                         format!("sass: dart-sass rejects it: {first}"),
                     );

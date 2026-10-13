@@ -362,11 +362,11 @@ pub fn read_build_dart(text: &str) -> Result<Vec<Application>, String> {
             .map(|r| r.split_once('#').map(|(_, n)| n).unwrap_or(r).to_string())
             .collect();
         let filter = if is_post {
-            ApplyFilter::Nenhum
+            ApplyFilter::NoneByDefault
         } else {
             match pos.get(2) {
                 Some(Expr::Call { target, pos, .. }) => match method(target) {
-                    "toNoneByDefault" => ApplyFilter::Nenhum,
+                    "toNoneByDefault" => ApplyFilter::NoneByDefault,
                     "toAllPackages" => ApplyFilter::All,
                     "toRoot" => ApplyFilter::Root,
                     "toDependentsOf" => match pos.first() {
@@ -382,7 +382,7 @@ pub fn read_build_dart(text: &str) -> Result<Vec<Application>, String> {
             key: key,
             pos: is_post,
             import,
-            fabricas: factories,
+            factories: factories,
             filter: filter,
             optional: false,
             hidden: is_post,

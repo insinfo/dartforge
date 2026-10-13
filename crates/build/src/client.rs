@@ -208,7 +208,7 @@ impl<C: Canal> BuildClient<C> {
         }
         let id = self.id();
         self.channel.enviar(&json!({"t":kind,"id":id,"fase":p.phase,"chave":p.key,
-            "fabrica":p.fabrica,"opcoes":map_json(&p.options),"isRoot":p.root,"entrada":p.input.text(),
+            "fabrica":p.factory,"opcoes":map_json(&p.options),"isRoot":p.root,"entrada":p.input.text(),
             "saidas_permitidas":p.allowed_outputs.iter().map(AssetId::text).collect::<Vec<_>>()
         })).map_err(ExecutorError)?;
         let response = self.receive(id, "build.resultado", service)?;
@@ -274,7 +274,7 @@ impl<C: Canal> BuildClient<C> {
         Ok(ActionResult {
             outputs: outputs,
             logs,
-            falhou: failed,
+            failed: failed,
             deleted_outputs: deleted,
         })
     }
@@ -378,7 +378,7 @@ impl<C: Canal> DartExecutor for BuildClient<C> {
         let id = self.id();
         self.channel
             .enviar(
-                &json!({"t":"build.extensoes","id":id,"chave":p.key,"fabrica":p.fabrica,
+                &json!({"t":"build.extensoes","id":id,"chave":p.key,"fabrica":p.factory,
             "opcoes":map_json(&p.options),"isRoot":p.root}),
             )
             .map_err(ExecutorError)?;
@@ -421,7 +421,7 @@ impl<C: Canal> DartExecutor for BuildClient<C> {
         let id = self.id();
         self.channel
             .enviar(
-                &json!({"t":"build.entradas_pos","id":id,"chave":p.key,"fabrica":p.fabrica,
+                &json!({"t":"build.entradas_pos","id":id,"chave":p.key,"fabrica":p.factory,
             "opcoes":map_json(&p.options),"isRoot":p.root}),
             )
             .map_err(ExecutorError)?;
@@ -560,14 +560,14 @@ mod tests {
         let request = ActionRequest {
             phase: 0,
             key: "p:b".into(),
-            fabrica: "b".into(),
+            factory: "b".into(),
             options: Map::default(),
             root: true,
             input: AssetId::new("p", "lib/a.dart"),
             allowed_outputs: vec![AssetId::new("p", "lib/a.g.dart")],
         };
         let result = client.execute(&request, &mut service).unwrap();
-        assert!(!result.falhou);
+        assert!(!result.failed);
         assert_eq!(service.writes[0].1.as_ref(), b"generated");
         let sent = sent.lock().unwrap();
         assert_eq!(sent[0]["t"], "ola");
@@ -592,7 +592,7 @@ mod tests {
         let mut client = BuildClient::new(channel);
         let request = ExtensionsRequest {
             key: "p:b".into(),
-            fabrica: "b".into(),
+            factory: "b".into(),
             options: Map::default(),
             root: true,
         };
@@ -643,7 +643,7 @@ mod tests {
             .unwrap();
         let ext_request = ExtensionsRequest {
             key: "p:cleanup".into(),
-            fabrica: "cleanup".into(),
+            factory: "cleanup".into(),
             options: Map::default(),
             root: true,
         };
@@ -654,7 +654,7 @@ mod tests {
         let request = ActionRequest {
             phase: 1,
             key: "p:cleanup".into(),
-            fabrica: "cleanup".into(),
+            factory: "cleanup".into(),
             options: Map::default(),
             root: true,
             input: AssetId::new("p", "lib/a.dart"),
@@ -719,7 +719,7 @@ mod tests {
         let request = ActionRequest {
             phase: 0,
             key: "p:b".into(),
-            fabrica: "b".into(),
+            factory: "b".into(),
             options: Map::default(),
             root: true,
             input: AssetId::new("p", "lib/a.dart"),
@@ -756,7 +756,7 @@ mod tests {
         let request = ActionRequest {
             phase: 0,
             key: "p:b".into(),
-            fabrica: "b".into(),
+            factory: "b".into(),
             options: Map::default(),
             root: true,
             input: AssetId::new("p", "lib/a.dart"),
@@ -765,7 +765,7 @@ mod tests {
         let mut service = FakeService {
             writes: Vec::new(),
         };
-        assert!(!client.execute(&request, &mut service).unwrap().falhou);
+        assert!(!client.execute(&request, &mut service).unwrap().failed);
         let sent = sent.lock().unwrap();
         assert_eq!(sent[3]["id"], 9);
         assert!(sent[3]["erro"].as_str().unwrap().contains("AssetId"));
@@ -806,7 +806,7 @@ mod tests {
         let request = ActionRequest {
             phase: 0,
             key: "p:b".into(),
-            fabrica: "b".into(),
+            factory: "b".into(),
             options: Map::default(),
             root: true,
             input: AssetId::new("p", "lib/a.dart"),

@@ -67,7 +67,7 @@ pub struct BuildStage {
     /// Root of the input's package.
     root: PathBuf,
     expected: HashSet<PathBuf>,
-    /// Digest of the text of each library (`FonteBiblioteca`), memoized
+    /// Digest of the text of each library (`LibrarySource`), memoized
     /// across compilations and invalidated when one of its units gets dirty.
     sources: Mutex<HashMap<String, Digest>>,
 }
@@ -113,7 +113,7 @@ struct SessionDb<'a> {
 impl SemanticDb for SessionDb<'_> {
     fn digest(&self, c: &Query) -> Option<Digest> {
         match c {
-            Query::FonteBiblioteca(uri) => {
+            Query::LibrarySource(uri) => {
                 if let Some(d) = self.sources.lock().ok()?.get(uri) {
                     return Some(*d);
                 }
@@ -134,7 +134,7 @@ impl SemanticDb for SessionDb<'_> {
             // metadata, and for a generator the annotation is everything (a
             // new `@Component` in a file that used to be trivial must wake
             // ngdart up).
-            Query::ApiBiblioteca(uri) => {
+            Query::LibraryApi(uri) => {
                 let key = format!("api {uri}");
                 if let Some(d) = self.sources.lock().ok()?.get(&key) {
                     return Some(*d);
@@ -161,7 +161,7 @@ impl SemanticDb for SessionDb<'_> {
                 self.sources.lock().ok()?.insert(key, d);
                 Some(d)
             }
-            // `Declaration` and `Indice` come with stage B of ngdart (fine
+            // `Declaration` and `Index` come with stage B of ngdart (fine
             // queries); until then nobody registers them.
             _ => None,
         }
@@ -204,7 +204,7 @@ impl GenerationStage for BuildStage {
     }
 
     fn update(&mut self, ctx: &SessionCtx<'_>, changed: &[PathBuf]) -> Result<StageUpdate, String> {
-        // The `FonteBiblioteca` memo loses the libraries that changed.
+        // The `LibrarySource` memo loses the libraries that changed.
         if !changed.is_empty() {
             let dirty: HashSet<PathBuf> = changed.iter().map(|p| chave(p)).collect();
             let mut f = self.sources.lock().map_err(|_| "database memo poisoned")?;

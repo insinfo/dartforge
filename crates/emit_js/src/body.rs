@@ -127,14 +127,14 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     pub(crate) fn emit_pattern_variables(&mut self, pattern: ast::PatternId, value: ExprId) {
         let (vjs, vty) = self.emit_expr(value, None);
         let t = self.temp();
-        crate::linha!(self.w, "{t} = {};", vjs.code);
+        crate::emit_line!(self.w, "{t} = {};", vjs.code);
         let mut binds = Vec::new();
         let cond = self.pattern_cond(pattern, &t, &vty, &mut binds, true);
         for (_, _, jsn) in &binds {
-            crate::linha!(self.w, "let {jsn} = null;");
+            crate::emit_line!(self.w, "let {jsn} = null;");
         }
         if cond != "true" {
-            crate::linha!(self.w, "if (!({cond})) dart.throw(new core.StateError.new(\"Pattern matching error\"));");
+            crate::emit_line!(self.w, "if (!({cond})) dart.throw(new core.StateError.new(\"Pattern matching error\"));");
             self.m.use_sdk("core");
         }
     }
@@ -1089,12 +1089,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 self.returns.push(ty);
                 if matches!(self.async_kind, AsyncKind::None | AsyncKind::Async) {
                     if self.ret_ty == Ty::Void && !self.is_closure_body {
-                        crate::linha!(self.w, "{};", js.code);
+                        crate::emit_line!(self.w, "{};", js.code);
                     } else {
-                        crate::linha!(self.w, "return {};", js.code);
+                        crate::emit_line!(self.w, "return {};", js.code);
                     }
                 } else {
-                    crate::linha!(self.w, "{};", js.code);
+                    crate::emit_line!(self.w, "{};", js.code);
                 }
             }
             FunctionBody::Empty | FunctionBody::Native(_) => {}
@@ -1189,14 +1189,14 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
             StmtKind::PatternVariables { pattern, value, .. } => {
                 let (vjs, vty) = self.emit_expr(*value, None);
                 let t = self.temp();
-                crate::linha!(self.w, "{t} = {};", vjs.code);
+                crate::emit_line!(self.w, "{t} = {};", vjs.code);
                 let mut binds = Vec::new();
                 let cond = self.pattern_cond(*pattern, &t, &vty, &mut binds, true);
                 for (_, _, jsn) in &binds {
-                    crate::linha!(self.w, "let {jsn} = null;");
+                    crate::emit_line!(self.w, "let {jsn} = null;");
                 }
                 if cond != "true" {
-                    crate::linha!(self.w, 
+                    crate::emit_line!(self.w, 
                         "if (!({cond})) dart.throw(new core.StateError.new(\"Pattern matching error\"));"
                     );
                     self.m.use_sdk("core");
@@ -1207,31 +1207,31 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                 // SDK mode: `JS('', 'throw #', x)` is a statement.
                 if self.ctx.sdk.is_some() {
                     if let Some(t) = crate::own_sdk::js_statement(self, *e) {
-                        crate::linha!(self.w, "{t};");
+                        crate::emit_line!(self.w, "{t};");
                         return;
                     }
                 }
                 let (js, _) = self.emit_expr(*e, None);
-                crate::linha!(self.w, "{};", js.code);
+                crate::emit_line!(self.w, "{};", js.code);
             }
             StmtKind::If { condition, case_pattern, guard, then, else_ } => {
                 if let Some(pat) = case_pattern {
                     let (vjs, vty) = self.emit_expr(*condition, None);
                     let t = self.temp();
-                    crate::linha!(self.w, "{t} = {};", vjs.code);
+                    crate::emit_line!(self.w, "{t} = {};", vjs.code);
                     self.w.open("{");
                     self.push_scope();
                     let mut binds = Vec::new();
                     let cond = self.pattern_cond(*pat, &t, &vty, &mut binds, false);
                     for (_, _, jsn) in &binds {
-                        crate::linha!(self.w, "let {jsn} = null;");
+                        crate::emit_line!(self.w, "let {jsn} = null;");
                     }
                     let mut full = cond;
                     if let Some(g) = guard {
                         let (gjs, _) = self.emit_expr(*g, Some(&self.ctx.t_bool()));
                         full = format!("{} && {}", paren_if_needed(&full), gjs.at(crate::js::P_AND));
                     }
-                    crate::abre!(self.w, "if ({full}) {{");
+                    crate::open_block!(self.w, "if ({full}) {{");
                     self.emit_stmt(*then);
                     self.w.close("}");
                     if let Some(e) = else_ {
@@ -1259,7 +1259,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                     }
                     return;
                 }
-                crate::abre!(self.w, "if ({}) {{", cjs);
+                crate::open_block!(self.w, "if ({}) {{", cjs);
                 self.push_scope();
                 for (sym, t) in &promos {
                     if let Some(loc) = self.lookup_local(*sym).cloned() {
@@ -1289,7 +1289,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
             }
             StmtKind::While { condition, body } => {
                 let (cjs, _) = self.emit_cond(*condition);
-                crate::abre!(self.w, "while ({cjs}) {{");
+                crate::open_block!(self.w, "while ({cjs}) {{");
                 self.push_scope();
                 self.emit_stmt(*body);
                 self.pop_scope();
@@ -1301,7 +1301,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                 self.emit_stmt(*body);
                 self.pop_scope();
                 let (cjs, _) = self.emit_cond(*condition);
-                crate::fecha!(self.w, "}} while ({cjs});");
+                crate::close_block!(self.w, "}} while ({cjs});");
             }
             StmtKind::For { init, condition, updates, body, .. } => {
                 self.push_scope();
@@ -1354,14 +1354,14 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
             StmtKind::Break(label) => match label {
                 Some(l) => {
                     let js = self.js_label(self.name(l.sym));
-                    crate::linha!(self.w, "break {js};");
+                    crate::emit_line!(self.w, "break {js};");
                 }
                 None => {
                     if let Some(Some(l)) = self.switch_labels.last() {
                         let l = l.clone();
-                        crate::linha!(self.w, "break {l};");
+                        crate::emit_line!(self.w, "break {l};");
                     } else if let Some((_, loop_label, _)) = self.case_labels.last().cloned() {
-                        crate::linha!(self.w, "break {loop_label};");
+                        crate::emit_line!(self.w, "break {loop_label};");
                     } else {
                         self.w.line("break;");
                     }
@@ -1371,11 +1371,11 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                 Some(l) => {
                     let n = self.name(l.sym).to_string();
                     if let Some((_, loop_label, state)) = self.case_labels.iter().rev().find(|(k, _, _)| *k == n).cloned() {
-                        crate::linha!(self.w, "t$state = {state};");
-                        crate::linha!(self.w, "continue {loop_label};");
+                        crate::emit_line!(self.w, "t$state = {state};");
+                        crate::emit_line!(self.w, "continue {loop_label};");
                     } else {
                         let js = self.js_label(&n);
-                        crate::linha!(self.w, "continue {js};");
+                        crate::emit_line!(self.w, "continue {js};");
                     }
                 }
                 None => self.w.line("continue;"),
@@ -1390,7 +1390,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                     };
                     let (js, ty) = self.emit_expr(*e, Some(&expected));
                     self.returns.push(ty);
-                    crate::linha!(self.w, "return {};", js.code);
+                    crate::emit_line!(self.w, "return {};", js.code);
                 }
                 None => self.w.line("return;"),
             },
@@ -1412,17 +1412,17 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                 match (self.async_kind, star) {
                     (AsyncKind::AsyncStar, false) => {
                         self.m.use_sdk("async");
-                        crate::linha!(self.w, "yield async._IterationMarker.yieldSingle({});", js.code);
+                        crate::emit_line!(self.w, "yield async._IterationMarker.yieldSingle({});", js.code);
                     }
                     (AsyncKind::AsyncStar, true) => {
                         self.m.use_sdk("async");
-                        crate::linha!(self.w, "yield async._IterationMarker.yieldStar({});", js.code);
+                        crate::emit_line!(self.w, "yield async._IterationMarker.yieldStar({});", js.code);
                     }
                     (AsyncKind::SyncStar, true) => {
                         self.m.use_sdk("async");
-                        crate::linha!(self.w, "yield async._IterationMarker.yieldStar({});", js.code);
+                        crate::emit_line!(self.w, "yield async._IterationMarker.yieldStar({});", js.code);
                     }
-                    _ => crate::linha!(self.w, "yield {};", js.code),
+                    _ => crate::emit_line!(self.w, "yield {};", js.code),
                 }
             }
             StmtKind::Try { body, catches, finally_ } => self.emit_try(*body, catches, *finally_),
@@ -1447,10 +1447,10 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                     StmtKind::For { .. } | StmtKind::ForIn { .. } | StmtKind::While { .. } | StmtKind::DoWhile { .. }
                 );
                 if is_loop || matches!(body_stmt.kind, StmtKind::Switch { .. }) {
-                    crate::linha!(self.w, "{first}:");
+                    crate::emit_line!(self.w, "{first}:");
                     self.emit_stmt(*body);
                 } else {
-                    crate::abre!(self.w, "{first}: {{");
+                    crate::open_block!(self.w, "{first}: {{");
                     self.emit_stmt(*body);
                     self.w.close("}");
                 }
@@ -1468,7 +1468,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                     None => "null".to_string(),
                 };
                 let text = js::string_literal(self.text(self.expr(*condition).span));
-                crate::linha!(self.w, "if (!({cjs})) dart.assertFailed({msg}, null, 0, 0, {text});");
+                crate::emit_line!(self.w, "if (!({cjs})) dart.assertFailed({msg}, null, 0, 0, {text});");
             }
             StmtKind::Empty => self.w.line(";"),
         }
@@ -1513,25 +1513,25 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                     };
                     let jsn = self.declare(v.name.sym, ty);
                     if list.late {
-                        crate::linha!(self.w, "let {jsn} = void 0;");
+                        crate::emit_line!(self.w, "let {jsn} = void 0;");
                         if let Some(l) = self.scopes.last_mut().and_then(|s| s.get_mut(&v.name.sym)) {
                             l.lazy_init = Some(js.into_at(crate::js::P_ASSIGN + 1));
                         }
                     } else {
-                        crate::linha!(self.w, "let {jsn} = {};", js.code);
+                        crate::emit_line!(self.w, "let {jsn} = {};", js.code);
                     }
                 }
                 None => {
                     let ty = declared.clone().unwrap_or(Ty::Dynamic);
                     let jsn = self.declare(v.name.sym, ty.clone());
                     if list.late {
-                        crate::linha!(self.w, "let {jsn} = void 0;");
+                        crate::emit_line!(self.w, "let {jsn} = void 0;");
                         if let Some(l) = self.scopes.last_mut().and_then(|s| s.get_mut(&v.name.sym)) {
                             l.late_check = !ty.is_nullable();
                             l.late_final = list.final_;
                         }
                     } else {
-                        crate::linha!(self.w, "let {jsn} = null;");
+                        crate::emit_line!(self.w, "let {jsn} = null;");
                     }
                 }
             }
@@ -1546,7 +1546,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
         // The signature is that of `local_fn_ty` (the one in scope, which the
         // calls already read); the shared type of the local function is not used.
         let (fn_js, inferred) = self.emit_function_expr(fid, Some(&ty), None);
-        crate::linha!(self.w, "let {jsn} = {};", fn_js.code);
+        crate::emit_line!(self.w, "let {jsn} = {};", fn_js.code);
         // Without a written return type, the local function's return type is
         // the one inferred from the body (the same its rti carries): the
         // following reads see it. Inside its own body (recursion) it still
@@ -1618,43 +1618,43 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
             let it = self.temp();
             let elem_rti = self.rti(&elem_ty);
             let recipe = self.ctx.recipe_of("dart:async", "StreamIterator", "async|StreamIterator");
-            crate::linha!(self.w, "{it} = async.StreamIterator.new({elem_rti}[_eval](\"{recipe}<0>\"), {});", ijs.code);
+            crate::emit_line!(self.w, "{it} = async.StreamIterator.new({elem_rti}[_eval](\"{recipe}<0>\"), {});", ijs.code);
             self.w.open("try {");
-            crate::abre!(self.w, "while ((yield {it}.moveNext())) {{");
+            crate::open_block!(self.w, "while ((yield {it}.moveNext())) {{");
             let _ = &decl_ty;
             match pattern {
                 Some(p) if p.0 != u32::MAX => {
-                    crate::linha!(self.w, "let {var_js} = {it}.current;");
+                    crate::emit_line!(self.w, "let {var_js} = {it}.current;");
                     self.emit_pattern_bind_stmt(p, &var_js, &elem_ty);
                 }
                 Some(_) => {
                     if let ast::ForInTarget::Expression(e) = target {
                         let (ljs, _) = self.emit_assign_to(*e, &Js::prim(format!("{it}.current")), &elem_ty);
-                        crate::linha!(self.w, "{};", ljs.code);
+                        crate::emit_line!(self.w, "{};", ljs.code);
                     }
                 }
-                None => crate::linha!(self.w, "let {var_js} = {it}.current;"),
+                None => crate::emit_line!(self.w, "let {var_js} = {it}.current;"),
             }
             self.emit_stmt(body);
             self.w.close("}");
             self.w.close("}");
             self.w.open("finally {");
-            crate::linha!(self.w, "yield {it}.cancel();");
+            crate::emit_line!(self.w, "yield {it}.cancel();");
             self.w.close("}");
         } else {
             match pattern {
                 Some(p) if p.0 != u32::MAX => {
-                    crate::abre!(self.w, "for (let {var_js} of {}) {{", ijs.code);
+                    crate::open_block!(self.w, "for (let {var_js} of {}) {{", ijs.code);
                     self.emit_pattern_bind_stmt(p, &var_js, &elem_ty);
                 }
                 Some(_) => {
-                    crate::abre!(self.w, "for (let {var_js} of {}) {{", ijs.code);
+                    crate::open_block!(self.w, "for (let {var_js} of {}) {{", ijs.code);
                     if let ast::ForInTarget::Expression(e) = target {
                         let (ljs, _) = self.emit_assign_to(*e, &Js::prim(var_js.clone()), &elem_ty);
-                        crate::linha!(self.w, "{};", ljs.code);
+                        crate::emit_line!(self.w, "{};", ljs.code);
                     }
                 }
-                None => crate::abre!(self.w, "for (let {var_js} of {}) {{", ijs.code),
+                None => crate::open_block!(self.w, "for (let {var_js} of {}) {{", ijs.code),
             }
             self.emit_stmt(body);
             self.w.close("}");
@@ -1667,11 +1667,11 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
         let mut binds = Vec::new();
         let cond = self.pattern_cond(p, value_js, vty, &mut binds, true);
         for (_, _, jsn) in &binds {
-            crate::linha!(self.w, "let {jsn} = null;");
+            crate::emit_line!(self.w, "let {jsn} = null;");
         }
         if cond != "true" {
             self.m.use_sdk("core");
-            crate::linha!(self.w, "if (!({cond})) dart.throw(new core.StateError.new(\"Pattern matching error\"));");
+            crate::emit_line!(self.w, "if (!({cond})) dart.throw(new core.StateError.new(\"Pattern matching error\"));");
         }
     }
 
@@ -1692,10 +1692,10 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
             self.switch_labels.push(None);
             if has_case_labels {
                 // `continue label` to another case: a loop with a state variable.
-                crate::linha!(self.w, "t$state = {};", vjs.code);
+                crate::emit_line!(self.w, "t$state = {};", vjs.code);
                 self.temps.push("t$state".into());
                 self.temps.dedup();
-                crate::linha!(self.w, "{label}:");
+                crate::emit_line!(self.w, "{label}:");
                 self.w.open("while (true) {");
                 self.w.open("switch (t$state) {");
                 let mut n_pushed = 0;
@@ -1715,7 +1715,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                         None => self.w.line("default:"),
                         Some(p) => {
                             for cv in self.const_pattern_values(p) {
-                                crate::linha!(self.w, "case {}:", cv);
+                                crate::emit_line!(self.w, "case {}:", cv);
                             }
                         }
                     }
@@ -1726,7 +1726,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                     }
                     self.pop_scope();
                     if !self.ends_with_jump(&c.body) {
-                        crate::linha!(self.w, "break {label};");
+                        crate::emit_line!(self.w, "break {label};");
                     }
                     self.w.close("}");
                 }
@@ -1739,8 +1739,8 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                 self.switch_labels.pop();
                 return;
             }
-            crate::linha!(self.w, "{label}:");
-            crate::abre!(self.w, "switch ({}) {{", vjs.code);
+            crate::emit_line!(self.w, "{label}:");
+            crate::open_block!(self.w, "switch ({}) {{", vjs.code);
             for c in cases {
                 let has_stmts = !c.body.is_empty();
                 match c.pattern {
@@ -1748,7 +1748,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                     Some(p) => {
                         let consts = self.const_pattern_values(p);
                         for cv in consts {
-                            crate::linha!(self.w, "case {}:", cv);
+                            crate::emit_line!(self.w, "case {}:", cv);
                         }
                     }
                 }
@@ -1761,7 +1761,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                     self.pop_scope();
                     // Dart 3: no implicit fallthrough.
                     if !self.ends_with_jump(&c.body) {
-                        crate::linha!(self.w, "break {label};");
+                        crate::emit_line!(self.w, "break {label};");
                     }
                     self.w.close("}");
                 }
@@ -1773,9 +1773,9 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
         // General form: a labeled block with pattern tests.
         let label = self.fresh_label();
         let t = self.temp();
-        crate::linha!(self.w, "{t} = {};", vjs.code);
+        crate::emit_line!(self.w, "{t} = {};", vjs.code);
         self.switch_labels.push(Some(label.clone()));
-        crate::abre!(self.w, "{label}: {{");
+        crate::open_block!(self.w, "{label}: {{");
         let mut i = 0;
         while i < cases.len() {
             // Consecutive cases without a body share the next body.
@@ -1802,15 +1802,15 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                 alts.push(full);
             }
             for (_, _, jsn) in &binds {
-                crate::linha!(self.w, "let {jsn} = null;");
+                crate::emit_line!(self.w, "let {jsn} = null;");
             }
             let full = if alts.len() == 1 { alts.remove(0) } else { alts.iter().map(|a| format!("({a})")).collect::<Vec<_>>().join(" || ") };
-            crate::abre!(self.w, "if ({full}) {{");
+            crate::open_block!(self.w, "if ({full}) {{");
             for &s in body_case.body.iter() {
                 self.emit_stmt(s);
             }
             if !self.ends_with_jump(&body_case.body) {
-                crate::linha!(self.w, "break {label};");
+                crate::emit_line!(self.w, "break {label};");
             }
             self.w.close("}");
             self.pop_scope();
@@ -1878,13 +1878,13 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
         if !catches.is_empty() {
             let e = format!("t$e{}", self.unique);
             self.unique += 1;
-            crate::abre!(self.w, "catch ({e}) {{");
+            crate::open_block!(self.w, "catch ({e}) {{");
             let ex = format!("t$ex{}", self.unique);
             let st = format!("t$st{}", self.unique);
             self.unique += 1;
-            crate::linha!(self.w, "let {ex} = dart.getThrown({e});");
+            crate::emit_line!(self.w, "let {ex} = dart.getThrown({e});");
             if catches.iter().any(|c| c.stack_trace.is_some()) {
-                crate::linha!(self.w, "let {st} = dart.stackTrace({e});");
+                crate::emit_line!(self.w, "let {st} = dart.stackTrace({e});");
             }
             let mut first = true;
             let mut catch_all = false;
@@ -1914,12 +1914,12 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                         _ => self.ctx.t_object(),
                     };
                     let jsn = self.declare(n.sym, ty);
-                    crate::linha!(self.w, "let {jsn} = {ex};");
+                    crate::emit_line!(self.w, "let {jsn} = {ex};");
                 }
                 if let Some(n) = c.stack_trace {
                     let ty = self.ctx.stack_trace.map(Ty::iface).unwrap_or(Ty::Dynamic);
                     let jsn = self.declare(n.sym, ty);
-                    crate::linha!(self.w, "let {jsn} = {st};");
+                    crate::emit_line!(self.w, "let {jsn} = {st};");
                 }
                 self.rethrow_var.push(e.clone());
                 self.emit_stmt(c.body);
@@ -1932,7 +1932,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                 }
             }
             if !catch_all {
-                crate::linha!(self.w, "else throw {e};");
+                crate::emit_line!(self.w, "else throw {e};");
             }
             self.w.close("}");
         }

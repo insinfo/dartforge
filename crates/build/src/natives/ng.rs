@@ -138,7 +138,7 @@ impl NativeGenerator for NgStageA {
         self.key
     }
 
-    fn cobre(&self, factory: &str) -> bool {
+    fn covers(&self, factory: &str) -> bool {
         factory == "templateCompiler" || factory == "stylesheetCompiler"
     }
 
@@ -212,7 +212,7 @@ impl NativeGenerator for NgStageA {
                 (true, Some(uri))
                     if !looks_angular(&std::fs::read_to_string(p).unwrap_or_default()) =>
                 {
-                    ctx.register(Query::ApiBiblioteca(uri.to_string()));
+                    ctx.register(Query::LibraryApi(uri.to_string()));
                     // The file name decides the trivial template: its
                     // existence is also a query.
                     ctx.register(Query::Exists(k));
@@ -249,7 +249,7 @@ impl NativeGenerator for NgStageA {
                     .chain(l.exports.iter().map(|x| x.library.0 as usize)),
             );
             if !l.is_sdk && !in_package(l) {
-                ctx.register(Query::FonteBiblioteca(l.uri.clone()));
+                ctx.register(Query::LibrarySource(l.uri.clone()));
             }
         }
         let t_queries = t.elapsed();
@@ -307,7 +307,7 @@ impl NativeGenerator for NgStageA {
                 .and_then(|c| c.iter().next())
                 .map(|m| format!("ngdart (stage A) refuses: {m:?}"))
                 .unwrap_or_else(|| "ngdart (stage A) refuses".into());
-            s.recusas.insert(p.clone(), m);
+            s.refusals.insert(p.clone(), m);
         }
         s.generated_unit_count = scoreboard.gerados;
         self.cache
@@ -350,7 +350,7 @@ fn sheet_of_output(p: &Path) -> Option<PathBuf> {
 fn clone_output(s: &NativeOutput) -> NativeOutput {
     NativeOutput {
         outputs: s.outputs.clone(),
-        recusas: s.recusas.clone(),
+        refusals: s.refusals.clone(),
         generated_unit_count: s.generated_unit_count,
         reuse_queries: s.reuse_queries,
     }
@@ -476,7 +476,7 @@ impl NgStageA {
         for source in &closure {
             let target = dartforge_ng_generator::caminho_do_template(source);
             if !cache.output.outputs.contains_key(&target)
-                || cache.output.recusas.contains_key(source)
+                || cache.output.refusals.contains_key(source)
             {
                 return None;
             }
@@ -576,7 +576,7 @@ impl NgStageA {
             ctx.register(Query::File(k.clone()));
             ctx.register(Query::Exists(k.clone()));
             if let Some(uri) = library_of.get(&k) {
-                ctx.register(Query::ApiBiblioteca(uri.to_string()));
+                ctx.register(Query::LibraryApi(uri.to_string()));
             }
         }
         Some(output)

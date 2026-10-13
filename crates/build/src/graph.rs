@@ -110,7 +110,7 @@ pub struct Graph {
     pub listed: BTreeSet<Arc<str>>,
     /// Source filters of the unlisted packages: a builder read in one of them
     /// is decided path by path, without listing the package.
-    pub externos: BTreeMap<Arc<str>, SourceFilter>,
+    pub externals: BTreeMap<Arc<str>, SourceFilter>,
 }
 
 /// Which paths of a package are sources: some target includes them (and does
@@ -175,7 +175,7 @@ impl Graph {
             .is_some_and(|s| s.contains(&id.path))
     }
 
-    pub fn existe(&self, id: &AssetId) -> bool {
+    pub fn exists(&self, id: &AssetId) -> bool {
         self.has_source(id) || self.generated.contains_key(id)
     }
 
@@ -259,7 +259,7 @@ impl Graph {
     pub fn external_source(&self, id: &AssetId) -> bool {
         !id.path.contains('$')
             && self
-                .externos
+                .externals
                 .get(&id.package)
                 .is_some_and(|f| f.admits(&id.path))
     }
@@ -290,7 +290,7 @@ impl Graph {
                 }
                 g.listed.insert(node.name.as_str().into());
             } else if let Some(f) = Self::package_filter(graph, configs, i)? {
-                g.externos.insert(node.name.as_str().into(), f);
+                g.externals.insert(node.name.as_str().into(), f);
             }
         }
         // `allInputs`: sources + synthetic nodes, and the accumulated outputs.
@@ -338,8 +338,8 @@ impl Graph {
                     if let Some(other) = g.generated.get(s) {
                         return Err(format!(
                             "Both {} and {} may output {}, which is not allowed.",
-                            phases[other.phase].fabrica,
-                            phase.fabrica,
+                            phases[other.phase].factory,
+                            phase.factory,
                             s.text()
                         ));
                     }

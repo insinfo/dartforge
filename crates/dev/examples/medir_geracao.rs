@@ -73,7 +73,7 @@ fn main() {
         for (i, a) in m.graph.actions.iter().enumerate() {
             let Some(r) = m.record(i) else { continue };
             let f = &m.phases[a.phase];
-            if !matches!(r.origin, dartforge_build::engine::Origin::Native(_)) || f.fabrica != "templateCompiler" {
+            if !matches!(r.origin, dartforge_build::engine::Origin::Native(_)) || f.factory != "templateCompiler" {
                 continue;
             }
             let dart = root.join(a.input.path.as_ref());
@@ -142,7 +142,7 @@ fn main() {
                 for (a, action) in m.graph.actions.iter().enumerate() {
                     if root.join(action.input.path.as_ref()) == dart || root.join(action.input.path.as_ref()).with_extension("") == dart.with_extension("") {
                         if let Some(r) = m.record(a) {
-                            println!("    {} {:?} {:?}", action.input.path, r.origin, r.motivo);
+                            println!("    {} {:?} {:?}", action.input.path, r.origin, r.reason);
                         }
                     }
                 }

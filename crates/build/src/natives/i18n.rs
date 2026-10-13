@@ -456,7 +456,7 @@ impl NativeGenerator for I18nNative {
         "i18n:yamlBasedBuilder"
     }
 
-    fn cobre(&self, _factory: &str) -> bool {
+    fn covers(&self, _factory: &str) -> bool {
         true
     }
 
@@ -499,7 +499,7 @@ impl NativeGenerator for I18nNative {
                 .unwrap_or_default()
                 .to_string();
             let Some(source) = ctx.read(&a.natural_input) else {
-                s.recusas
+                s.refusals
                     .insert(a.natural_input.clone(), "i18n: unreadable input".into());
                 continue;
             };
@@ -541,7 +541,7 @@ impl NativeGenerator for I18nNative {
                     }
                 }
                 Err(f) => {
-                    s.recusas.insert(a.natural_input.clone(), f);
+                    s.refusals.insert(a.natural_input.clone(), f);
                 }
             }
         }

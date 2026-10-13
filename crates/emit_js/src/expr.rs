@@ -951,21 +951,21 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let rti = self.rti(&jsarr);
         self.m.use_sdk("_interceptors");
         if const_ {
-            crate::linha!(self.w, "{t} = [];");
+            crate::emit_line!(self.w, "{t} = [];");
         } else {
-            crate::linha!(self.w, "{t} = _interceptors.JSArray.of({rti}, []);");
+            crate::emit_line!(self.w, "{t} = _interceptors.JSArray.of({rti}, []);");
         }
         let t2 = t.clone();
         for el in elements {
             self.emit_collection_element(el, &elem_ty, None, &|s: &mut Self, v: String| {
-                crate::linha!(s.w, "{t2}.push({v});");
+                crate::emit_line!(s.w, "{t2}.push({v});");
             });
         }
         if const_ {
             let er = self.rti(&elem_ty);
-            crate::linha!(self.w, "return dart.constList({er}, {t});");
+            crate::emit_line!(self.w, "return dart.constList({er}, {t});");
         } else {
-            crate::linha!(self.w, "return {t};");
+            crate::emit_line!(self.w, "return {t};");
         }
         let body = std::mem::replace(&mut self.w, saved_w).out;
         (self.iife(&body), list_ty)
@@ -1074,8 +1074,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 // discarded here, it does not reach the literal.
                 let (v, _) = self.emit_expr(*e, Some(&elem_ty.with_nullable(true)));
                 let t = self.temp();
-                crate::linha!(self.w, "{t} = {};", v.code);
-                crate::abre!(self.w, "if ({t} != null) {{");
+                crate::emit_line!(self.w, "{t} = {};", v.code);
+                crate::open_block!(self.w, "if ({t} != null) {{");
                 add(self, t);
                 self.w.close("}");
             }
@@ -1090,16 +1090,16 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let kctx = if *null_aware_key { elem_ty.with_nullable(true) } else { elem_ty.clone() };
                 let (k, _) = self.emit_expr(*key, Some(&kctx));
                 let tk = self.temp();
-                crate::linha!(self.w, "{tk} = {};", k.code);
+                crate::emit_line!(self.w, "{tk} = {};", k.code);
                 if *null_aware_key {
-                    crate::abre!(self.w, "if ({tk} != null) {{");
+                    crate::open_block!(self.w, "if ({tk} != null) {{");
                 }
                 let vctx = value_ty.map(|t| if *null_aware_value { t.with_nullable(true) } else { t.clone() });
                 let (v, _) = self.emit_expr(*value, vctx.as_ref());
                 let tv = self.temp();
-                crate::linha!(self.w, "{tv} = {};", v.code);
+                crate::emit_line!(self.w, "{tv} = {};", v.code);
                 if *null_aware_value {
-                    crate::abre!(self.w, "if ({tv} != null) {{");
+                    crate::open_block!(self.w, "if ({tv} != null) {{");
                 }
                 add(self, format!("{tk}\u{0}{tv}"));
                 if *null_aware_value {
@@ -1112,20 +1112,20 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             CollectionElement::Spread { value, null_aware } => {
                 let (v, vty) = self.emit_expr(*value, None);
                 let t = self.temp();
-                crate::linha!(self.w, "{t} = {};", v.code);
+                crate::emit_line!(self.w, "{t} = {};", v.code);
                 if *null_aware {
-                    crate::abre!(self.w, "if ({t} != null) {{");
+                    crate::open_block!(self.w, "if ({t} != null) {{");
                 }
                 if value_ty.is_some() {
                     // Map: iterate over the entries.
                     let entries = self.member_access(&vty.non_null(), "entries", false);
                     let x = self.temp();
-                    crate::abre!(self.w, "for ({x} of {t}{entries}) {{");
+                    crate::open_block!(self.w, "for ({x} of {t}{entries}) {{");
                     add(self, format!("{x}.key\u{0}{x}.value"));
                     self.w.close("}");
                 } else {
                     let x = self.temp();
-                    crate::abre!(self.w, "for ({x} of {t}) {{");
+                    crate::open_block!(self.w, "for ({x} of {t}) {{");
                     add(self, x);
                     self.w.close("}");
                 }
@@ -1137,19 +1137,19 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 if let Some(pat) = case_pattern {
                     let (vjs, vty) = self.emit_expr(*condition, None);
                     let t = self.temp();
-                    crate::linha!(self.w, "{t} = {};", vjs.code);
+                    crate::emit_line!(self.w, "{t} = {};", vjs.code);
                     self.push_scope();
                     let mut binds = Vec::new();
                     let cond = self.pattern_cond(*pat, &t, &vty, &mut binds, false);
                     for (_, _, jsn) in &binds {
-                        crate::linha!(self.w, "let {jsn} = null;");
+                        crate::emit_line!(self.w, "let {jsn} = null;");
                     }
                     let mut full = cond;
                     if let Some(g) = guard {
                         let (gjs, _) = self.emit_expr(*g, Some(&self.ctx.t_bool()));
                         full = format!("({full}) && {}", gjs.at(P_AND));
                     }
-                    crate::abre!(self.w, "if ({full}) {{");
+                    crate::open_block!(self.w, "if ({full}) {{");
                     self.emit_collection_element(then, elem_ty, value_ty, add);
                     self.w.close("}");
                     if let Some(e) = else_ {
@@ -1161,7 +1161,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     return;
                 }
                 let (c, _) = self.emit_cond(*condition);
-                crate::abre!(self.w, "if ({c}) {{");
+                crate::open_block!(self.w, "if ({c}) {{");
                 self.emit_collection_element(then, elem_ty, value_ty, add);
                 self.w.close("}");
                 if let Some(e) = else_ {
@@ -1224,18 +1224,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     ast::ForInTarget::Declared { name, ty, .. } => {
                         let t = ty.map(|t| self.resolve_type(t)).unwrap_or(et.clone());
                         let jsn = self.declare(name.sym, t);
-                        crate::abre!(self.w, "for (let {jsn} of {}) {{", ijs.code);
+                        crate::open_block!(self.w, "for (let {jsn} of {}) {{", ijs.code);
                     }
                     ast::ForInTarget::Pattern { pattern, .. } => {
                         let t = self.temp();
-                        crate::abre!(self.w, "for ({t} of {}) {{", ijs.code);
+                        crate::open_block!(self.w, "for ({t} of {}) {{", ijs.code);
                         self.emit_pattern_bind_stmt(*pattern, &t, &et);
                     }
                     ast::ForInTarget::Expression(e) => {
                         let t = self.temp();
-                        crate::abre!(self.w, "for ({t} of {}) {{", ijs.code);
+                        crate::open_block!(self.w, "for ({t} of {}) {{", ijs.code);
                         let (ljs, _) = self.emit_assign_to(*e, &Js::prim(t), &et);
-                        crate::linha!(self.w, "{};", ljs.code);
+                        crate::emit_line!(self.w, "{};", ljs.code);
                     }
                 }
                 self.emit_collection_element(body, elem_ty, value_ty, add);
@@ -1311,9 +1311,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             let t = self.temp();
             let saved_w = std::mem::take(&mut self.w);
             if const_ {
-                crate::linha!(self.w, "{t} = [];");
+                crate::emit_line!(self.w, "{t} = [];");
             } else {
-                crate::linha!(self.w, "{t} = new {cls}.new({rti});");
+                crate::emit_line!(self.w, "{t} = new {cls}.new({rti});");
             }
             let set = self.member_access(&map_ty, "[]=", false);
             let t2 = t.clone();
@@ -1321,18 +1321,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 self.emit_collection_element(el, &kt, Some(&vt), &|s: &mut Self, v: String| {
                     let (k, val) = v.split_once('\u{0}').unwrap_or((&v, "null"));
                     if const_ {
-                        crate::linha!(s.w, "{t2}.push({k}, {val});");
+                        crate::emit_line!(s.w, "{t2}.push({k}, {val});");
                     } else {
-                        crate::linha!(s.w, "{t2}{set}({k}, {val});");
+                        crate::emit_line!(s.w, "{t2}{set}({k}, {val});");
                     }
                 });
             }
             if const_ {
                 let kr = self.rti(&kt);
                 let vr = self.rti(&vt);
-                crate::linha!(self.w, "return dart.constMap({kr}, {vr}, {t});");
+                crate::emit_line!(self.w, "return dart.constMap({kr}, {vr}, {t});");
             } else {
-                crate::linha!(self.w, "return {t};");
+                crate::emit_line!(self.w, "return {t};");
             }
             let body = std::mem::replace(&mut self.w, saved_w).out;
             return (self.iife(&body), map_ty);
@@ -1372,25 +1372,25 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let t = self.temp();
         let saved_w = std::mem::take(&mut self.w);
         if const_ {
-            crate::linha!(self.w, "{t} = [];");
+            crate::emit_line!(self.w, "{t} = [];");
         } else {
-            crate::linha!(self.w, "{t} = collection.LinkedHashSet.new({rti});");
+            crate::emit_line!(self.w, "{t} = collection.LinkedHashSet.new({rti});");
         }
         let t2 = t.clone();
         for el in elements {
             self.emit_collection_element(el, &et, None, &|s: &mut Self, v: String| {
                 if const_ {
-                    crate::linha!(s.w, "{t2}.push({v});");
+                    crate::emit_line!(s.w, "{t2}.push({v});");
                 } else {
-                    crate::linha!(s.w, "{t2}.add({v});");
+                    crate::emit_line!(s.w, "{t2}.add({v});");
                 }
             });
         }
         if const_ {
             let er = self.rti(&et);
-            crate::linha!(self.w, "return dart.constSet({er}, {t});");
+            crate::emit_line!(self.w, "return dart.constSet({er}, {t});");
         } else {
-            crate::linha!(self.w, "return {t};");
+            crate::emit_line!(self.w, "return {t};");
         }
         let body = std::mem::replace(&mut self.w, saved_w).out;
         (self.iife(&body), set_ty)
@@ -3408,7 +3408,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let (vjs, vty) = self.emit_expr(value, None);
         let saved_w = std::mem::take(&mut self.w);
         let t = self.temp();
-        crate::linha!(self.w, "{t} = {};", vjs.code);
+        crate::emit_line!(self.w, "{t} = {};", vjs.code);
         let mut result_ty: Option<Ty> = None;
         for c in cases {
             self.w.open("{");
@@ -3416,7 +3416,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             let mut binds = Vec::new();
             let cond = self.pattern_cond(c.pattern, &t, &vty, &mut binds, false);
             for (_, _, jsn) in &binds {
-                crate::linha!(self.w, "let {jsn} = null;");
+                crate::emit_line!(self.w, "let {jsn} = null;");
             }
             let mut full = cond;
             if let Some(g) = c.guard {
@@ -3428,7 +3428,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 None => bty,
                 Some(r) => self.ctx.lub(&r, &bty),
             });
-            crate::linha!(self.w, "if ({full}) return {};", bjs.code);
+            crate::emit_line!(self.w, "if ({full}) return {};", bjs.code);
             self.pop_scope();
             self.w.close("}");
         }

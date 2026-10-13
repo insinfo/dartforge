@@ -166,7 +166,7 @@ fn json_serializable_through_the_vm_equals_build_runner_and_is_incremental() {
         p.different,
         p.pending
     );
-    assert_eq!(p.iguais.len(), 2);
+    assert_eq!(p.equal.len(), 2);
     // `source_gen:part_cleanup` deletes the hidden part: it disappears from
     // the published generation (the official `FinalizedReader`), but the
     // `.g.dart` stays.
@@ -289,13 +289,13 @@ fn corpus_builders_through_the_vm() {
         let (_, warm) = update(&mut m, &[]);
         let p = m.scoreboard(&references(&origin));
         let reasons: Vec<String> = p
-            .motivos()
+            .reasons()
             .into_iter()
             .map(|(k, n)| format!("{n}× {}", k.lines().next().unwrap_or("")))
             .collect();
         lines.push(format!(
             "| {name} | {} | {} | {} | {clean:.0} | {warm:.1} | {} |",
-            p.iguais.len(),
+            p.equal.len(),
             p.pending.len(),
             p.different.len(),
             reasons.join("; ")
@@ -404,7 +404,7 @@ fn restored_equal_count(dir: &Path, origin: &Path) -> usize {
     update(&mut m, &[]);
     let p = m.scoreboard(&references(origin));
     assert!(p.different.is_empty(), "{:?}", p.different);
-    p.iguais.len()
+    p.equal.len()
 }
 
 /// The post-processor output `notas.rascunho.resumo` in the anchor's record.

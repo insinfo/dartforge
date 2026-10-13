@@ -118,7 +118,7 @@ fn main() {
             js::JS_BYTES.load(Relaxed) as f64 / MB,
             js::AT_BORROWS.load(Relaxed),
             js::AT_PARENS.load(Relaxed),
-            js::NOMES.load(Relaxed)
+            js::NAMES.load(Relaxed)
         );
     }
 

@@ -365,13 +365,13 @@ fn corpus_builders_plan_and_scoreboard() {
         };
         let p = m.scoreboard(&references(&dir));
         let reasons: Vec<String> = p
-            .motivos()
+            .reasons()
             .into_iter()
             .map(|(k, n)| format!("{n}× {k}"))
             .collect();
         lines.push(format!(
             "| {name} | {plan} | {} | {} | {} | {} |",
-            p.iguais.len(),
+            p.equal.len(),
             p.pending.len(),
             p.different.len(),
             reasons.join("; ")

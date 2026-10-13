@@ -261,7 +261,7 @@ fn run_dev(args: &[std::ffi::OsString], serve: bool) -> Result<(), Box<dyn std::
                         if serve {
                             // The browser shows the error in the console and stays
                             // connected: the next good compilation reloads.
-                            reload.erro(&e);
+                            reload.error(&e);
                         }
                     }
                 }

@@ -26,7 +26,7 @@ pub static JS_BUILT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicU
 pub static JS_BYTES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 pub static AT_BORROWS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 pub static AT_PARENS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-pub static NOMES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+pub static NAMES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 #[inline]
 fn bump(c: &std::sync::atomic::AtomicUsize, n: usize) {
@@ -117,7 +117,7 @@ pub fn string_literal_units(units: impl Iterator<Item = u16>) -> String {
 }
 
 pub fn string_literal(s: &str) -> String {
-    bump(&NOMES, 1);
+    bump(&NAMES, 1);
     string_literal_units(s.encode_utf16())
 }
 
@@ -155,8 +155,8 @@ impl Writer {
     pub fn push_raw(&mut self, s: &str) {
         self.out.push_str(s);
     }
-    /// Writes the indentation of the current line (used by the `linha!`,
-    /// `abre!` and `fecha!` macros, which format straight into the buffer).
+    /// Writes the indentation of the current line (used by the `emit_line!`,
+    /// `open_block!` and `close_block!` macros, which format straight into the buffer).
     pub fn write_indent(&mut self) {
         for _ in 0..self.indent {
             self.out.push_str("  ");
@@ -168,10 +168,10 @@ impl Writer {
     }
 }
 
-/// `linha!(w, "…{}", x)` writes the line, formatting **inside** the buffer of
+/// `emit_line!(w, "…{}", x)` writes the line, formatting **inside** the buffer of
 /// the [`Writer`], without the intermediate `String` that `w.line(&format!(…))` allocates.
 #[macro_export]
-macro_rules! linha {
+macro_rules! emit_line {
     ($w:expr, $($a:tt)*) => {{
         use std::fmt::Write as _;
         $w.write_indent();
@@ -180,21 +180,21 @@ macro_rules! linha {
     }};
 }
 
-/// Like [`linha!`], opening a block (indents the following lines).
+/// Like [`emit_line!`], opening a block (indents the following lines).
 #[macro_export]
-macro_rules! abre {
+macro_rules! open_block {
     ($w:expr, $($a:tt)*) => {{
-        $crate::linha!($w, $($a)*);
+        $crate::emit_line!($w, $($a)*);
         $w.indent += 1;
     }};
 }
 
-/// Like [`linha!`], closing the open block.
+/// Like [`emit_line!`], closing the open block.
 #[macro_export]
-macro_rules! fecha {
+macro_rules! close_block {
     ($w:expr, $($a:tt)*) => {{
         $w.indent = $w.indent.saturating_sub(1);
-        $crate::linha!($w, $($a)*);
+        $crate::emit_line!($w, $($a)*);
     }};
 }
 
@@ -224,7 +224,7 @@ pub fn is_reserved(name: &str) -> bool {
 
 /// JS identifier for the Dart name of a local variable/function.
 pub fn ident(name: &str) -> String {
-    bump(&NOMES, 1);
+    bump(&NAMES, 1);
     if is_reserved(name) || name.starts_with("t$") || name.starts_with("L$") {
         format!("{name}$")
     } else {
@@ -234,7 +234,7 @@ pub fn ident(name: &str) -> String {
 
 /// JS property access: a plain identifier or `['...']`.
 pub fn prop_access(name: &str) -> String {
-    bump(&NOMES, 1);
+    bump(&NAMES, 1);
     if is_js_ident(name) {
         format!(".{name}")
     } else {
@@ -261,7 +261,7 @@ pub fn is_js_ident(name: &str) -> bool {
 
 /// Property key in an object literal or a class member.
 pub fn prop_key(name: &str) -> String {
-    bump(&NOMES, 1);
+    bump(&NAMES, 1);
     if is_js_ident(name) {
         name.to_string()
     } else {

@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ApplyFilter {
-    Nenhum,
+    NoneByDefault,
     DependentsOf(String),
     All,
     Root,
@@ -19,7 +19,7 @@ pub enum ApplyFilter {
 impl ApplyFilter {
     fn text(&self) -> String {
         match self {
-            ApplyFilter::Nenhum => "toNoneByDefault()".into(),
+            ApplyFilter::NoneByDefault => "toNoneByDefault()".into(),
             ApplyFilter::DependentsOf(p) => {
                 format!("toDependentsOf({})", serde_json::Value::String(p.clone()))
             }
@@ -37,7 +37,7 @@ pub struct Application {
     /// Import as the script writes it (`package:…` or relative to
     /// `.dart_tool/build/entrypoint`).
     pub import: String,
-    pub fabricas: Vec<String>,
+    pub factories: Vec<String>,
     pub filter: ApplyFilter,
     pub optional: bool,
     pub hidden: bool,
@@ -65,7 +65,7 @@ impl Application {
             .canonical_text()
         };
         let factories: Vec<String> = self
-            .fabricas
+            .factories
             .iter()
             .map(|f| format!("{}#{f}", self.import))
             .collect();
@@ -102,7 +102,7 @@ impl Application {
     fn applies_to_package(&self, graph: &PackageGraph, package: usize) -> bool {
         let node = &graph.nos[package];
         match &self.filter {
-            ApplyFilter::Nenhum => false,
+            ApplyFilter::NoneByDefault => false,
             ApplyFilter::All => true,
             ApplyFilter::Root => node.is_root,
             ApplyFilter::DependentsOf(p) => node.deps.iter().any(|&d| graph.nos[d].name == *p),
@@ -277,7 +277,7 @@ impl Configs {
                 }
             }
         }
-        let triggers = if profile.aceita_triggers() {
+        let triggers = if profile.accepts_triggers() {
             crate::triggers::Triggers::from_configs(&per_package)
         } else {
             crate::triggers::Triggers::default()
@@ -424,9 +424,9 @@ impl Plan {
                 key: d.key.clone(),
                 pos: false,
                 import: script_import(&d.import),
-                fabricas: d.fabricas.clone(),
+                factories: d.factories.clone(),
                 filter: match d.auto_apply {
-                    AutoApply::None => ApplyFilter::Nenhum,
+                    AutoApply::None => ApplyFilter::NoneByDefault,
                     AutoApply::Dependents => ApplyFilter::DependentsOf(d.package.clone()),
                     AutoApply::AllPackages => ApplyFilter::All,
                     AutoApply::RootPackage => ApplyFilter::Root,
@@ -447,8 +447,8 @@ impl Plan {
                 key: p.key.clone(),
                 pos: true,
                 import: script_import(&p.import),
-                fabricas: vec![p.fabrica.clone()],
-                filter: ApplyFilter::Nenhum,
+                factories: vec![p.factory.clone()],
+                filter: ApplyFilter::NoneByDefault,
                 optional: false,
                 hidden: p.build_to == BuildTo::Cache,
                 generate_for_pattern: p.defaults.generate_for.clone(),
@@ -523,7 +523,7 @@ impl InputMatcher {
 #[derive(Debug, Clone)]
 pub struct Phase {
     pub application: usize,
-    pub fabrica: String,
+    pub factory: String,
     pub package: usize,
     pub target: String,
     pub target_sources: InputMatcher,
@@ -560,7 +560,7 @@ impl Phase {
         format!(
             "{}#{} {} {} gen={} fontes={} opcional={} oculta={} pos={} ext={:?} entradas_pos={:?} gatilho={}",
             plan.applications[self.application].key,
-            self.fabrica,
+            self.factory,
             graph.nos[self.package].name,
             self.target,
             self.generate_for.text(),
@@ -599,7 +599,7 @@ pub fn phases(
     release: bool,
     definitions: &crate::command_line::Defines,
 ) -> Result<(Vec<Phase>, Vec<TargetNode>), String> {
-    let triggers_enabled = graph.profile().dispara();
+    let triggers_enabled = graph.profile().uses_triggers();
     // `allModules`: per package (in `allPackages` order), targets in order.
     let mut nodes: Vec<TargetNode> = Vec::new();
     let mut by_key: HashMap<&str, usize> = HashMap::new();
@@ -722,7 +722,7 @@ pub fn phases(
     let mut post = Vec::new();
     for cycle in &cycles {
         for (ia, ap) in plan.applications.iter().enumerate() {
-            for fab in &ap.fabricas {
+            for fab in &ap.factories {
                 for &n in cycle {
                     if !should_apply(
                         ia,
@@ -801,7 +801,7 @@ pub fn phases(
                         let decl = crate::descriptor::runtime_extensions(
                             &ap.key,
                             fab,
-                            &ap.fabricas,
+                            &ap.factories,
                             &options,
                             &ap.declared_extensions,
                         )?;
@@ -809,7 +809,7 @@ pub fn phases(
                     };
                     let f = Phase {
                         application: ia,
-                        fabrica: fab.clone(),
+                        factory: fab.clone(),
                         package: node.package,
                         target: a.key.clone(),
                         target_sources: InputMatcher::new(&a.sources, None)?,

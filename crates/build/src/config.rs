@@ -231,7 +231,7 @@ pub struct Defaults {
 pub struct BuilderDefinition {
     pub key: String,
     pub package: String,
-    pub fabricas: Vec<String>,
+    pub factories: Vec<String>,
     pub import: String,
     pub extensions: Vec<(String, Vec<String>)>,
     pub auto_apply: AutoApply,
@@ -247,7 +247,7 @@ pub struct BuilderDefinition {
 pub struct PostProcessDefinition {
     pub key: String,
     pub package: String,
-    pub fabrica: String,
+    pub factory: String,
     pub import: String,
     /// `build_to` (`build_config` ≥ 1.3.0; before that, always `cache`).
     pub build_to: BuildTo,
@@ -664,7 +664,7 @@ impl Ctx<'_> {
         Ok(BuilderDefinition {
             key: normalized_key,
             package: self.package.to_string(),
-            fabricas: factories,
+            factories: factories,
             import: self.string(&y["import"], at)?.unwrap_or_default(),
             extensions: extensions,
             auto_apply,
@@ -684,7 +684,7 @@ impl Ctx<'_> {
 
     fn post_process(&self, key: &str, y: &Yaml) -> R<PostProcessDefinition> {
         let at = &format!("post_process_builders.{key}");
-        let newer = self.profile.aceita_build_to_pos();
+        let newer = self.profile.accepts_post_process_build_to();
         let allowed: &[&str] = if newer {
             &[
                 "builder_factory",
@@ -716,7 +716,7 @@ impl Ctx<'_> {
         Ok(PostProcessDefinition {
             key: normalized_key,
             package: self.package.to_string(),
-            fabrica: self.string(&y["builder_factory"], at)?.unwrap_or_default(),
+            factory: self.string(&y["builder_factory"], at)?.unwrap_or_default(),
             import: self.string(&y["import"], at)?.unwrap_or_default(),
             build_to,
             defaults: match &y["defaults"] {
@@ -811,14 +811,14 @@ impl Ctx<'_> {
             "global_options",
             "additional_public_assets",
         ];
-        if self.profile.aceita_triggers() {
+        if self.profile.accepts_triggers() {
             allowed.push("triggers");
         }
         self.check_keys(y, "build.yaml", &allowed, &[])?;
         // `triggersByBuilder`: `(v as Map?)?.map((k, e) => MapEntry(k as
         // String, e as Object))` — the value cannot be null.
         let mut triggers = Vec::new();
-        if self.profile.aceita_triggers()
+        if self.profile.accepts_triggers()
             && let Some(h) = self.map(&y["triggers"], "triggers")?
         {
             for (k, v) in h {

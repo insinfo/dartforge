@@ -101,7 +101,7 @@ impl Reload {
     }
     /// The compilation failed: the browser shows it in the console and stays
     /// connected.
-    pub fn erro(&self, message: &str) {
+    pub fn error(&self, message: &str) {
         self.send(Message::CompileError { message: message.to_string() });
     }
     fn current_generation(&self) -> u64 {

@@ -437,7 +437,7 @@ fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
                 .map(|i| name[i..].to_string())
                 .unwrap_or_default()
         };
-        for id in &p.iguais {
+        for id in &p.equal {
             by_ext.entry(ext(&id.path)).or_default()[0] += 1;
         }
         for (id, _) in &p.pending {
@@ -449,7 +449,7 @@ fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
         for (e, [i, pe, d]) in &by_ext {
             println!("  {e:<24} {i:>6} equal {pe:>6} pending {d:>6} different");
         }
-        let mut reasons: Vec<(String, usize)> = p.motivos().into_iter().collect();
+        let mut reasons: Vec<(String, usize)> = p.reasons().into_iter().collect();
         reasons.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
         for (m, n) in &reasons {
             println!("  {n:>6}× {m}");

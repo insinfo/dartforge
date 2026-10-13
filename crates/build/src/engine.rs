@@ -120,7 +120,7 @@ pub struct ActionRecord {
     pub origin: Origin,
     /// Reason it is pending (or why the native generator refused, when the
     /// fallback supplied it).
-    pub motivo: Option<String>,
+    pub reason: Option<String>,
     /// Measurement of an unverified native generator (only with
     /// `measure_unchecked`).
     pub measured: Vec<(AssetId, Arc<[u8]>)>,
@@ -407,10 +407,10 @@ fn affected(
         // directory that changed, or a new/deleted file).
         Query::Glob { dir, .. } => structural.iter().any(|m| m.starts_with(dir)),
         Query::ActiveGlobs {
-            dir, candidatos, ..
+            dir, candidates, ..
         } => {
             structural.iter().any(|m| m.starts_with(dir))
-                || candidatos
+                || candidates
                     .iter()
                     .any(|(rel, _)| changed.contains(&chave(&dir.join(rel))))
         }
@@ -744,7 +744,7 @@ impl Engine {
             .unwrap_or(&self.plan.applications[f.application].key);
         self.natives.iter().position(|g| {
             g.key() == key
-                && g.cobre(&f.fabrica)
+                && g.covers(&f.factory)
                 && (g.verified() || self.options.measure_unchecked)
                 && crate::descriptor::imitates(key).iter().all(|(p, vs)| {
                     self.package_graph
@@ -981,9 +981,9 @@ impl Engine {
             for (c, _) in &r.queries {
                 match c {
                     Query::ActiveGlobs {
-                        dir, candidatos, ..
+                        dir, candidates, ..
                     } => {
-                        for (rel, generated) in candidatos {
+                        for (rel, generated) in candidates {
                             if *generated
                                 && let Some(id) = by_natural.get(chave(&dir.join(rel)).as_path())
                             {
@@ -1180,7 +1180,7 @@ impl Engine {
                                         let redone_query = Query::ActiveGlobs {
                                             dir: dir.clone(),
                                             pattern: pattern.clone(),
-                                            candidatos: candidates,
+                                            candidates: candidates,
                                         };
                                         let differs =
                                             query_digest(&redone_query, ctx.db, &memory) != *d;
@@ -1282,11 +1282,11 @@ impl Engine {
                             rel.support_with_output += 1;
                         }
                     }
-                    Origin::Failure => rel.failures.push(r.motivo.clone().unwrap_or_default()),
+                    Origin::Failure => rel.failures.push(r.reason.clone().unwrap_or_default()),
                     Origin::NotTriggered => rel.not_triggered += 1,
                     Origin::Pending | Origin::Skipped => {}
                 }
-                if let Some(m) = &r.motivo {
+                if let Some(m) = &r.reason {
                     if r.origin == Origin::Pending {
                         *rel.pending_by_reason.entry(m.clone()).or_default() += 1;
                     }
@@ -1301,7 +1301,7 @@ impl Engine {
                                 "{}: {} may be out of date — {}; run 'dart run build_runner build'",
                                 self.plan.applications[self.phases[fi].application].key,
                                 s.text(),
-                                r.motivo
+                                r.reason
                                     .as_deref()
                                     .unwrap_or("the Dart executor produced no current output")
                             );
@@ -1443,7 +1443,7 @@ impl Engine {
             let key = self.plan.applications[f.application].key.clone();
             let request = ExtensionsRequest {
                 key: key,
-                fabrica: f.fabrica.clone(),
+                factory: f.factory.clone(),
                 options: f.options.clone(),
                 root: f.root,
             };
@@ -1463,7 +1463,7 @@ impl Engine {
             let key = self.plan.applications[f.application].key.clone();
             let request = ExtensionsRequest {
                 key: key.clone(),
-                fabrica: f.fabrica.clone(),
+                factory: f.factory.clone(),
                 options: f.options.clone(),
                 root: f.root,
             };
@@ -1649,7 +1649,7 @@ impl Engine {
             actions.push(crate::persistence::SavedAction {
                 key: self.action_key(a),
                 origin: origin,
-                motivo: r.motivo.clone(),
+                reason: r.reason.clone(),
                 queries: r.queries.clone(),
                 outputs: outputs,
                 from_support: r.from_fallback.clone(),
@@ -1746,7 +1746,7 @@ impl Engine {
                 queries: s.queries,
                 outputs: outputs,
                 origin: origin,
-                motivo: s.motivo,
+                reason: s.reason,
                 measured: Vec::new(),
                 from_fallback: s.from_support,
                 deleted_outputs: s.deleted_outputs,
@@ -1786,7 +1786,7 @@ impl Engine {
                             &Query::ActiveGlobs {
                                 dir: dir.clone(),
                                 pattern: pattern.clone(),
-                                candidatos: candidates,
+                                candidates: candidates,
                             },
                             database,
                             &memory,
@@ -1846,7 +1846,7 @@ impl Engine {
                     queries: Vec::new(),
                     outputs: Vec::new(),
                     origin: Origin::Pending,
-                    motivo: Some(e),
+                    reason: Some(e),
                     measured: Vec::new(),
                     from_fallback: Vec::new(),
                     deleted_outputs: Vec::new(),
@@ -1885,7 +1885,7 @@ impl Engine {
                     queries: vec![(Query::File(n), None)],
                     outputs: Vec::new(),
                     origin: Origin::Skipped,
-                    motivo: None,
+                    reason: None,
                     measured: Vec::new(),
                     from_fallback: Vec::new(),
                     deleted_outputs: Vec::new(),
@@ -1908,7 +1908,7 @@ impl Engine {
         let request = ActionRequest {
             phase: action.phase,
             key: self.plan.applications[phase.application].key.clone(),
-            fabrica: phase.fabrica.clone(),
+            factory: phase.factory.clone(),
             options: phase.options.clone(),
             root: phase.root,
             input: action.input.clone(),
@@ -1918,7 +1918,7 @@ impl Engine {
         let result = dart
             .post_process_step(&request, &mut service)
             .map_err(|e| e.0)?;
-        if result.falhou {
+        if result.failed {
             // "severo" and "erro" are log levels of the dfexec/1 protocol.
             let details = result
                 .logs
@@ -1981,7 +1981,7 @@ impl Engine {
             queries: queries,
             outputs: outputs,
             origin: Origin::Dart,
-            motivo: None,
+            reason: None,
             measured: Vec::new(),
             from_fallback: Vec::new(),
             deleted_outputs: result.deleted_outputs,
@@ -2006,7 +2006,7 @@ impl Engine {
                 .map(|s| (s.clone(), None))
                 .collect(),
             origin: origin,
-            motivo: None,
+            reason: None,
             measured: Vec::new(),
             from_fallback: Vec::new(),
             deleted_outputs: Vec::new(),
@@ -2107,7 +2107,7 @@ impl Engine {
             .applications
             .iter()
             .filter(|a| crate::descriptor::replaced_by(&a.key).is_none())
-            .map(|a| (a.key.clone(), a.import.clone(), a.fabricas.clone()))
+            .map(|a| (a.key.clone(), a.import.clone(), a.factories.clone()))
             .collect();
         let mut h = blake3::Hasher::new();
         h.update(crate::VERSION.as_bytes());
@@ -2159,7 +2159,7 @@ impl Engine {
             queries: vec![(Query::File(input), d)],
             outputs: action.outputs.iter().map(|s| (s.clone(), None)).collect(),
             origin: Origin::Failure,
-            motivo: Some(e),
+            reason: Some(e),
             measured: Vec::new(),
             from_fallback: Vec::new(),
             deleted_outputs: Vec::new(),
@@ -2187,7 +2187,7 @@ impl Engine {
         let request = ActionRequest {
             phase: action.phase,
             key: self.plan.applications[phase.application].key.clone(),
-            fabrica: phase.fabrica.clone(),
+            factory: phase.factory.clone(),
             options: phase.options.clone(),
             root: phase.root,
             input: action.input.clone(),
@@ -2202,7 +2202,7 @@ impl Engine {
         let result = dart.execute(&request, &mut service).map_err(|e| {
             DartFailure::Builder(format!("{}: executor failure: {}", request.key, e.0))
         })?;
-        if result.falhou {
+        if result.failed {
             // "severo" and "erro" are log levels of the dfexec/1 protocol.
             let details = result
                 .logs
@@ -2250,7 +2250,7 @@ impl Engine {
             queries: service.queries,
             outputs: outputs,
             origin: Origin::Dart,
-            motivo: None,
+            reason: None,
             measured: Vec::new(),
             from_fallback: Vec::new(),
             deleted_outputs: Vec::new(),
@@ -2267,7 +2267,7 @@ impl Engine {
         let mut h = blake3::Hasher::new();
         h.update(crate::VERSION.as_bytes());
         h.update(ap.key.as_bytes());
-        h.update(f.fabrica.as_bytes());
+        h.update(f.factory.as_bytes());
         for (p, v) in self.imitated_versions(&ap.key) {
             h.update(p.as_bytes());
             h.update(v.as_bytes());
@@ -2337,7 +2337,7 @@ impl Engine {
             for &a in &self.per_phase[fi] {
                 let action = &self.graph.actions[a];
                 actions.push(NativeAction {
-                    fabrica: f.fabrica.clone(),
+                    factory: f.factory.clone(),
                     input: action.input.clone(),
                     natural_input: natural_path(&self.package_graph, &action.input),
                     outputs: action
@@ -2388,7 +2388,7 @@ impl Engine {
                     .into_iter()
                     .map(|(p, b)| (chave(&p), Arc::from(b)))
                     .collect(),
-                refusals: s.recusas.into_iter().map(|(p, m)| (chave(&p), m)).collect(),
+                refusals: s.refusals.into_iter().map(|(p, m)| (chave(&p), m)).collect(),
                 error: None,
                 generated_units: s.generated_unit_count,
             },
@@ -2466,7 +2466,7 @@ impl Engine {
                 queries: queries,
                 outputs: outputs,
                 origin: Origin::Native(generator.key()),
-                motivo: None,
+                reason: None,
                 measured: Vec::new(),
                 from_fallback,
                 deleted_outputs: Vec::new(),
@@ -2487,7 +2487,7 @@ impl Engine {
         let mut r = match &self.records[a] {
             Some(prev) if prev.origin == Origin::Support => {
                 let mut r = prev.clone();
-                r.motivo = dart_reason.map(|m| format!("build_runner fallback: {m}"));
+                r.reason = dart_reason.map(|m| format!("build_runner fallback: {m}"));
                 r
             }
             _ => self.fallback(a, dart_reason),
@@ -2500,7 +2500,7 @@ impl Engine {
         }
         let native_reason = refusal
             .unwrap_or_else(|| format!("{}: does not generate this output", generator.key()));
-        r.motivo = Some(match r.motivo.take() {
+        r.reason = Some(match r.reason.take() {
             Some(m) => format!("{native_reason}; {m}"),
             None => native_reason,
         });
@@ -2531,7 +2531,7 @@ impl Engine {
             package: action.input.package.to_string(),
             package_root: self.package_graph.nos[f.package].root.clone(),
             actions: vec![NativeAction {
-                fabrica: f.fabrica.clone(),
+                factory: f.factory.clone(),
                 input: action.input.clone(),
                 natural_input: natural_path(&self.package_graph, &action.input),
                 outputs: action
@@ -2551,7 +2551,7 @@ impl Engine {
         match res {
             Ok(s)
                 if generator.verified()
-                    && s.recusas.is_empty()
+                    && s.refusals.is_empty()
                     && !s.outputs.is_empty()
                     && (dart_reason.is_some()
                         || action
@@ -2575,7 +2575,7 @@ impl Engine {
                         })
                         .collect(),
                     origin: Origin::Native(generator.key()),
-                    motivo: None,
+                    reason: None,
                     measured: Vec::new(),
                     from_fallback: Vec::new(),
                     deleted_outputs: Vec::new(),
@@ -2600,13 +2600,13 @@ impl Engine {
                             .map(|b| (id.clone(), Arc::from(b.clone())))
                     })
                     .collect();
-                let m = s.recusas.values().next().cloned().unwrap_or_else(|| {
+                let m = s.refusals.values().next().cloned().unwrap_or_else(|| {
                     format!(
                         "{}: output not yet verified byte for byte",
                         generator.key()
                     )
                 });
-                r.motivo = Some(match r.motivo.take() {
+                r.reason = Some(match r.reason.take() {
                     Some(x) => format!("{m}; {x}"),
                     None => m,
                 });
@@ -2621,7 +2621,7 @@ impl Engine {
                     }
                 }
                 let mut r = self.fallback(a, dart_reason);
-                r.motivo = Some(match r.motivo.take() {
+                r.reason = Some(match r.reason.take() {
                     Some(x) => format!("{m}; {x}"),
                     None => m,
                 });
@@ -2698,7 +2698,7 @@ impl Engine {
                 queries: queries,
                 outputs: outputs,
                 origin: Origin::Pending,
-                motivo: Some(m),
+                reason: Some(m),
                 measured: Vec::new(),
                 from_fallback: Vec::new(),
                 deleted_outputs: Vec::new(),
@@ -2710,7 +2710,7 @@ impl Engine {
             queries: queries,
             outputs: outputs,
             origin: Origin::Support,
-            motivo: dart_reason.map(|m| format!("build_runner fallback: {m}")),
+            reason: dart_reason.map(|m| format!("build_runner fallback: {m}")),
             measured: Vec::new(),
             from_fallback: Vec::new(),
             deleted_outputs: Vec::new(),
@@ -2894,7 +2894,7 @@ impl Engine {
             let head = format!(
                 "{}#{} {}",
                 self.plan.applications[f.application].key,
-                f.fabrica,
+                f.factory,
                 a.input.text()
             );
             match &self.records[i] {
@@ -2915,7 +2915,7 @@ impl Engine {
                     lines.push(format!(
                         "{head} {:?} {} [{}]{}",
                         r.origin,
-                        r.motivo.as_deref().unwrap_or(""),
+                        r.reason.as_deref().unwrap_or(""),
                         outputs.join(" "),
                         if deleted.is_empty() {
                             String::new()
@@ -2975,7 +2975,7 @@ impl Engine {
                 if let Some((r, c)) = from_anchor {
                     match (&r.origin, c) {
                         (Origin::Dart, Some(c)) if c.as_ref() == expected.as_slice() => {
-                            p.iguais.push(id.clone())
+                            p.equal.push(id.clone())
                         }
                         _ => p
                             .different
@@ -3018,7 +3018,7 @@ impl Engine {
                         (Origin::Native(_) | Origin::Dart, Some(c))
                             if c.as_ref() == expected.as_slice() =>
                         {
-                            p.iguais.push(id.clone())
+                            p.equal.push(id.clone())
                         }
                         (Origin::Native(n), _) => p
                             .different
@@ -3045,7 +3045,7 @@ impl Engine {
                             }
                             p.pending.push((
                                 id.clone(),
-                                r.motivo.clone().unwrap_or_else(|| "fallback".into()),
+                                r.reason.clone().unwrap_or_else(|| "fallback".into()),
                             ))
                         }
                     }
@@ -3149,7 +3149,7 @@ fn is_newer(input: &Path, fallback: &Path) -> bool {
 
 #[derive(Debug, Default, Clone)]
 pub struct Scoreboard {
-    pub iguais: Vec<AssetId>,
+    pub equal: Vec<AssetId>,
     pub pending: Vec<(AssetId, String)>,
     pub different: Vec<(AssetId, String)>,
     /// Outputs the builder could produce but the official graph never asks
@@ -3165,7 +3165,7 @@ impl Scoreboard {
     pub fn summary(&self) -> String {
         let mut s = format!(
             "{} equal / {} pending / {} different",
-            self.iguais.len(),
+            self.equal.len(),
             self.pending.len(),
             self.different.len()
         );
@@ -3184,7 +3184,7 @@ impl Scoreboard {
         s
     }
 
-    pub fn motivos(&self) -> BTreeMap<String, usize> {
+    pub fn reasons(&self) -> BTreeMap<String, usize> {
         let mut m = BTreeMap::new();
         for (_, x) in self.pending.iter().chain(&self.different) {
             *m.entry(x.clone()).or_default() += 1;

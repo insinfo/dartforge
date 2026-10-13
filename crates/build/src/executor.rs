@@ -18,7 +18,7 @@ use std::sync::Arc;
 /// An action requested from a native generator.
 #[derive(Debug, Clone)]
 pub struct NativeAction {
-    pub fabrica: String,
+    pub factory: String,
     pub input: AssetId,
     pub natural_input: PathBuf,
     /// Expected outputs and the natural path of each one.
@@ -48,7 +48,7 @@ pub struct NativeRequest {
 #[derive(Debug, Default)]
 pub struct NativeOutput {
     pub outputs: BTreeMap<PathBuf, Vec<u8>>,
-    pub recusas: BTreeMap<PathBuf, String>,
+    pub refusals: BTreeMap<PathBuf, String>,
     /// Files the generator actually regenerated in this call.
     pub generated_unit_count: usize,
     /// The generator confirmed that the previous round's queries are still
@@ -61,7 +61,7 @@ pub trait NativeGenerator: Send + Sync {
     /// Builder key (`ngdart:ngdart`).
     fn key(&self) -> &'static str;
     /// Covered factories.
-    fn cobre(&self, factory: &str) -> bool;
+    fn covers(&self, factory: &str) -> bool;
     /// One call per package (with all the actions) instead of one per action.
     fn by_package(&self) -> bool;
     /// Equality gate: `false` = the output is not yet verified byte for byte
@@ -116,7 +116,7 @@ impl<'a> GeneratorCtx<'a> {
         v
     }
 
-    pub fn existe(&mut self, p: &Path) -> bool {
+    pub fn exists(&mut self, p: &Path) -> bool {
         let key = dartforge_elements::gerado::chave(p);
         let yes = (self.memory)(&key).is_some() || p.is_file();
         self.queries
@@ -184,9 +184,9 @@ pub(crate) fn query_digest(
             ))
         }
         Query::ActiveGlobs {
-            dir, candidatos, ..
+            dir, candidates, ..
         } => {
-            let list = candidatos
+            let list = candidates
                 .iter()
                 .filter_map(|(rel, generated)| {
                     let path = dartforge_elements::gerado::chave(&dir.join(rel));
@@ -241,7 +241,7 @@ pub struct BuilderScript {
 pub struct ActionRequest {
     pub phase: usize,
     pub key: String,
-    pub fabrica: String,
+    pub factory: String,
     pub options: Map,
     pub root: bool,
     pub input: AssetId,
@@ -256,7 +256,7 @@ pub type RuntimeExtensions = Vec<(String, Vec<String>)>;
 #[derive(Debug, Clone)]
 pub struct ExtensionsRequest {
     pub key: String,
-    pub fabrica: String,
+    pub factory: String,
     pub options: Map,
     pub root: bool,
 }
@@ -265,7 +265,7 @@ pub struct ExtensionsRequest {
 pub struct ActionResult {
     pub outputs: Vec<(AssetId, Arc<[u8]>)>,
     pub logs: Vec<(String, String)>,
-    pub falhou: bool,
+    pub failed: bool,
     /// Post-processor: the inputs marked by `deletePrimaryInput` (the node's
     /// `deletedBy`; only the merged output directory and the official
     /// `serve` stop seeing them).
@@ -330,7 +330,7 @@ impl<'a> ActionService<'a> {
     }
 
     fn path(&self, id: &AssetId) -> Option<PathBuf> {
-        if !self.graph.existe(id) && !self.graph.external_source(id) {
+        if !self.graph.exists(id) && !self.graph.external_source(id) {
             return None;
         }
         self.query_path(id)
@@ -441,7 +441,7 @@ impl BuildStepService for ActionService<'_> {
                 Query::ActiveGlobs {
                     dir: node.root.clone(),
                     pattern: glob.to_string(),
-                    candidatos: candidates,
+                    candidates: candidates,
                 },
                 Some(digest_bytes(
                     ids.iter()
@@ -468,7 +468,7 @@ impl BuildStepService for ActionService<'_> {
             // (`build_impl.dart:643-656`): any asset the graph does not have
             // yet — not a source, not a predicted output, not another
             // anchor's output, nor the same asset twice in the action.
-            let new = !self.graph.existe(id)
+            let new = !self.graph.exists(id)
                 && !self.graph.external_source(id)
                 && !self.occupied.contains(id)
                 && !self.writes.contains_key(id)
@@ -832,7 +832,7 @@ mod service_tests {
             .or_default()
             .insert("lib/a.dart".into());
         let lib = || vec![crate::glob::Glob::new("lib/**").unwrap()];
-        graph.externos.insert(
+        graph.externals.insert(
             "q".into(),
             crate::graph::SourceFilter {
                 targets: vec![crate::plan::InputMatcher {
@@ -875,7 +875,7 @@ mod service_tests {
         let query = Query::ActiveGlobs {
             dir: dir.path().to_path_buf(),
             pattern: "lib/**".into(),
-            candidatos: vec![("lib/a.g.dart".into(), true)],
+            candidates: vec![("lib/a.g.dart".into(), true)],
         };
         let empty = |_: &Path| None;
         let full =

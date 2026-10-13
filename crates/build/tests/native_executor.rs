@@ -166,13 +166,13 @@ fn corpus_builders_through_the_native_executor() {
         let (_, warm) = update(&mut m, &[]);
         let p = m.scoreboard(&references(&origin));
         let reasons: Vec<String> = p
-            .motivos()
+            .reasons()
             .into_iter()
             .map(|(k, n)| format!("{n}× {}", k.lines().next().unwrap_or("")))
             .collect();
         lines.push(format!(
             "| {name} | {} | {} | {} | {clean:.0} | {warm:.1} | {} |",
-            p.iguais.len(),
+            p.equal.len(),
             p.pending.len(),
             p.different.len(),
             reasons.join("; ")
@@ -181,7 +181,7 @@ fn corpus_builders_through_the_native_executor() {
         // The table only carries the reason's 1st line; the whole text (the
         // compiler's output, when compiling the executor fails) goes to the
         // log.
-        for (k, n) in p.motivos() {
+        for (k, n) in p.reasons() {
             if k.contains('\n') {
                 println!("{name}: {n}× full reason:\n{k}");
             }
