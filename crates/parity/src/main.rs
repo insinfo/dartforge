@@ -463,7 +463,7 @@ fn replace_files(regs: &mut Vec<Record>, new: Vec<Record>, list: &[String]) {
 /// `sintaxe-nova`: runs 3.13.4 over each 3.6.2 group, picks the files where
 /// it flags a feature 3.6.2 does not know ([`oracle::uses_new_syntax`]),
 /// writes the list to `sintaxe-nova.json` and replaces only those files'
-/// records in the group's `oracle.jsonl`. The hash and the other metadata of
+/// records in the group's `oraculo.jsonl`. The hash and the other metadata of
 /// the group stay as they are.
 fn classify_new_syntax(a: &Args) -> ExitCode {
     let mut list = oracle::read_new_syntax(&a.corpus);

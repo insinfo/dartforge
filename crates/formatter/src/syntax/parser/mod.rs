@@ -29,7 +29,7 @@
 //! (`canParseAsConditional`) work on stable indices.
 //!
 //! Errors: any error the analyzer would report and that can be detected
-//! without resolution becomes an [`ErroSintaxe`]; the formatter rejects the
+//! without resolution becomes an [`SyntaxError`]; the formatter rejects the
 //! file, like `dart format`. There is no error recovery.
 
 mod declarations;
@@ -43,10 +43,10 @@ pub mod verify;
 use dartforge_frontend::token::{Keyword, Op};
 
 use super::tree::{Tree, Node, NodeId};
-use super::token::{ErroSintaxe, TokenKind, Tk, Token, Tokens};
+use super::token::{SyntaxError, TokenKind, Tk, Token, Tokens};
 
 /// Result of the parser functions.
-type R<T> = Result<T, ErroSintaxe>;
+type R<T> = Result<T, SyntaxError>;
 
 /// Maximum nesting depth of expressions and statements, like fasta's 500
 /// (`expressionDepth`/`statementDepth`), which reports `StackOverflow`
@@ -87,7 +87,7 @@ enum AsyncKind {
 /// `continue`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LoopState {
-    Fora,
+    Outside,
     Switch,
     Repetition,
 }
@@ -130,7 +130,7 @@ impl Default for ParseOptions {
 ///
 /// # Errors
 /// The first syntax error found.
-pub fn parse(source: &str) -> Result<(Tokens, Tree), ErroSintaxe> {
+pub fn parse(source: &str) -> Result<(Tokens, Tree), SyntaxError> {
     parse_with(source, ParseOptions::default())
 }
 
@@ -144,7 +144,7 @@ pub fn parse(source: &str) -> Result<(Tokens, Tree), ErroSintaxe> {
 ///
 /// # Errors
 /// The first syntax error found.
-pub fn parse_with(source: &str, options: ParseOptions) -> Result<(Tokens, Tree), ErroSintaxe> {
+pub fn parse_with(source: &str, options: ParseOptions) -> Result<(Tokens, Tree), SyntaxError> {
     let tokens = Tokens::read(source)?;
     let version = comment_version(source, &tokens).unwrap_or(options.version);
     let mut p = Parser::new(source, tokens)?;
@@ -289,7 +289,7 @@ pub(crate) struct Parser<'f> {
     /// Language version in effect.
     version: (u32, u32),
     /// First use of a feature above the version in effect.
-    version_error: Option<ErroSintaxe>,
+    version_error: Option<SyntaxError>,
     depth: u32,
     /// `isLastPatternAllowedInsideUnaryPattern` do fasta.
     unary_pattern_ok: bool,
@@ -338,7 +338,7 @@ impl<'f> Parser<'f> {
             tree_: Tree::default(),
             merges: Vec::new(),
             async_kind: AsyncKind::SyncKind,
-            loop_: LoopState::Fora,
+            loop_: LoopState::Outside,
             functions: true,
             patterns_: true,
             version: (3, 6),
@@ -500,15 +500,15 @@ impl<'f> Parser<'f> {
 
     // --------------------------------------------------------------- errors
 
-    fn error_at(&self, i: usize, msg: &str) -> ErroSintaxe {
+    fn error_at(&self, i: usize, msg: &str) -> SyntaxError {
         token_error(self.source, self.tk(i), msg)
     }
 
-    fn error(&self, msg: &str) -> ErroSintaxe {
+    fn error(&self, msg: &str) -> SyntaxError {
         self.error_at(self.pos, msg)
     }
 
-    fn expected(&self, o: &str) -> ErroSintaxe {
+    fn expected(&self, o: &str) -> SyntaxError {
         let found = self.txt(self.pos);
         self.error(&format!("Expected '{o}' before '{found}'."))
     }
@@ -690,7 +690,7 @@ impl<'f> Parser<'f> {
         Ok(())
     }
 
-    fn sair(&mut self) {
+    fn leave(&mut self) {
         self.depth -= 1;
     }
 }
@@ -718,10 +718,10 @@ fn check_gaps(source: &str, toks: &Tokens) -> R<()> {
             }
             if !matches!(b[p], b' ' | b'\t' | b'\n' | b'\r' | 0x0C) {
                 let ch = source[p..].chars().next().unwrap_or(' ');
-                return Err(ErroSintaxe {
-                    posicao: p,
-                    comprimento: ch.len_utf8(),
-                    mensagem: format!("Illegal character '{}'.", ch as u32),
+                return Err(SyntaxError {
+                    offset: p,
+                    length: ch.len_utf8(),
+                    message: format!("Illegal character '{}'.", ch as u32),
                 });
             }
             p += 1;
@@ -735,10 +735,10 @@ fn check_gaps(source: &str, toks: &Tokens) -> R<()> {
     Ok(())
 }
 
-fn token_error(_source: &str, t: &Token, msg: &str) -> ErroSintaxe {
-    ErroSintaxe {
-        posicao: t.start,
-        comprimento: (t.end - t.start).max(1),
-        mensagem: msg.to_string(),
+fn token_error(_source: &str, t: &Token, msg: &str) -> SyntaxError {
+    SyntaxError {
+        offset: t.start,
+        length: (t.end - t.start).max(1),
+        message: msg.to_string(),
     }
 }

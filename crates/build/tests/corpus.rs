@@ -3,7 +3,7 @@
 //! in each case (the `package_config.json`), hence `#[ignore]`: `ci.yml` runs
 //! `pub get` and then `--ignored`.
 //!
-//! * **plan**: the engine's canonical form = that of `oracle/plano.dart`;
+//! * **plan**: the engine's canonical form = that of `oraculo/plano.dart`;
 //! * **outputs**: each manifest output falls into equal / pending (with a
 //!   reason) / different; criterion: `different == 0`;
 //! * **determinism**: 1, 4 and 8 workers give the same state;

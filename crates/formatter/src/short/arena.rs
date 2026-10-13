@@ -520,9 +520,9 @@ impl Arenas {
         let rule = &mut self.rules[r as usize];
         let mut i = 0;
         rule.constraints.retain(|_| {
-            let manter = indices[i];
+            let keep = indices[i];
             i += 1;
-            manter
+            keep
         });
         rule.all_constrained = None;
     }

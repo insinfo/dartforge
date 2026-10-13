@@ -3119,10 +3119,10 @@ impl<'f> SourceVisitor<'f> {
         };
         self.visit_if_condition(*if_keyword, *left_parenthesis, *expression, *case_clause, *right_parenthesis);
         let has_else = else_statement.is_some();
-        let visit_clause = |v: &mut Self, clausula: NodeId| {
-            if matches!(v.node(clausula), Node::Block { .. } | Node::IfStatement { .. }) {
+        let visit_clause = |v: &mut Self, clause: NodeId| {
+            if matches!(v.node(clause), Node::Block { .. } | Node::IfStatement { .. }) {
                 v.space();
-                v.visit(Some(clausula));
+                v.visit(Some(clause));
             } else {
                 v.indent(None);
                 v.start_rule(None);
@@ -3131,7 +3131,7 @@ impl<'f> SourceVisitor<'f> {
                 } else {
                     v.builder_split(false, true);
                 }
-                v.visit(Some(clausula));
+                v.visit(Some(clause));
                 v.end_rule();
                 v.unindent();
             }
@@ -4119,14 +4119,14 @@ impl<'f> SourceVisitor<'f> {
         let b = line.as_bytes();
         let quote_start = usize::from(line.starts_with('r'));
         let quote_end = quote_start + 3;
-        let mut barras = 0;
+        let mut backslashes = 0;
         if b.len() > quote_end && (line[quote_start..].starts_with("'''") || line[quote_start..].starts_with("\"\"\"")) {
             let mut cursor = quote_end;
             loop {
                 let mut c = b[cursor];
                 if c == b'\\' {
                     cursor += 1;
-                    barras += 1;
+                    backslashes += 1;
                     if cursor >= b.len() {
                         break;
                     }
@@ -4142,12 +4142,12 @@ impl<'f> SourceVisitor<'f> {
             }
             if cursor == b.len() {
                 let mut text = line[..quote_end].to_string();
-                if barras > 0 {
+                if backslashes > 0 {
                     text.push('\\');
-                    barras -= 1;
-                    while barras > 0 {
+                    backslashes -= 1;
+                    while backslashes > 0 {
                         text.push_str(" \\");
-                        barras -= 1;
+                        backslashes -= 1;
                     }
                 }
                 self.write_text(&text, t);

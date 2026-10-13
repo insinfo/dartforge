@@ -770,7 +770,7 @@ linter:
     }
 
     /// `// ignore:` and `// ignore_for_file:` apply to errors too
-    /// (`v01/min/ignores`: `dart analyze` 3.6.2 and 3.13.4 give "No issues
+    /// (`v01/min/ignora`: `dart analyze` 3.6.2 and 3.13.4 give "No issues
     /// found!"), except what `cannot-ignore` lists.
     #[test]
     fn ignore_applies_to_errors_except_cannot_ignore() {

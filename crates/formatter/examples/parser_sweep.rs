@@ -83,9 +83,9 @@ fn main() {
             Err(e) => {
                 rejected += 1;
                 if dump {
-                    let _ = writeln!(output, "ERR {} @{}", e.mensagem, e.posicao);
+                    let _ = writeln!(output, "ERR {} @{}", e.message, e.offset);
                 } else {
-                    eprintln!("REJECTED {}:{}: {}", p.display(), e.posicao, e.mensagem);
+                    eprintln!("REJECTED {}:{}: {}", p.display(), e.offset, e.message);
                 }
             }
         }

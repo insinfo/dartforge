@@ -3,7 +3,7 @@
 //! of `dart analyze` 3.6.2, in the three formats, plus the exit code.
 //!
 //! Each case is a folder of `<dir>` with:
-//! * `project/`: the minimal project (`pubspec.yaml`, sources, optionally
+//! * `projeto/`: the minimal project (`pubspec.yaml`, sources, optionally
 //!   `analysis_options.yaml` and `.dart_tool/package_config.json`);
 //! * `ARGS`: the arguments after `analyze`, one per line, relative to the
 //!   project (without the file, `.`);

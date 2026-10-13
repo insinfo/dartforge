@@ -9,55 +9,55 @@
 //! the page width.
 //!
 //! ```
-//! use dartforge_formatter::{formatar, AnalysisOptions};
-//! let output = formatar("main(){print( 'oi' );}", &AnalysisOptions::default()).unwrap();
+//! use dartforge_formatter::{format, FormatOptions};
+//! let output = format("main(){print( 'oi' );}", &FormatOptions::default()).unwrap();
 //! assert_eq!(output, "main() {\n  print('oi');\n}\n");
 //! ```
 pub mod short;
-pub mod edicoes;
+pub mod edits;
 pub mod syntax;
 
 use short::writer::{BlockCache, LineWriter};
 use short::visitor::SourceVisitor;
-pub use syntax::token::ErroSintaxe;
+pub use syntax::token::SyntaxError;
 
 /// Formatter options (`DartFormatter`).
 #[derive(Debug, Clone)]
-pub struct Opcoes {
+pub struct FormatOptions {
     /// Page width (`pageWidth`), 80 by default.
-    pub largura: usize,
+    pub page_width: usize,
     /// Initial indentation of every line (`indent`).
-    pub recuo: usize,
+    pub indent: usize,
     /// Line ending; `None` infers it from the source (`\r\n` if the first line
     /// break is `\r\n`, otherwise `\n`).
-    pub fim_de_linha: Option<String>,
+    pub line_ending: Option<String>,
 }
 
-impl Default for Opcoes {
-    fn default() -> Opcoes {
-        Opcoes {
-            largura: 80,
-            recuo: 0,
-            fim_de_linha: None,
+impl Default for FormatOptions {
+    fn default() -> FormatOptions {
+        FormatOptions {
+            page_width: 80,
+            indent: 0,
+            line_ending: None,
         }
     }
 }
 
 /// Formatting failure.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ErroFormatacao {
+pub enum FormatError {
     /// The source has a syntax error (`FormatterException`).
-    Sintaxe(ErroSintaxe),
+    Syntax(SyntaxError),
     /// The output changed more than whitespace (`UnexpectedOutputException`):
     /// a formatter bug.
-    SaidaInesperada { input: String, output: String },
+    UnexpectedOutput { input: String, output: String },
 }
 
-impl std::fmt::Display for ErroFormatacao {
+impl std::fmt::Display for FormatError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ErroFormatacao::Sintaxe(e) => write!(f, "{}", e.mensagem),
-            ErroFormatacao::SaidaInesperada { input, output } => write!(
+            FormatError::Syntax(e) => write!(f, "{}", e.message),
+            FormatError::UnexpectedOutput { input, output } => write!(
                 f,
                 "The formatter produced unexpected output. Input was:\n{input}\nWhich formatted to:\n{output}"
             ),
@@ -65,24 +65,24 @@ impl std::fmt::Display for ErroFormatacao {
     }
 }
 
-impl std::error::Error for ErroFormatacao {}
+impl std::error::Error for FormatError {}
 
 /// Formats a whole compilation unit (`DartFormatter.format`).
 ///
 /// # Errors
-/// [`ErroFormatacao::Sintaxe`] when the source is not valid Dart, and
-/// [`ErroFormatacao::SaidaInesperada`] if the output differs from the input
+/// [`FormatError::Syntax`] when the source is not valid Dart, and
+/// [`FormatError::UnexpectedOutput`] if the output differs from the input
 /// beyond whitespace (the same sanity check `dart_style` does).
-pub fn formatar(source: &str, options: &Opcoes) -> Result<String, ErroFormatacao> {
-    let (tokens, tree) = syntax::parser::parse(source).map_err(ErroFormatacao::Sintaxe)?;
-    let line_ending = options.fim_de_linha.clone().unwrap_or_else(|| infer_line_ending(source));
+pub fn format(source: &str, options: &FormatOptions) -> Result<String, FormatError> {
+    let (tokens, tree) = syntax::parser::parse(source).map_err(FormatError::Syntax)?;
+    let line_ending = options.line_ending.clone().unwrap_or_else(|| infer_line_ending(source));
     let root = tree.root.expect("compilation unit");
-    let visitor = SourceVisitor::new(source, &tokens, &tree, options.largura, options.recuo as i32, line_ending);
+    let visitor = SourceVisitor::new(source, &tokens, &tree, options.page_width, options.indent as i32, line_ending);
     let (mut arenas, chunks) = visitor.run(root);
     let mut cache = BlockCache::new();
     let result = LineWriter::new(chunks, &mut cache).write_lines(&mut arenas, true);
     if !equal_ignoring_whitespace(source, &result.text) {
-        return Err(ErroFormatacao::SaidaInesperada {
+        return Err(FormatError::UnexpectedOutput {
             input: source.to_string(),
             output: result.text,
         });

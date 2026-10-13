@@ -112,7 +112,7 @@ impl Parser<'_> {
     pub(super) fn expression(&mut self) -> R<NodeId> {
         self.enter_()?;
         let r = self.inner_expression();
-        self.sair();
+        self.leave();
         r
     }
 
@@ -136,7 +136,7 @@ impl Parser<'_> {
         }
         self.enter_()?;
         let r = self.precedence(prec::ASSIGNMENT, false, ConstCtx::NoneKind);
-        self.sair();
+        self.leave();
         r
     }
 
@@ -559,9 +559,9 @@ impl Parser<'_> {
                 || self.kw(nx, Keyword::Is)
                 || self.word(nx, "as");
             if !end_ok {
-                let manter = (self.op(nx, Op::LBrace) || self.word(nx, "when"))
+                let keep = (self.op(nx, Op::LBrace) || self.word(nx, "when"))
                     && !self.could_be_conditional(nx - 1);
-                if !manter {
+                if !keep {
                     ti = ti.without_question();
                 }
             }
@@ -1752,7 +1752,7 @@ impl Parser<'_> {
     fn element(&mut self, map: bool) -> R<NodeId> {
         self.enter_()?;
         let r = self.inner_element(map);
-        self.sair();
+        self.leave();
         r
     }
 

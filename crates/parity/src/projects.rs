@@ -4,10 +4,10 @@
 //! the project, with the oracle re-recorded over the mutant.
 //!
 //! Nothing is written to the owner's project: each project is copied to
-//! `target/scratch-paridade/projects/<name>` (only the `.dart` files, the
+//! `target/scratch-paridade/projetos/<name>` (only the `.dart` files, the
 //! `pubspec.yaml`, the `analysis_options.yaml` and a `package_config.json` with
 //! absolute roots), and the copy is what gets mutated. The record lives in
-//! `corpus/diagnosticos/projects.json` and `corpus/diagnosticos/mutacoes.jsonl`;
+//! `corpus/diagnosticos/projetos.json` and `corpus/diagnosticos/mutacoes.jsonl`;
 //! a mutation whose original file changed (hash) is flagged as stale.
 
 use crate::oracle::{FNV_START, Record, OracleSdk, fnv};

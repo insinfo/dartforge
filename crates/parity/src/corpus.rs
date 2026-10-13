@@ -4,7 +4,7 @@
 //! `.dart_tool/package_config.json` is written by [`prepare`] and stays out of
 //! git) with a `grupo.json` that says which SDK is the oracle and which
 //! support packages (`corpus/diagnosticos/pacotes/<name>`) it sees. The
-//! expectation is **always** what the oracle recorded (`oracle.jsonl`); the
+//! expectation is **always** what the oracle recorded (`oraculo.jsonl`); the
 //! annotations in the sources the cases came from (`// [analyzer] ...`,
 //! `[diag.x]`) are from SDK `main` and only served as seeds.
 //!

@@ -1,7 +1,7 @@
 //! ngdart through the engine (stage A) is **transparent**: the published
 //! generation is the same as calling `ng_generator` directly
 //! (`gerar_com_apoio`), and what it generates matches the oracle of
-//! `corpus/ngdart/oracle/` byte for byte — the same contract as
+//! `corpus/ngdart/oraculo/` byte for byte — the same contract as
 //! `crates/ng_generator/tests/corpus.rs`, now through the engine.
 //! "Incremental = from scratch" also holds with template edits.
 //!

@@ -191,12 +191,12 @@ impl Parser<'_> {
     /// Modifiers from `start` up to `end` (exclusive) accepted in a top-level
     /// keyword declaration.
     fn top_level_modifiers(&mut self, start: usize, end: usize, allowed: &[&str]) -> R<Modifiers> {
-        let salvo = self.pos;
+        let saved = self.pos;
         self.pos = start;
         let mut m = Modifiers::default();
         let r = self.collect_modifiers(&mut m);
         let reached = self.pos;
-        self.pos = salvo;
+        self.pos = saved;
         r?;
         for i in start..reached {
             if !allowed.contains(&self.txt(i)) {
@@ -651,7 +651,7 @@ impl Parser<'_> {
     fn collect_modifiers(&mut self, m: &mut Modifiers) -> R<()> {
         while self.modifier(self.pos) {
             let i = self.pos;
-            let fora = |p: &Self| {
+            let outside = |p: &Self| {
                 Err(p.error_at(i, &format!("The modifier '{}' is out of order.", p.txt(i))))
             };
             let conflict =
@@ -662,7 +662,7 @@ impl Parser<'_> {
                         return conflict(self);
                     }
                     if m.vfc().is_some() || m.covariant.is_some() {
-                        return fora(self);
+                        return outside(self);
                     }
                     m.abstract_ = Some(i);
                 }
@@ -676,7 +676,7 @@ impl Parser<'_> {
                         || m.late.is_some()
                         || m.static_.is_some()
                     {
-                        return fora(self);
+                        return outside(self);
                     }
                     m.augment = Some(i);
                 }
@@ -691,7 +691,7 @@ impl Parser<'_> {
                         return conflict(self);
                     }
                     if m.var.is_some() || m.final_.is_some() || m.late.is_some() {
-                        return fora(self);
+                        return outside(self);
                     }
                     m.covariant = Some(i);
                 }
@@ -705,7 +705,7 @@ impl Parser<'_> {
                         || m.vfc().is_some()
                         || m.covariant.is_some()
                     {
-                        return fora(self);
+                        return outside(self);
                     }
                     m.external = Some(i);
                 }
@@ -720,7 +720,7 @@ impl Parser<'_> {
                         return conflict(self);
                     }
                     if m.var.is_some() || m.final_.is_some() {
-                        return fora(self);
+                        return outside(self);
                     }
                     m.late = Some(i);
                 }
@@ -733,7 +733,7 @@ impl Parser<'_> {
                         || m.final_.is_some()
                         || m.var.is_some()
                     {
-                        return fora(self);
+                        return outside(self);
                     }
                     m.required = Some(i);
                 }
@@ -742,7 +742,7 @@ impl Parser<'_> {
                         return conflict(self);
                     }
                     if m.vfc().is_some() || m.late.is_some() {
-                        return fora(self);
+                        return outside(self);
                     }
                     m.static_ = Some(i);
                 }
@@ -2051,7 +2051,7 @@ impl Parser<'_> {
             true,
             super::expressions::ConstCtx::NoneKind,
         );
-        self.sair();
+        self.leave();
         let r = r?;
         self.without_super(r)?;
         Ok(r)

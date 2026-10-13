@@ -1,5 +1,5 @@
 //! Formatter oracle: compares, byte for byte, the output of
-//! `dartforge_formatter::formatar` with that of `dart format` from SDK 3.6.2
+//! `dartforge_formatter::format` with that of `dart format` from SDK 3.6.2
 //! over a corpus of `.dart` files.
 //!
 //! ```text
@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
 
-use dartforge_formatter::{ErroFormatacao, Opcoes, formatar};
+use dartforge_formatter::{FormatError, FormatOptions, format};
 
 fn fnv(data: &[u8]) -> u64 {
     let mut h: u64 = 0xcbf29ce484222325;
@@ -60,10 +60,10 @@ fn collect(root: &Path, output: &mut Vec<PathBuf>) {
 }
 
 /// Runs `dart format -o json` on a batch and writes each file's cache entry.
-fn references(dart: &str, cache: &Path, lote: &[(PathBuf, u64)]) {
+fn references(dart: &str, cache: &Path, batch: &[(PathBuf, u64)]) {
     let mut cmd = Command::new(dart);
     cmd.args(["format", "-o", "json", "--summary", "none"]);
-    for (p, _) in lote {
+    for (p, _) in batch {
         cmd.arg(p);
     }
     let output = match cmd.output() {
@@ -83,7 +83,7 @@ fn references(dart: &str, cache: &Path, lote: &[(PathBuf, u64)]) {
             by_path.insert(p.to_string(), s.to_string());
         }
     }
-    for (p, h) in lote {
+    for (p, h) in batch {
         let key = p.to_string_lossy().to_string();
         match by_path.get(&key) {
             Some(s) => {
@@ -174,10 +174,10 @@ fn main() {
                                 *g += 1;
                                 i
                             };
-                            let Some(lote) = batches.get(i) else {
+                            let Some(batch) = batches.get(i) else {
                                 break;
                             };
-                            references(&dart, &cache, lote);
+                            references(&dart, &cache, batch);
                         }
                     });
                 }
@@ -202,7 +202,7 @@ fn main() {
                         };
                         let reference = fs::read_to_string(cache.join(format!("{h:016x}.out"))).ok();
                         let source = String::from_utf8_lossy(data).to_string();
-                        let ours = std::panic::catch_unwind(|| formatar(&source, &Opcoes::default()));
+                        let ours = std::panic::catch_unwind(|| format(&source, &FormatOptions::default()));
                         let mut pl = scoreboard.lock().expect("lock");
                         match (reference, ours) {
                             (None, Ok(Err(_))) => pl.both_reject += 1,
@@ -225,11 +225,11 @@ fn main() {
                                         }
                                         Some("different")
                                     }
-                                    Ok(Err(ErroFormatacao::Sintaxe(_))) => {
+                                    Ok(Err(FormatError::Syntax(_))) => {
                                         pl.rejected += 1;
                                         Some("rejected")
                                     }
-                                    Ok(Err(ErroFormatacao::SaidaInesperada { .. })) => {
+                                    Ok(Err(FormatError::UnexpectedOutput { .. })) => {
                                         pl.unexpected_output += 1;
                                         Some("unexpected output")
                                     }

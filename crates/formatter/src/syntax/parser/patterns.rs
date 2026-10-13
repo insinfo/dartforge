@@ -31,7 +31,7 @@ impl Parser<'_> {
     fn pattern_prec(&mut self, ctx: PatternCtx, precedence: u8) -> R<NodeId> {
         self.enter_()?;
         let r = self.inner_pattern_prec(ctx, precedence);
-        self.sair();
+        self.leave();
         r
     }
 

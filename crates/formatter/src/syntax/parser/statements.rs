@@ -51,7 +51,7 @@ impl Parser<'_> {
     pub(super) fn statement(&mut self) -> R<NodeId> {
         self.enter_()?;
         let r = self.statement_x();
-        self.sair();
+        self.leave();
         r
     }
 
@@ -139,11 +139,11 @@ impl Parser<'_> {
                                 return self.labeled();
                             }
                             if self.looks_like_expression_after(i, false) {
-                                return self.ceder();
+                                return self.yield_statement();
                             }
                             return self.expr_or_decl();
                         }
-                        _ => return self.ceder(),
+                        _ => return self.yield_statement(),
                     }
                 }
                 if t == "await" {
@@ -541,7 +541,7 @@ impl Parser<'_> {
     }
 
     /// `parseYieldStatement`.
-    fn ceder(&mut self) -> R<NodeId> {
+    fn yield_statement(&mut self) -> R<NodeId> {
         let y = self.advance();
         let star = self.optional_op(Op::Star).map(|s| s as Tk);
         let expression = self.expression()?;
@@ -585,10 +585,10 @@ impl Parser<'_> {
 
     /// Loop body (`loopState = InsideLoop`).
     fn loop_body(&mut self) -> R<NodeId> {
-        let salvo = self.loop_;
+        let saved = self.loop_;
         self.loop_ = LoopState::Repetition;
         let r = self.statement();
-        self.loop_ = salvo;
+        self.loop_ = saved;
         r
     }
 
@@ -878,8 +878,8 @@ impl Parser<'_> {
     fn choice(&mut self) -> R<NodeId> {
         let sw = self.advance();
         let (lp, expression, _, rp) = self.parenthesized_condition(false)?;
-        let salvo = self.loop_;
-        if self.loop_ == LoopState::Fora {
+        let saved = self.loop_;
+        if self.loop_ == LoopState::Outside {
             self.loop_ = LoopState::Switch;
         }
         let lb = self.expect_op(Op::LBrace)?;
@@ -987,7 +987,7 @@ impl Parser<'_> {
             }
         }
         let rb = self.advance();
-        self.loop_ = salvo;
+        self.loop_ = saved;
         Ok(self.node(
             Node::SwitchStatement {
                 switch_keyword: sw as Tk,
@@ -1092,14 +1092,14 @@ impl Parser<'_> {
             None
         };
         if is_break {
-            if label.is_none() && self.loop_ == LoopState::Fora {
+            if label.is_none() && self.loop_ == LoopState::Outside {
                 return Err(self.error_at(
                     k,
                     "A break statement can't be used outside of a loop or switch statement.",
                 ));
             }
         } else if label.is_some() {
-            if self.loop_ == LoopState::Fora {
+            if self.loop_ == LoopState::Outside {
                 return Err(self.error_at(
                     k,
                     "A continue statement can't be used outside of a loop or switch statement.",
@@ -1249,7 +1249,7 @@ impl Parser<'_> {
         if !self.op(self.pos, Op::LBrace) {
             return Err(self.error("A function body must be provided."));
         }
-        self.loop_ = LoopState::Fora;
+        self.loop_ = LoopState::Outside;
         let block = self.block()?;
         Ok(self.node(
             Node::BlockFunctionBody {

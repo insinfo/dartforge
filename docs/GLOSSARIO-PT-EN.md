@@ -239,3 +239,6 @@ outras já em inglês ficam.
 | `parity::json::{Faixa, Ponto, Linhas}` (`ponto`, `ordenar`, `escrever`) | `parity::json::{JsonRange, JsonPosition, LineIndex}` (`position`, `sort`, `write`) |
 | `parity::{oraculo, projetos}`, `diagnosticos_json`, `diagnosticos_do_pubspec`… | `parity::{oracle, projects}`, `json_diagnostics`, `pubspec_diagnostics`… (as chaves dos JSON gravados — `arquivo`, `nome`, `caminho`, `pacotes`… — ficam, via `#[serde(rename)]`) |
 | exemplo `sonda_arquivos`; testes `sonda`, `regras_do_analyzer` | `probe_files`; `probe`, `analyzer_rules` |
+| `formatter::{formatar, Opcoes { largura, recuo, fim_de_linha }}` | `formatter::{format, FormatOptions { page_width, indent, line_ending }}` |
+| `formatter::{ErroFormatacao::{Sintaxe, SaidaInesperada}, ErroSintaxe { posicao, comprimento, mensagem }}` | `formatter::{FormatError::{Syntax, UnexpectedOutput}, SyntaxError { offset, length, message }}` |
+| `formatter::edicoes::{Edicao, edicoes_minimas}` | `formatter::edits::{Edit, minimal_edits}` |

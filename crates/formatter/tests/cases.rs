@@ -5,7 +5,7 @@
 
 use std::path::Path;
 
-use dartforge_formatter::{Opcoes, formatar};
+use dartforge_formatter::{FormatOptions, format};
 
 #[test]
 fn cases_match_dart_format() {
@@ -21,7 +21,7 @@ fn cases_match_dart_format() {
     for p in &names {
         let source = std::fs::read_to_string(p).expect("case");
         let expected = std::fs::read_to_string(p.with_extension("expected")).expect("expected");
-        match formatar(&source, &Opcoes::default()) {
+        match format(&source, &FormatOptions::default()) {
             Ok(output) if output == expected => {}
             Ok(output) => {
                 let line = output
@@ -45,15 +45,15 @@ fn cases_match_dart_format() {
 
 #[test]
 fn syntax_error_is_rejected() {
-    assert!(formatar("void main( {", &Opcoes::default()).is_err());
+    assert!(format("void main( {", &FormatOptions::default()).is_err());
 }
 
 #[test]
 fn configurable_line_length() {
-    let o = Opcoes {
-        largura: 20,
-        ..Opcoes::default()
+    let o = FormatOptions {
+        page_width: 20,
+        ..FormatOptions::default()
     };
-    let output = formatar("void main(){var x=[1,2,3,];print(x);}", &o).unwrap();
+    let output = format("void main(){var x=[1,2,3,];print(x);}", &o).unwrap();
     assert_eq!(output, "void main() {\n  var x = [\n    1,\n    2,\n    3,\n  ];\n  print(x);\n}\n");
 }

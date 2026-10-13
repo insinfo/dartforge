@@ -6,11 +6,11 @@
 //!
 //! The text is formatted by the `dart_style` port ([`dartforge_formatter`]);
 //! the response is the minimal whitespace edits between tokens
-//! ([`dartforge_formatter::edicoes::edicoes_minimas`]). Without changes, or
+//! ([`dartforge_formatter::edits::minimal_edits`]). Without changes, or
 //! with a syntax error, the response is `null`.
 
-use dartforge_formatter::edicoes::edicoes_minimas;
-use dartforge_formatter::{Opcoes, formatar};
+use dartforge_formatter::edits::minimal_edits;
+use dartforge_formatter::{FormatOptions, format};
 use serde_json::{Value, json};
 
 use crate::utf16::LineTable;
@@ -31,11 +31,11 @@ pub const TRIGGER_CHARACTERS: [&str; 2] = ["}", ";"];
 /// assert!(dartforge_lsp::formatting::edits("main() {}\n", None, None).is_null());
 /// ```
 pub fn edits(text: &str, width: Option<u64>, range: Option<(usize, usize)>) -> Value {
-    let options = Opcoes {
-        largura: width.map_or(80, |l| l as usize),
-        ..Opcoes::default()
+    let options = FormatOptions {
+        page_width: width.map_or(80, |l| l as usize),
+        ..FormatOptions::default()
     };
-    let Ok(Ok(formatted)) = std::panic::catch_unwind(|| formatar(text, &options)) else {
+    let Ok(Ok(formatted)) = std::panic::catch_unwind(|| format(text, &options)) else {
         return Value::Null;
     };
     if formatted == text {
@@ -46,9 +46,9 @@ pub fn edits(text: &str, width: Option<u64>, range: Option<(usize, usize)>) -> V
         let (l, c) = table.offset_position(text, o);
         json!({"line": l, "character": c})
     };
-    let list: Vec<Value> = edicoes_minimas(text, &formatted, range)
+    let list: Vec<Value> = minimal_edits(text, &formatted, range)
         .into_iter()
-        .map(|e| json!({"range": {"start": position(e.inicio), "end": position(e.fim)}, "newText": e.texto}))
+        .map(|e| json!({"range": {"start": position(e.start), "end": position(e.end)}, "newText": e.text}))
         .collect();
     json!(list)
 }

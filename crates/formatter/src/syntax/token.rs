@@ -78,12 +78,12 @@ pub struct Token {
 
 /// Syntax error detected while reading the tokens or the tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ErroSintaxe {
+pub struct SyntaxError {
     /// Byte position in the source.
-    pub posicao: usize,
+    pub offset: usize,
     /// Length in bytes of the highlighted excerpt (at least 1).
-    pub comprimento: usize,
-    pub mensagem: String,
+    pub length: usize,
+    pub message: String,
 }
 
 /// The token stream of a unit and its comments.
@@ -109,11 +109,11 @@ impl Tokens {
     /// An unexpected character, an unterminated string or block comment, and
     /// the `===`/`!==` operators, which fasta's scanner only accepts to report an
     /// error.
-    pub fn read(source: &str) -> Result<Tokens, ErroSintaxe> {
-        let raw_tokens = dartforge_frontend::lexer::lex(source).map_err(|d| ErroSintaxe {
-            posicao: d.span.start,
-            comprimento: (d.span.end - d.span.start).max(1),
-            mensagem: d.message.clone(),
+    pub fn read(source: &str) -> Result<Tokens, SyntaxError> {
+        let raw_tokens = dartforge_frontend::lexer::lex(source).map_err(|d| SyntaxError {
+            offset: d.span.start,
+            length: (d.span.end - d.span.start).max(1),
+            message: d.message.clone(),
         })?;
         let mut list: Vec<Token> = Vec::with_capacity(raw_tokens.len() + 8);
         // Stack of open interpolations, per literal: `true` for `${…}`.
@@ -132,10 +132,10 @@ impl Tokens {
             match b.kind {
                 Kind::Ident => {
                     if !text.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'$') {
-                        return Err(ErroSintaxe {
-                            posicao: start_,
-                            comprimento: end - start_,
-                            mensagem: format!("Unexpected character in '{text}'."),
+                        return Err(SyntaxError {
+                            offset: start_,
+                            length: end - start_,
+                            message: format!("Unexpected character in '{text}'."),
                         });
                     }
                     list.push(new(TokenKind::Identifier, start_, end));
@@ -182,10 +182,10 @@ impl Tokens {
                 }
                 Kind::Op(op) => {
                     if (op == Op::EqEq || op == Op::BangEq) && end - start_ == 3 {
-                        return Err(ErroSintaxe {
-                            posicao: start_,
-                            comprimento: 3,
-                            mensagem: format!("The '{text}' operator is not supported."),
+                        return Err(SyntaxError {
+                            offset: start_,
+                            length: 3,
+                            message: format!("The '{text}' operator is not supported."),
                         });
                     }
                     list.push(new(TokenKind::Op(op), start_, end));
@@ -230,10 +230,10 @@ impl Tokens {
                         }
                     }
                     if level > 0 {
-                        return Err(ErroSintaxe {
-                            posicao: s,
-                            comprimento: 2,
-                            mensagem: "Unterminated multi-line comment.".into(),
+                        return Err(SyntaxError {
+                            offset: s,
+                            length: 2,
+                            message: "Unterminated multi-line comment.".into(),
                         });
                     }
                     comments.push(Comment {
@@ -315,10 +315,10 @@ impl Tokens {
     }
 }
 
-fn string_error(start_: usize, end: usize) -> ErroSintaxe {
-    ErroSintaxe {
-        posicao: start_,
-        comprimento: (end - start_).max(1),
-        mensagem: "Unterminated string literal.".into(),
+fn string_error(start_: usize, end: usize) -> SyntaxError {
+    SyntaxError {
+        offset: start_,
+        length: (end - start_).max(1),
+        message: "Unterminated string literal.".into(),
     }
 }

@@ -16,10 +16,10 @@ use dartforge_frontend::token::Op;
 
 /// One edit: replace `source[start..end]` (bytes of the original) with `text`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Edicao {
-    pub inicio: usize,
-    pub fim: usize,
-    pub texto: String,
+pub struct Edit {
+    pub start: usize,
+    pub end: usize,
+    pub text: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,20 +75,20 @@ fn valid_change(s: &str) -> bool {
 /// like the original.
 ///
 /// ```
-/// use dartforge_formatter::edicoes::edicoes_minimas;
-/// let e = edicoes_minimas("main( ){}", "main() {}\n", None);
+/// use dartforge_formatter::edits::minimal_edits;
+/// let e = minimal_edits("main( ){}", "main() {}\n", None);
 /// assert_eq!(e.len(), 3);
-/// assert_eq!((e[0].inicio, e[0].fim, e[0].texto.as_str()), (5, 6, ""));
+/// assert_eq!((e[0].start, e[0].end, e[0].text.as_str()), (5, 6, ""));
 /// ```
-pub fn edicoes_minimas(original: &str, formatted: &str, range: Option<(usize, usize)>) -> Vec<Edicao> {
+pub fn minimal_edits(original: &str, formatted: &str, range: Option<(usize, usize)>) -> Vec<Edit> {
     let complete = || {
         if range.is_some() {
             Vec::new()
         } else {
-            vec![Edicao {
-                inicio: 0,
-                fim: original.len(),
-                texto: formatted.to_string(),
+            vec![Edit {
+                start: 0,
+                end: original.len(),
+                text: formatted.to_string(),
             }]
         }
     };
@@ -103,7 +103,7 @@ pub fn edicoes_minimas(original: &str, formatted: &str, range: Option<(usize, us
         original,
         formatted,
         range,
-        edicoes: Vec::new(),
+        edits: Vec::new(),
     };
     let (mut ia, mut ib) = (0usize, 0usize);
     let mut off_a = 0usize;
@@ -183,21 +183,21 @@ pub fn edicoes_minimas(original: &str, formatted: &str, range: Option<(usize, us
         if let Some((_, end)) = range
             && off_a > end
         {
-            return c.edicoes;
+            return c.edits;
         }
     }
     if ia < a.len() || ib < b.len() {
         return complete();
     }
     c.add(off_a, original.len(), off_b, formatted.len(), false);
-    c.edicoes
+    c.edits
 }
 
 struct EditComputer<'a> {
     original: &'a str,
     formatted: &'a str,
     range: Option<(usize, usize)>,
-    edicoes: Vec<Edicao>,
+    edits: Vec<Edit>,
 }
 
 impl EditComputer<'_> {
@@ -240,6 +240,6 @@ impl EditComputer<'_> {
         if !any && (!valid_change(&old) || !valid_change(&new)) {
             return;
         }
-        self.edicoes.push(Edicao { inicio: start, fim: end, texto: new });
+        self.edits.push(Edit { start, end, text: new });
     }
 }

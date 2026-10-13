@@ -50,7 +50,7 @@ fn sweep(root: &Path) -> (usize, Vec<String>, Vec<String>) {
                     failures.push(format!("{}: {e}", p.display()));
                 }
             }
-            Err(e) => rejected.push(format!("{}:{}: {}", p.display(), e.posicao, e.mensagem)),
+            Err(e) => rejected.push(format!("{}:{}: {}", p.display(), e.offset, e.message)),
         }
     }
     (ok, rejected, failures)

@@ -4,7 +4,7 @@
 //! oracle keeps them apart); the engine generates them in memory through the
 //! native generator, without `build_runner` having run before and without a
 //! fallback, and the program output is that of the official VM
-//! (`oracle/exit_detector.txt`).
+//! (`oraculo/saida.txt`).
 #![cfg(feature = "nativo")]
 
 use std::path::{Path, PathBuf};

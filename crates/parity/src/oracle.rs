@@ -3,9 +3,9 @@
 //!
 //! Two SDKs, chosen by the library's language version (plan §2.4): 3.6.2 for
 //! libraries up to 3.6, 3.13.4 for those declaring 3.7 or later
-//! (`// @dart = 3.7`). The record (`oracle.jsonl`) holds one diagnostic per
+//! (`// @dart = 3.7`). The record (`oraculo.jsonl`) holds one diagnostic per
 //! line, with the path relative to the group; CI compares against it without
-//! needing `dart`. `oracle.json` holds the SDK and the hash of the sources: a
+//! needing `dart`. `oraculo.json` holds the SDK and the hash of the sources: a
 //! source changed without re-recording is flagged by the scoreboard.
 
 use crate::json::{DiagJson, Report};

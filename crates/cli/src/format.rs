@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
 
-use dartforge_formatter::{ErroFormatacao, Opcoes, formatar};
+use dartforge_formatter::{FormatError, FormatOptions, format};
 
 const USAGE: &str = "Usage: dart format [options...] <files or directories...>
 -h, --help                     Print this usage information.
@@ -91,7 +91,7 @@ struct Config {
     show: Show,
     summary: bool,
     exit_if_changed: bool,
-    options: Opcoes,
+    options: FormatOptions,
     follow_links: bool,
 }
 
@@ -291,10 +291,10 @@ pub fn run(args: &[OsString]) -> ExitCode {
         show,
         summary,
         exit_if_changed,
-        options: Opcoes {
-            largura: width.max(0) as usize,
-            recuo: indent_n as usize,
-            fim_de_linha: None,
+        options: FormatOptions {
+            page_width: width.max(0) as usize,
+            indent: indent_n as usize,
+            line_ending: None,
         },
         follow_links,
     };
@@ -440,17 +440,17 @@ fn process_file(config: &Config, state: &mut State, file: &Path, shown: &str) ->
 }
 
 fn process_source(config: &Config, state: &mut State, file: Option<&Path>, shown: &str, source: &str) -> bool {
-    let result = std::panic::catch_unwind(|| formatar(source, &config.options));
+    let result = std::panic::catch_unwind(|| format(source, &config.options));
     let output = match result {
         Ok(Ok(s)) => s,
-        Ok(Err(ErroFormatacao::Sintaxe(e))) => {
+        Ok(Err(FormatError::Syntax(e))) => {
             eprintln!("{}", error_message(source, shown, &e));
             if file.is_none() {
                 state.code = 65;
             }
             return false;
         }
-        Ok(Err(e @ ErroFormatacao::SaidaInesperada { .. })) => {
+        Ok(Err(e @ FormatError::UnexpectedOutput { .. })) => {
             eprintln!("Hit a bug in the formatter when formatting {shown}.\n{e}\nPlease report at github.com/dart-lang/dart_style/issues.");
             if file.is_none() {
                 state.code = 70;
@@ -523,8 +523,8 @@ fn process_source(config: &Config, state: &mut State, file: Option<&Path>, shown
 
 /// The `FormatterException` message: the excerpt with line and column, in
 /// the format of the `source_span` package's `SourceSpan.message`.
-fn error_message(source: &str, shown: &str, e: &dartforge_formatter::ErroSintaxe) -> String {
-    let pos = e.posicao.min(source.len());
+fn error_message(source: &str, shown: &str, e: &dartforge_formatter::SyntaxError) -> String {
+    let pos = e.offset.min(source.len());
     let line_start = source[..pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
     let line = source[..pos].matches('\n').count() + 1;
     let column = source[line_start..pos].chars().count() + 1;
@@ -532,10 +532,10 @@ fn error_message(source: &str, shown: &str, e: &dartforge_formatter::ErroSintaxe
     let line_text = source[line_start..line_end].trim_end_matches('\r');
     let number_width = line.to_string().len();
     let margin = " ".repeat(number_width);
-    let caret = "^".repeat(source[pos..(pos + e.comprimento).min(line_end.max(pos + 1)).min(source.len()).max(pos)].chars().count().max(1));
+    let caret = "^".repeat(source[pos..(pos + e.length).min(line_end.max(pos + 1)).min(source.len()).max(pos)].chars().count().max(1));
     format!(
         "Could not format because the source could not be parsed:\n\nline {line}, column {column} of {shown}: {}\n{margin} ╷\n{line} │ {line_text}\n{margin} │ {}{caret}\n{margin} ╵",
-        e.mensagem,
+        e.message,
         " ".repeat(column - 1)
     )
 }
