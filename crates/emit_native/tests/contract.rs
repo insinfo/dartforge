@@ -454,8 +454,8 @@ fn nsm_forwarder_method_in_sdk() {
 
 /// A static `noSuchMethod` forwarder of a getter (case 216, `p.version`):
 /// the abstract getter without a concrete implementation builds
-/// `Invocation.getter(#version)` and calls the nsm — before it was "chamada de
-/// membro sem implementação compilada". Without Clang: emission only.
+/// `Invocation.getter(#version)` and calls the nsm — before it was a call of a
+/// member without a compiled implementation. Without Clang: emission only.
 #[test]
 fn nsm_forwarder_getter_emits_nsm() {
     let source = "abstract class Servico { int get versao; }\n\

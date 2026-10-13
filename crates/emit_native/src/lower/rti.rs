@@ -748,7 +748,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         l
     }
 
-    /// `op is <ty>` (I1) pelo RTI.
+    /// `op is <ty>` (I1) through the RTI.
     pub fn test_rti(&mut self, op: Operand, ty: Operand) -> Operand {
         let v = self.coerce(op, Type::Ref);
         let r = self.emit(
