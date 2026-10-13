@@ -2814,7 +2814,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
                 let (r, _) = self.emit_cond(right);
                 self.pop_scope();
+                // `a && b` true: both promote. False: neither side is known
+                // to be false, so nothing is promoted.
+                let right_promos = std::mem::take(&mut self.pending_promotions);
                 self.pending_promotions = promos;
+                self.pending_promotions.extend(right_promos);
+                self.negated_promotions.clear();
                 return (Js::new(format!("{} && {}", Js::new(l, P_PRIMARY).at(P_AND), Js::new(r, P_PRIMARY).at(P_AND + 1)), P_AND), self.ctx.t_bool());
             }
             BinaryOp::Or => {
