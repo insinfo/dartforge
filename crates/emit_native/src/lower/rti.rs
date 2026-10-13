@@ -668,17 +668,66 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             );
             g.terminate(Terminator::Return(Some(t)));
             if self.ctx.arc_memory { self.arc_rti_caches.insert(global.clone()); }
-            self.extra_globals.push((0, Type::I64, global));
+            self.extra_globals.push((0, Type::I64, global.clone()));
             self.absorb(g);
         }
-        let base = self.emit(
-            Instruction::CallStatic {
-                symbol: getter,
-                args: Vec::new(),
-                ret_ty: Type::I64,
-            },
-            Type::I64,
-        );
+        let base = if self.ctx.arc_memory || self.is_terminated() {
+            self.emit(
+                Instruction::CallStatic {
+                    symbol: getter,
+                    args: Vec::new(),
+                    ret_ty: Type::I64,
+                },
+                Type::I64,
+            )
+        } else {
+            // The read of the cache inline, the getter only the first time: the
+            // call per use (a `List.[]=` covariance check, 8% of a sort of
+            // objects) cost more than the flag and the two loads of the area.
+            let ok = self.emit(
+                Instruction::LoadGlobal {
+                    symbol: format!("{global}$ok"),
+                    ty: Type::I8,
+                },
+                Type::I8,
+            );
+            let ready = self.emit(Instruction::ICmp(ICmpOp::Ne, ok, Operand::Constant(Constant::Int(0))), Type::I1);
+            let b_ready = self.new_block();
+            let b_first = self.new_block();
+            let b_end = self.new_block();
+            self.terminate(Terminator::CondBranch {
+                cond: ready,
+                then_block: b_ready,
+                else_block: b_first,
+            });
+            self.set_block(b_ready);
+            let cached = self.emit(
+                Instruction::LoadGlobal {
+                    symbol: global.clone(),
+                    ty: Type::I64,
+                },
+                Type::I64,
+            );
+            self.terminate(Terminator::Branch(b_end));
+            self.set_block(b_first);
+            let first = self.emit(
+                Instruction::CallStatic {
+                    symbol: getter,
+                    args: Vec::new(),
+                    ret_ty: Type::I64,
+                },
+                Type::I64,
+            );
+            self.terminate(Terminator::Branch(b_end));
+            self.set_block(b_end);
+            self.emit(
+                Instruction::Phi {
+                    incoming: vec![(b_ready, cached), (b_first, first)],
+                    ty: Type::I64,
+                },
+                Type::I64,
+            )
+        };
         if !r.variables {
             return base;
         }
