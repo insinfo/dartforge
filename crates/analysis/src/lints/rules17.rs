@@ -362,11 +362,11 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
     // `missing_code_block_language_in_doc_comment`.
     if ligada("missing_code_block_language_in_doc_comment") {
         let comentarios = dartforge_frontend::comentarios::Comentarios::de(fonte);
-        for doc in super::rules14::docs_da_unidade(u, &comentarios) {
-            let linhas = super::rules14::linhas_do_doc(fonte, &doc);
-            for b in super::rules14::blocos_de_codigo(&linhas) {
-                if b.cercado && !b.tem_info {
-                    let (pos, tam) = b.linhas[0];
+        for doc in super::rules14::unit_docs(u, &comentarios) {
+            let linhas = super::rules14::doc_lines(fonte, &doc);
+            for b in super::rules14::code_blocks(&linhas) {
+                if b.fenced && !b.has_info {
+                    let (pos, tam) = b.lines[0];
                     relatar(&c::MISSING_CODE_BLOCK_LANGUAGE_IN_DOC_COMMENT, Span { start: pos, end: pos + tam }, &[]);
                 }
             }

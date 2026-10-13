@@ -388,12 +388,12 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 }
             }
             // As referências não resolvidas.
-            let doc = super::rules14::Doc { tokens: tokens.clone(), cadeia: cadeia.clone(), pai };
-            let linhas = super::rules14::linhas_do_doc(fonte, &doc);
-            let blocos = super::rules14::blocos_de_codigo(&linhas);
+            let doc = super::rules14::Doc { tokens: tokens.clone(), chain: cadeia.clone(), anchor: pai };
+            let linhas = super::rules14::doc_lines(fonte, &doc);
+            let blocos = super::rules14::code_blocks(&linhas);
             let em_bloco = |k: usize| {
                 let pos = linhas[k].0;
-                blocos.iter().any(|b| b.linhas.iter().any(|(p, _)| *p == pos))
+                blocos.iter().any(|b| b.lines.iter().any(|(p, _)| *p == pos))
             };
             for partes in referencias(fonte, &linhas, &em_bloco) {
                 let nomes: Vec<&str> = partes.iter().map(|(n, _)| n.as_str()).collect();

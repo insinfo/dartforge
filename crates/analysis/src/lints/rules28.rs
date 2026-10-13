@@ -18,7 +18,7 @@
 
 use super::codigos_g as c;
 use super::rules::LintReport;
-use super::rules14::{depois_das_anotacoes, doc_de, sem_augment};
+use super::rules14::{after_annotations, doc_for, skip_augment};
 use super::CodigoLint;
 use crate::Unidade;
 use dartforge_diagnostics::Span;
@@ -49,7 +49,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
     let comentarios = Comentarios::de(fonte);
     let privado = |n: SymbolId| interner.resolve(n).starts_with('_');
     let interno = |metadata: &[Annotation]| metadata.iter().any(|m| dartforge_types::anotacoes::e_getter_de(program, interner, s.unit, m, "meta", "internal"));
-    let documentado = |metadata: &[Annotation], pos: usize| doc_de(fonte, &comentarios, metadata, pos).is_some();
+    let documentado = |metadata: &[Annotation], pos: usize| doc_for(fonte, &comentarios, metadata, pos).is_some();
     let classe_da_decl = |d: DeclId| -> Option<ClassId> {
         (0..program.classes.len()).map(|i| ClassId(i as u32)).find(|c| program.class(*c).decl.is_some_and(|r| r.unit == s.unit && r.decl == d))
     };
@@ -75,11 +75,11 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
         }
         false
     };
-    let pos_do_membro = |m: MemberId| depois_das_anotacoes(fonte, &a.member(m).metadata, a.member(m).span.start);
+    let pos_do_membro = |m: MemberId| after_annotations(fonte, &a.member(m).metadata, a.member(m).span.start);
     let pos_da_decl = |d: &ast::Decl| {
-        let mut pos = depois_das_anotacoes(fonte, &d.metadata, d.span.start);
+        let mut pos = after_annotations(fonte, &d.metadata, d.span.start);
         if d.augment && matches!(d.kind, DeclKind::Enum(_) | DeclKind::Extension(_) | DeclKind::ExtensionType(_) | DeclKind::Typedef(_) | DeclKind::Mixin(_)) {
-            pos = sem_augment(fonte, pos);
+            pos = skip_augment(fonte, pos);
         }
         pos
     };
