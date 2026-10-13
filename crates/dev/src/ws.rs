@@ -1,72 +1,81 @@
-//! WebSocket mínimo do servidor de desenvolvimento (RFC 6455).
+//! Minimal WebSocket for the development server (RFC 6455).
 //!
-//! O `webdev` recarrega o navegador por um canal bidirecional — o `dwds` é
-//! agnóstico de transporte e aceita SSE **ou** WebSocket
-//! (`dwds/lib/src/handlers/socket_connections.dart`). Aqui é WebSocket.
+//! `webdev` reloads the browser over a bidirectional channel — `dwds` is
+//! transport-agnostic and accepts SSE **or** WebSocket
+//! (`dwds/lib/src/handlers/socket_connections.dart`). Here it is WebSocket.
 //!
-//! Só o necessário para mandar texto do servidor ao navegador: o aperto de
-//! mão (§4.2.2) e quadros de texto sem máscara (§5.2, o servidor não
-//! mascara). O SHA-1 é exigido pelo protocolo — não há escolha de algoritmo —
-//! e está verificado contra o vetor do próprio RFC (§1.3).
+//! Only what is needed to send text from the server to the browser: the
+//! handshake (§4.2.2) and unmasked text frames (§5.2, the server does not
+//! mask). SHA-1 is required by the protocol — there is no choice of
+//! algorithm — and it is checked against the RFC's own vector (§1.3).
 use std::io::Write;
 use std::net::TcpStream;
 
-/// GUID fixo do protocolo (RFC 6455 §1.3).
+/// The protocol's fixed GUID (RFC 6455 §1.3).
 const GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
-/// Valor do cabeçalho `Sec-WebSocket-Accept` para a chave do cliente.
-pub fn aceite(chave: &str) -> String {
-    let mut entrada = String::with_capacity(chave.len() + GUID.len());
-    entrada.push_str(chave);
-    entrada.push_str(GUID);
-    base64(&sha1(entrada.as_bytes()))
+/// Value of the `Sec-WebSocket-Accept` header for the client's key.
+pub fn accept_key(key: &str) -> String {
+    let mut input = String::with_capacity(key.len() + GUID.len());
+    input.push_str(key);
+    input.push_str(GUID);
+    base64(&sha1(input.as_bytes()))
 }
 
-/// Responde o aperto de mão; a conexão passa a falar quadros.
-pub fn apertar_mao(fluxo: &mut TcpStream, chave: &str) -> std::io::Result<()> {
-    let resposta = format!(
+/// Answers the handshake; the connection then speaks frames.
+///
+/// # Errors
+///
+/// I/O errors of the connection.
+pub fn handshake(stream: &mut TcpStream, key: &str) -> std::io::Result<()> {
+    let response = format!(
         "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {}\r\n\r\n",
-        aceite(chave)
+        accept_key(key)
     );
-    fluxo.write_all(resposta.as_bytes())?;
-    fluxo.flush()
+    stream.write_all(response.as_bytes())?;
+    stream.flush()
 }
 
-/// Escreve um quadro de texto (opcode 1, FIN, sem máscara).
-pub fn quadro_texto(fluxo: &mut TcpStream, texto: &str) -> std::io::Result<()> {
-    let dados = texto.as_bytes();
-    let mut quadro = Vec::with_capacity(dados.len() + 10);
-    quadro.push(0x81);
-    match dados.len() {
-        n if n < 126 => quadro.push(n as u8),
+/// Writes a text frame (opcode 1, FIN, unmasked).
+///
+/// # Errors
+///
+/// I/O errors of the connection.
+pub fn text_frame(stream: &mut TcpStream, text: &str) -> std::io::Result<()> {
+    let data = text.as_bytes();
+    let mut frame = Vec::with_capacity(data.len() + 10);
+    frame.push(0x81);
+    match data.len() {
+        n if n < 126 => frame.push(n as u8),
         n if n <= u16::MAX as usize => {
-            quadro.push(126);
-            quadro.extend_from_slice(&(n as u16).to_be_bytes());
+            frame.push(126);
+            frame.extend_from_slice(&(n as u16).to_be_bytes());
         }
         n => {
-            quadro.push(127);
-            quadro.extend_from_slice(&(n as u64).to_be_bytes());
+            frame.push(127);
+            frame.extend_from_slice(&(n as u64).to_be_bytes());
         }
     }
-    quadro.extend_from_slice(dados);
-    fluxo.write_all(&quadro)?;
-    fluxo.flush()
+    frame.extend_from_slice(data);
+    stream.write_all(&frame)?;
+    stream.flush()
 }
 
-/// SHA-1 (FIPS 180-4). Existe aqui porque o aperto de mão do WebSocket o
-/// exige; não é usado para nada que dependa de resistência a colisão.
-fn sha1(dados: &[u8]) -> [u8; 20] {
+/// SHA-1 (FIPS 180-4). It exists here because the WebSocket handshake
+/// requires it; it is not used for anything that depends on collision
+/// resistance.
+fn sha1(data: &[u8]) -> [u8; 20] {
     let mut h: [u32; 5] = [0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0];
-    let bits = (dados.len() as u64) * 8;
-    let mut m = dados.to_vec();
+    let bits = (data.len() as u64) * 8;
+    let mut m = data.to_vec();
     m.push(0x80);
     while m.len() % 64 != 56 {
         m.push(0);
     }
     m.extend_from_slice(&bits.to_be_bytes());
-    for bloco in m.chunks_exact(64) {
+    for block in m.chunks_exact(64) {
         let mut w = [0u32; 80];
-        for (i, p) in bloco.chunks_exact(4).enumerate() {
+        for (i, p) in block.chunks_exact(4).enumerate() {
             w[i] = u32::from_be_bytes([p[0], p[1], p[2], p[3]]);
         }
         for i in 16..80 {
@@ -98,42 +107,42 @@ fn sha1(dados: &[u8]) -> [u8; 20] {
         h[3] = h[3].wrapping_add(d);
         h[4] = h[4].wrapping_add(e);
     }
-    let mut saida = [0u8; 20];
+    let mut out = [0u8; 20];
     for (i, v) in h.iter().enumerate() {
-        saida[i * 4..i * 4 + 4].copy_from_slice(&v.to_be_bytes());
+        out[i * 4..i * 4 + 4].copy_from_slice(&v.to_be_bytes());
     }
-    saida
+    out
 }
 
-fn base64(dados: &[u8]) -> String {
+fn base64(data: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut s = String::with_capacity(dados.len().div_ceil(3) * 4);
-    for bloco in dados.chunks(3) {
-        let b = [bloco[0], *bloco.get(1).unwrap_or(&0), *bloco.get(2).unwrap_or(&0)];
+    let mut s = String::with_capacity(data.len().div_ceil(3) * 4);
+    for block in data.chunks(3) {
+        let b = [block[0], *block.get(1).unwrap_or(&0), *block.get(2).unwrap_or(&0)];
         let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
         s.push(T[(n >> 18) as usize & 63] as char);
         s.push(T[(n >> 12) as usize & 63] as char);
-        s.push(if bloco.len() > 1 { T[(n >> 6) as usize & 63] as char } else { '=' });
-        s.push(if bloco.len() > 2 { T[n as usize & 63] as char } else { '=' });
+        s.push(if block.len() > 1 { T[(n >> 6) as usize & 63] as char } else { '=' });
+        s.push(if block.len() > 2 { T[n as usize & 63] as char } else { '=' });
     }
     s
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
-    /// Vetor do RFC 6455 §1.3: a chave `dGhlIHNhbXBsZSBub25jZQ==` produz
-    /// `s3pPLMBiTxaQ9kYGzzhZRbK+xOo=`. Se isto falhar, nenhum navegador
-    /// completa o aperto de mão.
+    /// The RFC 6455 §1.3 vector: the key `dGhlIHNhbXBsZSBub25jZQ==` produces
+    /// `s3pPLMBiTxaQ9kYGzzhZRbK+xOo=`. If this fails, no browser completes
+    /// the handshake.
     #[test]
-    fn aceite_do_rfc() {
-        assert_eq!(aceite("dGhlIHNhbXBsZSBub25jZQ=="), "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");
+    fn rfc_accept_key() {
+        assert_eq!(accept_key("dGhlIHNhbXBsZSBub25jZQ=="), "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");
     }
 
-    /// Vetores clássicos do FIPS 180-4.
+    /// Classic FIPS 180-4 vectors.
     #[test]
-    fn sha1_conhecidos() {
+    fn sha1_known() {
         let hex = |d: [u8; 20]| d.iter().map(|b| format!("{b:02x}")).collect::<String>();
         assert_eq!(hex(sha1(b"")), "da39a3ee5e6b4b0d3255bfef95601890afd80709");
         assert_eq!(hex(sha1(b"abc")), "a9993e364706816aba3e25717850c26c9cd0d89d");
@@ -144,19 +153,19 @@ mod testes {
     }
 
     #[test]
-    fn base64_conhecidos() {
+    fn base64_known() {
         assert_eq!(base64(b"f"), "Zg==");
         assert_eq!(base64(b"fo"), "Zm8=");
         assert_eq!(base64(b"foo"), "Zm9v");
         assert_eq!(base64(b"foobar"), "Zm9vYmFy");
     }
 
-    /// Cabeçalho do quadro: FIN+texto, tamanho curto e tamanho de 16 bits.
+    /// Frame header: FIN+text, short length and 16-bit length.
     #[test]
-    fn cabecalho_do_quadro() {
-        // O quadro é montado pela mesma lógica de `quadro_texto`; aqui se
-        // verifica o cabeçalho sem precisar de socket.
-        let monta = |n: usize| {
+    fn frame_header() {
+        // The frame is built by the same logic as `text_frame`; here the
+        // header is checked without needing a socket.
+        let build = |n: usize| {
             let mut q = vec![0x81u8];
             match n {
                 n if n < 126 => q.push(n as u8),
@@ -171,8 +180,8 @@ mod testes {
             }
             q
         };
-        assert_eq!(monta(5), vec![0x81, 5]);
-        assert_eq!(monta(200), vec![0x81, 126, 0, 200]);
-        assert_eq!(monta(70000)[0..2], [0x81, 127]);
+        assert_eq!(build(5), vec![0x81, 5]);
+        assert_eq!(build(200), vec![0x81, 126, 0, 200]);
+        assert_eq!(build(70000)[0..2], [0x81, 127]);
     }
 }

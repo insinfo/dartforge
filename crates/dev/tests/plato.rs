@@ -1,21 +1,22 @@
-//! Platô de memória da sessão residente (PLANO.md, item 1 de "O que falta").
+//! Memory plateau of the resident session (PLANO.md, item 1 of "O que
+//! falta").
 //!
-//! Vinte edições sucessivas — corpo, assinatura pública e import — e os bytes
-//! vivos têm de estabilizar num platô em vez de crescer com N. Um crescimento
-//! aqui significa que alguma estrutura viva guarda o modelo da edição
-//! anterior: é o defeito que faz o analyzer e o `webdev` do Dart chegarem a
-//! gigabytes.
+//! Twenty successive edits — body, public signature and import — and the
+//! live bytes must settle on a plateau instead of growing with N. Growth
+//! here means some live structure keeps the model of the previous edit: it
+//! is the defect that makes Dart's analyzer and `webdev` reach gigabytes.
 //!
-//! **Um único `#[test]` neste binário**: o alocador contador é global e mede o
-//! processo inteiro; dois testes em paralelo mediriam um ao outro.
+//! **A single `#[test]` in this binary**: the counting allocator is global
+//! and measures the whole process; two tests in parallel would measure each
+//! other.
 #[global_allocator]
-static ALOCADOR: dartforge_instrument::CountingAllocator = dartforge_instrument::CountingAllocator;
+static ALLOCATOR: dartforge_instrument::CountingAllocator = dartforge_instrument::CountingAllocator;
 
 use dartforge_dev::Sessao;
 use std::path::{Path, PathBuf};
 
-/// SDK simulado: `dart:core` com o mínimo para tipar o projeto do teste.
-fn sdk_simulado(dir: &Path) -> PathBuf {
+/// Simulated SDK: `dart:core` with the minimum to type the test project.
+fn simulated_sdk(dir: &Path) -> PathBuf {
     let lib = dir.join("sdk/lib");
     std::fs::create_dir_all(lib.join("core")).unwrap();
     std::fs::write(
@@ -53,74 +54,75 @@ fn sdk_simulado(dir: &Path) -> PathBuf {
     lib
 }
 
-/// Projeto: uma biblioteca de apoio e a entrada que a importa.
-fn projeto(dir: &Path) -> (PathBuf, PathBuf) {
+/// Project: a support library and the input that imports it.
+fn project(dir: &Path) -> (PathBuf, PathBuf) {
     let proj = dir.join("proj");
     std::fs::create_dir_all(&proj).unwrap();
-    let apoio = proj.join("apoio.dart");
-    std::fs::write(&apoio, "int dobro(int x) => x + x;\n").unwrap();
+    let support = proj.join("support.dart");
+    std::fs::write(&support, "int twice(int x) => x + x;\n").unwrap();
     let main = proj.join("main.dart");
-    std::fs::write(&main, "import 'apoio.dart';\nvoid main() { print(dobro(2)); }\n").unwrap();
-    (main, apoio)
+    std::fs::write(&main, "import 'support.dart';\nvoid main() { print(twice(2)); }\n").unwrap();
+    (main, support)
 }
 
-/// Três formas de edição, que invalidam coisas diferentes.
-fn editar(apoio: &Path, main: &Path, i: usize) {
+/// Three kinds of edit, which invalidate different things.
+fn edit(support: &Path, main: &Path, i: usize) {
     match i % 3 {
-        // Corpo: só o texto da função muda; a API fica igual.
-        0 => std::fs::write(apoio, format!("int dobro(int x) {{ var y = {i:03}; return x + x; }}\n")).unwrap(),
-        // Assinatura pública: entra e sai uma função de topo.
+        // Body: only the function's text changes; the API stays the same.
+        0 => std::fs::write(support, format!("int twice(int x) {{ var y = {i:03}; return x + x; }}\n")).unwrap(),
+        // Public signature: a top-level function comes and goes.
         1 => std::fs::write(
-            apoio,
-            format!("int dobro(int x) => x + x;\nint triplo{i:03}(int x) => x + x + x;\n"),
+            support,
+            format!("int twice(int x) => x + x;\nint thrice{i:03}(int x) => x + x + x;\n"),
         )
         .unwrap(),
-        // Import: a entrada passa a importar (e deixar de importar) dart:core
-        // explicitamente, mudando o grafo.
+        // Import: the input starts (and stops) importing dart:core
+        // explicitly, changing the graph.
         _ => std::fs::write(
             main,
-            format!("import 'apoio.dart';\nimport 'dart:core';\nvoid main() {{ print(dobro({i:03})); }}\n"),
+            format!("import 'support.dart';\nimport 'dart:core';\nvoid main() {{ print(twice({i:03})); }}\n"),
         )
         .unwrap(),
     }
 }
 
 #[test]
-fn edicoes_sucessivas_estabilizam_em_plato() {
+fn successive_edits_settle_on_a_plateau() {
     let tmp = tempfile::tempdir().unwrap();
-    let sdk = sdk_simulado(tmp.path());
-    let (main, apoio) = projeto(tmp.path());
-    let saida = tmp.path().join("js");
+    let sdk = simulated_sdk(tmp.path());
+    let (main, support) = project(tmp.path());
+    let output = tmp.path().join("js");
 
-    let mut sessao = Sessao::nova(&main, Some(&sdk), None, &saida).expect("sessão");
-    sessao.compilar().expect("primeira compilação");
+    let mut session = Sessao::nova(&main, Some(&sdk), None, &output).expect("session");
+    session.compilar().expect("first compilation");
 
-    // Aquecimento: as primeiras edições ainda internam nomes novos e crescem
-    // as arenas; o platô é medido depois que a forma do projeto se repete.
+    // Warm-up: the first edits still intern new names and grow the arenas;
+    // the plateau is measured once the shape of the project repeats.
     for i in 0..4 {
-        editar(&apoio, &main, i);
-        sessao.arquivo_mudou(&apoio);
-        sessao.arquivo_mudou(&main);
-        sessao.compilar().expect("compilação de aquecimento");
+        edit(&support, &main, i);
+        session.arquivo_mudou(&support);
+        session.arquivo_mudou(&main);
+        session.compilar().expect("warm-up compilation");
     }
 
     let base = dartforge_instrument::live_bytes();
-    let mut maior = base;
+    let mut largest = base;
     for i in 4..24 {
-        editar(&apoio, &main, i);
-        sessao.arquivo_mudou(&apoio);
-        sessao.arquivo_mudou(&main);
-        let r = sessao.compilar().expect("compilação da edição");
-        assert!(r.modulos >= 2, "o projeto tem pelo menos dois módulos");
-        maior = maior.max(dartforge_instrument::live_bytes());
+        edit(&support, &main, i);
+        session.arquivo_mudou(&support);
+        session.arquivo_mudou(&main);
+        let r = session.compilar().expect("compilation of the edit");
+        assert!(r.modulos >= 2, "the project has at least two modules");
+        largest = largest.max(dartforge_instrument::live_bytes());
     }
-    let fim = dartforge_instrument::live_bytes();
+    let end = dartforge_instrument::live_bytes();
 
-    // Tolerância: o texto das edições varia de tamanho e o `Interner` guarda
-    // os nomes novos de cada revisão (`triplo007`…), que são poucos e curtos.
-    let limite = base + 256 * 1024;
+    // Tolerance: the text of the edits varies in size and the `Interner`
+    // keeps the new names of each revision (`thrice007`…), which are few and
+    // short.
+    let limit = base + 256 * 1024;
     assert!(
-        fim <= limite && maior <= limite,
-        "memória cresceu com as edições: base {base} B, maior {maior} B, fim {fim} B (limite {limite} B)"
+        end <= limit && largest <= limit,
+        "memory grew with the edits: base {base} B, largest {largest} B, end {end} B (limit {limit} B)"
     );
 }

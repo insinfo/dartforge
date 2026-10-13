@@ -1,93 +1,95 @@
-//! Latência de edição com o motor de geração ligado (plano do motor §6.5).
+//! Edit latency with the generation engine turned on (engine plan §6.5).
 //!
-//! `cargo run --release -p dartforge-dev --example medir_geracao -- <entrada.dart> <package_config.json> [saida] [repeticoes]`
+//! `cargo run --release -p dartforge-dev --example medir_geracao -- <input.dart> <package_config.json> [output] [repetitions] [sem-motor]`
 //!
-//! Abre a sessão, compila, escolhe um componente cujo `.template.dart` sai
-//! do gerador nativo (com `.html` e `.scss` ao lado) e um `.dart` do pacote
-//! sem Angular, e mede cada edição aplicada e revertida (o arquivo volta ao
-//! texto original no fim de cada uma): o relógio vai da detecção até os
-//! módulos escritos, que é o `compilar` da sessão.
-use dartforge_dev::geracao::{etapa_de_build, EtapaDeGeracao};
-use dartforge_dev::{Relatorio, Sessao};
+//! Opens the session, compiles, picks a component whose `.template.dart`
+//! comes from the native generator (with `.html` and `.scss` next to it) and
+//! a `.dart` of the package without Angular, and measures each edit applied
+//! and reverted (the file goes back to its original text at the end of each
+//! one): the clock runs from detection to the written modules, which is the
+//! session's `compilar`.
+use dartforge_dev::generation::{build_stage, GenerationStage};
+use dartforge_dev::{Report, Sessao};
 use std::path::{Path, PathBuf};
 
 fn ms(d: std::time::Duration) -> f64 {
     d.as_secs_f64() * 1000.0
 }
 
-fn linha(nome: &str, r: &Relatorio) {
+fn row(name: &str, r: &Report) {
     let m = r.motor.as_ref();
     println!(
-        "{nome:<34}{:>9.1}{:>9.1}{:>9.1}{:>9.1}{:>9.1}{:>8}{:>8}{:>9}{:>9}",
+        "{name:<34}{:>9.1}{:>9.1}{:>9.1}{:>9.1}{:>9.1}{:>8}{:>8}{:>9}{:>9}",
         ms(r.total()),
         m.map(|m| ms(m.tempo)).unwrap_or(0.0),
         m.map(|m| ms(m.tempo_nativo)).unwrap_or(0.0),
-        ms(r.recarga_geracao),
-        ms(r.escrita),
+        ms(r.generation_reload),
+        ms(r.write),
         m.map(|m| m.acoes_executadas).unwrap_or(0),
         m.map(|m| m.saidas_alteradas).unwrap_or(0),
-        r.unidades_reanalisadas,
+        r.reanalyzed_units,
         r.modulos_escritos,
     );
 }
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let entrada = PathBuf::from(args.first().expect("uso: medir_geracao <entrada.dart> <package_config.json> [saida] [repeticoes]"));
+    let input = PathBuf::from(args.first().expect("usage: medir_geracao <input.dart> <package_config.json> [output] [repetitions]"));
     let packages = PathBuf::from(args.get(1).expect("package_config.json"));
-    let saida = PathBuf::from(args.get(2).cloned().unwrap_or_else(|| "target/dev-medir-geracao".into()));
-    let repeticoes: usize = args.get(3).and_then(|v| v.parse().ok()).unwrap_or(3);
+    let output = PathBuf::from(args.get(2).cloned().unwrap_or_else(|| "target/dev-medir-geracao".into()));
+    let repetitions: usize = args.get(3).and_then(|v| v.parse().ok()).unwrap_or(3);
 
-    // `sem-motor`: a mesma sessão sem etapa (a linha de base da regra de
-    // custo zero), com os arquivos de `MEDIR_COMPONENTE`/`MEDIR_SEM_ANGULAR`.
-    let sem_motor = args.get(4).is_some_and(|a| a == "sem-motor");
-    let etapa = if sem_motor {
+    // `sem-motor` (no engine): the same session without a stage (the
+    // baseline of the zero-cost rule), with the files of
+    // `MEDIR_COMPONENTE`/`MEDIR_SEM_ANGULAR`.
+    let no_engine = args.get(4).is_some_and(|a| a == "sem-motor");
+    let stage = if no_engine {
         None
     } else {
-        match etapa_de_build(&entrada, Some(&packages)) {
+        match build_stage(&input, Some(&packages)) {
             Some(Ok(e)) => Some(e),
-            Some(Err(e)) => panic!("motor: {e}"),
-            None => panic!("o projeto não usa builders"),
+            Some(Err(e)) => panic!("engine: {e}"),
+            None => panic!("the project uses no builders"),
         }
     };
-    let motor = etapa.as_ref().map(|e| e.motor());
-    let etapas: Vec<Box<dyn EtapaDeGeracao>> = etapa.into_iter().map(|e| Box::new(e) as Box<dyn EtapaDeGeracao>).collect();
-    let mut sessao = Sessao::com_etapas(&entrada, None, Some(&packages), &saida, etapas).expect("sessão");
+    let engine = stage.as_ref().map(|e| e.engine());
+    let stages: Vec<Box<dyn GenerationStage>> = stage.into_iter().map(|e| Box::new(e) as Box<dyn GenerationStage>).collect();
+    let mut session = Sessao::with_stages(&input, None, Some(&packages), &output, stages).expect("session");
     let t = std::time::Instant::now();
-    let r = sessao.compilar().expect("primeira compilação");
-    println!("primeira compilação: {:.1} ms (relógio {:.1} ms)", ms(r.total()), ms(t.elapsed()));
+    let r = session.compilar().expect("first compilation");
+    println!("first compilation: {:.1} ms (wall clock {:.1} ms)", ms(r.total()), ms(t.elapsed()));
     print!("{}", r.texto());
 
-    // Componente coberto: saída `.template.dart` nativa com `.html` e `.scss`.
-    let raiz = dartforge_build::raiz_do_pacote(&entrada).expect("raiz");
-    let (componente, sem_angular) = if let Ok(c) = std::env::var("MEDIR_COMPONENTE") {
+    // Covered component: native `.template.dart` output with `.html` and `.scss`.
+    let root = dartforge_build::raiz_do_pacote(&input).expect("root");
+    let (component, no_angular) = if let Ok(c) = std::env::var("MEDIR_COMPONENTE") {
         let dart = PathBuf::from(c);
         ((dart.clone(), dart.with_extension("html"), dart.with_extension("scss")), std::env::var("MEDIR_SEM_ANGULAR").ok().map(PathBuf::from))
     } else {
-        let motor = motor.clone().expect("sem motor: defina MEDIR_COMPONENTE");
-        let m = motor.lock().unwrap();
+        let engine = engine.clone().expect("no engine: set MEDIR_COMPONENTE");
+        let m = engine.lock().unwrap();
         let mut comp = None;
-        let mut nativos = std::collections::BTreeSet::new();
+        let mut native = std::collections::BTreeSet::new();
         for (i, a) in m.grafo.acoes.iter().enumerate() {
             let Some(r) = m.registro(i) else { continue };
             let f = &m.fases[a.fase];
             if !matches!(r.origem, dartforge_build::motor::Origem::Nativo(_)) || f.fabrica != "templateCompiler" {
                 continue;
             }
-            let dart = raiz.join(a.entrada.caminho.as_ref());
-            nativos.insert(dart.clone());
+            let dart = root.join(a.entrada.caminho.as_ref());
+            native.insert(dart.clone());
             let html = dart.with_extension("html");
             let scss = dart.with_extension("scss");
-            let nome_html = html.file_name().unwrap().to_string_lossy().to_string();
-            let usa = std::fs::read_to_string(&dart)
-                .is_ok_and(|t| t.contains("@Component") && t.contains(&nome_html) && t.contains("styleUrls"));
-            if comp.is_none() && a.entrada.caminho.starts_with("lib/") && html.is_file() && scss.is_file() && usa {
+            let html_name = html.file_name().unwrap().to_string_lossy().to_string();
+            let uses = std::fs::read_to_string(&dart)
+                .is_ok_and(|t| t.contains("@Component") && t.contains(&html_name) && t.contains("styleUrls"));
+            if comp.is_none() && a.entrada.caminho.starts_with("lib/") && html.is_file() && scss.is_file() && uses {
                 comp = Some((dart, html, scss));
             }
         }
-        // Um `.dart` pequeno do pacote, sem Angular: o gerador o considera
-        // trivial.
-        let sem = nativos
+        // A small `.dart` of the package, without Angular: the generator
+        // considers it trivial.
+        let plain = native
             .iter()
             .find(|p| {
                 p.to_string_lossy().contains("/src/")
@@ -103,56 +105,56 @@ fn main() {
                     })
             })
             .cloned();
-        (comp.expect("nenhum componente coberto com .html e .scss"), sem)
+        (comp.expect("no covered component with .html and .scss"), plain)
     };
-    let (dart, html, scss) = componente;
-    let _ = sem_motor;
-    println!("componente: {}", dart.display());
-    if let Some(s) = &sem_angular {
-        println!("sem Angular: {}", s.display());
+    let (dart, html, scss) = component;
+    let _ = no_engine;
+    println!("component: {}", dart.display());
+    if let Some(s) = &no_angular {
+        println!("without Angular: {}", s.display());
     }
     println!(
         "{:<34}{:>9}{:>9}{:>9}{:>9}{:>9}{:>8}{:>8}{:>9}{:>9}",
-        "edição", "total", "motor", "nativo", "recarga", "escrita", "ações", "saídas", "unidades", "módulos"
+        "edit", "total", "engine", "native", "reload", "write", "actions", "outputs", "units", "modules"
     );
-    let mut edicoes: Vec<(&str, PathBuf, String)> = vec![
-        ("texto no .html", html.clone(), "\n<span>medida</span>\n".into()),
-        ("propriedade no .scss", scss.clone(), "\n.medida-x { color: red; }\n".into()),
-        ("corpo fora do template (.dart)", dart.clone(), "\nvoid _medida() { var x = 1; x++; }\n".into()),
+    let mut edits: Vec<(&str, PathBuf, String)> = vec![
+        ("text in the .html", html.clone(), "\n<span>measure</span>\n".into()),
+        ("property in the .scss", scss.clone(), "\n.measure-x { color: red; }\n".into()),
+        ("body outside the template (.dart)", dart.clone(), "\nvoid _measure() { var x = 1; x++; }\n".into()),
     ];
-    if let Some(s) = sem_angular {
-        edicoes.push(("corpo em .dart sem Angular", s, "\nvoid _medidaSemAngular() { var x = 1; x++; }\n".into()));
+    if let Some(s) = no_angular {
+        edits.push(("body in a .dart without Angular", s, "\nvoid _measureNoAngular() { var x = 1; x++; }\n".into()));
     }
-    for (nome, arq, acrescimo) in edicoes {
-        let original = std::fs::read(&arq).expect("ler");
-        for i in 0..repeticoes {
-            let mut novo = original.clone();
-            novo.extend_from_slice(acrescimo.as_bytes());
-            std::fs::write(&arq, &novo).unwrap();
-            for p in sessao.mudancas() {
-                sessao.arquivo_mudou(&p);
+    for (name, file, addition) in edits {
+        let original = std::fs::read(&file).expect("read");
+        for i in 0..repetitions {
+            let mut new = original.clone();
+            new.extend_from_slice(addition.as_bytes());
+            std::fs::write(&file, &new).unwrap();
+            for p in session.mudancas() {
+                session.arquivo_mudou(&p);
             }
-            sessao.arquivo_mudou(&arq);
-            let r = sessao.compilar().expect("edição");
-            linha(&format!("{nome} #{i}"), &r);
-            if let (true, Some(motor)) = (std::env::var("MEDIR_DEPURAR").is_ok(), motor.as_ref()) {
-                let m = motor.lock().unwrap();
-                for (a, acao) in m.grafo.acoes.iter().enumerate() {
-                    if raiz.join(acao.entrada.caminho.as_ref()) == dart || raiz.join(acao.entrada.caminho.as_ref()).with_extension("") == dart.with_extension("") {
+            session.arquivo_mudou(&file);
+            let r = session.compilar().expect("edit");
+            row(&format!("{name} #{i}"), &r);
+            if let (true, Some(engine)) = (std::env::var("MEDIR_DEPURAR").is_ok(), engine.as_ref()) {
+                let m = engine.lock().unwrap();
+                for (a, action) in m.grafo.acoes.iter().enumerate() {
+                    if root.join(action.entrada.caminho.as_ref()) == dart || root.join(action.entrada.caminho.as_ref()).with_extension("") == dart.with_extension("") {
                         if let Some(r) = m.registro(a) {
-                            println!("    {} {:?} {:?}", acao.entrada.caminho, r.origem, r.motivo);
+                            println!("    {} {:?} {:?}", action.entrada.caminho, r.origem, r.motivo);
                         }
                     }
                 }
                 print!("{}", r.texto());
             }
-            std::fs::write(&arq, &original).unwrap();
-            for p in sessao.mudancas() {
-                sessao.arquivo_mudou(&p);
+            std::fs::write(&file, &original).unwrap();
+            for p in session.mudancas() {
+                session.arquivo_mudou(&p);
             }
-            sessao.arquivo_mudou(&arq);
-            let r = sessao.compilar().expect("reversão");
-            linha(&format!("  revertida #{i}"), &r);
+            session.arquivo_mudou(&file);
+            let r = session.compilar().expect("revert");
+            row(&format!("  reverted #{i}"), &r);
         }
     }
     let _ = Path::new("");

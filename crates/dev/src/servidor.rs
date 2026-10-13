@@ -1,62 +1,65 @@
-//! Servidor de desenvolvimento: serve a saída, recarrega o navegador.
+//! Development server: serves the output, reloads the browser.
 //!
-//! É o que o `webdev` faz, sem o `build_runner` e sem o `build_web_compilers`
-//! (a compilação é nossa). Escrito sobre `std::net`, sem dependência nova:
-//! HTTP/1.1 com uma thread por conexão e a recarga por **WebSocket**, como o
-//! auto-refresh do `webdev` (o `dwds` é agnóstico de transporte e aceita
-//! WebSocket ou SSE — `dwds/lib/src/handlers/socket_connections.dart`); o
-//! protocolo está em [`crate::ws`].
+//! It is what `webdev` does, without `build_runner` and without
+//! `build_web_compilers` (the compilation is ours). Written on top of
+//! `std::net`, with no new dependency: HTTP/1.1 with one thread per
+//! connection and the reload over **WebSocket**, like `webdev`'s auto-refresh
+//! (`dwds` is transport-agnostic and accepts WebSocket or SSE —
+//! `dwds/lib/src/handlers/socket_connections.dart`); the protocol is in
+//! [`crate::ws`].
 //!
-//! As regras de serviço são as que o `scripts/fluxo.mjs` já validou contra a
-//! aplicação real: recuo para `index.html` **só em navegação** (o navegador
-//! manda `Accept: text/html`), para que `fetch` de API continue recebendo 404,
-//! que é o que a aplicação veria em produção.
+//! The serving rules are those that `scripts/fluxo.mjs` already validated
+//! against the real application: fallback to `index.html` **only on
+//! navigation** (the browser sends `Accept: text/html`), so that an API
+//! `fetch` keeps receiving 404, which is what the application would see in
+//! production.
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::Path;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
-/// Versão do protocolo de desenvolvimento; o cliente confere ao conectar.
-pub const PROTOCOLO: u32 = 1;
+/// Version of the development protocol; the client checks it on connect.
+pub const PROTOCOL_VERSION: u32 = 1;
 
-/// Mensagem do servidor para o navegador.
+/// A message from the server to the browser.
 ///
-/// O protocolo é **separado do transporte**: hoje as mensagens saem em
-/// quadros de texto de WebSocket, e trocar por SSE (ou acrescentar) não
-/// mexeria nem no compilador nem na sessão. O `hot-update` e o `debugger`
-/// entram aqui quando existirem — por isso o canal é bidirecional desde já,
-/// como no `webdev`/`dwds`, no Vite e no webpack-dev-server.
+/// The protocol is **separate from the transport**: today the messages go
+/// out as WebSocket text frames, and switching to SSE (or adding it) would
+/// touch neither the compiler nor the session. `hot-update` and `debugger`
+/// come in here when they exist — that is why the channel is bidirectional
+/// from the start, as in `webdev`/`dwds`, Vite and webpack-dev-server.
 #[derive(Debug, Clone)]
-pub enum Mensagem {
-    /// Aperto de mão: versão e geração atual da saída.
-    Ola { geracao: u64 },
-    /// A compilação terminou e mudou módulos: recarregue.
-    Recarregar { geracao: u64 },
-    /// A compilação falhou; a mensagem vai para o console do navegador.
-    ErroDeCompilacao { mensagem: String },
+pub enum Message {
+    /// Handshake: version and current generation of the output.
+    Hello { generation: u64 },
+    /// The compilation finished and changed modules: reload.
+    Reload { generation: u64 },
+    /// The compilation failed; the message goes to the browser console.
+    CompileError { message: String },
 }
 
-impl Mensagem {
-    /// Serializa em JSON à mão (o crate não tem `serde`, e o protocolo tem
-    /// três mensagens).
+impl Message {
+    /// Serializes to JSON by hand (the crate has no `serde`, and the
+    /// protocol has three messages). The keys and values are the protocol's
+    /// and are read by the client script.
     pub fn json(&self) -> String {
         match self {
-            Mensagem::Ola { geracao } => {
-                format!("{{\"tipo\":\"ola\",\"protocolo\":{PROTOCOLO},\"geracao\":{geracao}}}")
+            Message::Hello { generation } => {
+                format!("{{\"tipo\":\"ola\",\"protocolo\":{PROTOCOL_VERSION},\"geracao\":{generation}}}")
             }
-            Mensagem::Recarregar { geracao } => {
-                format!("{{\"tipo\":\"recarregar\",\"geracao\":{geracao}}}")
+            Message::Reload { generation } => {
+                format!("{{\"tipo\":\"recarregar\",\"geracao\":{generation}}}")
             }
-            Mensagem::ErroDeCompilacao { mensagem } => {
-                format!("{{\"tipo\":\"erro\",\"mensagem\":{}}}", texto_json(mensagem))
+            Message::CompileError { message } => {
+                format!("{{\"tipo\":\"erro\",\"mensagem\":{}}}", json_string(message))
             }
         }
     }
 }
 
-/// Escapa um texto como literal JSON.
-fn texto_json(s: &str) -> String {
+/// Escapes a string as a JSON literal.
+fn json_string(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push('"');
     for c in s.chars() {
@@ -74,220 +77,233 @@ fn texto_json(s: &str) -> String {
     out
 }
 
-/// Navegadores abertos: cada aba tem um canal, como no modelo do Vite.
+/// Open browsers: each tab has a channel, as in Vite's model.
 #[derive(Default)]
 pub struct Recarga {
-    inscritos: Mutex<Vec<Sender<Mensagem>>>,
-    geracao: Mutex<u64>,
+    subscribers: Mutex<Vec<Sender<Message>>>,
+    generation: Mutex<u64>,
 }
 
 impl Recarga {
-    /// Avisa todas as abas; as que fecharam saem da lista.
-    pub fn enviar(&self, m: Mensagem) {
-        let mut v = self.inscritos.lock().unwrap_or_else(|e| e.into_inner());
+    /// Notifies every tab; the ones that closed leave the list.
+    pub fn send(&self, m: Message) {
+        let mut v = self.subscribers.lock().unwrap_or_else(|e| e.into_inner());
         v.retain(|s| s.send(m.clone()).is_ok());
     }
-    /// Uma compilação mudou módulos: nova geração e recarga.
+    /// A compilation changed modules: new generation and reload.
     pub fn disparar(&self) {
         let g = {
-            let mut g = self.geracao.lock().unwrap_or_else(|e| e.into_inner());
+            let mut g = self.generation.lock().unwrap_or_else(|e| e.into_inner());
             *g += 1;
             *g
         };
-        self.enviar(Mensagem::Recarregar { geracao: g });
+        self.send(Message::Reload { generation: g });
     }
-    /// A compilação falhou: o navegador mostra no console e continua ligado.
-    pub fn erro(&self, mensagem: &str) {
-        self.enviar(Mensagem::ErroDeCompilacao { mensagem: mensagem.to_string() });
+    /// The compilation failed: the browser shows it in the console and stays
+    /// connected.
+    pub fn erro(&self, message: &str) {
+        self.send(Message::CompileError { message: message.to_string() });
     }
-    fn geracao_atual(&self) -> u64 {
-        *self.geracao.lock().unwrap_or_else(|e| e.into_inner())
+    fn current_generation(&self) -> u64 {
+        *self.generation.lock().unwrap_or_else(|e| e.into_inner())
     }
-    fn inscrever(&self) -> Receiver<Mensagem> {
+    fn subscribe(&self) -> Receiver<Message> {
         let (tx, rx) = channel();
-        self.inscritos.lock().unwrap_or_else(|e| e.into_inner()).push(tx);
+        self.subscribers.lock().unwrap_or_else(|e| e.into_inner()).push(tx);
         rx
     }
-    /// Abas abertas no momento.
-    pub fn abertos(&self) -> usize {
-        self.inscritos.lock().unwrap_or_else(|e| e.into_inner()).len()
+    /// Tabs open at the moment.
+    pub fn open_tabs(&self) -> usize {
+        self.subscribers.lock().unwrap_or_else(|e| e.into_inner()).len()
     }
 }
 
-/// Sobe o servidor numa thread e devolve a porta efetiva.
+/// Starts the server on a thread and returns the actual port.
 ///
-/// `saida` é o diretório dos módulos emitidos; `web` é o diretório do projeto
-/// com `index.html` e `assets/` (opcional). `porta` 0 escolhe uma livre.
-pub fn servir(
-    saida: &Path,
+/// `output` is the directory of the emitted modules; `web` is the project
+/// directory with `index.html` and `assets/` (optional). `port` 0 picks a
+/// free one.
+///
+/// # Errors
+///
+/// When the port cannot be bound or the thread cannot be spawned.
+pub fn serve(
+    output: &Path,
     web: Option<&Path>,
-    porta: u16,
-    recarga: Arc<Recarga>,
+    port: u16,
+    reload: Arc<Recarga>,
 ) -> Result<u16, String> {
-    servir_com_gerados(saida, web, porta, recarga, None)
+    servir_com_gerados(output, web, port, reload, None)
 }
 
-/// Como [`servir`], procurando antes nas saídas do motor de build: um `.css`
-/// de `web/` pedido pelo navegador sai da geração corrente (e é a demanda que
-/// materializa a ação do `sass_builder`).
+/// Like [`serve`], looking first at the build engine's outputs: a `.css`
+/// from `web/` requested by the browser comes from the current generation
+/// (and is the demand that materializes the `sass_builder` action).
+///
+/// # Errors
+///
+/// When the port cannot be bound or the thread cannot be spawned.
 pub fn servir_com_gerados(
-    saida: &Path,
+    output: &Path,
     web: Option<&Path>,
-    porta: u16,
-    recarga: Arc<Recarga>,
-    gerados: Option<crate::geracao::Provedor>,
+    port: u16,
+    reload: Arc<Recarga>,
+    generated: Option<crate::generation::Provider>,
 ) -> Result<u16, String> {
-    let ouvinte = TcpListener::bind(("127.0.0.1", porta)).map_err(|e| format!("porta {porta}: {e}"))?;
-    let porta = ouvinte.local_addr().map_err(|e| e.to_string())?.port();
-    let saida = saida.to_path_buf();
+    let listener = TcpListener::bind(("127.0.0.1", port)).map_err(|e| format!("port {port}: {e}"))?;
+    let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+    let output = output.to_path_buf();
     let web = web.map(|p| p.to_path_buf());
     std::thread::Builder::new()
         .name("dartforge-serve".into())
         .spawn(move || {
-            for conexao in ouvinte.incoming() {
-                let Ok(fluxo) = conexao else { continue };
-                let (saida, web, recarga, gerados) = (saida.clone(), web.clone(), recarga.clone(), gerados.clone());
-                // Uma thread por conexão: o WebSocket fica aberto enquanto a aba viver.
+            for connection in listener.incoming() {
+                let Ok(stream) = connection else { continue };
+                let (output, web, reload, generated) = (output.clone(), web.clone(), reload.clone(), generated.clone());
+                // One thread per connection: the WebSocket stays open while the tab lives.
                 let _ = std::thread::Builder::new()
                     .stack_size(256 * 1024)
-                    .spawn(move || atender(fluxo, &saida, web.as_deref(), &recarga, gerados.as_ref()));
+                    .spawn(move || handle(stream, &output, web.as_deref(), &reload, generated.as_ref()));
             }
         })
         .map_err(|e| e.to_string())?;
-    Ok(porta)
+    Ok(port)
 }
 
-fn atender(
-    mut fluxo: TcpStream,
-    saida: &Path,
+fn handle(
+    mut stream: TcpStream,
+    output: &Path,
     web: Option<&Path>,
-    recarga: &Recarga,
-    gerados: Option<&crate::geracao::Provedor>,
+    reload: &Recarga,
+    generated: Option<&crate::generation::Provider>,
 ) {
-    let mut leitor = BufReader::new(match fluxo.try_clone() {
+    let mut reader = BufReader::new(match stream.try_clone() {
         Ok(c) => c,
         Err(_) => return,
     });
-    let mut pedido = String::new();
-    if leitor.read_line(&mut pedido).is_err() {
+    let mut request = String::new();
+    if reader.read_line(&mut request).is_err() {
         return;
     }
-    let mut aceita_html = false;
-    let mut chave_ws: Option<String> = None;
+    let mut accepts_html = false;
+    let mut ws_key: Option<String> = None;
     loop {
-        let mut linha = String::new();
-        match leitor.read_line(&mut linha) {
+        let mut line = String::new();
+        match reader.read_line(&mut line) {
             Ok(0) => break,
             Ok(_) => {
-                if linha.trim().is_empty() {
+                if line.trim().is_empty() {
                     break;
                 }
-                let baixa = linha.to_ascii_lowercase();
-                if let Some(v) = baixa.strip_prefix("accept:") {
-                    aceita_html = v.contains("text/html");
+                let lower = line.to_ascii_lowercase();
+                if let Some(v) = lower.strip_prefix("accept:") {
+                    accepts_html = v.contains("text/html");
                 }
-                if baixa.starts_with("sec-websocket-key:") {
-                    chave_ws = linha.split(':').nth(1).map(|v| v.trim().to_string());
+                if lower.starts_with("sec-websocket-key:") {
+                    ws_key = line.split(':').nth(1).map(|v| v.trim().to_string());
                 }
             }
             Err(_) => return,
         }
     }
-    let mut partes = pedido.split_whitespace();
-    let metodo = partes.next().unwrap_or("");
-    let alvo = partes.next().unwrap_or("/");
-    if metodo != "GET" && metodo != "HEAD" {
-        let _ = responder(&mut fluxo, 405, "text/plain; charset=utf-8", b"metodo nao suportado");
+    let mut parts = request.split_whitespace();
+    let method = parts.next().unwrap_or("");
+    let target = parts.next().unwrap_or("/");
+    if method != "GET" && method != "HEAD" {
+        let _ = respond(&mut stream, 405, "text/plain; charset=utf-8", b"method not supported");
         return;
     }
-    let caminho = alvo.split(['?', '#']).next().unwrap_or("/");
+    let path = target.split(['?', '#']).next().unwrap_or("/");
 
-    // Canal de recarga: WebSocket aberto enquanto a aba viver, um quadro de
-    // texto por compilação (o auto-refresh do `webdev` usa o mesmo desenho).
-    if caminho == ROTA_RECARGA {
-        let Some(chave) = chave_ws else {
-            let _ = responder(&mut fluxo, 400, "text/plain; charset=utf-8", b"esperava WebSocket");
+    // Reload channel: a WebSocket open while the tab lives, one text frame
+    // per compilation (`webdev`'s auto-refresh uses the same design).
+    if path == RELOAD_ROUTE {
+        let Some(key) = ws_key else {
+            let _ = respond(&mut stream, 400, "text/plain; charset=utf-8", b"expected a WebSocket");
             return;
         };
-        if crate::ws::apertar_mao(&mut fluxo, &chave).is_err() {
+        if crate::ws::handshake(&mut stream, &key).is_err() {
             return;
         }
-        let rx = recarga.inscrever();
-        let ola = Mensagem::Ola { geracao: recarga.geracao_atual() };
-        if crate::ws::quadro_texto(&mut fluxo, &ola.json()).is_err() {
+        let rx = reload.subscribe();
+        let hello = Message::Hello { generation: reload.current_generation() };
+        if crate::ws::text_frame(&mut stream, &hello.json()).is_err() {
             return;
         }
         while let Ok(m) = rx.recv() {
-            if crate::ws::quadro_texto(&mut fluxo, &m.json()).is_err() {
+            if crate::ws::text_frame(&mut stream, &m.json()).is_err() {
                 return;
             }
         }
         return;
     }
 
-    let rel = caminho.trim_start_matches('/');
+    let rel = path.trim_start_matches('/');
     let rel = if rel.is_empty() { "index.html" } else { rel };
-    // `..` no caminho não sai do diretório servido.
+    // `..` in the path does not leave the served directory.
     if rel.split('/').any(|p| p == "..") {
-        let _ = responder(&mut fluxo, 400, "text/plain; charset=utf-8", b"caminho invalido");
+        let _ = respond(&mut stream, 400, "text/plain; charset=utf-8", b"invalid path");
         return;
     }
 
     if rel == "index.html" {
-        match index_html(saida, web) {
+        match index_html(output, web) {
             Some(html) => {
-                let _ = responder(&mut fluxo, 200, "text/html; charset=utf-8", html.as_bytes());
+                let _ = respond(&mut stream, 200, "text/html; charset=utf-8", html.as_bytes());
             }
             None => {
-                let _ = responder(&mut fluxo, 404, "text/plain; charset=utf-8", b"sem index.html");
+                let _ = respond(&mut stream, 404, "text/plain; charset=utf-8", b"no index.html");
             }
         }
         return;
     }
 
-    // Saída gerada pelo motor de build (caminho natural sob `web/`).
-    if let (Some(pv), Some(w)) = (gerados, web) {
+    // Output generated by the build engine (natural path under `web/`).
+    if let (Some(pv), Some(w)) = (generated, web) {
         let natural = w.join(rel);
-        if let Some(dados) = pv(&natural) {
-            let _ = responder(&mut fluxo, 200, tipo_mime(&natural), &dados);
+        if let Some(data) = pv(&natural) {
+            let _ = respond(&mut stream, 200, mime_type(&natural), &data);
             return;
         }
     }
-    // O arquivo vem da saída; se não estiver lá, do diretório `web` do projeto.
-    let mut arquivo = saida.join(rel);
-    if !arquivo.is_file() {
+    // The file comes from the output; if it is not there, from the project's
+    // `web` directory.
+    let mut file = output.join(rel);
+    if !file.is_file() {
         if let Some(w) = web {
-            let alternativo = w.join(rel);
-            if alternativo.is_file() {
-                arquivo = alternativo;
+            let alternative = w.join(rel);
+            if alternative.is_file() {
+                file = alternative;
             }
         }
     }
-    if !arquivo.is_file() {
-        // Recuo de SPA só para navegação: `fetch` de API continua com 404.
-        let sem_extensao = !rel.rsplit('/').next().unwrap_or("").contains('.');
-        if aceita_html && sem_extensao {
-            if let Some(html) = index_html(saida, web) {
-                let _ = responder(&mut fluxo, 200, "text/html; charset=utf-8", html.as_bytes());
+    if !file.is_file() {
+        // SPA fallback only for navigation: an API `fetch` keeps getting 404.
+        let no_extension = !rel.rsplit('/').next().unwrap_or("").contains('.');
+        if accepts_html && no_extension {
+            if let Some(html) = index_html(output, web) {
+                let _ = respond(&mut stream, 200, "text/html; charset=utf-8", html.as_bytes());
                 return;
             }
         }
-        let _ = responder(&mut fluxo, 404, "text/plain; charset=utf-8", b"nao encontrado");
+        let _ = respond(&mut stream, 404, "text/plain; charset=utf-8", b"not found");
         return;
     }
-    let mut dados = Vec::new();
-    if std::fs::File::open(&arquivo).and_then(|mut f| f.read_to_end(&mut dados)).is_err() {
-        let _ = responder(&mut fluxo, 500, "text/plain; charset=utf-8", b"erro de leitura");
+    let mut data = Vec::new();
+    if std::fs::File::open(&file).and_then(|mut f| f.read_to_end(&mut data)).is_err() {
+        let _ = respond(&mut stream, 500, "text/plain; charset=utf-8", b"read error");
         return;
     }
-    let _ = responder(&mut fluxo, 200, tipo_mime(&arquivo), &dados);
+    let _ = respond(&mut stream, 200, mime_type(&file), &data);
 }
 
-/// Rota do canal de recarga (fora do espaço de nomes da aplicação).
-const ROTA_RECARGA: &str = "/__dartforge_recarga";
+/// Route of the reload channel (outside the application's namespace). The
+/// value is part of the protocol with the client script.
+const RELOAD_ROUTE: &str = "/__dartforge_recarga";
 
-/// Script injetado no `index.html`: recarrega a página a cada compilação.
-const SCRIPT_RECARGA: &str = "<script>
+/// Script injected into `index.html`: reloads the page on every
+/// compilation. Its text is served as is to the browser.
+const RELOAD_SCRIPT: &str = "<script>
 (function () {
   var geracao = null;
   function conectar() {
@@ -306,67 +322,68 @@ const SCRIPT_RECARGA: &str = "<script>
 </script>
 ";
 
-/// `index.html` servido: o do projeto com o `main.dart.js` trocado pelo nosso
-/// módulo e o script de recarga; ou, se o projeto não tiver um, um mínimo.
-fn index_html(saida: &Path, web: Option<&Path>) -> Option<String> {
-    let proprio = saida.join("index.html");
-    let fonte = web
+/// The served `index.html`: the project's, with `main.dart.js` replaced by
+/// our module and the reload script; or, if the project has none, a minimal
+/// one.
+fn index_html(output: &Path, web: Option<&Path>) -> Option<String> {
+    let own = output.join("index.html");
+    let source = web
         .map(|w| w.join("index.html"))
         .filter(|p| p.is_file())
-        .or(Some(proprio).filter(|p| p.is_file()))
+        .or(Some(own).filter(|p| p.is_file()))
         .and_then(|p| std::fs::read_to_string(p).ok());
-    let Some(fonte) = fonte else {
-        if !saida.join("main.mjs").is_file() {
+    let Some(source) = source else {
+        if !output.join("main.mjs").is_file() {
             return None;
         }
         return Some(format!(
-            "<!DOCTYPE html>\n<html lang=\"pt-br\">\n<head>\n<meta charset=\"utf-8\">\n<title>DartForge</title>\n{SCRIPT_RECARGA}<script type=\"module\" src=\"main.mjs\"></script>\n</head>\n<body></body>\n</html>\n"
+            "<!DOCTYPE html>\n<html lang=\"pt-br\">\n<head>\n<meta charset=\"utf-8\">\n<title>DartForge</title>\n{RELOAD_SCRIPT}<script type=\"module\" src=\"main.mjs\"></script>\n</head>\n<body></body>\n</html>\n"
         ));
     };
-    // O bootstrap oficial sai; entra o nosso módulo.
-    let mut html = String::with_capacity(fonte.len() + 256);
-    let mut resto = fonte.as_str();
-    while let Some(i) = resto.find("<script") {
-        let fim = match resto[i..].find("</script>") {
+    // The official bootstrap goes out; our module comes in.
+    let mut html = String::with_capacity(source.len() + 256);
+    let mut rest = source.as_str();
+    while let Some(i) = rest.find("<script") {
+        let end = match rest[i..].find("</script>") {
             Some(f) => i + f + "</script>".len(),
             None => break,
         };
-        let tag = &resto[i..fim];
+        let tag = &rest[i..end];
         if tag.contains("main.dart.js") {
-            html.push_str(&resto[..i]);
-            resto = &resto[fim..];
+            html.push_str(&rest[..i]);
+            rest = &rest[end..];
         } else {
-            html.push_str(&resto[..fim]);
-            resto = &resto[fim..];
+            html.push_str(&rest[..end]);
+            rest = &rest[end..];
         }
     }
-    html.push_str(resto);
-    let entrada = format!("{SCRIPT_RECARGA}<script type=\"module\" src=\"main.mjs\"></script>\n");
+    html.push_str(rest);
+    let entry = format!("{RELOAD_SCRIPT}<script type=\"module\" src=\"main.mjs\"></script>\n");
     match html.find("</head>") {
-        Some(i) => html.insert_str(i, &entrada),
-        None => html.push_str(&entrada),
+        Some(i) => html.insert_str(i, &entry),
+        None => html.push_str(&entry),
     }
     Some(html)
 }
 
-fn responder(fluxo: &mut TcpStream, codigo: u16, tipo: &str, corpo: &[u8]) -> std::io::Result<()> {
-    let razao = match codigo {
+fn respond(stream: &mut TcpStream, code: u16, content_type: &str, body: &[u8]) -> std::io::Result<()> {
+    let reason = match code {
         200 => "OK",
         400 => "Bad Request",
         404 => "Not Found",
         405 => "Method Not Allowed",
         _ => "Internal Server Error",
     };
-    let cabecalho = format!(
-        "HTTP/1.1 {codigo} {razao}\r\nContent-Type: {tipo}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
-        corpo.len()
+    let header = format!(
+        "HTTP/1.1 {code} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
+        body.len()
     );
-    fluxo.write_all(cabecalho.as_bytes())?;
-    fluxo.write_all(corpo)?;
-    fluxo.flush()
+    stream.write_all(header.as_bytes())?;
+    stream.write_all(body)?;
+    stream.flush()
 }
 
-fn tipo_mime(p: &Path) -> &'static str {
+fn mime_type(p: &Path) -> &'static str {
     match p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase().as_str() {
         "html" => "text/html; charset=utf-8",
         "js" | "mjs" => "text/javascript; charset=utf-8",
@@ -391,14 +408,14 @@ fn tipo_mime(p: &Path) -> &'static str {
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
-    /// O `index.html` do projeto perde o bootstrap oficial e ganha o nosso
-    /// módulo mais o script de recarga.
+    /// The project's `index.html` loses the official bootstrap and gains our
+    /// module plus the reload script.
     #[test]
-    fn index_troca_bootstrap_e_injeta_recarga() {
-        // `tempfile` apaga o diretório no `Drop`, inclusive quando uma asserção falha.
+    fn index_replaces_bootstrap_and_injects_reload() {
+        // `tempfile` deletes the directory on `Drop`, even when an assertion fails.
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path();
         std::fs::write(
@@ -409,13 +426,13 @@ mod testes {
         let html = index_html(dir, Some(dir)).expect("index");
         assert!(!html.contains("main.dart.js"), "{html}");
         assert!(html.contains("src=\"main.mjs\""), "{html}");
-        assert!(html.contains(ROTA_RECARGA), "{html}");
+        assert!(html.contains(RELOAD_ROUTE), "{html}");
         assert!(html.contains("<title>x</title>"));
     }
 
-    /// Sem `index.html` e sem `main.mjs` não há o que servir.
+    /// Without `index.html` and without `main.mjs` there is nothing to serve.
     #[test]
-    fn sem_saida_nao_ha_index() {
+    fn no_output_no_index() {
         let tmp = tempfile::tempdir().unwrap();
         assert!(index_html(tmp.path(), None).is_none());
     }

@@ -1,17 +1,17 @@
-//! Portão estrutural da regra de custo zero (PLANO.md, "geração de código e
-//! macros: rápidas, e custo zero para quem não usa"): num projeto sem
-//! builders, a sessão não constrói motor, o relatório não tem motor, e uma
-//! edição aloca **exatamente** o mesmo que numa sessão construída sem etapas
-//! (o motor desativado por construção).
+//! Structural gate of the zero-cost rule (PLANO.md, "geração de código e
+//! macros: rápidas, e custo zero para quem não usa"): in a project without
+//! builders, the session builds no engine, the report has no engine, and an
+//! edit allocates **exactly** the same as in a session built without stages
+//! (the engine disabled by construction).
 //!
-//! **Um único `#[test]` neste binário**: o alocador contador é global.
+//! **A single `#[test]` in this binary**: the counting allocator is global.
 #[global_allocator]
-static ALOCADOR: dartforge_instrument::CountingAllocator = dartforge_instrument::CountingAllocator;
+static ALLOCATOR: dartforge_instrument::CountingAllocator = dartforge_instrument::CountingAllocator;
 
 use dartforge_dev::Sessao;
 use std::path::{Path, PathBuf};
 
-fn sdk_simulado(dir: &Path) -> PathBuf {
+fn simulated_sdk(dir: &Path) -> PathBuf {
     let lib = dir.join("sdk/lib");
     std::fs::create_dir_all(lib.join("core")).unwrap();
     std::fs::write(
@@ -49,9 +49,9 @@ fn sdk_simulado(dir: &Path) -> PathBuf {
     lib
 }
 
-/// Um pacote sem `build_runner`: `pubspec.yaml`, `package_config.json` com
-/// só a raiz, e a entrada importando uma biblioteca de apoio.
-fn projeto(dir: &Path) -> (PathBuf, PathBuf, PathBuf) {
+/// A package without `build_runner`: `pubspec.yaml`, a `package_config.json`
+/// with only the root, and the input importing a support library.
+fn project(dir: &Path) -> (PathBuf, PathBuf, PathBuf) {
     let proj = dir.join("proj");
     std::fs::create_dir_all(proj.join("lib")).unwrap();
     std::fs::create_dir_all(proj.join(".dart_tool")).unwrap();
@@ -62,46 +62,47 @@ fn projeto(dir: &Path) -> (PathBuf, PathBuf, PathBuf) {
         r#"{"configVersion":2,"packages":[{"name":"proj","rootUri":"../","packageUri":"lib/","languageVersion":"3.6"}]}"#,
     )
     .unwrap();
-    let apoio = proj.join("lib/apoio.dart");
-    std::fs::write(&apoio, "int dobro(int x) => x + x;\n").unwrap();
+    let support = proj.join("lib/support.dart");
+    std::fs::write(&support, "int twice(int x) => x + x;\n").unwrap();
     let main = proj.join("main.dart");
-    std::fs::write(&main, "import 'package:proj/apoio.dart';\nvoid main() { print(dobro(2)); }\n").unwrap();
-    (main, apoio, cfg)
+    std::fs::write(&main, "import 'package:proj/support.dart';\nvoid main() { print(twice(2)); }\n").unwrap();
+    (main, support, cfg)
 }
 
 #[test]
-fn projeto_sem_builders_custa_zero() {
+fn project_without_builders_costs_zero() {
     let tmp = tempfile::tempdir().unwrap();
-    let sdk = sdk_simulado(tmp.path());
-    let (main, apoio, cfg) = projeto(tmp.path());
-    // Mesmo comprimento de caminho de saída nas duas sessões.
-    let (s1, s2) = (tmp.path().join("saida1"), tmp.path().join("saida2"));
-    let mut com_deteccao = Sessao::nova(&main, Some(&sdk), Some(&cfg), &s1).expect("sessão com detecção");
-    let mut sem_etapas = Sessao::com_etapas(&main, Some(&sdk), Some(&cfg), &s2, Vec::new()).expect("sessão sem etapas");
-    assert!(!com_deteccao.tem_etapas(), "projeto sem build_runner ganhou etapa de geração");
-    let r1 = com_deteccao.compilar().expect("primeira compilação");
-    let r2 = sem_etapas.compilar().expect("primeira compilação");
-    assert!(r1.motor.is_none() && r2.motor.is_none(), "relatório com motor num projeto sem builders");
+    let sdk = simulated_sdk(tmp.path());
+    let (main, support, cfg) = project(tmp.path());
+    // Same output path length in both sessions.
+    let (s1, s2) = (tmp.path().join("output1"), tmp.path().join("output2"));
+    let mut with_detection = Sessao::nova(&main, Some(&sdk), Some(&cfg), &s1).expect("session with detection");
+    let mut without_stages =
+        Sessao::with_stages(&main, Some(&sdk), Some(&cfg), &s2, Vec::new()).expect("session without stages");
+    assert!(!with_detection.has_stages(), "a project without build_runner got a generation stage");
+    let r1 = with_detection.compilar().expect("first compilation");
+    let r2 = without_stages.compilar().expect("first compilation");
+    assert!(r1.motor.is_none() && r2.motor.is_none(), "report with an engine in a project without builders");
     assert_eq!(r1.modulos, r2.modulos);
     for i in 0..4 {
-        std::fs::write(&apoio, format!("int dobro(int x) {{ var y = {i:03}; return x + x; }}\n")).unwrap();
-        let mut contagens = Vec::new();
-        for s in [&mut com_deteccao, &mut sem_etapas] {
-            let antes = dartforge_instrument::allocation_count();
+        std::fs::write(&support, format!("int twice(int x) {{ var y = {i:03}; return x + x; }}\n")).unwrap();
+        let mut counts = Vec::new();
+        for s in [&mut with_detection, &mut without_stages] {
+            let before = dartforge_instrument::allocation_count();
             for p in s.mudancas() {
                 s.arquivo_mudou(&p);
             }
-            s.arquivo_mudou(&apoio);
-            let r = s.compilar().expect("edição");
-            contagens.push(dartforge_instrument::allocation_count() - antes);
+            s.arquivo_mudou(&support);
+            let r = s.compilar().expect("edit");
+            counts.push(dartforge_instrument::allocation_count() - before);
             assert!(r.motor.is_none());
-            assert_eq!(r.unidades_reanalisadas, 1, "edição de corpo reanalisa só a unidade editada");
+            assert_eq!(r.reanalyzed_units, 1, "a body edit reanalyzes only the edited unit");
         }
         assert_eq!(
-            contagens[0], contagens[1],
-            "a edição alocou diferente com a detecção do motor ({}) e sem etapas ({})",
-            contagens[0], contagens[1]
+            counts[0], counts[1],
+            "the edit allocated differently with engine detection ({}) and without stages ({})",
+            counts[0], counts[1]
         );
     }
-    assert_eq!(dartforge_build::instancias(), 0, "um motor de build foi construído");
+    assert_eq!(dartforge_build::instancias(), 0, "a build engine was built");
 }

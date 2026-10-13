@@ -1,14 +1,15 @@
-//! Sessão residente do `dartforge dev` (PLANO.md, "o compilador residente").
+//! Resident session of `dartforge dev` (PLANO.md, "o compilador residente").
 //!
-//! O processo não termina a cada edição: `Interner`, unidades já analisadas e
-//! os hashes por biblioteca ficam vivos entre compilações. Uma edição relê os
-//! metadados dos arquivos (mtime e tamanho), reanalisa **só** o que mudou e
-//! grava só os módulos cujo texto mudou.
+//! The process does not exit on every edit: the `Interner`, the units already
+//! analyzed and the per-library hashes stay alive across compilations. An
+//! edit rereads the files' metadata (mtime and size), reanalyzes **only**
+//! what changed and writes only the modules whose text changed.
 //!
-//! Disciplina de memória: o que a sessão retém cresce com o **projeto**, não
-//! com o número de edições — a unidade nova substitui a velha no mesmo lugar
-//! do cache (`crates/dev/tests/plato.rs` vigia com `live_bytes`).
-pub mod geracao;
+//! Memory discipline: what the session retains grows with the **project**,
+//! not with the number of edits — the new unit replaces the old one in the
+//! same cache slot (`crates/dev/tests/plato.rs` watches it with
+//! `live_bytes`).
+pub mod generation;
 pub mod hashes;
 
 pub mod servidor;
@@ -20,171 +21,182 @@ use dartforge_elements::sdk::SdkLayout;
 use dartforge_elements::{CacheUnidades, SdkCache};
 use dartforge_intern::Interner;
 use dartforge_types::table::{CoreTypes, TypeTable};
-use hashes::{hashes_da_biblioteca, HashesBiblioteca};
+use hashes::{library_hashes, LibraryHashes};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-/// O que uma compilação fez, em tempo e em trabalho.
+/// What a compilation did, in time and in work.
 #[derive(Debug, Default, Clone)]
-pub struct Relatorio {
-    pub carregar: Duration,
+pub struct Report {
+    pub load: Duration,
     pub outline: Duration,
-    pub corpos: Duration,
-    pub emissao: Duration,
+    pub bodies: Duration,
+    pub emit: Duration,
     pub hashes: Duration,
-    pub escrita: Duration,
-    /// Unidades que vieram prontas do cache da sessão.
-    pub unidades_reaproveitadas: usize,
-    pub unidades_reanalisadas: usize,
-    pub bibliotecas: usize,
-    /// Bibliotecas cujo conteúdo mudou desde a compilação anterior.
-    pub corpo_alterado: Vec<String>,
-    /// Bibliotecas cuja API pública mudou (as dependentes também recompilam).
-    pub api_alterada: Vec<String>,
-    /// Dependentes invalidados por mudança de API.
-    pub dependentes_invalidados: usize,
+    pub write: Duration,
+    /// Units that came ready from the session cache.
+    pub reused_units: usize,
+    pub reanalyzed_units: usize,
+    pub libraries: usize,
+    /// Libraries whose content changed since the previous compilation.
+    pub body_changed: Vec<String>,
+    /// Libraries whose public API changed (their dependents recompile too).
+    pub api_changed: Vec<String>,
+    /// Dependents invalidated by an API change.
+    pub invalidated_dependents: usize,
+    /// Number of modules (the name is read by `crates/cli`).
     pub modulos: usize,
-    /// Módulos cujo texto foi realmente gerado nesta compilação.
-    pub modulos_reemitidos: usize,
-    /// Bibliotecas reemitidas (`usize::MAX` = programa inteiro).
-    pub bibliotecas_reemitidas: usize,
-    /// Custo de montar o contexto de emissão (hierarquia, grupos, interop).
-    pub emissao_contexto: Duration,
+    /// Modules whose text was actually generated in this compilation.
+    pub reemitted_modules: usize,
+    /// Reemitted libraries (`usize::MAX` = the whole program).
+    pub reemitted_libraries: usize,
+    /// Cost of building the emission context (hierarchy, groups, interop).
+    pub emit_context: Duration,
+    /// Modules written to disk (the name is read by `crates/cli`).
     pub modulos_escritos: usize,
-    pub avisos_tipos: usize,
-    /// Primeira compilação da sessão (nada reaproveitado).
-    pub primeira: bool,
-    /// Sub-fases da carga (leitura, parse, diretivas, outline).
-    pub carga_detalhe: dartforge_elements::model::TemposCarga,
-    /// Motor de geração de código (`crates/build`): `None` quando o projeto
-    /// não usa builders — é o que o portão de custo zero verifica.
+    pub type_warnings: usize,
+    /// First compilation of the session (nothing reused).
+    pub first: bool,
+    /// Load sub-phases (read, parse, directives, outline).
+    pub load_detail: dartforge_elements::model::TemposCarga,
+    /// Code generation engine (`crates/build`): `None` when the project
+    /// uses no builders — that is what the zero-cost gate checks.
     pub motor: Option<dartforge_build::RelMotor>,
-    /// Avisos do motor (apoio possivelmente desatualizado, D-B5).
-    pub avisos_motor: Vec<String>,
-    /// Etapas de geração inteiras (motor + recarga das unidades geradas que
-    /// mudaram); fica dentro de `carregar`.
-    pub etapas: Duration,
-    /// A recarga causada por uma geração nova.
-    pub recarga_geracao: Duration,
+    /// Warnings from the engine (possibly stale support, D-B5).
+    pub engine_warnings: Vec<String>,
+    /// Whole generation stages (engine + reload of the generated units that
+    /// changed); it is included in `load`.
+    pub stages: Duration,
+    /// The reload caused by a new generation.
+    pub generation_reload: Duration,
 }
 
-impl Relatorio {
+impl Report {
     pub fn total(&self) -> Duration {
-        self.carregar + self.outline + self.corpos + self.emissao + self.hashes + self.escrita
+        self.load + self.outline + self.bodies + self.emit + self.hashes + self.write
     }
 
-    /// Uma linha por fase, no mesmo formato do `compile-js --timings`.
+    /// One line per phase, in the same format as `compile-js --timings`.
     pub fn texto(&self) -> String {
         let ms = |d: Duration| d.as_secs_f64() * 1000.0;
         let mut s = String::new();
-        let c = &self.carga_detalhe;
+        let c = &self.load_detail;
         for (n, d) in [
-            ("carregar", self.carregar),
-            ("  leitura+lex paralelos", c.leitura_lex_paralelo),
-            ("  leitura+lex em série", c.leitura),
+            ("load", self.load),
+            ("  parallel read+lex", c.leitura_lex_paralelo),
+            ("  serial read+lex", c.leitura),
             ("  parse", c.parse),
-            ("  diretivas/URIs", c.diretivas),
-            ("  outline: declarações", c.outline_declaracoes),
+            ("  directives/URIs", c.diretivas),
+            ("  outline: declarations", c.outline_declaracoes),
             ("  outline: reexports", c.outline_reexports),
-            ("  outline: escopos", c.outline_escopos),
-            ("  outline: supertipos", c.outline_supertipos),
-            ("outline (tipos)", self.outline),
-            ("inferência de corpos", self.corpos),
-            ("  emissão: contexto", self.emissao_contexto),
-            ("emissão", self.emissao),
+            ("  outline: scopes", c.outline_escopos),
+            ("  outline: supertypes", c.outline_supertipos),
+            ("outline (types)", self.outline),
+            ("body inference", self.bodies),
+            ("  emission: context", self.emit_context),
+            ("emission", self.emit),
             ("hashes", self.hashes),
-            ("escrita", self.escrita),
+            ("write", self.write),
         ] {
             s.push_str(&format!("{n:<24}{:>9.1} ms\n", ms(d)));
         }
         s.push_str(&format!("{:<24}{:>9.1} ms\n", "total", ms(self.total())));
         s.push_str(&format!(
-            "unidades: {} reaproveitadas + {} reanalisadas; {} bibliotecas; corpo alterado: {}; API alterada: {} (+{} dependentes); módulos: {} ({} reemitidos, {} escritos); avisos: {}\n",
-            self.unidades_reaproveitadas,
-            self.unidades_reanalisadas,
-            self.bibliotecas,
-            self.corpo_alterado.len(),
-            self.api_alterada.len(),
-            self.dependentes_invalidados,
+            "units: {} reused + {} reanalyzed; {} libraries; body changed: {}; API changed: {} (+{} dependents); modules: {} ({} reemitted, {} written); warnings: {}\n",
+            self.reused_units,
+            self.reanalyzed_units,
+            self.libraries,
+            self.body_changed.len(),
+            self.api_changed.len(),
+            self.invalidated_dependents,
             self.modulos,
-            self.modulos_reemitidos,
+            self.reemitted_modules,
             self.modulos_escritos,
-            self.avisos_tipos
+            self.type_warnings
         ));
         if let Some(m) = &self.motor {
             s.push_str(&m.texto());
             s.push_str(&format!(
-                "\netapas de geração: {:.1} ms (recarga das geradas: {:.1} ms)\n",
-                self.etapas.as_secs_f64() * 1000.0,
-                self.recarga_geracao.as_secs_f64() * 1000.0
+                "\ngeneration stages: {:.1} ms (reload of the generated units: {:.1} ms)\n",
+                self.stages.as_secs_f64() * 1000.0,
+                self.generation_reload.as_secs_f64() * 1000.0
             ));
         }
-        for a in &self.avisos_motor {
-            s.push_str(&format!("aviso: {a}\n"));
+        for a in &self.engine_warnings {
+            s.push_str(&format!("warning: {a}\n"));
         }
         s
     }
 }
 
-/// Sessão residente: mantém vivo entre compilações o que não mudou.
+/// Resident session: keeps alive across compilations what did not change.
 pub struct Sessao {
-    /// Texto já emitido por classe e por biblioteca, reusado entre
-    /// compilações (ver `emitir_modulos_com_cache`).
-    fragmentos: std::cell::RefCell<dartforge_emit_js::module::CacheFragmentos>,
-    entrada: PathBuf,
+    /// Text already emitted per class and per library, reused across
+    /// compilations (see `emitir_modulos_com_cache`).
+    fragments: std::cell::RefCell<dartforge_emit_js::module::CacheFragmentos>,
+    input: PathBuf,
     sdk: SdkLayout,
     packages: Option<PathBuf>,
-    saida: PathBuf,
+    output: PathBuf,
     dart_sdk_js: PathBuf,
-    /// Arena de nomes: os `SymbolId` das árvores guardadas pertencem a ela.
+    /// Name arena: the `SymbolId`s of the stored trees belong to it.
     interner: Interner,
-    unidades: CacheUnidades,
-    /// `uri da biblioteca` → hashes da compilação anterior.
-    hashes: HashMap<String, HashesBiblioteca>,
-    /// JS de cada módulo da última compilação (caminho → texto).
-    modulos: HashMap<String, String>,
-    /// `uri` → uris que ela importa/exporta (para propagar mudança de API).
-    dependentes: HashMap<String, Vec<String>>,
-    /// Arquivos invalidados desde a última compilação: só as bibliotecas que
-    /// os contêm precisam de hash novo.
-    sujos: std::collections::HashSet<PathBuf>,
-    primeira: bool,
-    /// Etapas de geração (motor de build; depois, macros). Vazio quando o
-    /// projeto não usa nenhuma: custo zero por edição.
-    etapas: Vec<Box<dyn geracao::EtapaDeGeracao>>,
-    /// Geração corrente das etapas (fontes em memória).
-    gerados: Option<std::sync::Arc<dartforge_elements::gerado::Geracao>>,
+    units: CacheUnidades,
+    /// `library uri` → hashes of the previous compilation.
+    hashes: HashMap<String, LibraryHashes>,
+    /// JS of each module of the last compilation (path → text).
+    modules: HashMap<String, String>,
+    /// `uri` → uris that it imports/exports (to propagate API changes).
+    dependents: HashMap<String, Vec<String>>,
+    /// Files invalidated since the last compilation: only the libraries that
+    /// contain them need a new hash.
+    dirty: std::collections::HashSet<PathBuf>,
+    first: bool,
+    /// Generation stages (build engine; later, macros). Empty when the
+    /// project uses none: zero cost per edit.
+    stages: Vec<Box<dyn generation::GenerationStage>>,
+    /// Current generation of the stages (in-memory sources).
+    generated: Option<std::sync::Arc<dartforge_elements::gerado::Geracao>>,
 }
 
 impl Sessao {
-    /// Abre uma sessão para uma entrada; não compila ainda.
+    /// Opens a session for an input; does not compile yet.
     ///
-    /// `sdk_lib` é o `lib/` do SDK (descoberto pelo ambiente quando `None`).
-    /// Se o projeto usa builders (`build_runner` no `package_config.json`),
-    /// liga o motor de geração; senão, nada dele é construído.
+    /// `sdk_lib` is the SDK's `lib/` (discovered from the environment when
+    /// `None`). If the project uses builders (`build_runner` in
+    /// `package_config.json`), it turns on the generation engine; otherwise,
+    /// nothing of it is built.
+    ///
+    /// # Errors
+    ///
+    /// When the SDK cannot be loaded.
     pub fn nova(
-        entrada: &Path,
+        input: &Path,
         sdk_lib: Option<&Path>,
         packages: Option<&Path>,
-        saida: &Path,
+        output: &Path,
     ) -> Result<Sessao, String> {
-        let mut etapas: Vec<Box<dyn geracao::EtapaDeGeracao>> = Vec::new();
-        match geracao::etapa_de_build(entrada, packages) {
+        let mut stages: Vec<Box<dyn generation::GenerationStage>> = Vec::new();
+        match generation::build_stage(input, packages) {
             None => {}
-            Some(Ok(e)) => etapas.push(Box::new(e)),
-            Some(Err(e)) => eprintln!("aviso: motor de build desligado: {e}"),
+            Some(Ok(e)) => stages.push(Box::new(e)),
+            Some(Err(e)) => eprintln!("warning: build engine disabled: {e}"),
         }
-        Self::com_etapas(entrada, sdk_lib, packages, saida, etapas)
+        Self::with_stages(input, sdk_lib, packages, output, stages)
     }
 
-    /// Como [`Sessao::nova`], com as etapas dadas (sem detecção).
-    pub fn com_etapas(
-        entrada: &Path,
+    /// Like [`Sessao::nova`], with the given stages (no detection).
+    ///
+    /// # Errors
+    ///
+    /// When the SDK cannot be loaded.
+    pub fn with_stages(
+        input: &Path,
         sdk_lib: Option<&Path>,
         packages: Option<&Path>,
-        saida: &Path,
-        etapas: Vec<Box<dyn geracao::EtapaDeGeracao>>,
+        output: &Path,
+        stages: Vec<Box<dyn generation::GenerationStage>>,
     ) -> Result<Sessao, String> {
         let dir = match sdk_lib {
             Some(p) => p.to_path_buf(),
@@ -192,367 +204,377 @@ impl Sessao {
         };
         let sdk = SdkLayout::load(&dir, "dartdevc")?;
         Ok(Sessao {
-            fragmentos: Default::default(),
-            entrada: entrada.to_path_buf(),
+            fragments: Default::default(),
+            input: input.to_path_buf(),
             sdk,
             packages: packages.map(|p| p.to_path_buf()),
-            saida: saida.to_path_buf(),
+            output: output.to_path_buf(),
             dart_sdk_js: dartforge_emit_js::dart_sdk_js_padrao(),
             interner: Interner::new(),
-            unidades: CacheUnidades::nova(),
+            units: CacheUnidades::nova(),
             hashes: HashMap::new(),
-            modulos: HashMap::new(),
-            dependentes: HashMap::new(),
-            sujos: std::collections::HashSet::new(),
-            primeira: true,
-            etapas,
-            gerados: None,
+            modules: HashMap::new(),
+            dependents: HashMap::new(),
+            dirty: std::collections::HashSet::new(),
+            first: true,
+            stages,
+            generated: None,
         })
     }
 
-    /// Há etapa de geração ligada (motor de build)?
-    pub fn tem_etapas(&self) -> bool {
-        !self.etapas.is_empty()
+    /// Is a generation stage (build engine) turned on?
+    pub fn has_stages(&self) -> bool {
+        !self.stages.is_empty()
     }
 
-    /// Leitor das saídas geradas para o `serve`.
-    pub fn provedor_de_gerados(&self) -> Option<geracao::Provedor> {
-        self.etapas.iter().find_map(|e| e.provedor())
+    /// Reader of the generated outputs for `serve`.
+    pub fn provedor_de_gerados(&self) -> Option<generation::Provider> {
+        self.stages.iter().find_map(|e| e.provider())
     }
 
-    /// Bytes de fonte retidos pelo cache de unidades (para o teste de platô).
-    pub fn bytes_retidos(&self) -> usize {
-        self.unidades.bytes_fonte() + self.interner.payload_bytes()
+    /// Source bytes retained by the unit cache (for the plateau test).
+    pub fn retained_bytes(&self) -> usize {
+        self.units.bytes_fonte() + self.interner.payload_bytes()
     }
 
-    pub fn unidades_em_cache(&self) -> usize {
-        self.unidades.len()
+    pub fn cached_units(&self) -> usize {
+        self.units.len()
     }
 
-    /// Arquivos cujo mtime ou tamanho mudaram desde a última análise: é o
-    /// que o `dartforge dev` consulta a cada intervalo (um `stat` por
-    /// unidade, sem ler conteúdo).
+    /// Files whose mtime or size changed since the last analysis: it is what
+    /// `dartforge dev` checks at every interval (one `stat` per unit, without
+    /// reading contents).
     pub fn mudancas(&mut self) -> Vec<PathBuf> {
-        let mut v = self.unidades.alterados();
-        for e in &mut self.etapas {
-            v.extend(e.mudancas());
+        let mut v = self.units.alterados();
+        for e in &mut self.stages {
+            v.extend(e.changes());
         }
         v
     }
 
-    /// Arquivos observados pela sessão.
+    /// Files watched by the session.
     pub fn observados(&self) -> Vec<PathBuf> {
-        let mut v = self.unidades.caminhos();
-        for e in &self.etapas {
-            v.extend(e.observados());
+        let mut v = self.units.caminhos();
+        for e in &self.stages {
+            v.extend(e.watched());
         }
         v
     }
 
-    /// Avisa que um arquivo mudou: a unidade correspondente sai do cache.
+    /// Notifies that a file changed: the corresponding unit leaves the cache.
     ///
-    /// Não é obrigatório — a marca (mtime e tamanho) já detecta a mudança na
-    /// compilação seguinte —, mas evita um `stat` inútil e cobre o caso de
-    /// edição com o mesmo tamanho dentro da granularidade do relógio.
+    /// It is not mandatory — the stamp (mtime and size) already detects the
+    /// change in the next compilation —, but it saves a useless `stat` and
+    /// covers the case of an edit with the same size within the clock
+    /// granularity.
     pub fn arquivo_mudou(&mut self, path: &Path) {
         let p = dartforge_elements::config::sem_verbatim(
             std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()),
         );
-        self.unidades.invalidar(&p);
-        self.unidades.invalidar(path);
-        self.sujos.insert(p);
-        self.sujos.insert(path.to_path_buf());
+        self.units.invalidar(&p);
+        self.units.invalidar(path);
+        self.dirty.insert(p);
+        self.dirty.insert(path.to_path_buf());
     }
 
-    /// Compila (ou recompila) e escreve o que mudou.
-    pub fn compilar(&mut self) -> Result<Relatorio, String> {
-        let mut rel = Relatorio { primeira: self.primeira, ..Default::default() };
+    /// Compiles (or recompiles) and writes what changed.
+    ///
+    /// # Errors
+    ///
+    /// Load diagnostics, a failure of a generation stage, an emission error
+    /// or a write error.
+    pub fn compilar(&mut self) -> Result<Report, String> {
+        let mut rel = Report { first: self.first, ..Default::default() };
 
         let t = Instant::now();
-        // O SDK vem do artefato em `target/dartforge` na primeira compilação;
-        // depois as suas unidades já estão no cache da sessão.
-        let cache_sdk = if self.unidades.is_empty() {
+        // The SDK comes from the artifact in `target/dartforge` on the first
+        // compilation; afterwards its units are already in the session cache.
+        let sdk_cache = if self.units.is_empty() {
             SdkCache::abrir_ou_construir(&self.sdk, "dartdevc").ok().map(|(c, _)| c)
         } else {
             None
         };
-        // O que mudou desde a compilação anterior, para as etapas de geração.
-        let mudados: Vec<PathBuf> =
-            if self.etapas.is_empty() { Vec::new() } else { self.sujos.iter().cloned().collect() };
-        // A entrada e, com o motor, as entradas do ngdart: um componente só
-        // alcançável pelo próprio `.template.dart` (que ainda não existe)
-        // também entra no programa, e o gerador o vê.
-        let raizes: Vec<PathBuf> = std::iter::once(self.entrada.clone())
-            .chain(self.etapas.iter().flat_map(|e| e.raizes()))
+        // What changed since the previous compilation, for the generation
+        // stages.
+        let changed: Vec<PathBuf> =
+            if self.stages.is_empty() { Vec::new() } else { self.dirty.iter().cloned().collect() };
+        // The input and, with the engine, the ngdart inputs: a component
+        // reachable only from its own `.template.dart` (which does not exist
+        // yet) also enters the program, and the generator sees it.
+        let roots: Vec<PathBuf> = std::iter::once(self.input.clone())
+            .chain(self.stages.iter().flat_map(|e| e.roots()))
             .collect();
-        let raizes: Vec<&Path> = raizes.iter().map(PathBuf::as_path).collect();
+        let roots: Vec<&Path> = roots.iter().map(PathBuf::as_path).collect();
         let (mut program, mut diags) = load_lenient_entradas(
-            &raizes,
+            &roots,
             &self.sdk,
             self.packages.as_deref(),
             &mut self.interner,
-            cache_sdk,
-            Some(&mut self.unidades),
-            self.gerados.clone(),
+            sdk_cache,
+            Some(&mut self.units),
+            self.generated.clone(),
         );
-        let mut lidos = program.tempos.arquivos_lidos;
-        if !self.etapas.is_empty() {
-            let t_etapas = Instant::now();
-            // Primeira passada: uma saída esperada que ainda não foi gerada
-            // não é erro — a etapa a gera agora.
-            let etapas = &self.etapas;
+        let mut read = program.tempos.arquivos_lidos;
+        if !self.stages.is_empty() {
+            let t_stages = Instant::now();
+            // First pass: an expected output that has not been generated yet
+            // is not an error — the stage generates it now. The prefix is the
+            // message of `dartforge_elements` for an unreadable file.
+            let stages = &self.stages;
             diags.retain(|d| {
-                let Some(resto) = d.message.strip_prefix("não foi possível ler ") else { return true };
-                let caminho = resto.rsplit_once(": ").map(|(c, _)| c).unwrap_or(resto);
-                !etapas.iter().any(|e| e.espera(Path::new(caminho)))
+                let Some(rest) = d.message.strip_prefix("não foi possível ler ") else { return true };
+                let path = rest.rsplit_once(": ").map(|(c, _)| c).unwrap_or(rest);
+                !stages.iter().any(|e| e.expects(Path::new(path)))
             });
-            let mut alterados: Vec<PathBuf> = Vec::new();
-            let mut nova = None;
-            for etapa in &mut self.etapas {
-                let ctx = geracao::CtxSessao { program: &program, interner: &self.interner };
-                match etapa.atualizar(&ctx, &mudados) {
-                    Ok(at) => {
-                        alterados.extend(at.alterados);
-                        rel.avisos_motor.extend(at.avisos);
-                        rel.motor = Some(at.rel);
-                        nova = Some(at.geracao);
+            let mut altered: Vec<PathBuf> = Vec::new();
+            let mut new_generation = None;
+            for stage in &mut self.stages {
+                let ctx = generation::SessionCtx { program: &program, interner: &self.interner };
+                match stage.update(&ctx, &changed) {
+                    Ok(up) => {
+                        altered.extend(up.changed);
+                        rel.engine_warnings.extend(up.warnings);
+                        rel.motor = Some(up.report);
+                        new_generation = Some(up.generation);
                     }
                     Err(e) => {
-                        self.unidades.recolher(program);
-                        return Err(format!("motor de build: {e}"));
+                        self.units.recolher(program);
+                        return Err(format!("build engine: {e}"));
                     }
                 }
             }
-            let mudou = nova.as_ref().map(|g| g.id) != self.gerados.as_ref().map(|g| g.id);
-            let t_recarga = Instant::now();
-            if mudou || !alterados.is_empty() {
-                self.gerados = nova;
-                // As unidades voltam ao cache e só as geradas cujo texto
-                // mudou saem dele: a recarga reanalisa essas e reaproveita o
-                // resto.
-                self.unidades.recolher(program);
-                for p in &alterados {
-                    self.unidades.invalidar(p);
-                    self.sujos.insert(p.clone());
+            let generation_changed = new_generation.as_ref().map(|g| g.id) != self.generated.as_ref().map(|g| g.id);
+            let t_reload = Instant::now();
+            if generation_changed || !altered.is_empty() {
+                self.generated = new_generation;
+                // The units go back to the cache and only the generated ones
+                // whose text changed leave it: the reload reanalyzes those and
+                // reuses the rest.
+                self.units.recolher(program);
+                for p in &altered {
+                    self.units.invalidar(p);
+                    self.dirty.insert(p.clone());
                 }
                 let (p2, d2) = load_lenient_entradas(
-                    &raizes,
+                    &roots,
                     &self.sdk,
                     self.packages.as_deref(),
                     &mut self.interner,
                     None,
-                    Some(&mut self.unidades),
-                    self.gerados.clone(),
+                    Some(&mut self.units),
+                    self.generated.clone(),
                 );
                 program = p2;
                 diags = d2;
-                lidos += program.tempos.arquivos_lidos;
+                read += program.tempos.arquivos_lidos;
             }
-            rel.recarga_geracao = t_recarga.elapsed();
-            rel.etapas = t_etapas.elapsed();
+            rel.generation_reload = t_reload.elapsed();
+            rel.stages = t_stages.elapsed();
         }
-        rel.carregar = t.elapsed();
-        rel.carga_detalhe = program.tempos.clone();
-        rel.unidades_reaproveitadas = program.tempos.unidades_reaproveitadas;
-        // Reanalisadas = arquivos que a carga precisou ler e analisar de
-        // fato (o `Program` pode ter unidades que vieram do artefato do SDK,
-        // que não são nem uma coisa nem outra).
-        rel.unidades_reanalisadas = lidos;
-        rel.bibliotecas = program.libraries.len();
+        rel.load = t.elapsed();
+        rel.load_detail = program.tempos.clone();
+        rel.reused_units = program.tempos.unidades_reaproveitadas;
+        // Reanalyzed = files the load actually had to read and analyze (the
+        // `Program` may have units that came from the SDK artifact, which
+        // are neither one thing nor the other).
+        rel.reanalyzed_units = read;
+        rel.libraries = program.libraries.len();
         if !diags.is_empty() {
-            let msg = format!("{} erro(s) ao carregar: {}", diags.len(), diags[0]);
-            // Uma carga falha não pode deixar o cache com meias unidades.
-            self.unidades.recolher(program);
+            let msg = format!("{} error(s) while loading: {}", diags.len(), diags[0]);
+            // A failed load must not leave the cache with half the units.
+            self.units.recolher(program);
             return Err(msg);
         }
 
         let t = Instant::now();
         let mut table = TypeTable::new();
         let core = CoreTypes::init(&mut table, &program, &self.interner);
-        let (mut outline, diags_outline) =
+        let (mut outline, outline_diags) =
             dartforge_types::resolve_outline(&program, &self.interner, &mut table, &core);
         rel.outline = t.elapsed();
 
-        // Os hashes vêm antes da inferência de corpos: são eles que dizem o
-        // que precisa ser reanalisado e reemitido.
+        // The hashes come before body inference: they are what says what
+        // needs to be reanalyzed and reemitted.
         let t = Instant::now();
-        let afetadas = self.comparar_hashes(&program, &mut rel);
+        let affected = self.compare_hashes(&program, &mut rel);
         rel.hashes = t.elapsed();
 
         let t = Instant::now();
-        let (bodies, diags_corpos) = match &afetadas {
+        let (bodies, body_diags) = match &affected {
             None => dartforge_types::infer_program_bodies(&program, &self.interner, &mut table, &core, &mut outline),
             Some(libs) => dartforge_types::infer_bodies_das_bibliotecas(
                 &program, &self.interner, &mut table, &core, &mut outline, libs,
             ),
         };
-        rel.corpos = t.elapsed();
-        rel.avisos_tipos = diags_outline.len() + diags_corpos.len();
+        rel.bodies = t.elapsed();
+        rel.type_warnings = outline_diags.len() + body_diags.len();
 
         let t = Instant::now();
-        let mut emitido = match afetadas {
-            // Primeira compilação (ou mudança de grafo): emite tudo.
+        let mut emitted = match affected {
+            // First compilation (or a graph change): emit everything.
             None => {
-                self.fragmentos.borrow_mut().limpar();
-                let e = dartforge_emit_js::emitir_programa_com_cache(&program, &self.interner, &table, &core, &outline, &bodies, Some(&self.fragmentos))
-                    .map_err(|ds| ds.first().map(|d| d.to_string()).unwrap_or_else(|| "emissão falhou".into()))?;
-                rel.bibliotecas_reemitidas = usize::MAX;
+                self.fragments.borrow_mut().limpar();
+                let e = dartforge_emit_js::emitir_programa_com_cache(&program, &self.interner, &table, &core, &outline, &bodies, Some(&self.fragments))
+                    .map_err(|ds| ds.first().map(|d| d.to_string()).unwrap_or_else(|| "emission failed".into()))?;
+                rel.reemitted_libraries = usize::MAX;
                 e
             }
             Some(libs) => {
-                rel.bibliotecas_reemitidas = libs.len();
-                // Os fragmentos das bibliotecas alteradas saem do cache; o
-                // resto do módulo é reusado como texto.
+                rel.reemitted_libraries = libs.len();
+                // The fragments of the changed libraries leave the cache; the
+                // rest of the module is reused as text.
                 {
                     let ctx_tmp = dartforge_emit_js::ctx::Ctx::new(&program, &self.interner, &table, &core, &outline, &bodies);
-                    self.fragmentos.borrow_mut().invalidar(&ctx_tmp, &libs);
+                    self.fragments.borrow_mut().invalidar(&ctx_tmp, &libs);
                 }
-                let (e, contexto) = dartforge_emit_js::emitir_modulos_com_cache(
-                    &program, &self.interner, &table, &core, &outline, &bodies, &libs, Some(&self.fragmentos),
+                let (e, context) = dartforge_emit_js::emitir_modulos_com_cache(
+                    &program, &self.interner, &table, &core, &outline, &bodies, &libs, Some(&self.fragments),
                 )
-                .map_err(|ds| ds.first().map(|d| d.to_string()).unwrap_or_else(|| "emissão falhou".into()))?;
-                rel.emissao_contexto = contexto;
+                .map_err(|ds| ds.first().map(|d| d.to_string()).unwrap_or_else(|| "emission failed".into()))?;
+                rel.emit_context = context;
                 e
             }
         };
-        rel.modulos_reemitidos = emitido.modulos.len();
-        // O texto dos módulos não reemitidos continua valendo da compilação
-        // anterior. Dos reemitidos, só vão para o disco os que mudaram de
-        // texto — a comparação é com o que a sessão tem em memória, sem ler o
-        // arquivo (o módulo de um pacote grande tem megabytes).
-        let anteriores = std::mem::take(&mut self.modulos);
-        let mut mudados = Vec::new();
-        for (caminho, texto) in emitido.modulos.drain(..) {
-            let igual = anteriores.get(&caminho).is_some_and(|t| *t == texto);
-            if !igual {
-                mudados.push((caminho.clone(), texto.clone()));
+        rel.reemitted_modules = emitted.modulos.len();
+        // The text of the modules that were not reemitted still holds from the
+        // previous compilation. Of the reemitted ones, only those whose text
+        // changed go to disk — the comparison is with what the session has in
+        // memory, without reading the file (the module of a large package has
+        // megabytes).
+        let previous = std::mem::take(&mut self.modules);
+        let mut changed_modules = Vec::new();
+        for (path, text) in emitted.modulos.drain(..) {
+            let same = previous.get(&path).is_some_and(|t| *t == text);
+            if !same {
+                changed_modules.push((path.clone(), text.clone()));
             }
-            self.modulos.insert(caminho, texto);
+            self.modules.insert(path, text);
         }
-        for (caminho, texto) in anteriores {
-            self.modulos.entry(caminho).or_insert(texto);
+        for (path, text) in previous {
+            self.modules.entry(path).or_insert(text);
         }
-        emitido.modulos = mudados;
-        rel.emissao = t.elapsed();
-        rel.modulos = self.modulos.len();
+        emitted.modulos = changed_modules;
+        rel.emit = t.elapsed();
+        rel.modulos = self.modules.len();
 
-        // Escrita: só os módulos reemitidos podem ter texto diferente do que
-        // está no disco, então só eles vão para `escrever` (que ainda compara
-        // byte a byte antes de gravar). Comparar os 352 do `new_sali` a cada
-        // edição custava uma leitura por arquivo.
+        // Write: only the reemitted modules can have text different from what
+        // is on disk, so only they go to `escrever` (which still compares byte
+        // for byte before writing). Comparing the 352 modules of `new_sali` on
+        // every edit cost one read per file.
         let t = Instant::now();
-        // Na primeira compilação o diretório pode já ter saída de outra
-        // execução: aí vale comparar. Nas seguintes, a sessão já sabe que o
-        // texto mudou (comparou com o da compilação anterior, em memória).
-        let comparar = rel.primeira;
+        // On the first compilation the directory may already hold output of
+        // another run: then it is worth comparing. On the following ones, the
+        // session already knows the text changed (it compared it with the
+        // previous compilation's, in memory).
+        let compare = rel.first;
         rel.modulos_escritos =
-            dartforge_emit_js::escrever_opcoes(&emitido, &self.saida, &self.dart_sdk_js, comparar)?;
-        rel.escrita = t.elapsed();
+            dartforge_emit_js::escrever_opcoes(&emitted, &self.output, &self.dart_sdk_js, compare)?;
+        rel.write = t.elapsed();
 
-        // As unidades voltam para o cache; o resto da compilação morre aqui.
+        // The units go back to the cache; the rest of the compilation dies here.
         drop(bodies);
         drop(outline);
         drop(table);
-        self.unidades.recolher(program);
-        self.primeira = false;
+        self.units.recolher(program);
+        self.first = false;
         Ok(rel)
     }
 
-    /// Recalcula os dois hashes por biblioteca do usuário, preenche no
-    /// relatório o que mudou e devolve **quais bibliotecas precisam ser
-    /// reemitidas**: as que mudaram de conteúdo e, por mudança de API, as
-    /// dependentes. `None` quer dizer "emitir tudo" — primeira compilação ou
-    /// biblioteca nova/apagada, em que o conjunto anterior não serve.
-    fn comparar_hashes(&mut self, program: &Program, rel: &mut Relatorio) -> Option<Vec<LibraryId>> {
-        let primeira = self.hashes.is_empty();
+    /// Recomputes the two hashes of each user library, fills in the report
+    /// what changed and returns **which libraries need to be reemitted**:
+    /// those whose content changed and, through an API change, their
+    /// dependents. `None` means "emit everything" — first compilation or a
+    /// new/deleted library, where the previous set is of no use.
+    fn compare_hashes(&mut self, program: &Program, rel: &mut Report) -> Option<Vec<LibraryId>> {
+        let first = self.hashes.is_empty();
         let mut ids: HashMap<String, LibraryId> = HashMap::with_capacity(program.libraries.len());
-        let mut novos: HashMap<String, HashesBiblioteca> = HashMap::with_capacity(program.libraries.len());
-        let mut api_alterada: Vec<String> = Vec::new();
-        let mut conteudo_alterado: Vec<String> = Vec::new();
-        let mut novas_ou_perdidas = false;
+        let mut new_hashes: HashMap<String, LibraryHashes> = HashMap::with_capacity(program.libraries.len());
+        let mut api_changed: Vec<String> = Vec::new();
+        let mut content_changed: Vec<String> = Vec::new();
+        let mut added_or_lost = false;
         for i in 0..program.libraries.len() {
             let lib = LibraryId(i as u32);
             let l = program.library(lib);
             if l.is_sdk || l.units.is_empty() {
                 continue;
             }
-            // Só as bibliotecas com algum arquivo sujo precisam de hash novo:
-            // o resto tem as mesmas árvores da compilação anterior. (Rehash
-            // de tudo custava 26 ms por edição no `new_sali/core`.)
-            let suja = primeira
+            // Only the libraries with some dirty file need a new hash: the
+            // rest has the same trees as the previous compilation. (Rehashing
+            // everything cost 26 ms per edit on `new_sali/core`.)
+            let dirty = first
                 || l.units.iter().any(|&u| {
-                    program.unit(u).path.as_ref().is_some_and(|p| self.sujos.contains(p))
+                    program.unit(u).path.as_ref().is_some_and(|p| self.dirty.contains(p))
                 });
-            if !suja {
-                if let Some(&antigo) = self.hashes.get(&l.uri) {
+            if !dirty {
+                if let Some(&old) = self.hashes.get(&l.uri) {
                     ids.insert(l.uri.clone(), lib);
-                    novos.insert(l.uri.clone(), antigo);
+                    new_hashes.insert(l.uri.clone(), old);
                     continue;
                 }
             }
-            let h = hashes_da_biblioteca(program, lib);
+            let h = library_hashes(program, lib);
             match self.hashes.get(&l.uri) {
-                Some(antigo) => {
-                    if antigo.conteudo != h.conteudo {
-                        rel.corpo_alterado.push(l.uri.clone());
-                        conteudo_alterado.push(l.uri.clone());
+                Some(old) => {
+                    if old.content != h.content {
+                        rel.body_changed.push(l.uri.clone());
+                        content_changed.push(l.uri.clone());
                     }
-                    if antigo.api != h.api {
-                        api_alterada.push(l.uri.clone());
+                    if old.api != h.api {
+                        api_changed.push(l.uri.clone());
                     }
                 }
-                // Biblioteca que não existia na compilação anterior.
-                None if !primeira => novas_ou_perdidas = true,
+                // A library that did not exist in the previous compilation.
+                None if !first => added_or_lost = true,
                 None => {}
             }
             ids.insert(l.uri.clone(), lib);
-            novos.insert(l.uri.clone(), h);
+            new_hashes.insert(l.uri.clone(), h);
         }
-        if novos.len() != self.hashes.len() && !primeira {
-            novas_ou_perdidas = true;
+        if new_hashes.len() != self.hashes.len() && !first {
+            added_or_lost = true;
         }
-        // Grafo reverso: quem importa/exporta cada biblioteca.
-        let mut dependentes: HashMap<String, Vec<String>> = HashMap::new();
+        // Reverse graph: who imports/exports each library.
+        let mut dependents: HashMap<String, Vec<String>> = HashMap::new();
         for i in 0..program.libraries.len() {
             let l = &program.libraries[i];
             if l.is_sdk {
                 continue;
             }
-            for alvo in l.imports.iter().map(|x| x.library).chain(l.exports.iter().map(|x| x.library)) {
-                let alvo_uri = &program.libraries[alvo.0 as usize].uri;
-                if program.libraries[alvo.0 as usize].is_sdk {
+            for target in l.imports.iter().map(|x| x.library).chain(l.exports.iter().map(|x| x.library)) {
+                let target_uri = &program.libraries[target.0 as usize].uri;
+                if program.libraries[target.0 as usize].is_sdk {
                     continue;
                 }
-                let e = dependentes.entry(alvo_uri.clone()).or_default();
+                let e = dependents.entry(target_uri.clone()).or_default();
                 if !e.contains(&l.uri) {
                     e.push(l.uri.clone());
                 }
             }
         }
-        // Fecho transitivo dos dependentes das bibliotecas com API alterada.
-        let mut invalidados: Vec<String> = Vec::new();
-        let mut fila: Vec<String> = api_alterada.clone();
-        while let Some(u) = fila.pop() {
-            for d in dependentes.get(&u).into_iter().flatten() {
-                if !invalidados.contains(d) && !api_alterada.contains(d) {
-                    invalidados.push(d.clone());
-                    fila.push(d.clone());
+        // Transitive closure of the dependents of the libraries whose API changed.
+        let mut invalidated: Vec<String> = Vec::new();
+        let mut queue: Vec<String> = api_changed.clone();
+        while let Some(u) = queue.pop() {
+            for d in dependents.get(&u).into_iter().flatten() {
+                if !invalidated.contains(d) && !api_changed.contains(d) {
+                    invalidated.push(d.clone());
+                    queue.push(d.clone());
                 }
             }
         }
-        rel.dependentes_invalidados = invalidados.len();
-        self.hashes = novos;
-        self.sujos.clear();
-        self.dependentes = dependentes;
+        rel.invalidated_dependents = invalidated.len();
+        self.hashes = new_hashes;
+        self.dirty.clear();
+        self.dependents = dependents;
 
-        // Quem precisa ser reemitido: quem mudou de conteúdo (o JS sai do
-        // corpo) e quem depende de uma API alterada. Na primeira compilação,
-        // ou quando o conjunto de bibliotecas mudou, emite tudo.
-        let decisao = if primeira || novas_ou_perdidas || self.modulos.is_empty() {
+        // Who needs to be reemitted: whoever changed content (the JS comes
+        // from the body) and whoever depends on a changed API. On the first
+        // compilation, or when the set of libraries changed, emit everything.
+        let decision = if first || added_or_lost || self.modules.is_empty() {
             None
         } else {
             let mut libs: Vec<LibraryId> = Vec::new();
-            for uri in conteudo_alterado.iter().chain(api_alterada.iter()).chain(invalidados.iter()) {
+            for uri in content_changed.iter().chain(api_changed.iter()).chain(invalidated.iter()) {
                 if let Some(&id) = ids.get(uri) {
                     if !libs.contains(&id) {
                         libs.push(id);
@@ -561,7 +583,7 @@ impl Sessao {
             }
             Some(libs)
         };
-        rel.api_alterada = api_alterada;
-        decisao
+        rel.api_changed = api_changed;
+        decision
     }
 }

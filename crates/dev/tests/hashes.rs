@@ -1,10 +1,10 @@
-//! Os dois hashes por biblioteca separam corpo de API pública, e a sessão
-//! reaproveita o que não mudou.
+//! The two hashes per library separate the body from the public API, and the
+//! session reuses what did not change.
 
 use dartforge_dev::Sessao;
 use std::path::{Path, PathBuf};
 
-fn sdk_simulado(dir: &Path) -> PathBuf {
+fn simulated_sdk(dir: &Path) -> PathBuf {
     let lib = dir.join("sdk/lib");
     std::fs::create_dir_all(lib.join("core")).unwrap();
     std::fs::write(
@@ -43,114 +43,114 @@ fn sdk_simulado(dir: &Path) -> PathBuf {
 }
 
 #[test]
-fn corpo_privado_nao_muda_a_api_e_assinatura_muda() {
+fn private_body_does_not_change_the_api_and_signature_does() {
     let tmp = tempfile::tempdir().unwrap();
-    let sdk = sdk_simulado(tmp.path());
+    let sdk = simulated_sdk(tmp.path());
     let proj = tmp.path().join("proj");
     std::fs::create_dir_all(&proj).unwrap();
-    let apoio = proj.join("apoio.dart");
+    let support = proj.join("support.dart");
     let main = proj.join("main.dart");
-    std::fs::write(&apoio, "int dobro(int x) { var s = 1; return x + s; }\n").unwrap();
-    std::fs::write(&main, "import 'apoio.dart';\nvoid main() { print(dobro(2)); }\n").unwrap();
-    let saida = tmp.path().join("js");
+    std::fs::write(&support, "int twice(int x) { var s = 1; return x + s; }\n").unwrap();
+    std::fs::write(&main, "import 'support.dart';\nvoid main() { print(twice(2)); }\n").unwrap();
+    let output = tmp.path().join("js");
 
-    let mut sessao = Sessao::nova(&main, Some(&sdk), None, &saida).expect("sessão");
-    let r = sessao.compilar().expect("primeira");
-    assert!(r.primeira);
-    assert!(r.modulos >= 2, "uma biblioteca por arquivo: {}", r.modulos);
-    let unidades = sessao.unidades_em_cache();
-    assert!(unidades >= 3, "entrada, apoio e o core do SDK: {unidades}");
+    let mut session = Sessao::nova(&main, Some(&sdk), None, &output).expect("session");
+    let r = session.compilar().expect("first");
+    assert!(r.first);
+    assert!(r.modulos >= 2, "one library per file: {}", r.modulos);
+    let units = session.cached_units();
+    assert!(units >= 3, "input, support and the SDK core: {units}");
 
-    // 1. Edição de corpo: o valor muda, a assinatura não.
-    std::fs::write(&apoio, "int dobro(int x) { var s = 2; return x + s; }\n").unwrap();
-    sessao.arquivo_mudou(&apoio);
-    let r = sessao.compilar().expect("edição de corpo");
-    assert_eq!(r.corpo_alterado.len(), 1, "só `apoio.dart` mudou: {:?}", r.corpo_alterado);
-    assert!(r.api_alterada.is_empty(), "corpo não é API: {:?}", r.api_alterada);
-    assert_eq!(r.dependentes_invalidados, 0);
-    assert_eq!(r.unidades_reanalisadas, 1, "só o arquivo editado é reanalisado");
-    assert_eq!(r.modulos_escritos, 1, "só o módulo de `apoio` muda de texto");
+    // 1. Body edit: the value changes, the signature does not.
+    std::fs::write(&support, "int twice(int x) { var s = 2; return x + s; }\n").unwrap();
+    session.arquivo_mudou(&support);
+    let r = session.compilar().expect("body edit");
+    assert_eq!(r.body_changed.len(), 1, "only `support.dart` changed: {:?}", r.body_changed);
+    assert!(r.api_changed.is_empty(), "a body is not API: {:?}", r.api_changed);
+    assert_eq!(r.invalidated_dependents, 0);
+    assert_eq!(r.reanalyzed_units, 1, "only the edited file is reanalyzed");
+    assert_eq!(r.modulos_escritos, 1, "only the `support` module changes text");
 
-    // 2. Edição de API: uma função pública nova.
-    std::fs::write(&apoio, "int dobro(int x) { var s = 2; return x + s; }\nint triplo(int x) => x;\n").unwrap();
-    sessao.arquivo_mudou(&apoio);
-    let r = sessao.compilar().expect("edição de API");
-    assert_eq!(r.api_alterada.len(), 1, "a API de `apoio` mudou: {:?}", r.api_alterada);
-    assert_eq!(r.dependentes_invalidados, 1, "`main.dart` importa `apoio.dart`");
+    // 2. API edit: a new public function.
+    std::fs::write(&support, "int twice(int x) { var s = 2; return x + s; }\nint thrice(int x) => x;\n").unwrap();
+    session.arquivo_mudou(&support);
+    let r = session.compilar().expect("API edit");
+    assert_eq!(r.api_changed.len(), 1, "the API of `support` changed: {:?}", r.api_changed);
+    assert_eq!(r.invalidated_dependents, 1, "`main.dart` imports `support.dart`");
 
-    // 3. Função privada nova: muda o corpo da biblioteca, não a API.
+    // 3. A new private function: changes the library's body, not the API.
     std::fs::write(
-        &apoio,
-        "int dobro(int x) { var s = 2; return x + s; }\nint triplo(int x) => x;\nint _oculto(int x) => x;\n",
+        &support,
+        "int twice(int x) { var s = 2; return x + s; }\nint thrice(int x) => x;\nint _hidden(int x) => x;\n",
     )
     .unwrap();
-    sessao.arquivo_mudou(&apoio);
-    let r = sessao.compilar().expect("edição privada");
-    assert_eq!(r.corpo_alterado.len(), 1);
-    assert!(r.api_alterada.is_empty(), "declaração privada não é API: {:?}", r.api_alterada);
+    session.arquivo_mudou(&support);
+    let r = session.compilar().expect("private edit");
+    assert_eq!(r.body_changed.len(), 1);
+    assert!(r.api_changed.is_empty(), "a private declaration is not API: {:?}", r.api_changed);
 
-    // 3b. Statement novo dentro de um método de classe: é a edição mais comum
-    // (uma tecla num corpo) e não pode mexer na API — senão cada tecla
-    // invalidaria todos os dependentes.
+    // 3b. A new statement inside a class method: it is the most common edit
+    // (a keystroke in a body) and must not touch the API — otherwise every
+    // keystroke would invalidate all the dependents.
     std::fs::write(
-        &apoio,
-        "class Conta {\n  int saldo = 0;\n  int somar(int x) { saldo = saldo + x; return saldo; }\n}\nint dobro(int x) { var s = 2; return x + s; }\nint triplo(int x) => x;\nint _oculto(int x) => x;\n",
+        &support,
+        "class Account {\n  int balance = 0;\n  int add(int x) { balance = balance + x; return balance; }\n}\nint twice(int x) { var s = 2; return x + s; }\nint thrice(int x) => x;\nint _hidden(int x) => x;\n",
     )
     .unwrap();
-    sessao.arquivo_mudou(&apoio);
-    sessao.compilar().expect("classe nova");
+    session.arquivo_mudou(&support);
+    session.compilar().expect("new class");
     std::fs::write(
-        &apoio,
-        "class Conta {\n  int saldo = 0;\n  int somar(int x) { print(x); saldo = saldo + x; return saldo; }\n}\nint dobro(int x) { var s = 2; return x + s; }\nint triplo(int x) => x;\nint _oculto(int x) => x;\n",
+        &support,
+        "class Account {\n  int balance = 0;\n  int add(int x) { print(x); balance = balance + x; return balance; }\n}\nint twice(int x) { var s = 2; return x + s; }\nint thrice(int x) => x;\nint _hidden(int x) => x;\n",
     )
     .unwrap();
-    sessao.arquivo_mudou(&apoio);
-    let r = sessao.compilar().expect("statement novo no método");
-    assert_eq!(r.corpo_alterado.len(), 1, "o corpo mudou: {:?}", r.corpo_alterado);
+    session.arquivo_mudou(&support);
+    let r = session.compilar().expect("new statement in the method");
+    assert_eq!(r.body_changed.len(), 1, "the body changed: {:?}", r.body_changed);
     assert!(
-        r.api_alterada.is_empty(),
-        "inserir um statement num método não é mudança de API: {:?}",
-        r.api_alterada
+        r.api_changed.is_empty(),
+        "inserting a statement in a method is not an API change: {:?}",
+        r.api_changed
     );
-    assert_eq!(r.dependentes_invalidados, 0);
+    assert_eq!(r.invalidated_dependents, 0);
 
-    // 3c. Parâmetro novo num método público: aí sim a API mudou, e o
-    // dependente entra na conta.
+    // 3c. A new parameter on a public method: now the API did change, and
+    // the dependent counts.
     std::fs::write(
-        &apoio,
-        "class Conta {\n  int saldo = 0;\n  int somar(int x, int y) { print(x); saldo = saldo + x; return saldo; }\n}\nint dobro(int x) { var s = 2; return x + s; }\nint triplo(int x) => x;\nint _oculto(int x) => x;\n",
+        &support,
+        "class Account {\n  int balance = 0;\n  int add(int x, int y) { print(x); balance = balance + x; return balance; }\n}\nint twice(int x) { var s = 2; return x + s; }\nint thrice(int x) => x;\nint _hidden(int x) => x;\n",
     )
     .unwrap();
-    sessao.arquivo_mudou(&apoio);
-    let r = sessao.compilar().expect("parâmetro novo");
-    assert_eq!(r.api_alterada.len(), 1, "parâmetro novo é API: {:?}", r.api_alterada);
-    assert_eq!(r.dependentes_invalidados, 1, "`main.dart` depende de `apoio.dart`");
+    session.arquivo_mudou(&support);
+    let r = session.compilar().expect("new parameter");
+    assert_eq!(r.api_changed.len(), 1, "a new parameter is API: {:?}", r.api_changed);
+    assert_eq!(r.invalidated_dependents, 1, "`main.dart` depends on `support.dart`");
 
-    // 3d. Renomear um método público muda a API.
+    // 3d. Renaming a public method changes the API.
     std::fs::write(
-        &apoio,
-        "class Conta {\n  int saldo = 0;\n  int adicionar(int x, int y) { print(x); saldo = saldo + x; return saldo; }\n}\nint dobro(int x) { var s = 2; return x + s; }\nint triplo(int x) => x;\nint _oculto(int x) => x;\n",
+        &support,
+        "class Account {\n  int balance = 0;\n  int deposit(int x, int y) { print(x); balance = balance + x; return balance; }\n}\nint twice(int x) { var s = 2; return x + s; }\nint thrice(int x) => x;\nint _hidden(int x) => x;\n",
     )
     .unwrap();
-    sessao.arquivo_mudou(&apoio);
-    let r = sessao.compilar().expect("renomear método");
-    assert_eq!(r.api_alterada.len(), 1, "renomear é API: {:?}", r.api_alterada);
+    session.arquivo_mudou(&support);
+    let r = session.compilar().expect("rename method");
+    assert_eq!(r.api_changed.len(), 1, "renaming is API: {:?}", r.api_changed);
 
-    // 3e. Comentário e espaço em branco não são API nem corpo emitido.
+    // 3e. Comments and whitespace are neither API nor emitted body.
     std::fs::write(
-        &apoio,
-        "// um comentário novo\nclass Conta {\n  int saldo = 0;\n\n  int adicionar(int x, int y) { print(x); saldo = saldo + x; return saldo; }\n}\nint dobro(int x) { var s = 2; return x + s; }\nint triplo(int x) => x;\nint _oculto(int x) => x;\n",
+        &support,
+        "// a new comment\nclass Account {\n  int balance = 0;\n\n  int deposit(int x, int y) { print(x); balance = balance + x; return balance; }\n}\nint twice(int x) { var s = 2; return x + s; }\nint thrice(int x) => x;\nint _hidden(int x) => x;\n",
     )
     .unwrap();
-    sessao.arquivo_mudou(&apoio);
-    let r = sessao.compilar().expect("comentário");
-    assert!(r.api_alterada.is_empty(), "comentário não é API: {:?}", r.api_alterada);
-    assert_eq!(r.modulos_escritos, 0, "o JS não mudou, nada a reescrever");
+    session.arquivo_mudou(&support);
+    let r = session.compilar().expect("comment");
+    assert!(r.api_changed.is_empty(), "a comment is not API: {:?}", r.api_changed);
+    assert_eq!(r.modulos_escritos, 0, "the JS did not change, nothing to rewrite");
 
-    // 4. Nada muda: nenhuma biblioteca acusa alteração e nada é reescrito.
-    let r = sessao.compilar().expect("sem edição");
-    assert!(r.corpo_alterado.is_empty(), "{:?}", r.corpo_alterado);
-    assert!(r.api_alterada.is_empty());
-    assert_eq!(r.unidades_reanalisadas, 0, "nada para reanalisar");
-    assert_eq!(r.modulos_escritos, 0, "nenhum módulo mudou de texto");
+    // 4. Nothing changes: no library reports a change and nothing is rewritten.
+    let r = session.compilar().expect("no edit");
+    assert!(r.body_changed.is_empty(), "{:?}", r.body_changed);
+    assert!(r.api_changed.is_empty());
+    assert_eq!(r.reanalyzed_units, 0, "nothing to reanalyze");
+    assert_eq!(r.modulos_escritos, 0, "no module changed text");
 }

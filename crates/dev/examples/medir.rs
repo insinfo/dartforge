@@ -1,73 +1,74 @@
-//! Mede a sessão residente: primeira compilação, edição de corpo, edição de
-//! API pública e o platô de memória depois de N edições.
+//! Measures the resident session: first compilation, body edit, public API
+//! edit and the memory plateau after N edits.
 //!
-//! `cargo run -q --release -p dartforge-dev --example medir -- <entrada.dart> [package_config.json] [arquivo_a_editar] [N]`
+//! `cargo run -q --release -p dartforge-dev --example medir -- <input.dart> [package_config.json] [file_to_edit] [N]`
 //!
-//! O arquivo editado é restaurado ao fim (o exemplo trunca o que acrescentou).
+//! The edited file is restored at the end (the example truncates what it
+//! appended).
 #[global_allocator]
-static ALOCADOR: dartforge_instrument::CountingAllocator = dartforge_instrument::CountingAllocator;
+static ALLOCATOR: dartforge_instrument::CountingAllocator = dartforge_instrument::CountingAllocator;
 
-use dartforge_dev::{Relatorio, Sessao};
+use dartforge_dev::{Report, Sessao};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
 const MB: f64 = 1_048_576.0;
 
-/// Acrescenta texto ao fim do arquivo e devolve o tamanho anterior, para
-/// restaurá-lo depois.
-fn acrescentar(path: &Path, texto: &str) -> std::io::Result<u64> {
-    let antes = std::fs::metadata(path)?.len();
+/// Appends text to the end of the file and returns the previous size, to
+/// restore it afterwards.
+fn append(path: &Path, text: &str) -> std::io::Result<u64> {
+    let before = std::fs::metadata(path)?.len();
     let mut f = std::fs::OpenOptions::new().append(true).open(path)?;
-    f.write_all(texto.as_bytes())?;
+    f.write_all(text.as_bytes())?;
     f.flush()?;
-    Ok(antes)
+    Ok(before)
 }
 
-fn restaurar(path: &Path, tamanho: u64) {
+fn restore(path: &Path, size: u64) {
     if let Ok(f) = std::fs::OpenOptions::new().write(true).open(path) {
-        let _ = f.set_len(tamanho);
+        let _ = f.set_len(size);
     }
 }
 
-fn linha(nome: &str, r: &Relatorio) {
+fn row(name: &str, r: &Report) {
     let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
     println!(
-        "{nome:<22}{:>9.1}{:>9.1}{:>9.1}{:>9.1}{:>9.1}{:>9.1}{:>10.1}{:>8}{:>9}{:>8}",
-        ms(r.carregar),
+        "{name:<22}{:>9.1}{:>9.1}{:>9.1}{:>9.1}{:>9.1}{:>9.1}{:>10.1}{:>8}{:>9}{:>8}",
+        ms(r.load),
         ms(r.outline),
-        ms(r.corpos),
-        ms(r.emissao),
+        ms(r.bodies),
+        ms(r.emit),
         ms(r.hashes),
-        ms(r.escrita),
+        ms(r.write),
         ms(r.total()),
-        r.unidades_reanalisadas,
+        r.reanalyzed_units,
         r.modulos_escritos,
-        r.corpo_alterado.len(),
+        r.body_changed.len(),
     );
 }
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let entrada = PathBuf::from(
+    let input = PathBuf::from(
         args.first().cloned().unwrap_or_else(|| "C:/MyDartProjects/new_sali/core/test/arvore_processo_item_test.dart".into()),
     );
     let packages = args.get(1).map(PathBuf::from).or_else(|| {
         let p = PathBuf::from("C:/MyDartProjects/new_sali/core/.dart_tool/package_config.json");
         p.exists().then_some(p)
     });
-    let alvo = args.get(2).map(PathBuf::from).unwrap_or_else(|| entrada.clone());
-    let edicoes: usize = args.get(3).and_then(|v| v.parse().ok()).unwrap_or(20);
-    // `DARTFORGE_DEV_SAIDA` deixa o verificador apontar a sessão para o mesmo
-    // diretório que o `compile-js` completo escreveu.
-    let saida = std::env::var_os("DARTFORGE_DEV_SAIDA")
+    let target = args.get(2).map(PathBuf::from).unwrap_or_else(|| input.clone());
+    let edits: usize = args.get(3).and_then(|v| v.parse().ok()).unwrap_or(20);
+    // `DARTFORGE_DEV_SAIDA` lets the checker point the session at the same
+    // directory that the full `compile-js` wrote.
+    let output = std::env::var_os("DARTFORGE_DEV_SAIDA")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("target/dev-medir"));
-    if !entrada.exists() {
-        eprintln!("entrada não existe: {}", entrada.display());
+    if !input.exists() {
+        eprintln!("input does not exist: {}", input.display());
         return;
     }
 
-    let mut sessao = match Sessao::nova(&entrada, None, packages.as_deref(), &saida) {
+    let mut session = match Sessao::nova(&input, None, packages.as_deref(), &output) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("{e}");
@@ -75,106 +76,109 @@ fn main() {
         }
     };
 
-    println!("== sessão residente — {}", entrada.display());
+    println!("== resident session — {}", input.display());
     println!(
         "{:<22}{:>9}{:>9}{:>9}{:>9}{:>9}{:>9}{:>10}{:>8}{:>9}{:>8}",
-        "compilação", "carga", "outline", "corpos", "emissão", "hashes", "escrita", "total ms", "reanal", "escritos", "corpo≠"
+        "compilation", "load", "outline", "bodies", "emission", "hashes", "write", "total ms", "reanal", "written", "body≠"
     );
 
-    let r = sessao.compilar().expect("primeira compilação");
-    linha("primeira", &r);
-    let detalhe = |n: &str, r: &Relatorio| {
-        let c = &r.carga_detalhe;
+    let r = session.compilar().expect("first compilation");
+    row("first", &r);
+    let detail = |n: &str, r: &Report| {
+        let c = &r.load_detail;
         let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
         println!(
-            "   {n}: leitura+lex {:.1} par / {:.1} série, parse {:.1}, diretivas {:.1}, outline {:.1}+{:.1}+{:.1}+{:.1} ms ({} arquivos lidos)",
+            "   {n}: read+lex {:.1} par / {:.1} serial, parse {:.1}, directives {:.1}, outline {:.1}+{:.1}+{:.1}+{:.1} ms ({} files read)",
             ms(c.leitura_lex_paralelo), ms(c.leitura), ms(c.parse), ms(c.diretivas),
             ms(c.outline_declaracoes), ms(c.outline_reexports), ms(c.outline_escopos), ms(c.outline_supertipos),
             c.arquivos_lidos
         );
     };
-    detalhe("carga da primeira", &r);
-    let vivos_apos_primeira = dartforge_instrument::live_bytes();
+    detail("load of the first", &r);
+    let live_after_first = dartforge_instrument::live_bytes();
 
-    // 1. Edição de corpo. Duas funções são acrescentadas e depois um
-    // `print` é inserido **no corpo da primeira**: é a edição real (uma
-    // tecla dentro de um método) e desloca tudo o que vem depois, que era
-    // onde o hash de API por faixa de texto escorregava.
-    let base = acrescentar(&alvo, "\nvoid _forjaA() { print('a'); }\nvoid _forjaB() { print('b'); }\n").expect("edição");
-    sessao.arquivo_mudou(&alvo);
-    sessao.compilar().expect("preparo da edição de corpo");
-    restaurar(&alvo, base);
-    let tamanho = acrescentar(
-        &alvo,
-        "\nvoid _forjaA() { print('a'); print('x'); }\nvoid _forjaB() { print('b'); }\n",
+    // 1. Body edit. Two functions are appended and then a `print` is
+    // inserted **into the body of the first one**: it is the real edit (a
+    // keystroke inside a method) and shifts everything that comes after,
+    // which is where the API hash by text range used to slip.
+    let base = append(&target, "\nvoid _forgeA() { print('a'); }\nvoid _forgeB() { print('b'); }\n").expect("edit");
+    session.arquivo_mudou(&target);
+    session.compilar().expect("preparation of the body edit");
+    restore(&target, base);
+    let size = append(
+        &target,
+        "\nvoid _forgeA() { print('a'); print('x'); }\nvoid _forgeB() { print('b'); }\n",
     )
-    .expect("edição");
-    sessao.arquivo_mudou(&alvo);
-    let r = sessao.compilar().expect("edição de corpo");
-    linha("edição de corpo", &r);
-    detalhe("carga da edição de corpo", &r);
+    .expect("edit");
+    session.arquivo_mudou(&target);
+    let r = session.compilar().expect("body edit");
+    row("body edit", &r);
+    detail("load of the body edit", &r);
     println!(
-        "   corpo alterado: {} | API alterada: {} (+{} dependentes) | bibliotecas reemitidas: {} | módulos reemitidos: {} | contexto da emissão {:.1} ms",
-        r.corpo_alterado.len(),
-        r.api_alterada.len(),
-        r.dependentes_invalidados,
-        r.bibliotecas_reemitidas,
-        r.modulos_reemitidos,
-        r.emissao_contexto.as_secs_f64() * 1000.0
+        "   body changed: {} | API changed: {} (+{} dependents) | reemitted libraries: {} | reemitted modules: {} | emission context {:.1} ms",
+        r.body_changed.len(),
+        r.api_changed.len(),
+        r.invalidated_dependents,
+        r.reemitted_libraries,
+        r.reemitted_modules,
+        r.emit_context.as_secs_f64() * 1000.0
     );
-    let api_mudou_no_corpo = r.api_alterada.len();
-    restaurar(&alvo, base);
-    let _ = tamanho;
+    let api_changed_in_body = r.api_changed.len();
+    restore(&target, base);
+    let _ = size;
 
-    // 2. Edição de API pública: função de topo pública nova.
-    let tamanho = acrescentar(&alvo, "\nvoid forjaApi0() { print('api 0'); }\n").expect("edição");
-    sessao.arquivo_mudou(&alvo);
-    let r = sessao.compilar().expect("edição de API");
-    linha("edição de API", &r);
+    // 2. Public API edit: a new public top-level function.
+    let size = append(&target, "\nvoid forgeApi0() { print('api 0'); }\n").expect("edit");
+    session.arquivo_mudou(&target);
+    let r = session.compilar().expect("API edit");
+    row("API edit", &r);
     println!(
-        "   API alterada: {} biblioteca(s), {} dependente(s) invalidado(s) | bibliotecas reemitidas: {} | módulos reemitidos: {} | contexto da emissão {:.1} ms",
-        r.api_alterada.len(),
-        r.dependentes_invalidados,
-        r.bibliotecas_reemitidas,
-        r.modulos_reemitidos,
-        r.emissao_contexto.as_secs_f64() * 1000.0
+        "   API changed: {} library(ies), {} dependent(s) invalidated | reemitted libraries: {} | reemitted modules: {} | emission context {:.1} ms",
+        r.api_changed.len(),
+        r.invalidated_dependents,
+        r.reemitted_libraries,
+        r.reemitted_modules,
+        r.emit_context.as_secs_f64() * 1000.0
     );
-    restaurar(&alvo, tamanho);
+    restore(&target, size);
 
-    // 3. Platô: N edições de corpo seguidas.
-    println!("\n== platô de memória ({edicoes} edições de corpo)");
+    // 3. Plateau: N body edits in a row.
+    println!("\n== memory plateau ({edits} body edits)");
     dartforge_instrument::reset_peak();
-    let mut vivos = Vec::with_capacity(edicoes);
-    let mut soma_ms = 0.0;
-    for i in 0..edicoes {
-        let tamanho = acrescentar(&alvo, &format!("\nvoid _forjaPlato{i}() {{ print('p{i}'); }}\n")).expect("edição");
-        sessao.arquivo_mudou(&alvo);
-        let r = sessao.compilar().expect("compilação do platô");
-        soma_ms += r.total().as_secs_f64() * 1000.0;
-        restaurar(&alvo, tamanho);
+    let mut live = Vec::with_capacity(edits);
+    let mut sum_ms = 0.0;
+    for i in 0..edits {
+        let size = append(&target, &format!("\nvoid _forgePlateau{i}() {{ print('p{i}'); }}\n")).expect("edit");
+        session.arquivo_mudou(&target);
+        let r = session.compilar().expect("plateau compilation");
+        sum_ms += r.total().as_secs_f64() * 1000.0;
+        restore(&target, size);
         let v = dartforge_instrument::live_bytes();
-        vivos.push(v);
-        if i < 3 || i + 1 == edicoes {
+        live.push(v);
+        if i < 3 || i + 1 == edits {
             println!(
-                "  edição {:>2}: vivos {:>8.2} MB | unidades no cache {} | retido pela sessão {:.2} MB | {:.0} ms",
+                "  edit {:>2}: live {:>8.2} MB | units in cache {} | retained by the session {:.2} MB | {:.0} ms",
                 i + 1,
                 v as f64 / MB,
-                sessao.unidades_em_cache(),
-                sessao.bytes_retidos() as f64 / MB,
+                session.cached_units(),
+                session.retained_bytes() as f64 / MB,
                 r.total().as_secs_f64() * 1000.0
             );
         }
     }
-    let primeiro = vivos[0] as f64 / MB;
-    let ultimo = *vivos.last().unwrap() as f64 / MB;
+    let first = live[0] as f64 / MB;
+    let last = *live.last().unwrap() as f64 / MB;
+    // `scripts/custo-zero.ps1` reads the average from this line with the
+    // regex `m\S*dia (\d+(?:\.\d+)?) ms/edi`, against binaries of older
+    // commits too: the line keeps its original wording.
     println!(
-        "vivos após 1ª edição {primeiro:.2} MB → após {edicoes}ª {ultimo:.2} MB (crescimento {:+.2} MB); pico {:.2} MB; média {:.2} ms/edição; vivos após a primeira compilação {:.2} MB",
-        ultimo - primeiro,
+        "vivos após 1ª edição {first:.2} MB → após {edits}ª {last:.2} MB (crescimento {:+.2} MB); pico {:.2} MB; média {:.2} ms/edição; vivos após a primeira compilação {:.2} MB",
+        last - first,
         dartforge_instrument::peak_bytes() as f64 / MB,
-        soma_ms / edicoes as f64,
-        vivos_apos_primeira as f64 / MB
+        sum_ms / edits as f64,
+        live_after_first as f64 / MB
     );
-    if api_mudou_no_corpo != 0 {
-        println!("aviso: a edição de corpo mexeu na API — o hash de API não está separando corpo de assinatura");
+    if api_changed_in_body != 0 {
+        println!("warning: the body edit touched the API — the API hash is not separating body from signature");
     }
 }
