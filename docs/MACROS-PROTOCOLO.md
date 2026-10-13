@@ -160,27 +160,27 @@ Implementação: `crates/macros_host/src/{aplicacoes,sessao}.rs`.
 ## 5. O serviço `macro.*`
 
 Transporte e handshake: os do `dfexec/1` (BUILD-PROTOCOLO.md §1–§2), com
-`"servicos": ["macro"]`. O executor responde ao `ola` com as macros do
-bootstrap (`macros: [{macro: "uri#Classe", construtores: [...]}]`).
+`"services": ["macro"]`. O executor responde ao `hello` com as macros do
+bootstrap (`macros: [{macro: "uri#Classe", constructors: [...]}]`).
 
 Hospedeiro → executor (numerados pelo hospedeiro):
 
-* `macro.instanciar {id, macro, construtor, argumentos: {posicionais,
-  nomeados}}` → `macro.instancia {id, instancia, interfaces}` — `interfaces`
+* `macro.instantiate {id, macro, constructor, arguments: {posicionais,
+  nomeados}}` → `macro.instance {id, instance, interfaces}` — `interfaces`
   são os nomes das interfaces de macro que a instância implementa
   (`ClassDeclarationsMacro`…), com que o hospedeiro decide as fases.
   Argumento: `{t: null|bool|int|double|string|lista|set|mapa|codigo|tipo,
   v}` (`int` em texto, para os 64 bits);
-* `macro.executar {id, instancia, fase: tipos|declaracoes|definicoes, alvo,
-  modelo}` → `macro.resultado {id, resultado}`; o `modelo` traz as
+* `macro.execute {id, instance, phase: tipos|declaracoes|definicoes, target,
+  model}` → `macro.result {id, result}`; o `model` traz as
   bibliotecas e, para classe, a **pré-busca** dos membros
   (`membros: {"<id>": {campos, metodos, construtores}}`): o `@JsonCodable` não
   faz ida e volta para eles;
-* `macro.descartar {instancia}`; `fim`.
+* `macro.discard {instance}`; `end`.
 
-Executor → hospedeiro, durante uma execução: `macro.consulta {id, execucao,
-tipo, args}` → `macro.resposta {id, valor}` ou `{id, erro: {tipo:
-implementacao|ciclo|inesperado, mensagem}}` (vira a `MacroException`
+Executor → hospedeiro, durante uma execução: `macro.query {id, execution,
+kind, args}` → `macro.response {id, value}` ou `{id, error: {kind:
+implementacao|ciclo|inesperado, message}}` (vira a `MacroException`
 correspondente na macro). Consultas: `resolverIdentificador {uri, nome}`,
 `declaracao {ident}`, `membros {dono, tipo}`, `tiposDe {biblioteca}`,
 `declaracoesDe`, `resolver {tipo}` → `{chave, declaracao, args}`,
@@ -221,17 +221,17 @@ revalidação só delas, corte pela saída.
   anotações idênticas no mesmo alvo — nada de índice ou intervalo da AST) e
   a fase.
 * **Dependências gravadas**:
-  * a impressão digital (blake3) do pedido `macro.executar`: versão do
+  * a impressão digital (blake3) do pedido `macro.execute`: versão do
     hospedeiro, identidade do executor (dada em `CacheDeMacros::novo`),
     identidade da implementação da macro (o fonte de todas as unidades do
     fecho de imports e exports da biblioteca da macro; as do SDK pela URI),
     construtor, argumentos, fase, alvo e **modelo com os membros
     pré-carregados**. O número da instância fica de fora (é do processo);
-  * cada `macro.consulta`, na ordem, com a impressão digital da resposta —
+  * cada `macro.query`, na ordem, com a impressão digital da resposta —
     inclusive as negativas (erro "não existe", p. ex. `resolveIdentifier`
     de um nome ausente) e as coleções na ordem que o executor viu;
   * as interfaces de macro de cada instância, para decidir as fases sem
-    `macro.instanciar`.
+    `macro.instantiate`.
 * **Revalidação**: o hospedeiro monta o pedido de novo; impressão igual, as
   consultas gravadas são refeitas contra o programa corrente, parando na
   primeira que responde diferente. Tudo igual → o resultado gravado entra

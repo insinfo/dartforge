@@ -20,7 +20,7 @@ abstract interface class Hospedeiro {
   Future<Object?> consultar(String tipo, Map<String, Object?> args);
 }
 
-/// Resposta de erro do hospedeiro (`{"erro": {"tipo", "mensagem"}}`).
+/// Resposta de erro do hospedeiro (`{"error": {"kind", "message"}}`).
 class ErroDoHospedeiro implements Exception {
   /// `implementacao` (uso errado da API), `ciclo` (ciclo de introspecção na
   /// fase de declarações) ou `inesperado`.
@@ -532,7 +532,7 @@ final class Modelo {
     }
   }
 
-  /// Recebe a parte `modelo` de um `macro.executar`: bibliotecas,
+  /// Recebe a parte `modelo` de um `macro.execute`: bibliotecas,
   /// declarações e as listas de membros da pré-busca.
   void receber(Map<String, Object?> modelo) {
     for (final b in (modelo['bibliotecas'] as List? ?? const [])) {

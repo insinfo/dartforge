@@ -93,7 +93,7 @@ o `build_runner` resolve as anotações pelo element model do analyzer e grava
 `x.macro_uses.json`. Um caso derivado de `410_json_codable` identifica 4 aplicações.
 A montagem dos resultados estruturados também existe em Dart
 (`packages/macros/lib/src/executor/montagem.dart`): a reprodução dos 8
-`macro.resultado` de `sessao.dfexec` produz os mesmos 3266 caracteres da
+`macro.result` de `sessao.dfexec` produz os mesmos 3266 caracteres da
 augmentation do CFE 3.6.2. Essa verificação cobre a montagem, não a
 execução da macro pelo builder.
 Um ensaio no mesmo isolate, usando `package:json` 0.20.4 com a API de
@@ -101,7 +101,7 @@ Um ensaio no mesmo isolate, usando `package:json` 0.20.4 com a API de
 precisa completar o modelo semântico a partir do `Resolver` para as fases
 restantes.
 O adaptador do builder já serializa classes simples e campos no formato de
-`macro.executar`; o modelo de `Endereco` bate estruturalmente com o pedido
+`macro.execute`; o modelo de `Endereco` bate estruturalmente com o pedido
 gravado do CFE, depois de trocar apenas a URI do pacote do fixture.
 Com esse modelo, `@JsonCodable` executa a fase de declarações no mesmo isolate
 e devolve o resultado estruturado idêntico ao da sessão CFE (3 consultas ao
@@ -115,7 +115,7 @@ O builder aceita um registro explícito de fábricas Dart do projeto
 (`macroDeclarationsBuilder`). O fixture `corpus/builders/macros_registry`
 registra as três macros de `package:json` no bootstrap do `build_runner`; o resultado da fase de
 declarações de `Endereco` é emitido em `modelos.macro_declarations.json` e
-comparado integralmente com o `macro.resultado` do CFE. Quatro aplicações são
+comparado integralmente com o `macro.result` do CFE. Quatro aplicações são
 executadas no mesmo isolate do builder. A fábrica recebe a anotação resolvida
 para poder ler argumentos; o registro distingue construtores nomeados. Esta
 etapa é opt-in; após as fases de declarações e definições, materializa
@@ -140,7 +140,7 @@ O hospedeiro Dart já atende `resolverIdentificador`, `resolver`,
 `ehExatamente` e `declaracao`: as 14 consultas da fase de definições de
 `Endereco` correspondem ao CFE depois de desconsiderar IDs de sessão.
 O `build_runner` também executa a fase de definições de `Endereco` no mesmo
-isolate; seu `macro.resultado` corresponde ao CFE depois da mesma
+isolate; seu `macro.result` corresponde ao CFE depois da mesma
 normalização. O hospedeiro responde `membros` de classes já processadas; as
 quatro aplicações agora terminam a fase de definições sem diagnósticos no
 fixture reduzido. Os resultados de `Endereco`, `SoSaida` e `SoEntrada`

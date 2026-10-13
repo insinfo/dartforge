@@ -83,12 +83,12 @@ Future<void> main() async {
       .readAsLinesSync();
   final pedido = sessao
       .map((linha) => jsonDecode(linha.substring(2)) as Map)
-      .singleWhere((m) => m['t'] == 'macro.executar' && m['id'] == 4);
+      .singleWhere((m) => m['t'] == 'macro.execute' && m['id'] == 4);
   final esperado =
-      trocarUri({'alvo': pedido['alvo'], 'modelo': pedido['modelo']});
+      trocarUri({'alvo': pedido['target'], 'modelo': pedido['model']});
   if (!igual(endereco['execucao'], esperado)) {
     throw StateError(
-        'modelo do Endereco difere do pedido macro.executar do CFE');
+        'modelo do Endereco difere do pedido macro.execute do CFE');
   }
   final caminho = File(
           '${Directory.current.path}${Platform.pathSeparator}lib${Platform.pathSeparator}modelos.dart')
@@ -112,13 +112,13 @@ Future<void> main() async {
     var resolvidas = 0;
     for (final linha in sessao) {
       final m = jsonDecode(linha.substring(2)) as Map;
-      if (m['t'] == 'macro.consulta' && m['execucao'] == 4) {
+      if (m['t'] == 'macro.query' && m['execution'] == 4) {
         consultas[m['id'] as int] = Map<String, Object?>.from(m['args'] as Map);
-      } else if (m['t'] == 'macro.resposta' && consultas.containsKey(m['id'])) {
+      } else if (m['t'] == 'macro.response' && consultas.containsKey(m['id'])) {
         final args = consultas.remove(m['id'])!;
         final obtido = await resolvedor.resolver(
             args['uri'] as String, args['nome'] as String);
-        if (!igual(obtido, m['valor']))
+        if (!igual(obtido, m['value']))
           throw StateError('resolverIdentificador divergiu do CFE: $args');
         resolvidas++;
       }
@@ -136,7 +136,7 @@ Future<void> main() async {
     final esperadoResultado = sessao
         .map((linha) => jsonDecode(linha.substring(2)) as Map)
         .singleWhere(
-            (m) => m['t'] == 'macro.resultado' && m['id'] == 4)['resultado'];
+            (m) => m['t'] == 'macro.result' && m['id'] == 4)['result'];
     if (!igual(resultado, esperadoResultado))
       throw StateError('fase de declarações divergiu do CFE');
     final declaracoes = jsonDecode(
@@ -258,9 +258,9 @@ Future<void> main() async {
     }
     final pedidoCfeDef = sessao
         .map((linha) => jsonDecode(linha.substring(2)) as Map)
-        .singleWhere((m) => m['t'] == 'macro.executar' && m['id'] == 8);
+        .singleWhere((m) => m['t'] == 'macro.execute' && m['id'] == 8);
     final membrosCfe =
-        trocarUri((pedidoCfeDef['modelo'] as Map)['membros']['1']);
+        trocarUri((pedidoCfeDef['model'] as Map)['membros']['1']);
     final geradoEndereco =
         pedidosDeDefinicao.singleWhere((a) => a['alvo'] == 'Endereco') as Map;
     final membrosBuilder =
@@ -280,15 +280,15 @@ Future<void> main() async {
     var respostasDef = 0;
     for (final linha in sessao) {
       final m = jsonDecode(linha.substring(2)) as Map;
-      if (m['t'] == 'macro.consulta' && m['execucao'] == 8) {
+      if (m['t'] == 'macro.query' && m['execution'] == 8) {
         pendentesDef[m['id'] as int] = Map<String, Object?>.from(m);
-      } else if (m['t'] == 'macro.resposta' &&
+      } else if (m['t'] == 'macro.response' &&
           pendentesDef.containsKey(m['id'])) {
         final pedido = pendentesDef.remove(m['id'])!;
-        final tipo = pedido['tipo'] as String;
+        final tipo = pedido['kind'] as String;
         final valor = await consultasDef.consultar(
             tipo, Map<String, Object?>.from(pedido['args'] as Map));
-        if (!igual(semIds(valor), semIds(m['valor']))) {
+        if (!igual(semIds(valor), semIds(m['value']))) {
           throw StateError('consulta de definição $tipo divergiu do CFE');
         }
         respostasDef++;
@@ -322,9 +322,9 @@ Future<void> main() async {
           resultadosDef.singleWhere((r) => r['alvo'] == alvo) as Map;
       final resultadoCfeDef = sessao
           .map((linha) => jsonDecode(linha.substring(2)) as Map)
-          .singleWhere((m) => m['t'] == 'macro.resultado' && m['id'] == idCfe);
+          .singleWhere((m) => m['t'] == 'macro.result' && m['id'] == idCfe);
       if (!igual(semIdDoAlvo(resultadoDef['resultado']),
-          semIdDoAlvo(resultadoCfeDef['resultado']))) {
+          semIdDoAlvo(resultadoCfeDef['result']))) {
         throw StateError('fase de definições de $alvo divergiu do CFE');
       }
     }

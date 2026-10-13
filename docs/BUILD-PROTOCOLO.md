@@ -174,9 +174,9 @@ stderr ao diagnóstico da ação ainda não foram feitos.
 ## 5. Serviço `macro.*`
 
 Definido em [`MACROS-PROTOCOLO.md`](MACROS-PROTOCOLO.md) §5 e implementado
-dos dois lados (`crates/macros_host/src/{protocolo,executor}.rs` e
+dos dois lados (`crates/macros_host/src/{protocol,executor}.rs` e
 `packages/macros/lib/src/executor/servico.dart`): o mesmo enquadramento e o
-mesmo handshake daqui, com `"servicos": ["macro"]` e as mensagens
-`macro.instanciar`/`macro.executar`/`macro.consulta`/`macro.resposta` no
+mesmo handshake daqui, com `"services": ["macro"]` e as mensagens
+`macro.instantiate`/`macro.execute`/`macro.query`/`macro.response` no
 lugar do `build.*`. Um executor que ofereça os dois serviços atende ao motor
 de build e às macros no mesmo processo.

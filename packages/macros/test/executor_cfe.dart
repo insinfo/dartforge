@@ -42,7 +42,7 @@ final class _HospedeiroGravado implements Hospedeiro {
     final erro = resposta.erro;
     if (erro != null) {
       throw ErroDoHospedeiro(
-          erro['tipo'] as String, erro['mensagem'] as String);
+          erro['kind'] as String, erro['message'] as String);
     }
     return resposta.valor;
   }
@@ -67,21 +67,21 @@ Future<void> main() async {
     final m = Map<String, Object?>.from(jsonDecode(linha.substring(2)) as Map);
     final id = m['id'];
     switch (m['t']) {
-      case 'macro.executar':
+      case 'macro.execute':
         execucoes[id as int] = m;
-      case 'macro.resultado':
+      case 'macro.result':
         resultados[id as int] =
-            Map<String, Object?>.from(m['resultado'] as Map);
-      case 'macro.consulta':
+            Map<String, Object?>.from(m['result'] as Map);
+      case 'macro.query':
         consultas[id as int] = m;
-      case 'macro.resposta':
+      case 'macro.response':
         final pedido = consultas.remove(id);
         if (pedido == null) throw StateError('resposta $id sem consulta');
-        (porExecucao[pedido['execucao'] as int] ??= []).add(_Consulta(
-          pedido['tipo'] as String,
+        (porExecucao[pedido['execution'] as int] ??= []).add(_Consulta(
+          pedido['kind'] as String,
           Map<String, Object?>.from(pedido['args'] as Map),
-          m['valor'],
-          m['erro'] is Map ? Map<String, Object?>.from(m['erro'] as Map) : null,
+          m['value'],
+          m['error'] is Map ? Map<String, Object?>.from(m['error'] as Map) : null,
         ));
     }
   }
@@ -91,11 +91,11 @@ Future<void> main() async {
     final execucao = entrada.value;
     final hospedeiro = _HospedeiroGravado(porExecucao[id] ?? []);
     final modelo = Modelo(hospedeiro)
-      ..receber(Map<String, Object?>.from(execucao['modelo'] as Map));
-    final alvoJson = Map<String, Object?>.from(execucao['alvo'] as Map);
+      ..receber(Map<String, Object?>.from(execucao['model'] as Map));
+    final alvoJson = Map<String, Object?>.from(execucao['target'] as Map);
     final alvo = modelo.declaracao(alvoJson);
     final nome = (alvoJson['ident'] as Map)['nome'] as String;
-    final fase = Fase.values.byName(execucao['fase'] as String);
+    final fase = Fase.values.byName(execucao['phase'] as String);
     final obtido =
         (await executarFase(_macro(nome), fase, alvo, Introspector(modelo)))
             .paraJson();

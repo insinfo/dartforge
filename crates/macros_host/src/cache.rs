@@ -4,12 +4,12 @@
 //!
 //! For each `(application, phase)` the cache keeps a record:
 //!
-//! * the fingerprint of the `macro.executar` **request** — the identity of
+//! * the fingerprint of the `macro.execute` **request** — the identity of
 //!   the macro implementation (the source of its library's import closure),
 //!   the constructor and the arguments, the phase, the target and the model
 //!   with the prefetched members —, plus the executor identity and the host
 //!   version;
-//! * each `macro.consulta`, **in order**, with the fingerprint of the answer
+//! * each `macro.query`, **in order**, with the fingerprint of the answer
 //!   — including the negative ones ("does not exist" errors) and the
 //!   collections in the order the executor received them;
 //! * the result.
@@ -287,7 +287,7 @@ fn response_digest(r: &Result<Value, QueryError>) -> Digest {
             hash_field(&mut h, &v.to_string());
         }
         Err(e) => {
-            hash_field(&mut h, "erro");
+            hash_field(&mut h, "error");
             hash_field(&mut h, e.kind);
             hash_field(&mut h, &e.message);
         }
@@ -295,7 +295,7 @@ fn response_digest(r: &Result<Value, QueryError>) -> Digest {
     *h.finalize().as_bytes()
 }
 
-/// The fingerprint of the `macro.executar` request, without the instance
+/// The fingerprint of the `macro.execute` request, without the instance
 /// number (which belongs to the executor process, not to the macro).
 pub(crate) fn request_digest(executor: &str, instance: &InstanceKey, phase: Phase, target: &Value, model: &Value) -> Digest {
     let mut h = blake3::Hasher::new();

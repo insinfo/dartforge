@@ -1,4 +1,4 @@
-//! The queries the executor makes during an execution (`macro.consulta`),
+//! The queries the executor makes during an execution (`macro.query`),
 //! served from the current program, and the assembly's [`Resolver`].
 //!
 //! The behavior follows that of CFE 3.6.2 (`kernel_macro_introspectors.dart`,

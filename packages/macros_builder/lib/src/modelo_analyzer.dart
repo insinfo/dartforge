@@ -1,4 +1,4 @@
-/// Primeira fatia do adaptador `BuildStep.resolver` -> `macro.executar`:
+/// Primeira fatia do adaptador `BuildStep.resolver` -> `macro.execute`:
 /// classes simples e seus campos, com o mesmo vocabulário do `dfexec/1`.
 /// Os demais tipos de declaração entram quando houver oráculo dirigido.
 library;

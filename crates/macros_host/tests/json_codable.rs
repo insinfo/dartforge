@@ -207,7 +207,7 @@ fn vm_runs_the_macro_and_matches_the_cfe() {
 /// `DARTFORGE_NATIVE_COMPILER` (its `compile-native` compiles the
 /// executor) and the `pub get` of each case.
 #[test]
-#[ignore = "requires DARTFORGE_NATIVE_COMPILER (dartforge with the nativo feature), the SDK and the pub get of corpus/macros"]
+#[ignore = "requires DARTFORGE_NATIVE_COMPILER (dartforge with the native feature), the SDK and the pub get of corpus/macros"]
 fn native_executor_matches_the_cfe() {
     let compiler = PathBuf::from(std::env::var_os("DARTFORGE_NATIVE_COMPILER").expect("DARTFORGE_NATIVE_COMPILER"));
     let sdk = sdk().expect("SDK (DARTFORGE_SDK_LIB)");

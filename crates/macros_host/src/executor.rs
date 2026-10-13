@@ -123,7 +123,7 @@ impl MacroExecutor for Unavailable {
 }
 
 /// The `macro.*` client over a channel. Requests are numbered by the host;
-/// during an execution, it answers the executor's `macro.consulta` queries.
+/// during an execution, it answers the executor's `macro.query` queries.
 pub struct DfexecExecutor<C: Channel> {
     channel: C,
     next: u64,
@@ -157,18 +157,18 @@ impl<C: Channel> DfexecExecutor<C> {
         loop {
             let m = self.channel.receive()?;
             match m.get("t").and_then(Value::as_str) {
-                Some("macro.consulta") => {
+                Some("macro.query") => {
                     let qid = m.get("id").cloned().unwrap_or(Value::Null);
-                    let kind = m.get("tipo").and_then(Value::as_str).unwrap_or("");
+                    let kind = m.get("kind").and_then(Value::as_str).unwrap_or("");
                     let args = m.get("args").cloned().unwrap_or(Value::Null);
                     let reply = match queries.query(kind, &args) {
-                        Ok(value) => json!({"t": "macro.resposta", "id": qid, "valor": value}),
-                        Err(e) => json!({"t": "macro.resposta", "id": qid, "erro": {"tipo": e.kind, "mensagem": e.message}}),
+                        Ok(value) => json!({"t": "macro.response", "id": qid, "value": value}),
+                        Err(e) => json!({"t": "macro.response", "id": qid, "error": {"kind": e.kind, "message": e.message}}),
                     };
                     self.channel.send(&reply)?;
                 }
-                Some("erro") => {
-                    let msg = m.get("mensagem").and_then(Value::as_str).unwrap_or("");
+                Some("error") => {
+                    let msg = m.get("message").and_then(Value::as_str).unwrap_or("");
                     return Err(format!("executor: {msg}"));
                 }
                 Some(x) if x == t && m.get("id").and_then(Value::as_u64) == Some(id) => return Ok(m),
@@ -199,9 +199,9 @@ impl<C: Channel> MacroExecutor for DfexecExecutor<C> {
 
     fn instantiate(&mut self, macro_: &str, constructor: &str, arguments: &Value) -> Result<(u64, Vec<String>), String> {
         let id = self.id();
-        self.channel.send(&json!({"t": "macro.instanciar", "id": id, "macro": macro_, "construtor": constructor, "argumentos": arguments}))?;
-        let r = self.await_reply(id, "macro.instancia", &mut NoQueries)?;
-        let instance = r.get("instancia").and_then(Value::as_u64).ok_or_else(|| format!("reply without an instance: {r}"))?;
+        self.channel.send(&json!({"t": "macro.instantiate", "id": id, "macro": macro_, "constructor": constructor, "arguments": arguments}))?;
+        let r = self.await_reply(id, "macro.instance", &mut NoQueries)?;
+        let instance = r.get("instance").and_then(Value::as_u64).ok_or_else(|| format!("reply without an instance: {r}"))?;
         let interfaces = r
             .get("interfaces")
             .and_then(Value::as_array)
@@ -212,15 +212,15 @@ impl<C: Channel> MacroExecutor for DfexecExecutor<C> {
 
     fn execute(&mut self, p: &ExecutionRequest, queries: &mut dyn QueryService) -> Result<ExecutionResult, String> {
         let id = self.id();
-        self.channel.send(&json!({"t": "macro.executar", "id": id, "instancia": p.instance, "fase": p.phase.name(),
-            "alvo": p.target, "modelo": p.model}))?;
-        let r = self.await_reply(id, "macro.resultado", queries)?;
-        result_from_json(r.get("resultado").ok_or("missing result")?)
+        self.channel.send(&json!({"t": "macro.execute", "id": id, "instance": p.instance, "phase": p.phase.name(),
+            "target": p.target, "model": p.model}))?;
+        let r = self.await_reply(id, "macro.result", queries)?;
+        result_from_json(r.get("result").ok_or("missing result")?)
     }
 
     fn shut_down(&mut self) {
         if self.started {
-            let _ = self.channel.send(&json!({"t": "fim"}));
+            let _ = self.channel.send(&json!({"t": "end"}));
             let _ = self.channel.receive();
             self.started = false;
         }

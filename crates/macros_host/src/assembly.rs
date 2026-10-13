@@ -439,7 +439,7 @@ fn list_pairs(v: &Value, field: &str) -> Result<Vec<(u64, Vec<Code>)>, String> {
         .collect()
 }
 
-/// The `resultado` of a `macro.resultado` message.
+/// The `resultado` of a `macro.result` message.
 pub fn result_from_json(v: &Value) -> Result<ExecutionResult, String> {
     let extends = match v.get("extends").and_then(Value::as_array) {
         None => Vec::new(),

@@ -61,10 +61,10 @@ final class _TabelaDaSessao implements ResolvedorMontagem {
   }
 
   void mensagem(Map<String, Object?> m) {
-    if (m['t'] == 'macro.consulta' && m['tipo'] == 'resolverIdentificador') {
+    if (m['t'] == 'macro.query' && m['kind'] == 'resolverIdentificador') {
       consultas[m['id'] as int] = Map<String, Object?>.from(m['args'] as Map);
-    } else if (m['t'] == 'macro.resposta' && consultas.containsKey(m['id'])) {
-      final resposta = m['valor'] as Map;
+    } else if (m['t'] == 'macro.response' && consultas.containsKey(m['id'])) {
+      final resposta = m['value'] as Map;
       final args = consultas.remove(m['id'])!;
       ids[resposta['id'] as int] = IdentificadorResolvido(
         resposta['nome'] as String,
@@ -95,8 +95,8 @@ void main() {
     final mensagem =
         Map<String, Object?>.from(jsonDecode(linha.substring(2)) as Map);
     tabela.mensagem(mensagem);
-    if (mensagem['t'] == 'macro.resultado') {
-      resultados.add(Map<String, Object?>.from(mensagem['resultado'] as Map));
+    if (mensagem['t'] == 'macro.result') {
+      resultados.add(Map<String, Object?>.from(mensagem['result'] as Map));
     }
   }
   final obtido = montarAugmentation(

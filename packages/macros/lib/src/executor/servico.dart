@@ -2,7 +2,7 @@
 /// docs/MACROS-PROTOCOLO.md §5), do lado do executor: recebe pedidos do
 /// hospedeiro, instancia macros pelo mapa do *bootstrap*, executa as fases e
 /// devolve os resultados; durante uma execução, as consultas da macro vão ao
-/// hospedeiro como `macro.consulta`.
+/// hospedeiro como `macro.query`.
 ///
 /// Não depende de `dart:io`: o transporte é um [Canal]. O executor nativo e
 /// o builder de materialização (docs/MACROS-COMPATIBILIDADE.md) usam o canal
@@ -55,36 +55,36 @@ final class _Servico {
   var _proximaConsulta = 1;
   _Servico(this.macros, this.canal, this.abi);
 
-  void _erro(Object? id, String mensagem) => canal.enviar({'t': 'erro', 'id': id, 'mensagem': mensagem});
+  void _erro(Object? id, String mensagem) => canal.enviar({'t': 'error', 'id': id, 'message': mensagem});
 
   /// Trata uma mensagem; `false` encerra.
   bool receber(Map<String, Object?> m) {
     final id = m['id'];
     switch (m['t']) {
-      case 'ola':
-        if (m['protocolo'] != protocolo) {
-          _erro(null, 'protocolo ${m['protocolo']} não suportado (este executor fala $protocolo)');
+      case 'hello':
+        if (m['protocol'] != protocolo) {
+          _erro(null, 'protocolo ${m['protocol']} não suportado (este executor fala $protocolo)');
           return false;
         }
         canal.enviar({
-          't': 'ola',
-          'protocolo': protocolo,
-          'servicos': ['macro'],
+          't': 'hello',
+          'protocol': protocolo,
+          'services': ['macro'],
           'executor': versaoDoExecutor,
           'abi': abi,
           'macros': [
             for (final MapEntry(:key, :value) in macros.entries)
-              {'macro': key, 'construtores': value.keys.toList()},
+              {'macro': key, 'constructors': value.keys.toList()},
           ],
         });
-      case 'macro.instanciar':
+      case 'macro.instantiate':
         try {
-          final fabrica = macros[m['macro']]?[m['construtor'] ?? ''];
+          final fabrica = macros[m['macro']]?[m['constructor'] ?? ''];
           if (fabrica == null) {
-            _erro(id, 'macro ${m['macro']} (construtor "${m['construtor']}") fora do bootstrap');
+            _erro(id, 'macro ${m['macro']} (construtor "${m['constructor']}") fora do bootstrap');
             return true;
           }
-          final args = m['argumentos'] as Map<String, Object?>? ?? const {};
+          final args = m['arguments'] as Map<String, Object?>? ?? const {};
           final modelo = Modelo(_SemHospedeiro());
           final macro = fabrica(
             [for (final a in args['posicionais'] as List? ?? const []) argumentoDeJson(a, modelo)],
@@ -95,25 +95,25 @@ final class _Servico {
           );
           final n = _proximaInstancia++;
           instancias[n] = macro;
-          canal.enviar({'t': 'macro.instancia', 'id': id, 'instancia': n, 'interfaces': interfacesDe(macro)});
+          canal.enviar({'t': 'macro.instance', 'id': id, 'instance': n, 'interfaces': interfacesDe(macro)});
         } catch (e) {
           _erro(id, 'falha ao instanciar ${m['macro']}: $e');
         }
-      case 'macro.executar':
+      case 'macro.execute':
         emCurso.add(_executar(m));
-      case 'macro.resposta':
+      case 'macro.response':
         final c = _consultas.remove(id);
-        final erro = m['erro'] as Map<String, Object?>?;
+        final erro = m['error'] as Map<String, Object?>?;
         if (c == null) break;
         if (erro != null) {
-          c.completeError(ErroDoHospedeiro(erro['tipo'] as String? ?? 'inesperado', erro['mensagem'] as String? ?? ''));
+          c.completeError(ErroDoHospedeiro(erro['kind'] as String? ?? 'inesperado', erro['message'] as String? ?? ''));
         } else {
-          c.complete(m['valor']);
+          c.complete(m['value']);
         }
-      case 'macro.descartar':
-        instancias.remove(m['instancia']);
-      case 'fim':
-        canal.enviar({'t': 'fim'});
+      case 'macro.discard':
+        instancias.remove(m['instance']);
+      case 'end':
+        canal.enviar({'t': 'end'});
         return false;
       default:
         _erro(id, 'mensagem desconhecida: ${m['t']}');
@@ -123,25 +123,25 @@ final class _Servico {
 
   Future<void> _executar(Map<String, Object?> m) async {
     final id = m['id'];
-    final macro = instancias[m['instancia']];
+    final macro = instancias[m['instance']];
     if (macro == null) {
-      _erro(id, 'instância ${m['instancia']} inexistente');
+      _erro(id, 'instância ${m['instance']} inexistente');
       return;
     }
-    final fase = Fase.values.byName(m['fase'] as String);
+    final fase = Fase.values.byName(m['phase'] as String);
     final modelo = Modelo(_PeloCanal(this, id as int));
-    modelo.receber(m['modelo'] as Map<String, Object?>? ?? const {});
-    final alvoJson = m['alvo'] as Map<String, Object?>;
+    modelo.receber(m['model'] as Map<String, Object?>? ?? const {});
+    final alvoJson = m['target'] as Map<String, Object?>;
     final Object alvo = alvoJson['k'] == 'biblioteca' ? modelo.biblioteca(alvoJson) : modelo.declaracao(alvoJson);
     final r = await executarFase(macro, fase, alvo, Introspector(modelo));
-    canal.enviar({'t': 'macro.resultado', 'id': id, 'resultado': r.paraJson()});
+    canal.enviar({'t': 'macro.result', 'id': id, 'result': r.paraJson()});
   }
 
   Future<Object?> consultar(int execucao, String tipo, Map<String, Object?> args) {
     final n = _proximaConsulta++;
     final c = Completer<Object?>();
     _consultas[n] = c;
-    canal.enviar({'t': 'macro.consulta', 'id': n, 'execucao': execucao, 'tipo': tipo, 'args': args});
+    canal.enviar({'t': 'macro.query', 'id': n, 'execution': execucao, 'kind': tipo, 'args': args});
     return c.future;
   }
 }

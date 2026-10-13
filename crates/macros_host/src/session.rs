@@ -107,15 +107,15 @@ pub struct Expansion {
 /// depends on these numbers.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Measurement {
-    /// Handshake and `macro.instanciar`.
+    /// Handshake and `macro.instantiate`.
     pub startup: Duration,
-    /// The model of the `macro.executar` request (target and member
+    /// The model of the `macro.execute` request (target and member
     /// prefetch).
     pub model: Duration,
-    /// `macro.executar` up to `macro.resultado`, **without** the time spent
+    /// `macro.execute` up to `macro.result`, **without** the time spent
     /// serving queries: the executor running the macro, plus the transport.
     pub execution: Duration,
-    /// Serving `macro.consulta` in the host.
+    /// Serving `macro.query` in the host.
     pub queries: Duration,
     /// Revalidating the cache: the request fingerprint and the recorded
     /// queries replayed against the current program.
@@ -192,7 +192,7 @@ impl QueryService for Timed<'_> {
 }
 
 /// Does the macro implement the phase interface for the target's kind? (the
-/// reply to `macro.instanciar` carries the interface names).
+/// reply to `macro.instantiate` carries the interface names).
 fn applies_in_phase(interfaces: &[String], target: &Target, phase: Phase) -> bool {
     let kind = match target {
         Target::Library(_) => "Library",

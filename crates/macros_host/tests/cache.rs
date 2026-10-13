@@ -1,7 +1,7 @@
 //! Acceptance of the expansion cache (docs/MACROS-PROTOCOLO.md §6) and of the
 //! diff-based reload, without a VM: a fake executor implements in Rust three
 //! deterministic macros that use the real protocol (request with the member
-//! prefetch, `macro.consulta` including a negative answer, a structured
+//! prefetch, `macro.query` including a negative answer, a structured
 //! result assembled and reloaded by the host).
 //!
 //! * `@Label` (declarations and definitions) — declares `label()` on the

@@ -48,12 +48,12 @@ Future<void> main() async {
   Map<String, Object?>? esperado;
   for (final linha in linhas) {
     final m = Map<String, Object?>.from(jsonDecode(linha.substring(2)) as Map);
-    if (m['t'] == 'macro.consulta' && m['execucao'] == 4) {
+    if (m['t'] == 'macro.query' && m['execution'] == 4) {
       consultas[m['id'] as int] = Map<String, Object?>.from(m['args'] as Map);
-    } else if (m['t'] == 'macro.resposta' && consultas.containsKey(m['id'])) {
-      respostas.add((consultas.remove(m['id'])!, m['valor']));
-    } else if (m['t'] == 'macro.resultado' && m['id'] == 4) {
-      esperado = Map<String, Object?>.from(m['resultado'] as Map);
+    } else if (m['t'] == 'macro.response' && consultas.containsKey(m['id'])) {
+      respostas.add((consultas.remove(m['id'])!, m['value']));
+    } else if (m['t'] == 'macro.result' && m['id'] == 4) {
+      esperado = Map<String, Object?>.from(m['result'] as Map);
     }
   }
   final hospedeiro = _HospedeiroDaSessao(respostas);

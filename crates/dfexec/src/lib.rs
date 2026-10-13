@@ -146,7 +146,7 @@ mod tests_mod {
     #[test]
     fn frame_round_trip() {
         let mut buf = Vec::new();
-        let m = json!({"t": "macro.executar", "id": 7, "texto": "ação ✓"});
+        let m = json!({"t": "macro.execute", "id": 7, "text": "ação ✓"});
         write_frame(&mut buf, &m).unwrap();
         assert_eq!(&buf[..4], &(buf.len() as u32 - 4).to_be_bytes());
         let mut r = &buf[..];
