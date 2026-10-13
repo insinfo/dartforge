@@ -688,7 +688,7 @@ impl Motor {
                 .iter()
                 .map(|u| dartforge_analysis::Pulados { fonte: &program.unit(*u).source, trechos: &program.unit(*u).pulados })
                 .collect();
-            let deferred = dartforge_analysis::private_decls::nao_usados_com_pulados(&units, &interner, &skipped);
+            let deferred = dartforge_analysis::private_decls::unused_with_skipped(&units, &interner, &skipped);
             deferred_privates.insert(*lib, deferred.into_iter().map(|(i, d)| (ids[i], d, phase::UNUSED_LOCAL_ELEMENTS)).collect());
             for (i, d, f) in found {
                 if let Some(p) = &program.unit(ids[i]).path {
