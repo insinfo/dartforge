@@ -57,6 +57,9 @@ pub fn literal_constructors(
             let Some(body) = bodies.units.get(u.0 as usize) else { continue };
             let unit = program.unit(u);
             let a = &unit.ast;
+            // `InstanceCreationExpression.isConst`: also without the keyword in a
+            // constant context (`const m = Module(...)`).
+            let mut parents = None;
             for (k, e) in a.exprs.iter().enumerate() {
                 let id = ExprId(k as u32);
                 let (with_new, the_name) = match &e.kind {
@@ -87,7 +90,9 @@ pub fn literal_constructors(
                 let marked = crate::phase_result::function_annotations(program, *f)
                     .iter()
                     .any(|m| crate::phase_result::meta_annotation(program, interner, where_, m, "literal"));
-                if marked {
+                let implicitly_const = !with_new
+                    && parents.get_or_insert_with(|| crate::typed_lints::unit_parents(program, u)).in_constant_context(a, id);
+                if marked && !implicitly_const {
                     candidates.push(Candidate { unit: u, lib, expr: id, name: the_name, with_new });
                 }
             }

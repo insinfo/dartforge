@@ -521,3 +521,39 @@ fn internal_is_the_meta_getter() {
     assert_eq!(found, vec![("lib/p.dart".to_string(), "invalid_export_of_internal_element".to_string(), 1)]);
     assert!(r.records[0].problem_message.contains("'B'"), "{}", r.records[0].problem_message);
 }
+
+/// A `@literal` constructor called without `const` in a constant context is
+/// already `const` (`InstanceCreationExpression.isConst`; ngrouter's
+/// `const routerModule = Module(...)`; checked against `dart analyze` 3.6.2,
+/// 2026-10-13).
+#[test]
+fn literal_constructor_in_a_constant_context() {
+    let Ok(engine) = Engine::discover() else {
+        eprintln!("SDK missing: test skipped");
+        return;
+    };
+    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let root = repo.join(format!("target/tmp-agent/literal-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("lib")).unwrap();
+    std::fs::create_dir_all(root.join(".dart_tool")).unwrap();
+    std::fs::write(root.join("pubspec.yaml"), "name: literal\npublish_to: none\nenvironment:\n  sdk: ^3.6.0\n").unwrap();
+    let meta = std::fs::canonicalize(repo.join("corpus/diagnosticos/pacotes/meta")).unwrap();
+    let cfg = serde_json::json!({ "configVersion": 2, "packages": [
+        { "name": "literal", "rootUri": "../", "packageUri": "lib/", "languageVersion": "3.6" },
+        { "name": "meta", "rootUri": format!("file://{}", meta.display()), "packageUri": "lib/", "languageVersion": "2.12" },
+    ]});
+    std::fs::write(root.join(".dart_tool/package_config.json"), cfg.to_string()).unwrap();
+    std::fs::write(
+        root.join("lib/a.dart"),
+        "import 'package:meta/meta.dart';\nclass M {\n  @literal\n  const M();\n}\nconst m = M();\nfinal n = M();\nvar l = const [M()];\nfinal o = [M()];\n",
+    )
+    .unwrap();
+    let sources = vec![root.join("lib/a.dart")];
+    let ex = Execution { workers: 1, batch_size: 1, progress: false, isolate: None, max_time: std::time::Duration::from_secs(600) };
+    let r = run_ours(&engine, &root, &sources, Some(&root.join(".dart_tool/package_config.json")), &filters::AnalysisOptions::default(), &ex);
+    let _ = std::fs::remove_dir_all(&root);
+    let found: Vec<(String, usize, usize)> = r.records.iter().map(|x| (x.code.clone(), x.line, x.column)).collect();
+    let code = "non_const_call_to_literal_constructor".to_string();
+    assert_eq!(found, vec![(code.clone(), 7, 11), (code, 9, 12)]);
+}
