@@ -608,7 +608,7 @@ impl<'a> Ctx<'a> {
 }
 
 /// Roda as regras ligadas (`ligada(nome)`) sobre uma unidade.
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut ctx = Ctx { u, interner, ligada, out: Vec::new() };
     if ligada("camel_case_types") || ligada("camel_case_extensions") {
         ctx.nomes_de_tipos();
@@ -641,7 +641,7 @@ mod testes {
         let mut nomes = Interner::new();
         let p = dartforge_frontend::parser::parse(fonte, &mut nomes);
         let u = Unidade { ast: &p.ast, unit: &p.unit, fonte };
-        executar(u, &nomes, &|_| true, None).into_iter().map(|r| (r.code.nome, fonte[r.span.start..r.span.end].to_string())).collect()
+        run(u, &nomes, &|_| true, None).into_iter().map(|r| (r.code.nome, fonte[r.span.start..r.span.end].to_string())).collect()
     }
 
     #[test]
@@ -688,7 +688,7 @@ mod testes {
             let fonte = "typedef int F(int x);\n";
             let mut nomes = Interner::new();
             let p = dartforge_frontend::parser::parse(fonte, &mut nomes);
-            executar(Unidade { ast: &p.ast, unit: &p.unit, fonte }, &nomes, &|_| true, None)
+            run(Unidade { ast: &p.ast, unit: &p.unit, fonte }, &nomes, &|_| true, None)
         };
         assert_eq!(relatos.len(), 1);
         assert_eq!(relatos[0].args, vec!["int Function(int x)".to_string()]);

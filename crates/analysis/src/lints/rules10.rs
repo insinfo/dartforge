@@ -49,7 +49,7 @@ fn lacos_de_colecao<'x>(a: &Ast, el: &'x CollectionElement, saida: &mut Vec<(&'x
 }
 
 /// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
     let mut relatar = |code: &'static CodigoLint, span: Span, args: &[&str]| {
@@ -311,7 +311,7 @@ mod testes {
         let mut nomes = Interner::new();
         let p = dartforge_frontend::parser::parse(fonte, &mut nomes);
         let u = Unidade { ast: &p.ast, unit: &p.unit, fonte };
-        let mut relatos = executar(u, &nomes, &|r| r == regra, None);
+        let mut relatos = run(u, &nomes, &|r| r == regra, None);
         relatos.sort_by_key(|r| (r.span.start, r.span.end));
         relatos.into_iter().map(|r| (r.code.unico, fonte[r.span.start..r.span.end].to_string())).collect()
     }

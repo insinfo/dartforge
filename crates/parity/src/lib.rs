@@ -79,7 +79,7 @@ pub fn diagnosticos_json(analise: &Analise, raiz: &Path, opcoes: &filtros::Opcoe
                     let mut names = dartforge_intern::Interner::new();
                     let parsed = dartforge_frontend::parser::parse(&a.texto, &mut names);
                     let unit = dartforge_analysis::Unidade { ast: &parsed.ast, unit: &parsed.unit, fonte: &a.texto };
-                    dartforge_analysis::lints::executar(unit, &names, &enabled)
+                    dartforge_analysis::lints::run(unit, &names, &enabled)
                 }
             };
             // Those of the rules that need the resolved program, already
@@ -241,7 +241,7 @@ pub fn diagnosticos_do_pubspec(raiz: &Path, opcoes: &filtros::Opcoes) -> Vec<jso
         .collect();
     if opcoes.regras.values().any(|enabled| *enabled) {
         let enabled = |rule: &str| opcoes.regras.get(rule).copied().unwrap_or(false);
-        for r in dartforge_analysis::lints::pubspec::executar(&text, &enabled) {
+        for r in dartforge_analysis::lints::pubspec::run(&text, &enabled) {
             if ignored.ignora(r.code.nome, r.code.unico, r.span.start) {
                 continue;
             }

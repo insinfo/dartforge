@@ -182,7 +182,7 @@ fn esquema(t: &str) -> Option<String> {
 }
 
 /// Os lints do `pubspec.yaml` com o texto `fonte`.
-pub fn executar(fonte: &str, ligada: &dyn Fn(&str) -> bool) -> Vec<LintReport> {
+pub fn run(fonte: &str, ligada: &dyn Fn(&str) -> bool) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let Ok(Some(raiz)) = yaml::ler(fonte) else { return out };
     let p = ler(&raiz);

@@ -101,7 +101,7 @@ pub struct CodigoLint {
 
 /// Roda todas as regras implementadas que estão ligadas (`ligada(nome)`)
 /// sobre uma unidade; os relatos saem em ordem de posição.
-pub fn executar(
+pub fn run(
     u: crate::Unidade<'_>,
     interner: &dartforge_intern::Interner,
     ligada: &dyn Fn(&str) -> bool,
@@ -461,7 +461,7 @@ pub fn in_package_test(sem: &Semantics<'_>) -> bool {
     caminho.starts_with(raiz.join("test"))
 }
 
-/// Como [`executar`], com a semântica da unidade (`u` tem de ser a árvore
+/// Como [`run`], com a semântica da unidade (`u` tem de ser a árvore
 /// do programa de `sem`, com o `interner` dele).
 pub fn run_with(
     u: crate::Unidade<'_>,
@@ -469,39 +469,39 @@ pub fn run_with(
     ligada: &dyn Fn(&str) -> bool,
     sem: Option<&Semantics<'_>>,
 ) -> Vec<rules::LintReport> {
-    let mut out = rules::executar(u, interner, ligada, sem);
-    out.extend(rules2::executar(u, interner, ligada, sem));
-    out.extend(rules3::executar(u, interner, ligada, sem));
-    out.extend(rules4::executar(u, interner, ligada, sem));
-    out.extend(rules5::executar(u, interner, ligada, sem));
-    out.extend(rules6::executar(u, interner, ligada, sem));
-    out.extend(rules7::executar(u, interner, ligada, sem));
-    out.extend(rules8::executar(u, interner, ligada, sem));
-    out.extend(rules9::executar(u, interner, ligada, sem));
-    out.extend(rules10::executar(u, interner, ligada, sem));
-    out.extend(rules11::executar(u, interner, ligada, sem));
-    out.extend(rules12::executar(u, interner, ligada, sem));
-    out.extend(rules13::executar(u, interner, ligada, sem));
-    out.extend(rules14::executar(u, interner, ligada, sem));
-    out.extend(rules15::executar(u, interner, ligada, sem));
-    out.extend(rules16::executar(u, interner, ligada, sem));
-    out.extend(rules17::executar(u, interner, ligada, sem));
-    out.extend(rules18::executar(u, interner, ligada, sem));
-    out.extend(rules19::executar(u, interner, ligada, sem));
-    out.extend(rules20::executar(u, interner, ligada, sem));
-    out.extend(rules21::executar(u, interner, ligada, sem));
-    out.extend(rules22::executar(u, interner, ligada, sem));
-    out.extend(rules23::executar(u, interner, ligada, sem));
-    out.extend(rules24::executar(u, interner, ligada, sem));
-    out.extend(rules25::executar(u, interner, ligada, sem));
-    out.extend(rules26::executar(u, interner, ligada, sem));
-    out.extend(rules27::executar(u, interner, ligada, sem));
-    out.extend(rules28::executar(u, interner, ligada, sem));
-    out.extend(rules29::executar(u, interner, ligada, sem));
-    out.extend(rules30::executar(u, interner, ligada, sem));
-    out.extend(rules31::executar(u, interner, ligada, sem));
-    out.extend(rules32::executar(u, interner, ligada, sem));
-    out.extend(rules33::executar(u, interner, ligada, sem));
+    let mut out = rules::run(u, interner, ligada, sem);
+    out.extend(rules2::run(u, interner, ligada, sem));
+    out.extend(rules3::run(u, interner, ligada, sem));
+    out.extend(rules4::run(u, interner, ligada, sem));
+    out.extend(rules5::run(u, interner, ligada, sem));
+    out.extend(rules6::run(u, interner, ligada, sem));
+    out.extend(rules7::run(u, interner, ligada, sem));
+    out.extend(rules8::run(u, interner, ligada, sem));
+    out.extend(rules9::run(u, interner, ligada, sem));
+    out.extend(rules10::run(u, interner, ligada, sem));
+    out.extend(rules11::run(u, interner, ligada, sem));
+    out.extend(rules12::run(u, interner, ligada, sem));
+    out.extend(rules13::run(u, interner, ligada, sem));
+    out.extend(rules14::run(u, interner, ligada, sem));
+    out.extend(rules15::run(u, interner, ligada, sem));
+    out.extend(rules16::run(u, interner, ligada, sem));
+    out.extend(rules17::run(u, interner, ligada, sem));
+    out.extend(rules18::run(u, interner, ligada, sem));
+    out.extend(rules19::run(u, interner, ligada, sem));
+    out.extend(rules20::run(u, interner, ligada, sem));
+    out.extend(rules21::run(u, interner, ligada, sem));
+    out.extend(rules22::run(u, interner, ligada, sem));
+    out.extend(rules23::run(u, interner, ligada, sem));
+    out.extend(rules24::run(u, interner, ligada, sem));
+    out.extend(rules25::run(u, interner, ligada, sem));
+    out.extend(rules26::run(u, interner, ligada, sem));
+    out.extend(rules27::run(u, interner, ligada, sem));
+    out.extend(rules28::run(u, interner, ligada, sem));
+    out.extend(rules29::run(u, interner, ligada, sem));
+    out.extend(rules30::run(u, interner, ligada, sem));
+    out.extend(rules31::run(u, interner, ligada, sem));
+    out.extend(rules32::run(u, interner, ligada, sem));
+    out.extend(rules33::run(u, interner, ligada, sem));
     out.sort_by_key(|r| (r.span.start, r.span.end));
     out
 }
