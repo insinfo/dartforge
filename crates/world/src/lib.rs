@@ -558,6 +558,7 @@ pub fn check_consistency(e: WorldInput<'_>, r: &Roots, world: &World) -> Vec<Inc
     }
     m.classes = world.classes.clone();
     m.fn_live = world.functions.clone();
+    m.foreign_open |= world.functions.iter().enumerate().any(|(i, v)| *v && opens_foreign(e.program, FunctionElementId(i as u32)));
     m.var_live = world.variables.clone();
     m.tearoff = world.tearoffs.clone();
     m.sel = world.selectors.clone();
@@ -692,6 +693,59 @@ pub(crate) struct Engine<'a> {
     /// Interface (outside `core`/`_interceptors`/`collection`) → native
     /// classes that implement it: a live `ByteBuffer` may be a JS `ArrayBuffer`.
     natives_by_interface: HashMap<ClassId, Vec<ClassId>>,
+    /// Whether a foreign object (a typed array, a DOM node) can reach the
+    /// program: some function of a [`FOREIGN_LIBRARIES`] library or a
+    /// non-SDK `external` function is live. Until then, the natives outside
+    /// the JS built-ins are not instantiated by being live as a type
+    /// ([`Engine::held_natives`]).
+    foreign_open: bool,
+    /// Natives live as a type while [`Engine::foreign_open`] is false: they
+    /// are instantiated when it opens.
+    held_natives: Vec<ClassId>,
+}
+
+/// Libraries whose code creates or receives objects of the native classes
+/// outside the JS built-ins (`dart:_interceptors`). Without a live function
+/// of one of them (or a non-SDK `external`), no `Uint8Array` or DOM node
+/// exists in the program, whatever types it mentions: the typed data views
+/// are only born in `dart:_native_typed_data` (`JS('NativeUint8List',
+/// 'new Uint8Array(#)')`), reached through the factories of
+/// `dart:typed_data`. It is the `NativeBehavior.typesInstantiated` of
+/// dart2js (`native/behavior.dart`), coarsened to the library.
+pub const FOREIGN_LIBRARIES: &[&str] = &[
+    "dart:typed_data",
+    "dart:_native_typed_data",
+    "dart:html",
+    "dart:html_common",
+    "dart:svg",
+    "dart:web_audio",
+    "dart:web_gl",
+    "dart:indexed_db",
+    "dart:web_sql",
+    "dart:js",
+    "dart:js_util",
+    "dart:js_interop",
+    "dart:js_interop_unsafe",
+    "dart:_js_annotations",
+];
+
+/// Whether the native class `c` is a JS built-in (its library is
+/// `dart:_interceptors`, `dart:_js_helper` or `dart:core`): those become
+/// instances without any code of the program (`"olá"`, `[]`), and the gate of
+/// [`Engine::foreign_open`] does not apply to them.
+fn is_builtin_native(p: &dartforge_elements::model::Program, c: ClassId) -> bool {
+    matches!(p.library(p.class(c).library).uri.as_str(), "dart:_interceptors" | "dart:_js_helper" | "dart:core")
+}
+
+/// Whether the live function `f` opens the gate of [`Engine::foreign_open`].
+fn opens_foreign(p: &dartforge_elements::model::Program, f: FunctionElementId) -> bool {
+    let func = p.function(f);
+    let lib = p.library(func.library);
+    if lib.is_sdk {
+        FOREIGN_LIBRARIES.contains(&lib.uri.as_str())
+    } else {
+        func.external
+    }
 }
 
 impl<'a> Engine<'a> {
@@ -740,6 +794,8 @@ impl<'a> Engine<'a> {
             natives: HashSet::new(),
             int_num: None,
             natives_by_interface: HashMap::new(),
+            foreign_open: std::env::var("DARTFORGE_JSPROD_NATIVE_GATE").is_ok_and(|v| v == "0"),
+            held_natives: Vec::new(),
         }
     }
 
@@ -768,6 +824,21 @@ impl<'a> Engine<'a> {
         self.fn_live[i] = true;
         self.cause_fn[i] = Some(self.cause);
         self.queue.push_back(Item::Function(f));
+        if !self.foreign_open && opens_foreign(self.e.program, f) {
+            self.open_foreign(f);
+        }
+    }
+
+    /// Opens the gate of [`Engine::foreign_open`]: the held natives are
+    /// instantiated, with the function that opened it as the cause.
+    fn open_foreign(&mut self, f: FunctionElementId) {
+        self.foreign_open = true;
+        let saved = self.cause;
+        self.cause = Cause::Function(f);
+        for c in std::mem::take(&mut self.held_natives) {
+            self.instantiate(c);
+        }
+        self.cause = saved;
     }
 
     pub(crate) fn use_variable(&mut self, v: VariableId) {
@@ -1113,11 +1184,21 @@ impl<'a> Engine<'a> {
         // A native class live as a type is instantiated: the object comes from
         // the browser (or is a JS primitive), not from a `new` in the program.
         if self.natives.contains(&c) {
-            self.instantiate(c);
+            if self.foreign_open || is_builtin_native(p, c) {
+                self.instantiate(c);
+            } else if !self.held_natives.contains(&c) {
+                self.held_natives.push(c);
+            }
         }
         if let Some(ns) = self.natives_by_interface.get(&c).cloned() {
             for n in ns {
-                self.mark_type(n);
+                // With the gate closed no native object exists, so the
+                // interface does not make the native live, not even as a type.
+                if self.foreign_open || is_builtin_native(p, n) {
+                    self.mark_type(n);
+                } else if !self.held_natives.contains(&n) {
+                    self.held_natives.push(n);
+                }
             }
         }
         let mut supers: Vec<ClassId> = Vec::new();
