@@ -155,7 +155,7 @@ impl SharedFramesCfgContract {
             || forwards(&normalized, &self.group) != self.forwards
         {
             return Err(format!(
-                "quadros compartilhados: assinatura/repasses obsoletos de {}",
+                "shared frames: stale signature/forwardings of {}",
                 f.symbol
             ));
         }
@@ -172,7 +172,7 @@ impl SharedFramesCfgContract {
             .functions
             .iter_mut()
             .find(|c| c.symbol == self.internal)
-            .ok_or("quadros compartilhados: corpo fora da família")?;
+            .ok_or("shared frames: body outside the family")?;
         *current = normalized;
         verify_cfg_ref_slot_lives(&m, &r)
     }
@@ -249,7 +249,7 @@ pub fn produce_cfg_ref_slot_plans(
     verify_cfg_ref_slot_lives(m, r)?;
     let names: HashSet<_> = r.functions.iter().map(|f| f.symbol.as_str()).collect();
     if plans.len() != names.len() || plans.keys().any(|s| !names.contains(s.as_str())) {
-        return Err("quadros compartilhados: inventário de planos incompatível".into());
+        return Err("shared frames: incompatible plans inventory".into());
     }
     if r.borrowed_set.is_empty() {
         return Ok(0);
@@ -300,11 +300,11 @@ pub fn produce_cfg_ref_slot_plans(
         contract.check(f)?;
         let p = new_set
             .get_mut(&f.symbol)
-            .ok_or("quadros compartilhados: plano ausente")?;
+            .ok_or("shared frames: missing plan")?;
         for v in contract.pairs().iter().flat_map(|(q, i)| [q, i]) {
             if p.classes.get(v).is_some_and(|c| *c != Ownership::Trivial) {
                 return Err(format!(
-                    "quadros compartilhados: classe conflitante em {} v{}",
+                    "shared frames: conflicting class in {} v{}",
                     f.symbol, v.0
                 ));
             }
@@ -512,7 +512,7 @@ mod tests {
             unreachable!()
         };
         args[1] = args[3].clone();
-        assert!(c.check(&a).unwrap_err().contains("obsoletos"));
+        assert!(c.check(&a).unwrap_err().contains("stale"));
     }
 
     #[test]
@@ -540,7 +540,7 @@ mod tests {
         assert!(
             verify_tokens(f, &p.classes, &FunctionTables::default(), &p.tokens)
                 .unwrap_err()
-                .contains("divergem")
+                .contains("diverge")
         );
     }
 
@@ -652,7 +652,7 @@ mod tests {
             let frames = super::super::frames::at_landing_pad_entry(&a, &p.tables).unwrap();
             assert!(
                 frames[&BlockId(1)].is_empty(),
-                "empréstimo virou owner de cleanup"
+                "borrow became a cleanup owner"
             );
             p.owners_at_landing_pad =
                 tokens_at_landing_pad_entry(&a, &p.classes, &p.tables, &p.tokens).unwrap();

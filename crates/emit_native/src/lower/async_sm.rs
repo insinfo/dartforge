@@ -97,7 +97,7 @@ pub fn body_type(m: ast::AsyncModifier) -> BodyType {
         ast::AsyncModifier::Async => BodyType::Async,
         ast::AsyncModifier::SyncStar => BodyType::SyncStar,
         ast::AsyncModifier::AsyncStar => BodyType::AsyncStar,
-        ast::AsyncModifier::None => panic!("corpo síncrono não é suspenso"),
+        ast::AsyncModifier::None => panic!("synchronous body is not suspended"),
     }
 }
 
@@ -405,7 +405,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
         // The jump on the state, at the end of the entry block.
         let st = b.async_state.take().expect("estado async");
-        let idx0 = b.func.blocks.iter().position(|x| x.id == entry).expect("entrada");
+        let idx0 = b.func.blocks.iter().position(|x| x.id == entry).expect("entry");
         b.func.blocks[idx0].terminator = Terminator::Switch {
             val: state,
             default: start,
@@ -664,7 +664,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `async*`: ends the body (through the `finally`s) if the resumption value says
     /// that the subscription was cancelled.
     fn exit_if_cancelled(&mut self) {
-        let result = self.async_state.as_ref().expect("corpo async*").result.clone();
+        let result = self.async_state.as_ref().expect("async* body").result.clone();
         let cancelled = self.coerce(result, Type::I1);
         let exit = self.new_block();
         let follow = self.new_block();
@@ -695,7 +695,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if self.is_terminated() {
             return;
         }
-        let st = self.async_state.as_ref().expect("corpo gerador");
+        let st = self.async_state.as_ref().expect("generator body");
         let (frame, iterator, controller) = (st.frame.clone(), st.iterator.clone(), st.completer.clone());
         let k = st.resumptions.len() as i64 + 1;
         if ty == Some(BodyType::SyncStar) {
@@ -709,7 +709,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.terminate_raw(Operand::Constant(Constant::Bool(true)));
             let resumption = self.register_resumption(k, suspends);
             // The exception of the iterator of a `yield*` comes back thrown here.
-            let st = self.async_state.as_ref().expect("corpo sync*");
+            let st = self.async_state.as_ref().expect("sync* body");
             let (code, result) = (st.code.clone(), st.result.clone());
             self.set_block(resumption);
             self.throw_if_error(code, result, span);
@@ -821,7 +821,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Creates the resumption block of state `k`, suspended in `suspends`.
     fn register_resumption(&mut self, k: i64, suspends: BlockId) -> BlockId {
         let resumption = self.new_block();
-        let st = self.async_state.as_mut().expect("corpo suspenso");
+        let st = self.async_state.as_mut().expect("suspended body");
         st.resumptions.push((k, resumption));
         st.suspensions.push((suspends, resumption));
         resumption
@@ -867,7 +867,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// completer)` and the raw ret. An exception from `_asyncReturn` (the `as T`
     /// of the value) goes to the top handler.
     pub fn async_return(&mut self, v: Option<Operand>) {
-        let st = self.async_state.as_ref().expect("corpo async");
+        let st = self.async_state.as_ref().expect("async body");
         let completer = st.completer.clone();
         match st.ty {
             BodyType::Async => {}
@@ -912,7 +912,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if self.is_terminated() {
             return Operand::Constant(Constant::Null);
         }
-        let st = self.async_state.as_ref().expect("corpo async");
+        let st = self.async_state.as_ref().expect("async body");
         let (frame, fn_body) = (st.frame.clone(), st.body.clone());
         let k = st.resumptions.len() as i64 + 1;
         // The position of the `await` (its `fileOffset`): that of the frame of whoever
@@ -926,7 +926,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let suspends = self.current_block;
         self.terminate_raw(Operand::Constant(Constant::Null));
         let resumption = self.register_resumption(k, suspends);
-        let st = self.async_state.as_ref().expect("corpo async");
+        let st = self.async_state.as_ref().expect("async body");
         let (code, result) = (st.code.clone(), st.result.clone());
         self.set_block(resumption);
         let origin = self.throw_if_error(code, result.clone(), span);
@@ -1061,7 +1061,7 @@ fn read_from_frame(frame: &Operand, slot: usize, ty: Type, dest: ValueId, next: 
         Type::Void | Type::Ptr => Vec::new(),
         // Unboxed SIMD vectors only exist in synchronous functions
         // (`lower/simd.rs` does not produce them in an asynchronous body).
-        Type::V4F32 | Type::V4I32 | Type::V2F64 => unreachable!("vetor SIMD sem caixa num quadro assíncrono"),
+        Type::V4F32 | Type::V4I32 | Type::V2F64 => unreachable!("unboxed SIMD vector in an asynchronous frame"),
     }
 }
 
@@ -1132,7 +1132,7 @@ fn store_in_frame(frame: &Operand, slot: usize, val_ref: Operand, ty: Type, next
             (Operand::Val(t), 0)
         }
         Type::Void | Type::Ptr => return exit,
-        Type::V4F32 | Type::V4I32 | Type::V2F64 => unreachable!("vetor SIMD sem caixa num quadro assíncrono"),
+        Type::V4F32 | Type::V4I32 | Type::V2F64 => unreachable!("unboxed SIMD vector in an asynchronous frame"),
     };
     exit.push((
         new_value(next),

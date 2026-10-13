@@ -21,12 +21,12 @@ fn main() {
 
     let programs = list_programs(&corpus_dir, filter.as_deref());
     if programs.is_empty() {
-        eprintln!("Nenhum programa encontrado em {}", corpus_dir.display());
+        eprintln!("No program found in {}", corpus_dir.display());
         std::process::exit(1);
     }
 
     println!("=== DartForge Nativo (LLVM AOT) — Diferencial contra VM ===");
-    println!("Total de programas selecionados: {}", programs.len());
+    println!("Total selected programs: {}", programs.len());
     println!();
 
     let mut pass = 0usize;
@@ -44,7 +44,7 @@ fn main() {
         {
             Ok(out) => out,
             Err(e) => {
-                eprintln!("[{}/{}] FAIL {name}: falha ao invocar dart run: {e}", idx + 1, programs.len());
+                eprintln!("[{}/{}] FAIL {name}: failed to invoke dart run: {e}", idx + 1, programs.len());
                 fail += 1;
                 continue;
             }
@@ -78,7 +78,7 @@ fn main() {
         let comp_duration = t_comp_start.elapsed();
 
         if let Err(e) = comp_res {
-            eprintln!("[{}/{}] FAIL {name} (compilação): {e}", idx + 1, programs.len());
+            eprintln!("[{}/{}] FAIL {name} (compilation): {e}", idx + 1, programs.len());
             fail += 1;
             continue;
         }
@@ -87,7 +87,7 @@ fn main() {
         let nat_res = match Command::new(&exe_output).output() {
             Ok(out) => out,
             Err(e) => {
-                eprintln!("[{}/{}] FAIL {name} (execução): {e}", idx + 1, programs.len());
+                eprintln!("[{}/{}] FAIL {name} (execution): {e}", idx + 1, programs.len());
                 fail += 1;
                 continue;
             }
@@ -130,7 +130,7 @@ fn main() {
     }
 
     println!();
-    println!("=== RESULTADO FINAL: {}/{} PASSOU ({:.1}%) ===", pass, programs.len(), (pass as f64 / programs.len() as f64) * 100.0);
+    println!("=== FINAL RESULT: {}/{} PASSED ({:.1}%) ===", pass, programs.len(), (pass as f64 / programs.len() as f64) * 100.0);
     if fail > 0 {
         std::process::exit(1);
     }

@@ -113,7 +113,7 @@ fn borrowed_phi_preserves_real_entry_owner() {
         },
     );
     let error = verify(&f, &c).unwrap_err();
-    assert!(error.contains("owner ou escopo incompatível"), "{error}");
+    assert!(error.contains("incompatible owner or scope"), "{error}");
 }
 
 #[test]
@@ -167,7 +167,7 @@ fn borrowed_phi_does_not_lose_scope_inherited_from_alias() {
     assert!(
         verify(&f, &c)
             .unwrap_err()
-            .contains("owner ou escopo incompatível")
+            .contains("incompatible owner or scope")
     );
     // The result chain keeps the limit, even with a zero direct scope.
     c.insert(
@@ -266,7 +266,7 @@ fn borrowed_phi_checks_lexical_limit_in_full_wrapper() {
     assert!(
         produce_and_verify_tokens(&f, &mut c, &mut p, &FunctionTables::default(), &e)
             .unwrap_err()
-            .contains("fora do escopo 7")
+            .contains("outside scope 7")
     );
     assert_eq!(c, before);
     assert_eq!(p.instructions, effects);
@@ -359,7 +359,7 @@ fn runtime_pending_checks_cleanup_without_llvm_landing_pad() {
     assert!(
         verify_tokens(&f, &c, &t, &p)
             .unwrap_err()
-            .contains("não consumidos")
+            .contains("not consumed")
     );
     f.blocks[1].instructions.push(drop(5, 1));
     c.insert(ValueId(5), Ownership::Trivial);
@@ -403,7 +403,7 @@ fn runtime_pending_cannot_be_published_as_llvm_invoke() {
     assert!(
         verify_tokens(&f, &c, &t, &p)
             .unwrap_err()
-            .contains("não invoke LLVM")
+            .contains("not an LLVM invoke")
     );
 }
 
@@ -527,13 +527,13 @@ fn copy_move_drop_and_double_consumption() {
     verify(&f, &c).unwrap();
     f.blocks[0].instructions.push(drop(4, 2));
     c.insert(ValueId(4), Ownership::Trivial);
-    assert!(verify(&f, &c).unwrap_err().contains("indisponível v2"));
+    assert!(verify(&f, &c).unwrap_err().contains("unavailable token v2"));
     f.blocks[0].instructions.pop();
     c.remove(&ValueId(4));
     f.blocks[0].instructions[2] = drop(3, 1);
-    assert!(verify(&f, &c).unwrap_err().contains("indisponível v1"));
+    assert!(verify(&f, &c).unwrap_err().contains("unavailable token v1"));
     f.blocks[0].instructions[1] = move_inst(2, 0);
-    assert!(verify(&f, &c).unwrap_err().contains("exige Owned"));
+    assert!(verify(&f, &c).unwrap_err().contains("requires Owned"));
 }
 
 #[test]
@@ -542,7 +542,7 @@ fn exit_with_token_and_join_with_conditional_consumption_fail() {
     assert!(
         verify(&f, &classes(&[1], &[]))
             .unwrap_err()
-            .contains("não consumidos")
+            .contains("not consumed")
     );
     let f = function(vec![
         block(
@@ -560,9 +560,9 @@ fn exit_with_token_and_join_with_conditional_consumption_fail() {
     ]);
     let e = verify(&f, &classes(&[1], &[3])).unwrap_err();
     assert!(
-        e.contains("junção b3")
-            && e.contains("caminho anterior [0, 1, 3]")
-            && e.contains("caminho [0, 2]"),
+        e.contains("join b3")
+            && e.contains("previous path [0, 1, 3]")
+            && e.contains("path [0, 2]"),
         "{e}"
     );
 }
@@ -714,7 +714,7 @@ fn phi_producer_rejects_borrow_and_originless_cycle_without_changing_maps() {
     assert!(
         super::super::produce_arc_contracts(&f, &mut c, &mut p)
             .unwrap_err()
-            .contains("entrada não é owned/null")
+            .contains("entry is not owned/null")
     );
     assert_eq!(c, initial);
     assert!(p.instructions.is_empty());
@@ -726,7 +726,7 @@ fn phi_producer_rejects_borrow_and_originless_cycle_without_changing_maps() {
     assert!(
         super::super::produce_arc_contracts(&f, &mut c, &mut p)
             .unwrap_err()
-            .contains("sem origem owned/null")
+            .contains("without an owned/null origin")
     );
     assert_eq!(c, initial);
     assert!(p.instructions.is_empty());
@@ -743,7 +743,7 @@ fn verified_production_does_not_publish_function_metadata_with_leaked_token() {
     assert!(
         super::super::produce_and_verify_tokens(&f, &mut c, &mut p, &t, &s)
             .unwrap_err()
-            .contains("não consumidos")
+            .contains("not consumed")
     );
     assert_eq!(c, initial);
     assert!(p.instructions.is_empty());
@@ -813,7 +813,7 @@ fn audited_borrowed_result_depends_on_argument_owner() {
     // Releasing the owner before the last use of the borrow is rejected.
     f.blocks[1].instructions.rotate_right(1);
     let error = verify_tokens(&f, &c, &t, &p).unwrap_err();
-    assert!(error.contains("indisponível v1"), "{error}");
+    assert!(error.contains("unavailable token v1"), "{error}");
 }
 
 #[test]
@@ -849,7 +849,7 @@ fn borrow_does_not_outlive_consumed_owner_or_escape_in_return() {
     assert!(
         verify_tokens(&f, &c, &FunctionTables::default(), &p)
             .unwrap_err()
-            .contains("indisponível v1")
+            .contains("unavailable token v1")
     );
     f.blocks[0].instructions.truncate(2);
     f.blocks[0].terminator = Terminator::Return(Some(value(2)));
@@ -861,7 +861,7 @@ fn borrow_does_not_outlive_consumed_owner_or_escape_in_return() {
     assert!(
         verify_tokens(&f, &c, &FunctionTables::default(), &p)
             .unwrap_err()
-            .contains("retorno não satisfaz")
+            .contains("return does not satisfy")
     );
 }
 
@@ -934,13 +934,13 @@ fn invoke_consumes_argument_on_both_exits_and_produces_only_on_success() {
     assert!(
         verify_tokens(&f, &c, &t, &p)
             .unwrap_err()
-            .contains("não consumidos")
+            .contains("not consumed")
     );
     // Invoke of a callee that does not fail: the landing pad is dead and the
     // exceptional exit is accepted; what is missing is still the consumption.
     p.instructions.get_mut(&ValueId(2)).unwrap().may_fail = false;
     let error = verify_tokens(&f, &c, &t, &p).unwrap_err();
-    assert!(!error.contains("saídas excepcionais") && error.contains("não consumidos"), "{error}");
+    assert!(!error.contains("exceptional exits") && error.contains("not consumed"), "{error}");
 }
 
 #[test]
@@ -983,13 +983,13 @@ fn strong_load_creates_token_and_store_moves_single_consumption() {
     verify(&f, &c).unwrap();
     f.blocks[0].instructions.push(drop(4, 2));
     c.insert(ValueId(4), Ownership::Trivial);
-    assert!(verify(&f, &c).unwrap_err().contains("indisponível"));
+    assert!(verify(&f, &c).unwrap_err().contains("unavailable"));
     f.blocks[0].instructions.pop();
     c.remove(&ValueId(4));
     if let Instruction::ArcStoreStrong { mode, .. } = &mut f.blocks[0].instructions[2].1 {
         *mode = StrongStoreMode::Copy;
     }
-    assert!(verify(&f, &c).unwrap_err().contains("não consumidos"));
+    assert!(verify(&f, &c).unwrap_err().contains("not consumed"));
 }
 
 #[test]
@@ -1000,7 +1000,7 @@ fn missing_stale_contracts_and_phi_with_double_consumption_fail() {
         Terminator::Return(None),
     )]);
     let c = classes(&[], &[1]);
-    assert!(verify(&f, &c).unwrap_err().contains("sem contrato"));
+    assert!(verify(&f, &c).unwrap_err().contains("without a"));
     let mut p = TokenPlan::default();
     p.instructions.insert(ValueId(1), TokenEffect::default());
     verify_tokens(&f, &c, &FunctionTables::default(), &p).unwrap();
@@ -1008,7 +1008,7 @@ fn missing_stale_contracts_and_phi_with_double_consumption_fail() {
     assert!(
         verify_tokens(&f, &c, &FunctionTables::default(), &p)
             .unwrap_err()
-            .contains("obsoleto")
+            .contains("stale")
     );
     let f = function(vec![
         block(0, vec![copy_inst(1, 0)], Terminator::Branch(BlockId(1))),
@@ -1040,6 +1040,6 @@ fn missing_stale_contracts_and_phi_with_double_consumption_fail() {
     assert!(
         verify(&f, &classes(&[1, 2, 3], &[4, 5]))
             .unwrap_err()
-            .contains("já consumido")
+            .contains("already consumed")
     );
 }

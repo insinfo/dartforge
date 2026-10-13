@@ -274,14 +274,14 @@ fn copy(
         .max()
         .map_or(0, |b| u64::from(b) + 1);
     let mut value_id = || -> Result<ValueId, String> {
-        let id = u32::try_from(value).map_err(|_| "IDs SSA esgotados ao copiar entradas de Phi")?;
+        let id = u32::try_from(value).map_err(|_| "SSA IDs exhausted while copying Phi entries")?;
         value += 1;
         Ok(ValueId(id))
     };
     let mut copies = 0;
     for ((pred, block), entries) in edges {
         let (pred, block) = (BlockId(pred), BlockId(block));
-        let edge = BlockId(u32::try_from(next_block).map_err(|_| "IDs de bloco esgotados ao copiar entradas de Phi")?);
+        let edge = BlockId(u32::try_from(next_block).map_err(|_| "block IDs exhausted while copying Phi entries")?);
         next_block += 1;
         let mut instructions = Vec::new();
         let mut swaps = HashMap::new();
@@ -291,7 +291,7 @@ fn copy(
             swaps.insert(phi, v);
             copies += 1;
         }
-        let b = f.blocks.iter_mut().find(|b| b.id == pred).expect("predecessor conferido");
+        let b = f.blocks.iter_mut().find(|b| b.id == pred).expect("checked predecessor");
         match &mut b.terminator {
             Terminator::Branch(dest) => *dest = edge,
             Terminator::CondBranch { then_block, else_block, .. } => {
@@ -301,10 +301,10 @@ fn copy(
                     }
                 }
             }
-            _ => unreachable!("terminador conferido"),
+            _ => unreachable!("checked terminator"),
         }
         // All the Phis of the block now arrive through the new edge.
-        let alvo = f.blocks.iter_mut().find(|b| b.id == block).expect("bloco do Phi");
+        let alvo = f.blocks.iter_mut().find(|b| b.id == block).expect("block of the Phi");
         for (v, i, _) in &mut alvo.instructions {
             if let Instruction::Phi { incoming, .. } = i {
                 for (de, op) in incoming.iter_mut() {
@@ -368,7 +368,7 @@ mod tests {
             let mut without_copy = p.clone();
             let error = super::super::calls::produce_dart_calls_and_instructions(&f, &index, &mut without_copy.classes, &mut without_copy.tokens)
                 .unwrap_err();
-            assert!(error.contains("copie o empréstimo na aresta"), "{error}");
+            assert!(error.contains("copy the borrow on the edge"), "{error}");
             assert_eq!(copy_borrows(&mut f, &index, &p).unwrap(), 1);
             let edge = f.blocks.last().unwrap();
             assert!(matches!(edge.instructions.last(), Some((_, Instruction::ArcCopy { .. }, Type::Ref))));

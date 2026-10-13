@@ -128,7 +128,7 @@ impl<'x, 'a> Walk<'x, 'a> {
         };
         self.scopes
             .last_mut()
-            .expect("escopo")
+            .expect("scope")
             .insert(name.sym, d);
     }
 

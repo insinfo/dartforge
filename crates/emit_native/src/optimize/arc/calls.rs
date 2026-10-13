@@ -81,7 +81,7 @@ pub(super) fn external_summaries(functions: &[Function], locals: &HashSet<String
             let r = external_summary(f, symbol, args, *ret_ty);
             match by_symbol.get(symbol) {
                 Some(previous) if (&previous.parameters, previous.ret) != (&r.parameters, r.ret) => {
-                    return Err(format!("callee externo com assinaturas divergentes: {symbol}"));
+                    return Err(format!("external callee with divergent signatures: {symbol}"));
                 }
                 Some(_) => {}
                 None => {
@@ -106,7 +106,7 @@ impl<'a> DartFunctionIndex<'a> {
         let mut by_symbol = HashMap::with_capacity(summaries.len());
         for resumo in summaries {
             if by_symbol.insert(&resumo.symbol, resumo).is_some() {
-                return Err(format!("resumo Dart repetido: {}", resumo.symbol));
+                return Err(format!("repeated Dart summary: {}", resumo.symbol));
             }
         }
         Ok(Self { by_symbol })
@@ -145,7 +145,7 @@ pub fn verify_dart_function_contract(
     produce_and_verify_dart_tokens(f, &mut classes, &mut plan, tables, scopes)?;
     for (v, _, ty) in &f.params {
         if *ty != Type::Ref && classes[v] != Ownership::Trivial {
-            return Err(format!("parâmetro não Ref v{} não é Trivial", v.0));
+            return Err(format!("non-Ref parameter v{} is not Trivial", v.0));
         }
     }
     let types: HashMap<_, _> = f
@@ -173,7 +173,7 @@ pub fn verify_dart_function_contract(
             };
             if !compatible {
                 return Err(format!(
-                    "representação de retorno Dart incompatível: {}",
+                    "incompatible Dart return representation: {}",
                     f.symbol
                 ));
             }
@@ -299,9 +299,9 @@ fn classify_statics<'f, 'a>(
             let resumo = index
                 .by_symbol
                 .get(symbol)
-                .ok_or_else(|| format!("callee Dart sem resumo: {symbol}"))?;
+                .ok_or_else(|| format!("Dart callee without a summary: {symbol}"))?;
             if args.len() != resumo.parameters.len() || *ret_ty != resumo.ret || ty != ret_ty {
-                return Err(format!("assinatura Dart incompatível: {symbol}"));
+                return Err(format!("incompatible Dart signature: {symbol}"));
             }
             let class = if *ret_ty == Type::Ref {
                 Ownership::Owned
@@ -315,7 +315,7 @@ fn classify_statics<'f, 'a>(
             if new_classes.get(v).is_some_and(|c| *c != class)
                 || new_plan.instructions.get(v).is_some_and(|e| *e != effect)
             {
-                return Err(format!("contrato Dart conflitante em v{}", v.0));
+                return Err(format!("conflicting Dart contract at v{}", v.0));
             }
             new_classes.insert(*v, class);
             new_plan.instructions.insert(*v, effect);
@@ -365,7 +365,7 @@ fn produce_calls(
                     Operand::Constant(_) => true,
                 };
             if !compatible {
-                return Err(format!("argumento Dart incompatível: {}", resumo.symbol));
+                return Err(format!("incompatible Dart argument: {}", resumo.symbol));
             }
         }
     }
@@ -504,7 +504,7 @@ mod tests {
         .unwrap_err();
         assert!(
             error.contains("ARC003")
-                && error.contains("resultado v2 usado sem atravessar sua aresta de sucesso"),
+                && error.contains("result v2 used without crossing its success edge"),
             "{error}"
         );
         assert_eq!(format!("{caller:?}"), before);
@@ -614,7 +614,7 @@ mod tests {
         assert!(
             produce_dart_calls(&caller, &summaries, &mut classes, &mut plan)
                 .unwrap_err()
-                .contains("argumento")
+                .contains("argument")
         );
         assert!(classes.is_empty() && plan.instructions.is_empty());
     }
@@ -649,7 +649,7 @@ mod tests {
                 &ScopePlan::default()
             )
             .unwrap_err()
-            .contains("representação")
+            .contains("representation")
         );
         let (mut callee, plan) = identity();
         callee.blocks[0].instructions[0].1 = Instruction::CallStatic {
@@ -767,7 +767,7 @@ mod tests {
         assert!(
             produce_dart_calls(&caller, &[resumo], &mut classes, &mut plan)
                 .unwrap_err()
-                .contains("sem resumo")
+                .contains("without a summary")
         );
         assert!(classes.is_empty() && plan.instructions.is_empty());
     }
@@ -807,7 +807,7 @@ mod tests {
         assert!(
             produce_dart_calls(&caller, &[resumo], &mut classes, &mut plan)
                 .unwrap_err()
-                .contains("argumento")
+                .contains("argument")
         );
         assert_eq!(classes.len(), 1);
         assert!(plan.instructions.is_empty());

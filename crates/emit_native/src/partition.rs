@@ -452,7 +452,7 @@ pub fn make_plan(ir: &str, alvo: usize) -> Plan<'_> {
                 parts.push(Vec::new());
                 size = 0;
             }
-            parts.last_mut().expect("uma parte").push(i);
+            parts.last_mut().expect("one part").push(i);
             size += t;
         }
     }

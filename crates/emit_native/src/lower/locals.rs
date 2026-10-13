@@ -109,7 +109,7 @@ pub struct LateLocal {
 impl<'a, 'c> FnBuilder<'a, 'c> {
     pub fn open_scope(&mut self) {
         let id = self.next_scope;
-        self.next_scope = id.checked_add(1).expect("limite de escopos léxicos");
+        self.next_scope = id.checked_add(1).expect("limit of lexical scopes");
         debug_assert!(self.scopes.iter().all(|e| e.id != id));
         self.scopes.push(LocalScope::new(id));
     }
@@ -132,7 +132,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             .blocks
             .iter()
             .position(|b| b.id == BlockId(0))
-            .expect("bloco de entrada");
+            .expect("entry block");
         self.func.blocks[b0]
             .instructions
             .insert(self.n_allocas, (vid, Instruction::Alloca(ty), Type::Ptr));
@@ -149,7 +149,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     fn insert_local(&mut self, sym: SymbolId, mut local: Local) {
-        let scope = self.scopes.last_mut().expect("escopo da função");
+        let scope = self.scopes.last_mut().expect("function scope");
         local.scope = scope.id;
         scope.insert(sym, local);
     }
@@ -274,7 +274,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 );
                 (state, false)
             }
-            Mode::Cell(_) if init.is_none() => (self.local_cell(&local).expect("célula late"), true),
+            Mode::Cell(_) if init.is_none() => (self.local_cell(&local).expect("late cell"), true),
             _ => return false,
         };
         let name = self.ctx.symbol_name(sym).to_string();
@@ -310,7 +310,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     fn define_late_state(&mut self, late: &LateLocal, state: i64) {
         if late.cell {
-            assert_eq!(state, 1, "célula late capturada não tem inicializador preguiçoso");
+            assert_eq!(state, 1, "captured late cell has no lazy initializer");
             self.emit(
                 Instruction::CallRuntime {
                     name: "dartforge_late_field_mark_initialized".to_string(),
@@ -399,7 +399,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub(super) fn assign_semantic_type(&mut self, sym: SymbolId, ty: Option<dartforge_types::TypeId>) {
         let finalizable = ty.and_then(|t| self.ctx.classify_finalizable(t));
         let local = self.scopes.iter_mut().rev().find_map(|e| e.get_mut(&sym))
-            .expect("local semântico deve estar ligado");
+            .expect("semantic local must be bound");
         local.static_type = ty;
         local.finalizable = finalizable;
     }
@@ -462,7 +462,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 self.exception_targets.pop();
                 let value = self.coerce(value, local.ty);
-                let Mode::Memory(ptr) = &local.mode else { unreachable!("late capturado recusado") };
+                let Mode::Memory(ptr) = &local.mode else { unreachable!("captured late rejected") };
                 self.emit(Instruction::Store { ptr: ptr.clone(), val: value }, Type::Void);
                 self.define_late_state(late, 1);
                 self.terminate(Terminator::Branch(b_verify));
@@ -512,7 +512,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 },
                 local.ty,
             ),
-            Mode::Cell(_) => unreachable!("célula tratada acima"),
+            Mode::Cell(_) => unreachable!("cell handled above"),
         }
     }
 
@@ -713,7 +713,7 @@ void main() {}
                         let sym = p.name.unwrap();
                         let name = interner.resolve(sym);
                         let local = b.lookup_local(sym).unwrap();
-                        assert_eq!(local.scope, 0, "parâmetro {name}");
+                        assert_eq!(local.scope, 0, "parameter {name}");
                         assert_eq!(local.static_type, Some(p.ty), "{name}");
                         assert_eq!(
                             local.finalizable,
@@ -724,7 +724,7 @@ void main() {}
                             assert_ne!(
                                 ctx.erase(p.ty),
                                 p.ty,
-                                "tipo de extensão precisa ser preservado antes do apagamento"
+                                "extension type must be preserved before erasure"
                             );
                         }
                     }

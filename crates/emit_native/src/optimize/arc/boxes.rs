@@ -6,7 +6,7 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
         if let Instruction::Unbox { op, to } = inst {
             if *ty != *to {
                 return Err(format!(
-                    "unboxing ARC em {} v{} exige resultado {to:?}",
+                    "ARC unboxing in {} v{} requires result {to:?}",
                     f.symbol, id.0
                 ));
             }
@@ -27,7 +27,7 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
         };
         if *ty != Type::Ref {
             return Err(format!(
-                "boxing ARC em {} v{} exige resultado Ref",
+                "ARC boxing in {} v{} requires a Ref result",
                 f.symbol, id.0
             ));
         }
@@ -38,7 +38,7 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
             Type::V4F32 | Type::V4I32 | Type::V2F64 => continue,
             _ => {
                 return Err(format!(
-                    "boxing ARC em {} v{} não cobre {from:?}",
+                    "ARC boxing in {} v{} does not cover {from:?}",
                     f.symbol, id.0
                 ));
             }

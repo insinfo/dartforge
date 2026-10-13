@@ -305,7 +305,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let join = self.new_block();
         let cases = by_class
             .iter()
-            .map(|(id, i)| (*id, blocks[distinct.iter().position(|d| d == i).expect("implementação listada")]))
+            .map(|(id, i)| (*id, blocks[distinct.iter().position(|d| d == i).expect("listed implementation")]))
             .collect();
         self.terminate(Terminator::Switch { val: cls, default: pattern, cases });
         let span = dartforge_diagnostics::Span { start: 0, end: 0 };
@@ -1360,7 +1360,7 @@ pub fn lower_function_adapters(ctx: &Context, module: &mut Module, fid: usize) {
     }
     for (a, typed) in list {
         let symbol = if typed { format!("{base}$t{}", &a.suffix()[1..]) } else { format!("{base}{}", a.suffix()) };
-        let unit = unit_of(ctx, f.class.expect("membro de classe"));
+        let unit = unit_of(ctx, f.class.expect("class member"));
         let Some(unit) = unit else { continue };
         let mut b = FnBuilder::new(ctx, unit, symbol, ctx.symbol_name(f.name).to_string(), Type::Ref);
         b.in_adapter = true;
@@ -1501,7 +1501,7 @@ pub fn rejected_function(ctx: &Context, fid: usize, reason: &str) -> Function {
         dartforge_elements::model::FunctionRef::None => f.class.and_then(|c| unit_of(ctx, c)),
     }
     .or_else(|| ctx.program.library(f.library).units.first().copied())
-    .expect("biblioteca com unidade");
+    .expect("library with a unit");
     let generative = super::generative_constructor(ctx, fid);
     let ret = if generative {
         Type::Void

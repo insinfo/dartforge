@@ -61,7 +61,7 @@ fn state(m: &Module) -> String {
 impl ArcAotPorts {
     pub(crate) fn check(&self, m: &Module) -> Result<(), String> {
         if self.state != state(m) {
-            return Err("portas ARC: certificado obsoleto da imagem AOT".into());
+            return Err("ARC ports: stale certificate of the AOT image".into());
         }
         Ok(())
     }
@@ -93,7 +93,7 @@ pub(super) fn check_typed(
         for (v, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
             let Instruction::CallRuntime { name, args, ret_ty } = inst else { continue };
             if name != "dartforge_arc_closure_owned_v1" { continue; }
-            let error = || format!("portas ARC: closure tipada {} v{} sem corpo/ABI/retorno Owned verificado", f.symbol, v.0);
+            let error = || format!("ARC ports: typed closure {} v{} without a verified body/ABI/Owned return", f.symbol, v.0);
             let [
                 (Operand::Constant(Constant::Function(uniform)), Type::I64),
                 (_, Type::Ref),
@@ -132,7 +132,7 @@ pub(super) fn check_typed(
                 if !typed_set.iter().any(|(_, code)| Some(*code) == abi)
                     && !abi.is_some_and(|a| outside_abis.contains(&a))
                 {
-                    return Err(format!("portas ARC: {} chama ABI tipada sem corpo registrado na imagem", f.symbol));
+                    return Err(format!("ARC ports: {} calls a typed ABI without a body registered in the image", f.symbol));
                 }
             }
         }
@@ -147,10 +147,10 @@ fn check_vectors(m: &Module) -> Result<(), String> {
     for (s, roles) in &m.dart_vector_parameters {
         let f = functions
             .get(s)
-            .ok_or_else(|| format!("portas ARC: vetor de função ausente {s}"))?;
+            .ok_or_else(|| format!("ARC ports: missing function vector {s}"))?;
         for (p, role) in roles {
             if f.params.iter().find(|(v, _, _)| v == p).map(|(_, _, t)| t) != Some(&Type::Ptr) {
-                return Err(format!("portas ARC: vetor {s} v{} sem parâmetro Ptr", p.0));
+                return Err(format!("ARC ports: vector {s} v{} without a Ptr parameter", p.0));
             }
             for (v, i, t) in f.blocks.iter().flat_map(|b| &b.instructions) {
                 let uses = |o: &Operand| matches!(o, Operand::Val(id) if id == p);
@@ -214,7 +214,7 @@ fn check_vectors(m: &Module) -> Result<(), String> {
                 };
                 if !allowed {
                     return Err(format!(
-                        "portas ARC: vetor {role:?} {s} v{} sem uso readonly coberto: {i:?}",
+                        "ARC ports: vector {role:?} {s} v{} without a covered readonly use: {i:?}",
                         v.0
                     ));
                 }
@@ -225,7 +225,7 @@ fn check_vectors(m: &Module) -> Result<(), String> {
                     published |= matches!(o, Operand::Val(v) if v == p);
                 });
                 if published {
-                    return Err(format!("portas ARC: {s} publica vetor no terminador"));
+                    return Err(format!("ARC ports: {s} publishes a vector in the terminator"));
                 }
             }
         }
@@ -328,11 +328,11 @@ pub(super) fn certify(
         };
         let p = ps
             .get(&f.symbol)
-            .ok_or_else(|| format!("portas ARC: plano ausente {}", f.symbol))?;
+            .ok_or_else(|| format!("ARC ports: missing plan {}", f.symbol))?;
         if m.excecoes_por_tabelas {
             if m.tables.get(index) != Some(&p.tables) {
                 return Err(format!(
-                    "portas ARC: tabelas emitidas divergentes em {}",
+                    "ARC ports: divergent emitted tables in {}",
                     f.symbol
                 ));
             }
@@ -350,7 +350,7 @@ pub(super) fn certify(
                 }))
                 .collect();
             return Err(format!(
-                "portas ARC: {} exige emissão de invokes/tabelas: {calls:?}",
+                "ARC ports: {} requires emission of invokes/tables: {calls:?}",
                 f.symbol
             ));
         }
@@ -368,7 +368,7 @@ pub(super) fn certify(
                 || matches!(i, Instruction::StoreGlobal { val, ty, .. } if *ty == Type::Ref || reference(val))
             {
                 return Err(format!(
-                    "portas ARC: {} exige operação explícita sem coerção Ref/escapes implícitos",
+                    "ARC ports: {} requires an explicit operation without Ref coercion/implicit escapes",
                     f.symbol
                 ));
             }
@@ -425,7 +425,7 @@ pub(super) fn certify(
                 ))
             {
                 return Err(format!(
-                    "portas ARC: {} contém operação sem ABI auditada: {i:?}",
+                    "ARC ports: {} contains an operation without an audited ABI: {i:?}",
                     f.symbol
                 ));
             }
@@ -438,7 +438,7 @@ pub(super) fn certify(
                 && !name.starts_with(super::GENERIC_OWNED_PREFIX)
             {
                 return Err(format!(
-                    "portas ARC: {} tem fronteira runtime não escopada {name}",
+                    "ARC ports: {} has an unscoped runtime boundary {name}",
                     f.symbol
                 ));
             }
@@ -448,7 +448,7 @@ pub(super) fn certify(
                     || name == "dartforge_arc_retirar_retorno_owned_v1")
             {
                 return Err(format!(
-                    "portas ARC: {} manipula escopos/registros nativos sem protocolo verificado",
+                    "ARC ports: {} handles native scopes/registrations without a verified protocol",
                     f.symbol
                 ));
             }
@@ -459,7 +459,7 @@ pub(super) fn certify(
         let plans_before = ps.clone();
         let changes = super::functions::prepare_functions(&mut fs, &mut ps, m.arc_external_callees)?;
         if changes != (0, 0) || before != format!("{fs:?}") || plans_before != ps {
-            return Err("portas ARC: corpos/planos ainda não preparados ou divergentes".into());
+            return Err("ARC ports: bodies/plans not prepared yet or divergent".into());
         }
     }
     let mut uniforms: Vec<_> = m.arc_uniform_returns.iter().cloned().collect();
@@ -471,7 +471,7 @@ pub(super) fn certify(
     for (_, s) in &m.helpers {
         let f = by_name
             .get(s)
-            .ok_or_else(|| format!("portas ARC: helper sem corpo {s}"))?;
+            .ok_or_else(|| format!("ARC ports: helper without a body {s}"))?;
         if f.return_ty != Type::Ref || uniforms.contains(s) {
             continue;
         }
@@ -481,7 +481,7 @@ pub(super) fn certify(
                 .iter()
                 .any(|(_, _, t)| !matches!(t, Type::Ref | Type::I64 | Type::Ptr))
         {
-            return Err(format!("portas ARC: ABI de helper não coberta {s}"));
+            return Err(format!("ARC ports: helper ABI not covered {s}"));
         }
         callbacks.push((s.clone(), n));
     }
@@ -877,9 +877,9 @@ mod tests {
             let error = certify_arc_aot_ports(&mut m, &p).unwrap_err();
             assert!(
                 error.contains(if scope {
-                    "sem protocolo verificado"
+                    "without a verified protocol"
                 } else {
-                    "coerção Ref"
+                    "Ref coercion"
                 }),
                 "{error}"
             );

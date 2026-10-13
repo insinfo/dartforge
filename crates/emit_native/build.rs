@@ -196,12 +196,12 @@ fn precompile_runtime() {
         if let Some(m) = &macos_minimum {
             cmd.env("MACOSX_DEPLOYMENT_TARGET", m);
         }
-        let status = cmd.status().expect("executar o cargo do build");
-        assert!(status.success(), "a compilação do runtime ({feature}) para {alvo} falhou");
+        let status = cmd.status().expect("run the build's cargo");
+        assert!(status.success(), "the runtime compilation ({feature}) for {alvo} failed");
         let produced = target_dir.join(&alvo).join("release").join(cargo_file);
         let tmp = exit.join(format!("{name}.tmp"));
         std::fs::copy(&produced, &tmp).unwrap_or_else(|e| panic!("copiar {}: {e}", produced.display()));
-        std::fs::rename(&tmp, &lib).expect("publicar o runtime pré-compilado");
+        std::fs::rename(&tmp, &lib).expect("publish the precompiled runtime");
     }
     println!("cargo::rustc-env=DARTFORGE_RUNTIME_DIR_DO_BUILD={}", exit.display());
 }

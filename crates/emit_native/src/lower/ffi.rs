@@ -137,11 +137,11 @@ impl NativeTypes {
                     return Ok(*tc);
                 }
                 if let Some(m) = self.rejected.get(class) {
-                    return Err(format!("{m} ainda não é suportado no backend nativo"));
+                    return Err(format!("{m} is not supported by the native backend yet"));
                 }
-                Err(format!("`{}` não é um tipo nativo", ctx.symbol_name(ctx.program.classes[class.0 as usize].name)))
+                Err(format!("`{}` is not a native type", ctx.symbol_name(ctx.program.classes[class.0 as usize].name)))
             }
-            _ => Err("tipo nativo não é uma classe de `dart:ffi`".to_string()),
+            _ => Err("native type is not a `dart:ffi` class".to_string()),
         }
     }
 
@@ -155,7 +155,7 @@ impl NativeTypes {
                 format!("struct `{}` sem layout", ctx.symbol_name(ctx.program.classes[class.0 as usize].name))
             })?;
             if layout.size == 0 {
-                return Err("struct vazia por valor".to_string());
+                return Err("empty struct by value".to_string());
             }
             return Ok((NativeType::Composite(layout), Some(*class)));
         }
@@ -168,7 +168,7 @@ impl NativeTypes {
         match ctx.table.get(f) {
             T::Function { type_params, ret, positional, optional, named, .. } => {
                 if !type_params.is_empty() || !optional.is_empty() || !named.is_empty() {
-                    return Err("assinatura nativa com parâmetros opcionais, nomeados ou genéricos".to_string());
+                    return Err("native signature with optional, named or generic parameters".to_string());
                 }
                 let (r, ret_class) = self.native_type(ctx, *ret)?;
                 let mut ps = Vec::with_capacity(positional.len());
@@ -180,20 +180,20 @@ impl NativeTypes {
                     let variadic_set = match ctx.table.get(*p) {
                         T::Interface { class, args, .. } if Some(*class) == self.varargs => {
                             if i + 1 != positional.len() {
-                                return Err("VarArgs fora do último parâmetro".to_string());
+                                return Err("VarArgs outside the last parameter".to_string());
                             }
                             variadic_flag = Some(i);
                             match args.first().map(|a| ctx.table.get(*a)) {
                                 Some(T::Record { positional, named, .. }) if named.is_empty() => positional.to_vec(),
                                 Some(_) => args.to_vec(),
-                                None => return Err("VarArgs sem argumento de tipo".to_string()),
+                                None => return Err("VarArgs without a type argument".to_string()),
                             }
                         }
                         _ => vec![*p],
                     };
                     for v in variadic_set {
                         match self.native_type(ctx, v)? {
-                            (NativeType::Prim(CType::Void), _) => return Err("parâmetro nativo `Void`".to_string()),
+                            (NativeType::Prim(CType::Void), _) => return Err("`Void` native parameter".to_string()),
                             (t, c) => {
                                 ps.push(t);
                                 cs.push(c);
@@ -203,7 +203,7 @@ impl NativeTypes {
                 }
                 Ok(NativeSignature { ret: r, ret_class, params: ps, class_params: cs, variadic_flag })
             }
-            _ => Err("NativeFunction sem tipo de função".to_string()),
+            _ => Err("NativeFunction without a function type".to_string()),
         }
     }
 
@@ -1126,7 +1126,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             .metadata
             .iter()
             .find(|an| an.name.last().map(|n| self.ctx.interner.resolve(n.sym)) == Some("Native"))?;
-        let Some(types) = NativeTypes::of_program(self.ctx) else { return Some(Err("@Native sem dart:ffi".to_string())) };
+        let Some(types) = NativeTypes::of_program(self.ctx) else { return Some(Err("@Native without dart:ffi".to_string())) };
         let symbol = annotation_symbol(self.ctx, &u.ast, an).unwrap_or_else(|| self.ctx.symbol_name(v.name).as_bytes().to_vec());
         // `@Array(d0, d1…)` on the variable: the data is the C vector, with the
         // elements of the declared type (`Array<Array<…<E>>>`), like an `@Array`
@@ -1137,22 +1137,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             .find(|an| an.name.first().map(|n| self.ctx.interner.resolve(n.sym)) == Some("Array"))
         {
             let Some(dims) = array_dimensions(&u.source, &u.ast, arr).filter(|d| !d.is_empty()) else {
-                return Some(Err("@Array de variável @Native sem dimensões constantes".to_string()));
+                return Some(Err("@Array of an @Native variable without constant dimensions".to_string()));
             };
             let declared = super::members::variable_type(self.ctx, vid);
             let Some(elem) = native_array_element(self.ctx, &types, declared, dims.len()) else {
-                return Some(Err("@Native de `Array` com elemento que não é tipo nativo".to_string()));
+                return Some(Err("@Native of `Array` with an element that is not a native type".to_string()));
             };
             return Some(Ok((symbol, FieldType::Array { elem: Box::new(elem), dims })));
         }
         let Some(&t) = an.type_args.first() else {
-            return Some(Err("@Native de variável sem o argumento de tipo".to_string()));
+            return Some(Err("@Native variable without the type argument".to_string()));
         };
         let typ = match types.annotation_native_type(self.ctx, &u.ast, t, v.library) {
-            Ok((NativeType::Prim(CType::Void), _)) => return Some(Err("@Native de variável `Void`".to_string())),
+            Ok((NativeType::Prim(CType::Void), _)) => return Some(Err("`Void` @Native variable".to_string())),
             Ok((NativeType::Prim(tc), _)) => FieldType::Prim(tc),
             Ok((NativeType::Composite(_), Some(c))) => FieldType::Composite(c),
-            Ok(_) => return Some(Err("tipo de variável @Native".to_string())),
+            Ok(_) => return Some(Err("type of an @Native variable".to_string())),
             Err(m) => return Some(Err(m)),
         };
         Some(Ok((symbol, typ)))
@@ -1294,7 +1294,7 @@ impl NativeTypes {
             Ok(tc) => Ok((NativeType::Prim(tc), None)),
             Err(m) if m == COMPOSITE_IN_ANNOTATION => {
                 let ast::TypeKind::Named { name, .. } = &ast.ty(t).kind else { return Err(m) };
-                let name_str = ctx.interner.resolve(name.last().ok_or("tipo sem nome")?.sym);
+                let name_str = ctx.interner.resolve(name.last().ok_or("type without a name")?.sym);
                 let mut candidates: Vec<ClassId> = self
                     .composites
                     .iter()
@@ -1303,7 +1303,7 @@ impl NativeTypes {
                     .collect();
                 candidates.sort_by_key(|c| (ctx.program.classes[c.0 as usize].library != lib, c.0));
                 let c = *candidates.first().ok_or(m)?;
-                let layout = layout_c(ctx, c).ok_or_else(|| format!("struct `{name_str}` sem layout"))?;
+                let layout = layout_c(ctx, c).ok_or_else(|| format!("struct `{name_str}` without a layout"))?;
                 Ok((NativeType::Composite(layout), Some(c)))
             }
             Err(m) => Err(m),
@@ -1316,7 +1316,7 @@ impl NativeTypes {
         match &ast.ty(t).kind {
             ast::TypeKind::Void => Ok(CType::Void),
             ast::TypeKind::Named { name, .. } => {
-                let name_str = ctx.interner.resolve(name.last().ok_or("tipo sem nome")?.sym);
+                let name_str = ctx.interner.resolve(name.last().ok_or("type without a name")?.sym);
                 if let Some(tc) = primitive(name_str) {
                     return Ok(tc);
                 }
@@ -1327,11 +1327,11 @@ impl NativeTypes {
                     return Err(COMPOSITE_IN_ANNOTATION.to_string());
                 }
                 if let Some((_, m)) = self.rejected.iter().find(|(c, _)| ctx.symbol_name(ctx.program.classes[c.0 as usize].name) == name_str) {
-                    return Err(format!("{m} ainda não é suportado no backend nativo"));
+                    return Err(format!("{m} is not supported by the native backend yet"));
                 }
-                Err(format!("`{name_str}` não é um tipo nativo suportado em @Native"))
+                Err(format!("`{name_str}` is not a native type supported in @Native"))
             }
-            _ => Err("tipo nativo inesperado em @Native".to_string()),
+            _ => Err("unexpected native type in @Native".to_string()),
         }
     }
 }
@@ -1364,24 +1364,24 @@ fn annotation_signature(
     match &ast.ty(t).kind {
         ast::TypeKind::Function { return_type, parameters, .. } => from_params(ast, lib, *return_type, parameters),
         ast::TypeKind::Named { name, .. } if depth < 8 => {
-            let name_str = ctx.interner.resolve(name.last().ok_or("tipo sem nome")?.sym);
+            let name_str = ctx.interner.resolve(name.last().ok_or("type without a name")?.sym);
             // The `typedef` with that name, preferably from the same library.
             let mut candidates: Vec<&dartforge_elements::model::TypedefElement> =
                 ctx.program.typedefs.iter().filter(|td| ctx.symbol_name(td.name) == name_str).collect();
             candidates.sort_by_key(|td| td.library != lib);
             let Some(td) = candidates.first() else {
-                return Err("@Native de variável (ponteiro para dado nativo) ainda não é suportado".to_string());
+                return Err("@Native variable (pointer to native data) is not supported yet".to_string());
             };
             let u = ctx.program.unit(td.decl.unit);
             let ast::DeclKind::Typedef(decl) = &u.ast.decls[td.decl.decl.0 as usize].kind else {
-                return Err(format!("`{name_str}` não é um typedef"));
+                return Err(format!("`{name_str}` is not a typedef"));
             };
             match &decl.kind {
                 ast::TypedefKind::Alias(alvo) => annotation_signature(ctx, types, &u.ast, *alvo, td.library, depth + 1),
                 ast::TypedefKind::Legacy { return_type, parameters } => from_params(&u.ast, td.library, *return_type, parameters),
             }
         }
-        _ => Err("assinatura nativa inesperada em @Native".to_string()),
+        _ => Err("unexpected native signature in @Native".to_string()),
     }
 }
 
@@ -1465,7 +1465,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let dest = address(self, "dartforge_ffi_endereco_do_composto", new.clone());
                 Some((new, dest))
             }
-            (NativeType::Composite(_), None) => unreachable!("struct devolvida sem classe"),
+            (NativeType::Composite(_), None) => unreachable!("returned struct without a class"),
             _ => None,
         };
         let scope = with_handles.then(|| {
@@ -1499,7 +1499,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             close(self);
             return new;
         }
-        let NativeType::Prim(ret) = a.ret else { unreachable!("retorno composto tratado acima") };
+        let NativeType::Prim(ret) = a.ret else { unreachable!("compound return handled above") };
         let r = if a.variadic_flag.is_none() && natives.iter().all(|(_, t)| matches!(t, NativeType::Prim(_))) {
             let prims = natives
                 .into_iter()
@@ -1518,7 +1518,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // The object of a returned `Handle` is read before the scope releases
         // the cells, in the same call that closes it.
         if ret == CType::Handle {
-            let e = scope.expect("retorno Handle abre o escopo");
+            let e = scope.expect("Handle return opens the scope");
             return self.emit_call_with_check(
                 Instruction::CallRuntime {
                     name: "dartforge_ffi_handles_fechar_com_objeto".to_string(),

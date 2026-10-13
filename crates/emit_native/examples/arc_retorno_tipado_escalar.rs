@@ -46,21 +46,21 @@ fn module(ty: Type, value: Constant, abi: i64) -> Result<Module, String> {
 
 fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
-    let exit = PathBuf::from(args.next().ok_or("informe o executável")?);
-    let arc = match args.next().as_deref() { Some("--memoria=arc") => true, Some("--memoria=tracing") | None => false, _ => return Err("modo inválido".into()) };
-    let optimize = match args.next().as_deref() { Some("2") => true, Some("0") | None => false, _ => return Err("nível inválido".into()) };
+    let exit = PathBuf::from(args.next().ok_or("provide the executable")?);
+    let arc = match args.next().as_deref() { Some("--memoria=arc") => true, Some("--memoria=tracing") | None => false, _ => return Err("invalid mode".into()) };
+    let optimize = match args.next().as_deref() { Some("2") => true, Some("0") | None => false, _ => return Err("invalid level".into()) };
     let (ty, value, abi, check) = match args.next().as_deref() {
         Some("--int") => (Type::I64, Constant::Int(i64::MIN), 7, "  %ok = icmp eq i64 %valor, -9223372036854775808\n"),
         Some("--double") => (Type::F64, Constant::Double(-0.0), 8, "  %bits = bitcast double %valor to i64\n  %ok = icmp eq i64 %bits, -9223372036854775808\n"),
         Some("--bool") => (Type::I1, Constant::Bool(true), 9, "  %ok = icmp eq i1 %valor, true\n"),
-        _ => return Err("informe --int, --double ou --bool".into()),
+        _ => return Err("provide --int, --double or --bool".into()),
     };
     let control = args.next(); if args.next().is_some() { return Err("argumentos excedentes".into()); }
     let mut m = module(ty, value, abi)?; m.arc_memory = arc; if !arc { m.arc_aot_ports = None; }
     let mut ir = LlvmEmitter::new(&m).emit_all();
     if let Some(c) = control {
         let alvo = "  call void @dartforge_arc_release(i64 %v2)\n";
-        if c != "sem-liberar-contexto" || ir.matches(alvo).count() != 2 { return Err("controle sem alvo único nas duas saídas".into()); }
+        if c != "sem-liberar-contexto" || ir.matches(alvo).count() != 2 { return Err("control without a single target on both exits".into()); }
         ir = ir.replace(alvo, "");
     }
     ir.push_str("declare void @dartforge_print_handle(i64)\ndefine void @prova() {\n");

@@ -133,7 +133,7 @@ pub(crate) fn read_varint(d: &[u8], p: &mut usize) -> Result<u64, String> {
     let mut r = 0u64;
     let mut s = 0u32;
     loop {
-        let b = *d.get(*p).ok_or_else(|| "mapa DFGM truncado".to_string())?;
+        let b = *d.get(*p).ok_or_else(|| "truncated DFGM map".to_string())?;
         *p += 1;
         if s < 64 {
             r |= u64::from(b & 0x7f) << s;
@@ -166,7 +166,7 @@ fn decode_v3(sec: &[u8], symbol_in: &std::collections::HashMap<u32, u32>, sp: u1
             continue;
         }
         if sec[p] != 3 {
-            return Err(format!("`.llvm_stackmaps` na versão {} (o conversor lê a 3)", sec[p]));
+            return Err(format!("`.llvm_stackmaps` at version {} (the converter reads 3)", sec[p]));
         }
         let n_functions = u32_at(sec, p + 4)? as usize;
         let n_constants = u32_at(sec, p + 8)? as usize;
@@ -180,7 +180,7 @@ fn decode_v3(sec: &[u8], symbol_in: &std::collections::HashMap<u32, u32>, sp: u1
             let function_records = u64_at(sec, table + 24 * i + 16)? as usize;
             let symbol = *symbol_in
                 .get(&((table + 24 * i) as u32))
-                .ok_or_else(|| "função do mapa de pilha sem relocação".to_string())?;
+                .ok_or_else(|| "stack map function without a relocation".to_string())?;
             let mut records: Vec<(u32, Roots)> = Vec::with_capacity(function_records);
             for _ in 0..function_records {
                 let offset = u32_at(sec, r + 8)?;
@@ -189,18 +189,18 @@ fn decode_v3(sec: &[u8], symbol_in: &std::collections::HashMap<u32, u32>, sp: u1
                 // (kind, size, register, offset or constant)
                 let local = |j: usize| -> Result<(u8, u16, u16, i32), String> {
                     let l = locals + 12 * j;
-                    let ty = *sec.get(l).ok_or_else(|| "mapa de pilha truncado".to_string())?;
+                    let ty = *sec.get(l).ok_or_else(|| "truncated stack map".to_string())?;
                     Ok((ty, u16_at(sec, l + 2)?, u16_at(sec, l + 4)?, u32_at(sec, l + 8)? as i32))
                 };
                 if n_locals < 3 || local(0)?.0 != 4 || local(1)?.0 != 4 || local(2)?.0 != 4 {
-                    return Err("registro de statepoint sem os três locais constantes iniciais".to_string());
+                    return Err("statepoint record without the three initial constant locations".to_string());
                 }
                 let n_deopt = local(2)?.3.max(0) as usize;
                 if (n_locals - 3).saturating_sub(n_deopt) % 2 != 0 {
-                    return Err("registro de statepoint com pares (base, derivado) incompletos".to_string());
+                    return Err("statepoint record with incomplete (base, derived) pairs".to_string());
                 }
                 if 3 + n_deopt > n_locals {
-                    return Err("registro de statepoint com mais locais de `deopt` que locais".to_string());
+                    return Err("statepoint record with more `deopt` locations than locations".to_string());
                 }
                 let mut roots: Roots = Vec::new();
                 // The roots: each location of the `"deopt"` (the shape of §14.12) and the
@@ -215,21 +215,21 @@ fn decode_v3(sec: &[u8], symbol_in: &std::collections::HashMap<u32, u32>, sp: u1
                         let c = if ty == 4 {
                             i64::from(d)
                         } else {
-                            u64_at(sec, constants + 8 * usize::try_from(d).map_err(|_| "`ConstIndex` negativo no mapa de pilha".to_string())?)? as i64
+                            u64_at(sec, constants + 8 * usize::try_from(d).map_err(|_| "negative `ConstIndex` in the stack map".to_string())?)? as i64
                         };
                         if c != 0 && c & 1 == 0 && c != UNDEFINED {
-                            return Err(format!("constante par não nula ({c:#x}) como raiz no mapa de pilha: um valor bruto tratado como referência"));
+                            return Err(format!("non-null even constant ({c:#x}) as a root in the stack map: a raw value treated as a reference"));
                         }
                         continue;
                     }
                     let in_register = ty == 1 && size == 8 && register < 32 && preserved & (1 << register) != 0;
                     if !in_register && (ty != 3 || size != 8 || (register != sp && register != fp)) {
                         return Err(format!(
-                            "local recusado no mapa de pilha: tipo {ty}, tamanho {size}, registrador {register} (só `Indirect [SP|FP + d]` de 8 bytes ou `Register` preservado)"
+                            "location rejected in the stack map: type {ty}, size {size}, register {register} (only 8-byte `Indirect [SP|FP + d]` or a preserved `Register`)"
                         ));
                     }
                     if !in_register && d % 8 != 0 {
-                        return Err(format!("slot de raiz fora de múltiplo de 8 no mapa de pilha: {d}"));
+                        return Err(format!("root slot not a multiple of 8 in the stack map: {d}"));
                     }
                     let root = if in_register {
                         (IN_REGISTER, i32::from(register))
@@ -249,13 +249,13 @@ fn decode_v3(sec: &[u8], symbol_in: &std::collections::HashMap<u32, u32>, sp: u1
             }
             records.sort_by_key(|g| g.0);
             if records.windows(2).any(|par| par[0].0 == par[1].0) {
-                return Err("dois registros do mapa de pilha no mesmo endereço de retorno".to_string());
+                return Err("two stack map records at the same return address".to_string());
             }
             total += records.len();
             functions.push((symbol, if frame == u64::MAX { 0 } else { frame }, records));
         }
         if total != n_records {
-            return Err("o cabeçalho do `.llvm_stackmaps` não casa com os registros".to_string());
+            return Err("the `.llvm_stackmaps` header does not match the records".to_string());
         }
         p = r;
     }
@@ -322,13 +322,13 @@ fn encode(functions: &[Function], flags: u16, alvo: u8) -> (Vec<u8>, Vec<u32>) {
 /// records). It is the reference reader (the runtime's uses the same algorithm).
 fn decode(blob: &[u8]) -> Result<Vec<(u64, Vec<(u32, Roots)>)>, String> {
     if blob.len() < 16 || &blob[..4] != b"DFGM" || blob[4] != VERSION {
-        return Err("blob DFGM sem o cabeçalho da versão 2".to_string());
+        return Err("DFGM blob without the version 2 header".to_string());
     }
     if u32_at(blob, 8)? as usize != blob.len() {
-        return Err("blob DFGM com o tamanho errado no cabeçalho".to_string());
+        return Err("DFGM blob with the wrong size in the header".to_string());
     }
     if u16_at(blob, 6)? & !RELATIVE_FLAG != 0 {
-        return Err("blob DFGM com bandeiras desconhecidas".to_string());
+        return Err("DFGM blob with unknown flags".to_string());
     }
     let n_functions = u32_at(blob, 12)? as usize;
     let base = 16 + 8 * n_functions;
@@ -416,7 +416,7 @@ pub fn convert_coff(object: &mut [u8]) -> Result<bool, String> {
         for k in 0..n_relocations {
             let e = relocations + 10 * k;
             if u16_at(object, e + 8)? != REL_ADDR64 {
-                return Err("relocação inesperada no `.llvm_stackmaps` (esperava ADDR64)".to_string());
+                return Err("unexpected relocation in `.llvm_stackmaps` (expected ADDR64)".to_string());
             }
             symbol_in.insert(u32_at(object, e)?, u32_at(object, e + 4)?);
         }
@@ -427,7 +427,7 @@ pub fn convert_coff(object: &mut [u8]) -> Result<bool, String> {
         let equal = back.len() == functions.len()
             && back.iter().zip(&functions).all(|((frame, records), (_, q, r))| *frame == (q / 8) * 8 && records == r);
         if !equal {
-            return Err("o mapa de pilha compacto não reproduz o do LLVM (ida e volta)".to_string());
+            return Err("the compact stack map does not reproduce LLVM's (round trip)".to_string());
         }
         if blob.len() > size || fields.len() != n_relocations {
             return Ok(false);
@@ -467,19 +467,19 @@ pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
         return Ok(false);
     }
     if object[4] != 2 || object[5] != 1 {
-        return Err("objeto ELF com raízes por mapas que não é de 64 bits little-endian".to_string());
+        return Err("ELF object with roots by maps that is not 64-bit little-endian".to_string());
     }
     let (alvo, sp, fp, preserved, absolute, relative) = match u16_at(object, 0x12)? {
         ELF_X86_64 => (1u8, REG_SP, REG_FP, PRESERVED_SYSV, R_X86_64_64, R_X86_64_PC32),
         ELF_AARCH64 => (2u8, REG_SP_AARCH64, REG_FP_AARCH64, PRESERVED_AARCH64, R_AARCH64_ABS64, R_AARCH64_PREL32),
-        another => return Err(format!("objeto ELF da máquina {another}: as raízes por mapas só existem no x86-64 e no aarch64")),
+        another => return Err(format!("ELF object of machine {another}: roots by maps only exist on x86-64 and aarch64")),
     };
     let table = u64_at(object, 0x28)? as usize;
     let entry_size = u16_at(object, 0x3A)? as usize;
     let n_sections = u16_at(object, 0x3C)? as usize;
     let names_index = u16_at(object, 0x3E)? as usize;
     if entry_size != 64 || n_sections == 0 || names_index >= n_sections {
-        return Err("objeto ELF com a tabela de seções numa forma que o conversor do mapa não lê (numeração estendida)".to_string());
+        return Err("ELF object with the section table in a form that the map converter does not read (extended numbering)".to_string());
     }
     let header = |i: usize| table + 64 * i;
     let names = u64_at(object, header(names_index) + 24)? as usize;
@@ -502,13 +502,13 @@ pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
         let ty = u32_at(object, header(i) + 4)?;
         if (ty == 4 || ty == 9) && u32_at(object, header(i) + 44)? as usize == m {
             if ty == 9 {
-                return Err("`.llvm_stackmaps` com relocações `SHT_REL` (o conversor lê `SHT_RELA`)".to_string());
+                return Err("`.llvm_stackmaps` with `SHT_REL` relocations (the converter reads `SHT_RELA`)".to_string());
             }
             relocations = Some(i);
         }
     }
     let Some(r) = relocations else {
-        return Err("`.llvm_stackmaps` sem a seção das relocações".to_string());
+        return Err("`.llvm_stackmaps` without the relocations section".to_string());
     };
     let data = u64_at(object, header(m) + 24)? as usize;
     let size = u64_at(object, header(m) + 32)? as usize;
@@ -516,7 +516,7 @@ pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
     let rel_start = u64_at(object, header(r) + 24)? as usize;
     let rel_size = u64_at(object, header(r) + 32)? as usize;
     if u64_at(object, header(r) + 56)? != 24 || rel_size % 24 != 0 {
-        return Err("relocações do `.llvm_stackmaps` fora do formato `Elf64_Rela`".to_string());
+        return Err("relocations of `.llvm_stackmaps` outside the `Elf64_Rela` format".to_string());
     }
     let n_relocations = rel_size / 24;
     // By the offset in the map, the index of the relocation; by index, the
@@ -528,7 +528,7 @@ pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
         let place = u64_at(object, e)?;
         let info = u64_at(object, e + 8)?;
         if info as u32 != absolute {
-            return Err(format!("relocação {} no `.llvm_stackmaps` (esperava a absoluta de 64 bits)", info as u32));
+            return Err(format!("relocation {} in `.llvm_stackmaps` (expected the 64-bit absolute one)", info as u32));
         }
         symbol_in.insert(u32::try_from(place).map_err(|_| "`.llvm_stackmaps` grande demais".to_string())?, k as u32);
         originals.push((info >> 32, u64_at(object, e + 16)?));
@@ -539,10 +539,10 @@ pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
     let equal = back.len() == functions.len()
         && back.iter().zip(&functions).all(|((frame, records), (_, q, r))| *frame == (q / 8) * 8 && records == r);
     if !equal {
-        return Err("o mapa de pilha compacto não reproduz o do LLVM (ida e volta)".to_string());
+        return Err("the compact stack map does not reproduce LLVM's (round trip)".to_string());
     }
     if blob.len() > size || fields.len() != n_relocations {
-        return Err("o mapa de pilha compacto não cabe no lugar do `.llvm_stackmaps`".to_string());
+        return Err("the compact stack map does not fit in the place of `.llvm_stackmaps`".to_string());
     }
     object[data..data + blob.len()].copy_from_slice(&blob);
     object[data + blob.len()..data + size].fill(0);

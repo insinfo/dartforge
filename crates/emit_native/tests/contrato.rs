@@ -11,7 +11,7 @@ const SDK: &str = "C:/tools/dartsdk-3.6.2/lib";
 fn ir_of(source: &str) -> Option<String> {
     let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB").unwrap_or_else(|_| SDK.to_string());
     if !Path::new(&sdk).join("libraries.json").is_file() {
-        eprintln!("SDK ausente em {sdk}; teste pulado");
+        eprintln!("SDK missing at {sdk}; test skipped");
         return None;
     }
     let dir = tempfile::tempdir().unwrap();
@@ -34,7 +34,7 @@ fn ir_of(source: &str) -> Option<String> {
             // With the source SDK (the only mode since the unified space,
             // docs/NATIVO-ESPACO-UNIFICADO.md §4.7).
             emit_ir_with(&entry, &options)
-                .unwrap_or_else(|e| panic!("não compilou:\n{e}"))
+                .unwrap_or_else(|e| panic!("did not compile:\n{e}"))
                 .texto
         })
         .unwrap()
@@ -59,7 +59,7 @@ fn source_ir(source: &str) -> Option<String> {
     std::fs::write(&entry, source).unwrap();
     Some(std::thread::Builder::new().stack_size(64 << 20).spawn(move || {
         let options = CompileOptions { sdk: Some(Path::new(&sdk)), packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None, cpu: None };
-        emit_ir_with(&entry, &options).unwrap_or_else(|e| panic!("não compilou:\n{e}")).texto
+        emit_ir_with(&entry, &options).unwrap_or_else(|e| panic!("did not compile:\n{e}")).texto
     }).unwrap().join().unwrap())
 }
 
@@ -67,7 +67,7 @@ fn source_ir(source: &str) -> Option<String> {
 fn symbol_literal_uses_sdk_class_and_canonical_constant() {
     let Some(ir) = source_ir("void main() { final a = #foo; final b = #foo; print(identical(a, b)); print(a); print(const Symbol('foo') == a); print(#_privado); }\n") else { return };
     let main = ir.split("define void @dart_main(").nth(1).expect("main");
-    let main = main.split("\n}\n").next().expect("fim de main");
+    let main = main.split("\n}\n").next().expect("end of main");
     // Both occurrences of `#foo` go through the same getter of the canonical
     // constant `@dfc.<hash>.get`: called, or copied into `main` by the inliner
     // (the copy keeps the object with `dartforge_marcar_constante` and the key of the
@@ -76,23 +76,23 @@ fn symbol_literal_uses_sdk_class_and_canonical_constant() {
         .match_indices("@dfc.")
         .map(|(i, _)| {
             let rest = &main[i..];
-            &rest[..rest.find(".get").expect("getter da constante") + 4]
+            &rest[..rest.find(".get").expect("constant getter") + 4]
         })
         .collect();
-    let foo = getters.first().copied().expect("constante de #foo");
-    assert!(getters.iter().filter(|g| **g == foo).count() >= 2, "literal não canonizado:\n{main}");
-    assert!(ir.contains("@dartforge_object_new"), "Symbol não alocado como objeto do SDK");
+    let foo = getters.first().copied().expect("constant of #foo");
+    assert!(getters.iter().filter(|g| **g == foo).count() >= 2, "literal not canonicalized:\n{main}");
+    assert!(ir.contains("@dartforge_object_new"), "Symbol not allocated as an SDK object");
 }
 
 /// The arity error of a closure must be the real SDK class and have a
 /// `toString` usable by the program; the detailed text of the VM still varies
 /// with the name and the signature of the function.
 #[test]
-#[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
+#[ignore = "AOT fixture with the source SDK and LLVM; run in the Pesado workflow"]
 fn aridade_closure_lanca_no_such_method_error_da_fonte() {
     let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB")
         .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
-        .expect("SDK de teste");
+        .expect("test SDK");
     let dir = tempfile::tempdir().unwrap();
     let entry = dir.path().join("arity_nsm.dart");
     let exe = dir.path().join("arity_nsm.exe");
@@ -106,7 +106,7 @@ fn aridade_closure_lanca_no_such_method_error_da_fonte() {
             cpu: None,
         };
         dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
-            .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
+            .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
@@ -116,11 +116,11 @@ fn aridade_closure_lanca_no_such_method_error_da_fonte() {
 /// `C.getter(args)` evaluates the getter before the arguments, then calls the
 /// returned closure. Ordinary static methods keep the direct call.
 #[test]
-#[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
+#[ignore = "AOT fixture with the source SDK and LLVM; run in the Pesado workflow"]
 fn getter_estatico_que_retorna_funcao_e_chamado_como_valor() {
     let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB")
         .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
-        .expect("SDK de teste");
+        .expect("test SDK");
     let dir = tempfile::tempdir().unwrap();
     let entry = dir.path().join("static_getter_function.dart");
     let exe = dir.path().join("static_getter_function.exe");
@@ -134,7 +134,7 @@ fn getter_estatico_que_retorna_funcao_e_chamado_como_valor() {
             cpu: None,
         };
         dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
-            .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
+            .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
@@ -145,11 +145,11 @@ fn getter_estatico_que_retorna_funcao_e_chamado_como_valor() {
 /// A redirecting factory passes the types of the destination's annotation, even
 /// when it changes class and permutes the type parameters.
 #[test]
-#[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
+#[ignore = "AOT fixture with the source SDK and LLVM; run in the Pesado workflow"]
 fn factory_redirecionadora_preserva_rti_do_destino() {
     let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB")
         .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
-        .expect("SDK de teste");
+        .expect("test SDK");
     let dir = tempfile::tempdir().unwrap();
     let entry = dir.path().join("redirect_factory_rti.dart");
     let exe = dir.path().join("redirect_factory_rti.exe");
@@ -163,7 +163,7 @@ fn factory_redirecionadora_preserva_rti_do_destino() {
             cpu: None,
         };
         dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
-            .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
+            .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
@@ -174,11 +174,11 @@ fn factory_redirecionadora_preserva_rti_do_destino() {
 /// The abstract getter of an interface may be implemented by a field or
 /// by an explicit getter; each object chooses its own implementation.
 #[test]
-#[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
+#[ignore = "AOT fixture with the source SDK and LLVM; run in the Pesado workflow"]
 fn getter_de_interface_despacha_campo_e_getter() {
     let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB")
         .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
-        .expect("SDK de teste");
+        .expect("test SDK");
     let dir = tempfile::tempdir().unwrap();
     let entry = dir.path().join("interface_field_getter.dart");
     let exe = dir.path().join("interface_field_getter.exe");
@@ -192,7 +192,7 @@ fn getter_de_interface_despacha_campo_e_getter() {
             cpu: None,
         };
         dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
-            .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
+            .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
@@ -203,11 +203,11 @@ fn getter_de_interface_despacha_campo_e_getter() {
 /// The reified argument of the collection, and not the type of the covariant reference,
 /// protects the mutation before changing a List, Map or Set.
 #[test]
-#[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
+#[ignore = "AOT fixture with the source SDK and LLVM; run in the Pesado workflow"]
 fn escrita_covariante_em_colecoes_lanca_type_error_sem_mutar() {
     let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB")
         .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
-        .expect("SDK de teste");
+        .expect("test SDK");
     let dir = tempfile::tempdir().unwrap();
     let entry = dir.path().join("covariant_collection_write.dart");
     let exe = dir.path().join("covariant_collection_write.exe");
@@ -221,7 +221,7 @@ fn escrita_covariante_em_colecoes_lanca_type_error_sem_mutar() {
             cpu: None,
         };
         dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
-            .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
+            .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
@@ -232,11 +232,11 @@ fn escrita_covariante_em_colecoes_lanca_type_error_sem_mutar() {
 /// The dynamic call must check the nominal type of the SDK parameter before
 /// passing an `int` as a handle to the `String_concat` native.
 #[test]
-#[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
+#[ignore = "AOT fixture with the source SDK and LLVM; run in the Pesado workflow"]
 fn argumento_dinamico_errado_do_sdk_lanca_type_error() {
     let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB")
         .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
-        .expect("SDK de teste");
+        .expect("test SDK");
     let dir = tempfile::tempdir().unwrap();
     let entry = dir.path().join("dynamic_sdk_string_argument.dart");
     let exe = dir.path().join("dynamic_sdk_string_argument.exe");
@@ -250,7 +250,7 @@ fn argumento_dinamico_errado_do_sdk_lanca_type_error() {
             cpu: None,
         };
         dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
-            .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
+            .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
@@ -260,11 +260,11 @@ fn argumento_dinamico_errado_do_sdk_lanca_type_error() {
 /// `Iterable.generate<E>` uses `id is E Function(int)` to decide whether the
 /// implicit integer generator can serve `E`.
 #[test]
-#[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
+#[ignore = "AOT fixture with the source SDK and LLVM; run in the Pesado workflow"]
 fn iterable_generate_testa_assinatura_generica_no_sdk() {
     let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB")
         .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
-        .expect("SDK de teste");
+        .expect("test SDK");
     let dir = tempfile::tempdir().unwrap();
     let entry = dir.path().join("iterable_generate_function_rti.dart");
     let exe = dir.path().join("iterable_generate_function_rti.exe");
@@ -278,7 +278,7 @@ fn iterable_generate_testa_assinatura_generica_no_sdk() {
             cpu: None,
         };
         dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
-            .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
+            .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
@@ -301,19 +301,19 @@ fn implicit_enum_name_index_reads_value_fields() {
     // word at index 1 or 0.
     assert!(
         ir.contains(", i64 16\n") && ir.contains("getelementptr inbounds i64, ptr %fp") && ir.contains(", i64 1\n"),
-        "o $name implícito lê o campo 1:\n{ir}"
+        "the implicit $name reads field 1:\n{ir}"
     );
-    assert!(ir.contains(", i64 0\n"), "o index implícito lê o campo 0:\n{ir}");
+    assert!(ir.contains(", i64 0\n"), "the implicit index reads field 0:\n{ir}");
 }
 
 /// The program above executed (AOT with the source SDK): implicit and explicit
 /// give the same text as the VM.
 #[test]
-#[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
+#[ignore = "AOT fixture with the source SDK and LLVM; run in the Pesado workflow"]
 fn enum_name_index_implicito_no_sdk() {
     let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB")
         .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
-        .expect("SDK de teste");
+        .expect("test SDK");
     let dir = tempfile::tempdir().unwrap();
     let entry = dir.path().join("enum_name_index_implicito.dart");
     let exe = dir.path().join("enum_name_index_implicito.exe");
@@ -327,7 +327,7 @@ fn enum_name_index_implicito_no_sdk() {
             cpu: None,
         };
         dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
-            .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
+            .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
@@ -348,15 +348,15 @@ fn implicit_enum_values_becomes_value_list() {
         .lines()
         .filter(|l| l.contains("call ") && l.contains(".values("))
         .collect::<Vec<_>>();
-    assert!(calls.is_empty(), "chamada a values sem define:\n{calls:?}\n{ir}");
+    assert!(calls.is_empty(), "call to values without a define:\n{calls:?}\n{ir}");
 }
 
 /// The program above executed (AOT with the source SDK).
 #[test]
-#[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
+#[ignore = "AOT fixture with the source SDK and LLVM; run in the Pesado workflow"]
 fn enum_values_implicito_no_sdk() {    let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB")
         .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
-        .expect("SDK de teste");
+        .expect("test SDK");
     let dir = tempfile::tempdir().unwrap();
     let entry = dir.path().join("enum_values_implicito.dart");
     let exe = dir.path().join("enum_values_implicito.exe");
@@ -370,7 +370,7 @@ fn enum_values_implicito_no_sdk() {    let sdk = std::env::var("DARTFORGE_TEST_S
             cpu: None,
         };
         dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
-            .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
+            .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
@@ -382,11 +382,11 @@ fn enum_values_implicito_no_sdk() {    let sdk = std::env::var("DARTFORGE_TEST_S
 /// (`Instance of 'Caixa<int>'`, like the VM); without arguments, the registered
 /// name, as before. Only execution proves it (the runtime builds the text).
 #[test]
-#[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
+#[ignore = "AOT fixture with the source SDK and LLVM; run in the Pesado workflow"]
 fn classe_generica_tostring_padrao_no_sdk() {
     let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB")
         .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
-        .expect("SDK de teste");
+        .expect("test SDK");
     let dir = tempfile::tempdir().unwrap();
     let entry = dir.path().join("classe_generica_tostring_padrao.dart");
     let exe = dir.path().join("classe_generica_tostring_padrao.exe");
@@ -400,7 +400,7 @@ fn classe_generica_tostring_padrao_no_sdk() {
             cpu: None,
         };
         dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
-            .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
+            .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
@@ -421,16 +421,16 @@ fn nsm_forwarder_positional_method_emits_nsm() {
         }\n\
         void main() { final p = Proxy(); print(p.saudacao('mundo')); }\n";
     let Some(ir) = source_ir(source) else { return };
-    assert!(ir.contains("noSuchMethod"), "sem chamada ao nsm:\n{ir}");
+    assert!(ir.contains("noSuchMethod"), "no call to nsm:\n{ir}");
 }
 
 /// The program above executed (AOT with the source SDK): the output matches VM 3.6.2.
 #[test]
-#[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
+#[ignore = "AOT fixture with the source SDK and LLVM; run in the Pesado workflow"]
 fn nsm_encaminhador_metodo_no_sdk() {
     let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB")
         .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
-        .expect("SDK de teste");
+        .expect("test SDK");
     let dir = tempfile::tempdir().unwrap();
     let entry = dir.path().join("nsm_encaminhador_metodo.dart");
     let exe = dir.path().join("nsm_encaminhador_metodo.exe");
@@ -444,7 +444,7 @@ fn nsm_encaminhador_metodo_no_sdk() {
             cpu: None,
         };
         dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
-            .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
+            .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
@@ -464,16 +464,16 @@ fn nsm_forwarder_getter_emits_nsm() {
         }\n\
         void main() { final p = Proxy(); print(p.versao); }\n";
     let Some(ir) = source_ir(source) else { return };
-    assert!(ir.contains("noSuchMethod"), "sem chamada ao nsm:\n{ir}");
+    assert!(ir.contains("noSuchMethod"), "no call to nsm:\n{ir}");
 }
 
 /// The program above executed (AOT with the source SDK): the output matches VM 3.6.2.
 #[test]
-#[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
+#[ignore = "AOT fixture with the source SDK and LLVM; run in the Pesado workflow"]
 fn nsm_forwarder_getter_in_sdk() {
     let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB")
         .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
-        .expect("SDK de teste");
+        .expect("test SDK");
     let dir = tempfile::tempdir().unwrap();
     let entry = dir.path().join("nsm_encaminhador_getter.dart");
     let exe = dir.path().join("nsm_encaminhador_getter.exe");
@@ -487,7 +487,7 @@ fn nsm_forwarder_getter_in_sdk() {
             cpu: None,
         };
         dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
-            .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
+            .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
@@ -498,10 +498,10 @@ fn nsm_forwarder_getter_in_sdk() {
 /// A program enum is a subtype of the SDK `Enum` (specification §13): the
 /// edge goes into the registration of the program module, and `is`/`as` see it.
 #[test]
-#[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
+#[ignore = "AOT fixture with the source SDK and LLVM; run in the Pesado workflow"]
 fn enum_e_subtipo_de_enum_no_sdk() {    let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB")
         .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
-        .expect("SDK de teste");
+        .expect("test SDK");
     let dir = tempfile::tempdir().unwrap();
     let entry = dir.path().join("enum_e_subtipo_de_enum.dart");
     let exe = dir.path().join("enum_e_subtipo_de_enum.exe");
@@ -515,7 +515,7 @@ fn enum_e_subtipo_de_enum_no_sdk() {    let sdk = std::env::var("DARTFORGE_TEST_
             cpu: None,
         };
         dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
-            .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
+            .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
@@ -545,8 +545,8 @@ fn for_with_reassigned_variable_reads_local() {
     ) else {
         return;
     };
-    assert!(main.matches("= phi i64").count() >= 2, "a volta do laço e o `if` juntam o valor do local:\n{main}");
-    assert!(main.contains("add i64 0, 7"), "o `i = 7` chega ao `phi`:\n{main}");
+    assert!(main.matches("= phi i64").count() >= 2, "the loop round trip and the `if` join the value of the local:\n{main}");
+    assert!(main.contains("add i64 0, 7"), "the `i = 7` reaches the `phi`:\n{main}");
 }
 
 /// (2) `c.double_of()`: the call of the method through the resolved element (N1) — before it

@@ -45,7 +45,7 @@ pub(super) fn prepare_reads(module: &Module, functions: &mut [Function]) -> Resu
             let Instruction::LoadIndexed { base: Operand::Val(base), index } = inst else { continue; };
             if *ty != Type::Ref || roles.get(base) != Some(&DartEntryVector::Arguments) { continue; }
             let [descriptor] = descriptors.as_slice() else {
-                return Err(format!("vetores ABI: {} v{} sem descritor único", f.symbol, v.0));
+                return Err(format!("ABI vectors: {} v{} without a single descriptor", f.symbol, v.0));
             };
             *inst = Instruction::CallRuntime { name: READ_ARGUMENT.into(), args: vec![
                 (Operand::Val(*base), Type::Ptr), (Operand::Val(*descriptor), Type::Ptr), (index.clone(), Type::I64),
@@ -65,13 +65,13 @@ pub(super) fn produce(
     let mut functions = HashMap::new();
     for f in &module.functions {
         if functions.insert(&f.symbol, f).is_some() {
-            return Err(format!("vetores ABI: símbolo repetido {}", f.symbol));
+            return Err(format!("ABI vectors: repeated symbol {}", f.symbol));
         }
         for (v, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
             if matches!(inst, Instruction::CallRuntime { name, .. } if name == READ_ARGUMENT)
                 && (*ty != Type::Ref || module.dart_vector_parameters.get(&f.symbol)
                     .is_none_or(|p| !checked_read(inst, p))) {
-                return Err(format!("vetores ABI: {} v{} sem proveniência da leitura", f.symbol, v.0));
+                return Err(format!("ABI vectors: {} v{} without provenance of the read", f.symbol, v.0));
             }
         }
     }
@@ -81,19 +81,19 @@ pub(super) fn produce(
     for (sym_name, roles) in facts {
         let f = functions
             .get(sym_name)
-            .ok_or_else(|| format!("vetores ABI: símbolo obsoleto {sym_name}"))?;
+            .ok_or_else(|| format!("ABI vectors: stale symbol {sym_name}"))?;
         let plan = new_set
             .get_mut(sym_name)
-            .ok_or_else(|| format!("vetores ABI: plano ausente {sym_name}"))?;
+            .ok_or_else(|| format!("ABI vectors: missing plan {sym_name}"))?;
         let types: HashMap<_, _> = f.params.iter().map(|(v, _, t)| (*v, *t)).collect();
         if types.len() != f.params.len() {
-            return Err(format!("vetores ABI: parâmetros repetidos {sym_name}"));
+            return Err(format!("ABI vectors: repeated parameters {sym_name}"));
         }
         let mark =
             |classes: &mut HashMap<ValueId, Ownership>, v: ValueId| -> Result<(), String> {
                 if classes.get(&v).is_some_and(|c| *c != Ownership::Trivial) {
                     return Err(format!(
-                        "vetores ABI: {sym_name} v{} conflita com ownership",
+                        "ABI vectors: {sym_name} v{} conflicts with ownership",
                         v.0
                     ));
                 }
@@ -114,7 +114,7 @@ pub(super) fn produce(
                     .is_some_and(|s| s.contains(&v))
             {
                 return Err(format!(
-                    "vetores ABI: {sym_name} v{} sem parâmetro Ptr de origem exclusiva",
+                    "ABI vectors: {sym_name} v{} without a Ptr parameter of exclusive origin",
                     v.0
                 ));
             }
@@ -126,19 +126,19 @@ pub(super) fn produce(
                 && roles.get(base) == Some(&DartEntryVector::Arguments)
             {
                 if !tuple_read(f, inst, *ty, roles) {
-                    return Err(format!("vetores ABI: {sym_name} v{} lê palavra escalar fora do slot da tupla", v.0));
+                    return Err(format!("ABI vectors: {sym_name} v{} reads a scalar word outside the tuple slot", v.0));
                 }
                 mark(&mut plan.classes, *v)?;
                 let effect = TokenEffect::default();
                 if plan.tokens.instructions.get(v).is_some_and(|e| *e != effect) {
-                    return Err(format!("vetores ABI: {sym_name} v{} conflita com efeito de leitura", v.0));
+                    return Err(format!("ABI vectors: {sym_name} v{} conflicts with the read effect", v.0));
                 }
                 plan.tokens.instructions.insert(*v, effect);
                 continue;
             }
             if matches!(inst, Instruction::CallRuntime { name, .. } if name == READ_ARGUMENT) {
                 if *ty != Type::Ref || !checked_read(inst, roles) {
-                    return Err(format!("vetores ABI: {sym_name} v{} sem par argumentos/descritor", v.0));
+                    return Err(format!("ABI vectors: {sym_name} v{} without an arguments/descriptor pair", v.0));
                 }
                 continue;
             }
@@ -177,7 +177,7 @@ pub(super) fn produce(
                     let effect = TokenEffect::default();
                     if plan.tokens.instructions.get(v).is_some_and(|e| *e != effect) {
                         return Err(format!(
-                            "vetores ABI: {sym_name} v{} conflita com efeito de leitura",
+                            "ABI vectors: {sym_name} v{} conflicts with the read effect",
                             v.0
                         ));
                     }
@@ -199,7 +199,7 @@ pub(super) fn produce(
                         && args.iter().skip(1).all(|(o, _)| !descriptor(o)) => {}
                 _ => {
                     return Err(format!(
-                        "vetores ABI: {sym_name} v{} usa descritor fora das leituras cobertas",
+                        "ABI vectors: {sym_name} v{} uses the descriptor outside the covered reads",
                         v.0
                     ));
                 }
@@ -213,7 +213,7 @@ pub(super) fn produce(
         }
         if uses_in_terminator {
             return Err(format!(
-                "vetores ABI: {sym_name} publica descritor no terminador"
+                "ABI vectors: {sym_name} publishes the descriptor in the terminator"
             ));
         }
     }
@@ -432,7 +432,7 @@ mod tests {
             } else if (2..=16).contains(&case) {
                 let error = result.expect_err(&format!("caso {case}"));
                 if case == 2 {
-                    assert!(error.contains("em entrada (origem v2)"), "{error}");
+                    assert!(error.contains("in entrada (origin v2)"), "{error}");
                 }
                 assert_eq!(format!("{m:?}/{ps:?}"), before, "caso {case}");
             } else {

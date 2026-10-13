@@ -737,10 +737,10 @@ pub fn gerar(dir: &Path, compiler: &CompiladorDaCrt<'_>) -> Result<(), String> {
                     .arg("-o")
                     .arg(&obj)
                     .output()
-                    .map_err(|e| format!("falha ao executar {}: {e}", clang.display()))?;
+                    .map_err(|e| format!("failed to run {}: {e}", clang.display()))?;
                 let _ = std::fs::remove_file(&ll);
                 if !exit.status.success() {
-                    return Err(format!("a CRT mínima não compilou: {}", String::from_utf8_lossy(&exit.stderr)));
+                    return Err(format!("the minimal CRT did not compile: {}", String::from_utf8_lossy(&exit.stderr)));
                 }
             }
         }
@@ -802,7 +802,7 @@ impl SysrootWindows {
             if std::fs::rename(&tmp, &dir).is_err() {
                 let _ = std::fs::remove_dir_all(&tmp);
                 if !dir.join("pronto").is_file() {
-                    return Err(format!("não foi possível instalar {}", dir.display()));
+                    return Err(format!("could not install {}", dir.display()));
                 }
             }
             Ok(SysrootWindows { dir })
@@ -952,12 +952,12 @@ pub fn link(lld: &Path, sysroot: &SysrootWindows, l: &Linkage<'_>) -> Result<(),
     let exit = Command::new(lld)
         .args(arguments(sysroot, l))
         .output()
-        .map_err(|e| format!("falha ao executar {}: {e}", lld.display()))?;
+        .map_err(|e| format!("failed to run {}: {e}", lld.display()))?;
     if !exit.status.success() {
         let mut text = String::from_utf8_lossy(&exit.stderr).into_owned();
         text.push_str(&String::from_utf8_lossy(&exit.stdout));
         let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).take(40).collect();
-        return Err(format!("o lld-link falhou na ligação ({}):\n{}", exit.status, lines.join("\n")));
+        return Err(format!("lld-link failed to link ({}):\n{}", exit.status, lines.join("\n")));
     }
     Ok(())
 }
@@ -1019,7 +1019,7 @@ mod tests {
                     return rva - va + raw;
                 }
             }
-            panic!("RVA fora das seções")
+            panic!("RVA outside the sections")
         };
         let exp = to_file(rva_exp);
         let n_names = u32_(exp + 24);
@@ -1047,7 +1047,7 @@ mod tests {
                 }
             }
         }
-        assert!(missing_set.is_empty(), "não exportados pelo sistema: {missing_set:?}");
+        assert!(missing_set.is_empty(), "not exported by the system: {missing_set:?}");
     }
 
     /// Links C programs for Windows (compiled by Clang with `--target`)
@@ -1057,7 +1057,7 @@ mod tests {
     /// code) and a DLL with a `.def` (TLS and `atexit` on unload) used by
     /// another executable. On Windows, or with Wine on `PATH`, it also runs them.
     #[test]
-    #[ignore = "exige o Clang e o lld-link (DARTFORGE_CLANG ou PATH)"]
+    #[ignore = "requires Clang and lld-link (DARTFORGE_CLANG or PATH)"]
     fn links_and_runs_c_program() {
         let clang = crate::driver::NativeDriverOptions::default().clang;
         let dir = tempfile::tempdir().unwrap();
@@ -1083,7 +1083,7 @@ static void escrever(const char* s) { unsigned n = 0, t = 0; while (s[t]) t++; W
                 .arg(&obj)
                 .status()
                 .unwrap();
-            assert!(st.success(), "o Clang não compilou {name}.c");
+            assert!(st.success(), "Clang did not compile {name}.c");
             obj
         };
         let p = compilar(
@@ -1137,7 +1137,7 @@ int df_valor(void) { static int registrado; if (!registrado) { registrado = 1; a
             &Linkage { product: Product::Dll { def: &def }, entries: vec![dll_obj], lto: false, cpu: None, prune: false, debug_info: false, exit: &d.join("b.dll") },
         )
         .unwrap();
-        assert!(d.join("b.lib").is_file(), "a biblioteca de importação da DLL");
+        assert!(d.join("b.lib").is_file(), "the DLL import library");
         let q = compilar("q", "int df_valor(void);\nint main(void) { if (df_valor() == 6) escrever(\"dll ok\\n\"); return 0; }\n");
         let exe_dll = d.join("q.exe");
         link_exe(vec![q, d.join("b.lib")], &exe_dll);

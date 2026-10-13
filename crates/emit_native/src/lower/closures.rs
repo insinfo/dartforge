@@ -506,7 +506,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             values.push(t);
         }
         let env = if direct {
-            let v = values.pop().expect("o valor do ambiente direto");
+            let v = values.pop().expect("the value of the direct environment");
             self.coerce(v, Type::Ref)
         } else {
             self.emit(Instruction::AllocEnv { values: values }, Type::Ref)

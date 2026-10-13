@@ -1170,10 +1170,10 @@ mod tests {
             assert_eq!(
                 (t.allocates, t.throws),
                 (e.effects.allocates, e.effects.throws),
-                "{}: a marca ao lado da declaração difere da de crates/runtime/efeitos.tsv",
+                "{}: the mark next to the declaration differs from that of crates/runtime/efeitos.tsv",
                 e.nome()
             );
-            assert!(!e.effects.calls_dart || t.calls_dart, "{}: roda Dart na declaração e não na tabela", e.nome());
+            assert!(!e.effects.calls_dart || t.calls_dart, "{}: runs Dart in the declaration and not in the table", e.nome());
         }
     }
 

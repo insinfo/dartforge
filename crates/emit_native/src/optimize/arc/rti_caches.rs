@@ -13,14 +13,14 @@ pub(super) fn produce(
     for cache in &module.arc_rti_caches {
         let declarations: Vec<_> = module.globals.iter().filter(|g| &g.2 == cache).collect();
         if declarations.len() != 1 || declarations[0].0 != 0 || declarations[0].1 != Type::I64 {
-            return Err(format!("cache RTI sem declaração nativa única: {cache}"));
+            return Err(format!("RTI cache without a single native declaration: {cache}"));
         }
         let flag = format!("{cache}$ok");
         if module.globals.iter().any(|g| g.2 == flag)
             || globals.insert(cache.clone(), Type::I64).is_some()
             || globals.insert(flag, Type::I8).is_some()
         {
-            return Err(format!("cache RTI com símbolo sobreposto: {cache}"));
+            return Err(format!("RTI cache with an overlapping symbol: {cache}"));
         }
     }
     let mut new_set = plans.clone();
@@ -42,7 +42,7 @@ pub(super) fn produce(
             if matches!(inst, Instruction::Const(Constant::Function(s)) if globals.contains_key(s))
                 || address
             {
-                return Err(format!("cache RTI publicado como endereço em {}", f.symbol));
+                return Err(format!("RTI cache published as an address in {}", f.symbol));
             }
             let (sym_name, expected) = match inst {
                 Instruction::LoadGlobal {
@@ -50,7 +50,7 @@ pub(super) fn produce(
                     ty: origin,
                 } if globals.contains_key(sym_name) => {
                     if globals[sym_name] != *origin || *ty != *origin {
-                        return Err(format!("cache RTI com leitura incompatível: {sym_name}"));
+                        return Err(format!("RTI cache with an incompatible read: {sym_name}"));
                     }
                     (sym_name, *origin)
                 }
@@ -76,7 +76,7 @@ pub(super) fn produce(
                         || !native
                     {
                         return Err(format!(
-                            "cache RTI com escrita sem origem nativa: {sym_name}"
+                            "RTI cache with a write without a native origin: {sym_name}"
                         ));
                     }
                     (sym_name, Type::Void)
@@ -85,7 +85,7 @@ pub(super) fn produce(
             };
             let plan = new_set
                 .get_mut(&f.symbol)
-                .ok_or_else(|| format!("cache RTI sem plano: {}", f.symbol))?;
+                .ok_or_else(|| format!("RTI cache without a plan: {}", f.symbol))?;
             if plan
                 .classes
                 .get(v)
@@ -97,7 +97,7 @@ pub(super) fn produce(
                     .is_some_and(|e| *e != TokenEffect::default())
             {
                 return Err(format!(
-                    "cache RTI com contrato conflitante: {sym_name} ({expected:?})"
+                    "RTI cache with a conflicting contract: {sym_name} ({expected:?})"
                 ));
             }
             plan.classes.insert(*v, Ownership::Trivial);
@@ -111,7 +111,7 @@ pub(super) fn produce(
             });
         }
         if address {
-            return Err(format!("cache RTI publicado no terminador em {}", f.symbol));
+            return Err(format!("RTI cache published in the terminator in {}", f.symbol));
         }
     }
     *plans = new_set;

@@ -334,7 +334,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             (shape != super::typed_items::SHAPE_GENERAL).then(|| self.core_writable_length(&list, shape));
                         let key = match self.lookup_local(local).map(|l| l.mode) {
                             Some(super::locals::Mode::Memory(p)) => p,
-                            _ => unreachable!("o laço de lista exige um local em memória"),
+                            _ => unreachable!("the list loop requires a local in memory"),
                         };
                         self.fixed_lists.push(FixedList { key, length: n, data, shape, writable_length });
                         self.for_iterations(ast, init.as_ref(), *condition, updates, *body, true, &label_list);
@@ -528,7 +528,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let default_ret = self.default_return_operand();
             self.finally_scopes
                 .last_mut()
-                .expect("escopo do finally")
+                .expect("finally scope")
                 .incoming
                 .push((p, 2, default_ret));
             self.terminate(Terminator::Branch(entry));
@@ -1361,12 +1361,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.terminate(Terminator::CondBranch { cond: ok, then_block: next, else_block: general });
         for l in &t.lists {
             self.set_block(next);
-            let ix = self.indexable(self.ctx.get_type(self.unit_id, l.alvo)).expect("lista tipada conferida");
+            let ix = self.indexable(self.ctx.get_type(self.unit_id, l.alvo)).expect("checked typed list");
             let Some(super::locals::Mode::Memory(key)) = self.lookup_local(l.local).map(|x| x.mode) else {
-                unreachable!("lista do laço versionado num `alloca`")
+                unreachable!("list of the versioned loop in an `alloca`")
             };
-            let list = self.read_local_by_name(l.local).expect("lista declarada");
-            let (data, n) = self.proven_data(&list, ix, l.write).expect("lista tipada ou SIMD");
+            let list = self.read_local_by_name(l.local).expect("declared list");
+            let (data, n) = self.proven_data(&list, ix, l.write).expect("typed or SIMD list");
             let fits = self.emit(Instruction::ICmp(ICmpOp::Sle, b.clone(), n.clone()), Type::I1);
             next = self.new_block();
             self.terminate(Terminator::CondBranch { cond: fits, then_block: next, else_block: general });

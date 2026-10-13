@@ -15,13 +15,13 @@ pub fn certify_arc_module_ports(
     plans: &[HashMap<String, DartFunctionPlan>],
 ) -> Result<usize, String> {
     if modules.len() != plans.len() {
-        return Err("módulos ARC: quantidade de planos incompatível".into());
+        return Err("ARC modules: incompatible number of plans".into());
     }
     let mut union_set: HashMap<u32, Vec<Type>> = HashMap::new();
     for m in modules.iter() {
         for (cid, layout) in &m.arc_field_layouts {
             if union_set.insert(*cid, layout.clone()).is_some_and(|previous| previous != *layout) {
-                return Err(format!("módulos ARC: layout conflitante da classe {cid}"));
+                return Err(format!("ARC modules: conflicting layout of class {cid}"));
             }
         }
     }
@@ -36,7 +36,7 @@ pub fn certify_arc_module_ports(
             && a.functions.iter().zip(&b.functions).all(|(x, y)| format!("{x:?}") == format!("{y:?}"))
     });
     if changes != (0, 0) || !equal || plans_again != plans {
-        return Err("portas ARC: conjunto ainda não preparado ou divergente".into());
+        return Err("ARC ports: set not prepared yet or divergent".into());
     }
     let mut total = 0;
     for (m, p) in new_set.iter_mut().zip(plans) {
@@ -85,7 +85,7 @@ pub fn prepare_arc_dart_modules(
     plans: &mut [HashMap<String, DartFunctionPlan>],
 ) -> Result<(usize, usize), String> {
     if modules.len() != plans.len() {
-        return Err("módulos ARC: quantidade de planos incompatível".into());
+        return Err("ARC modules: incompatible number of plans".into());
     }
     let Some(first_one) = modules.first() else {
         return Ok((0, 0));
@@ -94,7 +94,7 @@ pub fn prepare_arc_dart_modules(
         m.arc_memory != first_one.arc_memory
             || m.excecoes_por_tabelas != first_one.excecoes_por_tabelas
     }) {
-        return Err("módulos ARC: modos de memória/exceções incompatíveis".into());
+        return Err("ARC modules: incompatible memory/exception modes".into());
     }
     if !first_one.arc_memory {
         return Ok((0, 0));
@@ -128,7 +128,7 @@ pub fn prepare_arc_dart_modules(
             || locals.len() != p.len()
             || p.keys().any(|s| !locals.contains(s))
         {
-            return Err("módulos ARC: funções/planos locais incompatíveis".into());
+            return Err("ARC modules: incompatible local functions/plans".into());
         }
         for s in m
             .dart_scalar_parameters
@@ -141,11 +141,11 @@ pub fn prepare_arc_dart_modules(
             .chain(m.arc_sites.keys())
         {
             if !locals.contains(s) {
-                return Err(format!("módulos ARC: fato fora do módulo de {s}"));
+                return Err(format!("ARC modules: fact outside the module of {s}"));
             }
         }
         if set.excecoes_por_tabelas && m.functions.len() != m.tables.len() {
-            return Err("módulos ARC: inventário excepcional local incompleto".into());
+            return Err("ARC modules: incomplete local exceptional inventory".into());
         }
         let mut area = HashMap::new();
         for (root, ty, name) in &m.globals {
@@ -155,32 +155,32 @@ pub fn prepare_arc_dart_modules(
                     .insert(format!("{name}$ok"), format!("{private}$ok"))
                     .is_some()
             {
-                return Err(format!("módulos ARC: global local sobreposto {name}"));
+                return Err(format!("ARC modules: overlapping local global {name}"));
             }
             set.globals.push((*root, *ty, private));
         }
         for s in &m.arc_rti_caches {
             let name = area
                 .get(s)
-                .ok_or_else(|| format!("módulos ARC: cache fora do módulo de {s}"))?;
+                .ok_or_else(|| format!("ARC modules: cache outside the module of {s}"))?;
             set.arc_rti_caches.insert(name.clone());
         }
         for s in &m.dart_scalar_globals {
             let name = area
                 .get(s)
-                .ok_or_else(|| format!("módulos ARC: global escalar fora do módulo de {s}"))?;
+                .ok_or_else(|| format!("ARC modules: scalar global outside the module of {s}"))?;
             set.dart_scalar_globals.insert(name.clone());
         }
         super::layouts::verify(m)?;
         let mut local_ids = HashSet::new();
         for c in &m.classes {
             if !local_ids.insert(c.id) {
-                return Err(format!("módulos ARC: classe local repetida {}", c.id));
+                return Err(format!("ARC modules: repeated local class {}", c.id));
             }
             if let Some(&index) = classes.get(&c.id) {
                 let previous = &set.classes[index];
                 if previous.name != c.name || previous.field_count != c.field_count {
-                    return Err(format!("módulos ARC: classe conflitante {}", c.id));
+                    return Err(format!("ARC modules: conflicting class {}", c.id));
                 }
             } else {
                 classes.insert(c.id, set.classes.len());
@@ -193,7 +193,7 @@ pub fn prepare_arc_dart_modules(
                 .get(cid)
                 .is_some_and(|l| l != layout)
             {
-                return Err(format!("módulos ARC: layout conflitante da classe {cid}"));
+                return Err(format!("ARC modules: conflicting layout of class {cid}"));
             }
             set.arc_field_layouts.insert(*cid, layout.clone());
         }
@@ -207,13 +207,13 @@ pub fn prepare_arc_dart_modules(
                     || !m.arc_shared_functions.contains(symbol)
                     || !previous.arc_shared_functions.contains(symbol)
                 {
-                    return Err(format!("módulos ARC: função repetida {symbol}"));
+                    return Err(format!("ARC modules: repeated function {symbol}"));
                 }
                 if protocol(previous, &previous.functions[af], &plans[am][symbol])
                     != protocol(m, original, &p[symbol])
                 {
                     return Err(format!(
-                        "módulos ARC: ABI compartilhada divergente {symbol}"
+                        "ARC modules: divergent shared ABI {symbol}"
                     ));
                 }
                 let name = private_name(&mut used_set, &mut next_item, "funcao")?;
@@ -237,7 +237,7 @@ pub fn prepare_arc_dart_modules(
                 let t = &m.tables[function_index];
                 if plan.tables != FunctionTables::default() && plan.tables != *t {
                     return Err(format!(
-                        "módulos ARC: tabelas locais conflitantes {symbol}"
+                        "ARC modules: conflicting local tables {symbol}"
                     ));
                 }
                 plan.tables = t.clone();
@@ -297,7 +297,7 @@ pub fn prepare_arc_dart_modules(
         for (private, original, module) in &variant_origins {
             if error.contains(private) {
                 error = error.replace(private, original);
-                error.push_str(&format!(" (variante do módulo {module})"));
+                error.push_str(&format!(" (variant of module {module})"));
             }
         }
         error
@@ -313,7 +313,7 @@ pub fn prepare_arc_dart_modules(
             let current = &set.functions[index].symbol;
             let physical = if current == before { original.symbol.clone() }
                 else if current == &format!("{before}$arcslots_v1") { format!("{}$arcslots_v1", original.symbol) }
-                else { return Err("módulos ARC: mudança de assinatura/símbolo não reconhecida".into()); };
+                else { return Err("ARC modules: unrecognized signature/symbol change".into()); };
             physical_names.insert(current.clone(), physical.clone());
             map.insert(original.symbol.clone(), physical);
         }
@@ -424,7 +424,7 @@ fn remap_area(f: &mut Function, area: &HashMap<String, String>) -> Result<(), St
             address |= matches!(o, Operand::Constant(Constant::Function(s)) if area.contains_key(s));
         });
         if address {
-            return Err(format!("endereço da área global publicado em {}", f.symbol));
+            return Err(format!("address of the global area published in {}", f.symbol));
         }
     }
     for (_, i, _) in f.blocks.iter_mut().flat_map(|b| &mut b.instructions) {
@@ -435,7 +435,7 @@ fn remap_area(f: &mut Function, area: &HashMap<String, String>) -> Result<(), St
         {
             *symbol = area
                 .get(symbol)
-                .ok_or_else(|| format!("global fora da área local: {symbol}"))?
+                .ok_or_else(|| format!("global outside the local area: {symbol}"))?
                 .clone();
         }
     }

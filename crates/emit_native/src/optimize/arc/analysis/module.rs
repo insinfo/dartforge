@@ -45,9 +45,9 @@ pub fn analyze_in_module(
     let mut bodies = m.functions.iter().filter(|f| f.symbol == sym_name);
     let f = bodies
         .next()
-        .ok_or_else(|| format!("points-to: corpo ausente {sym_name}"))?;
+        .ok_or_else(|| format!("points-to: missing body {sym_name}"))?;
     if bodies.next().is_some() {
-        return Err(format!("points-to: corpo duplicado {sym_name}"));
+        return Err(format!("points-to: duplicate body {sym_name}"));
     }
     super::calls::check_globals(m, f)?;
     let calls: std::collections::HashSet<_> = f
@@ -137,13 +137,13 @@ pub(super) fn facts_in_module(m: &Module, f: &Function) -> Result<HirFacts, Stri
         for (v, site) in sites {
             let i = instructions
                 .get(v)
-                .ok_or_else(|| format!("points-to: sítio obsoleto v{}", v.0))?;
+                .ok_or_else(|| format!("points-to: stale site v{}", v.0))?;
             if !super::origins::allocation(i) {
-                return Err(format!("points-to: sítio não aloca v{}", v.0));
+                return Err(format!("points-to: site does not allocate v{}", v.0));
             }
             if let Some((role, captures)) = super::hir::synthetic_captures(i, &types) {
                 if types[v] != Type::Ref {
-                    return Err(format!("points-to: unidade sintética não Ref v{}", v.0));
+                    return Err(format!("points-to: non-Ref synthetic unit v{}", v.0));
                 }
                 let node = AbstractNode::SyntheticUnit {
                     site: site.clone(),
@@ -170,7 +170,7 @@ pub(super) fn facts_in_module(m: &Module, f: &Function) -> Result<HirFacts, Stri
                 continue;
             };
             if layout.len() != quantity {
-                return Err(format!("points-to: layout incompatível v{}", v.0));
+                return Err(format!("points-to: incompatible layout v{}", v.0));
             }
             let node = AbstractNode::Allocation {
                 site: site.clone(),
@@ -180,7 +180,7 @@ pub(super) fn facts_in_module(m: &Module, f: &Function) -> Result<HirFacts, Stri
                 .insert(node.clone(), class)
                 .is_some_and(|previous| previous != class)
             {
-                return Err("points-to: origem com classes conflitantes".into());
+                return Err("points-to: origin with conflicting classes".into());
             }
             let field_list = (0..quantity)
                 .map(|position| ArcField {
@@ -409,7 +409,7 @@ mod tests {
             }
             let r = super::super::calls::solve(&m, &HashSet::from(["wrapper"]), 8).unwrap();
             let WriteInclusions::Partial(edges) = &r["wrapper"].1.write_inclusions else {
-                panic!("anexo não pode certificar cobertura completa");
+                panic!("attachment cannot certify complete coverage");
             };
             assert_eq!(edges.len(), 1);
             assert_eq!(edges.first().unwrap().index, None);

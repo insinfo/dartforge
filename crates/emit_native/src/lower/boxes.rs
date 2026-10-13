@@ -177,7 +177,7 @@ mod context_tests {
                             errors += 1;
                             if arc {
                                 let Terminator::CondBranch { cond, then_block, else_block } = &b.terminator else {
-                                    panic!("NSM sem saída pending em ARC");
+                                    panic!("NSM without a pending exit under ARC");
                                 };
                                 assert_ne!(then_block, else_block);
                                 let last_ones = &b.instructions[b.instructions.len() - 3..];

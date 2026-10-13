@@ -34,7 +34,7 @@ pub(super) fn prepare(
     let mut next_item = next_val(f, plan);
     let mut id = || -> Result<ValueId, String> {
         let v = u32::try_from(next_item)
-            .map_err(|_| format!("IDs SSA esgotados ao inicializar objetos em {}", f.symbol))?;
+            .map_err(|_| format!("SSA IDs exhausted while initializing objects in {}", f.symbol))?;
         next_item += 1;
         Ok(ValueId(v))
     };
@@ -56,7 +56,7 @@ pub(super) fn prepare(
             {
                 let error = || {
                     format!(
-                        "alocação zerada ARC em {} v{}: classe/quantidade/layout incompatível",
+                        "ARC zeroed allocation in {} v{}: incompatible class/count/layout",
                         f.symbol, v.0
                     )
                 };
@@ -97,7 +97,7 @@ pub(super) fn prepare(
             }
             if let Instruction::CellGet { cell } = inst && *ty == Type::Ref {
                 if typ(cell) != Some(Type::Ref) {
-                    return Err(format!("célula ARC em {} v{} exige receiver Ref", f.symbol, v.0));
+                    return Err(format!("ARC cell in {} v{} requires a Ref receiver", f.symbol, v.0));
                 }
                 // The physical map must mark the slot as Ref before borrowing;
                 // do not convert the word of a scalar cell into a reference.
@@ -115,7 +115,7 @@ pub(super) fn prepare(
                 && matches!(ty, Type::I64 | Type::F64 | Type::I1 | Type::I8)
             {
                 if typ(cell) != Some(Type::Ref) {
-                    return Err(format!("célula ARC em {} v{} exige receiver Ref", f.symbol, v.0));
+                    return Err(format!("ARC cell in {} v{} requires a Ref receiver", f.symbol, v.0));
                 }
                 let bits = if *ty == Type::I64 { *v } else { id()? };
                 instructions.push((bits, Instruction::CallRuntime {
@@ -134,7 +134,7 @@ pub(super) fn prepare(
             // in the representation of the value; the runtime checks the map mark.
             if let Instruction::CellSet { cell, value } = inst {
                 if typ(cell) != Some(Type::Ref) || *ty != Type::Void {
-                    return Err(format!("célula ARC em {} v{} exige receiver Ref", f.symbol, v.0));
+                    return Err(format!("ARC cell in {} v{} requires a Ref receiver", f.symbol, v.0));
                 }
                 let (name_str, val_ref, repr) = match typ(value) {
                     Some(Type::Ref) => ("dartforge_arc_gravar_campo_ref_v1", value.clone(), Type::Ref),
@@ -149,7 +149,7 @@ pub(super) fn prepare(
                         instructions.push((bits, conversion, Type::I64));
                         ("dartforge_arc_gravar_campo_escalar_v1", Operand::Val(bits), Type::I64)
                     }
-                    _ => return Err(format!("célula ARC em {} v{}: valor sem representação", f.symbol, v.0)),
+                    _ => return Err(format!("ARC cell in {} v{}: value without a representation", f.symbol, v.0)),
                 };
                 instructions.push((*v, Instruction::CallRuntime {
                     name: name_str.into(),
@@ -162,10 +162,10 @@ pub(super) fn prepare(
                 && *ty == Type::Ref
             {
                 if typ(env) != Some(Type::Ref) {
-                    return Err(format!("captura ARC em {} v{} exige ambiente Ref", f.symbol, v.0));
+                    return Err(format!("ARC capture in {} v{} requires a Ref environment", f.symbol, v.0));
                 }
                 let idx_value = i64::try_from(*index).map_err(|_|
-                    format!("captura ARC em {} v{}: índice fora da ABI", f.symbol, v.0))?;
+                    format!("ARC capture in {} v{}: index outside the ABI", f.symbol, v.0))?;
                 instructions.push((*v, Instruction::CallRuntime {
                     name: "dartforge_arc_env_ref_v1".into(),
                     args: vec![(env.clone(), Type::Ref),
@@ -180,10 +180,10 @@ pub(super) fn prepare(
                 && matches!(ty, Type::I64 | Type::F64 | Type::I1 | Type::I8)
             {
                 if typ(env) != Some(Type::Ref) {
-                    return Err(format!("captura ARC em {} v{} exige ambiente Ref", f.symbol, v.0));
+                    return Err(format!("ARC capture in {} v{} requires a Ref environment", f.symbol, v.0));
                 }
                 let idx_value = i64::try_from(*index).map_err(|_|
-                    format!("captura ARC em {} v{}: índice fora da ABI", f.symbol, v.0))?;
+                    format!("ARC capture in {} v{}: index outside the ABI", f.symbol, v.0))?;
                 let bits = if *ty == Type::I64 { *v } else { id()? };
                 instructions.push((bits, Instruction::CallRuntime {
                     name: "dartforge_arc_env_escalar_v1".into(),
@@ -211,7 +211,7 @@ pub(super) fn prepare(
                     abi == 0 || typed_abi(ps, *ret) == Some(abi)));
                 if *ty != Type::Ref || typ(env) != Some(Type::Ref)
                     || !uniform || !body {
-                    return Err(format!("closure ARC em {} v{}: ABI, contexto ou corpo não coberto", f.symbol, v.0));
+                    return Err(format!("ARC closure in {} v{}: ABI, context or body not covered", f.symbol, v.0));
                 }
                 instructions.push((*v, Instruction::CallRuntime {
                     name: "dartforge_arc_closure_owned_v1".into(),
@@ -239,25 +239,25 @@ pub(super) fn prepare(
             };
             if synthetic && fields.is_empty() && class_id != crate::lower::async_sm::ASYNC_FRAME_ID {
                 if *ty != Type::Ref {
-                    return Err(format!("ambiente ARC em {} v{} exige Ref", f.symbol, v.0));
+                    return Err(format!("ARC environment in {} v{} requires Ref", f.symbol, v.0));
                 }
                 instructions.push((*v, Instruction::Const(Constant::Null), Type::Ref));
                 continue;
             }
             let layout = if synthetic {
                 let types = fields.iter().map(&typ).collect::<Option<Vec<_>>>().ok_or_else(||
-                    format!("captura ARC em {} v{}: materialização implícita não coberta", f.symbol, v.0))?;
+                    format!("ARC capture in {} v{}: implicit materialization not covered", f.symbol, v.0))?;
                 if types.iter().any(|t| !matches!(t, Type::Ref | Type::I64 | Type::F64 | Type::I1 | Type::I8)) {
-                    return Err(format!("captura ARC em {} v{}: representação não coberta", f.symbol, v.0));
+                    return Err(format!("ARC capture in {} v{}: representation not covered", f.symbol, v.0));
                 }
                 if class_id == crate::lower::async_sm::ASYNC_FRAME_ID
                     && !types.starts_with(&[Type::I64, Type::Ref, Type::Ref, Type::Ref, Type::Ref, Type::I64]) {
-                    return Err(format!("quadro suspenso ARC em {} v{}: cabeçalho incompatível", f.symbol, v.0));
+                    return Err(format!("ARC suspended frame in {} v{}: incompatible header", f.symbol, v.0));
                 }
                 Cow::Owned(types)
             } else { Cow::Borrowed(layouts.get(&class_id).ok_or_else(|| {
                 format!(
-                    "alocação ARC em {} v{}: classe {class_id} sem layout",
+                    "ARC allocation in {} v{}: class {class_id} without a layout",
                     f.symbol, v.0
                 )
             })?) };
@@ -267,14 +267,14 @@ pub(super) fn prepare(
                 || layout.len() != fields.len()
             {
                 return Err(format!(
-                    "alocação ARC em {} v{}: representação ou quantidade incompatível",
+                    "ARC allocation in {} v{}: incompatible representation or count",
                     f.symbol, v.0
                 ));
             }
             for (i, (op, expected)) in fields.iter().zip(layout.iter()).enumerate() {
                 if typ(op) != Some(*expected) {
                     return Err(format!(
-                        "alocação ARC em {} v{}: campo {i} incompatível com {expected:?}",
+                        "ARC allocation in {} v{}: field {i} incompatible with {expected:?}",
                         f.symbol, v.0
                     ));
                 }
@@ -524,7 +524,7 @@ mod tests {
         let error =
             produce_runtime_contracts(&m.functions[0], &mut classes, &mut tokens).unwrap_err();
         assert!(
-            error.contains("tabela estática exige proveniência"),
+            error.contains("static table requires provenance"),
             "{error}"
         );
         assert_eq!(format!("{classes:?}{tokens:?}"), before);
@@ -849,10 +849,10 @@ mod tests {
             f.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(1))));
             let before = format!("{m:?}"); let plans_before = plans.clone();
             let result = prepare_arc_dart_module(&mut m, &mut plans);
-            if case == 2 { assert!(result.unwrap_err().contains("receiver Ref")); assert_eq!(format!("{m:?}"), before); assert_eq!(plans, plans_before); continue; }
+            if case == 2 { assert!(result.unwrap_err().contains("Ref receiver")); assert_eq!(format!("{m:?}"), before); assert_eq!(plans, plans_before); continue; }
             if case == 1 { assert_eq!(result.unwrap(), (0, 0)); assert_eq!(format!("{m:?}"), before); continue; }
             assert_eq!(result.unwrap(), (1, 0));
-            let Terminator::Return(Some(Operand::Val(ret))) = m.functions[0].blocks[0].terminator else { panic!("retorno sem token SSA"); };
+            let Terminator::Return(Some(Operand::Val(ret))) = m.functions[0].blocks[0].terminator else { panic!("return without an SSA token"); };
             assert_eq!(plans["objeto"].classes[&ret], Ownership::Owned);
             assert!(matches!(plans["objeto"].classes[&ValueId(1)], Ownership::Borrowed { owner: OwnerOrigin::Value(ValueId(0)), .. }));
             let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();

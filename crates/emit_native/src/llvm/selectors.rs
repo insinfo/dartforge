@@ -136,7 +136,7 @@ impl LlvmEmitter<'_> {
         }
         if arc_owned {
             assert!(self.module.arc_memory && self.module.arc_aot_ports.is_some(),
-                "repasse ARC exige portas AOT certificadas");
+                "ARC forwarding requires certified AOT ports");
             writeln!(self.out, "  %sc{v} = ptrtoint ptr %sf{v} to i64").unwrap();
             writeln!(self.out, "  %sav{v} = ptrtoint ptr {a} to i64").unwrap();
             writeln!(self.out, "  %sdv{v} = ptrtoint ptr {d} to i64").unwrap();

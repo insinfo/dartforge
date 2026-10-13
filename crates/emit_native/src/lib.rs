@@ -93,11 +93,11 @@ impl IrEmitido {
     pub fn imprimir_tempos(&self) {
         eprintln!("  Front-end: {:?}", self.tempos.frontend);
         let (live_set, all) = self.tempos.live_functions;
-        eprintln!("  Mundo:     {:?} ({live_set} de {all} funções do programa vivas)", self.tempos.world);
+        eprintln!("  World:     {:?} ({live_set} of {all} program functions live)", self.tempos.world);
         eprintln!("  HIR:       {:?}", self.tempos.hir);
         eprintln!("  LLVM IR:   {:?}", self.tempos.llvm_ir);
         let pct = if self.texto.is_empty() { 0.0 } else { 100.0 * self.sdk_byte_count as f64 / self.texto.len() as f64 };
-        eprintln!("  IR:        {} bytes, {} do SDK ({pct:.1}%)", self.texto.len(), self.sdk_byte_count);
+        eprintln!("  IR:        {} bytes, {} from the SDK ({pct:.1}%)", self.texto.len(), self.sdk_byte_count);
     }
 }
 
@@ -221,8 +221,8 @@ pub fn emitir_ir(entry: &Path, options: &CompileOptions) -> Result<IrEmitido, St
 /// to point to it.
 pub fn sdk_do_dart() -> Result<PathBuf, String> {
     SdkLayout::discover().ok_or_else(|| {
-        "SDK do Dart não encontrado: a distribuição do dartforge o leva em lib/dart-sdk; \
-         numa árvore de desenvolvimento, defina DARTFORGE_SDK_LIB (o lib/ do SDK) ou DART_SDK"
+        "Dart SDK not found: the dartforge distribution carries it in lib/dart-sdk; \
+         in a development tree, set DARTFORGE_SDK_LIB (the lib/ of the SDK) or DART_SDK"
             .to_string()
     })
 }
@@ -278,7 +278,7 @@ fn emit_ir_internal(
     // the unwind tables with the system.
     let excecoes_por_tabelas = alvo::excecoes_por_tabelas()?;
     if excecoes_por_tabelas && !prune {
-        return Err("as exceções por tabelas (DARTFORGE_EXCECOES=tabelas) não existem no JIT: use compile-native".to_string());
+        return Err("exceptions by tables (DARTFORGE_EXCECOES=tabelas) do not exist in the JIT: use compile-native".to_string());
     }
     // The roots mode (`alvo::raizes_por_mapas`). In the JIT (the only one that emits
     // without pruning) the map of each object is found and registered by the
@@ -307,7 +307,7 @@ fn emit_ir_internal(
     // current language version may come from `--versao-linguagem` (modern
     // Dart, P2).
     let mut sdk = sdk_modulo::load_native_sdk(&sdk_dir)
-        .map_err(|e| format!("falha ao carregar SDK VM: {e}"))?;
+        .map_err(|e| format!("failed to load the VM SDK: {e}"))?;
     if let Some(v) = options.versao_linguagem {
         sdk.versao_corrente = v;
     }
@@ -339,9 +339,9 @@ fn emit_ir_internal(
         None => load_lenient(entry, &sdk, options.packages, &mut interner),
     };
     if let Some((first_one, rest)) = elements_diags.split_first() {
-        let mut msg = format!("erro ao carregar o programa: {first_one}");
+        let mut msg = format!("error loading the program: {first_one}");
         for d in rest {
-            msg.push_str(&format!("\nerro: {d}"));
+            msg.push_str(&format!("\nerror: {d}"));
         }
         return Err(msg);
     }
@@ -364,9 +364,9 @@ fn emit_ir_internal(
         .chain(body_diags.iter())
         .filter(|d| dartforge_types::codes::e_erro_de_compilacao(&d.message));
     if let Some(first_one) = errors.next() {
-        let mut msg = format!("erro: {first_one}");
+        let mut msg = format!("error: {first_one}");
         for d in errors {
-            msg.push_str(&format!("\nerro: {d}"));
+            msg.push_str(&format!("\nerror: {d}"));
         }
         return Err(msg);
     }
@@ -439,7 +439,7 @@ fn emit_ir_internal(
             && options.timings
         {
             eprintln!(
-                "  Poda HIR:  {} de {} funções, {} de {} pares, {} assinaturas FFI ({:?})",
+                "  HIR pruning: {} of {} functions, {} of {} pairs, {} FFI signatures ({:?})",
                 e.live_functions,
                 e.functions,
                 e.live_pairs,
@@ -471,9 +471,9 @@ fn emit_ir_internal(
         } else {
             optimize::arc::prepare_arc_dart_module(&mut hir_module, &mut plans)
         }
-        .map_err(|e| format!("preparação ARC do programa: {e}"))?;
+        .map_err(|e| format!("ARC preparation of the program: {e}"))?;
         optimize::arc::certify_arc_aot_ports(&mut hir_module, &plans)
-            .map_err(|e| format!("portas ARC do programa: {e}"))?;
+            .map_err(|e| format!("ARC ports of the program: {e}"))?;
     }
     if options.timings {
         eprintln!("  HIR:       baixar {:?}, otimizar {:?}", t_optimize.duration_since(t_hir), t_optimize.elapsed());
@@ -498,7 +498,7 @@ fn emit_ir_internal(
     let large_size = hir_module.functions.len() >= LARGE_PROGRAM_FUNCTIONS;
     let large = options.optimize && large_size;
     if large && options.timings {
-        eprintln!("  Programa grande: {} funções HIR (campos e ajudantes por chamada)", hir_module.functions.len());
+        eprintln!("  Large program: {} HIR functions (fields and helpers by call)", hir_module.functions.len());
     }
     let fields_per_call = match std::env::var("DARTFORGE_CAMPOS_POR_CHAMADA") {
         Ok(v) => v == "1",
@@ -630,7 +630,7 @@ pub fn compile_with(
     let peak_memory = dartforge_instrument::peak_bytes();
 
     if options.timings {
-        eprintln!("--- Tempos de Compilação Nativa ---");
+        eprintln!("--- Native Compilation Timings ---");
         ir.imprimir_tempos();
         let origin = if linkage.objeto_do_cache { " (cache)" } else { "" };
         eprintln!("  Objeto:    {:?}{origin}", linkage.clang);
@@ -649,10 +649,10 @@ pub(crate) fn sdk_tests() -> &'static Path {
     SDK.get_or_init(|| {
         let sdk = std::env::var_os("DARTFORGE_TEST_SDK_LIB")
             .map(PathBuf::from)
-            .unwrap_or_else(|| sdk_do_dart().expect("SDK necessário aos testes de emissão"));
+            .unwrap_or_else(|| sdk_do_dart().expect("SDK required by the emission tests"));
         assert!(
             sdk.join("libraries.json").is_file(),
-            "SDK dos testes sem libraries.json: {}",
+            "test SDK without libraries.json: {}",
             sdk.display()
         );
         sdk
@@ -678,7 +678,7 @@ mod tests {
             let body = |name: &str| {
                 let symbol = format!("@df.main$2edart..{name}(");
                 let start = ir.lines().find(|l| l.starts_with("define ") && l.contains(&symbol))
-                    .unwrap_or_else(|| panic!("função {name} não emitida"));
+                    .unwrap_or_else(|| panic!("function {name} not emitted"));
                 let pos = ir.find(start).unwrap();
                 ir[pos..].split("\n}").next().unwrap()
             };
@@ -734,7 +734,7 @@ mod tests {
             .unwrap()
             .join()
             .unwrap()
-            .expect_err("entrada de mapa null-aware é recusada no nativo");
+            .expect_err("null-aware map entry is rejected in native");
         let lines: Vec<&str> = error.lines().collect();
         assert_eq!(lines[0], "erro de compilação: não suportado no backend nativo: entrada de mapa null-aware", "{error}");
         assert_eq!(lines[1], "  não suportado no backend nativo: entrada de mapa null-aware (main.dart:3:11)", "{error}");
@@ -779,9 +779,9 @@ mod tests {
         let (ia, ib, ia2) = (emit_into(a), emit_into(b), emit_into(a));
         let (sa, sb) = (symbols(&ia), symbols(&ib));
         for s in ["df.main$2edart..a", "df.main$2edart.C.m", "df.main$2edart.C.s", "df.main$2edart.C.new", "df.main$2edart..g", "dart_main"] {
-            assert!(sa.contains(s), "{s} em {sa:?}");
+            assert!(sa.contains(s), "{s} in {sa:?}");
         }
-        assert!(sa.is_subset(&sb), "símbolos de A que sumiram em B: {:?}", sa.difference(&sb).collect::<Vec<_>>());
+        assert!(sa.is_subset(&sb), "symbols of A that disappeared in B: {:?}", sa.difference(&sb).collect::<Vec<_>>());
         // The same program in another directory gives the same IR, except for the
         // data constants (`@df.arr.*`): the RTI table carries the `file:` URI
         // of the library of each class (`dart:mirrors`), which depends
@@ -790,13 +790,13 @@ mod tests {
         // constant (the `[N x i64]` type) and the argument of the call that
         // registers the table may also change.
         let (la, la2): (Vec<_>, Vec<_>) = (ia.lines().collect(), ia2.lines().collect());
-        assert_eq!(la.len(), la2.len(), "o mesmo programa em outro diretório dá o mesmo IR");
+        assert_eq!(la.len(), la2.len(), "the same program in another directory gives the same IR");
         let rti_table = |l: &str| l.contains("@dartforge_rti_iniciar_tabela(");
         for (x, y) in la.iter().zip(&la2) {
             if x != y {
                 assert!(
                     (x.starts_with("@df.arr.") && y.starts_with("@df.arr.")) || (rti_table(x) && rti_table(y)),
-                    "o mesmo programa em outro diretório dá o mesmo IR:\n{x}\n{y}"
+                    "the same program in another directory gives the same IR:\n{x}\n{y}"
                 );
             }
         }
@@ -828,7 +828,7 @@ mod tests {
 
         let asynchronous = emit_source("Future<int> f() async { await null; return 2; }\nFuture<void> main() async { print(await f()); }\n");
         assert!(asynchronous.texto.contains("call void @dartforge_laco_de_eventos(ptr @dartforge_chamar_dart0)"));
-        assert!(asynchronous.texto.contains("define i64 @df.main$2edart..f$async$q"), "o corpo da máquina de estados");
+        assert!(asynchronous.texto.contains("define i64 @df.main$2edart..f$async$q"), "the body of the state machine");
         // `dart:async` comes from the cached SDK module (`sdk_modulo.rs`): the IR
         // of the program only calls it, it does not define its functions (`sdk_byte_count`
         // may be 0).
@@ -843,6 +843,6 @@ mod tests {
                      verificador da HIR (main): tag 3 para um valor I64\n  \
                      não suportado no backend nativo: chamada `sort` (a.dart:3:4)";
         assert_eq!(construtos_do_erro(text), ["membro `hash`", "chamada `sort`"]);
-        assert!(construtos_do_erro("erro ao carregar o programa: x").is_empty());
+        assert!(construtos_do_erro("error loading the program: x").is_empty());
     }
 }

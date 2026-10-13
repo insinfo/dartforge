@@ -466,8 +466,8 @@ mod tests {
         let exit = r.label(text, &func, Some(&d), false, false);
         assert!(!exit.contains("df.pos"), "{exit}");
         assert!(exit.contains(&format!(".long {}", 3 << 12 | 7)), "{exit}");
-        let asm = exit.find("asm sideeffect").expect("rótulo");
-        assert!(asm < exit.find("@df.lib.g()").expect("chamada"), "{exit}");
+        let asm = exit.find("asm sideeffect").expect("label");
+        assert!(asm < exit.find("@df.lib.g()").expect("call"), "{exit}");
         let mut out = String::new();
         r.finish(&mut out);
         assert!(out.contains("@df.pcu.0 ") && out.contains("c\"file:\\2F\\2F\\2Fx\\2Fa.dart\\00\""), "{out}");
@@ -508,7 +508,7 @@ mod tests {
         let mut r = StackTrace::new();
         let exit = r.label(text, &func, Some(&d), false, false);
         let g = exit.find("asm sideeffect").expect("grupo");
-        assert!(g < exit.find("%v1 = add").expect("instrução"), "{exit}");
+        assert!(g < exit.find("%v1 = add").expect("instruction"), "{exit}");
         assert!(exit.contains("ptr @df.lib.f$async$q0000abcd$ent, ptr @df.pcf.0"), "{exit}");
         assert!(exit.contains(&format!(".long {}", 3 << 12 | 9)) && exit.contains("-.+2"), "{exit}");
         assert_eq!(func.stack_trace_name(), "f");

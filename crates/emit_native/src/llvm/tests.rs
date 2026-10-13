@@ -80,7 +80,7 @@ fn emit(f: Function) -> String {
 }
 
 fn body_of<'a>(ir: &'a str, symbol: &str) -> &'a str {
-    let ini = ir.find(&format!("@{symbol}(")).expect("função emitida");
+    let ini = ir.find(&format!("@{symbol}(")).expect("emitted function");
     let end = ir[ini..].find("\n}\n").map_or(ir.len(), |f| ini + f);
     &ir[ini..end]
 }
@@ -315,7 +315,7 @@ fn arc_operations_reject_unevaluated_literal_scalar_and_wrong_result() {
             m.functions.push(f);
             let errors = crate::lower::verifier::verify(&m);
             assert!(
-                errors.iter().any(|e| e.contains("operação ARC")),
+                errors.iter().any(|e| e.contains("ARC operation")),
                 "{errors:?}"
             );
         }
@@ -366,7 +366,7 @@ fn wtf8_literal_preserves_lone_surrogate_in_ir() {
     let ir = emit(f);
     assert!(ir.contains("[3 x i8] c\"\\ED\\A0\\BD\""), "{ir}");
     assert!(ir.contains("@dartforge_string_new(ptr @.str.0, i64 3)"), "{ir}");
-    assert!(!ir.contains("\\EF\\BF\\BD"), "surrogate foi substituído: {ir}");
+    assert!(!ir.contains("\\EF\\BF\\BD"), "surrogate was replaced: {ir}");
 }
 
 /// §2.11: in AOT (`static_objects`), the literal is a static object of the
@@ -404,7 +404,7 @@ fn static_literal_in_aot() {
         layout::palavras_de_texto(1, true),
         layout::cid::TWO_BYTE_STRING,
     );
-    assert!(ir.contains(&format!("i64 {}", header as i64)), "cabeçalho {header:#x}: {ir}");
+    assert!(ir.contains(&format!("i64 {}", header as i64)), "header {header:#x}: {ir}");
     let hash = layout::hash_de_texto([0xD83Du16]);
     assert!(ir.contains(&format!("i64 {hash}")), "hash {hash}: {ir}");
 }
@@ -464,14 +464,14 @@ fn roots_frame_on_every_ret() {
     assert!(!body.contains("store i64 %v1, ptr"), "{body}");
     // The exit of the stack check (C22) returns before the frame is
     // linked: nothing to close there.
-    let (prologue, rest) = body.split_once("pilha.ok:").expect("conferência da pilha no prólogo");
+    let (prologue, rest) = body.split_once("pilha.ok:").expect("stack check in the prologue");
     assert!(prologue.contains("pilha.estouro:") && prologue.contains("call void @dartforge_estouro_de_pilha()"), "{body}");
-    assert!(!prologue.contains("store ptr %gcq, ptr %ctxtopo"), "o quadro não pode estar encadeado no estouro: {body}");
+    assert!(!prologue.contains("store ptr %gcq, ptr %ctxtopo"), "the frame cannot be chained on overflow: {body}");
     assert_eq!(prologue.matches("\n  ret ").count(), 1, "{body}");
     let rets = rest.matches("\n  ret ").count();
     let pops = rest.matches("store ptr %gcvolta").count();
     assert_eq!(rets, 2, "{body}");
-    assert_eq!(pops, rets, "todo ret fecha o quadro: {body}");
+    assert_eq!(pops, rets, "every ret closes the frame: {body}");
 }
 
 /// A call that allocates.
@@ -667,11 +667,11 @@ fn verifier_rejects_integer_as_ref_and_wrong_tag() {
     assert!(
         errors
             .iter()
-            .any(|e| e.contains("constante inteira numa posição Ref")),
+            .any(|e| e.contains("integer constant in a Ref position")),
         "{errors:?}"
     );
     assert!(
-        errors.iter().any(|e| e.contains("tag 3 para um valor I64")),
+        errors.iter().any(|e| e.contains("tag 3 for a I64 value")),
         "{errors:?}"
     );
 }
@@ -721,9 +721,9 @@ fn verifier_checks_captures_records_and_removed_instructions() {
     m.functions.push(body);
     let errors = crate::lower::verifier::verify(&m);
     let has = |s: &str| errors.iter().any(|e| e.contains(s));
-    assert!(has("captura 0 do ambiente: lida como Ref, gravada como I64"), "{errors:?}");
-    assert!(has("célula: lida como F64, gravada como I64"), "{errors:?}");
-    assert!(has("record posicional: campo I64"), "{errors:?}");
+    assert!(has("environment capture 0: read as Ref, written as I64"), "{errors:?}");
+    assert!(has("cell: read as F64, written as I64"), "{errors:?}");
+    assert!(has("positional record: field I64"), "{errors:?}");
     // Capture 1 (the cell, `Ref`) read as `Ref`: no error.
     assert!(!has("captura 1"), "{errors:?}");
 }
@@ -763,16 +763,16 @@ fn cleanup_resumes_original_pair_and_rejects_incoherent_metadata() {
     assert!(landing_pad.find("@dartforge_arc_release").unwrap() < landing_pad.find("resume").unwrap());
     let mut bad = t.clone();
     bad.landing_pads.clear();
-    assert!(crate::optimize::arc::check_resumes(&f, &bad).unwrap_err().contains("pouso"));
+    assert!(crate::optimize::arc::check_resumes(&f, &bad).unwrap_err().contains("landing pad"));
     bad = t.clone();
     bad.invocations.insert(ValueId(1000), BlockId(2));
-    assert!(crate::optimize::arc::check_resumes(&f, &bad).unwrap_err().contains("exatamente um invoke"));
+    assert!(crate::optimize::arc::check_resumes(&f, &bad).unwrap_err().contains("exactly one invoke"));
     let mut body = f.clone();
     body.blocks[0].terminator = Terminator::Branch(BlockId(2));
-    assert!(crate::optimize::arc::check_resumes(&body, &t).unwrap_err().contains("sem invoke"));
+    assert!(crate::optimize::arc::check_resumes(&body, &t).unwrap_err().contains("without an invoke"));
     body = f.clone();
     body.blocks[2].instructions.push((ValueId(5), Instruction::CallRuntime { name: "dartforge_exception_clear".into(), args: vec![], ret_ty: Type::Void }, Type::Void));
-    assert!(crate::optimize::arc::check_resumes(&body, &t).unwrap_err().contains("só admite drops"));
+    assert!(crate::optimize::arc::check_resumes(&body, &t).unwrap_err().contains("only admits ARC drops"));
     let mut e = LlvmEmitter::new(&m);
     e.tab = Some(&t);
     e.maps = true;
@@ -781,7 +781,7 @@ fn cleanup_resumes_original_pair_and_rejects_incoherent_metadata() {
 
 #[cfg(windows)]
 #[test]
-#[should_panic(expected = "Windows precisa de funclets SEH")]
+#[should_panic(expected = "Windows needs SEH funclets")]
 fn resume_does_not_promise_seh_support_in_public_emitter() {
     let mut m = Module::new();
     m.tables.push(FunctionTables { exits: [(BlockId(1), ExceptionExit::Resume)].into(), ..Default::default() });
@@ -933,15 +933,15 @@ fn foreign_cleanup_closes_local_frames_in_lifo() {
         < resume.find("@dartforge_arc_quadro_fechar_v1(i64 %v0)").unwrap());
     let mut invalidates = functions[0].clone();
     invalidates.blocks.iter_mut().find(|b| b.id == BlockId(3)).unwrap().instructions.swap(0, 1);
-    assert!(crate::optimize::arc::check_resumes(&invalidates, t).unwrap_err().contains("fora de LIFO"));
+    assert!(crate::optimize::arc::check_resumes(&invalidates, t).unwrap_err().contains("out of LIFO order"));
     let mut without_closing = functions[0].clone();
     without_closing.blocks.iter_mut().find(|b| b.id == BlockId(3)).unwrap().instructions.pop();
-    assert!(crate::optimize::arc::check_resumes(&without_closing, t).unwrap_err().contains("quadros ainda abertos"));
+    assert!(crate::optimize::arc::check_resumes(&without_closing, t).unwrap_err().contains("frames still open"));
     let mut collection = functions[0].clone();
     collection.blocks.iter_mut().find(|b| b.id == BlockId(3)).unwrap().instructions.push((
         ValueId(10), Instruction::CallRuntime { name: "dartforge_arc_collect".into(), args: vec![], ret_ty: Type::Void }, Type::Void,
     ));
-    assert!(crate::optimize::arc::check_resumes(&collection, t).unwrap_err().contains("só admite drops"));
+    assert!(crate::optimize::arc::check_resumes(&collection, t).unwrap_err().contains("only admits ARC drops"));
     assert!(ir.contains("resume { ptr, i32 } %lpad3"));
 
 

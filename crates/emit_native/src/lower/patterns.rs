@@ -560,7 +560,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             };
             self.terminate(Terminator::Branch(passing.unwrap_or(body_i)));
             successes.push(passing);
-            case_scopes.push(self.scopes.pop().expect("escopo do caso"));
+            case_scopes.push(self.scopes.pop().expect("case scope"));
             self.set_block(next_item);
         }
         // Nenhum caso casou: sai.
@@ -594,7 +594,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         let cell = self.emit(Instruction::AllocCell { value: val_ref }, Type::Ref);
                         self.emit(Instruction::Store { ptr: ptr.clone(), val: cell }, Type::Void);
                     }
-                    Mode::Value(_) | Mode::Environment { .. } => unreachable!("variável declarada por case"),
+                    Mode::Value(_) | Mode::Environment { .. } => unreachable!("variable declared by case"),
                 }
             }
             self.terminate(Terminator::Branch(bodies[i]));

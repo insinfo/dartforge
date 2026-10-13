@@ -516,7 +516,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let v = s.coerce(value2.clone(), t);
                     s.store_list_element(&list2, &index2, v, t);
                 }
-                Indexable::Core { write_op: None } => unreachable!("gravação direta conferida acima"),
+                Indexable::Core { write_op: None } => unreachable!("direct store checked above"),
                 Indexable::Simd { k, .. } => {
                     let address = s.typed_addresses(&list2);
                     let v = s.coerce(value2.clone(), k);
@@ -694,7 +694,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.terminate(Terminator::Unreachable);
                 Operand::Constant(Constant::Null)
             }
-            1 => entries.pop().expect("uma entrada").1,
+            1 => entries.pop().expect("one entry").1,
             _ => self.emit(Instruction::Phi { incoming: entries, ty: repr }, repr),
         }
     }

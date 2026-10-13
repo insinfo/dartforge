@@ -517,7 +517,7 @@ impl<'a> Context<'a> {
                     if program.library(c.library).is_sdk {
                         let id = table.ids.get(&(lib, name)).copied().unwrap_or_else(|| {
                             panic!(
-                                "classe {}::{} sem id na tabela do SDK compilado (cache desatualizado)",
+                                "class {}::{} without an id in the table of the compiled SDK (stale cache)",
                                 self.library_name(c.library),
                                 self.interner.resolve(c.name)
                             )

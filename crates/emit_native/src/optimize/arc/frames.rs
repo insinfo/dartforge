@@ -48,33 +48,33 @@ pub(super) fn analyze_shared(
         })
         .collect();
     if f.blocks.is_empty() {
-        return Err("quadros ARC: função sem entrada".into());
+        return Err("ARC frames: function without an entry".into());
     }
     let mut entries: Vec<Option<Vec<ValueId>>> = vec![None; f.blocks.len()];
     entries[0] = Some(Vec::new());
     let mut queue = VecDeque::from([0]);
     while let Some(bi) = queue.pop_front() {
         let b = &f.blocks[bi];
-        let error = |m: String| format!("quadros ARC em {} b{}: {m}", f.symbol, b.id.0);
+        let error = |m: String| format!("ARC frames in {} b{}: {m}", f.symbol, b.id.0);
         let mut active_set = entries[bi].clone().unwrap();
         for (v, inst, _) in &b.instructions {
             let use_value = |op: &Operand, active_set: &[ValueId]| -> Result<ValueId, String> {
                 let Operand::Val(q) = op else {
-                    return Err(error("quadro exige ID SSA local".into()));
+                    return Err(error("frame requires a local SSA ID".into()));
                 };
                 if !active_set.contains(q) && !borrowed_set.contains_key(q) {
-                    return Err(error(format!("quadro v{} não está aberto", q.0)));
+                    return Err(error(format!("frame v{} is not open", q.0)));
                 }
                 Ok(*q)
             };
             let index = |q: ValueId, i: i64| -> Result<(), String> {
                 if borrowed_set.contains_key(&q) {
                     return Err(error(
-                        "quadro emprestado exige seu parâmetro de índice".into(),
+                        "borrowed frame requires its index parameter".into(),
                     ));
                 }
                 if i < 0 || capacities.get(&q).is_some_and(|n| i >= *n) {
-                    return Err(error(format!("índice {i} fora do quadro v{}", q.0)));
+                    return Err(error(format!("index {i} outside frame v{}", q.0)));
                 }
                 Ok(())
             };
@@ -82,20 +82,20 @@ pub(super) fn analyze_shared(
                 if let Some(i) = borrowed_set.get(&q) {
                     if op != &Operand::Val(*i) {
                         return Err(error(format!(
-                            "índice não pertence ao quadro emprestado v{}",
+                            "index does not belong to the borrowed frame v{}",
                             q.0
                         )));
                     }
                 } else if let Operand::Constant(Constant::Int(i)) = op {
                     if !capacities.contains_key(&q) {
                         return Err(error(
-                            "repasse exige capacidade constante do quadro local".into(),
+                            "forwarding requires a constant capacity of the local frame".into(),
                         ));
                     }
                     index(q, *i)?;
                 } else {
                     return Err(error(
-                        "repasse exige índice constante local ou par emprestado".into(),
+                        "forwarding requires a constant local index or a borrowed pair".into(),
                     ));
                 }
                 Ok(())
@@ -116,16 +116,16 @@ pub(super) fn analyze_shared(
                 {
                     if name == "dartforge_arc_quadro_abrir_v1" {
                         if capacities.get(v).is_some_and(|n| *n < 0) {
-                            return Err(error("capacidade negativa de quadro".into()));
+                            return Err(error("negative frame capacity".into()));
                         }
                         if active_set.contains(v) {
-                            return Err(error(format!("quadro v{} aberto duas vezes", v.0)));
+                            return Err(error(format!("frame v{} opened twice", v.0)));
                         }
                         active_set.push(*v);
                     } else {
                         let first_one = args
                             .first()
-                            .ok_or_else(|| error("quadro sem argumento".into()))?;
+                            .ok_or_else(|| error("frame without an argument".into()))?;
                         let q = use_value(&first_one.0, &active_set)?;
                         if borrowed_set.contains_key(&q) {
                             if !matches!(
@@ -134,12 +134,12 @@ pub(super) fn analyze_shared(
                                     | "dartforge_arc_quadro_copiar_v1"
                             ) {
                                 return Err(error(
-                                    "função não pode fechar ou transferir quadro emprestado".into(),
+                                    "function cannot close or transfer a borrowed frame".into(),
                                 ));
                             }
                             let i = args
                                 .get(1)
-                                .ok_or_else(|| error("quadro emprestado sem índice".into()))?;
+                                .ok_or_else(|| error("borrowed frame without an index".into()))?;
                             par(q, &i.0)?;
                         }
                         if name != "dartforge_arc_quadro_fechar_v1" {
@@ -149,17 +149,17 @@ pub(super) fn analyze_shared(
                         }
                         if name == "dartforge_arc_quadro_fechar_v1" {
                             if active_set.last() != Some(&q) {
-                                return Err(error(format!("fechamento fora de LIFO de v{}", q.0)));
+                                return Err(error(format!("closing out of LIFO order of v{}", q.0)));
                             }
                             active_set.pop();
                         } else if name == "dartforge_arc_quadro_mover_v1" {
                             let dest = args
                                 .get(2)
-                                .ok_or_else(|| error("move sem quadro destino".into()))?;
+                                .ok_or_else(|| error("move without a destination frame".into()))?;
                             let q_dest = use_value(&dest.0, &active_set)?;
                             if borrowed_set.contains_key(&q_dest) {
                                 return Err(error(
-                                    "move não pode transferir para quadro emprestado".into(),
+                                    "move cannot transfer to a borrowed frame".into(),
                                 ));
                             }
                             if let Some((Operand::Constant(Constant::Int(i)), _)) = args.get(3) {
@@ -172,10 +172,10 @@ pub(super) fn analyze_shared(
                     for &(qi, ii) in &targets[symbol] {
                         let q = args
                             .get(qi)
-                            .ok_or_else(|| error("repasse sem quadro".into()))?;
+                            .ok_or_else(|| error("forwarding without a frame".into()))?;
                         let i = args
                             .get(ii)
-                            .ok_or_else(|| error("repasse sem índice".into()))?;
+                            .ok_or_else(|| error("forwarding without an index".into()))?;
                         let q = use_value(q, &active_set)?;
                         par(q, i)?;
                     }
@@ -184,13 +184,13 @@ pub(super) fn analyze_shared(
             }
         }
         if cfg.successors[bi].is_empty() && !active_set.is_empty() {
-            return Err(error(format!("quadros ainda abertos na saída: {active_set:?}")));
+            return Err(error(format!("frames still open at the exit: {active_set:?}")));
         }
         for &s in &cfg.successors[bi] {
             match &entries[s] {
                 Some(previous) if *previous != active_set => {
                     return Err(error(format!(
-                        "pilhas de quadros diferentes na junção b{}",
+                        "different frame stacks at the join b{}",
                         f.blocks[s].id.0
                     )));
                 }
@@ -223,7 +223,7 @@ pub(super) fn at_landing_pad_entry(
     for b in landing_pads {
         let frames = entries
             .get(&b)
-            .ok_or_else(|| format!("quadros ARC: pouso b{} sem entrada", b.0))?;
+            .ok_or_else(|| format!("ARC frames: landing pad b{} without an entry", b.0))?;
         result.insert(b, frames.clone());
     }
     Ok(result)
@@ -289,14 +289,14 @@ mod tests {
             },
             Type::Ref,
         ));
-        assert!(verify(&f).unwrap_err().contains("não está aberto"));
+        assert!(verify(&f).unwrap_err().contains("is not open"));
         f.blocks[0].instructions.pop();
         f.blocks[0].instructions.pop();
-        assert!(verify(&f).unwrap_err().contains("ainda abertos"));
+        assert!(verify(&f).unwrap_err().contains("still open"));
         f = example();
         let close = f.blocks[0].instructions[1].clone();
         f.blocks[0].instructions.push(close);
-        assert!(verify(&f).unwrap_err().contains("não está aberto"));
+        assert!(verify(&f).unwrap_err().contains("is not open"));
     }
     #[test]
     fn divergent_cfg_stack_does_not_publish_plans() {
@@ -334,7 +334,7 @@ mod tests {
             &super::super::ScopePlan::default(),
         )
         .unwrap_err();
-        assert!(error.contains("pilhas de quadros diferentes"), "{error}");
+        assert!(error.contains("different frame stacks"), "{error}");
         assert!(classes.is_empty() && plan.instructions.is_empty());
     }
 
@@ -361,7 +361,7 @@ mod tests {
                 index: 1,
             },
         };
-        assert!(verify(&f).unwrap_err().contains("índice 1 fora"));
+        assert!(verify(&f).unwrap_err().contains("index 1 outside"));
         f.blocks[0].instructions[1] = call(
             2,
             "dartforge_arc_quadro_carregar_v1",
@@ -371,7 +371,7 @@ mod tests {
             ],
             Type::Ref,
         );
-        assert!(verify(&f).unwrap_err().contains("índice -1 fora"));
+        assert!(verify(&f).unwrap_err().contains("index -1 outside"));
         f = example();
         f.blocks[0].instructions[0] = call(
             0,
@@ -379,7 +379,7 @@ mod tests {
             vec![(Operand::Constant(Constant::Int(-1)), Type::I64)],
             Type::I64,
         );
-        assert!(verify(&f).unwrap_err().contains("capacidade negativa"));
+        assert!(verify(&f).unwrap_err().contains("negative frame capacity"));
     }
 
     #[test]
@@ -394,6 +394,6 @@ mod tests {
                 Type::I64,
             ),
         );
-        assert!(verify(&f).unwrap_err().contains("fora de LIFO"));
+        assert!(verify(&f).unwrap_err().contains("out of LIFO order"));
     }
 }

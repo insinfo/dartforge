@@ -193,7 +193,7 @@ fn blocks<'a>(body: &[&'a str], helpers: &HashMap<&str, bool>) -> Vec<Block<'a>>
         if v.is_empty() {
             v.push(Block { name: "", lines: Vec::new(), successors: Vec::new() });
         }
-        let b = v.last_mut().expect("bloco");
+        let b = v.last_mut().expect("block");
         // Successors: `label %x` in terminators (the `switch` over several lines).
         let terminator = in_switch
             || t.starts_with("br ")
@@ -276,7 +276,7 @@ pub fn verify(ir: &str) -> Result<(), String> {
             for n in names(params).into_iter().filter_map(v_number) {
                 r.remove(&n);
             }
-            check_function(&lines[ini..end], &r, &helpers).map_err(|e| format!("conferidor do modo sombra, `{name}`: {e}\n  {l}"))?;
+            check_function(&lines[ini..end], &r, &helpers).map_err(|e| format!("shadow mode checker, `{name}`: {e}\n  {l}"))?;
         }
         i = end + 1;
     }
@@ -404,7 +404,7 @@ fn check_function(body: &[&str], refs: &HashSet<u32>, helpers: &HashMap<&str, bo
                 let mut missing_set: Vec<u32> = live_before[k].iter().copied().filter(|v| !saved_set.contains(v)).collect();
                 missing_set.sort_unstable();
                 if let Some(v) = missing_set.first() {
-                    return Err(format!("`%v{v}` vivo sem slot no ponto de coleta `{}` (bloco `{}`)", l.text, b.name));
+                    return Err(format!("`%v{v}` live without a slot at collection point `{}` (block `{}`)", l.text, b.name));
                 }
             }
             if let Some((s, v)) = write_op(l) {

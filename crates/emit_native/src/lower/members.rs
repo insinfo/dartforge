@@ -893,9 +893,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if self.ctx.arc_memory {
             self.dart_ref_returns.insert(self.func.symbol.clone());
         }
-        let Some(init) = self.variable_initializer_in(vid) else { unreachable!("getter late sem initializer") };
+        let Some(init) = self.variable_initializer_in(vid) else { unreachable!("late getter without an initializer") };
         let dartforge_elements::model::VariableRef::Field { unit, .. } = self.ctx.program.variables[vid.0 as usize].node else {
-            unreachable!("getter late sem campo")
+            unreachable!("late getter without a field")
         };
         let idx = match self.field_index(vid) {
             Some(i) => Operand::Constant(Constant::Int(i as i64)),
@@ -1457,7 +1457,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 .iter()
                 .find(|(g, _)| *g == f)
                 .map(|(_, b)| *b)
-                .expect("bloco do alvo")
+                .expect("target block")
         };
         let cases: Vec<(i64, BlockId)> = impls
             .iter()
@@ -1794,7 +1794,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     fn initialize_fields_of(&mut self, cid: ClassId) {
-        let this = self.this_param.clone().expect("construtor tem this");
+        let this = self.this_param.clone().expect("constructor has this");
         let fields: Vec<VariableId> = self.ctx.program.classes[cid.0 as usize].fields.clone();
         for vid in fields {
             let var = &self.ctx.program.variables[vid.0 as usize];
@@ -1866,7 +1866,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         let sf = sf.0 as usize;
         let args = self.match_args(sf, &evaluated);
-        let this = self.this_param.clone().expect("construtor tem this");
+        let this = self.this_param.clone().expect("constructor has this");
         self.call_direct(sf, Some(this), args);
     }
 
@@ -1878,7 +1878,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         ctor: &ast::Constructor,
         span_ctor: Span,
     ) {
-        let this = self.this_param.clone().expect("construtor tem this");
+        let this = self.this_param.clone().expect("constructor has this");
         let class_ref = &self.ctx.program.classes[cid.0 as usize];
 
         // `: this(…)` delegates everything to the other constructor.
@@ -1919,7 +1919,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 continue;
             };
             let v = self.read_local_by_name(n.sym)
-                .expect("parâmetro declarado");
+                .expect("declared parameter");
             self.store_field(this.clone(), vid, v, p.span);
         }
 
@@ -1961,7 +1961,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         for p in ctor.parameters.iter().filter(|p| p.super_) {
             let Some(n) = p.name else { continue };
             let v = self.read_local_by_name(n.sym)
-                .expect("parâmetro declarado");
+                .expect("declared parameter");
             let name_str = if p.kind == ParameterKind::Named {
                 Some(n.sym)
             } else {
@@ -2364,7 +2364,7 @@ mod arc_mixin_field_tests {
                     Instruction::CallRuntime { name, ret_ty: Type::Ref, .. }
                         if name == "dartforge_arc_ler_campo_late_ref_v1") && *ty == Type::Ref).count();
                 if arc {
-                    assert_eq!(probes, 2, "late Ref e late escalar com inicializador usam a sondagem Ref");
+                    assert_eq!(probes, 2, "late Ref and scalar late with an initializer use the Ref probe");
                     assert!(!reads.iter().any(|(_, i, _)| matches!(i,
                         Instruction::CallRuntime { name, .. } if name == "dartforge_object_get")));
                     assert!(reads.iter().any(|(_, i, _)| matches!(i,
@@ -2387,7 +2387,7 @@ mod arc_mixin_field_tests {
                                 let previous_ones = &b.instructions[..pos];
                                 if arc {
                                     let (_, Instruction::SetField { object, index, value }, _) = previous_ones.last().unwrap() else {
-                                        panic!("marca late sem escrita tipada imediatamente anterior");
+                                        panic!("late mark without an immediately preceding typed write");
                                     };
                                     assert_eq!(object, obj);
                                     assert_eq!(*idx, Operand::Constant(Constant::Int(*index as i64)));
@@ -2398,7 +2398,7 @@ mod arc_mixin_field_tests {
                                         Operand::Constant(Constant::Double(_)) => Type::F64,
                                         Operand::Val(v) => f.blocks.iter().flat_map(|b| &b.instructions)
                                             .find(|(id, _, _)| id == v).unwrap().2,
-                                        _ => panic!("valor late sem representação"),
+                                        _ => panic!("late value without a representation"),
                                     };
                                     types.insert(ty);
                                 } else {
@@ -2410,7 +2410,7 @@ mod arc_mixin_field_tests {
                     }
                 }
                 assert_eq!(marks, 4);
-                assert_eq!(guards, 1, "late final mantém a conferência antes da segunda escrita");
+                assert_eq!(guards, 1, "late final keeps the check before the second write");
                 if arc {
                     assert_eq!(types, std::collections::HashSet::from([Type::Ref, Type::I64, Type::I1, Type::F64]));
                     assert!(!f.blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)|

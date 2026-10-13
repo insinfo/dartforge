@@ -592,7 +592,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // `DARTFORGE_FONTE_NAO_SUPORTADO=1`: lists, during compilation, each
             // construct that became an `UnsupportedError` in the source code.
             if std::env::var_os("DARTFORGE_FONTE_NAO_SUPORTADO").is_some() {
-                eprintln!("fonte não suportado em {}: {what}", self.func.symbol);
+                eprintln!("source unsupported in {}: {what}", self.func.symbol);
             }
             if !self.is_terminated() {
                 let msg = format!("{}{what}", crate::UNSUPPORTED_PREFIX);
@@ -783,7 +783,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub(super) fn declare_arc_uniform_return(&mut self) {
         if !self.ctx.arc_memory || self.func.return_ty != Type::Ref { return; }
         assert_eq!(self.func.params.iter().map(|p| p.2).collect::<Vec<_>>(),
-            [Type::Ref, Type::Ptr, Type::Ptr], "declaração de entrada uniforme incompatível");
+            [Type::Ref, Type::Ptr, Type::Ptr], "incompatible uniform entry declaration");
         let roles = &self.dart_vector_parameters[&self.func.symbol];
         assert_eq!(roles.get(&self.func.params[1].0), Some(&DartEntryVector::Arguments));
         assert_eq!(roles.get(&self.func.params[2].0), Some(&DartEntryVector::Descriptor));

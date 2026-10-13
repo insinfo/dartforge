@@ -228,14 +228,14 @@ fn module(scenario: Scenario) -> Result<Module, String> {
     let ret = ValueId(if neighbor { 2 } else { 1 });
     if produced != expected || plans["ler_e_substituir"].classes[&ret] != Ownership::Owned {
         return Err(format!(
-            "keepalive esperado {expected:?}, encontrado {produced:?}"
+            "expected keepalive {expected:?}, found {produced:?}"
         ));
     }
     let prepared = format!("{m:?}"); let prepared_plans = plans.clone();
     if prepare_arc_dart_module(&mut m, &mut plans)? != (0, 0)
         || format!("{m:?}") != prepared || plans != prepared_plans
     {
-        return Err("preparação de keepalive não foi idempotente".into());
+        return Err("keepalive preparation was not idempotent".into());
     }
     let errors = dartforge_emit_native::lower::verifier::verify(&m);
     if !errors.is_empty() {
@@ -250,16 +250,16 @@ fn module(scenario: Scenario) -> Result<Module, String> {
 
 fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
-    let exit = PathBuf::from(args.next().ok_or("informe o executável de saída")?);
+    let exit = PathBuf::from(args.next().ok_or("provide the output executable")?);
     let arc = match args.next().as_deref() {
         Some("--memoria=arc") => true,
         Some("--memoria=tracing") | None => false,
-        Some(other) => return Err(format!("modo desconhecido: {other}")),
+        Some(other) => return Err(format!("unknown mode: {other}")),
     };
     let optimize = match args.next().as_deref() {
         Some("2") => true,
         Some("0") | None => false,
-        Some(other) => return Err(format!("nível desconhecido: {other}")),
+        Some(other) => return Err(format!("unknown level: {other}")),
     };
     let mut control = args.next();
     let scenario = match control.as_deref() {
@@ -342,8 +342,8 @@ passou:
     if matches!(scenario, Scenario::Cell) {
         ir = ir.replace("@dartforge_arc_objeto_owned_v1(i64 123, i64 40)",
             &format!("@dartforge_arc_objeto_owned_v1(i64 {}, i64 1)", dartforge_runtime::layout::cid::CELULA));
-        let start = ir.find("  %inteiro = call i64 @ler_inteiro(i64 %obj)\n").ok_or("início da conferência escalar ausente")?;
-        let end = ir[start..].find("  br i1 %ok_inicio,").map(|n| start + n).ok_or("fim da conferência escalar ausente")?;
+        let start = ir.find("  %inteiro = call i64 @ler_inteiro(i64 %obj)\n").ok_or("missing start of the scalar check")?;
+        let end = ir[start..].find("  br i1 %ok_inicio,").map(|n| start + n).ok_or("missing end of the scalar check")?;
         ir.replace_range(start..end, "  %ok_inicio = icmp eq i8 %aresta, 1\n");
     }
     if matches!(scenario, Scenario::Late) {
@@ -400,7 +400,7 @@ passou:
         // Records only the native address, without creating a root or an owner. The
         // later observation must find the local allocation already destroyed.
         let line = ir.lines().find(|l| l.contains("%v108 = call i64 @dartforge_arc_objeto_owned_v1"))
-            .ok_or("alocação local da prova mista não encontrada")?.to_owned();
+            .ok_or("local allocation of the mixed proof not found")?.to_owned();
         ir = ir.replace(&line, &format!("{line}\n  store i64 %v108, ptr @misto.local"));
         ir.push_str("\n@misto.local = internal global i64 0\n");
         ir = ir.replace("  %ok_nulo = and i1 %ambos_nulos_mortos, %eh_nulo",
@@ -414,17 +414,17 @@ passou:
                     Instruction::ArcCopy { value: Operand::Val(de) }
                         if *v == ValueId(if neighbor { 2 } else { 1 }) => Some(de.0),
                     _ => None,
-                }).ok_or("cópia do retorno não encontrada")?;
+                }).ok_or("return copy not found")?;
             let call = format!("  call void @dartforge_arc_retain(i64 %v{borrowed})\n");
             if ir.matches(&call).count() != 1 {
-                return Err("retenção produzida não foi localizada unicamente no IR".into());
+                return Err("produced retention was not located uniquely in the IR".into());
             }
             ir = ir.replace(&call, "");
         }
         Some("sem-liberar") => {
             ir = ir.replace("  call void @dartforge_arc_release(i64 %retorno)\n", "");
         }
-        Some(other) => return Err(format!("controle desconhecido: {other}")),
+        Some(other) => return Err(format!("unknown control: {other}")),
     }
     if let Some(dir) = exit.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;

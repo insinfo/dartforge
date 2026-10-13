@@ -99,10 +99,10 @@ pub fn classified_liveness(
     for id in ids {
         if !classes.contains_key(&id) {
             let def = f.blocks.iter().flat_map(|b| &b.instructions).find(|(v, _, _)| *v == id)
-                .map_or_else(|| format!("parâmetro {:?}", f.params.iter().find(|(v, _, _)| *v == id).map(|p| p.2)),
+                .map_or_else(|| format!("parameter {:?}", f.params.iter().find(|(v, _, _)| *v == id).map(|p| p.2)),
                     |(_, i, t)| format!("{i:?}: {t:?}"));
             return Err(format!(
-                "ownership em {}: v{} sem classificação ({def})",
+                "ownership in {}: v{} without classification ({def})",
                 f.symbol, id.0
             ));
         }
@@ -118,7 +118,7 @@ pub fn classified_liveness(
     for id in ids {
         if !existing_set.contains(&id) {
             return Err(format!(
-                "ownership em {}: v{} não existe na função",
+                "ownership in {}: v{} does not exist in the function",
                 f.symbol, id.0
             ));
         }
@@ -132,7 +132,7 @@ pub fn classified_liveness(
                 match owner {
                     OwnerOrigin::Caller if !parameters.contains(&id) => {
                         return Err(format!(
-                            "ownership em {}: v{} local não é parâmetro emprestado pelo chamador",
+                            "ownership in {}: local v{} is not a parameter borrowed from the caller",
                             f.symbol, id.0
                         ));
                     }
@@ -203,11 +203,11 @@ fn check_dominance(
         };
         if !dominates {
             let block = b_alias.map_or_else(
-                || "parâmetro".into(),
-                |b| format!("b{} instrução {}", f.blocks[b].id.0, i_alias),
+                || "parameter".into(),
+                |b| format!("b{} instruction {}", f.blocks[b].id.0, i_alias),
             );
             return Err(format!(
-                "ARC003 em {}: {block}: v{alias_id} depende de owner v{owner_id} cuja definição não domina o alias; caminho [{alias_id}, {owner_id}]",
+                "ARC003 in {}: {block}: v{alias_id} depends on owner v{owner_id} whose definition does not dominate the alias; path [{alias_id}, {owner_id}]",
                 f.symbol,
                 alias_id = alias.0,
                 owner_id = owner.0
@@ -272,7 +272,7 @@ pub(super) fn liveness_with_exits(
         .any(|v| tables.invocations.contains_key(v))
     {
         return Err(format!(
-            "ownership em {}: saída pending duplicada como invoke",
+            "ownership in {}: pending exit duplicated as invoke",
             f.symbol
         ));
     }
@@ -281,7 +281,7 @@ pub(super) fn liveness_with_exits(
     for (&call, &landing_pad) in calls {
         let Some(&origin) = defs.get(&call) else {
             return Err(format!(
-                "ownership em {}: invoke v{} ausente",
+                "ownership in {}: missing invoke v{}",
                 f.symbol, call.0
             ));
         };
@@ -292,7 +292,7 @@ pub(super) fn liveness_with_exits(
                 .any(|(v, inst, _)| *v == call && matches!(inst, Instruction::CallRuntime { .. }))
         {
             return Err(format!(
-                "ownership em {}: runtime v{} exige conferência de pendência, não invoke LLVM",
+                "ownership in {}: runtime v{} requires a pending check, not an LLVM invoke",
                 f.symbol, call.0
             ));
         }
@@ -316,7 +316,7 @@ pub(super) fn liveness_with_exits(
         }
         .ok_or_else(|| {
             format!(
-                "ownership em {}: invoke v{} sem aresta de sucesso válida",
+                "ownership in {}: invoke v{} without a valid success edge",
                 f.symbol, call.0
             )
         })?;
@@ -333,7 +333,7 @@ pub(super) fn liveness_with_exits(
                 && without_success.contains(&block)
             {
                 return Err(format!(
-                    "ARC003 em {}: b{}: v{} depende de resultado v{} indisponível no caminho excepcional; caminho [{}, {}]",
+                    "ARC003 in {}: b{}: v{} depends on result v{} unavailable on the exceptional path; path [{}, {}]",
                     f.symbol, f.blocks[block].id.0, alias.0, call.0, alias.0, call.0
                 ));
             }
@@ -419,7 +419,7 @@ fn check_result_uses(
         }
         if invalid {
             return Err(format!(
-                "ARC003 em {}: b{}: resultado v{} usado sem atravessar sua aresta de sucesso",
+                "ARC003 in {}: b{}: result v{} used without crossing its success edge",
                 f.symbol, b.id.0, call.0
             ));
         }

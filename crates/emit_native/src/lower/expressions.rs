@@ -119,7 +119,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         self.set_block(end_block);
         if entries.len() == 1 {
-            return entries.pop().expect("uma entrada").1;
+            return entries.pop().expect("one entry").1;
         }
         self.emit(
             Instruction::Phi {
@@ -453,7 +453,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                     match parts.len() {
                         0 => self.emit(Instruction::Const(Constant::String(String::new())), Type::Ref),
-                        1 => parts.pop().expect("uma parte"),
+                        1 => parts.pop().expect("one part"),
                         _ => self.emit(Instruction::ConcatStrings { parts }, Type::Ref),
                     }
                 }
@@ -471,7 +471,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         }
                     }
                     r @ Some(Resolved::Member { .. }) if self.resolved_member_te(r.as_ref()).is_some() => {
-                        let m = self.resolved_member_te(r.as_ref()).expect("membro de tipo de extensão");
+                        let m = self.resolved_member_te(r.as_ref()).expect("extension type member");
                         let this = self.this_param.clone().unwrap_or(Operand::Constant(Constant::Null));
                         let receiver = self.implicit_receiver();
                         return self.read_member_te(this, m, receiver, span);

@@ -54,12 +54,12 @@ fn module(entry: &Path) -> Result<Module, String> {
         .functions
         .iter()
         .find(|f| f.name == "repassar")
-        .ok_or("corpo ausente")?;
+        .ok_or("missing body")?;
     if !source.dart_ref_returns.contains(&f.symbol)
         || f.params.len() != 1
         || f.params[0].2 != Type::Ref
     {
-        return Err("ABI/fato do lowering incompatível".into());
+        return Err("incompatible ABI/lowering fact".into());
     }
     // A closed group containing the real source bodies. The native call below
     // sustains the argument; the producer must hand another token to the return
@@ -88,14 +88,14 @@ fn module(entry: &Path) -> Result<Module, String> {
     let produced = prepare_arc_tabled_module(&mut m, &mut plans)?;
     if produced.0 == 0 || produced.1 == 0 {
         return Err(format!(
-            "retenção/cleanup da cadeia não produzidos: {produced:?}"
+            "retention/cleanup of the chain not produced: {produced:?}"
         ));
     }
     let before = format!("{m:?}/{plans:?}");
     if prepare_arc_tabled_module(&mut m, &mut plans)? != (0, 0)
         || format!("{m:?}/{plans:?}") != before
     {
-        return Err("preparação não idempotente".into());
+        return Err("non-idempotent preparation".into());
     }
     let errors = dartforge_emit_native::lower::verifier::verify(&m);
     if !errors.is_empty() {
@@ -110,21 +110,21 @@ fn main() -> Result<(), String> {
         .spawn(prove)
         .map_err(|e| e.to_string())?
         .join()
-        .map_err(|_| "prova entrou em panic".to_string())?
+        .map_err(|_| "the proof panicked".to_string())?
 }
 
 fn prove() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
-    let exit = PathBuf::from(args.next().ok_or("informe o executável")?);
+    let exit = PathBuf::from(args.next().ok_or("provide the executable")?);
     let arc = match args.next().as_deref() {
         Some("--memoria=arc") => true,
         Some("--memoria=tracing") | None => false,
-        Some(other) => return Err(format!("modo desconhecido: {other}")),
+        Some(other) => return Err(format!("unknown mode: {other}")),
     };
     let optimize = match args.next().as_deref() {
         Some("2") => true,
         Some("0") | None => false,
-        Some(other) => return Err(format!("nível desconhecido: {other}")),
+        Some(other) => return Err(format!("unknown level: {other}")),
     };
     if let Some(dir) = exit.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
@@ -136,7 +136,7 @@ fn prove() -> Result<(), String> {
         .functions
         .iter()
         .find(|f| f.name == "repassar")
-        .ok_or("cadeia ausente")?
+        .ok_or("missing chain")?
         .symbol
         .clone();
     let mut ir = LlvmEmitter::new(&m).emit_all();
@@ -202,14 +202,14 @@ passou:
                     })
                     .collect();
                 if drops.len() != 1 {
-                    return Err("cleanup intermediário sem alvo único".into());
+                    return Err("intermediate cleanup without a single target".into());
                 }
                 format!("  call void @dartforge_arc_release(i64 %v{})\n", drops[0].0)
             }
-            _ => return Err(format!("controle desconhecido: {control}")),
+            _ => return Err(format!("unknown control: {control}")),
         };
         if ir.matches(&alvo).count() != 1 {
-            return Err("controle sem alvo único".into());
+            return Err("control without a single target".into());
         }
         ir = ir.replace(&alvo, "");
     }

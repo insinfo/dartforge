@@ -231,7 +231,7 @@ impl std::fmt::Display for BorrowError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "ARC003 em {}: v{}: {}; caminho {:?}",
+            "ARC003 in {}: v{}: {}; path {:?}",
             self.function, self.origin.0, self.reason, self.path
         )
     }
@@ -297,7 +297,7 @@ pub fn liveness_with_borrows(
             return Err(error(
                 alias,
                 vec![alias, owner],
-                "alias/owner ausente da função ou do inventário",
+                "alias/owner absent from the function or the inventory",
             ));
         }
     }
@@ -309,7 +309,7 @@ pub fn liveness_with_borrows(
         while !verified_set.contains(&current) {
             if positions.insert(current, path.len()).is_some() {
                 path.push(current);
-                return Err(error(origin, path, "dependência cíclica"));
+                return Err(error(origin, path, "cyclic dependency"));
             }
             path.push(current);
             let Some(&owner) = borrows.get(&current) else {

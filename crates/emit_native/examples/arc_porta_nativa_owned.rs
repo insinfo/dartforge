@@ -209,37 +209,37 @@ fn module(tables: bool, certify: bool) -> Result<Module, String> {
         .values()
         .any(|p| p.tokens.ret != TokenReturn::Owned)
     {
-        return Err("corpo não possui convenção Owned".into());
+        return Err("body does not have the Owned convention".into());
     }
     let before = format!("{m:?}/{plans:?}");
     if prepare_arc_dart_module(&mut m, &mut plans)? != (0, 0)
         || format!("{m:?}/{plans:?}") != before
     {
-        return Err("preparação não idempotente".into());
+        return Err("non-idempotent preparation".into());
     }
     if certify && certify_arc_aot_ports(&mut m, &plans)? != 6 {
-        return Err("inventário de portas certificado incompleto".into());
+        return Err("incomplete certified ports inventory".into());
     }
     Ok(m)
 }
 
 fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
-    let exit = PathBuf::from(args.next().ok_or("informe o executável de saída")?);
+    let exit = PathBuf::from(args.next().ok_or("provide the output executable")?);
     let arc = match args.next().as_deref() {
         Some("--memoria=arc") => true,
         Some("--memoria=tracing") => false,
-        _ => return Err("informe --memoria=arc ou --memoria=tracing".into()),
+        _ => return Err("provide --memoria=arc or --memoria=tracing".into()),
     };
     let optimize = match args.next().as_deref() {
         Some("0") => false,
         Some("2") => true,
-        _ => return Err("informe 0 ou 2".into()),
+        _ => return Err("provide 0 or 2".into()),
     };
     let tables = match args.next().as_deref() {
         Some("checagem") => false,
         Some("tabelas") => true,
-        _ => return Err("informe checagem ou tabelas".into()),
+        _ => return Err("provide checagem or tabelas".into()),
     };
     let control = args.next();
     if args.next().is_some() {
@@ -446,7 +446,7 @@ local_concluido:
                 "",
             );
         }
-        Some(other) => return Err(format!("controle desconhecido: {other}")),
+        Some(other) => return Err(format!("unknown control: {other}")),
     }
     if let Some(p) = exit.parent() {
         std::fs::create_dir_all(p).map_err(|e| e.to_string())?;

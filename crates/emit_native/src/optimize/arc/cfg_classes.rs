@@ -15,7 +15,7 @@ pub(super) fn prepare(
         };
         let p = plans
             .get_mut(&f.symbol)
-            .ok_or_else(|| format!("classe ARC: plano ausente de {}", f.symbol))?;
+            .ok_or_else(|| format!("ARC class: missing plan for {}", f.symbol))?;
         let mut queries = HashMap::new();
         for (v, i, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
             if let Instruction::CallRuntime {
@@ -83,7 +83,7 @@ pub(super) fn prepare(
             if !live_set.insert(id) {
                 continue;
             }
-            let b = blocks.get(&id).ok_or("classe ARC: destino fora do CFG")?;
+            let b = blocks.get(&id).ok_or("ARC class: destination outside the CFG")?;
             let dests = super::super::cfg::successors(&b.terminator)
                 .into_iter()
                 .chain(
@@ -146,7 +146,7 @@ pub(super) fn prepare(
                 plans
                     .get(&f.symbol)
                     .map(|p| p.tables.clone())
-                    .ok_or_else(|| format!("classe ARC: plano ausente de {}", f.symbol))
+                    .ok_or_else(|| format!("ARC class: missing plan for {}", f.symbol))
             })
             .collect::<Result<_, _>>()?;
     }

@@ -147,13 +147,13 @@ fn module() -> Result<Module, String> {
     let mut plans = HashMap::from([("alocar_no_laco".into(), plan)]);
     let produced = prepare_arc_dart_module(&mut m, &mut plans)?;
     if produced != (0, 2) {
-        return Err(format!("cleanup esperado (0, 2), encontrado {produced:?}"));
+        return Err(format!("expected cleanup (0, 2), found {produced:?}"));
     }
     let before = format!("{m:?}/{plans:?}");
     if prepare_arc_dart_module(&mut m, &mut plans)? != (0, 0)
         || format!("{m:?}/{plans:?}") != before
     {
-        return Err("cleanup do laço não foi idempotente".into());
+        return Err("the loop cleanup was not idempotent".into());
     }
     let errors = dartforge_emit_native::lower::verifier::verify(&m);
     if !errors.is_empty() {
@@ -164,21 +164,21 @@ fn module() -> Result<Module, String> {
 
 fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
-    let exit = PathBuf::from(args.next().ok_or("informe o executável de saída")?);
+    let exit = PathBuf::from(args.next().ok_or("provide the output executable")?);
     let arc = match args.next().as_deref() {
         Some("--memoria=arc") => true,
         Some("--memoria=tracing") | None => false,
-        Some(other) => return Err(format!("modo desconhecido: {other}")),
+        Some(other) => return Err(format!("unknown mode: {other}")),
     };
     let optimize = match args.next().as_deref() {
         Some("2") => true,
         Some("0") | None => false,
-        Some(other) => return Err(format!("nível desconhecido: {other}")),
+        Some(other) => return Err(format!("unknown level: {other}")),
     };
     let error = match args.next().as_deref() {
         Some("erro") => true,
         Some("normal") | None => false,
-        Some(other) => return Err(format!("caminho desconhecido: {other}")),
+        Some(other) => return Err(format!("unknown path: {other}")),
     };
     let control = args.next();
     let mut m = module()?;
@@ -189,7 +189,7 @@ fn main() -> Result<(), String> {
         ("@dartforge_print_handle(i64 0)", "@prova_sem_owner(i64 0)"),
     ] {
         if ir.matches(before).count() != 1 {
-            return Err(format!("hook de observação ausente: {before}"));
+            return Err(format!("missing observation hook: {before}"));
         }
         ir = ir.replace(before, after);
     }
@@ -198,18 +198,18 @@ fn main() -> Result<(), String> {
         Some("sem-drop-normal") if !error => {
             let excerpt = "b7:\n  call void @dartforge_arc_release(i64 %v2)\n";
             if ir.matches(excerpt).count() != 1 {
-                return Err("cleanup normal ausente no IR".into());
+                return Err("normal cleanup missing in the IR".into());
             }
             ir = ir.replace(excerpt, "b7:\n");
         }
         Some("sem-drop-erro") if error => {
             let excerpt = "b5:\n  call void @dartforge_arc_release(i64 %v2)\n";
             if ir.matches(excerpt).count() != 1 {
-                return Err("cleanup de erro ausente no IR".into());
+                return Err("error cleanup missing in the IR".into());
             }
             ir = ir.replace(excerpt, "b5:\n");
         }
-        Some(other) => return Err(format!("controle/caminho incompatível: {other}")),
+        Some(other) => return Err(format!("incompatible control/path: {other}")),
     }
     let preload = if error {
         "  call void @dartforge_arc_lancar_ref_v1(i64 85)\n"

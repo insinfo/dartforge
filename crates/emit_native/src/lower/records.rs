@@ -60,7 +60,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     k_pos += 1;
                     i
                 }
-                Some(n) => positional.len() + names.iter().position(|x| *x == n).expect("nome da forma"),
+                Some(n) => positional.len() + names.iter().position(|x| *x == n).expect("shape name"),
             };
             values.push((idx, v));
         }

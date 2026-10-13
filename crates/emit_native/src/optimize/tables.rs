@@ -118,7 +118,7 @@ pub(super) fn materialize(module: &mut Module, plan: ExceptionPlan) {
             exits(f, &nl, &mut t);
         }
         if let Some(c) = &t.foreign_cleanup {
-            c.check(f, &t).expect("cleanup estrangeiro obsoleto na materialização");
+            c.check(f, &t).expect("stale foreign cleanup in the materialization");
         }
         tables.push(t);
     }
@@ -804,7 +804,7 @@ mod tests {
             name: "dartforge_exception_clear".into(), args: Vec::new(), ret_ty: Type::Void,
         }, Type::Void));
         materialize(&mut m, plan);
-        assert!(m.tables[0].exits.is_empty(), "a continuação agora limpa a pendência nos dois caminhos");
+        assert!(m.tables[0].exits.is_empty(), "the continuation now clears the pending flag on both paths");
     }
 
     #[test]

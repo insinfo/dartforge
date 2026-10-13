@@ -8,7 +8,7 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
     for (v, inst, ty) in f.blocks.iter_mut().flat_map(|b| &mut b.instructions) {
         if let Instruction::TearOff { code_symbol } = inst {
             if *ty != Type::Ref {
-                return Err(format!("tear-off ARC em {} v{}: resultado não Ref", f.symbol, v.0));
+                return Err(format!("ARC tear-off in {} v{}: non-Ref result", f.symbol, v.0));
             }
             *inst = Instruction::CallRuntime {
                 name: "dartforge_arc_tearoff_owned_v1".into(),
@@ -29,7 +29,7 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
         };
         if let Some(owned) = pending {
             if *ty != Type::Ref || *ret_ty != Type::Ref || !args.is_empty() {
-                return Err(format!("exceção pendente ARC em {} v{}: ABI incompatível", f.symbol, v.0));
+                return Err(format!("ARC pending exception in {} v{}: incompatible ABI", f.symbol, v.0));
             }
             *name = owned.into();
             continue;
@@ -43,7 +43,7 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
             if *ty != *ret_ty || !matches!(ret_ty, Type::I64 | Type::Ref)
                 || !matches!(args.as_slice(), [(_, Type::Ref), (_, Type::I64)])
             {
-                return Err(format!("leitura de campo ARC em {} v{}: ABI incompatível", f.symbol, v.0));
+                return Err(format!("ARC field read in {} v{}: incompatible ABI", f.symbol, v.0));
             }
             // Ref: a borrow of the receiver, without retention.
             *name = if *ret_ty == Type::Ref { "dartforge_arc_ler_campo_ref_v1" } else { "dartforge_arc_ler_campo_escalar_v1" }.into();
@@ -53,7 +53,7 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
             let [(object, Type::Ref), (index, Type::I64), (value, Type::I64),
                 (Operand::Constant(Constant::Int(mark @ (0 | 1))), Type::I8)] = args.as_slice()
             else {
-                return Err(format!("gravação de campo ARC em {} v{}: ABI ou marca incompatível", f.symbol, v.0));
+                return Err(format!("ARC field write in {} v{}: incompatible ABI or mark", f.symbol, v.0));
             };
             let (name_str, repr) = if *mark == 1 {
                 ("dartforge_arc_gravar_campo_ref_v1", Type::Ref)
@@ -67,10 +67,10 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
         // The new string (`@df.texto_alocar`) with a code owner.
         if name == "df.texto_alocar" {
             let [(len, Type::I64), (Operand::Constant(Constant::Bool(two)), Type::I1)] = args.as_slice() else {
-                return Err(format!("alocação de texto ARC em {} v{}: ABI incompatível", f.symbol, v.0));
+                return Err(format!("ARC text allocation in {} v{}: incompatible ABI", f.symbol, v.0));
             };
             if *ty != Type::Ref || *ret_ty != Type::Ref {
-                return Err(format!("alocação de texto ARC em {} v{}: resultado não Ref", f.symbol, v.0));
+                return Err(format!("ARC text allocation in {} v{}: non-Ref result", f.symbol, v.0));
             }
             *args = vec![(len.clone(), Type::I64), (Operand::Constant(Constant::Int(i64::from(*two))), Type::I64)];
             *name = "dartforge_arc_texto_novo_owned_v1".into();
@@ -82,12 +82,12 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
             && ERRORS_WITH_ARC_VARIANT.contains(&base)
         {
             if *ty != Type::Ref || *ret_ty != Type::Ref {
-                return Err(format!("erro do runtime ARC em {} v{}: resultado não Ref", f.symbol, v.0));
+                return Err(format!("ARC runtime error in {} v{}: non-Ref result", f.symbol, v.0));
             }
             if matches!(base, "exception_new" | "assertion_error_new" | "argument_error_value") {
                 let valid_ref = |o: &Operand| matches!(o, Operand::Val(_) | Operand::Constant(Constant::Null));
                 if args.len() < 2 || !valid_ref(&args[0].0) || !matches!(args[1].0, Operand::Constant(Constant::Int(1))) {
-                    return Err(format!("erro do runtime ARC em {} v{}: valor sem referência", f.symbol, v.0));
+                    return Err(format!("ARC runtime error in {} v{}: value without a reference", f.symbol, v.0));
                 }
                 args.remove(1);
                 args[0].1 = Type::Ref;
@@ -101,7 +101,7 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
                 || !matches!(args.as_slice(), [(_, Type::Ref)])
             {
                 return Err(format!(
-                    "comprimento ARC em {} v{}: ABI Ref/I64 incompatível",
+                    "ARC length in {} v{}: incompatible Ref/I64 ABI",
                     f.symbol, v.0
                 ));
             }
@@ -117,7 +117,7 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
         };
         if let Some((owned, n)) = callback {
             if *ty != Type::Ref || *ret_ty != Type::Ref || args.len() != n || args.iter().any(|(_, t)| *t != Type::I64) {
-                return Err(format!("callback FFI ARC em {} v{}: ABI I64/Ref incompatível", f.symbol, v.0));
+                return Err(format!("ARC FFI callback in {} v{}: incompatible I64/Ref ABI", f.symbol, v.0));
             }
             *name = owned.into();
             continue;
@@ -131,7 +131,7 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
         };
         if let Some((owned, n)) = handle {
             if *ty != Type::Ref || *ret_ty != Type::Ref || args.len() != n || args.iter().any(|(_, t)| *t != Type::I64) {
-                return Err(format!("handle FFI ARC em {} v{}: ABI I64/Ref incompatível", f.symbol, v.0));
+                return Err(format!("ARC FFI handle in {} v{}: incompatible I64/Ref ABI", f.symbol, v.0));
             }
             *name = owned.into();
             continue;
@@ -140,7 +140,7 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
         // closure, with a code owner through the helper's Owned port.
         if name == "dartforge_ffi_ponteiro_de_retorno" {
             if *ty != Type::Ref || *ret_ty != Type::Ref || !matches!(args.as_slice(), [(_, Type::I64), (_, Type::Ref)]) {
-                return Err(format!("ponteiro de retorno ARC em {} v{}: ABI I64,Ref/Ref incompatível", f.symbol, v.0));
+                return Err(format!("ARC return pointer in {} v{}: incompatible I64,Ref/Ref ABI", f.symbol, v.0));
             }
             *name = "dartforge_arc_ffi_ponteiro_de_retorno_owned_v1".into();
             continue;
@@ -152,7 +152,7 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
         };
         if let Some(owned) = rti {
             if *ty != Type::Ref || *ret_ty != Type::Ref || !matches!(args.as_slice(), [(_, Type::I64)]) {
-                return Err(format!("texto/objeto RTI ARC em {} v{}: ABI I64/Ref incompatível", f.symbol, v.0));
+                return Err(format!("ARC RTI text/object in {} v{}: incompatible I64/Ref ABI", f.symbol, v.0));
             }
             *name = owned.into();
             continue;
@@ -161,7 +161,7 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
             if *ty != Type::Ref || *ret_ty != Type::Ref || !matches!(args.as_slice(), [(_, Type::Ref)])
             {
                 return Err(format!(
-                    "recepção ARC em {} v{}: ABI Ref incompatível",
+                    "ARC reception in {} v{}: incompatible Ref ABI",
                     f.symbol, v.0
                 ));
             }
@@ -172,7 +172,7 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
         // owner: the generic Owned thunk (native scope, guard, retain).
         if *ret_ty == Type::Ref && generic_owned(name) && super::contract(name).is_err() {
             if *ty != Type::Ref || args.iter().any(|(_, t)| !matches!(t, Type::Ref | Type::I64 | Type::F64 | Type::I8 | Type::I1 | Type::Ptr)) {
-                return Err(format!("thunk Owned em {} v{}: ABI incompatível", f.symbol, v.0));
+                return Err(format!("Owned thunk in {} v{}: incompatible ABI", f.symbol, v.0));
             }
             *name = format!("{}{name}", super::GENERIC_OWNED_PREFIX);
         }
@@ -906,7 +906,7 @@ mod tests {
                 let Terminator::Return(Some(Operand::Val(ret))) =
                     m.functions[0].blocks[0].terminator
                 else {
-                    panic!("retorno SSA esperado");
+                    panic!("expected SSA return");
                 };
                 assert_eq!(plans["crescer"].classes[&ret], Ownership::Owned);
                 if case == 0 {

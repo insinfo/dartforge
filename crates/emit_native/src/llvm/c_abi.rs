@@ -375,6 +375,6 @@ mod tests {
         let d2 = l(16, 8, &[(0, CType::F64), (8, CType::F64)]);
         let mut regs = Registers { integers: 6, sse: 1 };
         assert_eq!(argument(Convention::SysV, &d2, &mut regs), ArgPassing::Byval { alignment: 8 });
-        assert_eq!(regs.sse, 1, "o composto inteiro vai para a pilha, sem consumir registradores");
+        assert_eq!(regs.sse, 1, "the whole compound goes to the stack, without consuming registers");
     }
 }

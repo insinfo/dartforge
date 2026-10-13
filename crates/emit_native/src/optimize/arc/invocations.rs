@@ -23,7 +23,7 @@ pub(super) fn prepare(
         }
         if super::classification::check_pending(b, *v, then_block).is_some() {
             if plan.tokens.pendings.get(v).is_some_and(|previous| *previous != then_block) {
-                return Err(format!("{}: v{}: saída pending conflita com CFG", f.symbol, v.0));
+                return Err(format!("{}: v{}: pending exit conflicts with the CFG", f.symbol, v.0));
             }
             pendings.insert(*v, then_block);
         }
@@ -53,7 +53,7 @@ pub(super) fn prepare(
         })
     }) {
         return Err(format!(
-            "{}: conferência de pendência Dart exige sítio preparado",
+            "{}: Dart pending check requires a prepared site",
             f.symbol
         ));
     }
@@ -72,7 +72,7 @@ pub(super) fn prepare(
         .map_or(0, |b| u64::from(b) + 1);
     let mut reserve = || -> Result<BlockId, String> {
         let id =
-            u32::try_from(next_item).map_err(|_| "IDs de bloco esgotados ao preparar invoke Dart")?;
+            u32::try_from(next_item).map_err(|_| "block IDs exhausted while preparing a Dart invoke")?;
         next_item += 1;
         Ok(BlockId(id))
     };
@@ -114,8 +114,8 @@ pub(super) fn prepare(
                 // Exceptions by check: the guard the lowering would emit
                 // (an optimization removed it assuming the callee throws nothing);
                 // the exit returns the default value with the pending exception.
-                let p = ValueId(u32::try_from(next_val).map_err(|_| "IDs SSA esgotados ao preparar guarda Dart")?);
-                let c = ValueId(p.0.checked_add(1).ok_or("IDs SSA esgotados ao preparar guarda Dart")?);
+                let p = ValueId(u32::try_from(next_val).map_err(|_| "SSA IDs exhausted while preparing a Dart guard")?);
+                let c = ValueId(p.0.checked_add(1).ok_or("SSA IDs exhausted while preparing a Dart guard")?);
                 next_val = u64::from(c.0) + 1;
                 f.blocks[current].instructions.extend([
                     (p, Instruction::CallRuntime { name: "dartforge_exception_pending".into(), args: vec![], ret_ty: Type::I8 }, Type::I8),
@@ -408,16 +408,16 @@ mod tests {
             } else if let Instruction::CallStatic { symbol, .. } =
                 &mut functions[0].blocks[0].instructions[2].1
             {
-                *symbol = "ausente".into();
+                *symbol = "missing".into();
             }
             let before = format!("{functions:?}");
             let plans_before = format!("{plans:?}");
             let error = prepare_arc_dart_functions(&mut functions, &mut plans).unwrap_err();
             assert!(
                 error.contains(if exhausted {
-                    "IDs de bloco esgotados"
+                    "block IDs exhausted"
                 } else {
-                    "ausente"
+                    "missing"
                 }),
                 "{error}"
             );
@@ -519,7 +519,7 @@ mod tests {
         assert!(
             prepare_arc_dart_functions(&mut functions, &mut plans)
                 .unwrap_err()
-                .contains("conferência de pendência Dart exige sítio preparado")
+                .contains("Dart pending check requires a prepared site")
         );
         assert_eq!(format!("{functions:?}"), before);
         assert_eq!(format!("{plans:?}"), plans_before);
@@ -576,7 +576,7 @@ mod tests {
         assert!(
             super::super::insert_arc_dart_functions(&mut functions, &mut plans)
                 .unwrap_err()
-                .contains("só admite drops")
+                .contains("only admits ARC drops")
         );
         assert_eq!(format!("{functions:?}"), before);
         assert_eq!(format!("{plans:?}"), plans_before);

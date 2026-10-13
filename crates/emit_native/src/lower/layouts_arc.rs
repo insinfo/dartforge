@@ -55,7 +55,7 @@ pub(super) fn register(
     } else {
         vec![]
     };
-    assert_eq!(types.len(), base, "prefixo de layout desconhecido");
+    assert_eq!(types.len(), base, "unknown layout prefix");
     types.extend(fields.iter().map(|v| representation(ctx, *v)));
     module.arc_field_layouts.insert(class, types);
 }
@@ -156,7 +156,7 @@ void main() { Base().exercitar(Object()); }
                         .flat_map(|f| &f.blocks)
                         .flat_map(|b| &b.instructions)
                         .collect::<Vec<_>>();
-                    assert!(!accesses.is_empty(), "corpo do método ausente");
+                    assert!(!accesses.is_empty(), "missing method body");
                     if !arc {
                         assert!(module.arc_field_layouts.is_empty());
                         assert!(module.dart_ref_returns.is_empty());
@@ -193,7 +193,7 @@ void main() { Base().exercitar(Object()); }
                             }
                         }
                     }
-                    assert!(allocations > 0, "origem/layout da fonte não alimentou points-to");
+                    assert!(allocations > 0, "source origin/layout did not feed points-to");
                     for (idx_value, ty) in [
                         (0, Type::I64),
                         (1, Type::F64),
@@ -204,12 +204,12 @@ void main() { Base().exercitar(Object()); }
                             accesses.iter().any(|(_, i, t)| matches!(i,
                             Instruction::GetField { index, .. } if *index == idx_value)
                                 && *t == ty),
-                            "leitura {idx_value}: {ty:?}"
+                            "read {idx_value}: {ty:?}"
                         );
                         assert!(
                             accesses.iter().any(|(_, i, _)| matches!(i,
                             Instruction::SetField { index, .. } if *index == idx_value)),
-                            "gravação {idx_value}"
+                            "store {idx_value}"
                         );
                     }
                     // Late reads still keep the inspection of the empty state.

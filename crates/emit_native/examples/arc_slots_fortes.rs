@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
-    let exit = PathBuf::from(args.next().ok_or("informe o executável de saída")?);
+    let exit = PathBuf::from(args.next().ok_or("provide the output executable")?);
     let arc = args.next().as_deref() != Some("tracing");
     let variant = args.next();
     let forced_error = match variant.as_deref() {
@@ -250,7 +250,7 @@ fn main() -> Result<(), String> {
                 &ScopePlan::default(),
             )?;
             if copies != 1 {
-                return Err("prova de retorno exige uma retenção inserida".into());
+                return Err("the return proof requires an inserted retention".into());
             }
             dart_summaries.push(verify_dart_function_contract(
                 &identity,
@@ -287,7 +287,7 @@ fn main() -> Result<(), String> {
         let after_store = body
             .iter()
             .position(|(v, _, _)| *v == ValueId(3))
-            .ok_or("store ausente na prova mortal")?
+            .ok_or("missing store in the mortal proof")?
             + 1;
         // The slot keeps the token returned by the callee; releases the initial
         // occurrence of the factory before closing the frame and collecting.
@@ -425,7 +425,7 @@ fn main() -> Result<(), String> {
         let inserted = insert_arc_dart_functions(&mut m.functions, &mut plans)?;
         if inserted != (1, 3) {
             return Err(format!(
-                "preparação esperada (1, 3), encontrada {inserted:?}"
+                "expected preparation (1, 3), found {inserted:?}"
             ));
         }
     } else {

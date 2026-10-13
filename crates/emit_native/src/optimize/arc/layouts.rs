@@ -14,10 +14,10 @@ pub(super) fn verify(module: &Module) -> Result<(), String> {
         let fields = &module.arc_field_layouts[&id];
         let cs = classes
             .get(&id)
-            .ok_or_else(|| format!("layout ARC de classe ausente {id}"))?;
+            .ok_or_else(|| format!("missing ARC class layout {id}"))?;
         if cs.len() != 1 || cs[0].field_count != fields.len() {
             return Err(format!(
-                "layout ARC da classe {id} ambíguo ou com quantidade incompatível"
+                "ARC layout of class {id} ambiguous or with an incompatible count"
             ));
         }
         if fields
@@ -25,7 +25,7 @@ pub(super) fn verify(module: &Module) -> Result<(), String> {
             .any(|t| !matches!(t, Type::Ref | Type::I1 | Type::I8 | Type::I64 | Type::F64))
         {
             return Err(format!(
-                "layout ARC da classe {id} tem representação de campo inválida"
+                "ARC layout of class {id} has an invalid field representation"
             ));
         }
     }

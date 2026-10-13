@@ -227,7 +227,7 @@ pub(crate) fn analyze_with_summaries(
 ) -> Result<HirAnalysis, String> {
     for (sym_name, (body, resumo)) in summaries {
         if sym_name != &body.symbol {
-            return Err("points-to: símbolo de resumo incompatível".into());
+            return Err("points-to: incompatible summary symbol".into());
         }
         resumo.check(body)?;
     }
@@ -272,7 +272,7 @@ pub(crate) fn analyze_with_summaries(
             )
         {
             return Err(format!(
-                "points-to HIR: esquema/origem incompatível v{}",
+                "HIR points-to: incompatible schema/origin v{}",
                 v.0
             ));
         }
@@ -282,10 +282,10 @@ pub(crate) fn analyze_with_summaries(
             Some(Instruction::GetField { index, .. } | Instruction::SetField { index, .. }) => {
                 *index
             }
-            _ => return Err(format!("points-to HIR: campo obsoleto v{}", v.0)),
+            _ => return Err(format!("HIR points-to: stale field v{}", v.0)),
         };
         if field.position as usize != idx_value {
-            return Err(format!("points-to HIR: índice incompatível v{}", v.0));
+            return Err(format!("HIR points-to: incompatible index v{}", v.0));
         }
     }
     let mut value_list: Vec<_> = types.keys().copied().collect();
@@ -314,7 +314,7 @@ pub(crate) fn analyze_with_summaries(
             .insert(origin.node.clone(), origin.fields.clone())
             .is_some_and(|previous| previous != origin.fields)
         {
-            return Err("points-to HIR: esquemas conflitantes para a mesma origem".into());
+            return Err("HIR points-to: conflicting schemas for the same origin".into());
         }
     }
     for (_, resumo) in summaries.values() {
@@ -338,7 +338,7 @@ pub(crate) fn analyze_with_summaries(
                     .insert(node.clone(), field_list.clone())
                     .is_some_and(|previous| previous != *field_list)
                 {
-                    return Err("points-to HIR: esquema de alocação importada conflitante".into());
+                    return Err("HIR points-to: conflicting imported allocation schema".into());
                 }
                 // The identity of the result does not summarize the state of the fields
                 // of the callee. Do not let a missing initialization look like null.
@@ -665,13 +665,13 @@ fn materialize_summary(
     let origin = match &path.origin {
         super::writes::PathOrigin::Parameter(p) => operand(
             args.get(*p)
-                .ok_or("points-to: parâmetro de resumo inválido")?,
+                .ok_or("points-to: invalid summary parameter")?,
         ),
         super::writes::PathOrigin::Allocation { node, .. } => {
             let origin = *variable_count;
             *variable_count = variable_count
                 .checked_add(1)
-                .ok_or("points-to: variáveis auxiliares demais")?;
+                .ok_or("points-to: too many auxiliary variables")?;
             rs.push(Constraint::Seed {
                 dest: origin,
                 node: node.clone(),
@@ -697,7 +697,7 @@ fn materialize_path(
         let dest = *variable_count;
         *variable_count = variable_count
             .checked_add(1)
-            .ok_or("points-to: variáveis auxiliares demais")?;
+            .ok_or("points-to: too many auxiliary variables")?;
         rs.push(Constraint::ReadBySchema {
             object: obj_ref,
             schemas: schemas.clone(),

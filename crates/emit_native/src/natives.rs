@@ -952,7 +952,7 @@ mod inventory {
     #[test]
     fn table_is_sorted_and_without_duplicates() {
         for par in NATIVES.windows(2) {
-            assert!(par[0].name < par[1].name, "{} antes de {}", par[0].name, par[1].name);
+            assert!(par[0].name < par[1].name, "{} before {}", par[0].name, par[1].name);
         }
         assert!(native("String_getLength").is_some());
         assert!(native("Inexistente").is_none());
@@ -985,9 +985,9 @@ mod inventory {
             .unwrap();
         let names: std::collections::BTreeSet<&str> = externals.iter().filter_map(|e| e.native.as_deref()).collect();
         let without_entry: Vec<&&str> = names.iter().filter(|n| native(n).is_none()).collect();
-        assert!(without_entry.is_empty(), "natives da fonte sem entrada em NATIVOS: {without_entry:?}");
+        assert!(without_entry.is_empty(), "source natives without an entry in NATIVES: {without_entry:?}");
         let leftover: Vec<&str> = NATIVES.iter().map(|n| n.name).filter(|n| !names.contains(n)).collect();
-        assert!(leftover.is_empty(), "entradas de NATIVOS que não são mais natives da fonte: {leftover:?}");
+        assert!(leftover.is_empty(), "NATIVES entries that are no longer source natives: {leftover:?}");
         // An unpatched `external` without a native nor `vm:recognized` has no
         // implementation anywhere — not even in the VM.
         let orphans: Vec<String> = externals
@@ -995,9 +995,9 @@ mod inventory {
             .filter(|e| e.native.is_none() && !e.recognized)
             .map(|e| format!("{}::{}", e.library, e.member))
             .collect();
-        println!("externals: {} natives distintos, {} intrínsecos, {} sem pragma", names.len(), externals.iter().filter(|e| e.native.is_none() && e.recognized).count(), orphans.len());
+        println!("externals: {} distinct natives, {} intrinsics, {} without a pragma", names.len(), externals.iter().filter(|e| e.native.is_none() && e.recognized).count(), orphans.len());
         for o in &orphans {
-            println!("  sem pragma: {o}");
+            println!("  without a pragma: {o}");
         }
     }
 }

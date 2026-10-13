@@ -370,7 +370,7 @@ mod tests {
             if matches!(case, 0 | 1 | 3 | 4) {
                 assert!(
                     !produce(&m).contains_key("ctor"),
-                    "caso {case}: entrada aberta ganhou classe"
+                    "case {case}: open entry gained a class"
                 );
             }
             let before = format!("{m:?}/{plans:?}");

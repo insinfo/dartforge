@@ -52,7 +52,7 @@ pub(crate) fn check(f: &Function, t: &FunctionTables) -> Result<(), String> {
                     t.invocations.get(v) == Some(&id) && matches!(i, Instruction::CallStatic { .. })
                 });
             if !coherent {
-                return Err(format!("Retoma b{} tem entrada sem invoke", id.0));
+                return Err(format!("Resume b{} has an entry without an invoke", id.0));
             }
             *arrivals.entry(id).or_default() += 1;
         }
@@ -61,7 +61,7 @@ pub(crate) fn check(f: &Function, t: &FunctionTables) -> Result<(), String> {
     ids.sort_by_key(|id| id.0);
     for id in ids {
         if arrivals.get(&id) != Some(&1) || invocations.get(&id) != Some(&1) {
-            return Err(format!("Retoma b{} exige exatamente um invoke", id.0));
+            return Err(format!("Resume b{} requires exactly one invoke", id.0));
         }
     }
     Ok(())

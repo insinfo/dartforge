@@ -159,12 +159,12 @@ pub fn objects(p: &Request<'_>) -> Result<Vec<PathBuf>, String> {
             (fictitious_exit, c)
         }
         crate::alvo::Sistema::MacOs => {
-            return Err("o ThinLTO distribuído não existe no macOS (o ld64.lld não separa os índices)".to_string());
+            return Err("distributed ThinLTO does not exist on macOS (ld64.lld does not split the indices)".to_string());
         }
     };
-    let exit = statement.output().map_err(|e| format!("falha ao executar o ligador (índices do ThinLTO): {e}"))?;
+    let exit = statement.output().map_err(|e| format!("failed to run the linker (ThinLTO indices): {e}"))?;
     if !exit.status.success() {
-        return Err(failure_of("o ligador (índices do ThinLTO)", &exit));
+        return Err(failure_of("the linker (ThinLTO indices)", &exit));
     }
     // 2 and 3. The ThinLTO backend of each bitcode and the closing with the maps.
     let identity = format!("{}|{}", dartforge_llvm::identidade()?, object_cache::clang_identity(p.clang)?);
@@ -196,9 +196,9 @@ pub fn objects(p: &Request<'_>) -> Result<Vec<PathBuf>, String> {
             statement.arg(c.march());
         }
         statement.args(["-emit-llvm", "-c", "-o"]).arg(&pos);
-        let exit = statement.output().map_err(|e| format!("falha ao executar {}: {e}", p.clang.display()))?;
+        let exit = statement.output().map_err(|e| format!("failed to run {}: {e}", p.clang.display()))?;
         if !exit.status.success() {
-            return Err(failure_of(&format!("o backend do ThinLTO de {}", entry.display()), &exit));
+            return Err(failure_of(&format!("the ThinLTO backend of {}", entry.display()), &exit));
         }
         let bitcode = std::fs::read(&pos).map_err(|e| format!("{}: {e}", pos.display()))?;
         let name = format!("parte{i}");
@@ -212,7 +212,7 @@ pub fn objects(p: &Request<'_>) -> Result<Vec<PathBuf>, String> {
             if convert_stack_trace {
                 crate::compact_stack_trace::convert(&mut object)?;
             }
-            std::fs::write(dest, object).map_err(|e| format!("falha ao gravar {}: {e}", dest.display()))
+            std::fs::write(dest, object).map_err(|e| format!("failed to write {}: {e}", dest.display()))
         };
         let object = match p.cache {
             Some(c) => {
@@ -253,7 +253,7 @@ pub fn objects(p: &Request<'_>) -> Result<Vec<PathBuf>, String> {
         .unwrap_or_else(|e| e.into_inner())
         .into_iter()
         .enumerate()
-        .map(|(i, r)| r.unwrap_or_else(|| Err(format!("a parte {i} da LTO distribuída não foi gerada"))))
+        .map(|(i, r)| r.unwrap_or_else(|| Err(format!("part {i} of the distributed LTO was not generated"))))
         .collect();
     // With the cache, the objects live in it and the directory of this link goes away;
     // without it, the objects are from here and stay for the final link.

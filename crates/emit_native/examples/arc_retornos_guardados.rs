@@ -10,13 +10,13 @@ use std::{collections::HashMap, path::PathBuf};
 
 fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
-    let exit = PathBuf::from(args.next().ok_or("informe o executável de saída")?);
+    let exit = PathBuf::from(args.next().ok_or("provide the output executable")?);
     let arc = args.next().as_deref() != Some("tracing");
     let throw = args.next().as_deref() == Some("erro");
     let automatic = args.next().as_deref() == Some("automatico");
     let mixed = args.next().as_deref() == Some("misto");
     if mixed && !automatic {
-        return Err("misto exige preparação automática".into());
+        return Err("mixed requires automatic preparation".into());
     }
     let val = |v| Operand::Val(ValueId(v));
     let runtime = |name: &str, args, ret_ty| Instruction::CallRuntime {
@@ -424,7 +424,7 @@ fn main() -> Result<(), String> {
     };
     if inserted != expected {
         return Err(format!(
-            "inserção esperada {expected:?}, encontrada {inserted:?}"
+            "expected insertion {expected:?}, found {inserted:?}"
         ));
     }
     if !(automatic && arc) {

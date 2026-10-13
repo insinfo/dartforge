@@ -34,7 +34,7 @@ fn function(name: &str, ops: Vec<(Instruction, Type)>) -> Function {
 
 fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
-    let exit = PathBuf::from(args.next().ok_or("informe o executável de saída")?);
+    let exit = PathBuf::from(args.next().ok_or("provide the output executable")?);
     let mut m = Module::new();
     m.arc_memory = args.next().as_deref() != Some("tracing");
     let sabotage = args.next();
@@ -116,7 +116,7 @@ fn main() -> Result<(), String> {
         Some("sem-liberar") => {
             m.functions[1].blocks[0].instructions[3].1 = call("dartforge_arc_collect", vec![]);
         }
-        Some(other) => return Err(format!("sabotagem desconhecida: {other}")),
+        Some(other) => return Err(format!("unknown sabotage: {other}")),
     }
     dartforge_emit_native::optimize::optimize(&mut m);
     let errors = dartforge_emit_native::lower::verifier::verify(&m);

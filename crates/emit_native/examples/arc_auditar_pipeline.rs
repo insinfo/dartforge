@@ -167,7 +167,7 @@ fn audit(entry: &Path, sdk_in_group: bool, externs_inventory: bool) -> Result<()
         }
 
         if result.is_err() && format!("{modules:?}/{plans:?}") != before {
-            return Err("preparação conjunta recusada alterou módulos/planos".into());
+            return Err("rejected joint preparation changed modules/plans".into());
         }
         return Ok(());
     }
@@ -193,7 +193,7 @@ fn audit(entry: &Path, sdk_in_group: bool, externs_inventory: bool) -> Result<()
     println!("Preparação do módulo inteiro: {result:?}");
     if let Err(error) = result {
         if format!("{m:?}/{plans:?}") != before {
-            return Err("preparação recusada alterou o módulo ou os planos".into());
+            return Err("rejected preparation changed the module or the plans".into());
         }
         for f in &m.functions {
             if error.contains(&f.symbol)
@@ -294,7 +294,7 @@ fn lower_sdk_for_audit(
             .filter(|f| f.symbol.ends_with("$tear") || f.symbol.ends_with("$tearm") || f.symbol.starts_with("dfc."))
             .map(|f| f.symbol.clone()).collect();
         if previous_ones != m.arc_shared_functions {
-            return Err(format!("declarações de compartilhamento SDK incompletas em {}", program.library(lib).uri));
+            return Err(format!("incomplete SDK sharing declarations in {}", program.library(lib).uri));
         }
         modules.push(m);
     }
@@ -323,7 +323,7 @@ fn main() -> Result<(), String> {
             // The explicit selection of the diagnostics must match the memory
             // key used by the cache/compilation of the SDK libraries.
             if !selected_arc || !dartforge_emit_native::alvo::arc_memory()? {
-                return Err("auditoria exige --memoria=arc e DARTFORGE_MEMORIA=arc".into());
+                return Err("the audit requires --memoria=arc and DARTFORGE_MEMORIA=arc".into());
             }
             if entries.is_empty() {
                 return Err("informe os arquivos Dart a auditar".into());
@@ -335,5 +335,5 @@ fn main() -> Result<(), String> {
         })
         .map_err(|e| e.to_string())?
         .join()
-        .map_err(|_| "panic na auditoria".to_string())?
+        .map_err(|_| "panic in the audit".to_string())?
 }

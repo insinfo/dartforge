@@ -67,15 +67,15 @@ pub fn excecoes_por_tabelas() -> Result<bool, String> {
             let itanium = cfg!(unix) && (cfg!(target_arch = "x86_64") || cfg!(target_arch = "aarch64"));
             if !(seh || itanium) {
                 return Err(
-                    "as exceções por tabelas (--excecoes=tabelas) só existem no Windows x86-64 e, em Linux e macOS, em x86-64 e aarch64".to_string()
+                    "exceptions by tables (--excecoes=tabelas) only exist on Windows x86-64 and, on Linux and macOS, on x86-64 and aarch64".to_string()
                 );
             }
             if std::env::var("DARTFORGE_RASTRO").is_ok_and(|v| v == "1") {
-                return Err("as exceções por tabelas (--excecoes=tabelas) não combinam com DARTFORGE_RASTRO=1".to_string());
+                return Err("exceptions by tables (--excecoes=tabelas) do not combine with DARTFORGE_RASTRO=1".to_string());
             }
             Ok(true)
         }
-        other => Err(format!("DARTFORGE_EXCECOES={other}: os modelos de exceção são `checagem` e `tabelas`")),
+        other => Err(format!("DARTFORGE_EXCECOES={other}: the exception models are `checagem` and `tabelas`")),
     }
 }
 
@@ -101,7 +101,7 @@ pub fn arc_memory() -> Result<bool, String> {
     match value.as_str() {
         "" | "tracing" => Ok(false),
         "arc" => Ok(true),
-        other => Err(format!("DARTFORGE_MEMORIA={other}: as políticas de memória são `tracing` e `arc`")),
+        other => Err(format!("DARTFORGE_MEMORIA={other}: the memory policies are `tracing` and `arc`")),
     }
 }
 
@@ -113,7 +113,7 @@ pub fn arc_prepared() -> Result<bool, String> {
         return Ok(false);
     }
     if !arc_memory()? {
-        return Err("DARTFORGE_ARC_PREPARADO=1 exige a memória ARC (`--memoria=arc`)".into());
+        return Err("DARTFORGE_ARC_PREPARADO=1 requires ARC memory (`--memoria=arc`)".into());
     }
     Ok(true)
 }
@@ -146,15 +146,15 @@ pub fn raizes_por_mapas() -> Result<bool, String> {
                 || ((cfg!(target_os = "linux") || cfg!(target_os = "macos")) && (cfg!(target_arch = "x86_64") || cfg!(target_arch = "aarch64")));
             if !target_with_walker {
                 return Err(
-                    "as raízes por mapas (--raizes=mapas) existem no Windows x86-64 e no Linux e no macOS em x86-64 e aarch64".to_string(),
+                    "roots by maps (--raizes=mapas) exist on Windows x86-64 and on Linux and macOS on x86-64 and aarch64".to_string(),
                 );
             }
             if !crate::gerador::GERADOR_EMBUTIDO || std::env::var("DARTFORGE_GERADOR").is_ok_and(|g| g == "clang") {
-                return Err("as raízes por mapas (--raizes=mapas) exigem o gerador embutido do dartforge (o Clang não roda o passe dos mapas)".to_string());
+                return Err("roots by maps (--raizes=mapas) require dartforge's embedded generator (Clang does not run the maps pass)".to_string());
             }
             Ok(true)
         }
-        other => Err(format!("DARTFORGE_RAIZES={other}: os modos de raízes são `sombra` e `mapas`")),
+        other => Err(format!("DARTFORGE_RAIZES={other}: the roots modes are `sombra` and `mapas`")),
     }
 }
 
@@ -184,11 +184,11 @@ pub fn symbolic_stack_trace() -> Result<bool, String> {
             let with_walker = (cfg!(windows) && cfg!(target_arch = "x86_64"))
                 || ((cfg!(target_os = "linux") || cfg!(target_os = "macos")) && (cfg!(target_arch = "x86_64") || cfg!(target_arch = "aarch64")));
             if !with_walker {
-                return Err("o rastro simbólico (--rastro=simbolico) existe no Windows x86-64 e no Linux e no macOS em x86-64 e aarch64".to_string());
+                return Err("the symbolic stack trace (--rastro=simbolico) exists on Windows x86-64 and on Linux and macOS on x86-64 and aarch64".to_string());
             }
             Ok(true)
         }
-        other => Err(format!("DARTFORGE_RASTRO_VM={other}: os rastros são `simbolico` e `nenhum`")),
+        other => Err(format!("DARTFORGE_RASTRO_VM={other}: the stack traces are `simbolico` and `nenhum`")),
     }
 }
 

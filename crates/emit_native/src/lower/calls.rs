@@ -495,7 +495,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         return self.call_function_value(v, &evaluated);
                     }
                     let MemberRef::Function(f) = member else {
-                        unreachable!("campo tratado acima")
+                        unreachable!("field handled above")
                     };
                     if getter {
                         let v = self.call_member(recv_op, f.0 as usize, &[], expr.span);

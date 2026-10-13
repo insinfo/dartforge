@@ -107,7 +107,7 @@ fn check(
             Ownership::Owned if active_set.contains(&current) => return Ok(()),
             Ownership::Owned => {
                 return Err(format!(
-                    "v{} depende do token indisponível v{}",
+                    "v{} depends on the unavailable token v{}",
                     v.0, current.0
                 ));
             }
@@ -140,10 +140,10 @@ fn consume(
     active_set: &mut HashSet<ValueId>,
 ) -> Result<(), String> {
     if classes[&v] != Ownership::Owned {
-        return Err(format!("consumo de v{} exige Owned", v.0));
+        return Err(format!("consumption of v{} requires Owned", v.0));
     }
     if !active_set.remove(&v) {
-        return Err(format!("token v{} já consumido ou indisponível", v.0));
+        return Err(format!("token v{} already consumed or unavailable", v.0));
     }
     Ok(())
 }
@@ -156,7 +156,7 @@ fn consume_operand(
     match op {
         Operand::Val(v) => consume(*v, classes, active_set),
         Operand::Constant(Constant::Null) => Ok(()),
-        _ => Err("consumo exige token SSA ou null".into()),
+        _ => Err("consumption requires an SSA token or null".into()),
     }
 }
 
@@ -178,7 +178,7 @@ fn produce(
 ) -> Result<(), String> {
     if classes[&v] == Ownership::Owned && !active_set.insert(v) {
         return Err(format!(
-            "nova produção de v{} com token anterior ainda disponível",
+            "new production of v{} with the previous token still available",
             v.0
         ));
     }
@@ -246,7 +246,7 @@ fn path(f: &Function, pais: &[Option<usize>], mut b: usize) -> Vec<u32> {
 
 fn flow_error(f: &Function, pais: &[Option<usize>], b: usize, message: String) -> String {
     format!(
-        "tokens em {} b{}: {message}; caminho {:?}",
+        "tokens in {} b{}: {message}; path {:?}",
         f.symbol,
         f.blocks[b].id.0,
         path(f, pais, b)
@@ -300,7 +300,7 @@ pub fn verify_tokens(
     plan: &TokenPlan,
 ) -> Result<(), String> {
     if plan.shared_frames != tables.shared_frames {
-        return Err("tokens ARC: contratos de quadros compartilhados divergem das tabelas".into());
+        return Err("ARC tokens: shared frames contracts diverge from the tables".into());
     }
     analyze_tokens(f, classes, tables, plan, false, false).map(|_| ())
 }
@@ -360,7 +360,7 @@ pub fn tokens_at_landing_pad_entry(
     for b in landing_pads {
         let owners = entries.get(&b).ok_or_else(|| {
             format!(
-                "tokens em {}: pouso b{} sem entrada alcançável",
+                "tokens in {}: landing pad b{} without a reachable entry",
                 f.symbol, b.0
             )
         })?;
@@ -384,13 +384,13 @@ pub(super) fn check_exceptional_exits(
     for (id, mode) in exits {
         let b = blocks
             .get(id)
-            .ok_or_else(|| format!("saída excepcional obsoleta b{}", id.0))?;
+            .ok_or_else(|| format!("stale exceptional exit b{}", id.0))?;
         let Terminator::Return(op) = &b.terminator else {
-            return Err(format!("saída excepcional b{} não é Return", id.0));
+            return Err(format!("exceptional exit b{} is not a Return", id.0));
         };
         if *mode == ExceptionExit::Guard {
             return Err(format!(
-                "saída Guarda b{} exige CFG explícito antes do ARC",
+                "Guard exit b{} requires an explicit CFG before ARC",
                 id.0
             ));
         }
@@ -399,14 +399,14 @@ pub(super) fn check_exceptional_exits(
                 || !dests.contains(id)
                 || f.blocks.first().is_some_and(|entry| entry.id == *id)
             {
-                return Err(format!("saída Retoma b{} exige pouso de invoke", id.0));
+                return Err(format!("Resume exit b{} requires an invoke landing pad", id.0));
             }
             if b.instructions
                 .iter()
                 .any(|(_, i, _)| !super::resume_instruction(i))
             {
                 return Err(format!(
-                    "saída Retoma b{} só admite drops ARC e fechamento de quadros locais",
+                    "Resume exit b{} only admits ARC drops and closing of local frames",
                     id.0
                 ));
             }
@@ -418,7 +418,7 @@ pub(super) fn check_exceptional_exits(
         };
         if require_canonical && *op != expected {
             return Err(format!(
-                "saída {mode:?} b{} exige retorno canônico sem transferência",
+                "{mode:?} exit b{} requires a canonical return without transfer",
                 id.0
             ));
         }
@@ -468,7 +468,7 @@ fn analyze_tokens(
     super::check_resumes(f, tables)?;
     let live_set = super::classification::liveness_with_exits(f, classes, tables, &plan.pendings)?;
     let mut edges = HashMap::new();
-    let meta_error = |m: String| format!("tokens em {}: {m}", f.symbol);
+    let meta_error = |m: String| format!("tokens in {}: {m}", f.symbol);
     let mut expected_set = HashSet::new();
     for b in &f.blocks {
         for (v, inst, _) in &b.instructions {
@@ -491,7 +491,7 @@ fn analyze_tokens(
                 {
                     if classes[q] != Ownership::Trivial {
                         return Err(meta_error(format!(
-                            "v{}: ID de quadro deve ser Trivial",
+                            "v{}: frame ID must be Trivial",
                             v.0
                         )));
                     }
@@ -513,7 +513,7 @@ fn analyze_tokens(
                 };
                 if class.is_some_and(|c| classes[v] != c) || tables.invocations.contains_key(v) {
                     return Err(meta_error(format!(
-                        "v{}: contrato incompatível com operação ARC/Phi",
+                        "v{}: contract incompatible with ARC/Phi operation",
                         v.0
                     )));
                 }
@@ -523,7 +523,7 @@ fn analyze_tokens(
             let e = plan
                 .instructions
                 .get(v)
-                .ok_or_else(|| meta_error(format!("v{} sem contrato de consumo", v.0)))?;
+                .ok_or_else(|| meta_error(format!("v{} without a consumption contract", v.0)))?;
             let unbox_bool = super::contracts::unbox_bool_call(inst);
             let call = unbox_bool.as_ref().unwrap_or(inst);
             if let Instruction::CallRuntime { name, .. } = call {
@@ -536,7 +536,7 @@ fn analyze_tokens(
                         || e.may_fail != c.effect.may_fail
                     {
                         return Err(meta_error(format!(
-                            "v{}: plano incompatível com ownership.tsv para {name}",
+                            "v{}: plan incompatible with ownership.tsv for {name}",
                             v.0
                         )));
                     }
@@ -555,7 +555,7 @@ fn analyze_tokens(
                     another => format!("{another:?}").chars().take(80).collect(),
                 };
                 return Err(meta_error(format!(
-                    "v{}: contrato não corresponde às saídas excepcionais {name_str} (pode falhar: {})",
+                    "v{}: contract does not match the exceptional exits {name_str} (may fail: {})",
                     v.0, e.may_fail
                 )));
             }
@@ -568,7 +568,7 @@ fn analyze_tokens(
             for &c in e.always.iter().chain(&e.success).chain(&e.error) {
                 if !args.contains(&c) {
                     return Err(meta_error(format!(
-                        "v{}: consumo de v{} não é argumento",
+                        "v{}: consumption of v{} is not an argument",
                         v.0, c.0
                     )));
                 }
@@ -584,12 +584,12 @@ fn analyze_tokens(
     extras.sort_by_key(|v| v.0);
     if let Some(v) = extras.first() {
         return Err(meta_error(format!(
-            "v{}: contrato obsoleto ou sobrescreve regra ARC/Phi",
+            "v{}: stale contract or overwrites an ARC/Phi rule",
             v.0
         )));
     }
     if f.blocks.is_empty() {
-        return Err(meta_error("função sem entrada".into()));
+        return Err(meta_error("function without an entry".into()));
     }
     let cfg = Cfg::new(f);
     let mut exits = HashMap::new();
@@ -690,7 +690,7 @@ fn analyze_tokens(
                         f,
                         &pais,
                         i,
-                        format!("retorno não satisfaz a convenção de tokens {:?} ({class})", plan.ret),
+                        format!("return does not satisfy the token convention {:?} ({class})", plan.ret),
                     ));
                 }
             }
@@ -710,7 +710,7 @@ fn analyze_tokens(
                 f,
                 &pais,
                 i,
-                format!("tokens não consumidos na saída {ids:?}"),
+                format!("tokens not consumed at the exit {ids:?}"),
             ));
         }
         for &s in &cfg.successors[i] {
@@ -754,7 +754,7 @@ fn analyze_tokens(
                                 };
                                 if !compatible {
                                     return Err(format!(
-                                        "Phi borrowed v{}: owner ou escopo incompatível na entrada",
+                                        "borrowed Phi v{}: incompatible owner or scope at the entry",
                                         v.0
                                     ));
                                 }
@@ -769,7 +769,7 @@ fn analyze_tokens(
                                     Operand::Constant(Constant::Null) => {}
                                     _ => {
                                         return Err(format!(
-                                            "Phi v{} exige entrada owned ou null",
+                                            "Phi v{} requires an owned or null entry",
                                             v.0
                                         ));
                                     }
@@ -822,7 +822,7 @@ fn analyze_tokens(
                     f,
                     &pais,
                     i,
-                    format!("aresta b{} -> b{}: {m}", b.id.0, dest.id.0),
+                    format!("edge b{} -> b{}: {m}", b.id.0, dest.id.0),
                 )
             })?;
             match &entries[s] {
@@ -836,7 +836,7 @@ fn analyze_tokens(
                         &pais,
                         i,
                         format!(
-                            "junção b{} com tokens diferentes (só antes {only_before:?}, só agora {only_now:?}); caminho anterior {:?}",
+                            "join b{} with different tokens (only before {only_before:?}, only now {only_now:?}); previous path {:?}",
                             dest.id.0,
                             path(f, &pais, s)
                         ),

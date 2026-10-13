@@ -41,19 +41,19 @@ pub fn produce_lowering_ref_returns(
     let mut functions = HashMap::new();
     for f in &module.functions {
         if functions.insert(&f.symbol, f).is_some() {
-            return Err(format!("retorno Dart: símbolo repetido {}", f.symbol));
+            return Err(format!("Dart return: repeated symbol {}", f.symbol));
         }
     }
     // The uniform ABI needs its own declaration: neither Ref nor the vectors
     // alone declare the return mode. Revalidates the binding to the same HIR.
     for sym_name in &module.arc_uniform_returns {
-        let f = functions.get(sym_name).ok_or_else(|| format!("retorno uniforme ARC: símbolo obsoleto {sym_name}"))?;
+        let f = functions.get(sym_name).ok_or_else(|| format!("ARC uniform return: stale symbol {sym_name}"))?;
         let roles = module.dart_vector_parameters.get(sym_name);
         if f.return_ty != Type::Ref || f.params.iter().map(|p| p.2).collect::<Vec<_>>() != [Type::Ref, Type::Ptr, Type::Ptr]
             || !roles.is_some_and(|p| p.len() == 2
                 && p.get(&f.params[1].0) == Some(&DartEntryVector::Arguments)
                 && p.get(&f.params[2].0) == Some(&DartEntryVector::Descriptor)) {
-            return Err(format!("retorno uniforme ARC: declaração/ABI de {sym_name} incompatível"));
+            return Err(format!("ARC uniform return: incompatible declaration/ABI of {sym_name}"));
         }
     }
     let mut facts: Vec<_> = module.dart_ref_returns.union(&module.arc_uniform_returns).collect();
@@ -62,18 +62,18 @@ pub fn produce_lowering_ref_returns(
     for sym_name in facts {
         let f = functions
             .get(sym_name)
-            .ok_or_else(|| format!("retorno Dart: símbolo obsoleto {sym_name}"))?;
+            .ok_or_else(|| format!("Dart return: stale symbol {sym_name}"))?;
         let plan = plans
             .get(sym_name)
-            .ok_or_else(|| format!("retorno Dart: plano ausente {sym_name}"))?;
+            .ok_or_else(|| format!("Dart return: missing plan {sym_name}"))?;
         if f.return_ty != Type::Ref {
-            return Err(format!("retorno Dart: {sym_name} não devolve Ref"));
+            return Err(format!("Dart return: {sym_name} does not return Ref"));
         }
         match plan.tokens.ret {
             TokenReturn::Trivial => new_set.push(sym_name),
             TokenReturn::Owned => {}
             TokenReturn::Borrowed => {
-                return Err(format!("retorno Dart: convenção conflitante {sym_name}"));
+                return Err(format!("Dart return: conflicting convention {sym_name}"));
             }
         }
     }
@@ -145,7 +145,7 @@ mod tests {
             let result = prepare_arc_dart_module(&mut m, &mut ps);
             if (2..12).contains(&case) || case >= 15 {
                 let error = result.expect_err(&format!("caso {case}"));
-                if case == 2 { assert!(error.contains("v3 exige guarda pending"), "{error}"); }
+                if case == 2 { assert!(error.contains("v3 requires a pending guard"), "{error}"); }
                 assert_eq!(format!("{m:?}/{ps:?}"), before, "caso {case}");
             } else if case == 12 {
                 assert_eq!(result.unwrap(), (0, 0));

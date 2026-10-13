@@ -235,7 +235,7 @@ pub(super) fn prepare_with_variants(
             .map(|f| (f.params.iter().map(|(_, _, t)| *t).collect::<Vec<_>>(), f.return_ty));
         let base = signature(s);
         if vs.iter().any(|v| signature(v) != base) {
-            return Err(format!("slots ARC: ABI incompatível em variantes de {s}"));
+            return Err(format!("ARC slots: incompatible ABI in variants of {s}"));
         }
     }
     // New conventions are only published together with the full preparation.
@@ -304,14 +304,14 @@ fn insert(
     let mut symbols = HashSet::new();
     for f in functions.iter() {
         if !symbols.insert(f.symbol.clone()) {
-            return Err(format!("função Dart repetida: {}", f.symbol));
+            return Err(format!("repeated Dart function: {}", f.symbol));
         }
         if !plans.contains_key(&f.symbol) {
-            return Err(format!("função Dart sem plano: {}", f.symbol));
+            return Err(format!("Dart function without a plan: {}", f.symbol));
         }
     }
     if let Some(sym_name) = plans.keys().filter(|s| !symbols.contains(*s)).min() {
-        return Err(format!("plano Dart obsoleto: {sym_name}"));
+        return Err(format!("stale Dart plan: {sym_name}"));
     }
     let mut module = Module::new();
     module.functions = functions.to_vec();
@@ -362,7 +362,7 @@ fn insert(
         }
         for (public, alternatives) in variants {
             if !symbols.contains(public) || alternatives.iter().any(|s| !symbols.contains(s)) {
-                return Err(format!("variantes ARC fora do conjunto: {public}"));
+                return Err(format!("ARC variants outside the set: {public}"));
             }
             for alternative in alternatives { callers.entry(alternative).or_default().push(public); }
         }
@@ -384,7 +384,7 @@ fn insert(
             if matches!(ty, Type::F64 | Type::I1 | Type::I8) || ty.is_vector() {
                 if classes.get(v).is_some_and(|c| *c != Ownership::Trivial) {
                     return Err(format!(
-                        "parâmetro escalar {} v{} exige Trivial",
+                        "scalar parameter {} v{} requires Trivial",
                         f.symbol, v.0
                     ));
                 }
@@ -419,7 +419,7 @@ fn insert(
             &index,
             &mut new.classes,
             &mut new.tokens,
-        ).map_err(|error| format!("contratos ARC em {}: {error}", f.symbol))?;
+        ).map_err(|error| format!("ARC contracts in {}: {error}", f.symbol))?;
         if prepare_calls {
             total.0 += super::borrows::protect(f, new)?;
             let (copies, drops) = super::edges::prepare(f, new)?;
@@ -656,7 +656,7 @@ mod tests {
                 let f = &mut m.functions[0];
                 f.params.push((ValueId(10), "repetir".into(), Type::I1));
                 let Instruction::Phi { incoming, .. } = &mut f.blocks[3].instructions[0].1 else {
-                    panic!("Phi ausente")
+                    panic!("missing Phi")
                 };
                 incoming.push((BlockId(5), Operand::Val(ValueId(4))));
                 f.blocks[3].terminator = Terminator::CondBranch {
@@ -700,7 +700,7 @@ mod tests {
                 assert!(
                     prepare_arc_dart_module(&mut m, &mut plans)
                         .unwrap_err()
-                        .contains("empréstimo invalidado")
+                        .contains("borrow invalidated")
                 );
                 assert_eq!(format!("{m:?}/{plans:?}"), before);
             } else if case == 3 {
@@ -724,7 +724,7 @@ mod tests {
                     let Instruction::Phi { incoming, .. } =
                         &m.functions[0].blocks[3].instructions[0].1
                     else {
-                        panic!("Phi ausente")
+                        panic!("missing Phi")
                     };
                     // The entries arrive through the new blocks of the continuations
                     // (the numbering depends on how many blocks the preparation creates).
@@ -1212,7 +1212,7 @@ mod tests {
             if copy_before {
                 result.unwrap();
             } else {
-                assert!(result.unwrap_err().contains("empréstimo invalidado"));
+                assert!(result.unwrap_err().contains("borrow invalidated"));
             }
             let mut m = Module::new();
             m.arc_memory = true;
@@ -1776,7 +1776,7 @@ mod tests {
             assert!(
                 insert_arc_dart_functions(&mut fs, &mut ps)
                     .unwrap_err()
-                    .contains("exige Trivial")
+                    .contains("requires Trivial")
             );
             assert_eq!(format!("{fs:?}/{ps:?}"), before);
         }
@@ -1979,7 +1979,7 @@ mod tests {
             let plans_before = format!("{plans:?}");
             let error = insert_arc_dart_functions(&mut functions, &mut plans).unwrap_err();
             assert!(
-                error.contains("caller") && error.contains("saídas excepcionais"),
+                error.contains("caller") && error.contains("exceptional exits"),
                 "{error}"
             );
             assert_eq!(format!("{functions:?}"), before);
@@ -2039,7 +2039,7 @@ mod tests {
         let plans_before = format!("{plans:?}");
         let error = insert_arc_dart_functions(&mut functions, &mut plans).unwrap_err();
         assert!(
-            error.contains("caller") && error.contains("saídas excepcionais"),
+            error.contains("caller") && error.contains("exceptional exits"),
             "{error}"
         );
         assert_eq!(format!("{functions:?}"), before);
@@ -2328,7 +2328,7 @@ mod tests {
         assert!(
             insert_arc_dart_functions(&mut functions, &mut plans)
                 .unwrap_err()
-                .contains("saídas excepcionais")
+                .contains("exceptional exits")
         );
         assert_eq!(format!("{functions:?}"), before);
         assert_eq!(format!("{plans:?}"), plans_before);
@@ -2436,7 +2436,7 @@ mod publication_tests {
             let mut plans = HashMap::from([("programa".into(), DartFunctionPlan::default())]);
             let result = prepare_arc_dart_module(&mut m, &mut plans);
             if !externals {
-                assert!(result.unwrap_err().contains("callee Dart sem resumo"));
+                assert!(result.unwrap_err().contains("Dart callee without a summary"));
                 continue;
             }
             result.unwrap();

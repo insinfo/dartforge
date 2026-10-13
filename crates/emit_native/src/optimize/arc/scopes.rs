@@ -52,7 +52,7 @@ fn change(stack: &mut Vec<u32>, events: &[ScopeChange]) -> Result<(), String> {
             ScopeChange::Close(e) if e != 0 && stack.last() == Some(&e) => {
                 stack.pop();
             }
-            _ => return Err(format!("limite inválido {event:?}; ativos {stack:?}")),
+            _ => return Err(format!("invalid limit {event:?}; active {stack:?}")),
         }
     }
     Ok(())
@@ -67,7 +67,7 @@ fn check(
     while let Some(Ownership::Borrowed { scope, owner }) = classes.get(&v) {
         if !stack.contains(scope) {
             return Err(format!(
-                "v{} emprestado de {owner:?} fora do escopo {scope}; ativos {stack:?}",
+                "v{} borrowed from {owner:?} outside scope {scope}; active {stack:?}",
                 v.0
             ));
         }
@@ -104,7 +104,7 @@ fn error_in_flow(
         path.push(f.blocks[s].id.0);
     }
     format!(
-        "ARC003 em {}: {point}: {reason}; caminho {path:?}",
+        "ARC003 in {}: {point}: {reason}; path {path:?}",
         f.symbol
     )
 }
@@ -175,19 +175,19 @@ fn analyze(
         .iter()
         .flat_map(|b| b.instructions.iter().map(|(v, _, _)| (*v, b.id)))
         .collect();
-    let error = |point: String, reason: String| format!("ARC003 em {}: {point}: {reason}", f.symbol);
+    let error = |point: String, reason: String| format!("ARC003 in {}: {point}: {reason}", f.symbol);
     let mut ids: Vec<_> = plan.before.keys().copied().collect();
     ids.sort_by_key(|v| v.0);
     for id in ids {
         if !defs.contains_key(&id) {
-            return Err(error(format!("v{}", id.0), "limite sem instrução".into()));
+            return Err(error(format!("v{}", id.0), "limit without an instruction".into()));
         }
     }
     let mut ids: Vec<_> = plan.exits.keys().copied().collect();
     ids.sort_by_key(|b| b.0);
     for id in ids {
         if !pos.contains_key(&id) {
-            return Err(error(format!("b{}", id.0), "limite sem bloco".into()));
+            return Err(error(format!("b{}", id.0), "limit without a block".into()));
         }
     }
     let mut edges: Vec<_> = plan.edges.keys().copied().collect();
@@ -200,12 +200,12 @@ fn analyze(
         {
             return Err(error(
                 format!("b{} -> b{}", de.0, to.0),
-                "limite sem aresta".into(),
+                "limit without an edge".into(),
             ));
         }
     }
     for (v, _, _) in &f.params {
-        check_value(*v, &[0]).map_err(|m| error("parâmetro".into(), m))?;
+        check_value(*v, &[0]).map_err(|m| error("parameter".into(), m))?;
     }
     if f.blocks.is_empty() {
         return Ok(stacks);
@@ -244,7 +244,7 @@ fn analyze(
             &mut stack,
             plan.exits.get(&b.id).map_or(&[], Vec::as_slice),
         )
-        .map_err(|m| error_in_flow(f, &pais, i, None, format!("b{} saída", b.id.0), m))?;
+        .map_err(|m| error_in_flow(f, &pais, i, None, format!("b{} exit", b.id.0), m))?;
         let mut invalid = None;
         terminator_operands(&b.terminator, &mut |o| {
             if invalid.is_none()
@@ -259,7 +259,7 @@ fn analyze(
                 &pais,
                 i,
                 None,
-                format!("b{} terminador", b.id.0),
+                format!("b{} terminator", b.id.0),
                 m,
             ));
         }
@@ -269,8 +269,8 @@ fn analyze(
                 &pais,
                 i,
                 None,
-                format!("b{} saída", b.id.0),
-                format!("escopos não fechados {stack:?}"),
+                format!("b{} exit", b.id.0),
+                format!("unclosed scopes {stack:?}"),
             ));
         }
         for &s in &cfg.successors[i] {
@@ -307,7 +307,7 @@ fn analyze(
                         Some(s),
                         point,
                         format!(
-                            "junção com escopos diferentes {previous:?} e {next_one:?}; caminho anterior {:?}",
+                            "join with different scopes {previous:?} and {next_one:?}; previous path {:?}",
                             path(f, &pais, s)
                         ),
                     ));
@@ -395,7 +395,7 @@ mod tests {
         assert!(
             verify_scopes(&f, &classes, &plan)
                 .unwrap_err()
-                .contains("v1 emprestado")
+                .contains("v1 borrowed")
         );
         plan.before.clear();
         assert!(
@@ -419,9 +419,9 @@ mod tests {
         f.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(2))));
         let error = verify_scopes(&f, &classes, &plan).unwrap_err();
         assert!(
-            error.contains("b0 terminador")
-                && error.contains("v1 emprestado")
-                && error.contains("caminho [0]"),
+            error.contains("b0 terminator")
+                && error.contains("v1 borrowed")
+                && error.contains("path [0]"),
             "{error}"
         );
     }
@@ -456,9 +456,9 @@ mod tests {
         plan.edges.remove(&(BlockId(0), BlockId(2)));
         let error = verify_scopes(&f, &classes, &plan).unwrap_err();
         assert!(
-            error.contains("junção")
-                && error.contains("caminho anterior [0, 1, 3]")
-                && error.contains("caminho [0, 2, 3]"),
+            error.contains("join")
+                && error.contains("previous path [0, 1, 3]")
+                && error.contains("path [0, 2, 3]"),
             "{error}"
         );
         // The back edge must close the previous activation before opening the next one.
@@ -468,7 +468,7 @@ mod tests {
         assert!(
             verify_scopes(&f, &classes, &plan)
                 .unwrap_err()
-                .contains("junção")
+                .contains("join")
         );
         plan
             .edges
@@ -510,7 +510,7 @@ mod tests {
         assert!(
             verify_scopes(&f, &classes, &plan)
                 .unwrap_err()
-                .contains("limite sem instrução")
+                .contains("limit without an instruction")
         );
     }
 }

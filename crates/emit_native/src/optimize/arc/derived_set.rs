@@ -135,7 +135,7 @@ pub(super) fn keep_live(f: &mut Function) -> Result<(), String> {
             .filter(|l| !holds(old_ones.get(k + 1).map(|(_, i, _)| i), *l));
             new_ones.push((*v, inst.clone(), *ty));
             if let Some(list) = list {
-                next_item = next_item.checked_add(1).ok_or("IDs SSA esgotados ao manter listas vivas")?;
+                next_item = next_item.checked_add(1).ok_or("SSA IDs exhausted while keeping lists alive")?;
                 new_ones.push((ValueId(next_item), keep_alive(list), Type::Void));
             }
         }
@@ -219,7 +219,7 @@ pub(super) fn verify(f: &Function) -> Result<(), String> {
                 error = Some(*v);
             }
             if let Some(x) = error {
-                return Err(format!("v{}: endereço derivado de lista v{} escapa em {}", v.0, x.0, f.symbol));
+                return Err(format!("v{}: address derived from list v{} escapes in {}", v.0, x.0, f.symbol));
             }
             if barrier(inst) {
                 state.clear();
@@ -230,7 +230,7 @@ pub(super) fn verify(f: &Function) -> Result<(), String> {
             let Some(o) = access else { continue };
             let following = b.instructions.get(i + 1).map(|(_, inst, _)| inst);
             if !holds(following, o.list) {
-                return Err(format!("v{}: acesso por endereço derivado sem manter v{} viva em {}", v.0, o.list.0, f.symbol));
+                return Err(format!("v{}: access through a derived address without keeping v{} alive in {}", v.0, o.list.0, f.symbol));
             }
             if o.core && !state.contains(&o.root) {
                 let barriers: Vec<String> = f.blocks.iter().flat_map(|b| &b.instructions)
@@ -241,7 +241,7 @@ pub(super) fn verify(f: &Function) -> Result<(), String> {
                         another => format!("{another:?}").chars().take(40).collect(),
                     }))
                     .collect();
-                return Err(format!("v{}: barreira entre a leitura do armazenamento de v{} e o acesso em {} (barreiras: {barriers:?})", v.0, o.list.0, f.symbol));
+                return Err(format!("v{}: barrier between the read of the storage of v{} and the access in {} (barriers: {barriers:?})", v.0, o.list.0, f.symbol));
             }
         }
         let mut escapes = None;
@@ -253,7 +253,7 @@ pub(super) fn verify(f: &Function) -> Result<(), String> {
             }
         });
         if let Some(x) = escapes {
-            return Err(format!("endereço derivado de lista v{} escapa no terminador de b{} em {}", x.0, b.id.0, f.symbol));
+            return Err(format!("address derived from list v{} escapes in the terminator of b{} in {}", x.0, b.id.0, f.symbol));
         }
     }
     Ok(())
@@ -305,7 +305,7 @@ mod tests {
         assert_eq!(format!("{f:?}"), before);
         // Without the keep_alive after the access, it is rejected.
         f.blocks[0].instructions.remove(2);
-        assert!(verify(&f).unwrap_err().contains("sem manter"));
+        assert!(verify(&f).unwrap_err().contains("without keeping"));
     }
 
     #[test]
@@ -315,14 +315,14 @@ mod tests {
             (ValueId(2), rt("df.tipada_dados", vec![(val(0), Type::Ref)], Type::I64), Type::I64),
             (ValueId(3), Instruction::CallStatic { symbol: "g".into(), args: vec![val(2)], ret_ty: Type::Void }, Type::Void),
         ]);
-        assert!(keep_live(&mut f).unwrap_err().contains("escapa"));
+        assert!(keep_live(&mut f).unwrap_err().contains("escapes"));
         // A call between the read of the storage and the access.
         let mut f = function(vec![
             (ValueId(2), rt("df.nucleo_armazenamento", vec![(val(0), Type::Ref)], Type::I64), Type::I64),
             (ValueId(3), Instruction::CallStatic { symbol: "g".into(), args: vec![], ret_ty: Type::Void }, Type::Void),
             (ValueId(4), Instruction::NativeLoad { address: val(2), index: val(1), ty: CType::I64 }, Type::I64),
         ]);
-        assert!(keep_live(&mut f).unwrap_err().contains("barreira"));
+        assert!(keep_live(&mut f).unwrap_err().contains("barrier"));
         // Without a barrier, it passes; the shape is also an access.
         let mut f = function(vec![
             (ValueId(2), rt("df.nucleo_armazenamento", vec![(val(0), Type::Ref)], Type::I64), Type::I64),
@@ -365,6 +365,6 @@ mod tests {
         let mut f = loop_fn(rt("df.arc.escopo.dartforge_ponto_seguro", vec![], Type::Void));
         keep_live(&mut f).unwrap();
         let mut f = loop_fn(Instruction::CallStatic { symbol: "g".into(), args: vec![], ret_ty: Type::Void });
-        assert!(keep_live(&mut f).unwrap_err().contains("barreira"));
+        assert!(keep_live(&mut f).unwrap_err().contains("barrier"));
     }
 }

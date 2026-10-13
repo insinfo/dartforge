@@ -19,7 +19,7 @@ pub(super) fn solve<'a>(
     for (position, f) in m.functions.iter().enumerate() {
         positions.insert(f.symbol.as_str(), position);
         if index.insert(f.symbol.as_str(), f).is_some() {
-            return Err(format!("resumo: corpo duplicado {}", f.symbol));
+            return Err(format!("summary: duplicate body {}", f.symbol));
         }
     }
     let mut seen_set = HashSet::new();
@@ -273,7 +273,7 @@ pub(super) fn check_globals(m: &Module, f: &Function) -> Result<(), String> {
             let declarations: Vec<_> = m.globals.iter().filter(|(_, _, s)| s == symbol).collect();
             if declarations.len() != 1 || declarations[0].1 != Type::Ref {
                 return Err(format!(
-                    "publicacoes ARC: global @{symbol} exige declaração Ref única"
+                    "ARC publications: global @{symbol} requires a single Ref declaration"
                 ));
             }
         }
@@ -728,7 +728,7 @@ mod tests {
                     assert_eq!(
                         r[&format!("f{v}")].1.ret(),
                         &expected,
-                        "grafo {mask}, limite {limit}, nó {v}"
+                        "graph {mask}, limit {limit}, node {v}"
                     );
                 }
             }

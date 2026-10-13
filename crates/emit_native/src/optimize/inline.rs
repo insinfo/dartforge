@@ -111,7 +111,7 @@ fn copy(func: &mut Function, bi: usize, ii: usize, copies: &HashMap<String, (Fun
     let (mut next_v, mut next_b) = largest_ids(func);
     let (call, args, ty) = match &func.blocks[bi].instructions[ii] {
         (v, Instruction::CallStatic { symbol, args, .. }, ty) => (*v, (symbol.clone(), args.clone()), *ty),
-        _ => unreachable!("chamada estática esperada"),
+        _ => unreachable!("expected static call"),
     };
     let (sym_name, args) = args;
     let (alvo, throws) = &copies[&sym_name];
@@ -188,7 +188,7 @@ fn copy(func: &mut Function, bi: usize, ii: usize, copies: &HashMap<String, (Fun
                     *o = blocks[o];
                 }
             }
-            let Operand::Val(nv) = values[v] else { unreachable!("valor novo") };
+            let Operand::Val(nv) = values[v] else { unreachable!("new value") };
             instructions.push((nv, inst, *t));
         }
         let mut term = b.terminator.clone();

@@ -35,7 +35,7 @@ pub fn verify(ir: &str) -> Result<(), String> {
     let mut intermediate = false;
     for (n, line) in ir.lines().enumerate() {
         let l = line.trim();
-        let error = |reason: &str| Err(format!("verificador do modo mapas, linha {}: {reason}: `{l}`", n + 1));
+        let error = |reason: &str| Err(format!("maps mode verifier, line {}: {reason}: `{l}`", n + 1));
         let definition = line.starts_with("define ");
         if definition {
             inside = true;
@@ -44,12 +44,12 @@ pub fn verify(ir: &str) -> Result<(), String> {
             inside = false;
         }
         if l.contains("addrspace(1)") {
-            return error("ponteiro `addrspace(1)`, que a forma das raízes por `\"deopt\"` não tem");
+            return error("`addrspace(1)` pointer, which the shape of roots by `\"deopt\"` does not have");
         }
         // The body of the helpers comes out without indentation: every line between the
         // `define` and the `}` counts.
         if inside && !definition && !intermediate && super::collecting_call(line) && !line.contains("\"deopt\"(") {
-            return error("chamada que pode coletar sem o operando `\"deopt\"`");
+            return error("call that may collect without the `\"deopt\"` operand");
         }
         if l.starts_with("declare ")
             && l.ends_with("\"gc-leaf-function\"")
@@ -58,7 +58,7 @@ pub fn verify(ir: &str) -> Result<(), String> {
         {
             let ef = crate::llvm::externs::effects_of(name);
             if (ef.allocates || ef.calls_dart) && !crate::alvo::sabotaged_leaf(name) {
-                return error("folha (`gc-leaf-function`) que coleta pela tabela de efeitos");
+                return error("leaf (`gc-leaf-function`) that collects according to the effects table");
             }
         }
     }
@@ -97,7 +97,7 @@ mod tests {
         ];
         for p in planted {
             let ir = format!("define void @f() {{\n{p}\n  ret void\n}}\n");
-            assert!(verify(&ir).is_err(), "não achou: {p}");
+            assert!(verify(&ir).is_err(), "not found: {p}");
         }
     }
 }

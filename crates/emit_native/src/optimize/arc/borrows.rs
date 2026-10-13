@@ -169,7 +169,7 @@ fn first_invalid(
                     return Some((
                         current,
                         format!(
-                            "empréstimo invalidado em {}: {point}: v{} depende de v{}; copie para Owned antes da barreira",
+                            "borrow invalidated in {}: {point}: v{} depends on v{}; copy to Owned before the barrier",
                             f.symbol, v.0, current.0
                         ),
                     ));
@@ -226,7 +226,7 @@ fn first_invalid(
         let mut error = None;
         terminator_operands(&b.terminator, &mut |op| {
             if error.is_none() {
-                error = check(op, &state, format!("b{} saída", b.id.0));
+                error = check(op, &state, format!("b{} exit", b.id.0));
             }
         });
         if let Some(error) = error {
@@ -311,7 +311,7 @@ pub(super) fn protect(
                     BlockId(
                         largest_block
                             .checked_add(1)
-                            .ok_or("IDs de blocos esgotados ao proteger empréstimo")?,
+                            .ok_or("block IDs exhausted while protecting a borrow")?,
                     ),
                 ))
             } else {
@@ -339,7 +339,7 @@ pub(super) fn protect(
             let borrowed = ValueId(
                 larger
                     .checked_add(1)
-                    .ok_or("IDs SSA esgotados ao proteger empréstimo")?,
+                    .ok_or("SSA IDs exhausted while protecting a borrow")?,
             );
             // Keeps the original ID as Owned: all uses and aliases come to
             // depend on the independent token, without remapping operators/edges.
@@ -353,7 +353,7 @@ pub(super) fn protect(
             );
             if let Some((normal, copy_block)) = continuation {
                 let Terminator::CondBranch { else_block, .. } = &mut f.blocks[bi].terminator else {
-                    unreachable!("guarda de pendência conferida antes da transformação")
+                    unreachable!("pending guard checked before the transformation")
                 };
                 *else_block = copy_block;
                 for b in &mut f.blocks {
@@ -565,7 +565,7 @@ mod tests {
             assert!(
                 protect(&mut f, &mut plan)
                     .unwrap_err()
-                    .contains("empréstimo invalidado")
+                    .contains("borrow invalidated")
             );
             assert_eq!(format!("{f:?}/{plan:?}"), before);
         }
@@ -726,7 +726,7 @@ mod tests {
             if reread {
                 result.unwrap();
             } else {
-                assert!(result.unwrap_err().contains("empréstimo invalidado"));
+                assert!(result.unwrap_err().contains("borrow invalidated"));
             }
         }
     }

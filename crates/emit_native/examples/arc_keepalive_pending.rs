@@ -88,14 +88,14 @@ fn module() -> Result<Module, String> {
     let produced = prepare_arc_dart_module(&mut m, &mut plans)?;
     if produced != (1, 2) || plans["ler_record"].classes[&ValueId(2)] != Ownership::Owned {
         return Err(format!(
-            "keepalive/cleanup esperado (1, 2), encontrado {produced:?}"
+            "expected keepalive/cleanup (1, 2), found {produced:?}"
         ));
     }
     let prepared = format!("{m:?}/{plans:?}");
     if prepare_arc_dart_module(&mut m, &mut plans)? != (0, 0)
         || format!("{m:?}/{plans:?}") != prepared
     {
-        return Err("preparação pending não foi idempotente".into());
+        return Err("pending preparation was not idempotent".into());
     }
     let errors = dartforge_emit_native::lower::verifier::verify(&m);
     if !errors.is_empty() {
@@ -106,21 +106,21 @@ fn module() -> Result<Module, String> {
 
 fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
-    let exit = PathBuf::from(args.next().ok_or("informe o executável de saída")?);
+    let exit = PathBuf::from(args.next().ok_or("provide the output executable")?);
     let arc = match args.next().as_deref() {
         Some("--memoria=arc") => true,
         Some("--memoria=tracing") | None => false,
-        Some(other) => return Err(format!("modo desconhecido: {other}")),
+        Some(other) => return Err(format!("unknown mode: {other}")),
     };
     let optimize = match args.next().as_deref() {
         Some("2") => true,
         Some("0") | None => false,
-        Some(other) => return Err(format!("nível desconhecido: {other}")),
+        Some(other) => return Err(format!("unknown level: {other}")),
     };
     let error = match args.next().as_deref() {
         Some("erro") => true,
         Some("normal") | None => false,
-        Some(other) => return Err(format!("caminho desconhecido: {other}")),
+        Some(other) => return Err(format!("unknown path: {other}")),
     };
     let control = args.next();
     let mut m = module()?;
@@ -205,7 +205,7 @@ passou:
     );
     let call = "  call void @dartforge_arc_retain(i64 %v6)\n";
     if ir.matches(call).count() != 1 {
-        return Err("cópia na aresta normal ausente no IR".into());
+        return Err("copy on the normal edge missing in the IR".into());
     }
     match control.as_deref() {
         None => {}
@@ -219,11 +219,11 @@ passou:
             // The emitter reads the flag of the Context inline in this mode.
             let guard = "  %v3 = load i8, ptr %ctx, align 8\n";
             if ir.matches(guard).count() != 1 {
-                return Err("guarda pending ausente no IR".into());
+                return Err("pending guard missing in the IR".into());
             }
             ir = ir.replace(guard, &format!("{call}{guard}"));
         }
-        Some(other) => return Err(format!("controle/caminho incompatível: {other}")),
+        Some(other) => return Err(format!("incompatible control/path: {other}")),
     }
     if let Some(dir) = exit.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
@@ -255,7 +255,7 @@ mod tests {
             (ValueId(2), Instruction::ArcCopy { value: Operand::Val(ValueId(6)) }, Type::Ref)
         ));
         let Terminator::CondBranch { then_block, .. } = f.blocks[0].terminator else {
-            panic!("guarda pending ausente");
+            panic!("missing pending guard");
         };
         let error = f.blocks.iter().find(|b| b.id == then_block).unwrap();
         let released: Vec<_> = error.instructions.iter().filter_map(|(_, i, _)| match i {

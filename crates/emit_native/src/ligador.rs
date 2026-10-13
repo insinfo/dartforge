@@ -78,7 +78,7 @@ impl SysrootLinux {
     fn from_dir(dir: &Path) -> Result<SysrootLinux, String> {
         let files: Vec<PathBuf> = SYSROOT_FILES.iter().map(|a| dir.join(a)).collect();
         if let Some(missing) = files.iter().find(|a| !a.is_file()) {
-            return Err(format!("o sysroot da distribuição está incompleto: falta {}", missing.display()));
+            return Err(format!("the distribution sysroot is incomplete: {} is missing", missing.display()));
         }
         Ok(SysrootLinux { files })
     }
@@ -90,12 +90,12 @@ impl SysrootLinux {
             let exit = Command::new(clang)
                 .arg(format!("-print-file-name={a}"))
                 .output()
-                .map_err(|e| format!("falha ao executar {} para achar {a}: {e}", clang.display()))?;
+                .map_err(|e| format!("failed to run {} to find {a}: {e}", clang.display()))?;
             let path = PathBuf::from(String::from_utf8_lossy(&exit.stdout).trim());
             if !path.is_file() {
                 return Err(format!(
-                    "{a} não encontrado no sistema: instale os pacotes de desenvolvimento da glibc e do GCC, \
-                     ou use a distribuição do dartforge (que traz o sysroot de ligação)"
+                    "{a} not found on the system: install the glibc and GCC development packages, \
+                     or use the dartforge distribution (which brings the link sysroot)"
                 ));
             }
             files.push(path);
@@ -104,7 +104,7 @@ impl SysrootLinux {
     }
 
     fn file(&self, name: &str) -> &Path {
-        let i = SYSROOT_FILES.iter().position(|a| *a == name).expect("arquivo do sysroot");
+        let i = SYSROOT_FILES.iter().position(|a| *a == name).expect("sysroot file");
         &self.files[i]
     }
 
@@ -158,11 +158,11 @@ pub fn ld_lld(clang: &Path) -> PathBuf {
 /// Links with `ld.lld` and the link sysroot.
 pub fn link(ld: &Path, sysroot: &SysrootLinux, l: &Linkage<'_>) -> Result<(), String> {
     let mut cmd = statement(ld, sysroot, l)?;
-    let exit = cmd.output().map_err(|e| format!("falha ao executar {}: {e}", ld.display()))?;
+    let exit = cmd.output().map_err(|e| format!("failed to run {}: {e}", ld.display()))?;
     if !exit.status.success() {
         let text = String::from_utf8_lossy(&exit.stderr);
         let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).take(40).collect();
-        return Err(format!("o ld.lld falhou na ligação ({}):\n{}", exit.status, lines.join("\n")));
+        return Err(format!("ld.lld failed to link ({}):\n{}", exit.status, lines.join("\n")));
     }
     Ok(())
 }

@@ -489,10 +489,10 @@ impl<'a> LlvmEmitter<'a> {
     /// A module with diagnostics or incoherent exceptional metadata.
     /// Resume still requires Itanium without statepoints; Windows needs funclets.
     pub fn emit_all(mut self) -> String {
-        assert!(self.module.errors.is_empty(), "emit_all com diagnósticos: {:?}", self.module.errors);
+        assert!(self.module.errors.is_empty(), "emit_all with diagnostics: {:?}", self.module.errors);
         assert!(!cfg!(windows) || !self.module.tables.iter().any(|t|
             t.exits.values().any(|s| *s == ExceptionExit::Resume)),
-            "Retoma exige Itanium; Windows precisa de funclets SEH");
+            "Resume requires Itanium; Windows needs SEH funclets");
         // Collects the string literals of the module for declaration as global constants
         self.collect_string_constants();
 
@@ -854,12 +854,12 @@ impl<'a> LlvmEmitter<'a> {
         let has_landing_pad = tab.is_some_and(|t| !t.landing_pads.is_empty());
         let has_resume = tab.is_some_and(|t| t.exits.values().any(|s| *s == ExceptionExit::Resume));
         if let Some(c) = tab.and_then(|t| t.foreign_cleanup.as_ref()) {
-            c.check(func, tab.unwrap()).expect("cleanup estrangeiro inválido");
+            c.check(func, tab.unwrap()).expect("invalid foreign cleanup");
         }
         let has_cleanup = has_resume || (cfg!(unix) && tab.is_some_and(|t| t.foreign_cleanup.is_some()));
-        assert!(!has_cleanup || !self.maps, "Retoma não admite landingpad token de statepoint");
+        assert!(!has_cleanup || !self.maps, "Resume does not admit a statepoint landingpad token");
         if has_resume {
-            crate::optimize::arc::check_resumes(func, tab.unwrap()).expect("Retoma inválida");
+            crate::optimize::arc::check_resumes(func, tab.unwrap()).expect("invalid Resume");
         }
         let personality = if has_cleanup { " personality ptr @dartforge_personalidade_cleanup_itanium" }
             else if has_landing_pad { " personality ptr @dartforge_personalidade" } else { "" };
@@ -883,7 +883,7 @@ impl<'a> LlvmEmitter<'a> {
         let cost = analysis.rooted_set.len() as u64 * (analysis.live_at.len() + analysis.live_at_end.len()) as u64;
         let within_budget = cost <= crate::alvo::maps_budget();
         if self.maps && !within_budget && std::env::var_os("DARTFORGE_RELATORIO_MAPAS").is_some() {
-            eprintln!("dartforge: {} fora do orçamento dos mapas ({cost}): pilha-sombra", func.symbol);
+            eprintln!("dartforge: {} outside the maps budget ({cost}): shadow stack", func.symbol);
         }
         if self.maps && within_budget {
             // Roots by maps: only the `Ref` `alloca`s stay in the frame (the
@@ -1497,7 +1497,7 @@ impl<'a> LlvmEmitter<'a> {
                         }
                     }
                     Instruction::CallRuntime { .. } if Self::inline_allocation(inst).is_some() => {
-                        let (c, n) = Self::inline_allocation(inst).expect("conferido na guarda");
+                        let (c, n) = Self::inline_allocation(inst).expect("checked at the guard");
                         self.emit_inline_allocation(v, c, n);
                     }
                     Instruction::CallRuntime { name, args, ret_ty }
@@ -1860,7 +1860,7 @@ impl<'a> LlvmEmitter<'a> {
                         // E3: the HIR verifier rejects, before the emission,
                         // every instruction without a lowering here (the old
                         // "; inst pendente" that Clang silently accepted).
-                        unreachable!("instrução sem emissão passou pelo verificador: {inst:?}");
+                        unreachable!("instruction without emission passed the verifier: {inst:?}");
                     }
                 }
                 // Exceptions by tables: the Dart call with a landing pad is an `invoke`
@@ -2165,7 +2165,7 @@ impl<'a> LlvmEmitter<'a> {
         if !self.module.arc_memory || !(self.module.arc_prepared || self.module.arc_aot_ports.is_some()) {
             return false;
         }
-        assert!(self.module.arc_aot_ports.is_some(), "invocação ARC preparada exige portas AOT certificadas");
+        assert!(self.module.arc_aot_ports.is_some(), "prepared ARC invocation requires certified AOT ports");
         true
     }
 
@@ -2344,7 +2344,7 @@ impl<'a> LlvmEmitter<'a> {
                 let d = self.operand_str(desc);
                 if *arc_owned {
                     assert!(self.module.arc_memory && self.module.arc_aot_ports.is_some(),
-                        "repasse de closure ARC exige portas AOT certificadas");
+                        "ARC closure forwarding requires certified AOT ports");
                     writeln!(self.out, "  %cav{v} = ptrtoint ptr {a} to i64").unwrap();
                     writeln!(self.out, "  %cdv{v} = ptrtoint ptr {d} to i64").unwrap();
                     writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_invocar_closure_uniforme_v1(i64 {c}, i64 %cav{v}, i64 %cdv{v})").unwrap();
@@ -2648,24 +2648,24 @@ impl<'a> LlvmEmitter<'a> {
     fn arc_reference(&self, value: &Operand) -> String {
         match value {
             Operand::Val(v) => {
-                assert_eq!(self.types.get(v), Some(&Type::Ref), "operação ARC exige SSA Ref");
+                assert_eq!(self.types.get(v), Some(&Type::Ref), "ARC operation requires an SSA Ref");
                 format!("%v{}", v.0)
             }
             Operand::Constant(Constant::Null) => "0".into(),
-            _ => panic!("operação ARC exige referência já avaliada"),
+            _ => panic!("ARC operation requires an already evaluated reference"),
         }
     }
 
     /// Classified frame descriptor; never coerce a pointer to an ID.
     fn slot_arc(&self, slot: &StrongSlot) -> (String, u32) {
-        let StrongSlot::Frame { frame, index: idx_value } = slot else { panic!("descritor não é quadro") };
+        let StrongSlot::Frame { frame, index: idx_value } = slot else { panic!("descriptor is not a frame") };
         let Operand::Val(v) = frame else {
-            panic!("slot ARC exige quadro SSA")
+            panic!("ARC slot requires an SSA frame")
         };
         assert_eq!(
             self.types.get(v),
             Some(&Type::I64),
-            "quadro ARC exige ID escalar I64"
+            "ARC frame requires a scalar I64 ID"
         );
         (format!("%v{}", v.0), *idx_value)
     }
@@ -2673,8 +2673,8 @@ impl<'a> LlvmEmitter<'a> {
     /// Schema of the real storage; do not infer Ref by width or address.
     fn check_arc_global(&self, sym_name: &str) {
         let mut declarations = self.module.globals.iter().filter(|(_, _, s)| s == sym_name);
-        assert_eq!(declarations.next().map(|(_, ty, _)| *ty), Some(Type::Ref), "global ARC deve ser Ref declarado");
-        assert!(declarations.next().is_none(), "global ARC deve ter declaração única");
+        assert_eq!(declarations.next().map(|(_, ty, _)| *ty), Some(Type::Ref), "ARC global must be a declared Ref");
+        assert!(declarations.next().is_none(), "ARC global must have a single declaration");
     }
 
     /// Checks the token ABI before the registrations and before any Dart code.
@@ -2892,7 +2892,7 @@ impl<'a> LlvmEmitter<'a> {
                 format!("%na{v}_{i}")
             }
             CType::I64 | CType::U64 => self.coerce(op, Type::I64),
-            CType::Void => unreachable!("argumento nativo void"),
+            CType::Void => unreachable!("void native argument"),
             narrow => {
                 let n = self.coerce(op, Type::I64);
                 writeln!(self.out, "  %na{v}_{i} = trunc i64 {n} to {}", narrow.llvm()).unwrap();
@@ -3051,7 +3051,7 @@ impl<'a> LlvmEmitter<'a> {
             (NativeType::Prim(CType::Void), _) | (NativeType::Composite(_), Some((RetPassing::Sret { .. }, _))) => "void".to_string(),
             (NativeType::Prim(tc), _) => tc.llvm().to_string(),
             (NativeType::Composite(_), Some((RetPassing::Direct(pieces), _))) => c_abi::return_ty(pieces),
-            (NativeType::Composite(_), None) => unreachable!("retorno composto sem passagem"),
+            (NativeType::Composite(_), None) => unreachable!("compound return without passing"),
         };
         let call = self.c_call_text(v, &return_type, &call_type(&return_type), &parts, variadic_flag.is_some());
         match (ret, &ret_passing) {
@@ -3094,7 +3094,7 @@ impl<'a> LlvmEmitter<'a> {
                     writeln!(self.out, "  call void @llvm.memcpy.p0.p0.i64(ptr {d}, ptr %rt{v}, i64 {}, i1 false)", l.size).unwrap();
                 }
             }
-            (NativeType::Composite(_), None) => unreachable!("retorno composto sem passagem"),
+            (NativeType::Composite(_), None) => unreachable!("compound return without passing"),
         }
         writeln!(self.out, "  call void @llvm.stackrestore.p0(ptr %pilha{v})").unwrap();
     }
@@ -3210,7 +3210,7 @@ impl<'a> LlvmEmitter<'a> {
                         }
                         CType::F64 => format!("bitcast double %a{j} to i64"),
                         CType::Ptr | CType::Handle => format!("ptrtoint ptr %a{j} to i64"),
-                        CType::Void => unreachable!("parâmetro nativo void"),
+                        CType::Void => unreachable!("void native parameter"),
                     },
                 };
                 writeln!(self.out, "  %o{j} = {bits}\n  %g{j} = getelementptr [{n} x i64], ptr %buf, i64 0, i64 {j}\n  store i64 %o{j}, ptr %g{j}").unwrap();
@@ -3243,7 +3243,7 @@ impl<'a> LlvmEmitter<'a> {
                     CType::I64 | CType::U64 => (None, "i64"),
                     CType::F64 => (None, "double"),
                     CType::Bool => (None, "i1"),
-                    CType::Void => unreachable!("parâmetro nativo void"),
+                    CType::Void => unreachable!("void native parameter"),
                 };
                 match conv_arg {
                     Some(c) => {
@@ -3318,7 +3318,7 @@ impl<'a> LlvmEmitter<'a> {
                 }
                 _ => {}
             }
-            let NativeType::Prim(tr) = cb.ret else { unreachable!("retorno composto sem passagem") };
+            let NativeType::Prim(tr) = cb.ret else { unreachable!("compound return without passing") };
             writeln!(self.out, "  %e_excecao = icmp ne i8 %x, 0\n  br i1 %e_excecao, label %excecao, label %normal").unwrap();
             // The exceptional return (bits of the C type) and the normal one (Dart → C).
             writeln!(self.out, "excecao:\n  %e = load i64, ptr %saida").unwrap();
@@ -3940,9 +3940,9 @@ impl<'a> LlvmEmitter<'a> {
     fn constant_in_type(&self, op: &Operand, alvo: Type) -> Option<String> {
         let Operand::Constant(c) = op else { return None };
         let s = match (c, alvo) {
-            (Constant::String(_) | Constant::StringWtf8(_), _) => panic!("string deve ser carregada via Instruction::Const"),
+            (Constant::String(_) | Constant::StringWtf8(_), _) => panic!("string must be loaded via Instruction::Const"),
             (Constant::Function(f), Type::I64) => format!("ptrtoint (ptr @{f} to i64)"),
-            (Constant::Function(_), _) => panic!("endereço de função só como i64"),
+            (Constant::Function(_), _) => panic!("function address only as i64"),
             (Constant::Int(n), Type::I1) => if *n != 0 { "true".to_string() } else { "false".to_string() },
             (Constant::Bool(b), Type::I1) => if *b { "true".to_string() } else { "false".to_string() },
             (Constant::Null, Type::I1) => "false".to_string(),
@@ -4051,7 +4051,7 @@ impl<'a> LlvmEmitter<'a> {
             Operand::Constant(Constant::Bool(b)) => if *b { "true" } else { "false" }.to_string(),
             Operand::Constant(Constant::Null) => "0".to_string(),
             Operand::Constant(Constant::String(_) | Constant::StringWtf8(_)) => {
-                panic!("string deve ser carregada via Instruction::Const");
+                panic!("string must be loaded via Instruction::Const");
             }
             Operand::Constant(Constant::Function(f)) => format!("ptrtoint (ptr @{f} to i64)"),
         }

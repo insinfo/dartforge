@@ -159,7 +159,7 @@ fn module(frame: bool, typed: bool) -> Result<Module, String> {
     let produced = prepare_arc_dart_module(&mut m, &mut plans)?;
     let expected = if frame { (1, 1) } else if typed { (1, 4) } else { (0, 1) };
     if produced != expected {
-        return Err(format!("esperado {expected:?}, encontrado {produced:?}"));
+        return Err(format!("expected {expected:?}, found {produced:?}"));
     }
     let before = format!("{m:?}");
     let plans_before = plans.clone();
@@ -167,30 +167,30 @@ fn module(frame: bool, typed: bool) -> Result<Module, String> {
     if repeated != (0, 0)
         || format!("{m:?}") != before || plans != plans_before
     {
-        return Err(format!("preparação não idempotente: {repeated:?}"));
+        return Err(format!("non-idempotent preparation: {repeated:?}"));
     }
     let errors = dartforge_emit_native::lower::verifier::verify(&m);
     if !errors.is_empty() {
         return Err(errors.join("\n"));
     }
     if typed && certify_arc_aot_ports(&mut m, &plans)? != 2 {
-        return Err("imagem tipada sem as duas portas verificadas".into());
+        return Err("typed image without the two verified ports".into());
     }
     Ok(m)
 }
 
 fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
-    let exit = PathBuf::from(args.next().ok_or("informe o executável")?);
+    let exit = PathBuf::from(args.next().ok_or("provide the executable")?);
     let arc = match args.next().as_deref() {
         Some("--memoria=arc") => true,
         Some("--memoria=tracing") | None => false,
-        Some(other) => return Err(format!("modo desconhecido: {other}")),
+        Some(other) => return Err(format!("unknown mode: {other}")),
     };
     let optimize = match args.next().as_deref() {
         Some("2") => true,
         Some("0") | None => false,
-        Some(other) => return Err(format!("nível desconhecido: {other}")),
+        Some(other) => return Err(format!("unknown level: {other}")),
     };
     let mut control = args.next();
     let frame = control.as_deref() == Some("--quadro");
@@ -219,11 +219,11 @@ fn main() -> Result<(), String> {
                 owned.as_str(),
                 without_owner.as_str(),
             ),
-            _ => return Err(format!("controle desconhecido: {control}")),
+            _ => return Err(format!("unknown control: {control}")),
         };
         let quantity = if control == "sem-liberar-contexto" { 2 } else { 1 };
         if ir.matches(before).count() != quantity {
-            return Err(format!("controle sem alvo único: {control}"));
+            return Err(format!("control without a single target: {control}"));
         }
         ir = ir.replace(before, after);
     }
@@ -297,7 +297,7 @@ passou:
         ir = ir.replace("  %obj = call i64 @criar_objeto()",
             &format!("{tracing_registration}  %closure = call i64 @criar_closure()\n  %contexto = call i64 @dartforge_arc_contexto_closure_v1(i64 %closure)\n  %obj = call i64 @invocar_closure(i64 %closure, i1 true)\n  call void @dartforge_arc_release(i64 %closure)\n  call void @dartforge_arc_collect()\n  %ec = call i8 @dartforge_arc_observar_heap_v1(i64 %contexto)\n  %contexto_morto = icmp eq i8 %ec, 0\n  br i1 %contexto_morto, label %conferir_objeto, label %falha\nconferir_objeto:"));
         if typed_error {
-            let start = ir.find("define void @prova_alocacao_campos() {").ok_or("harness ausente")?;
+            let start = ir.find("define void @prova_alocacao_campos() {").ok_or("missing harness")?;
             ir.truncate(start);
             ir.push_str(&format!("define void @prova_alocacao_campos() {{\n{tracing_registration}"));
             ir.push_str(r#"

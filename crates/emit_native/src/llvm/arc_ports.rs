@@ -13,7 +13,7 @@ impl LlvmEmitter<'_> {
             .expect("bug do compilador: portas ARC obsoletas");
         assert!(
             !self.maps_in_jit,
-            "portas ARC AOT exigem imagem fixa; JIT precisa de pins e retirada"
+            "AOT ARC ports require a fixed image; the JIT needs pins and retirement"
         );
         self.out
             .push_str("define private void @df.arc.registrar_portas() {\n");

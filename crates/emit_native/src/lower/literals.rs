@@ -284,7 +284,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let Some(fid) = self.top_level_function("dart:_compact_hash", "_dartforgePreencherMapa") else { return false };
         let mut values: Vec<(Operand, u8)> = Vec::with_capacity(elements.len() * 2);
         for el in elements {
-            let CollectionElement::MapEntry { key, value, .. } = el else { unreachable!("conferido acima") };
+            let CollectionElement::MapEntry { key, value, .. } = el else { unreachable!("checked above") };
             for e in [*key, *value] {
                 let x = self.lower_expr(ast, e);
                 if self.is_terminated() {
@@ -482,7 +482,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let ast_c = &ctx.program.unit(unit_ref).ast;
                     let element_list = match &ast_c.expr(init).kind {
                         ast::ExprKind::List { elements, .. } | ast::ExprKind::SetOrMap { elements, .. } => elements,
-                        _ => unreachable!("literal_da_constante devolve um literal"),
+                        _ => unreachable!("constant_literal returns a literal"),
                     };
                     let saved = std::mem::replace(&mut self.unit_id, unit_ref);
                     for el in element_list.iter() {

@@ -213,7 +213,7 @@ fn main() -> Result<(), String> {
     let exit = PathBuf::from(
         std::env::args()
             .nth(1)
-            .ok_or("informe o executável de saída")?,
+            .ok_or("provide the output executable")?,
     );
     if let Some(dir) = exit.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
@@ -268,7 +268,7 @@ fn main() -> Result<(), String> {
         let result = link_runtime.output().map_err(|e| e.to_string())?;
         if !result.status.success() {
             return Err(format!(
-                "ligação da dylib do runtime falhou: {}",
+                "linking the runtime dylib failed: {}",
                 String::from_utf8_lossy(&result.stderr)
             ));
         }
@@ -287,7 +287,7 @@ fn main() -> Result<(), String> {
     let result = cmd.output().map_err(|e| e.to_string())?;
     if !result.status.success() {
         return Err(format!(
-            "ligação C++ falhou: {}",
+            "C++ linking failed: {}",
             String::from_utf8_lossy(&result.stderr)
         ));
     }
@@ -296,7 +296,7 @@ fn main() -> Result<(), String> {
 
 #[cfg(not(unix))]
 fn main() -> Result<(), String> {
-    Err("prova exige unwind Itanium Unix".into())
+    Err("the proof requires Itanium Unix unwinding".into())
 }
 
 #[cfg(test)]

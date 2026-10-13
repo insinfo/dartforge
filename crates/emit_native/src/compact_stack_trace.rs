@@ -134,7 +134,7 @@ fn encode(entries: &[Entry], shape: u8, addendum_in_place: bool) -> (Vec<u8>, Ve
 /// entries `(offset, record, kind, word)`.
 fn decode(blob: &[u8]) -> Result<Vec<Vec<(u64, usize, u32, u32)>>, String> {
     if blob.get(..4) != Some(b"DFPC") || blob.get(4) != Some(&1) {
-        return Err("blob DFPC sem a assinatura".to_string());
+        return Err("DFPC blob without the signature".to_string());
     }
     let nf = u32_at(blob, 12)? as usize;
     let mut exit = Vec::with_capacity(nf);
@@ -164,7 +164,7 @@ fn check_round_trip(blob: &[u8], entries: &[Entry], relocations: &[Relocation]) 
         let mut expected_set: Vec<&Entry> = entries.iter().filter(|e| e.function == f).collect();
         expected_set.sort_by_key(|e| e.offset);
         if expected_set.len() != list.len() {
-            return Err("a tabela do rastro compacta não reproduz a original (ida e volta)".to_string());
+            return Err("the compact stack trace table does not reproduce the original (round trip)".to_string());
         }
         for (e, &(d, r, kind, word)) in expected_set.iter().zip(list) {
             let record = e.record.map(|_| relocations[nf + r].1);
@@ -174,13 +174,13 @@ fn check_round_trip(blob: &[u8], entries: &[Entry], relocations: &[Relocation]) 
                 _ => false,
             };
             if e.offset != d || e.kind != kind || e.word != word || !same_record {
-                return Err("a tabela do rastro compacta não reproduz a original (ida e volta)".to_string());
+                return Err("the compact stack trace table does not reproduce the original (round trip)".to_string());
             }
         }
         counted += list.len();
     }
     if counted != entries.len() {
-        return Err("a tabela do rastro compacta perdeu entradas".to_string());
+        return Err("the compact stack trace table lost entries".to_string());
     }
     Ok(())
 }
@@ -254,7 +254,7 @@ pub fn convert_coff(object: &mut [u8]) -> Result<bool, String> {
         for k in 0..n_rel {
             let e = rel_start + 10 * k;
             if u16_at(object, e + 8)? != COFF_REL32 {
-                return Err("relocação inesperada na seção do rastro (esperava REL32)".to_string());
+                return Err("unexpected relocation in the stack trace section (expected REL32)".to_string());
             }
             rel.insert(u32_at(object, e)?, u32_at(object, e + 4)?);
         }
@@ -265,26 +265,26 @@ pub fn convert_coff(object: &mut [u8]) -> Result<bool, String> {
             let word = u32::from_le_bytes([sec[p + 8], sec[p + 9], sec[p + 10], sec[p + 11]]);
             let Some(&s0) = rel.get(&(p as u32)) else {
                 if field(0) != 0 || field(4) != 0 || word != 0 {
-                    return Err("entrada do rastro sem relocação no rótulo".to_string());
+                    return Err("stack trace entry without a relocation at the label".to_string());
                 }
                 p += 12;
                 continue;
             };
             // `target − field` with the addend in place: the target is `S + A − 4`.
-            let (section, value) = *value_of.get(s0 as usize).ok_or_else(|| "símbolo fora da tabela".to_string())?;
+            let (section, value) = *value_of.get(s0 as usize).ok_or_else(|| "symbol outside the table".to_string())?;
             let label = (value as i64 + field(0) - 4) as u64;
             let Some((function, offset)) = function_in(&functions, section, label) else {
                 return Ok(false);
             };
             let (record, kind) = match rel.get(&((p + 4) as u32)) {
                 Some(&s1) => {
-                    let (_, v1) = *value_of.get(s1 as usize).ok_or_else(|| "símbolo fora da tabela".to_string())?;
+                    let (_, v1) = *value_of.get(s1 as usize).ok_or_else(|| "symbol outside the table".to_string())?;
                     let alvo = v1 as i64 + field(4) - 4;
                     let kind = (alvo & 3) as u32;
                     (Some((s1, field(4) - 4 - i64::from(kind))), kind)
                 }
                 None if field(4) == 3 => (None, 3),
-                None => return Err("entrada do rastro sem relocação no registro".to_string()),
+                None => return Err("stack trace entry without a relocation at the record".to_string()),
             };
             entries.push(Entry { function, offset, record, kind, word });
             p += 12;
@@ -380,14 +380,14 @@ pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
         let rel_start = u64_at(object, header(r) + 24)? as usize;
         let rel_size = u64_at(object, header(r) + 32)? as usize;
         if u64_at(object, header(r) + 56)? != 24 || rel_size % 24 != 0 {
-            return Err("relocações da seção do rastro fora do formato `Elf64_Rela`".to_string());
+            return Err("relocations of the stack trace section outside the `Elf64_Rela` format".to_string());
         }
         let mut rel: std::collections::HashMap<u64, (u32, i64)> = std::collections::HashMap::new();
         for k in 0..rel_size / 24 {
             let e = rel_start + 24 * k;
             let info = u64_at(object, e + 8)?;
             if info as u32 != relative {
-                return Err(format!("relocação {} na seção do rastro (esperava a relativa de 32 bits)", info as u32));
+                return Err(format!("relocation {} in the stack trace section (expected the 32-bit relative one)", info as u32));
             }
             rel.insert(u64_at(object, e)?, ((info >> 32) as u32, u64_at(object, e + 16)? as i64));
         }
@@ -401,25 +401,25 @@ pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
             let word = u32::from_le_bytes([sec[p + 8], sec[p + 9], sec[p + 10], sec[p + 11]]);
             let Some(&(s0, a0)) = rel.get(&(p as u64)) else {
                 if raw_str(0) != 0 || raw_str(4) != 0 || word != 0 {
-                    return Err("entrada do rastro sem relocação no rótulo".to_string());
+                    return Err("stack trace entry without a relocation at the label".to_string());
                 }
                 p += 12;
                 continue;
             };
             // `S + A − P`: the target is `S + A`.
-            let (section, value) = *value_of.get(s0 as usize).ok_or_else(|| "símbolo fora da tabela".to_string())?;
+            let (section, value) = *value_of.get(s0 as usize).ok_or_else(|| "symbol outside the table".to_string())?;
             let label = (value as i64 + a0) as u64;
             let Some((function, offset)) = function_in(&functions, section, label) else {
-                return Err("rótulo do rastro fora de uma função".to_string());
+                return Err("stack trace label outside a function".to_string());
             };
             let (record, kind) = match rel.get(&((p + 4) as u64)) {
                 Some(&(s1, a1)) => {
-                    let (_, v1) = *value_of.get(s1 as usize).ok_or_else(|| "símbolo fora da tabela".to_string())?;
+                    let (_, v1) = *value_of.get(s1 as usize).ok_or_else(|| "symbol outside the table".to_string())?;
                     let kind = ((v1 as i64 + a1) & 3) as u32;
                     (Some((s1, a1 - i64::from(kind))), kind)
                 }
                 None if raw_str(4) == 3 => (None, 3),
-                None => return Err("entrada do rastro sem relocação no registro".to_string()),
+                None => return Err("stack trace entry without a relocation at the record".to_string()),
             };
             entries.push(Entry { function, offset, record, kind, word });
             p += 12;

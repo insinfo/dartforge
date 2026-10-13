@@ -77,24 +77,24 @@ pub fn produce_module_arc_tables(
         return Ok(0);
     }
     if !module.excecoes_por_tabelas || module.tables.len() != module.functions.len() {
-        return Err("tabelas ARC: módulo sem inventário excepcional completo".into());
+        return Err("ARC tables: module without a complete exceptional inventory".into());
     }
     let mut symbols = HashSet::new();
     let empty = FunctionTables::default();
     for (f, table) in module.functions.iter().zip(&module.tables) {
         if !symbols.insert(&f.symbol) {
-            return Err(format!("tabelas ARC: símbolo repetido {}", f.symbol));
+            return Err(format!("ARC tables: repeated symbol {}", f.symbol));
         }
         super::ssa::verify(f)?;
         let plan = plans
             .get(&f.symbol)
-            .ok_or_else(|| format!("tabelas ARC: plano ausente {}", f.symbol))?;
+            .ok_or_else(|| format!("ARC tables: missing plan {}", f.symbol))?;
         if plan.tables != empty && plan.tables != *table {
-            return Err(format!("tabelas ARC: inventário conflitante {}", f.symbol));
+            return Err(format!("ARC tables: conflicting inventory {}", f.symbol));
         }
     }
     if let Some(symbol) = plans.keys().filter(|s| !symbols.contains(s)).min() {
-        return Err(format!("tabelas ARC: plano obsoleto {symbol}"));
+        return Err(format!("ARC tables: stale plan {symbol}"));
     }
     let mut changed = 0;
     for (f, table) in module.functions.iter().zip(&module.tables) {

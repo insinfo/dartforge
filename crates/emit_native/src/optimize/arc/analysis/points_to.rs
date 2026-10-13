@@ -186,11 +186,11 @@ pub fn solve(
                 .values()
                 .any(|cs| cs.iter().enumerate().any(|(i, c)| c.position as usize != i))
         {
-            return Err(format!("points-to: esquema incompatível na restrição {id}"));
+            return Err(format!("points-to: incompatible schema in constraint {id}"));
         }
         if uses.iter().chain(dest.iter()).any(|&v| v >= n) {
             return Err(format!(
-                "points-to: variável fora do domínio na restrição {id}"
+                "points-to: variable outside the domain in constraint {id}"
             ));
         }
         for v in uses {
@@ -424,20 +424,20 @@ pub fn verify(
     r: &PointsToResult,
 ) -> Result<(), String> {
     if r.variables.len() != n {
-        return Err("verificador points-to: domínio incompatível".into());
+        return Err("points-to verifier: incompatible domain".into());
     }
     if r.variables
         .iter()
         .chain(r.fields.values())
         .any(|p| p.internal_limit() != limit || p.nodes().is_some_and(|nodes| nodes.len() > limit))
     {
-        return Err("verificador points-to: budget incompatível".into());
+        return Err("points-to verifier: incompatible budget".into());
     }
     for (id, constraint) in constraints.iter().enumerate() {
         let variable = |v: usize| {
             r.variables
                 .get(v)
-                .ok_or_else(|| format!("verificador points-to: índice na restrição {id}"))
+                .ok_or_else(|| format!("points-to verifier: index in constraint {id}"))
         };
         let valid = match constraint {
             Constraint::Seed { dest, node } => {
@@ -502,7 +502,7 @@ pub fn verify(
                     .values()
                     .any(|cs| cs.iter().enumerate().any(|(i, c)| c.position as usize != i))
                 {
-                    return Err(format!("verificador points-to: esquema na restrição {id}"));
+                    return Err(format!("points-to verifier: schema in constraint {id}"));
                 }
                 let receiver = variable(*object)?;
                 let value = variable(*dest)?;
@@ -542,7 +542,7 @@ pub fn verify(
         };
         if !valid {
             return Err(format!(
-                "verificador points-to: restrição {id} não satisfeita"
+                "points-to verifier: constraint {id} not satisfied"
             ));
         }
     }

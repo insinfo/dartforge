@@ -34,20 +34,20 @@ pub(super) fn prepare_ref_throws(
         .chain(plan.scopes.edges.keys().flat_map(|(a, b)| [a.0, b.0]))
         .max().map_or(0, |b| u64::from(b) + 1);
     let mut value_id = || -> Result<ValueId, String> {
-        let id = u32::try_from(value).map_err(|_| "IDs SSA esgotados ao preparar Throw")?;
+        let id = u32::try_from(value).map_err(|_| "SSA IDs exhausted while preparing Throw")?;
         value += 1; Ok(ValueId(id))
     };
     let mut block_id = || -> Result<BlockId, String> {
-        let id = u32::try_from(block).map_err(|_| "IDs de bloco esgotados ao preparar Throw")?;
+        let id = u32::try_from(block).map_err(|_| "block IDs exhausted while preparing Throw")?;
         block += 1; Ok(BlockId(id))
     };
     for (i, origin, payload) in throws {
         if !matches!(&payload, Operand::Constant(Constant::Null))
             && !matches!(&payload, Operand::Val(v) if types.get(v) == Some(&Type::Ref)) {
-            return Err(format!("{} b{}: Throw exige payload Ref preparado", f.symbol, origin.0));
+            return Err(format!("{} b{}: Throw requires a prepared Ref payload", f.symbol, origin.0));
         }
         if plan.tables.exits.contains_key(&origin) {
-            return Err(format!("{} b{}: Throw conflita com saída fornecida", f.symbol, origin.0));
+            return Err(format!("{} b{}: Throw conflicts with the supplied exit", f.symbol, origin.0));
         }
         let call = value_id()?;
         let pending = value_id()?;
@@ -151,12 +151,12 @@ pub(super) fn split_shared_exits(f: &mut Function, plan: &mut DartFunctionPlan) 
         }
         let original = f.blocks.iter().find(|b| b.id == alvo).expect("alvo existe").clone();
         for p in guards {
-            let id = BlockId(u32::try_from(block).map_err(|_| "IDs de bloco esgotados ao separar saídas")?);
+            let id = BlockId(u32::try_from(block).map_err(|_| "block IDs exhausted while splitting exits")?);
             block += 1;
             let mut new_set = HashMap::new();
             let mut instructions = Vec::with_capacity(original.instructions.len());
             for (v, inst, ty) in &original.instructions {
-                let n = ValueId(u32::try_from(value).map_err(|_| "IDs SSA esgotados ao separar saídas")?);
+                let n = ValueId(u32::try_from(value).map_err(|_| "SSA IDs exhausted while splitting exits")?);
                 value += 1;
                 new_set.insert(*v, n);
                 let mut inst = inst.clone();
@@ -201,7 +201,7 @@ pub(super) fn split_shared_exits(f: &mut Function, plan: &mut DartFunctionPlan) 
     }
     for handler in handlers {
         for p in guards_of(handler, f) {
-            let id = BlockId(u32::try_from(block).map_err(|_| "IDs de bloco esgotados ao separar saídas")?);
+            let id = BlockId(u32::try_from(block).map_err(|_| "block IDs exhausted while splitting exits")?);
             block += 1;
             for (_, inst, _) in f.blocks.iter_mut().filter(|b| b.id == handler).flat_map(|b| &mut b.instructions) {
                 if let Instruction::Phi { incoming, .. } = inst {
@@ -269,12 +269,12 @@ pub(super) fn split_guards(f: &mut Function, plan: &mut DartFunctionPlan) -> Res
         .max()
         .map_or(0, |b| u64::from(b) + 1);
     let mut value_id = || -> Result<ValueId, String> {
-        let id = u32::try_from(value).map_err(|_| "IDs SSA esgotados ao separar Guarda")?;
+        let id = u32::try_from(value).map_err(|_| "SSA IDs exhausted while splitting Guard")?;
         value += 1;
         Ok(ValueId(id))
     };
     let mut block_id = || -> Result<BlockId, String> {
-        let id = u32::try_from(block).map_err(|_| "IDs de bloco esgotados ao separar Guarda")?;
+        let id = u32::try_from(block).map_err(|_| "block IDs exhausted while splitting Guard")?;
         block += 1;
         Ok(BlockId(id))
     };
@@ -283,7 +283,7 @@ pub(super) fn split_guards(f: &mut Function, plan: &mut DartFunctionPlan) -> Res
     for (index, origin) in guards {
         let b = &mut f.blocks[index];
         let Terminator::Return(op) = &b.terminator else {
-            return Err(format!("saída Guarda b{} não é Return", origin.0));
+            return Err(format!("Guard exit b{} is not a Return", origin.0));
         };
         let ret = op.clone();
         let pending = value_id()?;
@@ -374,7 +374,7 @@ mod tests {
             let result = prepare_arc_dart_module(&mut m, &mut plans);
             if case == 3 {
                 let error = result.unwrap_err();
-                assert!(error.contains("Throw exige payload Ref"), "{error}");
+                assert!(error.contains("Throw requires a prepared Ref payload"), "{error}");
                 assert_eq!(format!("{m:?}/{plans:?}"), before);
                 continue;
             }
@@ -455,7 +455,7 @@ mod tests {
                     else_block,
                     ..
                 } => (then_block, else_block),
-                _ => panic!("Guarda não separado"),
+                _ => panic!("Guard not split"),
             };
             assert_eq!(p.tables.exits[&error], ExceptionExit::Throws);
             assert!(!p.tables.exits.contains_key(&normal));
@@ -540,7 +540,7 @@ mod tests {
                 assert_eq!(p.scopes.exits[&b], vec![ScopeChange::Close(7)]);
             }
         } else {
-            panic!("Guarda não separado");
+            panic!("Guard not split");
         }
     }
 
@@ -588,9 +588,9 @@ mod tests {
             let result = insert_arc_dart_functions(&mut functions, &mut plans);
             if failure != 0 {
                 assert!(result.unwrap_err().contains(if failure == 1 {
-                    "limite inválido"
+                    "invalid limit"
                 } else {
-                    "IDs SSA esgotados"
+                    "SSA IDs exhausted"
                 }));
                 assert_eq!(format!("{functions:?}"), before);
                 assert_eq!(format!("{plans:?}"), plans_before);
@@ -607,7 +607,7 @@ mod tests {
                     ..
                 } = original.terminator
                 else {
-                    panic!("Guarda não separado");
+                    panic!("Guard not split");
                 };
                 assert_eq!(p.tables.exits[&then_block], ExceptionExit::Throws);
                 let error = functions[0]
@@ -662,9 +662,9 @@ mod tests {
             let error = insert_arc_dart_functions(&mut functions, &mut plans).unwrap_err();
             assert!(
                 error.contains(if exhausted {
-                    "IDs SSA esgotados"
+                    "SSA IDs exhausted"
                 } else {
-                    "limite inválido"
+                    "invalid limit"
                 }),
                 "{error}"
             );

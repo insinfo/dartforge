@@ -8,16 +8,16 @@ use std::{collections::HashMap, fmt::Write, path::PathBuf};
 
 fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
-    let exit = PathBuf::from(args.next().ok_or("informe o executável de saída")?);
+    let exit = PathBuf::from(args.next().ok_or("provide the output executable")?);
     let arc = match args.next().as_deref() {
         Some("--memoria=arc") => true,
         Some("--memoria=tracing") | None => false,
-        Some(other) => return Err(format!("modo desconhecido: {other}")),
+        Some(other) => return Err(format!("unknown mode: {other}")),
     };
     let optimize = match args.next().as_deref() {
         Some("2") => true,
         Some("0") | None => false,
-        Some(other) => return Err(format!("nível desconhecido: {other}")),
+        Some(other) => return Err(format!("unknown level: {other}")),
     };
     let first_one = args.next();
     let grow = first_one.as_deref() == Some("--crescer");
@@ -117,7 +117,7 @@ fn main() -> Result<(), String> {
     }
     let mut plans = HashMap::from([("trocar_armazenamento".into(), plan)]);
     if prepare_arc_dart_module(&mut m, &mut plans)? != (1, 0) {
-        return Err("esperada uma cópia proprietária do armazenamento antes da mutação".into());
+        return Err("expected an owning copy of the storage before the mutation".into());
     }
     let borrowed = m.functions[0].blocks[0]
         .instructions
@@ -128,7 +128,7 @@ fn main() -> Result<(), String> {
             } if *v == ValueId(4) => Some(de.0),
             _ => None,
         })
-        .ok_or("cópia do armazenamento ausente")?;
+        .ok_or("missing storage copy")?;
     m.arc_memory = arc;
     if !arc {
         m.arc_aot_ports = None;
@@ -170,7 +170,7 @@ fn main() -> Result<(), String> {
                 "  call void @dartforge_arc_release(i64 %pai{n})\n  call void @dartforge_arc_release(i64 %novo{n})\n"
             );
             if ir.matches(&release).count() != 1 {
-                return Err("liberação do par não localizada unicamente".into());
+                return Err("release of the pair not located uniquely".into());
             }
             // The appended value must live only through the copied edge, before killing the list.
             let check = format!(
@@ -184,7 +184,7 @@ fn main() -> Result<(), String> {
         Some("sem-retencao") => {
             let call = format!("  call void @dartforge_arc_retain(i64 %v{borrowed})\n");
             if ir.matches(&call).count() != 1 {
-                return Err("retenção não localizada unicamente".into());
+                return Err("retention not located uniquely".into());
             }
             ir = ir.replace(&call, "");
         }
@@ -196,7 +196,7 @@ fn main() -> Result<(), String> {
                 );
             }
         }
-        Some(other) => return Err(format!("controle desconhecido: {other}")),
+        Some(other) => return Err(format!("unknown control: {other}")),
     }
     if let Some(dir) = exit.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;

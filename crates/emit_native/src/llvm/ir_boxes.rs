@@ -563,7 +563,7 @@ mod tests {
         assert_eq!(layout::desl::CLASSE as i64 - layout::DESLOCAMENTO_DO_HANDLE, 2);
         assert_eq!((cid::MINT, cid::DOUBLE), (3, 4));
         for (name, _, _) in HELPER_EFFECTS {
-            assert!(HELPERS.contains(&format!("@{name}(")), "{name} sem definição");
+            assert!(HELPERS.contains(&format!("@{name}(")), "{name} without a definition");
         }
         assert_eq!(CAB_CELL >> 32, cid::CELULA as u64);
         assert_eq!(CAB_CLOSURE >> 16 & 0xFFFF, 4);

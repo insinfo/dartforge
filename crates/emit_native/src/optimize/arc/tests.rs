@@ -39,7 +39,7 @@ fn invoke_result_exists_only_after_success_including_in_phi() {
     assert!(
         classified_liveness_with_exceptions(&f, &classes, &tables)
             .unwrap_err()
-            .contains("b2: resultado v10")
+            .contains("b2: result v10")
     );
 
     f.blocks[1].terminator = Terminator::Branch(BlockId(3));
@@ -67,7 +67,7 @@ fn invoke_result_exists_only_after_success_including_in_phi() {
     assert!(
         classified_liveness_with_exceptions(&f, &classes, &tables)
             .unwrap_err()
-            .contains("b3: resultado v10")
+            .contains("b3: result v10")
     );
 
     // A phi in the immediate successor uses the result on the very edge that publishes it.
@@ -138,13 +138,13 @@ fn invoke_does_not_sustain_alias_at_error_join() {
     assert!(classified_liveness(&f, &classes).is_ok());
     assert_eq!(
         classified_liveness_with_exceptions(&f, &classes, &tables).unwrap_err(),
-        "ARC003 em f: b1: v11 depende de resultado v10 indisponível no caminho excepcional; caminho [11, 10]"
+        "ARC003 in f: b1: v11 depends on result v10 unavailable on the exceptional path; path [11, 10]"
     );
     f.blocks[0].terminator = Terminator::Branch(BlockId(1));
     assert!(
         classified_liveness_with_exceptions(&f, &classes, &tables)
             .unwrap_err()
-            .contains("sem aresta de sucesso")
+            .contains("without a valid success edge")
     );
 }
 
@@ -239,7 +239,7 @@ fn owner_defined_after_alias_and_parameter_local_owner_are_rejected() {
     assert!(
         classified_liveness(&f, &classes)
             .unwrap_err()
-            .contains("não domina")
+            .contains("does not dominate")
     );
     classes.insert(ValueId(2), Ownership::Trivial);
     classes.insert(
@@ -252,7 +252,7 @@ fn owner_defined_after_alias_and_parameter_local_owner_are_rejected() {
     assert!(
         classified_liveness(&f, &classes)
             .unwrap_err()
-            .contains("parâmetro")
+            .contains("parameter")
     );
 }
 
@@ -365,14 +365,14 @@ fn typed_inventory_rejects_incomplete_coverage_and_stale_id() {
     assert!(
         classified_liveness(&f, &classes)
             .unwrap_err()
-            .contains("v1 sem classificação")
+            .contains("v1 without classification")
     );
     classes = parameter_classes();
     classes.insert(ValueId(8), Ownership::Owned);
     assert!(
         classified_liveness(&f, &classes)
             .unwrap_err()
-            .contains("v8 não existe")
+            .contains("v8 does not exist")
     );
 }
 
@@ -401,7 +401,7 @@ fn local_result_cannot_claim_caller_owner() {
     assert!(
         classified_liveness(&f, &classes)
             .unwrap_err()
-            .contains("v2 local não é parâmetro")
+            .contains("local v2 is not a parameter")
     );
     classes.insert(
         ValueId(2),
@@ -541,7 +541,7 @@ fn call_result_is_live_only_on_normal_edge() {
         ..
     } = m.functions[0].blocks[0].terminator
     else {
-        panic!("CFG não preparado")
+        panic!("unprepared CFG")
     };
     let inventory: HashSet<ValueId> = m.functions[0]
         .blocks
@@ -558,7 +558,7 @@ fn call_result_is_live_only_on_normal_edge() {
     assert!(v.edges[&(BlockId(0), landing_pad)].is_empty());
     assert!(
         v.edges[&(landing_pad, continuation)].is_empty(),
-        "o valor padrão do erro não é o resultado inexistente"
+        "the default value of the error is not the nonexistent result"
     );
     assert!(v.before[&ValueId(10)].is_empty());
 }

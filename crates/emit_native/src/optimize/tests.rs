@@ -284,7 +284,7 @@ fn constant_switch_removes_only_eliminated_edge_phi_entry() {
             ] };
         simplify::fold_constants(&mut f);
         assert!(matches!(f.blocks[0].terminator, Terminator::Branch(b) if b == expected));
-        let Instruction::Phi { incoming, .. } = &f.blocks[2].instructions[0].1 else { panic!("Phi removido sem conferir suas arestas"); };
+        let Instruction::Phi { incoming, .. } = &f.blocks[2].instructions[0].1 else { panic!("Phi removed without checking its edges"); };
         assert!(incoming.contains(&(BlockId(3), c(9))));
         assert_eq!(incoming.contains(&(BlockId(0), c(7))), expected == BlockId(2));
     }

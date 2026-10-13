@@ -54,7 +54,7 @@ impl ForeignCleanup {
             || self.exits != t.exits
             || self.checks_stack != t.checks_stack
         {
-            return Err(format!("cleanup estrangeiro obsoleto em {}", f.symbol));
+            return Err(format!("stale foreign cleanup in {}", f.symbol));
         }
         Ok(())
     }
@@ -62,11 +62,11 @@ impl ForeignCleanup {
     pub(crate) fn owners(&self, b: BlockId) -> &[ValueId] {
         self.owners
             .get(&b)
-            .expect("pouso sem inventário certificado")
+            .expect("landing pad without a certified inventory")
     }
     pub(crate) fn frames(&self, b: BlockId) -> &[ValueId] {
         self.frames
             .get(&b)
-            .expect("pouso sem inventário de quadros certificado")
+            .expect("landing pad without a certified frames inventory")
     }
 }

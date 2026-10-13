@@ -80,7 +80,7 @@ fn produce(
     for f in &module.functions {
         if functions.insert(&f.symbol, f).is_some() {
             return Err(format!(
-                "fatos de parâmetros: símbolo repetido {}",
+                "parameter facts: repeated symbol {}",
                 f.symbol
             ));
         }
@@ -102,14 +102,14 @@ fn produce(
     for (symbol, ids) in facts {
         let f = functions
             .get(symbol)
-            .ok_or_else(|| format!("fatos de parâmetros: símbolo obsoleto {symbol}"))?;
+            .ok_or_else(|| format!("parameter facts: stale symbol {symbol}"))?;
         let plan = plans
             .get(symbol)
-            .ok_or_else(|| format!("fatos de parâmetros: plano ausente {symbol}"))?;
+            .ok_or_else(|| format!("parameter facts: missing plan {symbol}"))?;
         let types: HashMap<_, _> = f.params.iter().map(|(v, _, ty)| (*v, *ty)).collect();
         if types.len() != f.params.len() {
             return Err(format!(
-                "fatos de parâmetros: parâmetros repetidos {symbol}"
+                "parameter facts: repeated parameters {symbol}"
             ));
         }
         let mut ids: Vec<_> = ids.iter().copied().collect();
@@ -117,7 +117,7 @@ fn produce(
         for v in ids {
             if others.get(symbol).is_some_and(|ids| ids.contains(&v)) {
                 return Err(format!(
-                    "fato {symbol} v{} tem origens escalar/RTI conflitantes",
+                    "fact {symbol} v{} has conflicting scalar/RTI origins",
                     v.0
                 ));
             }
@@ -130,7 +130,7 @@ fn produce(
                 )
             } {
                 return Err(format!(
-                    "fato de parâmetro {symbol} v{} não corresponde à representação declarada",
+                    "parameter fact {symbol} v{} does not match the declared representation",
                     v.0
                 ));
             }
@@ -139,7 +139,7 @@ fn produce(
                 Some(Ownership::Trivial) => {}
                 _ => {
                     return Err(format!(
-                        "fato de parâmetro {symbol} v{} conflita com ownership",
+                        "parameter fact {symbol} v{} conflicts with ownership",
                         v.0
                     ));
                 }

@@ -140,8 +140,8 @@ impl Cpu {
             "x86-64-v2" if x86 => Ok(Cpu::X86_64V2),
             "x86-64-v3" if x86 => Ok(Cpu::X86_64V3),
             "x86-64-v4" if x86 => Ok(Cpu::X86_64V4),
-            _ if x86 => Err(format!("--cpu {name}: use x86-64, x86-64-v2, x86-64-v3, x86-64-v4 ou native")),
-            _ => Err(format!("--cpu {name}: neste alvo, só `native`")),
+            _ if x86 => Err(format!("--cpu {name}: use x86-64, x86-64-v2, x86-64-v3, x86-64-v4 or native")),
+            _ => Err(format!("--cpu {name}: on this target, only `native`")),
         }
     }
 
@@ -283,7 +283,7 @@ impl Gerador {
                 if generation.format == Format::Object && ir.contains("@df.pcf.") && crate::compact_stack_trace::convert_here() {
                     crate::compact_stack_trace::convert(&mut bytes)?;
                 }
-                std::fs::write(exit, bytes).map_err(|e| format!("falha ao gravar {}: {e}", exit.display()))
+                std::fs::write(exit, bytes).map_err(|e| format!("failed to write {}: {e}", exit.display()))
             }
             Gerador::Clang(clang) => {
                 // Roots by maps: `clang -x ir` does not run
@@ -294,10 +294,10 @@ impl Gerador {
                 // (`distributed_lto.rs`), which is the only path that takes
                 // that bitcode to the linker.
                 if ir.contains("gc \"statepoint-example\"") && generation.format != Format::Bitcode {
-                    return Err("as raízes por mapas (--raizes=mapas) exigem o gerador embutido do dartforge, não o Clang".to_string());
+                    return Err("roots by maps (--raizes=mapas) require dartforge's embedded generator, not Clang".to_string());
                 }
                 let ll = exit.with_extension("ll");
-                std::fs::write(&ll, ir).map_err(|e| format!("falha ao escrever LLVM IR em {}: {e}", ll.display()))?;
+                std::fs::write(&ll, ir).map_err(|e| format!("failed to write LLVM IR to {}: {e}", ll.display()))?;
                 let dir = exit.parent().unwrap_or(Path::new("."));
                 let result = Command::new(clang)
                     .current_dir(dir)
@@ -306,7 +306,7 @@ impl Gerador {
                     .arg("-o")
                     .arg(exit.file_name().unwrap_or_default())
                     .output()
-                    .map_err(|e| format!("falha ao executar Clang em {clang:?}: {e}"));
+                    .map_err(|e| format!("failed to run Clang at {clang:?}: {e}"));
                 let keep_ir = std::env::var_os("DARTFORGE_KEEP_IR").is_some();
                 if !keep_ir {
                     let _ = std::fs::remove_file(&ll);
@@ -316,7 +316,7 @@ impl Gerador {
                     let text = String::from_utf8_lossy(&result.stderr);
                     let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).take(20).collect();
                     return Err(format!(
-                        "Clang falhou na compilação do IR ({}):\n{}",
+                        "Clang failed to compile the IR ({}):\n{}",
                         result.status,
                         lines.join("\n")
                     ));

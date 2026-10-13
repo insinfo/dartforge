@@ -253,7 +253,7 @@ mod tests {
         }
         assert_eq!(table, 19_214_116_860_268_544);
         for (name, _, _) in super::HELPER_EFFECTS {
-            assert!(super::HELPERS.contains(&format!("@{name}(")), "{name} sem definição");
+            assert!(super::HELPERS.contains(&format!("@{name}(")), "{name} without a definition");
         }
     }
 }

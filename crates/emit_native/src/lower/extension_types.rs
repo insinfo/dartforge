@@ -353,7 +353,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let evaluated = self.evaluate_args(ast, &arguments.args);
             return self.call_function_value(v, &evaluated);
         }
-        let MemberRef::Function(f) = m else { unreachable!("campo tratado acima") };
+        let MemberRef::Function(f) = m else { unreachable!("field handled above") };
         let evaluated = self.evaluate_args(ast, &arguments.args);
         self.call_extension(recv, f.0 as usize, &evaluated, receiver, Some((expr, arguments)), span)
     }

@@ -289,7 +289,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 Passing::Address => match &c.local.mode {
                     Mode::Memory(ptr) => ptr.clone(),
-                    _ => unreachable!("captura por endereço fora da memória"),
+                    _ => unreachable!("capture by address outside memory"),
                 },
                 Passing::Cell => self.local_cell(&c.local).unwrap_or(Operand::Constant(Constant::Null)),
             };

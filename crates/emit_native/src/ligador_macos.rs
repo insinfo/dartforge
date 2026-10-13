@@ -855,7 +855,7 @@ impl SysrootMacos {
                     let _ = std::fs::remove_dir_all(&dir);
                     if std::fs::rename(&tmp, &dir).is_err() && !dir.join("pronto").is_file() {
                         let _ = std::fs::remove_dir_all(&tmp);
-                        return Err(format!("não foi possível instalar {}", dir.display()));
+                        return Err(format!("could not install {}", dir.display()));
                     }
                 }
                 let _ = std::fs::remove_dir_all(&tmp);
@@ -1012,7 +1012,7 @@ pub fn link(ld: &Path, sysroot: &SysrootMacos, l: &Linkage<'_>) -> Result<(), St
     }
     cmd.args(&l.entries);
     cmd.args(LIBRARIES);
-    let exit = cmd.output().map_err(|e| format!("falha ao executar {}: {e}", ld.display()))?;
+    let exit = cmd.output().map_err(|e| format!("failed to run {}: {e}", ld.display()))?;
     if !exit.status.success() {
         let text = String::from_utf8_lossy(&exit.stderr);
         // The errors (and the `>>>` lines that explain them) before the warnings: with
@@ -1021,7 +1021,7 @@ pub fn link(ld: &Path, sysroot: &SysrootMacos, l: &Linkage<'_>) -> Result<(), St
             text.lines().filter(|l| !l.trim().is_empty()).partition(|l| !l.contains("warning:"));
         let n_warnings = 40usize.saturating_sub(errors.len());
         let lines: Vec<&str> = errors.into_iter().chain(avisos.into_iter().take(n_warnings)).collect();
-        return Err(format!("o ld64.lld falhou na ligação ({}):\n{}", exit.status, lines.join("\n")));
+        return Err(format!("ld64.lld failed to link ({}):\n{}", exit.status, lines.join("\n")));
     }
     Ok(())
 }
@@ -1115,11 +1115,11 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn symbols_exist_in_sdk() {
-        let root = crate::alvo::macos_sdk_root().expect("SDK do macOS (xcrun)");
+        let root = crate::alvo::macos_sdk_root().expect("macOS SDK (xcrun)");
         let mut missing_set = Vec::new();
         for b in SYSTEM_LIBRARIES {
             let names = names_in_sdk(root, b.file);
-            assert!(names.contains(b.install_name), "{}: install-name {} fora do SDK", b.file, b.install_name);
+            assert!(names.contains(b.install_name), "{}: install-name {} outside the SDK", b.file, b.install_name);
             let own_set = if Arquitetura::do_hospedeiro() == Arquitetura::Arm64 { b.arm64_only } else { b.x86_64_only };
             for n in b.symbols.iter().chain(own_set) {
                 if !names.contains(*n) {
@@ -1127,7 +1127,7 @@ mod tests {
                 }
             }
         }
-        assert!(missing_set.is_empty(), "não exportados pelo SDK: {missing_set:#?}");
+        assert!(missing_set.is_empty(), "not exported by the SDK: {missing_set:#?}");
     }
 
     /// The two runtime `staticlib`s link only with the generated `.tbd` files, with
@@ -1152,7 +1152,7 @@ mod tests {
         std::fs::write(&c, "void dartforge_entry(void) {}\n").unwrap();
         let obj = dir.path().join("entrada.o");
         let status = Command::new(&clang).arg("-c").arg(&c).arg("-o").arg(&obj).status().expect("executar o Clang");
-        assert!(status.success(), "o Clang não compilou {}", c.display());
+        assert!(status.success(), "Clang did not compile {}", c.display());
         let exe = dir.path().join("programa");
         let dylib = dir.path().join("libteste.dylib");
         let cases = [
@@ -1164,7 +1164,7 @@ mod tests {
             ),
         ];
         for (lib, product, exit) in cases {
-            let lib = lib.expect("runtime pré-compilado").lib_path;
+            let lib = lib.expect("precompiled runtime").lib_path;
             let mut entries = vec![PathBuf::from("--error-limit=0"), obj.clone()];
             for n in dartforge_runtime::simbolos::NOMES.iter().filter(|n| **n != "main") {
                 entries.push(PathBuf::from("-u"));
@@ -1173,7 +1173,7 @@ mod tests {
             entries.push(lib);
             let l = Linkage { product, entries, executable_rpath: false, lto: false, cpu: None, prune: false, keep_debug_info: false, exit };
             if let Err(e) = link(&ld64_lld(&clang), &sysroot, &l) {
-                panic!("o runtime usa nomes fora de BIBLIOTECAS_DO_SISTEMA:\n{e}");
+                panic!("the runtime uses names outside SYSTEM_LIBRARIES:\n{e}");
             }
         }
         // The executable runs (only the empty `dartforge_entry`).

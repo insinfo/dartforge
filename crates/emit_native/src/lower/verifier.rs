@@ -86,7 +86,7 @@ impl Context<'_> {
 
     fn error(&mut self, msg: String) {
         self.errors
-            .push(format!("verificador da HIR ({}): {msg}", self.function.name));
+            .push(format!("HIR verifier ({}): {msg}", self.function.name));
     }
 
     /// E1: the written tag must be that of the value's representation.
@@ -101,7 +101,7 @@ impl Context<'_> {
             _ => true,
         };
         if !coherent {
-            self.error(format!("{location}: tag {t} para um valor {ty:?}"));
+            self.error(format!("{location}: tag {t} for a {ty:?} value"));
         }
     }
 
@@ -111,14 +111,14 @@ impl Context<'_> {
         };
         let ty = self.ty(bits);
         if (*r != 0) != (ty == Type::Ref) {
-            self.error(format!("{location}: is_ref {r} para um valor {ty:?}"));
+            self.error(format!("{location}: is_ref {r} for a {ty:?} value"));
         }
     }
 
     /// E3: an integer constant in a `Ref` position.
     fn check_ref(&mut self, location: &str, op: &Operand, position: Type) {
         if position == Type::Ref && matches!(op, Operand::Constant(Constant::Int(_))) {
-            self.error(format!("{location}: constante inteira numa posição Ref"));
+            self.error(format!("{location}: integer constant in a Ref position"));
         }
     }
 
@@ -143,7 +143,7 @@ impl Context<'_> {
     /// it was written with.
     fn check_read(&mut self, location: &str, read_value: Type, written_set: &[Type]) {
         if let Some(g) = written_set.iter().find(|&&g| !same_representation(g, read_value)) {
-            self.error(format!("{location}: lida como {read_value:?}, gravada como {g:?}"));
+            self.error(format!("{location}: read as {read_value:?}, written as {g:?}"));
         }
     }
 }
@@ -294,7 +294,7 @@ pub fn verify(module: &Module) -> Vec<String> {
                     && c.cells.contains_key(cel)
                 {
                     let t = c.ty(value);
-                    c.cells.get_mut(cel).expect("célula conferida").push(t);
+                    c.cells.get_mut(cel).expect("checked cell").push(t);
                 }
             }
         }
@@ -305,7 +305,7 @@ pub fn verify(module: &Module) -> Vec<String> {
                     | Instruction::ArcStoreStrong { slot: StrongSlot::Global { symbol }, .. } = inst {
                     let declarations: Vec<_> = module.globals.iter().filter(|(_, _, s)| s == symbol).collect();
                     if declarations.len() != 1 || declarations[0].1 != Type::Ref {
-                        c.error(format!("slot ARC global @{symbol} exige uma declaração Ref única"));
+                        c.error(format!("global ARC slot @{symbol} requires a single Ref declaration"));
                     }
                 }
             }
@@ -323,28 +323,28 @@ fn verify_instruction(c: &mut Context, inst: &Instruction, ty: Type) {
         Instruction::ArcLoadStrong { slot } | Instruction::ArcStoreStrong { slot, .. } => {
             let result = if matches!(inst, Instruction::ArcLoadStrong { .. }) { Type::Ref } else { Type::Void };
             if ty != result {
-                c.error(format!("slot ARC: resultado {ty:?}, esperado {result:?}"));
+                c.error(format!("ARC slot: result {ty:?}, expected {result:?}"));
             }
             if let StrongSlot::Frame { frame, .. } = slot {
                 if c.ty(frame) != Type::I64 || !matches!(frame, Operand::Val(_)) {
-                    c.error(format!("slot ARC exige ID de quadro SSA I64: {frame:?}"));
+                    c.error(format!("ARC slot requires an SSA I64 frame ID: {frame:?}"));
                 }
             }
             if let Instruction::ArcStoreStrong { value, .. } = inst {
                 if c.ty(value) != Type::Ref || !matches!(value, Operand::Val(_) | Operand::Constant(Constant::Null)) {
-                    c.error(format!("store ARC exige referência já avaliada: {value:?}"));
+                    c.error(format!("ARC store requires an already evaluated reference: {value:?}"));
                 }
             }
         }
         Instruction::ArcCopy { value } | Instruction::ArcDrop { value } | Instruction::ArcMove { value } => {
             let result = if matches!(inst, Instruction::ArcDrop { .. }) { Type::Void } else { Type::Ref };
             if ty != result {
-                c.error(format!("operação ARC: resultado {ty:?}, esperado {result:?}"));
+                c.error(format!("ARC operation: result {ty:?}, expected {result:?}"));
             }
             if c.ty(value) != Type::Ref
                 || !matches!(value, Operand::Val(_) | Operand::Constant(Constant::Null))
             {
-                c.error(format!("operação ARC exige referência já avaliada: {value:?}"));
+                c.error(format!("ARC operation requires an already evaluated reference: {value:?}"));
             }
         }
         Instruction::CallRuntime { name, args, .. } => {
@@ -372,7 +372,7 @@ fn verify_instruction(c: &mut Context, inst: &Instruction, ty: Type) {
         Instruction::AllocList { elements } => {
             for (op, tag) in elements {
                 c.check_tag(
-                    "literal de coleção",
+                    "collection literal",
                     op,
                     &Operand::Constant(Constant::Int(i64::from(*tag))),
                 );
@@ -383,20 +383,20 @@ fn verify_instruction(c: &mut Context, inst: &Instruction, ty: Type) {
             for (op, _) in elements {
                 let t = c.ty(op);
                 if t != Type::Ref {
-                    c.error(format!("record posicional: campo {t:?} (tem de ser Ref)"));
+                    c.error(format!("positional record: field {t:?} (must be Ref)"));
                 }
-                c.check_ref("record posicional", op, Type::Ref);
+                c.check_ref("positional record", op, Type::Ref);
             }
         }
         // Risk 12: the capture read in the written representation.
         Instruction::EnvGet { env, index } if c.is_env_parameter(env) => {
             if let Some(g) = c.env.and_then(|a| a.get(*index)).map(|x| x.ty) {
-                c.check_read(&format!("captura {index} do ambiente"), ty, &[g]);
+                c.check_read(&format!("environment capture {index}"), ty, &[g]);
             }
         }
         Instruction::CellGet { cell } => {
             if let Some(g) = c.stored_in_cell(cell) {
-                c.check_read("célula", ty, &g);
+                c.check_read("cell", ty, &g);
             }
         }
         Instruction::CellSet { cell, value } => {
@@ -406,7 +406,7 @@ fn verify_instruction(c: &mut Context, inst: &Instruction, ty: Type) {
                 && let Some(g) = c.stored_in_cell(cell)
             {
                 let t = c.ty(value);
-                c.check_read("gravação na célula", t, &g);
+                c.check_read("write to the cell", t, &g);
             }
         }
         Instruction::Phi { incoming, ty } => {
@@ -423,31 +423,31 @@ fn verify_instruction(c: &mut Context, inst: &Instruction, ty: Type) {
             }
         }
         Instruction::Const(Constant::Int(_)) if ty == Type::Ref => {
-            c.error("constante inteira registrada como Ref".to_string());
+            c.error("integer constant recorded as Ref".to_string());
         }
         Instruction::CallClosure { closure, args, tuple_types, .. } => {
-            c.check_ref("chamada de closure", closure, Type::Ref);
+            c.check_ref("closure call", closure, Type::Ref);
             if c.ty(tuple_types) != Type::I64 {
-                c.error(format!("tupla de tipos da closure não é I64: {tuple_types:?}"));
+                c.error(format!("closure type tuple is not I64: {tuple_types:?}"));
             }
             for a in args {
-                c.check_ref("chamada de closure", a, Type::Ref);
+                c.check_ref("closure call", a, Type::Ref);
                 if c.ty(a) != Type::Ref {
-                    c.error(format!("argumento de closure não é Ref: {a:?}"));
+                    c.error(format!("closure argument is not Ref: {a:?}"));
                 }
             }
         }
         Instruction::CallSelectorForward { recv, .. } => {
-            c.check_ref("repasse por seletor", recv, Type::Ref);
+            c.check_ref("selector forwarding", recv, Type::Ref);
         }
         Instruction::CallSelector { recv, args, tuple_types, .. } => {
-            c.check_ref("chamada por seletor", recv, Type::Ref);
+            c.check_ref("selector call", recv, Type::Ref);
             if c.ty(tuple_types) != Type::I64 {
-                c.error(format!("tupla de tipos do seletor não é I64: {tuple_types:?}"));
+                c.error(format!("selector type tuple is not I64: {tuple_types:?}"));
             }
             for a in args {
                 if c.ty(a) != Type::Ref {
-                    c.error(format!("argumento de seletor não é Ref: {a:?}"));
+                    c.error(format!("selector argument is not Ref: {a:?}"));
                 }
             }
         }
@@ -457,7 +457,7 @@ fn verify_instruction(c: &mut Context, inst: &Instruction, ty: Type) {
         | Instruction::CallDynamic { .. }
         | Instruction::CheckNotNull(_)
         | Instruction::IsClass { .. } => {
-            c.error(format!("instrução sem emissão: {inst:?}"));
+            c.error(format!("instruction without emission: {inst:?}"));
         }
         _ => {}
     }

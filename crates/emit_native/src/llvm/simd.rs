@@ -23,7 +23,7 @@ fn shape(k: Type) -> (u32, &'static str, &'static str) {
         Type::V4F32 => (4, "float", "v4f32"),
         Type::V4I32 => (4, "i32", "v4i32"),
         Type::V2F64 => (2, "double", "v2f64"),
-        _ => unreachable!("tipo SIMD esperado: {k:?}"),
+        _ => unreachable!("expected SIMD type: {k:?}"),
     }
 }
 
@@ -56,7 +56,7 @@ impl LlvmEmitter<'_> {
                     (OpSimd::And, false) => "and",
                     (OpSimd::Or, false) => "or",
                     (OpSimd::Xor, false) => "xor",
-                    _ => unreachable!("operação SIMD {op:?} sobre {k:?}"),
+                    _ => unreachable!("SIMD operation {op:?} on {k:?}"),
                 };
                 writeln!(w, "  {r} = {instr} {kt} {x}, {y}").unwrap();
             }

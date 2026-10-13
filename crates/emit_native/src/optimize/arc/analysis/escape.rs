@@ -59,7 +59,7 @@ pub struct EscapeResult {
 /// blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
 /// terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) }] };
 /// let a = analyze(&f, &HirFacts::default(), 8)?;
-/// assert!(compute(&f, &a)?.publications[&EscapeCause::Return].nos().is_none());
+/// assert!(compute(&f, &a)?.publications[&EscapeCause::Return].nodes().is_none());
 /// # Ok::<(), String>(())
 /// ```
 pub fn compute(f: &Function, a: &HirAnalysis) -> Result<EscapeResult, String> {
@@ -67,7 +67,7 @@ pub fn compute(f: &Function, a: &HirAnalysis) -> Result<EscapeResult, String> {
         || !a.table_dependencies.is_empty()
         || a.module_premises.is_some()
     {
-        return Err("escape ARC: validar dependências pelo módulo".into());
+        return Err("ARC escape: validate dependencies through the module".into());
     }
     compute_validated(f, a)
 }
@@ -109,7 +109,7 @@ pub(super) fn check_analysis_in_module<'m>(
     if let Some(signature) = a.module_premises
         && signature != super::module::premises_signature(m, symbol)
     {
-        return Err("escape ARC: modo, sítios ou layouts mudaram".into());
+        return Err("ARC escape: mode, sites or layouts changed".into());
     }
     let mut index = std::collections::HashMap::new();
     let positions: std::collections::HashMap<_, _> = m
@@ -120,11 +120,11 @@ pub(super) fn check_analysis_in_module<'m>(
         .collect();
     for f in &m.functions {
         if index.insert(&f.symbol, f).is_some() {
-            return Err("escape ARC: corpo duplicado".into());
+            return Err("ARC escape: duplicate body".into());
         }
     }
     for (s, signature) in &a.body_dependencies {
-        let f = index.get(s).ok_or("escape ARC: callee ausente")?;
+        let f = index.get(s).ok_or("ARC escape: missing callee")?;
         if body_signature(f) != *signature {
             return Err(format!("escape ARC: callee mudou {s}"));
         }
@@ -132,23 +132,23 @@ pub(super) fn check_analysis_in_module<'m>(
     for (s, signature) in &a.table_dependencies {
         let index = positions
             .get(s.as_str())
-            .ok_or("escape ARC: callee ausente")?;
+            .ok_or("ARC escape: missing callee")?;
         if super::hir::table_state(m, *index) != *signature {
             return Err(format!("escape ARC: tabela mudou {s}"));
         }
     }
     let f = index
         .get(&symbol.to_string())
-        .ok_or("escape ARC: corpo ausente")?;
+        .ok_or("ARC escape: missing body")?;
     if a.body != body_signature(f) {
-        return Err("escape ARC: corpo mudou após points-to".into());
+        return Err("ARC escape: body changed after points-to".into());
     }
     Ok(f)
 }
 
 fn compute_validated(f: &Function, a: &HirAnalysis) -> Result<EscapeResult, String> {
     if a.body != body_signature(f) {
-        return Err("escape ARC: corpo mudou após points-to".into());
+        return Err("ARC escape: body changed after points-to".into());
     }
     let mut r = EscapeResult::default();
     let operand = |o: &Operand| match o {
@@ -189,7 +189,7 @@ fn compute_validated(f: &Function, a: &HirAnalysis) -> Result<EscapeResult, Stri
         let points = a
             .points()
             .variable(*variable)
-            .ok_or("escape ARC: variável de publicação inválida")?;
+            .ok_or("ARC escape: invalid publication variable")?;
         publish(cause.clone(), points.clone());
     }
     for id in a.unknown_set() {

@@ -62,9 +62,9 @@ pub fn clang_identity(clang: &Path) -> Result<String, String> {
     let exit = std::process::Command::new(clang)
         .arg("--version")
         .output()
-        .map_err(|e| format!("falha ao executar {} --version: {e}", clang.display()))?;
+        .map_err(|e| format!("failed to run {} --version: {e}", clang.display()))?;
     if !exit.status.success() {
-        return Err(format!("{} --version falhou (código {:?})", clang.display(), exit.status));
+        return Err(format!("{} --version failed (code {:?})", clang.display(), exit.status));
     }
     let id = String::from_utf8_lossy(&exit.stdout).into_owned();
     map.lock().unwrap().insert(clang.to_path_buf(), id.clone());
@@ -182,7 +182,7 @@ impl ObjectCache {
         let n = self.tmp_counter.fetch_add(1, Ordering::Relaxed);
         let dir_tmp = self.dir.join("tmp").join(format!("{hex}.{}.{n}", std::process::id()));
         std::fs::create_dir_all(&dir_tmp)
-            .map_err(|e| format!("não foi possível criar {}: {e}", dir_tmp.display()))?;
+            .map_err(|e| format!("could not create {}: {e}", dir_tmp.display()))?;
         let tmp = dir_tmp.join(format!("{hex}.obj"));
         let r = create(&tmp).and_then(|()| self.publish(&tmp, &final_));
         let _ = std::fs::remove_dir_all(&dir_tmp);
@@ -198,10 +198,10 @@ impl ObjectCache {
     /// published the same key first (its object counts, which has the same content).
     fn publish(&self, tmp: &Path, final_: &Path) -> Result<bool, String> {
         if !std::fs::metadata(tmp).is_ok_and(|m| m.len() > 0) {
-            return Err(format!("o objeto {} não foi escrito", tmp.display()));
+            return Err(format!("object {} was not written", tmp.display()));
         }
         if let Some(parent) = final_.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| format!("não foi possível criar {}: {e}", parent.display()))?;
+            std::fs::create_dir_all(parent).map_err(|e| format!("could not create {}: {e}", parent.display()))?;
         }
         if whole_exists(final_) {
             return Ok(true);
@@ -209,7 +209,7 @@ impl ObjectCache {
         match std::fs::rename(tmp, final_) {
             Ok(()) => Ok(false),
             Err(_) if whole_exists(final_) => Ok(true),
-            Err(e) => Err(format!("não foi possível publicar {}: {e}", final_.display())),
+            Err(e) => Err(format!("could not publish {}: {e}", final_.display())),
         }
     }
 
@@ -338,7 +338,7 @@ mod tests {
         let (p, hit) = c.get_or_create(7, write(b"obj")).unwrap();
         assert!(!hit);
         assert_eq!(std::fs::read(&p).unwrap(), b"obj");
-        let (p2, hit) = c.get_or_create(7, |_| panic!("não devia criar de novo")).unwrap();
+        let (p2, hit) = c.get_or_create(7, |_| panic!("should not create again")).unwrap();
         assert!(hit);
         assert_eq!(p, p2);
     }
@@ -362,7 +362,7 @@ mod tests {
         });
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         let files = files_in(&dir.path().join("obj"));
-        assert_eq!(files, vec![c.path(42)], "sobrou temporário: {files:?}");
+        assert_eq!(files, vec![c.path(42)], "temporary left over: {files:?}");
     }
 
     #[test]
@@ -415,6 +415,6 @@ mod tests {
         assert!(!c.path(1).is_file());
         c.get_or_create(2, write(b"0123456789")).unwrap();
         other.prune();
-        assert!(c.path(2).is_file(), "objeto recente de outro processo podado");
+        assert!(c.path(2).is_file(), "recent object of another process pruned");
     }
 }

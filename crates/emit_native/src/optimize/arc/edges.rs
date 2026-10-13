@@ -31,7 +31,7 @@ pub(super) fn prepare(
 ) -> Result<(usize, usize), String> {
     let mut next_item = next_val(f, p);
     let mut id = || {
-        let v = u32::try_from(next_item).map_err(|_| "IDs SSA esgotados ao preparar arestas ARC")?;
+        let v = u32::try_from(next_item).map_err(|_| "SSA IDs exhausted while preparing ARC edges")?;
         next_item += 1;
         Ok(ValueId(v))
     };
@@ -63,14 +63,14 @@ pub(super) fn prepare(
         for ((origin, dest), dead_set) in plans {
             let new = BlockId(
                 u32::try_from(block)
-                    .map_err(|_| "IDs de bloco esgotados ao preparar arestas ARC")?,
+                    .map_err(|_| "block IDs exhausted while preparing ARC edges")?,
             );
             block += 1;
             let mut instructions = Vec::new();
             for dead in dead_set {
                 let v = ValueId(
                     u32::try_from(value)
-                        .map_err(|_| "IDs SSA esgotados ao preparar arestas ARC")?,
+                        .map_err(|_| "SSA IDs exhausted while preparing ARC edges")?,
                 );
                 value += 1;
                 instructions.push((
@@ -110,7 +110,7 @@ pub(super) fn prepare(
                         }
                     }
                 }
-                _ => return Err("aresta de cleanup sem desvio correspondente".into()),
+                _ => return Err("cleanup edge without a corresponding branch".into()),
             }
             for b in &mut f.blocks {
                 if b.id != dest {

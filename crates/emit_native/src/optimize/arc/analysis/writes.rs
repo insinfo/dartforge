@@ -50,7 +50,7 @@ impl SummaryPath {
     ) -> Result<AliasPaths, String> {
         match &self.origin {
             PathOrigin::Parameter(p) => {
-                let arg = args.get(*p).ok_or("resumo ARC: parâmetro inválido")?;
+                let arg = args.get(*p).ok_or("ARC summary: invalid parameter")?;
                 Ok(extend(operand(arg), &self.fields, limit))
             }
             PathOrigin::Allocation { .. } => Ok(Some(BTreeSet::from([self.clone()]))),
@@ -429,7 +429,7 @@ pub(super) fn extract_with_origins<'a>(
                             for path in paths {
                                 if let PathOrigin::Parameter(p) = &path.origin {
                                     let arg =
-                                        args.get(*p).ok_or("resumo ARC: parâmetro inválido")?;
+                                        args.get(*p).ok_or("ARC summary: invalid parameter")?;
                                     new_null |= null(arg, &nulls);
                                 }
                                 join_aliases(

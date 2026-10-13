@@ -200,7 +200,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
         }
         let bits = match conds.len() {
-            1 => conds.pop().expect("um"),
+            1 => conds.pop().expect("one"),
             _ => {
                 let (a, b) = (conds[0].clone(), conds[1].clone());
                 self.emit(Instruction::And(a, b), Type::I64)
@@ -379,10 +379,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             BinaryOp::GtEq => icmp(self, ICmpOp::Sge, lop, rop),
             BinaryOp::Div | BinaryOp::Eq | BinaryOp::NotEq => unreachable!("tratados acima"),
             BinaryOp::And | BinaryOp::Or | BinaryOp::IfNull => {
-                unreachable!("curto-circuito tem lowering próprio")
+                unreachable!("short-circuit has its own lowering")
             }
             // `a ~ b` is a compile error (`not_binary_operator`).
-            BinaryOp::NaoBinario => unreachable!("operador não binário"),
+            BinaryOp::NaoBinario => unreachable!("non-binary operator"),
         }
     }
 }

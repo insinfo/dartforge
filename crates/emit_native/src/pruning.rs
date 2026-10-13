@@ -56,7 +56,7 @@ pub fn table_pairs(cid: u32, methods: &[(String, String)]) -> Vec<(i64, String, 
     for par in pairs.windows(2) {
         assert!(
             par[0].0 != par[1].0 || par[0].1 == par[1].1,
-            "hash de seletor repetido na classe {cid}: {} e {}",
+            "repeated selector hash in class {cid}: {} and {}",
             par[0].1,
             par[1].1
         );
@@ -321,9 +321,9 @@ impl Summary {
         let module = first
             .strip_prefix(HEADER)
             .and_then(|r| r.strip_prefix('\t'))
-            .ok_or_else(|| format!("resumo de poda com cabeçalho desconhecido: {first:?}"))?;
+            .ok_or_else(|| format!("pruning summary with an unknown header: {first:?}"))?;
         let mut r = Summary::new(module);
-        let bad = |l: &str| format!("resumo de poda malformado: {l:?}");
+        let bad = |l: &str| format!("malformed pruning summary: {l:?}");
         let numbers = |c: Option<&str>| -> Result<Vec<u32>, String> {
             c.unwrap_or_default().split(' ').filter(|x| !x.is_empty()).map(|x| x.parse().map_err(|_| bad(x))).collect()
         };
@@ -375,7 +375,7 @@ impl Summary {
             || r.tables.iter().any(|t| t.node >= n || t.pairs.iter().any(|&(_, f)| f >= n))
             || r.externals.iter().any(|&e| e >= n);
         if outside {
-            return Err("resumo de poda com índice fora da tabela de nomes".to_string());
+            return Err("pruning summary with an index outside the names table".to_string());
         }
         Ok(r)
     }
@@ -432,7 +432,7 @@ pub fn summarize(ir: &str, module: &str, externals: &[ModuleTable]) -> Summary {
     for l in ir.lines() {
         if let Some(d) = current.as_mut() {
             if l == "}" {
-                r.definitions.push(current.take().expect("definição corrente"));
+                r.definitions.push(current.take().expect("current definition"));
                 continue;
             }
             let call = if l.contains("@df.seletor(") {
@@ -929,7 +929,7 @@ pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembl
             }
             declared_set.insert(n.to_string());
             if table {
-                let (cid, pairs) = line_table(rest).ok_or_else(|| format!("tabela de métodos ilegível no programa: {n}"))?;
+                let (cid, pairs) = line_table(rest).ok_or_else(|| format!("unreadable method table in the program: {n}"))?;
                 let pairs: Vec<(i64, String)> = pairs.into_iter().map(|(h, f)| (h, llvm_name(&f))).collect();
                 let key = if local { format!("{PROGRAM}#{n}") } else { n.to_string() };
                 let live_set = live_pairs(index.get(key.as_str()).copied(), &pairs, &mut st);
@@ -949,7 +949,7 @@ pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembl
         for &e in &r.externals {
             let function = &r.names[e as usize];
             let Some(t) = r.index.get(&format!("{function}$d")).and_then(|node| table_of.get(node)) else {
-                return Err(format!("o resumo de {} cita a tabela {function} sem o conteúdo dela", r.module));
+                return Err(format!("the summary of {} cites table {function} without its content", r.module));
             };
             let node = &r.names[t.node as usize];
             let pairs: Vec<(i64, String)> = t.pairs.iter().map(|&(h, f)| (h, llvm_name(&r.names[f as usize]))).collect();
@@ -1012,7 +1012,7 @@ pub fn read_summaries(files: &[PathBuf]) -> Result<Vec<std::sync::Arc<Summary>>,
                 return Ok(r.clone());
             }
             let text = std::fs::read_to_string(a).map_err(|e| {
-                format!("o resumo de poda {} não se lê ({e}); apague o SDK de produção em cache para recompilá-lo", a.display())
+                format!("the pruning summary {} cannot be read ({e}); delete the cached production SDK to recompile it", a.display())
             })?;
             let r = Arc::new(Summary::from_string(&text).map_err(|e| format!("{}: {e}", a.display()))?);
             memo.lock().unwrap_or_else(|e| e.into_inner()).insert(a.clone(), r.clone());
@@ -1038,7 +1038,7 @@ pub fn assemble_production(ir: &str, files: &[PathBuf], timings: bool) -> Result
     if timings {
         let e = m.statistics;
         eprintln!(
-            "  Poda:      {} de {} tabelas vivas, {} de {} pares, {} de {} símbolos; fora do IR: {} funções, {} globais, {} MB ({:?}){}",
+            "  Pruning:   {} of {} tables live, {} of {} pairs, {} of {} symbols; outside the IR: {} functions, {} globals, {} MB ({:?}){}",
             e.live_tables,
             e.tables,
             e.live_pairs,
@@ -1049,7 +1049,7 @@ pub fn assemble_production(ir: &str, files: &[PathBuf], timings: bool) -> Result
             e.pruned_globals,
             e.pruned_bytes / 1_000_000,
             e.time,
-            if prune { "" } else { " [sem poda]" }
+            if prune { "" } else { " [no pruning]" }
         );
     }
     Ok(m.ir)
@@ -1345,7 +1345,7 @@ mod tests {
         assert!(!ir.contains("ptr @C.morto$c"), "{ir}");
         assert!(ir.contains("declare i64 @C.usado$c(i64, ptr, ptr)"));
         assert!(ir.contains("define ptr @df.mt.C()"));
-        assert!(!ir.contains("declare ptr @df.mt.C()"), "a declaração da função da tabela sai: {ir}");
+        assert!(!ir.contains("declare ptr @df.mt.C()"), "the declaration of the table function goes away: {ir}");
         // Nobody cites `df.mt.P`: the program table comes out empty.
         assert!(ir.contains("@df.mt.P$d = private unnamed_addr constant { i64, i64 } { i64 300, i64 0 }"), "{ir}");
         assert!(!m.reachability.live(m.reachability.names.iter().position(|n| n == "C.morto").unwrap() as u32));
@@ -1486,7 +1486,7 @@ mod tests {
         assert!(!ir.contains("define i64 @P.nunca$c"), "{ir}");
         assert!(!ir.contains("define internal i64 @df.classe"), "{ir}");
         assert!(ir.contains("define i32 @main()"), "{ir}");
-        assert!(ir.contains("@df.seln.0 = private"), "o texto do seletor que main cita fica: {ir}");
+        assert!(ir.contains("@df.seln.0 = private"), "the text of the selector that main cites stays: {ir}");
         let e = m.statistics;
         assert_eq!(e.pruned_functions, 3, "{ir}");
         // Without pruning, nothing goes away.

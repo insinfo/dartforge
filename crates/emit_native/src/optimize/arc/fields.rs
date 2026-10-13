@@ -167,7 +167,7 @@ fn representation(
 ) -> Result<Type, String> {
     let o = origin(receiver, origins);
     if o.unknown || o.sites.is_empty() || !o.sites.is_disjoint(escape) {
-        return Err("receiver sem origem local não publicada".into());
+        return Err("receiver without an unpublished local origin".into());
     }
     known_representation(&o, index, classes, layouts)
 }
@@ -183,13 +183,13 @@ fn known_representation(
         let t = layouts
             .get(&classes[site])
             .and_then(|l| l.get(index))
-            .ok_or("classe/layout/índice de campo não certificado")?;
+            .ok_or("uncertified class/layout/field index")?;
         if repr.is_some_and(|previous| previous != *t) {
-            return Err("representações diferentes na junção de receivers".into());
+            return Err("different representations at the join of receivers".into());
         }
         repr = Some(*t);
     }
-    repr.ok_or_else(|| "receiver sem origem nominal".into())
+    repr.ok_or_else(|| "receiver without a nominal origin".into())
 }
 
 const WRITE_SCALAR: &str = "dartforge_arc_gravar_campo_escalar_conferido_v1";
@@ -206,7 +206,7 @@ fn field_layouts(layouts: &HashMap<u32, Vec<Type>>, idx_value: usize, repr: Type
 
 fn scalar_code(repr: Type) -> i64 {
     match repr { Type::I64 => 1, Type::F64 => 2, Type::I1 => 3, Type::I8 => 4,
-        _ => unreachable!("representação escalar não conferida") }
+        _ => unreachable!("unchecked scalar representation") }
 }
 
 // An imported Ptr, an alias or a computed size does not prove extent/immutability.
@@ -216,7 +216,7 @@ pub(super) fn check_call(
 ) -> Result<(), String> {
     let Instruction::CallRuntime { name, args, ret_ty } = inst else { return Ok(()); };
     if !matches!(name.as_str(), WRITE_CHECKED | WRITE_SCALAR | READ_SCALAR) { return Ok(()); }
-    let error = || format!("campo conferido em {}: vetor de layouts sem proveniência/limites", f.symbol);
+    let error = || format!("checked field in {}: layouts vector without provenance/bounds", f.symbol);
     let (idx_value, vector, pairs, repr) = match (name.as_str(), args.as_slice(), ret_ty) {
         (WRITE_CHECKED, [(_, Type::Ref), (Operand::Constant(Constant::Int(i)), Type::I64),
             (_, Type::Ref), (Operand::Val(v), Type::Ptr), (Operand::Constant(Constant::Int(n)), Type::I64)], Type::Void) => (*i, *v, *n, Type::Ref),
@@ -241,7 +241,7 @@ pub(super) fn check_call(
         || values.chunks_exact(2).map(|p| p[0]).collect::<Vec<_>>().windows(2).any(|p| p[0] >= p[1])
     { return Err(error()); }
     if let Some(layouts) = layouts && *values != field_layouts(layouts, idx_value, repr) {
-        return Err(format!("campo conferido em {}: layouts obsoletos/divergentes", f.symbol));
+        return Err(format!("checked field in {}: stale/divergent layouts", f.symbol));
     }
     Ok(())
 }
@@ -479,7 +479,7 @@ pub(super) fn prepare(
                 && matches!(object, Operand::Val(v) if ref_entries.contains(v));
             let nominal = if exposed_nominal || mixed_nominal {
                 Some(known_representation(&o, index, &classes, layouts)
-                    .map_err(|e| format!("campo ARC em {} v{}: {e}", f.symbol, v.0))?)
+                    .map_err(|e| format!("ARC field in {} v{}: {e}", f.symbol, v.0))?)
             } else { None };
             let checked_receiver = open_entry || exposed_nominal || mixed_nominal;
             let checked_ref_read = value.is_none() && *ty == Type::Ref && checked_receiver;
@@ -494,10 +494,10 @@ pub(super) fn prepare(
                 scalar.unwrap()
             } else {
                 representation(object, index, &origins, &classes, layouts, &current_ones)
-                    .map_err(|e| format!("campo ARC em {} v{}: {e}", f.symbol, v.0))?
+                    .map_err(|e| format!("ARC field in {} v{}: {e}", f.symbol, v.0))?
             };
             let idx_value = i64::try_from(index)
-                .map_err(|_| format!("campo ARC em {} v{}: índice fora da ABI", f.symbol, v.0))?;
+                .map_err(|_| format!("ARC field in {} v{}: index outside the ABI", f.symbol, v.0))?;
             if typ(object) != Some(Type::Ref)
                 || (value.is_none() && *ty != repr)
                 || value.is_some_and(|o| typ(o) != Some(repr) || *ty != Type::Void)
@@ -505,7 +505,7 @@ pub(super) fn prepare(
                 || plan.tables.invocations.contains_key(v)
             {
                 return Err(format!(
-                    "campo ARC em {} v{}: tipo ou guarda incompatível",
+                    "ARC field in {} v{}: incompatible type or guard",
                     f.symbol, v.0
                 ));
             }
@@ -515,7 +515,7 @@ pub(super) fn prepare(
             let auxiliary = if narrow {
                 let a = ValueId(
                     u32::try_from(next_item)
-                        .map_err(|_| "IDs SSA esgotados ao preparar campos ARC")?,
+                        .map_err(|_| "SSA IDs exhausted while preparing ARC fields")?,
                 );
                 next_item += 1;
                 if let Some(limits) = plan.scopes.before.remove(v) {
@@ -559,7 +559,7 @@ pub(super) fn prepare(
                 if checked_ref_write || checked_scalar {
                     let values = field_layouts(layouts, index, repr);
                     if values.is_empty() {
-                        return Err(format!("campo ARC em {} v{}: nenhum layout correspondente declarado", f.symbol, v.0));
+                        return Err(format!("ARC field in {} v{}: no matching layout declared", f.symbol, v.0));
                     }
                     let vector = ValueId(u32::try_from(next_item).map_err(|_| "IDs SSA esgotados nos layouts Ref")?);
                     next_item += 1;
@@ -594,7 +594,7 @@ pub(super) fn prepare(
             } else {
                 if checked_scalar {
                     let values = field_layouts(layouts, index, repr);
-                    if values.is_empty() { return Err(format!("campo ARC em {} v{}: nenhum layout correspondente declarado", f.symbol, v.0)); }
+                    if values.is_empty() { return Err(format!("ARC field in {} v{}: no matching layout declared", f.symbol, v.0)); }
                     let vector = ValueId(u32::try_from(next_item).map_err(|_| "IDs SSA esgotados nos layouts escalares")?);
                     next_item += 1;
                     args.push((Operand::Val(vector), Type::Ptr));
@@ -864,7 +864,7 @@ mod tests {
             result.unwrap();
             let checked = m.functions[0].blocks.iter().flat_map(|b| &b.instructions)
                 .any(|(_, i, _)| matches!(i, Instruction::CallRuntime { name, .. } if name == super::READ_SCALAR));
-            assert_eq!(checked, case >= 2, "caso {case}: acesso exposto deve conferir layout");
+            assert_eq!(checked, case >= 2, "case {case}: exposed access must check the layout");
             assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
         }
     }
@@ -1283,7 +1283,7 @@ mod tests {
                 assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
             } else {
                 let error = result.unwrap_err();
-                if case == 0 { assert!(error.contains("saídas excepcionais"), "caso {case}: {error}"); }
+                if case == 0 { assert!(error.contains("exceptional exits"), "caso {case}: {error}"); }
                 if case == 7 { assert!(error.contains("extern_sem_resumo"), "caso {case}: {error}"); }
                 assert_eq!(format!("{m:?}/{plans:?}"), before, "caso {case}");
             }
@@ -1529,7 +1529,7 @@ mod tests {
                 assert_eq!(prepared, format!("{m:?}/{plans:?}"));
             } else {
                 let error = result.unwrap_err();
-                if case == 1 { assert!(error.contains("tipo ou guarda incompatível"), "{error}"); }
+                if case == 1 { assert!(error.contains("incompatible type or guard"), "{error}"); }
                 assert_eq!(before, format!("{m:?}/{plans:?}"));
             }
         }

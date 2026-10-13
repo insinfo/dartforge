@@ -34,7 +34,7 @@ fn signature(args: &[(Operand, Type)], ret: Type) -> Option<i64> {
 
 pub(super) fn check(f: &Function, inst: &Instruction, ty: Type) -> Result<bool, String> {
     let Instruction::TypedCall { alvo, args, ret } = inst else { return Ok(false) };
-    let error = || format!("chamada tipada ARC em {}: PC, contexto, assinatura ou retorno sem proveniência verificada", f.symbol);
+    let error = || format!("ARC typed call in {}: PC, context, signature or return without verified provenance", f.symbol);
     let abi = signature(args, *ret).ok_or_else(error)?;
     if ty != *ret { return Err(error()); }
     let Some(Instruction::CallRuntime { name, args: origin, ret_ty: Type::I64 }) = definition(f, alvo)
@@ -73,7 +73,7 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
             if !closures.contains(&closure) { closures.push(closure); }
             continue;
         }
-        let error = || format!("chamada tipada ARC em {}: leitura legada sem PC/contexto/ABI cobertos", f.symbol);
+        let error = || format!("ARC typed call in {}: legacy read without covered PC/context/ABI", f.symbol);
         let abi = signature(args, *ret).ok_or_else(error)?;
         let Operand::Val(v) = alvo else { return Err(error()) };
         let Some(Instruction::CallRuntime { name, args: origin, ret_ty: Type::I64 }) = definition(f, alvo)
@@ -261,7 +261,7 @@ mod tests {
                     // their plans, except for the factory that now returns null.
                     for s in ["invocar", "corpo", "entrada"] { new_set.insert(s.into(), p[s].clone()); }
                     prepare_arc_dart_module(&mut without_registration, &mut new_set).unwrap();
-                    assert!(certify_arc_aot_ports(&mut without_registration, &new_set).unwrap_err().contains("sem corpo registrado"));
+                    assert!(certify_arc_aot_ports(&mut without_registration, &new_set).unwrap_err().contains("without a body registered"));
                 }
             } else {
                 assert_eq!(result.is_ok(), case == 8, "caso {case}: {result:?}");

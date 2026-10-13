@@ -10,7 +10,7 @@ pub(super) fn prepare(m: &mut Module) -> Result<(), String> {
     let mut declarations = HashMap::new();
     for (_, ty, s) in &m.globals {
         if declarations.insert(s.as_str(), *ty).is_some() {
-            return Err(format!("globais ARC: declaração repetida {s}"));
+            return Err(format!("ARC globals: repeated declaration {s}"));
         }
     }
     let refs: HashSet<_> = declarations
@@ -64,7 +64,7 @@ pub(super) fn prepare(m: &mut Module) -> Result<(), String> {
                 };
                 if ref_global.is_some_and(|s| !refs.contains(s.as_str())) {
                     return Err(format!(
-                        "globais ARC em {} v{}: Ref sem declaração",
+                        "ARC globals in {} v{}: Ref without a declaration",
                         f.symbol, v.0
                     ));
                 }
@@ -109,7 +109,7 @@ pub(super) fn prepare(m: &mut Module) -> Result<(), String> {
                 };
                 if !valid {
                     return Err(format!(
-                        "globais ARC em {} v{}: acesso Ref incompatível",
+                        "ARC globals in {} v{}: incompatible Ref access",
                         f.symbol, v.0
                     ));
                 }
@@ -118,7 +118,7 @@ pub(super) fn prepare(m: &mut Module) -> Result<(), String> {
         }
         if published_address {
             return Err(format!(
-                "globais ARC em {}: endereço Ref publicado",
+                "ARC globals in {}: published Ref address",
                 f.symbol
             ));
         }
@@ -351,13 +351,13 @@ pub(super) fn produce_scalars(
                 continue;
             }
             if *ty != Type::I64 || declarations.get(symbol.as_str()).is_some_and(|d| *d != Type::I64) {
-                return Err(format!("global escalar {symbol} lida em {} v{} com outra largura", f.symbol, v.0));
+                return Err(format!("scalar global {symbol} read in {} v{} with another width", f.symbol, v.0));
             }
             let Some(plan) = new_set.get_mut(&f.symbol) else { continue };
             if plan.classes.get(v).is_some_and(|c| *c != Ownership::Trivial)
                 || plan.tokens.instructions.get(v).is_some_and(|e| *e != TokenEffect::default())
             {
-                return Err(format!("global escalar {symbol} com contrato conflitante em {} v{}", f.symbol, v.0));
+                return Err(format!("scalar global {symbol} with a conflicting contract in {} v{}", f.symbol, v.0));
             }
             plan.classes.insert(*v, Ownership::Trivial);
             plan.tokens.instructions.insert(*v, TokenEffect::default());

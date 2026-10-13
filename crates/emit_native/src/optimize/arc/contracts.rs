@@ -111,14 +111,14 @@ fn generic_owned_contract(base: &str, args: &[(Operand, Type)]) -> Result<Runtim
     for (n, (op, ty)) in args.iter().enumerate() {
         match (ty, op) {
             (Type::Ref, Operand::Val(_) | Operand::Constant(Constant::Null)) => {}
-            (Type::Ref, _) => return Err(format!("{base}: argumento Ref {n} exige SSA ou null")),
+            (Type::Ref, _) => return Err(format!("{base}: Ref argument {n} requires SSA or null")),
             // Ptr: constant data of the module (the table of a literal); an
             // address of a scalar local does not leave the function (`locals.rs`).
             (Type::I64 | Type::F64 | Type::I8 | Type::I1 | Type::Ptr, Operand::Val(_)) => {}
             (Type::I64 | Type::I8, Operand::Constant(Constant::Int(_) | Constant::Bool(_))) => {}
             (Type::I1, Operand::Constant(Constant::Bool(_))) => {}
             (Type::F64, Operand::Constant(Constant::Double(_))) => {}
-            _ => return Err(format!("{base}: argumento {n} sem representação do thunk Owned")),
+            _ => return Err(format!("{base}: argument {n} without a representation of the Owned thunk")),
         }
     }
     Ok(RuntimeCallContract {
@@ -168,12 +168,12 @@ pub fn produce_dart_ref_parameters(
     let mut produced = Vec::new();
     for (v, _, ty) in &f.params {
         if !ids.insert(*v) {
-            return Err(format!("parâmetro Dart v{} repetido", v.0));
+            return Err(format!("repeated Dart parameter v{}", v.0));
         }
         if *ty == Type::Ref {
             if classes.get(v).is_some_and(|c| *c != expected) {
                 return Err(format!(
-                    "parâmetro Dart Ref v{} exige Borrowed(Chamador, 0)",
+                    "Dart Ref parameter v{} requires Borrowed(Caller, 0)",
                     v.0
                 ));
             }
@@ -291,7 +291,7 @@ fn insert_dart_exits(
         .max()
         .map_or(0, |v| u64::from(v) + 1);
     let mut id = || -> Result<ValueId, String> {
-        let v = u32::try_from(next_item).map_err(|_| "IDs SSA esgotados ao preparar retorno Dart")?;
+        let v = u32::try_from(next_item).map_err(|_| "SSA IDs exhausted while preparing a Dart return")?;
         next_item += 1;
         Ok(ValueId(v))
     };
@@ -339,7 +339,7 @@ pub(super) fn copy_returns(
                 Operand::Val(v) => match classes.get(v) {
                     Some(Ownership::Owned) => continue,
                     Some(_) => {},
-                    None => return Err(format!("retorno em {} b{}: v{} sem classificação", f.symbol, b.id.0, v.0)),
+                    None => return Err(format!("return in {} b{}: v{} without classification", f.symbol, b.id.0, v.0)),
                 },
                 Operand::Constant(Constant::Null) => continue,
                 Operand::Constant(c @ (Constant::String(_) | Constant::StringWtf8(_))) => {
@@ -399,7 +399,7 @@ pub fn produce_and_verify_dart_tokens(
     };
     if plan.ret != ret {
         return Err(format!(
-            "convenção Dart em {} exige resultado Ref Owned e demais resultados Trivial ({:?} com {:?})",
+            "Dart convention in {} requires an Owned Ref result and Trivial other results ({:?} with {:?})",
             f.symbol, f.return_ty, plan.ret
         ));
     }
@@ -591,7 +591,7 @@ fn check_typed_scalars(f: &Function, classes: &HashMap<ValueId, Ownership>) -> R
         if let Instruction::TypedCall { args, .. } = inst {
             for (op, t) in args {
                 if *t != Type::Ref && let Operand::Val(v) = op && classes.get(v) != Some(&Ownership::Trivial) {
-                    return Err(format!("v{}: argumento escalar tipado exige Trivial, sem word Dart", v.0));
+                    return Err(format!("v{}: typed scalar argument requires Trivial, without a Dart word", v.0));
                 }
             }
         }
@@ -790,7 +790,7 @@ fn produce_phi(
             _ => true,
         }) {
             return Err(format!(
-                "Phi borrowed v{}: entrada incompatível após propagação",
+                "borrowed Phi v{}: incompatible entry after propagation",
                 v.0
             ));
         }
@@ -813,7 +813,7 @@ fn produce_phi(
     for (v, i, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
         if let Instruction::Phi { ty: declared, .. } = i {
             if ty != declared || plan.instructions.contains_key(v) {
-                return Err(format!("Phi v{}: tipo ou plano incompatível", v.0));
+                return Err(format!("Phi v{}: incompatible type or plan", v.0));
             }
             if scalars.contains(v) {
                 let Instruction::Phi { incoming, .. } = i else {
@@ -821,7 +821,7 @@ fn produce_phi(
                 };
                 if incoming.is_empty() || classes.get(v).is_some_and(|c| *c != Ownership::Trivial) {
                     return Err(format!(
-                        "Phi v{}: classe ou entradas escalares incompatíveis",
+                        "Phi v{}: incompatible class or scalar entries",
                         v.0
                     ));
                 }
@@ -843,7 +843,7 @@ fn produce_phi(
                         }
                         _ => {
                             return Err(format!(
-                                "Phi v{}: entrada sem contrato escalar compatível",
+                                "Phi v{}: entry without a compatible scalar contract",
                                 v.0
                             ));
                         }
@@ -871,7 +871,7 @@ fn produce_phi(
     }
     for v in scalars {
         if !scalar_founded.contains(&v) {
-            return Err(format!("Phi v{} sem origem escalar fora do ciclo", v.0));
+            return Err(format!("Phi v{} without a scalar origin outside the cycle", v.0));
         }
         classes.insert(v, Ownership::Trivial);
     }
@@ -882,7 +882,7 @@ fn produce_phi(
             unreachable!()
         };
         if incoming.is_empty() {
-            return Err(format!("Phi v{} sem entradas", v.0));
+            return Err(format!("Phi v{} without entries", v.0));
         }
         let mut anchor = false;
         for (_, op) in incoming {
@@ -896,7 +896,7 @@ fn produce_phi(
                     }
                     Operand::Val(de) if types.get(de) != Some(&Type::Ref) => {
                         return Err(format!(
-                            "Phi v{}: entrada v{} não tem representação Ref",
+                            "Phi v{}: entry v{} has no Ref representation",
                             v.0, de.0
                         ));
                     }
@@ -907,7 +907,7 @@ fn produce_phi(
                     Operand::Val(de) if classes.get(de) == Some(&Ownership::Owned) => {
                         if let Some(Instruction::ArcMove { value }) = defs.get(de) {
                             if !moves.insert(*de) {
-                                return Err(format!("Phi v{}: ciclo de moves sem origem", v.0));
+                                return Err(format!("Phi v{}: cycle of moves without an origin", v.0));
                             }
                             op = value;
                         } else {
@@ -917,7 +917,7 @@ fn produce_phi(
                     }
                     _ => {
                         return Err(format!(
-                            "Phi v{} em {}: entrada não é owned/null; copie o empréstimo na aresta",
+                            "Phi v{} in {}: entry is not owned/null; copy the borrow on the edge",
                             v.0, f.symbol
                         ));
                     }
@@ -938,7 +938,7 @@ fn produce_phi(
     }
     for v in order {
         if !founded.contains(&v) {
-            return Err(format!("Phi v{} sem origem owned/null fora do ciclo", v.0));
+            return Err(format!("Phi v{} without an owned/null origin outside the cycle", v.0));
         }
         classes.insert(v, Ownership::Owned);
     }
@@ -983,16 +983,16 @@ fn produce(
     let mut ids = std::collections::HashSet::new();
     for (v, _, _) in &f.params {
         if !ids.insert(*v) {
-            return Err(format!("v{} repetido", v.0));
+            return Err(format!("repeated v{}", v.0));
         }
     }
     for (v, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
         if !ids.insert(*v) {
-            return Err(format!("v{} repetido", v.0));
+            return Err(format!("repeated v{}", v.0));
         }
         if include_arc {
             if let Instruction::AllocList { elements } = inst {
-                if *ty != Type::Ref { return Err(format!("v{}: literal de lista exige resultado Ref", v.0)); }
+                if *ty != Type::Ref { return Err(format!("v{}: list literal requires a Ref result", v.0)); }
                 for (op, _) in elements {
                     // The tag hints do not certify representation. The emission
                     // derives the tags from the real types and builds local buffers.
@@ -1005,7 +1005,7 @@ fn produce(
                         Operand::Constant(Constant::Function(_)) => None,
                     };
                     if !matches!(t, Some(Type::Ref | Type::I64 | Type::F64 | Type::I1)) {
-                        return Err(format!("v{}: elemento de lista sem representação Dart auditada", v.0));
+                        return Err(format!("v{}: list element without an audited Dart representation", v.0));
                     }
                 }
                 let c = runtime_call_contract(&Instruction::CallRuntime {
@@ -1018,7 +1018,7 @@ fn produce(
                 })?;
                 if classes.get(v).is_some_and(|class| *class != c.result)
                     || plan.instructions.get(v).is_some_and(|e| *e != c.effect) {
-                    return Err(format!("v{}: contrato conflitante de literal de lista", v.0));
+                    return Err(format!("v{}: conflicting list literal contract", v.0));
                 }
                 contracts.insert(*v, c);
             }
@@ -1031,7 +1031,7 @@ fn produce(
                     _ => false,
                 };
                 if *ty != Type::Ref || !elements.iter().all(|(op, _)| reference(op)) {
-                    return Err(format!("v{}: record literal exige campos Ref em SSA", v.0));
+                    return Err(format!("v{}: record literal requires Ref fields in SSA", v.0));
                 }
                 let c = runtime_call_contract(&Instruction::CallRuntime {
                     name: "dartforge_arc_record_novo_owned_v1".into(),
@@ -1041,7 +1041,7 @@ fn produce(
                 })?;
                 if classes.get(v).is_some_and(|class| *class != c.result)
                     || plan.instructions.get(v).is_some_and(|e| *e != c.effect) {
-                    return Err(format!("v{}: contrato conflitante de record literal", v.0));
+                    return Err(format!("v{}: conflicting record literal contract", v.0));
                 }
                 contracts.insert(*v, c);
             }
@@ -1055,7 +1055,7 @@ fn produce(
                     _ => false,
                 };
                 if *ty != Type::Ref || !parts.iter().all(representable) {
-                    return Err(format!("v{}: interpolação sem partes texto/int auditadas", v.0));
+                    return Err(format!("v{}: interpolation without audited text/int parts", v.0));
                 }
                 let c = runtime_call_contract(&Instruction::CallRuntime {
                     name: "dartforge_arc_string_juntar_owned_v1".into(),
@@ -1065,13 +1065,13 @@ fn produce(
                 })?;
                 if classes.get(v).is_some_and(|class| *class != c.result)
                     || plan.instructions.get(v).is_some_and(|e| *e != c.effect) {
-                    return Err(format!("v{}: contrato conflitante de interpolação", v.0));
+                    return Err(format!("v{}: conflicting interpolation contract", v.0));
                 }
                 contracts.insert(*v, c);
             }
             if let Instruction::Box { op, from } = inst && from.is_vector() {
                 if *ty != Type::Ref || !matches!(op, Operand::Val(v) if types.get(v) == Some(from)) {
-                    return Err(format!("v{}: caixa SIMD exige vetor de mesmo tipo", v.0));
+                    return Err(format!("v{}: SIMD box requires a vector of the same type", v.0));
                 }
                 // The emission splits the bits into native words; the factory
                 // has the same effects regardless of the hints.
@@ -1082,7 +1082,7 @@ fn produce(
                 })?;
                 if classes.get(v).is_some_and(|class| *class != c.result)
                     || plan.instructions.get(v).is_some_and(|e| *e != c.effect) {
-                    return Err(format!("v{}: contrato conflitante de caixa SIMD", v.0));
+                    return Err(format!("v{}: conflicting SIMD box contract", v.0));
                 }
                 contracts.insert(*v, c);
             }
@@ -1092,7 +1092,7 @@ fn produce(
                     || plan.instructions.get(v).is_some_and(|e| *e != effect)
                 {
                     return Err(format!(
-                        "v{}: contrato incompatível com constante/operação pura",
+                        "v{}: contract incompatible with constant/pure operation",
                         v.0
                     ));
                 }
@@ -1113,7 +1113,7 @@ fn produce(
                     || classes.get(v).is_some_and(|c| *c != class)
                     || plan.instructions.contains_key(v)
                 {
-                    return Err(format!("v{}: contrato incompatível com operação ARC", v.0));
+                    return Err(format!("v{}: contract incompatible with ARC operation", v.0));
                 }
                 fixed_set.insert(*v, class);
             }
@@ -1127,7 +1127,7 @@ fn produce(
             };
             if classes.get(v).is_some_and(|class| *class != c.result)
                 || plan.instructions.get(v).is_some_and(|e| *e != c.effect) {
-                return Err(format!("v{}: contrato conflitante da chamada tipada ARC", v.0));
+                return Err(format!("v{}: conflicting contract of the ARC typed call", v.0));
             }
             contracts.insert(*v, c);
         }
@@ -1145,7 +1145,7 @@ fn produce(
             };
             if *ty != expected || !scalar(alvo) || !args.iter().all(|(op, _)| scalar(op))
                 || dest.as_ref().is_some_and(|d| !scalar(d)) {
-                return Err(format!("v{}: chamada nativa composta sem ABI escalar auditada", v.0));
+                return Err(format!("v{}: compound native call without an audited scalar ABI", v.0));
             }
             let c = RuntimeCallContract {
                 effect: TokenEffect::default(), result: Ownership::Trivial,
@@ -1153,7 +1153,7 @@ fn produce(
             };
             if classes.get(v).is_some_and(|class| *class != c.result)
                 || plan.instructions.get(v).is_some_and(|e| *e != c.effect) {
-                return Err(format!("v{}: contrato conflitante de chamada nativa composta", v.0));
+                return Err(format!("v{}: conflicting contract of compound native call", v.0));
             }
             contracts.insert(*v, c);
         }
@@ -1168,7 +1168,7 @@ fn produce(
             };
             if *ty != ret.hir_type() || *ty == Type::Ref || !scalar(alvo)
                 || !args.iter().all(|(op, _)| scalar(op)) {
-                return Err(format!("v{}: chamada nativa sem ABI escalar auditada", v.0));
+                return Err(format!("v{}: native call without an audited scalar ABI", v.0));
             }
             let c = RuntimeCallContract {
                 effect: TokenEffect::default(), result: Ownership::Trivial,
@@ -1176,7 +1176,7 @@ fn produce(
             };
             if classes.get(v).is_some_and(|class| *class != c.result)
                 || plan.instructions.get(v).is_some_and(|e| *e != c.effect) {
-                return Err(format!("v{}: contrato conflitante de chamada nativa", v.0));
+                return Err(format!("v{}: conflicting native call contract", v.0));
             }
             contracts.insert(*v, c);
         }
@@ -1193,7 +1193,7 @@ fn produce(
             };
             if *ty != Type::Ref || !compatible(recv, Type::Ref)
                 || !compatible(args, Type::Ptr) || !compatible(desc, Type::Ptr) {
-                return Err(format!("v{}: ABI do repasse ARC incompatível", v.0));
+                return Err(format!("v{}: incompatible ARC forwarding ABI", v.0));
             }
             let c = RuntimeCallContract {
                 effect: TokenEffect { may_fail: true, ..Default::default() },
@@ -1202,7 +1202,7 @@ fn produce(
             };
             if classes.get(v).is_some_and(|class| *class != c.result)
                 || plan.instructions.get(v).is_some_and(|e| *e != c.effect) {
-                return Err(format!("v{}: contrato conflitante do repasse ARC", v.0));
+                return Err(format!("v{}: conflicting ARC forwarding contract", v.0));
             }
             contracts.insert(*v, c);
         }
@@ -1218,7 +1218,7 @@ fn produce(
             } else {
                 ty != ret_ty
             } {
-                return Err(format!("v{}: tipo do resultado incompatível", v.0));
+                return Err(format!("v{}: incompatible result type", v.0));
             }
             super::fields::check_call(f, call_inst, None)?;
             let c = runtime_call_contract(call_inst).map_err(|e| format!("v{}: {e}", v.0))?;
@@ -1227,7 +1227,7 @@ fn produce(
                     && types.get(arg) != Some(ty)
                 {
                     return Err(format!(
-                        "v{}: argumento {n} aponta para SSA v{} ausente ou de tipo incompatível",
+                        "v{}: argument {n} points to an absent or incompatibly typed SSA v{}",
                         v.0, arg.0
                     ));
                 }
@@ -1236,7 +1236,7 @@ fn produce(
                 || plan.instructions.get(v).is_some_and(|e| *e != c.effect)
             {
                 return Err(format!(
-                    "v{}: metadados conflitam com contrato runtime",
+                    "v{}: metadata conflicts with runtime contract",
                     v.0
                 ));
             }
@@ -1255,7 +1255,7 @@ fn produce(
             && super::classification::check_pending(b, *call, *then_block).is_some()
         {
             if plan.pendings.get(call).is_some_and(|p| p != then_block) {
-                return Err(format!("v{}: saída pending conflita com CFG", call.0));
+                return Err(format!("v{}: pending exit conflicts with the CFG", call.0));
             }
             pendings.insert(*call, *then_block);
         }
@@ -1272,7 +1272,7 @@ fn produce(
                         let class = contracts.get(v).map(|c| &c.result)
                             .or_else(|| fixed_set.get(v)).or_else(|| classes.get(v));
                         if class != Some(&Ownership::Trivial) {
-                            return Err(format!("v{}: argumento escalar tipado exige Trivial, sem word Dart", v.0));
+                            return Err(format!("v{}: typed scalar argument requires Trivial, without a Dart word", v.0));
                         }
                     }
                 }
@@ -1334,7 +1334,7 @@ pub struct RuntimeCallContract {
 /// ```
 pub fn runtime_call_contract(inst: &Instruction) -> Result<RuntimeCallContract, String> {
     let Instruction::CallRuntime { name, args, ret_ty } = inst else {
-        return Err("contrato runtime exige CallRuntime".into());
+        return Err("runtime contract requires CallRuntime".into());
     };
     if let Some(base) = name.strip_prefix(super::NATIVE_SCOPE_PREFIX) {
         return runtime_call_contract(&Instruction::CallRuntime {
@@ -1345,7 +1345,7 @@ pub fn runtime_call_contract(inst: &Instruction) -> Result<RuntimeCallContract, 
     }
     if let Some(base) = name.strip_prefix(super::GENERIC_OWNED_PREFIX) {
         if *ret_ty != Type::Ref {
-            return Err(format!("{name}: thunk Owned exige resultado Ref"));
+            return Err(format!("{name}: Owned thunk requires a Ref result"));
         }
         return generic_owned_contract(base, args);
     }
@@ -1354,10 +1354,10 @@ pub fn runtime_call_contract(inst: &Instruction) -> Result<RuntimeCallContract, 
     // represents that production with ArcCopy; treating it as a common borrowed
     // call would allow losing the token without the verifier noticing.
     if name == "dartforge_arc_retain" {
-        return Err("retain direto exige ArcCopy com resultado SSA owned".into());
+        return Err("direct retain requires ArcCopy with an owned SSA result".into());
     }
     if c.parametros.len() != args.len() {
-        return Err(format!("{name}: aridade incompatível com ownership.tsv"));
+        return Err(format!("{name}: arity incompatible with ownership.tsv"));
     }
     let (ty, result) = match c.resultado {
         ModoResultado::Owned => (Type::Ref, Ownership::Owned),
@@ -1371,7 +1371,7 @@ pub fn runtime_call_contract(inst: &Instruction) -> Result<RuntimeCallContract, 
                 Operand::Constant(Constant::Null) => Ownership::Trivial,
                 _ => {
                     return Err(format!(
-                        "{name}: owner do resultado borrowed exige SSA ou null"
+                        "{name}: owner of the borrowed result requires SSA or null"
                     ));
                 }
             },
@@ -1384,7 +1384,7 @@ pub fn runtime_call_contract(inst: &Instruction) -> Result<RuntimeCallContract, 
     };
     if *ret_ty != ty {
         return Err(format!(
-            "{name}: resultado incompatível com contrato semântico"
+            "{name}: result incompatible with the semantic contract"
         ));
     }
     let mut effect = TokenEffect {
@@ -1396,7 +1396,7 @@ pub fn runtime_call_contract(inst: &Instruction) -> Result<RuntimeCallContract, 
             // The LLVM selection uses only the registered thunk of the module. The
             // generic producer does not have that provenance: an arbitrary Ptr or function
             // address does not prove the absence of Dart/GC/exceptions.
-            return Err(format!("{name}: tabela estática exige proveniência do emissor"));
+            return Err(format!("{name}: static table requires provenance from the emitter"));
         }
         let reference = matches!(
             mode,
@@ -1417,7 +1417,7 @@ pub fn runtime_call_contract(inst: &Instruction) -> Result<RuntimeCallContract, 
             Type::I64
         };
         if *ty != expected || (matches!(mode, ModoParametro::VetorEstatico | ModoParametro::EnderecoNative) && !matches!(op, Operand::Val(_))) {
-            return Err(format!("{name}: tipo do argumento {n} incompatível"));
+            return Err(format!("{name}: type of argument {n} incompatible"));
         }
         if reference {
             match op {
@@ -1433,7 +1433,7 @@ pub fn runtime_call_contract(inst: &Instruction) -> Result<RuntimeCallContract, 
                     }
                 }
                 Operand::Constant(Constant::Null) => {}
-                _ => return Err(format!("{name}: argumento Ref {n} exige SSA ou null")),
+                _ => return Err(format!("{name}: Ref argument {n} requires SSA or null")),
             }
         } else if let Operand::Constant(k) = op {
             // A function address only has meaning in a native parameter;
@@ -1448,7 +1448,7 @@ pub fn runtime_call_contract(inst: &Instruction) -> Result<RuntimeCallContract, 
             };
             if !compatible {
                 return Err(format!(
-                    "{name}: constante do argumento {n} incompatível com seu contrato"
+                    "{name}: constant of argument {n} incompatible with its contract"
                 ));
             }
         }
@@ -1470,9 +1470,9 @@ mod tests {
     fn helpers_agree_with_effects() {
         let mut names = HashSet::new();
         for c in HELPER_CONTRACTS {
-            assert!(names.insert(c.nome), "{} repetido", c.nome);
+            assert!(names.insert(c.nome), "repeated {}", c.nome);
             assert!(c.nome.starts_with("df."), "{}", c.nome);
-            assert!(dartforge_runtime::ownership::contrato(c.nome).is_err(), "{} também no runtime", c.nome);
+            assert!(dartforge_runtime::ownership::contrato(c.nome).is_err(), "{} also in the runtime", c.nome);
             // The contract follows the marks of the helper: fails if it throws, invalidates
             // borrows if it allocates, never retains.
             let e = crate::llvm::externs::effects_of(c.nome);
@@ -1626,7 +1626,7 @@ mod tests {
                 &ScopePlan::default()
             )
             .unwrap_err()
-            .contains("canônico")
+            .contains("canonical")
         );
         assert!(classes.is_empty() && plan.instructions.is_empty());
         tables.exits.insert(BlockId(0), ExceptionExit::Guard);
@@ -1640,7 +1640,7 @@ mod tests {
                 &ScopePlan::default()
             )
             .unwrap_err()
-            .contains("CFG explícito")
+            .contains("explicit CFG")
         );
         assert_eq!(format!("{f:?}"), before);
         assert!(classes.is_empty() && plan.instructions.is_empty());
@@ -1881,7 +1881,7 @@ mod tests {
                 &ScopePlan::default()
             )
             .unwrap_err()
-            .contains("indisponível")
+            .contains("unavailable")
         );
         assert_eq!(format!("{f:?}"), before);
         assert!(classes.is_empty() && plan.instructions.is_empty() && plan.pendings.is_empty());
@@ -1960,7 +1960,7 @@ mod tests {
                 &ScopePlan::default()
             )
             .unwrap_err()
-            .contains("não consumidos")
+            .contains("not consumed")
         );
         assert_eq!(format!("{f:?}"), before);
         assert!(classes.is_empty());
@@ -2275,7 +2275,7 @@ mod tests {
         assert!(
             produce_arc_contracts(&f, &mut classes, &mut plan)
                 .unwrap_err()
-                .contains("após propagação")
+                .contains("after propagation")
         );
         assert_eq!(classes, initial);
         assert!(plan.instructions.is_empty());
@@ -2691,7 +2691,7 @@ mod tests {
         assert!(
             produce_arc_contracts(&f, &mut classes, &mut plan)
                 .unwrap_err()
-                .contains("representação Ref")
+                .contains("Ref representation")
         );
         assert_eq!(classes, before);
         assert!(plan.instructions.is_empty());
@@ -2707,7 +2707,7 @@ mod tests {
                 &ScopePlan::default()
             )
             .unwrap_err()
-            .contains("SSA Ref ou null")
+            .contains("SSA Ref or null")
         );
         assert_eq!(classes, before);
     }
@@ -2864,7 +2864,7 @@ mod tests {
             assert!(
                 produce_arc_contracts(&f, &mut classes, &mut plan)
                     .unwrap_err()
-                    .contains("origem Trivial")
+                    .contains("Trivial origin")
             );
             assert_eq!(classes, before);
             assert!(plan.instructions.is_empty());
@@ -3248,7 +3248,7 @@ mod tests {
             assert!(
                 produce_arc_contracts(&f, &mut classes, &mut plan)
                     .unwrap_err()
-                    .contains("escalares já avaliados")
+                    .contains("already evaluated scalars")
             );
             assert_eq!(classes, before);
             assert!(plan.instructions.is_empty());
@@ -3443,7 +3443,7 @@ mod tests {
             assert!(
                 produce_arc_contracts(&f, &mut classes, &mut plan)
                     .unwrap_err()
-                    .contains("sem origem escalar")
+                    .contains("without a scalar origin")
             );
             assert_eq!(classes, before);
             // A parameter of the same width needs an explicit contract.
@@ -3839,7 +3839,7 @@ mod tests {
         let mut plan = TokenPlan::default();
         let error = produce_runtime_contracts(&f, &mut classes, &mut plan).unwrap_err();
         assert!(
-            error.contains("argumento 0") && error.contains("v0"),
+            error.contains("argument 0") && error.contains("v0"),
             "{error}"
         );
         assert_eq!(classes, initial);

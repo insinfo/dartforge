@@ -202,7 +202,7 @@ fn module() -> Result<Module, String> {
     if prepare_arc_dart_module(&mut m, &mut plans)? != (0, 0)
         || format!("{m:?}{plans:?}") != before
     {
-        return Err("preparação não idempotente".into());
+        return Err("non-idempotent preparation".into());
     }
     let errors = dartforge_emit_native::lower::verifier::verify(&m);
     if !errors.is_empty() {
@@ -213,16 +213,16 @@ fn module() -> Result<Module, String> {
 
 fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
-    let exit = PathBuf::from(args.next().ok_or("informe o executável")?);
+    let exit = PathBuf::from(args.next().ok_or("provide the executable")?);
     let arc = match args.next().as_deref() {
         Some("--memoria=arc") => true,
         Some("--memoria=tracing") | None => false,
-        Some(other) => return Err(format!("modo desconhecido: {other}")),
+        Some(other) => return Err(format!("unknown mode: {other}")),
     };
     let optimize = match args.next().as_deref() {
         Some("2") => true,
         Some("0") | None => false,
-        Some(other) => return Err(format!("nível desconhecido: {other}")),
+        Some(other) => return Err(format!("unknown level: {other}")),
     };
     let mut m = module()?;
     // Tracing uses explicit tokens only in this comparison harness.
@@ -230,7 +230,7 @@ fn main() -> Result<(), String> {
     let mut ir = LlvmEmitter::new(&m).emit_all();
     let factory = "call i64 @dartforge_arc_objeto_owned_t_v1(i64 32001, i64 2, ptr @df.mt.C)";
     if ir.matches(factory).count() != 1 {
-        return Err("fábrica com tabela ausente/ambígua".into());
+        return Err("factory with a missing/ambiguous table".into());
     }
     ir.push_str(r#"
 @cache.prova = private global [2 x i64] zeroinitializer
@@ -306,10 +306,10 @@ passou:
                 "constant [2 x i64] [i64 32001, i64 2]",
                 "constant [2 x i64] [i64 32001, i64 3]",
             ),
-            _ => return Err(format!("controle desconhecido: {control}")),
+            _ => return Err(format!("unknown control: {control}")),
         };
         if ir.matches(before).count() != 1 {
-            return Err("controle sem alvo único".into());
+            return Err("control without a single target".into());
         }
         ir = ir.replace(before, after);
     }

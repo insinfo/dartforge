@@ -192,13 +192,13 @@ fn module() -> Result<Module, String> {
     let mut plans = HashMap::from([("ler_objeto_local".into(), p)]);
     let produced = prepare_arc_dart_module(&mut m, &mut plans)?;
     if produced.0 != 1 {
-        return Err(format!("esperado um keepalive, produzido {produced:?}"));
+        return Err(format!("expected a keepalive, produced {produced:?}"));
     }
     let before = format!("{m:?}/{plans:?}");
     if prepare_arc_dart_module(&mut m, &mut plans)? != (0, 0)
         || format!("{m:?}/{plans:?}") != before
     {
-        return Err("preparação não idempotente".into());
+        return Err("non-idempotent preparation".into());
     }
     let errors = dartforge_emit_native::lower::verifier::verify(&m);
     if !errors.is_empty() {
@@ -209,16 +209,16 @@ fn module() -> Result<Module, String> {
 
 fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
-    let exit = PathBuf::from(args.next().ok_or("informe o executável")?);
+    let exit = PathBuf::from(args.next().ok_or("provide the executable")?);
     let arc = match args.next().as_deref() {
         Some("--memoria=arc") => true,
         Some("--memoria=tracing") | None => false,
-        Some(other) => return Err(format!("modo desconhecido: {other}")),
+        Some(other) => return Err(format!("unknown mode: {other}")),
     };
     let optimize = match args.next().as_deref() {
         Some("2") => true,
         Some("0") | None => false,
-        Some(other) => return Err(format!("nível desconhecido: {other}")),
+        Some(other) => return Err(format!("unknown level: {other}")),
     };
     let control = args.next();
     let mut m = module()?;
@@ -226,7 +226,7 @@ fn main() -> Result<(), String> {
     let mut ir = LlvmEmitter::new(&m).emit_all();
     let allocate = "  %v1 = call i64 @dartforge_arc_objeto_owned_v1(i64 123, i64 40)\n";
     if ir.matches(allocate).count() != 1 {
-        return Err("alocação sem alvo único".into());
+        return Err("allocation without a single target".into());
     }
     ir = ir.replace(
         allocate,
@@ -238,13 +238,13 @@ fn main() -> Result<(), String> {
             .filter(|l| l.contains("call void @dartforge_arc_retain(i64 %v"))
             .collect::<Vec<_>>();
         if line.len() != 1 {
-            return Err("keepalive sem alvo único".into());
+            return Err("keepalive without a single target".into());
         }
         ir = ir.replace(&format!("{}\n", line[0]), "");
     } else if control.as_deref() == Some("sem-drop-objeto") {
         let line = "  call void @dartforge_arc_release(i64 %v1)\n";
         if !ir.contains(line) {
-            return Err("cleanup do objeto ausente".into());
+            return Err("missing object cleanup".into());
         }
         ir = ir.replace(line, "");
     }
@@ -290,7 +290,7 @@ passou:
         Some("sem-drop-retorno") => {
             ir = ir.replace("  call void @dartforge_arc_release(i64 %ret)\n", "");
         }
-        Some(other) => return Err(format!("controle desconhecido: {other}")),
+        Some(other) => return Err(format!("unknown control: {other}")),
     }
     if let Some(dir) = exit.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;

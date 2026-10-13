@@ -35,7 +35,7 @@ pub fn verify_cfg_ref_slot_lives(m: &Module, r: &ArcRefSlotsDraft) -> Result<(),
             || !r.symbols.is_empty()
             || format!("{:?}", m.functions) != format!("{:?}", r.functions)
         {
-            return Err("slots ARC: tracing não admite transformação de capturas".into());
+            return Err("ARC slots: tracing does not admit transforming captures".into());
         }
         return Ok(());
     }
@@ -43,7 +43,7 @@ pub fn verify_cfg_ref_slot_lives(m: &Module, r: &ArcRefSlotsDraft) -> Result<(),
     let mut new_ones = HashMap::new();
     for f in &r.functions {
         if new_ones.insert(f.symbol.as_str(), f).is_some() {
-            return Err("slots ARC: símbolo novo repetido".into());
+            return Err("ARC slots: repeated new symbol".into());
         }
     }
     let mut expected_set = HashSet::new();
@@ -53,11 +53,11 @@ pub fn verify_cfg_ref_slot_lives(m: &Module, r: &ArcRefSlotsDraft) -> Result<(),
     for f in &m.functions {
         let name_str = r.symbols.get(&f.symbol).unwrap_or(&f.symbol);
         if !expected_set.insert(name_str.as_str()) {
-            return Err("slots ARC: colisão entre símbolos novos".into());
+            return Err("ARC slots: collision between new symbols".into());
         }
         let new = new_ones
             .get(name_str.as_str())
-            .ok_or_else(|| format!("slots ARC: corpo ausente {name_str}"))?;
+            .ok_or_else(|| format!("ARC slots: missing body {name_str}"))?;
         let ids = origins.get(&f.symbol);
         let captures: HashSet<_> = f
             .params
@@ -80,22 +80,22 @@ pub fn verify_cfg_ref_slot_lives(m: &Module, r: &ArcRefSlotsDraft) -> Result<(),
             imports.insert(name_str.as_str());
             renamed.insert(f.symbol.as_str());
             if name_str == &f.symbol {
-                return Err(format!("slots ARC: ABI nova reutiliza símbolo {name_str}"));
+                return Err(format!("ARC slots: new ABI reuses symbol {name_str}"));
             }
             let pairs = r
                 .borrowed_set
                 .get(name_str)
-                .ok_or_else(|| format!("slots ARC: pares ausentes de {name_str}"))?;
+                .ok_or_else(|| format!("ARC slots: missing pairs of {name_str}"))?;
             if pairs.keys().copied().collect::<HashSet<_>>() != captures {
                 return Err(format!(
-                    "slots ARC: parâmetros não correspondem às capturas de {name_str}"
+                    "ARC slots: parameters do not match the captures of {name_str}"
                 ));
             }
             for (v, _, ty) in &f.params {
                 if let Some(i) = pairs.get(v) {
                     if defs.contains(i) {
                         return Err(format!(
-                            "slots ARC: índice de {name_str} reutiliza SSA da fonte"
+                            "ARC slots: index of {name_str} reuses SSA of the source"
                         ));
                     }
                     signature.extend([(*v, Type::I64), (*i, Type::I64)]);
@@ -115,7 +115,7 @@ pub fn verify_cfg_ref_slot_lives(m: &Module, r: &ArcRefSlotsDraft) -> Result<(),
             || new.return_ty != f.return_ty
         {
             return Err(format!(
-                "slots ARC: assinatura diferente da origem de {name_str}"
+                "ARC slots: signature different from the origin of {name_str}"
             ));
         }
         let quantity = f
@@ -131,7 +131,7 @@ pub fn verify_cfg_ref_slot_lives(m: &Module, r: &ArcRefSlotsDraft) -> Result<(),
             let &(q, n) = r
                 .locals
                 .get(name_str)
-                .ok_or_else(|| format!("slots ARC: quadro local ausente de {name_str}"))?;
+                .ok_or_else(|| format!("ARC slots: missing local frame of {name_str}"))?;
             if n != quantity
                 || defs.contains(&q)
                 || !new.blocks.first().is_some_and(|b| {
@@ -145,7 +145,7 @@ pub fn verify_cfg_ref_slot_lives(m: &Module, r: &ArcRefSlotsDraft) -> Result<(),
                 })
             {
                 return Err(format!(
-                    "slots ARC: fábrica/capacidade do quadro local inválida em {name_str}"
+                    "ARC slots: invalid factory/capacity of the local frame in {name_str}"
                 ));
             }
         }
@@ -163,7 +163,7 @@ pub fn verify_cfg_ref_slot_lives(m: &Module, r: &ArcRefSlotsDraft) -> Result<(),
             .collect::<HashSet<_>>()
             != renamed
     {
-        return Err("slots ARC: inventário de corpos/papéis incompatível com a origem".into());
+        return Err("ARC slots: inventory of bodies/roles incompatible with the origin".into());
     }
     let mut targets = HashMap::new();
     for (name_str, pairs) in &r.borrowed_set {
@@ -198,7 +198,7 @@ pub fn verify_cfg_ref_slot_lives(m: &Module, r: &ArcRefSlotsDraft) -> Result<(),
                     | Instruction::TearOff { code_symbol: s }
                     | Instruction::AllocClosure { code_symbol: s, .. } => {
                         if targets.contains_key(s) {
-                            return Err("slots ARC: entrada emprestada materializada".into());
+                            return Err("ARC slots: materialized borrowed entry".into());
                         }
                     }
                     Instruction::AllocClosureTyped {
@@ -206,12 +206,12 @@ pub fn verify_cfg_ref_slot_lives(m: &Module, r: &ArcRefSlotsDraft) -> Result<(),
                         typed,
                         ..
                     } if targets.contains_key(code_symbol) || targets.contains_key(typed) => {
-                        return Err("slots ARC: entrada emprestada materializada".into());
+                        return Err("ARC slots: materialized borrowed entry".into());
                     }
                     Instruction::FunctionTable(ss)
                         if ss.iter().any(|s| targets.contains_key(s)) =>
                     {
-                        return Err("slots ARC: entrada emprestada materializada".into());
+                        return Err("ARC slots: materialized borrowed entry".into());
                     }
                     _ => {}
                 }
@@ -219,7 +219,7 @@ pub fn verify_cfg_ref_slot_lives(m: &Module, r: &ArcRefSlotsDraft) -> Result<(),
             }
             terminator_operands(&b.terminator, &mut constant);
             if open {
-                return Err("slots ARC: entrada emprestada materializada".into());
+                return Err("ARC slots: materialized borrowed entry".into());
             }
         }
         if !r.borrowed_set.contains_key(&f.symbol) && !r.locals.contains_key(&f.symbol)
@@ -272,7 +272,7 @@ pub fn verify_cfg_ref_slot_lives(m: &Module, r: &ArcRefSlotsDraft) -> Result<(),
                         super::contracts::runtime_call_contract(inst)?;
                         if *ty != *ret_ty || args.iter().any(|(a, t)| typ(a) != Some(*t)) {
                             return Err(format!(
-                                "slots ARC: tipos reais da operação em {} v{}",
+                                "ARC slots: real types of the operation in {} v{}",
                                 f.symbol, v.0
                             ));
                         }
@@ -303,7 +303,7 @@ pub fn verify_cfg_ref_slot_lives(m: &Module, r: &ArcRefSlotsDraft) -> Result<(),
                         ret_ty,
                     } if targets.contains_key(symbol) => {
                         if !entries.contains_key(&b.id) {
-                            return Err("slots ARC: repasse em bloco sem origem alcançável".into());
+                            return Err("ARC slots: forwarding in a block without a reachable origin".into());
                         }
                         let callee = new_ones[symbol.as_str()];
                         if args.len() != callee.params.len()
@@ -315,7 +315,7 @@ pub fn verify_cfg_ref_slot_lives(m: &Module, r: &ArcRefSlotsDraft) -> Result<(),
                                 .any(|(a, (_, _, t))| typ(a) != Some(*t))
                         {
                             return Err(format!(
-                                "slots ARC: assinatura/tipos reais da chamada de {} para {symbol}",
+                                "ARC slots: signature/real types of the call from {} to {symbol}",
                                 f.symbol
                             ));
                         }
@@ -324,7 +324,7 @@ pub fn verify_cfg_ref_slot_lives(m: &Module, r: &ArcRefSlotsDraft) -> Result<(),
                             allow(&args[ii]);
                             let dest = (symbol.clone(), callee.params[qi].0);
                             let Operand::Val(q) = args[qi] else {
-                                return Err("slots ARC: quadro de chamada não SSA".into());
+                                return Err("ARC slots: non-SSA call frame".into());
                             };
                             if pairs.contains_key(&q) {
                                 edges
@@ -334,7 +334,7 @@ pub fn verify_cfg_ref_slot_lives(m: &Module, r: &ArcRefSlotsDraft) -> Result<(),
                             } else if own_set.contains(&q) && entries.contains_key(&b.id) {
                                 anchored.insert(dest);
                             } else {
-                                return Err("slots ARC: repasse sem origem local alcançável".into());
+                                return Err("ARC slots: forwarding without a reachable local origin".into());
                             }
                         }
                     }
@@ -350,7 +350,7 @@ pub fn verify_cfg_ref_slot_lives(m: &Module, r: &ArcRefSlotsDraft) -> Result<(),
                 });
                 if used_set != allowed {
                     return Err(format!(
-                        "slots ARC: identidade nativa escapa/ganha alias em {} v{}",
+                        "ARC slots: native identity escapes/gains an alias in {} v{}",
                         f.symbol, v.0
                     ));
                 }
@@ -361,7 +361,7 @@ pub fn verify_cfg_ref_slot_lives(m: &Module, r: &ArcRefSlotsDraft) -> Result<(),
             });
             if escapes {
                 return Err(format!(
-                    "slots ARC: identidade nativa escapa no terminador de {}",
+                    "ARC slots: native identity escapes in the terminator of {}",
                     f.symbol
                 ));
             }
@@ -379,7 +379,7 @@ pub fn verify_cfg_ref_slot_lives(m: &Module, r: &ArcRefSlotsDraft) -> Result<(),
         .iter()
         .any(|(s, ps)| ps.keys().any(|q| !anchored.contains(&(s.clone(), *q))))
     {
-        return Err("slots ARC: ciclo de quadros emprestados sem origem local alcançável".into());
+        return Err("ARC slots: cycle of borrowed frames without a reachable local origin".into());
     }
     Ok(())
 }
@@ -632,7 +632,7 @@ pub(super) mod tests {
         assert!(
             verify_cfg_ref_slot_lives(&m, &r)
                 .unwrap_err()
-                .contains("sem origem local alcançável")
+                .contains("without a reachable local origin")
         );
     }
 

@@ -418,7 +418,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         Some(Resolved::ExtensionMember { member, .. })
                             if self.ctx.program.functions[member.0 as usize].kind == FunctionKind::Setter =>
                         {
-                            let e = self.ctx.program.functions[member.0 as usize].extension.expect("extensão");
+                            let e = self.ctx.program.functions[member.0 as usize].extension.expect("extension");
                             let getter = self.ctx.program.extensions[e.0 as usize].static_members.get(&name.sym).copied();
                             let cur = match (composite, getter) {
                                 (true, Some(g)) => Some(self.call_direct(g.0 as usize, None, Vec::new())),

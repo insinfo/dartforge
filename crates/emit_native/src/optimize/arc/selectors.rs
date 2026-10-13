@@ -43,7 +43,7 @@ pub(super) fn check_local_vector(
         || !args.iter().all(reference) || names.len() > args.len()
         || names.windows(2).any(|par| par[0] >= par[1])
         || !native_tuple {
-        return Err(format!("{origin} ARC em {}: argumentos Ref, descritor ou tupla RTI sem ABI conferida", f.symbol));
+        return Err(format!("ARC {origin} in {}: Ref arguments, descriptor or RTI tuple without a checked ABI", f.symbol));
     }
     Ok(true)
 }
@@ -70,11 +70,11 @@ pub(super) fn check(m: &Module, getters: &HashSet<String>) -> Result<(), String>
             for (v, i, t) in &b.instructions {
                 if check_local_vector(f, i, *t, Some(getters))? {
                     let Terminator::CondBranch { then_block, .. } = b.terminator else {
-                        return Err(format!("closure ARC: {} v{} exige guarda pending", f.symbol, v.0));
+                        return Err(format!("ARC closure: {} v{} requires a pending guard", f.symbol, v.0));
                     };
                     if super::classification::check_pending(b, *v, then_block).is_none()
                         || m.tables.get(index).is_some_and(|t| t.invocations.contains_key(v)) {
-                        return Err(format!("closure ARC: {} v{} exige pending, sem invoke LLVM", f.symbol, v.0));
+                        return Err(format!("ARC closure: {} v{} requires pending, without an LLVM invoke", f.symbol, v.0));
                     }
                     continue;
                 }
@@ -98,13 +98,13 @@ pub(super) fn check(m: &Module, getters: &HashSet<String>) -> Result<(), String>
                     || role(desc) != Some(&DartEntryVector::Descriptor)
                 {
                     return Err(format!(
-                        "repasse ARC: {} v{} sem proveniência da ABI uniforme",
+                        "ARC forwarding: {} v{} without provenance from the uniform ABI",
                         f.symbol, v.0
                     ));
                 }
                 let Terminator::CondBranch { then_block, .. } = b.terminator else {
                     return Err(format!(
-                        "repasse ARC: {} v{} exige guarda pending",
+                        "ARC forwarding: {} v{} requires a pending guard",
                         f.symbol, v.0
                     ));
                 };
@@ -121,7 +121,7 @@ pub(super) fn check(m: &Module, getters: &HashSet<String>) -> Result<(), String>
                     }
                     if super::classification::check_pending(&copy_inst, *v, then_block).is_none() {
                         return Err(format!(
-                            "repasse ARC: {} v{} exige guarda pending",
+                            "ARC forwarding: {} v{} requires a pending guard",
                             f.symbol, v.0
                         ));
                     }
@@ -131,7 +131,7 @@ pub(super) fn check(m: &Module, getters: &HashSet<String>) -> Result<(), String>
                     .is_some_and(|t| t.invocations.contains_key(v))
                 {
                     return Err(format!(
-                        "repasse ARC: {} v{} deve conferir pending, sem invoke LLVM",
+                        "ARC forwarding: {} v{} must check pending, without an LLVM invoke",
                         f.symbol, v.0
                     ));
                 }

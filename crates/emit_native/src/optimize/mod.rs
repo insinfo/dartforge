@@ -124,10 +124,10 @@ fn in_parallel(functions: &mut [Function], pass: &(dyn Fn(&mut Function) -> bool
                         }
                         changed
                     })
-                    .expect("thread dos passes da HIR")
+                    .expect("HIR passes thread")
             })
             .collect();
-        tasks.into_iter().fold(false, |acc, t| acc | t.join().expect("passe da HIR em pânico"))
+        tasks.into_iter().fold(false, |acc, t| acc | t.join().expect("HIR pass panicked"))
     })
 }
 

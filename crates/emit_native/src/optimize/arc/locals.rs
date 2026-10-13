@@ -76,7 +76,7 @@ pub(super) fn produce_addresses(
     fn define<'a>(types: &mut HashMap<(&'a str, usize), Type>, key: (&'a str, usize), t: Type) -> Result<bool, String> {
         match types.get(&key) {
             Some(current) if *current != t => Err(format!(
-                "captura por endereço em {}: parâmetro {} lido como {current:?} e {t:?}",
+                "capture by address in {}: parameter {} read as {current:?} and {t:?}",
                 key.0, key.1
             )),
             Some(_) => Ok(false),
@@ -131,7 +131,7 @@ pub(super) fn produce_addresses(
     }
     for f in &m.functions {
         let visible_set = addresses(f, &types);
-        let plan = plans.get_mut(&f.symbol).ok_or_else(|| format!("função Dart sem plano: {}", f.symbol))?;
+        let plan = plans.get_mut(&f.symbol).ok_or_else(|| format!("Dart function without a plan: {}", f.symbol))?;
         for (i, (v, _, _)) in f.params.iter().enumerate() {
             if let Some(t) = types.get(&(f.symbol.as_str(), i)).filter(|t| scalar(t)) {
                 plan.tokens.received_addresses.insert(*v, *t);
@@ -144,7 +144,7 @@ pub(super) fn produce_addresses(
                 let Some(t) = types.get(&(symbol.as_str(), j)).filter(|t| scalar(t)) else { continue };
                 if !matches!(a, Operand::Val(a) if visible_set.get(a) == Some(t)) {
                     return Err(format!(
-                        "captura por endereço em {}: v{} passa ao parâmetro {j} de {symbol} algo que não é local {t:?}",
+                        "capture by address in {}: v{} passes to parameter {j} of {symbol} something that is not a local {t:?}",
                         f.symbol, v.0
                     ));
                 }
@@ -169,12 +169,12 @@ pub(super) fn verify(
         if classes.get(&v) != Some(&Ownership::Trivial)
             || plan.instructions.get(&v) != Some(&TokenEffect::default())
         {
-            return Err(format!("v{}: local escalar sem contrato completo", v.0));
+            return Err(format!("v{}: scalar local without a complete contract", v.0));
         }
     }
     for p in plan.received_addresses.keys() {
         if classes.get(p) != Some(&Ownership::Trivial) {
-            return Err(format!("v{}: endereço capturado sem contrato Trivial", p.0));
+            return Err(format!("v{}: captured address without a Trivial contract", p.0));
         }
     }
     verify_values(f, &locals, classes)
@@ -191,7 +191,7 @@ fn analyze(
             if let Instruction::Alloca(t) = inst && scalar(t) {
                 if bi != 0 || *ty != Type::Ptr {
                     return Err(format!(
-                        "v{}: local escalar exige alloca Ptr na entrada",
+                        "v{}: scalar local requires a Ptr alloca at the entry",
                         v.0
                     ));
                 }
@@ -206,7 +206,7 @@ fn analyze(
         if !f.params.iter().any(|(v, _, ty)| v == p && *ty == Type::Ptr)
             || !scalar(t)
         {
-            return Err(format!("v{}: endereço capturado exige parâmetro Ptr escalar", p.0));
+            return Err(format!("v{}: captured address requires a scalar Ptr parameter", p.0));
         }
         locals.insert(*p, *t);
         received.insert(*p);
@@ -214,7 +214,7 @@ fn analyze(
     let mut yielded_seen = HashSet::new();
     if locals.is_empty() {
         if let Some(v) = plan.yielded_addresses.keys().min_by_key(|v| v.0) {
-            return Err(format!("v{}: chamada cede endereço sem local escalar", v.0));
+            return Err(format!("v{}: call lends an address without a scalar local", v.0));
         }
         return Ok((locals, HashSet::new()));
     }
@@ -248,7 +248,7 @@ fn analyze(
                             Some(p) if locals[&p] == *t && !yielded.contains(&p) => yielded.push(p),
                             _ => {
                                 return Err(format!(
-                                    "v{}: argumento {i} não cede um local escalar {t:?} distinto",
+                                    "v{}: argument {i} does not lend a distinct scalar local {t:?}",
                                     v.0
                                 ));
                             }
@@ -260,7 +260,7 @@ fn analyze(
                     if let Some(p) = local(ptr) {
                         allowed = Some(p);
                         if *read_done != locals[&p] {
-                            return Err(format!("v{}: leitura diverge do tipo do local", v.0));
+                            return Err(format!("v{}: read diverges from the type of the local", v.0));
                         }
                         expected = Some(*read_done);
                     }
@@ -284,7 +284,7 @@ fn analyze(
                             _ => None,
                         };
                         if typ != Some(locals[&p]) {
-                            return Err(format!("v{}: gravação diverge do tipo do local", v.0));
+                            return Err(format!("v{}: write diverges from the type of the local", v.0));
                         }
                         expected = Some(Type::Void);
                     }
@@ -304,7 +304,7 @@ fn analyze(
             });
             if unexpected || uses != usize::from(allowed.is_some()) + yielded.len() {
                 return Err(format!(
-                    "v{}: endereço de local escalar escapa ou tem alias",
+                    "v{}: address of a scalar local escapes or has an alias",
                     v.0
                 ));
             }
@@ -316,7 +316,7 @@ fn analyze(
                         .get(v)
                         .is_some_and(|e| *e != TokenEffect::default())
                 {
-                    return Err(format!("v{}: contrato incompatível com local escalar", v.0));
+                    return Err(format!("v{}: contract incompatible with a scalar local", v.0));
                 }
                 produced_set.insert(*v);
             }
@@ -327,13 +327,13 @@ fn analyze(
         });
         if escapes {
             return Err(format!(
-                "b{}: endereço de local escalar escapa no terminador",
+                "b{}: address of a scalar local escapes in the terminator",
                 b.id.0
             ));
         }
     }
     if let Some(v) = plan.yielded_addresses.keys().filter(|v| !yielded_seen.contains(v)).min_by_key(|v| v.0) {
-        return Err(format!("v{}: endereços cedidos fora de uma chamada direta", v.0));
+        return Err(format!("v{}: addresses lent outside a direct call", v.0));
     }
     let cfg = Cfg::new(f);
     let universe: HashSet<_> = locals.keys().copied().collect();
@@ -402,7 +402,7 @@ fn analyze(
                         && !state.contains(&p)
                     {
                         return Err(format!(
-                            "v{}: local escalar não inicializado em todos os caminhos",
+                            "v{}: scalar local not initialized on all paths",
                             v.0
                         ));
                     }
@@ -414,7 +414,7 @@ fn analyze(
                             && !state.contains(&p)
                         {
                             return Err(format!(
-                                "v{}: local escalar cedido não inicializado em todos os caminhos",
+                                "v{}: lent scalar local not initialized on all paths",
                                 v.0
                             ));
                         }
@@ -441,7 +441,7 @@ pub(super) fn verify_values(
             && classes.get(origin) != Some(&Ownership::Trivial)
         {
             return Err(format!(
-                "v{}: gravação de local escalar exige origem Trivial",
+                "v{}: write of a scalar local requires a Trivial origin",
                 v.0
             ));
         }
@@ -542,7 +542,7 @@ mod tests {
         assert!(
             produce_arc_contracts(&f, &mut classes, &mut plan)
                 .unwrap_err()
-                .contains("não inicializado")
+                .contains("not initialized")
         );
         assert_eq!(classes, before);
         assert!(plan.instructions.is_empty());
@@ -600,7 +600,7 @@ mod tests {
         assert!(
             produce_arc_contracts(&f, &mut classes, &mut plan)
                 .unwrap_err()
-                .contains("não inicializado")
+                .contains("not initialized")
         );
         assert_eq!(classes.len(), 1);
         assert!(plan.instructions.is_empty());
@@ -902,7 +902,7 @@ mod tests {
             assert!(
                 produce_arc_contracts(&f, &mut classes, &mut plan)
                     .unwrap_err()
-                    .contains("origem Trivial")
+                    .contains("Trivial origin")
             );
             assert_eq!(classes, before);
             assert!(plan.instructions.is_empty());
@@ -951,9 +951,9 @@ mod tests {
             if case != 0 {
                 let error = result.unwrap_err();
                 assert!(match case {
-                    1 => error.contains("lido como"),
-                    2 => error.contains("cedido não inicializado"),
-                    _ => error.contains("escapa"),
+                    1 => error.contains("read as"),
+                    2 => error.contains("lent scalar local not initialized"),
+                    _ => error.contains("escapes"),
                 }, "{case}: {error}");
                 assert_eq!(format!("{m:?}"), before);
                 continue;

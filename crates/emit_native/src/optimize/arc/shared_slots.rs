@@ -36,7 +36,7 @@ pub fn audit_shared_ref_slots(
     let mut names = HashMap::new();
     for (fi, f) in m.functions.iter().enumerate() {
         if names.insert(f.symbol.as_str(), fi).is_some() {
-            return Err(format!("slots Ref ARC: símbolo repetido {}", f.symbol));
+            return Err(format!("ARC Ref slots: repeated symbol {}", f.symbol));
         }
     }
     let mut open_set: HashSet<&str> = m
@@ -130,15 +130,15 @@ pub fn audit_shared_ref_slots(
                         continue;
                     }
                     let ci = *names.get(symbol.as_str()).ok_or_else(|| {
-                        format!("slots Ref ARC em {}: alvo sem corpo {symbol}", f.symbol)
+                        format!("ARC Ref slots in {}: target without a body {symbol}", f.symbol)
                     })?;
                     let callee = &m.functions[ci];
                     if open_set.contains(symbol.as_str()) || operand_symbols.contains(symbol) {
-                        return Err(format!("slots Ref ARC: entrada aberta {symbol}"));
+                        return Err(format!("ARC Ref slots: open entry {symbol}"));
                     }
                     if args.len() != callee.params.len() || callee.params[ai].2 != Type::Ptr {
                         return Err(format!(
-                            "slots Ref ARC: assinatura incompatível de {symbol}"
+                            "ARC Ref slots: incompatible signature of {symbol}"
                         ));
                     }
                     let key = (ci, callee.params[ai].0);
@@ -169,13 +169,13 @@ pub fn audit_shared_ref_slots(
                     .map(|(v, _, t)| (*v, *t)),
             )
             .collect();
-        let error = |v: ValueId, msg: &str| format!("slots Ref ARC em {} v{}: {msg}", f.symbol, v.0);
+        let error = |v: ValueId, msg: &str| format!("ARC Ref slots in {} v{}: {msg}", f.symbol, v.0);
         for (bi, b) in f.blocks.iter().enumerate() {
             for (v, i, ty) in &b.instructions {
                 if locals.contains(v)
                     && (!matches!(i, Instruction::Alloca(Type::Ref)) || bi != 0 || *ty != Type::Ptr)
                 {
-                    return Err(error(*v, "origem exige Alloca Ref Ptr na entrada"));
+                    return Err(error(*v, "origin requires an Alloca Ref Ptr at the entry"));
                 }
                 let mut allowed = Vec::new();
                 match i {
@@ -184,7 +184,7 @@ pub fn audit_shared_ref_slots(
                         ty: read_done,
                     } if locals.contains(p) => {
                         if *read_done != Type::Ref || *ty != Type::Ref {
-                            return Err(error(*v, "leitura exige Ref"));
+                            return Err(error(*v, "read requires Ref"));
                         }
                         allowed.push(*p);
                     }
@@ -198,7 +198,7 @@ pub fn audit_shared_ref_slots(
                             _ => false,
                         };
                         if !real_ref || *ty != Type::Void {
-                            return Err(error(*v, "gravação exige Ref real"));
+                            return Err(error(*v, "write requires a real Ref"));
                         }
                         allowed.push(*p);
                     }
@@ -217,7 +217,7 @@ pub fn audit_shared_ref_slots(
                                     || *ret_ty != callee.return_ty
                                     || !slots.contains(&(ci, callee.params[ai].0))
                                 {
-                                    return Err(error(*v, "chamada diverge do corpo"));
+                                    return Err(error(*v, "call diverges from the body"));
                                 }
                                 allowed.push(*p);
                             }
@@ -234,7 +234,7 @@ pub fn audit_shared_ref_slots(
                     }
                 });
                 if used_set != allowed {
-                    return Err(error(*v, "endereço escapa ou ganha alias"));
+                    return Err(error(*v, "address escapes or gains an alias"));
                 }
             }
             let mut escapes = false;
@@ -242,7 +242,7 @@ pub fn audit_shared_ref_slots(
                 escapes |= matches!(o, Operand::Val(p) if locals.contains(p));
             });
             if escapes {
-                return Err(error(ValueId(0), "endereço escapa pelo terminador"));
+                return Err(error(ValueId(0), "address escapes through the terminator"));
             }
         }
     }
@@ -267,7 +267,7 @@ pub fn audit_shared_ref_slots(
                         || !matches!(args.get(ai), Some(Operand::Val(v)) if slots.contains(&(fi, *v)))
                     {
                         return Err(format!(
-                            "slots Ref ARC: chamador {} sem origem fechada para {symbol}",
+                            "ARC Ref slots: caller {} without a closed origin for {symbol}",
                             f.symbol
                         ));
                     }
@@ -372,7 +372,7 @@ pub fn lower_shared_ref_slots(m: &Module) -> Result<ArcRefSlotsDraft, String> {
             .map_or(0, |v| v + 1);
         let mut new = || -> Result<ValueId, String> {
             let id = u32::try_from(next_item)
-                .map_err(|_| format!("slots Ref ARC em {}: IDs esgotados", f.symbol))?;
+                .map_err(|_| format!("ARC Ref slots in {}: IDs exhausted", f.symbol))?;
             next_item += 1;
             Ok(ValueId(id))
         };
@@ -405,7 +405,7 @@ pub fn lower_shared_ref_slots(m: &Module) -> Result<ArcRefSlotsDraft, String> {
             let cfg = super::super::cfg::Cfg::new(f);
             if cfg.successors.iter().any(|ss| ss.contains(&0)) {
                 return Err(format!(
-                    "slots Ref ARC em {}: entrada com predecessores",
+                    "ARC Ref slots in {}: entry with predecessors",
                     f.symbol
                 ));
             }
@@ -454,7 +454,7 @@ pub fn lower_shared_ref_slots(m: &Module) -> Result<ArcRefSlotsDraft, String> {
             let name_str = format!("{}$arcslots_v1", f.symbol);
             if names.contains(name_str.as_str()) {
                 return Err(format!(
-                    "slots Ref ARC: símbolo da nova ABI já existe {name_str}"
+                    "ARC Ref slots: symbol of the new ABI already exists {name_str}"
                 ));
             }
             r.symbols.insert(f.symbol.clone(), name_str);
@@ -586,7 +586,7 @@ pub fn lower_shared_ref_slots(m: &Module) -> Result<ArcRefSlotsDraft, String> {
                         .any(|(a, (_, _, t))| typ(a) != Some(*t))
                 {
                     return Err(format!(
-                        "slots Ref ARC: tipos reais da chamada de {} para {symbol} incompatíveis",
+                        "ARC Ref slots: incompatible real types of the call from {} to {symbol}",
                         f.symbol
                     ));
                 }
@@ -727,7 +727,7 @@ mod tests {
             assert!(
                 audit_shared_ref_slots(&m)
                     .unwrap_err()
-                    .contains("chamador"),
+                    .contains("caller"),
                 "caso {case}"
             );
             assert_eq!(format!("{m:?}"), before);
@@ -769,7 +769,7 @@ mod tests {
             assert!(
                 audit_shared_ref_slots(&m)
                     .unwrap_err()
-                    .contains("entrada aberta"),
+                    .contains("open entry"),
                 "caso {case}"
             );
         }

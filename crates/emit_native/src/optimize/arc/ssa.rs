@@ -9,37 +9,37 @@ use crate::hir::*;
 use std::collections::{HashMap, HashSet};
 
 pub(super) fn verify(f: &Function) -> Result<(), String> {
-    let error = |m: String| format!("SSA ARC em {}: {m}", f.symbol);
+    let error = |m: String| format!("ARC SSA in {}: {m}", f.symbol);
     if f.blocks.is_empty() {
-        return Err(error("função sem entrada".into()));
+        return Err(error("function without an entry".into()));
     }
     let mut blocks = HashMap::new();
     let mut defs = HashMap::new();
     for (v, _, _) in &f.params {
         if defs.insert(*v, (None, 0, false)).is_some() {
-            return Err(error(format!("v{} repetido", v.0)));
+            return Err(error(format!("repeated v{}", v.0)));
         }
     }
     for (bi, b) in f.blocks.iter().enumerate() {
         if blocks.insert(b.id, bi).is_some() {
-            return Err(error(format!("b{} repetido", b.id.0)));
+            return Err(error(format!("repeated b{}", b.id.0)));
         }
         let mut ordinary = false;
         for (i, (v, inst, _)) in b.instructions.iter().enumerate() {
             let phi = matches!(inst, Instruction::Phi { .. });
             if phi && ordinary {
-                return Err(error(format!("Phi v{} após instrução ordinária", v.0)));
+                return Err(error(format!("Phi v{} after an ordinary instruction", v.0)));
             }
             ordinary |= !phi;
             if defs.insert(*v, (Some(bi), i, phi)).is_some() {
-                return Err(error(format!("v{} repetido", v.0)));
+                return Err(error(format!("repeated v{}", v.0)));
             }
         }
     }
     for b in &f.blocks {
         for s in successors(&b.terminator) {
             if !blocks.contains_key(&s) {
-                return Err(error(format!("b{} aponta para b{} ausente", b.id.0, s.0)));
+                return Err(error(format!("b{} points to absent b{}", b.id.0, s.0)));
             }
         }
     }
@@ -62,7 +62,7 @@ pub(super) fn verify(f: &Function) -> Result<(), String> {
     let check = |op: &Operand, bi: usize, pos: usize| -> Result<(), String> {
         let Operand::Val(v) = op else { return Ok(()) };
         let Some(&(origin, i, phi)) = defs.get(v) else {
-            return Err(error(format!("v{} ausente", v.0)));
+            return Err(error(format!("missing v{}", v.0)));
         };
         let Some(origin) = origin else { return Ok(()) };
         // In dead blocks, require existence; do not invent dominators.
@@ -87,7 +87,7 @@ pub(super) fn verify(f: &Function) -> Result<(), String> {
             Ok(())
         } else {
             Err(error(format!(
-                "v{} não domina uso em b{}",
+                "v{} does not dominate use in b{}",
                 v.0, f.blocks[bi].id.0
             )))
         }
@@ -104,7 +104,7 @@ pub(super) fn verify(f: &Function) -> Result<(), String> {
                 }
             });
             if let Some(arg) = absent {
-                return Err(error(format!("v{} ausente", arg.0)));
+                return Err(error(format!("missing v{}", arg.0)));
             }
             match inst {
                 Instruction::ArcCopy { value }
@@ -114,7 +114,7 @@ pub(super) fn verify(f: &Function) -> Result<(), String> {
                     if !reference(value) =>
                 {
                     return Err(error(format!(
-                        "v{}: operação ARC exige referência SSA ou null",
+                        "v{}: ARC operation requires an SSA reference or null",
                         v.0
                     )));
                 }
@@ -126,28 +126,28 @@ pub(super) fn verify(f: &Function) -> Result<(), String> {
                 if let StrongSlot::Frame { frame, .. } = slot
                     && !matches!(frame, Operand::Val(q) if types.get(q) == Some(&Type::I64))
                 {
-                    return Err(error(format!("v{}: quadro ARC exige SSA I64", v.0)));
+                    return Err(error(format!("v{}: ARC frame requires SSA I64", v.0)));
                 }
             }
             if let Instruction::Phi { incoming, ty, .. } = inst {
                 let mut entries = HashSet::new();
                 for (p, op) in incoming {
                     if *ty == Type::Ref && !reference(op) {
-                        return Err(error(format!("Phi v{} exige entrada SSA Ref ou null", v.0)));
+                        return Err(error(format!("Phi v{} requires an SSA Ref or null entry", v.0)));
                     }
                     let Some(&pi) = blocks.get(p) else {
-                        return Err(error(format!("predecessor b{} ausente", p.0)));
+                        return Err(error(format!("missing predecessor b{}", p.0)));
                     };
                     if !cfg.predecessors[bi].contains(&pi) || !entries.insert(pi) {
                         return Err(error(format!(
-                            "entrada Phi inválida de b{} para b{}",
+                            "invalid Phi entry from b{} to b{}",
                             p.0, b.id.0
                         )));
                     }
                     check(op, pi, f.blocks[pi].instructions.len())?;
                 }
                 if entries.len() != cfg.predecessors[bi].len() {
-                    return Err(error(format!("Phi em b{} não cobre predecessores", b.id.0)));
+                    return Err(error(format!("Phi in b{} does not cover the predecessors", b.id.0)));
                 }
             } else {
                 let mut result = Ok(());
@@ -175,7 +175,7 @@ pub(super) fn verify(f: &Function) -> Result<(), String> {
             )
         {
             return Err(error(format!(
-                "retorno Ref em b{} exige SSA Ref, null ou literal permanente",
+                "Ref return in b{} requires SSA Ref, null or a permanent literal",
                 b.id.0
             )));
         }
@@ -216,7 +216,7 @@ mod tests {
                 &super::super::ScopePlan::default()
             )
             .unwrap_err()
-            .contains("retorno Ref")
+            .contains("Ref return")
         );
         assert_eq!(classes, before);
         assert!(plan.instructions.is_empty());
@@ -268,7 +268,7 @@ mod tests {
         assert!(
             verify(&f)
                 .unwrap_err()
-                .contains("referência SSA ou null")
+                .contains("SSA reference or null")
         );
         f.blocks[0].instructions[0].1 = Instruction::ArcCopy {
             value: Operand::Constant(Constant::Int(0)),
@@ -289,7 +289,7 @@ mod tests {
         assert!(
             verify(&f)
                 .unwrap_err()
-                .contains("quadro ARC exige SSA I64")
+                .contains("ARC frame requires SSA I64")
         );
     }
 
@@ -298,7 +298,7 @@ mod tests {
         let mut f = function();
         verify(&f).unwrap();
         f.blocks[0].terminator = Terminator::Branch(BlockId(99));
-        assert!(verify(&f).unwrap_err().contains("b99 ausente"));
+        assert!(verify(&f).unwrap_err().contains("absent b99"));
         let mut classes = HashMap::from([(ValueId(0), super::super::Ownership::Owned)]);
         let before = classes.clone();
         let mut plan = super::super::TokenPlan::default();
@@ -316,16 +316,16 @@ mod tests {
         assert!(plan.instructions.is_empty());
         f = function();
         f.blocks[0].instructions[0].0 = ValueId(0);
-        assert!(verify(&f).unwrap_err().contains("v0 repetido"));
+        assert!(verify(&f).unwrap_err().contains("repeated v0"));
         f = function();
         f.blocks[0].instructions[0].1 = Instruction::ArcCopy {
             value: Operand::Val(ValueId(1)),
         };
-        assert!(verify(&f).unwrap_err().contains("não domina"));
+        assert!(verify(&f).unwrap_err().contains("does not dominate"));
         f.blocks[0].instructions[0].1 = Instruction::ArcCopy {
             value: Operand::Val(ValueId(99)),
         };
-        assert!(verify(&f).unwrap_err().contains("v99 ausente"));
+        assert!(verify(&f).unwrap_err().contains("missing v99"));
     }
 
     #[test]
@@ -360,17 +360,17 @@ mod tests {
         if let Instruction::Phi { incoming, .. } = &mut f.blocks[1].instructions[0].1 {
             incoming[0].1 = Operand::Val(ValueId(3));
         }
-        assert!(verify(&f).unwrap_err().contains("não domina"));
+        assert!(verify(&f).unwrap_err().contains("does not dominate"));
         if let Instruction::Phi { incoming, .. } = &mut f.blocks[1].instructions[0].1 {
             incoming[0].1 = Operand::Val(ValueId(1));
         }
         if let Instruction::Phi { incoming, .. } = &mut f.blocks[1].instructions[0].1 {
             incoming.pop();
         }
-        assert!(verify(&f).unwrap_err().contains("não cobre"));
+        assert!(verify(&f).unwrap_err().contains("does not cover"));
         if let Instruction::Phi { incoming, .. } = &mut f.blocks[1].instructions[0].1 {
             incoming.push((BlockId(0), Operand::Val(ValueId(1))));
         }
-        assert!(verify(&f).unwrap_err().contains("entrada Phi inválida"));
+        assert!(verify(&f).unwrap_err().contains("invalid Phi entry"));
     }
 }

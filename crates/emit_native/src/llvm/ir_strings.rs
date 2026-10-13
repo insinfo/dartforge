@@ -370,7 +370,7 @@ mod tests {
             assert_eq!(1 + (((len << u32::from(two)) + 7) >> 3), w);
         }
         for (name, _, _) in HELPER_EFFECTS {
-            assert!(HELPERS.contains(&format!("@{name}(")), "{name} sem definição");
+            assert!(HELPERS.contains(&format!("@{name}(")), "{name} without a definition");
         }
     }
 

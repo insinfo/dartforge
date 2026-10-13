@@ -32,7 +32,7 @@ void main() {
 fn ir(debug_info: bool) -> Option<String> {
     let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB").unwrap_or_else(|_| SDK.to_string());
     if !Path::new(&sdk).join("libraries.json").is_file() {
-        eprintln!("SDK ausente em {sdk}; teste pulado");
+        eprintln!("SDK missing at {sdk}; test skipped");
         return None;
     }
     let dir = tempfile::tempdir().unwrap();
@@ -52,7 +52,7 @@ fn ir(debug_info: bool) -> Option<String> {
                 gerador: None,
                 cpu: None,
             };
-            emit_ir_with(&entry, &options).unwrap_or_else(|e| panic!("não compilou:\n{e}")).texto
+            emit_ir_with(&entry, &options).unwrap_or_else(|e| panic!("did not compile:\n{e}")).texto
         })
         .unwrap()
         .join()
@@ -62,7 +62,7 @@ fn ir(debug_info: bool) -> Option<String> {
 
 /// The body from `define … @symbol(` up to the `}`.
 fn function<'a>(ir: &'a str, symbol: &str) -> &'a str {
-    let ini = ir.find(&format!("@{symbol}(")).unwrap_or_else(|| panic!("{symbol} ausente"));
+    let ini = ir.find(&format!("@{symbol}(")).unwrap_or_else(|| panic!("{symbol} missing"));
     let ini = ir[..ini].rfind("define ").unwrap();
     let end = ir[ini..].find("\n}\n").map_or(ir.len(), |f| ini + f);
     &ir[ini..end]
@@ -70,14 +70,14 @@ fn function<'a>(ir: &'a str, symbol: &str) -> &'a str {
 
 /// The line of the `DILocation` `!n`.
 fn line_of(ir: &str, n: &str) -> u32 {
-    let def = ir.lines().find(|l| l.starts_with(&format!("{n} = !DILocation("))).unwrap_or_else(|| panic!("{n} ausente"));
+    let def = ir.lines().find(|l| l.starts_with(&format!("{n} = !DILocation("))).unwrap_or_else(|| panic!("{n} missing"));
     def.split("line: ").nth(1).and_then(|r| r.split(',').next()).and_then(|x| x.parse().ok()).unwrap()
 }
 
 #[test]
 fn each_instruction_carries_statement_line() {
     let Some(ir) = ir(true) else { return };
-    assert!(ir.contains("!llvm.dbg.cu = !{!0}"), "sem unidade de compilação");
+    assert!(ir.contains("!llvm.dbg.cu = !{!0}"), "no compilation unit");
     assert!(ir.contains("emissionKind: FullDebug"));
     assert!(ir.contains("!DIFile(filename: \"main.dart\""));
     // The subprograms with the Dart name and the line of the first statement.
@@ -92,7 +92,7 @@ fn each_instruction_carries_statement_line() {
     let double_of = function(&ir, "df.main$2edart..dobro");
     assert!(double_of.lines().next().unwrap().contains(" !dbg !"), "{double_of}");
     for l in double_of.lines().skip(1).filter(|l| l.starts_with("  ")) {
-        assert!(l.contains(", !dbg !"), "instrução sem !dbg: {l}");
+        assert!(l.contains(", !dbg !"), "instruction without !dbg: {l}");
     }
     let ret = double_of.lines().find(|l| l.trim_start().starts_with("ret ")).expect("ret");
     let n = ret.rsplit(", !dbg ").next().unwrap();

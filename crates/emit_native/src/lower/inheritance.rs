@@ -160,7 +160,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
         }
         let blocks: Vec<(SuperMember, BlockId)> = distinct.iter().map(|a| (*a, self.new_block())).collect();
-        let block_of = |a: SuperMember| blocks.iter().find(|(x, _)| *x == a).map(|(_, b)| *b).expect("bloco");
+        let block_of = |a: SuperMember| blocks.iter().find(|(x, _)| *x == a).map(|(_, b)| *b).expect("block");
         let join = self.new_block();
         self.terminate(Terminator::Switch {
             val: cls,

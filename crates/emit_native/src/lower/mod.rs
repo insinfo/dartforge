@@ -435,7 +435,7 @@ fn lower_functions(ctx: &Context, module: &mut Module, functions: &[usize]) {
                         }
                         *done_set[i].lock().unwrap_or_else(|e| e.into_inner()) = Some(m);
                     })
-                    .expect("thread do lowering")
+                    .expect("lowering thread")
             })
             .collect();
         for t in tasks {
@@ -444,7 +444,7 @@ fn lower_functions(ctx: &Context, module: &mut Module, functions: &[usize]) {
             }
         }
     });
-    let parts = done_set.into_iter().map(|m| m.into_inner().unwrap_or_else(|e| e.into_inner()).expect("pedaço baixado"));
+    let parts = done_set.into_iter().map(|m| m.into_inner().unwrap_or_else(|e| e.into_inner()).expect("lowered chunk"));
     for mut m in parts {
         module.functions.extend(std::mem::take(&mut m.functions));
         join_arc_facts(module, &mut m);

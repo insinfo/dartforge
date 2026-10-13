@@ -178,12 +178,12 @@ pub(super) fn check(
             || matches!(inst, Instruction::LNot(op) if !boolean(op))
         {
             return Err(format!(
-                "v{}: operação pura exige escalares já avaliados",
+                "v{}: pure operation requires already evaluated scalars",
                 v.0
             ));
         }
         if *ty != expected {
-            return Err(format!("v{}: tipo do resultado puro incompatível", v.0));
+            return Err(format!("v{}: incompatible pure result type", v.0));
         }
         Ok(true)
     } else {
@@ -200,12 +200,12 @@ pub(super) fn check_origins(
     for (v, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
         if let Instruction::Box { op: Operand::Val(origin), from } = inst
             && from.is_vector() && classes.get(origin) != Some(&Ownership::Trivial) {
-            return Err(format!("v{}: caixa SIMD exige origem Trivial em {}", v.0, f.symbol));
+            return Err(format!("v{}: SIMD box requires a Trivial origin in {}", v.0, f.symbol));
         }
         if let Instruction::Simd { args, .. } = inst
             && args.iter().any(|op| matches!(op, Operand::Val(o) if classes.get(o) != Some(&Ownership::Trivial)))
         {
-            return Err(format!("v{}: operação SIMD exige origens Trivial em {}", v.0, f.symbol));
+            return Err(format!("v{}: SIMD operation requires Trivial origins in {}", v.0, f.symbol));
         }
         let natives: &[&Operand] = match inst {
             Instruction::NativeLoad { address, index, .. } => &[address, index],
@@ -213,7 +213,7 @@ pub(super) fn check_origins(
             _ => &[],
         };
         if natives.iter().any(|op| matches!(op, Operand::Val(o) if classes.get(o) != Some(&Ownership::Trivial))) {
-            return Err(format!("v{}: acesso nativo exige origens Trivial em {}", v.0, f.symbol));
+            return Err(format!("v{}: native access requires Trivial origins in {}", v.0, f.symbol));
         }
         let operands = match inst {
             Instruction::Bitcast {
@@ -255,7 +255,7 @@ pub(super) fn check_origins(
             if let Operand::Val(origin) = op
                 && classes.get(origin) != Some(&Ownership::Trivial)
             {
-                return Err(format!("v{}: operação escalar exige origem Trivial em {} (origem v{})", v.0, f.symbol, origin.0));
+                return Err(format!("v{}: scalar operation requires a Trivial origin in {} (origin v{})", v.0, f.symbol, origin.0));
             }
         }
     }
@@ -283,9 +283,9 @@ pub(super) fn verify(
             let effect = plan
                 .instructions
                 .get(v)
-                .ok_or_else(|| format!("v{} sem contrato de operação pura", v.0))?;
+                .ok_or_else(|| format!("v{} without a pure operation contract", v.0))?;
             if classes.get(v) != Some(&Ownership::Trivial) || *effect != TokenEffect::default() {
-                return Err(format!("v{}: contrato incompatível com operação pura", v.0));
+                return Err(format!("v{}: contract incompatible with pure operation", v.0));
             }
         }
     }

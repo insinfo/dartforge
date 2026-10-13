@@ -6,21 +6,21 @@ use std::{collections::HashMap, fmt::Write, path::PathBuf};
 
 fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
-    let exit = PathBuf::from(args.next().ok_or("informe o executável de saída")?);
+    let exit = PathBuf::from(args.next().ok_or("provide the output executable")?);
     let arc = match args.next().as_deref() {
         Some("--memoria=arc") => true,
         Some("--memoria=tracing") | None => false,
-        Some(other) => return Err(format!("modo desconhecido: {other}")),
+        Some(other) => return Err(format!("unknown mode: {other}")),
     };
     let optimize = match args.next().as_deref() {
         Some("2") => true,
         Some("0") | None => false,
-        Some(other) => return Err(format!("nível desconhecido: {other}")),
+        Some(other) => return Err(format!("unknown level: {other}")),
     };
     let release = match args.next().as_deref() {
         None => true,
         Some("sem-liberar") => false,
-        Some(other) => return Err(format!("controle desconhecido: {other}")),
+        Some(other) => return Err(format!("unknown control: {other}")),
     };
     if args.next().is_some() {
         return Err("argumentos excedentes".into());

@@ -13,7 +13,7 @@ pub(crate) fn components(edges: &[Vec<usize>]) -> Vec<Vec<usize>> {
     let n = edges.len();
     assert!(
         edges.iter().flatten().all(|&v| v < n),
-        "aresta fora do grafo"
+        "edge outside the graph"
     );
     let mut components = Vec::new();
     let mut order = vec![usize::MAX; n];
@@ -56,7 +56,7 @@ pub(crate) fn components(edges: &[Vec<usize>]) -> Vec<Vec<usize>> {
             if low[v] == order[v] {
                 let mut component = Vec::new();
                 loop {
-                    let w = stack.pop().expect("componente na pilha");
+                    let w = stack.pop().expect("component on the stack");
                     on_stack[w] = false;
                     component.push(w);
                     if w == v {
@@ -67,7 +67,7 @@ pub(crate) fn components(edges: &[Vec<usize>]) -> Vec<Vec<usize>> {
             }
         }
     }
-    check(edges, &components).expect("partição SCC inválida");
+    check(edges, &components).expect("invalid SCC partition");
     components
 }
 
@@ -88,24 +88,24 @@ pub(crate) fn check(edges: &[Vec<usize>], cs: &[Vec<usize>]) -> Result<(), Strin
             return Err("SCC: componente vazio".into());
         }
         for &v in c {
-            let owner = owners.get_mut(v).ok_or("SCC: nó fora do grafo")?;
+            let owner = owners.get_mut(v).ok_or("SCC: node outside the graph")?;
             if *owner != usize::MAX {
-                return Err("SCC: nó duplicado".into());
+                return Err("SCC: duplicate node".into());
             }
             *owner = id;
         }
     }
     if owners.contains(&usize::MAX) {
-        return Err("SCC: nó omitido".into());
+        return Err("SCC: omitted node".into());
     }
     let mut inverses = vec![Vec::new(); n];
     for (v, dests) in edges.iter().enumerate() {
         for &w in dests {
             if w >= n {
-                return Err("SCC: aresta fora do grafo".into());
+                return Err("SCC: edge outside the graph".into());
             }
             if owners[v] != owners[w] && owners[v] <= owners[w] {
-                return Err("SCC: dependência fora da ordem".into());
+                return Err("SCC: dependency out of order".into());
             }
             inverses[w].push(v);
         }
@@ -128,7 +128,7 @@ pub(crate) fn check(edges: &[Vec<usize>], cs: &[Vec<usize>]) -> Result<(), Strin
                 }
             }
             if quantity != c.len() {
-                return Err("SCC: componente sem conexão forte".into());
+                return Err("SCC: component without strong connection".into());
             }
         }
     }
@@ -209,7 +209,7 @@ mod tests {
                 assert_eq!(
                     check(&graph, &candidate).is_ok(),
                     expected,
-                    "grafo {mask}, atribuição {assignment}"
+                    "graph {mask}, assignment {assignment}"
                 );
             }
             let cs = components(&graph);
@@ -233,7 +233,7 @@ mod tests {
             }
             for v in 0..3 {
                 for &w in &graph[v] {
-                    assert!(owners[v] >= owners[w], "ordem de dependências {mask}");
+                    assert!(owners[v] >= owners[w], "dependency order {mask}");
                 }
             }
         }
@@ -263,7 +263,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "aresta fora do grafo")]
+    #[should_panic(expected = "edge outside the graph")]
     fn nonexistent_destination_is_rejected() {
         components(&[vec![1]]);
     }

@@ -123,7 +123,7 @@ pub fn build_local_in_module(
         .functions
         .iter()
         .find(|f| f.symbol == symbol)
-        .expect("corpo analisado");
+        .expect("analyzed body");
     let g = build(f, a);
     g.check_in_module(m, symbol)?;
     Ok(Some(g))
@@ -244,14 +244,14 @@ fn check_projection(f: &Function, g: &ArcHeapGraph) -> Result<(), String> {
         let exits = g
             .edges
             .get(node)
-            .ok_or("grafo ARC: nó de esquema omitido")?;
+            .ok_or("ARC graph: schema node omitted")?;
         for field in fields {
             match a.points().field(node, field).and_then(|p| p.nodes()) {
                 None => require_opaque()?,
                 Some(dests) => {
                     for dest in dests {
                         if !exits.contains(dest) {
-                            return Err("grafo ARC: aresta inferida omitida".into());
+                            return Err("ARC graph: inferred edge omitted".into());
                         }
                     }
                 }
@@ -268,9 +268,9 @@ fn check_projection(f: &Function, g: &ArcHeapGraph) -> Result<(), String> {
                     let exits = g
                         .edges
                         .get(origin)
-                        .ok_or("grafo ARC: receiver de store omitido")?;
+                        .ok_or("ARC graph: store receiver omitted")?;
                     if !dests.is_subset(exits) {
-                        return Err("grafo ARC: inclusão de store omitida".into());
+                        return Err("ARC graph: store inclusion omitted".into());
                     }
                 }
             }
@@ -287,7 +287,7 @@ fn check_projection(f: &Function, g: &ArcHeapGraph) -> Result<(), String> {
             .iter()
             .any(|dest| !g.edges.contains_key(dest))
         {
-            return Err("grafo ARC: destino fora do grafo".into());
+            return Err("ARC graph: destination outside the graph".into());
         }
     }
     let ids: BTreeMap<_, _> = g
@@ -305,13 +305,13 @@ fn check_projection(f: &Function, g: &ArcHeapGraph) -> Result<(), String> {
     for (members, cycle) in &g.components {
         let c: Vec<_> = members
             .iter()
-            .map(|node| ids.get(node).copied().ok_or("grafo ARC: membro SCC ausente"))
+            .map(|node| ids.get(node).copied().ok_or("ARC graph: missing SCC member"))
             .collect::<Result<_, _>>()?;
         if c.is_empty() {
             return Err("grafo ARC: SCC vazia".into());
         }
         if *cycle != (c.len() > 1 || adjacent[c[0]].contains(&c[0])) {
-            return Err("grafo ARC: marca de ciclo inválida".into());
+            return Err("ARC graph: invalid cycle mark".into());
         }
         cs.push(c);
     }
@@ -519,7 +519,7 @@ mod tests {
                     let v = nodes.iter().position(|n| n == node).unwrap();
                     assert_eq!(owners[v], usize::MAX);
                     owners[v] = id;
-                    assert_eq!(cycle, reachability[v][v], "grafo {mask}, nó {v}");
+                    assert_eq!(cycle, reachability[v][v], "graph {mask}, node {v}");
                 }
             }
             for v in 0..3 {

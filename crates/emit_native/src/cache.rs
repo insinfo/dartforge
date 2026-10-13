@@ -74,7 +74,7 @@ fn precompiled_runtime(name: &str) -> Result<PathBuf, String> {
     candidates.iter().map(|d| d.join(name)).find(|p| p.is_file()).ok_or_else(|| {
         let location: Vec<String> = candidates.iter().map(|d| d.display().to_string()).collect();
         format!(
-            "o runtime {name} não está na distribuição (procurado em {}); este dartforge foi compilado com DARTFORGE_RUNTIME_SEM_PRECOMPILAR=1?",
+            "the runtime {name} is not in the distribution (looked in {}); was this dartforge compiled with DARTFORGE_RUNTIME_SEM_PRECOMPILAR=1?",
             location.join(", ")
         )
     })

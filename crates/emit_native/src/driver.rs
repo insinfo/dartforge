@@ -89,7 +89,7 @@ pub fn compile_and_link(
         if let Some(t) = sdk.cold
             && options.timings
         {
-            eprintln!("  SDK frio:  {t:?} (compilado uma vez por conteúdo)");
+            eprintln!("  Cold SDK:  {t:?} (compiled once per content)");
         }
         Some(sdk)
     } else {
@@ -127,7 +127,7 @@ pub fn compile_and_link(
     let staging = output.parent().unwrap_or(Path::new(".")).join(".df_tmp");
     let create_staging = || {
         std::fs::create_dir_all(&staging)
-            .map_err(|e| format!("não foi possível criar diretório temporário {}: {e}", staging.display()))
+            .map_err(|e| format!("could not create temporary directory {}: {e}", staging.display()))
     };
 
     let stem = output.file_stem().unwrap_or_default().to_string_lossy();
@@ -146,7 +146,7 @@ pub fn compile_and_link(
         // (the harness's `determinismo --executar` reads those copies).
         create_staging()?;
         std::fs::write(&ll_file, llvm_ir)
-            .map_err(|e| format!("falha ao escrever LLVM IR em {}: {e}", ll_file.display()))?;
+            .map_err(|e| format!("failed to write LLVM IR to {}: {e}", ll_file.display()))?;
     }
 
     // Phase 1': the large module goes in parts (C9, `partition.rs`): each one
@@ -195,7 +195,7 @@ pub fn compile_and_link(
         if let Some(s) = sdk.as_ref().filter(|_| !production) {
             let dest = output.parent().unwrap_or(Path::new(".")).join(s.dll.file_name().unwrap_or_default());
             if !dest.is_file() && std::fs::hard_link(&s.dll, &dest).is_err() {
-                std::fs::copy(&s.dll, &dest).map_err(|e| format!("não foi possível pôr a DLL do SDK em {}: {e}", dest.display()))?;
+                std::fs::copy(&s.dll, &dest).map_err(|e| format!("could not put the SDK DLL in {}: {e}", dest.display()))?;
             }
         }
         if options.timings {
@@ -281,7 +281,7 @@ pub fn compile_and_link(
         // is another.
         let dest = output.parent().unwrap_or(Path::new(".")).join(s.dll.file_name().unwrap_or_default());
         if !dest.is_file() && std::fs::hard_link(&s.dll, &dest).is_err() {
-            std::fs::copy(&s.dll, &dest).map_err(|e| format!("não foi possível pôr a DLL do SDK em {}: {e}", dest.display()))?;
+            std::fs::copy(&s.dll, &dest).map_err(|e| format!("could not put the SDK DLL in {}: {e}", dest.display()))?;
         }
     }
     let link_duration = t_link.elapsed();
@@ -323,7 +323,7 @@ fn link_distributed(
     let mut natives = crate::distributed_lto::objects(&crate::distributed_lto::Request { clang, entries: &entries, cpu, staging, cache })?;
     natives.pop();
     let Some((first_one, rest)) = natives.split_first() else {
-        return Err("a LTO distribuída não devolveu nenhum objeto".to_string());
+        return Err("the distributed LTO returned no object".to_string());
     };
     NO_LTO_AT_LINK.set(true);
     let r = link(clang, first_one, rest, linkage, output, debug_info, cpu);
@@ -344,7 +344,7 @@ fn link_distributed(
     _staging: &Path,
     _cache: Option<&'static ObjectCache>,
 ) -> Result<(), String> {
-    Err("a LTO distribuída exige o gerador embutido do dartforge".to_string())
+    Err("the distributed LTO requires dartforge's embedded generator".to_string())
 }
 
 thread_local! {
@@ -466,7 +466,7 @@ fn generate_parts(
         .unwrap_or_else(|e| e.into_inner())
         .into_iter()
         .enumerate()
-        .map(|(i, r)| r.unwrap_or_else(|| Err(format!("a parte {i} não foi gerada"))))
+        .map(|(i, r)| r.unwrap_or_else(|| Err(format!("part {i} was not generated"))))
         .collect()
 }
 
@@ -633,7 +633,7 @@ fn link_old_with_clang(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Link
             };
             let lld = clang.with_file_name(lld_name);
             if !lld.is_file() {
-                return Err(format!("ThinLTO requer {lld_name} ao lado de {}", clang.display()));
+                return Err(format!("ThinLTO requires {lld_name} next to {}", clang.display()));
             }
             if let Some(bin) = clang.parent()
                 && !bin.as_os_str().is_empty()
@@ -720,13 +720,13 @@ fn link_old_with_clang(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Link
         .arg("-o")
         .arg(output)
         .output()
-        .map_err(|e| format!("falha na ligação com Clang em {clang:?}: {e}"))?;
+        .map_err(|e| format!("linking with Clang at {clang:?} failed: {e}"))?;
     if !exit.status.success() {
         // What the linker said goes into the error (without it a CI failure has
         // no diagnostic).
         let text = String::from_utf8_lossy(&exit.stderr);
         let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).take(40).collect();
-        return Err(format!("Clang falhou na ligação do executável ({}):\n{}", exit.status, lines.join("\n")));
+        return Err(format!("Clang failed to link the executable ({}):\n{}", exit.status, lines.join("\n")));
     }
     Ok(())
 }

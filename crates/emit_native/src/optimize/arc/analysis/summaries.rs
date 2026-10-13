@@ -156,7 +156,7 @@ impl ArcHeapSummary {
         if self.body == body_signature(f) {
             Ok(())
         } else {
-            Err("resumo heap ARC: corpo mudou".into())
+            Err("ARC heap summary: body changed".into())
         }
     }
 
@@ -186,7 +186,7 @@ impl ArcHeapSummary {
     ) -> Result<PointSet, String> {
         self.check(f)?;
         if arguments.len() != f.params.len() {
-            return Err("resumo heap ARC: aridade incompatível".into());
+            return Err("ARC heap summary: incompatible arity".into());
         }
         let ArcHeapReturn::Aliases { parameters, .. } = &self.ret else {
             return Ok(PointSet::unknown(limit));
@@ -256,7 +256,7 @@ pub(super) fn extract_with_calls<'a>(
                 dest: ids[v],
                 node: AbstractNode::Parameter {
                     function: f.symbol.clone(),
-                    index: u32::try_from(index).map_err(|_| "resumo: parâmetros demais")?,
+                    index: u32::try_from(index).map_err(|_| "summary: too many parameters")?,
                 },
             });
         } else {
@@ -295,13 +295,13 @@ pub(super) fn extract_with_calls<'a>(
                     },
                 )) => {
                     if args.len() != callee.params.len() {
-                        return Err(format!("resumo: aridade de {symbol}"));
+                        return Err(format!("summary: arity of {symbol}"));
                     }
                     for &p in parameters {
                         if let Operand::Val(v) = &args[p]
                             && types[v] != Type::Ref
                         {
-                            return Err(format!("resumo: argumento Ref de {symbol}"));
+                            return Err(format!("summary: Ref argument of {symbol}"));
                         }
                         copies.push((op(&args[p]), dest));
                     }
@@ -596,7 +596,7 @@ mod tests {
                 .skip_while(|l| !(l.starts_with("define ") && l.contains("@calculo(")))
                 .take_while(|l| *l != "}")
                 .collect();
-            assert!(!body.is_empty(), "corpo não emitido: {i:?}");
+            assert!(!body.is_empty(), "body not emitted: {i:?}");
             assert!(!body.iter().any(|l| l.contains("pilha.estouro:")), "{i:?}");
             assert!(
                 !body
@@ -606,7 +606,7 @@ mod tests {
             );
             f.params[0].2 = Type::Ref;
             let r = extract(&f, 8).unwrap();
-            assert_eq!(r.fields(), ArcHeapFields::UnknownSet, "entrada {i:?}");
+            assert_eq!(r.fields(), ArcHeapFields::UnknownSet, "entry {i:?}");
             assert_eq!(r.publications(), ArcHeapPublications::UnknownValues);
             f.params[0].2 = entry;
             f.blocks[0].instructions[0].2 = Type::Ref;
@@ -614,7 +614,7 @@ mod tests {
             assert_eq!(
                 extract(&f, 8).unwrap().fields(),
                 ArcHeapFields::UnknownSet,
-                "saída {i:?}"
+                "exit {i:?}"
             );
         }
         for (i, entry) in [
@@ -647,7 +647,7 @@ mod tests {
             assert_eq!(
                 extract(&f, 8).unwrap().fields(),
                 ArcHeapFields::UnknownSet,
-                "falível {i:?}"
+                "fallible {i:?}"
             );
         }
     }
