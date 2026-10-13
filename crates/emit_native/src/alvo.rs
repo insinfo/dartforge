@@ -216,7 +216,7 @@ pub fn check_roots() -> bool {
 /// test of maps mode must fail with its own; a test that does not fail
 /// with the sabotage does not count. Those of the emitter:
 ///
-/// * `leaf:<extern>`: declares the extern `"gc-leaf-function"` even though it collects
+/// * `folha:<extern>`: declares the extern `"gc-leaf-function"` even though it collects
 ///   (the map loses the records of the calls to it);
 /// * `pouso_sem_topo`: the landing pad of an `invoke` does not restore the top of the
 ///   shadow stack;
@@ -234,7 +234,7 @@ pub fn sabotage(name: &str) -> bool {
     std::env::var("DARTFORGE_SABOTAGEM").unwrap_or_default().split(',').any(|s| s.trim() == name)
 }
 
-/// Extern `name` is in the `leaf:<name>` sabotage.
+/// Extern `name` is in the `folha:<name>` sabotage.
 pub fn sabotaged_leaf(name: &str) -> bool {
     std::env::var("DARTFORGE_SABOTAGEM").unwrap_or_default().split(',').any(|s| s.trim().strip_prefix("folha:") == Some(name))
 }

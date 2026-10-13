@@ -837,7 +837,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     fn call_typed_closure(&mut self, callee: Operand, evaluated: &[Evaluated], reprs: &[Type], ret: Type, abi: i64) -> Operand {
         // Returns `Ref`, like the uniform call. The fields of `_Closure`
         // (code, context, typed body, ABI) are read from the block inline,
-        // after checking the class (`@df.class` inline): only a `_Closure`
+        // after checking the class (`@df.classe` inline): only a `_Closure`
         // block has the four fields; whatever is not a closure goes through the
         // uniform entry.
         debug_assert_ne!(abi, 0);

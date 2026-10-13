@@ -1,7 +1,7 @@
 //! Addresses derived from lists: the data of a typed list
 //! (`@df.tipada_dados`) and the storage of a core list
 //! (`@df.nucleo_armazenamento`). Each access through them gets, right after,
-//! `@df.keep_alive(list)`: the list stays borrowed and alive up to there, and ARC
+//! `@df.manter_vivo(list)`: the list stays borrowed and alive up to there, and ARC
 //! puts the drop after the last access. The data of a typed list does not
 //! change while it lives; the storage of a core list changes when the list
 //! grows, so no path from its read to the access goes through a
@@ -115,7 +115,7 @@ fn barrier(inst: &Instruction) -> bool {
     }
 }
 
-/// Puts `@df.keep_alive(list)` after each access through a derived address
+/// Puts `@df.manter_vivo(list)` after each access through a derived address
 /// that does not have it yet (repeating changes nothing) and checks the resulting shape
 /// ([`verify`]).
 pub(super) fn keep_live(f: &mut Function) -> Result<(), String> {
@@ -186,7 +186,7 @@ fn valid_storages(f: &Function, der: &HashMap<ValueId, Origin>) -> Vec<HashSet<V
 }
 
 /// Checks that the derived address only serves derivations and accesses, that
-/// each access is followed by `@df.keep_alive` of its list, and that no
+/// each access is followed by `@df.manter_vivo` of its list, and that no
 /// path from the read of core storage to the access has a barrier.
 pub(super) fn verify(f: &Function) -> Result<(), String> {
     let der = origins(f);

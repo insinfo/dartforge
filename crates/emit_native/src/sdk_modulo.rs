@@ -327,7 +327,7 @@ pub fn emit_sdk_libraries(lib_dir: &Path, production: bool) -> Result<Vec<SdkLib
         debug_assert_eq!(ctx.class_ids, base.class_ids);
         let mut module = crate::lower::lower_program(&ctx);
         module.sdk_library = true;
-        // The classes of `null` and of the `Smi` inline (`llvm/mod.rs`, `df.class`).
+        // The classes of `null` and of the `Smi` inline (`llvm/mod.rs`, `df.classe`).
         module.runtime_cids = runtime_cids(&ctx);
         module.record = Some(registration_symbol(&uri));
         if let Some(e) = module.errors.first() {
@@ -984,7 +984,7 @@ pub enum ContextInTls {
 ///
 /// `variable` is the name of the variable: the program in parts promotes it to
 /// external (`partition.rs`), and its name cannot be that of the internal one of an
-/// SDK module (like `@df.area_id.program`).
+/// SDK module (like `@df.area_id.programa`).
 pub fn with_context_in_tls(ir: &str, mode: ContextInTls, variable: &str) -> String {
     const CALL: &str = "call ptr @dartforge_contexto()";
     if !ir.contains(CALL) {

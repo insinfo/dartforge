@@ -190,7 +190,7 @@ pub const NATIVES: &[NativeEntry] = &[
     pending("AssertionError_throwNewSource"),
     pending("Bool_fromEnvironment"),
     pending("Bool_hasEnvironment"),
-    // The class of the value inline (`@df.class`, docs/NATIVO-ESPACO-UNIFICADO.md §3.8).
+    // The class of the value inline (`@df.classe`, docs/NATIVO-ESPACO-UNIFICADO.md §3.8).
     embedded("ClassID_getID"),
     runtime("Closure_computeHash"),
     runtime("Closure_equals"),

@@ -1,4 +1,4 @@
-//! Gerador de LLVM IR a partir da HIR nativa.
+//! LLVM IR generator from the native HIR.
 
 pub mod c_abi;
 pub mod externs;
@@ -10,20 +10,20 @@ mod stack_trace;
 pub mod verify_maps;
 pub mod verify_shadow;
 mod simd;
-// As emissões que dependem da representação dos valores do runtime, uma por
-// pacote do espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md §4.2, passo 4).
+// The emissions that depend on the representation of the runtime values, one per
+// package of the unified space (docs/NATIVO-ESPACO-UNIFICADO.md §4.2, step 4).
 mod ir_boxes;
 mod ir_lists;
 mod ir_strings;
 mod ir_typed;
 
 use dartforge_runtime::layout;
-/// Maior índice de campo lido em linha (o contrato de layout).
+/// Largest field index read inline (the layout contract).
 const INLINE_FIELDS: usize = layout::CAMPOS_EM_LINHA;
-/// O maior corpo, em palavras, com alocação em linha (a TLAB de `w` palavras,
-/// `layout::context::tlab_cursor(w)`): um objeto de até `TLAB_N` campos.
+/// The largest body, in words, with inline allocation (the TLAB of `w` words,
+/// `layout::contexto::tlab_cursor(w)`): an object of up to `TLAB_N` fields.
 const TLAB_N: i64 = layout::TLAB_N as i64;
-/// A máscara de `e_objeto` (`h & (7 | i64::MIN) == 2`).
+/// The mask of `e_objeto` (`h & (7 | i64::MIN) == 2`).
 const OBJECT_MASK: i64 = 7 | i64::MIN;
 mod selectors;
 #[cfg(test)]
@@ -34,157 +34,157 @@ use std::fmt::Write;
 
 pub struct LlvmEmitter<'a> {
     module: &'a Module,
-    /// As funções do módulo pelo símbolo (a primeira com cada nome, como o
-    /// `find` linear que esta tabela substituiu: ele era feito a cada
-    /// `CallStatic` e tornava a emissão quadrática — dezenas de minutos no
+    /// The functions of the module by symbol (the first with each name, like the
+    /// linear `find` that this table replaced: it was done on every
+    /// `CallStatic` and made the emission quadratic — tens of minutes on
     /// new_sali/backend, docs/NATIVO-PROJETOS-REAIS.md).
     function_by_symbol: std::collections::HashMap<&'a str, &'a Function>,
     out: String,
-    /// As constantes de string, na ordem de emissão (determinística); o
-    /// índice de cada uma é a posição.
+    /// The string constants, in emission order (deterministic); the
+    /// index of each one is its position.
     string_constants: Vec<Vec<u8>>,
-    /// O índice de cada constante pelo conteúdo: coletar e consultar sem
-    /// percorrer a tabela (antes, quadrático no número de literais).
+    /// The index of each constant by content: collect and look up without
+    /// walking the table (before, quadratic in the number of literals).
     string_index: std::collections::HashMap<Vec<u8>, usize>,
-    /// Tipo de cada valor da funcao sendo emitida, para coercao de operandos.
+    /// Type of each value of the function being emitted, for operand coercion.
     types: std::collections::HashMap<ValueId, Type>,
-    /// Contador dos temporarios de coercao (%c0, %c1, ...), por funcao.
+    /// Counter of the coercion temporaries (%c0, %c1, ...), per function.
     next_coercion: u32,
-    /// Conversoes que uma entrada de phi exige, atribuidas ao bloco de ORIGEM:
-    /// (bloco, nome do temporario, tipo de origem, valor, tipo do phi).
+    /// Conversions that a phi entry requires, assigned to the SOURCE block:
+    /// (block, temporary name, source type, value, phi type).
     conv_phi: Vec<(u32, String, Type, ValueId, Type)>,
-    /// Tipo guardado por cada `alloca` da função (para o `store`).
+    /// Type kept by each `alloca` of the function (for the `store`).
     pointee: std::collections::HashMap<ValueId, Type>,
-    /// Os `alloca` `Ref` cujo endereço sai da função (a captura por endereço
-    /// de uma função local direta, `lower/direct_functions.rs`): moram no
-    /// próprio slot do quadro de raízes, e quem recebe o endereço grava
-    /// onde o coletor enxerga.
+    /// The `Ref` `alloca`s whose address leaves the function (the capture by address
+    /// of a direct local function, `lower/direct_functions.rs`): they live in the
+    /// slot of the roots frame itself, and whoever receives the address writes
+    /// where the collector sees.
     frame_allocas: std::collections::HashSet<ValueId>,
-    /// G: slot de raiz de cada valor `Ref` da função (SSA ou `alloca`).
+    /// G: root slot of each `Ref` value of the function (SSA or `alloca`).
     slots: std::collections::HashMap<ValueId, usize>,
-    /// A função abriu um quadro de raízes (`%gcq`).
+    /// The function opened a roots frame (`%gcq`).
     has_frame: bool,
-    /// A função leu `%ctx` (`dartforge_contexto`, o contexto da thread do
-    /// runtime) na entrada: exceção pendente e pilha-sombra sem chamada.
+    /// The function read `%ctx` (`dartforge_contexto`, the thread context of the
+    /// runtime) at the entry: pending exception and shadow stack without a call.
     has_ctx: bool,
-    /// O rótulo LLVM em que termina cada bloco da HIR que se divide em
-    /// vários (a alocação em linha, [`LlvmEmitter::inline_allocation`]): é
-    /// o predecessor que os `phi` dos sucessores nomeiam.
+    /// The LLVM label at which each HIR block that splits into
+    /// several ends (the inline allocation, [`LlvmEmitter::inline_allocation`]): it is
+    /// the predecessor that the `phi`s of the successors name.
     exit_labels: std::collections::HashMap<u32, String>,
-    /// O rótulo LLVM do trecho em emissão (o do bloco, ou o último que uma
-    /// instrução dividida abriu): o predecessor de um `phi` interno.
+    /// The LLVM label of the stretch being emitted (that of the block, or the last one that a
+    /// split instruction opened): the predecessor of an inner `phi`.
     current_label: String,
     // --- P1 (closures, α) ---
-    /// Vetores constantes de `i64` (`@df.arr.<k>`): assinaturas e descritores.
+    /// Constant vectors of `i64` (`@df.arr.<k>`): signatures and descriptors.
     vectors: Vec<Vec<i64>>,
     vector_of: std::collections::HashMap<Vec<i64>, usize>,
-    /// Vetores constantes de endereços de função (`@df.fns.<k>`).
+    /// Constant vectors of function addresses (`@df.fns.<k>`).
     function_tables: Vec<Vec<String>>,
     function_table_of: std::collections::HashMap<Vec<String>, usize>,
-    /// Os nomes dos argumentos nomeados dos descritores do módulo: o
-    /// descritor só guarda o hash, e o `Invocation` de um `noSuchMethod`
-    /// precisa do nome (`dartforge_registrar_nome_de_argumento`).
+    /// The names of the named arguments of the descriptors of the module: the
+    /// descriptor only keeps the hash, and the `Invocation` of a `noSuchMethod`
+    /// needs the name (`dartforge_registrar_nome_de_argumento`).
     argument_names: std::collections::BTreeSet<String>,
-    // --- P5c (SDK da fonte, δ; `selectors.rs`) ---
-    /// Pontos de chamada por seletor já emitidos (um cache cada).
+    // --- P5c (source SDK, δ; `selectors.rs`) ---
+    /// Call sites by selector already emitted (one cache each).
     selector_caches: usize,
-    /// O símbolo da função em emissão e quantos caches de seletor ela já
-    /// abriu: o nome do slot de um cache é `(função, posição)`, estável
-    /// entre gerações de uma recarga (J04).
+    /// The symbol of the function being emitted and how many selector caches it has already
+    /// opened: the name of the slot of a cache is `(function, position)`, stable
+    /// across generations of a reload (J04).
     current_function: String,
     cache_in_function: usize,
-    /// O índice de cada nome de slot do layout da geração viva (recarga).
+    /// The index of each slot name of the layout of the live generation (reload).
     slot_index: std::collections::HashMap<i64, usize>,
-    /// Textos dos seletores, na ordem do primeiro uso.
+    /// Texts of the selectors, in order of first use.
     selector_names: Vec<String>,
-    /// Assinatura de cada símbolo chamado, para declarar o que o módulo não
+    /// Signature of each called symbol, to declare what the module does not
     /// define.
     externals: std::collections::BTreeMap<String, String>,
-    /// Os thunks Owned genéricos chamados (`df.arc.owned.<base>`): a base e a
-    /// assinatura (`selectors::emit_owned_thunks`).
+    /// The generic Owned thunks called (`df.arc.owned.<base>`): the base and the
+    /// signature (`selectors::emit_owned_thunks`).
     owned_thunks: std::collections::BTreeMap<String, (String, Vec<Type>)>,
-    /// Os thunks de escopo nativo (`df.arc.scope.<base>`): base, argumentos
-    /// e retorno.
+    /// The native scope thunks (`df.arc.escopo.<base>`): base, arguments
+    /// and return.
     scope_thunks: std::collections::BTreeMap<String, (String, Vec<Type>, Type)>,
-    /// Símbolos definidos em `comdat` (`selectors::linkage_of`).
+    /// Symbols defined in a `comdat` (`selectors::linkage_of`).
     comdats: Vec<String>,
-    /// `DARTFORGE_RASTRO=1` na compilação: cada função conta a entrada e a
-    /// saída ao runtime, que mostra a pilha de funções Dart numa exceção
-    /// (`DARTFORGE_DEPURAR=1`). Só para depurar o SDK da fonte.
+    /// `DARTFORGE_RASTRO=1` at compile time: each function reports the entry and the
+    /// exit to the runtime, which shows the stack of Dart functions on an exception
+    /// (`DARTFORGE_DEPURAR=1`). Only for debugging the source SDK.
     stack_trace: Option<usize>,
     stack_trace_names: Vec<String>,
-    // --- Área de globais por isolado ---
-    /// O slot (`i64`) de cada global do módulo na área (`@dfg_…` e a
-    /// bandeira `$ok`): os estáticos do Dart são por isolado, e cada
-    /// isolado é uma thread com a sua área (`dartforge_area_de_globais`).
+    // --- Per-isolate global area ---
+    /// The slot (`i64`) of each global of the module in the area (`@dfg_…` and the
+    /// `$ok` flag): Dart statics are per isolate, and each
+    /// isolate is a thread with its own area (`dartforge_area_de_globais`).
     global_slots: std::collections::HashMap<String, usize>,
-    /// O hash do nome de cada slot, na ordem (o descritor da área): 0 nos
-    /// caches de seletor.
+    /// The hash of the name of each slot, in order (the area descriptor): 0 for the
+    /// selector caches.
     slot_hashes: Vec<i64>,
-    /// O layout da área da geração em execução (hot reload): os slots que
-    /// continuam mantêm o índice, os novos vêm depois (`emit_globals`).
+    /// The layout of the area of the running generation (hot reload): the slots that
+    /// remain keep their index, the new ones come after (`emit_globals`).
     previous_area: Option<Vec<i64>>,
-    /// O descritor da área sem os nomes dos slots (`[key, -n]`): o
-    /// executável de produção, que nunca recarrega (`with_lean_area`).
+    /// The area descriptor without the slot names (`[key, -n]`): the
+    /// production executable, which never reloads (`with_lean_area`).
     lean_area: bool,
-    /// J05: os metadados de depuração, quando alguma função tem posições.
+    /// J05: the debug metadata, when some function has positions.
     debug_info: Option<debug_info::DebugInfo>,
-    // --- Espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md) ---
-    /// Os literais de string são objetos estáticos do módulo (§2.11):
-    /// verdadeiro no AOT e nos módulos do SDK; falso nos módulos do programa no
-    /// JIT, cuja memória é liberada (J02).
+    // --- Unified space (docs/NATIVO-ESPACO-UNIFICADO.md) ---
+    /// String literals are static objects of the module (§2.11):
+    /// true in AOT and in the SDK modules; false in the program modules in the
+    /// JIT, whose memory is freed (J02).
     static_objects: bool,
-    /// O endereço dos campos de um objeto por chamada a `@df.body` em vez
-    /// das 15 instruções em linha (o perfil de desenvolvimento do programa,
-    /// `-O0`): o IR do new_sali/backend tinha 465 mil cópias da sequência,
-    /// 21% das linhas (docs/NATIVO-PROJETOS-REAIS.md, C9). A produção e os
-    /// módulos do SDK continuam em linha.
+    /// The address of the fields of an object through a call to `@df.corpo` instead
+    /// of the 15 inline instructions (the development profile of the program,
+    /// `-O0`): the IR of new_sali/backend had 465 thousand copies of the sequence,
+    /// 21% of the lines (docs/NATIVO-PROJETOS-REAIS.md, C9). Production and the
+    /// SDK modules stay inline.
     fields_per_call: bool,
-    /// A alocação de instância por chamada ao `@df.new_instance` (a
-    /// produção do programa com `new_instance` em
+    /// Instance allocation through a call to `@df.nova_instancia` (the
+    /// production of the program with `new_instance` in
     /// [`LlvmEmitter::outlined_helpers`]).
     out_of_line_allocation: bool,
-    /// Os ajudantes `@df.*` que vão `noinline` no módulo do programa de
-    /// produção ([`out_of_line_helpers`]).
+    /// The `@df.*` helpers that go `noinline` in the production program module
+    /// ([`out_of_line_helpers`]).
     outlined_helpers: Vec<String>,
-    /// O despacho por seletor fora de linha (`selector` em
-    /// [`LlvmEmitter::outlined_helpers`]): o ponto de chamada passa o
-    /// descritor estático do seletor (`@df.seld.<k>`: hash, nome,
-    /// comprimento) ao `@df.seletor_d`, que tem o `@df.selector` em linha —
-    /// três argumentos em vez de cinco em cada um dos ~170 mil pontos do
-    /// programa grande.
+    /// Out-of-line dispatch by selector (`selector` in
+    /// [`LlvmEmitter::outlined_helpers`]): the call site passes the
+    /// static descriptor of the selector (`@df.seld.<k>`: hash, name,
+    /// length) to `@df.seletor_d`, which has `@df.seletor` inline —
+    /// three arguments instead of five at each of the ~170 thousand sites of the
+    /// large program.
     compact_selector: bool,
-    /// `optsize` em cada função do módulo (o programa grande na produção;
-    /// o SDK de produção já o tem, `sdk_modulo::with_optsize`).
+    /// `optsize` on each function of the module (the large program in production;
+    /// the production SDK already has it, `sdk_modulo::with_optsize`).
     optimize_size: bool,
-    /// Os objetos recém-alocados neste bloco da HIR, sem ponto de coleta
-    /// desde a alocação (`emit_field_addresses`): o corpo está no
-    /// bloco (nunca de fora, nunca null nem `Smi`) e o objeto é jovem (a
-    /// barreira não faz nada).
+    /// The objects freshly allocated in this HIR block, with no collection point
+    /// since the allocation (`emit_field_addresses`): the body is in the
+    /// block (never outside, never null or a `Smi`) and the object is young (the
+    /// barrier does nothing).
     fresh_set: std::collections::HashSet<u32>,
-    /// Nenhum objeto tem corpo de fora (`with_body_without_outside`).
+    /// No object has an outside body (`with_body_without_outside`).
     body_without_outside: bool,
-    /// O `this` da função em emissão, quando o corpo dele é direto
+    /// The `this` of the function being emitted, when its body is direct
     /// ([`Self::direct_body`]).
     this_object: Option<u32>,
-    /// Cada quadro de raízes desta emissão fica num quadro nativo próprio
-    /// (o programa sem otimização: `-O0` no AOT, `CodeGenLevelNone` no JIT,
-    /// sem inlining): o runtime pode conferir a ordem dos endereços na
-    /// pilha-sombra (o quadro morto, `RT/heap.rs` `visitar_quadros`). Com
-    /// inlining, dois quadros viram `alloca` da mesma função, em ordem
-    /// qualquer, e a conferência daria falso positivo.
+    /// Each roots frame of this emission sits in its own native frame
+    /// (the program without optimization: `-O0` in AOT, `CodeGenLevelNone` in the JIT,
+    /// without inlining): the runtime can check the order of the addresses on the
+    /// shadow stack (the dead frame, `RT/heap.rs` `visit_frames`). With
+    /// inlining, two frames become `alloca`s of the same function, in any
+    /// order, and the check would give a false positive.
     ordered_frames: bool,
-    /// O módulo é do perfil de produção (`--optimize`): com
-    /// [`Self::fields_per_call`], o `@df.body` vai `noinline` (o
-    /// otimizador o poria de volta em linha).
+    /// The module is of the production profile (`--optimize`): with
+    /// [`Self::fields_per_call`], `@df.corpo` goes `noinline` (the
+    /// optimizer would put it back inline).
     production: bool,
-    /// As tabelas de métodos são montadas na ligação
-    /// (docs/NATIVO-PODA-DE-TABELAS.md §3.2): o módulo só declara a função
-    /// de cada tabela, e o conteúdo vai para o resumo (`pruning.rs`). É o SDK
-    /// de produção.
+    /// The method tables are assembled at link time
+    /// (docs/NATIVO-PODA-DE-TABELAS.md §3.2): the module only declares the function
+    /// of each table, and the content goes into the summary (`pruning.rs`). It is the production
+    /// SDK.
     tables_at_link: bool,
-    /// O estado de cada pacote da emissão (§4.2, passo 4); os pacotes o usam
-    /// conforme migram.
+    /// The state of each package of the emission (§4.2, step 4); the packages use it
+    /// as they migrate.
     #[allow(dead_code)]
     strings: ir_strings::StringState,
     #[allow(dead_code)]
@@ -193,55 +193,55 @@ pub struct LlvmEmitter<'a> {
     lists: ir_lists::ListState,
     #[allow(dead_code)]
     typed_items: ir_typed::TypedState,
-    /// Exceções por tabelas (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13):
-    /// a decisão do passe `optimize::tables` para a função em emissão —
-    /// quem é `invoke`, os pousos e como cada `Return` sai. `None` no modelo
-    /// de sempre (a pendência conferida depois de cada chamada), e o IR é
-    /// então o de sempre, byte a byte.
+    /// Exceptions by tables (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13):
+    /// the decision of the `optimize::tables` pass for the function being emitted —
+    /// which call is an `invoke`, the landing pads and how each `Return` exits. `None` in the usual
+    /// model (the pending flag checked after each call), and the IR is
+    /// then the usual one, byte for byte.
     tab: Option<&'a FunctionTables>,
-    /// `DARTFORGE_EFEITOS=check` ([`externs::check_effects`]): os nomes
-    /// das externs conferidas neste módulo, na ordem do primeiro uso (o
-    /// índice é o do global `@df.efn.<k>` com o texto).
+    /// `DARTFORGE_EFEITOS=conferir` ([`externs::check_effects`]): the names
+    /// of the externs checked in this module, in order of first use (the
+    /// index is that of the global `@df.efn.<k>` with the text).
     checked_externs: Vec<String>,
-    /// Raízes por mapas de pilha (`--roots=maps`,
-    /// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.12): os valores SSA `Ref`
-    /// vivos através de um ponto de coleta não vão para o quadro da
-    /// pilha-sombra; cada chamada que pode coletar leva, no operando
-    /// `"deopt"`, os vivos na entrada dela, e o `rewrite-statepoints-for-gc`
-    /// do LLVM a transforma em statepoint, com o lugar de cada um no mapa de
-    /// pilha da chamada — o registrador preservado em que ele já está, ou o
-    /// slot. O coletor não move objetos: nada é relocado, e o código segue
-    /// com o próprio valor. Só os `alloca` `Ref` continuam no quadro.
+    /// Roots by stack maps (`--raizes=mapas`,
+    /// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.12): the `Ref` SSA values
+    /// live across a collection point do not go into the frame of the
+    /// shadow stack; each call that may collect carries, in the
+    /// `"deopt"` operand, the values live at its entry, and LLVM's `rewrite-statepoints-for-gc`
+    /// turns it into a statepoint, with the place of each one in the stack
+    /// map of the call — the preserved register where it already is, or the
+    /// slot. The collector does not move objects: nothing is relocated, and the code goes on
+    /// with the value itself. Only the `Ref` `alloca`s stay in the frame.
     maps: bool,
-    /// Com [`Self::maps`], a análise de raízes da função em emissão.
+    /// With [`Self::maps`], the roots analysis of the function being emitted.
     function_roots: roots::Roots,
-    /// Com [`Self::maps`], os valores enraizados da função em emissão.
+    /// With [`Self::maps`], the rooted values of the function being emitted.
     rooted_set: std::collections::HashSet<ValueId>,
-    /// Raízes por mapas: as definições de `@df.vararg.<k>`, os intermediários
-    /// das chamadas C variádicas feitas por uma função `gc`
-    /// ([`Self::c_call_text`]); vão ao módulo depois das funções.
+    /// Roots by maps: the definitions of `@df.vararg.<k>`, the intermediaries
+    /// of the variadic C calls made by a `gc` function
+    /// ([`Self::c_call_text`]); they go into the module after the functions.
     variadic_set: Vec<String>,
-    /// O build de conferência do percurso (`DARTFORGE_RAIZES_CONFERIR=1`
-    /// com `--roots=maps`, docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §15.2,
-    /// E2.5): numa função `gc`, o primeiro dos slots de conferência no fim
-    /// do quadro de raízes e quantos são. Antes de cada ponto de coleta eles
-    /// recebem exatamente os valores vivos nele (zero nos demais), e o
-    /// runtime confere que o percurso por mapas visitou todos.
+    /// The checking build of the walk (`DARTFORGE_RAIZES_CONFERIR=1`
+    /// with `--raizes=mapas`, docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §15.2,
+    /// E2.5): in a `gc` function, the first of the check slots at the end
+    /// of the roots frame and how many there are. Before each collection point they
+    /// receive exactly the values live at it (zero in the others), and the
+    /// runtime checks that the walk by maps visited all of them.
     check: Option<(usize, usize)>,
-    /// Raízes por mapas num módulo do JIT (§3.8): o gerenciador de memória do
-    /// JIT acha o mapa de cada objeto e o registra; o módulo não chama o
-    /// registro nem leva o `-ni:1` (o `LLJIT` recusa um módulo com a camada
-    /// de dados diferente da dele, e o JIT não roda otimização de IR).
+    /// Roots by maps in a JIT module (§3.8): the memory manager of the
+    /// JIT finds the map of each object and registers it; the module does not call the
+    /// registration nor carries `-ni:1` (`LLJIT` rejects a module with a data
+    /// layout different from its own, and the JIT does not run IR optimization).
     maps_in_jit: bool,
-    /// Quantas funções `gc` o módulo emitiu (no Mach-O, o `.no_dead_strip`
-    /// do mapa só vai a um módulo que tem mapa).
+    /// How many `gc` functions the module emitted (on Mach-O, the `.no_dead_strip`
+    /// of the map only goes to a module that has a map).
     gc_functions: usize,
-    /// O rastro no formato da VM (§13.14, `llvm/stack_trace.rs`): os rótulos das
-    /// chamadas e a tabela da seção `dfpcl`. `None`: sem tabela.
+    /// The stack trace in the VM's format (§13.14, `llvm/stack_trace.rs`): the labels of the
+    /// calls and the table of the `dfpcl` section. `None`: no table.
     vm_stack_trace: Option<stack_trace::StackTrace>,
-    /// O módulo vai para o JIT: a seção do rastro de cada objeto é
-    /// registrada pelo gerenciador de memória da sessão (`crates/jit`), e o
-    /// módulo não tem os símbolos do ligador nem a chamada de registro.
+    /// The module goes to the JIT: the stack trace section of each object is
+    /// registered by the memory manager of the session (`crates/jit`), and the
+    /// module has neither the linker symbols nor the registration call.
     stack_trace_in_jit: bool,
 }
 
@@ -283,8 +283,8 @@ impl<'a> LlvmEmitter<'a> {
             slot_hashes: Vec::new(),
             previous_area: None,
             lean_area: false,
-            // As posições servem às tabelas de linha só com `--debug_info`; sem
-            // ela, são só do rastro simbólico (`vm_stack_trace`).
+            // The positions serve the line tables only with `--depuracao`; without
+            // it, they belong only to the symbolic stack trace (`vm_stack_trace`).
             debug_info: (module.dwarf && module.functions.iter().any(|f| f.debug_info.is_some())).then(debug_info::DebugInfo::new_one),
             function_by_symbol: {
                 let mut m = std::collections::HashMap::with_capacity(module.functions.len());
@@ -323,25 +323,25 @@ impl<'a> LlvmEmitter<'a> {
         }
     }
 
-    /// Delega o registro das seções do rastro ao gerenciador de memória do JIT.
-    /// O módulo deixa de emitir os símbolos do ligador e a chamada de registro.
+    /// Delegates the registration of the stack trace sections to the memory manager of the JIT.
+    /// The module stops emitting the linker symbols and the registration call.
     pub fn with_stack_trace_in_jit(mut self, yes: bool) -> Self {
         self.stack_trace_in_jit = yes;
         self
     }
 
-    /// O rastro simbólico (§13.14): os rótulos antes das chamadas e a
-    /// tabela da imagem (`alvo::symbolic_stack_trace`; no JIT, com
+    /// The symbolic stack trace (§13.14): the labels before the calls and the
+    /// table of the image (`alvo::symbolic_stack_trace`; in the JIT, with
     /// [`LlvmEmitter::with_stack_trace_in_jit`]).
     pub fn with_stack_trace(mut self, yes: bool) -> Self {
         self.vm_stack_trace = yes.then(stack_trace::StackTrace::new);
         self
     }
 
-    /// A chamada de registro dos mapas de pilha da imagem, por formato: a
-    /// base da imagem PE (o runtime acha `.dfgcm` e `.llvm_st` pelos
-    /// cabeçalhos); os limites da seção `dfgcm` que o `ld.lld` define; no
-    /// Mach-O, os do `__llvm_stackmaps` do LLVM.
+    /// The registration call of the stack maps of the image, per format: the
+    /// base of the PE image (the runtime finds `.dfgcm` and `.llvm_st` through the
+    /// headers); the bounds of the `dfgcm` section that `ld.lld` defines; on
+    /// Mach-O, those of LLVM's `__llvm_stackmaps`.
     fn maps_registration_call() -> &'static str {
         match crate::alvo::sistema() {
             crate::alvo::Sistema::Windows => "  call void @dartforge_registrar_mapa(ptr @__ImageBase)\n",
@@ -352,15 +352,15 @@ impl<'a> LlvmEmitter<'a> {
         }
     }
 
-    /// O registro dos campos do `dart:async` que o rastro percorre (§13.14).
+    /// The registration of the `dart:async` fields that the stack trace walks (§13.14).
     fn trace_field_registration_calls(&self) -> String {
         let mut s = String::new();
         for (cid, name_str, position) in &self.module.trace_fields {
             let idx = self.string_const_index(name_str.as_bytes()).unwrap_or(0);
             writeln!(s, "  call void @dartforge_registrar_campo_do_rastro(i64 {cid}, ptr @.str.{idx}, i64 {}, i64 {position})", name_str.len()).unwrap();
         }
-        // As entradas de tear-off dos ramos de stream.
-        // Só as que sobraram da poda (a entrada some com quem a criava).
+        // The tear-off entries of the stream branches.
+        // Only those that survived pruning (the entry disappears with its creator).
         for (sym_name, kind) in &self.module.stack_trace_tearoffs {
             if !self.module.functions.iter().any(|f| f.symbol == *sym_name) {
                 continue;
@@ -370,7 +370,7 @@ impl<'a> LlvmEmitter<'a> {
         s
     }
 
-    /// A chamada de registro da tabela do rastro da imagem (§13.14).
+    /// The registration call of the stack trace table of the image (§13.14).
     fn trace_registration_call(&self) -> Option<String> {
         self.vm_stack_trace.as_ref()?;
         if self.stack_trace_in_jit {
@@ -380,52 +380,52 @@ impl<'a> LlvmEmitter<'a> {
         Some(format!("  call void @dartforge_registrar_rastro(ptr {start}, ptr {end})\n"))
     }
 
-    /// Obtém o endereço dos campos por chamada a `@df.body`, fora de linha.
-    /// Usado no perfil de desenvolvimento para reduzir o tamanho do IR.
+    /// Gets the address of the fields through a call to `@df.corpo`, out of line.
+    /// Used in the development profile to reduce the size of the IR.
     pub fn with_fields_per_call(mut self, yes: bool) -> Self {
         self.fields_per_call = yes;
         self
     }
 
-    /// Seleciona o perfil de produção; com campos por chamada, mantém
-    /// `@df.body` fora de linha por meio de `noinline`.
+    /// Selects the production profile; with fields per call, keeps
+    /// `@df.corpo` out of line through `noinline`.
     pub fn with_production(mut self, yes: bool) -> Self {
         self.production = yes;
         self
     }
 
-    /// Marca quadros de raízes como ordenados para a conferência do runtime.
-    /// Requer emissão sem inlining, com um quadro nativo por função.
+    /// Marks roots frames as ordered for the runtime check.
+    /// Requires emission without inlining, with one native frame per function.
     pub fn with_ordered_frames(mut self, yes: bool) -> Self {
         self.ordered_frames = yes;
         self
     }
 
-    /// Nenhum objeto terá corpo de fora (o bit `FORA`, que só a migração da
-    /// recarga do JIT cria — `runtime/src/heap.rs`, `trocar_campos`): o AOT
-    /// e o SDK de produção. Com isto, o campo do `this` de um método é lido
-    /// direto do bloco ([`Self::direct_body`]).
+    /// No object will have an outside body (the `FORA` bit, which only the reload migration
+    /// of the JIT creates — `runtime/src/heap.rs`, `swap_fields`): AOT
+    /// and the production SDK. With this, the field of the `this` of a method is read
+    /// directly from the block ([`Self::direct_body`]).
     pub fn with_body_without_outside(mut self, yes: bool) -> Self {
         self.body_without_outside = yes;
         self
     }
 
-    /// Aplica `optsize` a cada função emitida no módulo.
+    /// Applies `optsize` to each function emitted in the module.
     pub fn with_optimize_size(mut self, yes: bool) -> Self {
         self.optimize_size = yes;
         self
     }
 
-    /// Os ajudantes fora de linha do módulo do programa (veja
-    /// [`out_of_line_helpers`]); um módulo do SDK os ignora.
+    /// The out-of-line helpers of the program module (see
+    /// [`out_of_line_helpers`]); an SDK module ignores them.
     pub fn with_outlined_helpers(mut self, names: Vec<String>) -> Self {
         if self.module.sdk_library {
             return self;
         }
         self.out_of_line_allocation = names.iter().any(|n| n == "nova_instancia");
         self.compact_selector = names.iter().any(|n| n == "seletor");
-        // O `@df.selector` continua `alwaysinline`: só o `@df.seletor_d`
-        // (fora de linha) o chama.
+        // `@df.seletor` stays `alwaysinline`: only `@df.seletor_d`
+        // (out of line) calls it.
         self.outlined_helpers = names.into_iter().filter(|n| n != "seletor").collect();
         self
     }
@@ -435,15 +435,15 @@ impl<'a> LlvmEmitter<'a> {
         self
     }
 
-    /// Delega o registro dos mapas de pilha ao gerenciador de memória do JIT.
-    /// O módulo deixa de emitir o registro e a opção de layout `-ni:1`.
+    /// Delegates the registration of the stack maps to the memory manager of the JIT.
+    /// The module stops emitting the registration and the `-ni:1` layout option.
     pub fn with_maps_in_jit(mut self, yes: bool) -> Self {
         self.maps_in_jit = yes;
         self
     }
 
-    /// Emite raízes SSA pelos mapas de pilha dos statepoints do LLVM.
-    /// Os `alloca` de referências continuam no quadro da pilha-sombra.
+    /// Emits SSA roots through the stack maps of LLVM's statepoints.
+    /// The `alloca`s of references stay in the frame of the shadow stack.
     pub fn with_roots_by_maps(mut self, yes: bool) -> Self {
         self.maps = yes;
         self
@@ -454,68 +454,68 @@ impl<'a> LlvmEmitter<'a> {
         self
     }
 
-    /// O emissor de uma geração nova de um programa em execução (hot reload
-    /// do JIT): `previous` são os nomes dos slots da área da geração viva
-    /// ([`crate::ir_area`]). Os globais que continuam mantêm o índice e
-    /// os novos vêm depois, então o código das duas gerações lê e grava a
-    /// mesma área — os quadros `async` suspensos e as closures que ainda
-    /// executam código antigo veem os mesmos estáticos que o código novo.
+    /// The emitter of a new generation of a running program (JIT hot
+    /// reload): `previous` are the names of the slots of the area of the live generation
+    /// ([`crate::ir_area`]). The globals that remain keep their index and
+    /// the new ones come after, so the code of both generations reads and writes the
+    /// same area — the suspended `async` frames and the closures that still
+    /// run old code see the same statics as the new code.
     pub fn with_previous_area(mut self, previous: Option<Vec<i64>>) -> Self {
         self.previous_area = previous;
         self
     }
 
-    /// O descritor da área só com a chave e o número de slots, `[key, -n]`
-    /// (o sinal marca a forma enxuta para `dartforge_area_de_globais`): os
-    /// hashes dos nomes só servem à recarga (a migração da área e a
-    /// extensão do layout), e o executável de produção nunca recarrega. O
-    /// JIT e a DLL de desenvolvimento ficam com o descritor completo.
+    /// The area descriptor with only the key and the number of slots, `[key, -n]`
+    /// (the sign marks the lean form for `dartforge_area_de_globais`): the
+    /// hashes of the names only serve reload (the migration of the area and the
+    /// extension of the layout), and the production executable never reloads. The
+    /// JIT and the development DLL keep the complete descriptor.
     pub fn with_lean_area(mut self, lean: bool) -> Self {
         self.lean_area = lean;
         self
     }
 
-    /// O módulo inteiro. Um módulo com diagnósticos não chega aqui:
-    /// `emitir_ir` devolve o erro antes (N1).
+    /// The whole module. A module with diagnostics does not get here:
+    /// `emitir_ir` returns the error before (N1).
     ///
     /// ```
     /// use dartforge_emit_native::{hir::Module, llvm::LlvmEmitter};
-    /// let modulo = Module::new();
-    /// let ir = LlvmEmitter::new(&modulo).emit_all();
+    /// let module = Module::new();
+    /// let ir = LlvmEmitter::new(&module).emit_all();
     /// assert!(ir.contains("declare"));
     /// ```
     ///
     /// # Panics
-    /// Módulo com diagnósticos ou metadados excepcionais incoerentes.
-    /// Retoma ainda exige Itanium sem statepoints; Windows precisa de funclets.
+    /// A module with diagnostics or incoherent exceptional metadata.
+    /// Resume still requires Itanium without statepoints; Windows needs funclets.
     pub fn emit_all(mut self) -> String {
         assert!(self.module.errors.is_empty(), "emit_all com diagnósticos: {:?}", self.module.errors);
         assert!(!cfg!(windows) || !self.module.tables.iter().any(|t|
             t.exits.values().any(|s| *s == ExceptionExit::Resume)),
             "Retoma exige Itanium; Windows precisa de funclets SEH");
-        // Coleta literais de strings do módulo para declaração como constantes globais
+        // Collects the string literals of the module for declaration as global constants
         self.collect_string_constants();
 
-        // 1. Cabeçalho de target
+        // 1. Target header
         self.emit_header();
 
-        // 2. Declarações do runtime
+        // 2. Runtime declarations
         self.emit_runtime_decls();
         self.emit_arc_aot_ports();
 
-        // 3. Constantes de strings globais
+        // 3. Global string constants
         self.emit_string_constants();
 
-        // 4. Classes e vtables
+        // 4. Classes and vtables
         self.emit_vtables();
 
-        // 4b. Globais do usuário (N6)
+        // 4b. User globals (N6)
         self.emit_globals();
 
-        // 4c. Tabela de código das closures e vetores constantes (P1)
+        // 4c. Code table of the closures and constant vectors (P1)
         self.emit_closures();
 
-        // 5. Funções compiladas
+        // 5. Compiled functions
         let module = self.module;
         if module.excecoes_por_tabelas {
             assert!(
@@ -533,9 +533,9 @@ impl<'a> LlvmEmitter<'a> {
         }
 
         if self.module.sdk_library {
-            // Uma biblioteca do SDK da fonte (P5c): sem entrada nem despacho
-            // de `toString`, que são do programa; a função de registro das
-            // classes dela, que a entrada do programa chama.
+            // A source SDK library (P5c): without the entry or the `toString`
+            // dispatch, which belong to the program; the registration function of its
+            // classes, which the program entry calls.
             let reg = self.module.record.clone().unwrap_or_else(|| "df.registrar".to_string());
             self.emit_registration(&reg);
             self.emit_selector_globals();
@@ -553,7 +553,7 @@ impl<'a> LlvmEmitter<'a> {
             return self.out;
         }
 
-        // 6. Funções de despacho polimórfico
+        // 6. Polymorphic dispatch functions
         if self.module.sdk_mode {
             self.emit_to_string_by_selector();
         } else {
@@ -565,19 +565,19 @@ impl<'a> LlvmEmitter<'a> {
 
         self.emit_selector_globals();
         self.emit_area_descriptor();
-        // A área deste isolado com o layout desta geração, criada (ou
-        // estendida) agora: a publicação de uma recarga do JIT a chama no
-        // ponto seguro, antes de o código novo executar.
+        // The area of this isolate with the layout of this generation, created (or
+        // extended) now: the publication of a JIT reload calls it at the
+        // safepoint, before the new code runs.
         self.out.push_str(
             "define void @df.preparar_area() {\n  %a = call ptr @dartforge_area_de_globais(ptr @df.area)\n  ret void\n}\n",
         );
-        // A área no prólogo de cada função: o id do módulo indexa a tabela
-        // desta thread no `Context` (deslocamentos 16 e 24); uma entrada
-        // ausente vai ao runtime, que a preenche (e dá o id na primeira vez).
-        // O índice da área do programa tem nome próprio: o particionamento
-        // (`partition.rs`) o promove a externo, e a LTO completa dos módulos
-        // do SDK, ao dividir o módulo juntado em partições, promove o
-        // `@df.area_id` interno de um deles com o mesmo nome — "duplicate
+        // The area in the prologue of each function: the module id indexes the table
+        // of this thread in the `Context` (offsets 16 and 24); an absent entry
+        // goes to the runtime, which fills it (and gives the id the first time).
+        // The index of the area of the program has its own name: partitioning
+        // (`partition.rs`) promotes it to external, and the full LTO of the
+        // SDK modules, when splitting the joined module into partitions, promotes the
+        // internal `@df.area_id` of one of them with the same name — "duplicate
         // symbol: df.area_id" (docs/NATIVO-PRODUCAO-GRANDE.md §5).
         let get_area = GET_AREA.replace("@df.area_id", "@df.area_id.programa");
         self.out.push_str(&out_of_line(&get_area, &self.outlined_helpers));
@@ -593,17 +593,17 @@ impl<'a> LlvmEmitter<'a> {
         self.out
     }
 
-    /// Raízes por mapas no Mach-O: o `__llvm_stackmaps` fica no formato do
-    /// LLVM (o `ld64.lld` não separa os índices do ThinLTO, e o conversor
-    /// não roda na LTO do ligador), e nada o referencia — o `-dead_strip` o
-    /// descartaria. `.no_dead_strip` marca vivo o átomo local
-    /// `__LLVM_StackMaps` que o LLVM emite em cada objeto com mapa, sem
-    /// torná-lo global (o Perry faz o mesmo,
-    /// `perry-codegen/src/module.rs`). Só num módulo com função `gc`: sem
-    /// mapa, o símbolo não existe.
+    /// Roots by maps on Mach-O: the `__llvm_stackmaps` stays in LLVM's format
+    /// (`ld64.lld` does not separate the ThinLTO indices, and the converter
+    /// does not run in the linker's LTO), and nothing references it — `-dead_strip` would
+    /// discard it. `.no_dead_strip` marks as live the local atom
+    /// `__LLVM_StackMaps` that LLVM emits in each object with a map, without
+    /// making it global (Perry does the same,
+    /// `perry-codegen/src/module.rs`). Only in a module with a `gc` function: without
+    /// a map, the symbol does not exist.
     ///
-    /// Antes, o `"deopt"()` vazio em toda chamada que pode coletar e ainda
-    /// não tem o dela ([`empty_deopt`]).
+    /// Before, the empty `"deopt"()` on every call that may collect and does not
+    /// have its own yet ([`empty_deopt`]).
     fn close_maps(&mut self) {
         if self.maps {
             self.out = empty_deopt(&self.out);
@@ -636,7 +636,7 @@ impl<'a> LlvmEmitter<'a> {
         }
     }
 
-    /// Acrescenta `bytes` à tabela de constantes, se ainda não estiver.
+    /// Adds `bytes` to the constant table, if not there yet.
     fn register_string(table: &mut Vec<Vec<u8>>, idx_value: &mut std::collections::HashMap<Vec<u8>, usize>, bytes: &[u8]) {
         if !idx_value.contains_key(bytes) {
             idx_value.insert(bytes.to_vec(), table.len());
@@ -646,19 +646,19 @@ impl<'a> LlvmEmitter<'a> {
 
     fn emit_header(&mut self) {
         if self.maps && !self.maps_in_jit {
-            // `-ni:1`: o `addrspace(1)` é de ponteiros não integrais — o
-            // otimizador não fabrica `ptrtoint`/`inttoptr` com as raízes.
+            // `-ni:1`: `addrspace(1)` is of non-integral pointers — the
+            // optimizer does not fabricate `ptrtoint`/`inttoptr` with the roots.
             self.out.push_str(&crate::alvo::cabecalho_ir().replacen("-S128\"", "-S128-ni:1\"", 1));
         } else {
             self.out.push_str(crate::alvo::cabecalho_ir());
         }
-        // Os ids das classes do programa, para a geração seguinte de uma
-        // recarga do JIT (J03, `context::ir_ids`).
+        // The ids of the program classes, for the next generation of a
+        // JIT reload (J03, `context::ir_ids`).
         for (id, lib, class) in &self.module.program_ids {
             writeln!(self.out, "; df.classe {id} {} {}", crate::context::escape_str(lib), crate::context::escape_str(class)).unwrap();
         }
-        // O layout dos objetos, para migrar as instâncias vivas (J03):
-        // `name:flags:ty`, com `a` anulável e `l` late.
+        // The layout of the objects, to migrate the live instances (J03):
+        // `name:flags:ty`, with `a` nullable and `l` late.
         for (id, base, fields) in &self.module.program_fields {
             let list: Vec<String> = fields
                 .iter()
@@ -675,8 +675,8 @@ impl<'a> LlvmEmitter<'a> {
         self.out.push_str("; Declarações do runtime nativo Rust (tabela em llvm/externs.rs)\n");
         for e in externs::EXTERNS {
             self.out.push_str(e.decl);
-            // Raízes por mapas: a extern que não coleta é folha — a chamada
-            // a ela não vira ponto de coleta (nem registro no mapa).
+            // Roots by maps: the extern that does not collect is a leaf — the call
+            // to it does not become a collection point (nor an entry in the map).
             if self.maps {
                 let ef = externs::effects_of(e.nome());
                 if (!ef.allocates && !ef.calls_dart) || crate::alvo::sabotaged_leaf(e.nome()) {
@@ -686,14 +686,14 @@ impl<'a> LlvmEmitter<'a> {
             self.out.push('\n');
         }
         if self.vm_stack_trace.is_some() && !self.stack_trace_in_jit {
-            // O começo e o fim da seção do rastro da imagem (§13.14).
+            // The start and the end of the stack trace section of the image (§13.14).
             self.out.push_str(stack_trace::markers().0);
         }
         if self.maps && !self.maps_in_jit {
-            // O registro do mapa da imagem (`dartforge_registrar_mapa*`): a
-            // base da imagem PE (o runtime acha `.dfgcm` e `.llvm_st` pelos
-            // cabeçalhos); os limites da seção `dfgcm` que o `ld.lld` define;
-            // no Mach-O, os do `__llvm_stackmaps` do LLVM.
+            // The registration of the map of the image (`dartforge_registrar_mapa*`): the
+            // base of the PE image (the runtime finds `.dfgcm` and `.llvm_st` through the
+            // headers); the bounds of the `dfgcm` section that `ld.lld` defines;
+            // on Mach-O, those of LLVM's `__llvm_stackmaps`.
             self.out.push_str(match crate::alvo::sistema() {
                 crate::alvo::Sistema::Windows => "declare void @dartforge_registrar_mapa(ptr)\n@__ImageBase = external constant i8\n",
                 crate::alvo::Sistema::Linux => {
@@ -706,8 +706,8 @@ impl<'a> LlvmEmitter<'a> {
                 }
             });
         }
-        // As chamadas nativas com struct por valor copiam os bytes numa
-        // temporária da pilha (`llvm/c_abi.rs`).
+        // The native calls with a struct by value copy the bytes into a
+        // stack temporary (`llvm/c_abi.rs`).
         let composites = self.module.functions.iter().any(|f| {
             f.blocks.iter().any(|b| b.instructions.iter().any(|(_, i, _)| matches!(i, Instruction::CompositeNativeCall { .. })))
         });
@@ -718,7 +718,7 @@ impl<'a> LlvmEmitter<'a> {
             self.out.push_str(decl);
             self.out.push('\n');
         }
-        // Os ajudantes `@df.*` de cada pacote (§3.5).
+        // The `@df.*` helpers of each package (§3.5).
         let helpers_start = self.out.len();
         self.out.push_str(ir_strings::HELPERS);
         self.out.push_str(ir_boxes::HELPERS);
@@ -754,8 +754,8 @@ impl<'a> LlvmEmitter<'a> {
             self.out.push_str(if cfg!(windows) { EXCEPTIONS_BY_TABLES } else { EXCEPTIONS_BY_TABLES_ITANIUM });
         }
         if externs::check_effects() {
-            // A moldura da conferência não coleta: com as raízes por mapas, é
-            // folha (sem statepoint em volta dela).
+            // The frame of the check does not collect: with roots by maps, it is a
+            // leaf (no statepoint around it).
             if self.maps {
                 self.out.push_str(
                     "declare void @dartforge_efeitos_antes(ptr, i64, i64) \"gc-leaf-function\"\ndeclare void @dartforge_efeitos_depois() \"gc-leaf-function\"\n",
@@ -797,7 +797,7 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     fn emit_vtables(&mut self) {
-        // vtables globais se houver classes
+        // Global vtables if there are classes
         for class in &self.module.classes {
             writeln!(self.out, "; VTable da classe {} (id {})", class.name, class.id).unwrap();
         }
@@ -818,10 +818,10 @@ impl<'a> LlvmEmitter<'a> {
         let params_str = params.join(", ");
 
         let (linkage, comdat) = self.linkage_of(&func.symbol);
-        // Uma cópia por imagem (`linkonce_odr`): o rastro não a rotula.
+        // One copy per image (`linkonce_odr`): the stack trace does not label it.
         let shared = !linkage.is_empty();
-        // §7.4, modo sombra: os valores `Ref` da função (os candidatos de
-        // `roots::analyze`) para o conferidor de dominância.
+        // §7.4, shadow mode: the `Ref` values of the function (the candidates of
+        // `roots::analyze`) for the dominance checker.
         if !self.maps && verify_shadow::linked() {
             let mut refs: Vec<u32> = func.params.iter().filter(|(_, _, t)| *t == Type::Ref).map(|(v, _, _)| v.0).collect();
             for b in &func.blocks {
@@ -836,20 +836,20 @@ impl<'a> LlvmEmitter<'a> {
         }
         let function_start = self.out.len();
         let mut written_position: Option<(u32, u32)> = None;
-        // A posição de uma instrução copiada pelo inlining (só o rastro).
+        // The position of an instruction copied by inlining (only the stack trace).
         let mut written_embedded: Option<(u32, u32, u32)> = None;
         let attributes = if self.optimize_size { " optsize" } else { "" };
-        // O `this` de um método é sempre um objeto do espaço (nunca null nem
-        // `Smi`: a classe tem o campo lido); sem corpo de fora, o endereço
-        // dos campos dele é `this − 2 + 16`.
+        // The `this` of a method is always an object of the space (never null or a
+        // `Smi`: the class has the read field); without an outside body, the address
+        // of its fields is `this − 2 + 16`.
         self.this_object = func
             .params
             .first()
             .filter(|(_, name_str, t)| self.body_without_outside && !self.module.arc_memory && name_str == "this" && *t == Type::Ref)
             .map(|(vid, _, _)| vid.0);
-        // Exceções por tabelas: a decisão do passe para esta função. Só a
-        // função com pouso nomeia a personalidade (é ela que lê a tabela dos
-        // pousos); as outras o desenrolamento atravessa.
+        // Exceptions by tables: the decision of the pass for this function. Only the
+        // function with a landing pad names the personality (it is the one that reads the table of the
+        // landing pads); the unwinding crosses the others.
         let tab = self.tab;
         let has_landing_pad = tab.is_some_and(|t| !t.landing_pads.is_empty());
         let has_resume = tab.is_some_and(|t| t.exits.values().any(|s| *s == ExceptionExit::Resume));
@@ -864,9 +864,9 @@ impl<'a> LlvmEmitter<'a> {
         let personality = if has_cleanup { " personality ptr @dartforge_personalidade_cleanup_itanium" }
             else if has_landing_pad { " personality ptr @dartforge_personalidade" } else { "" };
 
-        // G1/G2 (docs/NATIVO-PLANO.md §6.5): um slot por `alloca` de tipo
-        // `Ref`, e os valores SSA `Ref` vivos em algum ponto de coleta, com
-        // slot compartilhado entre os que nunca estão vivos juntos
+        // G1/G2 (docs/NATIVO-PLANO.md §6.5): one slot per `alloca` of type
+        // `Ref`, and the `Ref` SSA values live at some collection point, with a
+        // slot shared among those that are never live together
         // (`roots.rs`).
         let converting_blocks: std::collections::HashSet<u32> = self.conv_phi.iter().map(|(b, ..)| *b).collect();
         let mut analysis = roots::analyze_with(
@@ -876,19 +876,19 @@ impl<'a> LlvmEmitter<'a> {
             &|b| converting_blocks.contains(&b.0),
             &|inst| self.callee_roots_the_arguments(inst),
         );
-        // O orçamento do `rewrite-statepoints-for-gc` (§3.4): o passe cresce
-        // de forma superlinear com `live_set × points de collection`. Acima do teto
-        // a função fica inteira na pilha-sombra, como quadro residual
-        // (§3.7): sem `gc`, com os slots de sempre.
+        // The budget of `rewrite-statepoints-for-gc` (§3.4): the pass grows
+        // superlinearly with `live × collection points`. Above the ceiling
+        // the whole function stays on the shadow stack, as a residual frame
+        // (§3.7): without `gc`, with the usual slots.
         let cost = analysis.rooted_set.len() as u64 * (analysis.live_at.len() + analysis.live_at_end.len()) as u64;
         let within_budget = cost <= crate::alvo::maps_budget();
         if self.maps && !within_budget && std::env::var_os("DARTFORGE_RELATORIO_MAPAS").is_some() {
             eprintln!("dartforge: {} fora do orçamento dos mapas ({cost}): pilha-sombra", func.symbol);
         }
         if self.maps && within_budget {
-            // Raízes por mapas: no quadro só ficam os `alloca` `Ref` (o
-            // mapa de pilha descreve valores SSA, não memória); os valores
-            // SSA enraizados vão para o mapa.
+            // Roots by maps: only the `Ref` `alloca`s stay in the frame (the
+            // stack map describes SSA values, not memory); the rooted SSA
+            // values go into the map.
             analysis.slots.retain(|v, _| self.pointee.contains_key(v));
             self.rooted_set = analysis.rooted_set.iter().copied().collect();
         } else {
@@ -896,18 +896,18 @@ impl<'a> LlvmEmitter<'a> {
         }
         self.slots = std::mem::take(&mut analysis.slots);
         self.function_roots = analysis;
-        // Raízes por mapas: toda função é `gc` — o
-        // `rewrite-statepoints-for-gc` transforma as chamadas dela que podem
-        // coletar em statepoints (`crates/llvm`, `gerar`), cada uma com o
-        // operando `"deopt"` dos vivos nela (§14.12): vazio na função sem
-        // raízes no mapa (as da fora do orçamento estão no quadro), mas
-        // presente, para o inliner juntar a ele os vivos de quem a chama.
+        // Roots by maps: every function is `gc` — the
+        // `rewrite-statepoints-for-gc` turns its calls that may
+        // collect into statepoints (`crates/llvm`, `gerar`), each one with the
+        // `"deopt"` operand of the values live at it (§14.12): empty in a function without
+        // roots in the map (those outside the budget are in the frame), but
+        // present, so that the inliner joins to it the live values of its callers.
         let has_gc = self.maps;
         if !self.rooted_set.is_empty() {
             self.gc_functions += 1;
         }
-        // O build de conferência: tantos slots a mais quantos o maior
-        // conjunto de vivos num ponto de coleta.
+        // The checking build: as many extra slots as the largest
+        // set of live values at a collection point.
         self.check = None;
         if !self.rooted_set.is_empty() && crate::alvo::check_roots() {
             let k = self
@@ -934,16 +934,16 @@ impl<'a> LlvmEmitter<'a> {
                 b.instructions.iter().rev().find_map(|(vid, i, _)| {
                     let v = vid.0;
                     if tab.is_some_and(|t| t.invocations.contains_key(vid)) {
-                        // O caminho normal de um `invoke` ([`Self::make_invoke`]).
+                        // The normal path of an `invoke` ([`Self::make_invoke`]).
                         Some((b.id.0, format!("inv{v}.fim")))
                     } else if Self::inline_allocation(i).is_some() && !self.out_of_line_allocation {
                         Some((b.id.0, format!("ao{v}.fim")))
                     } else if self.inline_barrier(i) {
                         Some((b.id.0, format!("wb{v}.fim")))
                     } else if !self.static_objects && matches!(i, Instruction::Const(Constant::String(_) | Constant::StringWtf8(_))) {
-                        // Sem os objetos estáticos (o JIT), o literal vai ao
-                        // cache do ponto de uso (`ir_strings`), que divide o
-                        // bloco; com eles, é uma constante (§2.11).
+                        // Without the static objects (the JIT), the literal goes to the
+                        // cache of the use site (`ir_strings`), which splits the
+                        // block; with them, it is a constant (§2.11).
                         Some((b.id.0, format!("ls{v}.fim")))
                     } else if matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_exception_clear") {
                         Some((b.id.0, format!("xc{v}.fim")))
@@ -955,8 +955,8 @@ impl<'a> LlvmEmitter<'a> {
                 })
             })
             .collect();
-        // O pouso com o desvio Dart/estrangeira termina em `lpad{b}.dart`
-        // (abaixo): um `phi` emitido antes dele já precisa do rótulo.
+        // The landing pad with the Dart/foreign branch ends in `lpad{b}.dart`
+        // (below): a `phi` emitted before it already needs the label.
         if has_cleanup && let Some(t) = tab {
             for p in &t.landing_pads {
                 if t.exits.get(p) != Some(&ExceptionExit::Resume) {
@@ -970,17 +970,17 @@ impl<'a> LlvmEmitter<'a> {
             writeln!(self.out, "b{}:", block.id.0).unwrap();
             let block_start = self.out.len();
             self.current_label = format!("b{}", block.id.0);
-            // O pouso de um `invoke`: quem desenrolou até aqui deixou a
-            // exceção pendente e os quadros de raízes dele (e dos quadros
-            // atravessados) ainda encadeados — o topo da pilha-sombra volta
-            // a ser o desta função, antes de qualquer outra instrução.
+            // The landing pad of an `invoke`: whoever unwound up to here left the
+            // exception pending and its roots frames (and those of the crossed
+            // frames) still chained — the top of the shadow stack goes back
+            // to that of this function, before any other instruction.
             if tab.is_some_and(|t| t.landing_pads.contains(&block.id)) {
                 if tab.is_some_and(|t| t.exits.get(&block.id) == Some(&ExceptionExit::Resume)) {
                     writeln!(self.out, "  %lpad{} = landingpad {{ ptr, i32 }} cleanup", block.id.0).unwrap();
                 } else if has_gc {
-                    // Numa função `gc` o `invoke` vira statepoint, e o pouso
-                    // dele é `token` (o que as relocações do caminho de
-                    // exceção referenciam).
+                    // In a `gc` function the `invoke` becomes a statepoint, and its
+                    // landing pad is a `token` (what the relocations of the
+                    // exception path reference).
                     writeln!(self.out, "  %lpad{} = landingpad token cleanup", block.id.0).unwrap();
                 } else {
                     let cleanup = if has_cleanup { " cleanup" } else { "" };
@@ -994,8 +994,8 @@ impl<'a> LlvmEmitter<'a> {
                     writeln!(self.out, "  call void @dartforge_efeitos_restaurar(i64 %efnivel)").unwrap();
                 }
                 if has_cleanup && tab.is_some_and(|t| t.exits.get(&block.id) != Some(&ExceptionExit::Resume)) {
-                    // O inliner pode combinar catch e cleanup. Seletor zero
-                    // executa cleanup, mas não autoriza tratar estrangeira como Dart.
+                    // The inliner may combine catch and cleanup. A zero selector
+                    // runs cleanup, but does not authorize treating a foreign exception as Dart.
                     let b = block.id.0;
                     writeln!(self.out, "  %lpseletor{b} = extractvalue {{ ptr, i32 }} %lpad{b}, 1").unwrap();
                     writeln!(self.out, "  %lptipo{b} = call i32 @llvm.eh.typeid.for(ptr null)").unwrap();
@@ -1021,32 +1021,32 @@ impl<'a> LlvmEmitter<'a> {
                     self.current_label = format!("lpad{b}.dart");
                     self.exit_labels.entry(b).or_insert_with(|| format!("lpad{b}.dart"));
                 }
-                // Raízes por mapas: o que o tratador ainda lê estava vivo na
-                // entrada do `invoke` e vai no `"deopt"` dele.
+                // Roots by maps: what the handler still reads was live at the
+                // entry of the `invoke` and goes into its `"deopt"`.
             }
             if block.id.0 == 0 {
                 self.emit_closure_buffers(func);
                 if has_landing_pad && externs::check_effects() {
                     writeln!(self.out, "  %efnivel = call i64 @dartforge_efeitos_nivel()").unwrap();
                 }
-                // O quadro de raízes também nasce antes de qualquer chamada
-                // (N17): o `df.get_area` abaixo é `alwaysinline` e tem
-                // desvios, e um `alloca` depois dele deixava de ser do bloco
-                // de entrada — virava alocação dinâmica, com `__chkstk` e o
-                // `stacksave` a cada chamada da função, e impedia o inliner
-                // de levar o quadro para o bloco de entrada de quem chama.
-                // `DARTFORGE_SEM_QUADRO_NA_ENTRADA=1` na compilação volta ao
-                // lugar antigo (medida).
+                // The roots frame is also born before any call
+                // (N17): the `df.obter_area` below is `alwaysinline` and has
+                // branches, and an `alloca` after it stopped being in the entry
+                // block — it became a dynamic allocation, with `__chkstk` and
+                // `stacksave` on each call of the function, and prevented the inliner
+                // from taking the frame into the entry block of the caller.
+                // `DARTFORGE_SEM_QUADRO_NA_ENTRADA=1` at compile time goes back to the
+                // old place (measurement).
                 if self.has_frame && Self::frame_at_entry() {
                     let n = self.frame_size();
                     writeln!(self.out, "  %gcq = alloca {{ ptr, i64, [{n} x i64] }}, align 8").unwrap();
                 }
-                // O marco da conferência da pilha
-                // (`emit_stack_check`), pelo mesmo motivo: depois
-                // do `df.get_area` (ou do contexto em linha,
-                // `sdk_modulo::with_context_in_tls`) ele virava alocação
-                // dinâmica, com o ponteiro de quadro e o ajuste do `sp` a cada
-                // chamada.
+                // The marker of the stack check
+                // (`emit_stack_check`), for the same reason: after
+                // `df.obter_area` (or the inline context,
+                // `sdk_modulo::with_context_in_tls`) it became a dynamic
+                // allocation, with the frame pointer and the `sp` adjustment on each
+                // call.
                 if self.has_ctx {
                     writeln!(self.out, "  %pilhaq = alloca i8, align 1").unwrap();
                 }
@@ -1062,33 +1062,33 @@ impl<'a> LlvmEmitter<'a> {
                 self.stack_trace_names.push(func.symbol.clone());
                 writeln!(self.out, "  call void @dartforge_rastro_entrada(ptr @df.rastro.{n}, i64 {})", func.symbol.len()).unwrap();
             }
-            // O contexto da thread (`runtime/src/heap.rs`, `Context`): a
-            // exceção pendente no deslocamento 0, o topo da pilha-sombra no 8.
+            // The thread context (`runtime/src/heap.rs`, `Context`): the
+            // pending exception at offset 0, the top of the shadow stack at 8.
             if block.id.0 == 0 && self.has_ctx {
                 writeln!(self.out, "  %ctx = call ptr @dartforge_contexto()").unwrap();
                 writeln!(self.out, "  %ctxtopo = getelementptr inbounds i8, ptr %ctx, i64 8").unwrap();
-                // Sem quadro de raízes, o topo que o pouso restaura é o da
-                // entrada da função.
+                // Without a roots frame, the top that the landing pad restores is that of the
+                // entry of the function.
                 if has_landing_pad && !self.has_frame {
                     writeln!(self.out, "  %topo0 = load ptr, ptr %ctxtopo, align 8").unwrap();
                 }
                 self.emit_stack_check(func);
             }
             if block.id.0 == 0 && self.has_frame {
-                // O quadro de raízes no stack da função (a pilha-sombra,
-                // `QuadroDeRaizes` do runtime): anterior, número de slots e
-                // os slots, zerados antes de o runtime encadeá-lo. Cada raiz
-                // é um `store` no slot dela (slots compartilhados: o tamanho
-                // é o do maior).
+                // The roots frame on the stack of the function (the shadow stack,
+                // the runtime's `RootFrame`): previous, number of slots and
+                // the slots, zeroed before the runtime chains it. Each root
+                // is a `store` into its slot (shared slots: the size
+                // is that of the largest).
                 let n = self.frame_size();
                 let t = format!("{{ ptr, i64, [{n} x i64] }}");
                 if !Self::frame_at_entry() {
                     writeln!(self.out, "  %gcq = alloca {t}, align 8").unwrap();
                 }
                 let header = self.frame_header(n);
-                // A sabotagem `quadro_sujo` (D5, §7.3): os slots nascem com um
-                // valor de handle que não aponta para bloco nenhum; um slot
-                // lido antes de escrito cai na validação de handle.
+                // The `quadro_sujo` sabotage (D5, §7.3): the slots are born with a
+                // handle value that points to no block; a slot
+                // read before being written falls into handle validation.
                 let slots = if n > 0 && crate::alvo::sabotage("quadro_sujo") {
                     format!("[{}]", vec!["i64 4098"; n].join(", "))
                 } else {
@@ -1098,7 +1098,7 @@ impl<'a> LlvmEmitter<'a> {
                 for slot in 0..n {
                     writeln!(self.out, "  %gcs{slot} = getelementptr inbounds {t}, ptr %gcq, i64 0, i32 2, i64 {slot}").unwrap();
                 }
-                // Encadeia o quadro: `previous` = topo; topo = quadro.
+                // Chains the frame: `previous` = top; top = frame.
                 writeln!(self.out, "  %gcant = load ptr, ptr %ctxtopo, align 8").unwrap();
                 writeln!(self.out, "  store ptr %gcant, ptr %gcq, align 8").unwrap();
                 writeln!(self.out, "  store ptr %gcq, ptr %ctxtopo, align 8").unwrap();
@@ -1115,32 +1115,32 @@ impl<'a> LlvmEmitter<'a> {
                 }
             }
             if block.id.0 == 0 {
-                // Raízes por mapas: as chamadas do prólogo (a área do módulo,
-                // o estouro de pilha, as conversões dos parâmetros) podem
-                // coletar, com os parâmetros enraizados vivos — todo
-                // parâmetro enraizado está vivo na entrada.
+                // Roots by maps: the calls of the prologue (the area of the module,
+                // the stack overflow, the conversions of the parameters) may
+                // collect, with the rooted parameters live — every
+                // rooted parameter is live at the entry.
                 if !self.rooted_set.is_empty() {
                     let params: Vec<ValueId> = func.params.iter().map(|p| p.0).filter(|v| self.rooted_set.contains(v)).collect();
                     self.attach_deopt_with(block_start, &params, false);
                 }
-                // A sabotagem `bruto_no_mapa`: um valor que o otimizador não
-                // dobra (a carga volátil) posto no mapa como raiz.
+                // The `bruto_no_mapa` sabotage: a value that the optimizer does not
+                // fold (the volatile load) put in the map as a root.
                 if !self.rooted_set.is_empty() && crate::alvo::sabotage("bruto_no_mapa") {
                     self.out.push_str(
                         "  %dfsab = alloca i64, align 8\n  store volatile i64 4098, ptr %dfsab, align 8\n  %dfsabv = load volatile i64, ptr %dfsab, align 8\n",
                     );
                 }
             }
-            // `phi` tem de ser a primeira instrução do bloco: as raízes dos
-            // `phi` saem todas depois do último deles.
+            // `phi` must be the first instruction of the block: the roots of the
+            // `phi`s all come out after the last of them.
             let mut phi_roots: Vec<(usize, u32)> = Vec::new();
             self.fresh_set.clear();
 
             for (vid, inst, ty) in &block.instructions {
                 let v = vid.0;
-                // J05: a posição do comando, quando muda (`llvm/debug_info.rs`);
-                // a de uma instrução copiada pelo inlining da HIR, com o
-                // contexto dela, vai num marcador só do rastro (§13.14).
+                // J05: the position of the statement, when it changes (`llvm/debug_info.rs`);
+                // that of an instruction copied by HIR inlining, with its
+                // context, goes into a marker only for the stack trace (§13.14).
                 if let Some(e) = func.debug_info.as_ref().and_then(|d| d.embedded_positions.get(vid)) {
                     if written_embedded != Some(*e) {
                         writeln!(self.out, "{}{} {} {}", debug_info::EMBEDDED_MARKER, e.0, e.1, e.2).unwrap();
@@ -1159,15 +1159,15 @@ impl<'a> LlvmEmitter<'a> {
                         self.phi_root(slot, pv);
                     }
                 }
-                // O build de conferência: os vivos deste ponto de coleta,
-                // exatamente, nos slots de conferência.
+                // The checking build: the values live at this collection point,
+                // exactly, in the check slots.
                 if self.check.is_some()
                     && let Some(live_set) = self.function_roots.live_at.get(vid).cloned()
                 {
                     self.store_check(&live_set);
                 }
-                // Um ponto de coleta pode promover o objeto recém-alocado
-                // (velho depois da coleta): deixa de ser fresco.
+                // A collection point may promote the freshly allocated object
+                // (old after the collection): it stops being fresh.
                 if self.may_collect(inst) {
                     self.fresh_set.clear();
                 }
@@ -1371,24 +1371,24 @@ impl<'a> LlvmEmitter<'a> {
                             self.out,
                             "  %v{v} = call i64 @dartforge_object_new(i64 {class_id}, i64 {count})"
                         ).unwrap();
-                        // Os campos em linha, pela tabela de campos (o objeto
-                        // é novo: nenhum outro código o vê antes disto).
+                        // The inline fields, through the field table (the object
+                        // is new: no other code sees it before this).
                         if !fields.is_empty() {
                             self.emit_field_addresses_of(v, &format!("%v{v}"), !self.module.arc_memory);
                         }
                         for (idx, field) in fields.iter().enumerate() {
-                            // E1: `is_ref` pela representação do valor.
+                            // E1: `is_ref` by the representation of the value.
                             let is_ref = u8::from(self.type_of(field) == Type::Ref).to_string();
                             let sf = self.coerce(field, Type::I64);
                             self.emit_field_write(v, &format!(".{idx}"), idx, &sf, &is_ref);
                         }
-                        // No ARC, os campos gravados em linha contam.
+                        // Under ARC, the fields written inline count.
                         if fields.iter().any(|f| self.type_of(f) == Type::Ref) {
                             self.count_initial_in_arc(v);
                         }
                     }
-                    // O campo em linha: a palavra de 8 bytes depois do
-                    // cabeçalho do corpo do objeto (`heap::Cabecalho`).
+                    // The inline field: the 8-byte word after the
+                    // header of the body of the object (the runtime's `Header`).
                     Instruction::GetField { object, index } => {
                         let only = self.coerce(object, Type::I64);
                         let bits = if matches!(ty, Type::Ref | Type::I64) {
@@ -1406,7 +1406,7 @@ impl<'a> LlvmEmitter<'a> {
                             self.emit_named_conversion(&format!("%v{v}"), Type::I64, &bits, *ty);
                         }
                     }
-                    // No ARC a gravação vai ao runtime (`dartforge_object_set`), que conta a troca.
+                    // Under ARC the store goes to the runtime (`dartforge_object_set`), which counts the swap.
                     Instruction::SetField { object, index, value } if (*index as usize) < INLINE_FIELDS && !self.module.arc_memory => {
                         let is_ref = u8::from(self.type_of(value) == Type::Ref);
                         let only = self.coerce(object, Type::I64);
@@ -1433,9 +1433,9 @@ impl<'a> LlvmEmitter<'a> {
                         let mut args_str: Vec<String> = Vec::with_capacity(args.len());
                         let mut args_types = Vec::with_capacity(args.len());
                         for (idx, a) in args.iter().enumerate() {
-                            // Função de outro módulo (SDK da fonte): o tipo do
-                            // operando, que o lowering já coagiu para a
-                            // representação do parâmetro.
+                            // Function of another module (source SDK): the type of the
+                            // operand, which the lowering already coerced to the
+                            // representation of the parameter.
                             let alvo = target_func
                                 .and_then(|f| f.params.get(idx))
                                 .map_or_else(|| self.type_of(a), |p| p.2);
@@ -1455,7 +1455,7 @@ impl<'a> LlvmEmitter<'a> {
                             writeln!(self.out, "  %v{v} = call {r} @{symbol}({joined})").unwrap();
                         }
                     }
-                    // Campo com índice constante: em linha, como `GetField`.
+                    // Field with a constant index: inline, like `GetField`.
                     Instruction::CallRuntime { name, args, .. }
                         if name == "dartforge_object_get"
                             && matches!(args.get(1), Some((Operand::Constant(Constant::Int(i)), _)) if (0..INLINE_FIELDS as i64).contains(i)) =>
@@ -1476,7 +1476,7 @@ impl<'a> LlvmEmitter<'a> {
                         let Some((Operand::Constant(Constant::Int(i)), _)) = args.get(1) else { unreachable!() };
                         let only = self.coerce(&args[0].0, Type::I64);
                         let sv = self.coerce(&args[2].0, Type::I64);
-                        // `is_ref` é um `bool` do Rust: só 0 ou 1.
+                        // `is_ref` is a Rust `bool`: only 0 or 1.
                         let is_ref = match &args[3].0 {
                             Operand::Constant(Constant::Int(n)) => u8::from(*n != 0).to_string(),
                             Operand::Constant(Constant::Bool(b)) => u8::from(*b).to_string(),
@@ -1505,8 +1505,8 @@ impl<'a> LlvmEmitter<'a> {
                             && matches!(args.first(), Some((Operand::Constant(Constant::Int(c)), _))
                                 if self.module.table_functions.contains_key(&(*c as u32))) =>
                     {
-                        // SDK da fonte: a primeira alocação registra a tabela
-                        // de métodos da classe (`selectors.rs`).
+                        // Source SDK: the first allocation registers the method table
+                        // of the class (`selectors.rs`).
                         let Some((Operand::Constant(Constant::Int(c)), _)) = args.first() else { unreachable!() };
                         let f = self.module.table_functions[&(*c as u32)].clone();
                         self.annotate_external(&f, Type::Ptr, &[]);
@@ -1522,8 +1522,8 @@ impl<'a> LlvmEmitter<'a> {
                             && matches!(args.first(), Some((Operand::Constant(Constant::Int(c)), _))
                                 if self.module.table_functions.contains_key(&(*c as u32))) =>
                     {
-                        // A primeira lista tipada (ou visão) de uma classe
-                        // registra a tabela de métodos dela, como
+                        // The first typed list (or view) of a class
+                        // registers its method table, like
                         // `dartforge_object_new_t`.
                         let Some((Operand::Constant(Constant::Int(c)), _)) = args.first() else { unreachable!() };
                         let f = self.module.table_functions[&(*c as u32)].clone();
@@ -1532,8 +1532,8 @@ impl<'a> LlvmEmitter<'a> {
                         writeln!(self.out, "  %v{v} = call i64 @{name}_t({}, ptr @{f})", rest.join(", ")).unwrap();
                         let _ = ret_ty;
                     }
-                    // O mesmo pelo thunk Owned genérico (`optimize::arc::natives`):
-                    // o thunk da variante `_t`, que registra a tabela.
+                    // The same through the generic Owned thunk (`optimize::arc::natives`):
+                    // the thunk of the `_t` variant, which registers the table.
                     Instruction::CallRuntime { name, args, ret_ty }
                         if name.strip_prefix(crate::optimize::arc::GENERIC_OWNED_PREFIX).is_some_and(|b|
                             matches!(b, "dartforge_typed_novo" | "dartforge_view_nova" | "dartforge_typed_externo"))
@@ -1552,15 +1552,15 @@ impl<'a> LlvmEmitter<'a> {
                         writeln!(self.out, "  %v{v} = call i64 @{thunk}({}, ptr @{f})", rest.join(", ")).unwrap();
                         let _ = ret_ty;
                     }
-                    // A exceção pendente: o espelho no contexto da thread.
+                    // The pending exception: the mirror in the thread context.
                     Instruction::CallRuntime { name, .. } if name == "dartforge_exception_pending" && self.has_ctx => {
                         writeln!(self.out, "  %v{v} = load i8, ptr %ctx, align 8").unwrap();
                     }
-                    // O `dartforge_exception_clear` de cada `return` e salto:
-                    // sem exceção pendente (o espelho no contexto), não há o
-                    // que limpar — a entrada do `catch` e o `finally` já
-                    // limparam o rastro junto com a exceção. Só a pendente
-                    // (o `finally` que sai por `return`) chama o runtime.
+                    // The `dartforge_exception_clear` of each `return` and jump:
+                    // without a pending exception (the mirror in the context), there is nothing
+                    // to clear — the entry of the `catch` and the `finally` already
+                    // cleared the stack trace together with the exception. Only a pending one
+                    // (the `finally` that leaves through `return`) calls the runtime.
                     Instruction::CallRuntime { name, .. } if name == "dartforge_exception_clear" && self.has_ctx => {
                         writeln!(self.out, "  %xcp{v} = load i8, ptr %ctx, align 8").unwrap();
                         writeln!(self.out, "  %xcn{v} = icmp ne i8 %xcp{v}, 0").unwrap();
@@ -1569,12 +1569,12 @@ impl<'a> LlvmEmitter<'a> {
                         writeln!(self.out, "xc{v}.limpar:").unwrap();
                         writeln!(self.out, "  call void @dartforge_exception_clear()").unwrap();
                         if tab.is_some() {
-                            // A limpeza que não limpou é o desenrolar do
-                            // isolado (`Isolate.exit`, `kill`), que nenhum
-                            // tratador segura: no modelo de conferência a
-                            // função voltava com ele pendente; aqui ela
-                            // desenrola (o `catch` e o `finally` de fora, na
-                            // mesma função, não o tratariam mesmo).
+                            // The clear that did not clear is the unwinding of the
+                            // isolate (`Isolate.exit`, `kill`), which no
+                            // handler holds: in the check model the
+                            // function returned with it pending; here it
+                            // unwinds (the outer `catch` and `finally`, in the
+                            // same function, would not handle it anyway).
                             writeln!(self.out, "  %xcd{v} = load i8, ptr %ctx, align 8").unwrap();
                             writeln!(self.out, "  %xcq{v} = icmp ne i8 %xcd{v}, 0").unwrap();
                             writeln!(self.out, "  br i1 %xcq{v}, label %xc{v}.sai, label %xc{v}.fim").unwrap();
@@ -1587,27 +1587,27 @@ impl<'a> LlvmEmitter<'a> {
                         writeln!(self.out, "xc{v}.fim:").unwrap();
                         self.current_label = format!("xc{v}.fim");
                     }
-                    // O pedido de interrupção (J01): o byte no contexto
-                    // (deslocamento 32), lido atômico — outra thread o liga, e
-                    // a carga não pode sair do laço.
+                    // The interrupt request (J01): the byte in the context
+                    // (offset 32), read atomically — another thread sets it, and
+                    // the load cannot leave the loop.
                     Instruction::CallRuntime { name, .. } if name == "dartforge_interrupcao_pendente" && self.has_ctx => {
                         writeln!(self.out, "  %ip{v} = getelementptr inbounds i8, ptr %ctx, i64 32").unwrap();
                         writeln!(self.out, "  %iv{v} = load atomic i8, ptr %ip{v} monotonic, align 8").unwrap();
-                        // O pedido é raro: o caminho lento fica fora do corpo
-                        // do laço.
+                        // The request is rare: the slow path stays outside the body
+                        // of the loop.
                         writeln!(self.out, "  %v{v} = call i8 @llvm.expect.i8(i8 %iv{v}, i8 0)").unwrap();
                     }
                     Instruction::CallRuntime { args, .. } if Self::rti_evaluate_cached(inst) => {
                         self.emit_rti_evaluate_cached(v, args);
                     }
-                    // A classe do receptor: a do objeto do espaço lida no
-                    // cabeçalho, em linha (`df.class`); o resto, o runtime.
+                    // The class of the receiver: that of the object of the space read from the
+                    // header, inline (`df.classe`); the rest, the runtime.
                     Instruction::CallRuntime { name, args, .. } if name == "dartforge_value_class" && args.len() == 1 => {
                         let h = self.coerce(&args[0].0, Type::I64);
                         writeln!(self.out, "  %v{v} = call i64 @df.classe(i64 {h})").unwrap();
                     }
-                    // `cid <: C` pelo mapa de bits do alvo (`df.subclasse`),
-                    // sem chamada depois da primeira consulta.
+                    // `cid <: C` through the bitmap of the target (`df.subclasse`),
+                    // without a call after the first query.
                     Instruction::CallRuntime { name, args, .. } if name == "dartforge_is_subclass" && args.len() == 2 => {
                         let a = self.coerce(&args[0].0, Type::I64);
                         let b = self.coerce(&args[1].0, Type::I64);
@@ -1618,7 +1618,7 @@ impl<'a> LlvmEmitter<'a> {
                             let types: Vec<Type> = args.iter().map(|(_, t)| *t).collect();
                             self.annotate_external(name, *ret_ty, &types);
                         }
-                        // O código do tear-off pode morar em outro módulo.
+                        // The code of the tear-off may live in another module.
                         if name == "dartforge_arc_tearoff_owned_v1"
                             && let [(Operand::Constant(Constant::Function(code)), _)] = args.as_slice()
                         {
@@ -1646,8 +1646,8 @@ impl<'a> LlvmEmitter<'a> {
                         }
                         let joined = args_formatted.join(", ");
                         let r = ret_ty.llvm_ir();
-                        // `DARTFORGE_EFEITOS=check`: a extern marcada sem
-                        // coletar ou sem lançar roda vigiada pelo runtime.
+                        // `DARTFORGE_EFEITOS=conferir`: the extern marked as not
+                        // collecting or not throwing runs watched by the runtime.
                         let marks = if externs::check_effects() { externs::marks_to_check(name) } else { 0 };
                         if marks != 0 {
                             let k = match self.checked_externs.iter().position(|n| n == name) {
@@ -1669,10 +1669,10 @@ impl<'a> LlvmEmitter<'a> {
                         }
                     }
                     Instruction::NativeCall { alvo, args, ret } => {
-                        // A chamada C: cada argumento convertido ao tipo C
-                        // (estreitos com a extensão da ABI), o retorno
-                        // estendido de volta explicitamente (o Windows x64
-                        // não garante os bits altos de um retorno estreito).
+                        // The C call: each argument converted to the C type
+                        // (narrow ones with the ABI extension), the return
+                        // extended back explicitly (Windows x64
+                        // does not guarantee the high bits of a narrow return).
                         let a = self.coerce(alvo, Type::I64);
                         writeln!(self.out, "  %fn{v} = inttoptr i64 {a} to ptr").unwrap();
                         let mut parts = Vec::with_capacity(args.len());
@@ -1697,8 +1697,8 @@ impl<'a> LlvmEmitter<'a> {
                         }
                     }
                     Instruction::NativeLoad { address, index: idx_value, ty: typ } => {
-                        // Sem alinhamento suposto (os bytes de uma lista
-                        // tipada são de um `Vec<u8>`).
+                        // No assumed alignment (the bytes of a typed
+                        // list are from a `Vec<u8>`).
                         let e = self.coerce(address, Type::I64);
                         let i = self.coerce(idx_value, Type::I64);
                         let t = typ.llvm();
@@ -1746,28 +1746,28 @@ impl<'a> LlvmEmitter<'a> {
                     }
                     Instruction::AllocList { elements } => self.emit_alloc_list(v, elements),
                     Instruction::AllocRecord { elements } => self.emit_alloc_record(v, elements),
-                    // O `alloca` nasce no bloco de entrada (`emit_closure_buffers`).
+                    // The `alloca` is born in the entry block (`emit_closure_buffers`).
                     Instruction::Alloca(_) => {}
                     Instruction::Load { ptr, ty } => {
                         let sp = self.operand_str(ptr);
                         writeln!(self.out, "  %v{v} = load {}, ptr {sp}", ty.llvm_ir()).unwrap();
                     }
                     Instruction::Store { ptr, val } => {
-                        // O local guarda a representação do seu tipo (R6); o
-                        // valor chega já coagido pelo lowering, e aqui só se
-                        // acerta a largura. Um ponteiro que não é `alloca`
-                        // desta função (o endereço de um local de quem chama
-                        // uma função local direta, `direct_functions.rs`)
-                        // grava na largura do valor, a do local de lá: um
-                        // `bool` gravado como `i64` pisava 7 bytes do quadro
-                        // de quem chamou (o `listenerHasError` do
+                        // The local keeps the representation of its type (R6); the
+                        // value arrives already coerced by the lowering, and here only
+                        // the width is adjusted. A pointer that is not an `alloca`
+                        // of this function (the address of a local of a caller of
+                        // a direct local function, `direct_functions.rs`)
+                        // writes in the width of the value, that of the local over there: a
+                        // `bool` written as an `i64` trampled 7 bytes of the frame
+                        // of the caller (the `listenerHasError` of
                         // `_Future._propagateToListeners`).
                         let t = match ptr {
                             Operand::Val(p) => self.pointee.get(p).copied().unwrap_or_else(|| match self.type_of(val) {
                                 Type::I1 => Type::I1,
                                 Type::I8 => Type::I8,
                                 Type::F64 => Type::F64,
-                                // Local SIMD sem caixa de quem chama (16 bytes).
+                                // Unboxed SIMD local of the caller (16 bytes).
                                 t if t.is_vector() => t,
                                 _ => Type::I64,
                             }),
@@ -1776,8 +1776,8 @@ impl<'a> LlvmEmitter<'a> {
                         let sp = self.operand_str(ptr);
                         let sv = self.coerce(val, t);
                         writeln!(self.out, "  store {} {sv}, ptr {sp}", t.llvm_ir()).unwrap();
-                        // G2: o local `Ref` tem slot próprio, atualizado a
-                        // cada gravação — ele vive mais que o SSA que o gravou.
+                        // G2: the `Ref` local has its own slot, updated on
+                        // each write — it lives longer than the SSA value that wrote it.
                         if let Operand::Val(pv) = ptr
                             && !self.frame_allocas.contains(pv)
                             && let Some(&slot) = self.slots.get(pv)
@@ -1816,20 +1816,20 @@ impl<'a> LlvmEmitter<'a> {
                         self.global_address(v, sym_name);
                         writeln!(self.out, "  store {} {sv}, ptr %ga{v}", ty.llvm_ir()).unwrap();
                         if root.is_some() {
-                            // A raiz é identificada pelo endereço do slot:
-                            // único entre os módulos e os isolados.
+                            // The root is identified by the address of the slot:
+                            // unique across modules and isolates.
                             writeln!(self.out, "  %gr{v} = ptrtoint ptr %ga{v} to i64").unwrap();
                             writeln!(self.out, "  call void @dartforge_gc_global_root(i64 %gr{v}, i64 {sv})").unwrap();
                         }
                     }
                     Instruction::Phi { incoming, ty } => {
                         let t = ty.llvm_ir();
-                        // A coercao de uma entrada de `phi` NAO pode ser emitida
-                        // aqui: `phi` tem de ser a primeira instrucao do bloco e a
-                        // conversao pertence ao bloco de origem. Entao so constantes
-                        // sao reescritas no tipo do `phi`; valores que chegam com
-                        // largura diferente sao corrigidos na origem, ao terminar
-                        // aquele bloco.
+                        // The coercion of a `phi` entry can NOT be emitted
+                        // here: `phi` must be the first instruction of the block and the
+                        // conversion belongs to the source block. So only constants
+                        // are rewritten in the type of the `phi`; values that arrive with
+                        // a different width are fixed at the source, when finishing
+                        // that block.
                         let in_strs: Vec<String> = incoming
                             .iter()
                             .map(|(b, op)| {
@@ -1857,19 +1857,19 @@ impl<'a> LlvmEmitter<'a> {
                     }
                     _ if self.emit_closure_inst(v, inst, *ty) => {}
                     _ => {
-                        // E3: o verificador da HIR recusa, antes da emissão,
-                        // toda instrução sem lowering aqui (o antigo
-                        // "; inst pendente" que o Clang aceitava calado).
+                        // E3: the HIR verifier rejects, before the emission,
+                        // every instruction without a lowering here (the old
+                        // "; inst pendente" that Clang silently accepted).
                         unreachable!("instrução sem emissão passou pelo verificador: {inst:?}");
                     }
                 }
-                // Exceções por tabelas: a chamada Dart com pouso é `invoke`
-                // (a raiz do resultado, abaixo, já sai no caminho normal).
+                // Exceptions by tables: the Dart call with a landing pad is an `invoke`
+                // (the root of the result, below, already comes out on the normal path).
                 if let Some(landing_pad) = tab.and_then(|t| t.invocations.get(vid)) {
                     self.make_invoke(instruction_start, v, landing_pad.0);
                 }
-                // G1: a raiz logo depois da definição — nada aloca entre
-                // o retorno da chamada e este `set_root` (G5).
+                // G1: the root right after the definition — nothing allocates between
+                // the return of the call and this root store (G5).
                 if let Some(&slot) = self.slots.get(vid) {
                     if matches!(inst, Instruction::Phi { .. }) {
                         phi_roots.push((slot, v));
@@ -1877,10 +1877,10 @@ impl<'a> LlvmEmitter<'a> {
                         writeln!(self.out, "  store i64 %v{v}, ptr %gcs{slot}").unwrap();
                     }
                 }
-                // Raízes por mapas: o que estava vivo na entrada deste ponto
-                // de coleta (os operandos inclusive) vai no `"deopt"` de cada
-                // chamada dele que pode coletar — é o que o põe no mapa da
-                // chamada (§14.12).
+                // Roots by maps: what was live at the entry of this collection
+                // point (the operands included) goes into the `"deopt"` of each of its
+                // calls that may collect — that is what puts it in the map of the
+                // call (§14.12).
                 if !self.rooted_set.is_empty()
                     && let Some(live_set) = self.function_roots.live_at.get(vid).cloned()
                 {
@@ -1898,7 +1898,7 @@ impl<'a> LlvmEmitter<'a> {
                 self.phi_root(slot, pv);
             }
 
-            // O build de conferência: o ponto de coleta do fim do bloco.
+            // The checking build: the collection point at the end of the block.
             if self.check.is_some() {
                 let live_set = self.function_roots.live_at_end.get(&block.id).cloned().unwrap_or_default();
                 self.store_check(&live_set);
@@ -1910,9 +1910,9 @@ impl<'a> LlvmEmitter<'a> {
                     self.emit_named_conversion(&name_str, de, &origin, to_repr);
                 }
             }
-            // Raízes por mapas: o ponto de coleta do fim do bloco (as
-            // conversões acima podem encaixotar; o `throw` é tratado no
-            // terminador, depois da chamada dele).
+            // Roots by maps: the collection point at the end of the block (the
+            // conversions above may box; the `throw` is handled in the
+            // terminator, after its call).
             if !self.rooted_set.is_empty()
                 && !matches!(block.terminator, Terminator::Throw(_))
                 && let Some(live_set) = self.function_roots.live_at_end.get(&block.id).cloned()
@@ -1927,10 +1927,10 @@ impl<'a> LlvmEmitter<'a> {
                 written_position = Some(*p);
                 written_embedded = None;
             }
-            // Exceções por tabelas: o `Return` com a exceção pendente não
-            // retorna — desenrola até o pouso de quem a trata (que restaura
-            // o topo da pilha-sombra: o quadro de raízes não é fechado
-            // aqui). Com a pendência incerta, confere antes.
+            // Exceptions by tables: the `Return` with the exception pending does not
+            // return — it unwinds up to the landing pad of whoever handles it (which restores
+            // the top of the shadow stack: the roots frame is not closed
+            // here). With an uncertain pending flag, it checks first.
             if matches!(block.terminator, Terminator::Return(_)) {
                 match tab.and_then(|t| t.exits.get(&block.id)) {
                     Some(ExceptionExit::Throws) => {
@@ -1965,8 +1965,8 @@ impl<'a> LlvmEmitter<'a> {
             if self.stack_trace.is_some() && matches!(block.terminator, Terminator::Return(_)) {
                 writeln!(self.out, "  call void @dartforge_rastro_saida()").unwrap();
             }
-            // G3: o frame de raízes fecha antes de TODO `ret`, inclusive o
-            // das saídas por exceção (que retornam o valor padrão).
+            // G3: the roots frame closes before EVERY `ret`, including that
+            // of the exception exits (which return the default value).
             if self.has_frame && matches!(block.terminator, Terminator::Return(_)) {
                 writeln!(self.out, "  %gcvolta{} = load ptr, ptr %gcq, align 8", block.id.0).unwrap();
                 writeln!(self.out, "  store ptr %gcvolta{}, ptr %ctxtopo, align 8", block.id.0).unwrap();
@@ -1995,8 +1995,8 @@ impl<'a> LlvmEmitter<'a> {
                 Terminator::Branch(target) => {
                     writeln!(self.out, "  br label %b{}", target.0).unwrap();
                 }
-                // O desvio ao pouso é o do `invoke` deste bloco
-                // (`optimize/tables.rs`): aqui só segue a continuação.
+                // The branch to the landing pad is that of the `invoke` of this block
+                // (`optimize/tables.rs`): here only the continuation follows.
                 Terminator::CondBranch { then_block, else_block, .. } if tab.is_some_and(|t| t.landing_pads.contains(then_block)) => {
                     writeln!(self.out, "  br label %b{}", else_block.0).unwrap();
                 }
@@ -2039,8 +2039,8 @@ impl<'a> LlvmEmitter<'a> {
         }
 
         writeln!(self.out, "}}\n").unwrap();
-        // §13.14: os rótulos do rastro, antes do DWARF (que consome os
-        // marcadores de posição).
+        // §13.14: the stack trace labels, before the DWARF (which consumes the
+        // position markers).
         if (func.debug_info.is_some() || shared)
             && let Some(mut r) = self.vm_stack_trace.take()
         {
@@ -2059,8 +2059,8 @@ impl<'a> LlvmEmitter<'a> {
         }
     }
 
-    /// O número de slots do quadro de raízes da função em emissão: os de
-    /// sempre e, no build de conferência, os de conferência depois deles.
+    /// The number of slots of the roots frame of the function being emitted: the usual
+    /// ones and, in the checking build, the check ones after them.
     fn frame_size(&self) -> usize {
         match self.check {
             Some((first_one, k)) => first_one + k,
@@ -2068,11 +2068,11 @@ impl<'a> LlvmEmitter<'a> {
         }
     }
 
-    /// O campo `n` do quadro (`QuadroDeRaizes` do runtime): o número de
-    /// slots e, nos bits 40 em diante, quantos dos últimos são de
-    /// conferência.
+    /// The `n` field of the frame (the runtime's `RootFrame`): the number of
+    /// slots and, from bit 40 on, how many of the last ones are check
+    /// slots.
     fn frame_header(&self, n: usize) -> u64 {
-        // O bit 62: o quadro está num quadro nativo próprio
+        // Bit 62: the frame is in its own native frame
         // ([`Self::ordered_frames`]).
         let order = if self.ordered_frames { 1u64 << 62 } else { 0 };
         match self.check {
@@ -2081,8 +2081,8 @@ impl<'a> LlvmEmitter<'a> {
         }
     }
 
-    /// O build de conferência: grava `live_set` nos slots de conferência e zera
-    /// os que sobram.
+    /// The checking build: writes `live_set` into the check slots and zeroes
+    /// the remaining ones.
     fn store_check(&mut self, live_set: &[ValueId]) {
         let Some((first_one, k)) = self.check else { return };
         for i in 0..k {
@@ -2093,25 +2093,25 @@ impl<'a> LlvmEmitter<'a> {
         }
     }
 
-    /// A raiz de um `phi`, emitida depois do último `phi` do bloco: o `store`
-    /// no slot do quadro.
+    /// The root of a `phi`, emitted after the last `phi` of the block: the `store`
+    /// into the slot of the frame.
     fn phi_root(&mut self, slot: usize, v: u32) {
         writeln!(self.out, "  store i64 %v{v}, ptr %gcs{slot}").unwrap();
     }
 
-    /// Raízes por mapas (§14.12): os valores enraizados `live_set` no operando
-    /// `"deopt"` de cada chamada que pode coletar emitida desde `start` (o
-    /// texto de um ponto de coleta). O operando faz o valor estar vivo *na*
-    /// chamada e põe o lugar dele no mapa; vale também para o argumento cujo
-    /// último uso é a própria chamada (o runtime conta com quem chama para
-    /// mantê-lo vivo enquanto ela roda: o LLVM o guarda num registrador
-    /// preservado ou num slot).
+    /// Roots by maps (§14.12): the rooted values `live_set` in the `"deopt"`
+    /// operand of each call that may collect emitted since `start` (the
+    /// text of a collection point). The operand makes the value live *at* the
+    /// call and puts its place in the map; it also holds for the argument whose
+    /// last use is the call itself (the runtime counts on the caller to
+    /// keep it alive while it runs: LLVM keeps it in a preserved
+    /// register or in a slot).
     fn attach_deopt(&mut self, start: usize, live_set: &[ValueId]) {
         self.attach_deopt_with(start, live_set, true);
     }
 
-    /// [`Self::attach_deopt`]; `sabotageable` diz se o valor da sabotagem
-    /// `bruto_no_mapa` (definido depois do prólogo) já existe aqui.
+    /// [`Self::attach_deopt`]; `sabotageable` says whether the value of the
+    /// `bruto_no_mapa` sabotage (defined after the prologue) already exists here.
     fn attach_deopt_with(&mut self, start: usize, live_set: &[ValueId], sabotageable: bool) {
         let mut operands: Vec<String> = if crate::alvo::sabotage("sem_uso_ficticio") {
             Vec::new()
@@ -2128,14 +2128,14 @@ impl<'a> LlvmEmitter<'a> {
         }
     }
 
-    /// Exceções por tabelas: a chamada Dart que a instrução `v` acabou de
-    /// emitir (a última linha desde `start`: a de `CallStatic`,
-    /// `TypedCall`, da closure ou do seletor) vira
-    /// `invoke … to label %inv<v>.end unwind label %b<landing_pad>`, e a emissão
-    /// continua no rótulo do caminho normal — o bloco da HIR passa a
-    /// terminar nele ([`LlvmEmitter::exit_labels`]). As chamadas ao
-    /// runtime que a mesma instrução emite antes (a entrada da closure, a
-    /// busca do seletor) não desenrolam e continuam `call`.
+    /// Exceptions by tables: the Dart call that instruction `v` has just
+    /// emitted (the last line since `start`: that of `CallStatic`,
+    /// `TypedCall`, of the closure or of the selector) becomes
+    /// `invoke … to label %inv<v>.fim unwind label %b<landing_pad>`, and the emission
+    /// continues at the label of the normal path — the HIR block now
+    /// ends there ([`LlvmEmitter::exit_labels`]). The calls to the
+    /// runtime that the same instruction emits before (the entry of the closure, the
+    /// lookup of the selector) do not unwind and stay `call`.
     fn make_invoke(&mut self, start: usize, v: u32, landing_pad: u32) {
         let text = self.out.split_off(start);
         let body = text.strip_suffix('\n').unwrap_or(&text);
@@ -2154,13 +2154,13 @@ impl<'a> LlvmEmitter<'a> {
         self.current_label = format!("inv{v}.fim");
     }
 
-    /// Os invocadores uniformes ARC (closures, seletores, chamadas tipadas):
-    /// em corpos preparados pela passada ARC, somente com o certificado de
-    /// portas AOT. Sem preparação, a imagem ARC segue o regime legado do CLI,
-    /// com a chamada direta da entrada.
+    /// The ARC uniform invokers (closures, selectors, typed calls):
+    /// in bodies prepared by the ARC pass, only with the AOT ports
+    /// certificate. Without preparation, the ARC image follows the legacy regime of the CLI,
+    /// with the direct call of the entry.
     ///
     /// # Panics
-    /// Corpos ARC preparados sem o certificado de portas.
+    /// Prepared ARC bodies without the ports certificate.
     pub(super) fn arc_uniform_abi(&self) -> bool {
         if !self.module.arc_memory || !(self.module.arc_prepared || self.module.arc_aot_ports.is_some()) {
             return false;
@@ -2169,16 +2169,16 @@ impl<'a> LlvmEmitter<'a> {
         true
     }
 
-    /// As fábricas com owner do código (literal de lista, interpolação): só
-    /// quando a preparação ARC inseriu a liberação desse owner. No regime
-    /// legado ninguém o soltaria, e o objeto nunca seria liberado.
+    /// The factories with a code owner (list literal, interpolation): only
+    /// when the ARC preparation inserted the release of that owner. In the legacy
+    /// regime nobody would release it, and the object would never be freed.
     pub(super) fn arc_owned_factories(&self) -> bool {
         self.module.arc_memory && self.module.arc_prepared
     }
 
-    /// `%cf<v>`: o ponteiro da entrada uniforme da closure `c` — o código
-    /// dela, ou `@df_clo_invalido` quando o valor não é closure (o runtime
-    /// devolve 0 e deixa o `NoSuchMethodError` pendente).
+    /// `%cf<v>`: the pointer of the uniform entry of the closure `c` — its
+    /// code, or `@df_clo_invalido` when the value is not a closure (the runtime
+    /// returns 0 and leaves the `NoSuchMethodError` pending).
     fn closure_entry(&mut self, v: u32, c: &str) {
         writeln!(self.out, "  %cc{v} = call i64 @dartforge_closure_entry(i64 {c})").unwrap();
         writeln!(self.out, "  %cz{v} = icmp eq i64 %cc{v}, 0").unwrap();
@@ -2190,8 +2190,8 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(self.out, "  %cf{v} = inttoptr i64 %cq{v} to ptr").unwrap();
     }
 
-    /// O descritor de uma chamada pela convenção uniforme:
-    /// [n_posicionais, n_nomeados, hash(nome)…].
+    /// The descriptor of a call through the uniform convention:
+    /// [n_positional, n_named, hash(name)…].
     fn descriptor(args: usize, names: &[String]) -> Vec<i64> {
         let mut d = vec![(args - names.len()) as i64, names.len() as i64];
         d.extend(names.iter().map(|n| crate::lower::closures::hash_name(n)));
@@ -2208,9 +2208,9 @@ impl<'a> LlvmEmitter<'a> {
         k
     }
 
-    /// `@df_clo_invalido` (a entrada que a chamada usa quando o valor não é
-    /// closure — o runtime já deixou o `NoSuchMethodError` pendente) e os
-    /// vetores constantes.
+    /// `@df_clo_invalido` (the entry that the call uses when the value is not a
+    /// closure — the runtime has already left the `NoSuchMethodError` pending) and the
+    /// constant vectors.
     fn emit_closures(&mut self) {
         let module = self.module;
         for func in &module.functions {
@@ -2241,7 +2241,7 @@ impl<'a> LlvmEmitter<'a> {
             }
         }
         if self.module.sdk_mode {
-            // O descritor sem argumentos do `dartforge_dispatch_toString`.
+            // The descriptor without arguments of `dartforge_dispatch_toString`.
             self.register_vector(vec![0, 0]);
         }
         self.out.push_str("; Closures: entrada inválida e vetores constantes\n");
@@ -2263,8 +2263,8 @@ impl<'a> LlvmEmitter<'a> {
         self.out.push('\n');
     }
 
-    /// Converte os bits i64 lidos de uma célula/ambiente (%u) para a
-    /// representação `ty` do resultado `%v<v>`.
+    /// Converts the i64 bits read from a cell/environment (%u) to the
+    /// representation `ty` of the result `%v<v>`.
     fn bits_to_repr(&mut self, v: u32, bits: &str, ty: Type) {
         match ty {
             Type::F64 => writeln!(self.out, "  %v{v} = bitcast i64 {bits} to double").unwrap(),
@@ -2274,7 +2274,7 @@ impl<'a> LlvmEmitter<'a> {
         }
     }
 
-    /// Tag da ABI (bits, tag) de um valor pela representação (E1).
+    /// ABI tag (bits, tag) of a value by its representation (E1).
     fn tag_de(&self, op: &Operand) -> u8 {
         match self.type_of(op) {
             Type::I64 => 1,
@@ -2284,7 +2284,7 @@ impl<'a> LlvmEmitter<'a> {
         }
     }
 
-    /// Emite uma instrução das closures (P1); `false` se não é uma delas.
+    /// Emits a closure instruction (P1); `false` if it is not one of them.
     fn emit_closure_inst(&mut self, v: u32, inst: &Instruction, ty: Type) -> bool {
         match inst {
             Instruction::AllocCell { value } => self.emit_alloc_cell(v, value),
@@ -2298,8 +2298,8 @@ impl<'a> LlvmEmitter<'a> {
                 self.emit_alloc_typed_closure(v, code_symbol, env, typed, *abi, *direct);
             }
             Instruction::TypedCall { alvo, args, ret } => {
-                // A chamada é a mesma nos dois regimes; o predicado só confere
-                // o certificado quando os corpos foram preparados.
+                // The call is the same in both regimes; the predicate only checks
+                // the certificate when the bodies were prepared.
                 self.arc_uniform_abi();
                 let a = self.coerce(alvo, Type::I64);
                 let mut parts = Vec::with_capacity(args.len());
@@ -2317,8 +2317,8 @@ impl<'a> LlvmEmitter<'a> {
             Instruction::TearOff { code_symbol } => self.emit_tearoff(v, code_symbol),
             Instruction::CallClosure { closure, args, names, tuple_types, .. } => {
                 let k = self.vector_of[&Self::descriptor(args.len(), names)];
-                // O slot depois dos argumentos leva a tupla de tipos (a
-                // mesma convenção da chamada por seletor).
+                // The slot after the arguments carries the type tuple (the
+                // same convention as the call by selector).
                 let n = args.len() + 1;
                 for (i, a) in args.iter().enumerate() {
                     let s = self.coerce(a, Type::I64);
@@ -2378,10 +2378,10 @@ impl<'a> LlvmEmitter<'a> {
         true
     }
 
-    /// Todo `alloca` da função nasce no bloco de entrada — os vetores das
-    /// closures (argumentos, pares do ambiente), os dos literais de lista,
-    /// mapa e record, e os locais: um `alloca` fora da entrada reserva pilha
-    /// nova a cada execução, e num laço a pilha cresce até estourar.
+    /// Every `alloca` of the function is born in the entry block — the vectors of the
+    /// closures (arguments, pairs of the environment), those of the list,
+    /// map and record literals, and the locals: an `alloca` outside the entry reserves new
+    /// stack on each execution, and in a loop the stack grows until it overflows.
     fn emit_closure_buffers(&mut self, func: &Function) {
         for block in &func.blocks {
             for (vid, inst, _) in &block.instructions {
@@ -2406,16 +2406,16 @@ impl<'a> LlvmEmitter<'a> {
         }
     }
 
-    /// Os globais do módulo (`@dfg_<id>` e a bandeira `$ok`) viram slots da
-    /// área de globais do isolado: a VM guarda os estáticos na *field table*
-    /// de cada isolado, e aqui cada isolado (uma thread) tem a sua área, que
-    /// o runtime cria na primeira vez (`dartforge_area_de_globais`, zerada).
-    /// Os caches dos seletores (`selectors.rs`) ganham slots depois destes.
+    /// The globals of the module (`@dfg_<id>` and the `$ok` flag) become slots of the
+    /// global area of the isolate: the VM keeps the statics in the *field table*
+    /// of each isolate, and here each isolate (a thread) has its own area, which
+    /// the runtime creates the first time (`dartforge_area_de_globais`, zeroed).
+    /// The selector caches (`selectors.rs`) get slots after these.
     ///
-    /// Numa geração de hot reload ([`LlvmEmitter::with_previous_area`]), a
-    /// área começa com o layout da geração viva inteiro — inclusive os slots
-    /// que sumiram e os caches de seletor dela, que o código antigo ainda
-    /// usa — e só acrescenta: um global que continua fica no mesmo índice.
+    /// In a hot reload generation ([`LlvmEmitter::with_previous_area`]), the
+    /// area starts with the whole layout of the live generation — including the slots
+    /// that disappeared and its selector caches, which the old code still
+    /// uses — and only appends: a global that remains stays at the same index.
     fn emit_globals(&mut self) {
         let previous: std::collections::HashMap<i64, usize> = match &self.previous_area {
             Some(a) => {
@@ -2440,16 +2440,16 @@ impl<'a> LlvmEmitter<'a> {
         }
     }
 
-    /// O descritor da área de globais do módulo: `[key, n, nome_0…]`, com
-    /// a chave estável do módulo e o hash do nome de cada slot. Os slots de
-    /// cache de seletor têm [`CACHE_BIT`] no nome: não migram para uma
-    /// área nova e a publicação de uma recarga os zera (guardam endereços de
-    /// código, e as tabelas de métodos acabaram de mudar). Em produção,
+    /// The descriptor of the global area of the module: `[key, n, name_0…]`, with
+    /// the stable key of the module and the hash of the name of each slot. The
+    /// selector cache slots have [`CACHE_BIT`] in the name: they do not migrate to a
+    /// new area and the publication of a reload zeroes them (they keep code
+    /// addresses, and the method tables have just changed). In production,
     /// `[key, -n]` ([`LlvmEmitter::with_lean_area`]).
     fn emit_area_descriptor(&mut self) {
         let key = self.module.record.clone().unwrap_or_else(|| "df.programa".to_string());
         if self.lean_area {
-            // Produção (`with_lean_area`): `[key, -n]`, sem os nomes.
+            // Production (`with_lean_area`): `[key, -n]`, without the names.
             let n = self.slot_hashes.len() as i64;
             writeln!(self.out, "@df.area = private unnamed_addr constant [2 x i64] [i64 {}, i64 {}]", slot_hash(&key), -n)
                 .unwrap();
@@ -2464,10 +2464,10 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(self.out, "@df.area = private unnamed_addr constant [{} x i64] [{}]", items.len(), items.join(", ")).unwrap();
     }
 
-    /// O slot do próximo cache de seletor da função em emissão: as duas
-    /// palavras (id de classe, entrada) com o nome `(função, posição)`, no
-    /// mesmo índice da geração viva quando ela já o tinha — o código de uma
-    /// função que não mudou é o mesmo texto nas duas gerações (J04).
+    /// The slot of the next selector cache of the function being emitted: the two
+    /// words (class id, entry) with the name `(function, position)`, at the
+    /// same index of the live generation when it already had it — the code of a
+    /// function that did not change is the same text in both generations (J04).
     pub(super) fn cache_slot(&mut self) -> usize {
         let name_str = format!("{}#{}", self.current_function, self.cache_in_function);
         self.cache_in_function += 1;
@@ -2483,8 +2483,8 @@ impl<'a> LlvmEmitter<'a> {
         i
     }
 
-    /// Os `alloca` `Ref` usados fora do `load`/`store` deles (o endereço
-    /// passado a uma função local direta): ver `frame_allocas`.
+    /// The `Ref` `alloca`s used outside their `load`/`store` (the address
+    /// passed to a direct local function): see `frame_allocas`.
     fn escaping_ref_allocas(func: &Function) -> std::collections::HashSet<ValueId> {
         let mut refs = std::collections::HashSet::new();
         for b in &func.blocks {
@@ -2513,7 +2513,7 @@ impl<'a> LlvmEmitter<'a> {
         escape
     }
 
-    /// A função usa a área de globais (global, bandeira ou cache de seletor)?
+    /// Does the function use the global area (a global, a flag or a selector cache)?
     fn uses_area(func: &Function) -> bool {
         func.blocks.iter().any(|b| {
             b.instructions.iter().any(|(_, i, _)| {
@@ -2531,15 +2531,15 @@ impl<'a> LlvmEmitter<'a> {
         })
     }
 
-    /// O quadro de raízes no topo do bloco de entrada (ver o prólogo).
+    /// The roots frame at the top of the entry block (see the prologue).
     fn frame_at_entry() -> bool {
         static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         !*OFF.get_or_init(|| std::env::var_os("DARTFORGE_SEM_QUADRO_NA_ENTRADA").is_some_and(|v| !v.is_empty() && v != "0"))
     }
 
-    /// `dartforge_rti_avaliar` sem tupla e com `this`: vai pelo cache do
-    /// ponto de uso na área ([`Self::emit_rti_evaluate_cached`]).
-    /// `DARTFORGE_SEM_CACHE_RTI=1` na compilação desliga (medida).
+    /// `dartforge_rti_avaliar` without a tuple and with `this`: goes through the cache of the
+    /// use site in the area ([`Self::emit_rti_evaluate_cached`]).
+    /// `DARTFORGE_SEM_CACHE_RTI=1` at compile time turns it off (measurement).
     fn rti_evaluate_cached(i: &Instruction) -> bool {
         static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         matches!(i, Instruction::CallRuntime { name, args, .. }
@@ -2550,16 +2550,16 @@ impl<'a> LlvmEmitter<'a> {
             && !*OFF.get_or_init(|| std::env::var_os("DARTFORGE_SEM_CACHE_RTI").is_some_and(|v| !v.is_empty() && v != "0"))
     }
 
-    /// `P<i>` avaliado com cache no ponto de uso (N17): duas palavras da
-    /// área do isolado guardam a chave do tipo de `this` — o metadado do
-    /// cabeçalho do objeto (`heap::Cabecalho`, deslocamento 12 do bloco, 10
-    /// do handle), ou `-16 - class` sem metadado, a mesma chave da memória
-    /// do runtime (`chave_do_valor`) — e o resultado. Um objeto do espaço
-    /// com a chave gravada responde com duas cargas; o resto (valores do
-    /// runtime, a primeira vez, outra chave) chama
-    /// `dartforge_rti_avaliar_cache`, que responde e grava. O modelo e a
-    /// classe são constantes do ponto; a tupla é 0. A área é por isolado (os
-    /// ids de tipo são do universo dele) e a recarga zera os caches.
+    /// `P<i>` evaluated with a cache at the use site (N17): two words of the
+    /// area of the isolate keep the key of the type of `this` — the metadata of the
+    /// object header (the runtime's `Header`, offset 12 of the block, 10
+    /// of the handle), or `-16 - class` without metadata, the same key as the memory
+    /// of the runtime (`value_key`) — and the result. An object of the space
+    /// with the stored key answers with two loads; the rest (runtime
+    /// values, the first time, another key) calls
+    /// `dartforge_rti_avaliar_cache`, which answers and stores. The model and the
+    /// class are constants of the site; the tuple is 0. The area is per isolate (the
+    /// type ids are of its universe) and reload zeroes the caches.
     fn emit_rti_evaluate_cached(&mut self, v: u32, args: &[(Operand, Type)]) {
         let model = self.coerce(&args[0].0, Type::I64);
         let this = self.coerce(&args[1].0, Type::I64);
@@ -2596,7 +2596,7 @@ impl<'a> LlvmEmitter<'a> {
         self.current_label = format!("ra{v}.fim");
     }
 
-    /// O endereço do slot de um global, em `%ga<v>`.
+    /// The address of the slot of a global, in `%ga<v>`.
     fn global_address(&mut self, v: u32, sym_name: &str) {
         let slot = *self
             .global_slots
@@ -2643,8 +2643,8 @@ impl<'a> LlvmEmitter<'a> {
         self.out.push_str("}\n\n");
     }
 
-    /// Referência já avaliada: não usar coagir, que poderia alocar uma caixa.
-    /// HIR inválida é falha interna; o verificador confere esta precondição.
+    /// An already evaluated reference: do not use coercion, which could allocate a box.
+    /// Invalid HIR is an internal failure; the verifier checks this precondition.
     fn arc_reference(&self, value: &Operand) -> String {
         match value {
             Operand::Val(v) => {
@@ -2656,7 +2656,7 @@ impl<'a> LlvmEmitter<'a> {
         }
     }
 
-    /// Descritor de quadro classificado; nunca coagir um ponteiro para um ID.
+    /// Classified frame descriptor; never coerce a pointer to an ID.
     fn slot_arc(&self, slot: &StrongSlot) -> (String, u32) {
         let StrongSlot::Frame { frame, index: idx_value } = slot else { panic!("descritor não é quadro") };
         let Operand::Val(v) = frame else {
@@ -2670,15 +2670,15 @@ impl<'a> LlvmEmitter<'a> {
         (format!("%v{}", v.0), *idx_value)
     }
 
-    /// Schema do armazenamento real; não inferir Ref por largura ou endereço.
+    /// Schema of the real storage; do not infer Ref by width or address.
     fn check_arc_global(&self, sym_name: &str) {
         let mut declarations = self.module.globals.iter().filter(|(_, _, s)| s == sym_name);
         assert_eq!(declarations.next().map(|(_, ty, _)| *ty), Some(Type::Ref), "global ARC deve ser Ref declarado");
         assert!(declarations.next().is_none(), "global ARC deve ter declaração única");
     }
 
-    /// Confere a ABI de tokens antes dos registros e de qualquer código Dart.
-    /// A falha é interna e fatal: não pode virar uma pendência ignorada.
+    /// Checks the token ABI before the registrations and before any Dart code.
+    /// The failure is internal and fatal: it cannot become an ignored pending flag.
     fn start_arc(&mut self) {
         if !self.module.arc_memory {
             return;
@@ -2720,14 +2720,14 @@ impl<'a> LlvmEmitter<'a> {
                 )
                 .unwrap();
             }
-            // A preparação de um isolado (a principal e a de cada
-            // `Isolate.spawn`, que o runtime chama na thread nova): os
-            // registros das bibliotecas, a RTI e o embedder.
+            // The preparation of an isolate (the main one and that of each
+            // `Isolate.spawn`, which the runtime calls on the new thread): the
+            // registrations of the libraries, the RTI and the embedder.
             writeln!(self.out, "define void @df.preparar_isolado() {{").unwrap();
-            // A memória ARC, ligada antes de todo código Dart do isolado.
+            // ARC memory, turned on before any Dart code of the isolate.
             self.start_arc();
-            // Imagem ARC preparada: as portas Dart que o runtime chama aqui
-            // (registros, RTI, embedder) devolvem owners a um escopo nativo.
+            // Prepared ARC image: the Dart ports that the runtime calls here
+            // (registrations, RTI, embedder) return owners to a native scope.
             let root_scope = self.module.arc_memory && self.module.arc_prepared;
             if root_scope {
                 writeln!(self.out, "  %escopo.prep = call i64 @dartforge_arc_escopo_nativo_abrir_v1()").unwrap();
@@ -2736,8 +2736,8 @@ impl<'a> LlvmEmitter<'a> {
             if let Some(v) = &self.module.sdk_version {
                 writeln!(self.out, "  call void @dartforge_registrar_versao_do_sdk(ptr @df.versao_do_sdk, i64 {})", v.len()).unwrap();
             }
-            // As tabelas das classes dos valores do runtime (que não passam
-            // por `dartforge_object_new_t`).
+            // The tables of the classes of the runtime values (which do not go
+            // through `dartforge_object_new_t`).
             for c in self.module.runtime_cids.clone() {
                 if let Some(f) = self.module.table_functions.get(&(c as u32)).cloned() {
                     self.annotate_external(&f, Type::Ptr, &[]);
@@ -2749,13 +2749,13 @@ impl<'a> LlvmEmitter<'a> {
                 self.externals.insert(r.clone(), format!("declare void @{r}()"));
             }
             writeln!(self.out, "  call void @df.registrar.programa()").unwrap();
-            // RTI e laço de eventos, como na entrada de sempre (abaixo).
+            // RTI and the event loop, as in the usual entry (below).
             if let Some(start) = &self.module.start_rti {
                 writeln!(self.out, "  {}", entry_call(self.module.excecoes_por_tabelas, start, &[])).unwrap();
             }
-            // O que o embedder da VM prepara antes do `main` (o script de
-            // `dart:io`, o `Uri.base`), já com as bibliotecas registradas.
-            // `dart:ffi`: os tipos nativos e os trampolins das assinaturas
+            // What the VM's embedder prepares before `main` (the script of
+            // `dart:io`, `Uri.base`), already with the libraries registered.
+            // `dart:ffi`: the native types and the trampolines of the signatures
             // (`lower/ffi.rs`).
             for c in self.module.ffi_composites.clone() {
                 writeln!(
@@ -2794,16 +2794,16 @@ impl<'a> LlvmEmitter<'a> {
             }
             self.emit_callbacks_ffi();
             writeln!(self.out, "define void @dartforge_entry() {{").unwrap();
-            // Exceções por tabelas: as portas pelas quais o runtime chama
-            // código Dart, entregues antes de qualquer código Dart rodar.
+            // Exceptions by tables: the ports through which the runtime calls
+            // Dart code, delivered before any Dart code runs.
             if self.module.excecoes_por_tabelas {
                 writeln!(self.out, "  call void @dartforge_registrar_portas(ptr @df.portas, i64 {N_PORTS})").unwrap();
             }
             let call = self.module.call_dart.as_ref().map_or("null".to_string(), |c| format!("@{c}"));
             writeln!(self.out, "  call void @dartforge_registrar_isolados(ptr @df.preparar_isolado, ptr {call})").unwrap();
             writeln!(self.out, "  call void @df.preparar_isolado()").unwrap();
-            // O escopo raiz do isolado principal: o `main` e o laço de
-            // eventos, cujas chamadas do runtime ao Dart devolvem owners.
+            // The root scope of the main isolate: `main` and the event
+            // loop, whose calls from the runtime into Dart return owners.
             if root_scope {
                 writeln!(self.out, "  %escopo.raiz = call i64 @dartforge_arc_escopo_nativo_abrir_v1()").unwrap();
             }
@@ -2815,8 +2815,8 @@ impl<'a> LlvmEmitter<'a> {
                 writeln!(self.out, "  call void @dartforge_arc_escopo_nativo_fechar_v1(i64 %escopo.raiz)").unwrap();
             }
             writeln!(self.out, "  ret void\n}}\n").unwrap();
-            // O runtime e o SDK moram na DLL do SDK da fonte: o `main` do
-            // executável é este, e entrega a entrada ao runtime.
+            // The runtime and the SDK live in the source SDK DLL: the `main` of the
+            // executable is this one, and it hands the entry to the runtime.
             writeln!(
                 self.out,
                 "define i32 @main() {{\n  %r = call i32 @dartforge_iniciar(ptr @dartforge_entry, ptr @dartforge_dispatch_toString)\n  ret i32 %r\n}}\n"
@@ -2825,10 +2825,10 @@ impl<'a> LlvmEmitter<'a> {
             return;
         }
         writeln!(self.out, "define void @dartforge_entry() {{").unwrap();
-        // A memória ARC, ligada antes de todo código Dart.
+        // ARC memory, turned on before any Dart code.
         self.start_arc();
-        // Exceções por tabelas: as portas pelas quais o runtime chama
-        // código Dart, entregues antes de qualquer código Dart rodar.
+        // Exceptions by tables: the ports through which the runtime calls
+        // Dart code, delivered before any Dart code runs.
         if self.module.excecoes_por_tabelas {
             writeln!(self.out, "  call void @dartforge_registrar_portas(ptr @df.portas, i64 {N_PORTS})").unwrap();
         }
@@ -2851,7 +2851,7 @@ impl<'a> LlvmEmitter<'a> {
             let fields = self.trace_field_registration_calls();
             self.out.push_str(&fields);
         }
-        // Registra grafo de subtipagem
+        // Registers the subtyping graph
         for (sub, sup) in &self.module.subtyping_edges {
             writeln!(
                 self.out,
@@ -2859,12 +2859,12 @@ impl<'a> LlvmEmitter<'a> {
             ).unwrap();
         }
 
-        // RTI: o universo de tipos (classes citadas e regras de supertipo).
+        // RTI: the type universe (cited classes and supertype rules).
         if let Some(start) = &self.module.start_rti {
             writeln!(self.out, "  {}", entry_call(self.module.excecoes_por_tabelas, start, &[])).unwrap();
         }
         self.call_main();
-        // P6: microtarefas e timers depois do `main` (runtime, `events.rs`).
+        // P6: microtasks and timers after `main` (runtime, `events.rs`).
         if let Some(call) = &self.module.call_dart {
             writeln!(self.out, "  call void @dartforge_laco_de_eventos(ptr @{call})").unwrap();
         }
@@ -2872,11 +2872,11 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(self.out, "}}\n").unwrap();
     }
 
-    /// A chamada do `main` na entrada: com parâmetros, o primeiro é a lista
-    /// dos argumentos da linha de comando (`dartforge_argumentos_do_main`) e
-    /// o segundo, `null`.
-    /// Um argumento primitivo de chamada C: o operando convertido ao tipo C
-    /// (estreitos com a extensão da ABI), como `ty attributes value`.
+    /// The call of `main` at the entry: with parameters, the first is the list
+    /// of the command line arguments (`dartforge_argumentos_do_main`) and
+    /// the second, `null`.
+    /// A primitive argument of a C call: the operand converted to the C type
+    /// (narrow ones with the ABI extension), as `ty attributes value`.
     fn c_argument(&mut self, v: u32, i: usize, op: &Operand, tc: CType) -> String {
         let x = match tc {
             CType::F32 => {
@@ -2902,16 +2902,16 @@ impl<'a> LlvmEmitter<'a> {
         format!("{} {}{x}", tc.llvm(), tc.extension())
     }
 
-    /// O texto `call …` de uma chamada C por `%fn<v>`. Numa variádica com as
-    /// raízes por mapas, a chamada passa por um intermediário
-    /// `@df.vararg.<k>` de assinatura fixa, `noinline` e fora da estratégia de
-    /// coleta: o `rewrite-statepoints-for-gc` não embrulha chamadas variádicas
-    /// que devolvem valor (`gc.statepoint doesn't support wrapping non-void
-    /// vararg functions yet`), e a chamada ao intermediário vira um statepoint
-    /// comum, com as raízes vivas no `"deopt"` dela (§14.12: toda chamada que
-    /// coleta leva o operando, também a de uma função sem raízes, que pode ser
-    /// copiada pelo inliner numa com raízes). O intermediário repassa os
-    /// argumentos com os mesmos tipos e atributos.
+    /// The `call …` text of a C call through `%fn<v>`. In a variadic one with
+    /// roots by maps, the call goes through an intermediary
+    /// `@df.vararg.<k>` with a fixed signature, `noinline` and outside the collection
+    /// strategy: `rewrite-statepoints-for-gc` does not wrap variadic calls
+    /// that return a value (`gc.statepoint doesn't support wrapping non-void
+    /// vararg functions yet`), and the call to the intermediary becomes a common
+    /// statepoint, with the live roots in its `"deopt"` (§14.12: every call that
+    /// collects carries the operand, also that of a function without roots, which may be
+    /// copied by the inliner into one with roots). The intermediary passes on the
+    /// arguments with the same types and attributes.
     fn c_call_text(&mut self, v: u32, ret: &str, typ: &str, parts: &[String], variadic_flag: bool) -> String {
         let list = parts.join(", ");
         if !variadic_flag || !self.maps {
@@ -2933,12 +2933,12 @@ impl<'a> LlvmEmitter<'a> {
         format!("call {ret} @{name_str}({})", args.join(", "))
     }
 
-    /// Uma chamada C com structs/unions por valor (`llvm/c_abi.rs`): cada
-    /// composto é copiado dos bytes do operando para uma temporária alinhada
-    /// da pilha (liberada por `stackrestore` depois da chamada), e passado
-    /// em peças, `byval` ou por ponteiro; um retorno composto vai para
-    /// `dest` (direto: pelas peças gravadas numa temporária; `sret`: o
-    /// próprio destino).
+    /// A C call with structs/unions by value (`llvm/c_abi.rs`): each
+    /// compound is copied from the bytes of the operand into an aligned temporary
+    /// on the stack (released by `stackrestore` after the call), and passed
+    /// in pieces, `byval` or by pointer; a compound return goes to
+    /// `dest` (direct: through the pieces written into a temporary; `sret`: the
+    /// destination itself).
     fn composite_native_call(
         &mut self,
         v: u32,
@@ -2954,7 +2954,7 @@ impl<'a> LlvmEmitter<'a> {
         let a = self.coerce(alvo, Type::I64);
         writeln!(self.out, "  %fn{v} = inttoptr i64 {a} to ptr").unwrap();
         writeln!(self.out, "  %pilha{v} = call ptr @llvm.stacksave.p0()").unwrap();
-        // Retorno primeiro: um `sret` ocupa o primeiro registrador inteiro.
+        // Return first: an `sret` takes the first integer register.
         let ret_passing = match ret {
             NativeType::Composite(l) => Some((c_abi::ret(conv, l, &mut regs), l.clone())),
             NativeType::Prim(_) => None,
@@ -2975,9 +2975,9 @@ impl<'a> LlvmEmitter<'a> {
         for (i, (op, t)) in args.iter().enumerate() {
             let variadic = variadic_flag.is_some_and(|n| i >= n);
             match t {
-                // Promoções de argumento padrão do C num argumento variádico:
-                // `float` vai como `double`; inteiros menores que `int`,
-                // como `int` (com o sinal do tipo).
+                // Default C argument promotions in a variadic argument:
+                // `float` goes as `double`; integers smaller than `int`,
+                // as `int` (with the sign of the type).
                 NativeType::Prim(tc) if variadic => {
                     regs.consume_primitive(*tc);
                     let p = match tc {
@@ -3000,7 +3000,7 @@ impl<'a> LlvmEmitter<'a> {
                     parts.push(p);
                 }
                 NativeType::Composite(l) => {
-                    // A cópia: alinhada, zerada até a palavra, com os bytes.
+                    // The copy: aligned, zeroed up to the word, with the bytes.
                     let n = self.coerce(op, Type::I64);
                     let sz = l.size.div_ceil(16) * 16;
                     let al = l.alignment.max(16);
@@ -3008,8 +3008,8 @@ impl<'a> LlvmEmitter<'a> {
                     writeln!(self.out, "  %tmp{v}_{i} = alloca [{sz} x i8], align {al}").unwrap();
                     writeln!(self.out, "  call void @llvm.memset.p0.i64(ptr %tmp{v}_{i}, i8 0, i64 {sz}, i1 false)").unwrap();
                     writeln!(self.out, "  call void @llvm.memcpy.p0.p0.i64(ptr %tmp{v}_{i}, ptr %src{v}_{i}, i64 {}, i1 false)", l.size).unwrap();
-                    // Na parte variádica as peças não entram no tipo da
-                    // chamada (`ret (fixed_set, ...)`).
+                    // In the variadic part the pieces do not enter the type of the
+                    // call (`ret (fixed, ...)`).
                     let passing = if variadic {
                         c_abi::variadic_argument(conv, l, &mut regs)
                     } else {
@@ -3041,7 +3041,7 @@ impl<'a> LlvmEmitter<'a> {
                 }
             }
         }
-        // O tipo da chamada: numa variádica, `ret (fixed_set, ...)`.
+        // The type of the call: in a variadic one, `ret (fixed, ...)`.
         let call_type = |ret: &str| match variadic_flag {
             Some(_) if fixed_types.is_empty() => format!("{ret} (...)"),
             Some(_) => format!("{ret} ({}, ...)", fixed_types.join(", ")),
@@ -3099,13 +3099,13 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(self.out, "  call void @llvm.stackrestore.p0(ptr %pilha{v})").unwrap();
     }
 
-    /// As entradas C dos callbacks do `dart:ffi` (`ffi_callbacks.rs` do
-    /// runtime). Cada entrada tem a ABI C da assinatura e o contexto do
-    /// callback no parâmetro `nest` (r10 no x86-64, x15 no AArch64), que o
-    /// trampolim escrito pelo runtime carrega: no modo ouvinte copia
-    /// os argumentos para a mensagem; senão converte-os para a
-    /// representação Dart, chama o corpo HIR e converte o retorno — ou
-    /// devolve o retorno excepcional, se a closure lançou.
+    /// The C entries of the `dart:ffi` callbacks (`ffi_callbacks.rs` of the
+    /// runtime). Each entry has the C ABI of the signature and the context of the
+    /// callback in the `nest` parameter (r10 on x86-64, x15 on AArch64), which the
+    /// trampoline written by the runtime loads: in listener mode it copies
+    /// the arguments into the message; otherwise it converts them to the
+    /// Dart representation, calls the HIR body and converts the return — or
+    /// returns the exceptional return, if the closure threw.
     fn emit_callbacks_ffi(&mut self) {
         use c_abi::{ArgPassing, RetPassing};
         if self.module.ffi_callbacks.is_empty() {
@@ -3115,7 +3115,7 @@ impl<'a> LlvmEmitter<'a> {
         for (i, cb) in self.module.ffi_callbacks.clone().iter().enumerate() {
             writeln!(self.out, "@df.ffi.cbchave.{i} = private unnamed_addr constant [{} x i8] c\"{}\"", cb.key.len(), cb.key).unwrap();
             let mut regs = c_abi::Registers::new_set();
-            // O retorno primeiro: um `sret` ocupa o primeiro registrador.
+            // The return first: an `sret` takes the first register.
             let ret = match &cb.ret {
                 NativeType::Composite(l) => Some((c_abi::ret(conv, l, &mut regs), l.clone())),
                 NativeType::Prim(_) => None,
@@ -3124,8 +3124,8 @@ impl<'a> LlvmEmitter<'a> {
             if let Some((RetPassing::Sret { alignment }, l)) = &ret {
                 decls.push(format!("ptr sret([{} x i8]) align {alignment} %sret", l.size));
             }
-            // Como cada composto chega: em peças (remontadas numa
-            // temporária) ou já em memória (`byval`/ponteiro).
+            // How each compound arrives: in pieces (reassembled into a
+            // temporary) or already in memory (`byval`/pointer).
             let mut pieces_of: Vec<Option<(Vec<c_abi::Piece>, usize)>> = Vec::with_capacity(cb.params.len());
             for (j, t) in cb.params.iter().enumerate() {
                 match t {
@@ -3165,9 +3165,9 @@ impl<'a> LlvmEmitter<'a> {
                 _ => ("void".to_string(), ""),
             };
             let r = ret_type.as_str();
-            // Exceções por tabelas: a entrada pousa o desenrolamento do corpo
-            // (abaixo) — código C não é atravessado. A sabotagem
-            // `callback_sem_pouso` (o D9 do §7.3) tira o pouso.
+            // Exceptions by tables: the entry lands the unwinding of the body
+            // (below) — C code is not crossed. The
+            // `callback_sem_pouso` sabotage (D9 of §7.3) removes the landing pad.
             let by_tables = self.module.excecoes_por_tabelas && !crate::alvo::sabotage("callback_sem_pouso");
             let personality = if by_tables { " personality ptr @dartforge_personalidade" } else { "" };
             writeln!(self.out, "define internal {ret_ext}{r} @df.ffi.cbentrada.{i}({}){personality} {{", decls.join(", "))
@@ -3177,7 +3177,7 @@ impl<'a> LlvmEmitter<'a> {
             if let Some((_, l)) = &ret {
                 writeln!(self.out, "  %rt = alloca [{} x i8], align 16", l.size.div_ceil(16) * 16).unwrap();
             }
-            // O endereço de cada composto (`%end{j}`, i64).
+            // The address of each compound (`%end{j}`, i64).
             for (j, t) in cb.params.iter().enumerate() {
                 let NativeType::Composite(_) = t else { continue };
                 match &pieces_of[j] {
@@ -3194,8 +3194,8 @@ impl<'a> LlvmEmitter<'a> {
             }
             writeln!(self.out, "  %modo = call i64 @dartforge_ffi_callback_entrar(ptr %ctx)").unwrap();
             writeln!(self.out, "  %e_ouvinte = icmp ne i64 %modo, 0\n  br i1 %e_ouvinte, label %ouvinte, label %local").unwrap();
-            // Ouvinte: os bits de cada argumento na mensagem (de um
-            // composto, o endereço: o runtime copia os bytes).
+            // Listener: the bits of each argument in the message (of a
+            // compound, the address: the runtime copies the bytes).
             writeln!(self.out, "ouvinte:").unwrap();
             for (j, t) in cb.params.iter().enumerate() {
                 let bits = match t {
@@ -3224,7 +3224,7 @@ impl<'a> LlvmEmitter<'a> {
                 NativeType::Composite(_) if r == "void" => writeln!(self.out, "  ret void").unwrap(),
                 NativeType::Composite(_) => writeln!(self.out, "  ret {r} zeroinitializer").unwrap(),
             }
-            // Local: a chamada ao corpo HIR na representação Dart.
+            // Local: the call to the HIR body in the Dart representation.
             writeln!(self.out, "local:\n  %c = ptrtoint ptr %ctx to i64").unwrap();
             let mut args = vec!["i64 %c".to_string()];
             for (j, t) in cb.params.iter().enumerate() {
@@ -3256,9 +3256,9 @@ impl<'a> LlvmEmitter<'a> {
             let hr = cb.ret.hir_type().llvm_ir();
             let empty = matches!(cb.ret, NativeType::Prim(CType::Void));
             if by_tables {
-                // O corpo que lança desenrola: o pouso restaura o topo da
-                // pilha-sombra e segue com o valor padrão e a exceção
-                // pendente, como o corpo devolvia no modelo de conferência.
+                // The body that throws unwinds: the landing pad restores the top of the
+                // shadow stack and goes on with the default value and the pending
+                // exception, as the body returned in the check model.
                 self.out.push_str(
                     "  %tctx = call ptr @dartforge_contexto()\n  %ttp = getelementptr inbounds i8, ptr %tctx, i64 8\n  %ttopo = load ptr, ptr %ttp, align 8\n",
                 );
@@ -3283,8 +3283,8 @@ impl<'a> LlvmEmitter<'a> {
             } else {
                 writeln!(self.out, "  %r = call {hr} @{}({})", cb.body, args.join(", ")).unwrap();
             }
-            // Uma struct devolvida: os bytes copiados já (antes de qualquer
-            // alocação); com exceção o corpo devolve 0 e o retorno é zerado.
+            // A returned struct: the bytes copied right away (before any
+            // allocation); with an exception the body returns 0 and the return is zeroed.
             if let Some((_, l)) = &ret {
                 let sz = l.size.div_ceil(16) * 16;
                 writeln!(self.out, "  call void @llvm.memset.p0.i64(ptr %rt, i8 0, i64 {sz}, i1 false)").unwrap();
@@ -3320,7 +3320,7 @@ impl<'a> LlvmEmitter<'a> {
             }
             let NativeType::Prim(tr) = cb.ret else { unreachable!("retorno composto sem passagem") };
             writeln!(self.out, "  %e_excecao = icmp ne i8 %x, 0\n  br i1 %e_excecao, label %excecao, label %normal").unwrap();
-            // O retorno excepcional (bits do tipo C) e o normal (Dart → C).
+            // The exceptional return (bits of the C type) and the normal one (Dart → C).
             writeln!(self.out, "excecao:\n  %e = load i64, ptr %saida").unwrap();
             let exc = match tr {
                 CType::I64 | CType::U64 => "add i64 %e, 0".to_string(),
@@ -3359,15 +3359,15 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(self.out, "  {}", entry_call(by_tables, &entry, args)).unwrap();
     }
 
-    /// Exceções por tabelas: as portas pelas quais o runtime chama código
-    /// Dart (`runtime/src/excecoes_tabelas.rs`), uma por assinatura —
-    /// `@df.porta.<v|r><n>(função, n words)`, `v` sem valor e `r`
-    /// devolvendo uma palavra — e a tabela `@df.ports`, no índice
-    /// `2n + (1 se devolve)`, que a entrada do programa registra. A porta
-    /// chama a função com `invoke`; um desenrolamento pousa nela, que
-    /// restaura o topo da pilha-sombra e volta com a exceção pendente — o
-    /// que o runtime espera de uma função Dart que lançou. Assim nenhum
-    /// quadro do runtime fica no caminho de um desenrolamento.
+    /// Exceptions by tables: the ports through which the runtime calls Dart
+    /// code (`runtime/src/exceptions_tables.rs`), one per signature —
+    /// `@df.porta.<v|r><n>(function, n words)`, `v` without a value and `r`
+    /// returning a word — and the `@df.portas` table, at index
+    /// `2n + (1 if it returns)`, which the program entry registers. The port
+    /// calls the function with `invoke`; an unwinding lands in it, which
+    /// restores the top of the shadow stack and returns with the exception pending — what
+    /// the runtime expects from a Dart function that threw. This way no
+    /// runtime frame stays in the path of an unwinding.
     fn emit_ports(&mut self) {
         let mut table = Vec::with_capacity(N_PORTS);
         for n in 0..N_PORTS / 2 {
@@ -3394,13 +3394,13 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(self.out, "@df.portas = private unnamed_addr constant [{N_PORTS} x ptr] [{}]\n", table.join(", ")).unwrap();
     }
 
-    /// Tipo do valor que o emissor de fato imprime para uma instrucao.
+    /// Type of the value that the emitter actually prints for an instruction.
     ///
-    /// Nao basta acreditar no tipo registrado na HIR: varios arms imprimem um
-    /// tipo fixo (todo Add sai como i64, todo ICmp como i1) e um registro
-    /// divergente faria a coercao trabalhar com a informacao errada. O tipo
-    /// registrado so vale onde o emissor o usa (Load, Phi, Alloca e as
-    /// instrucoes ainda nao expandidas).
+    /// It is not enough to trust the type recorded in the HIR: several arms print a
+    /// fixed type (every Add comes out as i64, every ICmp as i1) and a divergent
+    /// record would make the coercion work with wrong information. The recorded
+    /// type only holds where the emitter uses it (Load, Phi, Alloca and the
+    /// instructions not expanded yet).
     pub(crate) fn result_type(inst: &Instruction, registered: Type) -> Type {
         match inst {
             Instruction::Const(Constant::Bool(_)) => Type::I1,
@@ -3467,13 +3467,13 @@ impl<'a> LlvmEmitter<'a> {
     }
 
 
-    /// A conferência da pilha no prólogo (o `stack_overflow_check` da VM,
-    /// `runtime/vm/compiler/backend/il.h:9693`, `CheckStackOverflowInstr`): o
-    /// endereço de um `alloca` do quadro abaixo de
-    /// `Context::limite_da_pilha` lança `StackOverflowError`
-    /// (`dartforge_estouro_de_pilha`) e a função volta com a exceção
-    /// pendente, antes de encadear o quadro de raízes. Só nas funções que
-    /// chamam (as que têm `%ctx`): uma folha não aprofunda a pilha.
+    /// The stack check in the prologue (the VM's `stack_overflow_check`,
+    /// `runtime/vm/compiler/backend/il.h:9693`, `CheckStackOverflowInstr`): the
+    /// address of an `alloca` of the frame below
+    /// `Context::stack_limit` throws `StackOverflowError`
+    /// (`dartforge_estouro_de_pilha`) and the function returns with the exception
+    /// pending, before chaining the roots frame. Only in the functions that
+    /// call (those that have `%ctx`): a leaf does not deepen the stack.
     fn emit_stack_check(&mut self, func: &Function) {
         let by_tables = self.tab.is_some();
         let o = &mut self.out;
@@ -3487,7 +3487,7 @@ impl<'a> LlvmEmitter<'a> {
         if self.stack_trace.is_some() {
             writeln!(o, "  call void @dartforge_rastro_saida()").unwrap();
         }
-        // Exceções por tabelas: o `StackOverflowError` desenrola daqui.
+        // Exceptions by tables: the `StackOverflowError` unwinds from here.
         if by_tables {
             writeln!(o, "  call void @df.lancar()").unwrap();
             writeln!(o, "  unreachable").unwrap();
@@ -3510,30 +3510,30 @@ impl<'a> LlvmEmitter<'a> {
         self.exit_labels.entry(0).or_insert_with(|| "pilha.ok".to_string());
     }
 
-    /// O corpo do objeto `only` (`%fcb{v}`, o cabeçalho) e os campos dele
-    /// (`%fp{v}`), em linha: um objeto do espaço de objetos (`h & 3 == 2` e
-    /// `h > 0`; `crates/runtime/src/heap.rs`, `Cabecalho`) tem o cabeçalho em
-    /// `h - 2`; qualquer outra coisa — null, `Smi`, valor do runtime — usa o
-    /// `OBJETO_VAZIO` (o ponteiro em `Context::vazios`, deslocamento 40 do
-    /// contexto), campos zerados, como `dartforge_object_campos` dava. Com o
-    /// bit `FORA` nas `flags`, o corpo é o endereço guardado no primeiro
-    /// campo (o objeto que mudou de número de campos): uma seleção, sem
-    /// desvio. Sem chamada.
-    /// O operando é um objeto recém-alocado neste bloco, sem ponto de
-    /// coleta desde a alocação (`fresh_set`).
+    /// The body of the object `only` (`%fcb{v}`, the header) and its fields
+    /// (`%fp{v}`), inline: an object of the object space (`h & 3 == 2` and
+    /// `h > 0`; `crates/runtime/src/heap.rs`, `Header`) has the header at
+    /// `h - 2`; anything else — null, a `Smi`, a runtime value — uses
+    /// `EMPTY_OBJECT` (the pointer in `Context::empties`, offset 40 of the
+    /// context), zeroed fields, as `dartforge_object_campos` gave. With the
+    /// `FORA` bit in the `flags`, the body is the address kept in the first
+    /// field (the object that changed its number of fields): a select, without a
+    /// branch. No call.
+    /// The operand is an object freshly allocated in this block, without a collection
+    /// point since the allocation (`fresh_set`).
     fn fresh(&self, op: &Operand) -> bool {
         !self.module.arc_memory && matches!(op, Operand::Val(x) if self.fresh_set.contains(&x.0))
     }
 
-    /// O corpo do objeto `op` é o próprio bloco: o recém-alocado, ou o
-    /// `this` quando nenhum objeto tem corpo de fora (`this_object`).
+    /// The body of the object `op` is the block itself: the freshly allocated one, or
+    /// `this` when no object has an outside body (`this_object`).
     fn direct_body(&self, op: &Operand) -> bool {
         self.fresh(op) || matches!(op, Operand::Val(x) if self.this_object == Some(x.0))
     }
 
-    /// [`Self::emit_field_addresses`]; `direct`: o corpo é o próprio
-    /// bloco ([`Self::direct_body`], `handle − 2`), sem a seleção de
-    /// null/`Smi` nem o corpo de fora.
+    /// [`Self::emit_field_addresses`]; `direct`: the body is the block
+    /// itself ([`Self::direct_body`], `handle − 2`), without the select of
+    /// null/`Smi` or the outside body.
     fn emit_field_addresses_of(&mut self, v: u32, only: &str, direct: bool) {
         if !direct {
             return self.emit_field_addresses(v, only);
@@ -3551,7 +3551,7 @@ impl<'a> LlvmEmitter<'a> {
             writeln!(o, "  %fp{v} = getelementptr inbounds i8, ptr %fcb{v}, i64 16").unwrap();
             return;
         }
-        // O bit de sinal entra na máscara: negativo nunca é objeto.
+        // The sign bit enters the mask: a negative is never an object.
         writeln!(o, "  %fxk{v} = and i64 {only}, {OBJECT_MASK}").unwrap();
         writeln!(o, "  %fxo{v} = icmp eq i64 %fxk{v}, 2").unwrap();
         writeln!(o, "  %fxa{v} = add i64 {only}, -2").unwrap();
@@ -3569,10 +3569,10 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(o, "  %fp{v} = getelementptr inbounds i8, ptr %fcb{v}, i64 16").unwrap();
     }
 
-    /// Grava `sv` no campo `idx` do corpo `%fcb{v}` e acende ou apaga o bit
-    /// dele no mapa de referências (`is_ref`: `0`, `1` ou um `i8` só
-    /// conhecido em execução) — os 32 primeiros no cabeçalho, os demais nas
-    /// palavras depois dos campos (achadas pelo `n` do corpo).
+    /// Writes `sv` into the field `idx` of the body `%fcb{v}` and sets or clears its
+    /// bit in the reference map (`is_ref`: `0`, `1` or an `i8` only
+    /// known at runtime) — the first 32 in the header, the others in the
+    /// words after the fields (found through the `n` of the body).
     fn emit_field_write(&mut self, v: u32, suffix: &str, idx: usize, sv: &str, is_ref: &str) {
         let o = &mut self.out;
         let t = format!("{v}{suffix}");
@@ -3589,7 +3589,7 @@ impl<'a> LlvmEmitter<'a> {
             writeln!(o, "  %fmp{t} = getelementptr inbounds i64, ptr %fp{v}, i64 %fnw{t}").unwrap();
             (format!("%fmp{t}"), "i64", (idx - 32) % 64)
         };
-        // As constantes na largura da palavra, com sinal (o texto do IR).
+        // The constants in the width of the word, signed (the IR text).
         let (cleans, lights_up) = if width == "i32" {
             (i64::from(!(1u32 << bit) as i32), i64::from((1u32 << bit) as i32))
         } else {
@@ -3612,9 +3612,9 @@ impl<'a> LlvmEmitter<'a> {
         }
     }
 
-    /// `dartforge_object_new(c, n)` com classe e número de campos
-    /// constantes e `n ≤ TLAB_N`: a alocação sai em linha
-    /// ([`LlvmEmitter::emit_inline_allocation`]). Devolve `(c, n)`.
+    /// `dartforge_object_new(c, n)` with a constant class and number of fields
+    /// and `n ≤ TLAB_N`: the allocation comes out inline
+    /// ([`LlvmEmitter::emit_inline_allocation`]). Returns `(c, n)`.
     fn inline_allocation(inst: &Instruction) -> Option<(i64, i64)> {
         let Instruction::CallRuntime { name, args, .. } = inst else { return None };
         if name != "dartforge_object_new" || args.len() != 2 {
@@ -3628,29 +3628,29 @@ impl<'a> LlvmEmitter<'a> {
         }
     }
 
-    /// A alocação em linha de um objeto de classe `c` e `n` campos, como o
-    /// `TryAllocateObject` da VM (`stub_code_compiler.cc`): avança o cursor
-    /// da faixa da TLAB de `n` campos do isolado (`Context::tlab`: cursor
-    /// em `64 + 16n`, fim em `72 + 16n`; os blocos já foram contados como
-    /// alocados e têm cabeçalho e campos zerados, menos o encadeamento no
-    /// primeiro campo), grava o cabeçalho (jovem, `n`, a classe) e devolve o
-    /// handle (`block + 2`). Faixa esgotada — ou,
-    /// para a classe que registra a tabela de métodos na primeira alocação
-    /// (`dartforge_object_new_t`), classe ainda não registrada — vai ao
-    /// runtime, que coleta se preciso e reabastece. O bloco da HIR termina
-    /// no rótulo `ao{v}.end` ([`LlvmEmitter::exit_labels`]).
+    /// The inline allocation of an object of class `c` and `n` fields, like the
+    /// VM's `TryAllocateObject` (`stub_code_compiler.cc`): advances the cursor
+    /// of the TLAB range of `n` fields of the isolate (`Context::tlab`: cursor
+    /// at `64 + 16n`, end at `72 + 16n`; the blocks have already been counted as
+    /// allocated and have the header and fields zeroed, except the chaining in the
+    /// first field), writes the header (young, `n`, the class) and returns the
+    /// handle (`block + 2`). An exhausted range — or,
+    /// for the class that registers the method table on the first allocation
+    /// (`dartforge_object_new_t`), a class not registered yet — goes to the
+    /// runtime, which collects if needed and refills. The HIR block ends
+    /// at the label `ao{v}.fim` ([`LlvmEmitter::exit_labels`]).
     fn emit_inline_allocation(&mut self, v: u32, c: i64, n: i64) {
         let table = self.module.table_functions.get(&(c as u32)).cloned();
         if let Some(f) = &table {
             self.annotate_external(f, Type::Ptr, &[]);
         }
-        // A TLAB é por palavras do corpo: `n ≤ TLAB_N` campos ocupam
-        // `max(n, 1)` palavras (sem extensão do mapa).
+        // The TLAB is by words of the body: `n ≤ TLAB_N` fields take
+        // `max(n, 1)` words (no map extension).
         let w = layout::palavras_de_instancia(n as usize);
         let size = layout::bytes_do_bloco(w);
         if self.out_of_line_allocation {
-            // Produção do programa grande: a mesma conta, numa chamada ao
-            // `@df.new_instance` (docs/NATIVO-PRODUCAO-GRANDE.md §3).
+            // Production of the large program: the same computation, in a call to
+            // `@df.nova_instancia` (docs/NATIVO-PRODUCAO-GRANDE.md §3).
             let header = layout::palavra_do_cabecalho(layout::estado::JOVEM, layout::flags::INSTANCIA, n as usize, c as i32);
             let t = table.as_ref().map_or("null".to_string(), |f| format!("@{f}"));
             writeln!(
@@ -3688,10 +3688,10 @@ impl<'a> LlvmEmitter<'a> {
             writeln!(o, "  %tx{v} = call i1 @llvm.expect.i1(i1 %tz{v}, i1 false)").unwrap();
             writeln!(o, "  br i1 %tx{v}, label %ao{v}.lento, label %ao{v}.rapido").unwrap();
         }
-        // O bloco livre tem o cabeçalho zerado (menos o número de campos),
-        // os campos zerados e o próximo da lista no primeiro campo: avança-se
-        // o cursor, zera-se o primeiro campo e grava-se a palavra do
-        // cabeçalho (estado jovem, sem flags, `n`, a classe).
+        // The free block has the header zeroed (except the number of fields),
+        // the fields zeroed and the next of the list in the first field: the
+        // cursor is advanced, the first field is zeroed and the header
+        // word is written (young state, no flags, `n`, the class).
         let header = layout::palavra_do_cabecalho(layout::estado::JOVEM, layout::flags::INSTANCIA, n as usize, c as i32);
         writeln!(o, "ao{v}.rapido:").unwrap();
         writeln!(o, "  store ptr %tnx{v}, ptr %ta{v}, align 8").unwrap();
@@ -3712,11 +3712,11 @@ impl<'a> LlvmEmitter<'a> {
         self.current_label = format!("ao{v}.fim");
     }
 
-    /// A gravação em linha de campo que pode pôr um `Ref` num objeto: leva a
-    /// barreira de escrita ([`LlvmEmitter::emit_barrier`]). Uma constante
-    /// escalar ou null não precisa.
+    /// The inline field store that may put a `Ref` into an object: it carries the
+    /// write barrier ([`LlvmEmitter::emit_barrier`]). A scalar constant
+    /// or null does not need it.
     fn inline_barrier(&self, inst: &Instruction) -> bool {
-        // No ARC a gravação vai ao runtime, com a barreira dentro.
+        // Under ARC the store goes to the runtime, with the barrier inside.
         if self.module.arc_memory {
             return false;
         }
@@ -3739,11 +3739,11 @@ impl<'a> LlvmEmitter<'a> {
         }
     }
 
-    /// A barreira de escrita depois de gravar o `Ref` `sv` no objeto `only`
-    /// (`@df.barrier`, docs/NATIVO-ESPACO-UNIFICADO.md §2.7): o objeto velho
-    /// que recebe um filho jovem vai para os lembrados da próxima coleta menor —
-    /// o *store buffer* da barreira da VM. `dynamic`: o `is_ref` só conhecido em
-    /// execução (0/1, `i8`). O bloco da HIR passa a terminar em `wb{v}.end`.
+    /// The write barrier after storing the `Ref` `sv` into the object `only`
+    /// (`@df.barreira`, docs/NATIVO-ESPACO-UNIFICADO.md §2.7): the old object
+    /// that receives a young child goes into the remembered set of the next minor collection —
+    /// the *store buffer* of the VM's barrier. `dynamic`: `is_ref` only known at
+    /// runtime (0/1, `i8`). The HIR block now ends at `wb{v}.fim`.
     fn emit_barrier(&mut self, v: u32, only: &str, sv: &str, dynamic: Option<&str>) {
         let o = &mut self.out;
         match dynamic {
@@ -3763,10 +3763,10 @@ impl<'a> LlvmEmitter<'a> {
         self.current_label = format!("wb{v}.fim");
     }
 
-    /// Contexto exigido pelo corpo ou pelas tabelas, antes de decidir os
-    /// quadros de raízes. Também exige conferência de pilha no prólogo;
-    /// os resumos ARC compartilham esta decisão para não omitir unwind.
-    /// Quadros calculados por vivacidade podem exigir contexto adicional.
+    /// Context required by the body or by the tables, before deciding the
+    /// roots frames. It also requires a stack check in the prologue;
+    /// the ARC summaries share this decision so as not to omit unwinding.
+    /// Frames computed by liveness may require additional context.
     pub(crate) fn requires_explicit_context(func: &Function, tab: Option<&FunctionTables>) -> bool {
         func.blocks.iter().any(|b| {
             b.instructions.iter().any(|(_, i, _)| {
@@ -3779,8 +3779,8 @@ impl<'a> LlvmEmitter<'a> {
         })
     }
 
-    /// A instrução lê o contexto da thread (`%ctx`): campos em linha ou
-    /// alocação em linha.
+    /// The instruction reads the thread context (`%ctx`): inline fields or
+    /// inline allocation.
     fn uses_context(inst: &Instruction) -> bool {
         match inst {
             Instruction::GetField { index, .. } | Instruction::SetField { index, .. } => *index < INLINE_FIELDS,
@@ -3794,12 +3794,12 @@ impl<'a> LlvmEmitter<'a> {
             _ => false,
         }
     }
-    /// Tipo estatico de um operando dentro da funcao corrente.
-    /// A instrução pode alocar (e, portanto, coletar)? Conservador: só não
-    /// coleta o que comprovadamente emite só aritmética, memória local ou
-    /// extern que não aloca — e sem conversão que encaixote (um operando
-    /// `Ref` onde se espera escalar pode lançar `TypeError`, que aloca; um
-    /// escalar onde se espera `Ref`, ou uma constante de texto, aloca).
+    /// Static type of an operand inside the current function.
+    /// Can the instruction allocate (and therefore collect)? Conservative: only what
+    /// provably emits only arithmetic, local memory or an extern that does not allocate
+    /// does not collect — and without a conversion that boxes (a `Ref` operand
+    /// where a scalar is expected may throw `TypeError`, which allocates; a
+    /// scalar where a `Ref` is expected, or a text constant, allocates).
     fn may_collect(&self, inst: &Instruction) -> bool {
         let scalar = |op: &Operand| {
             self.type_of(op) != Type::Ref && !matches!(op, Operand::Constant(Constant::String(_) | Constant::StringWtf8(_)))
@@ -3838,11 +3838,11 @@ impl<'a> LlvmEmitter<'a> {
             | Instruction::IntToDouble(a)
             | Instruction::DoubleToInt(a) => !scalar(a),
             Instruction::Alloca(_) | Instruction::Load { .. } | Instruction::Phi { .. } => false,
-            // Aritmética de vetores e o desencaixe (carga direta): não alocam.
+            // Vector arithmetic and unboxing (a direct load): they do not allocate.
             Instruction::Simd { .. } => false,
             Instruction::Unbox { to, .. } if to.is_vector() => false,
-            // Em linha (load/store no vetor de campos), sem conversão que
-            // aloque: um `Ref` já é `i64`, um `double` é `bitcast`.
+            // Inline (load/store in the field vector), without a conversion that
+            // allocates: a `Ref` is already an `i64`, a `double` is a `bitcast`.
             Instruction::GetField { index, .. } => (*index as usize) >= INLINE_FIELDS,
             Instruction::SetField { index, value, .. } => {
                 (*index as usize) >= INLINE_FIELDS
@@ -3864,11 +3864,11 @@ impl<'a> LlvmEmitter<'a> {
                 let does_not_allocate = !e.allocates && !e.calls_dart;
                 !(does_not_allocate && args.iter().all(|(a, t)| exact(a, *t)))
             }
-            // Na memória por rastreamento: o texto constante é um objeto
-            // estático da imagem (`ir_strings.rs`, `emit_const_string`), e
-            // os vetores constantes e a leitura de um vetor de argumentos são
-            // endereços e cargas. Nenhum aloca; antes, cada literal de texto
-            // obrigava a enraizar tudo o que estava vivo nele.
+            // In tracing memory: the constant text is a static object
+            // of the image (`ir_strings.rs`, `emit_const_string`), and
+            // the constant vectors and the read of an argument vector are
+            // addresses and loads. None allocates; before, each text literal
+            // forced rooting everything that was live at it.
             Instruction::Const(Constant::String(_) | Constant::StringWtf8(_)) => {
                 !(self.static_objects && !self.module.arc_memory)
             }
@@ -3879,12 +3879,12 @@ impl<'a> LlvmEmitter<'a> {
         }
     }
 
-    /// Se a chamada `inst` enraíza os próprios argumentos
-    /// (`roots::analyze_with`): uma chamada direta a uma função Dart — deste
-    /// módulo, ou do SDK da fonte (`df.dart$3a…`) — cujos operandos chegam
-    /// sem conversão que aloque (o tipo do parâmetro, nenhum texto
-    /// constante). Só na pilha-sombra da memória por rastreamento: as raízes
-    /// por mapas e o ARC seguem a regra de sempre. Só com
+    /// Whether the call `inst` roots its own arguments
+    /// (`roots::analyze_with`): a direct call to a Dart function — of this
+    /// module, or of the source SDK (`df.dart$3a…`) — whose operands arrive
+    /// without a conversion that allocates (the type of the parameter, no constant
+    /// text). Only on the shadow stack of tracing memory: roots
+    /// by maps and ARC follow the usual rule. Only with
     /// `DARTFORGE_RAIZES_NO_CHAMADO=1` ([`roots_in_callee`]).
     fn callee_roots_the_arguments(&self, inst: &Instruction) -> bool {
         if self.maps || self.module.arc_memory || !roots_in_callee() {
@@ -3927,16 +3927,16 @@ impl<'a> LlvmEmitter<'a> {
         }
     }
 
-    /// Literal double na forma hexadecimal do LLVM.
+    /// Double literal in LLVM's hexadecimal form.
     ///
-    /// format!("{d}") imprime 1 para 1.0 e o LLVM recusa "double 1"; a forma
-    /// 0x com os 16 digitos do padrao IEEE 754 sempre vale.
+    /// format!("{d}") prints 1 for 1.0 and LLVM rejects "double 1"; the
+    /// 0x form with the 16 digits of the IEEE 754 pattern always works.
     fn double_literal(d: f64) -> String {
         format!("0x{:016X}", d.to_bits())
     }
 
-    /// Reescreve uma constante diretamente no tipo pedido, sem instrucao.
-    /// Devolve None quando o operando nao e constante.
+    /// Rewrites a constant directly in the requested type, without an instruction.
+    /// Returns None when the operand is not a constant.
     fn constant_in_type(&self, op: &Operand, alvo: Type) -> Option<String> {
         let Operand::Constant(c) = op else { return None };
         let s = match (c, alvo) {
@@ -3959,19 +3959,19 @@ impl<'a> LlvmEmitter<'a> {
         Some(s)
     }
 
-    /// Converte um operando para o tipo que a posicao exige.
+    /// Converts an operand to the type that the position requires.
     ///
-    /// O emissor imprime o tipo LLVM em cada posicao ("ret i64", "add i64",
-    /// "br i1", o tipo declarado de cada argumento do runtime), mas a HIR
-    /// carrega bool ora como i1 (resultado de icmp), ora como i8 (a fronteira
-    /// com o Rust), e int/handle como i64. Sem esta conversao o Clang recusa o
-    /// modulo inteiro — era a causa de 172 das 214 falhas do corpus nativo.
+    /// The emitter prints the LLVM type at each position ("ret i64", "add i64",
+    /// "br i1", the declared type of each runtime argument), but the HIR
+    /// carries bool sometimes as i1 (result of icmp), sometimes as i8 (the boundary
+    /// with Rust), and int/handle as i64. Without this conversion Clang rejects the
+    /// whole module — it was the cause of 172 of the 214 failures of the native corpus.
     ///
-    /// Entre i1/i8/i64 a conversao e zext/trunc. Entre double e i64 e bitcast,
-    /// nao sitofp/fptosi: a HIR tem nos proprios (IntToDouble/DoubleToInt) para
-    /// a conversao numerica, entao um double ocupando um slot i64 so pode ser o
-    /// padrao de bits — e assim que Const(Double) e emitido e como os doubles
-    /// atravessam o runtime.
+    /// Between i1/i8/i64 the conversion is zext/trunc. Between double and i64 it is a bitcast,
+    /// not sitofp/fptosi: the HIR has its own nodes (IntToDouble/DoubleToInt) for
+    /// numeric conversion, so a double occupying an i64 slot can only be the
+    /// bit pattern — that is how Const(Double) is emitted and how doubles
+    /// cross the runtime.
     fn coerce(&mut self, op: &Operand, alvo: Type) -> String {
         if alvo == Type::Void {
             return self.operand_str(op);
@@ -3984,8 +3984,8 @@ impl<'a> LlvmEmitter<'a> {
         if current.llvm_ir() == alvo.llvm_ir() && (current == Type::F64) == (alvo == Type::F64) {
             return text;
         }
-        // double vira i64 (e vice-versa) sempre pelos bits; larguras menores
-        // passam antes por i64 porque bitcast exige tamanho igual.
+        // double becomes i64 (and vice versa) always through the bits; smaller widths
+        // go through i64 first because bitcast requires the same size.
         if current == Type::F64 && alvo != Type::F64 {
             text = self.emit_conversion("bitcast", Type::F64, &text, Type::I64);
             current = Type::I64;
@@ -4009,8 +4009,8 @@ impl<'a> LlvmEmitter<'a> {
         }
     }
 
-    /// Mesma conversao, mas gravando num nome escolhido por quem chama
-    /// (usado pelas entradas de phi, que precisam de um nome estavel).
+    /// Same conversion, but writing into a name chosen by the caller
+    /// (used by the phi entries, which need a stable name).
     fn emit_named_conversion(&mut self, name_str: &str, de: Type, origin: &str, to_repr: Type) {
         let mut current = de;
         let mut text = origin.to_string();
@@ -4045,7 +4045,7 @@ impl<'a> LlvmEmitter<'a> {
             Operand::Constant(Constant::Int(n)) => n.to_string(),
             Operand::Constant(Constant::Double(d)) => {
                 let _bits = d.to_bits();
-                // Em instrução com double imediato, LLVM aceita ponto ou notação científica
+                // In an instruction with an immediate double, LLVM accepts a point or scientific notation
                 format!("{d}")
             }
             Operand::Constant(Constant::Bool(b)) => if *b { "true" } else { "false" }.to_string(),
@@ -4058,9 +4058,9 @@ impl<'a> LlvmEmitter<'a> {
     }
 }
 
-/// Raízes por mapas: as chamadas que nunca coletam além das externs que a
-/// tabela de efeitos marca assim — os ajudantes folha ([`leaf_helpers`]),
-/// o desenrolamento e a moldura da conferência dos efeitos.
+/// Roots by maps: the calls that never collect besides the externs that the
+/// effects table marks that way — the leaf helpers ([`leaf_helpers`]),
+/// the unwinding and the frame of the effects check.
 const MAP_LEAVES: &[&str] = &[
     "df.corpo",
     "df.barreira",
@@ -4074,25 +4074,25 @@ const MAP_LEAVES: &[&str] = &[
     "dartforge_efeitos_restaurar",
 ];
 
-/// A regra das raízes pelo chamado (`LlvmEmitter::callee_roots_the_arguments`)
-/// está ligada: `DARTFORGE_RAIZES_NO_CHAMADO=1` (medida; desligada por
-/// padrão). Ela tira ~8% das gravações de raiz do new_sali/backend, mas
-/// muda a coloração dos slots: um slot compartilhado guarda o último valor
-/// até ser reusado ou o quadro fechar, e com menos valores enraizados o
-/// valor morto fica mais tempo — o núcleo `json` do `bench/comparison`
-/// terminava com 1,05 milhão de objetos vivos em vez de 650 mil (pico de
-/// 121 contra 95 MB). Falta zerar o slot do valor que morre antes de ligar.
+/// The rule of roots by the callee (`LlvmEmitter::callee_roots_the_arguments`)
+/// is on: `DARTFORGE_RAIZES_NO_CHAMADO=1` (measurement; off by
+/// default). It removes ~8% of the root stores of new_sali/backend, but
+/// changes the coloring of the slots: a shared slot keeps the last value
+/// until it is reused or the frame closes, and with fewer rooted values the
+/// dead value stays longer — the `json` core of `bench/comparison`
+/// ended with 1.05 million live objects instead of 650 thousand (peak of
+/// 121 against 95 MB). Zeroing the slot of the value that dies before turning it on is still missing.
 fn roots_in_callee() -> bool {
     static ENABLED_IN_CALLEE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ENABLED_IN_CALLEE.get_or_init(|| std::env::var("DARTFORGE_RAIZES_NO_CHAMADO").is_ok_and(|v| v == "1"))
 }
 
-/// Raízes por mapas: a chamada da linha pode coletar — a indireta, e a
-/// direta a uma função que não é intrínseco do LLVM nem folha (a extern que
-/// a tabela de efeitos marca sem coletar nem chamar Dart, salvo a sabotagem
-/// `leaf:<name>`, que a trata como folha; os ajudantes de
-/// [`MAP_LEAVES`]). Um nome fora das tabelas (a função Dart, o
-/// ajudante que aloca) coleta.
+/// Roots by maps: the call of the line may collect — the indirect one, and the
+/// direct one to a function that is neither an LLVM intrinsic nor a leaf (the extern that
+/// the effects table marks as neither collecting nor calling Dart, except for the
+/// `folha:<name>` sabotage, which treats it as a leaf; the helpers of
+/// [`MAP_LEAVES`]). A name outside the tables (the Dart function, the
+/// helper that allocates) collects.
 fn collecting_call(line: &str) -> bool {
     match stack_trace::call_target(line) {
         None => false,
@@ -4107,10 +4107,10 @@ fn collecting_call(line: &str) -> bool {
     }
 }
 
-/// Raízes por mapas (§14.12): a linha (com ou sem o `\n`) com o operando
-/// `beam` (`"deopt"(…)`), se ela é uma chamada que pode coletar ainda sem
-/// ele; senão, a própria linha. O operando vai depois dos atributos da
-/// chamada e antes do rótulo de um `invoke` e dos metadados.
+/// Roots by maps (§14.12): the line (with or without the `\n`) with the operand
+/// `beam` (`"deopt"(…)`), if it is a call that may collect still without
+/// it; otherwise, the line itself. The operand goes after the attributes of the
+/// call and before the label of an `invoke` and the metadata.
 fn with_deopt<'a>(line: &'a str, beam: &str) -> std::borrow::Cow<'a, str> {
     if line.contains("\"deopt\"(") || !collecting_call(line) {
         return std::borrow::Cow::Borrowed(line);
@@ -4123,15 +4123,15 @@ fn with_deopt<'a>(line: &'a str, beam: &str) -> std::borrow::Cow<'a, str> {
     std::borrow::Cow::Owned(format!("{} [ {beam} ]{}{end}", &body[..pos], &body[pos..]))
 }
 
-/// Raízes por mapas (§14.12): o `"deopt"()` vazio em toda chamada que pode
-/// coletar e ainda não tem o dela — a dos ajudantes `@df.*`, da entrada, das
-/// funções sem raízes no mapa. O inliner do LLVM só junta os vivos de quem
-/// chama ao `"deopt"` que a chamada copiada já tem: sem ele, a chamada do
-/// corpo copiado sairia sem as raízes de quem chamou. Os intermediários
-/// `@df.vararg.<k>` ficam como estão (`noinline`; a chamada variádica não
-/// vira statepoint). Toda linha entre o `define` e o `}` conta: o corpo dos
-/// ajudantes sai sem indentação (a continuação `\` das strings Rust come os
-/// espaços).
+/// Roots by maps (§14.12): the empty `"deopt"()` on every call that may
+/// collect and does not have its own yet — that of the `@df.*` helpers, of the entry, of the
+/// functions without roots in the map. LLVM's inliner only joins the live values of the caller
+/// to the `"deopt"` that the copied call already has: without it, the call of the
+/// copied body would come out without the roots of the caller. The intermediaries
+/// `@df.vararg.<k>` stay as they are (`noinline`; the variadic call does not
+/// become a statepoint). Every line between the `define` and the `}` counts: the body of the
+/// helpers comes out without indentation (the `\` continuation of Rust strings eats the
+/// spaces).
 fn empty_deopt(text: &str) -> String {
     let mut exit = String::with_capacity(text.len() + text.len() / 16);
     let mut inside = false;
@@ -4155,11 +4155,11 @@ fn empty_deopt(text: &str) -> String {
     exit
 }
 
-/// Raízes por mapas: os ajudantes `@df.*` que comprovadamente não coletam
-/// ganham `"gc-leaf-function"` — fora de linha (o programa grande), a
-/// chamada a eles não vira ponto de coleta. Em linha o atributo não muda
-/// nada. Só os que não chamam o runtime, ou chamam uma extern que não aloca
-/// no heap do coletor (`dartforge_lembrar`).
+/// Roots by maps: the `@df.*` helpers that provably do not collect
+/// get `"gc-leaf-function"` — out of line (the large program), the
+/// call to them does not become a collection point. Inline the attribute changes
+/// nothing. Only those that do not call the runtime, or call an extern that does not allocate
+/// in the heap of the collector (`dartforge_lembrar`).
 fn leaf_helpers(text: &str) -> String {
     const LEAVES: &[&str] = &["@df.corpo(", "@df.barreira(", "@df.barreira_elemento(", "@df.e_objeto(", "@df.filho_jovem("];
     let mut exit = String::with_capacity(text.len() + 256);
@@ -4177,20 +4177,20 @@ fn leaf_helpers(text: &str) -> String {
     exit
 }
 
-/// Quantas portas Rust → Dart o módulo do programa define
-/// ([`LlvmEmitter::emit_ports`]): aridades 0 a 7, sem valor e com valor. O
-/// runtime tem o mesmo número (`PORTAS_DART`, `excecoes_tabelas.rs`).
+/// How many Rust → Dart ports the program module defines
+/// ([`LlvmEmitter::emit_ports`]): arities 0 to 7, without and with a value. The
+/// runtime has the same number (`PORTAS_DART`, `exceptions_tables.rs`).
 const N_PORTS: usize = 16;
 
-/// O que todo módulo declara nas exceções por tabelas
+/// What every module declares with exceptions by tables
 /// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13):
 ///
-/// * a personalidade das funções com pouso (`dartforge_personalidade`, do
-///   runtime) e o registro das portas;
-/// * `@df.throw`, o desenrolamento: uma exceção estruturada do sistema com
-///   o código próprio `0xE0444652` (o inteiro abaixo), não continuável, sem
-///   parâmetros — a exceção Dart em si é a pendência do runtime. `internal`:
-///   cada módulo (e cada parte de um módulo dividido) tem a sua cópia.
+/// * the personality of the functions with a landing pad (`dartforge_personalidade`, of the
+///   runtime) and the registration of the ports;
+/// * `@df.lancar`, the unwinding: a structured exception of the system with
+///   its own code `0xE0444652` (the integer below), non-continuable, without
+///   parameters — the Dart exception itself is the pending flag of the runtime. `internal`:
+///   each module (and each part of a split module) has its own copy.
 const EXCEPTIONS_BY_TABLES: &str = "; Exceções por tabelas (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md)\n\
 declare i32 @dartforge_personalidade(...)\n\
 declare void @dartforge_registrar_portas(ptr, i64)\n\
@@ -4200,15 +4200,15 @@ define internal void @df.lancar() noreturn noinline cold \"gc-leaf-function\" {\
   unreachable\n\
 }\n";
 
-/// O mesmo nos alvos Itanium (Linux, macOS): `@df.throw` pede ao runtime
-/// o objeto de exceção da thread (`excecoes_tabelas.rs`) e o entrega ele
-/// mesmo ao desenrolador do sistema (`_Unwind_RaiseException`), como o
-/// `RaiseException` do Windows: nenhum quadro Rust fica entre o lançamento
-/// e o pouso. Na variante do runtime com `panic=unwind` (a DLL do SDK da
-/// fonte), uma função Rust `extern "C"` no caminho tem a guarda de abortar,
-/// e a personalidade do Rust devolvia `_URC_FATAL_PHASE1_ERROR` (3) à
-/// exceção estrangeira. Se o desenrolador voltar, o código vai ao runtime,
-/// que encerra.
+/// The same on Itanium targets (Linux, macOS): `@df.lancar` asks the runtime for
+/// the exception object of the thread (`exceptions_tables.rs`) and hands it itself
+/// to the system unwinder (`_Unwind_RaiseException`), like Windows'
+/// `RaiseException`: no Rust frame stays between the throw
+/// and the landing pad. In the variant of the runtime with `panic=unwind` (the DLL of the source
+/// SDK), a Rust `extern "C"` function in the path has the abort guard,
+/// and Rust's personality returned `_URC_FATAL_PHASE1_ERROR` (3) to the
+/// foreign exception. If the unwinder comes back, the code goes to the runtime,
+/// which terminates.
 const EXCEPTIONS_BY_TABLES_ITANIUM: &str = "; Exceções por tabelas (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md)
 declare i32 @dartforge_personalidade(...)
 declare i32 @dartforge_personalidade_cleanup_itanium(...)
@@ -4225,10 +4225,10 @@ define internal void @df.lancar() noreturn noinline cold \"gc-leaf-function\" {
 }
 ";
 
-/// A chamada, na entrada do programa, de uma função Dart sem valor: direta
-/// ou, nas exceções por tabelas, pela porta da aridade
-/// ([`LlvmEmitter::emit_ports`]) — a entrada é chamada pelo runtime, e um
-/// desenrolamento não pode chegar a ele.
+/// The call, at the program entry, of a Dart function without a value: direct
+/// or, with exceptions by tables, through the port of the arity
+/// ([`LlvmEmitter::emit_ports`]) — the entry is called by the runtime, and an
+/// unwinding cannot reach it.
 fn entry_call(by_tables: bool, sym_name: &str, args: &[&str]) -> String {
     if by_tables {
         let mut list = format!("ptr @{sym_name}");
@@ -4242,23 +4242,23 @@ fn entry_call(by_tables: bool, sym_name: &str, args: &[&str]) -> String {
     }
 }
 
-/// O hash (FNV-1a de 64 bits) do nome de um slot ou da chave do módulo na
-/// área de globais; nunca 0, que marca o slot que não migra.
+/// The hash (64-bit FNV-1a) of the name of a slot or of the key of the module in the
+/// global area; never 0, which marks the slot that does not migrate.
 fn slot_hash(name_str: &str) -> i64 {
     let h = fnv(name_str.bytes()) & !(CACHE_BIT as u64);
     (if h == 0 { 1 } else { h }) as i64
 }
 
-/// O bit que marca, no descritor da área, o nome de um slot de cache de
-/// seletor (o runtime tem a mesma constante, `gc_raizes.rs`).
+/// The bit that marks, in the area descriptor, the name of a selector cache
+/// slot (the runtime has the same constant, `gc_roots.rs`).
 pub(crate) const CACHE_BIT: i64 = 1 << 62;
 
-/// O nome da palavra `word` (0 ou 1) do cache `name`, com [`CACHE_BIT`].
+/// The name of the word `word` (0 or 1) of the cache `name`, with [`CACHE_BIT`].
 fn cache_hash(name_str: &str, word: u8) -> i64 {
     (fnv(name_str.bytes().chain([0, word])) | CACHE_BIT as u64) as i64
 }
 
-/// FNV-1a de 64 bits.
+/// 64-bit FNV-1a.
 fn fnv(bytes: impl Iterator<Item = u8>) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in bytes {
@@ -4268,12 +4268,12 @@ fn fnv(bytes: impl Iterator<Item = u8>) -> u64 {
     h
 }
 
-/// A caixa e o desencaixe de `int` em linha (R10, `runtime/src/heap.rs`,
-/// `smi`): um `int` em `[-2^62, 2^62)` numa posição `Ref` é o `Smi`
-/// `(v << 1) | 1`, sem alocação; fora da faixa, e para desencaixar uma
-/// referência que não é `Smi` (o `_Mint`, ou o `TypeError`), o runtime.
-/// `internal` em cada módulo e `alwaysinline`: o caminho comum vira três
-/// instruções no lugar da chamada.
+/// Inline boxing and unboxing of `int` (R10, `runtime/src/heap.rs`,
+/// `smi`): an `int` in `[-2^62, 2^62)` in a `Ref` position is the `Smi`
+/// `(v << 1) | 1`, without allocation; outside the range, and to unbox a
+/// reference that is not a `Smi` (the `_Mint`, or the `TypeError`), the runtime.
+/// `internal` in each module and `alwaysinline`: the common path becomes three
+/// instructions in place of the call.
 const GET_AREA: &str = "@df.area_id = internal global i64 0, align 8\n\
 define internal ptr @df.obter_area() alwaysinline {\n\
   %ctx = call ptr @dartforge_contexto()\n\
@@ -4296,31 +4296,31 @@ lenta:\n\
   ret ptr %q\n\
 }\n";
 
-/// A classe de um valor e o cache do ponto de chamada por seletor, em
-/// linha. Um objeto do espaço (`h & 3 == 2`, `runtime/src/heap.rs`,
-/// `Cabecalho`) tem o `class_id` no cabeçalho (`block + 4`, e o handle é
-/// `block + 2`): uma carga, como o `LoadClassId` da VM. Um valor do runtime
-/// num slot (`h > 0`, `h & 3 == 0`, índice `h / 4 - 1`) tem a classe no
-/// vetor denso do heap (`Heap::classes`, 8 bytes por slot, o `cid` nos 4
-/// primeiros), cujo endereço e comprimento o contexto da thread publica
-/// (deslocamentos 336 e 344, `runtime/src/heap.rs`, `Context`): relidos a
-/// cada uso, porque o vetor cresce (muda de endereço) quando o heap ganha
-/// slots. Índice fora da faixa ou classe desconhecida (`i32::MIN`), e o
-/// resto (`null` e `Smi` sem o SDK da fonte), perguntam ao runtime
+/// The class of a value and the cache of the call site by selector,
+/// inline. An object of the space (`h & 3 == 2`, `runtime/src/heap.rs`,
+/// `Header`) has the `class_id` in the header (`block + 4`, and the handle is
+/// `block + 2`): one load, like the VM's `LoadClassId`. A runtime value
+/// in a slot (`h > 0`, `h & 3 == 0`, index `h / 4 - 1`) has the class in the
+/// dense vector of the heap (`Heap::classes`, 8 bytes per slot, the `cid` in the first
+/// 4), whose address and length the thread context publishes
+/// (offsets 336 and 344, `runtime/src/heap.rs`, `Context`): reread on
+/// each use, because the vector grows (changes address) when the heap gains
+/// slots. An index out of range or an unknown class (`i32::MIN`), and the
+/// rest (`null` and `Smi` without the source SDK), ask the runtime
 /// (`dartforge_value_class`).
 ///
-/// `df.subclasse` é o `cid <: C` pelo mapa de bits do alvo que o runtime
-/// monta na primeira consulta (`runtime/src/core.rs`, `MapasDeSubtipo`;
-/// deslocamentos 352–368 do contexto), o *type testing stub* da VM: sem
-/// chamada quando o mapa existe e o `cid` está na largura dele.
-/// O cache (`cache[0]` = classe + 1, `cache[1]` = entrada, na área do
-/// isolado) é conferido aqui; só a falha chama `dartforge_seletor`, que
-/// busca na tabela da classe e regrava o cache — o *inline cache*
-/// monomórfico da VM (`ICData`), sem a chamada ao runtime no acerto.
+/// `df.subclasse` is `cid <: C` through the bitmap of the target that the runtime
+/// builds on the first query (`runtime/src/core.rs`, `SubtypeMaps`;
+/// offsets 352–368 of the context), the VM's *type testing stub*: without a
+/// call when the map exists and the `cid` is within its width.
+/// The cache (`cache[0]` = class + 1, `cache[1]` = entry, in the area of the
+/// isolate) is checked here; only a miss calls `dartforge_seletor`, which
+/// looks up the table of the class and rewrites the cache — the VM's monomorphic
+/// *inline cache* (`ICData`), without the call to the runtime on a hit.
 ///
-/// Com o SDK da fonte, `null` e o `Smi` também saem sem o runtime: as
-/// classes deles (`Null`, `_Smi`) são as da tabela `cids` do módulo
-/// (`sdk_modulo::runtime_cids`, a que o runtime recebe na partida).
+/// With the source SDK, `null` and the `Smi` also come out without the runtime: their
+/// classes (`Null`, `_Smi`) are those of the `cids` table of the module
+/// (`sdk_modulo::runtime_cids`, the one the runtime receives at startup).
 fn value_class(cids: &[i64]) -> String {
     let text = VALUE_CLASS
         .replace("@@MASCARA@@", &OBJECT_MASK.to_string())
@@ -4328,7 +4328,7 @@ fn value_class(cids: &[i64]) -> String {
         .replace("@@SUBTIPOS@@", &layout::contexto::SUBTIPOS.to_string())
         .replace("@@N_SUBTIPOS@@", &layout::contexto::N_SUBTIPOS.to_string())
         .replace("@@LARGURA@@", &layout::contexto::LARGURA_SUBTIPOS.to_string());
-    // Sem o SDK da fonte (o caminho legado), `null` e o `Smi` vão ao runtime.
+    // Without the source SDK (the legacy path), `null` and the `Smi` go to the runtime.
     if !matches!(cids, [n, s, ..] if *n >= 0 && *s >= 0) {
         return text.replace("@@RAPIDOS@@", "");
     }
@@ -4410,20 +4410,20 @@ lento:\n\
   ret i8 %y\n\
 }\n";
 
-/// Ajudantes `@df.*` que vão fora de linha (com o `selector` e a `class`, o
-/// despacho dinâmico, em [`out_of_line_helpers`]): cada um é uma
-/// sequência que se repete em centenas de milhares de lugares do programa
-/// grande (docs/NATIVO-PRODUCAO-GRANDE.md §1.4).
+/// `@df.*` helpers that go out of line (with the `selector` and the `class`, the
+/// dynamic dispatch, in [`out_of_line_helpers`]): each one is a
+/// sequence that repeats in hundreds of thousands of places of the large
+/// program (docs/NATIVO-PRODUCAO-GRANDE.md §1.4).
 pub const OUTLINED_HELPERS_LARGE_PROGRAM: &[&str] =
     &["subclasse", "alocar", "barreira", "barreira_elemento", "obter_area", "nova_instancia"];
 
-/// A lista de ajudantes fora de linha: `DARTFORGE_AJUDANTES_FORA` (lista
-/// separada por vírgula; `1`, todos; vazio, nenhum); senão todos no
-/// programa grande, no desenvolvimento (`-O0`, onde o `alwaysinline` copia
-/// o ajudante em cada uso e a geração de código paga por cada cópia:
-/// `large_development`) e na produção (`large_program`), e nenhum
-/// nos demais — o programa pequeno roda o dobro do tempo no `-O0` sem os
-/// ajudantes em linha (o corpus/native: 53 → 116 s).
+/// The list of out-of-line helpers: `DARTFORGE_AJUDANTES_FORA` (a list
+/// separated by commas; `1`, all; empty, none); otherwise all in the
+/// large program, in development (`-O0`, where `alwaysinline` copies
+/// the helper at each use and code generation pays for each copy:
+/// `large_development`) and in production (`large_program`), and none
+/// in the others — the small program runs twice as long at `-O0` without the
+/// inline helpers (the corpus/native: 53 → 116 s).
 pub fn out_of_line_helpers(large_development: bool, large_program: bool) -> Vec<String> {
     let all = || ["seletor", "classe"].iter().chain(OUTLINED_HELPERS_LARGE_PROGRAM).map(|s| (*s).to_string()).collect();
     match std::env::var("DARTFORGE_AJUDANTES_FORA") {
@@ -4434,8 +4434,8 @@ pub fn out_of_line_helpers(large_development: bool, large_program: bool) -> Vec<
     }
 }
 
-/// O despacho por seletor com o descritor estático (`@df.seld.<k>`), fora
-/// de linha ([`LlvmEmitter::compact_selector`]).
+/// Dispatch by selector with the static descriptor (`@df.seld.<k>`), out
+/// of line ([`LlvmEmitter::compact_selector`]).
 const SELECTOR_BY_DESCRIPTOR: &str = "define internal ptr @df.seletor_d(ptr %c, i64 %r, ptr %d) noinline {
   %h = load i64, ptr %d, align 8
   %np = getelementptr inbounds i8, ptr %d, i64 8
@@ -4447,11 +4447,11 @@ const SELECTOR_BY_DESCRIPTOR: &str = "define internal ptr @df.seletor_d(ptr %c, 
 }
 ";
 
-/// A alocação de instância de `emit_inline_allocation` fora de linha:
-/// `%cur` é o deslocamento do cursor da TLAB das palavras do objeto no
-/// contexto (o fim vem 8 bytes depois), `%sz` os bytes do bloco, `%hdr` a
-/// palavra do cabeçalho, `%tab` a função da tabela de métodos (null quando a
-/// classe não registra a tabela na primeira alocação).
+/// The instance allocation of `emit_inline_allocation` out of line:
+/// `%cur` is the offset of the TLAB cursor of the words of the object in the
+/// context (the end comes 8 bytes later), `%tam` the bytes of the block, `%cab` the
+/// header word, `%tab` the function of the method table (null when the
+/// class does not register the table on the first allocation).
 fn new_instance() -> String {
     format!(
         "define internal i64 @df.nova_instancia(ptr %ctx, i64 %cur, i64 %tam, i64 %cab, i64 %c, i64 %n, ptr %tab) noinline {{
@@ -4498,8 +4498,8 @@ semt:
     )
 }
 
-/// `text` com os `define internal … @df.<name>(…) alwaysinline` de `names`
-/// trocados para `noinline`.
+/// `text` with the `define internal … @df.<name>(…) alwaysinline` of `names`
+/// switched to `noinline`.
 fn out_of_line(text: &str, names: &[String]) -> String {
     if names.is_empty() {
         return text.to_string();
@@ -4517,33 +4517,33 @@ fn out_of_line(text: &str, names: &[String]) -> String {
     exit
 }
 
-/// Os ajudantes da fundação do espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md
-/// §3.5), com os deslocamentos do contrato de layout:
+/// The helpers of the foundation of the unified space (docs/NATIVO-ESPACO-UNIFICADO.md
+/// §3.5), with the offsets of the layout contract:
 ///
 /// * `@df.e_objeto(h)`: `h & (7 | i64::MIN) == 2`;
-/// * `@df.filho_jovem(v)`: o filho gravado pede a barreira (objeto jovem);
-/// * `@df.barrier(o, v)`: `o` velho recebendo filho jovem → `dartforge_lembrar`
-///   (peso 1:9 no ramo lento, como a barreira da Julia);
-/// * `@df.barreira_elemento(o, i, v)`: a mesma com cartões (`o` velho ou
-///   lembrado com `CARTOES`: suja o cartão do elemento `i`);
-/// * `@df.allocate(header, w)`: a TLAB de `w ≤ TLAB_N` palavras (o cursor
-///   avança `16 + 8w` e grava a palavra 0); esgotada ou `w` maior,
+/// * `@df.filho_jovem(v)`: the stored child requires the barrier (young object);
+/// * `@df.barreira(o, v)`: old `o` receiving a young child → `dartforge_lembrar`
+///   (weight 1:9 on the slow branch, like Julia's barrier);
+/// * `@df.barreira_elemento(o, i, v)`: the same with cards (`o` old or
+///   remembered with `CARTOES`: dirties the card of element `i`);
+/// * `@df.alocar(header, w)`: the TLAB of `w ≤ TLAB_N` words (the cursor
+///   advances `16 + 8w` and writes word 0); exhausted or a larger `w`,
 ///   `dartforge_alocar(cid, w, header >> 8)`.
-/// `@df.body(h, ctx)`: o começo do corpo de um objeto (o cabeçalho; os
-/// campos 16 bytes depois), a mesma conta de `emit_field_addresses` em
-/// linha — um valor que não é objeto lê o objeto de reserva do contexto
-/// (`ctx + 40`), e um corpo fora do bloco (anexo, `flags & 1`) é seguido pelo
-/// ponteiro em `+16`. `alwaysinline` quando o emissor está em linha (para o
-/// otimizador ver igual); sem o atributo no desenvolvimento, uma chamada.
+/// `@df.corpo(h, ctx)`: the start of the body of an object (the header; the
+/// fields 16 bytes later), the same computation as `emit_field_addresses`
+/// inline — a value that is not an object reads the reserve object of the context
+/// (`ctx + 40`), and a body outside the block (attached, `flags & 1`) is followed through the
+/// pointer at `+16`. `alwaysinline` when the emitter is inline (so that the
+/// optimizer sees the same); without the attribute in development, a call.
 fn body_helper(per_call: bool, production: bool) -> String {
-    // Na produção por chamada: fora de linha de verdade, e sem efeito nem
-    // dependência de memória (`memory(none)`): o corpo de um objeto não
-    // muda durante a vida dele — o coletor não move, e o corpo de fora só
-    // nasce na migração da recarga do JIT (que nunca é produção) —, então o
-    // otimizador junta todas as chamadas sobre o mesmo objeto, mesmo com
-    // gravações e chamadas no meio (o quadro do `$async`, o `this`).
-    // Antes, `memory(read)`: duas chamadas só se juntavam sem escrita entre
-    // elas. docs/NATIVO-PRODUCAO-GRANDE.md §6.3.
+    // In production by call: truly out of line, and without effect or
+    // memory dependency (`memory(none)`): the body of an object does not
+    // change during its life — the collector does not move, and the outside body only
+    // appears in the migration of a JIT reload (which is never production) —, so the
+    // optimizer joins all the calls on the same object, even with
+    // stores and calls in between (the frame of `$async`, the `this`).
+    // Before, `memory(read)`: two calls only joined without a write between
+    // them. docs/NATIVO-PRODUCAO-GRANDE.md §6.3.
     let attribute = match (per_call, production) {
         (false, _) => " alwaysinline",
         (true, false) => "",
@@ -4704,5 +4704,5 @@ lento:\n\
     )
 }
 
-// `@df.caixa_int`, `@df.desencaixa_int` e `@df.env_ref` são da P2
+// `@df.caixa_int`, `@df.desencaixa_int` and `@df.env_ref` are from P2
 // (`ir_boxes::HELPERS`, docs/NATIVO-ESPACO-UNIFICADO.md §3.5).

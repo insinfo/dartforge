@@ -32,7 +32,7 @@ use std::fmt::Write;
 /// * `@df.texto_len(s)`: the length (`s` is a string);
 /// * `@df.texto_unidade(s, i)`: code unit `i`, without checking bounds;
 /// * `@df.texto_alocar(len, two)`: a string of `len` zeroed code units, inline
-///   through `@df.allocate` up to 16 words, otherwise `@dartforge_texto_novo`;
+///   through `@df.alocar` up to 16 words, otherwise `@dartforge_texto_novo`;
 /// * `@df.texto_gravar(s, i, u)`: the `writeInto*String` (writes without a barrier: the
 ///   string is `BRUTO` and has not been published yet);
 /// * `@df.texto_hash(s)`: the hash in the header, or `@dartforge_texto_hash` on the

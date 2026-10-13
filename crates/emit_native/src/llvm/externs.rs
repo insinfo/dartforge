@@ -1005,7 +1005,7 @@ pub const EXTERNS: &[Extern] = &[
     },
     // ─── Unified space (docs/NATIVO-ESPACO-UNIFICADO.md §3.6) ──────────────
     Extern {
-        // (cid, words, flags): the slow allocation of `@df.allocate` (P0).
+        // (cid, words, flags): the slow allocation of `@df.alocar` (P0).
         decl: "declare i64 @dartforge_alocar(i64, i64, i64) nounwind",
         effects: ALLOCATES_WITHOUT_THROWING,
     },
@@ -1140,7 +1140,7 @@ pub fn marks_to_check(name: &str) -> i64 {
         return 0;
     }
     let e = effects_of(name);
-    // The sabotaged leaf (`leaf:<name>`, D7 of §7.3) is checked as a
+    // The sabotaged leaf (`folha:<name>`, D7 of §7.3) is checked as a
     // leaf: a collection inside it terminates the process, naming it.
     let allocates = e.allocates && !crate::alvo::sabotaged_leaf(name);
     i64::from(!allocates && !e.calls_dart) | (i64::from(!e.throws && !e.calls_dart) << 1)

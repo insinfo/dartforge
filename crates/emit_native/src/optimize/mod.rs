@@ -131,7 +131,7 @@ fn in_parallel(functions: &mut [Function], pass: &(dyn Fn(&mut Function) -> bool
     })
 }
 
-/// Switches the module to exceptions by tables (`--excecoes=tables`,
+/// Switches the module to exceptions by tables (`--excecoes=tabelas`,
 /// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13): the last pass over the HIR,
 /// after [`optimize`] and right before emission. Without it the module stays in the
 /// usual model (the pending state checked after each call).

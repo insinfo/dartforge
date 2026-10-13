@@ -4,7 +4,7 @@
 //! `AllocClosureTyped`, `TearOff`, `AllocRecord` and the
 //! `@df.caixa_*`/`@df.desencaixa_*`/`@df.identico` helpers of the prelude.
 //!
-//! Everything is a block of the object space, allocated inline by `@df.allocate` (P0) and
+//! Everything is a block of the object space, allocated inline by `@df.alocar` (P0) and
 //! read/written by offset from the handle (`h = block + 2`, so the
 //! word `b + k` is at `h + k − 2`):
 //!
@@ -288,9 +288,9 @@ impl LlvmEmitter<'_> {
         }
     }
 
-    /// The inline allocation (`@df.allocate`) of a block of `w` words with
+    /// The inline allocation (`@df.alocar`) of a block of `w` words with
     /// header `hdr`, into `%v<v>`, and its pointer (the handle) into `%bp<v>`.
-    /// Above `TLAB_N` words, `@df.allocate` goes to the runtime.
+    /// Above `TLAB_N` words, `@df.alocar` goes to the runtime.
     fn allocate_block(&mut self, v: u32, hdr: u64, w: usize) {
         writeln!(self.out, "  %v{v} = call i64 @df.alocar(i64 {}, i64 {w})", hdr as i64).unwrap();
         writeln!(self.out, "  %bp{v} = inttoptr i64 %v{v} to ptr").unwrap();
@@ -420,7 +420,7 @@ impl LlvmEmitter<'_> {
     }
 
     /// The write into a cell: the value, the map bit by representation and,
-    /// for a `Ref`, the barrier (`@df.barrier`).
+    /// for a `Ref`, the barrier (`@df.barreira`).
     pub(super) fn emit_cell_set(&mut self, cell: &Operand, value: &Operand) {
         let k = self.boxes.new_name();
         let is_ref = self.type_of(value) == Type::Ref;

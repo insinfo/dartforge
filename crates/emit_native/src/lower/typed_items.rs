@@ -15,7 +15,7 @@
 //! bounds falls into the usual dispatch, with the same errors as the VM.
 //!
 //! `List` is not `final`: a user class may implement it. The class of the
-//! receiver (`@df.class`) says whether it is a runtime list (`_List`,
+//! receiver (`@df.classe`) says whether it is a runtime list (`_List`,
 //! `_ImmutableList`, `_GrowableList`, cids 8–10); any other gets length 0
 //! and keeps the dispatch. The length is at `h+14` in all three; the elements,
 //! in the storage (the list itself, or the `_List` at `h+22` of the growable one),
@@ -152,7 +152,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return Some(Indexable::Core { write_op });
         }
         // Under ARC, each access through the address of the bytes gets
-        // `@df.keep_alive(list)` in the preparation (`optimize/arc/derived_set.rs`).
+        // `@df.manter_vivo(list)` in the preparation (`optimize/arc/derived_set.rs`).
         if library != "dart:typed_data" {
             return None;
         }

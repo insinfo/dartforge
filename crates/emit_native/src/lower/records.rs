@@ -296,7 +296,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         )
     }
 
-    /// `df.$record.equal(a, b)`: same shape and equal fields (`==` of each
+    /// `df.$registro.igual(a, b)`: same shape and equal fields (`==` of each
     /// field); what is not a record with a shape goes to the runtime `==`.
     pub fn lower_record_equality(&mut self) {
         let a = Operand::Val(self.add_param("a".to_string(), Type::Ref));

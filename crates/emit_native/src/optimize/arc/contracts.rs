@@ -19,7 +19,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 /// the base of the view, which it holds in an immutable edge. The derived
 /// addresses (`@df.tipada_dados`, `@df.nucleo_armazenamento`, read by
 /// `@df.nucleo_forma`) are scalars whose accesses `derived_set.rs` holds with
-/// `@df.keep_alive(list)`; `@df.palavra_ref` (a `Ref` read from the
+/// `@df.manter_vivo(list)`; `@df.palavra_ref` (a `Ref` read from the
 /// storage) stays out: under ARC the lowering uses the Owned read.
 pub const HELPER_CONTRACTS: &[Contrato] = &[
     Contrato { nome: "df.bit_smi", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },

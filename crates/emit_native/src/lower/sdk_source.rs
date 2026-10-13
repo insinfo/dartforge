@@ -965,7 +965,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let v = args.first().cloned().unwrap_or(Operand::Constant(Constant::Null));
                 if ret == Type::Void { v } else { self.coerce(v, ret) }
             }
-            // `ClassID.getID(o)`: the class of the value inline (`@df.class`,
+            // `ClassID.getID(o)`: the class of the value inline (`@df.classe`,
             // docs/NATIVO-ESPACO-UNIFICADO.md §3.8), without calling the runtime.
             "ClassID_getID" => {
                 let o = args.first().cloned().unwrap_or(Operand::Constant(Constant::Null));
@@ -2218,7 +2218,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let class = self.ctx.sdk_class("core", "ConcurrentModificationError")?;
         let empty = self.ctx.interner.lookup("")?;
         let ctor = *self.ctx.program.classes[class.0 as usize].constructors.get(&empty)?;
-        // A core list by class (`@df.class`, fixed cids 8–10,
+        // A core list by class (`@df.classe`, fixed cids 8–10,
         // docs/NATIVO-ESPACO-UNIFICADO.md §2.4): `_List`, `_ImmutableList` or
         // `_GrowableList`; the length inline (`@df.lista_len`).
         let cid = self.emit(

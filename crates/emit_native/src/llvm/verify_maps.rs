@@ -15,7 +15,7 @@
 //!   statepoint). Without it, the call would have no roots in the map, nor would
 //!   its callers after inlining;
 //! * every extern declared `"gc-leaf-function"` is in the effects table
-//!   without collecting nor calling Dart (except for the `leaf:<name>` sabotage).
+//!   without collecting nor calling Dart (except for the `folha:<name>` sabotage).
 //!
 //! A violation is a compile error: the map would come out with one root too few or
 //! with a value that is not a reference.

@@ -244,7 +244,7 @@ pub struct SummarizedTable {
 /// The summary of a module (an SDK library or the program): §3.3.
 ///
 /// Local names (`private`/`internal`) carry the `<module>#` prefix,
-/// because they repeat in every module (`@df.seln.0`, `@df.class`).
+/// because they repeat in every module (`@df.seln.0`, `@df.classe`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Summary {
     pub module: String,
@@ -1481,7 +1481,7 @@ mod tests {
         let m = assemble(&program("c:usado"), &[&s], true).unwrap();
         let ir = &m.ir;
         // `df.mt.P` (nobody cites it) and its pair go away; `main` and the uncited local
-        // `df.class` too: only what the fixpoint reaches stays.
+        // `df.classe` too: only what the fixpoint reaches stays.
         assert!(!ir.contains("define ptr @df.mt.P()"), "{ir}");
         assert!(!ir.contains("define i64 @P.nunca$c"), "{ir}");
         assert!(!ir.contains("define internal i64 @df.classe"), "{ir}");

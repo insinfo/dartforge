@@ -25,7 +25,7 @@
 //!   others (the thread-local one, `thread_local`);
 //! * `declare`, the header (`target`, `source_filename`), attributes and
 //!   metadata: in every part; `$x = comdat any`, in the part of the item that uses it;
-//!   the comments (`; df.class`, `; df.fields`, which the JIT reload reads
+//!   the comments (`; df.classe`, `; df.campos`, which the JIT reload reads
 //!   from the whole IR) only in part 0.
 //!
 //! The parts group the items by the library of the symbol

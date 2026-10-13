@@ -3,7 +3,7 @@
 //! after each call" model to the "the Dart call unwinds" model.
 //!
 //! **The contract of the mode.** A Dart function never returns to its caller with the
-//! exception pending: it unwinds the stack (`@df.throw`) up to the landing pad
+//! exception pending: it unwinds the stack (`@df.lancar`) up to the landing pad
 //! (`landingpad`) of whoever handles it. The exception itself is still the
 //! runtime's pending state — unwinding only transfers control —, so
 //! the code of a handler (`catch`, `finally`), which reads and clears the pending state,

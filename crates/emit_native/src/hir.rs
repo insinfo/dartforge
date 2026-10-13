@@ -972,7 +972,7 @@ pub struct LayoutField {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExceptionExit {
     /// The exception is pending on every path to this `Return`: unwinds
-    /// (`@df.throw`) instead of returning.
+    /// (`@df.lancar`) instead of returning.
     Throws,
     /// Resumes the native object received in this Itanium cleanup landing pad.
     /// Only admits ARC drops and LIFO closing of local frames before the Return.
@@ -1152,13 +1152,13 @@ pub struct Module {
     /// `_StreamIterator._onData` and 2 for `_StreamController._add`.
     pub stack_trace_tearoffs: Vec<(String, i64)>,
     /// The ids of the program classes, `(id, library, class)`: written
-    /// in the IR (`; df.class …`) so that the next generation of a JIT
+    /// in the IR (`; df.classe …`) so that the next generation of a JIT
     /// reload gives the same id to the same class (J03, `Context::with_previous_ids`).
     pub program_ids: Vec<(u32, String, String)>,
     /// The layout of the objects of each program class, for the migration of the
     /// live instances on a JIT reload (J03): `(id, fields before the
     /// declared ones — those of enums —, fields)`, written in the IR as
-    /// `; df.fields …`.
+    /// `; df.campos …`.
     pub program_fields: Vec<(u32, usize, Vec<LayoutField>)>,
     /// Program with the source SDK: the class ids of the values that the
     /// runtime represents (`Null`, `_Smi`, `_Mint`, `_Double`, `bool`,
