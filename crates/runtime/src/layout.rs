@@ -575,7 +575,7 @@ mod testes_layout {
         for s in ["", "a", "abc", "hello world", "ç€😀", "0123456789abcdef0123456789"] {
             let t = crate::heap::Texto::de_str(s);
             let u: Vec<u16> = s.encode_utf16().collect();
-            assert_eq!(i64::from(hash_de_texto(u.iter().copied())), t.hash_vm(), "hash de {s:?}");
+            assert_eq!(i64::from(hash_de_texto(u.iter().copied())), t.hash_vm(), "hash of {s:?}");
         }
         // Lone surrogate and a unit above 0xFF.
         let u = vec![0xD800, 0x61, 0x1234, 0xFF];

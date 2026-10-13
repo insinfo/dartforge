@@ -71,7 +71,7 @@ pub extern "C" fn dartforge_arc_lista_len_v1(list: i64) -> i64 {
         let heap = h.borrow();
         let (_, length) = audited_list_storage(&heap, list)
             .expect("invalid ARC list length");
-        i64::try_from(length).expect("comprimento fora de i64")
+        i64::try_from(length).expect("length outside i64")
     })
 }
 
@@ -988,7 +988,7 @@ mod tests_closure_context {
 }
 
 fn owned_instance_parameters(class: i64, fields: i64) -> Result<(i32, usize), &'static str> {
-    let class = i32::try_from(class).map_err(|_| "classe fora de i32")?;
+    let class = i32::try_from(class).map_err(|_| "class outside i32")?;
     let fields = u16::try_from(fields).map_err(|_| "field count outside u16")?;
     Ok((class, usize::from(fields)))
 }

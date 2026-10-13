@@ -709,7 +709,7 @@ mod tests_owners_record_and_concat {
         for arc in [false, true] {
             let previous = HEAP.with(|h| h.replace(Heap::new(true)));
             if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
-            let text = HEAP.with(|h| h.borrow_mut().allocate_str("campo emprestado"));
+            let text = HEAP.with(|h| h.borrow_mut().allocate_str("borrowed field"));
             dartforge_arc_retain(text);
             let pair_list = [text, 3];
             // SAFETY: a valid bits/tag pair; its Ref has an independent token.

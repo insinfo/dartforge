@@ -3899,7 +3899,7 @@ mod object_space {
             assert!(!heap.is_live_object(x) || x == o || x == s, "{x}");
         }
         heap.set(o, 1, s, true);
-        assert_eq!(heap.object(o).expect("objeto").field(1), (s, true));
+        assert_eq!(heap.object(o).expect("object").field(1), (s, true));
     }
 
     #[test]
@@ -3922,7 +3922,7 @@ mod object_space {
         let mut total_sum = 0;
         let mut no = head;
         while no != 0 {
-            let fields = heap.object(no).expect("objeto");
+            let fields = heap.object(no).expect("object");
             total_sum += fields.field(0).0;
             no = fields.field(1).0;
         }
@@ -3951,7 +3951,7 @@ mod object_space {
         heap.ensure_fields(o, 5);
         heap.set(o, 4, 42, false);
         heap.collect();
-        let fields = heap.object(o).expect("objeto");
+        let fields = heap.object(o).expect("object");
         assert_eq!((fields.len(), fields.field(0).0, fields.field(4).0), (5, 41, 42));
         heap.pop_frame(frame);
         heap.collect();
@@ -3966,7 +3966,7 @@ mod object_space {
         let mut heap = Heap::new(false);
         let a = heap.allocate_object(1, 0);
         let b = heap.allocate_object(1, 0);
-        let ha = heap.identity_hash(a).expect("objeto");
+        let ha = heap.identity_hash(a).expect("object");
         assert_eq!(heap.identity_hash(a), Some(ha));
         assert_ne!(heap.identity_hash(b), Some(ha));
         assert!(ha > 0 && ha <= 0x3fff_ffff);
@@ -4026,7 +4026,7 @@ mod object_space {
             let mut n = 0;
             let mut h = head;
             while h != 0 {
-                let o = heap.object(h).expect("elo vivo");
+                let o = heap.object(h).expect("live link");
                 assert_eq!(o.class_id, 5);
                 n += 1;
                 h = o.field(1).0;
@@ -4078,7 +4078,7 @@ mod object_space {
                 let mut n = 0;
                 let mut h = head;
                 while h != 0 {
-                    let o = heap.object(h).expect("elo vivo");
+                    let o = heap.object(h).expect("live link");
                     assert_eq!((o.class_id, o.field(2).0), (5, 77));
                     n += 1;
                     h = o.field(1).0;
@@ -4133,7 +4133,7 @@ mod object_space {
         heap.coletar(false);
         let young = heap.allocate_object(2, 0);
         // Writes without barrier (as generated code without it would).
-        let b = heap.objects.block_of(old_gen).expect("objeto");
+        let b = heap.objects.block_of(old_gen).expect("object");
         #[allow(unsafe_code)]
         // SAFETY: live 1-field block.
         unsafe {
@@ -4224,7 +4224,7 @@ mod object_space {
             assert!(heap.object(*f).is_some());
         }
         assert!(heap.object(garbage).is_none());
-        let obj = heap.object(o).expect("objeto");
+        let obj = heap.object(o).expect("object");
         assert_eq!(obj.field(32), (children[2], true));
         assert!(!obj.field(33).1);
         // Replacing the reference with a scalar clears the bit.
@@ -4247,7 +4247,7 @@ mod object_space {
         heap.set(o, 2, young, true);
         heap.coletar(true);
         assert!(heap.object(young).is_some());
-        assert_eq!(heap.object(o).expect("objeto").len(), 3);
+        assert_eq!(heap.object(o).expect("object").len(), 3);
         heap.pop_frame(frame);
         heap.coletar(false);
         assert_eq!(heap.stats().live_objects, 0);
@@ -5076,7 +5076,7 @@ fn block_without_refs(h: Ref) -> bool {
 /// error (docs/ARC-CICLOS-ESPECIFICACAO.md §19.3).
 #[cold]
 fn arc_failure(e: crate::arc::ArcError) -> ! {
-    panic!("bug do ARC: {e:?}")
+    panic!("ARC bug: {e:?}")
 }
 
 /// The geometry of the page of block `h` for the ARC metadata table
@@ -6002,7 +6002,7 @@ impl Heap {
         let graph = HeapGraph { heap: self, ephemerons };
         if let Err(e) = estado.audit(&graph, &owning_set) {
             if let crate::arc::ArcError::Audit { handle, .. } = e {
-                panic!("bug do ARC: {e:?} (cid {})", graph.heap.header(handle).class_id);
+                panic!("ARC bug: {e:?} (cid {})", graph.heap.header(handle).class_id);
             }
             arc_failure(e);
         }

@@ -533,7 +533,7 @@ fn show_trace() {
         for &(p, n) in r.borrow().iter().rev().take(25) {
             // SAFETY: module constants registered by `dartforge_rastro_entrada`.
             let b = unsafe { std::slice::from_raw_parts(p as *const u8, n) };
-            eprintln!("    em {}", String::from_utf8_lossy(b));
+            eprintln!("    at {}", String::from_utf8_lossy(b));
         }
     });
 }

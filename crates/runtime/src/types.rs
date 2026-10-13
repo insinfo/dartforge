@@ -657,7 +657,7 @@ impl Universe {
             Type::Never => "Never".to_string(),
             Type::Null => "Null".to_string(),
             Type::Interface(c, args) => {
-                let name = self.classes.get(c).map_or_else(|| format!("Classe{c}"), |x| x.0.clone());
+                let name = self.classes.get(c).map_or_else(|| format!("Class{c}"), |x| x.0.clone());
                 if args.is_empty() {
                     name
                 } else {

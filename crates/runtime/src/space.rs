@@ -391,7 +391,7 @@ pub(crate) unsafe fn clear_cards(b: *mut Header, len: usize) {
 
 /// An out-of-line body of `n` zeroed fields (the system allocator).
 pub(crate) fn new_out_of_line_body(n: usize) -> *mut Header {
-    let layout = std::alloc::Layout::from_size_align(block_size(n), 8).expect("layout do corpo");
+    let layout = std::alloc::Layout::from_size_align(block_size(n), 8).expect("body layout");
     // SAFETY: layout of non-zero size.
     let p = unsafe { std::alloc::alloc_zeroed(layout) }.cast::<Header>();
     if p.is_null() {
@@ -412,7 +412,7 @@ pub(crate) unsafe fn release_out_of_line_body(c: *mut Header) {
     // SAFETY: the function contract.
     unsafe {
         let n = usize::from((*c).n);
-        std::alloc::dealloc(c.cast(), std::alloc::Layout::from_size_align(block_size(n), 8).expect("layout do corpo"));
+        std::alloc::dealloc(c.cast(), std::alloc::Layout::from_size_align(block_size(n), 8).expect("body layout"));
     }
 }
 

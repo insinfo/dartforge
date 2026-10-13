@@ -674,7 +674,7 @@ impl JitSession {
             class_names
                 .iter()
                 .find(|(c, _)| *c == id)
-                .map_or_else(|| format!("a classe de id {id}"), |(_, n)| format!("a classe {n}"))
+                .map_or_else(|| format!("the class with id {id}"), |(_, n)| format!("class {n}"))
         };
         let plan = crate::migration::plan_fn(previous_fields, &fields, &class_name)
             .map_err(|message| JitError { stage: "contract", message })?;

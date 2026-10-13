@@ -646,7 +646,7 @@ impl JitSession {
         let (lookup, exit_code, execute) =
             self.lljit.run_entry(PROGRAM_STACK_BYTES, &globals).map_err(|detail| {
                 if detail.starts_with("could not create the thread")
-                    || detail.starts_with("a thread do programa")
+                    || detail.starts_with("the program thread")
                 {
                     JitError::new("execute", "the program execution failed", detail)
                 } else {

@@ -1485,7 +1485,7 @@ mod tests_io_list_owners {
             let mut h = h.borrow_mut();
             h.enable_arc();
             let frame = h.push_owning_frame(1);
-            let text = h.allocate_str("resultado de I/O");
+            let text = h.allocate_str("I/O result");
             h.set_root(frame, 0, text);
             (frame, text)
         });

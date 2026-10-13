@@ -247,7 +247,7 @@ impl Heap {
             return None;
         }
         let body = self.words(h);
-        let n = usize::try_from(body[0]).expect("forma de record");
+        let n = usize::try_from(body[0]).expect("record shape");
         Some(&body[1..=n])
     }
 }

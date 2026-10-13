@@ -246,7 +246,7 @@ pub fn gerar(name: &str, ir: &str, options: &Opcoes) -> Result<Vec<u8>, String> 
     match options.formato {
         Formato::Objeto => {
             dump_before_generator(name, &modulo);
-            llvm_machine.emit_object(&modulo).map_err(|e| dump_if_requested(name, "objeto", &modulo, e))
+            llvm_machine.emit_object(&modulo).map_err(|e| dump_if_requested(name, "object", &modulo, e))
         }
         Formato::Bitcode => Ok(modulo.bitcode()),
     }
@@ -398,7 +398,7 @@ pub fn gerar_de_bitcode(name: &str, bitcode: &[u8], cpu: Option<&'static str>) -
         modulo.otimizar("verify", &llvm_machine)?;
     }
     dump_before_generator(name, &modulo);
-    Ok((llvm_machine.emit_object(&modulo).map_err(|e| dump_if_requested(name, "objeto", &modulo, e))?, with_maps))
+    Ok((llvm_machine.emit_object(&modulo).map_err(|e| dump_if_requested(name, "object", &modulo, e))?, with_maps))
 }
 
 /// `DARTFORGE_CONFERIR_RS4GC=1`: the root checker after

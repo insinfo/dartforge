@@ -21,9 +21,9 @@
 //!   [`Heap::write_ref`]/[`Heap::write_refs`] (barrier and card); a freshly
 //!   allocated storage, still young and without other references, is filled
 //!   through [`Heap::words_mut`].
-//! * **Collection in the middle:** the allocating methods (`nova_*`,
+//! * **Collection in the middle:** the allocating methods (`new_*`,
 //!   `list_get_ref`, `list_set`, `list_push`, `list_reserve`, `list_adjust_shape`,
-//!   `list_copy`, `lista_*_de`) root what they hold between two allocations; the
+//!   `list_copy`, `*_list_of`) root what they hold between two allocations; the
 //!   handles the caller holds after the call are the caller's.
 //! * **Compaction accepts null.** [`Heap::list_adjust_shape`] is called after the
 //!   reified `E` (`int`, `double` or `bool`, non-nullable) is written; a null within

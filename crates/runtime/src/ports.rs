@@ -234,7 +234,7 @@ fn block_node(heap: &Heap, h: i64, v: &mut dyn FnMut(i64) -> GValue, transferred
             return Ok(fixed_list_node(heap, h, class, v));
         }
         if class == cid::RECORD {
-            let fields = heap.record(h).expect("record vivo");
+            let fields = heap.record(h).expect("live record");
             return Ok(GNode::Refs { cid: class, word0: fields.len() as i64, refs: fields.iter().map(|&x| v(x)).collect() });
         }
         // Another `REFS`: word 0 is the number of references.
