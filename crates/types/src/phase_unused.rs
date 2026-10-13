@@ -555,7 +555,13 @@ pub fn unused_elements(
                             used.members.insert(cx.of_function(f));
                         }
                         None if !assignment_target => {
-                            if let Some(el) = executable(the_body.get_resolved(id)) {
+                            // `visitAssignmentExpression` adds the `staticElement` as is,
+                            // without `addMember`'s `.declaration`: the operator of a
+                            // generic extension is a substituted member there, which
+                            // never equals the declaration (`g *= h` does not use it).
+                            let substituted = matches!(ex.kind, ExprKind::Assign { .. })
+                                && matches!(the_body.get_resolved(id), Some(Resolved::ExtensionMember { extension, .. }) if !program.extension(*extension).type_params.is_empty());
+                            if !substituted && let Some(el) = executable(the_body.get_resolved(id)) {
                                 used.members.insert(el);
                             }
                         }

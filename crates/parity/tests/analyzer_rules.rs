@@ -408,6 +408,13 @@ const CASES: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
             ("concrete_class_with_abstract_member", 8, 3, 9),
         ],
     ),
+    // A compound assignment does not use the operator of a generic extension
+    // (`visitAssignmentExpression` keeps the substituted member; 2026-10-13).
+    (
+        "operador_de_extensao_generica.dart",
+        "extension<T> on T Function(T) {\n  T Function(T) operator*(T Function(T) other) {\n    return (value) => this(other(value));\n  }\n}\nextension on int {\n  int operator %(int o) => 0;\n}\nextension<T> on List<T> {\n  List<T> operator -(int o) => this;\n}\nextension<T> on Set<T> {\n  Set<T> operator ~/(int o) => this;\n}\nvoid f() {\n  var g = (int i) => i + 1;\n  g *= (i) => i + 10;\n  print(g(0));\n  var x = 1;\n  x %= 2;\n  var l = [1];\n  l -= 1;\n  l = l - 1;\n  var s = {1};\n  s ~/= 2;\n  print([x, l, s]);\n}\n",
+        &[("unused_element", 2, 25, 1), ("unused_element", 7, 16, 1), ("unused_element", 13, 19, 2)],
+    ),
     // A reserved word as a local variable's name (2026-10-13).
     (
         "palavra_reservada_local.dart",
