@@ -237,6 +237,19 @@ pub struct RootFrame {
     slots: [i64; 0],
 }
 
+/// macOS arm64: the byte offset, from the base of the thread's TSD
+/// (`TPIDRRO_EL0`), of the `pthread` key slot that holds the address of the
+/// thread's [`Context`] — `key * 8`, what `pthread_getspecific` reads; 0 until
+/// the first `dartforge_context` creates the key. The production prologue reads
+/// the slot directly (`emit_native::sdk_module::with_context_in_tls`), like Go
+/// reads its `g`, instead of a `thread_local` variable, whose every access
+/// goes through `tlv_get_addr`; an empty slot, or 0 here, goes to
+/// `dartforge_context`, which fills the slot of the thread (`gc_roots.rs`).
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[allow(unsafe_code, non_upper_case_globals)]
+#[unsafe(no_mangle)]
+pub static dartforge_context_slot: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 /// The thread context that the generated code reads and writes directly, without
 /// a call (`llvm/mod.rs`): the pending exception (mirror of
 /// `exceptions::EXCEPTION`, checked after each call) and the top of

@@ -977,7 +977,10 @@ pub enum ContextInTls {
 /// use dartforge_emit_native::sdk_module::{with_context_in_tls, ContextInTls};
 /// let ir = "define i64 @f() {\n  %ctx = call ptr @dartforge_context()\n  ret i64 0\n}\n";
 /// let new_ir = with_context_in_tls(ir, ContextInTls::Inline, "df.ctx.tls");
-/// assert!(new_ir.contains("%ctx = call ptr @df.context()") && new_ir.contains("@df.ctx.tls = internal thread_local global ptr null"));
+/// assert!(new_ir.contains("%ctx = call ptr @df.context()"));
+/// // On macOS arm64 the slot of a `pthread` key (`context_in_tsd`) replaces the variable.
+/// let variable = new_ir.contains("@df.ctx.tls = internal thread_local global ptr null");
+/// assert_eq!(variable, !cfg!(all(target_os = "macos", target_arch = "aarch64")));
 /// let without = "define void @g() {\n  ret void\n}\n";
 /// assert_eq!(with_context_in_tls(without, ContextInTls::Inline, "df.ctx.tls"), without);
 /// ```
@@ -996,6 +999,10 @@ pub fn with_context_in_tls(ir: &str, mode: ContextInTls, variable: &str) -> Stri
         ContextInTls::PerCall => " noinline",
     };
     let mut s = ir.replace(CALL, "call ptr @df.context()");
+    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        s.push_str(&context_in_tsd(attribute));
+        return s;
+    }
     s.push_str(&format!(
         "\n@{variable} = internal thread_local global ptr null, align 8\n\
          define internal ptr @df.context() nounwind{attribute} {{\n\
@@ -1015,6 +1022,55 @@ pub fn with_context_in_tls(ir: &str, mode: ContextInTls, variable: &str) -> Stri
         s.push_str("declare nonnull ptr @llvm.threadlocal.address.p0(ptr nonnull)\n");
     }
     s
+}
+
+/// The `@df.context` of [`with_context_in_tls`] on macOS arm64: the thread
+/// pointer (`TPIDRRO_EL0`, the base of the thread's TSD) plus the offset of the
+/// runtime's `pthread` key slot (`dartforge_context_slot`), read inline, like Go
+/// reads its `g`. A `thread_local` variable costs a call to `tlv_get_addr` in each
+/// prologue (2–8% of `bench/comparison` trees and strings). A zero offset (no
+/// key yet) or an empty slot (first call on this thread) goes to
+/// `dartforge_context`, which fills the slot; the read of slot 0 that the zero
+/// offset produces is valid memory (`pthread_self`) and is discarded. The
+/// runtime function is declared `speculatable` (`llvm/externs.rs`): called
+/// directly, LLVM turned the branch into a `select` and called it in every
+/// prologue; behind `@df.context.slow` (`noinline cold`) it stays off the path.
+///
+/// ```
+/// let ir = dartforge_emit_native::sdk_module::with_context_in_tls(
+///     "define i64 @f() {\n  %ctx = call ptr @dartforge_context()\n  ret i64 0\n}\n",
+///     dartforge_emit_native::sdk_module::ContextInTls::Inline,
+///     "df.ctx.tls",
+/// );
+/// if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+///     assert!(ir.contains("mrs $0, TPIDRRO_EL0") && !ir.contains("thread_local"));
+/// }
+/// ```
+fn context_in_tsd(attribute: &str) -> String {
+    format!(
+        "\n@dartforge_context_slot = external dso_local global i64, align 8\n\
+         define internal ptr @df.context() nounwind{attribute} {{\n\
+         \x20 %o = load i64, ptr @dartforge_context_slot, align 8\n\
+         \x20 %t = call i64 asm \"mrs $0, TPIDRRO_EL0\", \"=r\"() nounwind memory(none)\n\
+         \x20 %b = and i64 %t, -8\n\
+         \x20 %a = add i64 %b, %o\n\
+         \x20 %p = inttoptr i64 %a to ptr\n\
+         \x20 %c = load ptr, ptr %p, align 8\n\
+         \x20 %z0 = icmp eq i64 %o, 0\n\
+         \x20 %z1 = icmp eq ptr %c, null\n\
+         \x20 %z = or i1 %z0, %z1\n\
+         \x20 br i1 %z, label %lento, label %pronto\n\
+         lento:\n\
+         \x20 %n = call ptr @df.context.slow()\n\
+         \x20 ret ptr %n\n\
+         pronto:\n\
+         \x20 ret ptr %c\n\
+         }}\n\
+         define internal ptr @df.context.slow() noinline cold nounwind {{\n\
+         \x20 %n = call ptr @dartforge_context()\n\
+         \x20 ret ptr %n\n\
+         }}\n"
+    )
 }
 
 /// Adds a function attribute (with the leading space) to each

@@ -27,9 +27,39 @@ pub extern "C" fn dartforge_context() -> *const crate::heap::Context {
     crate::heap::CONTEXT.with(|c| {
         if c.stack_limit.get() == 0 {
             c.stack_limit.set(thread_stack_limit());
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            publish_in_tsd(c);
         }
         c as *const crate::heap::Context
     })
+}
+
+/// The first `dartforge_context` of each thread also puts the address of the
+/// context in the `pthread` key slot that the production prologue reads directly
+/// (`heap::dartforge_context_slot`). The key is created once per process; the slot
+/// offset is published only after the key exists.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[allow(unsafe_code)]
+fn publish_in_tsd(c: &crate::heap::Context) {
+    use std::sync::atomic::Ordering;
+    unsafe extern "C" {
+        fn pthread_key_create(key: *mut usize, destructor: Option<extern "C" fn(*mut u8)>) -> i32;
+        fn pthread_setspecific(key: usize, value: *const crate::heap::Context) -> i32;
+    }
+    static KEY: std::sync::OnceLock<Option<usize>> = std::sync::OnceLock::new();
+    let key = *KEY.get_or_init(|| {
+        let mut key = 0usize;
+        // SAFETY: a local `pthread_key_t` (`unsigned long` on Darwin), no destructor.
+        (unsafe { pthread_key_create(&mut key, None) } == 0).then_some(key)
+    });
+    // Without a key (the process ran out of them), the slot offset stays 0 and the
+    // prologue always calls `dartforge_context`.
+    let Some(key) = key else { return };
+    // SAFETY: the key exists; the value is the address of this thread's context,
+    // which does not change while the thread lives.
+    if unsafe { pthread_setspecific(key, c) } == 0 {
+        crate::heap::dartforge_context_slot.store(key * 8, Ordering::Release);
+    }
 }
 
 /// Slack between the limit that generated code checks and the end of the thread's
