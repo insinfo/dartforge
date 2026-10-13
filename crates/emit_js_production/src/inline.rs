@@ -15,10 +15,15 @@
 //! function, `this`, assignment or update, and uses each parameter at most
 //! once. When `E` evaluates anything other than a parameter (a call, a
 //! property read, a free name) before its last parameter, or uses the
-//! parameters out of order, or under a condition, or not at all, the
-//! inlining only happens at the calls whose arguments are simple (names,
-//! literals, `this` and property reads without calls), which evaluation
-//! order cannot affect.
+//! parameters out of order, or under a condition, the inlining only happens
+//! at the calls whose arguments are simple (names, literals, `this` and
+//! property reads without calls), which evaluation order cannot affect. A
+//! parameter the body never reads may have a default value (`n = null`, an
+//! optional positional parameter) and may be left out by the call; when the
+//! call passes it, the argument must have no effect at all (a name, a literal,
+//! `this`), because it disappears: `checkBinding(old, new, "expr", loc)` of
+//! the ngdart views, which only compares the first two in production, becomes
+//! the comparison.
 //!
 //! The free names of `E` must mean the same at the call: a name declared
 //! inside any function other than the top-level ones (or by a class) is
@@ -49,6 +54,9 @@ struct Def {
     expr: (u32, u32),
     /// Number of parameters.
     arity: usize,
+    /// Which parameters the body uses. A call may leave out trailing unused
+    /// parameters, and the argument of an unused one must be [`droppable`].
+    used: Vec<bool>,
     /// Spans of the parameter uses inside `expr`, with the parameter index.
     uses: Vec<(u32, u32, usize)>,
     /// Free names of `expr`.
@@ -244,18 +252,35 @@ fn simple(e: &Expression<'_>) -> bool {
     }
 }
 
-/// The parameter names, if they are all plain identifiers.
-fn plain_params(p: &FormalParameters<'_>) -> Option<Vec<String>> {
+/// The parameter names, if they are all plain identifiers, with whether each
+/// has a default value (`n = null`, the optional positional parameters).
+fn plain_params(p: &FormalParameters<'_>) -> Option<Vec<(String, bool)>> {
     if p.rest.is_some() {
         return None;
     }
     p.items
         .iter()
         .map(|x| match &x.pattern {
-            BindingPattern::BindingIdentifier(b) if x.initializer.is_none() => Some(b.name.to_string()),
+            BindingPattern::BindingIdentifier(b) => Some((b.name.to_string(), x.initializer.is_some())),
             _ => None,
         })
         .collect()
+}
+
+/// An argument that can be dropped when its parameter is unused: evaluating
+/// it has no effect (a name, a literal, `this`). A property read can run a
+/// getter or throw on `null`, so it is not one.
+fn droppable(e: &Expression<'_>) -> bool {
+    match e {
+        Expression::Identifier(_)
+        | Expression::StringLiteral(_)
+        | Expression::NumericLiteral(_)
+        | Expression::BooleanLiteral(_)
+        | Expression::NullLiteral(_)
+        | Expression::ThisExpression(_) => true,
+        Expression::ParenthesizedExpression(p) => droppable(&p.expression),
+        _ => false,
+    }
 }
 
 /// The returned expression of a body that is a single `return E;`.
@@ -300,7 +325,7 @@ impl<'s> Scan<'s> {
         &self.source[s.start as usize..s.end as usize]
     }
 
-    fn define(&mut self, key: String, params: Option<Vec<String>>, body: Option<&FunctionBody<'_>>, own: (u32, u32), removal: (u32, u32, String), from_assignment: bool) {
+    fn define(&mut self, key: String, params: Option<Vec<(String, bool)>>, body: Option<&FunctionBody<'_>>, own: (u32, u32), removal: (u32, u32, String), from_assignment: bool) {
         if self.defs.contains_key(&key) || self.refused.contains(&key) {
             self.defs.remove(&key);
             self.refused.insert(key);
@@ -319,19 +344,25 @@ impl<'s> Scan<'s> {
             self.refused.insert(key);
             return;
         }
+        let (params, defaults): (Vec<String>, Vec<bool>) = params.into_iter().unzip();
         let mut b = Body { params: &params, uses: Vec::new(), free: Vec::new(), evaluated: false, conditional: 0, simple_args: false, last_param: None };
-        if !b.expr(e) {
+        // `arguments` would be the caller's after the inlining.
+        if !b.expr(e) || b.free.iter().any(|n| n == "arguments") {
             self.refused.insert(key);
             return;
         }
-        if b.uses.len() < params.len() {
-            b.simple_args = true;
+        let used: Vec<bool> = (0..params.len()).map(|k| b.uses.iter().any(|u| u.2 == k)).collect();
+        // A default value only matters when the parameter is read.
+        if used.iter().zip(&defaults).any(|(&u, &d)| u && d) {
+            self.refused.insert(key);
+            return;
         }
         let body_size = minified_estimate(&self.source[span.start as usize..span.end as usize]).saturating_sub(2 * b.uses.len());
         let call_size = minified_estimate(&key) + 2 + params.len().saturating_sub(1);
         let def = Def {
             expr: (span.start, span.end),
             arity: params.len(),
+            used,
             uses: b.uses,
             free: b.free,
             simple_args: b.simple_args,
@@ -519,7 +550,8 @@ impl Sites<'_> {
             _ => return None,
         };
         let d = self.defs.get(key)?;
-        if it.arguments.len() != d.arity || (it.span.start >= d.own.0 && it.span.end <= d.own.1) {
+        // Fewer arguments: the parameters left out must be unused.
+        if it.arguments.len() > d.arity || d.used[it.arguments.len()..].iter().any(|&u| u) || (it.span.start >= d.own.0 && it.span.end <= d.own.1) {
             return None;
         }
         // Free names declared at the top of an IIFE only mean the same in it.
@@ -528,6 +560,10 @@ impl Sites<'_> {
         }
         let args: Vec<&Expression<'_>> = it.arguments.iter().map(|a| a.as_expression()).collect::<Option<_>>()?;
         if d.simple_args && !args.iter().all(|a| simple(a)) {
+            return None;
+        }
+        // The arguments of unused parameters are dropped.
+        if args.iter().zip(&d.used).any(|(a, &u)| !u && !droppable(a)) {
             return None;
         }
         let mut out = String::from("(");
@@ -720,6 +756,23 @@ mod tests {
         let src = wrap("f = function(a) { return a; };\nf = function(a) { return 2; };\nf(1);");
         let out = apply(&src).unwrap();
         assert!(out.contains("f(1);"), "{out}");
+    }
+
+    #[test]
+    fn drops_the_arguments_of_unused_parameters() {
+        let src = wrap("f = function(a, b, c = null, d = null) { return !g(a, b); };\nh(f(x.y, z, \"expr\", loc));\nh(f(x, z));\nh(f(x, z, w.v));");
+        let out = apply(&src).unwrap();
+        assert!(out.contains("h((!g((x.y), (z))))"), "{out}");
+        assert!(out.contains("h((!g((x), (z))))"), "{out}");
+        // A property read can throw: its argument is not dropped.
+        assert!(out.contains("h(f(x, z, w.v))"), "{out}");
+    }
+
+    #[test]
+    fn refuses_a_used_parameter_with_a_default() {
+        let src = wrap("f = function(a, b = 1) { return a + b; };\nh(f(x));");
+        let out = apply(&src).unwrap();
+        assert!(out.contains("h(f(x))"), "{out}");
     }
 
     #[test]
