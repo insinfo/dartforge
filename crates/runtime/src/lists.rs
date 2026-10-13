@@ -1,56 +1,56 @@
-//! As listas do núcleo no espaço unificado (P3, docs/NATIVO-ESPACO-UNIFICADO.md §3.3).
+//! The core lists in the unified space (P3, docs/NATIVO-ESPACO-UNIFICADO.md §3.3).
 //!
-//! `_List` (cid 8) e `_ImmutableList` (9) são `REFS` (o comprimento na palavra 0,
-//! os elementos `Ref` depois; cartões nas grandes) ou `BRUTO` com a forma compacta
-//! em `flags` (`ELEMENTO_INT`/`_DOUBLE`/`_BOOL`); `_GrowableList` (10) é
-//! `INSTANCIA` de dois campos: o comprimento (bruto) e o armazenamento (`_List`,
-//! `Ref`), como o `GrowableObjectArray` da VM (`raw_object.h:3561-3572`).
+//! `_List` (cid 8) and `_ImmutableList` (9) are `REFS` (the length in word 0, the
+//! `Ref` elements after it; cards in large ones) or `BRUTO` with the compact form in
+//! `flags` (`ELEMENTO_INT`/`_DOUBLE`/`_BOOL`); `_GrowableList` (10) is an
+//! `INSTANCIA` with two fields: the length (raw) and the storage (`_List`, `Ref`),
+//! like the VM's `GrowableObjectArray` (`raw_object.h:3561-3572`).
 //!
-//! Regras desta vista:
+//! Rules of this view:
 //!
-//! * **A classe diz** fixa (`_List`), imutável (`_ImmutableList`) ou expansível
-//!   (`_GrowableList`); o cid nunca muda depois de publicado (§2.16). Fixar ou
-//!   tornar imutável é copiar para um objeto novo ([`Heap::fixed_list_of`],
+//! * **The class says** fixed (`_List`), unmodifiable (`_ImmutableList`) or growable
+//!   (`_GrowableList`); the cid never changes after publication (§2.16). Fixing or
+//!   making unmodifiable means copying into a new object ([`Heap::fixed_list_of`],
 //!   [`Heap::unmodifiable_list_of`]).
-//! * **A forma é do armazenamento** (a `_List` de uma `_GrowableList`): só
-//!   representação, nunca semântica. Uma forma compacta que não guarda o valor
-//!   gravado descompacta (§2.16): monta um armazenamento geral enraizado com as
-//!   caixas e só então troca, sem alocação entre a mudança dos dados e a do
+//! * **The shape belongs to the storage** (the `_List` of a `_GrowableList`): only
+//!   representation, never semantics. A compact shape that cannot hold the written
+//!   value decompacts (§2.16): it builds a rooted general storage with the boxes and
+//!   only then swaps, with no allocation between the change of the data and that of
 //!   `flags`.
-//! * **Toda gravação de `Ref`** num armazenamento publicado passa por
-//!   [`Heap::write_ref`]/[`Heap::write_refs`] (barreira e cartão); o armazenamento
-//!   recém-alocado, ainda jovem e sem outra referência, é preenchido por
-//!   [`Heap::words_mut`].
-//! * **Coleta no meio:** os métodos que alocam (`nova_*`, `list_get_ref`,
-//!   `list_set`, `list_push`, `list_reserve`, `list_adjust_shape`,
-//!   `list_copy`, `lista_*_de`) enraízam o que seguram entre duas alocações; os
-//!   handles que o chamador segura depois da chamada são dele.
-//! * **A compactação aceita null.** [`Heap::list_adjust_shape`] é chamado depois
-//!   de o `E` reificado (`int`, `double` ou `bool`, não anuláveis) ser gravado; um
-//!   null dentro do comprimento só existe antes de o SDK preencher a lista
-//!   (`List<int>.filled`, `_GrowableList<int>(n)`) e vira 0/0.0/false. Pelo mesmo
-//!   motivo, gravar null numa lista compacta **de tipo gravado** (metadado ≠ 0: o
-//!   `length =` que encolhe limpa as posições cortadas com null) grava zero em vez
-//!   de descompactar; sem tipo gravado, descompacta.
+//! * **Every `Ref` write** into a published storage goes through
+//!   [`Heap::write_ref`]/[`Heap::write_refs`] (barrier and card); a freshly
+//!   allocated storage, still young and without other references, is filled
+//!   through [`Heap::words_mut`].
+//! * **Collection in the middle:** the allocating methods (`nova_*`,
+//!   `list_get_ref`, `list_set`, `list_push`, `list_reserve`, `list_adjust_shape`,
+//!   `list_copy`, `lista_*_de`) root what they hold between two allocations; the
+//!   handles the caller holds after the call are the caller's.
+//! * **Compaction accepts null.** [`Heap::list_adjust_shape`] is called after the
+//!   reified `E` (`int`, `double` or `bool`, non-nullable) is written; a null within
+//!   the length only exists before the SDK fills the list (`List<int>.filled`,
+//!   `_GrowableList<int>(n)`) and becomes 0/0.0/false. For the same reason, writing
+//!   null into a compact list **with a written type** (metadata ≠ 0: the shrinking
+//!   `length =` clears the cut positions with null) writes zero instead of
+//!   decompacting; without a written type, it decompacts.
 
 use crate::heap::{Heap, Value};
 use crate::layout::{self, cid, flags, Ref};
 
-/// A forma dos elementos de uma lista.
+/// The shape of a list's elements.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Element {
     /// `Ref` (`REFS`).
     General,
-    /// `i64` sem caixa.
+    /// Unboxed `i64`.
     Int,
-    /// Bits de `f64`.
+    /// `f64` bits.
     Double,
     /// 0/1.
     Bool,
 }
 
 impl Element {
-    /// Os bits de `flags` (`FORMA` e `ELEMENTO`) de um armazenamento nesta forma.
+    /// The `flags` bits (`FORMA` and `ELEMENTO`) of a storage in this shape.
     pub const fn flags(self) -> u8 {
         match self {
             Element::General => flags::REFS,
@@ -60,7 +60,7 @@ impl Element {
         }
     }
 
-    /// A forma de um armazenamento pelos bits de `flags`.
+    /// The shape of a storage from its `flags` bits.
     pub const fn from_flags(f: u8) -> Element {
         if f & flags::FORMA != flags::BRUTO {
             return Element::General;
@@ -73,8 +73,8 @@ impl Element {
         }
     }
 
-    /// O código da ABI de `dartforge_lista_nova` (0 geral, 1 int, 2 double, 3
-    /// bool: a ordem das variantes).
+    /// The ABI code of `dartforge_lista_nova` (0 general, 1 int, 2 double, 3 bool:
+    /// the order of the variants).
     pub const fn code(self) -> i64 {
         match self {
             Element::General => 0,
@@ -84,7 +84,7 @@ impl Element {
         }
     }
 
-    /// A forma do código da ABI; `None` para outro valor.
+    /// The shape of an ABI code; `None` for any other value.
     pub const fn from_code(c: i64) -> Option<Element> {
         match c {
             0 => Some(Element::General),
@@ -95,7 +95,7 @@ impl Element {
         }
     }
 
-    /// Os bits de `v` nesta forma compacta, se ela o guarda sem caixa.
+    /// The bits of `v` in this compact shape, if it holds it unboxed.
     fn bits_of(self, v: Value) -> Option<i64> {
         match (self, v) {
             (Element::Int, Value::Int(x)) => Some(x),
@@ -105,7 +105,7 @@ impl Element {
         }
     }
 
-    /// O valor dos bits `w` de um elemento nesta forma.
+    /// The value of the bits `w` of an element in this shape.
     fn value_of(self, w: i64) -> Value {
         match self {
             Element::General => Value::Ref(w),
@@ -116,7 +116,7 @@ impl Element {
     }
 }
 
-/// Os elementos de uma lista, cortados no comprimento, na forma do armazenamento.
+/// The elements of a list, cut at the length, in the storage's shape.
 #[derive(Clone, Copy)]
 pub enum RefElements<'a> {
     General(&'a [i64]),
@@ -126,7 +126,7 @@ pub enum RefElements<'a> {
 }
 
 impl RefElements<'_> {
-    /// Quantos elementos.
+    /// How many elements.
     pub fn len(&self) -> usize {
         match self {
             RefElements::General(p) | RefElements::Int(p) | RefElements::Bool(p) => p.len(),
@@ -134,12 +134,12 @@ impl RefElements<'_> {
         }
     }
 
-    /// Sem elementos?
+    /// No elements?
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
-    /// O elemento `i`, sem caixa.
+    /// Element `i`, unboxed.
     pub fn get(&self, i: usize) -> Value {
         match self {
             RefElements::General(p) => Value::Ref(p[i]),
@@ -151,14 +151,13 @@ impl RefElements<'_> {
 }
 
 impl Heap {
-    /// Uma `_List` ou `_ImmutableList` (`cid`) de `len` elementos zerados (null,
-    /// 0, 0.0 ou false, pela forma).
+    /// A `_List` or `_ImmutableList` (`cid`) of `len` zeroed elements (null, 0, 0.0
+    /// or false, depending on the shape).
     ///
-    /// O corpo tem sempre as palavras de cartões de uma lista grande
-    /// (`layout::list_words`), também na forma compacta: descompactar no
-    /// lugar (§2.16) precisa delas.
+    /// The body always has the card words of a large list (`layout::list_words`),
+    /// in the compact shape too: decompacting in place (§2.16) needs them.
     pub fn new_list(&mut self, cid: i32, len: usize, e: Element) -> Ref {
-        assert!(cid::is_fixed_list(cid), "bug do runtime: nova_lista com o cid {cid}");
+        assert!(cid::is_fixed_list(cid), "runtime bug: new_list with cid {cid}");
         let mut f = e.flags();
         if layout::has_cards(len) {
             f |= flags::CARTOES;
@@ -168,8 +167,8 @@ impl Heap {
         h
     }
 
-    /// Uma `_GrowableList` de `len` elementos zerados e armazenamento de
-    /// `capacidade` (no mínimo `len`).
+    /// A `_GrowableList` of `len` zeroed elements and a storage of `capacidade`
+    /// (at least `len`).
     pub fn new_growable(&mut self, len: usize, capacidade: usize, e: Element) -> Ref {
         let data = self.new_list(cid::LIST, capacidade.max(len), e);
         let h = self.list_with_roots(&[data], |heap| heap.allocate_instance(cid::GROWABLE_LIST, 2));
@@ -178,13 +177,13 @@ impl Heap {
         h
     }
 
-    /// `h` é lista do núcleo (cid 8, 9 ou 10)? Sem pânico para null, `Smi` ou
-    /// objeto morto.
+    /// Is `h` a core list (cid 8, 9 or 10)? No panic for null, a `Smi` or a dead
+    /// object.
     pub fn e_lista(&self, h: Ref) -> bool {
         layout::is_object(h) && self.is_live_object(h) && cid::e_lista(self.header(h).class_id)
     }
 
-    /// O comprimento.
+    /// The length.
     pub fn list_len(&self, h: Ref) -> usize {
         match self.list_cid(h) {
             cid::GROWABLE_LIST => self.list_growable_field(h, 0) as usize,
@@ -192,19 +191,19 @@ impl Heap {
         }
     }
 
-    /// A capacidade (o comprimento do armazenamento).
+    /// The capacity (the storage's length).
     pub fn list_capacity(&self, h: Ref) -> usize {
         let a = self.list_data(h);
         self.words(a)[0] as usize
     }
 
-    /// A forma dos elementos (do armazenamento, numa `_GrowableList`).
+    /// The shape of the elements (of the storage, in a `_GrowableList`).
     pub fn list_shape(&self, h: Ref) -> Element {
         let a = self.list_data(h);
         Element::from_flags(self.header(a).flags)
     }
 
-    /// Os elementos, cortados no comprimento.
+    /// The elements, cut at the length.
     #[allow(unsafe_code)]
     pub fn list_elements(&self, h: Ref) -> RefElements<'_> {
         let n = self.list_len(h);
@@ -215,22 +214,22 @@ impl Heap {
             Element::General => RefElements::General(p),
             Element::Int => RefElements::Int(p),
             Element::Bool => RefElements::Bool(p),
-            // SAFETY: `i64` e `f64` têm o mesmo tamanho e alinhamento, e todo
-            // padrão de bits é um `f64`; a fatia é a mesma memória, só lida.
+            // SAFETY: `i64` and `f64` have the same size and alignment, and every
+            // bit pattern is an `f64`; the slice is the same memory, only read.
             Element::Double => RefElements::Double(unsafe { std::slice::from_raw_parts(p.as_ptr().cast::<f64>(), n) }),
         }
     }
 
-    /// O elemento `i`, sem caixa. Pânico se `i` está fora do comprimento.
+    /// Element `i`, unboxed. Panics if `i` is outside the length.
     pub fn list_get(&self, h: Ref, i: usize) -> Value {
         let n = self.list_len(h);
-        assert!(i < n, "bug do runtime: elemento {i} de uma lista de {n}");
+        assert!(i < n, "runtime bug: element {i} of a list of {n}");
         let a = self.list_data(h);
         let shape = Element::from_flags(self.header(a).flags);
         shape.value_of(self.words(a)[1 + i])
     }
 
-    /// O elemento `i` em posição `Ref` (encaixota o compacto; pode coletar).
+    /// Element `i` in a `Ref` position (boxes the compact one; may collect).
     pub fn list_get_ref(&mut self, h: Ref, i: usize) -> Ref {
         match self.list_get(h, i) {
             Value::Ref(r) => r,
@@ -238,19 +237,20 @@ impl Heap {
         }
     }
 
-    /// Grava o elemento `i` (descompacta se a forma não guarda `v`; com barreira).
-    /// Pânico se `i` está fora do comprimento. Pode coletar (caixa, descompactação).
+    /// Writes element `i` (decompacts if the shape does not hold `v`; with a
+    /// barrier). Panics if `i` is outside the length. May collect (box,
+    /// decompaction).
     pub fn list_set(&mut self, h: Ref, i: usize, v: Value) {
         let n = self.list_len(h);
-        assert!(i < n, "bug do runtime: gravação no elemento {i} de uma lista de {n}");
+        assert!(i < n, "runtime bug: write into element {i} of a list of {n}");
         self.list_write_to_storage(h, i, v);
     }
 
-    /// Acrescenta ao fim de uma `_GrowableList` (cresce se preciso: a capacidade
-    /// seguinte é `(capacidade * 2) | 3`, o `_nextCapacity` da VM,
-    /// `growable_array.dart:385`). Pode coletar.
+    /// Appends to the end of a `_GrowableList` (grows if needed: the next capacity
+    /// is `(capacidade * 2) | 3`, the VM's `_nextCapacity`,
+    /// `growable_array.dart:385`). May collect.
     pub fn list_push(&mut self, h: Ref, v: Value) {
-        assert_eq!(self.list_cid(h), cid::GROWABLE_LIST, "bug do runtime: lista_push numa lista fixa");
+        assert_eq!(self.list_cid(h), cid::GROWABLE_LIST, "runtime bug: list_push on a fixed list");
         let len = self.list_len(h);
         let cap = self.list_capacity(h);
         if len == cap {
@@ -264,16 +264,16 @@ impl Heap {
         self.list_write_to_storage(h, len, v);
     }
 
-    /// Muda o comprimento de uma `_GrowableList` (sem barreira; o armazenamento
-    /// precisa comportar `len`).
+    /// Changes the length of a `_GrowableList` (without a barrier; the storage must
+    /// hold `len`).
     pub fn list_set_len(&mut self, h: Ref, len: usize) {
-        assert_eq!(self.list_cid(h), cid::GROWABLE_LIST, "bug do runtime: comprimento de uma lista fixa");
-        debug_assert!(len <= self.list_capacity(h), "comprimento {len} além da capacidade");
+        assert_eq!(self.list_cid(h), cid::GROWABLE_LIST, "runtime bug: length of a fixed list");
+        debug_assert!(len <= self.list_capacity(h), "length {len} beyond the capacity");
         self.set_field(h, 0, len as i64, false);
     }
 
-    /// O armazenamento de uma `_GrowableList`; a própria lista, se é fixa ou
-    /// imutável (o `@df.lista_armazenamento` do código gerado).
+    /// The storage of a `_GrowableList`; the list itself, if it is fixed or
+    /// unmodifiable (generated code's `@df.lista_armazenamento`).
     pub fn list_data(&self, h: Ref) -> Ref {
         match self.list_cid(h) {
             cid::GROWABLE_LIST => self.list_growable_field(h, 1),
@@ -281,19 +281,18 @@ impl Heap {
         }
     }
 
-    /// Troca o armazenamento de uma `_GrowableList` (com barreira). `data` é uma
-    /// `_List`.
+    /// Swaps the storage of a `_GrowableList` (with a barrier). `data` is a `_List`.
     pub fn list_set_data(&mut self, h: Ref, data: Ref) {
-        assert_eq!(self.list_cid(h), cid::GROWABLE_LIST, "bug do runtime: armazenamento de uma lista fixa");
-        debug_assert!(cid::is_fixed_list(self.class(data)), "o armazenamento é uma _List");
+        assert_eq!(self.list_cid(h), cid::GROWABLE_LIST, "runtime bug: storage of a fixed list");
+        debug_assert!(cid::is_fixed_list(self.class(data)), "the storage is a _List");
         self.set_field(h, 1, data, true);
     }
 
-    /// Garante armazenamento para `capacidade` elementos numa `_GrowableList`:
-    /// um armazenamento novo, da mesma forma, com os elementos até o comprimento.
-    /// Nada se a capacidade já basta. Pode coletar.
+    /// Ensures storage for `capacidade` elements in a `_GrowableList`: a new storage,
+    /// of the same shape, with the elements up to the length. Nothing if the capacity
+    /// is already enough. May collect.
     pub fn list_reserve(&mut self, h: Ref, capacidade: usize) {
-        assert_eq!(self.list_cid(h), cid::GROWABLE_LIST, "bug do runtime: reserva numa lista fixa");
+        assert_eq!(self.list_cid(h), cid::GROWABLE_LIST, "runtime bug: reserve on a fixed list");
         if capacidade <= self.list_capacity(h) {
             return;
         }
@@ -301,18 +300,18 @@ impl Heap {
         let new = self.list_with_roots(&[h], |heap| heap.new_list(cid::LIST, capacidade, shape));
         let n = self.list_len(h);
         let old_gen = self.list_data(h);
-        // O novo é jovem e ninguém mais o vê: cópia crua, sem barreira.
+        // The new one is young and nobody else sees it: raw copy, no barrier.
         let copy: Vec<i64> = self.words(old_gen)[1..1 + n].to_vec();
         self.words_mut(new)[1..1 + n].copy_from_slice(&copy);
         self.list_set_data(h, new);
     }
 
-    /// Troca a forma do armazenamento, convertendo os elementos no lugar (§2.15,
-    /// §2.16). Para a forma compacta, só se todo elemento até o comprimento cabe
-    /// nela (null conta como 0/0.0/false: ver o cabeçalho do módulo); para a
-    /// geral, descompacta (aloca as caixas). A `_GrowableList` de armazenamento
-    /// vazio ganha um armazenamento vazio próprio da forma (o vazio é
-    /// compartilhado, o `_emptyList` do SDK). Pode coletar.
+    /// Changes the storage's shape, converting the elements in place (§2.15,
+    /// §2.16). For the compact shape, only if every element up to the length fits in
+    /// it (null counts as 0/0.0/false: see the module header); for the general one,
+    /// it decompacts (allocates the boxes). A `_GrowableList` with an empty storage
+    /// gets an empty storage of its own in the shape (the empty one is shared, the
+    /// SDK's `_emptyList`). May collect.
     pub fn list_adjust_shape(&mut self, h: Ref, e: Element) {
         let current = self.list_shape(h);
         if current == e {
@@ -334,16 +333,16 @@ impl Heap {
         self.list_compact(h, e);
     }
 
-    /// Copia `n` elementos de `de[start..]` para `to[dest..]` (com barreira;
-    /// `to` descompacta se um elemento não cabe na forma dela). As faixas estão
-    /// dentro dos comprimentos; `de` e `to` podem ser a mesma lista (a cópia é a
-    /// de `memmove`). Pode coletar.
+    /// Copies `n` elements from `de[start..]` to `to[dest..]` (with a barrier; `to`
+    /// decompacts if an element does not fit its shape). The ranges are within the
+    /// lengths; `de` and `to` may be the same list (the copy is `memmove`'s). May
+    /// collect.
     pub fn list_copy(&mut self, de: Ref, start: usize, to: Ref, dest: usize, n: usize) {
         if n == 0 {
             return;
         }
         let (nd, np) = (self.list_len(de), self.list_len(to));
-        assert!(start + n <= nd && dest + n <= np, "bug do runtime: cópia fora das listas");
+        assert!(start + n <= nd && dest + n <= np, "runtime bug: copy outside the lists");
         let (fd, fp) = (self.list_shape(de), self.list_shape(to));
         let (ad, ap) = (self.list_data(de), self.list_data(to));
         if fd == fp {
@@ -355,9 +354,9 @@ impl Heap {
             }
             return;
         }
-        // Formas diferentes: elemento a elemento, com as caixas e a
-        // descompactação do destino que forem precisas. Os valores saem antes
-        // (a fonte pode ser o próprio destino, que a descompactação troca).
+        // Different shapes: element by element, with whatever boxes and
+        // decompaction of the destination are needed. The values come out first
+        // (the source may be the destination itself, which decompaction swaps).
         let value_list: Vec<Value> = (0..n).map(|k| self.list_get(de, start + k)).collect();
         self.list_with_roots(&[de, to], |heap| {
             for (k, v) in value_list.into_iter().enumerate() {
@@ -366,31 +365,31 @@ impl Heap {
         });
     }
 
-    /// Uma `_List` nova com os elementos de `h` (na mesma forma). Pode coletar.
+    /// A new `_List` with the elements of `h` (in the same shape). May collect.
     pub fn fixed_list_of(&mut self, h: Ref) -> Ref {
         self.list_copy_of(h, cid::LIST)
     }
 
-    /// Uma `_ImmutableList` nova com os elementos de `h` (na mesma forma). Pode
-    /// coletar.
+    /// A new `_ImmutableList` with the elements of `h` (in the same shape). May
+    /// collect.
     pub fn unmodifiable_list_of(&mut self, h: Ref) -> Ref {
         self.list_copy_of(h, cid::IMMUTABLE_LIST)
     }
 
-    /// Uma `_List`/`_ImmutableList` (`cid`) geral com os `Ref` de `value_list` (as
-    /// listas que o runtime monta: argumentos, resultados, literais). Os `Ref`
-    /// precisam estar vivos até a alocação (quem chama os enraíza, se preciso).
+    /// A general `_List`/`_ImmutableList` (`cid`) with the `Ref`s of `value_list`
+    /// (the lists the runtime builds: arguments, results, literals). The `Ref`s must
+    /// stay alive until the allocation (the caller roots them, if needed).
     pub fn ref_list(&mut self, cid: i32, value_list: &[Ref]) -> Ref {
         let h = self.new_list(cid, value_list.len(), Element::General);
-        // Recém-alocada, jovem: sem barreira.
+        // Freshly allocated, young: no barrier.
         self.words_mut(h)[1..1 + value_list.len()].copy_from_slice(value_list);
         h
     }
 
-    /// Grava `v` em todos os elementos de `h` (o `List.filled`): uma gravação
-    /// normal no primeiro (a caixa, se a forma geral pedir, ou a descompactação,
-    /// se a compacta não guardar `v`), e as mesmas palavras nos demais — o mesmo
-    /// objeto em toda posição, como na VM. Pode coletar.
+    /// Writes `v` into every element of `h` (`List.filled`): a normal write into
+    /// the first (the box, if the general shape requires it, or the decompaction, if
+    /// the compact one does not hold `v`), and the same words into the others — the
+    /// same object in every position, as in the VM. May collect.
     pub fn list_fill(&mut self, h: Ref, v: Value) {
         let n = self.list_len(h);
         if n == 0 {
@@ -406,23 +405,23 @@ impl Heap {
         }
     }
 
-    // ── Auxiliares ───────────────────────────────────────────────────────────
+    // ── Helpers ──────────────────────────────────────────────────────────────
 
-    /// O cid de uma lista do núcleo; pânico (N4) se `h` não é uma.
+    /// The cid of a core list; panics (N4) if `h` is not one.
     fn list_cid(&self, h: Ref) -> i32 {
         let c = self.class(h);
-        assert!(cid::e_lista(c), "bug do runtime: lista do núcleo esperada (cid {c}, handle {h})");
+        assert!(cid::e_lista(c), "runtime bug: core list expected (cid {c}, handle {h})");
         c
     }
 
-    /// O campo `i` (0 comprimento, 1 armazenamento) de uma `_GrowableList`.
+    /// Field `i` (0 length, 1 storage) of a `_GrowableList`.
     fn list_growable_field(&self, h: Ref, i: usize) -> i64 {
-        self.object(h).expect("_GrowableList é INSTANCIA").field(i).0
+        self.object(h).expect("_GrowableList is an INSTANCIA").field(i).0
     }
 
-    /// `f` com cópias proprietárias de `hs` num quadro temporário do runtime.
-    /// Null e `Smi` não contam RC. O resultado deve ser publicado sem coleta
-    /// entre o fechamento deste quadro e a gravação da referência pelo chamador.
+    /// `f` with owning copies of `hs` in a temporary runtime frame. Null and `Smi`
+    /// do not count RC. The result must be published with no collection between the
+    /// closing of this frame and the caller's write of the reference.
     pub(crate) fn list_with_roots<R>(&mut self, hs: &[Ref], f: impl FnOnce(&mut Heap) -> R) -> R {
         let frame = self.push_owning_frame(hs.len());
         for (i, &x) in hs.iter().enumerate() {
@@ -433,23 +432,23 @@ impl Heap {
         r
     }
 
-    /// Grava `v` no elemento `i` do armazenamento de `h` (o comprimento já foi
-    /// conferido por quem chama).
+    /// Writes `v` into element `i` of `h`'s storage (the length was already checked
+    /// by the caller).
     fn list_write_to_storage(&mut self, h: Ref, i: usize, v: Value) {
         let a = self.list_data(h);
         let shape = Element::from_flags(self.header(a).flags);
         if shape == Element::General {
             let r = match v {
                 Value::Ref(r) => r,
-                // A caixa pode coletar: `h` fica enraizado (o armazenamento é
-                // relido depois).
+                // The box may collect: `h` stays rooted (the storage is read again
+                // afterwards).
                 other_one => self.list_with_roots(&[h], |heap| heap.to_ref(other_one)),
             };
             let a = self.list_data(h);
             self.write_ref(a, 1 + i, r);
             return;
         }
-        // Forma compacta: o valor sem caixa, se couber.
+        // Compact shape: the unboxed value, if it fits.
         let v = match v {
             Value::Ref(r) => self.value(r),
             other_one => other_one,
@@ -459,8 +458,8 @@ impl Heap {
             return;
         }
         if v == Value::Ref(0) && self.metadata(h) != 0 {
-            // A limpeza de uma posição cortada de uma lista de `E` escalar não
-            // anulável (o `length =` que encolhe): zero, sem descompactar.
+            // Clearing a cut position of a list of non-nullable scalar `E` (the
+            // shrinking `length =`): zero, without decompacting.
             self.words_mut(a)[1 + i] = 0;
             return;
         }
@@ -473,11 +472,11 @@ impl Heap {
         self.write_ref(a, 1 + i, r);
     }
 
-    /// Passa o armazenamento de `h` à forma geral, com as caixas dos elementos
-    /// até o comprimento (§2.16). Numa `_GrowableList`, um armazenamento geral
-    /// novo (o velho pode ser compartilhado); numa `_List`/`_ImmutableList`, uma
-    /// lista geral temporária com as caixas, copiada para o corpo de `h` depois
-    /// de trocar o `flags` — sem alocação entre as duas coisas. Pode coletar.
+    /// Moves the storage of `h` to the general shape, with the boxes of the
+    /// elements up to the length (§2.16). In a `_GrowableList`, a new general
+    /// storage (the old one may be shared); in a `_List`/`_ImmutableList`, a
+    /// temporary general list with the boxes, copied into `h`'s body after swapping
+    /// `flags` — with no allocation between the two things. May collect.
     fn list_decompact(&mut self, h: Ref) {
         let shape = self.list_shape(h);
         if shape == Element::General {
@@ -491,7 +490,7 @@ impl Heap {
             for i in 0..n {
                 let bits = heap.words(heap.list_data(h))[1 + i];
                 let r = heap.to_ref(shape.value_of(bits));
-                // `general` pode ter envelhecido numa coleta da caixa seguinte.
+                // `general` may have aged in a collection caused by the next box.
                 heap.write_ref(general, 1 + i, r);
             }
         });
@@ -499,14 +498,14 @@ impl Heap {
             self.list_set_data(h, general);
             return;
         }
-        // Daqui ao fim, nenhuma alocação: o corpo de `h` troca de formato.
+        // From here to the end, no allocation: the body of `h` changes format.
         let refs: Vec<i64> = self.words(general)[1..1 + n].to_vec();
         self.set_flags(h, flags::FORMA | flags::ELEMENTO, Element::General.flags());
         self.write_refs(h, 1, &refs);
     }
 
-    /// Passa o armazenamento geral de `h` à forma compacta `e`, no lugar, se todo
-    /// elemento até o comprimento cabe nela (null conta como zero). Não aloca.
+    /// Moves the general storage of `h` to the compact shape `e`, in place, if every
+    /// element up to the length fits in it (null counts as zero). Does not allocate.
     fn list_compact(&mut self, h: Ref, e: Element) {
         debug_assert!(e != Element::General && self.list_shape(h) == Element::General);
         let n = self.list_len(h);
@@ -520,9 +519,9 @@ impl Heap {
             }
             match e.bits_of(self.value(r)) {
                 Some(b) => bits.push(b),
-                // Um elemento que não cabe dentro do comprimento: fica geral.
-                // Além dele (o resto da capacidade), o valor não é
-                // observável e vira zero.
+                // An element within the length that does not fit: it stays general.
+                // Beyond it (the rest of the capacity), the value is not observable
+                // and becomes zero.
                 None if bits.len() < n => return,
                 None => bits.push(0),
             }
@@ -531,14 +530,14 @@ impl Heap {
         self.words_mut(a)[1..1 + cap].copy_from_slice(&bits);
     }
 
-    /// A cópia de `h` numa lista fixa (`cid`) nova, na mesma forma. Pode coletar.
+    /// The copy of `h` into a new fixed list (`cid`), in the same shape. May collect.
     fn list_copy_of(&mut self, h: Ref, cid: i32) -> Ref {
         let n = self.list_len(h);
         let shape = self.list_shape(h);
         let new = self.list_with_roots(&[h], |heap| heap.new_list(cid, n, shape));
         let a = self.list_data(h);
         let source: Vec<i64> = self.words(a)[1..1 + n].to_vec();
-        // Recém-alocada, jovem: sem barreira.
+        // Freshly allocated, young: no barrier.
         self.words_mut(new)[1..1 + n].copy_from_slice(&source);
         new
     }
@@ -556,7 +555,7 @@ mod tests_lists {
             assert_eq!(Element::from_code(e.code()), Some(e));
         }
         assert_eq!(Element::from_code(4), None);
-        // O `@df.list_shape` compara `flags & 0x66` com estes valores.
+        // `@df.list_shape` compares `flags & 0x66` with these values.
         assert_eq!(Element::Int.flags(), 0x22);
         assert_eq!(Element::Double.flags(), 0x42);
         assert_eq!(Element::Bool.flags(), 0x62);

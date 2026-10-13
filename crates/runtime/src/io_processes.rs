@@ -1,26 +1,26 @@
-// Runtime nativo: os processos do `dart:io` da VM (`runtime/bin/process.cc`,
+// Native runtime: the VM's `dart:io` processes (`runtime/bin/process.cc`,
 // `process_linux.cc`, `process_macos.cc`): `Process.start`/`run`/`runSync`,
-// `Process.killPid`, os sinais (`ProcessSignal.watch`) e o uso de memória
+// `Process.killPid`, signals (`ProcessSignal.watch`) and memory usage
 // (`ProcessInfo`).
 //
-// Como a VM: o filho nasce de `fork` + `execvp`, com pipes para a entrada,
-// a saída e o erro (que o Dart lê como `_NativeSocket`, pelo manipulador de
-// eventos) e um pipe de controle que devolve o `errno` de um `exec` que
-// falhou; uma thread (`ExitCodeHandler`) espera os filhos com `wait` e
-// escreve o código de saída (`[código, negative]`, dois `int32`) no pipe de
-// saída de cada processo. Os modos destacados passam por um segundo `fork`
-// e `setsid`, e o neto informa o próprio pid.
+// Like the VM: the child is born from `fork` + `execvp`, with pipes for the input,
+// the output and the error (which Dart reads as a `_NativeSocket`, through the
+// event handler) and a control pipe that returns the `errno` of a failed `exec`; a
+// thread (`ExitCodeHandler`) waits for the children with `wait` and writes the exit
+// code (`[code, negative]`, two `int32`s) into each process's exit pipe. The
+// detached modes go through a second `fork` and `setsid`, and the grandchild
+// reports its own pid.
 //
-// Entre o `fork` e o `exec`, o filho só chama funções seguras para sinais
-// (`read`, `dup2`, `chdir`, `execvp`, `write`, `_exit`…); tudo o que ele usa
-// (argumentos, ambiente) é montado antes do `fork`. O filho informa só o
-// `errno`; a mensagem sai do mesmo `strerror` no pai.
+// Between `fork` and `exec`, the child only calls async-signal-safe functions
+// (`read`, `dup2`, `chdir`, `execvp`, `write`, `_exit`…); everything it uses
+// (arguments, environment) is built before the `fork`. The child reports only the
+// `errno`; the message comes from the same `strerror` in the parent.
 //
-// No Windows (`io_windows_processos.rs`) o filho nasce de `CreateProcessW`,
-// com pipes nomeados sobrepostos no lado do pai, e o código de saída chega
-// pelo pool de threads do sistema (`RegisterWaitForSingleObject`), com as
-// mesmas funções (`start_process`, `wait_process`,
-// `kill_process`, `subscribe_signal`…).
+// On Windows (`io_windows_processes.rs`) the child is born from `CreateProcessW`,
+// with overlapped named pipes on the parent's side, and the exit code arrives
+// through the system thread pool (`RegisterWaitForSingleObject`), with the same
+// functions (`start_process`, `wait_process`, `kill_process`,
+// `subscribe_signal`…).
 
 /// `ProcessStartMode`.
 const MODE_NORMAL: i64 = 0;
@@ -36,8 +36,8 @@ fn mode_with_stdio(mode: i64) -> bool {
     mode == MODE_NORMAL || mode == MODE_DETACHED_WITH_STDIO
 }
 
-/// Os textos de uma `List<String>` Dart em UTF-8; `None` se algum elemento
-/// não é `String`.
+/// The strings of a Dart `List<String>` in UTF-8; `None` if some element is not a
+/// `String`.
 fn list_strings(list: i64) -> Option<Vec<Vec<u8>>> {
     HEAP.with(|h| {
         let h = h.borrow();
@@ -56,21 +56,21 @@ fn list_strings(list: i64) -> Option<Vec<Vec<u8>>> {
     })
 }
 
-/// Grava o erro de início no `_ProcessStartStatus` (o `Dart_SetField` da
-/// VM), pela função da sobreposição.
+/// Writes the start error into the `_ProcessStartStatus` (the VM's
+/// `Dart_SetField`), through the overlay's function.
 fn start_failure(status: i64, code: i64, message: &str) {
     let Some(f) = ajudante("_dartforgeFalhaAoIniciar") else {
-        panic!("bug do compilador: dart:io sem `_dartforgeFalhaAoIniciar` registrado");
+        panic!("compiler bug: dart:io without a registered `_dartforgeFalhaAoIniciar`");
     };
-    // SAFETY: registrada pela sobreposição de `dart:io` com a assinatura
+    // SAFETY: registered by the `dart:io` overlay with the signature
     // (`_ProcessStartStatus`, `int`, `String`) → `void`.
     let g = { let dart_target: usize = f; move |a0: i64, a1: i64, a2: i64| { dart_v3(dart_target, a0, a1, a2) } };
     let m = allocate_str(message);
     with_roots(&[m], || g(status, code, m));
 }
 
-/// Um processo iniciado: o pid e os descritores do lado do pai (-1 quando
-/// o modo não tem).
+/// A started process: the pid and the parent-side descriptors (-1 when the mode
+/// does not have them).
 struct StartedProcess {
     pid: i64,
     input: i64,
@@ -111,27 +111,27 @@ unsafe extern "C" {
     fn _NSGetEnviron() -> *mut *const *const std::ffi::c_char;
 }
 
-/// Troca o ambiente do processo (no filho, antes do `execvp`): o `environ`
-/// da libc; no macOS, pelo `_NSGetEnviron` (o símbolo não é visível a uma
-/// biblioteca dinâmica).
+/// Replaces the process environment (in the child, before `execvp`): libc's
+/// `environ`; on macOS, through `_NSGetEnviron` (the symbol is not visible to a
+/// dynamic library).
 #[cfg(unix)]
 unsafe fn swap_env(new: *const *const std::ffi::c_char) {
     #[cfg(target_os = "linux")]
-    // SAFETY: só o filho, de uma thread, antes do `exec`.
+    // SAFETY: only the child, on one thread, before `exec`.
     unsafe {
         environ = new;
     }
     #[cfg(not(target_os = "linux"))]
-    // SAFETY: idem.
+    // SAFETY: likewise.
     unsafe {
         *_NSGetEnviron() = new;
     }
 }
 
-/// O `errno` corrente (seguro no filho entre o `fork` e o `exec`).
+/// The current `errno` (safe in the child between `fork` and `exec`).
 #[cfg(unix)]
 fn current_errno() -> i32 {
-    // SAFETY: o endereço do `errno` da thread.
+    // SAFETY: the address of the thread's `errno`.
     #[cfg(target_os = "linux")]
     unsafe {
         *__errno_location()
@@ -150,11 +150,11 @@ struct PollFd {
     revents: i16,
 }
 
-/// Um pipe com os dois lados fechados no `exec` (`pipe2(O_CLOEXEC)`).
+/// A pipe with both sides closed on `exec` (`pipe2(O_CLOEXEC)`).
 #[cfg(unix)]
 fn cloexec_pipe() -> IoResult<[i32; 2]> {
     let mut fds = [-1i32; 2];
-    // SAFETY: `fds` tem dois inteiros.
+    // SAFETY: `fds` has two integers.
     if unsafe { pipe(fds.as_mut_ptr()) } != 0 {
         return Err(OsError::de(&std::io::Error::last_os_error()));
     }
@@ -163,12 +163,12 @@ fn cloexec_pipe() -> IoResult<[i32; 2]> {
     Ok(fds)
 }
 
-/// Escreve tudo, repetindo na interrupção (`FDUtils::WriteToBlocking`).
+/// Writes everything, retrying on interruption (`FDUtils::WriteToBlocking`).
 #[cfg(unix)]
 fn write_blocking(fd: i32, data: &[u8]) -> isize {
     let mut done = 0usize;
     while done < data.len() {
-        // SAFETY: os dados são legíveis.
+        // SAFETY: the data is readable.
         let n = unsafe { write(fd, data[done..].as_ptr().cast(), data.len() - done) };
         if n < 0 {
             if current_errno() == 4 {
@@ -184,12 +184,12 @@ fn write_blocking(fd: i32, data: &[u8]) -> isize {
     done as isize
 }
 
-/// Lê até encher ou o fim (`FDUtils::ReadFromBlocking`).
+/// Reads until full or the end (`FDUtils::ReadFromBlocking`).
 #[cfg(unix)]
 fn read_blocking(fd: i32, dest: &mut [u8]) -> isize {
     let mut done = 0usize;
     while done < dest.len() {
-        // SAFETY: o destino é gravável.
+        // SAFETY: the destination is writable.
         let n = unsafe { read(fd, dest[done..].as_mut_ptr().cast(), dest.len() - done) };
         if n < 0 {
             if current_errno() == 4 {
@@ -205,8 +205,8 @@ fn read_blocking(fd: i32, dest: &mut [u8]) -> isize {
     done as isize
 }
 
-/// Os filhos anexados e o pipe de saída de cada um (`ProcessInfoList`), e
-/// a thread que os espera (`ExitCodeHandler`).
+/// The attached children and the exit pipe of each one (`ProcessInfoList`), and the
+/// thread that waits for them (`ExitCodeHandler`).
 #[cfg(unix)]
 struct ChildWait {
     estado: std::sync::Mutex<WaitState>,
@@ -216,7 +216,7 @@ struct ChildWait {
 #[cfg(unix)]
 #[derive(Default)]
 struct WaitState {
-    /// pid → lado de escrita do pipe de saída.
+    /// pid → write side of the exit pipe.
     active: crate::hash::HashMap<i32, i32>,
     running: bool,
 }
@@ -229,7 +229,7 @@ fn child_wait() -> &'static ChildWait {
 
 #[cfg(unix)]
 impl ChildWait {
-    /// Registra um filho e garante a thread que espera.
+    /// Registers a child and makes sure the waiting thread exists.
     fn register(&'static self, pid: i32, fd_de_saida: i32) {
         let mut e = self.estado.lock().unwrap_or_else(|x| x.into_inner());
         e.active.insert(pid, fd_de_saida);
@@ -241,10 +241,10 @@ impl ChildWait {
         std::thread::Builder::new()
             .name("dart:io Process.start".to_string())
             .spawn(move || self.wait_for())
-            .expect("dart:io: falha ao criar a thread dos processos");
+            .expect("dart:io: failed to create the processes thread");
     }
 
-    /// `ExitCodeHandlerEntry`: espera qualquer filho e informa o código.
+    /// `ExitCodeHandlerEntry`: waits for any child and reports the code.
     fn wait_for(&self) {
         loop {
             {
@@ -254,14 +254,14 @@ impl ChildWait {
                 }
             }
             let mut status = 0i32;
-            // SAFETY: espera um filho qualquer.
+            // SAFETY: waits for any child.
             let pid = unsafe { wait(&mut status) };
             if pid < 0 {
                 if current_errno() == 4 {
                     continue;
                 }
-                // Sem filhos (ECHILD): o registro está à frente do `fork`
-                // de outro processo; tenta de novo.
+                // No children (ECHILD): the registration is ahead of another
+                // process's `fork`; try again.
                 std::thread::sleep(std::time::Duration::from_millis(1));
                 continue;
             }
@@ -279,14 +279,14 @@ impl ChildWait {
                 msg[..4].copy_from_slice(&code.to_ne_bytes());
                 msg[4..].copy_from_slice(&negative.to_ne_bytes());
                 write_blocking(fd, &msg);
-                // SAFETY: o lado de escrita é deste registro, fechado uma vez.
+                // SAFETY: the write side belongs to this registration, closed once.
                 unsafe { close(fd) };
             }
         }
     }
 }
 
-/// O `ProcessStarter` da VM.
+/// The VM's `ProcessStarter`.
 #[cfg(unix)]
 fn start_process(
     file_path: &[u8],
@@ -322,7 +322,7 @@ fn start_process(
     let close_all = |pipes: &[i32]| {
         for &fd in pipes {
             if fd >= 0 {
-                // SAFETY: descritores deste início.
+                // SAFETY: descriptors of this start.
                 unsafe { close(fd) };
             }
         }
@@ -356,8 +356,8 @@ fn start_process(
         if n < 0 { 256 } else { n as i32 }
     };
 
-    // SAFETY: o filho só usa funções seguras para sinais e memória já
-    // montada.
+    // SAFETY: the child only uses async-signal-safe functions and memory that is
+    // already built.
     let pid = unsafe { fork() };
     if pid < 0 {
         let e = OsError::de(&std::io::Error::last_os_error());
@@ -365,8 +365,8 @@ fn start_process(
         return Err(e);
     }
     if pid == 0 {
-        // --- O filho. ---
-        // SAFETY: tudo aqui é seguro depois do `fork`.
+        // --- The child. ---
+        // SAFETY: everything here is safe after `fork`.
         unsafe {
             let report = |fd: i32| -> ! {
                 let e = current_errno();
@@ -395,8 +395,8 @@ fn start_process(
                 execvp(path_c.as_ptr(), argv.as_ptr());
                 report(control[1]);
             }
-            // Destacado: um segundo `fork` depois do `setsid`, e o neto
-            // informa o próprio pid pelo pipe de controle.
+            // Detached: a second `fork` after `setsid`, and the grandchild
+            // reports its own pid through the control pipe.
             if mode == MODE_DETACHED {
                 close(read_input[0]);
                 close(read_input[1]);
@@ -454,7 +454,7 @@ fn start_process(
         }
     }
 
-    // --- O pai. ---
+    // --- The parent. ---
     let mut end = -1i64;
     if attached_mode(mode) {
         match cloexec_pipe() {
@@ -471,7 +471,7 @@ fn start_process(
     }
     let shutdown_end = |end: i64| {
         if end >= 0 {
-            // SAFETY: o lado de leitura do pipe de saída deste início.
+            // SAFETY: the read side of this start's exit pipe.
             unsafe { close(end as i32) };
         }
     };
@@ -481,7 +481,7 @@ fn start_process(
         close_all(&pipes);
         return Err(e);
     }
-    // SAFETY: o lado de escrita do controle é só do filho agora.
+    // SAFETY: the write side of the control pipe now belongs only to the child.
     unsafe { close(control[1]) };
     let mut final_pid = pid;
     let child_error = if attached_mode(mode) {
@@ -506,7 +506,7 @@ fn start_process(
             _ => None,
         }
     };
-    // SAFETY: o lado de leitura do controle, fechado uma vez.
+    // SAFETY: the read side of the control pipe, closed once.
     unsafe { close(control[0]) };
     if let Some(e) = child_error {
         shutdown_end(end);
@@ -518,19 +518,19 @@ fn start_process(
         set_nonblocking(read_input[0]);
         set_nonblocking(write_output[1]);
         set_nonblocking(read_error[0]);
-        // A saída do filho é o que o pai lê (`_stdout`); a entrada, o que o
-        // pai escreve (`_stdin`).
+        // The child's output is what the parent reads (`_stdout`); the input, what
+        // the parent writes (`_stdin`).
         r.output = i64::from(read_input[0]);
         r.input = i64::from(write_output[1]);
         r.error = i64::from(read_error[0]);
-        // SAFETY: os lados do filho, fechados uma vez.
+        // SAFETY: the child's sides, closed once.
         unsafe {
             close(read_input[1]);
             close(write_output[0]);
             close(read_error[1]);
         }
     } else {
-        // SAFETY: o pipe de sincronização, fechado uma vez.
+        // SAFETY: the synchronization pipe, closed once.
         unsafe {
             close(read_input[0]);
             close(read_input[1]);
@@ -539,8 +539,8 @@ fn start_process(
     Ok(r)
 }
 
-/// `Process_Start(namespace, path, arguments, workingDirectory,
-/// environment, mode, stdin, stdout, stderr, exitHandler, status)`.
+/// `Process_Start(namespace, path, arguments, workingDirectory, environment, mode,
+/// stdin, stdout, stderr, exitHandler, status)`.
 #[unsafe(no_mangle)]
 #[allow(clippy::too_many_arguments)]
 pub extern "C" fn dartforge_nativo_Process_Start(
@@ -594,8 +594,8 @@ pub extern "C" fn dartforge_nativo_Process_Start(
     }
 }
 
-/// `Process::Wait` (o `runSync`): fecha a entrada, lê a saída e o erro até
-/// o fim e o código do pipe de saída; `(código, saída, error)`.
+/// `Process::Wait` (`runSync`): closes the input, reads the output and the error to
+/// the end and the code from the exit pipe; `(code, output, error)`.
 #[cfg(unix)]
 fn wait_process(input: i64, output: i64, error: i64, end: i64) -> IoResult<(i64, Vec<u8>, Vec<u8>)> {
     close_socket_descriptor(input);
@@ -614,7 +614,7 @@ fn wait_process(input: i64, output: i64, error: i64, end: i64) -> IoResult<(i64,
     };
     while !live_set.is_empty() {
         let mut fds: Vec<PollFd> = live_set.iter().map(|&fd| PollFd { fd: fd as i32, events: POLLIN, revents: 0 }).collect();
-        // SAFETY: `fds` tem `len` elementos.
+        // SAFETY: `fds` has `len` elements.
         let r = unsafe { poll(fds.as_mut_ptr(), fds.len() as u64, -1) };
         if r <= 0 {
             if r < 0 && current_errno() == 4 {
@@ -659,8 +659,8 @@ fn wait_process(input: i64, output: i64, error: i64, end: i64) -> IoResult<(i64,
     Ok((if negative != 0 { -value } else { value }, output_data, error_data))
 }
 
-/// `Process_Wait(stdin, stdout, stderr, exitHandler)`: `[pid, código,
-/// saída, erro]`; num error, mata o child e lança o `OSError`.
+/// `Process_Wait(stdin, stdout, stderr, exitHandler)`: `[pid, code, output,
+/// error]`; on an error, kills the child and throws the `OSError`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Process_Wait(process: i64, input: i64, output: i64, error: i64, end: i64) -> i64 {
     let (Some(e), Some(s), Some(r), Some(f)) = (object_socket(input), object_socket(output), object_socket(error), object_socket(end)) else {
@@ -670,7 +670,7 @@ pub extern "C" fn dartforge_nativo_Process_Wait(process: i64, input: i64, output
     #[cfg(unix)]
     let result = {
         let fds = (e.descriptor(), s.descriptor(), r.descriptor(), f.descriptor());
-        // Os descritores passam a este `wait`, que os fecha.
+        // The descriptors pass to this `wait`, which closes them.
         for x in [e, s, r, f] {
             x.descriptor.store(-1, std::sync::atomic::Ordering::Release);
         }
@@ -679,8 +679,8 @@ pub extern "C" fn dartforge_nativo_Process_Wait(process: i64, input: i64, output
     #[cfg(windows)]
     let result = {
         let r0 = wait_process(e.descriptor(), s.descriptor(), r.descriptor(), f.descriptor());
-        // `Process::Wait` fechou os handles; os objetos soltam as
-        // referências (`CloseFd`).
+        // `Process::Wait` closed the handles; the objects release their
+        // references (`CloseFd`).
         for x in [e, s, r, f] {
             x.release_descriptor();
         }
@@ -703,7 +703,7 @@ pub extern "C" fn dartforge_nativo_Process_Wait(process: i64, input: i64, output
 #[cfg(unix)]
 fn kill_process(pid: i64, sig_num: i64) -> bool {
     loop {
-        // SAFETY: envia um sinal a um pid.
+        // SAFETY: sends a signal to a pid.
         if unsafe { kill(pid as i32, sig_num as i32) } != -1 {
             return true;
         }
@@ -718,10 +718,10 @@ pub extern "C" fn dartforge_nativo_Process_KillPid(pid: i64, sig_num: i64) -> u8
     u8::from(kill_process(pid, system_signal(sig_num)))
 }
 
-/// O número do sinal no sistema a partir do de `ProcessSignal`, que o Dart
-/// numera como o Linux (`sigusr2` é 12): no macOS e nos BSDs vários
-/// números diferem (lá 12 é `SIGSYS`), e a VM traduz (`SignalMap` de
-/// `process_macos.cc`) antes do `kill` e da inscrição.
+/// The system's signal number from that of `ProcessSignal`, which Dart numbers like
+/// Linux (`sigusr2` is 12): on macOS and the BSDs several numbers differ (there 12
+/// is `SIGSYS`), and the VM translates (`SignalMap` in `process_macos.cc`) before
+/// `kill` and subscription.
 fn system_signal(sig_num: i64) -> i64 {
     if cfg!(any(target_os = "linux", target_os = "android", not(unix))) {
         return sig_num;
@@ -742,11 +742,11 @@ fn system_signal(sig_num: i64) -> i64 {
 }
 
 // ---------------------------------------------------------------------------
-// Sinais (`ProcessSignal.watch`): cada inscrição é um pipe; o tratador do
-// sinal escreve um byte nos pipes do sinal, e o Dart lê o outro lado como
-// soquete.
+// Signals (`ProcessSignal.watch`): each subscription is a pipe; the signal handler
+// writes one byte into the signal's pipes, and Dart reads the other side as a
+// socket.
 
-/// Os sinais que o Dart pode vigiar (`kSignals`), no número do sistema.
+/// The signals Dart may watch (`kSignals`), in the system's numbering.
 #[cfg(unix)]
 fn watchable_signal(s: i64) -> bool {
     #[cfg(target_os = "linux")]
@@ -756,8 +756,8 @@ fn watchable_signal(s: i64) -> bool {
     SIGNALS.contains(&s)
 }
 
-/// Uma inscrição (`SignalInfo`): o sinal, os dois lados do pipe e quantos
-/// tratadores estão escrevendo nele agora. O tratador só usa atômicos e
+/// A subscription (`SignalInfo`): the signal, both sides of the pipe and how many
+/// handlers are writing into it right now. The handler only uses atomics and
 /// `write`.
 #[cfg(unix)]
 struct SignalSubscription {
@@ -779,14 +779,13 @@ static SUBSCRIPTIONS: [SignalSubscription; MAX_SUBSCRIPTIONS] = [const {
     }
 }; MAX_SUBSCRIPTIONS];
 
-/// O tratador: um byte no pipe de cada inscrição do sinal.
+/// The handler: one byte into the pipe of each subscription of the signal.
 ///
-/// O pipe é não bloqueante: cheio, o `write` falha com `EAGAIN` e a
-/// notificação se funde às que o Dart ainda não leu (como o sistema funde
-/// sinais pendentes), sem nunca parar a thread interrompida. O `errno` da
-/// thread interrompida é preservado. A contagem `in_use` impede que o
-/// cancelamento feche (e o sistema reaproveite) o descritor durante o
-/// `write`.
+/// The pipe is non-blocking: when full, `write` fails with `EAGAIN` and the
+/// notification merges with those Dart has not read yet (as the system merges
+/// pending signals), never stopping the interrupted thread. The interrupted
+/// thread's `errno` is preserved. The `in_use` count prevents cancellation from
+/// closing (and the system from reusing) the descriptor during the `write`.
 #[cfg(unix)]
 extern "C" fn handle_signal(sig_num: i32) {
     use std::sync::atomic::Ordering::SeqCst;
@@ -799,8 +798,8 @@ extern "C" fn handle_signal(sig_num: i32) {
         let fd = i.write_side.load(SeqCst);
         if fd >= 0 && i.sig_num.load(SeqCst) == sig_num {
             let b = [0u8];
-            // SAFETY: `write` é seguro num tratador de sinal; o descritor
-            // não é fechado enquanto `in_use` > 0, e não bloqueia.
+            // SAFETY: `write` is safe in a signal handler; the descriptor is not
+            // closed while `in_use` > 0, and it does not block.
             unsafe { write(fd, b.as_ptr().cast(), 1) };
         }
         i.in_use.fetch_sub(1, SeqCst);
@@ -810,16 +809,16 @@ extern "C" fn handle_signal(sig_num: i32) {
 
 #[cfg(target_os = "linux")]
 fn set_errno(e: i32) {
-    // SAFETY: o `errno` da thread.
+    // SAFETY: the thread's `errno`.
     unsafe { *__errno_location() = e };
 }
 #[cfg(all(unix, not(target_os = "linux")))]
 fn set_errno(e: i32) {
-    // SAFETY: o `errno` da thread.
+    // SAFETY: the thread's `errno`.
     unsafe { *__error() = e };
 }
 
-/// `signal(sig_num, handler)`: o tratador anterior.
+/// `signal(sig_num, handler)`: the previous handler.
 #[cfg(unix)]
 unsafe extern "C" {
     fn signal(sig_num: i32, handler: usize) -> usize;
@@ -827,12 +826,12 @@ unsafe extern "C" {
 
 #[cfg(unix)]
 fn subscriptions_mutex() -> std::sync::MutexGuard<'static, crate::hash::HashMap<i32, usize>> {
-    // Sinal → o tratador anterior, restaurado quando a última inscrição sai.
+    // Signal → the previous handler, restored when the last subscription leaves.
     static M: std::sync::OnceLock<std::sync::Mutex<crate::hash::HashMap<i32, usize>>> = std::sync::OnceLock::new();
     M.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// `Process::SetSignalHandler`: o lado de leitura do pipe da inscrição.
+/// `Process::SetSignalHandler`: the read side of the subscription's pipe.
 #[cfg(unix)]
 fn subscribe_signal(sig_num: i64) -> IoResult<i64> {
     use std::sync::atomic::Ordering::SeqCst;
@@ -843,7 +842,7 @@ fn subscribe_signal(sig_num: i64) -> IoResult<i64> {
     let fds = cloexec_pipe()?;
     if !(set_nonblocking(fds[0]) && set_nonblocking(fds[1])) {
         let e = OsError::de(&std::io::Error::last_os_error());
-        // SAFETY: os descritores acabaram de ser criados.
+        // SAFETY: the descriptors were just created.
         unsafe {
             close(fds[0]);
             close(fds[1]);
@@ -851,10 +850,10 @@ fn subscribe_signal(sig_num: i64) -> IoResult<i64> {
         return Err(e);
     }
     let mut previous_ones = subscriptions_mutex();
-    // Os campos só mudam com a trava; o tratador vê a inscrição quando o
-    // sinal é gravado, por último.
+    // The fields only change under the lock; the handler sees the subscription
+    // when the signal is written, last.
     let Some(free_ptr) = SUBSCRIPTIONS.iter().find(|i| i.sig_num.load(SeqCst) == 0) else {
-        // SAFETY: os descritores acabaram de ser criados.
+        // SAFETY: the descriptors were just created.
         unsafe {
             close(fds[0]);
             close(fds[1]);
@@ -865,16 +864,16 @@ fn subscribe_signal(sig_num: i64) -> IoResult<i64> {
     free_ptr.read_side.store(fds[0], SeqCst);
     free_ptr.sig_num.store(sig_num as i32, SeqCst);
     if let std::collections::hash_map::Entry::Vacant(v) = previous_ones.entry(sig_num as i32) {
-        // SAFETY: instala o tratador do sinal.
+        // SAFETY: installs the signal handler.
         let old = unsafe { signal(sig_num as i32, handle_signal as usize) };
         v.insert(old);
     }
     Ok(i64::from(fds[0]))
 }
 
-/// Desfaz as inscrições que `filter_obj` escolhe (com a trava): tira-as do
-/// tratador, espera os `write` em andamento e fecha o lado de escrita; o
-/// tratador anterior volta quando o sinal fica sem inscrições.
+/// Undoes the subscriptions that `filter_obj` picks (under the lock): removes them
+/// from the handler, waits for the `write`s in progress and closes the write side;
+/// the previous handler comes back when the signal has no subscriptions left.
 #[cfg(unix)]
 fn remove_subscriptions(previous_ones: &mut crate::hash::HashMap<i32, usize>, filter_obj: impl Fn(&SignalSubscription) -> bool) {
     use std::sync::atomic::Ordering::SeqCst;
@@ -885,19 +884,19 @@ fn remove_subscriptions(previous_ones: &mut crate::hash::HashMap<i32, usize>, fi
         }
         let f = i.write_side.swap(-1, SeqCst);
         i.read_side.store(-1, SeqCst);
-        // Um tratador que já leu o descritor termina o `write` antes do
-        // `close`.
+        // A handler that has already read the descriptor finishes its `write`
+        // before the `close`.
         while i.in_use.load(SeqCst) != 0 {
             std::hint::spin_loop();
         }
         if f >= 0 {
-            // SAFETY: o lado de escrita da inscrição, fechado uma vez.
+            // SAFETY: the subscription's write side, closed once.
             unsafe { close(f) };
         }
         i.sig_num.store(0, SeqCst);
         if !SUBSCRIPTIONS.iter().any(|x| x.sig_num.load(SeqCst) == sig_num) {
             if let Some(old) = previous_ones.remove(&sig_num) {
-                // SAFETY: restaura o tratador anterior.
+                // SAFETY: restores the previous handler.
                 unsafe { signal(sig_num, old) };
             }
         }
@@ -912,8 +911,8 @@ fn cancel_signal(sig_num: i64) {
     remove_subscriptions(&mut previous_ones, |i| i64::from(i.sig_num.load(std::sync::atomic::Ordering::SeqCst)) == sig_num);
 }
 
-/// `Process::ClearSignalHandlerByFd`: o soquete do sinal (o lado de
-/// leitura `fd`) fechou.
+/// `Process::ClearSignalHandlerByFd`: the signal's socket (the read side `fd`) was
+/// closed.
 #[cfg(unix)]
 fn clear_signal_by_descriptor(fd: i64) {
     let mut previous_ones = subscriptions_mutex();
@@ -931,7 +930,7 @@ pub extern "C" fn dartforge_nativo_Process_ClearSignalHandler(sig_num: i64) {
 }
 
 // ---------------------------------------------------------------------------
-// `ProcessInfo`: memória residente.
+// `ProcessInfo`: resident memory.
 
 /// `Process::CurrentRSS`.
 #[cfg(target_os = "linux")]
@@ -941,7 +940,7 @@ fn resident_memory() -> IoResult<i64> {
     }
     let statm = std::fs::read_to_string("/proc/self/statm")?;
     let pages: i64 = statm.split_whitespace().nth(1).and_then(|x| x.parse().ok()).ok_or_else(|| OsError::from_code(os_code::INVALID))?;
-    // SAFETY: consulta sem efeitos.
+    // SAFETY: a query without effects.
     Ok(pages * i64::from(unsafe { getpagesize() }))
 }
 #[cfg(all(unix, not(target_os = "linux")))]
@@ -963,14 +962,14 @@ fn resident_memory() -> IoResult<i64> {
     }
     let mut i = BasicInfo::default();
     let mut n = (std::mem::size_of::<BasicInfo>() / 4) as u32;
-    // SAFETY: MACH_TASK_BASIC_INFO = 20; `i` tem o tamanho informado.
+    // SAFETY: MACH_TASK_BASIC_INFO = 20; `i` has the reported size.
     if unsafe { task_info(mach_task_self_, 20, &mut i, &mut n) } != 0 {
         return Err(OsError::from_code(os_code::INVALID));
     }
     Ok(i.resident_size as i64)
 }
 
-/// `Process::MaxRSS` (`getrusage`: KiB no Linux, bytes no macOS).
+/// `Process::MaxRSS` (`getrusage`: KiB on Linux, bytes on macOS).
 #[cfg(unix)]
 fn max_resident_memory() -> IoResult<i64> {
     #[repr(C)]
@@ -982,7 +981,7 @@ fn max_resident_memory() -> IoResult<i64> {
     unsafe extern "C" {
         fn getrusage(who: i32, usage: *mut Usage) -> i32;
     }
-    // SAFETY: a estrutura é só dados; a função a preenche (RUSAGE_SELF = 0).
+    // SAFETY: the structure is plain data; the function fills it (RUSAGE_SELF = 0).
     let mut u: Usage = unsafe { std::mem::zeroed() };
     if unsafe { getrusage(0, &mut u) } < 0 {
         return Err(OsError::de(&std::io::Error::last_os_error()));
@@ -1007,7 +1006,7 @@ fn memory_counters() -> IoResult<(i64, i64)> {
         fn K32GetProcessMemoryInfo(p: *mut std::ffi::c_void, c: *mut Counters, n: u32) -> i32;
     }
     let mut c = Counters { cb: std::mem::size_of::<Counters>() as u32, ..Default::default() };
-    // SAFETY: `c` tem o tamanho informado.
+    // SAFETY: `c` has the reported size.
     if unsafe { K32GetProcessMemoryInfo(GetCurrentProcess(), &mut c, c.cb) } == 0 {
         return Err(OsError::de(&std::io::Error::last_os_error()));
     }

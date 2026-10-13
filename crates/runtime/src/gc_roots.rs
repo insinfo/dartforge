@@ -1,10 +1,10 @@
-// Runtime nativo: protocolo de raízes do coletor (frames, globais, coleta).
+// Native runtime: the collector's root protocol (frames, globals, collection).
 
-/// Executa `f` com `handles` enraizados num frame temporário (G6).
+/// Runs `f` with `handles` rooted in a temporary frame (G6).
 ///
-/// Extern que aloca mais de uma vez: o primeiro objeto só é referenciado
-/// por uma variável do Rust enquanto o segundo é alocado, e essa alocação
-/// pode coletar. O frame é o mesmo protocolo do código gerado.
+/// For an extern that allocates more than once: the first object is only
+/// referenced by a Rust variable while the second one is allocated, and that
+/// allocation may collect. The frame is the same protocol as generated code's.
 fn with_roots<R>(handles: &[i64], f: impl FnOnce() -> R) -> R {
     let frame = HEAP.with(|h| {
         let mut h = h.borrow_mut();
@@ -19,9 +19,9 @@ fn with_roots<R>(handles: &[i64], f: impl FnOnce() -> R) -> R {
     r
 }
 
-/// O endereço do contexto da thread corrente (`heap::Context`): a exceção
-/// pendente e o topo da pilha-sombra, que o código gerado lê e grava sem
-/// chamada.
+/// The address of the current thread's context (`heap::Context`): the pending
+/// exception and the top of the shadow stack, which generated code reads and writes
+/// without a call.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_contexto() -> *const crate::heap::Context {
     crate::heap::CONTEXTO.with(|c| {
@@ -32,19 +32,19 @@ pub extern "C" fn dartforge_contexto() -> *const crate::heap::Context {
     })
 }
 
-/// Folga entre o limite que o código gerado confere e o fim da pilha da
-/// thread: o que o runtime ainda usa para montar e lançar o
-/// `StackOverflowError` (o rastro, a alocação) e para as chamadas nativas
-/// de uma função que passou do prólogo.
+/// Slack between the limit that generated code checks and the end of the thread's
+/// stack: what the runtime still uses to build and throw the `StackOverflowError`
+/// (the stack trace, the allocation) and for the native calls of a function that
+/// got past its prologue.
 const STACK_SLACK: usize = 256 * 1024;
 
-/// O endereço mais baixo que a pilha da thread corrente pode usar, mais a
-/// [`STACK_SLACK`]; 1 quando o sistema não diz (sem conferência).
+/// The lowest address the current thread's stack may use, plus the
+/// [`STACK_SLACK`]; 1 when the system does not tell (no check).
 #[allow(unsafe_code)]
 fn thread_stack_limit() -> usize {
     let base = stack_base();
-    // A sabotagem `folga` (D8, docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
-    // §7.3): 4 KiB não bastam para montar e lançar o `StackOverflowError`.
+    // The `folga` sabotage (D8, docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.3):
+    // 4 KiB are not enough to build and throw the `StackOverflowError`.
     let folga = if crate::heap::sabotage("folga") { 4 * 1024 } else { STACK_SLACK };
     if base == 0 { 1 } else { base + folga }
 }
@@ -57,7 +57,7 @@ fn stack_base() -> usize {
         fn GetCurrentThreadStackLimits(low: *mut usize, high: *mut usize);
     }
     let (mut low, mut high) = (0usize, 0usize);
-    // SAFETY: dois ponteiros para `usize` locais.
+    // SAFETY: two pointers to local `usize`s.
     unsafe { GetCurrentThreadStackLimits(&mut low, &mut high) };
     low
 }
@@ -65,7 +65,7 @@ fn stack_base() -> usize {
 #[cfg(target_os = "linux")]
 #[allow(unsafe_code)]
 fn stack_base() -> usize {
-    // `pthread_attr_t` tem 56 bytes no glibc x86-64 e 64 no aarch64.
+    // `pthread_attr_t` has 56 bytes on glibc x86-64 and 64 on aarch64.
     #[repr(C, align(8))]
     struct Atributos([u8; 64]);
     unsafe extern "C" {
@@ -76,8 +76,8 @@ fn stack_base() -> usize {
     }
     let mut a = Atributos([0; 64]);
     let (mut address, mut size) = (0usize, 0usize);
-    // SAFETY: atributos locais, iniciados pelo `pthread_getattr_np` e
-    // destruídos no fim.
+    // SAFETY: local attributes, initialized by `pthread_getattr_np` and destroyed
+    // at the end.
     unsafe {
         if pthread_getattr_np(pthread_self(), &mut a) != 0 {
             return 0;
@@ -96,7 +96,7 @@ fn stack_base() -> usize {
         fn pthread_get_stackaddr_np(t: usize) -> usize;
         fn pthread_get_stacksize_np(t: usize) -> usize;
     }
-    // SAFETY: consultas da thread corrente; o endereço é o topo da pilha.
+    // SAFETY: queries about the current thread; the address is the top of the stack.
     unsafe {
         let t = pthread_self();
         pthread_get_stackaddr_np(t).saturating_sub(pthread_get_stacksize_np(t))
@@ -108,11 +108,11 @@ fn stack_base() -> usize {
     0
 }
 
-/// O prólogo de uma função achou o quadro abaixo do limite da pilha
-/// (`Context::stack_limit`): lança o `StackOverflowError` do SDK, e a
-/// função volta com a exceção pendente, como depois de uma chamada que
-/// lançou. O limite é desligado enquanto o erro é montado (o rastro e a
-/// alocação usam a folga) e religado depois.
+/// A function's prologue found the frame below the stack limit
+/// (`Context::stack_limit`): throws the SDK's `StackOverflowError`, and the
+/// function returns with the pending exception, as after a call that threw. The
+/// limit is disabled while the error is built (the stack trace and the allocation
+/// use the slack) and enabled again afterwards.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_estouro_de_pilha() {
     let limit = crate::heap::CONTEXTO.with(|c| c.stack_limit.replace(1));
@@ -123,101 +123,98 @@ pub extern "C" fn dartforge_estouro_de_pilha() {
     crate::heap::CONTEXTO.with(|c| c.stack_limit.set(limit));
 }
 
-/// Valor corrente de um global `Ref` do programa, mantido como raiz permanente.
+/// Current value of a program `Ref` global, kept as a permanent root.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_gc_global_root(id: i64, handle: i64) {
     HEAP.with(|heap| heap.borrow_mut().set_global_root(id, handle));
 }
-/// Marca um valor canônico (constante, valor de enum, global `const`) como
-/// permanente e imutável: uma mensagem no mesmo isolado o passa pela
-/// identidade (`portas.rs`). O valor já é raiz global de quem chama.
+/// Marks a canonical value (constant, enum value, `const` global) as permanent and
+/// immutable: a message within the same isolate passes it by identity
+/// (`ports.rs`). The value is already a global root of the caller.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_marcar_permanente(handle: i64) {
     HEAP.with(|heap| heap.borrow_mut().mark_permanent(handle));
 }
-/// Marca a constante canônica `handle`, produzida pelo getter gerado no
-/// endereço `getter` (ver `Heap::mark_constant`).
+/// Marks the canonical constant `handle`, produced by the generated getter at
+/// address `getter` (see `Heap::mark_constant`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_marcar_constante(handle: i64, getter: i64) {
     HEAP.with(|heap| heap.borrow_mut().mark_constant(handle, getter as usize));
 }
-/// A forma canônica do valor de uma constante, antes de o getter guardá-lo: a
-/// string montada (`const s = 'a${'b'}'`) vira o literal canônico de mesmo
-/// conteúdo, como a canonicalização de constantes da VM.
+/// The canonical form of a constant's value, before the getter stores it: the
+/// built string (`const s = 'a${'b'}'`) becomes the canonical literal with the same
+/// content, like the VM's constant canonicalization.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_constante_canonica(handle: i64) -> i64 {
     HEAP.with(|heap| heap.borrow_mut().canonical_constant(handle))
 }
-/// Permite coleta explícita em testes e futuras rotinas de manutenção.
+/// Allows an explicit collection in tests and future maintenance routines.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_gc_collect() {
     HEAP.with(|heap| heap.borrow_mut().collect());
 }
 
 // ---------------------------------------------------------------------------
-// A área de globais do isolado.
+// The isolate's globals area.
 //
-// Os estáticos do Dart (e os caches dos pontos de chamada por seletor) são
-// por isolado, como a *field table* da VM: cada módulo compilado descreve
-// os slots dele (`@df.area`: `[key, n, nome_0…nome_{n-1}]`, com hashes;
-// no executável de produção, que não recarrega, só `[key, -n]`) e
-// cada isolado — uma thread — tem uma área zerada por módulo, criada no
-// primeiro acesso. Os globais `Ref` são raízes pelo endereço do slot
-// (`dartforge_gc_global_root`).
+// Dart statics (and the caches of call sites by selector) are per isolate, like
+// the VM's *field table*: each compiled module describes its slots (`@df.area`:
+// `[key, n, name_0…name_{n-1}]`, with hashes; in the production executable, which
+// does not reload, only `[key, -n]`) and each isolate — a thread — has one zeroed
+// area per module, created on first access. The `Ref` globals are roots through
+// the slot's address (`dartforge_gc_global_root`).
 //
-// Numa recarga (JIT), o módulo novo tem outro descritor com a mesma chave.
-// A geração nova é emitida com o layout da viva (`emitir_ir_recarregavel`):
-// os slots que continuam mantêm o índice e os novos vêm depois, então as
-// duas gerações usam a MESMA área — que cresce no lugar (a capacidade é
-// reservada com folga) — e o código antigo que ainda executa (um quadro
-// `async` suspenso, uma closure criada antes) vê os mesmos estáticos que o
-// novo. Um descritor que não estende o layout (um módulo emitido sem o
-// layout anterior) recebe uma área nova, com os valores dos slots que
-// continuam, pelo nome; os caches de seletor (nome com `BIT_DE_CACHE`, um
-// par por ponto de chamada, nomeado pela função e pela posição) recomeçam
-// zerados, e toda publicação os zera (`empty_area_caches`).
+// On a reload (JIT), the new module has another descriptor with the same key. The
+// new generation is emitted with the live one's layout (`emitir_ir_recarregavel`):
+// the slots that remain keep their index and the new ones come after, so both
+// generations use the SAME area — which grows in place (the capacity is reserved
+// with slack) — and old code that still runs (a suspended `async` frame, a closure
+// created earlier) sees the same statics as the new code. A descriptor that does
+// not extend the layout (a module emitted without the previous layout) gets a new
+// area, with the values of the remaining slots, by name; the selector caches (a
+// name with `BIT_DE_CACHE`, one pair per call site, named after the function and
+// the position) restart zeroed, and every publication zeroes them
+// (`empty_area_caches`).
 //
-// Memória de uma área nunca é liberada enquanto o isolado vive: um quadro
-// pode guardar o endereço dela (o `%area` do começo da função). Crescer
-// além da capacidade copia para outra alocação e aposenta a antiga.
+// An area's memory is never freed while the isolate lives: a frame may keep its
+// address (the `%area` at the start of the function). Growing beyond the capacity
+// copies into another allocation and retires the old one.
 
-/// A área de um módulo neste isolado.
+/// A module's area in this isolate.
 struct GlobalsArea {
-    /// Os descritores (as gerações do módulo) que usam esta área.
+    /// The descriptors (the module's generations) that use this area.
     descriptors: Vec<usize>,
     key: i64,
-    /// Os nomes do layout mais longo visto (o da geração mais nova).
+    /// The names of the longest layout seen (that of the newest generation).
     names: Vec<i64>,
     slots: Vec<i64>,
 }
 
 thread_local! {
     static AREAS: RefCell<Vec<GlobalsArea>> = const { RefCell::new(Vec::new()) };
-    /// As alocações que deixaram de ser a de uma área (ver acima).
+    /// The allocations that stopped being an area's (see above).
     static RETIRED_AREAS: RefCell<Vec<Vec<i64>>> = const { RefCell::new(Vec::new()) };
-    /// O último descritor pedido e a área dele (o caminho rápido).
+    /// The last requested descriptor and its area (the fast path).
     static ULTIMA_AREA: std::cell::Cell<(usize, usize)> = const { std::cell::Cell::new((0, 0)) };
-    /// A tabela por id de módulo que o `Context` aponta (`areas`,
-    /// `n_areas`).
+    /// The table by module id that the `Context` points to (`areas`, `n_areas`).
     static AREA_TABLE: RefCell<Vec<*mut i64>> = const { RefCell::new(Vec::new()) };
 }
 
-/// O próximo id de módulo (`@df.area_id`), o mesmo em todas as threads.
+/// The next module id (`@df.area_id`), the same on every thread.
 static PROXIMO_ID_DE_AREA: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(1);
 
-/// Uma área mudou de endereço (recarga): a tabela desta thread se esvazia
-/// e cada módulo passa uma vez pelo runtime de novo.
+/// An area changed address (reload): this thread's table is emptied and each
+/// module goes through the runtime once again.
 fn forget_area_table() {
     AREA_TABLE.with(|t| t.borrow_mut().iter_mut().for_each(|p| *p = std::ptr::null_mut()));
     ULTIMA_AREA.with(|u| u.set((0, 0)));
 }
 
-/// Depois da publicação de uma geração nova neste isolado (sem quadro Dart
-/// na pilha, J02): cada área fica só com o descritor da geração mais nova
-/// (o último que chegou) — o de uma geração aposentada é um endereço da
-/// memória dela, que o JIT pode liberar e reaproveitar — e as alocações
-/// aposentadas, que só um `%area` de um quadro antigo ainda usaria, são
-/// soltas.
+/// After the publication of a new generation in this isolate (with no Dart frame on
+/// the stack, J02): each area keeps only the descriptor of the newest generation
+/// (the last one to arrive) — that of a retired generation is an address in its
+/// memory, which the JIT may free and reuse — and the retired allocations, which
+/// only a `%area` of an old frame would still use, are released.
 pub fn forget_previous_area_generations() {
     AREAS.with(|areas| {
         for a in areas.borrow_mut().iter_mut() {
@@ -231,19 +228,19 @@ pub fn forget_previous_area_generations() {
     forget_area_table();
 }
 
-/// O caminho lento de `@df.obter_area`: a área (`dartforge_area_de_globais`)
-/// e, na tabela desta thread, a entrada do id do módulo (dado agora, se
-/// ainda não tem).
+/// The slow path of `@df.obter_area`: the area (`dartforge_area_de_globais`) and,
+/// in this thread's table, the entry for the module id (assigned now, if it does
+/// not have one yet).
 ///
 /// # Safety
-/// `descriptor` como em [`dartforge_area_de_globais`]; `id` aponta o
-/// `@df.area_id` do mesmo módulo.
+/// `descriptor` as in [`dartforge_area_de_globais`]; `id` points to the
+/// `@df.area_id` of the same module.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_area_de_globais_id(descriptor: *const i64, id: *const std::sync::atomic::AtomicI64) -> *mut i64 {
     use std::sync::atomic::Ordering;
-    // SAFETY: garantido por quem chama.
+    // SAFETY: guaranteed by the caller.
     let p = unsafe { dartforge_area_de_globais(descriptor) };
-    // SAFETY: o global do módulo, vivo durante todo o processo.
+    // SAFETY: the module's global, alive for the whole process.
     let id = unsafe { &*id };
     let mut k = id.load(Ordering::Relaxed);
     if k == 0 {
@@ -268,20 +265,19 @@ pub unsafe extern "C" fn dartforge_area_de_globais_id(descriptor: *const i64, id
     p
 }
 
-/// Slots zerados para `n` nomes, com folga para as gerações seguintes
-/// crescerem no lugar.
+/// Zeroed slots for `n` names, with slack for the following generations to grow in
+/// place.
 fn new_slots(n: usize) -> Vec<i64> {
     let mut v = Vec::with_capacity(n + n / 2 + 256);
     v.resize(n, 0);
     v
 }
 
-/// A área de globais do módulo de `descriptor` neste isolado.
+/// The globals area of `descriptor`'s module in this isolate.
 ///
 /// # Safety
-/// `descriptor` aponta para o `@df.area` de um módulo: `n + 2` palavras
-/// (`[key, n, names…]`), ou 2 (`[key, -n]`, o enxuto de produção),
-/// constantes durante todo o processo.
+/// `descriptor` points to a module's `@df.area`: `n + 2` words (`[key, n, names…]`),
+/// or 2 (`[key, -n]`, the lean production one), constant for the whole process.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_area_de_globais(descriptor: *const i64) -> *mut i64 {
     let d = descriptor as usize;
@@ -289,9 +285,9 @@ pub unsafe extern "C" fn dartforge_area_de_globais(descriptor: *const i64) -> *m
     if last_one == d {
         return area as *mut i64;
     }
-    // SAFETY: garantido por quem chama. O descritor enxuto do executável de
-    // produção (`[key, -n]`, sem os nomes) não recarrega: n slots zerados,
-    // sem nomes e sem folga.
+    // SAFETY: guaranteed by the caller. The lean descriptor of the production
+    // executable (`[key, -n]`, without the names) does not reload: n zeroed slots,
+    // without names and without slack.
     let (key, names, lean) = unsafe {
         let raw = *descriptor.add(1);
         if raw < 0 {
@@ -307,7 +303,7 @@ pub unsafe extern "C" fn dartforge_area_de_globais(descriptor: *const i64) -> *m
         }
         if let Some(n) = lean {
             areas.push(GlobalsArea { descriptors: vec![d], key, names: Vec::new(), slots: vec![0; n] });
-            return areas.last_mut().expect("acabou de entrar").slots.as_mut_ptr();
+            return areas.last_mut().expect("just pushed").slots.as_mut_ptr();
         }
         if let Some(i) = areas.iter().position(|a| a.key == key) {
             let a = &mut areas[i];
@@ -316,10 +312,9 @@ pub unsafe extern "C" fn dartforge_area_de_globais(descriptor: *const i64) -> *m
                 a.descriptors.push(d);
                 return a.slots.as_mut_ptr();
             }
-            // O descritor de uma geração anterior (o layout só cresce): o
-            // código dela que continua em uso — uma função que a recarga
-            // manteve (J04) — só conhece slots que existem com o mesmo nome
-            // no mesmo índice.
+            // The descriptor of a previous generation (the layout only grows): its
+            // code that is still in use — a function that the reload kept (J04) —
+            // only knows slots that exist with the same name at the same index.
             if names.len() < a.names.len() && a.names[..names.len()] == *names {
                 a.descriptors.push(d);
                 return a.slots.as_mut_ptr();
@@ -333,14 +328,15 @@ pub unsafe extern "C" fn dartforge_area_de_globais(descriptor: *const i64) -> *m
         } else {
             areas.push(GlobalsArea { descriptors: vec![d], key, names: names.to_vec(), slots: new_slots(names.len()) });
         }
-        areas.last_mut().expect("acabou de entrar").slots.as_mut_ptr()
+        areas.last_mut().expect("just pushed").slots.as_mut_ptr()
     });
     ULTIMA_AREA.with(|u| u.set((d, p as usize)));
     p
 }
 
-/// Estende `a` ao layout `names` (que começa pelo dela): no lugar, se cabe;
-/// senão numa alocação maior, com as raízes movidas e a antiga aposentada.
+/// Extends `a` to the layout `names` (which starts with its own): in place, if it
+/// fits; otherwise into a larger allocation, with the roots moved and the old one
+/// retired.
 fn extend_area(a: &mut GlobalsArea, names: &[i64]) {
     if names.len() > a.slots.capacity() {
         let mut larger = new_slots(names.len());
@@ -361,21 +357,21 @@ fn extend_area(a: &mut GlobalsArea, names: &[i64]) {
     a.names = names.to_vec();
 }
 
-/// O bit que marca, no descritor, o nome de um slot de cache de seletor
-/// (`BIT_DE_CACHE` do emissor, `llvm/mod.rs`); 0 é o nome de cache de um
-/// descritor anterior a esta marca.
+/// The bit that marks, in the descriptor, the name of a selector cache slot (the
+/// emitter's `BIT_DE_CACHE`, `llvm/mod.rs`); 0 is the cache name of a descriptor
+/// older than this mark.
 const BIT_DE_CACHE: i64 = 1 << 62;
 
 fn is_cache(name: i64) -> bool {
     name == 0 || name & BIT_DE_CACHE != 0
 }
 
-/// Zera os caches de seletor de todas as áreas deste isolado. A publicação
-/// de uma geração o faz sem quadro Dart na pilha, depois de refazer as
-/// tabelas de métodos: o próximo uso de cada cache busca a entrada na tabela
-/// nova (a regra de visibilidade: chamadas novas, também do código de uma
-/// geração anterior, chegam à implementação nova). Um cache guarda id de
-/// classe e endereço de código, nunca referência do heap.
+/// Zeroes the selector caches of every area of this isolate. The publication of a
+/// generation does it with no Dart frame on the stack, after redoing the method
+/// tables: the next use of each cache looks the entry up in the new table (the
+/// visibility rule: new calls, also from the code of a previous generation, reach
+/// the new implementation). A cache holds a class id and a code address, never a
+/// heap reference.
 pub fn empty_area_caches() {
     AREAS.with(|areas| {
         for a in areas.borrow_mut().iter_mut() {
@@ -388,8 +384,9 @@ pub fn empty_area_caches() {
     });
 }
 
-/// Copia para `new_area` os slots de `old_value` com o mesmo nome e move as raízes
-/// deles; as dos slots que sumiram são soltas. Os caches não migram.
+/// Copies into `new_area` the slots of `old_value` with the same name and moves
+/// their roots; those of the slots that disappeared are released. The caches do not
+/// migrate.
 fn migrate_area(old_value: &GlobalsArea, new_area: &mut GlobalsArea) {
     let address = |slots: &[i64], i: usize| (&slots[i] as *const i64) as i64;
     HEAP.with(|heap| {
@@ -407,57 +404,57 @@ fn migrate_area(old_value: &GlobalsArea, new_area: &mut GlobalsArea) {
     });
 }
 
-/// Raízes por mapas de pilha (`--raizes=mapas`): o módulo com funções
-/// descritas por mapa registra, na partida, a imagem em que foi ligado
-/// (`crate::heap::register_stack_map`; idempotente por imagem). Não
-/// aloca no heap do coletor nem lança.
+/// Roots by stack maps (`--raizes=mapas`): a module with functions described by a
+/// map registers, at startup, the image it was linked into
+/// (`crate::heap::register_stack_map`; idempotent per image). Neither allocates on
+/// the collector's heap nor throws.
 ///
 /// # Safety
-/// `base` é o `__ImageBase` de uma imagem PE carregada.
+/// `base` is the `__ImageBase` of a loaded PE image.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_registrar_mapa(base: *const u8) {
     crate::heap::register_stack_map(base as usize);
 }
 
-/// O registro do mapa de pilha compacto de uma imagem ELF ou Mach-O
-/// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md, Etapa 4): o módulo com funções
-/// de raízes no mapa chama isto na partida com os limites da seção `dfgcm`
-/// que o ligador definiu. Idempotente por imagem.
+/// The registration of the compact stack map of an ELF or Mach-O image
+/// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md, Stage 4): a module with functions
+/// whose roots are in the map calls this at startup with the bounds of the `dfgcm`
+/// section that the linker defined. Idempotent per image.
 ///
 /// # Safety
-/// `[start, end)` é a seção do mapa de uma imagem carregada.
+/// `[start, end)` is the map section of a loaded image.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_registrar_mapa_secao(start: *const u8, end: *const u8) {
     crate::heap::register_map_section(start as usize, end as usize);
 }
 
-/// O registro do mapa de pilha no formato do LLVM de uma imagem Mach-O
-/// (Etapa 4): os limites da seção `__LLVM_STACKMAPS,__llvm_stackmaps`.
+/// The registration of an LLVM-format stack map of a Mach-O image (Stage 4): the
+/// bounds of the `__LLVM_STACKMAPS,__llvm_stackmaps` section.
 ///
 /// # Safety
-/// `[start, end)` é a seção do mapa de uma imagem carregada.
+/// `[start, end)` is the map section of a loaded image.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_registrar_mapa_llvm(start: *const u8, end: *const u8) {
     crate::heap::register_llvm_section(start as usize, end as usize);
 }
 
-/// Tira o mapa registrado por [`dartforge_registrar_mapa_llvm`] com o mesmo
-/// `start` (o JIT, ao soltar a memória de um objeto).
+/// Removes the map registered by [`dartforge_registrar_mapa_llvm`] with the same
+/// `start` (the JIT, when releasing an object's memory).
 ///
 /// # Safety
-/// Nenhuma: só compara o endereço.
+/// None: it only compares the address.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_desregistrar_mapa(start: *const u8) {
     crate::heap::unregister_map(start as usize);
 }
 
-/// As estatísticas que um teste dirigido lê no fim (§7.5, a prova de que
-/// coletou): grava em `out[0..4]` as coletas do isolado corrente, os
-/// quadros nativos percorridos, as raízes lidas de mapas e as raízes
-/// conferidas contra a pilha-sombra (as três últimas, do processo).
+/// The statistics that a targeted test reads at the end (§7.5, the proof that it
+/// collected): writes into `out[0..4]` the current isolate's collections, the
+/// native frames walked, the roots read from maps and the roots checked against the
+/// shadow stack (the last three, process-wide).
 ///
 /// # Safety
-/// `out` aponta para quatro `u64` graváveis.
+/// `out` points to four writable `u64`s.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_gc_estatisticas(out: *mut u64) {
     if out.is_null() {
@@ -465,7 +462,7 @@ pub unsafe extern "C" fn dartforge_gc_estatisticas(out: *mut u64) {
     }
     let gc_count = HEAP.with(|h| h.borrow().stats().collections);
     let (frames, roots, checked) = crate::heap::walk_counts();
-    // SAFETY: o chamador garante os quatro `u64`.
+    // SAFETY: the caller guarantees the four `u64`s.
     unsafe {
         *out = gc_count;
         *out.add(1) = frames;
@@ -481,11 +478,11 @@ mod tests_gc_roots {
     #[test]
     fn lean_descriptor_gives_n_zeroed_slots_and_same_area() {
         std::thread::spawn(|| {
-            // `[key, -n]` (produção) e `[key, n, names…]` (recarga), de
-            // módulos diferentes, no mesmo isolado.
+            // `[key, -n]` (production) and `[key, n, names…]` (reload), from
+            // different modules, in the same isolate.
             static LEAN: [i64; 2] = [0x1234, -3];
             static COMPLETE: [i64; 4] = [0x5678, 2, 11, 12];
-            // SAFETY: descritores constantes do processo inteiro.
+            // SAFETY: constant descriptors for the whole process.
             let (a, b, c) = unsafe {
                 (
                     dartforge_area_de_globais(LEAN.as_ptr()),
@@ -495,16 +492,16 @@ mod tests_gc_roots {
             };
             assert_eq!(a, c);
             assert_ne!(a, b);
-            // SAFETY: a área tem os 3 slots do descritor.
+            // SAFETY: the area has the descriptor's 3 slots.
             let slots = unsafe { std::slice::from_raw_parts_mut(a, 3) };
             assert_eq!(slots, [0, 0, 0]);
             slots[2] = 7;
             AREAS.with(|areas| {
                 let areas = areas.borrow();
-                let e = areas.iter().find(|x| x.key == 0x1234).expect("área enxuta");
+                let e = areas.iter().find(|x| x.key == 0x1234).expect("lean area");
                 assert!(e.names.is_empty());
                 assert_eq!(e.slots, [0, 0, 7]);
-                let c = areas.iter().find(|x| x.key == 0x5678).expect("área completa");
+                let c = areas.iter().find(|x| x.key == 0x5678).expect("full area");
                 assert_eq!(c.names, [11, 12]);
             });
         })
@@ -513,26 +510,25 @@ mod tests_gc_roots {
     }
 }
 
-// ─── Espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md §3.6) ───────────────
+// ─── Unified space (docs/NATIVO-ESPACO-UNIFICADO.md §3.6) ───────────────────
 
-/// A alocação lenta do código gerado (`@df.allocate`): um bloco zerado de
-/// `words` palavras de corpo, classe `cid`, estado `JOVEM`; coleta se preciso
-/// e reabastece a TLAB de `words` (até `layout::TLAB_N`). Não lança.
+/// Generated code's slow allocation (`@df.allocate`): a zeroed block of `words`
+/// body words, class `cid`, state `JOVEM`; collects if needed and refills the TLAB
+/// of `words` (up to `layout::TLAB_N`). Does not throw.
 ///
-/// `flags` são os bits 8–31 da palavra 0 do cabeçalho que o código gerado
-/// montou (`header >> 8`): os `flags` do bloco nos 8 de baixo e, em
-/// `INSTANCIA`, o número de campos nos 16 seguintes (em `BRUTO`/`REFS`, o `n` é
-/// `words`).
+/// `flags` are bits 8–31 of word 0 of the header that generated code built
+/// (`header >> 8`): the block's `flags` in the low 8 and, for `INSTANCIA`, the
+/// number of fields in the next 16 (for `BRUTO`/`REFS`, `n` is `words`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_alocar(cid: i64, words: i64, flags: i64) -> i64 {
-    let w = usize::try_from(words).expect("bug do compilador: palavras negativas em dartforge_alocar");
+    let w = usize::try_from(words).expect("compiler bug: negative words in dartforge_alocar");
     let f = (flags & 0xFF) as u8;
     let n = if f & crate::layout::flags::FORMA == crate::layout::flags::INSTANCIA {
         ((flags >> 8) & 0xFFFF) as usize
     } else {
         w
     };
-    let cid = i32::try_from(cid).expect("bug do compilador: cid além de 32 bits");
+    let cid = i32::try_from(cid).expect("compiler bug: cid beyond 32 bits");
     HEAP.with(|h| {
         let mut h = h.borrow_mut();
         let r = h.alocar_bloco(cid, w, f, n);
@@ -541,9 +537,9 @@ pub extern "C" fn dartforge_alocar(cid: i64, words: i64, flags: i64) -> i64 {
     })
 }
 
-/// Registra a seção de objetos estáticos `[start, end)` de uma imagem (o
-/// executável, a DLL do SDK): chamada pelo `@df.preparar_isolado` de cada uma
-/// (docs/NATIVO-ESPACO-UNIFICADO.md §2.11). Não aloca nem lança.
+/// Registers the static object section `[start, end)` of an image (the executable,
+/// the SDK DLL): called by each one's `@df.preparar_isolado`
+/// (docs/NATIVO-ESPACO-UNIFICADO.md §2.11). Neither allocates nor throws.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_registrar_imagem(start: *const u8, end: *const u8) {
     crate::heap::register_image(start as usize, end as usize);

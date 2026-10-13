@@ -1,17 +1,17 @@
-// Runtime nativo: exceção pendente, rastros e as classes de erro do SDK.
+// Native runtime: the pending exception, stack traces and the SDK's error classes.
 
-/// Uma string nova do heap com o texto `s` (`textos.rs`).
+/// A new heap string with the text `s` (`textos.rs`).
 fn error_text(s: &str) -> i64 {
     HEAP.with(|h| h.borrow_mut().allocate_str(s))
 }
 
-/// O valor de uma exceção pendente numa posição `Ref` (encaixota o escalar
-/// lançado: `throw 1` guarda o `int` sem caixa).
+/// The value of a pending exception in a `Ref` position (boxes the thrown scalar:
+/// `throw 1` keeps the `int` unboxed).
 fn exception_as_ref(v: crate::heap::Value) -> i64 {
     HEAP.with(|h| h.borrow_mut().to_ref(v))
 }
 
-/// A exceção lançada pela ABI plana `(bits, tag)` do código gerado (1 `int`,
+/// The exception thrown through generated code's flat `(bits, tag)` ABI (1 `int`,
 /// 2 `bool`, 3 `Ref`, 4 `double`).
 fn abi_exception(bits: i64, tag: u8) -> crate::heap::Value {
     use crate::heap::Value;
@@ -20,11 +20,11 @@ fn abi_exception(bits: i64, tag: u8) -> crate::heap::Value {
         2 => Value::Bool(bits != 0),
         3 => Value::Ref(bits),
         4 => Value::Double(f64::from_bits(bits as u64)),
-        _ => panic!("tag de valor inválida"),
+        _ => panic!("invalid value tag"),
     }
 }
 
-/// A etiqueta da ABI plana de uma exceção guardada.
+/// The flat-ABI tag of a stored exception.
 fn exception_tag(v: crate::heap::Value) -> u8 {
     use crate::heap::Value;
     match v {
@@ -35,7 +35,7 @@ fn exception_tag(v: crate::heap::Value) -> u8 {
     }
 }
 
-/// Os bits da ABI plana de uma exceção guardada.
+/// The flat-ABI bits of a stored exception.
 fn exception_bits(v: crate::heap::Value) -> i64 {
     use crate::heap::Value;
     match v {
@@ -45,7 +45,7 @@ fn exception_bits(v: crate::heap::Value) -> i64 {
     }
 }
 
-/// O `Ref` de uma exceção guardada que é referência (`None` para o escalar).
+/// The `Ref` of a stored exception that is a reference (`None` for a scalar).
 fn exception_ref(v: crate::heap::Value) -> Option<i64> {
     match v {
         crate::heap::Value::Ref(r) => Some(r),
@@ -53,10 +53,10 @@ fn exception_ref(v: crate::heap::Value) -> Option<i64> {
     }
 }
 
-/// A mensagem do `TypeError` de `x!` sobre null na VM.
+/// The message of the VM's `TypeError` for `x!` on null.
 const NULL_CHECK_MESSAGE: &str = "Null check operator used on a null value";
 
-/// `x!` sobre null: o `TypeError` da VM, capturável, com a mensagem dela.
+/// `x!` on null: the VM's `TypeError`, catchable, with its message.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_null_check_error_new() -> i64 {
     if let Some(e) = source_error_with_text("_dartforgeErroDeTipo", NULL_CHECK_MESSAGE) {
@@ -66,12 +66,12 @@ pub extern "C" fn dartforge_null_check_error_new() -> i64 {
     with_roots(&[m], || allocate_error_with_trace(1011, vec![(m, true)]))
 }
 
-/// O texto do rastro da exceção corrente (o `StackTrace` do lançamento),
-/// para a exceção não capturada; vazio sem rastro.
+/// The text of the current exception's stack trace (the `StackTrace` of the
+/// throw), for the uncaught exception; empty without a stack trace.
 pub fn exception_trace_text() -> String {
     let Some(h) = CURRENT_STACK_TRACE.with(|slot| *slot.borrow()) else {
-        // §13.14: sem `StackTrace` pedido, os endereços do lançamento (vazio
-        // sem a tabela do rastro).
+        // §13.14: with no `StackTrace` requested, the addresses of the throw (empty
+        // without the stack trace table).
         let returns = throw_returns();
         return if returns.is_empty() { String::new() } else { symbolize_returns(&returns) };
     };
@@ -87,8 +87,8 @@ fn stack_trace_class_id() -> i64 {
     }).unwrap_or(1006)
 }
 
-/// Objeto `StackTrace` com o texto dado (duas alocações, a primeira
-/// enraizada durante a segunda).
+/// A `StackTrace` object with the given text (two allocations, the first rooted
+/// during the second).
 fn allocate_stack_trace(text: &str) -> i64 {
     let trace_str = error_text(text);
     let cid = stack_trace_class_id();
@@ -97,8 +97,8 @@ fn allocate_stack_trace(text: &str) -> i64 {
     })
 }
 
-/// Objeto de erro com o rastro corrente no campo final (o `st` enraizado
-/// enquanto o objeto é alocado).
+/// An error object with the current stack trace in its last field (`st` rooted
+/// while the object is allocated).
 fn allocate_error_with_trace(class_id: i64, mut fields: Vec<(i64, bool)>) -> i64 {
     let roots: Vec<i64> = fields.iter().filter(|(_, r)| *r).map(|(b, _)| *b).collect();
     with_roots(&roots, || {
@@ -108,7 +108,7 @@ fn allocate_error_with_trace(class_id: i64, mut fields: Vec<(i64, bool)>) -> i64
     })
 }
 
-/// Mensagem alocada, enraizada, e o erro com ela e o rastro.
+/// An allocated, rooted message, and the error with it and the stack trace.
 fn allocate_error_with_message(class_id: i64, message: &str, before: Vec<(i64, bool)>, after: Vec<(i64, bool)>) -> i64 {
     let msg = error_text(message);
     with_roots(&[msg], || {
@@ -123,15 +123,15 @@ thread_local! {
     static CURRENT_STACK_TRACE: RefCell<Option<i64>> = RefCell::new(None);
 }
 
-/// Retorna um objeto StackTrace não vazio gerenciado no heap.
+/// Returns a non-empty StackTrace object managed on the heap.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_stack_trace_get() -> i64 {
     if let Some(h) = CURRENT_STACK_TRACE.with(|slot| *slot.borrow()) {
         return h;
     }
-    // §13.14: os endereços do último `throw` viram o rastro corrente (o
-    // `_stackTrace` do erro e o `catch (e, s)` veem o mesmo objeto), o texto
-    // feito só no primeiro pedido.
+    // §13.14: the addresses of the last `throw` become the current stack trace
+    // (the error's `_stackTrace` and `catch (e, s)` see the same object), the text
+    // built only on the first request.
     let returns = throw_returns();
     if !returns.is_empty() {
         let st = allocate_return_trace(&returns);
@@ -142,8 +142,8 @@ pub extern "C" fn dartforge_stack_trace_get() -> i64 {
     allocate_stack_trace(TRACE_WITHOUT_TABLE)
 }
 
-/// Native do getter estático `StackTrace.current` da VM: com a tabela do
-/// rastro, os endereços desta pilha (§13.14).
+/// Native of the VM's static getter `StackTrace.current`: with the stack trace
+/// table, the addresses of this stack (§13.14).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_StackTrace_current() -> i64 {
     let returns = capture_returns();
@@ -153,7 +153,7 @@ pub extern "C" fn dartforge_nativo_StackTrace_current() -> i64 {
     dartforge_stack_trace_get()
 }
 
-/// Lança exceção associando um stack trace explícito.
+/// Throws an exception associating an explicit stack trace.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_throw_with_stack_trace(bits: i64, tag: u8, st_handle: i64) {
     CURRENT_STACK_TRACE.with(|slot| *slot.borrow_mut() = Some(st_handle));
@@ -161,68 +161,68 @@ pub extern "C" fn dartforge_throw_with_stack_trace(bits: i64, tag: u8, st_handle
     dartforge_exception_throw(bits, tag);
 }
 
-/// Native da VM `Error._throw`: instala o rastro explícito e entrega a
-/// exceção ao protocolo de exceção pendente do código gerado. O retorno é
-/// inalcançável em Dart (`Never`), mas ocupa `Ref` na ABI do SDK da fonte.
+/// The VM native `Error._throw`: installs the explicit stack trace and hands the
+/// exception to generated code's pending-exception protocol. The return is
+/// unreachable in Dart (`Never`), but takes a `Ref` in the ABI of the SDK from source.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Error_throwWithStackTrace(error: i64, trace: i64) -> i64 {
     dartforge_throw_with_stack_trace(error, 3, trace);
     0
 }
 
-/// Exceção pendente do esquema portátil de `throw`/`try`/`catch`.
+/// Pending exception of the portable `throw`/`try`/`catch` scheme.
 ///
-/// Em vez de desenrolamento nativo (`landingpad`/personalidade C++), que
-/// exigiria alinhar o runtime Rust com o ABI de exceção do Clang em cada
-/// plataforma, o emissor LLVM verifica `dartforge_exception_pending` após cada
-/// chamada e desvia para o tratador. A carga é um valor com tag explícita:
-/// 1 = int, 2 = bool, 3 = referência gerenciada viva, 4 = double. `throw null` é erro de
-/// compilação no Dart 3.6.2 e nunca chega aqui.
+/// Instead of native unwinding (`landingpad`/C++ personality), which would require
+/// aligning the Rust runtime with Clang's exception ABI on each platform, the LLVM
+/// emitter checks `dartforge_exception_pending` after each call and branches to
+/// the handler. The payload is a value with an explicit tag: 1 = int, 2 = bool,
+/// 3 = live managed reference, 4 = double. `throw null` is a compile-time error in
+/// Dart 3.6.2 and never gets here.
 ///
-/// O valor é um `heap::Value` (fora do heap): o escalar lançado fica sem
-/// caixa; `nucleo.rs` o lê no fim do programa.
+/// The value is a `heap::Value` (outside the heap): the thrown scalar stays unboxed;
+/// `core.rs` reads it at the end of the program.
 thread_local! {
     static EXCEPTION: RefCell<Option<crate::heap::Value>> = RefCell::new(None);
-    /// O isolado está sendo desenrolado para terminar (`Isolate.exit`, o
-    /// `UnwindError` da VM): a exceção pendente não é capturável, nenhum
-    /// `catch` a recebe e ela não sai da pendência até o laço de eventos.
+    /// The isolate is being unwound to terminate (`Isolate.exit`, the VM's
+    /// `UnwindError`): the pending exception cannot be caught, no `catch` receives
+    /// it and it does not leave the pending state until the event loop.
     static UNWINDING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-/// Grava a exceção pendente e o espelho dela no contexto da thread (que o
-/// código gerado lê, `Context::pending`).
+/// Stores the pending exception and its mirror in the thread context (which
+/// generated code reads, `Context::pending`).
 fn definir_excecao(v: Option<crate::heap::Value>) {
     CONTEXTO.with(|c| c.pending.set(u8::from(v.is_some())));
     EXCEPTION.with(|slot| *slot.borrow_mut() = v);
 }
 
-/// Toma a exceção pendente (e limpa o espelho).
+/// Takes the pending exception (and clears the mirror).
 fn take_exception() -> Option<crate::heap::Value> {
     CONTEXTO.with(|c| c.pending.set(0));
     EXCEPTION.with(|slot| slot.borrow_mut().take())
 }
 
-/// Começa a desenrolar o isolado: uma exceção pendente que nenhum `catch`
-/// recebe, até o laço de eventos (`isolados.rs`).
+/// Starts unwinding the isolate: a pending exception that no `catch` receives, up
+/// to the event loop (`isolates.rs`).
 fn begin_unwind() {
     UNWINDING.with(|d| d.set(true));
     definir_excecao(Some(crate::heap::Value::Ref(0)));
     HEAP.with(|h| h.borrow_mut().set_runtime_root(0, 0));
 }
 
-/// Se o isolado está sendo desenrolado para terminar.
+/// Whether the isolate is being unwound to terminate.
 fn unwinding_now() -> bool {
     UNWINDING.with(|d| d.get())
 }
 
-/// Se a exceção pendente pode ser capturada por um `catch` (o tratador
-/// gerado pergunta antes dos testes `on T`).
+/// Whether the pending exception can be caught by a `catch` (the generated handler
+/// asks before the `on T` tests).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_exception_capturavel() -> u8 {
     u8::from(!unwinding_now())
 }
 
-/// A exceção pendente como referência (o valor da variável do `catch`).
+/// The pending exception as a reference (the value of the `catch` variable).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_exception_peek_ref() -> i64 {
     match EXCEPTION.with(|slot| *slot.borrow()) {
@@ -239,22 +239,22 @@ fn allocate_range_error(message: &str) -> i64 {
     allocate_error_with_message(1004, message, Vec::new(), Vec::new()) // RangeError
 }
 
-/// Registra a exceção pendente; referências devem estar vivas e enraizadas.
+/// Registers the pending exception; references must be alive and rooted.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_exception_throw(bits: i64, tag: u8) {
-    // §13.14: os endereços de retorno do lançamento, antes de qualquer
-    // alocação (o rastro explícito de `Error.throwWithStackTrace` já está no
-    // rastro corrente).
+    // §13.14: the return addresses of the throw, before any allocation (the
+    // explicit stack trace of `Error.throwWithStackTrace` is already the current
+    // stack trace).
     if CURRENT_STACK_TRACE.with(|slot| slot.borrow().is_none()) {
         store_throw_returns();
     }
     let value = abi_exception(bits, tag);
     let reference = exception_ref(value).unwrap_or(0);
     if reference != 0 {
-        // O SDK da fonte reserva o primeiro campo de `Error` para
-        // `_stackTrace`; subclasses conservam esse prefixo no layout R7.
-        // Os erros internos (ids 1000–1012) mantêm seus índices próprios.
-        // O rastro é alocado SEM empréstimo mutável do heap aberto (G6).
+        // The SDK from source reserves the first field of `Error` for
+        // `_stackTrace`; subclasses keep that prefix in the R7 layout. The
+        // internal errors (ids 1000–1012) keep their own indices. The stack trace
+        // is allocated WITHOUT an open mutable borrow of the heap (G6).
         let sdk_error = CLASS_NAMES.with(|map| {
             map.borrow().iter().find(|(_, name)| *name == "Error").map(|(&id, _)| id)
         });
@@ -265,9 +265,9 @@ pub extern "C" fn dartforge_exception_throw(bits: i64, tag: u8) {
                     1004 => 7,
                     _ => 1,
                 };
-                // Sem o campo do rastro, nada (o corpo de fora só nasce na
-                // recarga do JIT: o código de produção lê o corpo uma vez por
-                // objeto, `llvm/mod.rs`, `ajudante_do_corpo`).
+                // Without the stack trace field, nothing (an out-of-line body only
+                // appears on a JIT reload: production code reads the body once per
+                // object, `llvm/mod.rs`, `ajudante_do_corpo`).
                 fields.get(st_idx).is_some_and(|f| f.0 == 0).then_some(st_idx)
             }
             Some(fields) if sdk_error.is_some_and(|cid| dartforge_is_subclass(fields.class_id, cid) != 0) => {
@@ -276,8 +276,8 @@ pub extern "C" fn dartforge_exception_throw(bits: i64, tag: u8) {
             _ => None,
         });
         if let Some(st_idx) = needs {
-            // O rastro aloca: o erro fica enraizado até virar a exceção
-            // pendente (quem lança nem sempre o enraizou).
+            // The stack trace allocates: the error stays rooted until it becomes
+            // the pending exception (the thrower did not always root it).
             let st = with_roots(&[reference], || dartforge_stack_trace_get());
             HEAP.with(|heap| {
                 let mut heap = heap.borrow_mut();
@@ -289,30 +289,30 @@ pub extern "C" fn dartforge_exception_throw(bits: i64, tag: u8) {
     if debug() {
         let cid = if exception_ref(value).is_some() { dartforge_value_class(reference) } else { -100 };
         let name = CLASS_NAMES.with(|m| m.borrow().get(&cid).cloned()).unwrap_or_default();
-        eprintln!("[depurar] throw: classe {cid} {name}");
+        eprintln!("[debug] throw: class {cid} {name}");
         show_trace();
     }
-    // G6: a exceção pendente é raiz até ser consumida.
+    // G6: the pending exception is a root until it is consumed.
     HEAP.with(|h| h.borrow_mut().set_runtime_root(0, reference));
     definir_excecao(Some(value));
 }
 
-/// Indica se há exceção pendente na thread corrente.
+/// Tells whether there is a pending exception on the current thread.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_exception_pending() -> u8 {
     CONTEXTO.with(|c| c.pending.get())
 }
 
-/// Desarma e limpa o slot de exceção pendente.
+/// Disarms and clears the pending exception slot.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_exception_clear() {
     if unwinding_now() {
-        // O desenrolar não sai da pendência (`finally`, `return` e saltos
-        // também limpam): a pendência chega ao laço de eventos.
+        // Unwinding does not leave the pending state (`finally`, `return` and jumps
+        // also clear): the pending exception reaches the event loop.
         return;
     }
-    // Sem exceção nem rastro guardado (o caso de todo `return`): nada a
-    // limpar, e o heap não é tocado.
+    // Without an exception or a stored stack trace (the case of every `return`):
+    // nothing to clear, and the heap is not touched.
     if CONTEXTO.with(|c| c.pending.get()) == 0 && CURRENT_STACK_TRACE.with(|slot| slot.borrow().is_none()) {
         return;
     }
@@ -341,7 +341,7 @@ fn allocate_format_exception(message: &str) -> i64 {
     })
 }
 
-// Construtores de Erros Core
+// Core error constructors
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_exception_new(msg_bits: i64, is_ref: u8) -> i64 {
@@ -354,7 +354,7 @@ pub extern "C" fn dartforge_exception_new(msg_bits: i64, is_ref: u8) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_format_exception_new(msg_handle: i64, src_handle: i64, offset: i64) -> i64 {
     if let Some(f) = ajudante("_dartforgeErroDeFormato") {
-        // SAFETY: registrado pelo `dart:core` com a assinatura
+        // SAFETY: registered by `dart:core` with the signature
         // `(String, Object?, int) -> Object`.
         let g = { let dart_target: usize = f; move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(dart_target, a0, a1, a2) } };
         return with_roots(&[msg_handle, src_handle], || g(msg_handle, src_handle, offset));
@@ -367,7 +367,7 @@ pub extern "C" fn dartforge_format_exception_new(msg_handle: i64, src_handle: i6
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_state_error_new(msg_handle: i64) -> i64 {
     if let Some(f) = ajudante("_dartforgeErroDeEstado") {
-        // SAFETY: registrado pelo `dart:core` com a assinatura `(String) -> Object`.
+        // SAFETY: registered by `dart:core` with the signature `(String) -> Object`.
         let g = { let dart_target: usize = f; move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
         return with_roots(&[msg_handle], || g(msg_handle));
     }
@@ -377,7 +377,7 @@ pub extern "C" fn dartforge_state_error_new(msg_handle: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_argument_error_new(msg_handle: i64, name_handle: i64) -> i64 {
     if let Some(f) = ajudante("_dartforgeErroDeArgumento") {
-        // SAFETY: registrado pelo `dart:core` com a assinatura
+        // SAFETY: registered by `dart:core` with the signature
         // `(String?, String?) -> Object`.
         let g = { let dart_target: usize = f; move |a0: i64, a1: i64| -> i64 { dart_r2(dart_target, a0, a1) } };
         return with_roots(&[msg_handle, name_handle], || g(msg_handle, name_handle));
@@ -408,7 +408,7 @@ pub extern "C" fn dartforge_range_error_new(msg_handle: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_range_error_range(val: i64, min: i64, max: i64, name_handle: i64, msg_handle: i64) -> i64 {
     if let Some(f) = ajudante("_dartforgeErroDeFaixa") {
-        // SAFETY: registrado pelo `dart:core`: `(int, int, int, String?) -> Object`.
+        // SAFETY: registered by `dart:core`: `(int, int, int, String?) -> Object`.
         let g = { let dart_target: usize = f; move |a0: i64, a1: i64, a2: i64, a3: i64| -> i64 { dart_r4(dart_target, a0, a1, a2, a3) } };
         let _ = msg_handle;
         return with_roots(&[name_handle], || g(val, min, max, name_handle));
@@ -418,10 +418,10 @@ pub extern "C" fn dartforge_range_error_range(val: i64, min: i64, max: i64, name
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_range_error_index(index: i64, indexable_or_len: i64, name_handle: i64, msg_handle: i64) -> i64 {
-    // O comprimento é lido e o empréstimo solto ANTES de pedir o rastro
-    // (G6: a versão anterior chamava outra extern com `borrow_mut` aberto).
-    // `indexable_or_len` é uma lista, uma string ou o próprio comprimento
-    // (um `int` cru, que só é lido como objeto se for um bloco vivo).
+    // The length is read and the borrow released BEFORE asking for the stack trace
+    // (G6: the previous version called another extern with `borrow_mut` open).
+    // `indexable_or_len` is a list, a string or the length itself (a raw `int`,
+    // which is only read as an object if it is a live block).
     let len = HEAP.with(|h| {
         let h = h.borrow();
         let x = indexable_or_len;
@@ -442,7 +442,7 @@ pub extern "C" fn dartforge_range_error_index(index: i64, indexable_or_len: i64,
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_unsupported_error_new(msg_handle: i64) -> i64 {
     if let Some(f) = ajudante("_dartforgeErroNaoSuportado") {
-        // SAFETY: registrado pelo `dart:core` com a assinatura `(String?) -> Object`.
+        // SAFETY: registered by `dart:core` with the signature `(String?) -> Object`.
         let g = { let dart_target: usize = f; move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
         return with_roots(&[msg_handle], || g(msg_handle));
     }
@@ -457,7 +457,7 @@ pub extern "C" fn dartforge_unimplemented_error_new(msg_handle: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_assertion_error_new(msg_bits: i64, is_ref: u8) -> i64 {
     if let Some(f) = ajudante("_dartforgeErroDeAssercao") {
-        // SAFETY: registrado pelo `dart:core` com a assinatura `(Object?) -> Object`.
+        // SAFETY: registered by `dart:core` with the signature `(Object?) -> Object`.
         let g = { let dart_target: usize = f; move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
         let m = if is_ref != 0 { msg_bits } else { HEAP.with(|h| h.borrow_mut().to_ref(crate::heap::Value::Int(msg_bits))) };
         return with_roots(&[m], || g(m));
@@ -467,20 +467,20 @@ pub extern "C" fn dartforge_assertion_error_new(msg_bits: i64, is_ref: u8) -> i6
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_type_error_new() -> i64 {
-    // SDK da fonte: o `_TypeError` da fonte (`identical_patch.dart`).
+    // SDK from source: the source's `_TypeError` (`identical_patch.dart`).
     if let Some(e) = source_error_with_text("_dartforgeErroDeTipo", "TypeError") {
         return e;
     }
     allocate_error_with_trace(1011, vec![(0, false)])
 }
 
-/// Erro de leitura/escrita de `late`: 0/1 = campo, 2/3 = local,
-/// 4/5 = escrita durante o inicializador. A fonte do SDK constrói `LateError`
-/// para preservar a identidade `is Error` e o `toString` da VM.
+/// A `late` read/write error: 0/1 = field, 2/3 = local, 4/5 = write during the
+/// initializer. The SDK source builds `LateError` to preserve the `is Error`
+/// identity and the VM's `toString`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_late_error_new(name: i64, code: i64) -> i64 {
     if let Some(f) = ajudante("_dartforgeErroLate") {
-        // SAFETY: helper registrado pelo dart:_internal como (String, int) -> Object.
+        // SAFETY: helper registered by dart:_internal as (String, int) -> Object.
         let g = { let dart_target: usize = f; move |a0: i64, a1: i64| -> i64 { dart_r2(dart_target, a0, a1) } };
         return with_roots(&[name], || g(name, code));
     }
@@ -493,19 +493,19 @@ pub extern "C" fn dartforge_late_error_new(name: i64, code: i64) -> i64 {
         4 => ("Field", "has been assigned during initialization"),
         _ => ("Local", "has been assigned during initialization"),
     };
-    // No modo sem SDK da fonte, ao menos lança um Error capturável. Não
-    // reservamos um CID sintético: 1013 pode pertencer a uma classe real.
+    // In the mode without the SDK from source, at least throw a catchable Error.
+    // We do not reserve a synthetic CID: 1013 may belong to a real class.
     let text = format!("LateInitializationError: {location} '{n}' {message}.");
     let msg = error_text(&text);
     dartforge_state_error_new(msg)
 }
 
-/// Reentrância de um inicializador global: a VM recursaria no getter até
-/// lançar `StackOverflowError`. Construímos o mesmo erro sem consumir a pilha.
+/// Reentry of a global initializer: the VM would recurse in the getter until it
+/// threw `StackOverflowError`. We build the same error without consuming the stack.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_stack_overflow_error_new() -> i64 {
     if let Some(f) = ajudante("_dartforgeErroPilha") {
-        // SAFETY: helper registrado pelo dart:_internal como () -> Object.
+        // SAFETY: helper registered by dart:_internal as () -> Object.
         let g = { let dart_target: usize = f; move || -> i64 { dart_r0(dart_target) } };
         return g();
     }
@@ -517,24 +517,24 @@ pub extern "C" fn dartforge_stack_overflow_error_new() -> i64 {
 pub extern "C" fn dartforge_no_such_method_error_new(name: i64) -> i64 {
     if debug() {
         let t = HEAP.with(|h| h.borrow().text(name).map(|t| t.para_string()));
-        eprintln!("[depurar] NoSuchMethodError: {t:?}");
+        eprintln!("[debug] NoSuchMethodError: {t:?}");
     }
-    // No SDK da fonte o erro é sempre o `NoSuchMethodError` do SDK (a
-    // classe sintética 1012 não é subtipo de nada no RTI da biblioteca
-    // compilada: nem um `catch (e)` a pegaria).
+    // In the SDK from source the error is always the SDK's `NoSuchMethodError` (the
+    // synthetic class 1012 is not a subtype of anything in the compiled library's
+    // RTI: not even a `catch (e)` would catch it).
     if let Some(f) = ajudante("_dartforgeErroDeChamada") {
-        // O SDK da fonte fornece a instância concreta de NoSuchMethodError.
-        // O nome é enraizado enquanto os construtores Dart alocam.
+        // The SDK from source provides the concrete NoSuchMethodError instance.
+        // The name is rooted while the Dart constructors allocate.
         let g = { let dart_target: usize = f; move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
         return with_roots(&[name], || g(name));
     }
     allocate_error_with_trace(1012, vec![(name, true)])
 }
 
-/// A consulta de assinatura é usada apenas na formatação detalhada da VM.
-/// Para uma invocação construída por `Invocation.method`, o `toString` do SDK
-/// segue `_toStringPlain` e não consulta este native; null é o contrato de
-/// "sem assinatura encontrada" nos demais casos.
+/// The signature lookup is used only in the VM's detailed formatting. For an
+/// invocation built by `Invocation.method`, the SDK's `toString` follows
+/// `_toStringPlain` and does not consult this native; null is the "no signature
+/// found" contract in the other cases.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_NoSuchMethodError_existingMethodSignature(
     _receiver: i64,
@@ -544,11 +544,10 @@ pub extern "C" fn dartforge_nativo_NoSuchMethodError_existingMethodSignature(
     0
 }
 
-// Getters de Erros Core
+// Core error getters
 
-/// Campo de um erro do runtime como referência (R5): um escalar guardado
-/// (a mensagem de `AssertionError` pode ser um `int`) sai encaixotado; o
-/// ausente, null.
+/// A field of a runtime error as a reference (R5): a stored scalar (the message of
+/// `AssertionError` may be an `int`) comes out boxed; an absent one, null.
 fn field_as_ref(handle: i64, ix: usize) -> i64 {
     let field = HEAP.with(|heap| {
         let heap = heap.borrow();
@@ -563,100 +562,100 @@ fn field_as_ref(handle: i64, ix: usize) -> i64 {
 }
 
 
-/// SDK da fonte: o erro construído pela função Dart `name(text)`
-/// registrada (`identical_patch.dart`), ou `None` sem ela.
+/// SDK from source: the error built by the registered Dart function `name(text)`
+/// (`identical_patch.dart`), or `None` without it.
 fn source_error_with_text(name: &str, text: &str) -> Option<i64> {
     let f = ajudante(name)?;
-    // SAFETY: registrado pelo `dart:core` com a assinatura `(String) -> Object`.
+    // SAFETY: registered by `dart:core` with the signature `(String) -> Object`.
     let g = { let dart_target: usize = f; move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
     let t = error_text(text);
     Some(with_roots(&[t], || g(t)))
 }
 
-// Os construtores de erro sob ARC: o objeto novo com um owner do código. Os
-// argumentos `Ref` ficam emprestados; o construtor pode rodar Dart (dentro de
-// um escopo nativo) e deixar exceção pendente, caso em que o resultado é null
-// sem owner.
+// The error constructors under ARC: the new object with a code owner. The `Ref`
+// arguments are borrowed; the constructor may run Dart (inside a native scope)
+// and leave a pending exception, in which case the result is null without an
+// owner.
 
-/// `Exception(msg)` sob ARC, com owner do código ([`dartforge_exception_new`]).
+/// `Exception(msg)` under ARC, with a code owner ([`dartforge_exception_new`]).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_exception_new_owned_v1(msg: i64) -> i64 {
     owner_in_native_scope(|| dartforge_exception_new(msg, 1))
 }
 
-/// `AssertionError(msg)` sob ARC, com owner do código ([`dartforge_assertion_error_new`]).
+/// `AssertionError(msg)` under ARC, with a code owner ([`dartforge_assertion_error_new`]).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_assertion_error_new_owned_v1(msg: i64) -> i64 {
     owner_in_native_scope(|| dartforge_assertion_error_new(msg, 1))
 }
 
-/// `StateError(msg)` sob ARC, com owner do código ([`dartforge_state_error_new`]).
+/// `StateError(msg)` under ARC, with a code owner ([`dartforge_state_error_new`]).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_state_error_new_owned_v1(msg: i64) -> i64 {
     owner_in_native_scope(|| dartforge_state_error_new(msg))
 }
 
-/// `UnsupportedError(msg)` sob ARC, com owner do código ([`dartforge_unsupported_error_new`]).
+/// `UnsupportedError(msg)` under ARC, with a code owner ([`dartforge_unsupported_error_new`]).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_unsupported_error_new_owned_v1(msg: i64) -> i64 {
     owner_in_native_scope(|| dartforge_unsupported_error_new(msg))
 }
 
-/// `UnimplementedError(msg)` sob ARC, com owner do código ([`dartforge_unimplemented_error_new`]).
+/// `UnimplementedError(msg)` under ARC, with a code owner ([`dartforge_unimplemented_error_new`]).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_unimplemented_error_new_owned_v1(msg: i64) -> i64 {
     owner_in_native_scope(|| dartforge_unimplemented_error_new(msg))
 }
 
-/// `ArgumentError(msg, name)` sob ARC, com owner do código ([`dartforge_argument_error_new`]).
+/// `ArgumentError(msg, name)` under ARC, with a code owner ([`dartforge_argument_error_new`]).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_argument_error_new_owned_v1(msg: i64, name: i64) -> i64 {
     owner_in_native_scope(|| dartforge_argument_error_new(msg, name))
 }
 
-/// `ArgumentError.value(value_ref, name, msg)` sob ARC, com owner do código ([`dartforge_argument_error_value`]).
+/// `ArgumentError.value(value_ref, name, msg)` under ARC, with a code owner ([`dartforge_argument_error_value`]).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_argument_error_value_owned_v1(value_ref: i64, name: i64, msg: i64) -> i64 {
     owner_in_native_scope(|| dartforge_argument_error_value(value_ref, 1, name, msg))
 }
 
-/// `ArgumentError.notNull(name)` sob ARC, com owner do código ([`dartforge_argument_error_not_null`]).
+/// `ArgumentError.notNull(name)` under ARC, with a code owner ([`dartforge_argument_error_not_null`]).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_argument_error_not_null_owned_v1(name: i64) -> i64 {
     owner_in_native_scope(|| dartforge_argument_error_not_null(name))
 }
 
-/// `RangeError.range(...)` sob ARC, com owner do código ([`dartforge_range_error_range`]).
+/// `RangeError.range(...)` under ARC, with a code owner ([`dartforge_range_error_range`]).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_range_error_range_owned_v1(value_ref: i64, min: i64, max: i64, name: i64, msg: i64) -> i64 {
     owner_in_native_scope(|| dartforge_range_error_range(value_ref, min, max, name, msg))
 }
 
-/// o `TypeError` do runtime sob ARC, com owner do código ([`dartforge_type_error_new`]).
+/// The runtime's `TypeError` under ARC, with a code owner ([`dartforge_type_error_new`]).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_type_error_new_owned_v1() -> i64 {
     owner_in_native_scope(|| dartforge_type_error_new())
 }
 
-/// o erro do `!` sobre null sob ARC, com owner do código ([`dartforge_null_check_error_new`]).
+/// The error of `!` on null under ARC, with a code owner ([`dartforge_null_check_error_new`]).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_null_check_error_new_owned_v1() -> i64 {
     owner_in_native_scope(|| dartforge_null_check_error_new())
 }
 
-/// o `LateError` do campo/local `name` sob ARC, com owner do código ([`dartforge_late_error_new`]).
+/// The `LateError` of field/local `name` under ARC, with a code owner ([`dartforge_late_error_new`]).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_late_error_new_owned_v1(name: i64, code: i64) -> i64 {
     owner_in_native_scope(|| dartforge_late_error_new(name, code))
 }
 
-/// o `StackOverflowError` da reentrada sob ARC, com owner do código ([`dartforge_stack_overflow_error_new`]).
+/// The reentry `StackOverflowError` under ARC, with a code owner ([`dartforge_stack_overflow_error_new`]).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_stack_overflow_error_new_owned_v1() -> i64 {
     owner_in_native_scope(|| dartforge_stack_overflow_error_new())
 }
 
-/// o `NoSuchMethodError` de `name` sob ARC, com owner do código ([`dartforge_no_such_method_error_new`]).
+/// The `NoSuchMethodError` of `name` under ARC, with a code owner ([`dartforge_no_such_method_error_new`]).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_no_such_method_error_new_owned_v1(name: i64) -> i64 {
     owner_in_native_scope(|| dartforge_no_such_method_error_new(name))
