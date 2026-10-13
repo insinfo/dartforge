@@ -69,13 +69,20 @@ pub fn methods_without_combined_signature(
     outline: &OutlineTypes,
     classes: &[ClassId],
 ) -> Vec<(ClassId, FunctionElementId, ast::Name, String)> {
+    // The element of each instance method of these classes, by its node (from
+    // the classes' tables: walking every function of the program here, once
+    // per library, made this quadratic).
     let mut by_function: HashMap<(UnitId, u32), FunctionElementId> = HashMap::new();
-    for (i, f) in program.functions.iter().enumerate() {
-        if f.class.is_some()
-            && !f.static_
-            && let FunctionRef::Function { unit, function } = f.node
-        {
-            by_function.insert((unit, function.0), FunctionElementId(i as u32));
+    for &cid in classes {
+        let k = program.class(cid);
+        for f in k.instance_members.values().copied().chain(k.shadowed_instance_members.iter().map(|&(_, f)| f)) {
+            let fe = program.function(f);
+            if fe.class.is_some()
+                && !fe.static_
+                && let FunctionRef::Function { unit, function } = fe.node
+            {
+                by_function.insert((unit, function.0), f);
+            }
         }
     }
     let mut inheritance = InheritanceManager::default();
