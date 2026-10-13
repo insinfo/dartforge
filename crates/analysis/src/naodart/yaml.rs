@@ -161,16 +161,16 @@ impl Builder<'_> {
     fn escalar(&self, value: String, style: TScalarStyle, start: usize) -> No {
         match style {
             TScalarStyle::SingleQuoted | TScalarStyle::DoubleQuoted => {
-                No { span: Span { start: start, end: self.quotes_end(start) }, valor: Valor::Texto(value) }
+                No { span: Span { start, end: self.quotes_end(start) }, valor: Valor::Texto(value) }
             }
             TScalarStyle::Literal | TScalarStyle::Folded => {
-                No { span: Span { start: start, end: self.block_end(start) }, valor: Valor::Texto(value) }
+                No { span: Span { start, end: self.block_end(start) }, valor: Valor::Texto(value) }
             }
             TScalarStyle::Plain => {
                 let rest = &self.fonte[start.min(self.fonte.len())..];
                 // The empty node arrives as `~` without the `~` being in the source.
                 if value == "~" && !rest.starts_with('~') {
-                    return No { span: Span { start: start, end: start }, valor: Valor::Nulo };
+                    return No { span: Span { start, end: start }, valor: Valor::Nulo };
                 }
                 let length = if rest.starts_with(value.as_str()) {
                     value.len()
@@ -180,7 +180,7 @@ impl Builder<'_> {
                     let line = rest.split('\n').next().unwrap_or("");
                     line.find(" #").map_or(line.len(), |k| k).min(line.trim_end().len())
                 };
-                let span = Span { start: start, end: start + length };
+                let span = Span { start, end: start + length };
                 let minusculo = value.to_ascii_lowercase();
                 let value = if value.is_empty() || value == "~" || minusculo == "null" {
                     Valor::Nulo
@@ -202,7 +202,7 @@ impl Builder<'_> {
         };
         let in_flow = self.fonte[start.min(self.fonte.len())..].starts_with(['[', '{']);
         let end = if in_flow { (mark + 1).min(self.fonte.len()) } else { last_end.unwrap_or(start).max(start) };
-        self.deliver(No { span: Span { start: start, end: end }, valor: value });
+        self.deliver(No { span: Span { start, end }, valor: value });
     }
 }
 

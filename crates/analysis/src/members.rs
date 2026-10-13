@@ -270,8 +270,8 @@ impl Ctx<'_> {
             None => s.end,
         };
         Span {
-            start: start,
-            end: end,
+            start,
+            end,
         }
     }
 
@@ -1029,7 +1029,7 @@ pub fn check(
                         {
                             let start = start_with_docs(cx.source, member.span.start);
                             let s = Span {
-                                start: start,
+                                start,
                                 end: member.span.end,
                             };
                             let ty = cx.name(n.sym).to_string();

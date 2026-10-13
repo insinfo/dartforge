@@ -351,7 +351,7 @@ fn references_with_new(contents: &str, base: usize, out: &mut Vec<Diagnostic>) {
                             && after.trim_start().starts_with(|c: char| c.is_ascii_alphabetic() || c == '_' || c == '$')
                         {
                             let start = base + start + leading;
-                            out.push(Diagnostic::com_codigo(w::DEPRECATED_NEW_IN_COMMENT_REFERENCE, Span { start: start, end: start + 3 }, Vec::<&str>::new()));
+                            out.push(Diagnostic::com_codigo(w::DEPRECATED_NEW_IN_COMMENT_REFERENCE, Span { start, end: start + 3 }, Vec::<&str>::new()));
                         }
                     }
                     i = end;

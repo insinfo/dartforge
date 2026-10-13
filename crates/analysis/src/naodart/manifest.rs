@@ -303,7 +303,7 @@ impl Reader<'_> {
         }
         if relevant {
             let end = (self.pos + 1).min(self.b.len());
-            Tag::Element(Some(Element { name, attributes, children, span: Span { start: start, end: end } }))
+            Tag::Element(Some(Element { name, attributes, children, span: Span { start, end } }))
         } else {
             Tag::Element(None)
         }

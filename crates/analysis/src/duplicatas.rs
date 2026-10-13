@@ -729,7 +729,7 @@ fn members(rel: &mut Reporter<'_>, ast: &Ast, ctx: &mut DeclContext) {
                 if !ctx.constructors.insert(name.clone()) {
                     // `atConstructorDeclaration`: from the class name to the end of the name.
                     let end = k.name.unwrap_or(k.class_name).span.end;
-                    let span = Span { start: k.class_name.span.start, end: end };
+                    let span = Span { start: k.class_name.span.start, end };
                     if name.is_empty() {
                         rel.report(c::DUPLICATE_CONSTRUCTOR_DEFAULT, span, &[]);
                     } else {

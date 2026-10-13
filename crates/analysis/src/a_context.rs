@@ -147,7 +147,7 @@ impl<'a> Visitor<'a> {
                                 // `super.x`: the word sits six bytes before the name.
                                 let start = n.span.start.saturating_sub(6);
                                 if self.source.get(start..start + 5) == Some("super") {
-                                    self.report(c::EXTENSION_TYPE_CONSTRUCTOR_WITH_SUPER_FORMAL_PARAMETER, Span { start: start, end: start + 5 }, &[]);
+                                    self.report(c::EXTENSION_TYPE_CONSTRUCTOR_WITH_SUPER_FORMAL_PARAMETER, Span { start, end: start + 5 }, &[]);
                                 }
                             }
                         }
@@ -197,7 +197,7 @@ impl<'a> Visitor<'a> {
             .get(span.start..span.end.min(self.source.len()))
             .and_then(|t| t.find(text))
             .map_or(span.start, |i| span.start + i);
-        Span { start: start, end: start + text.len() }
+        Span { start, end: start + text.len() }
     }
 
     fn params(&mut self, ps: &'a [ast::Parameter]) {
@@ -241,7 +241,7 @@ impl<'a> Visitor<'a> {
         if matches!(self.modifier, AsyncModifier::Async | AsyncModifier::AsyncStar) {
             return;
         }
-        let word = self.word(Span { start: start, end: start + 16 }, "await");
+        let word = self.word(Span { start, end: start + 16 }, "await");
         self.report(c::ASYNC_FOR_IN_WRONG_CONTEXT, word, &[]);
     }
 
@@ -447,7 +447,7 @@ impl<'a> Visitor<'a> {
                     if !matches!(self.modifier, AsyncModifier::Async | AsyncModifier::AsyncStar) {
                         if let Some(i) = fragment.rfind("await") {
                             let start = collection_start + i;
-                            self.report(c::ASYNC_FOR_IN_WRONG_CONTEXT, Span { start: start, end: start + 5 }, &[]);
+                            self.report(c::ASYNC_FOR_IN_WRONG_CONTEXT, Span { start, end: start + 5 }, &[]);
                         }
                     }
                 }

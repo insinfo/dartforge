@@ -841,8 +841,8 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
         let e_literal = |e: ExprId| matches!(a.expr(e).kind, ExprKind::String(_));
         let cru_simples = |e: ExprId| match &a.expr(e).kind {
             ExprKind::String(l) => {
-                let lits = super::strings::literais(fonte, l.span);
-                lits.len() == 1 && !lits[0].interpolado() && lits[0].crua
+                let lits = super::strings::literals(fonte, l.span);
+                lits.len() == 1 && !lits[0].is_interpolated() && lits[0].raw
             }
             _ => false,
         };

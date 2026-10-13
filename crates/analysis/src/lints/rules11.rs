@@ -53,7 +53,7 @@ fn sem_parenteses(a: &Ast, mut e: ExprId) -> ExprId {
 /// Strings adjacentes (`'a' 'b'`): um `String` escrito com mais de um literal.
 fn adjacentes(a: &Ast, fonte: &str, e: ExprId) -> bool {
     let e = a.expr(e);
-    matches!(e.kind, ExprKind::String(_)) && strings::literais(fonte, e.span).len() > 1
+    matches!(e.kind, ExprKind::String(_)) && strings::literals(fonte, e.span).len() > 1
 }
 
 /// `flutter_style_todos`: `//+\s*TODO\b` (sem caixa) que não começa com
@@ -234,24 +234,24 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             if !matches!(e.kind, ExprKind::String(_)) || isentos.contains(&ExprId(k as u32)) {
                 continue;
             }
-            let lits = strings::literais(fonte, e.span);
+            let lits = strings::literals(fonte, e.span);
             for par in lits.windows(2) {
                 let (atual, proximo) = (&par[0], &par[1]);
                 // Os valores (com os escapes decodificados) do último trecho
                 // do atual, do primeiro do próximo e de todo o atual.
                 let valor = |l: &strings::Literal, t: Option<&Span>| -> String {
                     let texto = t.and_then(|x| fonte.get(x.start..x.end)).unwrap_or("");
-                    if l.crua { texto.to_string() } else { strings::decodificar(texto) }
+                    if l.raw { texto.to_string() } else { strings::decode(texto) }
                 };
-                let fim = valor(atual, atual.trechos.last());
-                let ini = valor(proximo, proximo.trechos.first());
+                let fim = valor(atual, atual.parts.last());
+                let ini = valor(proximo, proximo.parts.first());
                 let brancos = [' ', '\n', '\r', '\t'];
-                let termina = (atual.interpolado() && fim.is_empty()) || fim.ends_with(brancos);
-                let comeca = (proximo.interpolado() && ini.is_empty()) || ini.starts_with(brancos);
+                let termina = (atual.is_interpolated() && fim.is_empty()) || fim.ends_with(brancos);
+                let comeca = (proximo.is_interpolated() && ini.is_empty()) || ini.starts_with(brancos);
                 if termina || comeca {
                     continue;
                 }
-                let todo = atual.trechos.iter().map(|t| valor(atual, Some(t))).collect::<String>();
+                let todo = atual.parts.iter().map(|t| valor(atual, Some(t))).collect::<String>();
                 if !todo.contains(brancos) {
                     continue;
                 }
@@ -262,7 +262,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
 
     // `flutter_style_todos`.
     if ligada("flutter_style_todos") {
-        for s in strings::comentarios(fonte) {
+        for s in strings::comments(fonte) {
             if todo_fora_do_estilo(fonte.get(s.start..s.end).unwrap_or("")) {
                 relatar(&c::FLUTTER_STYLE_TODOS, s, &[]);
             }

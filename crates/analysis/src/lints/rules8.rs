@@ -24,7 +24,7 @@
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use super::codigos_g as c;
-use super::strings::{literais, valor_de_string};
+use super::strings::{literals, string_value};
 use super::rules::LintReport;
 use super::CodigoLint;
 use crate::Unidade;
@@ -96,7 +96,7 @@ fn primeiro_token(fonte: &str, inicio: usize) -> Span {
             }
         }
         Some(b'\'' | b'"') => {
-            fim = literais(fonte, Span { start: inicio, end: fonte.len() }).first().map_or(inicio + 1, |l| l.span.end);
+            fim = literals(fonte, Span { start: inicio, end: fonte.len() }).first().map_or(inicio + 1, |l| l.span.end);
         }
         Some(c @ (b'+' | b'-')) if b.get(inicio + 1) == Some(&c) => fim = inicio + 2,
         Some(_) => fim = inicio + fonte[inicio..].chars().next().map_or(1, char::len_utf8),
@@ -166,8 +166,8 @@ fn doc_imports(fonte: &str, u: Unidade<'_>) -> Vec<(Span, Option<String>)> {
         let texto = depois_da_tag.trim_start();
         // O fim: o `;`, ou o fim do texto sem os brancos.
         let fim_rel = texto.find(';').map(|k| k + 1).unwrap_or_else(|| texto.trim_end().len());
-        let uri = literais(fonte, Span { start: inicio_da_uri, end: inicio_da_uri + fim_rel }).first().map(|l| l.span);
-        let valor = uri.and_then(|s| valor_de_string(fonte, s));
+        let uri = literals(fonte, Span { start: inicio_da_uri, end: inicio_da_uri + fim_rel }).first().map(|l| l.span);
+        let valor = uri.and_then(|s| string_value(fonte, s));
         v.push((Span { start: inicio_da_uri.saturating_sub("import ".len()), end: inicio_da_uri + fim_rel }, valor));
     }
     v
@@ -592,7 +592,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 DirectiveKind::Export { uri, .. } => (uri, Tipo::Export),
                 _ => continue,
             };
-            diretivas.push((d.span, tipo, valor_de_string(fonte, uri.span)));
+            diretivas.push((d.span, tipo, string_value(fonte, uri.span)));
         }
         for (span, uri) in doc_imports(fonte, u) {
             diretivas.push((span, Tipo::DocImport, uri));

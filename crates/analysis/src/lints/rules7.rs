@@ -19,7 +19,7 @@
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use super::codigos_g as c;
-use super::strings::{comentarios, decodificar, literais, Literal};
+use super::strings::{comments, decode, literals, Literal};
 use super::rules::LintReport;
 use super::CodigoLint;
 use crate::Unidade;
@@ -37,8 +37,8 @@ fn parece_uri(valor: &str) -> bool {
 
 /// O valor dos trechos de texto do literal (sem as interpolações).
 fn valor(fonte: &str, l: &Literal) -> String {
-    let texto = l.texto(fonte);
-    if l.crua { texto } else { decodificar(&texto) }
+    let texto = l.text(fonte);
+    if l.raw { texto } else { decode(&texto) }
 }
 
 /// `unnecessary_string_escapes` num trecho de texto (`visitLexeme`): os
@@ -46,12 +46,12 @@ fn valor(fonte: &str, l: &Literal) -> String {
 /// fecho.
 fn escapes_desnecessarios(fonte: &str, l: &Literal, trecho: Span, ultimo: bool, saida: &mut Vec<usize>) {
     let Some(texto) = fonte.get(trecho.start..trecho.end) else { return };
-    let (propria, outra) = if l.aspas_simples { ('\'', '"') } else { ('"', '\'') };
+    let (propria, outra) = if l.single_quoted { ('\'', '"') } else { ('"', '\'') };
     // As aspas próprias seguidas: (lugar, escapada). Numa string de três
     // aspas, até duas seguidas dispensam o escape.
     let mut pendentes: Vec<(usize, bool)> = Vec::new();
     let conferir = |pendentes: &[(usize, bool)], saida: &mut Vec<usize>| {
-        if l.multilinha && pendentes.len() < 3 {
+        if l.multiline && pendentes.len() < 3 {
             for &(lugar, escapada) in pendentes {
                 // `'''…\''''`: sem a barra, as aspas se confundem com o fecho.
                 if escapada && !(ultimo && lugar + 2 == trecho.end) {
@@ -128,10 +128,10 @@ pub fn run(u: Unidade<'_>, _interner: &Interner, ligada: &dyn Fn(&str) -> bool, 
     let mut todos: Vec<Literal> = Vec::new();
     for e in a.exprs.iter() {
         if matches!(e.kind, ExprKind::String(_)) {
-            todos.extend(literais(fonte, e.span));
+            todos.extend(literals(fonte, e.span));
         }
     }
-    let mut da_diretiva = |lit: &StringLit| todos.extend(literais(fonte, lit.span));
+    let mut da_diretiva = |lit: &StringLit| todos.extend(literals(fonte, lit.span));
     for d in u.unit.directives.iter() {
         match &d.kind {
             DirectiveKind::Import { uri, configurations, .. } | DirectiveKind::Export { uri, configurations, .. } => {
@@ -150,12 +150,12 @@ pub fn run(u: Unidade<'_>, _interner: &Interner, ligada: &dyn Fn(&str) -> bool, 
     }
     todos.sort_by_key(|l| (l.span.start, l.span.end));
     todos.dedup();
-    let interpolacoes: Vec<Span> = todos.iter().flat_map(|l| l.interpolacoes.iter().copied()).collect();
+    let interpolacoes: Vec<Span> = todos.iter().flat_map(|l| l.interpolations.iter().copied()).collect();
     let dentro = |fora: Span, x: Span| fora.start < x.start && x.end <= fora.end;
     // Dentro da interpolação de outra string.
     let aninhado = |l: &Literal| interpolacoes.iter().any(|s| dentro(*s, l.span));
     // Tem outra string numa interpolação sua.
-    let contem_string = |l: &Literal| todos.iter().any(|o| l.interpolacoes.iter().any(|s| dentro(*s, o.span)));
+    let contem_string = |l: &Literal| todos.iter().any(|o| l.interpolations.iter().any(|s| dentro(*s, o.span)));
 
     // `prefer_single_quotes` e `prefer_double_quotes` (o `QuoteVisitor`).
     for (regra, simples, code) in
@@ -166,10 +166,10 @@ pub fn run(u: Unidade<'_>, _interner: &Interner, ligada: &dyn Fn(&str) -> bool, 
         }
         let pedida = if simples { '\'' } else { '"' };
         for l in todos.iter() {
-            if l.aspas_simples == simples || valor(fonte, l).contains(pedida) || aninhado(l) {
+            if l.single_quoted == simples || valor(fonte, l).contains(pedida) || aninhado(l) {
                 continue;
             }
-            if l.interpolado() && contem_string(l) {
+            if l.is_interpolated() && contem_string(l) {
                 continue;
             }
             relatar(code, l.span, &[]);
@@ -178,9 +178,9 @@ pub fn run(u: Unidade<'_>, _interner: &Interner, ligada: &dyn Fn(&str) -> bool, 
     // `avoid_escaping_inner_quotes`: a string comum de uma linha que escapa
     // a própria aspa e não tem a outra.
     if ligada("avoid_escaping_inner_quotes") {
-        for l in todos.iter().filter(|l| !l.crua && !l.multilinha) {
+        for l in todos.iter().filter(|l| !l.raw && !l.multiline) {
             let texto = valor(fonte, l);
-            let (propria, outra) = if l.aspas_simples { ("'", "\"") } else { ("\"", "'") };
+            let (propria, outra) = if l.single_quoted { ("'", "\"") } else { ("\"", "'") };
             if texto.contains(propria) && !texto.contains(outra) {
                 relatar(&c::AVOID_ESCAPING_INNER_QUOTES, l.span, &[propria, outra]);
             }
@@ -189,9 +189,9 @@ pub fn run(u: Unidade<'_>, _interner: &Interner, ligada: &dyn Fn(&str) -> bool, 
     // `unnecessary_string_escapes`.
     if ligada("unnecessary_string_escapes") {
         let mut lugares: Vec<usize> = Vec::new();
-        for l in todos.iter().filter(|l| !l.crua) {
-            let n = l.trechos.len();
-            for (i, t) in l.trechos.iter().enumerate() {
+        for l in todos.iter().filter(|l| !l.raw) {
+            let n = l.parts.len();
+            for (i, t) in l.parts.iter().enumerate() {
                 escapes_desnecessarios(fonte, l, *t, i + 1 == n, &mut lugares);
             }
         }
@@ -201,8 +201,8 @@ pub fn run(u: Unidade<'_>, _interner: &Interner, ligada: &dyn Fn(&str) -> bool, 
     }
     // `use_raw_strings`: só o literal sem interpolação.
     if ligada("use_raw_strings") {
-        for l in todos.iter().filter(|l| !l.crua && !l.interpolado()) {
-            if so_escapa_barra_e_cifrao(&l.texto(fonte)) {
+        for l in todos.iter().filter(|l| !l.raw && !l.is_interpolated()) {
+            if so_escapa_barra_e_cifrao(&l.text(fonte)) {
                 relatar(&c::USE_RAW_STRINGS, l.span, &[]);
             }
         }
@@ -210,9 +210,9 @@ pub fn run(u: Unidade<'_>, _interner: &Interner, ligada: &dyn Fn(&str) -> bool, 
     // `leading_newlines_in_multiline_strings`: a string de três aspas que
     // ocupa mais de uma linha começa com quebra de linha.
     if ligada("leading_newlines_in_multiline_strings") {
-        for l in todos.iter().filter(|l| l.multilinha) {
+        for l in todos.iter().filter(|l| l.multiline) {
             let Some(lexema) = fonte.get(l.span.start..l.span.end) else { continue };
-            let Some(primeiro) = l.trechos.first() else { continue };
+            let Some(primeiro) = l.parts.first() else { continue };
             let comeco = fonte.get(primeiro.start..).unwrap_or("");
             if lexema.contains('\n') && !comeco.starts_with('\n') && !comeco.starts_with('\r') {
                 relatar(&c::LEADING_NEWLINES_IN_MULTILINE_STRINGS, l.span, &[]);
@@ -267,7 +267,7 @@ pub fn run(u: Unidade<'_>, _interner: &Interner, ligada: &dyn Fn(&str) -> bool, 
             // Strings: a de três aspas libera todas as suas linhas; a de uma
             // linha, a sua, se parece URI ou caminho.
             for l in todos.iter() {
-                if l.multilinha {
+                if l.multiline {
                     permitidas.extend(linha_de(l.span.start)..=linha_de(l.span.end));
                 } else if parece_uri(&valor(fonte, l)) {
                     permitidas.push(linha_de(l.span.start));
@@ -275,7 +275,7 @@ pub fn run(u: Unidade<'_>, _interner: &Interner, ligada: &dyn Fn(&str) -> bool, 
             }
             // Comentários: `// ignore:` libera a linha; qualquer linha de
             // comentário que pareça URI ou caminho libera a sua.
-            for s in comentarios(fonte) {
+            for s in comments(fonte) {
                 let Some(texto) = fonte.get(s.start..s.end) else { continue };
                 let primeira = linha_de(s.start);
                 let mut linhas: Vec<&str> = Vec::new();

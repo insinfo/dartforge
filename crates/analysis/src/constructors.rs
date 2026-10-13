@@ -149,7 +149,7 @@ fn param_span(source: &str, p: &ast::Parameter) -> Span {
             end += 1;
         }
     }
-    Span { start: start, end: end.min(p.span.end).max(start) }
+    Span { start, end: end.min(p.span.end).max(start) }
 }
 
 pub fn check(units: &[Unidade<'_>], names: &Interner) -> Vec<(usize, Diagnostic)> {

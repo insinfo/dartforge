@@ -430,10 +430,10 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             match &e.kind {
                 ExprKind::String(l) => {
                     // As strings adjacentes: os literais do meio vazios.
-                    let literais = super::strings::literais(fonte, l.span);
+                    let literais = super::strings::literals(fonte, l.span);
                     if literais.len() > 2 {
                         for lit in &literais[1..literais.len() - 1] {
-                            if !lit.interpolado() && lit.texto(fonte).is_empty() {
+                            if !lit.is_interpolated() && lit.text(fonte).is_empty() {
                                 relatar(&c::NOOP_PRIMITIVE_OPERATIONS, lit.span, &[]);
                             }
                         }

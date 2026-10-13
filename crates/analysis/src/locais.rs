@@ -885,7 +885,7 @@ pub fn nao_usados_com_pulados(u: Unidade<'_>, interner: &Interner, wildcard: boo
                     .filter(|b| b.start <= d.span.start && d.span.end <= b.end && e.start <= b.start && b.end <= e.end)
                     .min_by_key(|b| b.end - b.start)
                     .map_or(e.end, |b| b.end);
-                skipped.mentions_within(name, dartforge_diagnostics::Span { start: d.span.end, end: end })
+                skipped.mentions_within(name, dartforge_diagnostics::Span { start: d.span.end, end })
             })
         });
     }

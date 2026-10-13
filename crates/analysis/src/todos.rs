@@ -101,7 +101,7 @@ fn gap_comments(source: &str, from: usize, until: usize, line_starts: &[usize], 
             return;
         };
         let line = line_starts.partition_point(|&x| x <= i) - 1;
-        out.push(Comment { start: i, end: end, is_block, line, column: i - line_starts[line] });
+        out.push(Comment { start: i, end, is_block, line, column: i - line_starts[line] });
         i = end.max(i + 2);
     }
 }
@@ -192,7 +192,7 @@ pub fn check(source: &str) -> Vec<Diagnostic> {
                     }
                     consumed = n;
                 }
-                out.push(Diagnostic::com_codigo(code, Span { start: offset, end: end }, [text.as_str()]));
+                out.push(Diagnostic::com_codigo(code, Span { start: offset, end }, [text.as_str()]));
             }
             k += 1 + consumed;
         }

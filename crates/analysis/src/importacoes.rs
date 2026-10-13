@@ -264,7 +264,7 @@ pub fn internal_and_deferred_directives(program: &Program, lib: LibraryId) -> Ve
                 let fragment = unit.source.get(uri.span.end..p.span.start).unwrap_or("");
                 if let Some(k) = fragment.find("deferred") {
                     let start = uri.span.end + k;
-                    out.push((u, Diagnostic::com_codigo(c::SHARED_DEFERRED_PREFIX, dartforge_diagnostics::Span { start: start, end: start + "deferred".len() }, [] as [&str; 0])));
+                    out.push((u, Diagnostic::com_codigo(c::SHARED_DEFERRED_PREFIX, dartforge_diagnostics::Span { start, end: start + "deferred".len() }, [] as [&str; 0])));
                 }
             }
         }
@@ -1001,7 +1001,7 @@ fn doc_comments(
                 }
                 end = c.end;
             }
-            dartforge_diagnostics::Span { start: d.start, end: end }
+            dartforge_diagnostics::Span { start: d.start, end }
         } else {
             d
         }

@@ -1,106 +1,105 @@
-//! Os literais de string e os comentários como o texto os escreve, para as
-//! regras de lint que olham aspas, escapes e linhas: a árvore guarda um
-//! `StringLit` por expressão (as strings adjacentes juntas, o texto já
-//! decodificado), e essas regras perguntam por cada literal
-//! (`SimpleStringLiteral` ou `StringInterpolation` do analyzer) e pelo
-//! lexema dele.
+//! String literals and comments as the text writes them, for the lint rules
+//! that look at quotes, escapes and lines: the tree keeps one `StringLit` per
+//! expression (adjacent strings joined, the text already decoded), and these
+//! rules ask about each literal (the analyzer's `SimpleStringLiteral` or
+//! `StringInterpolation`) and its lexeme.
 //!
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Written without compiling or running (2026-10-05).
 
 use dartforge_diagnostics::Span;
 
-/// Um literal de string: `'…'`, `"…"`, `'''…'''`, `"""…"""`, com ou sem `r`.
+/// A string literal: `'…'`, `"…"`, `'''…'''`, `"""…"""`, with or without `r`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Literal {
-    /// Do `r` ou da aspa de abertura até depois da aspa de fecho.
+    /// From the `r` or the opening quote to after the closing quote.
     pub span: Span,
-    pub crua: bool,
-    /// Três aspas.
-    pub multilinha: bool,
-    /// Aspas simples (`'` ou `'''`).
-    pub aspas_simples: bool,
-    /// Os trechos de texto, em ordem: o conteúdo entre as aspas, cortado
-    /// pelas interpolações. Sempre há pelo menos um (pode ser vazio).
-    pub trechos: Vec<Span>,
-    /// As interpolações, do `$` ao fim do identificador ou ao `}`.
-    pub interpolacoes: Vec<Span>,
+    pub raw: bool,
+    /// Three quotes.
+    pub multiline: bool,
+    /// Single quotes (`'` or `'''`).
+    pub single_quoted: bool,
+    /// The text parts, in order: the content between the quotes, cut by the
+    /// interpolations. There is always at least one (it may be empty).
+    pub parts: Vec<Span>,
+    /// The interpolations, from the `$` to the end of the identifier or the `}`.
+    pub interpolations: Vec<Span>,
 }
 
 impl Literal {
-    /// Tem interpolação (o `StringInterpolation` do analyzer).
-    pub fn interpolado(&self) -> bool {
-        !self.interpolacoes.is_empty()
+    /// Has an interpolation (the analyzer's `StringInterpolation`).
+    pub fn is_interpolated(&self) -> bool {
+        !self.interpolations.is_empty()
     }
 
-    /// O texto dos trechos, como está escrito (sem decodificar escapes).
-    pub fn texto(&self, fonte: &str) -> String {
-        self.trechos.iter().filter_map(|t| fonte.get(t.start..t.end)).collect()
+    /// The text of the parts, as written (escapes not decoded).
+    pub fn text(&self, source: &str) -> String {
+        self.parts.iter().filter_map(|t| source.get(t.start..t.end)).collect()
     }
 }
 
-fn de_identificador(c: u8) -> bool {
+fn is_ident_char(c: u8) -> bool {
     c == b'_' || c == b'$' || c.is_ascii_alphanumeric()
 }
 
-/// A posição depois do comentário de bloco (aninhável) que começa em `i`.
-fn fim_do_bloco(b: &[u8], mut i: usize, fim: usize) -> usize {
-    let mut profundidade = 0usize;
-    while i < fim {
-        if i + 1 < fim && b[i] == b'/' && b[i + 1] == b'*' {
-            profundidade += 1;
+/// The position after the (nestable) block comment that starts at `i`.
+fn block_end(b: &[u8], mut i: usize, end: usize) -> usize {
+    let mut depth = 0usize;
+    while i < end {
+        if i + 1 < end && b[i] == b'/' && b[i + 1] == b'*' {
+            depth += 1;
             i += 2;
-        } else if i + 1 < fim && b[i] == b'*' && b[i + 1] == b'/' {
-            profundidade -= 1;
+        } else if i + 1 < end && b[i] == b'*' && b[i + 1] == b'/' {
+            depth -= 1;
             i += 2;
-            if profundidade == 0 {
+            if depth == 0 {
                 return i;
             }
         } else {
             i += 1;
         }
     }
-    fim
+    end
 }
 
-/// Pula brancos e comentários.
-fn pular_espaco(b: &[u8], mut i: usize, fim: usize) -> usize {
+/// Skips whitespace and comments.
+fn skip_blanks(b: &[u8], mut i: usize, end: usize) -> usize {
     loop {
-        while i < fim && b[i].is_ascii_whitespace() {
+        while i < end && b[i].is_ascii_whitespace() {
             i += 1;
         }
-        if i + 1 < fim && b[i] == b'/' && b[i + 1] == b'/' {
-            while i < fim && b[i] != b'\n' {
+        if i + 1 < end && b[i] == b'/' && b[i + 1] == b'/' {
+            while i < end && b[i] != b'\n' {
                 i += 1;
             }
-        } else if i + 1 < fim && b[i] == b'/' && b[i + 1] == b'*' {
-            i = fim_do_bloco(b, i, fim);
+        } else if i + 1 < end && b[i] == b'/' && b[i + 1] == b'*' {
+            i = block_end(b, i, end);
         } else {
             return i;
         }
     }
 }
 
-/// A posição depois do `}` que fecha a interpolação cujo miolo começa em
-/// `i`. Strings e comentários de dentro são pulados inteiros.
-fn fecha_chave(b: &[u8], mut i: usize, fim: usize) -> usize {
-    let mut profundidade = 1usize;
-    while i < fim {
+/// The position after the `}` that closes the interpolation whose body starts
+/// at `i`. Strings and comments inside are skipped whole.
+fn closing_brace(b: &[u8], mut i: usize, end: usize) -> usize {
+    let mut depth = 1usize;
+    while i < end {
         match b[i] {
-            b'{' => profundidade += 1,
+            b'{' => depth += 1,
             b'}' => {
-                profundidade -= 1;
-                if profundidade == 0 {
+                depth -= 1;
+                if depth == 0 {
                     return i + 1;
                 }
             }
-            b'/' if i + 1 < fim && (b[i + 1] == b'/' || b[i + 1] == b'*') => {
-                i = pular_espaco(b, i, fim);
+            b'/' if i + 1 < end && (b[i + 1] == b'/' || b[i + 1] == b'*') => {
+                i = skip_blanks(b, i, end);
                 continue;
             }
             b'\'' | b'"' => {
-                let crua = i > 0 && b[i - 1] == b'r' && (i < 2 || !de_identificador(b[i - 2]));
-                if let Some((_, depois)) = literal(b, if crua { i - 1 } else { i }, fim) {
-                    i = depois;
+                let raw = i > 0 && b[i - 1] == b'r' && (i < 2 || !is_ident_char(b[i - 2]));
+                if let Some((_, after)) = literal(b, if raw { i - 1 } else { i }, end) {
+                    i = after;
                     continue;
                 }
             }
@@ -108,89 +107,89 @@ fn fecha_chave(b: &[u8], mut i: usize, fim: usize) -> usize {
         }
         i += 1;
     }
-    fim
+    end
 }
 
-/// Lê o literal que começa em `i` (no `r` ou na aspa); devolve-o com a
-/// posição seguinte. Um literal que não fecha vai até `fim`.
-fn literal(b: &[u8], inicio: usize, fim: usize) -> Option<(Literal, usize)> {
-    let mut i = inicio;
-    let crua = b.get(i) == Some(&b'r');
-    if crua {
+/// Reads the literal that starts at `i` (at the `r` or the quote); returns it
+/// with the next position. A literal that does not close runs to `end`.
+fn literal(b: &[u8], start: usize, end: usize) -> Option<(Literal, usize)> {
+    let mut i = start;
+    let raw = b.get(i) == Some(&b'r');
+    if raw {
         i += 1;
     }
-    let aspa = *b.get(i).filter(|_| i < fim)?;
-    if aspa != b'\'' && aspa != b'"' {
+    let quote = *b.get(i).filter(|_| i < end)?;
+    if quote != b'\'' && quote != b'"' {
         return None;
     }
-    let tripla = i + 2 < fim && b[i + 1] == aspa && b[i + 2] == aspa;
-    let n = if tripla { 3 } else { 1 };
+    let triple = i + 2 < end && b[i + 1] == quote && b[i + 2] == quote;
+    let n = if triple { 3 } else { 1 };
     i += n;
-    let mut trechos = Vec::new();
-    let mut interpolacoes = Vec::new();
-    let mut do_trecho = i;
-    let pronto = |trechos: Vec<Span>, interpolacoes: Vec<Span>, ate: usize| Literal {
-        span: Span { start: inicio, end: ate },
-        crua,
-        multilinha: tripla,
-        aspas_simples: aspa == b'\'',
-        trechos,
-        interpolacoes,
+    let mut parts = Vec::new();
+    let mut interpolations = Vec::new();
+    let mut part_start = i;
+    let build = |parts: Vec<Span>, interpolations: Vec<Span>, until: usize| Literal {
+        span: Span { start, end: until },
+        raw,
+        multiline: triple,
+        single_quoted: quote == b'\'',
+        parts,
+        interpolations,
     };
-    while i < fim {
+    while i < end {
         let ch = b[i];
-        if ch == aspa && (!tripla || (i + 2 < fim && b[i + 1] == aspa && b[i + 2] == aspa)) {
-            trechos.push(Span { start: do_trecho, end: i });
-            return Some((pronto(trechos, interpolacoes, i + n), i + n));
+        if ch == quote && (!triple || (i + 2 < end && b[i + 1] == quote && b[i + 2] == quote)) {
+            parts.push(Span { start: part_start, end: i });
+            return Some((build(parts, interpolations, i + n), i + n));
         }
-        if !crua && ch == b'\\' {
+        if !raw && ch == b'\\' {
             i += 2;
             continue;
         }
-        if !crua && ch == b'$' {
-            let seguinte = b.get(i + 1).copied().filter(|_| i + 1 < fim);
-            if seguinte == Some(b'{') {
-                trechos.push(Span { start: do_trecho, end: i });
-                let depois = fecha_chave(b, i + 2, fim);
-                interpolacoes.push(Span { start: i, end: depois });
-                i = depois;
-                do_trecho = i;
+        if !raw && ch == b'$' {
+            let next = b.get(i + 1).copied().filter(|_| i + 1 < end);
+            if next == Some(b'{') {
+                parts.push(Span { start: part_start, end: i });
+                let after = closing_brace(b, i + 2, end);
+                interpolations.push(Span { start: i, end: after });
+                i = after;
+                part_start = i;
                 continue;
             }
-            if seguinte.is_some_and(|c| c == b'_' || c.is_ascii_alphabetic()) {
-                trechos.push(Span { start: do_trecho, end: i });
+            if next.is_some_and(|c| c == b'_' || c.is_ascii_alphabetic()) {
+                parts.push(Span { start: part_start, end: i });
                 let mut j = i + 1;
-                while j < fim && (b[j] == b'_' || b[j].is_ascii_alphanumeric()) {
+                while j < end && (b[j] == b'_' || b[j].is_ascii_alphanumeric()) {
                     j += 1;
                 }
-                interpolacoes.push(Span { start: i, end: j });
+                interpolations.push(Span { start: i, end: j });
                 i = j;
-                do_trecho = i;
+                part_start = i;
                 continue;
             }
         }
         i += 1;
     }
-    trechos.push(Span { start: do_trecho.min(fim), end: fim });
-    Some((pronto(trechos, interpolacoes, fim), fim))
+    parts.push(Span { start: part_start.min(end), end });
+    Some((build(parts, interpolations, end), end))
 }
 
-/// Os literais escritos em `span` (o intervalo de uma expressão de string:
-/// um literal, ou vários adjacentes separados por brancos e comentários).
-pub fn literais(fonte: &str, span: Span) -> Vec<Literal> {
-    let b = fonte.as_bytes();
-    let fim = span.end.min(b.len());
+/// The literals written in `span` (the range of a string expression: one
+/// literal, or several adjacent ones separated by whitespace and comments).
+pub fn literals(source: &str, span: Span) -> Vec<Literal> {
+    let b = source.as_bytes();
+    let end = span.end.min(b.len());
     let mut i = span.start;
     let mut v = Vec::new();
     loop {
-        i = pular_espaco(b, i, fim);
-        if i >= fim {
+        i = skip_blanks(b, i, end);
+        if i >= end {
             break;
         }
-        match literal(b, i, fim) {
-            Some((l, depois)) => {
+        match literal(b, i, end) {
+            Some((l, after)) => {
                 v.push(l);
-                i = depois;
+                i = after;
             }
             None => break,
         }
@@ -198,32 +197,32 @@ pub fn literais(fonte: &str, span: Span) -> Vec<Literal> {
     v
 }
 
-/// Os comentários da fonte (de linha e de bloco), fora das strings.
-pub fn comentarios(fonte: &str) -> Vec<Span> {
-    let b = fonte.as_bytes();
-    let fim = b.len();
+/// The source's comments (line and block), outside strings.
+pub fn comments(source: &str) -> Vec<Span> {
+    let b = source.as_bytes();
+    let end = b.len();
     let mut i = 0;
     let mut v = Vec::new();
-    while i < fim {
+    while i < end {
         let ch = b[i];
         if ch == b'/' && b.get(i + 1) == Some(&b'/') {
-            let inicio = i;
-            while i < fim && b[i] != b'\n' && b[i] != b'\r' {
+            let start = i;
+            while i < end && b[i] != b'\n' && b[i] != b'\r' {
                 i += 1;
             }
-            v.push(Span { start: inicio, end: i });
+            v.push(Span { start, end: i });
             continue;
         }
         if ch == b'/' && b.get(i + 1) == Some(&b'*') {
-            let inicio = i;
-            i = fim_do_bloco(b, i, fim);
-            v.push(Span { start: inicio, end: i });
+            let start = i;
+            i = block_end(b, i, end);
+            v.push(Span { start, end: i });
             continue;
         }
         if ch == b'\'' || ch == b'"' {
-            let crua = i > 0 && b[i - 1] == b'r' && (i < 2 || !de_identificador(b[i - 2]));
-            if let Some((_, depois)) = literal(b, if crua { i - 1 } else { i }, fim) {
-                i = depois;
+            let raw = i > 0 && b[i - 1] == b'r' && (i < 2 || !is_ident_char(b[i - 2]));
+            if let Some((_, after)) = literal(b, if raw { i - 1 } else { i }, end) {
+                i = after;
                 continue;
             }
         }
@@ -232,15 +231,15 @@ pub fn comentarios(fonte: &str) -> Vec<Span> {
     v
 }
 
-/// O valor de um trecho de string comum (os escapes do Dart decodificados:
-/// `\n`, `\r`, `\f`, `\b`, `\t`, `\v`, `\xHH`, `\uHHHH`, `\u{H…}`; qualquer
-/// outro `\c` vale `c`). Um escape de substituto sozinho não produz
-/// caractere (não é aspa nem barra).
-pub fn decodificar(texto: &str) -> String {
-    let cs: Vec<char> = texto.chars().collect();
-    let mut s = String::with_capacity(texto.len());
-    let hex = |de: usize, ate: usize| -> Option<u32> {
-        let h: String = cs.get(de..ate)?.iter().collect();
+/// The value of a plain string part (Dart's escapes decoded: `\n`, `\r`, `\f`,
+/// `\b`, `\t`, `\v`, `\xHH`, `\uHHHH`, `\u{H…}`; any other `\c` is `c`). A lone
+/// surrogate escape produces no character (it is neither a quote nor a
+/// backslash).
+pub fn decode(text: &str) -> String {
+    let cs: Vec<char> = text.chars().collect();
+    let mut s = String::with_capacity(text.len());
+    let hex = |from: usize, until: usize| -> Option<u32> {
+        let h: String = cs.get(from..until)?.iter().collect();
         u32::from_str_radix(&h, 16).ok()
     };
     let mut i = 0;
@@ -268,8 +267,8 @@ pub fn decodificar(texto: &str) -> String {
             }
             'u' => {
                 if cs.get(i) == Some(&'{') {
-                    let fecho = cs[i..].iter().position(|x| *x == '}').map(|k| i + k);
-                    if let Some(f) = fecho {
+                    let close = cs[i..].iter().position(|x| *x == '}').map(|k| i + k);
+                    if let Some(f) = close {
                         if let Some(ch) = hex(i + 1, f).and_then(char::from_u32) {
                             s.push(ch);
                         }
@@ -290,46 +289,46 @@ pub fn decodificar(texto: &str) -> String {
     s
 }
 
-/// `StringLiteral.stringValue`: o valor dos literais adjacentes juntos, ou
-/// `None` se algum tem interpolação.
-pub fn valor_de_string(fonte: &str, span: Span) -> Option<String> {
+/// `StringLiteral.stringValue`: the value of the adjacent literals joined, or
+/// `None` if any has an interpolation.
+pub fn string_value(source: &str, span: Span) -> Option<String> {
     let mut v = String::new();
-    for l in literais(fonte, span) {
-        if l.interpolado() {
+    for l in literals(source, span) {
+        if l.is_interpolated() {
             return None;
         }
-        let t = l.texto(fonte);
-        v.push_str(&if l.crua { t } else { decodificar(&t) });
+        let t = l.text(source);
+        v.push_str(&if l.raw { t } else { decode(&t) });
     }
     Some(v)
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
-    fn ler(fonte: &str) -> Vec<Literal> {
-        literais(fonte, Span { start: 0, end: fonte.len() })
+    fn read(source: &str) -> Vec<Literal> {
+        literals(source, Span { start: 0, end: source.len() })
     }
 
     #[test]
-    fn literais_adjacentes_e_interpolacao() {
-        let fonte = "'a' \"b$c d${e ? 'x}' : \"y\"}f\" // z\n r'''g'h'''";
-        let v = ler(fonte);
+    fn adjacent_literals_and_interpolation() {
+        let source = "'a' \"b$c d${e ? 'x}' : \"y\"}f\" // z\n r'''g'h'''";
+        let v = read(source);
         assert_eq!(v.len(), 3);
-        assert_eq!(&fonte[v[0].span.start..v[0].span.end], "'a'");
-        assert!(v[0].aspas_simples && !v[0].interpolado() && !v[0].crua && !v[0].multilinha);
-        assert_eq!(v[1].texto(fonte), "b df");
-        let interpolacoes: Vec<&str> = v[1].interpolacoes.iter().map(|s| &fonte[s.start..s.end]).collect();
-        assert_eq!(interpolacoes, vec!["$c", "${e ? 'x}' : \"y\"}"]);
-        assert!(v[2].crua && v[2].multilinha && v[2].aspas_simples);
-        assert_eq!(v[2].texto(fonte), "g'h");
+        assert_eq!(&source[v[0].span.start..v[0].span.end], "'a'");
+        assert!(v[0].single_quoted && !v[0].is_interpolated() && !v[0].raw && !v[0].multiline);
+        assert_eq!(v[1].text(source), "b df");
+        let interpolations: Vec<&str> = v[1].interpolations.iter().map(|s| &source[s.start..s.end]).collect();
+        assert_eq!(interpolations, vec!["$c", "${e ? 'x}' : \"y\"}"]);
+        assert!(v[2].raw && v[2].multiline && v[2].single_quoted);
+        assert_eq!(v[2].text(source), "g'h");
     }
 
     #[test]
-    fn comentarios_fora_de_strings() {
-        let fonte = "var a = '// não'; // sim\n/* b /* c */ d */ var e = \"/* não */\";\n";
-        let v: Vec<&str> = comentarios(fonte).iter().map(|s| &fonte[s.start..s.end]).collect();
+    fn comments_outside_strings() {
+        let source = "var a = '// não'; // sim\n/* b /* c */ d */ var e = \"/* não */\";\n";
+        let v: Vec<&str> = comments(source).iter().map(|s| &source[s.start..s.end]).collect();
         assert_eq!(v, vec!["// sim", "/* b /* c */ d */"]);
     }
 }

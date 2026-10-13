@@ -293,7 +293,7 @@ impl<'a> Visitor<'a> {
             let start = func.name.map_or(func.span.start, |n| n.span.end);
             if let Some(i) = self.source.get(start..end).and_then(|t| last_word(t, word)) {
                 let start = start + i;
-                self.report(c::INVALID_MODIFIER_ON_SETTER, Span { start: start, end: start + word.len() }, &[]);
+                self.report(c::INVALID_MODIFIER_ON_SETTER, Span { start, end: start + word.len() }, &[]);
             }
         }
         let after_params = func.name.map_or(func.span.start, |n| n.span.end);
@@ -311,7 +311,7 @@ impl<'a> Visitor<'a> {
                     let start = from.unwrap_or(0).min(end);
                     if let Some(i) = self.source.get(start..end).and_then(|t| t.rfind("=>")) {
                         let start = start + i;
-                        self.report(c::RETURN_IN_GENERATOR, Span { start: start, end: start + 2 }, &[]);
+                        self.report(c::RETURN_IN_GENERATOR, Span { start, end: start + 2 }, &[]);
                     }
                 }
                 self.expr(*e);
@@ -360,7 +360,7 @@ impl<'a> Visitor<'a> {
                 // On the whole `Label` node: the name and the colon.
                 let rest = self.source.get(r.span.end..).unwrap_or("");
                 let end = rest.find(':').filter(|&i| rest[..i].trim().is_empty()).map_or(r.span.end, |i| r.span.end + i + 1);
-                self.report(w::UNUSED_LABEL, Span { start: r.span.start, end: end }, &[&text]);
+                self.report(w::UNUSED_LABEL, Span { start: r.span.start, end }, &[&text]);
             }
         }
     }
