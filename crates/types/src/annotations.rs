@@ -171,7 +171,9 @@ pub fn is_shadowed(a: &ast::Ast, interner: &Interner, pos: usize, n: SymbolId) -
             .min_by_key(|x| x.end - x.start)
             .unwrap_or(s)
     };
-    // The locals declared before `pos`, in the scope that contains them.
+    // The locals declared before `pos`, in the scope that contains them. The
+    // enclosing block (`block_of`, a walk over all statements) is only looked
+    // for when the statement declares `n`.
     for s in a.stmts.iter() {
         let mut names: Vec<ast::Name> = Vec::new();
         // A block local is in scope in the whole block, also before its declaration
@@ -180,17 +182,26 @@ pub fn is_shadowed(a: &ast::Ast, interner: &Interner, pos: usize, n: SymbolId) -
         let mut in_whole_block = false;
         let scope = match &s.kind {
             StmtKind::Variables(l) => {
+                if !l.variables.iter().any(|v| v.name.sym == n) {
+                    continue;
+                }
                 names.extend(l.variables.iter().map(|v| v.name));
                 in_whole_block = true;
                 block_of(s.span)
             }
             StmtKind::Function(f) => {
+                if a.function(*f).name.is_none_or(|x| x.sym != n) {
+                    continue;
+                }
                 names.extend(a.function(*f).name);
                 in_whole_block = true;
                 block_of(s.span)
             }
             StmtKind::PatternVariables { pattern, .. } => {
                 declared_in_pattern(a, *pattern, false, &mut names);
+                if !names.iter().any(|x| x.sym == n) {
+                    continue;
+                }
                 in_whole_block = true;
                 block_of(s.span)
             }
