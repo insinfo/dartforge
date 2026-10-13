@@ -1940,7 +1940,7 @@ impl Heap {
     pub(crate) fn check_owning_frame(&self, frame: i64) {
         let (_, _, owning) = self.frames.iter().rfind(|(id, _, _)| *id == frame)
             .expect("quadro ARC inexistente");
-        assert!(*owning, "quadro ARC deve ser proprietário");
+        assert!(*owning, "ARC frame must be owning");
     }
 
     fn owning_roots(&self) -> Vec<Ref> {

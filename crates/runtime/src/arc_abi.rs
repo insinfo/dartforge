@@ -1,38 +1,38 @@
-// ABI de tokens e slots proprietários usados pelo código gerado.
-// A pilha observacional não substitui estes owners. Operações de ownership
-// não coletam nem executam Dart; coleta tem um safepoint explícito separado.
-// A fábrica owned de caixas é uma operação de alocação, com safepoint próprio.
-// O lançamento Ref publica uma raiz runtime e pode alocar o rastro.
+// ABI of tokens and owning slots used by the generated code.
+// The observational stack does not replace these owners. Ownership operations
+// neither collect nor run Dart; collection has a separate explicit safepoint.
+// The owned box factory is an allocation operation, with its own safepoint.
+// The Ref throw publishes a runtime root and may allocate the stack trace.
 
 fn audited_list_map(heap: &Heap, list: i64) -> Result<(i64, usize, usize), &'static str> {
     use crate::layout::cid;
-    if !heap.e_lista(list) { return Err("receiver não é lista viva"); }
+    if !heap.e_lista(list) { return Err("receiver is not a live list"); }
     let (data, length) = if heap.header(list).class_id == cid::GROWABLE_LIST {
-        let object = heap.object(list).ok_or("lista expansível sem mapa de instância")?;
-        if object.len() != 2 { return Err("layout da lista expansível inválido"); }
-        let (n, mark_n) = object.get(0).ok_or("comprimento ausente")?;
-        let (data, mark_data) = object.get(1).ok_or("armazenamento ausente")?;
-        if mark_n || !mark_data { return Err("mapa da lista expansível inválido"); }
-        (data, usize::try_from(n).map_err(|_| "comprimento negativo")?)
+        let object = heap.object(list).ok_or("growable list without instance map")?;
+        if object.len() != 2 { return Err("invalid growable list layout"); }
+        let (n, mark_n) = object.get(0).ok_or("missing length")?;
+        let (data, mark_data) = object.get(1).ok_or("missing storage")?;
+        if mark_n || !mark_data { return Err("invalid growable list map"); }
+        (data, usize::try_from(n).map_err(|_| "negative length")?)
     } else {
-        let n = *heap.words(list).first().ok_or("comprimento ausente")?;
-        (list, usize::try_from(n).map_err(|_| "comprimento negativo")?)
+        let n = *heap.words(list).first().ok_or("missing length")?;
+        (list, usize::try_from(n).map_err(|_| "negative length")?)
     };
     if !heap.e_lista(data) || !cid::is_fixed_list(heap.header(data).class_id) {
-        return Err("armazenamento não é lista fixa viva");
+        return Err("storage is not a live fixed list");
     }
     let words = heap.words(data);
-    let capacidade = usize::try_from(*words.first().ok_or("capacidade ausente")?)
-        .map_err(|_| "capacidade negativa")?;
+    let capacidade = usize::try_from(*words.first().ok_or("missing capacity")?)
+        .map_err(|_| "negative capacity")?;
     if capacidade > words.len().saturating_sub(1) {
-        return Err("capacidade fora do armazenamento");
+        return Err("capacity outside the storage");
     }
     Ok((data, length, capacidade))
 }
 
 fn audited_list_storage(heap: &Heap, list: i64) -> Result<(i64, usize), &'static str> {
     let (data, length, capacidade) = audited_list_map(heap, list)?;
-    if length > capacidade { return Err("comprimento fora do armazenamento"); }
+    if length > capacidade { return Err("length outside the storage"); }
     Ok((data, length))
 }
 
@@ -40,26 +40,26 @@ fn read_audited_ref_element(heap: &Heap, list: i64, ix: i64) -> Result<i64, &'st
     use crate::layout::flags;
     let (data, length) = audited_list_storage(heap, list)?;
     if heap.header(data).flags & flags::FORMA != flags::REFS {
-        return Err("armazenamento não contém referências");
+        return Err("storage does not hold references");
     }
     let words = heap.words(data);
-    let ix = usize::try_from(ix).map_err(|_| "índice negativo")?;
-    if ix >= length { return Err("índice fora da lista"); }
+    let ix = usize::try_from(ix).map_err(|_| "negative index")?;
+    if ix >= length { return Err("index outside the list"); }
     Ok(words[1 + ix])
 }
 
-/// Lê o comprimento escalar de uma lista viva sem alterar seu ownership.
+/// Reads the scalar length of a live list without changing its ownership.
 ///
-/// Aceita listas fixas, imutáveis e expansíveis, gerais ou compactas. Confere
-/// mapa e limites do armazenamento sem alocar, coletar ou executar Dart.
-/// A referência recebida permanece emprestada durante a chamada.
+/// Accepts fixed, immutable and growable lists, general or compact. Checks
+/// the storage map and bounds without allocating, collecting or running Dart.
+/// The received reference stays borrowed during the call.
 ///
 /// # Panics
-/// Receiver morto, classe, mapa ou comprimento inválido; aborta na fronteira C.
+/// Dead receiver, invalid class, map or length; aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// // SAFETY: elements Ref váread_list durante a criação da list.
+/// // SAFETY: Ref elements valid during the list creation.
 /// let list = unsafe { dartforge_lista_nova([0, 0].as_ptr(), 2, 8, 0) };
 /// dartforge_arc_retain(list);
 /// assert_eq!(dartforge_arc_lista_len_v1(list), 2);
@@ -70,22 +70,22 @@ pub extern "C" fn dartforge_arc_lista_len_v1(list: i64) -> i64 {
     HEAP.with(|h| {
         let heap = h.borrow();
         let (_, length) = audited_list_storage(&heap, list)
-            .expect("comprimento ARC de lista inválido");
+            .expect("invalid ARC list length");
         i64::try_from(length).expect("comprimento fora de i64")
     })
 }
 
-/// Empresta o armazenamento Ref, mantido vivo pelo owner da lista recebida.
+/// Borrows the Ref storage, kept alive by the owner of the received list.
 ///
-/// Confere classe, mapa e limites; não aloca, coleta, retém ou executa Dart.
-/// O empréstimo perde validade após uma operação que possa trocar arestas.
+/// Checks class, map and bounds; does not allocate, collect, retain or run Dart.
+/// The borrow loses validity after an operation that may swap edges.
 ///
 /// # Panics
-/// Lista morta ou layout inválido; aborta na fronteira C.
+/// Dead list or invalid layout; aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// // SAFETY: one element Ref váread_so_far durante a criação.
+/// // SAFETY: one Ref element valid during the creation.
 /// let list = unsafe { dartforge_lista_nova([0].as_ptr(), 1, 8, 0) };
 /// dartforge_arc_retain(list);
 /// assert_eq!(dartforge_arc_lista_armazenamento_ref_v1(list), list);
@@ -94,15 +94,15 @@ pub extern "C" fn dartforge_arc_lista_len_v1(list: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_lista_armazenamento_ref_v1(list: i64) -> i64 {
     HEAP.with(|h| audited_list_storage(&h.borrow(), list)
-        .expect("armazenamento ARC inválido").0)
+        .expect("invalid ARC storage").0)
 }
 
-/// Lê a forma escalar do armazenamento de uma lista viva.
+/// Reads the scalar shape of a live list's storage.
 ///
-/// Não aloca, coleta, retém ou executa Dart; a referência fica emprestada.
+/// Does not allocate, collect, retain or run Dart; the reference stays borrowed.
 ///
 /// # Panics
-/// Lista morta ou layout inválido; aborta na fronteira C.
+/// Dead list or invalid layout; aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
@@ -115,17 +115,17 @@ pub extern "C" fn dartforge_arc_lista_armazenamento_ref_v1(list: i64) -> i64 {
 pub extern "C" fn dartforge_arc_lista_forma_v1(list: i64) -> i64 {
     HEAP.with(|h| {
         let heap = h.borrow();
-        let (data, _) = audited_list_storage(&heap, list).expect("forma ARC inválida");
+        let (data, _) = audited_list_storage(&heap, list).expect("invalid ARC shape");
         i64::from(heap.header(data).flags & (crate::layout::flags::FORMA | crate::layout::flags::ELEMENTO))
     })
 }
 
-/// Lê a capacidade escalar do armazenamento de uma lista viva.
+/// Reads the scalar capacity of a live list's storage.
 ///
-/// Não aloca, coleta, retém ou executa Dart; a referência fica emprestada.
+/// Does not allocate, collect, retain or run Dart; the reference stays borrowed.
 ///
 /// # Panics
-/// Lista morta ou layout inválido; aborta na fronteira C.
+/// Dead list or invalid layout; aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
@@ -138,7 +138,7 @@ pub extern "C" fn dartforge_arc_lista_forma_v1(list: i64) -> i64 {
 pub extern "C" fn dartforge_arc_lista_capacidade_v1(list: i64) -> i64 {
     HEAP.with(|h| {
         let heap = h.borrow();
-        let (data, _) = audited_list_storage(&heap, list).expect("capacidade ARC inválida");
+        let (data, _) = audited_list_storage(&heap, list).expect("invalid ARC capacity");
         heap.list_len(data) as i64
     })
 }
@@ -146,21 +146,21 @@ pub extern "C" fn dartforge_arc_lista_capacidade_v1(list: i64) -> i64 {
 fn check_arc_list_len(heap: &Heap, list: i64, new: i64) -> Result<usize, &'static str> {
     let (_, _, capacidade) = audited_list_map(heap, list)?;
     if heap.header(list).class_id != crate::layout::cid::GROWABLE_LIST {
-        return Err("comprimento mutável exige lista expansível");
+        return Err("mutable length requires a growable list");
     }
-    let new = usize::try_from(new).map_err(|_| "comprimento negativo")?;
-    if new > capacidade { return Err("comprimento fora do armazenamento"); }
+    let new = usize::try_from(new).map_err(|_| "negative length")?;
+    if new > capacidade { return Err("length outside the storage"); }
     Ok(new)
 }
 
-/// Grava o comprimento escalar de uma lista expansível dentro da capacidade.
+/// Writes the scalar length of a growable list within the capacity.
 ///
-/// Preserva a sequência `_setData` seguida de `_setLength` do SDK, mesmo
-/// quando o comprimento antigo excede temporariamente a capacidade nova.
-/// Não aloca, coleta ou executa Dart; invalida empréstimos anteriores.
+/// Preserves the SDK's `_setData` followed by `_setLength` sequence, even
+/// when the old length temporarily exceeds the new capacity.
+/// Does not allocate, collect or run Dart; invalidates earlier borrows.
 ///
 /// # Panics
-/// Classe, mapa ou novo comprimento inválido; aborta na fronteira C.
+/// Invalid class, map or new length; aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
@@ -174,7 +174,7 @@ fn check_arc_list_len(heap: &Heap, list: i64, new: i64) -> Result<usize, &'stati
 pub extern "C" fn dartforge_arc_lista_gravar_len_v1(list: i64, new: i64) {
     HEAP.with(|h| {
         let mut heap = h.borrow_mut();
-        let new = check_arc_list_len(&heap, list, new).expect("gravação ARC de comprimento inválida");
+        let new = check_arc_list_len(&heap, list, new).expect("invalid ARC length write");
         heap.list_set_len(list, new);
     })
 }
@@ -184,28 +184,28 @@ fn check_arc_list_bits(heap: &Heap, data: i64, ix: i64, bits: i64, shape: i64)
     use crate::layout::{cid, flags};
     let (storage, length) = audited_list_storage(heap, data)?;
     if storage != data || heap.header(data).class_id != cid::LIST {
-        return Err("gravação exige armazenamento fixo mutável");
+        return Err("write requires a mutable fixed storage");
     }
     let f = heap.header(data).flags & (flags::FORMA | flags::ELEMENTO);
     if shape != i64::from(f) || ![flags::BRUTO | flags::ELEMENTO_INT,
         flags::BRUTO | flags::ELEMENTO_DOUBLE, flags::BRUTO | flags::ELEMENTO_BOOL].contains(&f) {
-        return Err("forma escalar incompatível");
+        return Err("incompatible scalar shape");
     }
     if f == flags::BRUTO | flags::ELEMENTO_BOOL && ![0, 1].contains(&bits) {
-        return Err("booleano não canônico");
+        return Err("non-canonical boolean");
     }
-    let i = usize::try_from(ix).map_err(|_| "índice negativo")?;
-    if i >= length { return Err("índice fora do armazenamento"); }
+    let i = usize::try_from(ix).map_err(|_| "negative index")?;
+    if i >= length { return Err("index outside the storage"); }
     Ok(i)
 }
 
-/// Grava bits de int, double ou bool num armazenamento compacto mutável.
+/// Writes int, double or bool bits into a mutable compact storage.
 ///
-/// Confere forma e índice; `shape` usa os bits FORMA/ELEMENTO do layout.
-/// Não encaixota, aloca, coleta ou executa Dart; invalida empréstimos anteriores.
+/// Checks shape and index; `shape` uses the FORMA/ELEMENTO bits of the layout.
+/// Does not box, allocate, collect or run Dart; invalidates earlier borrows.
 ///
 /// # Panics
-/// Lista, forma, índice ou booleano inválido; aborta na fronteira C.
+/// Invalid list, shape, index or boolean; aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
@@ -218,18 +218,18 @@ fn check_arc_list_bits(heap: &Heap, data: i64, ix: i64, bits: i64, shape: i64)
 pub extern "C" fn dartforge_arc_lista_gravar_bits_v1(data: i64, ix: i64, bits: i64, shape: i64) {
     HEAP.with(|h| {
         let mut heap = h.borrow_mut();
-        let i = check_arc_list_bits(&heap, data, ix, bits, shape).expect("gravação ARC escalar inválida");
+        let i = check_arc_list_bits(&heap, data, ix, bits, shape).expect("invalid ARC scalar write");
         heap.words_mut(data)[1 + i] = bits;
     })
 }
 
-/// Copia uma referência emprestada para um elemento geral, com barreira ARC/GC.
+/// Copies a borrowed reference into a general element, with the ARC/GC barrier.
 ///
-/// Confere armazenamento mutável, forma Ref e índice. Não aloca, coleta ou
-/// executa Dart; não consome o owner do valor e invalida empréstimos anteriores.
+/// Checks mutable storage, Ref shape and index. Does not allocate, collect or
+/// run Dart; does not consume the value's owner and invalidates earlier borrows.
 ///
 /// # Panics
-/// Lista, índice ou referência morta inválida; aborta na fronteira C.
+/// Invalid list, index or dead reference; aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
@@ -243,21 +243,21 @@ pub extern "C" fn dartforge_arc_lista_gravar_ref_v1(data: i64, ix: i64, value: i
     HEAP.with(|h| {
         let mut heap = h.borrow_mut();
         assert!(heap.e_lista(data) && heap.header(data).class_id == crate::layout::cid::LIST,
-            "gravação ARC Ref exige armazenamento mutável");
-        read_audited_ref_element(&heap, data, ix).expect("gravação ARC Ref inválida");
-        assert!(!crate::layout::is_object(value) || heap.is_live_object(value), "referência ARC morta");
+            "ARC Ref write requires mutable storage");
+        read_audited_ref_element(&heap, data, ix).expect("invalid ARC Ref write");
+        assert!(!crate::layout::is_object(value) || heap.is_live_object(value), "dead ARC reference");
         heap.write_refs(data, 1 + ix as usize, &[value]);
     })
 }
 
-/// Troca o armazenamento de uma expansível se a forma do novo for a mesma.
+/// Swaps the storage of a growable list if the new one has the same shape.
 ///
-/// Retorna 1 após copiar a aresta Ref com barreira, ou 0 sem alterar a lista
-/// quando as formas diferem. Não aloca, coleta ou executa Dart. A troca pode
-/// anteceder `_setLength` ao encolher e invalida empréstimos anteriores.
+/// Returns 1 after copying the Ref edge with the barrier, or 0 without changing the list
+/// when the shapes differ. Does not allocate, collect or run Dart. The swap may
+/// precede `_setLength` when shrinking and invalidates earlier borrows.
 ///
 /// # Panics
-/// Receiver, mapa ou armazenamento inválido; aborta na fronteira C.
+/// Invalid receiver, map or storage; aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
@@ -271,10 +271,10 @@ pub extern "C" fn dartforge_arc_lista_gravar_ref_v1(data: i64, ix: i64, value: i
 pub extern "C" fn dartforge_arc_lista_gravar_dados_v1(list: i64, data: i64) -> i64 {
     HEAP.with(|h| {
         let mut heap = h.borrow_mut();
-        let (old_gen, _, _) = audited_list_map(&heap, list).expect("mapa ARC de lista inválido");
+        let (old_gen, _, _) = audited_list_map(&heap, list).expect("invalid ARC list map");
         assert_eq!(heap.header(list).class_id, crate::layout::cid::GROWABLE_LIST);
-        let (fixed, _) = audited_list_storage(&heap, data).expect("novo armazenamento ARC inválido");
-        assert_eq!(fixed, data, "armazenamento ARC deve ser fixo");
+        let (fixed, _) = audited_list_storage(&heap, data).expect("invalid new ARC storage");
+        assert_eq!(fixed, data, "ARC storage must be fixed");
         let mask = crate::layout::flags::FORMA | crate::layout::flags::ELEMENTO;
         if heap.header(old_gen).flags & mask != heap.header(data).flags & mask { return 0; }
         heap.list_set_data(list, data);
@@ -282,19 +282,19 @@ pub extern "C" fn dartforge_arc_lista_gravar_dados_v1(list: i64, data: i64) -> i
     })
 }
 
-/// Lê os bits de um elemento int, double ou bool de uma lista compacta viva.
+/// Reads the bits of an int, double or bool element of a live compact list.
 ///
-/// Confere lista fixa/imutável/expansível, mapa, forma compacta e limites
-/// lógicos; bool sai 0 ou 1. Não aloca, coleta, retém ou executa Dart; a
-/// referência fica emprestada. As guardas Dart de índice já devem ter sido
-/// executadas.
+/// Checks fixed/immutable/growable list, map, compact shape and logical
+/// bounds; bool comes out as 0 or 1. Does not allocate, collect, retain or run Dart; the
+/// reference stays borrowed. The Dart index guards must already have been
+/// executed.
 ///
 /// # Panics
-/// Lista/layout/forma/índice inválido; aborta na fronteira C.
+/// Invalid list/layout/shape/index; aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// // SAFETY: elements escalares durante a criação da list compacta.
+/// // SAFETY: scalar elements during the creation of the compact list.
 /// let list = unsafe { dartforge_lista_nova([7].as_ptr(), 1, 8, 1) };
 /// dartforge_arc_retain(list);
 /// dartforge_arc_lista_gravar_bits_v1(list, 0, 42, 0x22);
@@ -305,7 +305,7 @@ pub extern "C" fn dartforge_arc_lista_gravar_dados_v1(list: i64, data: i64) -> i
 pub extern "C" fn dartforge_arc_lista_ler_bits_v1(list: i64, ix: i64) -> i64 {
     HEAP.with(|h| {
         let heap = h.borrow();
-        read_arc_list_bits(&heap, list, ix).expect("leitura ARC escalar inválida")
+        read_arc_list_bits(&heap, list, ix).expect("invalid ARC scalar read")
     })
 }
 
@@ -315,30 +315,30 @@ fn read_arc_list_bits(heap: &Heap, list: i64, ix: i64) -> Result<i64, &'static s
     let f = heap.header(data).flags & (flags::FORMA | flags::ELEMENTO);
     if ![flags::BRUTO | flags::ELEMENTO_INT, flags::BRUTO | flags::ELEMENTO_DOUBLE,
         flags::BRUTO | flags::ELEMENTO_BOOL].contains(&f) {
-        return Err("armazenamento não é compacto");
+        return Err("storage is not compact");
     }
-    let i = usize::try_from(ix).map_err(|_| "índice negativo")?;
-    if i >= length { return Err("índice fora da lista"); }
+    let i = usize::try_from(ix).map_err(|_| "negative index")?;
+    if i >= length { return Err("index outside the list"); }
     let bits = heap.words(data)[1 + i];
     if f == flags::BRUTO | flags::ELEMENTO_BOOL && ![0, 1].contains(&bits) {
-        return Err("booleano não canônico");
+        return Err("non-canonical boolean");
     }
     Ok(bits)
 }
 
-/// Lê um elemento da lista geral e devolve um owner independente.
+/// Reads an element of the general list and returns an independent owner.
 ///
-/// Confere lista fixa/imutável/expansível viva, mapa, representação Ref e
-/// limites físicos e lógicos. Retém sem alocar, coletar ou executar Dart.
-/// O chamador deve consumir o token; as guardas Dart de índice já devem ter
-/// sido executadas. Não converte elementos compactos em referências.
+/// Checks a live fixed/immutable/growable list, map, Ref representation and
+/// physical and logical bounds. Retains without allocating, collecting or running Dart.
+/// The caller must consume the token; the Dart index guards must already have
+/// been executed. Does not convert compact elements into references.
 ///
 /// # Panics
-/// Lista/layout/índice inválido ou falha de retenção; aborta na fronteira C.
+/// Invalid list/layout/index or retention failure; aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// // SAFETY: one element Ref alive e alinhado durante a cópia.
+/// // SAFETY: one Ref element alive and aligned during the copy.
 /// let list = unsafe { dartforge_lista_nova([0].as_ptr(), 1, 8, 0) };
 /// dartforge_arc_retain(list);
 /// assert_eq!(dartforge_arc_lista_ref_owned_v1(list, 0), 0);
@@ -348,24 +348,24 @@ fn read_arc_list_bits(heap: &Heap, list: i64, ix: i64) -> Result<i64, &'static s
 pub extern "C" fn dartforge_arc_lista_ref_owned_v1(list: i64, ix: i64) -> i64 {
     HEAP.with(|h| {
         let mut heap = h.borrow_mut();
-        let value = read_audited_ref_element(&heap, list, ix).expect("leitura ARC de lista inválida");
+        let value = read_audited_ref_element(&heap, list, ix).expect("invalid ARC list read");
         heap.retain_code_owner(value);
         value
     })
 }
 
-/// Lê um elemento da lista geral emprestado da lista, sem token do código.
+/// Reads an element of the general list borrowed from the list, without a code token.
 ///
-/// As mesmas conferências de [`dartforge_arc_lista_ref_owned_v1`]. É a
-/// leitura do ARC sem preparação (o regime legado), em que ninguém consome
-/// tokens: o elemento fica vivo pela lista e pelas raízes do quadro.
+/// The same checks as [`dartforge_arc_lista_ref_owned_v1`]. It is the
+/// ARC read without preparation (the legacy regime), in which nobody consumes
+/// tokens: the element stays alive through the list and the frame roots.
 ///
 /// # Panics
-/// Lista/layout/índice inválido; aborta na fronteira C.
+/// Invalid list/layout/index; aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// // SAFETY: one element Ref alive e alinhado durante a cópia.
+/// // SAFETY: one Ref element alive and aligned during the copy.
 /// let list = unsafe { dartforge_lista_nova([0].as_ptr(), 1, 8, 0) };
 /// dartforge_arc_retain(list);
 /// assert_eq!(dartforge_arc_lista_ref_v1(list, 0), 0);
@@ -373,7 +373,7 @@ pub extern "C" fn dartforge_arc_lista_ref_owned_v1(list: i64, ix: i64) -> i64 {
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_lista_ref_v1(list: i64, ix: i64) -> i64 {
-    HEAP.with(|h| read_audited_ref_element(&h.borrow(), list, ix).expect("leitura ARC de lista inválida"))
+    HEAP.with(|h| read_audited_ref_element(&h.borrow(), list, ix).expect("invalid ARC list read"))
 }
 
 #[cfg(test)]
@@ -425,7 +425,7 @@ mod tests_owned_ref_list {
                                 _ if general => assert_eq!(last_one, Value::Ref(value)),
                                 Element::Int => assert_eq!(last_one, Value::Int(i64::MAX)),
                                 Element::Double => {
-                                    let Value::Double(d) = last_one else { panic!("elemento double esperado") };
+                                    let Value::Double(d) = last_one else { panic!("double element expected") };
                                     assert_eq!(d.to_bits(), 0xfff8_1234_5678_9abc);
                                 },
                                 Element::Bool => assert_eq!(last_one, Value::Bool(true)),
@@ -444,7 +444,7 @@ mod tests_owned_ref_list {
                         if !compatible || shape == Element::General {
                             assert!(HEAP.with(|h| h.borrow().is_live_object(value)));
                         }
-                        // O retorno borrowed não pode deixar um owner adicional da lista.
+                        // The borrowed return cannot leave an additional owner of the list.
                         dartforge_arc_release(list);
                         dartforge_arc_collect();
                         assert!(!HEAP.with(|h| h.borrow().is_live_object(r)));
@@ -485,7 +485,7 @@ mod tests_owned_ref_list {
                     assert_eq!(heap.stats().allocations, stats.allocations);
                     assert_eq!(heap.stats().collections, stats.collections);
                 });
-                // Cópia explícita antes de retirar a aresta que sustenta o borrow.
+                // Explicit copy before removing the edge that sustains the borrow.
                 dartforge_arc_retain(data);
                 let new = HEAP.with(|h| {
                     let mut heap = h.borrow_mut();
@@ -707,32 +707,32 @@ mod tests_owned_ref_list {
 fn arc_argument_index(positional: i64, named: i64, ix: i64) -> Result<usize, &'static str> {
     let total = positional.checked_add(named).filter(|_| positional >= 0 && named >= 0)
         .and_then(|n| usize::try_from(n).ok()).filter(|n| *n <= isize::MAX as usize / std::mem::size_of::<i64>())
-        .ok_or("contagens inválidas do descritor")?;
-    usize::try_from(ix).ok().filter(|i| *i < total).ok_or("índice fora dos argumentos Ref")
+        .ok_or("invalid descriptor counts")?;
+    usize::try_from(ix).ok().filter(|i| *i < total).ok_or("index outside the Ref arguments")
 }
 
-/// Lê um argumento Ref da ABI uniforme e entrega um owner independente.
+/// Reads a Ref argument of the uniform ABI and hands out an independent owner.
 ///
-/// Confere o índice contra a soma dos posicionais e nomeados: o slot RTI
-/// posterior não é uma Ref. Retém antes de devolver, sem alocar, coletar,
-/// executar Dart ou alterar os vetores. O chamador deve consumir o token.
+/// Checks the index against the sum of positionals and named ones: the later RTI
+/// slot is not a Ref. Retains before returning, without allocating, collecting,
+/// running Dart or changing the vectors. The caller must consume the token.
 ///
 /// # Safety
-/// `descriptor` deve apontar para ao menos dois i64 alinhados e imutáveis.
-/// `arguments` deve conter ao menos a quantidade declarada de Ref válidos,
-/// alinhados e sustentados pelo chamador, sem mutação durante esta chamada.
-/// A conferência do índice não prova a extensão real de ponteiros externos.
+/// `descriptor` must point to at least two aligned and immutable i64s.
+/// `arguments` must contain at least the declared number of valid Refs,
+/// aligned and sustained by the caller, without mutation during this call.
+/// The index check does not prove the actual extent of external pointers.
 ///
 /// # Panics
-/// Ponteiro nulo, contagem/índice inválido ou falha interna de retenção;
-/// aborta na fronteira C, sem exceção Dart.
+/// Null pointer, invalid count/index or internal retention failure;
+/// aborts at the C boundary, without a Dart exception.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
 /// let object = dartforge_arc_objeto_owned_v1(123, 0);
 /// let arguments = [object];
 /// let descriptor = [1, 0];
-/// // SAFETY: vetores live_set e imutáveis; object sustentado pelo caller.
+/// // SAFETY: live and immutable vectors; object sustained by the caller.
 /// let received = unsafe { dartforge_arc_argumento_owned_v1(arguments.as_ptr(), descriptor.as_ptr(), 0) };
 /// dartforge_arc_release(object);
 /// assert_eq!(dartforge_arc_observar_heap_v1(received), 3);
@@ -740,11 +740,11 @@ fn arc_argument_index(positional: i64, named: i64, ix: i64) -> Result<usize, &'s
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_arc_argumento_owned_v1(arguments: *const i64, descriptor: *const i64, ix: i64) -> i64 {
-    assert!(!descriptor.is_null() && !arguments.is_null(), "vetores ABI ARC nulos");
-    // SAFETY: dois elementos válidos conforme o contrato da ABI.
+    assert!(!descriptor.is_null() && !arguments.is_null(), "null ARC ABI vectors");
+    // SAFETY: two valid elements per the ABI contract.
     let ix = arc_argument_index(unsafe { *descriptor }, unsafe { *descriptor.add(1) }, ix)
-        .expect("argumento ARC fora do descritor");
-    // SAFETY: índice conferido e extensão garantida pelo chamador.
+        .expect("ARC argument outside the descriptor");
+    // SAFETY: index checked and extent guaranteed by the caller.
     let value = unsafe { *arguments.add(ix) };
     HEAP.with(|heap| heap.borrow_mut().retain_code_owner(value));
     value
@@ -768,7 +768,7 @@ mod tests_owned_argument {
             let arguments = [0, object, crate::layout::smi::de(7).unwrap(), i64::MAX];
             let descriptor = [1, 2, 101, 102];
             let stats = HEAP.with(|h| h.borrow().stats());
-            // SAFETY: três argumentos válidos seguidos de RTI que não será lido.
+            // SAFETY: three valid arguments followed by an RTI that will not be read.
             let received = unsafe { dartforge_arc_argumento_owned_v1(arguments.as_ptr(), descriptor.as_ptr(), 1) };
             assert_eq!(received, object);
             dartforge_arc_release(object);
@@ -783,18 +783,18 @@ mod tests_owned_argument {
     }
 }
 
-/// Aloca uma instância zerada e entrega exatamente um token Owned ao chamador.
+/// Allocates a zeroed instance and hands exactly one Owned token to the caller.
 ///
-/// Classe deve caber em i32 e quantidade de campos em u16, como o cabeçalho
-/// físico. Todos os campos começam com bits zero e sem marca de referência,
-/// inclusive no mapa estendido. A alocação pode coletar; a retenção ocorre
-/// no mesmo empréstimo do heap, antes de devolver o handle ou reabastecer TLAB.
-/// Não executa construtor Dart, registra métodos ou certifica layout/recarga.
-/// O chamador deve transferir o token ou liberá-lo exatamente uma vez.
+/// The class must fit in i32 and the field count in u16, like the physical
+/// header. All fields start with zero bits and no reference mark,
+/// including in the extended map. Allocation may collect; retention happens
+/// in the same heap borrow, before returning the handle or refilling the TLAB.
+/// Does not run a Dart constructor, register methods or certify layout/reload.
+/// The caller must transfer the token or release it exactly once.
 ///
 /// # Panics
-/// Classe/quantidade inválida ou falha interna de alocação/contagem; aborta
-/// no limite C. Não representa uma exceção Dart.
+/// Invalid class/count or internal allocation/counting failure; aborts
+/// at the C boundary. Does not represent a Dart exception.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
@@ -809,7 +809,7 @@ mod tests_owned_argument {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_objeto_owned_v1(class: i64, fields: i64) -> i64 {
     let (class, fields) = owned_instance_parameters(class, fields)
-        .expect("contrato de alocação de instância ARC violado");
+        .expect("ARC instance allocation contract violated");
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
         let object = heap.allocate_instance(class, fields);
@@ -819,16 +819,16 @@ pub extern "C" fn dartforge_arc_objeto_owned_v1(class: i64, fields: i64) -> i64 
     })
 }
 
-/// Cria uma closure com owner independente e contexto emprestado.
+/// Creates a closure with an independent owner and a borrowed context.
 ///
-/// Código e corpo tipado são endereços nativos da imagem; sua ABI e vida
-/// continuam sob responsabilidade do emissor. Não chama esses endereços.
-/// O contexto ganha a aresta da closure sem consumir o token do chamador.
-/// Inicialização e retenção ocorrem no mesmo empréstimo do heap. Pode
-/// coletar, mas não executa Dart nem deixa exceção Dart pendente.
+/// Code and typed body are native addresses of the image; their ABI and lifetime
+/// remain the emitter's responsibility. Does not call those addresses.
+/// The context gains the closure's edge without consuming the caller's token.
+/// Initialization and retention happen in the same heap borrow. May
+/// collect, but does not run Dart nor leave a pending Dart exception.
 ///
 /// # Panics
-/// Falha interna de alocação/contagem; aborta no limite C.
+/// Internal allocation/counting failure; aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
@@ -848,15 +848,15 @@ pub extern "C" fn dartforge_arc_closure_owned_v1(code: i64, contexto: i64, typed
     })
 }
 
-/// Empresta o contexto Ref de uma closure sem reter ou coletar.
+/// Borrows the Ref context of a closure without retaining or collecting.
 ///
-/// Confere a classe e o mapa físico. Contexto escalar só é aceito quando
-/// vale zero, usado pelas closures canônicas sem capturas. O empréstimo
-/// depende da closure e de sua aresta; deve ser copiado antes de invalidá-la.
-/// Não executa Dart nem deixa exceção pendente.
+/// Checks the class and the physical map. A scalar context is only accepted when
+/// it is zero, used by canonical closures without captures. The borrow
+/// depends on the closure and its edge; it must be copied before invalidating it.
+/// Does not run Dart nor leave a pending exception.
 ///
 /// # Panics
-/// Receiver não closure ou contexto escalar não nulo; aborta no limite C.
+/// Receiver is not a closure or non-null scalar context; aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
@@ -868,18 +868,18 @@ pub extern "C" fn dartforge_arc_closure_owned_v1(code: i64, contexto: i64, typed
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_contexto_closure_v1(closure: i64) -> i64 {
     HEAP.with(|heap| audited_closure_context(&heap.borrow(), closure)
-        .expect("contrato de contexto da closure ARC violado"))
+        .expect("ARC closure context contract violated"))
 }
 
-/// Empresta uma captura Ref de um ambiente, conferindo seu mapa físico.
+/// Borrows a Ref capture of an environment, checking its physical map.
 ///
-/// Exige ambiente vivo da classe CONTEXTO, índice válido e campo marcado Ref.
-/// O resultado depende da aresta do ambiente; deve ser copiado antes de
-/// substituir a captura ou liberar o ambiente. Não retém, aloca, coleta,
-/// executa Dart ou altera a exceção pendente.
+/// Requires a live environment of class CONTEXTO, a valid index and a field marked Ref.
+/// The result depends on the environment's edge; it must be copied before
+/// replacing the capture or releasing the environment. Does not retain, allocate, collect,
+/// run Dart or change the pending exception.
 ///
 /// # Panics
-/// Classe, índice ou representação inválida; aborta no limite C.
+/// Invalid class, index or representation; aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::{abi::*, layout::cid};
@@ -891,18 +891,18 @@ pub extern "C" fn dartforge_arc_contexto_closure_v1(closure: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_env_ref_v1(env: i64, ix: i64) -> i64 {
     HEAP.with(|heap| audited_env_ref(&heap.borrow(), env, ix)
-        .expect("contrato de captura Ref ARC violado"))
+        .expect("ARC Ref capture contract violated"))
 }
 
-/// Copia os bits de uma captura escalar de um ambiente, conferindo seu mapa.
+/// Copies the bits of a scalar capture of an environment, checking its map.
 ///
-/// Exige ambiente vivo da classe CONTEXTO, índice válido e campo não marcado
-/// Ref. Os bits seguem a representação com que a captura foi gravada; a
-/// conversão (`double`, `bool`) fica com o chamador. Não retém, aloca,
-/// coleta, executa Dart ou altera a exceção pendente.
+/// Requires a live environment of class CONTEXTO, a valid index and a field not marked
+/// Ref. The bits follow the representation the capture was written with; the
+/// conversion (`double`, `bool`) is up to the caller. Does not retain, allocate,
+/// collect, run Dart or change the pending exception.
 ///
 /// # Panics
-/// Classe, índice ou representação inválida; aborta no limite C.
+/// Invalid class, index or representation; aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::{abi::*, layout::cid};
@@ -914,34 +914,34 @@ pub extern "C" fn dartforge_arc_env_ref_v1(env: i64, ix: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_env_escalar_v1(env: i64, ix: i64) -> i64 {
     HEAP.with(|heap| audited_env_scalar(&heap.borrow(), env, ix)
-        .expect("contrato de captura escalar ARC violado"))
+        .expect("ARC scalar capture contract violated"))
 }
 
 fn audited_env_scalar(heap: &Heap, env: i64, ix: i64) -> Result<i64, &'static str> {
-    let object = heap.object(env).ok_or("receiver não é ambiente vivo")?;
+    let object = heap.object(env).ok_or("receiver is not a live environment")?;
     if object.class_id != i64::from(crate::layout::cid::CONTEXTO) {
-        return Err("receiver não é ambiente");
+        return Err("receiver is not an environment");
     }
-    let ix = usize::try_from(ix).map_err(|_| "índice negativo")?;
-    let (bits, reference) = object.get(ix).ok_or("índice fora do ambiente")?;
-    if reference { return Err("captura é referência gerenciada"); }
+    let ix = usize::try_from(ix).map_err(|_| "negative index")?;
+    let (bits, reference) = object.get(ix).ok_or("index outside the environment")?;
+    if reference { return Err("capture is a managed reference"); }
     Ok(bits)
 }
 
 fn audited_env_ref(heap: &Heap, env: i64, ix: i64) -> Result<i64, &'static str> {
-    let object = heap.object(env).ok_or("receiver não é ambiente vivo")?;
+    let object = heap.object(env).ok_or("receiver is not a live environment")?;
     if object.class_id != i64::from(crate::layout::cid::CONTEXTO) {
-        return Err("receiver não é ambiente");
+        return Err("receiver is not an environment");
     }
-    let ix = usize::try_from(ix).map_err(|_| "índice negativo")?;
-    let (bits, reference) = object.get(ix).ok_or("índice fora do ambiente")?;
-    if !reference { return Err("captura é escalar"); }
+    let ix = usize::try_from(ix).map_err(|_| "negative index")?;
+    let (bits, reference) = object.get(ix).ok_or("index outside the environment")?;
+    if !reference { return Err("capture is scalar"); }
     Ok(bits)
 }
 
 fn audited_closure_context(heap: &Heap, closure: i64) -> Result<i64, &'static str> {
-    let contexto = heap.closure(closure).ok_or("receiver não é closure")?.contexto;
-    if !contexto.1 && contexto.0 != 0 { return Err("contexto é escalar não nulo"); }
+    let contexto = heap.closure(closure).ok_or("receiver is not a closure")?.contexto;
+    if !contexto.1 && contexto.0 != 0 { return Err("context is a non-null scalar"); }
     Ok(contexto.0)
 }
 
@@ -989,26 +989,26 @@ mod tests_closure_context {
 
 fn owned_instance_parameters(class: i64, fields: i64) -> Result<(i32, usize), &'static str> {
     let class = i32::try_from(class).map_err(|_| "classe fora de i32")?;
-    let fields = u16::try_from(fields).map_err(|_| "quantidade de campos fora de u16")?;
+    let fields = u16::try_from(fields).map_err(|_| "field count outside u16")?;
     Ok((class, usize::from(fields)))
 }
 
-/// Registra a tabela estática de métodos e aloca uma instância zerada Owned.
+/// Registers the static method table and allocates a zeroed Owned instance.
 ///
-/// A função `tabela` é o thunk estático do emissor: devolve uma tabela válida
-/// `{cid, n, [hash, input]…}`, sem executar Dart, coletar ou lançar. A memória
-/// e as entradas precisam permanecer válidas segundo o protocolo de gerações.
-/// O registro ocorre antes da alocação; o token tem o mesmo contrato de
-/// [`dartforge_arc_objeto_owned_v1`]. Não executa o construtor Dart.
+/// The `tabela` function is the emitter's static thunk: it returns a valid table
+/// `{cid, n, [hash, input]…}`, without running Dart, collecting or throwing. The memory
+/// and the entries must stay valid according to the generations protocol.
+/// Registration happens before allocation; the token has the same contract as
+/// [`dartforge_arc_objeto_owned_v1`]. Does not run the Dart constructor.
 ///
 /// # Safety
-/// `tabela` deve cumprir o protocolo acima: ponteiro legível, quantidade e
-/// entradas válidas, memória durável e ausência de Dart/GC/exceções. A função
-/// de registro lê a memória devolvida; um ponteiro inválido não é verificável.
+/// `tabela` must fulfill the protocol above: readable pointer, valid count and
+/// entries, durable memory and absence of Dart/GC/exceptions. The registration
+/// function reads the returned memory; an invalid pointer cannot be verified.
 ///
 /// # Panics
-/// Classe/quantidade inválida ou falha interna; aborta no limite C. Tabela
-/// inválida viola o protocolo nativo, como em `dartforge_object_new_t`.
+/// Invalid class/count or internal failure; aborts at the C boundary. An invalid
+/// table violates the native protocol, as in `dartforge_object_new_t`.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
@@ -1016,7 +1016,7 @@ fn owned_instance_parameters(class: i64, fields: i64) -> Result<(i32, usize), &'
 ///     static TABLE: [i64; 2] = [32000, 0];
 ///     TABLE.as_ptr()
 /// }
-/// // SAFETY: thunk pure, tabela estática válida e without entries.
+/// // SAFETY: pure thunk, valid static table without entries.
 /// let object = unsafe { dartforge_arc_objeto_owned_t_v1(32000, 0, tabela) };
 /// dartforge_arc_collect();
 /// assert_eq!(dartforge_arc_observar_heap_v1(object), 3);
@@ -1026,22 +1026,22 @@ fn owned_instance_parameters(class: i64, fields: i64) -> Result<(i32, usize), &'
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_arc_objeto_owned_t_v1(class: i64, fields: i64, tabela: extern "C" fn() -> *const i64) -> i64 {
-    owned_instance_parameters(class, fields).expect("contrato de alocação de instância ARC violado");
+    owned_instance_parameters(class, fields).expect("ARC instance allocation contract violated");
     dartforge_registrar_tabela(class, tabela);
     dartforge_arc_objeto_owned_v1(class, fields)
 }
 
-/// Grava bits escalares num campo de uma instância emprestada.
+/// Writes scalar bits into a field of a borrowed instance.
 ///
-/// Exige receiver vivo e mutável, índice válido e layout escalar certificado
-/// pelo lowering. Não interpreta os bits como handle: remove a marca Ref e
-/// a aresta forte anterior, mesmo quando os bits novos parecem um endereço.
-/// Aplica a barreira do heap. Não aloca, coleta ou executa Dart; invalida
-/// empréstimos porque a substituição pode retirar a última aresta do filho.
-/// Não faz guardas Dart de tipo/late nem certifica versão ou pin de layout.
+/// Requires a live and mutable receiver, a valid index and a scalar layout certified
+/// by the lowering. Does not interpret the bits as a handle: removes the Ref mark and
+/// the previous strong edge, even when the new bits look like an address.
+/// Applies the heap barrier. Does not allocate, collect or run Dart; invalidates
+/// borrows because the replacement may remove the child's last edge.
+/// Does not do Dart type/late guards nor certify layout version or pin.
 ///
 /// # Panics
-/// Violação das precondições ou falha interna de contagem; aborta no limite C.
+/// Violated preconditions or internal counting failure; aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
@@ -1053,20 +1053,20 @@ pub unsafe extern "C" fn dartforge_arc_objeto_owned_t_v1(class: i64, fields: i64
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_gravar_campo_escalar_v1(object: i64, ix: i64, bits: i64) {
     HEAP.with(|heap| write_audited_field(&mut heap.borrow_mut(), object, ix, bits, false)
-        .expect("contrato de gravação escalar ARC violado"));
+        .expect("ARC scalar write contract violated"));
 }
 
-/// Publica uma referência emprestada como aresta forte de uma instância.
+/// Publishes a borrowed reference as a strong edge of an instance.
 ///
-/// Não consome token do receiver nem do valor. Exige receiver vivo e mutável,
-/// índice válido, valor Ref vivo (ou null/Smi/permanente) e layout Ref
-/// certificado. Atualiza bits, mapa e barreira, retendo a nova aresta antes
-/// de soltar a anterior. Autoatribuição não muda a multiplicidade.
-/// Não aloca, coleta ou executa Dart. Invalida empréstimos pela substituição
-/// da aresta; guardas Dart de tipo/late e versão/pins são obrigações do lowering.
+/// Does not consume a token of the receiver nor of the value. Requires a live and mutable receiver,
+/// a valid index, a live Ref value (or null/Smi/permanent) and a certified Ref
+/// layout. Updates bits, map and barrier, retaining the new edge before
+/// releasing the previous one. Self-assignment does not change the multiplicity.
+/// Does not allocate, collect or run Dart. Invalidates borrows through the edge
+/// replacement; Dart type/late guards and version/pins are obligations of the lowering.
 ///
 /// # Panics
-/// Violação das precondições ou falha interna de contagem; aborta no limite C.
+/// Violated preconditions or internal counting failure; aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
@@ -1084,32 +1084,32 @@ pub extern "C" fn dartforge_arc_gravar_campo_escalar_v1(object: i64, ix: i64, bi
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_gravar_campo_ref_v1(object: i64, ix: i64, value: i64) {
     HEAP.with(|heap| write_audited_field(&mut heap.borrow_mut(), object, ix, value, true)
-        .expect("contrato de gravação Ref ARC violado"));
+        .expect("ARC Ref write contract violated"));
 }
 
-/// Grava uma aresta Ref somente após conferir o layout físico do receiver.
+/// Writes a Ref edge only after checking the receiver's physical layout.
 ///
-/// `layouts` contém pares ordenados `(cid, quantidade_de_campos)` de classes
-/// cujo campo `ix` foi declarado Ref pelo compilador. A conferência usa
-/// a classe e o tamanho reais, inclusive na primeira escrita do campo zerado.
-/// Não consome owners, aloca, coleta ou executa Dart; invalida empréstimos
-/// da aresta anterior. Guardas Dart de tipo/late continuam no lowering.
+/// `layouts` contains sorted pairs `(cid, field_count)` of classes
+/// whose field `ix` was declared Ref by the compiler. The check uses
+/// the actual class and size, including on the first write of the zeroed field.
+/// Does not consume owners, allocate, collect or run Dart; invalidates borrows
+/// of the previous edge. Dart type/late guards remain in the lowering.
 ///
 /// # Safety
-/// O vetor deve estar alinhado e conter `pair_list * 2` palavras legíveis e
-/// imutáveis durante a chamada. Cada par deve corresponder ao layout atual
-/// da imagem, com `ix` Ref. A função não guarda nem devolve o endereço.
-/// Vida/versões da imagem são obrigação do chamador.
+/// The vector must be aligned and contain `pair_list * 2` readable words,
+/// immutable during the call. Each pair must match the current layout
+/// of the image, with `ix` Ref. The function neither keeps nor returns the address.
+/// Lifetime/versions of the image are the caller's obligation.
 ///
 /// # Panics
-/// Receiver, índice, classe ou tamanho fora dos layouts; aborta no limite C.
+/// Receiver, index, class or size outside the layouts; aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
 /// let layouts = [123, 40];
 /// let object = dartforge_arc_objeto_owned_v1(123, 40);
 /// let child = dartforge_arc_box_int_owned_v1(i64::MAX);
-/// // SAFETY: vetor alive e imutável, field 39 declarado Ref nesta imagem.
+/// // SAFETY: live and immutable vector, field 39 declared Ref in this image.
 /// unsafe { dartforge_arc_gravar_campo_ref_conferido_v1(object, 39, child, layouts.as_ptr(), 1); }
 /// dartforge_arc_release(child);
 /// assert_eq!(dartforge_arc_ler_campo_ref_v1(object, 39), child);
@@ -1122,12 +1122,12 @@ pub unsafe extern "C" fn dartforge_arc_gravar_campo_ref_conferido_v1(
 ) {
     let words = usize::try_from(pair_list).ok().and_then(|n| n.checked_mul(2))
         .filter(|n| *n > 0 && *n <= isize::MAX as usize / std::mem::size_of::<i64>())
-        .expect("vetor de layouts ARC inválido");
-    assert!(!layouts.is_null() && layouts.is_aligned(), "endereço dos layouts ARC inválido");
-    // SAFETY: o produtor garante a extensão, imutabilidade e vida do vetor.
+        .expect("invalid ARC layouts vector");
+    assert!(!layouts.is_null() && layouts.is_aligned(), "invalid ARC layouts address");
+    // SAFETY: the producer guarantees the extent, immutability and lifetime of the vector.
     let layouts = unsafe { std::slice::from_raw_parts(layouts, words) };
     HEAP.with(|heap| write_checked_ref_field(&mut heap.borrow_mut(), object, ix, value, layouts)
-        .expect("contrato de gravação Ref conferida ARC violado"));
+        .expect("ARC checked Ref write contract violated"));
 }
 
 fn write_checked_ref_field(
@@ -1138,9 +1138,9 @@ fn write_checked_ref_field(
 }
 
 fn check_physical_layout(heap: &Heap, object: i64, ix: i64, layouts: &[i64]) -> Result<(), &'static str> {
-    let vista = heap.object(object).ok_or("receiver não é objeto vivo")?;
-    let i = usize::try_from(ix).map_err(|_| "índice negativo")?;
-    if i >= vista.len() { return Err("índice fora do objeto"); }
+    let vista = heap.object(object).ok_or("receiver is not a live object")?;
+    let i = usize::try_from(ix).map_err(|_| "negative index")?;
+    if i >= vista.len() { return Err("index outside the object"); }
     let fits = |fields: i64| usize::try_from(fields).ok() == Some(vista.len());
     if layouts.len() % 2 != 0 || !(layout_fields(layouts, vista.class_id).is_some_and(fits)
         || layouts.chunks_exact(2).any(|p| p[0] == vista.class_id && fits(p[1]))) {
@@ -1149,9 +1149,9 @@ fn check_physical_layout(heap: &Heap, object: i64, ix: i64, layouts: &[i64]) -> 
     Ok(())
 }
 
-/// Os campos declarados de `cid` nos pares `(cid, fields)` em ordem de `cid`
-/// (a do produtor, `layouts_do_campo`), por busca binária. Um vetor fora de
-/// ordem só perde o atalho: quem chama confere de novo em sequência.
+/// The declared fields of `cid` in the pairs `(cid, fields)` in `cid` order
+/// (the producer's, `layouts_do_campo`), by binary search. A vector out of
+/// order only loses the shortcut: the caller checks again sequentially.
 fn layout_fields(layouts: &[i64], cid: i64) -> Option<i64> {
     let (mut low, mut high) = (0, layouts.len() / 2);
     while low < high {
@@ -1165,26 +1165,26 @@ fn layout_fields(layouts: &[i64], cid: i64) -> Option<i64> {
     None
 }
 
-/// Grava bits escalares após conferir classe e tamanho contra layouts declarados.
+/// Writes scalar bits after checking class and size against declared layouts.
 ///
-/// `representation` é 1=int, 2=double, 3=bool, 4=byte. Os bits já devem estar
-/// convertidos pelo lowering; não faz coerções, aloca, coleta ou executa Dart.
-/// Mantém a barreira e invalida borrows anteriores ao substituir o campo.
+/// `representation` is 1=int, 2=double, 3=bool, 4=byte. The bits must already be
+/// converted by the lowering; does not coerce, allocate, collect or run Dart.
+/// Keeps the barrier and invalidates earlier borrows when replacing the field.
 ///
 /// # Safety
-/// `layouts` deve apontar para `pair_list * 2` palavras alinhadas, imutáveis e
-/// legíveis durante a chamada. Os pares `(cid, fields)` devem declarar o
-/// índice com a representação indicada na versão atual da imagem.
-/// Não guarda nem devolve esse endereço; versões/pins são dever do chamador.
+/// `layouts` must point to `pair_list * 2` aligned words, immutable and
+/// readable during the call. The pairs `(cid, fields)` must declare the
+/// index with the indicated representation in the current version of the image.
+/// Neither keeps nor returns that address; versions/pins are the caller's duty.
 ///
 /// # Panics
-/// Representação, receiver, índice, classe ou tamanho inválido; aborta no limite C.
+/// Invalid representation, receiver, index, class or size; aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
 /// let layouts = [123, 1];
 /// let object = dartforge_arc_objeto_owned_v1(123, 1);
-/// // SAFETY: vetor alive; o field 0 é int no layout current da imagem.
+/// // SAFETY: live vector; field 0 is int in the current layout of the image.
 /// unsafe { dartforge_arc_gravar_campo_escalar_conferido_v1(object, 0, 42, layouts.as_ptr(), 1, 1); }
 /// assert_eq!(dartforge_arc_ler_campo_escalar_v1(object, 0), 42);
 /// dartforge_arc_release(object);
@@ -1194,42 +1194,42 @@ fn layout_fields(layouts: &[i64], cid: i64) -> Option<i64> {
 pub unsafe extern "C" fn dartforge_arc_gravar_campo_escalar_conferido_v1(
     object: i64, ix: i64, bits: i64, layouts: *const i64, pair_list: i64, representation: i64,
 ) {
-    assert!((1..=4).contains(&representation), "representação escalar ARC inválida");
+    assert!((1..=4).contains(&representation), "invalid ARC scalar representation");
     let words = usize::try_from(pair_list).ok().and_then(|n| n.checked_mul(2))
         .filter(|n| *n > 0 && *n <= isize::MAX as usize / std::mem::size_of::<i64>())
-        .expect("vetor de layouts ARC inválido");
-    assert!(!layouts.is_null() && layouts.is_aligned(), "endereço dos layouts ARC inválido");
-    // SAFETY: vetor e extensão garantidos pelo produtor.
+        .expect("invalid ARC layouts vector");
+    assert!(!layouts.is_null() && layouts.is_aligned(), "invalid ARC layouts address");
+    // SAFETY: vector and extent guaranteed by the producer.
     let layouts = unsafe { std::slice::from_raw_parts(layouts, words) };
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
         check_physical_layout(&heap, object, ix, layouts).expect("layout escalar ARC incompatível");
         write_audited_field(&mut heap, object, ix, bits, false)
-            .expect("contrato de gravação escalar conferida ARC violado");
+            .expect("ARC checked scalar write contract violated");
     });
 }
 
-/// Lê os bits escalares após conferir o layout físico e o mapa real do campo.
+/// Reads the scalar bits after checking the physical layout and the actual field map.
 ///
-/// A representação (1=int, 2=double, 3=bool, 4=byte) e as conversões são
-/// obrigações do lowering. Não cria owners, aloca, coleta ou executa Dart.
+/// The representation (1=int, 2=double, 3=bool, 4=byte) and the conversions are
+/// obligations of the lowering. Does not create owners, allocate, collect or run Dart.
 ///
 /// # Safety
-/// O vetor `(cid, fields)` deve conter `pair_list * 2` palavras alinhadas,
-/// imutáveis e legíveis. Cada par deve declarar o índice com a representação
-/// indicada no layout atual da imagem. Não guarda esse endereço.
-/// Vida/versões e guardas Dart de tipo/late são responsabilidade do chamador.
+/// The `(cid, fields)` vector must contain `pair_list * 2` aligned words,
+/// immutable and readable. Each pair must declare the index with the representation
+/// indicated in the current layout of the image. Does not keep that address.
+/// Lifetime/versions and Dart type/late guards are the caller's responsibility.
 ///
 /// # Panics
-/// Representação, receiver, índice, classe, tamanho ou mapa incompatível;
-/// aborta no limite C.
+/// Incompatible representation, receiver, index, class, size or map;
+/// aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
 /// let layouts = [123, 1];
 /// let object = dartforge_arc_objeto_owned_v1(123, 1);
 /// dartforge_arc_gravar_campo_escalar_v1(object, 0, 42);
-/// // SAFETY: vetor alive; o field 0 é int no layout current da imagem.
+/// // SAFETY: live vector; field 0 is int in the current layout of the image.
 /// let bits = unsafe { dartforge_arc_ler_campo_escalar_conferido_v1(object, 0, layouts.as_ptr(), 1, 1) };
 /// assert_eq!(bits, 42);
 /// dartforge_arc_release(object);
@@ -1239,40 +1239,40 @@ pub unsafe extern "C" fn dartforge_arc_gravar_campo_escalar_conferido_v1(
 pub unsafe extern "C" fn dartforge_arc_ler_campo_escalar_conferido_v1(
     object: i64, ix: i64, layouts: *const i64, pair_list: i64, representation: i64,
 ) -> i64 {
-    assert!((1..=4).contains(&representation), "representação escalar ARC inválida");
+    assert!((1..=4).contains(&representation), "invalid ARC scalar representation");
     let words = usize::try_from(pair_list).ok().and_then(|n| n.checked_mul(2))
         .filter(|n| *n > 0 && *n <= isize::MAX as usize / std::mem::size_of::<i64>())
-        .expect("vetor de layouts ARC inválido");
-    assert!(!layouts.is_null() && layouts.is_aligned(), "endereço dos layouts ARC inválido");
-    // SAFETY: vetor e extensão garantidos pelo produtor.
+        .expect("invalid ARC layouts vector");
+    assert!(!layouts.is_null() && layouts.is_aligned(), "invalid ARC layouts address");
+    // SAFETY: vector and extent guaranteed by the producer.
     let layouts = unsafe { std::slice::from_raw_parts(layouts, words) };
     HEAP.with(|heap| {
         let heap = heap.borrow();
         check_physical_layout(&heap, object, ix, layouts).expect("layout escalar ARC incompatível");
         read_audited_scalar_field(&heap, object, ix)
-            .expect("contrato de leitura escalar conferida ARC violado")
+            .expect("ARC checked scalar read contract violated")
     })
 }
 
 fn write_audited_field(heap: &mut Heap, object: i64, ix: i64, bits: i64, reference: bool) -> Result<(), &'static str> {
-    let vista = heap.object(object).ok_or("receiver não é objeto vivo")?;
-    let ix = usize::try_from(ix).map_err(|_| "índice negativo")?;
-    if ix >= vista.len() { return Err("índice fora do objeto"); }
+    let vista = heap.object(object).ok_or("receiver is not a live object")?;
+    let ix = usize::try_from(ix).map_err(|_| "negative index")?;
+    if ix >= vista.len() { return Err("index outside the object"); }
     heap.set_field(object, ix, bits, reference);
     Ok(())
 }
 
-/// Copia os bits de um campo escalar de um objeto emprestado.
+/// Copies the bits of a scalar field of a borrowed object.
 ///
-/// Exige objeto vivo, índice válido e campo não marcado como referência no
-/// mapa do heap. O lowering deve provar o layout correspondente antes de
-/// escolher esta ABI. Não aloca, coleta, retém o objeto, invalida empréstimos
-/// nem converte os bits. O catálogo pode declarar resultado escalar porque
-/// a implementação confere o mapa, não porque a representação é i64.
+/// Requires a live object, a valid index and a field not marked as a reference in
+/// the heap map. The lowering must prove the matching layout before
+/// choosing this ABI. Does not allocate, collect, retain the object, invalidate borrows
+/// nor convert the bits. The catalog may declare a scalar result because
+/// the implementation checks the map, not because the representation is i64.
 ///
 /// # Panics
-/// Violação das precondições de layout/objeto/índice; aborta no limite C.
-/// Não substitui as verificações Dart de receiver, tipo ou inicialização late.
+/// Violated layout/object/index preconditions; aborts at the C boundary.
+/// Does not replace the Dart checks of receiver, type or late initialization.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
@@ -1285,34 +1285,34 @@ fn write_audited_field(heap: &mut Heap, object: i64, ix: i64, bits: i64, referen
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_ler_campo_escalar_v1(object: i64, ix: i64) -> i64 {
     HEAP.with(|heap| read_audited_scalar_field(&heap.borrow(), object, ix)
-        .expect("contrato de leitura escalar ARC violado"))
+        .expect("ARC scalar read contract violated"))
 }
 
 fn read_audited_scalar_field(heap: &Heap, object: i64, ix: i64) -> Result<i64, &'static str> {
-    // O record posicional do runtime: a palavra 0 é o número de campos.
+    // The runtime's positional record: word 0 is the number of fields.
     if let Some(fields) = heap.record(object) {
-        return if ix == 0 { Ok(fields.len() as i64) } else { Err("campo do record é referência") };
+        return if ix == 0 { Ok(fields.len() as i64) } else { Err("record field is a reference") };
     }
-    let object = heap.readable_object(object).ok_or("receiver não é objeto vivo")?;
-    let ix = usize::try_from(ix).map_err(|_| "índice negativo")?;
-    let (bits, reference) = object.get(ix).ok_or("índice fora do objeto")?;
-    if reference { return Err("campo é referência gerenciada"); }
+    let object = heap.readable_object(object).ok_or("receiver is not a live object")?;
+    let ix = usize::try_from(ix).map_err(|_| "negative index")?;
+    let (bits, reference) = object.get(ix).ok_or("index outside the object")?;
+    if reference { return Err("field is a managed reference"); }
     Ok(bits)
 }
 
-/// Empresta uma referência de campo, sem criar token Owned para o resultado.
+/// Borrows a field reference, without creating an Owned token for the result.
 ///
-/// Exige instância viva, índice válido e marca Ref no mapa real do heap.
-/// Null/Smi são referências válidas. O resultado depende da aresta do receiver:
-/// manter só o receiver vivo não protege o filho após substituir o campo.
-/// O mapa real confere a representação Ref mesmo sem classe nominal estática.
-/// O lowering deve preservar guardas semânticas e limites de empréstimo; antes
-/// de uma invalidação, deve copiar para Owned ou encerrar seu uso.
-/// Não aloca, coleta, retém, invalida outros borrows ou executa Dart.
-/// Não substitui guardas Dart de tipo/late nem certifica versões/pins.
+/// Requires a live instance, a valid index and a Ref mark in the actual heap map.
+/// Null/Smi are valid references. The result depends on the receiver's edge:
+/// keeping only the receiver alive does not protect the child after replacing the field.
+/// The actual map checks the Ref representation even without a static nominal class.
+/// The lowering must preserve semantic guards and borrow limits; before
+/// an invalidation, it must copy to Owned or end its use.
+/// Does not allocate, collect, retain, invalidate other borrows or run Dart.
+/// Does not replace Dart type/late guards nor certify versions/pins.
 ///
 /// # Panics
-/// Receiver/índice/mapa incompatível; falha interna aborta no limite C.
+/// Incompatible receiver/index/map; internal failure aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
@@ -1322,7 +1322,7 @@ fn read_audited_scalar_field(heap: &Heap, object: i64, ix: i64) -> Result<i64, &
 /// dartforge_arc_release(child);
 /// let borrowed = dartforge_arc_ler_campo_ref_v1(object, 39);
 /// assert_eq!(borrowed, child);
-/// dartforge_arc_retain(borrowed); // Copia o empréstimo before da substituição.
+/// dartforge_arc_retain(borrowed); // Copies the borrow before the replacement.
 /// dartforge_arc_gravar_campo_ref_v1(object, 39, 0);
 /// dartforge_arc_collect();
 /// assert_eq!(dartforge_arc_observar_heap_v1(borrowed), 3);
@@ -1332,35 +1332,35 @@ fn read_audited_scalar_field(heap: &Heap, object: i64, ix: i64) -> Result<i64, &
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_ler_campo_ref_v1(object: i64, ix: i64) -> i64 {
     HEAP.with(|heap| read_audited_ref_field(&heap.borrow(), object, ix)
-        .expect("contrato de leitura Ref ARC violado"))
+        .expect("ARC Ref read contract violated"))
 }
 
 fn read_audited_ref_field(heap: &Heap, object: i64, ix: i64) -> Result<i64, &'static str> {
-    // O record posicional do runtime: os campos `1..=n` são referências.
+    // The runtime's positional record: fields `1..=n` are references.
     if let Some(fields) = heap.record(object) {
         return usize::try_from(ix).ok().filter(|&i| i >= 1)
             .and_then(|i| fields.get(i - 1).copied())
-            .ok_or("índice fora do record");
+            .ok_or("index outside the record");
     }
-    let object = heap.readable_object(object).ok_or("receiver não é objeto vivo")?;
-    let ix = usize::try_from(ix).map_err(|_| "índice negativo")?;
-    let (bits, reference) = object.get(ix).ok_or("índice fora do objeto")?;
-    // O campo ainda não gravado nasce zerado e marcado escalar: é o null do
-    // campo Ref sem inicializador (`Object? x;`), sem objeto nem owner.
-    if !reference && bits != 0 { return Err("campo é escalar"); }
+    let object = heap.readable_object(object).ok_or("receiver is not a live object")?;
+    let ix = usize::try_from(ix).map_err(|_| "negative index")?;
+    let (bits, reference) = object.get(ix).ok_or("index outside the object")?;
+    // The field not yet written is born zeroed and marked scalar: it is the null of the
+    // Ref field without an initializer (`Object? x;`), with no object nor owner.
+    if !reference && bits != 0 { return Err("field is scalar"); }
     Ok(bits)
 }
 
-/// Lê um empréstimo Ref de campo late ou o null anterior à inicialização.
+/// Reads a Ref borrow of a late field or the null before initialization.
 ///
-/// Exige receiver vivo e índice válido. Um campo marcado Ref segue o mesmo
-/// contrato de aresta do leitor Ref. Sem essa marca, apenas zero de um campo
-/// ainda não inicializado pode sair como null; bits escalares não viram Ref.
-/// Não marca inicialização, retém, aloca, coleta ou executa Dart. Guardas late,
-/// inicializadores e cópia antes de invalidar a aresta continuam no chamador.
+/// Requires a live receiver and a valid index. A field marked Ref follows the same
+/// edge contract as the Ref reader. Without that mark, only the zero of a field
+/// not yet initialized can come out as null; scalar bits do not become Ref.
+/// Does not mark initialization, retain, allocate, collect or run Dart. Late guards,
+/// initializers and copying before invalidating the edge remain with the caller.
 ///
 /// # Panics
-/// Receiver, índice ou representação incompatível; aborta no limite C.
+/// Incompatible receiver, index or representation; aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
@@ -1374,29 +1374,29 @@ fn read_audited_ref_field(heap: &Heap, object: i64, ix: i64) -> Result<i64, &'st
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_ler_campo_late_ref_v1(object: i64, ix: i64) -> i64 {
     HEAP.with(|heap| read_audited_late_ref_field(&heap.borrow(), object, ix)
-        .expect("contrato de leitura late Ref ARC violado"))
+        .expect("ARC late Ref read contract violated"))
 }
 
 fn read_audited_late_ref_field(heap: &Heap, object: i64, ix: i64) -> Result<i64, &'static str> {
-    let vista = heap.object(object).ok_or("receiver não é objeto vivo")?;
-    let index = usize::try_from(ix).map_err(|_| "índice negativo")?;
-    let (bits, reference) = vista.get(index).ok_or("índice fora do objeto")?;
+    let vista = heap.object(object).ok_or("receiver is not a live object")?;
+    let index = usize::try_from(ix).map_err(|_| "negative index")?;
+    let (bits, reference) = vista.get(index).ok_or("index outside the object")?;
     if reference || (bits == 0 && !heap.late_initialized((object, ix))) {
         Ok(bits)
     } else {
-        Err("campo late não contém Ref nem zero anterior à inicialização")
+        Err("late field holds neither a Ref nor the zero before initialization")
     }
 }
 
-/// Lança um valor Ref emprestado e o mantém como raiz da exceção pendente.
+/// Throws a borrowed Ref value and keeps it as the root of the pending exception.
 ///
-/// Não consome o token do chamador. O protocolo de exceções mantém uma raiz
-/// independente até clear/consumo; a preparação do rastro pode alocar/coletar.
-/// O lowering deve fornecer um Ref vivo e conferir a pendência imediatamente.
-/// Não converte bits escalares nem aplica a semântica Dart de `throw null`.
+/// Does not consume the caller's token. The exception protocol keeps an independent root
+/// until clear/consumption; preparing the stack trace may allocate/collect.
+/// The lowering must provide a live Ref and check for the pending exception immediately.
+/// Does not convert scalar bits nor apply the Dart semantics of `throw null`.
 ///
 /// # Panics
-/// Falha interna do protocolo de exceções/heap; aborta no limite C.
+/// Internal failure of the exception/heap protocol; aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::{dartforge_arc_box_int_owned_v1, dartforge_arc_lancar_ref_v1,
@@ -1412,15 +1412,15 @@ pub extern "C" fn dartforge_arc_lancar_ref_v1(value: i64) {
     dartforge_exception_throw(value, 3);
 }
 
-/// Copia a exceção pendente para um token Owned independente do clear.
+/// Copies the pending exception into an Owned token independent of clear.
 ///
-/// Preserva a identidade de valores Ref. Escalares são encaixotados dentro
-/// do mesmo empréstimo do heap que publica o owner, antes de devolver o handle.
-/// Sem pendência devolve null; release de null não altera contadores.
-/// Não consome a pendência nem modifica seu rastro. Pode alocar/coletar.
+/// Preserves the identity of Ref values. Scalars are boxed within
+/// the same heap borrow that publishes the owner, before returning the handle.
+/// Without a pending exception returns null; releasing null does not change counters.
+/// Does not consume the pending exception nor modify its stack trace. May allocate/collect.
 ///
 /// # Panics
-/// Falha interna de alocação/ownership; aborta no limite C.
+/// Internal allocation/ownership failure; aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
@@ -1444,14 +1444,14 @@ pub extern "C" fn dartforge_arc_excecao_owned_v1() -> i64 {
     })
 }
 
-/// Copia o rastro corrente para um token Owned independente do clear.
+/// Copies the current stack trace into an Owned token independent of clear.
 ///
-/// Sem rastro corrente cria um StackTrace não vazio, sem instalá-lo como
-/// rastro de uma exceção futura. Pode alocar/coletar; publica o owner antes
-/// de devolver o handle, sem safepoint entre a leitura e a retenção.
+/// Without a current stack trace, creates a non-empty StackTrace, without installing it as
+/// the stack trace of a future exception. May allocate/collect; publishes the owner before
+/// returning the handle, without a safepoint between the read and the retention.
 ///
 /// # Panics
-/// Falha interna de alocação/ownership; aborta no limite C.
+/// Internal allocation/ownership failure; aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
@@ -1466,15 +1466,15 @@ pub extern "C" fn dartforge_arc_rastro_owned_v1() -> i64 {
     trace
 }
 
-/// Lança um Ref emprestado com um StackTrace explícito emprestado.
+/// Throws a borrowed Ref with an explicit borrowed StackTrace.
 ///
-/// Não consome os dois tokens do chamador. Publica raízes independentes
-/// para valor e rastro até clear/consumo. Exige ambos vivos e um StackTrace
-/// válido; não aplica a semântica Dart de `throw null`.
-/// O lowering deve conferir a pendência imediatamente após a chamada.
+/// Does not consume the caller's two tokens. Publishes independent roots
+/// for value and stack trace until clear/consumption. Requires both alive and a valid
+/// StackTrace; does not apply the Dart semantics of `throw null`.
+/// The lowering must check for the pending exception immediately after the call.
 ///
 /// # Panics
-/// Falha interna do protocolo de exceções/heap; aborta no limite C.
+/// Internal failure of the exception/heap protocol; aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
@@ -1494,14 +1494,14 @@ pub extern "C" fn dartforge_arc_lancar_com_rastro_ref_v1(value: i64, trace: i64)
     dartforge_throw_with_stack_trace(value, 3, trace);
 }
 
-/// Entrega um int em representação Ref com um token Owned para o chamador.
+/// Hands out an int in Ref representation with an Owned token for the caller.
 ///
-/// Smi não tem contador; valores fora de sua faixa criam um Mint mortal.
-/// A alocação pode coletar, mas o token é publicado antes de devolver o handle.
-/// O chamador deve transferi-lo ou chamar release exatamente uma vez.
+/// A Smi has no counter; values outside its range create a mortal Mint.
+/// Allocation may collect, but the token is published before returning the handle.
+/// The caller must transfer it or call release exactly once.
 ///
 /// # Panics
-/// Falha interna de alocação/contagem; aborta no limite C.
+/// Internal allocation/counting failure; aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::{dartforge_arc_box_int_owned_v1, dartforge_arc_release, dartforge_arc_collect};
@@ -1519,13 +1519,13 @@ pub extern "C" fn dartforge_arc_box_int_owned_v1(value: i64) -> i64 {
     })
 }
 
-/// Encaixota um double e entrega um token Owned antes de outra coleta.
+/// Boxes a double and hands out an Owned token before any other collection.
 ///
-/// Preserva todos os bits, inclusive zero negativo e payload de NaN. A caixa
-/// pertence ao chamador até release ou transferência para slot/retorno.
+/// Preserves all bits, including negative zero and NaN payload. The box
+/// belongs to the caller until release or transfer to a slot/return.
 ///
 /// # Panics
-/// Empréstimo reentrante do heap ou falha de alocação; aborta no limite C.
+/// Reentrant heap borrow or allocation failure; aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
@@ -1545,13 +1545,13 @@ pub extern "C" fn dartforge_arc_box_double_owned_v1(value: f64) -> i64 {
     })
 }
 
-/// Encaixota os 128 bits de um SIMD e entrega um owner do código.
+/// Boxes the 128 bits of a SIMD value and hands out a code owner.
 ///
-/// As palavras preservam os bits nativos das pistas, inclusive payload de NaN.
-/// `cid` deve identificar Float32x4, Int32x4 ou Float64x2. Nenhuma pista é Ref.
+/// The words preserve the native bits of the lanes, including NaN payload.
+/// `cid` must identify Float32x4, Int32x4 or Float64x2. No lane is a Ref.
 ///
 /// # Panics
-/// Classe incompatível, empréstimo reentrante ou falha de alocação; aborta no C.
+/// Incompatible class, reentrant borrow or allocation failure; aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::{abi::*, layout::cid};
@@ -1563,8 +1563,8 @@ pub extern "C" fn dartforge_arc_box_double_owned_v1(value: f64) -> i64 {
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_box_simd_owned_v1(cid: i64, low: i64, high: i64) -> i64 {
-    let cid = i32::try_from(cid).expect("classe SIMD fora da representação");
-    assert!(matches!(cid, crate::layout::cid::FLOAT32X4 | crate::layout::cid::INT32X4 | crate::layout::cid::FLOAT64X2), "classe SIMD incompatível");
+    let cid = i32::try_from(cid).expect("SIMD class outside the representation");
+    assert!(matches!(cid, crate::layout::cid::FLOAT32X4 | crate::layout::cid::INT32X4 | crate::layout::cid::FLOAT64X2), "incompatible SIMD class");
     let mut bytes = [0; 16];
     bytes[..8].copy_from_slice(&low.to_ne_bytes());
     bytes[8..].copy_from_slice(&high.to_ne_bytes());
@@ -1608,17 +1608,17 @@ mod tests_owned_simd_boxes {
     }
 }
 
-/// Observa bloco vivo e owner do código sem adquirir referência ao objeto.
+/// Observes a live block and a code owner without acquiring a reference to the object.
 ///
-/// O argumento é um endereço nativo de diagnóstico, não um Ref emprestado:
-/// pode designar um handle já liberado. Bit 0 indica bloco vivo deste heap;
-/// bit 1 indica ao menos um token do código. Null, Smi, objetos estáticos e
-/// endereços fora das páginas registradas não contam como blocos do heap.
-/// Não coleta nem executa Dart. O snapshot não garante validade futura;
-/// reutilização do endereço pode fazer uma observação posterior ver outro objeto.
+/// The argument is a native diagnostic address, not a borrowed Ref:
+/// it may designate an already released handle. Bit 0 indicates a live block of this heap;
+/// bit 1 indicates at least one code token. Null, Smi, static objects and
+/// addresses outside the registered pages do not count as heap blocks.
+/// Does not collect nor run Dart. The snapshot does not guarantee future validity;
+/// reuse of the address may make a later observation see another object.
 ///
 /// # Panics
-/// Empréstimo reentrante do heap; falha interna aborta no limite C.
+/// Reentrant heap borrow; internal failure aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
@@ -1633,13 +1633,13 @@ pub extern "C" fn dartforge_arc_observar_heap_v1(address: i64) -> u8 {
     HEAP.with(|h| h.borrow().observe_code_owner(address))
 }
 
-/// Cria um token proprietário do código gerado a partir de um empréstimo.
+/// Creates an owning token of the generated code from a borrow.
 ///
-/// Null e Smi não têm contador. Não coleta nem executa Dart. O token fica
-/// no inventário do heap até release; slots proprietários são independentes.
+/// Null and Smi have no counter. Does not collect nor run Dart. The token stays
+/// in the heap inventory until release; owning slots are independent.
 ///
 /// # Panics
-/// Handle morto ou overflow; falha interna aborta no limite C.
+/// Dead handle or overflow; internal failure aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::{dartforge_arc_retain, dartforge_arc_release};
@@ -1651,13 +1651,13 @@ pub extern "C" fn dartforge_arc_retain(value: i64) {
     HEAP.with(|h| h.borrow_mut().retain_code_owner(value));
 }
 
-/// Consome um token do código gerado, sem coletar ou executar Dart.
+/// Consumes a token of the generated code, without collecting or running Dart.
 ///
-/// Não consome owners de quadros, campos ou mensagens. Null/Smi são no-op.
-/// Zero de RC apenas agenda trabalho para um safepoint posterior.
+/// Does not consume owners of frames, fields or messages. Null/Smi are no-ops.
+/// RC reaching zero only schedules work for a later safepoint.
 ///
 /// # Panics
-/// Handle sem token correspondente; falha interna aborta no limite C.
+/// Handle without a matching token; internal failure aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::{dartforge_arc_retain, dartforge_arc_release};
@@ -1669,13 +1669,13 @@ pub extern "C" fn dartforge_arc_release(value: i64) {
     HEAP.with(|h| h.borrow_mut().release_code_owner(value));
 }
 
-/// Executa coleta explícita num safepoint com as raízes já publicadas.
+/// Runs an explicit collection at a safepoint with the roots already published.
 ///
-/// Pode executar callbacks nativos de finalização; callbacks Dart são
-/// enfileirados, sem execução nesta chamada. Em tracing faz coleta completa.
+/// May run native finalization callbacks; Dart callbacks are
+/// queued, without running in this call. Under tracing it does a full collection.
 ///
 /// # Panics
-/// Falha interna de coleta; aborta no limite C.
+/// Internal collection failure; aborts at the C boundary.
 ///
 /// ```
 /// dartforge_runtime::abi::dartforge_arc_collect();
@@ -1685,11 +1685,11 @@ pub extern "C" fn dartforge_arc_collect() {
     HEAP.with(|h| h.borrow_mut().collect());
 }
 
-/// Confere a versão de tokens desta ABI e o modo ARC do heap corrente.
+/// Checks the token version of this ABI and the ARC mode of the current heap.
 ///
-/// Retorna 1 somente para versão 1 com ARC ativo, 0 para incompatibilidade.
-/// O chamador deve recusar a execução ARC quando o resultado for zero.
-/// Não certifica contratos de um módulo nem a ABI de retornos das externs.
+/// Returns 1 only for version 1 with ARC active, 0 for incompatibility.
+/// The caller must refuse ARC execution when the result is zero.
+/// Does not certify the contracts of a module nor the return ABI of the externs.
 ///
 /// ```
 /// assert_eq!(dartforge_runtime::abi::dartforge_arc_verificar_abi(-1), 0);
@@ -1699,11 +1699,11 @@ pub extern "C" fn dartforge_arc_verificar_abi(version: i64) -> i8 {
     i8::from(version == 1 && HEAP.with(|h| h.borrow().arc_active()))
 }
 
-/// Abre um quadro proprietário com slots inicialmente nulos.
+/// Opens an owning frame with initially null slots.
 ///
 /// # Panics
-/// Quantidade negativa/incompatível com usize ou falha interna; o limite C
-/// aborta, sem desenrolar para o código gerado.
+/// Negative count/incompatible with usize or internal failure; the C boundary
+/// aborts, without unwinding into the generated code.
 ///
 /// ```
 /// use dartforge_runtime::abi::{dartforge_arc_quadro_abrir_v1, dartforge_arc_quadro_fechar_v1};
@@ -1712,17 +1712,17 @@ pub extern "C" fn dartforge_arc_verificar_abi(version: i64) -> i8 {
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_quadro_abrir_v1(slots: i64) -> i64 {
-    let slots = usize::try_from(slots).expect("quantidade inválida de slots ARC");
+    let slots = usize::try_from(slots).expect("invalid ARC slot count");
     HEAP.with(|h| h.borrow_mut().push_owning_frame(slots))
 }
 
-/// Copia o valor para um slot, retendo antes de soltar o conteúdo antigo.
+/// Copies the value into a slot, retaining before releasing the old content.
 ///
-/// O quadro e índice são escalares; valor é Ref gerenciado, inclusive null/Smi.
-/// Zero consome o conteúdo anterior. Não atende dívida de coleta.
+/// The frame and index are scalars; the value is a managed Ref, including null/Smi.
+/// Zero consumes the previous content. Does not serve collection debt.
 ///
 /// # Panics
-/// Quadro/slot inválido ou referência morta; falha interna aborta no limite C.
+/// Invalid frame/slot or dead reference; internal failure aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
@@ -1732,7 +1732,7 @@ pub extern "C" fn dartforge_arc_quadro_abrir_v1(slots: i64) -> i64 {
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_quadro_copiar_v1(frame: i64, slot: i64, value: i64) {
-    let slot = usize::try_from(slot).expect("índice inválido de slot ARC");
+    let slot = usize::try_from(slot).expect("invalid ARC slot index");
     HEAP.with(|h| {
         let mut h = h.borrow_mut();
         h.check_owning_frame(frame);
@@ -1740,13 +1740,13 @@ pub extern "C" fn dartforge_arc_quadro_copiar_v1(frame: i64, slot: i64, value: i
     });
 }
 
-/// Carrega um slot proprietário e cria um token owned do código.
+/// Loads an owning slot and creates an owned code token.
 ///
-/// O slot mantém sua ocorrência. O resultado precisa de release ou transferência,
-/// mesmo se o quadro for fechado antes. Não coleta nem executa Dart.
+/// The slot keeps its occurrence. The result needs release or transfer,
+/// even if the frame is closed first. Does not collect nor run Dart.
 ///
 /// # Panics
-/// Quadro observacional/inexistente, slot inválido ou falha interna; aborta no C.
+/// Observational/nonexistent frame, invalid slot or internal failure; aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
@@ -1757,18 +1757,18 @@ pub extern "C" fn dartforge_arc_quadro_copiar_v1(frame: i64, slot: i64, value: i
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_quadro_carregar_v1(frame: i64, slot: i64) -> i64 {
-    let slot = usize::try_from(slot).expect("índice inválido de slot ARC");
+    let slot = usize::try_from(slot).expect("invalid ARC slot index");
     HEAP.with(|h| h.borrow_mut().copy_root_to_code(frame, slot))
 }
 
-/// Transfere um token do código para um slot proprietário.
+/// Transfers a code token into an owning slot.
 ///
-/// Não retém a origem. Publica o destino antes de soltar seu owner anterior.
-/// Null/Smi não exigem token físico. Não coleta nem executa Dart.
+/// Does not retain the source. Publishes the destination before releasing its previous owner.
+/// Null/Smi require no physical token. Does not collect nor run Dart.
 ///
 /// # Panics
-/// Quadro/slot inválido ou handle sem token do código; valida antes da mutação.
-/// Falha interna aborta no limite C.
+/// Invalid frame/slot or handle without a code token; validates before the mutation.
+/// Internal failure aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
@@ -1778,19 +1778,19 @@ pub extern "C" fn dartforge_arc_quadro_carregar_v1(frame: i64, slot: i64) -> i64
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_quadro_receber_v1(frame: i64, slot: i64, value: i64) {
-    let slot = usize::try_from(slot).expect("índice inválido de slot ARC");
+    let slot = usize::try_from(slot).expect("invalid ARC slot index");
     HEAP.with(|h| h.borrow_mut().move_code_to_root(frame, slot, value));
 }
 
-/// Transfere token do código ao registro de owner de um global.
+/// Transfers a code token to the owner registry of a global.
 ///
-/// `id` identifica o armazenamento, não é desreferenciado. O código gerado
-/// deve publicar o valor real antes, sem safepoint até esta chamada. O registro
-/// guarda apenas owners de handles; não fornece o valor de uma carga global.
-/// Não retém a origem, coleta ou executa Dart. Null/Smi retiram owner anterior.
+/// `id` identifies the storage, it is not dereferenced. The generated code
+/// must publish the actual value first, with no safepoint until this call. The registry
+/// keeps only owners of handles; it does not provide the value of a global load.
+/// Does not retain the source, collect or run Dart. Null/Smi remove the previous owner.
 ///
 /// # Panics
-/// Handle morto ou sem token do código; falha interna aborta no limite C.
+/// Dead handle or without a code token; internal failure aborts at the C boundary.
 ///
 /// ```
 /// dartforge_runtime::abi::dartforge_arc_global_receber_v1(17, 0);
@@ -1800,13 +1800,13 @@ pub extern "C" fn dartforge_arc_global_receber_v1(id: i64, value: i64) {
     HEAP.with(|h| h.borrow_mut().move_code_to_global(id, value));
 }
 
-/// Move um owner entre slots, consumindo origem e conteúdo antigo do destino.
+/// Moves an owner between slots, consuming the source and the old content of the destination.
 ///
-/// Mover para o mesmo slot preserva a ocorrência. Não há coleta nem Dart
-/// entre publicação do destino e limpeza da origem.
+/// Moving to the same slot preserves the occurrence. There is no collection nor Dart
+/// between publishing the destination and clearing the source.
 ///
 /// # Panics
-/// Quadros não proprietários, inexistentes ou índices inválidos; aborta no C.
+/// Non-owning or nonexistent frames or invalid indices; aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
@@ -1821,15 +1821,15 @@ pub extern "C" fn dartforge_arc_quadro_mover_v1(
     dest: i64,
     dest_slot: i64,
 ) {
-    let de = usize::try_from(source_slot).expect("índice inválido de origem ARC");
-    let to = usize::try_from(dest_slot).expect("índice inválido de destino ARC");
+    let de = usize::try_from(source_slot).expect("invalid ARC source index");
+    let to = usize::try_from(dest_slot).expect("invalid ARC destination index");
     HEAP.with(|h| h.borrow_mut().move_root(origin, de, dest, to));
 }
 
-/// Consome os owners do quadro do topo sem coletar ou executar Dart.
+/// Consumes the owners of the top frame without collecting or running Dart.
 ///
 /// # Panics
-/// Quadro não está no topo; falha interna aborta no limite C.
+/// The frame is not on top; internal failure aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
@@ -1985,7 +1985,7 @@ mod tests_arc_abi_frames {
             let value = dartforge_arc_box_int_owned_v1(i64::MAX);
             assert!(HEAP.with(|h| h.borrow().is_live_object(value)));
             assert_eq!(HEAP.with(|h| h.borrow().int_of(value)), Some(i64::MAX));
-            // A cópia representa um retorno retido, independente do token inicial.
+            // The copy represents a retained return, independent of the initial token.
             dartforge_arc_retain(value);
             dartforge_arc_release(value);
             dartforge_arc_collect();
@@ -2007,8 +2007,8 @@ mod tests_arc_abi_frames {
             if arc {
                 HEAP.with(|h| h.borrow_mut().enable_arc());
             }
-            // O endereço representa armazenamento do chamador, sem uma raiz
-            // observacional que possa esconder a perda do owner proprietário.
+            // The address represents caller storage, without an observational
+            // root that could hide the loss of the owning owner.
             let mut global = 0_i64;
             let id = (&mut global as *mut i64) as i64;
             let frame = dartforge_arc_quadro_abrir_v1(1);
@@ -2020,8 +2020,8 @@ mod tests_arc_abi_frames {
             dartforge_arc_collect();
             assert!(HEAP.with(|h| h.borrow().is_live_object(global)));
 
-            // Reatribuir o mesmo objeto consome o token novo e o owner velho;
-            // a identidade não pode pular a transferência ou vazar um retain.
+            // Reassigning the same object consumes the new token and the old owner;
+            // identity cannot skip the transfer or leak a retain.
             dartforge_arc_retain(global);
             dartforge_arc_global_receber_v1(id, global);
             dartforge_arc_collect();
@@ -2101,7 +2101,7 @@ mod tests_arc_abi_frames {
     }
 
     #[test]
-    #[should_panic(expected = "quadro ARC deve ser proprietário")]
+    #[should_panic(expected = "ARC frame must be owning")]
     fn abi_rejects_observational_frame_before_changing_slots() {
         let mut heap = Heap::new(false);
         let frame = heap.push_frame_with_slots(1);
@@ -2178,7 +2178,7 @@ mod testes_campo_ref {
         }
         assert_eq!(layout_fields(&layouts, 8), None);
         assert_eq!(layout_fields(&[], 8), None);
-        // Fora de ordem pode não achar; a conferência refaz em sequência.
+        // Out of order it may not find it; the check redoes it sequentially.
         assert_eq!(layout_fields(&[900, 6, 3, 2], 900), None);
     }
 
@@ -2254,7 +2254,7 @@ mod testes_campo_ref {
                 for (receiver, ix) in [(object, 37), (object, -1), (object, 40), (0, 0), (child, 0)] {
                     assert!(read_audited_ref_field(&h, receiver, ix).is_err());
                 }
-                // O campo nunca gravado (zerado, marcado escalar) é null.
+                // The never-written field (zeroed, marked scalar) is null.
                 assert_eq!(read_audited_ref_field(&h, object, 38), Ok(0));
                 assert_eq!(h.stats().allocations, stats.allocations);
                 assert_eq!(h.stats().collections, stats.collections);
@@ -2362,7 +2362,7 @@ mod tests_field_write {
             dartforge_arc_release(child);
             dartforge_arc_collect();
             assert_eq!(dartforge_arc_observar_heap_v1(child), 1);
-            // Os mesmos bits deixam de constituir aresta nos dois mapas.
+            // The same bits stop constituting an edge in both maps.
             for ix in [0, 37] { dartforge_arc_gravar_campo_escalar_v1(object, ix, child); }
             dartforge_arc_collect();
             assert_eq!(dartforge_arc_observar_heap_v1(child), 1);
@@ -2417,7 +2417,7 @@ mod tests_owned_instance {
         let previous = HEAP.with(|h| h.replace(Heap::new(true)));
         HEAP.with(|h| h.borrow_mut().enable_arc());
         for _ in 0..2 {
-            // SAFETY: tabela estática válida com uma entrada nativa durável.
+            // SAFETY: valid static table with one durable native entry.
             let object = unsafe { dartforge_arc_objeto_owned_t_v1(32001, 1, tabela) };
             assert_eq!(class_method(32001, 42), Some(input as *const () as usize));
             dartforge_arc_collect();
@@ -2439,7 +2439,7 @@ mod tests_owned_instance {
             for fields in [0, 1, 32, 33, 40] {
                 let object = dartforge_arc_objeto_owned_v1(123, fields);
                 assert_eq!(dartforge_arc_observar_heap_v1(object), 3);
-                // A próxima fábrica pode coletar antes de publicar seu token.
+                // The next factory may collect before publishing its token.
                 let other_one = dartforge_arc_objeto_owned_v1(124, 1);
                 dartforge_arc_collect();
                 HEAP.with(|h| {
@@ -2497,7 +2497,7 @@ mod tests_scalar_field {
             if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
             let object = HEAP.with(|h| {
                 let mut h = h.borrow_mut();
-                let child = h.allocate_str("campo de referência");
+                let child = h.allocate_str("reference field");
                 h.retain_code_owner(child);
                 let mut fields = vec![(0, false); 40];
                 fields[0] = (child, false);
@@ -2519,7 +2519,7 @@ mod tests_scalar_field {
             HEAP.with(|h| {
                 let h = h.borrow();
                 for i in [1, 37] {
-                    assert_eq!(read_audited_scalar_field(&h, object, i), Err("campo é referência gerenciada"));
+                    assert_eq!(read_audited_scalar_field(&h, object, i), Err("field is a managed reference"));
                 }
                 for i in [-1, 40] { assert!(read_audited_scalar_field(&h, object, i).is_err()); }
                 assert!(read_audited_scalar_field(&h, 0, 0).is_err());
