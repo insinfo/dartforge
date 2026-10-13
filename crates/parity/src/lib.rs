@@ -56,7 +56,7 @@ pub fn diagnosticos_json(analise: &Analise, raiz: &Path, opcoes: &filtros::Opcoe
             }
             None => None,
         };
-        if own.is_some_and(|o| o.exclui_arquivo(p)) {
+        if own.is_some_and(|o| o.excludes_file(p)) {
             continue;
         }
         let opcoes = own.unwrap_or(opcoes);
@@ -103,8 +103,8 @@ pub fn diagnosticos_json(analise: &Analise, raiz: &Path, opcoes: &filtros::Opcoe
                     None => "INFO",
                 };
                 // `cannot-ignore` with the lint's name: `// ignore:` does not silence it.
-                if opcoes.lint_ignoravel(r.codigo.nome, r.codigo.unico)
-                    && ignored.ignora_lint(r.codigo.nome, r.codigo.unico, lines.ponto(r.span.start).line)
+                if opcoes.lint_ignorable(r.codigo.nome, r.codigo.unico)
+                    && ignored.ignores_lint(r.codigo.nome, r.codigo.unico, lines.ponto(r.span.start).line)
                 {
                     continue;
                 }
@@ -151,7 +151,7 @@ fn report_to_json(file: &str, lines: &json::Linhas<'_>, r: &dartforge_analysis::
 /// options; hidden folders are skipped.
 pub fn diagnosticos_do_manifesto(raiz: &Path, opcoes: &filtros::Opcoes) -> Vec<json::DiagJson> {
     let mut out = Vec::new();
-    if !opcoes.manifesto_do_chrome_os {
+    if !opcoes.chrome_os_manifest_checks {
         return out;
     }
     let mut stack = vec![raiz.to_path_buf()];

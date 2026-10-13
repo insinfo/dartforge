@@ -1,38 +1,38 @@
-//! Os filtros que o analyzer aplica por último (plano §2.2, item 4):
-//! `analyzer: exclude:` e `analyzer: errors:` do `analysis_options.yaml`, e os
-//! comentários `// ignore:` e `// ignore_for_file:`.
+//! The filters the analyzer applies last (plan §2.2, item 4): `analyzer:
+//! exclude:` and `analyzer: errors:` of `analysis_options.yaml`, and the
+//! `// ignore:` and `// ignore_for_file:` comments.
 //!
-//! Referências (analyzer 6.11.0): `IgnoreInfo` (`src/ignore_comments/
-//! ignore_info.dart`: o comentário numa linha só vale para a linha seguinte;
-//! no fim de uma linha de código, para ela mesma), `ErrorCode.isIgnorable`
-//! (erro de severidade `ERROR` não se ignora por comentário) e o
-//! `ErrorProcessor` das opções (`ignore` remove; `info`/`warning`/`error`
-//! trocam a severidade).
+//! References (analyzer 6.11.0): `IgnoreInfo` (`src/ignore_comments/
+//! ignore_info.dart`: a comment on a line of its own applies to the next
+//! line; at the end of a line of code, to that line), `ErrorCode.isIgnorable`
+//! (an `ERROR`-severity error is not ignored by a comment) and the options'
+//! `ErrorProcessor` (`ignore` removes; `info`/`warning`/`error` change the
+//! severity).
 //!
-//! O `analysis_options.yaml` é lido com um leitor de YAML de verdade, com os
-//! `include:` fundidos (docs/ANALYZER-ESPECIFICACAO-INFRA.md, III.2.4;
-//! reescrito em 2026-10-04 sem compilar nem executar).
+//! `analysis_options.yaml` is read with a real YAML reader, with the
+//! `include:`s merged (docs/ANALYZER-ESPECIFICACAO-INFRA.md, III.2.4;
+//! rewritten on 2026-10-04 without compiling or running).
 
 use dartforge_diagnostics::{Diagnostic, Severidade};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use yaml_rust2::{Yaml, YamlLoader};
 
-/// O que o `analysis_options.yaml` configura para os diagnósticos
-/// (docs/ANALYZER-ESPECIFICACAO-INFRA.md §4.4 a §4.6 e III.2.4): lido com um
-/// leitor de YAML de verdade, com os `include:` fundidos.
+/// What `analysis_options.yaml` configures for the diagnostics
+/// (docs/ANALYZER-ESPECIFICACAO-INFRA.md §4.4 to §4.6 and III.2.4): read with
+/// a real YAML reader, with the `include:`s merged.
 #[derive(Debug, Default, Clone)]
 pub struct Opcoes {
-    /// A pasta do arquivo de opções: os globs de `exclude` são relativos a
-    /// ela. `None` nas opções feitas de um texto solto.
+    /// The options file's folder: the `exclude` globs are relative to it.
+    /// `None` for options made from a loose text.
     pub pasta: Option<PathBuf>,
-    /// Globs de `analyzer: exclude:`, relativos ao diretório das opções.
+    /// `analyzer: exclude:` globs, relative to the options' directory.
     pub exclude: Vec<String>,
-    /// `analyzer: errors:` — código → `None` (ignore) ou a nova severidade.
+    /// `analyzer: errors:` — code → `None` (ignore) or the new severity.
     pub errors: BTreeMap<String, Option<Severidade>>,
-    /// `analyzer: cannot-ignore:` — códigos (minúsculos) e severidades
-    /// (`error`, `warning`, `info`) que um `// ignore:` não cala.
-    pub nao_ignoraveis: BTreeSet<String>,
+    /// `analyzer: cannot-ignore:` — codes (lower case) and severities
+    /// (`error`, `warning`, `info`) that an `// ignore:` does not silence.
+    pub unignorable: BTreeSet<String>,
     /// `analyzer: language: strict-casts`.
     pub strict_casts: bool,
     /// `analyzer: language: strict-inference`.
@@ -41,56 +41,56 @@ pub struct Opcoes {
     pub strict_raw_types: bool,
     /// `analyzer: enable-experiment:`.
     pub experimentos: Vec<String>,
-    /// `linter: rules:` — regra → ligada (a forma de lista liga cada item).
+    /// `linter: rules:` — rule → enabled (the list form enables each item).
     pub regras: BTreeMap<String, bool>,
-    /// `analyzer: optional-checks: chrome-os-manifest-checks`: liga o
-    /// validador do `AndroidManifest.xml`.
-    pub manifesto_do_chrome_os: bool,
+    /// `analyzer: optional-checks: chrome-os-manifest-checks`: enables the
+    /// `AndroidManifest.xml` validator.
+    pub chrome_os_manifest_checks: bool,
 }
 
-/// Um item `String` de uma lista YAML.
-fn textos(no: &Yaml) -> Vec<&str> {
-    no.as_vec().map(|l| l.iter().filter_map(Yaml::as_str).collect()).unwrap_or_default()
+/// The `String` items of a YAML list.
+fn strings(node: &Yaml) -> Vec<&str> {
+    node.as_vec().map(|l| l.iter().filter_map(Yaml::as_str).collect()).unwrap_or_default()
 }
 
-/// A lista só tem strings (`Merger`: candidata a virar mapa de booleanos).
-fn lista_de_textos(no: &Yaml) -> bool {
-    no.as_vec().is_some_and(|l| l.iter().all(|x| x.as_str().is_some()))
+/// The list holds only strings (`Merger`: a candidate to become a map of booleans).
+fn is_string_list(node: &Yaml) -> bool {
+    node.as_vec().is_some_and(|l| l.iter().all(|x| x.as_str().is_some()))
 }
 
-/// O mapa só tem valores booleanos.
-fn mapa_de_booleanos(no: &Yaml) -> bool {
-    no.as_hash().is_some_and(|m| m.iter().all(|(_, v)| v.as_bool().is_some()))
+/// The map holds only boolean values.
+fn is_bool_map(node: &Yaml) -> bool {
+    node.as_hash().is_some_and(|m| m.iter().all(|(_, v)| v.as_bool().is_some()))
 }
 
-/// A lista de strings como mapa `{item: true}`.
-fn promover(no: Yaml) -> Yaml {
-    match no {
+/// The list of strings as a map `{item: true}`.
+fn promote(node: Yaml) -> Yaml {
+    match node {
         Yaml::Array(l) => Yaml::Hash(l.into_iter().map(|x| (x, Yaml::Boolean(true))).collect()),
-        outro => outro,
+        other => other,
     }
 }
 
-/// `Merger.merge` (`analyzer/lib/src/util/yaml.dart:23-100`): `base` é o
-/// arquivo incluído, `cima` o que inclui (e vence). Mapas fundem-se chave a
-/// chave; listas concatenam sem repetir; lista de strings contra mapa de
-/// booleanos vira mapa; um escalar de cima vence, salvo se nulo.
-fn fundir(base: Yaml, cima: Yaml) -> Yaml {
-    let (base, cima) = if lista_de_textos(&base) && mapa_de_booleanos(&cima) {
-        (promover(base), cima)
-    } else if mapa_de_booleanos(&base) && lista_de_textos(&cima) {
-        (base, promover(cima))
+/// `Merger.merge` (`analyzer/lib/src/util/yaml.dart:23-100`): `base` is the
+/// included file, `top` the including one (which wins). Maps merge key by
+/// key; lists concatenate without repeats; a list of strings against a map of
+/// booleans becomes a map; a scalar from the top wins, unless null.
+fn merge(base: Yaml, top: Yaml) -> Yaml {
+    let (base, top) = if is_string_list(&base) && is_bool_map(&top) {
+        (promote(base), top)
+    } else if is_bool_map(&base) && is_string_list(&top) {
+        (base, promote(top))
     } else {
-        (base, cima)
+        (base, top)
     };
-    match (base, cima) {
+    match (base, top) {
         (Yaml::Hash(mut b), Yaml::Hash(c)) => {
             for (k, v) in c {
-                let novo = match b.remove(&k) {
-                    Some(antigo) => fundir(antigo, v),
+                let new = match b.remove(&k) {
+                    Some(old) => merge(old, v),
                     None => v,
                 };
-                b.insert(k, novo);
+                b.insert(k, new);
             }
             Yaml::Hash(b)
         }
@@ -107,71 +107,72 @@ fn fundir(base: Yaml, cima: Yaml) -> Yaml {
     }
 }
 
-/// O mapa YAML de um texto de opções: não-mapa ou erro de YAML → mapa vazio
-/// (`getOptionsFromSource`, `analysis_options_provider.dart:81-83`).
-fn mapa_do_texto(texto: &str) -> Yaml {
-    let vazio = || Yaml::Hash(Default::default());
-    match YamlLoader::load_from_str(texto) {
+/// The YAML map of an options text: a non-map or a YAML error → an empty
+/// map (`getOptionsFromSource`, `analysis_options_provider.dart:81-83`).
+fn map_from_text(text: &str) -> Yaml {
+    let empty = || Yaml::Hash(Default::default());
+    match YamlLoader::load_from_str(text) {
         Ok(docs) => match docs.into_iter().next() {
             Some(m @ Yaml::Hash(_)) => m,
-            _ => vazio(),
+            _ => empty(),
         },
-        Err(_) => vazio(),
+        Err(_) => empty(),
     }
 }
 
-/// `getOptionsFromSource`: o mapa do arquivo com o `include:` (um escalar,
-/// relativo ao arquivo ou `package:`) fundido por baixo, recursivamente.
-/// `visitados` corta o ciclo (o original não o detecta na carga).
-fn mapa_do_arquivo(arquivo: &Path, pacotes: &dyn Fn(&str) -> Option<PathBuf>, visitados: &mut Vec<PathBuf>) -> Yaml {
-    let Ok(texto) = std::fs::read_to_string(arquivo) else { return Yaml::Hash(Default::default()) };
-    visitados.push(arquivo.to_path_buf());
-    let opcoes = mapa_do_texto(&texto);
-    let incluido = opcoes["include"].as_str().and_then(|uri| {
+/// `getOptionsFromSource`: the file's map with the `include:` (a scalar,
+/// relative to the file or `package:`) merged underneath, recursively.
+/// `visited` breaks cycles (the original does not detect them while loading).
+fn map_from_file(file: &Path, packages: &dyn Fn(&str) -> Option<PathBuf>, visited: &mut Vec<PathBuf>) -> Yaml {
+    let Ok(text) = std::fs::read_to_string(file) else { return Yaml::Hash(Default::default()) };
+    visited.push(file.to_path_buf());
+    let options = map_from_text(&text);
+    let included = options["include"].as_str().and_then(|uri| {
         if uri.starts_with("package:") {
-            pacotes(uri)
+            packages(uri)
         } else {
-            arquivo.parent().map(|p| p.join(uri))
+            file.parent().map(|p| p.join(uri))
         }
     });
-    match incluido {
-        Some(pai) if pai.is_file() && !visitados.contains(&pai) => fundir(mapa_do_arquivo(&pai, pacotes, visitados), opcoes),
-        _ => opcoes,
+    match included {
+        Some(parent) if parent.is_file() && !visited.contains(&parent) => merge(map_from_file(&parent, packages, visited), options),
+        _ => options,
     }
 }
 
 impl Opcoes {
-    /// Lê `<raiz>/analysis_options.yaml`, se existir, com os `include:`
-    /// (os `package:` pelo `package_config.json` acima da raiz).
-    pub fn ler(raiz: &Path) -> Opcoes {
-        Opcoes::ler_arquivo(&raiz.join("analysis_options.yaml"))
+    /// Reads `<root>/analysis_options.yaml`, if it exists, with the
+    /// `include:`s (the `package:` ones through the `package_config.json`
+    /// above the root).
+    pub fn ler(root: &Path) -> Opcoes {
+        Opcoes::ler_arquivo(&root.join("analysis_options.yaml"))
     }
 
-    /// Lê um arquivo de opções com os `include:` fundidos.
-    pub fn ler_arquivo(arquivo: &Path) -> Opcoes {
-        if !arquivo.is_file() {
+    /// Reads an options file with the `include:`s merged.
+    pub fn ler_arquivo(file: &Path) -> Opcoes {
+        if !file.is_file() {
             return Opcoes::default();
         }
-        let config = dartforge_elements::config::PackageConfig::discover(arquivo)
+        let config = dartforge_elements::config::PackageConfig::discover(file)
             .and_then(|p| dartforge_elements::config::PackageConfig::load(&p).ok());
-        let pacotes = |uri: &str| config.as_ref().and_then(|c| c.resolve_package_uri(uri).ok());
-        let mapa = mapa_do_arquivo(arquivo, &pacotes, &mut Vec::new());
-        let mut o = Opcoes::do_mapa(&mapa);
-        o.pasta = arquivo.parent().map(Path::to_path_buf);
+        let packages = |uri: &str| config.as_ref().and_then(|c| c.resolve_package_uri(uri).ok());
+        let map = map_from_file(file, &packages, &mut Vec::new());
+        let mut o = Opcoes::from_map(&map);
+        o.pasta = file.parent().map(Path::to_path_buf);
         o
     }
 
-    /// As opções de um texto solto (sem seguir `include:`).
-    pub fn de_texto(texto: &str) -> Opcoes {
-        Opcoes::do_mapa(&mapa_do_texto(texto))
+    /// The options of a loose text (without following `include:`).
+    pub fn de_texto(text: &str) -> Opcoes {
+        Opcoes::from_map(&map_from_text(text))
     }
 
-    /// `applyOptions` (`apply_options.dart:179-237`) sobre o mapa já fundido.
-    fn do_mapa(mapa: &Yaml) -> Opcoes {
+    /// `applyOptions` (`apply_options.dart:179-237`) over the already merged map.
+    fn from_map(map: &Yaml) -> Opcoes {
         let mut o = Opcoes::default();
-        let analyzer = &mapa["analyzer"];
-        if let Some(erros) = analyzer["errors"].as_hash() {
-            for (k, v) in erros.iter() {
+        let analyzer = &map["analyzer"];
+        if let Some(errors) = analyzer["errors"].as_hash() {
+            for (k, v) in errors.iter() {
                 let (Some(k), Some(v)) = (k.as_str(), v.as_str()) else { continue };
                 let sev = match v.to_lowercase().as_str() {
                     "ignore" => None,
@@ -183,29 +184,29 @@ impl Opcoes {
                 o.errors.insert(k.to_lowercase(), sev);
             }
         }
-        for g in textos(&analyzer["exclude"]) {
+        for g in strings(&analyzer["exclude"]) {
             o.exclude.push(g.to_string());
-            // `x/**` também exclui a própria pasta `x`.
-            if let Some(pasta) = g.strip_suffix("/**") {
-                o.exclude.push(pasta.to_string());
+            // `x/**` also excludes the folder `x` itself.
+            if let Some(folder) = g.strip_suffix("/**") {
+                o.exclude.push(folder.to_string());
             }
         }
-        for n in textos(&analyzer["cannot-ignore"]) {
-            o.nao_ignoraveis.insert(n.to_lowercase());
+        for n in strings(&analyzer["cannot-ignore"]) {
+            o.unignorable.insert(n.to_lowercase());
         }
-        let linguagem = &analyzer["language"];
-        o.strict_casts = linguagem["strict-casts"].as_bool().unwrap_or(false);
-        o.strict_inference = linguagem["strict-inference"].as_bool().unwrap_or(false);
-        o.strict_raw_types = linguagem["strict-raw-types"].as_bool().unwrap_or(false);
-        o.experimentos = textos(&analyzer["enable-experiment"]).into_iter().map(str::to_string).collect();
-        let checagens = &analyzer["optional-checks"];
-        o.manifesto_do_chrome_os = checagens.as_str() == Some("chrome-os-manifest-checks")
-            || checagens["chrome-os-manifest-checks"].as_bool().unwrap_or(false);
-        let regras = &mapa["linter"]["rules"];
-        for r in textos(regras) {
+        let language = &analyzer["language"];
+        o.strict_casts = language["strict-casts"].as_bool().unwrap_or(false);
+        o.strict_inference = language["strict-inference"].as_bool().unwrap_or(false);
+        o.strict_raw_types = language["strict-raw-types"].as_bool().unwrap_or(false);
+        o.experimentos = strings(&analyzer["enable-experiment"]).into_iter().map(str::to_string).collect();
+        let checks = &analyzer["optional-checks"];
+        o.chrome_os_manifest_checks = checks.as_str() == Some("chrome-os-manifest-checks")
+            || checks["chrome-os-manifest-checks"].as_bool().unwrap_or(false);
+        let rules = &map["linter"]["rules"];
+        for r in strings(rules) {
             o.regras.insert(r.to_string(), true);
         }
-        if let Some(m) = regras.as_hash() {
+        if let Some(m) = rules.as_hash() {
             for (k, v) in m.iter() {
                 if let (Some(k), Some(v)) = (k.as_str(), v.as_bool()) {
                     o.regras.insert(k.to_string(), v);
@@ -215,79 +216,78 @@ impl Opcoes {
         o
     }
 
-    /// O arquivo de opções mais próximo de `arquivo`, subindo, estritamente
-    /// abaixo de `raiz` (§4.5: as opções de subpasta). `None` quando o que
-    /// vale é o da raiz.
-    pub fn de_subpasta(arquivo: &Path, raiz: &Path) -> Option<PathBuf> {
-        let mut pasta = arquivo.parent();
-        while let Some(p) = pasta {
-            if p == raiz || !p.starts_with(raiz) {
+    /// The options file nearest to `file`, going up, strictly below `root`
+    /// (§4.5: subfolder options). `None` when the root's applies.
+    pub fn de_subpasta(file: &Path, root: &Path) -> Option<PathBuf> {
+        let mut folder = file.parent();
+        while let Some(p) = folder {
+            if p == root || !p.starts_with(root) {
                 return None;
             }
-            let candidato = p.join("analysis_options.yaml");
-            if candidato.is_file() {
-                return Some(candidato);
+            let candidate = p.join("analysis_options.yaml");
+            if candidate.is_file() {
+                return Some(candidate);
             }
-            pasta = p.parent();
+            folder = p.parent();
         }
         None
     }
 
-    /// O arquivo (caminho absoluto) é excluído pelos globs destas opções,
-    /// relativos à pasta delas.
-    pub fn exclui_arquivo(&self, arquivo: &Path) -> bool {
-        let Some(pasta) = &self.pasta else { return false };
-        let Ok(rel) = arquivo.strip_prefix(pasta) else { return false };
+    /// Is the file (absolute path) excluded by these options' globs, which
+    /// are relative to their folder?
+    pub fn excludes_file(&self, file: &Path) -> bool {
+        let Some(folder) = &self.pasta else { return false };
+        let Ok(rel) = file.strip_prefix(folder) else { return false };
         let rel = rel.to_string_lossy().replace('\\', "/");
         self.exclude.iter().any(|g| glob(g, &rel))
     }
 
-    /// Um `// ignore:` pode calar `d`? Não, se o código estiver em
-    /// `cannot-ignore`, ou a severidade dele (a de `errors:`, se mudada ali;
-    /// senão a padrão) estiver (`AnalysisOptionsImpl.unignorableNames`).
+    /// Can an `// ignore:` silence `d`? Not if the code is in
+    /// `cannot-ignore`, or its severity (the one from `errors:`, if changed
+    /// there; otherwise the default) is (`AnalysisOptionsImpl.unignorableNames`).
     pub fn ignoravel(&self, d: &Diagnostic) -> bool {
-        if self.nao_ignoraveis.is_empty() {
+        if self.unignorable.is_empty() {
             return true;
         }
         let Some(c) = d.code else { return true };
         let info = c.info();
-        if self.nao_ignoraveis.contains(info.nome) {
+        if self.unignorable.contains(info.nome) {
             return false;
         }
-        let nome_da = |s: Severidade| match s {
+        let name_of = |s: Severidade| match s {
             Severidade::Error => "error",
             Severidade::Warning => "warning",
             Severidade::Info => "info",
         };
         // `applyUnignorables` (docs/ANALYZER-ESPECIFICACAO-INFRA.md §4.3,
-        // fato c): o código entra pela severidade que `errors:` lhe deu e
-        // também pela padrão (o segundo `if` roda sempre que o primeiro não
-        // deu `continue`): o erro rebaixado a `warning` continua não
-        // ignorável com `cannot-ignore: [error]`.
+        // fact c): the code is added through the severity `errors:` gave it
+        // and also through the default one (the second `if` runs whenever the
+        // first did not `continue`): an error downgraded to `warning` stays
+        // unignorable with `cannot-ignore: [error]`.
         if let Some(Some(s)) = self.errors.get(info.nome)
-            && self.nao_ignoraveis.contains(nome_da(*s))
+            && self.unignorable.contains(name_of(*s))
         {
             return false;
         }
-        !self.nao_ignoraveis.contains(nome_da(info.severidade))
+        !self.unignorable.contains(name_of(info.severidade))
     }
 
-    /// O lint `nome` (de nome único `unico`) pode ser calado por
-    /// `// ignore:`: os lints só entram no `cannot-ignore` pelo nome, nunca
-    /// pela severidade (§4.3, fato d), e a comparação é sem caixa
+    /// Can the lint `name` (with unique name `unique`) be silenced by
+    /// `// ignore:`? Lints only enter `cannot-ignore` by name, never by
+    /// severity (§4.3, fact d), and the comparison ignores case
     /// (`code.name.toUpperCase()`).
-    pub fn lint_ignoravel(&self, nome: &str, unico: &str) -> bool {
-        !(self.nao_ignoraveis.contains(&nome.to_lowercase()) || self.nao_ignoraveis.contains(&unico.to_lowercase()))
+    pub fn lint_ignorable(&self, name: &str, unique: &str) -> bool {
+        !(self.unignorable.contains(&name.to_lowercase()) || self.unignorable.contains(&unique.to_lowercase()))
     }
 
-    /// `rel` (relativo à raiz, com `/`) está fora da análise: casa algum
-    /// `exclude`, ou algum componente do caminho começa com `.`
-    /// (`ContextRootImpl._isExcluded`, passos 1 e 3).
+    /// Is `rel` (relative to the root, with `/`) outside the analysis? It
+    /// matches some `exclude`, or some path component starts with `.`
+    /// (`ContextRootImpl._isExcluded`, steps 1 and 3).
     pub fn excluido(&self, rel: &str) -> bool {
         rel.split('/').any(|c| c.starts_with('.') && c != "." && c != "..") || self.exclude.iter().any(|g| glob(g, rel))
     }
 
-    /// Aplica `errors:` a um diagnóstico: `None` se ignorado.
+    /// Applies `errors:` to a diagnostic: `None` if ignored.
     pub fn processar(&self, mut d: Diagnostic) -> Option<Diagnostic> {
         let Some(c) = d.code else { return Some(d) };
         match self.errors.get(c.info().nome) {
@@ -301,18 +301,18 @@ impl Opcoes {
     }
 }
 
-/// O fecho de uma construção do glob que começa em `p[0]` (`[` ou `{`):
-/// o índice do delimitador que fecha, pulando escapes e aninhamento.
-fn fecho(p: &[u8], abre: u8, fecha: u8) -> Option<usize> {
-    let mut nivel = 0usize;
+/// The closer of a glob construct starting at `p[0]` (`[` or `{`): the index
+/// of the closing delimiter, skipping escapes and nesting.
+fn closer(p: &[u8], open: u8, close: u8) -> Option<usize> {
+    let mut level = 0usize;
     let mut i = 0;
     while i < p.len() {
         match p[i] {
             b'\\' => i += 1,
-            c if c == abre => nivel += 1,
-            c if c == fecha => {
-                nivel -= 1;
-                if nivel == 0 {
+            c if c == open => level += 1,
+            c if c == close => {
+                level -= 1;
+                if level == 0 {
                     return Some(i);
                 }
             }
@@ -323,185 +323,184 @@ fn fecho(p: &[u8], abre: u8, fecha: u8) -> Option<usize> {
     None
 }
 
-/// Glob do `package:glob`: `**` casa qualquer sequência (inclusive `/`),
-/// `*` qualquer sequência sem `/`, `?` um caractere, `[abc]`, `[a-z]` e
-/// `[!abc]`/`[^abc]` um caractere da classe (nunca `/`), `{a,b}` uma das
-/// alternativas, e `\` tira o significado do caractere seguinte.
-pub fn glob(padrao: &str, texto: &str) -> bool {
-    fn casa(p: &[u8], t: &[u8]) -> bool {
+/// A `package:glob` glob: `**` matches any sequence (including `/`), `*` any
+/// sequence without `/`, `?` one character, `[abc]`, `[a-z]` and
+/// `[!abc]`/`[^abc]` one character of the class (never `/`), `{a,b}` one of
+/// the alternatives, and `\` removes the meaning of the next character.
+pub fn glob(pattern: &str, text: &str) -> bool {
+    fn matches(p: &[u8], t: &[u8]) -> bool {
         if p.is_empty() {
             return t.is_empty();
         }
         if p.starts_with(b"**") {
-            let resto = p[2..].strip_prefix(b"/").unwrap_or(&p[2..]);
-            return (0..=t.len()).any(|i| casa(resto, &t[i..])) || casa(&p[2..], t);
+            let rest = p[2..].strip_prefix(b"/").unwrap_or(&p[2..]);
+            return (0..=t.len()).any(|i| matches(rest, &t[i..])) || matches(&p[2..], t);
         }
         match p[0] {
-            b'*' => (0..=t.len()).take_while(|&i| i == 0 || t[i - 1] != b'/').any(|i| casa(&p[1..], &t[i..])),
-            b'?' => !t.is_empty() && t[0] != b'/' && casa(&p[1..], &t[1..]),
-            b'\\' if p.len() > 1 => !t.is_empty() && t[0] == p[1] && casa(&p[2..], &t[1..]),
+            b'*' => (0..=t.len()).take_while(|&i| i == 0 || t[i - 1] != b'/').any(|i| matches(&p[1..], &t[i..])),
+            b'?' => !t.is_empty() && t[0] != b'/' && matches(&p[1..], &t[1..]),
+            b'\\' if p.len() > 1 => !t.is_empty() && t[0] == p[1] && matches(&p[2..], &t[1..]),
             b'[' => {
-                let Some(fim) = fecho(p, b'[', b']') else { return !t.is_empty() && t[0] == b'[' && casa(&p[1..], &t[1..]) };
+                let Some(end) = closer(p, b'[', b']') else { return !t.is_empty() && t[0] == b'[' && matches(&p[1..], &t[1..]) };
                 if t.is_empty() || t[0] == b'/' {
                     return false;
                 }
-                let mut classe = &p[1..fim];
-                let negada = matches!(classe.first(), Some(b'!' | b'^'));
-                if negada {
-                    classe = &classe[1..];
+                let mut class = &p[1..end];
+                let negated = matches!(class.first(), Some(b'!' | b'^'));
+                if negated {
+                    class = &class[1..];
                 }
-                let mut dentro = false;
+                let mut inside = false;
                 let mut i = 0;
-                while i < classe.len() {
-                    let mut c = classe[i];
-                    if c == b'\\' && i + 1 < classe.len() {
+                while i < class.len() {
+                    let mut c = class[i];
+                    if c == b'\\' && i + 1 < class.len() {
                         i += 1;
-                        c = classe[i];
+                        c = class[i];
                     }
-                    if i + 2 < classe.len() && classe[i + 1] == b'-' {
-                        dentro |= c <= t[0] && t[0] <= classe[i + 2];
+                    if i + 2 < class.len() && class[i + 1] == b'-' {
+                        inside |= c <= t[0] && t[0] <= class[i + 2];
                         i += 3;
                     } else {
-                        dentro |= c == t[0];
+                        inside |= c == t[0];
                         i += 1;
                     }
                 }
-                dentro != negada && casa(&p[fim + 1..], &t[1..])
+                inside != negated && matches(&p[end + 1..], &t[1..])
             }
             b'{' => {
-                let Some(fim) = fecho(p, b'{', b'}') else { return !t.is_empty() && t[0] == b'{' && casa(&p[1..], &t[1..]) };
-                // As alternativas: separadas pelas vírgulas do nível de fora.
-                let miolo = &p[1..fim];
-                let mut alternativas: Vec<&[u8]> = Vec::new();
-                let (mut nivel, mut inicio, mut i) = (0usize, 0usize, 0usize);
-                while i < miolo.len() {
-                    match miolo[i] {
+                let Some(end) = closer(p, b'{', b'}') else { return !t.is_empty() && t[0] == b'{' && matches(&p[1..], &t[1..]) };
+                // The alternatives: separated by the outer level's commas.
+                let inner = &p[1..end];
+                let mut alternatives: Vec<&[u8]> = Vec::new();
+                let (mut level, mut start, mut i) = (0usize, 0usize, 0usize);
+                while i < inner.len() {
+                    match inner[i] {
                         b'\\' => i += 1,
-                        b'{' => nivel += 1,
-                        b'}' => nivel = nivel.saturating_sub(1),
-                        b',' if nivel == 0 => {
-                            alternativas.push(&miolo[inicio..i]);
-                            inicio = i + 1;
+                        b'{' => level += 1,
+                        b'}' => level = level.saturating_sub(1),
+                        b',' if level == 0 => {
+                            alternatives.push(&inner[start..i]);
+                            start = i + 1;
                         }
                         _ => {}
                     }
                     i += 1;
                 }
-                alternativas.push(&miolo[inicio..]);
-                alternativas.iter().any(|a| {
-                    let mut junto = a.to_vec();
-                    junto.extend_from_slice(&p[fim + 1..]);
-                    casa(&junto, t)
+                alternatives.push(&inner[start..]);
+                alternatives.iter().any(|a| {
+                    let mut joined = a.to_vec();
+                    joined.extend_from_slice(&p[end + 1..]);
+                    matches(&joined, t)
                 })
             }
-            c => !t.is_empty() && t[0] == c && casa(&p[1..], &t[1..]),
+            c => !t.is_empty() && t[0] == c && matches(&p[1..], &t[1..]),
         }
     }
-    casa(padrao.as_bytes(), texto.as_bytes())
+    matches(pattern.as_bytes(), text.as_bytes())
 }
 
-/// Um elemento da lista de um comentário `ignore` (`IgnoredElement`).
+/// An element of the list of an `ignore` comment (`IgnoredElement`).
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum Ignorado {
-    /// Um nome de diagnóstico, em minúsculas, e o offset dele na fonte.
-    Nome { nome: String, offset: usize },
-    /// `type=…`, em minúsculas.
-    Tipo { tipo: String },
+enum Ignored {
+    /// A diagnostic name, in lower case, and its offset in the source.
+    Name { name: String, offset: usize },
+    /// `type=…`, in lower case.
+    Type { kind: String },
 }
 
-/// Os `// ignore:` de um arquivo, como o `IgnoreInfo` do analyzer
+/// The `// ignore:` comments of a file, like the analyzer's `IgnoreInfo`
 /// (`analyzer/lib/src/ignore_comments/ignore_info.dart`;
-/// docs/ANALYZER-ESPECIFICACAO-INFRA.md §4.1): por linha (1-based) e para o
-/// arquivo todo. Os comentários vêm de uma varredura da fonte que conhece
-/// strings e comentários de bloco — um `//` dentro de uma string não é
-/// comentário.
+/// docs/ANALYZER-ESPECIFICACAO-INFRA.md §4.1): per line (1-based) and for the
+/// whole file. The comments come from a scan of the source that knows strings
+/// and block comments — a `//` inside a string is not a comment.
 #[derive(Debug, Default)]
 pub struct Ignorados {
-    por_linha: BTreeMap<usize, Vec<Ignorado>>,
-    arquivo: Vec<Ignorado>,
-    /// Os nomes repetidos (`IgnoreValidator`, `duplicate_ignore`): o nome e
-    /// o intervalo da repetição.
-    repetidos: Vec<(String, dartforge_diagnostics::Span)>,
+    by_line: BTreeMap<usize, Vec<Ignored>>,
+    file: Vec<Ignored>,
+    /// The repeated names (`IgnoreValidator`, `duplicate_ignore`): the name
+    /// and the range of the repetition.
+    repeated: Vec<(String, dartforge_diagnostics::Span)>,
 }
 
-/// Os comentários de linha (`//…`) da fonte: o offset do `//` e o texto até
-/// o fim da linha. Pula strings (simples, de três aspas e cruas, com as
-/// interpolações `${…}`) e comentários de bloco aninhados.
-fn comentarios_de_linha(fonte: &str) -> Vec<(usize, &str)> {
-    let b = fonte.as_bytes();
+/// The line comments (`//…`) of the source: the offset of the `//` and the
+/// text up to the end of the line. Skips strings (simple, triple-quoted and
+/// raw, with their `${…}` interpolations) and nested block comments.
+fn line_comments(source: &str) -> Vec<(usize, &str)> {
+    let b = source.as_bytes();
     let n = b.len();
-    let mut saida = Vec::new();
-    // A pilha de contextos: `None` é código (o `usize` das strings é a
-    // profundidade de chaves do código dentro de uma interpolação).
+    let mut out = Vec::new();
+    // The stack of contexts: `Code` is code (inside strings, the `u32` is the
+    // brace depth of the code within an interpolation).
     #[derive(Clone, Copy)]
     enum Ctx {
-        /// Código; `chaves` conta os `{` abertos desde a interpolação que o
-        /// abriu (no topo do arquivo, nunca fecha).
-        Codigo { chaves: u32, de_interpolacao: bool },
-        /// Dentro de uma string: o delimitador, se é de três, se é crua.
-        Texto { aspa: u8, tripla: bool, crua: bool },
+        /// Code; `braces` counts the `{` opened since the interpolation that
+        /// opened it (at the top of the file it never closes).
+        Code { braces: u32, from_interpolation: bool },
+        /// Inside a string: the delimiter, whether it is triple, whether raw.
+        Text { quote: u8, triple: bool, raw: bool },
     }
-    let mut pilha: Vec<Ctx> = vec![Ctx::Codigo { chaves: 0, de_interpolacao: false }];
+    let mut stack: Vec<Ctx> = vec![Ctx::Code { braces: 0, from_interpolation: false }];
     let mut i = 0;
     while i < n {
-        let Some(topo) = pilha.last().copied() else { break };
-        match topo {
-            Ctx::Codigo { chaves, de_interpolacao } => {
+        let Some(top) = stack.last().copied() else { break };
+        match top {
+            Ctx::Code { braces, from_interpolation } => {
                 let ch = b[i];
                 if ch == b'/' && b.get(i + 1) == Some(&b'/') {
-                    let fim = fonte[i..].find('\n').map_or(n, |k| i + k);
-                    saida.push((i, fonte[i..fim].trim_end_matches('\r')));
-                    i = fim;
+                    let end = source[i..].find('\n').map_or(n, |k| i + k);
+                    out.push((i, source[i..end].trim_end_matches('\r')));
+                    i = end;
                 } else if ch == b'/' && b.get(i + 1) == Some(&b'*') {
-                    let mut nivel = 1;
+                    let mut level = 1;
                     i += 2;
-                    while i < n && nivel > 0 {
+                    while i < n && level > 0 {
                         if b[i] == b'/' && b.get(i + 1) == Some(&b'*') {
-                            nivel += 1;
+                            level += 1;
                             i += 2;
                         } else if b[i] == b'*' && b.get(i + 1) == Some(&b'/') {
-                            nivel -= 1;
+                            level -= 1;
                             i += 2;
                         } else {
                             i += 1;
                         }
                     }
                 } else if ch == b'\'' || ch == b'"' {
-                    let crua = i > 0 && b[i - 1] == b'r' && (i < 2 || !(b[i - 2].is_ascii_alphanumeric() || b[i - 2] == b'_' || b[i - 2] == b'$'));
-                    let tripla = b.get(i + 1) == Some(&ch) && b.get(i + 2) == Some(&ch);
-                    pilha.push(Ctx::Texto { aspa: ch, tripla, crua });
-                    i += if tripla { 3 } else { 1 };
+                    let raw = i > 0 && b[i - 1] == b'r' && (i < 2 || !(b[i - 2].is_ascii_alphanumeric() || b[i - 2] == b'_' || b[i - 2] == b'$'));
+                    let triple = b.get(i + 1) == Some(&ch) && b.get(i + 2) == Some(&ch);
+                    stack.push(Ctx::Text { quote: ch, triple, raw });
+                    i += if triple { 3 } else { 1 };
                 } else if ch == b'{' {
-                    if let Some(Ctx::Codigo { chaves, .. }) = pilha.last_mut() {
-                        *chaves += 1;
+                    if let Some(Ctx::Code { braces, .. }) = stack.last_mut() {
+                        *braces += 1;
                     }
                     i += 1;
                 } else if ch == b'}' {
-                    if de_interpolacao && chaves == 0 {
-                        // Fecha a interpolação: volta à string.
-                        pilha.pop();
-                    } else if let Some(Ctx::Codigo { chaves, .. }) = pilha.last_mut() {
-                        *chaves = chaves.saturating_sub(1);
+                    if from_interpolation && braces == 0 {
+                        // Closes the interpolation: back to the string.
+                        stack.pop();
+                    } else if let Some(Ctx::Code { braces, .. }) = stack.last_mut() {
+                        *braces = braces.saturating_sub(1);
                     }
                     i += 1;
                 } else {
                     i += 1;
                 }
             }
-            Ctx::Texto { aspa, tripla, crua } => {
+            Ctx::Text { quote, triple, raw } => {
                 let ch = b[i];
-                if !crua && ch == b'\\' {
+                if !raw && ch == b'\\' {
                     i += 2;
-                } else if !crua && ch == b'$' && b.get(i + 1) == Some(&b'{') {
-                    pilha.push(Ctx::Codigo { chaves: 0, de_interpolacao: true });
+                } else if !raw && ch == b'$' && b.get(i + 1) == Some(&b'{') {
+                    stack.push(Ctx::Code { braces: 0, from_interpolation: true });
                     i += 2;
-                } else if ch == aspa && (!tripla || (b.get(i + 1) == Some(&aspa) && b.get(i + 2) == Some(&aspa))) {
-                    pilha.pop();
-                    i += if tripla { 3 } else { 1 };
-                } else if !tripla && ch == b'\n' {
-                    // String de uma linha sem fecho: o erro é do lexer; o
-                    // resto do arquivo volta a ser código.
-                    pilha.pop();
+                } else if ch == quote && (!triple || (b.get(i + 1) == Some(&quote) && b.get(i + 2) == Some(&quote))) {
+                    stack.pop();
+                    i += if triple { 3 } else { 1 };
+                } else if !triple && ch == b'\n' {
+                    // A single-line string without a closer: the error is the
+                    // lexer's; the rest of the file is code again.
+                    stack.pop();
                     i += 1;
                 } else {
                     i += 1;
@@ -509,200 +508,201 @@ fn comentarios_de_linha(fonte: &str) -> Vec<(usize, &str)> {
             }
         }
     }
-    saida
+    out
 }
 
-/// `CommentTokenExtension.ignoredElements` (`ignore_info.dart:202-330`): os
-/// elementos da lista depois do PRIMEIRO `:` do comentário. `base` é o
-/// offset do comentário na fonte.
-fn elementos_do_comentario(lexema: &str, base: usize) -> Vec<Ignorado> {
-    let b = lexema.as_bytes();
+/// `CommentTokenExtension.ignoredElements` (`ignore_info.dart:202-330`): the
+/// elements of the list after the FIRST `:` of the comment. `base` is the
+/// comment's offset in the source.
+fn comment_elements(lexeme: &str, base: usize) -> Vec<Ignored> {
+    let b = lexeme.as_bytes();
     let n = b.len();
-    let mut saida = Vec::new();
-    let Some(dois_pontos) = lexema.find(':') else { return saida };
-    let mut i = dois_pontos + 1;
-    let pular_brancos = |i: &mut usize| {
+    let mut out = Vec::new();
+    let Some(colon) = lexeme.find(':') else { return out };
+    let mut i = colon + 1;
+    let skip_blanks = |i: &mut usize| {
         while *i < n && (b[*i] == b' ' || b[*i] == b'\t') {
             *i += 1;
         }
     };
-    // Uma palavra: começa com letra, segue com letra, dígito ou `_`.
-    let palavra = |i: &mut usize| -> Option<(usize, usize)> {
-        let ini = *i;
+    // A word: starts with a letter, continues with letters, digits or `_`.
+    let word = |i: &mut usize| -> Option<(usize, usize)> {
+        let start = *i;
         if *i < n && b[*i].is_ascii_alphabetic() {
             *i += 1;
             while *i < n && (b[*i].is_ascii_alphanumeric() || b[*i] == b'_') {
                 *i += 1;
             }
-            Some((ini, *i))
+            Some((start, *i))
         } else {
             None
         }
     };
     loop {
-        pular_brancos(&mut i);
+        skip_blanks(&mut i);
         if i >= n {
-            return saida;
+            return out;
         }
-        let Some((ini, fim)) = palavra(&mut i) else { return saida };
-        let texto = lexema[ini..fim].to_lowercase();
-        if texto == "type" {
-            pular_brancos(&mut i);
+        let Some((start, end)) = word(&mut i) else { return out };
+        let text = lexeme[start..end].to_lowercase();
+        if text == "type" {
+            skip_blanks(&mut i);
             if i >= n || b[i] != b'=' {
-                return saida;
+                return out;
             }
             i += 1;
-            pular_brancos(&mut i);
-            let Some((tini, tfim)) = palavra(&mut i) else { return saida };
+            skip_blanks(&mut i);
+            let Some((tstart, tend)) = word(&mut i) else { return out };
             if i < n && !(b[i] == b' ' || b[i] == b'\t' || b[i] == b',') {
-                return saida;
+                return out;
             }
-            saida.push(Ignorado::Tipo { tipo: lexema[tini..tfim].to_lowercase() });
+            out.push(Ignored::Type { kind: lexeme[tstart..tend].to_lowercase() });
         } else {
-            // Um nome seguido de caractere estranho (`ignore: http://x`,
-            // `nome.`) encerra a lista sem incluí-lo.
+            // A name followed by an odd character (`ignore: http://x`,
+            // `name.`) ends the list without including it.
             if i < n && !(b[i] == b' ' || b[i] == b'\t' || b[i] == b',') {
-                return saida;
+                return out;
             }
-            saida.push(Ignorado::Nome { nome: texto, offset: base + ini });
+            out.push(Ignored::Name { name: text, offset: base + start });
         }
-        pular_brancos(&mut i);
+        skip_blanks(&mut i);
         if i >= n || b[i] != b',' {
-            // Fim, ou texto livre depois do último nome.
-            return saida;
+            // The end, or free text after the last name.
+            return out;
         }
         i += 1;
     }
 }
 
 impl Ignorados {
-    pub fn de_texto(texto: &str) -> Ignorados {
+    pub fn de_texto(text: &str) -> Ignorados {
         let mut ig = Ignorados::default();
-        // O começo de cada linha, para achar a linha de um offset.
-        let mut inicios: Vec<usize> = vec![0];
-        inicios.extend(texto.bytes().enumerate().filter(|(_, c)| *c == b'\n').map(|(i, _)| i + 1));
-        let mut do_arquivo_bruto: Vec<Ignorado> = Vec::new();
-        let mut de_linha_bruto: Vec<(usize, Vec<Ignorado>)> = Vec::new();
-        for (offset, lexema) in comentarios_de_linha(texto) {
-            // `//+[ ]*ignore:` (duas ou mais barras) ou `//[ ]*ignore_for_file:`
-            // (exatamente duas): só o COMEÇO do comentário é testado.
-            let depois_das_barras = lexema.trim_start_matches('/');
-            let barras = lexema.len() - depois_das_barras.len();
-            let corpo = depois_das_barras.trim_start_matches(' ');
-            let e_ignore = corpo.starts_with("ignore:");
-            let e_do_arquivo = barras == 2 && corpo.starts_with("ignore_for_file:");
-            if !e_ignore && !e_do_arquivo {
+        // The start of each line, to find the line of an offset.
+        let mut starts: Vec<usize> = vec![0];
+        starts.extend(text.bytes().enumerate().filter(|(_, c)| *c == b'\n').map(|(i, _)| i + 1));
+        let mut file_raw: Vec<Ignored> = Vec::new();
+        let mut line_raw: Vec<(usize, Vec<Ignored>)> = Vec::new();
+        for (offset, lexeme) in line_comments(text) {
+            // `//+[ ]*ignore:` (two or more slashes) or `//[ ]*ignore_for_file:`
+            // (exactly two): only the START of the comment is tested.
+            let after_slashes = lexeme.trim_start_matches('/');
+            let slashes = lexeme.len() - after_slashes.len();
+            let body = after_slashes.trim_start_matches(' ');
+            let is_ignore = body.starts_with("ignore:");
+            let is_for_file = slashes == 2 && body.starts_with("ignore_for_file:");
+            if !is_ignore && !is_for_file {
                 continue;
             }
-            let elementos = elementos_do_comentario(lexema, offset);
-            // `forDart`: o teste de `ignore:` vem antes — um `ignore_for_file`
-            // cujo texto contém `ignore:` adiante vira ignore de linha.
-            if lexema.contains("ignore:") {
-                let linha0 = inicios.partition_point(|&p| p <= offset) - 1;
-                let antes = &texto[inicios[linha0]..offset];
-                // Sozinho na linha: vale para a seguinte; depois de código,
-                // para a própria.
-                let alvo = if antes.trim().is_empty() { linha0 + 2 } else { linha0 + 1 };
-                de_linha_bruto.push((alvo, elementos));
-            } else if lexema.contains("ignore_for_file:") {
-                do_arquivo_bruto.extend(elementos);
+            let elements = comment_elements(lexeme, offset);
+            // `forDart`: the `ignore:` test comes first — an `ignore_for_file`
+            // whose text contains `ignore:` further on becomes a line ignore.
+            if lexeme.contains("ignore:") {
+                let line0 = starts.partition_point(|&p| p <= offset) - 1;
+                let before = &text[starts[line0]..offset];
+                // Alone on the line: applies to the next one; after code, to
+                // its own.
+                let target = if before.trim().is_empty() { line0 + 2 } else { line0 + 1 };
+                line_raw.push((target, elements));
+            } else if lexeme.contains("ignore_for_file:") {
+                file_raw.extend(elements);
             }
         }
-        // `IgnoreValidator`: um nome repetido no próprio comentário de
-        // arquivo, e depois um nome de linha repetido ou já coberto pelo
-        // arquivo. O relato é no nome repetido.
-        let nome_de = |e: &Ignorado| match e {
-            Ignorado::Nome { nome, offset } => Some((nome.clone(), *offset)),
-            Ignorado::Tipo { .. } => None,
+        // `IgnoreValidator`: a name repeated within the file comment itself,
+        // and then a line name that is repeated or already covered by the
+        // file. The report is on the repeated name.
+        let name_of = |e: &Ignored| match e {
+            Ignored::Name { name, offset } => Some((name.clone(), *offset)),
+            Ignored::Type { .. } => None,
         };
-        let mut vistos_no_arquivo: BTreeSet<String> = BTreeSet::new();
-        for e in &do_arquivo_bruto {
-            if let Some((nome, offset)) = nome_de(e) {
-                if !vistos_no_arquivo.insert(nome.clone()) {
-                    ig.repetidos.push((nome.clone(), dartforge_diagnostics::Span { start: offset, end: offset + nome.len() }));
+        let mut seen_in_file: BTreeSet<String> = BTreeSet::new();
+        for e in &file_raw {
+            if let Some((name, offset)) = name_of(e) {
+                if !seen_in_file.insert(name.clone()) {
+                    ig.repeated.push((name.clone(), dartforge_diagnostics::Span { start: offset, end: offset + name.len() }));
                 }
             }
         }
-        for (_, elementos) in &de_linha_bruto {
-            let mut vistos_na_linha: BTreeSet<String> = BTreeSet::new();
-            for e in elementos {
-                if let Some((nome, offset)) = nome_de(e) {
-                    if vistos_no_arquivo.contains(&nome) || !vistos_na_linha.insert(nome.clone()) {
-                        ig.repetidos.push((nome.clone(), dartforge_diagnostics::Span { start: offset, end: offset + nome.len() }));
+        for (_, elements) in &line_raw {
+            let mut seen_in_line: BTreeSet<String> = BTreeSet::new();
+            for e in elements {
+                if let Some((name, offset)) = name_of(e) {
+                    if seen_in_file.contains(&name) || !seen_in_line.insert(name.clone()) {
+                        ig.repeated.push((name.clone(), dartforge_diagnostics::Span { start: offset, end: offset + name.len() }));
                     }
                 }
             }
         }
-        ig.arquivo = do_arquivo_bruto;
-        for (linha, elementos) in de_linha_bruto {
-            ig.por_linha.entry(linha).or_default().extend(elementos);
+        ig.file = file_raw;
+        for (line, elements) in line_raw {
+            ig.by_line.entry(line).or_default().extend(elements);
         }
         ig
     }
 
-    /// Os `duplicate_ignore` do arquivo (`IgnoreValidator`: no 3.6.2 é o
-    /// único relato dele).
+    /// The file's `duplicate_ignore`s (`IgnoreValidator`: in 3.6.2 it is its
+    /// only report).
     pub fn duplicados(&self) -> Vec<Diagnostic> {
-        self.repetidos
+        self.repeated
             .iter()
-            .map(|(nome, span)| Diagnostic::com_codigo(dartforge_diagnostics::codigos::warning::DUPLICATE_IGNORE, *span, [nome.as_str()]))
+            .map(|(name, span)| Diagnostic::com_codigo(dartforge_diagnostics::codigos::warning::DUPLICATE_IGNORE, *span, [name.as_str()]))
             .collect()
     }
 
-    /// O diagnóstico na `linha` é ignorado por comentário?
+    /// Is the diagnostic on `line` ignored by a comment?
     ///
-    /// Qualquer severidade: o `LibraryAnalyzer._filterIgnoredErrors` do
-    /// analyzer 6.11.0 não consulta `ErrorCode.isIgnorable` (que nega
-    /// `ERROR`); só o `cannot-ignore` das opções impede
-    /// ([`Opcoes::ignoravel`]). Conferido no `dart analyze` 3.6.2 e 3.13.4:
-    /// `// ignore_for_file: uri_has_not_been_generated` cala o erro.
+    /// Any severity: the `LibraryAnalyzer._filterIgnoredErrors` of analyzer
+    /// 6.11.0 does not consult `ErrorCode.isIgnorable` (which rejects
+    /// `ERROR`); only the options' `cannot-ignore` prevents it
+    /// ([`Opcoes::ignoravel`]). Checked against `dart analyze` 3.6.2 and
+    /// 3.13.4: `// ignore_for_file: uri_has_not_been_generated` silences the
+    /// error.
     ///
-    /// Um nome casa com o nome emitido do código ou com o nome único sem o
-    /// prefixo da classe (`IgnoredDiagnosticName.matches`); `type=` só
-    /// conhece `hint`, `lint` e `warning` (este, o `STATIC_WARNING`).
-    pub fn ignora(&self, d: &Diagnostic, linha: usize) -> bool {
+    /// A name matches the code's emitted name or the unique name without the
+    /// class prefix (`IgnoredDiagnosticName.matches`); `type=` only knows
+    /// `hint`, `lint` and `warning` (the latter being `STATIC_WARNING`).
+    pub fn ignora(&self, d: &Diagnostic, line: usize) -> bool {
         let Some(c) = d.code else { return false };
         let info = c.info();
-        // As formas 3.13.4 do catálogo levam o sufixo `_3_13` só para
-        // distinguir a entrada; o nome único do analyzer não o tem.
-        let unico = info
+        // The catalog's 3.13.4 shapes carry the `_3_13` suffix only to tell
+        // the entry apart; the analyzer's unique name does not have it.
+        let unique = info
             .unico
             .split_once('.')
             .map_or(String::new(), |(_, r)| r.strip_suffix("_3_13").unwrap_or(r).to_lowercase());
-        let tipo_do_codigo = match info.tipo {
+        let code_kind = match info.tipo {
             dartforge_diagnostics::TipoErro::Hint => "hint",
             dartforge_diagnostics::TipoErro::Lint => "lint",
             dartforge_diagnostics::TipoErro::StaticWarning => "warning",
             _ => "",
         };
-        let casa = |lista: &Vec<Ignorado>| {
-            lista.iter().any(|e| match e {
-                Ignorado::Nome { nome, .. } => nome == info.nome || *nome == unico,
-                Ignorado::Tipo { tipo } => !tipo_do_codigo.is_empty() && tipo == tipo_do_codigo,
+        let matches = |list: &Vec<Ignored>| {
+            list.iter().any(|e| match e {
+                Ignored::Name { name, .. } => name == info.nome || *name == unique,
+                Ignored::Type { kind } => !code_kind.is_empty() && kind == code_kind,
             })
         };
-        casa(&self.arquivo) || self.por_linha.get(&linha).is_some_and(casa)
+        matches(&self.file) || self.by_line.get(&line).is_some_and(matches)
     }
 
-    /// O comentário `ignore` cala o lint de nome `nome` (o da regra) e nome
-    /// único `unico` na linha `linha`? Vale também `type=lint`.
-    pub fn ignora_lint(&self, nome: &str, unico: &str, linha: usize) -> bool {
-        let casa = |lista: &Vec<Ignorado>| {
-            lista.iter().any(|e| match e {
-                Ignorado::Nome { nome: n, .. } => n == nome || n == unico,
-                Ignorado::Tipo { tipo } => tipo == "lint",
+    /// Does the `ignore` comment silence the lint named `name` (the rule's)
+    /// with unique name `unique` on line `line`? `type=lint` also applies.
+    pub fn ignores_lint(&self, name: &str, unique: &str, line: usize) -> bool {
+        let matches = |list: &Vec<Ignored>| {
+            list.iter().any(|e| match e {
+                Ignored::Name { name: n, .. } => n == name || n == unique,
+                Ignored::Type { kind } => kind == "lint",
             })
         };
-        casa(&self.arquivo) || self.por_linha.get(&linha).is_some_and(casa)
+        matches(&self.file) || self.by_line.get(&line).is_some_and(matches)
     }
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     #[test]
-    fn opcoes_do_new_sali() {
+    fn new_sali_options() {
         let o = Opcoes::de_texto(
             "analyzer:\n  exclude:\n    - build/**\n    - 'lib/**.g.dart'\n  errors:\n    uri_has_not_been_generated: ignore\n    deprecated_member_use: ignore # x\n    dead_code: info\n",
         );
@@ -714,10 +714,10 @@ mod testes {
         assert!(!o.excluido("lib/a/b.dart"));
     }
 
-    /// YAML de verdade: fluxo, aspas, comentário, `language:`, lints nas
-    /// duas formas, e o que `errors:` aceita.
+    /// Real YAML: flow style, quotes, comments, `language:`, lints in both
+    /// forms, and what `errors:` accepts.
     #[test]
-    fn yaml_de_verdade() {
+    fn real_yaml() {
         let o = Opcoes::de_texto(
             "analyzer: {exclude: ['gen/**', \"x # y.dart\"], language: {strict-casts: true}}
 linter:
@@ -728,24 +728,24 @@ linter:
         assert_eq!(o.exclude, vec!["gen/**", "gen", "x # y.dart"]);
         assert!(o.strict_casts && !o.strict_inference);
         assert_eq!(o.regras.get("a_regra"), Some(&true));
-        let mapa = Opcoes::de_texto("linter:
+        let map = Opcoes::de_texto("linter:
   rules:
     a_regra: false
 ");
-        assert_eq!(mapa.regras.get("a_regra"), Some(&false));
-        // Um YAML inválido deixa as opções padrão.
+        assert_eq!(map.regras.get("a_regra"), Some(&false));
+        // Invalid YAML leaves the default options.
         assert!(Opcoes::de_texto("analyzer: [
 ").exclude.is_empty());
-        // Pastas e arquivos ocultos ficam fora.
+        // Hidden folders and files are left out.
         assert!(Opcoes::default().excluido(".dart_tool/x.dart"));
         assert!(Opcoes::default().excluido("lib/.oculto.dart"));
     }
 
-    /// `Merger`: o incluidor vence; listas concatenam sem repetir; lista de
-    /// lints contra mapa de booleanos vira mapa.
+    /// `Merger`: the including file wins; lists concatenate without repeats;
+    /// a list of lints against a map of booleans becomes a map.
     #[test]
-    fn fusao_do_include() {
-        let base = mapa_do_texto("analyzer:
+    fn include_merge() {
+        let base = map_from_text("analyzer:
   exclude: [a, b]
   errors:
     dead_code: info
@@ -753,7 +753,7 @@ linter:
 linter:
   rules: [r1, r2]
 ");
-        let cima = mapa_do_texto("analyzer:
+        let top = map_from_text("analyzer:
   exclude: [b, c]
   errors:
     dead_code: error
@@ -761,7 +761,7 @@ linter:
   rules:
     r2: false
 ");
-        let o = Opcoes::do_mapa(&fundir(base, cima));
+        let o = Opcoes::from_map(&merge(base, top));
         assert_eq!(o.exclude, vec!["a", "b", "c"]);
         assert_eq!(o.errors.get("dead_code"), Some(&Some(Severidade::Error)));
         assert_eq!(o.errors.get("todo"), Some(&None));
@@ -769,78 +769,79 @@ linter:
         assert_eq!(o.regras.get("r2"), Some(&false));
     }
 
-    /// `// ignore:` e `// ignore_for_file:` valem para erro também
-    /// (`v01/min/ignora`: o `dart analyze` 3.6.2 e o 3.13.4 dão "No issues
-    /// found!"), salvo o que `cannot-ignore` lista.
+    /// `// ignore:` and `// ignore_for_file:` apply to errors too
+    /// (`v01/min/ignora`: `dart analyze` 3.6.2 and 3.13.4 give "No issues
+    /// found!"), except what `cannot-ignore` lists.
     #[test]
-    fn ignore_vale_para_erro_salvo_cannot_ignore() {
+    fn ignore_applies_to_errors_except_cannot_ignore() {
         use dartforge_diagnostics::codigos::compile_time_error as c;
         let d = Diagnostic::com_codigo(c::URI_HAS_NOT_BEEN_GENERATED, dartforge_diagnostics::Span { start: 0, end: 1 }, ["a.template.dart"]);
-        let arquivo = Ignorados::de_texto("// ignore_for_file: uri_has_not_been_generated\nimport 'a.template.dart';\n");
-        assert!(arquivo.ignora(&d, 2));
-        let linha = Ignorados::de_texto("// ignore: uri_has_not_been_generated\nimport 'a.template.dart';\n");
-        assert!(linha.ignora(&d, 2));
-        assert!(!linha.ignora(&d, 3));
+        let file = Ignorados::de_texto("// ignore_for_file: uri_has_not_been_generated\nimport 'a.template.dart';\n");
+        assert!(file.ignora(&d, 2));
+        let line = Ignorados::de_texto("// ignore: uri_has_not_been_generated\nimport 'a.template.dart';\n");
+        assert!(line.ignora(&d, 2));
+        assert!(!line.ignora(&d, 3));
         assert!(Opcoes::default().ignoravel(&d));
-        let por_nome = Opcoes::de_texto("analyzer:\n  cannot-ignore:\n    - uri_has_not_been_generated\n");
-        assert!(!por_nome.ignoravel(&d));
-        let por_severidade = Opcoes::de_texto("analyzer:\n  cannot-ignore:\n    - error\n");
-        assert!(!por_severidade.ignoravel(&d));
-        // O rebaixado continua não ignorável pela severidade padrão e passa a
-        // sê-lo também pela nova (conferido no binário 3.6.2, §4.3 c).
-        let rebaixado = Opcoes::de_texto("analyzer:\n  errors:\n    uri_has_not_been_generated: warning\n  cannot-ignore:\n    - error\n");
-        assert!(!rebaixado.ignoravel(&d));
-        let pela_nova = Opcoes::de_texto("analyzer:\n  errors:\n    uri_has_not_been_generated: warning\n  cannot-ignore:\n    - warning\n");
-        assert!(!pela_nova.ignoravel(&d));
-        let outra = Opcoes::de_texto("analyzer:\n  cannot-ignore:\n    - info\n");
-        assert!(outra.ignoravel(&d));
-        // Os lints, só pelo nome.
+        let by_name = Opcoes::de_texto("analyzer:\n  cannot-ignore:\n    - uri_has_not_been_generated\n");
+        assert!(!by_name.ignoravel(&d));
+        let by_severity = Opcoes::de_texto("analyzer:\n  cannot-ignore:\n    - error\n");
+        assert!(!by_severity.ignoravel(&d));
+        // The downgraded one stays unignorable through the default severity
+        // and also becomes so through the new one (checked on the 3.6.2
+        // binary, §4.3 c).
+        let downgraded = Opcoes::de_texto("analyzer:\n  errors:\n    uri_has_not_been_generated: warning\n  cannot-ignore:\n    - error\n");
+        assert!(!downgraded.ignoravel(&d));
+        let by_new = Opcoes::de_texto("analyzer:\n  errors:\n    uri_has_not_been_generated: warning\n  cannot-ignore:\n    - warning\n");
+        assert!(!by_new.ignoravel(&d));
+        let other = Opcoes::de_texto("analyzer:\n  cannot-ignore:\n    - info\n");
+        assert!(other.ignoravel(&d));
+        // Lints, only by name.
         let lint = Opcoes::de_texto("analyzer:\n  cannot-ignore:\n    - avoid_print\n    - info\n");
-        assert!(!lint.lint_ignoravel("avoid_print", "avoid_print"));
-        assert!(lint.lint_ignoravel("empty_catches", "empty_catches"));
+        assert!(!lint.lint_ignorable("avoid_print", "avoid_print"));
+        assert!(lint.lint_ignorable("empty_catches", "empty_catches"));
     }
 
-    /// A tabela conferida no binário 3.6.2 (docs/ANALYZER-ESPECIFICACAO-INFRA.md
-    /// §4.1): cada comentário e se ele cala o `unused_local_variable` da
-    /// linha 2.
+    /// The table checked on the 3.6.2 binary (docs/ANALYZER-ESPECIFICACAO-INFRA.md
+    /// §4.1): each comment and whether it silences the `unused_local_variable`
+    /// on line 2.
     #[test]
-    fn tabela_do_oraculo() {
+    fn oracle_table() {
         use dartforge_diagnostics::codigos::warning as w;
         let d = Diagnostic::com_codigo(w::UNUSED_LOCAL_VARIABLE, dartforge_diagnostics::Span { start: 0, end: 1 }, ["x"]);
-        let cala = |texto: &str, linha: usize| Ignorados::de_texto(texto).ignora(&d, linha);
-        assert!(cala("// ignore: type=warning
+        let silences = |text: &str, line: usize| Ignorados::de_texto(text).ignora(&d, line);
+        assert!(silences("// ignore: type=warning
 var x = 1;
 ", 2));
-        assert!(!cala("// ignore: type=static_warning
+        assert!(!silences("// ignore: type=static_warning
 var x = 1;
 ", 2));
-        assert!(cala("///ignore: unused_local_variable
+        assert!(silences("///ignore: unused_local_variable
 var x = 1;
 ", 2));
-        assert!(!cala("//	ignore: unused_local_variable
+        assert!(!silences("//	ignore: unused_local_variable
 var x = 1;
 ", 2));
-        assert!(!cala("// ignore_for_file: dead_code // ignore: unused_local_variable
+        assert!(!silences("// ignore_for_file: dead_code // ignore: unused_local_variable
 var x = 1;
 ", 2));
-        assert!(!cala("var f = 1; /* ignore: unused_local_variable */
+        assert!(!silences("var f = 1; /* ignore: unused_local_variable */
 ", 1));
-        assert!(cala("var s = 'http://x'; // ignore: unused_local_variable
+        assert!(silences("var s = 'http://x'; // ignore: unused_local_variable
 ", 1));
-        assert!(!cala("// ignore: unused_local_variable porque sim
+        assert!(!silences("// ignore: unused_local_variable porque sim
 
 var h = 1;
 ", 3));
-        assert!(!cala("// ignore: unused_local_variable.
+        assert!(!silences("// ignore: unused_local_variable.
 var x = 1;
 ", 2));
-        assert!(cala("// ignore: UNUSED_LOCAL_VARIABLE , dead_code
+        assert!(silences("// ignore: UNUSED_LOCAL_VARIABLE , dead_code
 var x = 1;
 ", 2));
     }
 
     #[test]
-    fn nomes_repetidos() {
+    fn repeated_names() {
         // 0         1         2         3         4
         // 01234567890123456789012345678901234567890123456789
         // // ignore: dead_code, dead_code
@@ -861,9 +862,9 @@ var x = 1;
     }
 
     #[test]
-    fn glob_basico() {
+    fn basic_glob() {
         assert!(glob("*.dart", "a.dart"));
-        // Chaves, classes de caractere e escape (`package:glob`).
+        // Braces, character classes and escapes (`package:glob`).
         assert!(glob("lib/{a,b}/*.dart", "lib/b/x.dart"));
         assert!(!glob("lib/{a,b}/*.dart", "lib/c/x.dart"));
         assert!(glob("lib/[a-c]?.dart", "lib/bz.dart"));
