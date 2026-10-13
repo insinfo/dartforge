@@ -1,51 +1,51 @@
-# Capturas e listas gerenciadas
+# Managed captures and lists
 
-Esta API Rust é infraestrutura do runtime. **Ainda não implementa lowering de closures
-ou listas Dart para LLVM**, chamada indireta de closures, assinatura de função ou
-verificação de tipos genéricos. A ABI C escalar existente permanece inalterada.
+This Rust API is runtime infrastructure. **It does not yet implement lowering of Dart
+closures or lists to LLVM**, indirect closure calls, function signatures or generic type
+checks. The existing scalar C ABI is unchanged.
 
-`TaggedValue` contém `bits: i64` e `is_ref: bool`. Somente a tag de referência faz
-o GC seguir os bits como handle; zero é referência null. Escalares com bits iguais
-a um handle não mantêm objetos vivos. Handles identificam objetos vivos e podem ser
-reutilizados depois da coleta; não devem ser conservados fora do protocolo de raízes.
+`TaggedValue` holds `bits: i64` and `is_ref: bool`. Only the reference tag makes the GC
+follow the bits as a handle; zero is the null reference. Scalars whose bits equal a handle
+do not keep objects alive. Handles identify live objects and may be reused after a
+collection; they must not be kept outside the root protocol.
 
-Uma referência é `0` (null), um handle **par** (`(índice + 1) << 1`) ou um `Smi`
-**ímpar** — `(v << 1) | 1`, um `int` de 63 bits sem alocação (R10,
-docs/NATIVO-PLANO.md §6.2; módulo `heap::smi`). O GC nunca segue um `Smi`,
-mesmo marcado como referência; as coleções o normalizam para o escalar.
+A reference is `0` (null), an **even** handle (`(index + 1) << 1`) or an **odd** `Smi`
+— `(v << 1) | 1`, a 63-bit `int` without allocation (R10, docs/NATIVO-PLANO.md §6.2;
+module `heap::smi`). The GC never follows a `Smi`, even when it is tagged as a reference;
+the collections normalize it to the scalar.
 
-| Estrutura | Contrato |
+| Structure | Contract |
 | --- | --- |
-| `Cell` | Captura mutável. Ambientes diferentes podem compartilhar a mesma célula e observar suas alterações. |
-| `Environment` | Capturas ordenadas e imutáveis. Valores capturados mutáveis são referências para células. |
-| `Closure` | Novo objeto com identidade própria, ID simbólico de código e referência para um ambiente. Duas criações com o mesmo código continuam distintas. Não executa código. |
-| `List` | Sequência expansível de valores com tags. Leitura/substituição por índice e acréscimo; capacidade e comprimento são distintos. |
+| `Cell` | Mutable capture. Different environments may share the same cell and observe its changes. |
+| `Environment` | Ordered, immutable captures. Mutable captured values are references to cells. |
+| `Closure` | New object with its own identity, a symbolic code ID and a reference to an environment. Two creations with the same code remain distinct. Does not run code. |
+| `List` | Growable sequence of tagged values. Read/replace by index and append; capacity and length are distinct. |
 
-As APIs `create_cell`, `create_environment`, `create_closure` e `create_list`
-protegem internamente as referências recebidas durante suas alocações. O chamador
-deve fornecer handles vivos e enraizar o resultado antes de uma próxima operação
-que possa coletar. `list_push` protege a própria lista durante eventual coleta
-causada pelo crescimento; depois da operação o chamador continua responsável por
-sua raiz. `cell_set` e `list_set` não alocam nem coletam.
+The `create_cell`, `create_environment`, `create_closure` and `create_list` APIs internally
+protect the references they receive during their allocations. The caller must supply live
+handles and root the result before the next operation that may collect. `list_push`
+protects the list itself during a collection caused by growth; after the operation the
+caller remains responsible for its root. `cell_set` and `list_set` neither allocate nor
+collect.
 
-Frames podem terminar enquanto closures permanecem vivas: a cadeia closure →
-ambiente → célula preserva a captura escapada. O tracing iterativo também segue
-referências em listas e recupera ciclos inalcançáveis, inclusive ciclos envolvendo
-closures. Capacidade de buffers de listas e ambientes entra na estimativa de bytes;
-essa estimativa não é RSS nem mede todos os metadados do alocador.
+Frames may end while closures remain alive: the closure → environment → cell chain
+preserves the escaped capture. Iterative tracing also follows references in lists and
+reclaims unreachable cycles, including cycles involving closures. The capacity of list and
+environment buffers counts toward the byte estimate; that estimate is not RSS and does not
+measure all allocator metadata.
 
-Tipos de handles e índices inválidos causam `panic` na API Rust atual. Isso é um
-contrato interno de compilador/runtime, não uma implementação das exceções de Dart.
-Não há listas fixas/imutáveis, iteradores, remoção, crescimento por setter de length,
-execução de código por `code_id` ou API pública FFI para essas estruturas ainda.
+Invalid handle types and indices cause a `panic` in the current Rust API. This is an
+internal compiler/runtime contract, not an implementation of Dart exceptions. There are no
+fixed/unmodifiable lists, iterators, removal, growth through the length setter, execution
+of code by `code_id` or public FFI API for these structures yet.
 
-Referências consultadas no SDK Dart **3.6.2**, commit
+References consulted in Dart SDK **3.6.2**, commit
 `b0cc5495e0f5e8ae150825a5352e708cb49e65ff`:
 
-- `runtime/vm/object.h`: separação de `Context`, `Closure` e objetos de coleção.
-- `sdk/lib/core/list.dart`: distinção entre listas fixas e expansíveis e acesso por índice.
-- `runtime/vm/compiler/backend/flow_graph_compiler.cc`: mapas de referências do coletor.
+- `runtime/vm/object.h`: separation of `Context`, `Closure` and collection objects.
+- `sdk/lib/core/list.dart`: distinction between fixed and growable lists and indexed access.
+- `runtime/vm/compiler/backend/flow_graph_compiler.cc`: collector reference maps.
 
-Estas fontes orientam o contrato; não houve cópia do código do SDK ou de seu layout
-binário. Os testes próprios usam coleta antes de cada alocação para verificar escape,
-alias de células, identidade, ciclos e precisão das tags.
+These sources guide the contract; no SDK code or binary layout was copied. The tests use a
+collection before every allocation to verify escape, cell aliasing, identity, cycles and
+tag precision.

@@ -1,94 +1,94 @@
-# Runtime gerenciado AOT
+# Managed AOT runtime
 
-O heap é um tracing GC preciso, não geracional e sem compactação: coleta por marcação iterativa e varredura, inclusive ciclos sem raízes. Um valor em posição `Ref` é `0` (null), **par** (handle do heap: `(índice + 1) << 1`) ou **ímpar** (`Smi`: `int` pequeno `(v << 1) | 1`, que não aloca, não é raiz e o coletor nunca segue; fora da faixa vira `Value::BoxedInt`). A lista livre reutiliza slots; handles mortos não podem ser usados (não há contador de geração). A implementação não oferece ABI multithread nem isolamento entre runtimes. As strings têm semântica de unidades UTF-16 (formas de um e de dois bytes, como a VM), não UTF-8.
+The heap is a precise, non-generational, non-compacting tracing GC: it collects by iterative marking and sweeping, including unrooted cycles. A value in a `Ref` position is `0` (null), **even** (heap handle: `(index + 1) << 1`) or **odd** (`Smi`: a small `int` `(v << 1) | 1`, which does not allocate, is not a root and is never followed by the collector; outside the range it becomes `Value::BoxedInt`). The free list reuses slots; dead handles must not be used (there is no generation counter). The implementation offers neither a multithreaded ABI nor isolation between runtimes. Strings have UTF-16 code unit semantics (one-byte and two-byte forms, like the VM), not UTF-8.
 
-## O que falta implementar (2026-09-23)
+## What is still missing (2026-09-23)
 
-O coletor atual é correto para o que cobre (raízes explícitas, tracing preciso, ciclos, `Smi`, teto de heap, modo estresse no CI), mas ainda é o mínimo. Em ordem de prioridade:
+The current collector is correct for what it covers (explicit roots, precise tracing, cycles, `Smi`, heap ceiling, stress mode in CI), but it is still the minimum. In priority order:
 
-**Correção — a semântica do Dart exige**
+**Correctness — required by Dart semantics**
 
-1. **Referências fracas**: `WeakReference` e `Expando` (este com *ephemerons*: a chave morta libera o valor). Hoje não existem no heap.
-2. **Finalizadores**: `Finalizer` roda o callback como evento (a especificação permite nunca rodar, e hoje nunca roda); `NativeFinalizer` tem garantias de execução das quais o `dart:ffi` depende.
-3. **Heap por isolado** (decisão em `docs/NATIVO-PLANO.md` §7.1, pela especificação §6.3): hoje há um heap global por processo, com estado em `thread_local!`, sem isolamento nem várias threads. O `package:analyzer`, os builders e o executor de macros precisam de isolados.
+1. **Weak references**: `WeakReference` and `Expando` (the latter with *ephemerons*: a dead key releases the value). They do not exist in the heap today.
+2. **Finalizers**: `Finalizer` runs the callback as an event (the specification allows never running it, and today it never runs); `NativeFinalizer` has execution guarantees that `dart:ffi` depends on.
+3. **Per-isolate heap** (decision in `docs/NATIVO-PLANO.md` §7.1, per the specification §6.3): today there is one global heap per process, with state in `thread_local!`, with no isolation and no multiple threads. `package:analyzer`, the builders and the macro executor need isolates.
 
-**Desempenho**
+**Performance**
 
-4. **Geração jovem** (*scavenger*, como a VM): a maioria dos objetos Dart morre jovem; hoje toda coleta percorre o heap inteiro. Exige barreira de escrita.
-5. **Compactação / mover objetos**: o heap fragmenta e nunca devolve memória — a varredura visita o máximo histórico de slots e a capacidade não encolhe.
-6. **Acesso e alocação**: cada leitura de campo passa pela tabela de handles (indireção + checagem de limites) dentro de um `RefCell`; não há alocação por *bump pointer*. Seguro, mas lento no caminho quente.
-7. **Custo das raízes** (passo 6 de `docs/NATIVO-PLANO.md`): hoje um `set_root` por valor `Ref` definido. Planejado: enraizar só o que está vivo num ponto de coleta; raiz como `store` num quadro na pilha (a estratégia `shadow-stack` do LLVM, não statepoints — ver `docs/PESQUISA-LLVM-DART-AOT.md`); a tabela de efeitos dos externs (`crates/emit_native/src/llvm/externs.rs`) para dispensar raízes em chamadas que não alocam.
-8. **Pausas proporcionais ao heap**: não há marcação incremental nem concorrente (relevante para interface a 60 fps).
+4. **Young generation** (*scavenger*, like the VM): most Dart objects die young; today every collection walks the whole heap. Requires a write barrier.
+5. **Compaction / moving objects**: the heap fragments and never returns memory — the sweep visits the historical maximum of slots and the capacity never shrinks.
+6. **Access and allocation**: every field read goes through the handle table (indirection + bounds check) inside a `RefCell`; there is no *bump pointer* allocation. Safe, but slow on the hot path.
+7. **Cost of roots** (step 6 of `docs/NATIVO-PLANO.md`): today one `set_root` per defined `Ref` value. Planned: root only what is live at a collection point; a root as a `store` into a frame on the stack (LLVM's `shadow-stack` strategy, not statepoints — see `docs/PESQUISA-LLVM-DART-AOT.md`); the extern effects table (`crates/emit_native/src/llvm/externs.rs`) to skip roots around calls that do not allocate.
+8. **Pauses proportional to the heap**: there is no incremental or concurrent marking (relevant for 60 fps UI).
 
-**Medição**
+**Measurement**
 
-9. **Nenhuma comparação com a VM oficial** (tempo de alocação, pausas, memória residente); os números abaixo são microbenchmarks internos. Metodologia a seguir: `docs/PESQUISA-LLVM-DART-AOT.md` §7.
+9. **No comparison with the official VM** (allocation time, pauses, resident memory); the numbers below are internal microbenchmarks. Methodology to follow: `docs/PESQUISA-LLVM-DART-AOT.md` §7.
 
-Ordem proposta: 1–2 (o SDK compilado da fonte já os exercita), 3, 9 (decidir o resto por número), 6–7, depois 4, 5 e 8. Alternativa futura de gerenciamento, fora da trilha: `docs/EXPERIMENTO-ARC.md`.
+Proposed order: 1–2 (the SDK compiled from source already exercises them), 3, 9 (decide the rest by numbers), 6–7, then 4, 5 and 8. A future alternative memory management, off this track: `docs/EXPERIMENTO-ARC.md`.
 
-Cada função emitida que registra referências abre um frame para parâmetros e resultados SSA. Funções sem referências omitem push/pop do GC, evitando esse custo em recursão puramente escalar. As raízes permanecem até seu retorno, portanto temporários de loops podem permanecer vivos durante a função inteira. Esta retenção conservadora de duração não transforma escalares em raízes: o tracing de campos usa tags exatas. Pop não coleta; o chamador registra imediatamente a referência retornada antes de alocar novamente. Campos int?/bool? usam slots escalares de presença/payload; referências usam um slot com is_ref=1.
+Every emitted function that registers references opens a frame for parameters and SSA results. Functions without references omit the GC push/pop, avoiding that cost in purely scalar recursion. Roots stay until the function returns, so loop temporaries may stay alive for the whole function. This conservative duration retention does not turn scalars into roots: field tracing uses exact tags. Pop does not collect; the caller registers the returned reference immediately, before allocating again. int?/bool? fields use presence/payload scalar slots; references use one slot with is_ref=1.
 
-A coleta automática ocorre antes de alocar, após um limiar de 256 alocações (ajustado pelo número de objetos vivos) ou ao ultrapassar o limiar de bytes estimados (mínimo 1 MiB, após coleta duas vezes os bytes vivos). DARTFORGE_GC_STRESS força coleta antes de toda alocação. O resultado da nova alocação precisa ser enraizado antes da próxima. dartforge_gc_collect permite coleta explícita.
+Automatic collection happens before allocating, after a threshold of 256 allocations (adjusted by the number of live objects) or when the estimated-bytes threshold is exceeded (minimum 1 MiB; after a collection, twice the live bytes). DARTFORGE_GC_STRESS forces a collection before every allocation. The result of a new allocation must be rooted before the next one. dartforge_gc_collect allows an explicit collection.
 
 ## ABI
 
-- dartforge_gc_empilhar(quadro:*mut QuadroDeRaizes); dartforge_gc_desempilhar(quadro); dartforge_gc_collect(). O quadro `{ anterior, n, [n x i64] }` fica no stack da função gerada, que grava cada raiz no slot dela com um `store`.
+- dartforge_gc_empilhar(frame:*mut RootFrame); dartforge_gc_desempilhar(frame); dartforge_gc_collect(). The frame `{ previous, n, [n x i64] }` lives on the stack of the generated function, which writes each root into its slot with a `store`.
 - dartforge_object_new(class_id:i64, field_count:i64) -> i64; dartforge_object_get(handle:i64,index:i64) -> i64; dartforge_object_set(handle:i64,index:i64,bits:i64,is_ref:i8); dartforge_object_class(handle:i64) -> i64.
 - dartforge_string_new(ptr:*const u8,len:i64) -> i64; dartforge_string_concat(a:i64,b:i64) -> i64; dartforge_string_equal(a:i64,b:i64) -> i8; dartforge_print_string(handle:i64).
-- Strings são UTF-8 e imutáveis. Concatenação exige operandos não nulos; igualdade e impressão aceitam handle zero. Não há normalização Unicode.
-- O único acesso inseguro à memória é a leitura da constante UTF-8 estrangeira em string_new. O emissor garante região legível de len bytes; ponteiro pode ser ignorado para len=0. As demais operações de heap são Rust seguro e validam os índices. Quebrar o contrato causa falha explícita, não execução de Dart com comportamento definido.
+- Strings are UTF-8 and immutable. Concatenation requires non-null operands; equality and printing accept a zero handle. There is no Unicode normalization.
+- The only unsafe memory access is reading the foreign UTF-8 constant in string_new. The emitter guarantees a readable region of len bytes; the pointer may be ignored for len=0. The other heap operations are safe Rust and validate indices. Breaking the contract causes an explicit failure, not execution of Dart with defined behavior.
 
-O driver embarca heap.rs e os fragmentos do runtime (a lista e a ordem estão só em `FRAGMENTOS`, em build.rs — fonte única também para o módulo `abi` do JIT e a tabela de símbolos) em um único arquivo standalone. O workspace testa o mesmo módulo heap.rs com unsafe proibido. Não há dependência de Dart VM, GC Dart, arena que apenas cresce ou runtime Swift.
+The driver embeds heap.rs and the runtime fragments (the list and the order live only in `FRAGMENTOS`, in build.rs — the single source also for the JIT's `abi` module and the symbol table) into a single standalone file. The workspace tests the same heap.rs module with unsafe forbidden. There is no dependency on the Dart VM, the Dart GC, a grow-only arena or the Swift runtime.
 
-## Referências consultadas
+## References consulted
 
-Dart SDK tag 3.6.2, revisão b0cc5495e0f5e8ae150825a5352e708cb49e65ff: runtime/vm/heap/heap.h e runtime/vm/heap/marker.h. O segundo descreve marcação de objetos alcançáveis e raízes do coletor mark-sweep. O Dart VM possui gerações/concurrency que este runtime ainda não implementa. Nenhum código dessas referências foi copiado; a implementação Rust usa raízes e tags explícitas adequadas ao emissor LLVM atual.
+Dart SDK tag 3.6.2, revision b0cc5495e0f5e8ae150825a5352e708cb49e65ff: runtime/vm/heap/heap.h and runtime/vm/heap/marker.h. The latter describes marking of reachable objects and the roots of the mark-sweep collector. The Dart VM has generations/concurrency that this runtime does not implement yet. No code from these references was copied; the Rust implementation uses explicit roots and tags suited to the current LLVM emitter.
 
-## Revisão e microbenchmark histórico da ABI append
+## Review and historical microbenchmark of the append ABI
 
-Marcação usa bitmap por slot e pilha de trabalho reutilizados, sem hash por objeto. A varredura visita o máximo histórico de slots, inclusive slots livres; não há redução automática da capacidade. Frames procuram do topo para baixo: o caso normal do emissor encontra imediatamente o frame corrente, mas registrar em um ancestral custa profundidade. Raízes duplicadas ainda são retidas e processadas; funções longas e loops podem consumir memória linear no número de registros. Esta descrição registra a ABI append anterior; o incremento de slots fixos abaixo a substitui no código emitido.
+Marking uses a per-slot bitmap and a reused work stack, with no per-object hash. The sweep visits the historical maximum of slots, including free slots; capacity is never reduced automatically. Frames are searched from the top down: the emitter's normal case finds the current frame immediately, but registering in an ancestor costs depth. Duplicate roots are still retained and processed; long functions and loops may consume memory linear in the number of registrations. This description records the previous append ABI; the fixed-slot increment below replaces it in emitted code.
 
-Coleta em stress a cada alocação com N referências retidas provoca trabalho quadrático; esse modo verifica corretude, não representa configuração de produção. No modo normal, o limiar adaptativo evita varrer cada alocação. Os contadores HeapStats são cumulativos: allocations, collections, reclaimed, roots_scanned, slots_scanned e snapshot live_objects/reserved_slots. Não são medição exata de bytes residentes nem do alocador do sistema.
+Collecting in stress mode on every allocation with N retained references causes quadratic work; that mode checks correctness and does not represent a production configuration. In normal mode, the adaptive threshold avoids sweeping on every allocation. The HeapStats counters are cumulative: allocations, collections, reclaimed, roots_scanned, slots_scanned, and a live_objects/reserved_slots snapshot. They are not an exact measurement of resident bytes nor of the system allocator.
 
-Reprodução: cargo test -p dartforge-runtime --release gc_microbenchmark -- --ignored --nocapture. Medição única em Windows x64/rustc1.98.1, 2026-09-20, sem comparação com Dart ou Swift:
+Reproduction: cargo test -p dartforge-runtime --release gc_microbenchmark -- --ignored --nocapture. Single measurement on Windows x64/rustc1.98.1, 2026-09-20, with no comparison against Dart or Swift:
 
-| Configuração | Alocar+enraizar+GC automático | Coletar vivos | Coletar mortos | Coletas | Raízes visitadas |
+| Configuration | Allocate+root+automatic GC | Collect live | Collect dead | Collections | Roots visited |
 | --- | --- | --- | --- | --- | --- |
-| 100.000 objetos, normal | 7.814.400 ns | 2.102.900 ns | 6.436.200 ns | 8 | 193.184 |
-| 2.000 objetos, stress | 7.567.900 ns | 6.900 ns | 38.700 ns | 2.002 | 2.001.000 |
+| 100,000 objects, normal | 7,814,400 ns | 2,102,900 ns | 6,436,200 ns | 8 | 193,184 |
+| 2,000 objects, stress | 7,567,900 ns | 6,900 ns | 38,700 ns | 2,002 | 2,001,000 |
 
-Ambos terminam com zero objetos vivos; slots reservados permanecem reutilizáveis. Números são amostra local, sujeitos a ruído e sem promessa de vantagem de desempenho. Testes adicionais cobrem ciclo de 20.000 objetos sem recursão, identidade de objetos, transferência de handles no retorno, Unicode/NUL e comparação nullable.
+Both end with zero live objects; reserved slots remain reusable. The numbers are a local sample, subject to noise, with no promise of a performance advantage. Additional tests cover a 20,000-object cycle without recursion, object identity, handle transfer on return, Unicode/NUL and nullable comparison.
 
-Swift revision 6e75592c4025239130e370877ab0fab4006b675b, docs/SIL/ARCOptimization.md e stdlib/public/runtime/HeapObject.cpp consultados: operações retain/release e otimização de ownership pertencem ao modelo ARC do Swift. Copiar esse modelo não resolve os ciclos fortes permitidos por Dart; aqui tracing alcançável coleta esses ciclos sem exigir weak/unowned do programa. Nenhum código Swift foi copiado.
+Swift revision 6e75592c4025239130e370877ab0fab4006b675b, docs/SIL/ARCOptimization.md and stdlib/public/runtime/HeapObject.cpp consulted: retain/release operations and ownership optimization belong to Swift's ARC model. Copying that model does not solve the strong cycles that Dart allows; here reachability tracing collects those cycles without requiring weak/unowned from the program. No Swift code was copied.
 
-Correção de contrato: string_equal aceita zero em qualquer operando (dois zeros iguais); print_string(0) imprime null. string_concat continua exigindo strings não nulas. Ao alocar Value::Object pré-preenchido diretamente pela API Rust, suas referências de entrada precisam estar enraizadas antes da coleta anterior à alocação, como exige a ABI. O emissor usa object_new com campos zerados seguido por object_set.
+Contract correction: string_equal accepts zero in either operand (two zeros are equal); print_string(0) prints null. string_concat still requires non-null strings. When allocating a pre-filled Value::Object directly through the Rust API, its input references must be rooted before the collection that precedes the allocation, as the ABI requires. The emitter uses object_new with zeroed fields followed by object_set.
 
 
 
-## Slots fixos e contabilização por bytes
+## Fixed slots and byte accounting
 
-A ABI atual recebe slot_count na abertura do frame e set_root substitui um slot existente, inclusive por zero. Não redimensiona frame durante loops; índice inválido é erro de contrato. API Rust push_frame()/root() e símbolo legado gc_root ainda existem para regressões antigas, mas o emissor usa slots fixos. O runtime não deduplica raízes de slots distintos: cópias locais são independentes e precisam continuar protegidas.
+The current ABI receives slot_count when opening the frame, and set_root replaces an existing slot, including with zero. It does not resize the frame during loops; an invalid index is a contract error. The Rust API push_frame()/root() and the legacy gc_root symbol still exist for old regressions, but the emitter uses fixed slots. The runtime does not deduplicate roots from distinct slots: local copies are independent and must stay protected.
 
-HeapStats inclui live_roots/peak_roots (slots não nulos), root_slots/peak_root_slots (tamanho reservado dos frames ativos), estimated_bytes/peak_estimated_bytes (size_of<Value> por objeto vivo mais String.capacity ou capacidade do vetor de campos multiplicada por size_of<(i64,bool)>). Não inclui capacidade vazia da tabela de handles, bitmap, pilha de tracing, raízes, overhead do alocador ou RSS. A contagem é subtraída quando o payload é coletado. Multiplicação/soma de payload usa checked arithmetic; thresholds saturam. Objetos vivos podem exceder os limiares e não são descartados artificialmente.
+HeapStats includes live_roots/peak_roots (non-null slots), root_slots/peak_root_slots (reserved size of active frames), estimated_bytes/peak_estimated_bytes (size_of<Value> per live object plus String.capacity, or the capacity of the field vector multiplied by size_of<(i64,bool)>). It does not include the empty capacity of the handle table, the bitmap, the tracing stack, roots, allocator overhead or RSS. The count is subtracted when the payload is collected. Payload multiplication/addition uses checked arithmetic; thresholds saturate. Live objects may exceed the thresholds and are not discarded artificially.
 
-DARTFORGE_GC_STATS=1 imprime exatamente um JSON em stderr após dartforge_entry retornar com sucesso; sem configuração não imprime estatísticas. Não força coleta final. Chave dartforge_gc contém allocations, collections, reclaimed, live_objects, reserved_slots, root_slots, peak_root_slots, live_roots, peak_roots, live_bytes e peak_live_bytes. Os dois campos bytes expõem as estimativas acima, não memória residente.
+DARTFORGE_GC_STATS=1 prints exactly one JSON object to stderr after dartforge_entry returns successfully; without the setting it prints no statistics. It does not force a final collection. The dartforge_gc key contains allocations, collections, reclaimed, live_objects, reserved_slots, root_slots, peak_root_slots, live_roots, peak_roots, live_bytes and peak_live_bytes. The two bytes fields expose the estimates above, not resident memory.
 
-Reprodução: cargo test -p dartforge-runtime --release fixed_slot_microbenchmark -- --ignored --nocapture. Amostra única local Windows/rustc1.98.1 em 2026-09-20, 100.000 strings transientes e uma raiz substituída:
+Reproduction: cargo test -p dartforge-runtime --release fixed_slot_microbenchmark -- --ignored --nocapture. Single local sample, Windows/rustc1.98.1 on 2026-09-20, 100,000 transient strings and one replaced root:
 
-| Modo | Alocar+substituir+GC automático | Coleta final medida | Coletas | Recolhidos | Pico slots raiz | Pico bytes estimados |
+| Mode | Allocate+replace+automatic GC | Measured final collection | Collections | Reclaimed | Peak root slots | Peak estimated bytes |
 | --- | --- | --- | --- | --- | --- | --- |
-| Normal | 3.895.100 ns | 1.900 ns | 391 | 99.999 | 1 | 12.336 |
-| Stress | 3.582.100 ns | 0 ns | 100.001 | 99.999 | 1 | 96 |
+| Normal | 3,895,100 ns | 1,900 ns | 391 | 99,999 | 1 | 12,336 |
+| Stress | 3,582,100 ns | 0 ns | 100,001 | 99,999 | 1 | 96 |
 
-Zero ns é a resolução observada do relógio para intervalo curto, não ausência de trabalho. A diferença entre modos não sustenta comparação de desempenho: amostra curta e sem repetição estatística. Evidência principal: pico de raízes constante e coleta de 99.999 objetos; slots de objetos reservados ficam em 257 (normal) ou 2 (stress), em vez de crescer com 100.000 iterações.
+Zero ns is the observed clock resolution for a short interval, not an absence of work. The difference between the modes does not support a performance comparison: a short sample with no statistical repetition. Main evidence: a constant root peak and the collection of 99,999 objects; reserved object slots stay at 257 (normal) or 2 (stress) instead of growing with 100,000 iterations.
 
-As referências Dart3.6.2 e Swift listadas acima motivam separar raízes, identidade e ownership; slots estáticos são protocolo próprio entre emissor LLVM e tracing runtime, não adoção de ARC Swift.
+The Dart 3.6.2 and Swift references listed above motivate separating roots, identity and ownership; static slots are a protocol of our own between the LLVM emitter and the tracing runtime, not an adoption of Swift's ARC.
 
-## Valores canônicos de enum
+## Canonical enum values
 
-`dartforge_enum_get` usa chave (ID nominal da classe, ordinal). O cache mantém
-cada singleton alcançável até o encerramento do processo e protege a string do
-nome durante sua criação. `permanent_roots` contabiliza essas raízes separadamente
-dos slots dos frames; `roots_scanned` inclui ambos. Frames podem terminar com zero
-raízes enquanto enums continuam vivos. A estimativa de bytes inclui os payloads
-gerenciados, mas não o overhead do HashMap de canonização.
+`dartforge_enum_get` uses the key (nominal class ID, ordinal). The cache keeps each
+singleton reachable until process shutdown and protects the name string while it is
+being created. `permanent_roots` counts these roots separately from the frame slots;
+`roots_scanned` includes both. Frames may end with zero roots while enums stay alive.
+The byte estimate includes the managed payloads, but not the overhead of the
+canonicalization HashMap.
