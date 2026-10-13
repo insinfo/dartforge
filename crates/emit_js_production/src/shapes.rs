@@ -28,6 +28,9 @@ struct Finder<'s> {
     strings: std::collections::HashMap<String, String>,
     /// The program's `t$R("recipe")` calls: (start, end, recipe).
     recipes: Vec<(u32, u32, String)>,
+    /// The `X.$ti = X.$ti || t || G(X);` statements: (start, end, receiver,
+    /// type argument, text of `G`).
+    type_args: Vec<(u32, u32, String, String, String)>,
 }
 
 impl<'a> Visit<'a> for Finder<'_> {
@@ -36,6 +39,8 @@ impl<'a> Visit<'a> for Finder<'_> {
             self.edits.extend(t);
         } else if let Some(t) = signature_form(self.source, it) {
             self.edits.push(t);
+        } else if let Some(t) = type_args_form(self.source, it) {
+            self.type_args.push(t);
         }
         walk::walk_expression_statement(self, it);
     }
@@ -192,6 +197,54 @@ fn signature_form(source: &str, it: &ExpressionStatement<'_>) -> Option<(u32, u3
     Some((call.span.start, second.span().start, format!("t$G({}, {}, {c}, () => ({{", setter.name, getter.name)))
 }
 
+/// The prologue of a generic constructor, `X.$ti = X.$ti || t || G(X);`
+/// (`G` is `dart.getReifiedType`, maybe flattened), with `X` and `t` plain
+/// names: (start, end, `X`, `t`, text of `G`). [`apply`] turns the most
+/// common `G` into `t$Q(X, t)`.
+fn type_args_form(source: &str, it: &ExpressionStatement<'_>) -> Option<(u32, u32, String, String, String)> {
+    use oxc_ast::ast::LogicalOperator;
+    let Expression::AssignmentExpression(a) = &it.expression else {
+        return None;
+    };
+    let AssignmentTarget::StaticMemberExpression(left) = &a.left else {
+        return None;
+    };
+    let Expression::LogicalExpression(outer) = &a.right else {
+        return None;
+    };
+    let Expression::LogicalExpression(inner) = &outer.left else {
+        return None;
+    };
+    let Expression::CallExpression(call) = &outer.right else {
+        return None;
+    };
+    let Expression::StaticMemberExpression(read) = &inner.left else {
+        return None;
+    };
+    let Expression::Identifier(t) = &inner.right else {
+        return None;
+    };
+    let [arg] = &call.arguments[..] else {
+        return None;
+    };
+    let text = |s: oxc_span::Span| &source[s.start as usize..s.end as usize];
+    let x = text(left.object.span());
+    let simple = |e: &Expression<'_>| matches!(e, Expression::Identifier(_) | Expression::ThisExpression(_));
+    if a.operator != AssignmentOperator::Assign
+        || outer.operator != LogicalOperator::Or
+        || inner.operator != LogicalOperator::Or
+        || left.property.name != "$ti"
+        || read.property.name != "$ti"
+        || !simple(&left.object)
+        || text(read.object.span()) != x
+        || arg.as_expression().is_none_or(|e| !simple(e) || text(e.span()) != x)
+        || !matches!(&call.callee, Expression::Identifier(_) | Expression::StaticMemberExpression(_))
+    {
+        return None;
+    }
+    Some((it.span.start, it.span.end, x.to_string(), t.name.to_string(), text(call.callee.span()).to_string()))
+}
+
 /// The prologue of a named parameter, `o && "k" in o ? o.k : d`, with `d` a
 /// literal or a variable (no effect, so evaluating it earlier changes
 /// nothing; a Dart parameter's default value is constant): `t$O(o, "k", d)`.
@@ -273,8 +326,28 @@ pub fn apply(source: &str) -> Result<String, String> {
         sdk_end,
         strings: std::collections::HashMap::new(),
         recipes: Vec::new(),
+        type_args: Vec::new(),
     };
     a.visit_program(&parsed.program);
+    // The generic constructor prologue through `t$Q`, for the most common
+    // reified-type function (the callee is a variable after flattening, and
+    // the helper must name the same one).
+    let mut helpers = HELPERS.to_string();
+    let mut by_callee: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for (_, _, _, _, g) in &a.type_args {
+        *by_callee.entry(g.as_str()).or_default() += 1;
+    }
+    if let Some((g, n)) = by_callee.iter().max_by_key(|(g, n)| (**n, std::cmp::Reverse(**g))) {
+        if *n >= 4 {
+            let g = g.to_string();
+            helpers.push_str(&format!("var t$Q = function(o, t) {{ o.$ti = o.$ti || t || {g}(o); }};\n"));
+            for (i, f, x, t, callee) in &a.type_args {
+                if *callee == g {
+                    a.edits.push((*i, *f, format!("t$Q({x}, {t});")));
+                }
+            }
+        }
+    }
     // The program's closed recipes evaluated once: a repeated `t$R("R")`
     // becomes the variable `t$T…`, declared right after the SDK (the rti
     // universe already exists, and the result is the same canonical object).
@@ -330,7 +403,7 @@ pub fn apply(source: &str) -> Result<String, String> {
     a.edits.sort_by_key(|t| (t.0, t.1));
     let mut out = String::with_capacity(source.len());
     out.push_str(head);
-    out.push_str(HELPERS);
+    out.push_str(&helpers);
     let mut pos = head.len();
     for (i, f, new) in a.edits {
         let (i, f) = (i as usize, f as usize);
@@ -362,6 +435,16 @@ mod tests {
             "{s}"
         );
         assert!(s.contains(HELPERS), "{s}");
+    }
+
+    #[test]
+    fn generic_constructor_prologue() {
+        let js = "(function () {\nvar C = class {};\nfunction f(_ti) { let r = this; r.$ti = r.$ti || _ti || G(r); }\nfunction g(_ti) { this.$ti = this.$ti || _ti || G(this); }\nfunction h(_ti) { this.$ti = this.$ti || _ti || G(this); }\nfunction i(_ti) { this.$ti = this.$ti || _ti || G(this); }\nfunction j(_ti) { this.$ti = this.$ti || _ti || H(this); }\n})();\n";
+        let s = apply(js).unwrap();
+        assert!(s.contains("var t$Q = function(o, t) { o.$ti = o.$ti || t || G(o); };"), "{s}");
+        assert!(s.contains("let r = this; t$Q(r, _ti); }"), "{s}");
+        assert!(s.contains("{ t$Q(this, _ti); }"), "{s}");
+        assert!(s.contains("this.$ti = this.$ti || _ti || H(this);"), "{s}");
     }
 
     #[test]
