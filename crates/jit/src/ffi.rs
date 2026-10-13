@@ -252,7 +252,7 @@ pub(crate) fn parse_module(name: &str, ir: &str) -> Result<ParsedModule, String>
         // generated code for IR the AOT refuses, like an instruction that does not
         // dominate all its uses, and the program ran or crashed in the JIT and did not
         // compile in the AOT. The whole corpus in CI showed 13 such programs
-        // (pesado.yml, job `jit`). Accepting the same IR the AOT accepts is part
+        // (heavy.yml, job `jit`). Accepting the same IR the AOT accepts is part
         // of the contract.
         let mut detail_msg = ptr::null_mut();
         let invalid_one = llvm_sys::analysis::LLVMVerifyModule(

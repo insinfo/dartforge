@@ -1,8 +1,8 @@
-# CI no CircleCI: um pipeline por commit, os grupos de crates em jobs paralelos.
-# Os mesmos grupos do .gitlab-ci.yml (analisador e LSP, em release); o Windows,
-# que é o alvo, segue no .github/workflows/ci.yml. O Rust vem do
-# rust-toolchain.toml (o rustup da imagem instala o 1.98.1). O sccache
-# (mozilla/sccache) guarda a compilação de cada crate entre pipelines.
+# CircleCI: one pipeline per commit, the crate groups in parallel jobs.
+# The same groups as .gitlab-ci.yml (analyzer and LSP, in release); Windows,
+# which is the target, stays in .github/workflows/ci.yml. Rust comes from
+# rust-toolchain.toml (the image's rustup installs 1.98.1). sccache
+# (mozilla/sccache) keeps each crate's compilation between pipelines.
 version: 2.1
 
 executors:
@@ -17,11 +17,11 @@ executors:
       SCCACHE_CACHE_SIZE: 4G
 
 commands:
-  preparar:
+  prepare:
     steps:
       - checkout
       - run:
-          name: SDK Dart 3.6.2
+          name: Dart SDK 3.6.2
           command: |
             curl -sSfL -o /tmp/dart.zip https://storage.googleapis.com/dart-archive/channels/stable/release/3.6.2/sdk/dartsdk-linux-x64-release.zip
             sudo unzip -q /tmp/dart.zip -d /opt
@@ -34,17 +34,17 @@ commands:
             sudo install /tmp/sccache-v0.18.0-x86_64-unknown-linux-musl/sccache /usr/local/bin/sccache
             echo 'export RUSTC_WRAPPER=/usr/local/bin/sccache' >> "$BASH_ENV"
       - run:
-          name: Rust fixado
+          name: Pinned Rust
           command: rustup show active-toolchain || rustup toolchain install 1.98.1 --profile minimal
       - restore_cache:
           keys:
             - cargo-{{ .Environment.CIRCLE_JOB }}-{{ checksum "Cargo.lock" }}
             - cargo-{{ .Environment.CIRCLE_JOB }}-
 
-  guardar:
+  save:
     steps:
       - run:
-          name: estatísticas do sccache
+          name: sccache statistics
           when: always
           command: sccache --show-stats || true
       - save_cache:
@@ -54,40 +54,40 @@ commands:
             - ~/.sccache
 
 jobs:
-  mensagens:
+  messages:
     docker:
       - image: cimg/base:stable
     resource_class: small
     steps:
       - checkout
-      - run: sh scripts/no-ai-trailer.sh --historico HEAD
+      - run: sh scripts/no-ai-trailer.sh --history HEAD
 
-  analisador:
+  analyzer:
     executor: rust
     steps:
-      - preparar
+      - prepare
       - run:
-          name: testes do analisador
+          name: analyzer tests
           no_output_timeout: 60m
           command: >-
             cargo test --locked --release --no-fail-fast
             -p dartforge-frontend -p dartforge-types -p dartforge-analysis
             -p dartforge-diagnostics -p dartforge-parity
-      - guardar
+      - save
 
   lsp:
     executor: rust
     steps:
-      - preparar
+      - prepare
       - run:
-          name: testes do LSP
+          name: LSP tests
           no_output_timeout: 60m
           command: cargo test --locked --release --no-fail-fast -p dartforge-lsp
-      - guardar
+      - save
 
 workflows:
-  testes:
+  tests:
     jobs:
-      - mensagens
-      - analisador
+      - messages
+      - analyzer
       - lsp

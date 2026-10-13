@@ -1,0 +1,120 @@
+# Pub scoreboard: the examples and the smallest tests of 82 popular packages
+# (corpus/pub/pubspec.yaml, pinned versions) compiled by `dartforge aot` and
+# compared with the VM (`dart --enable-asserts`), by scripts/pub-scoreboard.py.
+#
+# One job builds dartforge once and assembles the distribution (`dartforge
+# pack`); the shards only download it and split the ~272 programs. The joint
+# scoreboard and the failures grouped by cause go to the run summary; each
+# shard's reports stay as an artifact (`gh run download`).
+name: Pub scoreboard
+on:
+  workflow_dispatch:
+    inputs:
+      shards:
+        description: number of shards (the matrix below has 8)
+        default: '8'
+      filter:
+        description: only the programs whose key contains this text (empty = all)
+        default: ''
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: '0'
+  CARGO_PROFILE_RELEASE_LTO: 'false'
+  CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
+jobs:
+  build:
+    name: build and pack dartforge
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/dart
+      - uses: ./.github/actions/llvm-unix
+      - name: Pinned Rust (rust-toolchain.toml)
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: heavy-unix
+          save-if: false
+      - name: Build dartforge (native)
+        run: cargo build --locked --release -p dartforge-cli --features native
+      - name: Pack
+        run: |
+          set -euo pipefail
+          ./target/release/dartforge pack "$RUNNER_TEMP/dartforge"
+          tar -czf "$RUNNER_TEMP/dartforge.tar.gz" -C "$RUNNER_TEMP" dartforge
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: dartforge-dist
+          path: ${{ runner.temp }}/dartforge.tar.gz
+          retention-days: 3
+
+  shard:
+    name: shard ${{ matrix.i }}/8
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        i: [1, 2, 3, 4, 5, 6, 7, 8]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/dart
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: dartforge-dist
+          path: ${{ runner.temp }}
+      - name: Distribution
+        run: tar -xzf "$RUNNER_TEMP/dartforge.tar.gz" -C "$RUNNER_TEMP"
+      - name: Scoreboard (shard ${{ matrix.i }})
+        env:
+          FILTER: ${{ inputs.filter }}
+        run: |
+          python3 scripts/pub-scoreboard.py \
+            --dartforge "$RUNNER_TEMP/dartforge/bin/dartforge" --dart dart \
+            --shard ${{ matrix.i }}/8 --work "$RUNNER_TEMP/scoreboard" \
+            --compile-time 900 --run-time 120 --filter "$FILTER"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: scoreboard-${{ matrix.i }}
+          path: |
+            ${{ runner.temp }}/scoreboard/report.txt
+            ${{ runner.temp }}/scoreboard/results.json
+          retention-days: 14
+
+  join:
+    name: joint scoreboard
+    needs: shard
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: scoreboard-*
+          path: scoreboard
+      - name: Summary
+        shell: python
+        run: |
+          import glob, json, os, collections
+          states = collections.Counter()
+          groups = collections.defaultdict(list)
+          for f in sorted(glob.glob('scoreboard/*/results.json')):
+              for r in json.load(open(f, encoding='utf8')):
+                  states[r['state']] += 1
+                  if r['state'] not in ('ok', 'vm-invalid'):
+                      groups[(r['state'], (r.get('error') or '').split('\n')[0][:160])].append(r['k'])
+          valid = sum(v for e, v in states.items() if e != 'vm-invalid')
+          lines = ['## Pub scoreboard', '',
+                   f"**{states.get('ok', 0)}/{valid} equal to the VM** — " + ', '.join(f'{e} {n}' for e, n in sorted(states.items())),
+                   '', '| programs | state | first line of the error |', '|---:|---|---|']
+          for (e, g), ks in sorted(groups.items(), key=lambda x: -len(x[1]))[:60]:
+              lines.append(f"| {len(ks)} | {e} | {g.replace('|', '/')} |")
+          open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf8').write('\n'.join(lines) + '\n')
+          print('\n'.join(lines))

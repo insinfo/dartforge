@@ -31,7 +31,7 @@ pwsh scripts/limitless-ui.ps1 -E2e -Producao -Porta 8082
 ```
 
 O script procura `references/limitless_ui` junto ao repositório; `-Raiz`
-aponta para uma cópia externa. O job `limitless-ui` de `pesado.yml` baixa a
+aponta para uma cópia externa. O job `limitless-ui` de `heavy.yml` baixa a
 revisão `9e381736413e635e4d616046fbe82997ccf66a08` e roda esses passos
 no GitHub Actions. O placar de produção fica pendente até essa rodada.
 

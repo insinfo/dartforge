@@ -153,7 +153,7 @@ agente): ele já segue `patched_by` para os patches do SDK.
 
 ## 5. Aceite
 
-`corpus/macros/40*` (job `macros` do `pesado.yml`, os dois oráculos):
+`corpus/macros/40*` (job `macros` do `heavy.yml`, os dois oráculos):
 
 | programa | forma | o que confere |
 |---|---|---|

@@ -1,0 +1,80 @@
+# Debugging of the native backend outside Windows: compiles ONE corpus program
+# with `compile-native` on the chosen system and runs it with the given
+# variables (runtime traces, root, exception and memory modes). For the defects
+# that only show up on Linux or macOS, without waiting for the heavy workflow.
+#
+#   gh workflow run debug.yml --ref main -f os=macos-latest \
+#     -f program=corpus/native/33_mensagens_de_controle.dart \
+#     -f environment="DARTFORGE_IO_TRACE=1"
+name: debug
+
+on:
+  workflow_dispatch:
+    inputs:
+      os:
+        description: System
+        type: choice
+        options: [macos-latest, ubuntu-latest]
+        default: macos-latest
+      program:
+        description: The program (.dart, relative to the root)
+        required: true
+      environment:
+        description: Variables of the compilation and of the run (VAR=value, separated by spaces)
+        default: ''
+      options:
+        description: compile-native options
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.os }}
+  cancel-in-progress: true
+
+jobs:
+  debug:
+    name: debug ${{ inputs.program }} (${{ inputs.os }})
+    runs-on: ${{ inputs.os }}
+    timeout-minutes: 60
+    env:
+      CARGO_PROFILE_RELEASE_LTO: 'false'
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
+      MACOSX_DEPLOYMENT_TARGET: '11.0'
+      DARTFORGE_SDK_FROM_SOURCE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/dart
+      - uses: ./.github/actions/llvm-unix
+      - name: Pinned Rust (rust-toolchain.toml)
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: heavy-unix
+          save-if: 'false'
+      - name: Build dartforge (native)
+        run: cargo build --locked --release -p dartforge-cli --features native
+      - name: Compile and run the program
+        shell: bash
+        env:
+          PROGRAM: ${{ inputs.program }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          OPTIONS: ${{ inputs.options }}
+        run: |
+          set -uo pipefail
+          output="$RUNNER_TEMP/program"
+          # shellcheck disable=SC2086
+          env $ENVIRONMENT ./target/release/dartforge compile-native "$PROGRAM" -o "$output" $OPTIONS
+          echo "--- run ---"
+          c=0
+          # shellcheck disable=SC2086
+          # coreutils' `timeout` does not ship with macOS: perl's `alarm`.
+          (cd "$(dirname "$PROGRAM")" && env $ENVIRONMENT perl -e 'alarm shift; exec @ARGV' 60 "$output") || c=$?
+          echo "--- exit code: $c ---"
+          # The same run on the VM (the oracle), to compare on the same runner:
+          # with `--enable-asserts`, like the differential's oracle (native
+          # evaluates the asserts, the SDK's too: `_NativeSocket.read`'s
+          # `assert(available > 0)` throws on a socket without events).
+          echo "--- VM ---"
+          (cd "$(dirname "$PROGRAM")" && "$DARTFORGE_DART_SDK/bin/dart" run --enable-asserts "$(basename "$PROGRAM")") || echo "VM exited with $?"

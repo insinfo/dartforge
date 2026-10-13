@@ -1,0 +1,955 @@
+# HEAVY tests of the new track, on GitHub Actions and not on the development
+# machine: the differential corpus (crates/differential) in the JS development
+# and production profiles, on the native backend (in parallel shards) and the
+# determinism test. See ESTADO.md §3 (ci/<front> convention, limits) and
+# scripts/ci.ps1 (dispatch, follow, read the scoreboard).
+#
+# How to request a run:
+#   * push to a ci/<front> branch (runs `all`):
+#       pwsh scripts/ci.ps1 -Front native        # git push origin HEAD:ci/native
+#   * workflow_dispatch, choosing the suite and the number of shards:
+#       gh workflow run heavy.yml --ref <branch> -f suite=native -f shards=8
+#   * the daily schedule runs `all` on main at night — it is also what keeps
+#     the caches in main's scope, which every ci/** branch can read.
+#
+# Jobs of an `all` run with N shards: build; then, IN PARALLEL, js,
+# production, modern, macros, determinism (production), determinism (native),
+# N natives and native under --gc-stress; then native-scoreboard (Linux,
+# seconds), which also compares the two native scoreboards. Peak concurrency
+# = 7 + N.
+# The free plan allows 20 concurrent jobs in the whole account (Linux and
+# Windows together); the excess waits in the queue, it does not fail.
+#
+# Default N = 2, by measurement (ESTADO.md §3.2): on the runner the whole
+# native corpus takes ~45 s of harness adding the shards up, and each job
+# spends ~1.3 min just preparing the environment — more shards only buy
+# queueing. With N = 2 the run takes 6 jobs at the peak and three fronts fit
+# at the same time. Raise N (the `shards` input or `gh variable set
+# NATIVE_SHARDS --body N`) when a shard's time goes over ~20 min, which will
+# happen when the native programs run to the end instead of failing early.
+name: Heavy
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: What to run
+        type: choice
+        options: [all, js, production, limitless-ui, native, jit, unix, determinism, modern, macros, macros-aot-probe, zero-cost, analysis]
+        default: all
+      shards:
+        description: Shards of the native corpus (one job each)
+        type: number
+        default: 2
+  push:
+    branches: ['ci/**']
+  schedule:
+    # 06:17 UTC = 03:17 in Brasília.
+    - cron: '17 6 * * *'
+permissions:
+  contents: read
+# A new run cancels the previous one OF THE SAME branch; different branches
+# (one per work front) never cancel each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: '0'
+  # Ceiling of the native runtime's heap per program (crates/runtime/src/heap.rs).
+  DARTFORGE_HEAP_MAX_MB: '256'
+jobs:
+  build:
+    name: build
+    # `unix` runs only the `native-unix` job, which is self-contained.
+    if: (inputs.suite || 'all') != 'unix'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    outputs:
+      suite: ${{ steps.plan.outputs.suite }}
+      n: ${{ steps.plan.outputs.n }}
+      shards: ${{ steps.plan.outputs.shards }}
+    steps:
+      - name: Plan of the run
+        id: plan
+        shell: pwsh
+        env:
+          SUITE: ${{ inputs.suite || 'all' }}
+          # workflow_dispatch > repository variable > 2.
+          N: ${{ inputs.shards || vars.NATIVE_SHARDS || 2 }}
+        run: |
+          $n = [int]$env:N
+          if ($n -lt 1 -or $n -gt 32) { throw "shards outside 1..32: $n" }
+          # -InputObject, not -AsArray: that one would wrap the list in another ([[1,…]]).
+          $list = ConvertTo-Json -Compress -InputObject @(1..$n)
+          "suite=$env:SUITE" >> $env:GITHUB_OUTPUT
+          "n=$n" >> $env:GITHUB_OUTPUT
+          "shards=$list" >> $env:GITHUB_OUTPUT
+          Write-Host "suite $env:SUITE; $n native shards: $list"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+      - uses: ./.github/actions/dart
+        with:
+          generate-dart-sdk-js: 'true'
+      # The JIT executor (crates/jit) links llvm-sys: it needs LLVM's
+      # development slice (llvm-config, LLVM-C, C API headers).
+      - uses: ./.github/actions/llvm-windows
+        with:
+          development: 'true'
+      - name: Pinned Rust (rust-toolchain.toml)
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: heavy-release
+          # Only main saves; the ci/** branches restore main's.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build harness, dartforge, dartforge-jsprod, parity and the JIT executor (release)
+        env:
+          # The workspace's release profile (thin LTO, 1 code generation
+          # unit) is for measuring performance; here only correctness matters,
+          # and it multiplies the compile time on a 4-core runner.
+          CARGO_PROFILE_RELEASE_LTO: 'false'
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
+        run: cargo build --locked --release -p dartforge-differential -p dartforge-cli -p dartforge-emit-js-production -p dartforge-jit -p dartforge-parity
+      # The precompiled runtime (the three staticlibs: the executable's, the
+      # source SDK DLL's and the production one) lives in emit_native's
+      # OUT_DIR, outside the artifact: without it, every native program of the
+      # other jobs failed to link ("the runtime … is not in the distribution").
+      # It goes along, and the harness points DARTFORGE_LIB to it.
+      - name: Precompiled runtime for the artifact
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force runtime-pre | Out-Null
+          $libs = @(Get-ChildItem target/release/build -Recurse -File -Include 'dartforge_runtime_*.lib', 'dartforge_rtdll_*.lib', 'dartforge_rtprod_*.lib' | Where-Object { $_.Directory.Name -eq 'out' })
+          if ($libs.Count -lt 3) { Write-Host '::error::precompiled runtime not found in emit_native''s OUT_DIR'; exit 1 }
+          $libs | Copy-Item -Destination runtime-pre
+          Get-ChildItem runtime-pre | Select-Object Name, Length
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: binaries
+          path: |
+            target/release/dartforge-differential.exe
+            target/release/dartforge.exe
+            target/release/dartforge-jsprod.exe
+            target/release/dartforge-run-ir.exe
+            target/release/dartforge-parity.exe
+            runtime/ddc/dart_sdk.js
+            runtime-pre/
+          retention-days: 1
+          if-no-files-found: error
+
+      # The oracles (`dart run` and `dartdevc`+Node) do not depend on our
+      # code: the harness keeps them in target/differential/cache by the hash
+      # of each program's content. This job completes the cache once, and the
+      # following jobs only read it. The key changes with the corpus; the
+      # restore-keys bring the previous cache, and only the changed programs
+      # are recomputed.
+      - name: Oracles (cache)
+        id: oracles
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: target/differential/cache
+          key: oracles-${{ runner.os }}-dart3.6.2-${{ hashFiles('corpus/js/**') }}
+          restore-keys: oracles-${{ runner.os }}-dart3.6.2-
+      - name: Complete the oracles (dartforge-differential verify)
+        shell: pwsh
+        run: |
+          $start = Get-Date
+          ./target/release/dartforge-differential.exe verify --quiet > verify.txt
+          $code = $LASTEXITCODE
+          Get-Content verify.txt -Encoding utf8 | Select-Object -Last 5
+          Write-Host ("code {0}; {1:N0} s" -f $code, ((Get-Date) - $start).TotalSeconds)
+          # Code 1 here is a divergence of the ORACLES between themselves
+          # (DDC × VM), not our defect: it is recorded in the summary, but does
+          # not stop the rest.
+          if ($code -ne 0) {
+            $md = @('### Oracles', '', "verify exited with code $code", '', '```text')
+            $md += Get-Content verify.txt -Encoding utf8
+            $md += '```'
+            Add-Content $env:GITHUB_STEP_SUMMARY ($md -join "`n") -Encoding utf8
+          }
+          exit 0
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        if: steps.oracles.outputs.cache-hit != 'true'
+        with:
+          path: target/differential/cache
+          key: oracles-${{ runner.os }}-dart3.6.2-${{ hashFiles('corpus/js/**') }}
+
+  js:
+    name: js (development)
+    needs: build
+    if: contains(fromJSON('["all","js"]'), needs.build.outputs.suite)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/harness
+        with:
+          name: js
+          title: JS development — dart run × ddc+node × dartforge+node
+          args: --jobs 4
+
+  production:
+    name: js (production)
+    needs: build
+    if: contains(fromJSON('["all","production"]'), needs.build.outputs.suite)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/harness
+        with:
+          name: production
+          title: JS production — VM × development × production (dartforge-jsprod)
+          args: --production --jobs 4
+
+  # The public gallery provides 26 Puppeteer tests of real behavior.
+  # Pinned revision: changes in the oracle do not silently change the scoreboard.
+  limitless-ui:
+    name: limitless_ui (production bundle, e2e)
+    needs: build
+    if: needs.build.outputs.suite == 'limitless-ui' || (needs.build.outputs.suite == 'all' && github.ref == 'refs/heads/ci/js')
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: insinfo/limitless_ui
+          ref: 9e381736413e635e4d616046fbe82997ccf66a08
+          path: references/limitless_ui
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+      - uses: ./.github/actions/dart
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: binaries
+          path: ${{ github.workspace }}
+      - name: Prepare the ngdart generated sources
+        shell: pwsh
+        run: pwsh scripts/limitless-ui.ps1 -Preparar -Producao
+      - name: Assemble the production bundle
+        shell: pwsh
+        run: pwsh scripts/limitless-ui.ps1 -Montar -Producao
+      - name: E2E in the browser
+        shell: pwsh
+        run: |
+          $root = (Resolve-Path references/limitless_ui).Path
+          $output = (Resolve-Path work/lui/out-producao).Path
+          $server = Start-Process -FilePath (Get-Command dart).Source `
+            -ArgumentList @('run', 'tool/serve_example.dart', '--dir', $output, '--port', '8081', '--quiet') `
+            -WorkingDirectory $root -WindowStyle Hidden -PassThru
+          try {
+            $ready = $false
+            foreach ($attempt in 1..60) {
+              try {
+                $response = Invoke-WebRequest 'http://127.0.0.1:8081/' -TimeoutSec 2
+                if ($response.StatusCode -eq 200) { $ready = $true; break }
+              } catch { Start-Sleep -Seconds 1 }
+            }
+            if (-not $ready) { throw 'the gallery server did not start' }
+            node scripts/probe-limitless-ui.mjs 'http://127.0.0.1:8081/'
+            if ($LASTEXITCODE -ne 0) { throw 'the gallery startup failed; see the CDP diagnostics above' }
+            pwsh scripts/limitless-ui.ps1 -E2e -Producao
+            if ($LASTEXITCODE -ne 0) { throw "E2E failed (code $LASTEXITCODE)" }
+            } finally {
+              Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+            }
+      - name: Keep the JS bundle for diagnostics when the E2E fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: limitless-ui-bundle-js
+          path: work/lui/out-producao/main.dart.js
+          retention-days: 1
+
+  # 3.7–3.13 features (docs/VERSOES-LINGUAGEM.md §5): corpus/moderno against
+  # the 3.13.4 oracle SDK (dart run and dartdevc+node, each with its own
+  # dart_sdk.js), in the development and production profiles. Code 0 = all
+  # pass; what is in corpus/moderno/PENDENTES may fail, but passing without
+  # leaving the list fails the job.
+  modern:
+    name: modern (3.7–3.13)
+    needs: build
+    if: contains(fromJSON('["all","modern"]'), needs.build.outputs.suite)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/harness
+        with:
+          name: modern
+          title: Modern (3.7–3.13) — VM and DDC 3.13.4 × dartforge dev and production
+          args: --corpus corpus/moderno --production --jobs 4
+          sdk-313: 'true'
+
+  # Augmentations and macros (docs/AUGMENTATIONS.md, docs/MACROS-PROTOCOLO.md):
+  # corpus/macros against 3.6.2 with --enable-experiment=macros (the
+  # `import augment`/`augment library` form) and against 3.13.4 with
+  # augmentations,enhanced-parts (the `part of` form), in the development and
+  # production profiles. Same criterion as `modern`.
+  macros:
+    name: macros (augmentations)
+    needs: build
+    if: contains(fromJSON('["all","macros"]'), needs.build.outputs.suite)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/harness
+        with:
+          name: macros
+          title: Macros and augmentations — VM and DDC (3.6.2 and 3.13.4) × dartforge dev and production
+          args: --corpus corpus/macros --production --jobs 4
+          sdk-313: 'true'
+          pub-get: corpus/macros
+          prepare: ./scripts/prepare-macros-410.ps1
+      - name: Macro with a positional argument (CFE byte for byte)
+        shell: pwsh
+        run: ./scripts/test-macros-412.ps1
+      - name: Macro with a named argument (CFE byte for byte)
+        shell: pwsh
+        run: ./scripts/test-macros-413.ps1
+      - name: Macro on a top-level function (CFE byte for byte)
+        shell: pwsh
+        run: ./scripts/test-macros-414.ps1
+      - name: Macro on a top-level variable (CFE byte for byte)
+        shell: pwsh
+        run: ./scripts/test-macros-415.ps1
+      - name: Macro on a function definition (CFE byte for byte)
+        shell: pwsh
+        run: ./scripts/test-macros-416.ps1
+      - name: Macro on a method definition (CFE byte for byte)
+        shell: pwsh
+        run: ./scripts/test-macros-418.ps1
+      - name: Macro on a constructor definition (CFE byte for byte)
+        shell: pwsh
+        run: ./scripts/test-macros-419.ps1
+      - name: Macro in the types phase (CFE byte for byte)
+        shell: pwsh
+        run: ./scripts/test-macros-420.ps1
+      - name: Macro applied in a part (CFE byte for byte)
+        shell: pwsh
+        run: ./scripts/test-macros-421.ps1
+      - name: Macro applied to the library (CFE byte for byte)
+        shell: pwsh
+        run: ./scripts/test-macros-422.ps1
+
+  macros-aot-probe:
+    name: AOT probe of the macro executor
+    needs: build
+    if: needs.build.outputs.suite == 'macros-aot-probe'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/dart
+      - uses: ./.github/actions/llvm-windows
+      - name: Pinned Rust (rust-toolchain.toml)
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: heavy-release
+          save-if: 'false'
+      - name: Build the native CLI
+        env:
+          CARGO_PROFILE_RELEASE_LTO: 'false'
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
+        run: cargo build --locked --release -p dartforge-cli --features native
+      - name: First error of the dfexec/1 bootstrap
+        shell: pwsh
+        run: ./scripts/probe-macros-aot.ps1
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: macros-aot-probe
+          path: target/macros-aot-probe/compile-native.txt
+          retention-days: 7
+
+  native:
+    name: native ${{ matrix.shard }}/${{ needs.build.outputs.n }}
+    needs: build
+    if: contains(fromJSON('["all","native"]'), needs.build.outputs.suite)
+    runs-on: windows-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.build.outputs.shards) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/harness
+        with:
+          name: native-${{ matrix.shard }}
+          title: Native, shard ${{ matrix.shard }}/${{ needs.build.outputs.n }}
+          args: --native --jobs 4 --shard ${{ matrix.shard }}/${{ needs.build.outputs.n }}
+          native: 'true'
+          # A scoreboard below 214 is the backend's state, not a CI breakage.
+          accept-partial-scoreboard: 'true'
+
+  # Native `dart:io` on Windows (the completion port, Winsock and the
+  # processes of io_windows_*.rs) against the VM: the corpus/native corpus.
+  native-io-windows:
+    name: native dart:io (Windows)
+    needs: build
+    if: contains(fromJSON('["all","native"]'), needs.build.outputs.suite)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      DARTFORGE_SDK_FROM_SOURCE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/harness
+        with:
+          name: native-io-windows
+          title: Native dart:io on Windows (corpus/native)
+          args: --native --corpus corpus/native --jobs 2
+          native: 'true'
+
+  # The G7 gate of the roots contract (docs/NATIVO-PLANO.md §6.5): the whole
+  # native corpus with DARTFORGE_GC_STRESS=1 — collects before EVERY
+  # allocation, so a missing root becomes "handle already collected" instead
+  # of passing by luck. `native-scoreboard` compares: a program that passes
+  # without stress and fails with it fails the run. The run time limit is
+  # higher (collecting at every allocation multiplies the programs' time).
+  native-gc-stress:
+    name: native --gc-stress (whole corpus)
+    needs: build
+    if: contains(fromJSON('["all","native"]'), needs.build.outputs.suite)
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/harness
+        with:
+          name: native-gc-stress
+          title: Native under --gc-stress (collects before every allocation)
+          args: --native --gc-stress --jobs 4 --exec-limit 120
+          native: 'true'
+          accept-partial-scoreboard: 'true'
+
+  # The other three combinations of roots and exceptions
+  # (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §0 and §7.1): A1 (shadow +
+  # tables), B0 (maps + check) and B1 (maps + tables), each with and without
+  # --gc-stress, on the whole native corpus. A0 is `native` and
+  # `native-gc-stress` above (the oracle). The emitter reads the mode from the
+  # environment.
+  native-modes:
+    name: native ${{ matrix.mode.id }}${{ matrix.stress && ' --gc-stress' || '' }}
+    needs: build
+    if: contains(fromJSON('["all","native"]'), needs.build.outputs.suite)
+    runs-on: windows-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        mode:
+          - { id: A1, roots: shadow, exceptions: tables }
+          - { id: B0, roots: maps, exceptions: check }
+          - { id: B1, roots: maps, exceptions: tables }
+        stress: [false, true]
+    env:
+      DARTFORGE_ROOTS: ${{ matrix.mode.roots }}
+      DARTFORGE_EXCEPTIONS: ${{ matrix.mode.exceptions }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # The `build` job's cache: the harness is recompiled with the embedded
+      # generator (`prepare` below), which the maps require.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: heavy-release
+          save-if: 'false'
+      - uses: ./.github/actions/harness
+        with:
+          name: native-${{ matrix.mode.id }}${{ matrix.stress && '-gc-stress' || '' }}
+          title: Native ${{ matrix.mode.id }} (roots ${{ matrix.mode.roots }}, exceptions ${{ matrix.mode.exceptions }})${{ matrix.stress && ' under --gc-stress' || '' }}
+          args: --native --jobs 4 ${{ matrix.stress && '--gc-stress --exec-limit 120' || '' }}
+          native: 'true'
+          # The development LLVM (LLVM-C.dll and llvm-sys's libraries) for the
+          # harness with the embedded generator.
+          jit: 'true'
+          prepare: ./scripts/harness-with-generator.ps1
+          accept-partial-scoreboard: 'true'
+
+      # The common corpus does not turn this gate on: four tests that require
+      # a collection, read roots from the maps and must detect each sabotage of
+      # §7.3. The cases already include tables and the shadow stack; one cell
+      # of the matrix is enough.
+      - name: Roots by maps — directed tests and sabotages
+        if: matrix.mode.id == 'B0' && !matrix.stress
+        shell: pwsh
+        env:
+          DARTFORGE_MAPS_TESTS: '1'
+          CARGO_PROFILE_RELEASE_LTO: 'false'
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
+        run: cargo test --locked --release -p dartforge-cli --features native,jit --test directed_maps -- --test-threads=1 --nocapture
+
+  # ARC memory (docs/ARC-IMPLEMENTACAO.md): the whole native corpus with
+  # --memory=arc and the audit at every synchronization (no reachable object
+  # dead, RC equal to the recounted occurrences), with and without
+  # --gc-stress. The emitter reads the mode from the environment.
+  native-arc:
+    name: native ARC${{ matrix.stress && ' --gc-stress' || '' }}
+    needs: build
+    if: contains(fromJSON('["all","native"]'), needs.build.outputs.suite)
+    runs-on: windows-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        stress: [false, true]
+    env:
+      DARTFORGE_MEMORY: arc
+      DARTFORGE_ARC_CHECK: ${{ matrix.stress && '0' || '1' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/harness
+        with:
+          name: native-arc${{ matrix.stress && '-gc-stress' || '' }}
+          title: Native with ARC memory${{ matrix.stress && ' under --gc-stress' || ' (audit at every synchronization)' }}
+          args: --native --jobs 4 ${{ matrix.stress && '--gc-stress --exec-limit 120' || '' }}
+          native: 'true'
+          accept-partial-scoreboard: 'true'
+
+  native-scoreboard:
+    name: native (consolidated scoreboard)
+    needs: [build, native, native-gc-stress]
+    if: always() && needs.build.result == 'success' && contains(fromJSON('["all","native"]'), needs.build.outputs.suite)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: report-native-*
+          path: shards
+      - name: Add the shards up
+        shell: pwsh
+        env:
+          N: ${{ needs.build.outputs.n }}
+        run: |
+          # The --gc-stress report comes in the same artifact pattern, but it
+          # is not a shard: it stays out of the sum and is compared below.
+          $all = @(Get-ChildItem shards -Recurse -Filter report.txt | Sort-Object FullName)
+          # The reports of the root and exception modes (`native-modes`: A1,
+          # B0, B1) are not corpus shards either.
+          $rels = @($all | Where-Object { $_.FullName -notmatch 'report-native-(gc-stress|A1|B0|B1)' })
+          $stress = $all | Where-Object { $_.FullName -match 'report-native-gc-stress' } | Select-Object -First 1
+          New-Item -ItemType Directory -Force scoreboard | Out-Null
+          $md = & ./scripts/ci-scoreboard.ps1 -Report $rels -Title "Native — whole corpus ($($rels.Count) of $env:N shards)" -Expected ([int]$env:N)
+          $one = & ./scripts/ci-scoreboard.ps1 -Report $rels -Line -Expected ([int]$env:N)
+          # Time of each shard, to size N (see ESTADO.md §3.2).
+          $times = foreach ($f in Get-ChildItem shards -Recurse -Filter scoreboard.md | Where-Object { $_.FullName -notmatch 'report-native-(gc-stress|A1|B0|B1)' } | Sort-Object FullName) {
+            $t = (Get-Content $f -Encoding utf8) -join ' '
+            if ($t -match 'Harness time on the runner: (.+?)\. Minimum free memory: (.+? GB)') { "| $($f.Directory.Name) | $($Matches[1]) | $($Matches[2]) |" }
+          }
+          $md += "`n`n| shard | harness time | minimum free memory |`n| --- | --- | --- |`n" + ($times -join "`n") + "`n"
+          Set-Content scoreboard/scoreboard.md $md -Encoding utf8
+          $rels | Get-Content -Encoding utf8 | Set-Content scoreboard/concatenated-reports.txt -Encoding utf8
+          Add-Content $env:GITHUB_STEP_SUMMARY $md -Encoding utf8
+          Write-Host $md
+          Write-Host "::notice title=Scoreboard native::$one"
+          if ($rels.Count -eq 0) { Write-Host '::error::no shard produced a report'; exit 1 }
+          # The whole native corpus passes (docs/NATIVO-PLANO.md): a failing
+          # program fails the run — before, a 1/115 scoreboard (the runtime
+          # outside the artifact) passed silently.
+          $ok = 0; $total = 0
+          foreach ($l in ($rels | Get-Content -Encoding utf8)) {
+            if ($l -match '^DartForge native:\s+(\d+)/(\d+)') { $ok += [int]$Matches[1]; $total += [int]$Matches[2] }
+          }
+          if ($total -eq 0 -or $ok -lt $total) { Write-Host "::error::native ${ok}/${total}: a corpus program is failing"; exit 1 }
+          # G7 gate: what passes without stress passes with it.
+          if (!$stress) { Write-Host '::error::the native-gc-stress job did not produce a report'; exit 1 }
+          $failures = { param($files) $files | Get-Content -Encoding utf8 | ForEach-Object { if ($_ -match '^\s*FAIL\s+(\S+)') { $Matches[1] } } | Sort-Object -Unique }
+          $normal = @(& $failures $rels)
+          $under = @(& $failures @($stress))
+          $only_under = @($under | Where-Object { $normal -notcontains $_ })
+          $g7 = "--gc-stress: $($under.Count) failures (without stress: $($normal.Count)); only with stress: $($only_under.Count)"
+          Add-Content $env:GITHUB_STEP_SUMMARY "`n$g7`n" -Encoding utf8
+          Write-Host "::notice title=Scoreboard native --gc-stress::$g7"
+          if ($only_under.Count -gt 0) {
+            Write-Host "::error::pass without stress and fail with --gc-stress (missing root?): $($only_under -join ', ')"
+            exit 1
+          }
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: scoreboard-native
+          path: scoreboard
+          retention-days: 14
+
+  # The SDK compiled from source (P5c/P5d, docs/NATIVO-PLANO.md §7.7), still
+  # opt-in: the whole native corpus with DARTFORGE_SDK_FROM_SOURCE=1 (the SDK
+  # DLL is compiled once, on the first program), and the production profile —
+  # ONE self-contained executable, which the test copies alone to an empty
+  # folder and runs. The artifact does not enter today's consolidated native
+  # scoreboard.
+  sdk-source:
+    name: native (SDK from source)
+    needs: build
+    if: contains(fromJSON('["all","native"]'), needs.build.outputs.suite)
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      DARTFORGE_SDK_FROM_SOURCE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/harness
+        with:
+          name: sdk-source
+          title: Native with the SDK from source (DARTFORGE_SDK_FROM_SOURCE=1)
+          args: --native --jobs 4
+          native: 'true'
+          accept-partial-scoreboard: 'true'
+      - name: Closure arity throws NoSuchMethodError from source
+        shell: pwsh
+        run: cargo test --locked --release -p dartforge-emit-native --test contract closure_arity_throws_no_such_method_error_from_source -- --ignored --nocapture
+      - name: Static getter returning a function runs in the right order
+        shell: pwsh
+        run: cargo test --locked --release -p dartforge-emit-native --test contract static_getter_returning_function_is_called_as_value -- --ignored --nocapture
+      - name: Redirecting factory preserves the target's RTI
+        shell: pwsh
+        run: cargo test --locked --release -p dartforge-emit-native --test contract redirecting_factory_preserves_target_rti -- --ignored --nocapture
+      - name: Interface getter dispatches field and getter
+        shell: pwsh
+        run: cargo test --locked --release -p dartforge-emit-native --test contract interface_getter_dispatches_field_and_getter -- --ignored --nocapture
+      - name: Covariant write of List Map Set preserves type and content
+        shell: pwsh
+        run: cargo test --locked --release -p dartforge-emit-native --test contract covariant_collection_write_throws_type_error_without_mutating -- --ignored --nocapture
+      - name: Wrong dynamic SDK argument throws TypeError
+        shell: pwsh
+        run: cargo test --locked --release -p dartforge-emit-native --test contract wrong_dynamic_sdk_argument_throws_type_error -- --ignored --nocapture
+      - name: Iterable.generate checks the generic function in the SDK
+        shell: pwsh
+        run: cargo test --locked --release -p dartforge-emit-native --test contract iterable_generate_checks_generic_signature_in_sdk -- --ignored --nocapture
+      - name: Enum reads the implicit name and index in the SDK
+        shell: pwsh
+        run: cargo test --locked --release -p dartforge-emit-native --test contract implicit_enum_name_index_in_sdk -- --ignored --nocapture
+      - name: Enum reads the implicit values in the SDK
+        shell: pwsh
+        run: cargo test --locked --release -p dartforge-emit-native --test contract implicit_enum_values_in_sdk -- --ignored --nocapture
+      - name: Default toString of a generic class includes the arguments in the SDK
+        shell: pwsh
+        run: cargo test --locked --release -p dartforge-emit-native --test contract generic_class_default_tostring_in_sdk -- --ignored --nocapture
+      - name: The program's enum is a subtype of Enum in the SDK
+        shell: pwsh
+        run: cargo test --locked --release -p dartforge-emit-native --test contract enum_is_subtype_of_enum_in_sdk -- --ignored --nocapture
+      - name: Static noSuchMethod forwarder of a method in the SDK
+        shell: pwsh
+        run: cargo test --locked --release -p dartforge-emit-native --test contract nsm_forwarder_method_in_sdk -- --ignored --nocapture
+      # JIT × AOT with the SDK from source: the executor loads the SDK DLL;
+      # the post-IR times (Clang + linking, without the object cache) are the
+      # native side of the cost gate (compare with the `jit` job).
+      - uses: ./.github/actions/harness
+        env:
+          DARTFORGE_CACHE_OBJ: '0'
+        with:
+          name: sdk-source-jit
+          title: JIT × AOT with the SDK from source
+          args: --jit-aot --jobs 1
+          native: 'true'
+          jit: 'true'
+          accept-partial-scoreboard: 'true'
+          requires: '^JIT × AOT: '
+      - name: CLI JIT reload with the SDK from source
+        shell: pwsh
+        run: |
+          $tests = @(cargo test --locked -p dartforge-cli --features jit --test reload_state -- --ignored --list)
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $selected = @($tests | Where-Object { $_ -match ': test$' })
+          if ($selected.Count -eq 0) {
+            Write-Error 'The reload step with the SDK from source selected no test.'
+            exit 1
+          }
+          cargo test --locked -p dartforge-cli --features jit --test reload_state -- --ignored --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked -p dartforge-cli --features jit --test jit_program -- --ignored --nocapture
+      - name: Self-contained production (one .exe, without a DartForge DLL)
+        shell: pwsh
+        env:
+          CARGO_PROFILE_RELEASE_LTO: 'false'
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
+        run: cargo test --locked --release -p dartforge-emit-native --lib production_is_a_self_contained_executable -- --ignored --nocapture
+
+  # The native backend and the JIT on Linux and macOS (docs/NATIVO.md §1.1,
+  # docs/JIT.md «Linux e macOS»): the compiler has to work on the three
+  # systems. Self-contained job (does not use the Windows binaries of
+  # `build`): the system's official LLVM 22.1.8, builds, runs the emit_native
+  # and JIT tests with the ignored ones, the native corpus with the SDK from
+  # source and the JIT × AOT of the same IR. Fails with a scoreboard below the
+  # matrix's floor or with any JIT × AOT divergence.
+  native-unix:
+    name: native and jit (${{ matrix.name }})
+    if: contains(fromJSON('["all","native","jit","unix"]'), inputs.suite || 'all')
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: Linux x86-64
+            floor: 225
+          - os: macos-latest
+            name: macOS arm64
+            floor: 0
+    env:
+      CARGO_PROFILE_RELEASE_LTO: 'false'
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
+      # The C that `cc` compiles (ring, zlib, blake3) comes out with the
+      # runner SDK's minimum (26.x) without this, and ld64 warns on every
+      # object that it is newer than the arm64 target's 11.0 minimum. Only
+      # Apple's tools read it.
+      MACOSX_DEPLOYMENT_TARGET: '11.0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/dart
+      - uses: ./.github/actions/llvm-unix
+      - name: Pinned Rust (rust-toolchain.toml)
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: heavy-unix
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build dartforge (native, jit), harness and JIT executor
+        # The harness with the embedded generator: roots by maps (B0, B1)
+        # require the maps pass, which Clang does not run.
+        run: cargo build --locked --release -p dartforge-cli --features native,jit,dartforge-differential/embedded-llvm -p dartforge-differential -p dartforge-jit
+      - name: emit_native tests (with the ignored ones)
+        env:
+          DARTFORGE_TEST_SDK_LIB: ${{ env.DARTFORGE_SDK_LIB }}
+        run: cargo test --locked --release -p dartforge-emit-native -- --include-ignored
+      - name: JIT tests (with the ignored ones)
+        run: cargo test --locked --release -p dartforge-jit -- --include-ignored
+      - name: CLI JIT reload (with and without the SDK from source)
+        run: cargo test --locked --release -p dartforge-cli --features native,jit --test reload_state --test jit_program -- --include-ignored
+      - name: Native corpus (AOT) and JIT × AOT
+        shell: bash
+        env:
+          FLOOR: ${{ matrix.floor }}
+          DARTFORGE_SDK_FROM_SOURCE: '1'
+        run: |
+          set -uo pipefail
+          mkdir -p reports
+          # The step runs with `bash -e`: the code of each run is read without
+          # ending the step, and the scoreboard below decides.
+          c=0; ./target/release/dartforge-differential --native --jobs 3 > reports/native.txt 2>&1 || c=$?
+          echo "native: code $c"
+          c=0; ./target/release/dartforge-differential --jit-aot --jobs 2 > reports/jit.txt 2>&1 || c=$?
+          echo "jit: code $c"
+          c=0; ./target/release/dartforge-differential --native --corpus corpus/native --jobs 2 > reports/io.txt 2>&1 || c=$?
+          echo "io: code $c"
+          # The root and exception modes (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
+          # §11, item 5: the Itanium personality and the maps walker, which
+          # really run here) and ARC memory (docs/ARC-IMPLEMENTACAO.md, with
+          # the audit). Informative: the scoreboard goes to the summary and
+          # does not fail the job.
+          : > reports/modes.txt
+          for mode in "A1 shadow tables" "B0 maps check" "B1 maps tables"; do
+            set -- $mode
+            c=0; DARTFORGE_ROOTS=$2 DARTFORGE_EXCEPTIONS=$3 ./target/release/dartforge-differential --native --jobs 3 > "reports/native-$1.txt" 2>&1 || c=$?
+            echo "$1: code $c"
+            echo "$1 $(grep -E '^DartForge native: ' "reports/native-$1.txt" || echo 'no scoreboard')" >> reports/modes.txt
+          done
+          c=0; DARTFORGE_MEMORY=arc DARTFORGE_ARC_CHECK=1 ./target/release/dartforge-differential --native --jobs 3 > reports/native-arc.txt 2>&1 || c=$?
+          echo "arc: code $c"
+          echo "ARC $(grep -E '^DartForge native: ' reports/native-arc.txt || echo 'no scoreboard')" >> reports/modes.txt
+          io=$(grep -E '^DartForge native: ' reports/io.txt || true)
+          aot=$(grep -E '^DartForge native: ' reports/native.txt || true)
+          jit=$(grep -E '^DartForge JIT: ' reports/jit.txt || true)
+          pair=$(grep -E '^JIT × AOT: ' reports/jit.txt || true)
+          { echo "### Native and JIT — ${{ matrix.name }}"; echo; echo '```text'; echo "$aot"; echo "$jit"; echo "$pair"; echo "dart:io $io"; cat reports/modes.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice title=Native ${{ matrix.name }}::$aot | $jit | $pair"
+          [ -n "$aot" ] && [ -n "$jit" ] && [ -n "$pair" ] || { echo "::error::report without the scoreboard line"; tail -40 reports/*.txt; exit 1; }
+          echo "$pair" | grep -qE ' 0 divergent' || { echo "::error::JIT × AOT diverged: $pair"; exit 1; }
+          ok=$(echo "$aot" | sed -E 's/.* ([0-9]+)\/[0-9]+ ok.*/\1/')
+          [ "$ok" -ge "$FLOOR" ] || { echo "::error::native $ok below the floor $FLOOR"; exit 1; }
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: report-unix-${{ matrix.os }}
+          path: reports/
+          if-no-files-found: ignore
+
+  # The native DEVELOPMENT profile: each program through the ORCv2 JIT and,
+  # from the SAME LLVM IR, through AOT (Clang + linking). Requires both to be
+  # identical program by program (stdout and code; the report's `JIT × AOT: …
+  # 0 divergent` line): any divergence is a JIT defect, even with a low
+  # scoreboard against the VM. Measures the post-IR time of each profile.
+  # Whole corpus in a single job and `--jobs 1`, so that the times do not
+  # compete for the machine; the object cache stays off, otherwise Clang would
+  # not run for the repeated ones.
+  jit:
+    name: jit × aot (whole corpus)
+    needs: build
+    if: contains(fromJSON('["all","jit"]'), needs.build.outputs.suite)
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      DARTFORGE_CACHE_OBJ: '0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/harness
+        with:
+          name: jit
+          title: JIT × AOT — the same LLVM IR through both profiles, against the VM
+          args: --jit-aot --jobs 1
+          native: 'true'
+          jit: 'true'
+          accept-partial-scoreboard: 'true'
+          # A valid report only with ZERO JIT × AOT divergences.
+          requires: '^JIT × AOT: [0-9]+/[0-9]+ identical, 0 divergent'
+
+  determinism:
+    name: determinism (production)
+    needs: build
+    if: contains(fromJSON('["all","determinism"]'), needs.build.outputs.suite)
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/harness
+        with:
+          name: determinism-production
+          title: Determinism — production, 1/4/8 workers
+          args: determinism --production --workers 1,4,8
+          requires: '^determinism: '
+
+  # Determinism of NATIVE through each program's emitted LLVM IR, without
+  # Clang, linking or running (crates/differential, `determinism --native`;
+  # the old mode, which runs everything, is `--run`). Needs neither Rust nor
+  # LLVM.
+  determinism-native:
+    name: determinism (native, IR)
+    needs: build
+    if: contains(fromJSON('["all","determinism"]'), needs.build.outputs.suite)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/harness
+        with:
+          name: determinism-native
+          title: Determinism — native (LLVM IR per program), 1/4/8 workers
+          args: determinism --native --workers 1,4,8
+          requires: '^determinism \(IR\): '
+  # Diagnostic parity with `dart analyze` (crates/parity, plan A1): our
+  # analyzer over corpus/diagnosticos against the oracle RECORDED on disk
+  # (each group's oracle.jsonl, re-recorded locally by `dartforge-parity
+  # oracle` with the 3.6.2 and 3.13.4 SDKs) — the runner does not run
+  # `dart analyze`. setup-dart's 3.6.2 SDK only gives the `lib/` our side
+  # loads. Criterion: complete scoreboard (code 0: oracle up to date, no code
+  # of `verified.txt` diverging) and an identical report with 1, 4 and 8
+  # workers. The scoreboard itself (hits, FP, FN per code) is work in progress
+  # and does not fail the job.
+  analysis:
+    name: analysis (parity with dart analyze)
+    needs: build
+    if: contains(fromJSON('["all","analysis"]'), needs.build.outputs.suite)
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/dart
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: binaries
+          path: ${{ github.workspace }}
+      - name: dartforge-parity determinism --workers 1,4,8
+        id: run
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'analysis'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          $rel = Join-Path $dir 'report.txt'
+          $start = Get-Date
+          $p = Start-Process -FilePath target/release/dartforge-parity.exe -ArgumentList 'determinism --workers 1,4,8 --details' `
+            -RedirectStandardOutput $rel -RedirectStandardError (Join-Path $dir 'progress.txt') -NoNewWindow -PassThru -Wait
+          $code = $p.ExitCode
+          $dur = (Get-Date) - $start
+          $time = '{0} min {1:D2} s' -f [int][math]::Floor($dur.TotalMinutes), $dur.Seconds
+          $text = Get-Content $rel -Encoding utf8
+          $line = $text | Where-Object { $_ -match '^parity scoreboard: ' } | Select-Object -First 1
+          $det = $text | Where-Object { $_ -match '^determinism: ' } | Select-Object -First 1
+          $table = $text | Where-Object { $_ -notmatch '^\s+\[' }
+          $md = @('### Parity with dart analyze (corpus/diagnosticos)', '', "$det", '', '```text') + $table + @('```', '', "Exit code: $code. Time: $time.")
+          Add-Content $env:GITHUB_STEP_SUMMARY ($md -join "`n") -Encoding utf8
+          Write-Host ($text -join "`n")
+          Write-Host "::notice title=Scoreboard analysis::$line; $det ($time)"
+          "dir=$dir" >> $env:GITHUB_OUTPUT
+          exit $code
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always() && steps.run.outputs.dir != ''
+        with:
+          name: report-analysis
+          path: ${{ steps.run.outputs.dir }}
+          retention-days: 14
+      # Stage III.1 of docs/ANALYZER-ESPECIFICACAO-INFRA.md: the whole
+      # `analyze` output (three formats and exit code) against the recorded one.
+      - name: dartforge-parity output (corpus/saida-analyze)
+        if: always()
+        shell: pwsh
+        run: |
+          & target/release/dartforge-parity.exe output corpus/saida-analyze
+          exit $LASTEXITCODE
+
+
+  # TIME gate of the zero-cost rule (PLANO.md, "geração de código e macros:
+  # rápidas, e custo zero para quem não usa"): with the build engine compiled
+  # in, the whole JS corpus and the body edit in a synthetic session of ~300
+  # libraries (projects without builders) cannot get slower than on main.
+  # Builds both (commit and main) and measures in 5 alternating rounds; fails
+  # if the commit's median exceeds main's + the tolerance
+  # (scripts/zero-cost.ps1). The structural gate (no engine built, equal
+  # allocations per edit) is crates/dev/tests/zero_cost.rs, in ci.yml.
+  zero-cost:
+    name: zero cost (time)
+    needs: build
+    if: contains(fromJSON('["all","zero-cost"]'), needs.build.outputs.suite)
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          path: base
+      - uses: ./.github/actions/dart
+        with:
+          generate-dart-sdk-js: 'true'
+      - name: Pinned Rust (rust-toolchain.toml)
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: zero-cost
+          workspaces: |
+            . -> target
+            base -> target
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build the commit and main (dartforge + measure example)
+        shell: pwsh
+        env:
+          CARGO_PROFILE_RELEASE_LTO: 'false'
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
+        # Two commands per tree: `--example` restricts the targets of every
+        # requested package, and the `dartforge` binary would be left out.
+        run: |
+          cargo build --locked --release -p dartforge-cli
+          if ($LASTEXITCODE -ne 0) { throw 'build of the commit failed' }
+          cargo build --locked --release -p dartforge-dev --example measure
+          if ($LASTEXITCODE -ne 0) { throw 'build of the commit failed' }
+          New-Item -ItemType Directory -Force bin-current, bin-base | Out-Null
+          Copy-Item target/release/dartforge.exe, target/release/examples/measure.exe bin-current
+          Push-Location base
+          cargo build --locked --release -p dartforge-cli
+          if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'build of main failed' }
+          cargo build --locked --release -p dartforge-dev --example measure
+          if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'build of main failed' }
+          Pop-Location
+          Copy-Item base/target/release/dartforge.exe, base/target/release/examples/measure.exe bin-base
+      - name: Measure (5 alternating rounds)
+        shell: pwsh
+        run: |
+          $env:DARTFORGE_DART_SDK_JS = Join-Path $PWD 'runtime/ddc/dart_sdk.js'
+          pwsh scripts/zero-cost.ps1 -Current bin-current -Base bin-base -Rounds 5 -Tolerance 0.10

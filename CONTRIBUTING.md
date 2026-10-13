@@ -45,7 +45,7 @@ applies to people and to agents, and overrides any attribution default of the to
 The rule is enforced in two places:
 
 * a local hook, once per clone: `git config core.hooksPath scripts/hooks` (rejects the commit);
-* CI: the `mensagens` job of `ci.yml` fails when any commit in the history breaks the rule.
+* CI: the `messages` job of `ci.yml` fails when any commit in the history breaks the rule.
 
 The checker is `scripts/no-ai-trailer.sh`.
 

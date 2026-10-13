@@ -564,7 +564,7 @@ leituras de campo `final` emprestadas sem retain; depois §§27–34 e o gate AR
 | listas compactas/gerais, tipadas, visões, `ByteData`, strings pela CLI, tracing e ARC, normal/GC stress | 4 execuções, saída igual ao Dart (`prova-ajudantes/`) |
 | efeitos rebaixados, exceções, records, nomeados, `is`, com `DARTFORGE_EFFECTS=check`, tracing/ARC, normal/GC stress | 12 execuções (três programas), saída igual ao Dart |
 | `memory_cli` (nativo), incluindo ignorados | 2 passaram (`arc-lote3-memoria-cli.log`) |
-| `prove-arc-aot.py arc_native_port_owned --debug` | 24 execuções, `sucesso` (`prova-porta-nativa-owned/evidencia.json`) |
+| `prove-arc-aot.py arc_native_port_owned --debug` | 24 execuções, `sucesso` (`proof-native-port-owned/evidence.json`) |
 | `memory_cli` (nativo, sem JIT), incluindo ignorados | 2 passaram (`memoria-cli.log`) |
 | interpolação/lista/`runtimeType` pela CLI, tracing e ARC, GC stress | saída igual ao `dart run` 3.6.2 |
 
@@ -635,8 +635,8 @@ Os commits até `ba300764` acrescentaram:
 | Runtime, unitários incluindo ignorados | 225 passaram | `target/arc-literal-runtime-test.log` |
 | Emissor, unitários incluindo ignorados | 451 passaram | `target/arc-literal-emitter-test.log` |
 | Exemplo executável da fábrica Owned | 1 passou | `target/arc-literal-api-test.log` |
-| Literais AOT, ARC/tracing, O0/O2 | 12 execuções aprovadas, com controles negativos | `target/prova-literal-listas/evidencia.json` |
-| Armazenamento/crescimento AOT, ARC/tracing, O0/O2 | 24 execuções aprovadas, com controles negativos | `target/prova-armazenamento-listas/evidencia.json` |
+| Literais AOT, ARC/tracing, O0/O2 | 12 execuções aprovadas, com controles negativos | `target/proof-list-literal/evidence.json` |
+| Armazenamento/crescimento AOT, ARC/tracing, O0/O2 | 24 execuções aprovadas, com controles negativos | `target/proof-list-storage/evidence.json` |
 
 As provas de literais conferem referências repetidas, caixas int/double,
 bits de NaN, vida após liberar referências do chamador e liberação final da
@@ -1329,7 +1329,7 @@ Novo controle retira a liberação intermediária identificada no HIR,
 exigindo alvo único no LLVM. Matriz Windows aprovou quatro positivos e
 12 traps em ARC/tracing × O0/O2, com auditoria, ARC puro e GC stress.
 Log target/arc-retorno-cadeia-matriz.log; artefatos e manifesto em
-target/prova-retorno-da-fonte. Tracing compara o protocolo explícito do
+target/proof-source-return. Tracing compara o protocolo explícito do
 harness sem ativar ARC. Isso amplia a prova entre corpos da fonte, sem
 certificar o programa/SDK completo, dispatch ou o gate ARC/A0.
 CI 38051323600 da revisão publicada 37497527 está executando; esta
@@ -1694,7 +1694,7 @@ clear e morte de record/filho após cleanup. Controles sem retenção, sem
 liberação final e retenção antes da guarda no erro falham por trap
 (-1073741795); nenhuma falha de geração conta como controle aprovado.
 Teste do exemplo confirma posição da cópia/cleanup e idempotência. Logs
-target/arc-keepalive-pending-{example,build}.log e target/prova-keepalive-pending.
+target/arc-keepalive-pending-{example,build}.log e target/proof-keepalive-pending.
 Matriz nova preparada na CI Windows/Linux/macOS, ainda não publicada nesta
 retomada para não cancelar a validação em curso de ed5897e9. Não certifica
 alocador de record no lowering (harness usa ABI legada com retain imediato),
@@ -1711,7 +1711,7 @@ owner 1→3→0 e morte do receiver após sair da função, sem alocar entre mor
 e observação. Compilação usa o driver normal e as ABIs auditadas de objeto,
 campo Ref e caixa Owned. Teste do exemplo confere retenção antes do setter
 e preparação idempotente. Logs target/arc-keepalive-campos-{build,example}.log
-e target/prova-keepalive-campos. CI foi ampliada para executar a matriz e
+e target/proof-field-keepalive. CI foi ampliada para executar a matriz e
 preservar IR/stdout/stderr/exit em Windows, Linux e macOS; execução desses
 novos jobs ainda pendente. No tracing, o harness mantém o mesmo corpo de
 tokens explícitos para testar compatibilidade runtime; não ativa preparação
@@ -3805,8 +3805,8 @@ coletas. Um contêiner weak com token próprio observa o alvo sem torná-lo raiz
 no chamador; auxiliares LLVM conferem vivo antes e morto depois da remoção do
 global. ARC com ARC_CONFERIR=1/ARC_BERCARIO=0 e tracing, ambos com GC_STRESS=1,
 passaram com código zero e saída `1`, `null`. Imagens otimizadas reais pelo
-driver. Controles negativos ARC: `sem-owner` abortou antes de imprimir;
-`sem-liberar` imprimiu `1` e abortou na segunda verificação; ambos com
+driver. Controles negativos ARC: `no-owner` abortou antes de imprimir;
+`no-release` imprimiu `1` e abortou na segunda verificação; ambos com
 0xC000001D, trap esperado, sem diagnóstico de panic. IR, saídas e logs em
 `target/arc-mortal`. A compilação inicial levou 4m28s; compilação das variantes
 após mudança no exemplo levou 1m03s, gerações posteriores usaram cache.
@@ -4086,7 +4086,7 @@ owner carregado e limpeza do global. Produtor gera classes das primitivas,
 contratos auditados e mapa de pendências. Só literal permanente e caixa de
 42 (Smi imediato) recebem contratos Trivial específicos fornecidos pelo harness.
 ARC com ARC_CONFERIR=1/ARC_BERCARIO=0/GC_STRESS=1 e tracing com GC_STRESS=1
-executaram com código zero e saída slots ARC/42/null. Variante sem-cleanup
+executaram com código zero e saída slots ARC/42/null. Variante no-cleanup
 recusada com v8 não consumido no caminho [0, 1], código 1, antes de gravar IR.
 Evidência congelada em `bench/results/2026-10-09-arc-slots-verificados-aot`
 com IRs, saídas, log negativo, hashes dos executáveis/fonte e reprodução.
@@ -4346,7 +4346,7 @@ Phis e catálogo 22: ARC com ARC_CONFERIR=1, BERCARIO=0 e GC_STRESS=1,
 e tracing com GC_STRESS=1, saíram zero com `slots ARC`, `42`, `null`.
 Saídas idênticas por SHA256
 `ae77d0d327c27325eb89d55726350cdbd595b6c54ae17f696c287b04a2a90246`.
-Variante sem-cleanup saiu 1 por token v8 não consumido no caminho [0,1];
+Variante no-cleanup saiu 1 por token v8 não consumido no caminho [0,1];
 ausência de IR/executável negativo conferida. Evidências locais em
 `target/ownership-slots-d22f564d-*`; arquivo congelado anterior permanece
 sem alteração. Essa prova continua limitada ao exemplo HIR, sem demonstrar
@@ -5211,7 +5211,7 @@ mescladas no `main` (analyzer, LSP, macros, JS e nativo), e as worktrees e
 branches antigas foram apagadas; restam `main` e `exploracao-inicial`. O
 histórico foi reescrito sem trailers de assistente de IA, e a regra agora
 está no repositório (`CONTRIBUTING.md`, `AGENTS.md`, hook
-`scripts/hooks/commit-msg` e o job `mensagens` do CI). Os conflitos de
+`scripts/hooks/commit-msg` e o job `messages` do CI). Os conflitos de
 integração foram quase todos o mesmo commit trazido por dois caminhos; o
 único de desenho foi o do LSP (duas APIs de navegação entre documentos):
 ficou a do servidor (`definicao_no_workspace`/`hover_no_workspace`), com a
@@ -5710,7 +5710,7 @@ commit do dia, com uma mensagem detalhada do que foi feito e do que falta.
   * geracional e compactação;
   * custo das raízes e pausas.
 * **Ambiente**:
-  * `scripts/ci.ps1 -Placar` baixa em `target/ci-placar` e apaga depois;
+  * `scripts/ci.ps1 -Scoreboard` baixa em `target/ci-placar` e apaga depois;
   * `.gitignore` com `**/target/`;
   * `%TEMP%` limpo no fim do dia;
   * relatório local de disco em `RELATORIO-DISCO-C.md` (fora do git).
@@ -6101,7 +6101,7 @@ português na saída**). A tabela (`diagnostics/src/codigos_g.rs`) é gerada do
 * **Mutações** dos três projetos: 45 mutantes (`nome`, `import`, `tipo`,
   `!` e `await`), com o oráculo regravado sobre cada um. Oráculo 190;
   **acertos 75**; FP 49; FN 106.
-* **CI**: job `analise` do `pesado.yml`, contra o oráculo gravado (o runner
+* **CI**: job `analise` do `heavy.yml`, contra o oráculo gravado (o runner
   não roda `dart analyze`), com o relatório idêntico em 1, 4 e 8
   trabalhadores (`determinismo`).
 ### 1.5 Backend nativo — `crates/emit_native` (feature `native`)
@@ -6113,7 +6113,7 @@ apelido de produção do mesmo caminho.
 
 **Rodada 2, P6 + RTI: corpus nativo 91/223 (Pesado 35904857766, CI
 35904857783), JIT 91/223 sem divergência, os 91 também sob `--gc-stress`
-(job novo do `pesado.yml`, que reprova se um programa só falha com
+(job novo do `heavy.yml`, que reprova se um programa só falha com
 estresse).** `async`/`await` como máquina de estados com o quadro no heap,
 sobre o `dart:async` **compilado da fonte** (com `dart:_internal` e a
 `Duration`; só para quem usa `dart:async`), laço de eventos no runtime
@@ -6222,7 +6222,7 @@ o executável passa a exigir a `LLVM-C.dll` da distribuição completa no
   «o estado NÃO é preservado».
 * `dartforge-differential --jit` compara o JIT com a VM (mesmo placar do
   `--native`); `--jit-aot` passa o MESMO IR também pelo AOT, lista todo
-  `JIT≠AOT` (é defeito) e mede os tempos. No CI é o job `jit` do `pesado.yml`.
+  `JIT≠AOT` (é defeito) e mede os tempos. No CI é o job `jit` do `heavy.yml`.
 
 O runtime é **fonte única**: o mesmo `runtime_main.rs` vira a `.lib` do AOT e
 o módulo `dartforge_runtime::abi` do JIT, com a tabela de símbolos gerada
@@ -6278,7 +6278,7 @@ antes de toda alocação.
 * Cache do outline do SDK em `target/dartforge/sdk-<hash>.bin` (5 ms para
   ler, contra ~105 ms de reanálise).
 * **CI no GitHub Actions** (§3.0): `ci.yml` (rápido, todo push) e
-  `pesado.yml` (corpus JS, produção, nativo em fragmentos, determinismo).
+  `heavy.yml` (corpus JS, produção, nativo em fragmentos, determinismo).
   Fora do `ci.yml`, declarado no cabeçalho dele:
   * **`cargo fmt --check` e `clippy -D warnings`** — o workspace nunca foi
     formatado inteiro nem está limpo no clippy (o primeiro crate,
@@ -6289,7 +6289,7 @@ antes de toda alocação.
     `plato`), `dartforge-emit-js` (`basico`) e `dartforge-elements`
     (`sdk_cache`), e passa no Windows (registro de 2026-09-23 no cabeçalho do
     `ci.yml`, não reconferido). O `cargo test --workspace` continua só no
-    Windows, mas o job `nativo-unix` do `ci.yml` (Ubuntu e macOS) compila a
+    Windows, mas o job `native-unix` do `ci.yml` (Ubuntu e macOS) compila a
     CLI com `--features native,jit` e roda os testes do `emit_native`, do
     `jit`, a recarga pela CLI, as regressões de `dart:io` e a distribuição
     num ambiente limpo (`.github/workflows/ci.yml:162-250`).
@@ -6465,7 +6465,7 @@ quando está mais velho que a fonte; erro com `dartforge build --strict`).
   `crates/dev/tests/zero_cost.rs` verde — num projeto sem `build_runner`,
   nenhum motor construído (`instancias() == 0`), relatório sem motor e a
   **mesma contagem de alocações** por edição que uma sessão construída sem
-  etapas; portão de tempo no `pesado.yml` (job `custo-zero`, commit × main,
+  etapas; portão de tempo no `heavy.yml` (job `custo-zero`, commit × main,
   5 rodadas alternadas, tolerância 3%), verde nas duas rodadas:
   35847625760 — corpus JS inteiro **11,36 × 11,56 s** (razão 1,017), edição
   de corpo numa sessão sintética de 300 bibliotecas **34 × 35 ms** (1,029);
@@ -6620,7 +6620,7 @@ requisições de ponta a ponta (login OIDC, token, 31 rotas de API) iguais à
 VM — as 3 restantes são o texto do stack trace num JSON de erro e linhas
 de auditoria do mesmo banco. Treze causas corrigidas (C1–C14 do documento),
 com os programas `corpus/native/120`–`128`. O placar do pub roda no CI
-(`scripts/pub-scoreboard.py`, `.github/workflows/pub-placar.yml`).
+(`scripts/pub-scoreboard.py`, `.github/workflows/pub-scoreboard.yml`).
 
 **Estado atual.** O SDK da fonte é o padrão e o corpus nativo passa por
 ele (`docs/NATIVO-PLANO.md` §7.10 e §7.13, que registram 225/225, e JIT × AOT
@@ -6751,7 +6751,7 @@ gratuitos, e os runners Windows têm 4 núcleos e 16 GB. Dois workflows:
   `#[ignore]` que o runner satisfaz (SDK Dart 3.6.2, Clang
   22.1.8, rustc) e `cargo doc -D warnings`. O que fica de fora e por quê
   está no cabeçalho dele e em §1.6.
-* **`pesado.yml`** — push em `ci/**`, `workflow_dispatch` (suíte e número de
+* **`heavy.yml`** — push em `ci/**`, `workflow_dispatch` (suíte e número de
   fragmentos) e todo dia às 03:17 (Brasília) no `main`. Medido na rodada de
   2026-09-23 (`ci/infra`, 214 programas):
 
@@ -6779,22 +6779,22 @@ completo como artefato `relatorio-<job>` (14 dias).
 
 **Convenção: uma branch `ci/<frente>` por frente de trabalho** (`ci/nativo`,
 `ci/ngdart`, `ci/verificacao`, `ci/infra`…). Empurrar para ela roda o
-`pesado.yml` inteiro e o `ci.yml` sobre aquele commit, sem mexer no `main`.
+`heavy.yml` inteiro e o `ci.yml` sobre aquele commit, sem mexer no `main`.
 Rodadas de branches diferentes **nunca se cancelam** (o grupo de
 concorrência inclui a ref); uma rodada nova na **mesma** branch cancela a
 anterior. As branches `ci/**` são descartáveis: o push é forçado.
 
 ```powershell
-pwsh scripts/ci.ps1 -Frente nativo -Acompanhar   # HEAD -> ci/nativo, acompanha até o fim
-pwsh scripts/ci.ps1 -Listar                      # última rodada de cada ci/** e do main, com placar
-pwsh scripts/ci.ps1 -Placar <run-id>             # placar de cada job + relatórios baixados
-pwsh scripts/ci.ps1 -Suite nativo -Ref ci/nativo -Fragmentos 4   # workflow_dispatch
+pwsh scripts/ci.ps1 -Front native -Follow   # HEAD -> ci/native, acompanha até o fim
+pwsh scripts/ci.ps1 -List                      # última rodada de cada ci/** e do main, com placar
+pwsh scripts/ci.ps1 -Scoreboard <run-id>             # placar de cada job + relatórios baixados
+pwsh scripts/ci.ps1 -Suite native -Ref ci/native -Shards 4   # workflow_dispatch
 gh run view <run-id> --log-failed                # o log do que falhou
-gh run download <run-id> -p 'relatorio-*'        # relatórios completos
+gh run download <run-id> -p 'report-*'          # relatórios completos
 ```
 
-`-Suite` (workflow_dispatch) só funciona depois que o `pesado.yml` estiver
-no `main`; até lá, `-Frente`.
+`-Suite` (workflow_dispatch) só funciona depois que o `heavy.yml` estiver
+no `main`; até lá, `-Front`.
 
 **Limites do plano gratuito, e o dimensionamento.**
 
@@ -6803,7 +6803,7 @@ no `main`; até lá, `-Frente`.
   tem pico de 4 + N jobs: com o **N = 2 padrão**, 6 — cabem três frentes ao
   mesmo tempo. N sai da medição (§3.2): o corpus nativo inteiro custa ~1 min
   de harness, e cada job gasta ~1,3 min só preparando o ambiente. Subir N
-  (`-Fragmentos`, ou `gh variable set FRAGMENTOS_NATIVO --body N`) quando um
+  (`-Shards`, ou `gh variable set NATIVE_SHARDS --body N`) quando um
   fragmento passar de ~20 min.
 * **10 GB de cache por repositório**, e o que foi usado há mais tempo sai
   primeiro. Um branch só lê o próprio cache e o do `main`; por isso: o
@@ -6940,7 +6940,7 @@ nome relativo (o hash), para o `source_filename` não levar o caminho de
 quem compilou.
 
 **A passada executada completa roda no CI, em fragmentos, e foi medida**
-(`pesado.yml`, §3.0; runner Windows de 4 núcleos e 16 GB, `--jobs 4`,
+(`heavy.yml`, §3.0; runner Windows de 4 núcleos e 16 GB, `--jobs 4`,
 `DARTFORGE_HEAP_MAX_MB=256`): **7/214**, o mesmo placar da máquina local,
 em **28 e 30 s de harness** para os dois fragmentos de 107 programas —
 cada job inteiro, com a preparação, 1,5–1,7 min. Com 8 fragmentos, cada um

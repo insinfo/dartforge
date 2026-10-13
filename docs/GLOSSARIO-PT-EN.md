@@ -311,3 +311,403 @@ reaproveitados. As versões (`_v1`) ficam.
 | testes da CLI `memoria_cli`, `reload_estado`, `jit_programa`, `io_regressao`, `mapas_dirigidos`, `depuracao` | `memory_cli`, `reload_state`, `jit_program`, `io_regression`, `directed_maps`, `debugging` |
 | testes do emit_native `contrato`, `depuracao`; binário `diferencial` | `contract`, `debugging`; `differential` |
 | exemplos `arc_alocacao_campos`, `arc_campos_locais`, `arc_cleanup_laco`, `arc_instancia_zerada`, `arc_keepalive_campos`, `arc_porta_nativa_owned`, `arc_retorno_da_fonte`, `arc_retornos_guardados`, `arc_unwind_estrangeiro`… | `arc_field_allocation`, `arc_local_fields`, `arc_loop_cleanup`, `arc_zeroed_instance`, `arc_field_keepalive`, `arc_native_port_owned`, `arc_source_return`, `arc_guarded_returns`, `arc_foreign_unwind`… (os diretórios `target/prova-*` do `provar-arc-aot.py` ficam) |
+
+## Interface com usuário e CI (fase 3c)
+
+Opções, subcomandos, variáveis de ambiente, features, nomes de scripts e de
+workflows, linhas de relatório lidas pelo CI, protocolos e formatos em disco
+passaram para inglês **sem aliases**: os nomes antigos deixam de funcionar.
+Esta seção substitui as notas "fica" das seções anteriores sobre
+`verificados.txt`, `dartforge empacotar`, os diretórios `target/prova-*` e a
+linha `média … ms/edição`. Ficam para a fase 4: as APIs públicas dos pacotes
+Dart (`packages/`, `native_sdk/`) e o esquema do modelo, do resultado e da
+codificação de argumentos das macros (`macro.*` só traduziu o envelope), os
+nomes de programas e pastas do corpus, o conteúdo dos fixtures, os
+parâmetros dos scripts PowerShell que o CI não chama com nome novo
+(`limitless-ui.ps1 -Preparar -Montar -Producao`, `generate-dart-sdk.ps1
+-Saida`, os `testar-macros-*`), os nomes internos (variáveis, comentários) dos
+scripts e a pasta `tools/`.
+
+### Features do Cargo
+
+| antes | depois |
+|---|---|
+| `nativo` (dartforge-cli) | `native` |
+| `nativos` (dartforge-build) | `native-generators` |
+| `llvm-embutido` (emit-native, differential) | `embedded-llvm` |
+
+### Subcomandos, binários e valores de opção
+
+| antes | depois |
+|---|---|
+| `dartforge empacotar` | `dartforge pack` |
+| `dartforge macros --forma 3.6\|atual` | `--shape 3.6\|current` |
+| `--excecoes checagem\|tabelas` | `--exceptions check\|tables` |
+| `--raizes sombra\|mapas` | `--roots shadow\|maps` |
+| `--rastro simbolico\|nenhum` | `--stack-trace symbolic\|none` |
+| `compile-native --resumo` | `--digest` |
+| `dartforge-differential contrato\|verificar\|determinismo` | `contract\|verify\|determinism` |
+| `dartforge-parity placar\|determinismo\|oraculo\|sintaxe-nova\|gerar-corpus\|projetos\|saida\|encurtar` (`_lote`) | `scoreboard\|determinism\|oracle\|new-syntax\|generate-corpus\|projects\|output\|shorten` (`_batch`) |
+| binário `dartforge-executar-ir` | `dartforge-run-ir` |
+| `scripts/native-corpus.sh tracing\|arc\|preparado\|tabelas` (`igual`/`diferente`, `resumo.tsv`) | `tracing\|arc\|prepared\|tables` (`equal`/`different`, `summary.tsv`) |
+| `scripts/ci.ps1 -Frente -Suite -Ref -Fragmentos -Acompanhar -Run -Placar -Manter -Listar` | `-Front -Suite -Ref -Shards -Follow -Run -Scoreboard -Keep -List` |
+| `scripts/ci-scoreboard.ps1 -Relatorio -Titulo -Esperados -Linha` | `-Report -Title -Expected -Line` |
+| `scripts/zero-cost.ps1 -Atual -Base -Rodadas -Tolerancia -Entrada -Packages -Alvo -Edicoes` | `-Current -Base -Rounds -Tolerance -Entry -Packages -Target -Edits` |
+| `scripts/no-ai-trailer.sh --historico` | `--history` |
+| `scripts/pub-scoreboard.py --projeto --trabalho --limite-testes --tempo-compilacao --tempo-execucao --memoria-compilacao --memoria-execucao --filtro` | `--project --work --test-limit --compile-time --run-time --compile-memory --run-memory --filter` |
+| `scripts/prove-typed-fields-aot.py --saida` | `--output` |
+| controles dos exemplos ARC (`sem-liberar`, `sem-retencao`, `sem-owner`, `sem-drop-*`, `layout-obsoleto`, `copia-no-erro`…; caminho `erro`; `automatico`, `simples`, `misto`, `quadros`, `retoma`, `forcado`, `retorno-mortal-*`) | `no-release`, `no-retain`, `no-owner`, `no-*-drop`, `stale-layout`, `copy-on-error`…; `error`; `automatic`, `simple`, `mixed`, `frames`, `resume`, `forced`, `mortal-return-*` |
+| sabotagens (`folha:`, `pouso_sem_topo`, `quadro_sujo`, `bruto_no_mapa`, `sem_uso_ficticio`, `callback_sem_pouso`, `sem_porta`, `folga`, `sem_nop`, `tipo_sem_raiz`) | `leaf:`, `pad_without_top`, `dirty_frame`, `raw_in_map`, `no_fake_use`, `callback_without_pad`, `no_ports`, `slack`, `no_nop`, `unrooted_type` |
+| valores `DARTFORGE_GC_STATS=exigir`, `DARTFORGE_JSPROD_STRINGS=todas`, `DARTFORGE_JSPROD_SIGNATURES=todas`, `DARTFORGE_GENERATED=nenhum` | `require`, `all`, `all`, `none` |
+
+### Workflows e ações do GitHub
+
+| antes | depois |
+|---|---|
+| `pesado.yml` ("Pesado") | `heavy.yml` ("Heavy") |
+| `depurar.yml` | `debug.yml` |
+| `pub-placar.yml` | `pub-scoreboard.yml` |
+| `sem-toolchain.yml` | `no-toolchain.yml` |
+| suítes `todos, js, producao, limitless-ui, nativo, jit, unix, determinismo, moderno, macros, macros-aot-sonda, custo-zero, analise`; input `fragmentos`; variável `FRAGMENTOS_NATIVO` | `all, js, production, limitless-ui, native, jit, unix, determinism, modern, macros, macros-aot-probe, zero-cost, analysis`; `shards`; `NATIVE_SHARDS` |
+| jobs `compilar`, `producao`, `moderno`, `nativo*`, `sdk-fonte`, `determinismo*`, `analise`, `custo-zero`, `mensagens` | `build`, `production`, `modern`, `native*`, `sdk-source`, `determinism*`, `analysis`, `zero-cost`, `messages` |
+| artefatos `binarios`, `relatorio-*`, `placar-*`, `sonda-macros-aot`, `prova-*`; arquivos `relatorio.txt`, `progresso.txt`, `placar.md`, `evidencia.json` | `binaries`, `report-*`, `scoreboard-*`, `macros-aot-probe`, `proof-*`; `report.txt`, `progress.txt`, `scoreboard.md`, `evidence.json` |
+| inputs da ação `harness`: `nome, titulo, nativo, aceitar-placar-parcial, exige, preparar` | `name, title, native, accept-partial-scoreboard, requires, prepare` |
+| input `gerar-dart-sdk-js` (ação `dart`), `desenvolvimento` (ação `llvm-windows`) | `generate-dart-sdk-js`, `development` |
+| chaves de cache `oraculos-*`, `pesado-release`, `pesado-unix`, `custo-zero` | `oracles-*`, `heavy-release`, `heavy-unix`, `zero-cost` |
+| diretórios `target/prova-<nome>` dos exemplos ARC | `target/proof-<name>` (`proof-native-port-owned`, `proof-source-return`, `proof-zeroed-instance`, `proof-typed-fields`, `proof-local-fields`, `proof-field-allocation`, `proof-field-keepalive`, `proof-keepalive-pending`, `proof-loop-cleanup`, `proof-arc-resume`, `proof-foreign-unwind`…) |
+
+### Linhas de relatório lidas pelo CI e por scripts
+
+| antes | depois |
+|---|---|
+| `FALHA` (differential) | `FAIL` |
+| `DartForge Nativo:` / `DartForge desenvolvimento:` / `DartForge produção:` | `DartForge native:` / `DartForge development:` / `DartForge production:` |
+| `Pendentes (PENDENTES): N ainda falham, M passaram` | `Pending (PENDENTES): N still fail, M passed` |
+| `DDC×VM: a/b batem (sem contar n …)` | `DDC×VM: a/b match (not counting n …)` |
+| `Falhas por primeira linha do stderr …` | `Failures by first stderr line …` |
+| `JIT × AOT: … idênticos, N divergentes`, `Tempos pós-IR`, `razão` | `… identical, N divergent`, `Post-IR times`, `ratio` |
+| `(N programas em X s)`, `N programas: … com IR` | `(N programs in X s)`, `N programs: … with IR` |
+| `determinismo: …`, `determinismo (IR): …`, `trabalhador(es)`, `linha N:`, `aviso:` | `determinism: …`, `determinism (IR): …`, `worker(s)`, `line N:`, `warning:` |
+| `placar paridade:` e o cabeçalho `código` da tabela do placar | `parity scoreboard:` e `code` |
+| estados do TSV da matriz `suportado, recusado, divergente, não medido`; perfil `aot-otimizado` | `supported, rejected, divergent, not measured`; `aot-optimized` (o `scripts/matrix.py` continua escrevendo a `docs/MATRIZ.md` em português) |
+| `vivos após … média N ms/edição` (exemplo `measure`) | `live after … mean N ms/edit` (o `zero-cost.ps1` lê os dois, para binários antigos do `main`) |
+| anotação `::notice title=Placar …` | `::notice title=Scoreboard …` |
+| `scripts/pub-scoreboard.py`: `relatorio.txt`, `resultados.json`, `PLACAR:`, chaves `estado`/`erro`, estados `vm-invalido, memoria, compilacao, aot-diferente, vm-instavel, divergente` | `report.txt`, `results.json`, `SCOREBOARD:`, `state`/`error`, `vm-invalid, memory, compile, aot-different, vm-unstable, divergent` |
+| texto sintético do oráculo: `erro de compilação na linha N`, `[saída truncada pelo harness …]` | `compile error at line N`, `[output truncated by the harness …]` (novo cache de oráculos em `target/differential/`) |
+
+### Protocolos
+
+| antes | depois |
+|---|---|
+| handshake `dfexec/1`: `{t: ola, protocolo, servicos, motor\|executor, abi}`, `fim`, `erro {mensagem}` | `{t: hello, protocol, services, engine\|executor, abi}`, `end`, `error {message}` |
+| `build.carregar/carregado`, `rodada`, `extensoes`, `entradas_pos`, `executar`, `posprocessar`, `resultado`, `resposta`, `ler`, `existe`, `escrever` | `build.load/loaded`, `round`, `extensions`, `post_inputs`, `run`, `post_process`, `result`, `response`, `read`, `exists`, `write` (`glob`, `digest`, `log`, `resolver.*` ficam) |
+| campos do `build.*`: `chave, fabrica, opcoes, fase, entrada, saidas_permitidas, saidas, falhou, apagados, entradas, extensoes, padrao, sim, nivel (fino/aviso/severo), mensagem, aplicacoes, fabricas, chave_de_cache`; erros `SaidaNaoPermitida`, `indisponivel` | `key, factory, options, phase, input, allowed_outputs, outputs, failed, deleted, inputs, extensions, pattern, exists, level (fine/warning/severe), message, applications, factories, cache_key`; `OutputNotAllowed`, `unavailable` |
+| `macro.instanciar/instancia/executar/resultado/consulta/resposta/descartar` | `macro.instantiate/instance/execute/result/query/response/discard` |
+| campos do envelope `macro.*`: `construtor(es), argumentos, instancia, fase, alvo, modelo, execucao, tipo, valor, resultado, erro {tipo, mensagem}` | `constructor(s), arguments, instance, phase, target, model, execution, kind, value, result, error {kind, message}` (o conteúdo de `arguments`, `model` e `result` é a fase 4) |
+| comentário do bootstrap gerado "Gerado pelo DartForge…" | "Generated by DartForge…" |
+| recarga do `dev`: `{tipo: ola\|recarregar\|erro, protocolo, geracao, mensagem}`, rota `/__dartforge_recarga` | `{type: hello\|reload\|error, protocol, generation, message}`, `/__dartforge_reload` |
+
+### Arquivos de dados e formatos em disco
+
+| antes | depois |
+|---|---|
+| `crates/analysis/verificados.txt` | `crates/analysis/verified.txt` |
+| `lib/dartforge-distribuicao.json` (distribuição) | `lib/dartforge-distribution.json` |
+| `corpus/inferencia/*.esperado.tsv`, `divergencias.txt` | `*.expected.tsv`, `divergences.txt` |
+| `corpus/diagnosticos/*/oraculo.jsonl`, `oraculo.json`, `grupo.json`; `sintaxe-nova.json`, `projetos.json`, `mutacoes.jsonl` | `oracle.jsonl`, `oracle.json`, `group.json`; `new-syntax.json`, `projects.json`, `mutations.jsonl` |
+| chaves JSON da paridade `arquivo, arquivos, diagnosticos, excluidos, pacotes, origem, nome, caminho, oraculo, projeto, tipo, inicio, fim, inserir`; tipos de mutação `nome`/`tipo` | `file, files, diagnostics, excluded, packages, origin, name, path, oracle, project, kind, start, end, insert`; `name`/`type` |
+| estado do motor `.dart_tool/dartforge/build/estado/estado.json` (`formato, chave, codigo_dart, acoes, origem nativo/apoio/omitida, motivo, consultas arquivo/existe/glob_ativos, saidas, do_apoio, apagados`) | `…/build/state/state.json` (`format, key, dart_code, actions, origin native/support/skipped, reason, queries file/exists/glob_assets, outputs, from_support, deleted`) |
+| `target/diferencial/` (`nativo/`, `producao/`, `contrato/`, `determinismo/`, `saida.js`) | `target/differential/` (`native/`, `production/`, `contract/`, `determinism/`, `output.js`) |
+| `target/paridade-cache-dart`, `target/scratch-paridade/projetos` | `target/parity-cache-dart`, `target/scratch-parity/projects` |
+| diretórios `nativo/` (cache nativo do usuário, executores nativos de macros e do `compile-js`) | `native/` |
+| arquivo `versao-do-sdk` do sysroot macOS | `sdk-version` |
+| chaves do SDK compilado `rastro=simbolico`, `excecoes=tabelas`, `raizes=mapas_v2`, `conferir`, `efeitos=conferir`, `sabotagem=`, `memoria=arc_v1`, `arc=preparado_v1`, `dartforge-sdk-fonte` | `stack_trace=symbolic`, `exceptions=tables`, `roots=maps_v2`, `check`, `effects=check`, `sabotage=`, `memory=arc_v1`, `arc=prepared_v1`, `dartforge-sdk-source` |
+| sessão gravada `corpus/macros/410_json_codable/esperado/sessao.dfexec` | mesmo arquivo, com o envelope novo (regravada pela VM 3.6.2 byte a byte igual) |
+| `scripts/prove-arc-aot.py`: `evidencia.json` (`fonte, exemplo, execucoes, resultado sucesso/falha…`) | `evidence.json` (`source, example, runs, result success/failure…`) |
+
+### Variáveis de ambiente (lista completa)
+
+| antes | depois |
+|---|---|
+| `DARTFORGE_AJUDANTES_FORA` | `DARTFORGE_OUTLINED_HELPERS` |
+| `DARTFORGE_ALOCADOR_SEM_CACHE` | `DARTFORGE_ALLOCATOR_NO_CACHE` |
+| `DARTFORGE_ARC_BERCARIO` | `DARTFORGE_ARC_NURSERY` |
+| `DARTFORGE_ARC_CICLOS` | `DARTFORGE_ARC_CYCLES` |
+| `DARTFORGE_ARC_CONFERIR` | `DARTFORGE_ARC_CHECK` |
+| `DARTFORGE_ARC_PREPARADO` | `DARTFORGE_ARC_PREPARED` |
+| `DARTFORGE_ARC_TRACO` | `DARTFORGE_ARC_TRACE` |
+| `DARTFORGE_AVISOS` | `DARTFORGE_WARNINGS` |
+| `DARTFORGE_AVISOS_RESUMO` | `DARTFORGE_WARNINGS_SUMMARY` |
+| `DARTFORGE_BUILD_COMPILANDO_EXECUTOR` | `DARTFORGE_BUILD_COMPILING_EXECUTOR` |
+| `DARTFORGE_BUILD_ESTADO` | `DARTFORGE_BUILD_STATE` |
+| `DARTFORGE_BUILD_NATIVO` | `DARTFORGE_BUILD_NATIVE` |
+| `DARTFORGE_BUILD_PRAZO` | `DARTFORGE_BUILD_TIMEOUT` |
+| `DARTFORGE_CACHE_NATIVO` | `DARTFORGE_NATIVE_CACHE` |
+| `DARTFORGE_CAMPOS_POR_CHAMADA` | `DARTFORGE_FIELDS_BY_CALL` |
+| `DARTFORGE_CASOS` | `DARTFORGE_CASES` |
+| `DARTFORGE_COMPILADOR` | `DARTFORGE_COMPILER` |
+| `DARTFORGE_COMPILADOR_NATIVO` | `DARTFORGE_NATIVE_COMPILER` |
+| `DARTFORGE_CONFERIR_RS4GC` | `DARTFORGE_CHECK_RS4GC` |
+| `DARTFORGE_CONFERIR_SOMBRA` | `DARTFORGE_CHECK_SHADOW` |
+| `DARTFORGE_CRONO` | `DARTFORGE_MODULE_TIMES` |
+| `DARTFORGE_DEPURAR` | `DARTFORGE_DEBUG` |
+| `DARTFORGE_DESPEJAR_MODULO` | `DARTFORGE_DUMP_MODULE` |
+| `DARTFORGE_DEV_SAIDA` | `DARTFORGE_DEV_OUTPUT` |
+| `DARTFORGE_EFEITOS` | `DARTFORGE_EFFECTS` |
+| `DARTFORGE_EMISSOR_HASH` | `DARTFORGE_EMITTER_HASH` |
+| `DARTFORGE_EXCECOES` | `DARTFORGE_EXCEPTIONS` |
+| `DARTFORGE_EXECUTAR_IR` | `DARTFORGE_RUN_IR` |
+| `DARTFORGE_FONTE_NAO_SUPORTADO` | `DARTFORGE_SOURCE_UNSUPPORTED` |
+| `DARTFORGE_GC_AGENDA` | `DARTFORGE_GC_SCHEDULE` |
+| `DARTFORGE_GC_CRESCIMENTO` | `DARTFORGE_GC_GROWTH` |
+| `DARTFORGE_GC_JOVEM_KB` | `DARTFORGE_GC_YOUNG_KB` |
+| `DARTFORGE_GC_MEMORIA` | `DARTFORGE_GC_MEMORY` |
+| `DARTFORGE_GC_PERCURSO` | `DARTFORGE_GC_WALK` |
+| `DARTFORGE_GC_RASTRO` | `DARTFORGE_GC_TRACE` |
+| `DARTFORGE_GC_VENENO` | `DARTFORGE_GC_POISON` |
+| `DARTFORGE_GC_VERIFICAR` | `DARTFORGE_GC_VERIFY` |
+| `DARTFORGE_GERADOR` | `DARTFORGE_GENERATOR` |
+| `DARTFORGE_GERADOS` | `DARTFORGE_GENERATED` |
+| `DARTFORGE_GERADOS_DEBUG` | `DARTFORGE_GENERATED_DEBUG` |
+| `DARTFORGE_GERADOS_PKGS` | `DARTFORGE_GENERATED_PKGS` |
+| `DARTFORGE_GRAVAR_SESSAO` | `DARTFORGE_RECORD_SESSION` |
+| `DARTFORGE_IDENTIDADE_REF` | `DARTFORGE_IDENTITY_REF` |
+| `DARTFORGE_IO_RASTRO` | `DARTFORGE_IO_TRACE` |
+| `DARTFORGE_IR_PARALELO_MAX` | `DARTFORGE_IR_PARALLEL_MAX` |
+| `DARTFORGE_JSPROD_ACHATAR` | `DARTFORGE_JSPROD_FLATTEN` |
+| `DARTFORGE_JSPROD_ACHATAR_POR` | `DARTFORGE_JSPROD_FLATTEN_WHY` |
+| `DARTFORGE_JSPROD_ASSINATURAS` | `DARTFORGE_JSPROD_SIGNATURES` |
+| `DARTFORGE_JSPROD_CAMINHO` | `DARTFORGE_JSPROD_PATH` |
+| `DARTFORGE_JSPROD_COMPRIMIR` | `DARTFORGE_JSPROD_COMPRESS` |
+| `DARTFORGE_JSPROD_CONFERIR` | `DARTFORGE_JSPROD_CHECK` |
+| `DARTFORGE_JSPROD_CURAS` | `DARTFORGE_JSPROD_FIXES` |
+| `DARTFORGE_JSPROD_DESPEJO` | `DARTFORGE_JSPROD_DUMP` |
+| `DARTFORGE_JSPROD_ESTRITO` | `DARTFORGE_JSPROD_STRICT` |
+| `DARTFORGE_JSPROD_FORMAS` | `DARTFORGE_JSPROD_SHAPES` |
+| `DARTFORGE_JSPROD_GATILHO` | `DARTFORGE_JSPROD_TRIGGER` |
+| `DARTFORGE_JSPROD_NOMEADOS` | `DARTFORGE_JSPROD_NAMED` |
+| `DARTFORGE_JSPROD_NOMES` | `DARTFORGE_JSPROD_NAMES` |
+| `DARTFORGE_JSPROD_NOMES_PROPRIOS` | `DARTFORGE_JSPROD_OWN_NAMES` |
+| `DARTFORGE_JSPROD_POR` | `DARTFORGE_JSPROD_WHY` |
+| `DARTFORGE_JSPROD_PROPS_POR` | `DARTFORGE_JSPROD_PROPS_WHY` |
+| `DARTFORGE_JSPROD_QUEM` | `DARTFORGE_JSPROD_WHO` |
+| `DARTFORGE_JSPROD_RASTRO` | `DARTFORGE_JSPROD_TRACE` |
+| `DARTFORGE_JSPROD_RECEITAS_FIXAS` | `DARTFORGE_JSPROD_FIXED_RECIPES` |
+| `DARTFORGE_JSPROD_RECEITA_CURTA` | `DARTFORGE_JSPROD_SHORT_RECIPE` |
+| `DARTFORGE_JSPROD_REGRAS` | `DARTFORGE_JSPROD_RULES` |
+| `DARTFORGE_JSPROD_RODADAS` | `DARTFORGE_JSPROD_ROUNDS` |
+| `DARTFORGE_JSPROD_VERIFICAR` | `DARTFORGE_JSPROD_VERIFY` |
+| `DARTFORGE_JS_CONFERIR_TIPOS` | `DARTFORGE_JS_CHECK_TYPES` |
+| `DARTFORGE_LIGAR_COM_CLANG` | `DARTFORGE_LINK_WITH_CLANG` |
+| `DARTFORGE_LSP_AMPLO_MIB` | `DARTFORGE_LSP_WIDE_MIB` |
+| `DARTFORGE_LSP_SESSAO_MIB` | `DARTFORGE_LSP_SESSION_MIB` |
+| `DARTFORGE_LSP_TIPADO` | `DARTFORGE_LSP_TYPED` |
+| `DARTFORGE_LTO_DISTRIBUIDA` | `DARTFORGE_LTO_DISTRIBUTED` |
+| `DARTFORGE_LTO_NIVEL` | `DARTFORGE_LTO_LEVEL` |
+| `DARTFORGE_LTO_PERFIL` | `DARTFORGE_LTO_PROFILE` |
+| `DARTFORGE_MACROS_NATIVO` | `DARTFORGE_MACROS_NATIVE` |
+| `DARTFORGE_MANTER_SIMBOLOS` | `DARTFORGE_KEEP_SYMBOLS` |
+| `DARTFORGE_MAPAS_REGISTRADORES` | `DARTFORGE_REGISTER_MAPS` |
+| `DARTFORGE_MAPA_DA_LIGACAO` | `DARTFORGE_LINK_MAP` |
+| `DARTFORGE_MEDICAO_N` | `DARTFORGE_MEASUREMENT_N` |
+| `DARTFORGE_MEDIR_SAIDA` | `DARTFORGE_MEASURE_OUTPUT` |
+| `DARTFORGE_MEMORIA` | `DARTFORGE_MEMORY` |
+| `DARTFORGE_MOTOR_TEMPOS` | `DARTFORGE_ENGINE_TIMES` |
+| `DARTFORGE_OPTSIZE_PROGRAMA` | `DARTFORGE_OPTSIZE_PROGRAM` |
+| `DARTFORGE_ORACULO_3_13` | `DARTFORGE_ORACLE_3_13` |
+| `DARTFORGE_ORACULO_3_6` | `DARTFORGE_ORACLE_3_6` |
+| `DARTFORGE_ORCAMENTO_MAPAS` | `DARTFORGE_MAPS_BUDGET` |
+| `DARTFORGE_OTIMIZAR` | `DARTFORGE_OPTIMIZE` |
+| `DARTFORGE_OTIMIZAR_HIR` | `DARTFORGE_OPTIMIZE_HIR` |
+| `DARTFORGE_PARIDADE_AMOSTRAS` | `DARTFORGE_PARITY_SAMPLES` |
+| `DARTFORGE_PARIDADE_TETO_MB` | `DARTFORGE_PARITY_CAP_MB` |
+| `DARTFORGE_PARTES_PARALELAS` | `DARTFORGE_PARALLEL_PARTS` |
+| `DARTFORGE_PARTE_MB` | `DARTFORGE_PART_MB` |
+| `DARTFORGE_PIPELINE_OBJETO` | `DARTFORGE_OBJECT_PIPELINE` |
+| `DARTFORGE_POR_QUE` | `DARTFORGE_WHY` |
+| `DARTFORGE_PRODUCAO_SEM_LTO` | `DARTFORGE_PRODUCTION_NO_LTO` |
+| `DARTFORGE_PROGRAMA` | `DARTFORGE_PROGRAM` |
+| `DARTFORGE_RAIZES` | `DARTFORGE_ROOTS` |
+| `DARTFORGE_RAIZES_CONFERIR` | `DARTFORGE_ROOTS_CHECK` |
+| `DARTFORGE_RAIZES_NO_CHAMADO` | `DARTFORGE_ROOTS_IN_CALLEE` |
+| `DARTFORGE_RASTRO` | `DARTFORGE_CALL_TRACE` |
+| `DARTFORGE_RASTRO_CRU` | `DARTFORGE_STACK_TRACE_RAW` |
+| `DARTFORGE_RASTRO_VM` | `DARTFORGE_STACK_TRACE` |
+| `DARTFORGE_RELATORIO_MAPAS` | `DARTFORGE_MAPS_REPORT` |
+| `DARTFORGE_RUNTIME_DIR_DO_BUILD` | `DARTFORGE_RUNTIME_BUILD_DIR` |
+| `DARTFORGE_RUNTIME_PRINCIPAL` | `DARTFORGE_RUNTIME_MAIN` |
+| `DARTFORGE_RUNTIME_PRODUCAO` | `DARTFORGE_RUNTIME_PRODUCTION` |
+| `DARTFORGE_RUNTIME_SEM_PRECOMPILAR` | `DARTFORGE_RUNTIME_NO_PRECOMPILE` |
+| `DARTFORGE_SABOTAGEM` | `DARTFORGE_SABOTAGE` |
+| `DARTFORGE_SDK_COMPILAR` | `DARTFORGE_SDK_COMPILE` |
+| `DARTFORGE_SDK_DA_FONTE` | `DARTFORGE_SDK_FROM_SOURCE` |
+| `DARTFORGE_SDK_NATIVO` | `DARTFORGE_NATIVE_SDK` |
+| `DARTFORGE_SDK_RASTRO` | `DARTFORGE_SDK_TRACE` |
+| `DARTFORGE_SEM_CACHE_RTI` | `DARTFORGE_NO_RTI_CACHE` |
+| `DARTFORGE_SEM_CACHE_THINLTO` | `DARTFORGE_NO_THINLTO_CACHE` |
+| `DARTFORGE_SEM_CLASSE_EM_LINHA` | `DARTFORGE_NO_INLINE_CLASS` |
+| `DARTFORGE_SEM_EFEITOS_NA_CONFERENCIA` | `DARTFORGE_NO_EFFECTS_IN_CHECK` |
+| `DARTFORGE_SEM_MAPA_COMPACTO` | `DARTFORGE_NO_COMPACT_MAP` |
+| `DARTFORGE_SEM_PODA_DE_TABELAS` | `DARTFORGE_NO_TABLE_PRUNING` |
+| `DARTFORGE_SEM_PODA_DO_PROGRAMA` | `DARTFORGE_NO_PROGRAM_PRUNING` |
+| `DARTFORGE_SEM_PODA_FFI` | `DARTFORGE_NO_FFI_PRUNING` |
+| `DARTFORGE_SEM_PODA_HIR` | `DARTFORGE_NO_HIR_PRUNING` |
+| `DARTFORGE_SEM_QUADRO_NA_ENTRADA` | `DARTFORGE_NO_FRAME_AT_ENTRY` |
+| `DARTFORGE_SEM_VERSIONAR_TIPADAS` | `DARTFORGE_NO_TYPED_VERSIONING` |
+| `DARTFORGE_SHIM_GERADO` | `DARTFORGE_SHIM_GENERATED` |
+| `DARTFORGE_SHIM_ORACULO` | `DARTFORGE_SHIM_ORACLE` |
+| `DARTFORGE_SHIM_RAIZES` | `DARTFORGE_SHIM_ROOTS` |
+| `DARTFORGE_TESTES_MAPAS` | `DARTFORGE_MAPS_TESTS` |
+| `DARTFORGE_VALIDAR_HANDLES` | `DARTFORGE_VALIDATE_HANDLES` |
+| `MEDIR_COMPONENTE` | `MEASURE_COMPONENT` |
+| `MEDIR_SEM_ANGULAR` | `MEASURE_NO_ANGULAR` |
+| `MEDIR_DEPURAR` | `MEASURE_DEBUG` |
+| `EMITIR_CORPUS_EXECUTAVEL` | `EMIT_CORPUS_EXECUTABLE` |
+| `DF_ARC_SEMENTES` | `DF_ARC_SEEDS` |
+| `ATUALIZAR_DIVERGENCIAS` | `UPDATE_DIVERGENCES` |
+| `NAVEGADOR` | `BROWSER` |
+| `SONDA_CLICK` | `PROBE_CLICK` |
+
+### Opções de linha de comando (todos os binários e exemplos)
+
+| antes | depois |
+|---|---|
+| `--aceitar-pendentes` | `--accept-pending` |
+| `--anulavel` | `--nullable` |
+| `--argumento` | `--argument` |
+| `--arquivos` | `--files` |
+| `--avisos` | `--warnings` |
+| `--bloco` | `--block` |
+| `--captura` | `--capture` |
+| `--captura-vizinho` | `--capture-neighbor` |
+| `--celula` | `--cell` |
+| `--ciclo` | `--cycle` |
+| `--comparar` | `--compare` |
+| `--contexto` | `--context` |
+| `--crescer` | `--grow` |
+| `--depuracao` | `--debug` |
+| `--detalhes` | `--details` |
+| `--escrever-cache` | `--write-cache` |
+| `--estado` | `--state` |
+| `--estrito` | `--strict` |
+| `--excecoes` | `--exceptions` |
+| `--executar` | `--run` |
+| `--exemplos` | `--examples` |
+| `--filho` | `--child` |
+| `--filtro` | `--filter` |
+| `--forma` | `--shape` |
+| `--fragmento` | `--shard` |
+| `--gravar` | `--write` |
+| `--grupo` | `--group` |
+| `--intervalo` | `--interval` |
+| `--inventario-externs` | `--externs-inventory` |
+| `--limite` | `--limit` |
+| `--limite-exec` | `--exec-limit` |
+| `--livre` | `--free` |
+| `--lote` | `--batch` |
+| `--materializar` | `--materialize` |
+| `--matriz` | `--matrix` |
+| `--memoria` | `--memory` |
+| `--misto` | `--mixed` |
+| `--mutacoes` | `--mutations` |
+| `--nativo` | `--native` |
+| `--omitir-checagens` | `--omit-checks` |
+| `--oraculo` | `--oracle` |
+| `--otimizar` | `--optimize` |
+| `--perfil` | `--profile` |
+| `--plano` | `--plan` |
+| `--porta` | `--port` |
+| `--preservar-estado` | `--preserve-state` |
+| `--producao` | `--production` |
+| `--quadro` | `--frame` |
+| `--raiz` | `--root` |
+| `--raizes` | `--roots` |
+| `--rastro` | `--stack-trace` |
+| `--referencias` | `--references` |
+| `--regravar` | `--rerecord` |
+| `--reiniciar` | `--restart` |
+| `--resumo` | `--digest` |
+| `--sdk-no-grupo` | `--sdk-in-group` |
+| `--sdk-proprio` | `--own-sdk` |
+| `--sem-cache` | `--no-cache` |
+| `--sem-forge` | `--no-forge` |
+| `--sem-membros` | `--no-members` |
+| `--sem-minificar` | `--no-minify` |
+| `--sem-poda` | `--no-prune` |
+| `--sem-poda-usuario` | `--no-user-prune` |
+| `--silencioso` | `--quiet` |
+| `--tipada` | `--typed` |
+| `--tipada-erro` | `--typed-error` |
+| `--tipos` | `--types` |
+| `--todos` | `--all` |
+| `--trabalhadores` | `--workers` |
+| `--uma-vez` | `--once` |
+| `--verificar-stub` | `--verify-stub` |
+| `--versao-linguagem` | `--language-version` |
+| `--version-linguagem` | `--language-version` |
+| `--vizinho` | `--neighbor` |
+
+### Scripts (`scripts/`)
+
+| antes | depois |
+|---|---|
+| `analisar-efeitos-runtime.py` | `analyze-runtime-effects.py` |
+| `caminho_dos_casos.py` | `cases_path.py` |
+| `ci-placar.ps1` | `ci-scoreboard.ps1` |
+| `comparar-desempenho.py` | `compare-performance.py` |
+| `comparar-http.py` | `compare-http.py` |
+| `comparar-linguagens.py` | `compare-languages.py` |
+| `comparar-placares.py` | `compare-scoreboards.py` |
+| `conferir-tipos-js.mjs` | `check-js-types.mjs` |
+| `copiar_sondas_saida.py` | `copy_output_probes.py` |
+| `corpus-nativo.sh` | `native-corpus.sh` |
+| `corpus-ngdart-dependente.sh` | `corpus-ngdart-dependent.sh` |
+| `corpus-perfis.py` | `corpus-profiles.py` |
+| `custo-zero.ps1` | `zero-cost.ps1` |
+| `fluxo.mjs` | `flow.mjs` |
+| `gerar-dart-sdk.ps1` | `generate-dart-sdk.ps1` |
+| `gerar-efeitos.py` | `generate-effects.py` |
+| `gerar-especies-de-acao.py` | `generate-action-kinds.py` |
+| `gerar-regexp-unicode.py` | `generate-regexp-unicode.py` |
+| `gerar-tabelas-analise.py` | `generate-analysis-tables.py` |
+| `harness-com-gerador.ps1` | `harness-with-generator.ps1` |
+| `limitless-ui-producao.sh` | `limitless-ui-production.sh` |
+| `limpar.ps1` | `clean.ps1` |
+| `matriz.py` | `matrix.py` |
+| `matriz.sh` | `matrix.sh` |
+| `medir-custo-zero.ps1` | `measure-zero-cost.ps1` |
+| `medir-geracao.ps1` | `measure-generation.ps1` |
+| `medir-js-producao-tokens.py` | `measure-js-production-tokens.py` |
+| `medir-js-producao.ps1` | `measure-js-production.ps1` |
+| `medir-lsp.ps1` | `measure-lsp.ps1` |
+| `medir-mapas.sh` | `measure-maps.sh` |
+| `medir-modos-desempenho.py` | `measure-performance-modes.py` |
+| `test_medir_modos_desempenho.py` | `test_measure_performance_modes.py` |
+| `oraculo_augmentation.dart` | `oracle_augmentation.dart` |
+| `paridade-pub-cache.py` | `parity-pub-cache.py` |
+| `preparar-macros-410.ps1` | `prepare-macros-410.ps1` |
+| `provar-arc-aot.py` | `prove-arc-aot.py` |
+| `provar-campos-tipados-aot.py` | `prove-typed-fields-aot.py` |
+| `pub-placar.py` | `pub-scoreboard.py` |
+| `remover-funcao.py` | `remove-function.py` |
+| `sass-formas-166.sh` | `sass-forms-166.sh` |
+| `sass-formas.sh` | `sass-forms.sh` |
+| `sem-trailer-ia.sh` | `no-ai-trailer.sh` |
+| `servir.ps1` | `serve.ps1` |
+| `sondar-limitless-ui.mjs` | `probe-limitless-ui.mjs` |
+| `sondar-macros-aot.ps1` | `probe-macros-aot.ps1` |
+| `testar-macros-410-materializado.ps1` | `test-macros-410-materialized.ps1` |
+| `testar-macros-412.ps1` | `test-macros-412.ps1` |
+| `testar-macros-413.ps1` | `test-macros-413.ps1` |
+| `testar-macros-414.ps1` | `test-macros-414.ps1` |
+| `testar-macros-415.ps1` | `test-macros-415.ps1` |
+| `testar-macros-416.ps1` | `test-macros-416.ps1` |
+| `testar-macros-418.ps1` | `test-macros-418.ps1` |
+| `testar-macros-419.ps1` | `test-macros-419.ps1` |
+| `testar-macros-420.ps1` | `test-macros-420.ps1` |
+| `testar-macros-421.ps1` | `test-macros-421.ps1` |
+| `testar-macros-422.ps1` | `test-macros-422.ps1` |
+| `testar-macros-builder.ps1` | `test-macros-builder.ps1` |
+| `verificar-poda-js.ps1` | `verify-js-pruning.ps1` |
+| `verificar-recarga.mjs` | `verify-reload.mjs` |
+| `dados/efeitos-runtime/efeitos.tsv` | `data/runtime-effects/effects.tsv` |

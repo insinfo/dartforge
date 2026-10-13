@@ -182,7 +182,7 @@ do runtime (compiladas para `aarch64-` e `x86_64-apple-darwin`), mais a
 `runtime_so_usa_simbolos_da_lista` confere que o runtime não pede nada fora
 dela e `simbolos_existem_no_sdk`, que cada nome existe no `.tbd` do SDK.
 
-**A prova** é o workflow `sem-toolchain.yml`: compila o dartforge, monta a
+**A prova** é o workflow `no-toolchain.yml`: compila o dartforge, monta a
 distribuição, **esconde** o toolchain (no Windows renomeia as pastas do
 Visual Studio e dos Windows Kits e roda com `PATH` mínimo, sem vcvars,
 `LIB` nem `INCLUDE`; no macOS move o Xcode e as Command Line Tools e roda
@@ -336,8 +336,8 @@ receptor na falta.
 ## 4. Medição
 
 O placar é o do harness (`crates/differential`), no CI:
-`pwsh scripts/ci.ps1 -Frente <frente> -Acompanhar` e
-`pwsh scripts/ci.ps1 -Placar <id>`. O relatório nativo termina com duas
+`pwsh scripts/ci.ps1 -Front <frente> -Follow` e
+`pwsh scripts/ci.ps1 -Scoreboard <id>`. O relatório nativo termina com duas
 seções: as falhas agrupadas pela primeira linha do stderr, e **"construtos
 (todos os diagnósticos)"** — cada construto não suportado com o número de
 programas que o usam e a lista dos programas bloqueados **só** por ele.

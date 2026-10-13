@@ -348,7 +348,7 @@ corrigido lá e vale este.
   próprio oráculo (`dartforge-parity new-syntax`), não pelo nosso
   parser, e o `oraculo` a respeita ao regravar. `augment` fica de fora: sem
   o experimento, os dois SDKs o tratam como identificador.
-* CI (`.github/workflows/pesado.yml`): a ação `.github/actions/dart` instala
+* CI (`.github/workflows/heavy.yml`): a ação `.github/actions/dart` instala
   o 3.6.2 (`setup-dart`) e, com `sdk-313: true`, o 3.13.4 por zip, com cache
   pela versão, exportando `DARTFORGE_DART_SDK_3_13`. Job `moderno`: o
   `corpus/moderno` em desenvolvimento e produção, código 0 = todos passam

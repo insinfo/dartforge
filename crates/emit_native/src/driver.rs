@@ -576,7 +576,7 @@ fn link(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage, output: &P
         Os::Linux => link_on_linux(clang, obj, sdk, linkage, output, debug_info, cpu),
         // The link from before N15 (the Clang driver with `link.exe` and the
         // Visual C++ CRT), only for comparison: it is the reference of
-        // `sem-toolchain.yml`, in the same build.
+        // `no-toolchain.yml`, in the same build.
         Os::Windows if link_with_clang() => link_old_with_clang(clang, obj, sdk, linkage, output, debug_info, cpu),
         Os::Windows => link_on_windows(clang, obj, sdk, linkage, output, debug_info, cpu),
         Os::MacOs => link_on_macos(clang, obj, sdk, linkage, output, debug_info, cpu),

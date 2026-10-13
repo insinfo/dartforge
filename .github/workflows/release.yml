@@ -1,12 +1,12 @@
-# Release: uma tag `v*` publica a distribuição do dartforge (`dartforge
-# empacotar`) para Windows x64, Linux x64 e macOS arm64 como um release do
-# GitHub. Cada pacote traz o executável, o runtime, o SDK do Dart (lib/), o
-# ligador e o sysroot: quem baixa não instala Rust, LLVM, o SDK do Dart,
-# MSVC/Windows SDK nem Xcode (docs/NATIVO.md §1.2).
+# Release: a `v*` tag publishes the dartforge distribution (`dartforge
+# pack`) for Windows x64, Linux x64 and macOS arm64 as a GitHub release.
+# Each archive carries the executable, the runtime, the Dart SDK (lib/), the
+# linker and the sysroot: whoever downloads it installs no Rust, LLVM, Dart
+# SDK, MSVC/Windows SDK or Xcode (docs/NATIVO.md §1.2).
 #
-# Antes de publicar, cada job confere a distribuição num ambiente limpo:
-# compila e roda um programa em AOT de desenvolvimento e de produção.
-# Tag com hífen (v0.1.0-alpha.1) vira pré-release.
+# Before publishing, each job checks the distribution in a clean environment:
+# it compiles and runs a program in development and production AOT.
+# A tag with a hyphen (v0.1.0-alpha.1) becomes a pre-release.
 name: Release
 on:
   push:
@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: tag já existente a (re)publicar
+        description: existing tag to (re)publish
         required: true
 permissions:
   contents: write
@@ -26,12 +26,12 @@ env:
   CARGO_INCREMENTAL: '0'
   TAG: ${{ inputs.tag || github.ref_name }}
 jobs:
-  criar:
-    name: criar o release
+  create:
+    name: create the release
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Release (pré-release se a tag tem hífen)
+      - name: Release (pre-release if the tag has a hyphen)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -53,9 +53,9 @@ jobs:
           Status and known gaps: see ESTADO.md and docs/PENDENCIAS.md in the repository.
           EOF
 
-  pacote:
-    name: pacote (${{ matrix.nome }})
-    needs: criar
+  package:
+    name: package (${{ matrix.name }})
+    needs: create
     runs-on: ${{ matrix.os }}
     timeout-minutes: 150
     strategy:
@@ -63,13 +63,13 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            nome: windows-x64
+            name: windows-x64
           - os: ubuntu-latest
-            nome: linux-x64
+            name: linux-x64
           - os: macos-latest
-            nome: macos-arm64
+            name: macos-arm64
     env:
-      # O C que o `cc` compila sai com o mínimo do alvo arm64 (ci.yml).
+      # The C that `cc` compiles comes out with the arm64 target's minimum (ci.yml).
       MACOSX_DEPLOYMENT_TARGET: '11.0'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -79,60 +79,60 @@ jobs:
       - if: runner.os == 'Windows'
         uses: ./.github/actions/llvm-windows
         with:
-          desenvolvimento: 'true'
-      # Linux e macOS: o pacote oficial do LLVM, ligado estático (o executável
-      # publicado não depende de uma libLLVM instalada).
+          development: 'true'
+      # Linux and macOS: the official LLVM package, linked statically (the
+      # published executable does not depend on an installed libLLVM).
       - if: runner.os != 'Windows'
         uses: ./.github/actions/llvm-unix
-      - name: Rust fixado (rust-toolchain.toml)
+      - name: Pinned Rust (rust-toolchain.toml)
         run: rustup toolchain install 1.98.1 --profile minimal
-      - name: Compilar dartforge (nativo, jit)
+      - name: Build dartforge (native, jit)
         run: cargo build --locked --release -p dartforge-cli --features native,jit
-      - name: Empacotar e conferir num ambiente limpo
+      - name: Pack and check in a clean environment
         shell: bash
         env:
-          NOME: ${{ matrix.nome }}
+          NAME: ${{ matrix.name }}
         run: |
           set -euo pipefail
-          raiz=$(mktemp -d)
-          dist="$raiz/dartforge-$TAG-$NOME"
+          root=$(mktemp -d)
+          dist="$root/dartforge-$TAG-$NAME"
           exe=dartforge; [ "$RUNNER_OS" = Windows ] && exe=dartforge.exe
           "./target/release/$exe" pack "$dist"
           du -sh "$dist"
           d=$(mktemp -d)
-          printf "void main(List<String> a) {\n  print('oi \${a.join(\",\")}');\n  print([1, 2, 3].map((x) => x * x).toList());\n}\n" > "$d/main.dart"
-          esperado=$'oi x,y\n[1, 4, 9]'
+          printf "void main(List<String> a) {\n  print('hi \${a.join(\",\")}');\n  print([1, 2, 3].map((x) => x * x).toList());\n}\n" > "$d/main.dart"
+          expected=$'hi x,y\n[1, 4, 9]'
           cd "$d"
           if [ "$RUNNER_OS" = Windows ]; then
             "$dist/bin/$exe" aot main.dart dev.exe
-            [ "$(./dev.exe x y | tr -d '\r')" = "$esperado" ]
+            [ "$(./dev.exe x y | tr -d '\r')" = "$expected" ]
             "$dist/bin/$exe" aot main.dart prod.exe --optimize
-            [ "$(./prod.exe x y | tr -d '\r')" = "$esperado" ]
+            [ "$(./prod.exe x y | tr -d '\r')" = "$expected" ]
           else
             env -i PATH=/usr/bin:/bin HOME="$d/home" "$dist/bin/$exe" aot main.dart dev
-            [ "$(./dev x y)" = "$esperado" ]
+            [ "$(./dev x y)" = "$expected" ]
             env -i PATH=/usr/bin:/bin HOME="$d/home" "$dist/bin/$exe" aot main.dart prod --optimize
-            [ "$(./prod x y)" = "$esperado" ]
+            [ "$(./prod x y)" = "$expected" ]
           fi
           echo "DIST=$dist" >> "$GITHUB_ENV"
-          echo "RAIZ=$raiz" >> "$GITHUB_ENV"
-      # No mesmo shell do passo anterior: os caminhos gravados por ele são do
-      # bash (/tmp/... no Windows), que o pwsh não resolve.
-      - name: Compactar (.zip no Windows, .tar.gz nos outros)
+          echo "ROOT=$root" >> "$GITHUB_ENV"
+      # In the same shell as the previous step: the paths it recorded are
+      # bash's (/tmp/... on Windows), which pwsh does not resolve.
+      - name: Compress (.zip on Windows, .tar.gz elsewhere)
         shell: bash
         run: |
           set -euo pipefail
-          nome=$(basename "$DIST")
-          cd "$RAIZ"
+          name=$(basename "$DIST")
+          cd "$ROOT"
           if [ "$RUNNER_OS" = Windows ]; then
-            7z a -tzip -bso0 "$nome.zip" "$nome"
-            echo "ARQUIVO=$RAIZ/$nome.zip" >> "$GITHUB_ENV"
+            7z a -tzip -bso0 "$name.zip" "$name"
+            echo "ARCHIVE=$ROOT/$name.zip" >> "$GITHUB_ENV"
           else
-            tar -czf "$nome.tar.gz" "$nome"
-            echo "ARQUIVO=$RAIZ/$nome.tar.gz" >> "$GITHUB_ENV"
+            tar -czf "$name.tar.gz" "$name"
+            echo "ARCHIVE=$ROOT/$name.tar.gz" >> "$GITHUB_ENV"
           fi
-      - name: Publicar no release
+      - name: Publish to the release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$TAG" "$ARQUIVO" --clobber
+        run: gh release upload "$TAG" "$ARCHIVE" --clobber

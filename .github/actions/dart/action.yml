@@ -1,23 +1,23 @@
-name: Dart SDK 3.6.2 (e 3.13.4)
+name: Dart SDK 3.6.2 (and 3.13.4)
 description: >
-  Instala o SDK Dart 3.6.2 (dart-lang/setup-dart) e exporta o caminho dele nas
-  variáveis que o projeto lê: DARTFORGE_DART_SDK (harness diferencial),
-  DARTFORGE_SDK_LIB e DART_SDK (SdkLayout::discover, testes).
-  Com gerar-dart-sdk-js, gera runtime/ddc/dart_sdk.js (fora do git).
-  Com sdk-313, instala também o SDK 3.13.4 — o oráculo dos recursos 3.7–3.13
-  (docs/VERSOES-LINGUAGEM.md §5) — e exporta DARTFORGE_DART_SDK_3_13.
+  Installs the Dart SDK 3.6.2 (dart-lang/setup-dart) and exports its path in
+  the variables the project reads: DARTFORGE_DART_SDK (differential harness),
+  DARTFORGE_SDK_LIB and DART_SDK (SdkLayout::discover, tests).
+  With generate-dart-sdk-js, generates runtime/ddc/dart_sdk.js (outside git).
+  With sdk-313, also installs the SDK 3.13.4 — the oracle of the 3.7–3.13
+  features (docs/VERSOES-LINGUAGEM.md §5) — and exports DARTFORGE_DART_SDK_3_13.
 
-# O 3.6.2 vem sem cache: o setup-dart baixa o zip do SDK de
-# storage.googleapis.com em poucos segundos, e a versão é fixa. O 3.13.4 vem
-# por zip, fora do PATH (o `dart` do PATH continua o 3.6.2, que é o piso), e
-# com cache pela versão.
+# 3.6.2 comes without a cache: setup-dart downloads the SDK zip from
+# storage.googleapis.com in a few seconds, and the version is fixed. 3.13.4
+# comes as a zip, outside PATH (the `dart` on PATH stays 3.6.2, which is the
+# floor), and cached by version.
 
 inputs:
-  gerar-dart-sdk-js:
-    description: Gerar runtime/ddc/dart_sdk.js com scripts/generate-dart-sdk.ps1
+  generate-dart-sdk-js:
+    description: Generate runtime/ddc/dart_sdk.js with scripts/generate-dart-sdk.ps1
     default: 'false'
   sdk-313:
-    description: Instalar também o SDK 3.13.4 e exportar DARTFORGE_DART_SDK_3_13
+    description: Also install the SDK 3.13.4 and export DARTFORGE_DART_SDK_3_13
     default: 'false'
 
 runs:
@@ -26,26 +26,27 @@ runs:
     - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1
       with:
         sdk: '3.6.2'
-        # O problem matcher do setup-dart é procurado relativo ao diretório
-        # da ação que o chama — dentro de uma ação composta, este diretório,
-        # onde o JSON não existe, e o passo falha. Não usamos `dart analyze`.
+        # setup-dart's problem matcher is looked up relative to the directory
+        # of the action that calls it — inside a composite action, this
+        # directory, where the JSON does not exist, and the step fails. We do
+        # not use `dart analyze`.
         problem-matcher: false
 
-    - name: Exportar o caminho do SDK
+    - name: Export the SDK path
       shell: pwsh
       run: |
-        # O executável fica em <sdk>/bin/dart(.exe); a raiz é dois níveis acima.
+        # The executable is at <sdk>/bin/dart(.exe); the root is two levels up.
         $dart = (Get-Command dart).Source
         $sdk = Split-Path (Split-Path $dart -Parent) -Parent
         & $dart --version
-        if (!(Test-Path (Join-Path $sdk 'lib/libraries.json'))) { throw "SDK sem lib/libraries.json em $sdk" }
+        if (!(Test-Path (Join-Path $sdk 'lib/libraries.json'))) { throw "SDK without lib/libraries.json at $sdk" }
         "DARTFORGE_DART_SDK=$sdk" >> $env:GITHUB_ENV
         "DARTFORGE_SDK_LIB=$(Join-Path $sdk 'lib')" >> $env:GITHUB_ENV
         "DART_SDK=$sdk" >> $env:GITHUB_ENV
-        Write-Host "SDK Dart em $sdk"
+        Write-Host "Dart SDK at $sdk"
 
-    - name: Gerar runtime/ddc/dart_sdk.js
-      if: inputs.gerar-dart-sdk-js == 'true'
+    - name: Generate runtime/ddc/dart_sdk.js
+      if: inputs.generate-dart-sdk-js == 'true'
       shell: pwsh
       run: pwsh scripts/generate-dart-sdk.ps1 -Sdk $env:DARTFORGE_DART_SDK
 
@@ -69,8 +70,8 @@ runs:
           Expand-Archive $zip -DestinationPath $dir
           Remove-Item $zip
         }
-        $versao = (Get-Content (Join-Path $sdk 'version')).Trim()
-        if ($versao -ne '3.13.4') { throw "SDK 3.13.4 esperado em $sdk, veio $versao" }
+        $version = (Get-Content (Join-Path $sdk 'version')).Trim()
+        if ($version -ne '3.13.4') { throw "SDK 3.13.4 expected at $sdk, got $version" }
         & (Join-Path $sdk 'bin/dart.exe') --version
         "DARTFORGE_DART_SDK_3_13=$sdk" >> $env:GITHUB_ENV
-        Write-Host "SDK Dart 3.13.4 em $sdk"
+        Write-Host "Dart SDK 3.13.4 at $sdk"

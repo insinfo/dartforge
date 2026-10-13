@@ -114,7 +114,7 @@ negativo, auditoria divergente) é pânico `bug do ARC`, nunca erro Dart
   | `--jit-aot`, `DARTFORGE_ARC_CHECK=1` | 238/238, JIT × AOT sem divergência |
   | Depois do ponto fixo (2026-10-08): `--native` com auditoria, `--gc-stress`, `DARTFORGE_ARC_CYCLES=always` com auditoria | 238/238 nos três |
 
-  O job `nativo-arc` do `pesado.yml` roda o corpus com a auditoria e com o
+  O job `nativo-arc` do `heavy.yml` roda o corpus com a auditoria e com o
   `--gc-stress`.
 
 ## 6. ARC puro (2026-10-08): sem rastreamento do berçário

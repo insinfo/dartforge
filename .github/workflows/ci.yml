@@ -1,30 +1,29 @@
-# CI rápido: todo push no main e nas branches ci/**, e todo pull request.
-# O que é pesado (corpus diferencial JS, produção, nativo, determinismo) está em
-# pesado.yml. Ver ESTADO.md §3.
+# Fast CI: every push to main and to the ci/** branches, and every pull
+# request. What is heavy (JS differential corpus, production, native,
+# determinism) is in heavy.yml. See ESTADO.md §3.
 #
-# O que ficou de fora, e por quê (medido no runner em 2026-09-23; ESTADO.md §1.6):
-#   * `cargo fmt --check`: o workspace nunca foi formatado inteiro, e formatá-lo
-#     agora conflitaria com todas as branches em andamento. Volta num commit SÓ
-#     de formatação, depois que essas branches entrarem.
-#   * `cargo clippy -D warnings`: o workspace não está limpo (o primeiro crate,
-#     dartforge-elements, já para com 3 erros; emit_js, emit_native e
-#     gerador_ng têm avisos do próprio rustc). Volta junto com o fmt, pelo
-#     mesmo motivo.
-#   * `cargo doc`: por decisão do proprietário (2026-09-29), o CI não gasta
-#     tempo com formatação nem documentação gerada; os doctests seguem no
-#     `cargo test`.
-#   * Ubuntu: a trilha nova falha no Linux em dartforge-dev (hashes, plateau),
-#     dartforge-emit-js (basico) e dartforge-elements (sdk_cache) — não no
-#     Windows, que é o alvo. Registrado para quem cuidar do Linux.
+# What was left out, and why (measured on the runner on 2026-09-23; ESTADO.md §1.6):
+#   * `cargo fmt --check`: the workspace was never formatted as a whole, and
+#     formatting it now would conflict with every branch in progress. It comes
+#     back in a commit of ONLY formatting, after those branches are merged.
+#   * `cargo clippy -D warnings`: the workspace is not clean (the first crate,
+#     dartforge-elements, already stops with 3 errors; emit_js, emit_native and
+#     ng_generator have rustc's own warnings). It comes back with fmt, for the
+#     same reason.
+#   * `cargo doc`: by the owner's decision (2026-09-29), CI spends no time on
+#     formatting or generated documentation; the doctests stay in `cargo test`.
+#   * Ubuntu: the new track fails on Linux in dartforge-dev (hashes, plateau),
+#     dartforge-emit-js (basic) and dartforge-elements (sdk_cache) — not on
+#     Windows, which is the target. Recorded for whoever takes care of Linux.
 #
-# A trilha velha e o cranelift-jit saíram do workspace (preservados na branch
-# `exploracao-inicial`); o CI testa o workspace inteiro, sem exclusões.
+# The old track and cranelift-jit left the workspace (preserved in the
+# `exploracao-inicial` branch); CI tests the whole workspace, without exclusions.
 name: CI
 on:
   push:
     branches: [main, 'ci/**']
   pull_request:
-  # Para rodar numa branch de trabalho sem abrir pull request.
+  # To run on a work branch without opening a pull request.
   workflow_dispatch:
 permissions:
   contents: read
@@ -35,16 +34,16 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: '0'
 jobs:
-  # Nenhum commit com trailer de assistente de IA (CONTRIBUTING.md, "Commits").
-  mensagens:
-    name: mensagens de commit sem trailer de IA
+  # No commit with an AI-assistant trailer (CONTRIBUTING.md, "Commits").
+  messages:
+    name: commit messages without an AI trailer
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-      - run: sh scripts/no-ai-trailer.sh --historico HEAD
+      - run: sh scripts/no-ai-trailer.sh --history HEAD
 
   windows:
     name: test (Windows)
@@ -52,246 +51,247 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Medidor de desempenho preserva falhas e amostras
+      - name: The performance meter preserves failures and samples
         run: python scripts/test_measure_performance_modes.py
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '24'
-      # SDK 3.6.2: os testes que leem o SDK recebem o caminho por
-      # DARTFORGE_SDK_LIB / SdkLayout::discover (a ação exporta os dois).
+      # SDK 3.6.2: the tests that read the SDK get the path through
+      # DARTFORGE_SDK_LIB / SdkLayout::discover (the action exports both).
       - uses: ./.github/actions/dart
         with:
-          gerar-dart-sdk-js: 'true'
-      # O corpus do ngdart (crates/ng_generator/tests/corpus.rs) carrega o ngdart
-      # e o ngforms pelo .dart_tool/package_config.json, que fica fora do git.
-      # Sem ele o teste falha de propósito (antes, degradava em silêncio e só
-      # o caso que exige uma recusa específica acusava).
-      - name: pub get do corpus do ngdart
+          generate-dart-sdk-js: 'true'
+      # The ngdart corpus (crates/ng_generator/tests/corpus.rs) loads ngdart
+      # and ngforms through .dart_tool/package_config.json, which stays out of
+      # git. Without it the test fails on purpose (before, it degraded silently
+      # and only the case that requires a specific refusal complained).
+      - name: pub get of the ngdart corpus
         working-directory: corpus/ngdart
         run: dart pub get
-      # Clang 22.1.8 para os testes que compilam IR (abi, emit_native, jit).
-      # `desenvolvimento`: llvm-config, LLVM-C.dll/.lib e os cabeçalhos da API C
-      # para o llvm-sys do crates/jit (~73 MB a mais no cache).
+      # Clang 22.1.8 for the tests that compile IR (abi, emit_native, jit).
+      # `development`: llvm-config, LLVM-C.dll/.lib and the C API headers for
+      # crates/jit's llvm-sys (~73 MB more in the cache).
       - uses: ./.github/actions/llvm-windows
         with:
-          desenvolvimento: 'true'
-      - name: Rust fixado (rust-toolchain.toml)
+          development: 'true'
+      - name: Pinned Rust (rust-toolchain.toml)
         run: rustup toolchain install 1.98.1 --profile minimal
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: ci-windows
-          # Só o main grava: as branches ci/** restauram o cache do main e não
-          # multiplicam entradas (10 GB por repositório).
+          # Only main saves: the ci/** branches restore main's cache and do not
+          # multiply entries (10 GB per repository).
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      # Todos os alvos: lib, bins, testes, exemplos (só compilados) e doctests.
-      # Os exemplos de memória têm nomes distintos por crate (memoria_<crate>):
-      # com o mesmo nome, o cargo ligava os quatro no mesmo examples/memoria.exe
-      # (LNK1104 quando duas ligações se cruzavam).
+      # Every target: lib, bins, tests, examples (only compiled) and doctests.
+      # The memory examples have distinct names per crate (memory_<crate>):
+      # with the same name, cargo linked the four into the same
+      # examples/memory.exe (LNK1104 when two links crossed).
       - name: test
         run: cargo test --locked --workspace --no-fail-fast
-      # O teste de recarga pela CLI é gated por `--features jit`; o workspace
-      # padrão compila o binário sem LLVM-C e não executa esta fixture. Em
-      # release, como nos jobs do Linux e do macOS (e o mesmo build do passo
-      # seguinte): os seis testes sobem seis sessões ao mesmo tempo, e a CLI
-      # de debug levava ~60 s até a primeira linha de cada uma, o prazo do teste.
-      - name: recarga JIT com estado pela CLI
+      # The CLI reload test is gated by `--features jit`; the default
+      # workspace builds the binary without LLVM-C and does not run this
+      # fixture. In release, as in the Linux and macOS jobs (and the same build
+      # as the next step): the six tests start six sessions at the same time,
+      # and the debug CLI took ~60 s until the first line of each, the test's
+      # deadline.
+      - name: JIT reload with state through the CLI
         if: success() || failure()
         run: cargo test --locked --release -p dartforge-cli --features native,jit --test reload_state
-      - name: Getters e setters de campos locais (AOT Windows)
+      - name: Getters and setters of local fields (AOT Windows)
         shell: pwsh
         run: python scripts/prove-arc-aot.py arc_local_fields --features embedded-llvm
-      - name: Seleção explícita de memória na CLI (AOT, JIT e reload)
+      - name: Explicit memory selection in the CLI (AOT, JIT and reload)
         run: cargo test --locked --release -p dartforge-cli --features native,jit --test memory_cli -- --include-ignored
-      - name: Retorno Owned pela fronteira nativa (AOT Windows)
+      - name: Owned return through the native boundary (AOT Windows)
         shell: pwsh
         run: python scripts/prove-arc-aot.py arc_native_port_owned --features embedded-llvm
-      - name: Artefatos da fronteira nativa Windows
+      - name: Artifacts of the native boundary Windows
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: prova-porta-nativa-owned-windows
+          name: proof-native-port-owned-windows
           path: |
-            target/prova-porta-nativa-owned/*.ll
-            target/prova-porta-nativa-owned/*.stdout
-            target/prova-porta-nativa-owned/*.stderr
-            target/prova-porta-nativa-owned/*.exit
-            target/prova-porta-nativa-owned/*.build.log
-            target/prova-porta-nativa-owned/evidencia.json
-      - name: Retorno Owned do corpo Dart da fonte (AOT Windows)
+            target/proof-native-port-owned/*.ll
+            target/proof-native-port-owned/*.stdout
+            target/proof-native-port-owned/*.stderr
+            target/proof-native-port-owned/*.exit
+            target/proof-native-port-owned/*.build.log
+            target/proof-native-port-owned/evidence.json
+      - name: Owned return of the source's Dart body (AOT Windows)
         shell: pwsh
         run: python scripts/prove-arc-aot.py arc_source_return --features embedded-llvm
-      - name: Artefatos do retorno da fonte Windows
+      - name: Artifacts of the source return Windows
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: prova-retorno-da-fonte-windows
+          name: proof-source-return-windows
           path: |
-            target/prova-retorno-da-fonte/*.dart
-            target/prova-retorno-da-fonte/*.ll
-            target/prova-retorno-da-fonte/*.stdout
-            target/prova-retorno-da-fonte/*.stderr
-            target/prova-retorno-da-fonte/*.exit
-            target/prova-retorno-da-fonte/*.build.log
-            target/prova-retorno-da-fonte/evidencia.json
-      - name: Instâncias zeradas Owned e registro de métodos (AOT Windows)
+            target/proof-source-return/*.dart
+            target/proof-source-return/*.ll
+            target/proof-source-return/*.stdout
+            target/proof-source-return/*.stderr
+            target/proof-source-return/*.exit
+            target/proof-source-return/*.build.log
+            target/proof-source-return/evidence.json
+      - name: Owned zeroed instances and method registration (AOT Windows)
         shell: pwsh
         run: python scripts/prove-arc-aot.py arc_zeroed_instance --features embedded-llvm
-      - name: Artefatos das instâncias zeradas Windows
+      - name: Artifacts of the zeroed instances Windows
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: prova-instancia-zerada-windows
+          name: proof-zeroed-instance-windows
           path: |
-            target/prova-instancia-zerada/*.ll
-            target/prova-instancia-zerada/*.stdout
-            target/prova-instancia-zerada/*.stderr
-            target/prova-instancia-zerada/*.exit
-            target/prova-instancia-zerada/*.build.log
-            target/prova-instancia-zerada/evidencia.json
-      - name: Campos tipados da fonte Dart (ARC opt-in e tracing padrão)
+            target/proof-zeroed-instance/*.ll
+            target/proof-zeroed-instance/*.stdout
+            target/proof-zeroed-instance/*.stderr
+            target/proof-zeroed-instance/*.exit
+            target/proof-zeroed-instance/*.build.log
+            target/proof-zeroed-instance/evidence.json
+      - name: Typed fields of the Dart source (opt-in ARC and default tracing)
         shell: pwsh
-        run: python scripts/prove-typed-fields-aot.py --dartforge target/release/dartforge.exe --saida target/prova-campos-tipados
-      - name: Artefatos dos campos tipados Windows
+        run: python scripts/prove-typed-fields-aot.py --dartforge target/release/dartforge.exe --output target/proof-typed-fields
+      - name: Artifacts of the typed fields Windows
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: prova-campos-tipados-windows
+          name: proof-typed-fields-windows
           path: |
-            target/prova-campos-tipados/*.dart
-            target/prova-campos-tipados/*.stdout
-            target/prova-campos-tipados/*.stderr
-            target/prova-campos-tipados/*.exit
-            target/prova-campos-tipados/evidencia.json
-      - name: Artefatos dos campos locais Windows
+            target/proof-typed-fields/*.dart
+            target/proof-typed-fields/*.stdout
+            target/proof-typed-fields/*.stderr
+            target/proof-typed-fields/*.exit
+            target/proof-typed-fields/evidence.json
+      - name: Artifacts of the local fields Windows
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: prova-campos-locais-windows
+          name: proof-local-fields-windows
           path: |
-            target/prova-campos-locais/*.ll
-            target/prova-campos-locais/*.stdout
-            target/prova-campos-locais/*.stderr
-            target/prova-campos-locais/*.exit
-            target/prova-campos-locais/*.build.log
-            target/prova-campos-locais/evidencia.json
-      - name: Alocação e inicialização de campos Owned (AOT Windows)
+            target/proof-local-fields/*.ll
+            target/proof-local-fields/*.stdout
+            target/proof-local-fields/*.stderr
+            target/proof-local-fields/*.exit
+            target/proof-local-fields/*.build.log
+            target/proof-local-fields/evidence.json
+      - name: Allocation and initialization of Owned fields (AOT Windows)
         shell: pwsh
         run: python scripts/prove-arc-aot.py arc_field_allocation --features embedded-llvm
-      - name: Artefatos da alocação Owned Windows
+      - name: Artifacts of the Owned allocation Windows
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: prova-alocacao-campos-windows
+          name: proof-field-allocation-windows
           path: |
-            target/prova-alocacao-campos/*.ll
-            target/prova-alocacao-campos/*.stdout
-            target/prova-alocacao-campos/*.stderr
-            target/prova-alocacao-campos/*.exit
-            target/prova-alocacao-campos/*.build.log
-            target/prova-alocacao-campos/evidencia.json
-      - name: Keepalive de campos com heap real (AOT Windows)
+            target/proof-field-allocation/*.ll
+            target/proof-field-allocation/*.stdout
+            target/proof-field-allocation/*.stderr
+            target/proof-field-allocation/*.exit
+            target/proof-field-allocation/*.build.log
+            target/proof-field-allocation/evidence.json
+      - name: Field keepalive with a real heap (AOT Windows)
         shell: pwsh
         run: python scripts/prove-arc-aot.py arc_field_keepalive --features embedded-llvm
-      - name: Artefatos do keepalive de campos Windows
+      - name: Artifacts of the field keepalive Windows
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: prova-keepalive-campos-windows
+          name: proof-field-keepalive-windows
           path: |
-            target/prova-keepalive-campos/*.ll
-            target/prova-keepalive-campos/*.stdout
-            target/prova-keepalive-campos/*.stderr
-            target/prova-keepalive-campos/*.exit
-            target/prova-keepalive-campos/*.build.log
-            target/prova-keepalive-campos/evidencia.json
-      - name: Keepalive pending com heap real (AOT Windows)
+            target/proof-field-keepalive/*.ll
+            target/proof-field-keepalive/*.stdout
+            target/proof-field-keepalive/*.stderr
+            target/proof-field-keepalive/*.exit
+            target/proof-field-keepalive/*.build.log
+            target/proof-field-keepalive/evidence.json
+      - name: Pending keepalive with a real heap (AOT Windows)
         shell: pwsh
         run: python scripts/prove-arc-aot.py arc_keepalive_pending --features embedded-llvm
-      - name: Artefatos do keepalive pending Windows
+      - name: Artifacts of the pending keepalive Windows
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: prova-keepalive-pending-windows
+          name: proof-keepalive-pending-windows
           path: |
-            target/prova-keepalive-pending/*.ll
-            target/prova-keepalive-pending/*.stdout
-            target/prova-keepalive-pending/*.stderr
-            target/prova-keepalive-pending/*.exit
-            target/prova-keepalive-pending/*.build.log
-            target/prova-keepalive-pending/evidencia.json
-      - name: Cleanup de laços com heap real (AOT Windows)
+            target/proof-keepalive-pending/*.ll
+            target/proof-keepalive-pending/*.stdout
+            target/proof-keepalive-pending/*.stderr
+            target/proof-keepalive-pending/*.exit
+            target/proof-keepalive-pending/*.build.log
+            target/proof-keepalive-pending/evidence.json
+      - name: Loop cleanup with a real heap (AOT Windows)
         shell: pwsh
         run: python scripts/prove-arc-aot.py arc_loop_cleanup --features embedded-llvm
-      - name: Artefatos do cleanup de laços Windows
+      - name: Artifacts of the loop cleanup Windows
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: prova-cleanup-laco-windows
+          name: proof-loop-cleanup-windows
           path: |
-            target/prova-cleanup-laco/*.ll
-            target/prova-cleanup-laco/*.stdout
-            target/prova-cleanup-laco/*.stderr
-            target/prova-cleanup-laco/*.exit
-            target/prova-cleanup-laco/*.build.log
-            target/prova-cleanup-laco/evidencia.json
-      - name: regressões do dart:io nativo (escuta compartilhada, rajada de sinais)
+            target/proof-loop-cleanup/*.ll
+            target/proof-loop-cleanup/*.stdout
+            target/proof-loop-cleanup/*.stderr
+            target/proof-loop-cleanup/*.exit
+            target/proof-loop-cleanup/*.build.log
+            target/proof-loop-cleanup/evidence.json
+      - name: native dart:io regressions (shared listening, signal burst)
         if: success() || failure()
         run: cargo test --locked --release -p dartforge-cli --features native,jit --test io_regression -- --include-ignored
-      # Os #[ignore] que o runner consegue satisfazer: SDK Dart,
-      # Clang e rustc. Ficam de fora, pelo nome:
-      #   *pub_corpus*      references/pub é baixado pelo proprietário, fora do git
+      # The #[ignore] tests the runner can satisfy: Dart SDK, Clang and rustc.
+      # Left out, by name:
+      #   *pub_corpus*      references/pub is downloaded by the owner, outside git
       #   new_sali_type_checks
-      #                     projeto privado do proprietário (C:/MyDartProjects)
+      #                     the owner's private project (C:/MyDartProjects)
       #   corpus_runs_under_dart_run, ddc_matches_dart_run
-      #                     o corpus diferencial inteiro — é o pesado.yml
-      #   microbenchmark    medição de desempenho do heap, não correção
+      #                     the whole differential corpus — that is heavy.yml
+      #   microbenchmark    heap performance measurement, not correctness
       #   ng_dart_edit_in_each_file
-      #                     varredura de 219 edições (≈ 5 min em debug), sob demanda
-      # Os corpora do motor de build (corpus/builders, oráculo do build_runner
-      # oficial), das macros (corpus/macros, o package:json) e do ngdart
-      # precisam do package_config.json de cada caso:
-      # `pub get` com o lock commitado (versões fixadas). Os testes
-      # #[ignore] do crates/build (plano, placar, determinismo, incremental,
-      # transparência do ngdart e o executor de builders pela VM Dart, que
-      # compara cada caso com o oráculo byte a byte) rodam no passo seguinte.
-      - name: pub get dos corpora do motor de build
+      #                     sweep of 219 edits (≈ 5 min in debug), on demand
+      # The corpora of the build engine (corpus/builders, the official
+      # build_runner oracle), of macros (corpus/macros, package:json) and of
+      # ngdart need each case's package_config.json: `pub get` with the
+      # committed lock (pinned versions). crates/build's #[ignore] tests (plan,
+      # scoreboard, determinism, incremental, ngdart transparency and the
+      # builder executor through the Dart VM, which compares each case with
+      # the oracle byte for byte) run in the next step.
+      - name: pub get of the build engine corpora
         if: success() || failure()
         shell: pwsh
         run: |
-          $casos = @(Get-ChildItem corpus/builders, corpus/macros -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'pubspec.lock') }) + @(Get-Item corpus/ngdart, corpus/ngdart_dependente/app)
-          foreach ($c in $casos) {
+          $cases = @(Get-ChildItem corpus/builders, corpus/macros -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'pubspec.lock') }) + @(Get-Item corpus/ngdart, corpus/ngdart_dependente/app)
+          foreach ($c in $cases) {
             Push-Location $c.FullName
             dart pub get --enforce-lockfile | Out-Null
-            if ($LASTEXITCODE -ne 0) { Pop-Location; throw "pub get falhou em $($c.Name)" }
+            if ($LASTEXITCODE -ne 0) { Pop-Location; throw "pub get failed in $($c.Name)" }
             Pop-Location
           }
-          Write-Host "$($casos.Count) casos com package_config.json"
-      - name: descoberta de macros pelo build_runner
+          Write-Host "$($cases.Count) cases with package_config.json"
+      - name: macro discovery through build_runner
         if: success() || failure()
         shell: pwsh
         run: ./scripts/test-macros-builder.ps1
-      - name: montagem Dart das augmentations
+      - name: Dart assembly of the augmentations
         if: success() || failure()
         shell: pwsh
         run: |
           Push-Location packages/macros
           try {
             dart pub get
-            if ($LASTEXITCODE -ne 0) { throw 'pub get da API de macros falhou' }
+            if ($LASTEXITCODE -ne 0) { throw 'pub get of the macro API failed' }
             dart run test/montagem.dart
-            if ($LASTEXITCODE -ne 0) { throw 'montagem Dart das augmentations falhou' }
+            if ($LASTEXITCODE -ne 0) { throw 'Dart assembly of the augmentations failed' }
             dart run test/montagem_cfe.dart
-            if ($LASTEXITCODE -ne 0) { throw 'montagem Dart divergiu do CFE' }
+            if ($LASTEXITCODE -ne 0) { throw 'Dart assembly diverged from the CFE' }
             dart --enable-experiment=macros run test/executor_cfe.dart
-            if ($LASTEXITCODE -ne 0) { throw 'executor Dart no mesmo isolate divergiu do CFE' }
+            if ($LASTEXITCODE -ne 0) { throw 'Dart executor in the same isolate diverged from the CFE' }
             dart --enable-experiment=macros run test/builder_model_cfe.dart
-            if ($LASTEXITCODE -ne 0) { throw 'modelo do analyzer não reproduziu a fase de declarações CFE' }
+            if ($LASTEXITCODE -ne 0) { throw 'the analyzer model did not reproduce the CFE declarations phase' }
           }
           finally { Pop-Location }
-      # O executor nativo de macros (`executor_nativo_bate_com_o_cfe`) compila
-      # o bootstrap com um `dartforge` que tenha a feature `native`: o release
-      # que o passo das regressões do dart:io acabou de compilar.
-      - name: test (ignorados que o runner satisfaz)
+      # The native macro executor (`native_executor_matches_the_cfe`) compiles
+      # the bootstrap with a `dartforge` that has the `native` feature: the
+      # release the dart:io regressions step just built.
+      - name: test (ignored tests the runner satisfies)
         if: success() || failure()
         env:
           DARTFORGE_NATIVE_COMPILER: ${{ github.workspace }}\target\release\dartforge.exe
@@ -301,39 +301,41 @@ jobs:
           --skip ddc_matches_dart_run --skip microbenchmark
           --skip ng_dart_edit_in_each_file
 
-  # O backend nativo e o JIT no Linux e no macOS: compilar com os dois
-  # features, os testes do emit_native e do JIT (com os ignorados) e a recarga
-  # pela CLI. O corpus inteiro fica no job `nativo-unix` do pesado.yml.
-  # O Linux usa a libLLVM-22.so do apt.llvm.org com DARTFORGE_LLVM_LINK=shared
-  # (o caminho dinâmico do crates/llvm/build.rs); o macOS, o pacote oficial
-  # arm64 em `auto` (estático: o pacote não traz a biblioteca compartilhada).
-  nativo-unix:
-    name: nativo e jit (${{ matrix.nome }})
+  # The native backend and the JIT on Linux and macOS: build with both
+  # features, the emit_native and JIT tests (with the ignored ones) and the
+  # reload through the CLI. The whole corpus stays in heavy.yml's
+  # `native-unix` job. Linux uses apt.llvm.org's libLLVM-22.so with
+  # DARTFORGE_LLVM_LINK=shared (crates/llvm/build.rs's dynamic path); macOS,
+  # the official arm64 package in `auto` (static: the package does not carry
+  # the shared library).
+  native-unix:
+    name: native and jit (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
-    # No macOS a rodada fria excedeu 90 min ainda ligando os testes JIT,
-    # após concluir as matrizes AOT e os testes do emissor com ignorados.
-    timeout-minutes: ${{ matrix.prazo_minutos }}
+    # On macOS the cold run exceeded 90 min still linking the JIT tests, after
+    # finishing the AOT matrices and the emitter tests with the ignored ones.
+    timeout-minutes: ${{ matrix.timeout_minutes }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
-            nome: Linux, libLLVM compartilhada
-            prazo_minutos: 90
+            name: Linux, shared libLLVM
+            timeout_minutes: 90
           - os: macos-latest
-            nome: macOS arm64
-            prazo_minutos: 150
+            name: macOS arm64
+            timeout_minutes: 150
     env:
       CARGO_PROFILE_RELEASE_LTO: 'false'
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
-      # O C que o `cc` compila (ring, zlib, blake3) sai com o mínimo do SDK do
-      # runner (26.x) sem isto, e o ld64 avisa em cada objeto que ele é mais
-      # novo que o mínimo 11.0 do alvo arm64. Só as ferramentas da Apple leem.
+      # The C that `cc` compiles (ring, zlib, blake3) comes out with the
+      # runner SDK's minimum (26.x) without this, and ld64 warns on every
+      # object that it is newer than the arm64 target's 11.0 minimum. Only
+      # Apple's tools read it.
       MACOSX_DEPLOYMENT_TARGET: '11.0'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/dart
-      - name: LLVM 22 do apt.llvm.org (libLLVM-22.so)
+      - name: LLVM 22 from apt.llvm.org (libLLVM-22.so)
         if: runner.os == 'Linux'
         run: |
           set -euo pipefail
@@ -342,250 +344,251 @@ jobs:
           echo "deb http://apt.llvm.org/$VERSION_CODENAME/ llvm-toolchain-$VERSION_CODENAME-22 main" | sudo tee /etc/apt/sources.list.d/llvm-22.list
           sudo apt-get update -qq
           sudo apt-get install -y -qq clang-22 lld-22 llvm-22-dev libpolly-22-dev libzstd-dev
-          prefixo=/usr/lib/llvm-22
-          ls "$prefixo"/lib/libLLVM*.so*
-          echo "DARTFORGE_CLANG=$prefixo/bin/clang" >> "$GITHUB_ENV"
-          echo "DARTFORGE_LLVM_DIR=$prefixo" >> "$GITHUB_ENV"
-          echo "LLVM_SYS_221_PREFIX=$prefixo" >> "$GITHUB_ENV"
+          prefix=/usr/lib/llvm-22
+          ls "$prefix"/lib/libLLVM*.so*
+          echo "DARTFORGE_CLANG=$prefix/bin/clang" >> "$GITHUB_ENV"
+          echo "DARTFORGE_LLVM_DIR=$prefix" >> "$GITHUB_ENV"
+          echo "LLVM_SYS_221_PREFIX=$prefix" >> "$GITHUB_ENV"
           echo "DARTFORGE_LLVM_LINK=shared" >> "$GITHUB_ENV"
       - if: runner.os == 'macOS'
         uses: ./.github/actions/llvm-unix
-      - name: Rust fixado (rust-toolchain.toml)
+      - name: Pinned Rust (rust-toolchain.toml)
         run: rustup toolchain install 1.98.1 --profile minimal
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: ci-unix
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Compilar dartforge (nativo, jit)
+      - name: Build dartforge (native, jit)
         run: cargo build --locked --release -p dartforge-cli --features native,jit -p dartforge-jit
-      - name: Seleção explícita de memória na CLI (AOT, JIT e reload)
+      - name: Explicit memory selection in the CLI (AOT, JIT and reload)
         run: cargo test --locked --release -p dartforge-cli --features native,jit --test memory_cli -- --include-ignored
-      - name: Retorno Owned pela fronteira nativa (AOT Unix)
+      - name: Owned return through the native boundary (AOT Unix)
         shell: bash
         run: python3 scripts/prove-arc-aot.py arc_native_port_owned --features embedded-llvm
-      - name: Artefatos da fronteira nativa Unix
+      - name: Artifacts of the native boundary Unix
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: prova-porta-nativa-owned-${{ runner.os }}
+          name: proof-native-port-owned-${{ runner.os }}
           path: |
-            target/prova-porta-nativa-owned/*.ll
-            target/prova-porta-nativa-owned/*.stdout
-            target/prova-porta-nativa-owned/*.stderr
-            target/prova-porta-nativa-owned/*.exit
-            target/prova-porta-nativa-owned/*.build.log
-            target/prova-porta-nativa-owned/evidencia.json
-      - name: Retorno Owned do corpo Dart da fonte (AOT Unix)
+            target/proof-native-port-owned/*.ll
+            target/proof-native-port-owned/*.stdout
+            target/proof-native-port-owned/*.stderr
+            target/proof-native-port-owned/*.exit
+            target/proof-native-port-owned/*.build.log
+            target/proof-native-port-owned/evidence.json
+      - name: Owned return of the source's Dart body (AOT Unix)
         shell: bash
         run: python3 scripts/prove-arc-aot.py arc_source_return --features embedded-llvm
-      - name: Artefatos do retorno da fonte Unix
+      - name: Artifacts of the source return Unix
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: prova-retorno-da-fonte-${{ runner.os }}
+          name: proof-source-return-${{ runner.os }}
           path: |
-            target/prova-retorno-da-fonte/*.dart
-            target/prova-retorno-da-fonte/*.ll
-            target/prova-retorno-da-fonte/*.stdout
-            target/prova-retorno-da-fonte/*.stderr
-            target/prova-retorno-da-fonte/*.exit
-            target/prova-retorno-da-fonte/*.build.log
-            target/prova-retorno-da-fonte/evidencia.json
-      - name: Instâncias zeradas Owned e registro de métodos (AOT Unix)
+            target/proof-source-return/*.dart
+            target/proof-source-return/*.ll
+            target/proof-source-return/*.stdout
+            target/proof-source-return/*.stderr
+            target/proof-source-return/*.exit
+            target/proof-source-return/*.build.log
+            target/proof-source-return/evidence.json
+      - name: Owned zeroed instances and method registration (AOT Unix)
         shell: bash
         run: python3 scripts/prove-arc-aot.py arc_zeroed_instance --features embedded-llvm
-      - name: Artefatos das instâncias zeradas Unix
+      - name: Artifacts of the zeroed instances Unix
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: prova-instancia-zerada-${{ runner.os }}
+          name: proof-zeroed-instance-${{ runner.os }}
           path: |
-            target/prova-instancia-zerada/*.ll
-            target/prova-instancia-zerada/*.stdout
-            target/prova-instancia-zerada/*.stderr
-            target/prova-instancia-zerada/*.exit
-            target/prova-instancia-zerada/*.build.log
-            target/prova-instancia-zerada/evidencia.json
-      - name: Campos tipados da fonte Dart (ARC opt-in e tracing padrão)
+            target/proof-zeroed-instance/*.ll
+            target/proof-zeroed-instance/*.stdout
+            target/proof-zeroed-instance/*.stderr
+            target/proof-zeroed-instance/*.exit
+            target/proof-zeroed-instance/*.build.log
+            target/proof-zeroed-instance/evidence.json
+      - name: Typed fields of the Dart source (opt-in ARC and default tracing)
         shell: bash
-        run: python3 scripts/prove-typed-fields-aot.py --dartforge target/release/dartforge --saida target/prova-campos-tipados
-      - name: Artefatos dos campos tipados Unix
+        run: python3 scripts/prove-typed-fields-aot.py --dartforge target/release/dartforge --output target/proof-typed-fields
+      - name: Artifacts of the typed fields Unix
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: prova-campos-tipados-${{ runner.os }}
+          name: proof-typed-fields-${{ runner.os }}
           path: |
-            target/prova-campos-tipados/*.dart
-            target/prova-campos-tipados/*.stdout
-            target/prova-campos-tipados/*.stderr
-            target/prova-campos-tipados/*.exit
-            target/prova-campos-tipados/evidencia.json
-      - name: Getters e setters de campos locais (AOT Unix)
+            target/proof-typed-fields/*.dart
+            target/proof-typed-fields/*.stdout
+            target/proof-typed-fields/*.stderr
+            target/proof-typed-fields/*.exit
+            target/proof-typed-fields/evidence.json
+      - name: Getters and setters of local fields (AOT Unix)
         shell: bash
         run: python3 scripts/prove-arc-aot.py arc_local_fields --features embedded-llvm
-      - name: Artefatos dos campos locais Unix
+      - name: Artifacts of the local fields Unix
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: prova-campos-locais-${{ matrix.os }}
+          name: proof-local-fields-${{ matrix.os }}
           path: |
-            target/prova-campos-locais/*.ll
-            target/prova-campos-locais/*.stdout
-            target/prova-campos-locais/*.stderr
-            target/prova-campos-locais/*.exit
-            target/prova-campos-locais/*.build.log
-            target/prova-campos-locais/evidencia.json
-      - name: Alocação e inicialização de campos Owned (AOT Unix)
+            target/proof-local-fields/*.ll
+            target/proof-local-fields/*.stdout
+            target/proof-local-fields/*.stderr
+            target/proof-local-fields/*.exit
+            target/proof-local-fields/*.build.log
+            target/proof-local-fields/evidence.json
+      - name: Allocation and initialization of Owned fields (AOT Unix)
         shell: bash
         run: python3 scripts/prove-arc-aot.py arc_field_allocation --features embedded-llvm
-      - name: Artefatos da alocação Owned Unix
+      - name: Artifacts of the Owned allocation Unix
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: prova-alocacao-campos-${{ matrix.os }}
+          name: proof-field-allocation-${{ matrix.os }}
           path: |
-            target/prova-alocacao-campos/*.ll
-            target/prova-alocacao-campos/*.stdout
-            target/prova-alocacao-campos/*.stderr
-            target/prova-alocacao-campos/*.exit
-            target/prova-alocacao-campos/*.build.log
-            target/prova-alocacao-campos/evidencia.json
-      - name: Keepalive de campos com heap real (AOT Unix)
+            target/proof-field-allocation/*.ll
+            target/proof-field-allocation/*.stdout
+            target/proof-field-allocation/*.stderr
+            target/proof-field-allocation/*.exit
+            target/proof-field-allocation/*.build.log
+            target/proof-field-allocation/evidence.json
+      - name: Field keepalive with a real heap (AOT Unix)
         shell: bash
         run: python3 scripts/prove-arc-aot.py arc_field_keepalive --features embedded-llvm
-      - name: Artefatos do keepalive de campos Unix
+      - name: Artifacts of the field keepalive Unix
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: prova-keepalive-campos-${{ matrix.os }}
+          name: proof-field-keepalive-${{ matrix.os }}
           path: |
-            target/prova-keepalive-campos/*.ll
-            target/prova-keepalive-campos/*.stdout
-            target/prova-keepalive-campos/*.stderr
-            target/prova-keepalive-campos/*.exit
-            target/prova-keepalive-campos/*.build.log
-            target/prova-keepalive-campos/evidencia.json
-      - name: Keepalive pending com heap real (AOT Unix)
+            target/proof-field-keepalive/*.ll
+            target/proof-field-keepalive/*.stdout
+            target/proof-field-keepalive/*.stderr
+            target/proof-field-keepalive/*.exit
+            target/proof-field-keepalive/*.build.log
+            target/proof-field-keepalive/evidence.json
+      - name: Pending keepalive with a real heap (AOT Unix)
         shell: bash
         run: python3 scripts/prove-arc-aot.py arc_keepalive_pending --features embedded-llvm
-      - name: Artefatos do keepalive pending Unix
+      - name: Artifacts of the pending keepalive Unix
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: prova-keepalive-pending-${{ matrix.os }}
+          name: proof-keepalive-pending-${{ matrix.os }}
           path: |
-            target/prova-keepalive-pending/*.ll
-            target/prova-keepalive-pending/*.stdout
-            target/prova-keepalive-pending/*.stderr
-            target/prova-keepalive-pending/*.exit
-            target/prova-keepalive-pending/*.build.log
-            target/prova-keepalive-pending/evidencia.json
-      - name: Cleanup de laços com heap real (AOT Unix)
+            target/proof-keepalive-pending/*.ll
+            target/proof-keepalive-pending/*.stdout
+            target/proof-keepalive-pending/*.stderr
+            target/proof-keepalive-pending/*.exit
+            target/proof-keepalive-pending/*.build.log
+            target/proof-keepalive-pending/evidence.json
+      - name: Loop cleanup with a real heap (AOT Unix)
         shell: bash
         run: python3 scripts/prove-arc-aot.py arc_loop_cleanup --features embedded-llvm
-      - name: Artefatos do cleanup de laços Unix
+      - name: Artifacts of the loop cleanup Unix
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: prova-cleanup-laco-${{ matrix.os }}
+          name: proof-loop-cleanup-${{ matrix.os }}
           path: |
-            target/prova-cleanup-laco/*.ll
-            target/prova-cleanup-laco/*.stdout
-            target/prova-cleanup-laco/*.stderr
-            target/prova-cleanup-laco/*.exit
-            target/prova-cleanup-laco/*.build.log
-            target/prova-cleanup-laco/evidencia.json
-      - name: Cleanup ARC com resume Itanium (AOT, normal e erro)
+            target/proof-loop-cleanup/*.ll
+            target/proof-loop-cleanup/*.stdout
+            target/proof-loop-cleanup/*.stderr
+            target/proof-loop-cleanup/*.exit
+            target/proof-loop-cleanup/*.build.log
+            target/proof-loop-cleanup/evidence.json
+      - name: ARC cleanup with Itanium resume (AOT, normal and error)
         shell: bash
         run: |
-          mkdir -p target/prova-arc-resume
-          printf '9223372036854775807\n' > target/prova-arc-resume/normal.esperado
-          printf '9223372036854775807\n' > target/prova-arc-resume/erro.esperado
-          for perfil in simples misto; do
-            for modo in arc tracing; do
-              for caminho in normal erro; do
-                exe="target/prova-arc-resume/${perfil}-${modo}-${caminho}"
-                DARTFORGE_EFFECTS=check cargo run --locked --release -p dartforge-emit-native --features embedded-llvm --example arc_guarded_returns -- "$exe" "$modo" "$caminho" automatico "$perfil"
+          mkdir -p target/proof-arc-resume
+          printf '9223372036854775807\n' > target/proof-arc-resume/normal.expected
+          printf '9223372036854775807\n' > target/proof-arc-resume/error.expected
+          for profile in simple mixed; do
+            for mode in arc tracing; do
+              for path in normal error; do
+                exe="target/proof-arc-resume/${profile}-${mode}-${path}"
+                DARTFORGE_EFFECTS=check cargo run --locked --release -p dartforge-emit-native --features embedded-llvm --example arc_guarded_returns -- "$exe" "$mode" "$path" automatic "$profile"
                 grep -F 'personality ptr @dartforge_personality_cleanup_itanium' "${exe}.ll"
                 grep -F 'resume { ptr, i32 } %lpad' "${exe}.ll"
-                if [ "$perfil" = misto ]; then
+                if [ "$profile" = mixed ]; then
                   grep -F '@llvm.eh.typeid.for(ptr null)' "${exe}.ll"
                 fi
                 DARTFORGE_ARC_CHECK=1 DARTFORGE_ARC_NURSERY=0 DARTFORGE_GC_STRESS=1 "$exe" > "${exe}.stdout"
-                cmp "target/prova-arc-resume/${caminho}.esperado" "${exe}.stdout"
+                cmp "target/proof-arc-resume/${path}.expected" "${exe}.stdout"
               done
             done
           done
-      - name: Artefatos da prova ARC resume
+      - name: Artifacts of the ARC resume proof
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: prova-arc-resume-${{ matrix.os }}
+          name: proof-arc-resume-${{ matrix.os }}
           path: |
-            target/prova-arc-resume/*.ll
-            target/prova-arc-resume/*.stdout
-      - name: Unwind estrangeiro com owners ARC e heap real
+            target/proof-arc-resume/*.ll
+            target/proof-arc-resume/*.stdout
+      - name: Foreign unwind with ARC owners and a real heap
         shell: bash
         run: |
-          mkdir -p target/prova-unwind-estrangeiro
-          printf 'foreign-cleanup-ok\n' > target/prova-unwind-estrangeiro/cpp.esperado
-          printf 'forced-cleanup-ok\n' > target/prova-unwind-estrangeiro/forcado.esperado
-          cp target/prova-unwind-estrangeiro/forcado.esperado target/prova-unwind-estrangeiro/forcado_dart.esperado
-          for perfil in simples quadros retoma; do
-            for nivel in 0 2; do
-              exe="target/prova-unwind-estrangeiro/prova-${perfil}-O${nivel}"
-              DARTFORGE_EFFECTS=check cargo run --locked --release -p dartforge-emit-native --features embedded-llvm --example arc_foreign_unwind -- "$exe" "$nivel" "$perfil"
-              for modo in arc tracing; do
-                for caminho in cpp forcado forcado_dart; do
-                  DARTFORGE_ARC_CHECK=1 DARTFORGE_ARC_NURSERY=0 DARTFORGE_GC_STRESS=1 "$exe" "$modo" "$caminho" > "${exe}-${modo}-${caminho}.stdout"
-                  cmp "target/prova-unwind-estrangeiro/${caminho}.esperado" "${exe}-${modo}-${caminho}.stdout"
+          mkdir -p target/proof-foreign-unwind
+          printf 'foreign-cleanup-ok\n' > target/proof-foreign-unwind/cpp.expected
+          printf 'forced-cleanup-ok\n' > target/proof-foreign-unwind/forced.expected
+          cp target/proof-foreign-unwind/forced.expected target/proof-foreign-unwind/forced_dart.expected
+          for profile in simple frames resume; do
+            for level in 0 2; do
+              exe="target/proof-foreign-unwind/proof-${profile}-O${level}"
+              DARTFORGE_EFFECTS=check cargo run --locked --release -p dartforge-emit-native --features embedded-llvm --example arc_foreign_unwind -- "$exe" "$level" "$profile"
+              for mode in arc tracing; do
+                for path in cpp forced forced_dart; do
+                  DARTFORGE_ARC_CHECK=1 DARTFORGE_ARC_NURSERY=0 DARTFORGE_GC_STRESS=1 "$exe" "$mode" "$path" > "${exe}-${mode}-${path}.stdout"
+                  cmp "target/proof-foreign-unwind/${path}.expected" "${exe}-${mode}-${path}.stdout"
                 done
               done
             done
           done
-      - name: Artefatos do unwind estrangeiro
+      - name: Artifacts of the foreign unwind
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: prova-unwind-estrangeiro-${{ matrix.os }}
+          name: proof-foreign-unwind-${{ matrix.os }}
           path: |
-            target/prova-unwind-estrangeiro/*.ll
-            target/prova-unwind-estrangeiro/*.cpp
-            target/prova-unwind-estrangeiro/*.ligacao.txt
-            target/prova-unwind-estrangeiro/*.stdout
-      - name: Testes do emit_native (com os ignorados)
+            target/proof-foreign-unwind/*.ll
+            target/proof-foreign-unwind/*.cpp
+            target/proof-foreign-unwind/*.link.txt
+            target/proof-foreign-unwind/*.stdout
+      - name: emit_native tests (with the ignored ones)
         env:
           DARTFORGE_TEST_SDK_LIB: ${{ env.DARTFORGE_SDK_LIB }}
         run: cargo test --locked --release -p dartforge-emit-native --features embedded-llvm -- --include-ignored
-      - name: Testes do JIT (com os ignorados)
+      - name: JIT tests (with the ignored ones)
         run: cargo test --locked --release -p dartforge-jit -- --include-ignored
-      - name: Recarga JIT da CLI (com e sem o SDK da fonte)
+      - name: CLI JIT reload (with and without the SDK from source)
         run: cargo test --locked --release -p dartforge-cli --features native,jit --test reload_state --test jit_program -- --include-ignored
-      - name: Regressões do dart:io nativo (escuta compartilhada, rajada de sinais)
+      - name: Native dart:io regressions (shared listening, signal burst)
         run: cargo test --locked --release -p dartforge-cli --features native,jit --test io_regression -- --include-ignored
-      - name: gdb (depuração nativa, J05)
+      - name: gdb (native debugging, J05)
         if: runner.os == 'Linux'
         run: sudo apt-get install -y -qq gdb
-      - name: Depuração nativa — o gdb para em arquivo.dart:linha
+      - name: Native debugging — gdb stops at file.dart:line
         run: cargo test --locked --release -p dartforge-cli --features native,jit --test debugging -- --include-ignored
-      - name: Olá, mundo — AOT de desenvolvimento, produção e JIT
+      - name: Hello, world — development AOT, production and JIT
         shell: bash
         env:
           DARTFORGE_SDK_FROM_SOURCE: '1'
         run: |
           set -euo pipefail
           d=$(mktemp -d)
-          printf "void main() {\n  print('oi');\n  print([1, 2, 3].map((x) => x * 2).toList());\n}\n" > "$d/main.dart"
-          esperado=$'oi\n[2, 4, 6]'
+          printf "void main() {\n  print('hi');\n  print([1, 2, 3].map((x) => x * 2).toList());\n}\n" > "$d/main.dart"
+          expected=$'hi\n[2, 4, 6]'
           ./target/release/dartforge compile-native "$d/main.dart" -o "$d/dev"
-          [ "$("$d/dev")" = "$esperado" ]
+          [ "$("$d/dev")" = "$expected" ]
           ./target/release/dartforge aot "$d/main.dart" "$d/prod" --optimize
-          [ "$("$d/prod")" = "$esperado" ]
-          [ "$(./target/release/dartforge run "$d/main.dart")" = "$esperado" ]
-      # A distribuição (`dartforge pack`) num ambiente limpo: sem Rust,
-      # sem LLVM, sem o SDK do Dart no ambiente (`env -i`, PATH do sistema).
-      # No Linux ela liga pelo lld com o sysroot próprio, sem o Clang.
-      - name: Distribuição num ambiente limpo
+          [ "$("$d/prod")" = "$expected" ]
+          [ "$(./target/release/dartforge run "$d/main.dart")" = "$expected" ]
+      # The distribution (`dartforge pack`) in a clean environment: without
+      # Rust, without LLVM, without the Dart SDK in the environment (`env -i`,
+      # the system PATH). On Linux it links through lld with its own sysroot,
+      # without Clang.
+      - name: Distribution in a clean environment
         shell: bash
         run: |
           set -euo pipefail
@@ -593,11 +596,11 @@ jobs:
           ./target/release/dartforge pack "$dist"
           du -sh "$dist"
           d=$(mktemp -d)
-          printf "import 'dart:isolate';\nFuture<void> main(List<String> a) async {\n  print('oi \${a.join(\",\")}');\n  print(await Isolate.run(() => [1, 2, 3].map((x) => x * x).toList()));\n}\n" > "$d/main.dart"
-          esperado=$'oi x,y\n[1, 4, 9]'
+          printf "import 'dart:isolate';\nFuture<void> main(List<String> a) async {\n  print('hi \${a.join(\",\")}');\n  print(await Isolate.run(() => [1, 2, 3].map((x) => x * x).toList()));\n}\n" > "$d/main.dart"
+          expected=$'hi x,y\n[1, 4, 9]'
           cd "$d"
           env -i PATH=/usr/bin:/bin HOME="$d/home" "$dist/bin/dartforge" aot main.dart dev
-          [ "$(./dev x y)" = "$esperado" ]
+          [ "$(./dev x y)" = "$expected" ]
           env -i PATH=/usr/bin:/bin HOME="$d/home" "$dist/bin/dartforge" aot main.dart prod --optimize
-          [ "$(./prod x y)" = "$esperado" ]
-          [ "$(env -i PATH=/usr/bin:/bin HOME="$d/home" "$dist/bin/dartforge" run main.dart x y)" = "$esperado" ]
+          [ "$(./prod x y)" = "$expected" ]
+          [ "$(env -i PATH=/usr/bin:/bin HOME="$d/home" "$dist/bin/dartforge" run main.dart x y)" = "$expected" ]

@@ -271,7 +271,7 @@ revalidação só delas, corte pela saída.
 
 ## 7. Corpus de macros
 
-`corpus/macros/`, job `macros` do `pesado.yml` (VM e DDC 3.6.2 com
+`corpus/macros/`, job `macros` do `heavy.yml` (VM e DDC 3.6.2 com
 `--enable-experiment=macros`, e 3.13.4 para a forma `part of`):
 
 * `400`–`405` — augmentations escritas à mão (AUGMENTATIONS.md §5);

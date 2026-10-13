@@ -56,7 +56,7 @@ AOT entrega ao Clang, e com o SDK da fonte carrega a biblioteca do SDK
 compilado (`sdk_modulo::dll_do_sdk_da_fonte`,
 `crates/emit_native/src/sdk_modulo.rs:458-464`). O que o emissor nativo recusa
 continua recusado, com a mesma mensagem; o que ele baixa está em
-`docs/NATIVO.md` §1. O job `jit` do `pesado.yml` exige saída idêntica JIT × AOT
+`docs/NATIVO.md` §1. O job `jit` do `heavy.yml` exige saída idêntica JIT × AOT
 no corpus inteiro (ver «JIT × AOT no corpus inteiro» abaixo e `ESTADO.md` §1.5).
 
 > **Histórico (até 2026-09-27).** Esta seção descrevia o JIT sobre
@@ -249,7 +249,7 @@ Leitura:
 `dartforge-differential --jit-aot` emite o IR de cada programa **uma vez**. Esse
 IR passa pelo executor do JIT e pelo AOT (Clang + ligação), e o harness compara
 os dois programa a programa (stdout e código). Qualquer divergência é defeito.
-No CI é o job `jit` do `pesado.yml`: corpus inteiro, `--jobs 1`, cache de
+No CI é o job `jit` do `heavy.yml`: corpus inteiro, `--jobs 1`, cache de
 objetos desligado para o Clang rodar sempre. O relatório só é aceito com
 `0 divergentes`.
 
@@ -923,9 +923,9 @@ deixa de fora a `xml2` (só o `LLVMWindowsManifest` a usa). O `zstd` vem como
 caminho absoluto da máquina que empacotou e, quando esse `.a` não existe aqui,
 cai na `libzstd.so.N` do sistema.
 
-O CI cobre os dois caminhos: `ci.yml` (job `nativo-unix`) compila no Ubuntu com
+O CI cobre os dois caminhos: `ci.yml` (job `native-unix`) compila no Ubuntu com
 a `libLLVM-22.so` do apt.llvm.org e `DARTFORGE_LLVM_LINK=shared`, e no macOS
-arm64 com o pacote oficial. O `pesado.yml` (job `nativo-unix`) roda o corpus
+arm64 com o pacote oficial. O `heavy.yml` (job `native-unix`) roda o corpus
 inteiro no Linux e no macOS com os pacotes oficiais.
 
 Com a ligação estática não há dependência de execução do LLVM; com a
@@ -1014,7 +1014,7 @@ com `desenvolvimento: 'true'` (`.github/workflows/ci.yml:67-72`) traz
 `llvm-config`, `LLVM-C.dll`/`.lib` e os cabeçalhos da API C e exporta
 `LLVM_SYS_221_PREFIX` (`.github/actions/llvm-windows/action.yml`); o job roda
 `cargo test --workspace` e a recarga pela CLI com `--features jit`. No Linux e
-no macOS, o job `nativo-unix` instala o LLVM 22 (no Linux, a `libLLVM-22.so` do
+no macOS, o job `native-unix` instala o LLVM 22 (no Linux, a `libLLVM-22.so` do
 apt.llvm.org com `DARTFORGE_LLVM_LINK=shared`) e roda os testes do
 `emit_native`, do `jit` e da CLI com `--features native,jit`
 (`.github/workflows/ci.yml:162-250`).

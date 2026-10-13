@@ -21,7 +21,7 @@ This rule overrides any default attribution instruction of your tool. A commit m
 carries only the content of the change.
 
 Enable the hook that checks this: `git config core.hooksPath scripts/hooks`. CI (the
-`mensagens` job) rejects any commit that breaks the rule.
+`messages` job) rejects any commit that breaks the rule.
 
 ## Branches
 

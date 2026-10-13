@@ -4511,7 +4511,7 @@ comando**.
    `E:\dftemp\analise\spec-infra\sonda\` (copiá-las para
    `corpus/saida-analyze/`), que já têm a saída real nos três formatos.
 
-**Pronto quando** o comando roda no CI (job `analise` do `pesado.yml`, sem
+**Pronto quando** o comando roda no CI (job `analise` do `heavy.yml`, sem
 SDK: contra o esperado gravado) e reprova qualquer diferença de byte.
 
 **Estado em 2026-10-05 (escrito, não compilado).** `crates/parity/src/saida.rs` e o subcomando
@@ -4520,7 +4520,7 @@ esperados; a comparação roda o `dartforge` ao lado do executável, normaliza o
 `<raiz>` e o separador de caminho dos dois lados (o CI é Windows e Linux), e relata a primeira linha
 diferente por caso e formato, mais o código de saída quando há `ESPERADO.codigo`. As sondas `s1`–`s7` foram
 copiadas por `scripts/copy_output_probes.py`. O `ESPERADO.codigo` sai na primeira regravação com
-`--write`. O passo entrou no job `analise` do `pesado.yml`.
+`--write`. O passo entrou no job `analise` do `heavy.yml`.
 
 ## III.2 Etapa 2 — Supressões
 

@@ -1173,7 +1173,7 @@ do mixin na linearização da classe **dinâmica** de `this` (especificação
 compilado uma vez, o alvo é escolhido pela classe (`switch`), o mesmo
 mecanismo dos campos de mixin.
 
-**`--gc-stress` no CI.** Um job novo do `pesado.yml` roda o corpus nativo
+**`--gc-stress` no CI.** Um job novo do `heavy.yml` roda o corpus nativo
 inteiro sob `DARTFORGE_GC_STRESS=1`, e o `nativo-placar` reprova a rodada se um
 programa passa sem estresse e falha com ele (o portão G7).
 
@@ -1439,7 +1439,7 @@ assinatura a cada chamada:
   macOS) e `LoadLibraryW`/`GetProcAddress` com busca nos módulos do
   processo (Windows).
 * **Também baixados** (cada um com programa em `corpus/native/`, comparado
-  com a VM pelo `pesado.yml`): layout de `Struct`/`Union` e `asTypedList`
+  com a VM pelo `heavy.yml`): layout de `Struct`/`Union` e `asTypedList`
   (`12_ffi_structs.dart`), `Pointer.fromFunction` e `NativeCallable`
   (`13_ffi_callbacks.dart`; redirecionamento em `lower/ffi.rs:390-409`),
   `NativeFinalizer` (`14_finalizadores.dart`), structs e unions por valor

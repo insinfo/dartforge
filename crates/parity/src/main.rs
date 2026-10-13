@@ -277,7 +277,7 @@ fn scoreboard(a: &Args, workers: usize) -> (String, bool) {
     let t = total.total();
     let pct = if t.oracle > 0 { 100.0 * t.hits as f64 / t.oracle as f64 } else { 0.0 };
     let mut s = String::new();
-    // The `parity scoreboard: ` prefix is matched by CI (`pesado.yml`).
+    // The `parity scoreboard: ` prefix is matched by CI (`heavy.yml`).
     let _ = writeln!(
         s,
         "parity scoreboard: {}/{} oracle diagnostics at the exact position ({pct:.1}%), {} with the same message; FP {}, FN {}, wrong position {}",
@@ -340,7 +340,7 @@ fn determinism(a: &Args) -> ExitCode {
         eprintln!("  {:.1} s", t.elapsed().as_secs_f64());
     }
     let same = texts.windows(2).all(|w| w[0] == w[1]);
-    // The `determinism: ` prefix is matched by CI (`pesado.yml`).
+    // The `determinism: ` prefix is matched by CI (`heavy.yml`).
     if same {
         println!("determinism: identical with {ns:?} workers");
         print!("{}", texts[0]);

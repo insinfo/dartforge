@@ -1,5 +1,5 @@
 // Sonda: o tempo real de timers curtos (Future.delayed) no laço de eventos
-// nativo, contra a VM. Rodar fora do Windows pelo workflow depurar.yml.
+// nativo, contra a VM. Rodar fora do Windows pelo workflow debug.yml.
 Future<void> main() async {
   final sw = Stopwatch()..start();
   for (var i = 0; i < 200; i++) {

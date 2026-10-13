@@ -351,6 +351,6 @@ O motor só existe se o `package_config.json` que o carregador já lê
 contém `build_runner`. Sem ele: nenhum YAML lido, nenhum grafo, nenhuma
 thread; `Sessao.etapas` vazio; `Relatorio.motor == None`;
 `dartforge_build::instancias() == 0`. Portões: teste estrutural
-(`crates/dev/tests/zero_cost.rs`), tempo no `pesado.yml` (corpus JS com e
+(`crates/dev/tests/zero_cost.rs`), tempo no `heavy.yml` (corpus JS com e
 sem os recursos, mediana), e a edição de corpo no `new_sali/core` medida
 localmente antes do merge.

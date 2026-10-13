@@ -1,37 +1,39 @@
 name: LLVM 22.1.8 (Windows)
 description: >
-  Instala a MESMA versão de LLVM usada localmente (22.1.8) a partir do pacote
-  oficial clang+llvm-22.1.8-x86_64-pc-windows-msvc e exporta DARTFORGE_CLANG
-  (e põe o clang no PATH). Com `desenvolvimento: 'true'`, traz também o que o
-  llvm-sys do crates/jit precisa e exporta LLVM_SYS_221_PREFIX.
+  Installs the SAME LLVM version used locally (22.1.8) from the official
+  clang+llvm-22.1.8-x86_64-pc-windows-msvc package and exports DARTFORGE_CLANG
+  (and puts clang on PATH). With `development: 'true'`, it also brings what
+  crates/jit's llvm-sys needs and exports LLVM_SYS_221_PREFIX.
 
-# Por que a mesma versão e não o LLVM que já vem no runner: o backend nativo
-# emite LLVM IR TEXTUAL, e o formato textual muda entre versões — um Clang de
-# outra versão pode recusar (ou aceitar diferente) o que o nosso emissor gera.
+# Why the same version and not the LLVM that comes with the runner: the native
+# backend emits TEXTUAL LLVM IR, and the textual format changes between
+# versions — a Clang of another version may reject (or accept differently)
+# what our emitter generates.
 #
-# O Clang e o lld-link precisam ser da mesma versão para ThinLTO do SDK da
-# fonte: o bitcode 22 é recusado pelo lld-link 20 presente no runner.
-# Extrai-se `bin/clang*.exe` porque o pacote pode guardar os executáveis
-# irmãos como hardlinks de um deles, e extrair um hardlink sem o alvo falha;
-# os irmãos do Clang (~100 MB cada) são apagados em seguida. Os executáveis
-# irmãos do lld são mantidos porque lld-link pode ser um hardlink de lld.exe.
+# Clang and lld-link have to be of the same version for the source SDK's
+# ThinLTO: version 22 bitcode is rejected by the runner's lld-link 20.
+# `bin/clang*.exe` is extracted because the package may store the sibling
+# executables as hardlinks of one of them, and extracting a hardlink without
+# its target fails; Clang's siblings (~100 MB each) are deleted right after.
+# lld's sibling executables are kept because lld-link may be a hardlink of
+# lld.exe.
 #
-# `desenvolvimento` acrescenta só o recorte mínimo do JIT (crates/jit, ORCv2),
-# medido localmente em ~73 MB. São cinco peças:
-#   bin/llvm-config.exe     (0,6 MB) o build.rs do llvm-sys o exige
-#   bin/LLVM-C.dll          (72 MB)  a ligação do JIT é dinâmica (docs/JIT.md)
-#   lib/LLVM-C.lib          (0,3 MB) import library da DLL
-#   include/llvm-c/         (0,5 MB) cabeçalhos da API C
-#   include/llvm/Config/    (44 KB)  incluídos por llvm-c/Target.h (wrapper do llvm-sys)
-# O recorte antigo de 1,1 GB levava as bibliotecas estáticas, que o JIT não usa
-# (CRT estática, ver crates/llvm/build.rs).
+# `development` adds only the minimal slice of the JIT (crates/jit, ORCv2),
+# measured locally at ~73 MB. Five pieces:
+#   bin/llvm-config.exe     (0.6 MB) llvm-sys's build.rs requires it
+#   bin/LLVM-C.dll          (72 MB)  the JIT links dynamically (docs/JIT.md)
+#   lib/LLVM-C.lib          (0.3 MB) the DLL's import library
+#   include/llvm-c/         (0.5 MB) C API headers
+#   include/llvm/Config/    (44 KB)  included by llvm-c/Target.h (llvm-sys wrapper)
+# The old 1.1 GB slice took the static libraries, which the JIT does not use
+# (static CRT, see crates/llvm/build.rs).
 #
-# O pacote inteiro tem 862 MB comprimidos; cada recorte cabe num cache pequeno,
-# com chave fixa pela versão e pelo recorte (não muda com o código).
+# The whole package is 862 MB compressed; each slice fits a small cache, with
+# a key fixed by the version and the slice (it does not change with the code).
 
 inputs:
-  desenvolvimento:
-    description: "'true' para trazer também llvm-config, LLVM-C e cabeçalhos (crates/jit)"
+  development:
+    description: "'true' to also bring llvm-config, LLVM-C and headers (crates/jit)"
     required: false
     default: 'false'
 
@@ -42,59 +44,59 @@ runs:
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
       with:
         path: C:\llvm-22.1.8
-        key: llvm-22.1.8-windows-x64-${{ inputs.desenvolvimento == 'true' && 'dev-v2' || 'clang-v3' }}
+        key: llvm-22.1.8-windows-x64-${{ inputs.development == 'true' && 'dev-v2' || 'clang-v3' }}
 
-    - name: Baixar e extrair o LLVM 22.1.8
+    - name: Download and extract LLVM 22.1.8
       if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
       env:
-        DESENVOLVIMENTO: ${{ inputs.desenvolvimento }}
+        DEVELOPMENT: ${{ inputs.development }}
       run: |
         set -euo pipefail
-        raiz=clang+llvm-22.1.8-x86_64-pc-windows-msvc
-        url="https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/$raiz.tar.xz"
-        # Caminho POSIX: o GNU tar lê `D:\a\...` como "host D, arquivo remoto".
-        pacote="$(cygpath -u "$RUNNER_TEMP")/llvm.tar.xz"
-        inicio=$SECONDS
-        curl -fsSL --retry 3 -o "$pacote" "$url"
-        echo "download: $((SECONDS - inicio)) s"
+        root=clang+llvm-22.1.8-x86_64-pc-windows-msvc
+        url="https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/$root.tar.xz"
+        # POSIX path: GNU tar reads `D:\a\...` as "host D, remote file".
+        package="$(cygpath -u "$RUNNER_TEMP")/llvm.tar.xz"
+        start=$SECONDS
+        curl -fsSL --retry 3 -o "$package" "$url"
+        echo "download: $((SECONDS - start)) s"
         mkdir -p /c/llvm-22.1.8
-        padroes=("$raiz/bin/clang*.exe" "$raiz/bin/lld*.exe" "$raiz/bin/ld.lld.exe" "$raiz/bin/ld64.lld.exe")
-        if [ "$DESENVOLVIMENTO" = "true" ]; then
-          padroes+=("$raiz/bin/llvm-config.exe" "$raiz/bin/LLVM-C.dll" "$raiz/lib/LLVM-C.lib"
-                    "$raiz/include/llvm-c/*" "$raiz/include/llvm/Config/*")
+        patterns=("$root/bin/clang*.exe" "$root/bin/lld*.exe" "$root/bin/ld.lld.exe" "$root/bin/ld64.lld.exe")
+        if [ "$DEVELOPMENT" = "true" ]; then
+          patterns+=("$root/bin/llvm-config.exe" "$root/bin/LLVM-C.dll" "$root/lib/LLVM-C.lib"
+                    "$root/include/llvm-c/*" "$root/include/llvm/Config/*")
         fi
-        # O tar do Git Bash é o GNU tar, que chama `xz` para -J; se o xz não
-        # estiver no PATH, o 7-Zip do runner descomprime para o pipe.
+        # Git Bash's tar is GNU tar, which calls `xz` for -J; if xz is not on
+        # PATH, the runner's 7-Zip decompresses into the pipe.
         if command -v xz >/dev/null; then
-          tar -xJf "$pacote" -C /c/llvm-22.1.8 --strip-components=1 --wildcards "${padroes[@]}"
+          tar -xJf "$package" -C /c/llvm-22.1.8 --strip-components=1 --wildcards "${patterns[@]}"
         else
-          7z x -so "$pacote" | tar -xf - -C /c/llvm-22.1.8 --strip-components=1 --wildcards "${padroes[@]}"
+          7z x -so "$package" | tar -xf - -C /c/llvm-22.1.8 --strip-components=1 --wildcards "${patterns[@]}"
         fi
-        rm -f "$pacote"
+        rm -f "$package"
         find /c/llvm-22.1.8/bin -type f -name 'clang*.exe' ! -name clang.exe -delete
-        echo "extração: $((SECONDS - inicio)) s no total"
+        echo "extraction: $((SECONDS - start)) s in total"
         du -sh /c/llvm-22.1.8 /c/llvm-22.1.8/*
 
-    - name: Exportar o LLVM para os passos seguintes
+    - name: Export LLVM to the following steps
       shell: pwsh
       env:
-        DESENVOLVIMENTO: ${{ inputs.desenvolvimento }}
+        DEVELOPMENT: ${{ inputs.development }}
       run: |
-        $raiz = 'C:\llvm-22.1.8'
-        $versao = & "$raiz\bin\clang.exe" --version | Select-Object -First 1
-        Write-Host $versao
-        if ($versao -notmatch '22\.1\.8') { throw "Clang inesperado: $versao" }
-        $ligador = & "$raiz\bin\lld-link.exe" --version | Select-Object -First 1
-        Write-Host $ligador
-        if ($ligador -notmatch '22\.1\.8') { throw "lld-link inesperado: $ligador" }
-        "DARTFORGE_CLANG=$raiz\bin\clang.exe" >> $env:GITHUB_ENV
-        "$raiz\bin" >> $env:GITHUB_PATH
-        if ($env:DESENVOLVIMENTO -eq 'true') {
-          $config = & "$raiz\bin\llvm-config.exe" --version
+        $root = 'C:\llvm-22.1.8'
+        $version = & "$root\bin\clang.exe" --version | Select-Object -First 1
+        Write-Host $version
+        if ($version -notmatch '22\.1\.8') { throw "unexpected Clang: $version" }
+        $linker = & "$root\bin\lld-link.exe" --version | Select-Object -First 1
+        Write-Host $linker
+        if ($linker -notmatch '22\.1\.8') { throw "unexpected lld-link: $linker" }
+        "DARTFORGE_CLANG=$root\bin\clang.exe" >> $env:GITHUB_ENV
+        "$root\bin" >> $env:GITHUB_PATH
+        if ($env:DEVELOPMENT -eq 'true') {
+          $config = & "$root\bin\llvm-config.exe" --version
           Write-Host "llvm-config $config"
-          if ($config -notmatch '22\.1\.8') { throw "llvm-config inesperado: $config" }
-          # Tem precedência sobre o [env] de .cargo/config.toml, que aponta
-          # para a instalação da máquina do proprietário.
-          "LLVM_SYS_221_PREFIX=$raiz" >> $env:GITHUB_ENV
+          if ($config -notmatch '22\.1\.8') { throw "unexpected llvm-config: $config" }
+          # Takes precedence over .cargo/config.toml's [env], which points
+          # to the installation on the owner's machine.
+          "LLVM_SYS_221_PREFIX=$root" >> $env:GITHUB_ENV
         }
