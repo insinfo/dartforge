@@ -5,12 +5,12 @@ edition.workspace = true
 license.workspace = true
 publish = false
 
-# A `staticlib` do runtime que o AOT liga aos executáveis: o módulo `abi` de
-# `dartforge-runtime` no perfil `aot` (com o `main` C) ou `dll` (a biblioteca
-# compartilhada do SDK da fonte), com as dependências dele (a TLS do
-# `dart:io`) dentro do mesmo arquivo — uma cópia só da biblioteca padrão do
-# Rust. Compilado pelo `build.rs` de `crates/emit_native` (um `cargo build`
-# próprio, com o alvo e o diretório dele), nunca na máquina de quem usa o
+# The runtime `staticlib` the AOT links into executables: the `abi` module of
+# `dartforge-runtime` in the `aot` profile (with the C `main`) or `dll` (the
+# shared library of the source SDK), with its dependencies (the TLS of
+# `dart:io`) inside the same file — a single copy of the Rust standard
+# library. Compiled by the `build.rs` of `crates/emit_native` (its own
+# `cargo build`, with its own target and directory), never on the machine of whoever uses
 # dartforge.
 [lib]
 crate-type = ["staticlib"]

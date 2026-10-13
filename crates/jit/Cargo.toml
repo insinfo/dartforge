@@ -5,30 +5,30 @@ edition.workspace = true
 license.workspace = true
 publish = false
 
-# Este crate adota a lint do workspace (`unsafe_code = "deny"`). Todo o `unsafe`
-# está concentrado em `src/ffi.rs`, único arquivo com `#![allow(unsafe_code)]`;
-# `src/lib.rs` e `src/reload.rs` permanecem 100% seguros.
+# This crate adopts the workspace lint (`unsafe_code = "deny"`). All the `unsafe`
+# is concentrated in `src/ffi.rs`, the only file with `#![allow(unsafe_code)]`;
+# `src/lib.rs` and `src/reload.rs` stay 100% safe.
 [lints]
 workspace = true
 
 [dependencies]
-# O runtime: `abi` (os mesmos fragmentos de `crates/runtime/src` que o AOT liga) e a tabela de
-# símbolos gerada dele (`simbolos`). Fonte única, ver crates/runtime/src/lib.rs.
+# The runtime: `abi` (the same fragments of `crates/runtime/src` the AOT links) and the symbol
+# table generated from it (`simbolos`). Single source, see crates/runtime/src/lib.rs.
 dartforge-runtime = { path = "../runtime" }
-# As assinaturas da API C do LLVM (`no-llvm-linking`). A ligação com o LLVM
-# vem de `dartforge-llvm` (o `build.rs` dele), que também inicializa o alvo
-# nativo uma vez por processo para o JIT e para o gerador de objetos do AOT.
+# The signatures of the LLVM C API (`no-llvm-linking`). Linking with LLVM
+# comes from `dartforge-llvm` (its `build.rs`), which also initializes the native
+# target once per process for the JIT and for the AOT object generator.
 dartforge-llvm = { path = "../llvm" }
 llvm-sys = { version = "221.1.0", features = ["no-llvm-linking"] }
 
 [dev-dependencies]
-# Só para `tests/execucao.rs`: produzir o IR de um programa Dart pela trilha
-# nova (`emitir_ir`) e ligá-lo pelo driver AOT, para o diferencial JIT × AOT
-# sobre o mesmo texto.
+# Only for `tests/execution.rs`: produce the IR of a Dart program through the new
+# track (`emitir_ir`) and link it through the AOT driver, for the JIT × AOT differential
+# over the same text.
 dartforge-emit-native = { path = "../emit_native" }
 
-# Executor isolado: um processo por programa, para que `process::exit` e
-# `abort` do runtime encerrem a execução e não quem a pediu (testes, harness).
+# Isolated executor: one process per program, so that the runtime's `process::exit` and
+# `abort` end the execution and not whoever requested it (tests, harness).
 [[bin]]
 name = "dartforge-executar-ir"
 path = "src/bin/run_ir.rs"

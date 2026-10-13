@@ -8,23 +8,23 @@ publish = false
 workspace = true
 
 [dependencies]
-# A TLS do `dart:io` (fragmento `tls`): o rustls com o provedor `ring` (o
-# `ring` também dá o SHA-1 do `X509Certificate.sha1`), as raízes do sistema
-# e, sem nenhuma, as da Mozilla.
+# The TLS of `dart:io` (fragment `tls`): rustls with the `ring` provider (
+# `ring` also gives the SHA-1 of `X509Certificate.sha1`), the system roots
+# and, without any, Mozilla's.
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 ring = "0.17"
 rustls-native-certs = "0.8"
 webpki-roots = "1"
-# Os filtros zlib/gzip do `dart:io` (fragmento `zlib`): o `flate2` sobre o
-# zlib da VM (o clássico), compilado da fonte e ligado ESTATICAMENTE no
-# runtime (`libz-sys` com `static`) — a mesma saída comprimida do `dart run`,
-# e nada de zlib na máquina de quem usa o dartforge.
+# The zlib/gzip filters of `dart:io` (fragment `zlib`): `flate2` over the
+# VM's zlib (the classic one), compiled from source and linked STATICALLY into the
+# runtime (`libz-sys` with `static`) — the same compressed output as `dart run`,
+# and no zlib needed on the machine of whoever uses dartforge.
 flate2 = { version = "1", default-features = false, features = ["zlib"] }
 libz-sys = { version = "1", default-features = false, features = ["libc", "static"] }
-# Os formatos de chave e certificado do `SecurityContext` que o rustls não lê
-# (fragmento `tls_formatos`): PKCS#12 e chaves privadas cifradas (PBES2,
-# as PBE do PKCS#12 e o PEM cifrado legado do OpenSSL). O HMAC, o PBKDF2 e
-# os resumos vêm do `ring`; aqui só as cifras de bloco e o MD5 do
+# The key and certificate formats of `SecurityContext` that rustls does not read
+# (fragment `tls_formats`): PKCS#12 and encrypted private keys (PBES2,
+# the PKCS#12 PBEs and OpenSSL's legacy encrypted PEM). HMAC, PBKDF2 and
+# the digests come from `ring`; here only the block ciphers and the MD5 of
 # `EVP_BytesToKey`.
 aes = "0.8"
 cbc = "0.1"
@@ -33,7 +33,7 @@ rc2 = "0.8"
 md-5 = "0.10"
 
 [features]
-# O perfil do módulo `abi` (ver o build.rs): nenhuma feature é o JIT; `aot` e
-# `dll` são as duas `staticlib` do AOT, montadas por `crates/runtime_static`.
+# The profile of the `abi` module (see build.rs): no feature is the JIT; `aot` and
+# `dll` are the two AOT `staticlib`s, assembled by `crates/runtime_static`.
 aot = []
 dll = []

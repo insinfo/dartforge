@@ -1,31 +1,31 @@
-//! Execução em memória do LLVM IR do backend nativo, via LLVM ORCv2 (`LLJIT`).
+//! In-memory execution of the native backend's LLVM IR, via LLVM ORCv2 (`LLJIT`).
 //!
-//! Este é o **perfil de desenvolvimento** do DartForge. O perfil de produção
-//! é o AOT de `crates/emit_native`: IR → objeto por Clang → executável ligado
-//! ao runtime Rust. Os dois consomem **exatamente o mesmo LLVM IR textual**; o
-//! que muda é só o destino dele:
+//! This is DartForge's **development profile**. The production profile
+//! is the AOT of `crates/emit_native`: IR → object through Clang → executable linked
+//! to the Rust runtime. Both consume **exactly the same textual LLVM IR**; what
+//! changes is only its destination:
 //!
-//! | | AOT (`crates/emit_native`) | JIT (este crate) |
+//! | | AOT (`crates/emit_native`) | JIT (this crate) |
 //! | --- | --- | --- |
-//! | Geração de código | Clang `-O0`, em processo separado | ORCv2 em memória, `CodeGenLevelNone`, CPU `x86-64` |
-//! | Runtime | `rustc` compila `runtime_main.rs` e o linker resolve | a mesma fonte, compilada em `dartforge_runtime::abi`; endereços publicados como símbolos absolutos |
-//! | `main` | o `main` C do harness chama `@dartforge_entry` e `finalizar_programa` | a sessão chama `@dartforge_entry` numa thread própria, e depois o mesmo `finalizar_programa` |
-//! | Saída | executável em disco | nada em disco |
+//! | Code generation | Clang `-O0`, in a separate process | in-memory ORCv2, `CodeGenLevelNone`, CPU `x86-64` |
+//! | Runtime | `rustc` compiles `runtime_main.rs` and the linker resolves | the same source, compiled into `dartforge_runtime::abi`; addresses published as absolute symbols |
+//! | `main` | the harness's C `main` calls `@dartforge_entry` and `finalizar_programa` | the session calls `@dartforge_entry` on its own thread, and then the same `finalizar_programa` |
+//! | Output | executable on disk | nothing on disk |
 //!
-//! O contrato completo — de onde vem cada símbolo, a pré-verificação de
-//! externos, a sessão persistente — está em `docs/JIT.md`.
+//! The complete contract — where each symbol comes from, the pre-check of
+//! externals, the persistent session — is in `docs/JIT.md`.
 //!
-//! # Término do programa
+//! # Program termination
 //!
-//! Exceção não capturada volta como `exit_code` 255 ([`EntryReport`]), pelo mesmo
-//! `finalizar_programa` que o `main` do AOT roda. Durante a execução, o runtime
-//! encerra o **processo** com `process::exit` nos mesmos casos em que o
-//! executável AOT termina: asserção de não nulidade e teto do heap (255, como a VM). Um erro interno do runtime aborta. Dentro de
-//! `dartforge run` isso é o comportamento certo — o processo termina com o
-//! código do programa, como `dart run`. Para testes e para o harness
-//! diferencial, a execução isolada é o binário `dartforge-execute_fn-ir`.
+//! An uncaught exception comes back as `exit_code` 255 ([`EntryReport`]), through the same
+//! `finalizar_programa` that the AOT `main` runs. During execution, the runtime
+//! ends the **process** with `process::exit` in the same cases in which the
+//! AOT executable ends: non-null assertion and heap ceiling (255, like the VM). An internal runtime error aborts. Inside
+//! `dartforge run` this is the right behaviour — the process ends with the
+//! program's code, like `dart run`. For tests and for the differential
+//! harness, isolated execution is the `dartforge-executar-ir` binary.
 //!
-//! # Exemplo
+//! # Example
 //!
 //! ```no_run
 //! let ir = "\
@@ -35,20 +35,20 @@
 //!   ret void
 //! }
 //! ";
-//! let report_data = dartforge_jit::run_ir(ir)?; // imprime 7 no stdout
+//! let report_data = dartforge_jit::run_ir(ir)?; // prints 7 on stdout
 //! assert_eq!(report_data.entry.exit_code, 0);
 //! # Ok::<(), dartforge_jit::JitError>(())
 //! ```
 //!
-//! # Requisito de build e de execução
+//! # Build and run requirement
 //!
-//! O crate usa `llvm-sys` 221, que localiza o LLVM 22.1.x pelo `llvm-config` da
-//! distribuição completa; `LLVM_SYS_221_PREFIX` aponta o prefixo, e
-//! `.cargo/config.toml` já a define para o repositório. A ligação é **dinâmica**,
-//! contra `LLVM-C.dll`, porque as bibliotecas estáticas do pacote oficial de
-//! Windows usam CRT estática e conflitam com a CRT dinâmica do Rust. Logo a DLL
-//! precisa estar alcançável pelo carregador em tempo de execução;
-//! `scripts/env.ps1` cuida disso. Veja [`docs/JIT.md`].
+//! The crate uses `llvm-sys` 221, which locates LLVM 22.1.x through the full
+//! distribution's `llvm-config`; `LLVM_SYS_221_PREFIX` points to the prefix, and
+//! `.cargo/config.toml` already defines it for the repository. Linking is **dynamic**,
+//! against `LLVM-C.dll`, because the static libraries of the official
+//! Windows package use the static CRT and conflict with Rust's dynamic CRT. So the DLL
+//! must be reachable by the loader at run time;
+//! `scripts/env.ps1` takes care of that. See [`docs/JIT.md`].
 //!
 //! [`docs/JIT.md`]: https://github.com/insinfo/dartforge/blob/main/docs/JIT.md
 mod delta;
@@ -63,27 +63,27 @@ pub use live::ProgramaVivo;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-/// Nome do símbolo que o emissor nativo gera para o programa.
+/// Name of the symbol the native emitter generates for the program.
 ///
-/// O emissor não produz uma função chamada `main`: o registro das classes e a
-/// chamada ao `main` Dart ficam em `void @dartforge_entry()`. Quem procurar
-/// `main` por engano recebe erro de símbolo ausente, não uma chamada errada.
+/// The emitter does not produce a function called `main`: class registration and the
+/// call to the Dart `main` live in `void @dartforge_entry()`. Whoever looks for
+/// `main` by mistake gets a missing symbol error, not a wrong call.
 pub const ENTRY_SYMBOL: &str = "dartforge_entry";
 
-/// Identifica o contrato do `main` emitido para o SDK da fonte. Uma simples
-/// declaração `df.register.*` também pode aparecer em IR que não chama o
-/// runtime da DLL; a decisão depende da chamada real a `dartforge_iniciar`.
+/// Identifies the contract of the `main` emitted for the source SDK. A mere
+/// `df.register.*` declaration may also appear in IR that does not call the
+/// DLL's runtime; the decision depends on the actual call to `dartforge_iniciar`.
 pub fn ir_usa_sdk_da_fonte(ir: &str) -> bool {
     let main = ir.lines().any(|line| line.trim_start().starts_with("define i32 @main()"));
     let iniciar = ir.lines().any(|line| line.contains("call i32 @dartforge_iniciar(ptr @dartforge_entry,"));
     main && iniciar
 }
 
-/// Nomes do runtime nativo que a sessão publica para o código gerado.
+/// Names of the native runtime that the session publishes for the generated code.
 ///
-/// Gerado por `build.rs` a partir dos `#[unsafe(no_mangle)]` de
-/// os fragmentos de `crates/runtime/src` — a mesma fonte que o AOT liga —, na
-/// ordem da fonte. Nenhum nome é mantido à mão.
+/// Generated by `build.rs` from the `#[unsafe(no_mangle)]` of
+/// the fragments of `crates/runtime/src` — the same source the AOT links —, in
+/// source order. No name is maintained by hand.
 ///
 /// ```
 /// assert!(dartforge_jit::RUNTIME_SYMBOLS.contains(&"dartforge_print_i64"));
@@ -91,42 +91,42 @@ pub fn ir_usa_sdk_da_fonte(ir: &str) -> bool {
 /// ```
 pub const RUNTIME_SYMBOLS: &[&str] = ffi::RUNTIME_SYMBOLS;
 
-/// Externos da CRT que o IR pode declarar além do runtime.
+/// CRT externals the IR may declare besides the runtime.
 ///
-/// Lista fechada: qualquer outro nome declarado e não definido por um módulo da
-/// sessão é recusado na etapa `símbolos` antes de chegar ao LLVM.
+/// Closed list: any other name declared and not defined by a module of the
+/// session is refused at the `symbols` stage before reaching LLVM.
 pub const CRT_SYMBOLS: &[&str] = ffi::CRT_SYMBOLS;
 
-/// Pilha da thread que executa o programa, em bytes.
+/// Stack of the thread that runs the program, in bytes.
 ///
-/// É a reserva padrão que o linker dá à thread principal de um executável
-/// Windows — a que o programa AOT recebe, já que o driver não passa `/STACK`.
-/// Usar o mesmo tamanho faz recursão profunda falhar nos mesmos pontos nos dois
-/// perfis. Se o AOT passar a fixar a pilha, esta constante acompanha.
+/// It is the default reservation the linker gives the main thread of a Windows
+/// executable — the one the AOT program receives, since the driver does not pass `/STACK`.
+/// Using the same size makes deep recursion fail at the same points in both
+/// profiles. If the AOT starts fixing the stack, this constant follows.
 pub const PROGRAM_STACK_BYTES: usize = 1 << 20;
 
-/// Etapa e diagnóstico de uma falha da sessão JIT.
+/// Stage and diagnostic of a JIT session failure.
 ///
-/// `message` traz a explicação em português e, quando existe, o texto original
-/// do LLVM anexado. Nenhum caminho de erro esperado usa `panic`.
+/// `message` carries the explanation and, when it exists, the original LLVM
+/// text attached. No expected error path uses `panic`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JitError {
-    /// Etapa que falhou: `lljit`, `runtime-symbols`, `parse-ir`, `layout`,
-    /// `símbolos`, `add-module`, `lookup`, `execute`, `resource` ou, no hot
-    /// reload, `contract`, `link`, `publish` e `poisoned`.
+    /// Stage that failed: `lljit`, `runtime-symbols`, `parse-ir`, `layout`,
+    /// `symbols`, `add-module`, `lookup`, `execute`, `resource` or, in hot
+    /// reload, `contract`, `link`, `publish` and `poisoned`.
     pub stage: &'static str,
-    /// Explicação em português, com o diagnóstico do LLVM quando houver.
+    /// Explanation, with the LLVM diagnostic when there is one.
     pub message: String,
 }
 impl std::fmt::Display for JitError {
-    /// Apresenta a etapa antes da mensagem.
+    /// Shows the stage before the message.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}: {}", self.stage, self.message)
     }
 }
 impl std::error::Error for JitError {}
 impl JitError {
-    /// Monta o erro anexando o diagnóstico original do LLVM à explicação.
+    /// Builds the error attaching the original LLVM diagnostic to the explanation.
     fn new(stage: &'static str, explanation: &str, detail: String) -> Self {
         Self {
             stage,
@@ -139,115 +139,115 @@ impl JitError {
     }
 }
 
-/// Custo de incorporar um módulo à sessão, medido por fase.
+/// Cost of incorporating a module into the session, measured per phase.
 ///
-/// Cada intervalo é cronometrado no próprio trecho, nunca por subtração, no
-/// mesmo espírito de `docs/DESEMPENHO.md`. `total` cobre a chamada inteira e é
-/// pelo menos a soma das fases.
+/// Each interval is timed in its own section, never by subtraction, in the
+/// same spirit as `docs/DESEMPENHO.md`. `total` covers the whole call and is
+/// at least the sum of the phases.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ModuleReport {
-    /// Análise do IR textual, verificações e construção do `ThreadSafeModule`.
+    /// Parsing of the textual IR, checks and construction of the `ThreadSafeModule`.
     pub parse_ir: Duration,
-    /// Entrega do módulo à `LLJIT` sob um `ResourceTracker` próprio.
+    /// Handing the module to `LLJIT` under its own `ResourceTracker`.
     pub add_module: Duration,
-    /// Chamada completa de [`JitSession::add_ir_module`].
+    /// Complete call of [`JitSession::add_ir_module`].
     pub total: Duration,
-    /// Bytes de IR textual analisados, para separar tempo de tamanho.
+    /// Bytes of textual IR parsed, to separate time from size.
     pub ir_bytes: usize,
 }
 
-/// Custo e resultado de resolver e executar a entrada da sessão.
+/// Cost and result of resolving and running the session's entry.
 ///
-/// `lookup` inclui a **geração de código sob demanda**: no ORCv2 o módulo só é
-/// compilado quando algum de seus símbolos é procurado. Por isso o primeiro
-/// `lookup` de uma sessão costuma dominar o relatório, e o `execute` seguinte
-/// mede apenas a execução do código já materializado.
+/// `lookup` includes **on-demand code generation**: in ORCv2 the module is only
+/// compiled when one of its symbols is looked up. That is why a session's first
+/// `lookup` usually dominates the report, and the following `execute`
+/// measures only the execution of the already materialized code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EntryReport {
-    /// Resolução do símbolo, incluindo a compilação sob demanda do módulo.
+    /// Symbol resolution, including the on-demand compilation of the module.
     pub lookup: Duration,
-    /// Execução do programa: a entrada e `finalizar_programa`.
+    /// Program execution: the entry and `finalizar_programa`.
     pub execute: Duration,
-    /// Chamada completa de [`JitSession::run_entry`].
+    /// Complete call of [`JitSession::run_entry`].
     pub total: Duration,
-    /// Código que `finalizar_programa` devolveu: 0, ou 255 para exceção não
-    /// capturada. Asserção de não nulidade e teto do heap encerram o processo
-    /// antes de chegar aqui (ver o topo do crate).
+    /// Code that `finalizar_programa` returned: 0, or 255 for an uncaught
+    /// exception. Non-null assertion and heap ceiling end the process
+    /// before getting here (see the top of the crate).
     pub exit_code: i32,
 }
 
-/// Custo completo de compilar e executar um IR numa sessão descartável.
+/// Complete cost of compiling and running an IR in a throwaway session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct JitReport {
-    /// Criação da `LLJIT` e definição dos símbolos de runtime.
+    /// Creation of the `LLJIT` and definition of the runtime symbols.
     pub session: Duration,
-    /// Fases de incorporação do módulo.
+    /// Phases of module incorporation.
     pub module: ModuleReport,
-    /// Fases de resolução e execução.
+    /// Phases of resolution and execution.
     pub entry: EntryReport,
-    /// Chamada completa, incluindo a destruição da sessão.
+    /// Complete call, including the destruction of the session.
     pub total: Duration,
 }
 
-/// Uma `LLJIT` viva, com o runtime nativo já resolvível pelo código gerado.
+/// A live `LLJIT`, with the native runtime already resolvable by the generated code.
 ///
 /// # Threading
 ///
-/// A sessão não é `Send` nem `Sync`: contém ponteiros crus da API C. O programa
-/// executa numa thread própria por execução ([`JitSession::run_entry`]), com o
-/// runtime zerado, porque todo o estado do runtime é `thread_local`.
+/// The session is neither `Send` nor `Sync`: it contains raw pointers of the C API. The program
+/// runs on its own thread per execution ([`JitSession::run_entry`]), with a
+/// zeroed runtime, because all runtime state is `thread_local`.
 ///
-/// # Símbolos duplicados
+/// # Duplicate symbols
 ///
-/// Todos os módulos entram na mesma `JITDylib`, onde cada nome é definido uma
-/// única vez. Como todo programa Dart compilado para o alvo nativo define
-/// `@dartforge_entry`, **dois programas completos não cabem na mesma sessão**:
-/// o segundo `add_ir_module` devolve erro de definição duplicada. Use uma sessão
-/// por programa, ou módulos com símbolos distintos.
+/// All modules go into the same `JITDylib`, where each name is defined only
+/// once. Since every Dart program compiled for the native target defines
+/// `@dartforge_entry`, **two complete programs do not fit in the same session**:
+/// the second `add_ir_module` returns a duplicate definition error. Use one session
+/// per program, or modules with distinct symbols.
 pub struct JitSession {
-    /// Rastreadores dos módulos simples, na ordem em que foram adicionados.
+    /// Trackers of the simple modules, in the order they were added.
     ///
-    /// Declarado **antes** de `lljit` de propósito: os campos são destruídos na
-    /// ordem de declaração, e liberar um `ResourceTracker` depois de destruir a
-    /// `LLJIT` que o criou seria uso de memória liberada. O mesmo vale para
-    /// `reloadables`, que também guarda rastreadores.
+    /// Declared **before** `lljit` on purpose: fields are dropped in
+    /// declaration order, and releasing a `ResourceTracker` after destroying the
+    /// `LLJIT` that created it would be a use after free. The same holds for
+    /// `reloadables`, which also keeps trackers.
     modules: Vec<Module>,
-    /// Módulos recarregáveis, com as gerações retidas e os trampolins.
+    /// Reloadable modules, with the retained generations and the trampolines.
     reloadables: Vec<reload::Reloadable>,
-    /// Motivo pelo qual a sessão parou de aceitar recargas, se houver.
+    /// Reason why the session stopped accepting reloads, if any.
     poisoned: Option<String>,
-    /// Identidade da sessão, para que uma [`StableEntry`] não cruze sessões.
+    /// Session identity, so that a [`StableEntry`] does not cross sessions.
     id: u64,
-    /// SDK da fonte (P5c/P5d, docs/NATIVO-PLANO.md §7.9): os nomes que a DLL
-    /// do SDK exporta (runtime e bibliotecas), publicados na sessão no lugar
-    /// do runtime deste processo. Vazio no caminho de sempre.
+    /// Source SDK (P5c/P5d, docs/NATIVO-PLANO.md §7.9): the names the SDK DLL
+    /// exports (runtime and libraries), published in the session in place
+    /// of this process's runtime. Empty on the usual path.
     sdk_externals: std::collections::HashSet<String>,
-    /// DLL usada pela sessão, para publicar exports que uma recarga passar a
-    /// referenciar. Ausente quando o runtime vem deste processo.
+    /// DLL used by the session, to publish exports that a reload starts
+    /// referencing. Absent when the runtime comes from this process.
     sdk_dll: Option<std::path::PathBuf>,
     lljit: ffi::Lljit,
 }
 
-/// Um módulo já incorporado à sessão e o rastreador que o descarrega.
+/// A module already incorporated into the session and the tracker that unloads it.
 struct Module {
     name: String,
     tracker: ffi::ResourceTracker,
     removed: bool,
-    /// Assinaturas das funções que ele define, para a verificação de contrato.
+    /// Signatures of the functions it defines, for the contract check.
     signatures: Vec<ffi::FunctionSignature>,
-    /// Layout nominal das classes que ele constrói: `(class_id, fields)`.
+    /// Nominal layout of the classes it builds: `(class_id, fields)`.
     layouts: Vec<(i64, i64)>,
-    /// Nomes das classes que ele registra: `(class_id, name)`.
+    /// Names of the classes it registers: `(class_id, name)`.
     class_names: Vec<(i64, String)>,
-    /// Os campos de cada classe, pelo nome (`; df.fields`, J03).
+    /// The fields of each class, by name (`; df.fields`, J03).
     fields: Vec<migration::Layout>,
-    /// Globais mutáveis (estáticos preguiçosos) zeradas antes de cada execução.
+    /// Mutable globals (lazy statics) zeroed before each execution.
     globals: Vec<ffi::MutableGlobal>,
 }
 
 impl JitSession {
-    /// Na sessão com DLL, só os nomes efetivamente publicados da DLL contam
-    /// como runtime. O conjunto `RUNTIME_SYMBOLS` pertence à sessão embutida.
+    /// In the session with a DLL, only the names actually published from the DLL count
+    /// as runtime. The `RUNTIME_SYMBOLS` set belongs to the embedded session.
     fn is_known_external(&self, name: &str) -> bool {
         if self.sdk_dll.is_some() {
             CRT_SYMBOLS.contains(&name) || name.starts_with("llvm.")
@@ -256,18 +256,18 @@ impl JitSession {
         }
     }
 
-    /// Abre uma `LLJIT` para o host e publica os símbolos do runtime nativo.
+    /// Opens an `LLJIT` for the host and publishes the symbols of the native runtime.
     ///
-    /// Os símbolos vêm de [`RUNTIME_SYMBOLS`] e são registrados como endereços
-    /// absolutos das funções Rust deste processo — não pelo gerador de símbolos
-    /// do processo (`LLVMOrcCreateDynamicLibrarySearchGeneratorForProcess`), por
-    /// duas razões: um executável Windows não exporta os `#[no_mangle]` das
-    /// bibliotecas Rust que liga, então o gerador não os acharia; e ele
-    /// resolveria por acidente um nome homônimo em vez de falhar alto.
+    /// The symbols come from [`RUNTIME_SYMBOLS`] and are registered as absolute
+    /// addresses of the Rust functions of this process — not through the process's symbol
+    /// generator (`LLVMOrcCreateDynamicLibrarySearchGeneratorForProcess`), for
+    /// two reasons: a Windows executable does not export the `#[no_mangle]`s of the
+    /// Rust libraries it links, so the generator would not find them; and it would
+    /// accidentally resolve a homonymous name instead of failing loudly.
     ///
-    /// # Erros
-    /// Falha se o LLVM não tiver backend para o host, se a `LLJIT` não puder ser
-    /// construída ou se algum símbolo de runtime já estiver definido.
+    /// # Errors
+    /// Fails if LLVM has no backend for the host, if the `LLJIT` cannot be
+    /// built or if some runtime symbol is already defined.
     ///
     /// ```no_run
     /// let session = dartforge_jit::JitSession::new()?;
@@ -276,13 +276,13 @@ impl JitSession {
     /// ```
     pub fn new() -> Result<Self, JitError> {
         let lljit = ffi::Lljit::new()
-            .map_err(|detail| JitError::new("lljit", "não foi possível abrir a LLJIT", detail))?;
-        // Raízes por mapas: o runtime deste processo é o que coleta.
+            .map_err(|detail| JitError::new("lljit", "could not open the LLJIT", detail))?;
+        // Map-based roots: this process's runtime is the one that collects.
         lljit.use_local_registry();
         lljit.define_runtime_symbols().map_err(|detail| {
             JitError::new(
                 "runtime-symbols",
-                "não foi possível publicar os símbolos do runtime nativo",
+                "could not publish the native runtime symbols",
                 detail,
             )
         })?;
@@ -298,34 +298,34 @@ impl JitSession {
         })
     }
 
-    /// Uma sessão para um programa com o SDK da fonte: o runtime e as
-    /// bibliotecas do SDK vêm da DLL do SDK compilado (`dll`, com o
-    /// `exportados.def` ao lado), carregada neste processo — o runtime deste
-    /// processo não é publicado (duas cópias do estado do runtime não
-    /// conversariam). O programa roda pelo `main` que o emissor escreve
+    /// A session for a program with the source SDK: the runtime and the
+    /// SDK libraries come from the compiled SDK DLL (`dll`, with
+    /// `exportados.def` next to it), loaded into this process — this process's
+    /// runtime is not published (two copies of the runtime state would not
+    /// talk to each other). The program runs through the `main` the emitter writes
     /// ([`run_ir`]).
     pub fn new_with_sdk(dll: &std::path::Path, used_count: &[String]) -> Result<Self, JitError> {
         let lljit = ffi::Lljit::new()
-            .map_err(|detail| JitError::new("lljit", "não foi possível abrir a LLJIT", detail))?;
-        // Raízes por mapas: o runtime da biblioteca do SDK é o que coleta.
+            .map_err(|detail| JitError::new("lljit", "could not open the LLJIT", detail))?;
+        // Map-based roots: the SDK library's runtime is the one that collects.
         lljit
             .use_library_registry(dll)
-            .map_err(|detail| JitError::new("sdk", "não foi possível ligar os mapas de pilha ao runtime da DLL do SDK", detail))?;
+            .map_err(|detail| JitError::new("sdk", "could not link the stack maps to the SDK DLL runtime", detail))?;
         let names = lljit
             .define_symbols_from_dll(dll, used_count, true)
-            .map_err(|detail| JitError::new("sdk", "não foi possível publicar os símbolos da DLL do SDK", detail))?;
-        // O runtime do programa é o da biblioteca: os argumentos do `main`
-        // vão para ele.
+            .map_err(|detail| JitError::new("sdk", "could not publish the SDK DLL symbols", detail))?;
+        // The program's runtime is the library's: the arguments of `main`
+        // go to it.
         let mut arguments = Vec::new();
         for a in program_arguments().lock().unwrap_or_else(|e| e.into_inner()).iter() {
             arguments.extend_from_slice(a.as_bytes());
             arguments.push(0);
         }
         ffi::set_arguments_in_library(dll, &arguments)
-            .map_err(|detail| JitError::new("sdk", "não foi possível entregar os argumentos do main à DLL do SDK", detail))?;
+            .map_err(|detail| JitError::new("sdk", "could not hand the main arguments to the SDK DLL", detail))?;
         if let Some(script) = program_script().lock().unwrap_or_else(|e| e.into_inner()).as_deref() {
             ffi::set_script_in_library(dll, script)
-                .map_err(|detail| JitError::new("sdk", "não foi possível entregar o script à DLL do SDK", detail))?;
+                .map_err(|detail| JitError::new("sdk", "could not hand the script to the SDK DLL", detail))?;
         }
         static NEXT_ID: AtomicU64 = AtomicU64::new(1_000_000);
         Ok(Self {
@@ -339,20 +339,20 @@ impl JitSession {
         })
     }
 
-    /// Abre uma sessão com o runtime correto para o IR emitido. Programas com
-    /// SDK da fonte usam `DARTFORGE_SDK_DLL` e só publicam os exports pedidos.
+    /// Opens a session with the right runtime for the emitted IR. Programs with
+    /// the source SDK use `DARTFORGE_SDK_DLL` and only publish the requested exports.
     pub fn new_for_ir(ir: &str) -> Result<Self, JitError> {
         Self::new_for_ir_com(ir, None)
     }
 
-    /// [`JitSession::new_for_ir`] com a biblioteca do SDK da fonte explícita;
-    /// `None` cai em `DARTFORGE_SDK_DLL`.
+    /// [`JitSession::new_for_ir`] with the source SDK library given explicitly;
+    /// `None` falls back to `DARTFORGE_SDK_DLL`.
     pub fn new_for_ir_com(ir: &str, sdk: Option<&std::path::Path>) -> Result<Self, JitError> {
         if !ir_usa_sdk_da_fonte(ir) {
             return Self::new();
         }
         let dll = sdk.map(|p| p.as_os_str().to_owned()).or_else(|| std::env::var_os("DARTFORGE_SDK_DLL")).ok_or_else(|| {
-            JitError::new("sdk", "programa com o SDK da fonte sem DARTFORGE_SDK_DLL", String::new())
+            JitError::new("sdk", "program with the source SDK without DARTFORGE_SDK_DLL", String::new())
         })?;
         let used_count: Vec<String> = ir
             .lines()
@@ -366,15 +366,15 @@ impl JitSession {
         Self::new_with_sdk(std::path::Path::new(&dll), &used_count)
     }
 
-    /// O runtime desta sessão vem da DLL do SDK da fonte.
+    /// This session's runtime comes from the source SDK DLL.
     pub fn usa_sdk_da_fonte(&self) -> bool {
         self.sdk_dll.is_some()
     }
 
-    /// Executa o `main` do programa com o SDK da fonte (que chama
-    /// `dartforge_iniciar` da DLL): o código de saída é o dele. As globais
-    /// mutáveis dos módulos JIT do programa são zeradas entre execuções da
-    /// mesma sessão. Estáticos internos da DLL do SDK permanecem entre chamadas.
+    /// Runs the `main` of the program with the source SDK (which calls the
+    /// DLL's `dartforge_iniciar`): the exit code is its own. The mutable
+    /// globals of the program's JIT modules are zeroed between executions of the
+    /// same session. Internal statics of the SDK DLL persist between calls.
     pub fn run_main(&self) -> Result<EntryReport, JitError> {
         let started = Instant::now();
         let globals: Vec<&ffi::MutableGlobal> = self
@@ -387,38 +387,38 @@ impl JitSession {
         let (lookup, exit_code, execute) = self
             .lljit
             .run_main(PROGRAM_STACK_BYTES, &globals)
-            .map_err(|detail| JitError::new("execute", "a execução do programa falhou", detail))?;
+            .map_err(|detail| JitError::new("execute", "the program execution failed", detail))?;
         Ok(EntryReport { lookup, execute, total: started.elapsed(), exit_code })
     }
 
-    /// Versão da `LLVM-C.dll` carregada neste processo, `(major, minor, patch)`.
+    /// Version of the `LLVM-C.dll` loaded in this process, `(major, minor, patch)`.
     ///
-    /// Existe porque há duas instalações do LLVM 22.1.8 nesta máquina e só a
-    /// completa serve; a DLL que o carregador acha primeiro no `PATH` é a que
-    /// vale, e `dartforge-execute_fn-ir --timings` a registra.
+    /// It exists because there are two LLVM 22.1.8 installations on this machine and only the
+    /// full one works; the DLL the loader finds first in `PATH` is the one that
+    /// counts, and `dartforge-executar-ir --timings` records it.
     pub fn llvm_version() -> (u32, u32, u32) {
         ffi::llvm_version()
     }
 
-    /// Confere o alvo do módulo contra o da `LLJIT`.
+    /// Checks the module's target against the `LLJIT`'s.
     ///
-    /// Um `target datalayout` ou `target triple` ausente é aceito (a `LLJIT`
-    /// impõe o dela). Um presente e diferente é recusado com as duas strings:
-    /// significaria que o IR foi emitido para outro alvo que não o do processo,
-    /// e o conserto é no emissor, não aqui.
+    /// A missing `target datalayout` or `target triple` is accepted (the `LLJIT`
+    /// imposes its own). One present and different is refused with both strings:
+    /// it would mean the IR was emitted for a target other than the process's,
+    /// and the fix belongs in the emitter, not here.
     fn check_target(&self, parsed: &ffi::ParsedModule) -> Result<(), JitError> {
         let (layout, triple) = parsed.target();
         self.check_target_strings(&layout, &triple)
     }
 
-    /// [`JitSession::check_target`] sobre as strings, para objetos em cache.
+    /// [`JitSession::check_target`] over the strings, for cached objects.
     fn check_target_strings(&self, layout: &str, triple: &str) -> Result<(), JitError> {
         let (jit_layout, jit_triple) = self.lljit.target();
         if !layout.is_empty() && layout != jit_layout {
             return Err(JitError {
                 stage: "layout",
                 message: format!(
-                    "o módulo fixa target datalayout \"{layout}\" e a LLJIT deste processo usa \
+                    "the module fixes target datalayout \"{layout}\" and this process's LLJIT uses \
                      \"{jit_layout}\""
                 ),
             });
@@ -427,7 +427,7 @@ impl JitSession {
             return Err(JitError {
                 stage: "layout",
                 message: format!(
-                    "o módulo fixa target triple \"{triple}\" e a LLJIT deste processo usa \
+                    "the module fixes target triple \"{triple}\" and this process's LLJIT uses \
                      \"{jit_triple}\""
                 ),
             });
@@ -435,7 +435,7 @@ impl JitSession {
         Ok(())
     }
 
-    /// Nomes que os módulos residentes definem, para resolver entre módulos.
+    /// Names the resident modules define, to resolve across modules.
     fn defined_names(&self) -> Vec<&str> {
         self.modules
             .iter()
@@ -449,30 +449,30 @@ impl JitSession {
             .collect()
     }
 
-    /// Analisa IR textual e o incorpora à sessão sob um rastreador próprio.
+    /// Parses textual IR and incorporates it into the session under its own tracker.
     ///
-    /// Antes de entregar o módulo ao LLVM, confere:
+    /// Before handing the module to LLVM, checks:
     ///
-    /// * o alvo (`layout`), contra o da `LLJIT`;
-    /// * cada nome **declarado e não definido** (`símbolos`): tem de ser do
-    ///   runtime ([`RUNTIME_SYMBOLS`]), da CRT listada ([`CRT_SYMBOLS`]), um
-    ///   intrínseco `llvm.*`, ou definido por um módulo já residente.
+    /// * the target (`layout`), against the `LLJIT`'s;
+    /// * each name **declared and not defined** (`symbols`): it must belong to the
+    ///   runtime ([`RUNTIME_SYMBOLS`]), to the listed CRT ([`CRT_SYMBOLS`]), be an
+    ///   `llvm.*` intrinsic, or be defined by an already resident module.
     ///
-    /// Um nome fora disso é recusado com o nome na mensagem, em vez de virar um
-    /// erro de ligação do ORC — ou, pior, ser resolvido por acaso para algo
-    /// homônimo do processo.
+    /// A name outside that is refused with the name in the message, instead of becoming an
+    /// ORC link error — or, worse, being resolved by chance to something
+    /// homonymous in the process.
     ///
-    /// # Erros
-    /// IR inválido (`parse-ir`), alvo divergente (`layout`), externo
-    /// desconhecido (`símbolos`) ou símbolo já definido na sessão
-    /// (`add-module`). Em nenhum caso a sessão fica em estado parcial.
+    /// # Errors
+    /// Invalid IR (`parse-ir`), divergent target (`layout`), unknown external
+    /// (`symbols`) or symbol already defined in the session
+    /// (`add-module`). In no case is the session left in a partial state.
     pub fn add_ir_module(&mut self, name: &str, ir: &str) -> Result<ModuleReport, JitError> {
         self.add_ir_module_with(name, ir, None)
     }
 
-    /// [`JitSession::add_ir_module`] de um programa inteiro, executado de uma
-    /// vez: só as entradas (`main`, `dartforge_entry`) ficam exportadas; as
-    /// demais funções são locais ao módulo (ver `internalize_functions`).
+    /// [`JitSession::add_ir_module`] of a whole program, run at
+    /// once: only the entries (`main`, `dartforge_entry`) stay exported; the
+    /// other functions are local to the module (see `internalize_functions`).
     pub fn add_program_module(&mut self, name: &str, ir: &str) -> Result<ModuleReport, JitError> {
         self.add_ir_module_with(name, ir, Some(&["main", ENTRY_SYMBOL]))
     }
@@ -481,7 +481,7 @@ impl JitSession {
         let started = Instant::now();
         let phase = Instant::now();
         let parsed = ffi::parse_module(name, ir)
-            .map_err(|detail| JitError::new("parse-ir", "IR inválido", detail))?;
+            .map_err(|detail| JitError::new("parse-ir", "invalid IR", detail))?;
         if let Some(keep) = export_only {
             parsed.internalize_functions(keep);
         }
@@ -495,28 +495,28 @@ impl JitSession {
                 && !signatures.iter().any(|s| &s.name == reference)
         }) {
             return Err(JitError {
-                stage: "símbolos",
+                stage: "symbols",
                 message: format!(
-                    "o módulo referencia {unknown}, que nem o runtime nem a lista de CRT definem, \
-                     e nenhum módulo da sessão define"
+                    "the module references {unknown}, which neither the runtime nor the CRT list define, \
+                     and no module of the session defines"
                 ),
             });
         }
-        // A impressão digital do contrato é lida aqui, e não só no hot reload,
-        // porque é o que permite a uma recarga futura comparar a versão nova com
-        // esta — inclusive quando este módulo entrou pelo caminho simples.
+        // The contract fingerprint is read here, and not only in hot reload,
+        // because it is what allows a future reload to compare the new version with
+        // this one — including when this module came in through the simple path.
         let layouts = parsed.class_layouts();
         let class_names = parsed.class_names();
         let globals = parsed
             .prepare_mutable_globals()
-            .map_err(|detail| JitError::new("globais", "o módulo tem estado que a sessão não sabe reiniciar", detail))?;
+            .map_err(|detail| JitError::new("globals", "the module has state the session cannot reset", detail))?;
         let module = parsed.into_thread_safe();
         let parse_ir = phase.elapsed();
         let tracker = self.lljit.create_tracker();
         let phase = Instant::now();
         self.lljit
             .add_module(&tracker, module)
-            .map_err(|detail| JitError::new("add-module", "a LLJIT recusou o módulo", detail))?;
+            .map_err(|detail| JitError::new("add-module", "the LLJIT refused the module", detail))?;
         let add_module = phase.elapsed();
         self.modules.push(Module {
             name: name.to_owned(),
@@ -536,19 +536,19 @@ impl JitSession {
         })
     }
 
-    /// Incorpora à sessão um módulo já compilado ([`compile_module`]).
+    /// Incorporates an already compiled module ([`compile_module`]) into the session.
     ///
-    /// Faz as mesmas verificações de [`JitSession::add_ir_module`] (alvo e
-    /// externos), a partir do que o módulo compilado guardou do IR, e entrega o
-    /// objeto à `LLJIT` sem análise nem geração de código. O mesmo
-    /// [`CompiledModule`] pode entrar em quantas sessões quiser.
+    /// Does the same checks as [`JitSession::add_ir_module`] (target and
+    /// externals), from what the compiled module kept from the IR, and hands the
+    /// object to `LLJIT` without parsing nor code generation. The same
+    /// [`CompiledModule`] can go into as many sessions as desired.
     ///
-    /// `ModuleReport::parse_ir` fica com as verificações, e `ir_bytes` com o
-    /// tamanho do objeto.
+    /// `ModuleReport::parse_ir` holds the checks, and `ir_bytes` the
+    /// object size.
     ///
-    /// # Erros
-    /// Alvo divergente (`layout`), externo desconhecido (`símbolos`) ou recusa
-    /// do LLVM (`add-module`, por exemplo símbolo duplicado).
+    /// # Errors
+    /// Divergent target (`layout`), unknown external (`symbols`) or refusal
+    /// by LLVM (`add-module`, for example a duplicate symbol).
     pub fn add_compiled_module(&mut self, module: &CompiledModule) -> Result<ModuleReport, JitError> {
         let started = Instant::now();
         let phase = Instant::now();
@@ -562,9 +562,9 @@ impl JitSession {
                 && !parts.signatures.iter().any(|s| &s.name == *reference)
         }) {
             return Err(JitError {
-                stage: "símbolos",
+                stage: "symbols",
                 message: format!(
-                    "o módulo referencia {unknown}, que nem o runtime nem a lista de CRT definem, \n                     e nenhum módulo da sessão define"
+                    "the module references {unknown}, which neither the runtime nor the CRT list define, \n                     and no module of the session defines"
                 ),
             });
         }
@@ -573,7 +573,7 @@ impl JitSession {
         let phase = Instant::now();
         self.lljit
             .add_object(&tracker, &parts.object, &module.name)
-            .map_err(|detail| JitError::new("add-module", "a LLJIT recusou o objeto", detail))?;
+            .map_err(|detail| JitError::new("add-module", "the LLJIT refused the object", detail))?;
         let add_module = phase.elapsed();
         self.modules.push(Module {
             name: module.name.clone(),
@@ -581,8 +581,8 @@ impl JitSession {
             removed: false,
             signatures: parts.signatures.clone(),
             layouts: parts.layouts.clone(),
-            // O objeto compilado não guarda os nomes: a comparação por nome
-            // começa na primeira recarga.
+            // The compiled object does not keep the names: comparison by name
+            // starts at the first reload.
             class_names: Vec::new(),
             fields: Vec::new(),
             globals: parts.globals.clone(),
@@ -595,45 +595,45 @@ impl JitSession {
         })
     }
 
-    /// Resolve um símbolo e devolve seu endereço no processo.
+    /// Resolves a symbol and returns its address in the process.
     ///
-    /// Resolver materializa o módulo que define o símbolo, ou seja, dispara a
-    /// geração de código. O endereço é informativo: chamá-lo exige conhecer a
-    /// assinatura, e este crate só executa a entrada de assinatura conhecida,
-    /// por [`JitSession::run_entry`].
+    /// Resolving materializes the module that defines the symbol, that is, it triggers
+    /// code generation. The address is informative: calling it requires knowing the
+    /// signature, and this crate only runs the entry with a known signature,
+    /// through [`JitSession::run_entry`].
     ///
-    /// # Erros
-    /// Símbolo ausente ou falha de compilação sob demanda viram erro na etapa
-    /// `lookup`, com o diagnóstico do LLVM anexado.
+    /// # Errors
+    /// A missing symbol or an on-demand compilation failure become an error at the
+    /// `lookup` stage, with the LLVM diagnostic attached.
     pub fn lookup(&self, symbol: &str) -> Result<u64, JitError> {
         self.lljit.lookup(symbol).map_err(|detail| {
             JitError::new(
                 "lookup",
-                &format!("não foi possível resolver o símbolo {symbol}"),
+                &format!("could not resolve the symbol {symbol}"),
                 detail,
             )
         })
     }
 
-    /// Resolve [`ENTRY_SYMBOL`] e executa o programa como o `main` do AOT.
+    /// Resolves [`ENTRY_SYMBOL`] and runs the program like the AOT `main`.
     ///
-    /// O programa roda numa thread nova com [`PROGRAM_STACK_BYTES`] de pilha e
-    /// runtime zerado, e imprime no stdout do processo. Pode ser chamada mais de
-    /// uma vez: cada execução começa de um runtime limpo. As globais mutáveis
-    /// dos módulos (os estáticos do Dart) voltam a zero antes de cada execução,
-    /// então o estado Dart também começa limpo: é o que uma sessão persistente
-    /// (executor de macros) precisa para rodar o mesmo módulo muitas vezes sem
-    /// pagar a sessão e a geração de código de novo.
+    /// The program runs on a new thread with [`PROGRAM_STACK_BYTES`] of stack and a
+    /// zeroed runtime, and prints to the process's stdout. It can be called more than
+    /// once: each execution starts from a clean runtime. The mutable globals
+    /// of the modules (the Dart statics) go back to zero before each execution,
+    /// so the Dart state also starts clean: that is what a persistent session
+    /// (macro executor) needs to run the same module many times without
+    /// paying for the session and the code generation again.
     ///
-    /// # Erros
-    /// Falha se nenhum módulo da sessão definir a entrada, se a compilação sob
-    /// demanda desse módulo falhar (`lookup`) ou se a thread do programa não
-    /// puder ser criada (`execute`).
+    /// # Errors
+    /// Fails if no module of the session defines the entry, if the on-demand
+    /// compilation of that module fails (`lookup`) or if the program thread cannot
+    /// be created (`execute`).
     ///
-    /// # Término
-    /// Exceção não capturada devolve `exit_code` 255. Asserção de não nulidade
-    /// e teto do heap encerram o processo com o código do AOT; um erro interno
-    /// do runtime aborta. Ver o topo do crate.
+    /// # Termination
+    /// An uncaught exception returns `exit_code` 255. Non-null assertion
+    /// and heap ceiling end the process with the AOT code; an internal runtime
+    /// error aborts. See the top of the crate.
     pub fn run_entry(&self) -> Result<EntryReport, JitError> {
         let started = Instant::now();
         let globals: Vec<&ffi::MutableGlobal> = self
@@ -645,14 +645,14 @@ impl JitSession {
             .collect();
         let (lookup, exit_code, execute) =
             self.lljit.run_entry(PROGRAM_STACK_BYTES, &globals).map_err(|detail| {
-                if detail.starts_with("não foi possível criar a thread")
+                if detail.starts_with("could not create the thread")
                     || detail.starts_with("a thread do programa")
                 {
-                    JitError::new("execute", "a execução do programa falhou", detail)
+                    JitError::new("execute", "the program execution failed", detail)
                 } else {
                     JitError::new(
                         "lookup",
-                        &format!("não foi possível resolver o símbolo {ENTRY_SYMBOL}"),
+                        &format!("could not resolve the symbol {ENTRY_SYMBOL}"),
                         detail,
                     )
                 }
@@ -665,15 +665,15 @@ impl JitSession {
         })
     }
 
-    /// Executa a entrada recarregável na thread chamadora, preservando heap e
-    /// globais entre chamadas. A CLI usa esta operação após publicar cada
-    /// geração; `run_entry` continua oferecendo execuções isoladas.
+    /// Runs the reloadable entry on the calling thread, preserving heap and
+    /// globals between calls. The CLI uses this operation after publishing each
+    /// generation; `run_entry` still offers isolated executions.
     ///
-    /// O runtime embutido usa estado por thread. Uma sessão com DLL do SDK tem
-    /// outro contrato de inicialização (`dartforge_iniciar`) e é recusada aqui.
+    /// The embedded runtime uses per-thread state. A session with an SDK DLL has
+    /// another initialization contract (`dartforge_iniciar`) and is refused here.
     pub fn run_reloadable_entry(&self) -> Result<EntryReport, JitError> {
         if self.sdk_dll.is_some() {
-            return Err(JitError::new("execute", "recarga com estado ainda não suporta SDK da fonte", String::new()));
+            return Err(JitError::new("execute", "stateful reload does not support the source SDK yet", String::new()));
         }
         let started = Instant::now();
         let phase = Instant::now();
@@ -686,12 +686,12 @@ impl JitSession {
         Ok(EntryReport { lookup, execute, total: started.elapsed(), exit_code })
     }
 
-    /// Executa o `main` recarregável do SDK da fonte na thread chamadora.
-    /// O `dartforge_iniciar` da DLL conserva o runtime dessa thread e faz a
-    /// finalização; nenhuma global dos módulos JIT é zerada aqui.
+    /// Runs the reloadable `main` of the source SDK on the calling thread.
+    /// The DLL's `dartforge_iniciar` keeps that thread's runtime and does the
+    /// finalization; no global of the JIT modules is zeroed here.
     pub fn run_reloadable_main(&self) -> Result<EntryReport, JitError> {
         if self.sdk_dll.is_none() {
-            return Err(JitError::new("execute", "a entrada main recarregável exige SDK da fonte", String::new()));
+            return Err(JitError::new("execute", "the reloadable main entry requires the source SDK", String::new()));
         }
         let started = Instant::now();
         let phase = Instant::now();
@@ -703,11 +703,11 @@ impl JitSession {
         Ok(EntryReport { lookup, execute, total: started.elapsed(), exit_code })
     }
 
-    /// Nomes dos módulos ainda residentes, na ordem de inclusão.
+    /// Names of the still resident modules, in inclusion order.
     ///
-    /// Inclui os módulos recarregáveis, um por identidade e não um por geração:
-    /// as gerações são versões de um mesmo módulo, e contá-las aqui faria uma
-    /// sessão recarregada parecer uma sessão com vários programas.
+    /// Includes the reloadable modules, one per identity and not one per generation:
+    /// generations are versions of the same module, and counting them here would make a
+    /// reloaded session look like a session with several programs.
     pub fn module_names(&self) -> Vec<&str> {
         self.modules
             .iter()
@@ -717,98 +717,98 @@ impl JitSession {
             .collect()
     }
 
-    /// Descarrega o módulo de índice `index`, liberando seu código.
+    /// Unloads the module at index `index`, freeing its code.
     ///
-    /// # Segurança da remoção
+    /// # Removal safety
     ///
-    /// Remover invalida todos os endereços obtidos daquele módulo. **Só é
-    /// seguro quando nenhuma função dele está executando**, em nenhuma thread e
-    /// em nenhum quadro de pilha abaixo do chamador. O LLVM não verifica isso: o
-    /// que era código vira memória liberada, e chamar um endereço guardado antes
-    /// da remoção é uso de memória liberada.
+    /// Removing invalidates all addresses obtained from that module. **It is only
+    /// safe when none of its functions is running**, on any thread and
+    /// in any stack frame below the caller. LLVM does not check this: what
+    /// was code becomes freed memory, and calling an address saved before
+    /// the removal is a use after free.
     ///
-    /// A assinatura é a única garantia possível em Rust: `&mut self` aqui contra
-    /// `&self` em [`JitSession::run_entry`] — que só retorna depois que a thread
-    /// do programa terminou — impede que uma execução em curso e uma remoção
-    /// coexistam **nesta** sessão.
+    /// The signature is the only guarantee possible in Rust: `&mut self` here versus
+    /// `&self` in [`JitSession::run_entry`] — which only returns after the program
+    /// thread ended — prevents an execution in progress and a removal from
+    /// coexisting **in this** session.
     ///
-    /// # Erros
-    /// Índice fora da faixa, módulo já removido ou falha do LLVM viram erro na
-    /// etapa `resource`.
+    /// # Errors
+    /// Index out of range, module already removed or LLVM failure become an error at the
+    /// `resource` stage.
     pub fn remove_module(&mut self, index: usize) -> Result<(), JitError> {
         let module = self.modules.get_mut(index).ok_or_else(|| JitError {
             stage: "resource",
-            message: format!("não há módulo de índice {index} nesta sessão"),
+            message: format!("there is no module at index {index} in this session"),
         })?;
         if module.removed {
             return Err(JitError {
                 stage: "resource",
-                message: format!("o módulo {} já foi removido", module.name),
+                message: format!("the module {} was already removed", module.name),
             });
         }
         module.tracker.remove().map_err(|detail| {
-            JitError::new("resource", "não foi possível descarregar o módulo", detail)
+            JitError::new("resource", "could not unload the module", detail)
         })?;
         module.removed = true;
         Ok(())
     }
 }
 
-/// Um módulo compilado para objeto uma vez, pronto para entrar em sessões.
+/// A module compiled to an object once, ready to go into sessions.
 ///
-/// É o cache de módulos do executor persistente (macros e builders, regra de
-/// `PLANO.md`): o IR é analisado, verificado e compilado **uma vez**
-/// ([`compile_module`]); cada sessão só carrega o objeto
-/// ([`JitSession::add_compiled_module`]). A máquina-alvo é a mesma da sessão,
-/// então o código é o mesmo que ela geraria a partir do IR.
+/// It is the module cache of the persistent executor (macros and builders, a rule of
+/// `PLANO.md`): the IR is parsed, checked and compiled **once**
+/// ([`compile_module`]); each session only loads the object
+/// ([`JitSession::add_compiled_module`]). The target machine is the session's,
+/// so the code is the same it would generate from the IR.
 ///
-/// Vive em memória. Guardar em disco (chave = hash do IR + versão do LLVM +
-/// versão do runtime) é do chamador, com [`CompiledModule::object`].
+/// It lives in memory. Storing on disk (key = IR hash + LLVM version +
+/// runtime version) is up to the caller, with [`CompiledModule::object`].
 pub struct CompiledModule {
     name: String,
     parts: ffi::ObjectParts,
 }
 
 impl CompiledModule {
-    /// Nome dado em [`compile_module`].
+    /// Name given in [`compile_module`].
     pub fn name(&self) -> &str {
         &self.name
     }
-    /// Os bytes do objeto COFF.
+    /// The bytes of the COFF object.
     pub fn object(&self) -> &[u8] {
         &self.parts.object
     }
 }
 
-/// Analisa, verifica e compila IR para objeto, sem abrir sessão.
+/// Parses, checks and compiles IR into an object, without opening a session.
 ///
-/// # Erros
-/// IR inválido ou recusado pelo verificador (`parse-ir`), estado que a sessão
-/// não sabe reiniciar (`globals`), falha do gerador de código (`codegen`).
+/// # Errors
+/// Invalid IR or IR refused by the verifier (`parse-ir`), state the session
+/// cannot reset (`globals`), code generator failure (`codegen`).
 pub fn compile_module(name: &str, ir: &str) -> Result<CompiledModule, JitError> {
     let parts = ffi::compile_object(name, ir).map_err(|detail| {
-        let stage = if detail.contains("global mutável") {
-            "globais"
-        } else if detail.contains("gerador de código") {
+        let stage = if detail.contains("mutable global") {
+            "globals"
+        } else if detail.contains("code generator") {
             "codegen"
         } else {
             "parse-ir"
         };
-        JitError::new(stage, "não foi possível compilar o módulo", detail)
+        JitError::new(stage, "could not compile the module", detail)
     })?;
     Ok(CompiledModule { name: name.to_owned(), parts })
 }
 
-/// Os argumentos que o `main(List<String> args)` do programa recebe: o
-/// processo do JIT não é o programa, então a linha de comando dele não
-/// serve (o AOT usa a do executável).
+/// The arguments that the program's `main(List<String> args)` receives: the
+/// JIT process is not the program, so its command line does not
+/// apply (the AOT uses the executable's).
 pub fn definir_argumentos(arguments: Vec<String>) {
     *program_arguments().lock().unwrap_or_else(|e| e.into_inner()) = arguments.clone();
     dartforge_runtime::abi::set_main_arguments(arguments);
 }
 
-/// O `Platform.script` do programa: o `.dart` que o JIT roda (como o `dart
-/// run`), não o executável do processo.
+/// The program's `Platform.script`: the `.dart` the JIT runs (like `dart
+/// run`), not the process executable.
 pub fn definir_script(file_path: &std::path::Path) {
     let absolute_path = std::path::absolute(file_path).unwrap_or_else(|_| file_path.to_path_buf());
     let bytes = absolute_path.as_os_str().as_encoded_bytes().to_vec();
@@ -816,42 +816,42 @@ pub fn definir_script(file_path: &std::path::Path) {
     dartforge_runtime::abi::set_program_script(bytes);
 }
 
-/// O script de [`definir_script`], que uma sessão com o SDK da fonte repassa
-/// ao runtime da biblioteca dela.
+/// The script of [`definir_script`], which a session with the source SDK passes on
+/// to its library's runtime.
 fn program_script() -> &'static std::sync::Mutex<Option<Vec<u8>>> {
     static S: std::sync::Mutex<Option<Vec<u8>>> = std::sync::Mutex::new(None);
     &S
 }
 
-/// Os argumentos de [`definir_argumentos`], que uma sessão com o SDK da fonte
-/// repassa ao runtime da biblioteca dela.
+/// The arguments of [`definir_argumentos`], which a session with the source SDK
+/// passes on to its library's runtime.
 fn program_arguments() -> &'static std::sync::Mutex<Vec<String>> {
     static A: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
     &A
 }
 
-/// Compila e executa um IR numa sessão descartável, imprimindo no stdout.
+/// Compiles and runs an IR in a throwaway session, printing to stdout.
 ///
-/// É o caminho de `dartforge-execute_fn-ir` (e, depois do merge do emissor, de
-/// `dartforge run`). A sessão nasce e morre na chamada.
+/// It is the path of `dartforge-executar-ir` (and, after the emitter merge, of
+/// `dartforge run`). The session is born and dies within the call.
 ///
-/// O módulo entra por [`JitSession::add_ir_module`], **nunca** pelo caminho
-/// recarregável: sem trampolim, as chamadas são diretas como no AOT, e a
-/// profundidade de recursão é a mesma nos dois perfis. Isso é contrato do
-/// diferencial JIT × AOT (`docs/PESQUISA-HOT-RELOAD.md` §4.3).
+/// The module goes in through [`JitSession::add_ir_module`], **never** through the
+/// reloadable path: without a trampoline, calls are direct as in the AOT, and the
+/// recursion depth is the same in both profiles. This is a contract of the
+/// JIT × AOT differential (`docs/PESQUISA-HOT-RELOAD.md` §4.3).
 ///
-/// # Erros
-/// Propaga as falhas de [`JitSession::new`], [`JitSession::add_ir_module`] e
+/// # Errors
+/// Propagates the failures of [`JitSession::new`], [`JitSession::add_ir_module`] and
 /// [`JitSession::run_entry`].
 pub fn run_ir(ir: &str) -> Result<JitReport, JitError> {
     run_ir_com(ir, None)
 }
 
-/// [`run_ir`] com a biblioteca do SDK da fonte explícita (`None`:
+/// [`run_ir`] with the source SDK library given explicitly (`None`:
 /// `DARTFORGE_SDK_DLL`).
 ///
-/// # Erros
-/// Os mesmos de [`run_ir`].
+/// # Errors
+/// The same as [`run_ir`].
 pub fn run_ir_com(ir: &str, sdk: Option<&std::path::Path>) -> Result<JitReport, JitError> {
     let started = Instant::now();
     let phase = Instant::now();
@@ -879,40 +879,40 @@ mod tests {
             define i32 @main() {\n  %r = call i32 @dartforge_iniciar(ptr @dartforge_entry, ptr @dartforge_dispatch_toString)\n  ret i32 %r\n}\n";
         assert!(ir_usa_sdk_da_fonte(with_sdk));
     }
-    /// A mensagem de erro identifica a etapa e preserva o texto do LLVM.
+    /// The error message identifies the stage and preserves the LLVM text.
     #[test]
     fn error_display_keeps_stage_and_detail() {
         let error = JitError::new(
             "parse-ir",
-            "IR inválido",
+            "invalid IR",
             "expected top-level entity".into(),
         );
         assert_eq!(
             error.to_string(),
-            "parse-ir: IR inválido: expected top-level entity"
+            "parse-ir: invalid IR: expected top-level entity"
         );
-        let bare = JitError::new("lljit", "não foi possível abrir a LLJIT", String::new());
-        assert_eq!(bare.to_string(), "lljit: não foi possível abrir a LLJIT");
+        let bare = JitError::new("lljit", "could not open the LLJIT", String::new());
+        assert_eq!(bare.to_string(), "lljit: could not open the LLJIT");
     }
-    /// A entrada nativa não se chama `main`, e o runtime não a define.
+    /// The native entry is not called `main`, and the runtime does not define it.
     #[test]
     fn entry_symbol_is_not_a_runtime_symbol() {
         assert_eq!(ENTRY_SYMBOL, "dartforge_entry");
         assert!(!RUNTIME_SYMBOLS.contains(&ENTRY_SYMBOL));
         assert!(!RUNTIME_SYMBOLS.contains(&"main"));
-        // A tabela é gerada da fonte: ela cresce com o runtime, nunca à mão.
+        // The table is generated from the source: it grows with the runtime, never by hand.
         assert!(RUNTIME_SYMBOLS.len() > 100, "{}", RUNTIME_SYMBOLS.len());
     }
 
-    /// O caminho de objeto em cache aceita os mesmos externos do SDK da fonte
-    /// que o caminho de IR textual; sem autorização, ambos os recusam.
+    /// The cached object path accepts the same source SDK externals
+    /// as the textual IR path; without authorization, both refuse them.
     #[test]
-    #[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
+    #[ignore = "requires LLVM-C.dll reachable by the loader; use scripts/env.ps1"]
     fn cached_object_accepts_external_authorized_by_sdk() {
         let ir = "declare void @df.sdk_teste()\ndefine void @dartforge_entry() {\n  call void @df.sdk_teste()\n  ret void\n}\n";
         let compiled = compile_module("sdk", ir).unwrap();
         let mut without_sdk = JitSession::new().unwrap();
-        assert_eq!(without_sdk.add_compiled_module(&compiled).unwrap_err().stage, "símbolos");
+        assert_eq!(without_sdk.add_compiled_module(&compiled).unwrap_err().stage, "symbols");
 
         let mut with_sdk = JitSession::new().unwrap();
         with_sdk.sdk_externals.insert("df.sdk_teste".to_owned());
@@ -923,9 +923,9 @@ mod tests {
     }
 }
 
-/// Os componentes de um triple que decidem o código: arquitetura, sistema
-/// (sem a versão mínima) e ambiente/ABI; o fabricante só distingue quando
-/// não é genérico.
+/// The components of a triple that decide the code: architecture, system
+/// (without the minimum version) and environment/ABI; the vendor only distinguishes when
+/// it is not generic.
 #[derive(Debug, PartialEq, Eq)]
 struct NormalizedTarget {
     architecture: String,
@@ -946,8 +946,8 @@ fn normalize_target(triple: &str) -> NormalizedTarget {
         None | Some("unknown" | "pc" | "") => None,
         Some(f) => Some(f.to_string()),
     };
-    // O sistema sem a versão (`macosx15.7.3`, `darwin24.6.0`, `ios17.0`);
-    // `darwin` e `macosx` são o mesmo sistema.
+    // The system without the version (`macosx15.7.3`, `darwin24.6.0`, `ios17.0`);
+    // `darwin` and `macosx` are the same system.
     let raw_system = part_list.get(2).copied().unwrap_or("");
     let system = match raw_system.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.') {
         "darwin" | "macosx" | "macos" => "macos",
@@ -958,12 +958,12 @@ fn normalize_target(triple: &str) -> NormalizedTarget {
     NormalizedTarget { architecture, vendor, system, env }
 }
 
-/// Se código emitido para `modulo` roda na `LLJIT` de `jit`: mesma
-/// arquitetura, mesmo sistema e mesma ABI. Diferenças só de grafia
+/// Whether code emitted for `modulo` runs in the `LLJIT` of `jit`: same
+/// architecture, same system and same ABI. Spelling-only differences
 /// (`x86_64-unknown-linux-gnu` × `x86_64-pc-linux-gnu`,
-/// `arm64-apple-darwin` × `arm64-apple-macosx15.7.3`) são aceitas; outra
-/// arquitetura, outro sistema ou outro ambiente (`gnu` × `musl`, `msvc` ×
-/// `gnu`) não.
+/// `arm64-apple-darwin` × `arm64-apple-macosx15.7.3`) are accepted; another
+/// architecture, another system or another environment (`gnu` × `musl`, `msvc` ×
+/// `gnu`) are not.
 fn compatible_targets(modulo: &str, jit: &str) -> bool {
     let (a, b) = (normalize_target(modulo), normalize_target(jit));
     let vendor_ok = match (&a.vendor, &b.vendor) {

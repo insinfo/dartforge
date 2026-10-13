@@ -5,13 +5,13 @@ edition.workspace = true
 license.workspace = true
 publish = false
 
-# Adota a lint do workspace (`unsafe_code = "deny"`); o `unsafe` da API C do
-# LLVM fica todo em `src/lib.rs`, o único arquivo com `#![allow(unsafe_code)]`.
+# Adopts the workspace lint (`unsafe_code = "deny"`); the `unsafe` of the LLVM
+# C API is all in `src/lib.rs`, the only file with `#![allow(unsafe_code)]`.
 [lints]
 workspace = true
 
 [dependencies]
-# `no-llvm-linking`: as assinaturas e os invólucros de inicialização vêm do
-# llvm-sys, mas quem emite as diretivas de ligação é o `build.rs` deste crate
-# (a biblioteca compartilhada da API C no Windows; ver o topo do build.rs).
+# `no-llvm-linking`: the signatures and the initialization wrappers come from
+# llvm-sys, but whoever emits the link directives is this crate's `build.rs`
+# (the shared library of the C API on Windows; see the top of build.rs).
 llvm-sys = { version = "221.1.0", features = ["no-llvm-linking"] }

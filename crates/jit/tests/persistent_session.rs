@@ -1,17 +1,17 @@
-//! Sessão persistente: um processo, um LLVM inicializado, módulos compilados
-//! uma vez e muitas execuções com estado Dart limpo entre elas.
+//! Persistent session: one process, one initialized LLVM, modules compiled
+//! once and many executions with clean Dart state between them.
 //!
-//! É o formato do executor de macros e builders (regra de `PLANO.md`): o
-//! código da macro é compilado uma vez e fica em cache, e cada execução paga
-//! só a execução. Os testes fixam as duas garantias (estado limpo e cache que
-//! entra em várias sessões); a medição, com `--ignored --nocapture`, dá o custo
-//! de cada peça.
+//! It is the shape of the macro and builder executor (a rule of `PLANO.md`): the
+//! macro code is compiled once and stays cached, and each execution pays
+//! only for the execution. The tests pin both guarantees (clean state and a cache that
+//! goes into several sessions); the measurement, with `--ignored --nocapture`, gives the cost
+//! of each piece.
 use dartforge_jit::{JitSession, compile_module};
 use std::time::{Duration, Instant};
 
-/// Um programa com um estático: lança se o encontrar já inicializado, e o
-/// inicializa. Na primeira execução termina bem; numa segunda que herdasse o
-/// estado da primeira, terminaria com exceção não capturada (255).
+/// A program with a static: throws if it finds it already initialized, and
+/// initializes it. On the first execution it ends fine; on a second one that inherited
+/// the first one's state, it would end with an uncaught exception (255).
 const WITH_STATIC: &str = "\
 @dfg_0 = internal global i64 0
 @dfg_0_ok = internal global i8 0
@@ -31,24 +31,24 @@ limpo:
 }
 ";
 
-/// A execução mais curta possível: a entrada retorna.
+/// The shortest possible execution: the entry returns.
 const TRIVIAL: &str = "define void @dartforge_entry() {\n  ret void\n}\n";
 
-/// Várias execuções na mesma sessão começam com os estáticos zerados.
+/// Several executions in the same session start with zeroed statics.
 #[test]
-#[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
+#[ignore = "requires LLVM-C.dll reachable by the loader; use scripts/env.ps1"]
 fn sequential_runs_start_clean() {
     let mut session = JitSession::new().unwrap();
     session.add_ir_module("estatico", WITH_STATIC).unwrap();
     for turn in 1..=3 {
         let report_data = session.run_entry().unwrap();
-        assert_eq!(report_data.exit_code, 0, "execução {turn} herdou o estado da anterior");
+        assert_eq!(report_data.exit_code, 0, "execution {turn} inherited the previous one's state");
     }
 }
 
-/// Um módulo compilado uma vez entra em várias sessões e roda limpo em todas.
+/// A module compiled once goes into several sessions and runs clean in all of them.
 #[test]
-#[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
+#[ignore = "requires LLVM-C.dll reachable by the loader; use scripts/env.ps1"]
 fn compiled_module_enters_several_sessions() {
     let compiled = compile_module("estatico", WITH_STATIC).unwrap();
     assert!(!compiled.object().is_empty());
@@ -60,22 +60,22 @@ fn compiled_module_enters_several_sessions() {
     }
 }
 
-/// O objeto passa pelas mesmas verificações do IR: externo desconhecido cai.
+/// The object goes through the same checks as the IR: an unknown external fails.
 #[test]
-#[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
+#[ignore = "requires LLVM-C.dll reachable by the loader; use scripts/env.ps1"]
 fn compiled_module_passes_preverification() {
     let ir = "declare void @sqlite3_open()\ndefine void @dartforge_entry() {\n  call void @sqlite3_open()\n  ret void\n}\n";
     let compiled = compile_module("externo", ir).unwrap();
     let mut session = JitSession::new().unwrap();
     let error = session.add_compiled_module(&compiled).unwrap_err();
-    assert_eq!(error.stage, "símbolos");
+    assert_eq!(error.stage, "symbols");
     assert!(error.message.contains("sqlite3_open"), "{error}");
 }
 
-/// O caminho `main` também reinicia os estáticos do módulo JIT do programa.
-/// Esta sessão não carrega a DLL do SDK e não testa os estáticos internos dela.
+/// The `main` path also resets the statics of the program's JIT module.
+/// This session does not load the SDK DLL and does not test its internal statics.
 #[test]
-#[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
+#[ignore = "requires LLVM-C.dll reachable by the loader; use scripts/env.ps1"]
 fn main_resets_jit_module_globals_between_runs() {
     let ir = "\
 @dfg_0_ok = internal global i8 0
@@ -92,7 +92,7 @@ define i32 @main() {
     assert_eq!(session.run_main().unwrap().exit_code, 0);
 }
 
-/// Mediana e p95 de `n` amostras de `f`, depois de 3 aquecimentos.
+/// Median and p95 of `n` samples of `f`, after 3 warm-ups.
 fn measure(n: usize, mut f: impl FnMut() -> Duration) -> (Duration, Duration) {
     for _ in 0..3 {
         f();
@@ -106,17 +106,17 @@ fn ms(d: Duration) -> f64 {
     d.as_secs_f64() * 1000.0
 }
 
-/// Custo de cada peça da sessão persistente, para `docs/JIT.md`.
+/// Cost of each piece of the persistent session, for `docs/JIT.md`.
 ///
-/// Rodar com:
-/// `cargo test -p dartforge-jit --release --test sessao_persistente medicao -- --ignored --nocapture`
+/// Run with:
+/// `cargo test -p dartforge-jit --release --test persistent_session persistent_session_measurement -- --ignored --nocapture`
 ///
-/// (i) criar a sessão; (ii) carregar um módulo e gerar o código até a entrada
-/// estar resolvida, pelo IR e pelo objeto em cache; (iii) uma execução trivial
-/// numa sessão já aquecida. O módulo «IR do emissor» é o de um programa Dart
-/// pequeno, emitido por `dartforge_emit_native::emitir_ir`.
+/// (i) creating the session; (ii) loading a module and generating code until the entry
+/// is resolved, from the IR and from the cached object; (iii) a trivial execution
+/// in an already warmed-up session. The «emitter IR» module is that of a small Dart
+/// program, emitted by `dartforge_emit_native::emitir_ir`.
 #[test]
-#[ignore = "medição: requer LLVM-C.dll e o SDK Dart 3.6.2; rode com --nocapture"]
+#[ignore = "measurement: requires LLVM-C.dll and the Dart 3.6.2 SDK; run with --nocapture"]
 fn persistent_session_measurement() {
     let n = 30;
     let (p50, p95) = measure(n, || {
@@ -126,9 +126,9 @@ fn persistent_session_measurement() {
         drop(session);
         d
     });
-    println!("(i)   criar a sessão (LLJIT + símbolos do runtime): mediana {:.3} ms, p95 {:.3} ms", ms(p50), ms(p95));
+    println!("(i)   create the session (LLJIT + runtime symbols): median {:.3} ms, p95 {:.3} ms", ms(p50), ms(p95));
 
-    /// Apaga o diretório no `Drop`, também quando a emissão entra em pânico.
+    /// Removes the directory on `Drop`, also when emission panics.
     struct Directory(std::path::PathBuf);
     impl Drop for Directory {
         fn drop(&mut self) {
@@ -143,18 +143,18 @@ fn persistent_session_measurement() {
         .stack_size(1 << 30)
         .spawn(move || {
             let options = dartforge_emit_native::CompileOptions { sdk: None, packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None, cpu: None };
-            // Com o SDK da fonte (o único modo do emissor desde o espaço
-            // unificado): o programa importa o runtime e o SDK da biblioteca
-            // compartilhada, que a sessão carrega (`JitSession::new_for_ir_com`).
+            // With the source SDK (the emitter's only mode since the unified
+            // space): the program imports the runtime and the SDK from the shared
+            // library, which the session loads (`JitSession::new_for_ir_com`).
             dartforge_emit_native::emitir_ir_recarregavel(&source, &options, None).unwrap().texto
         })
         .unwrap()
         .join()
         .unwrap();
     drop(dir);
-    let dll = dartforge_emit_native::sdk_modulo::dll_do_sdk_da_fonte().expect("biblioteca do SDK da fonte");
-    // A sessão do IR: o runtime embutido para o trivial, a biblioteca do SDK
-    // para o emitido; e a execução pela entrada de cada perfil.
+    let dll = dartforge_emit_native::sdk_modulo::dll_do_sdk_da_fonte().expect("source SDK library");
+    // The IR session: the embedded runtime for the trivial one, the SDK library
+    // for the emitted one; and execution through each profile's entry.
     let new_session = |ir: &str| JitSession::new_for_ir_com(ir, Some(&dll)).unwrap();
     let execute_fn = |s: &JitSession| if s.usa_sdk_da_fonte() { s.run_main().unwrap().total } else { s.run_entry().unwrap().total };
 
@@ -167,7 +167,7 @@ fn persistent_session_measurement() {
             t.elapsed()
         });
         println!(
-            "(ii)  carregar pelo IR, {label_name} ({} bytes): análise + verificação + geração, mediana {:.3} ms, p95 {:.3} ms",
+            "(ii)  load from IR, {label_name} ({} bytes): parse + verification + generation, median {:.3} ms, p95 {:.3} ms",
             ir.len(),
             ms(p50),
             ms(p95)
@@ -177,7 +177,7 @@ fn persistent_session_measurement() {
             compile_module("m", ir).unwrap();
             t.elapsed()
         });
-        println!("      compilar para o cache, {label_name}: mediana {:.3} ms, p95 {:.3} ms (uma vez por módulo)", ms(c50), ms(c95));
+        println!("      compile into the cache, {label_name}: median {:.3} ms, p95 {:.3} ms (once per module)", ms(c50), ms(c95));
         let compiled = compile_module("m", ir).unwrap();
         let (p50, p95) = measure(n, || {
             let mut session = new_session(ir);
@@ -187,7 +187,7 @@ fn persistent_session_measurement() {
             t.elapsed()
         });
         println!(
-            "(ii)  carregar do cache, {label_name} ({} bytes de objeto): mediana {:.3} ms, p95 {:.3} ms",
+            "(ii)  load from the cache, {label_name} ({} bytes of object): median {:.3} ms, p95 {:.3} ms",
             compiled.object().len(),
             ms(p50),
             ms(p95)
@@ -195,6 +195,6 @@ fn persistent_session_measurement() {
         let mut session = new_session(ir);
         session.add_compiled_module(&compiled).unwrap();
         let (p50, p95) = measure(100, || execute_fn(&session));
-        println!("(iii) uma execução, {label_name}, sessão aquecida: mediana {:.3} ms, p95 {:.3} ms", ms(p50), ms(p95));
+        println!("(iii) one execution, {label_name}, warmed-up session: median {:.3} ms, p95 {:.3} ms", ms(p50), ms(p95));
     }
 }

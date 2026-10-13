@@ -1,27 +1,27 @@
-//! `dartforge-executar-ir <programa.ll> [--timings] [-- <argumentos do main>]`
-//! — executa um LLVM IR do
-//! backend nativo pelo JIT ORCv2, num processo só dele.
+//! `dartforge-executar-ir <program.ll> [--timings] [-- <main arguments>]`
+//! — runs an LLVM IR of the
+//! native backend through the ORCv2 JIT, in a process of its own.
 //!
-//! É o executor isolado do perfil de desenvolvimento: o harness diferencial e
-//! os testes rodam cada programa num processo deste binário, porque o runtime
-//! encerra o processo (`process::exit`) nos mesmos casos em que o executável
-//! AOT termina, e aborta num erro interno.
+//! It is the isolated executor of the development profile: the differential harness and
+//! the tests run each program in a process of this binary, because the runtime
+//! ends the process (`process::exit`) in the same cases in which the
+//! AOT executable ends, and aborts on an internal error.
 //!
-//! Contrato de saída, o mesmo do executável AOT:
+//! Output contract, the same as the AOT executable's:
 //!
-//! * stdout é o do programa, e nada mais;
-//! * o código de saída é o do programa (0, ou 255 pelo próprio runtime);
-//! * `--timings` escreve **em stderr**, depois da execução, um objeto JSON com
-//!   os campos `*_ns` de `docs/JIT.md` §Medição por fase e a versão da
-//!   `LLVM-C.dll` carregada.
+//! * stdout is the program's, and nothing else;
+//! * the exit code is the program's (0, or 255 from the runtime itself);
+//! * `--timings` writes **to stderr**, after execution, a JSON object with
+//!   the `*_ns` fields of `docs/JIT.md` §Medição por fase and the version of the
+//!   loaded `LLVM-C.dll`.
 //!
-//! Falha do próprio JIT (IR inválido, externo desconhecido, alvo divergente)
-//! sai com código 70 (`EX_SOFTWARE`) e a etapa na primeira linha de stderr —
-//! distinguível de qualquer código que o programa Dart produza.
+//! A failure of the JIT itself (invalid IR, unknown external, divergent target)
+//! exits with code 70 (`EX_SOFTWARE`) and the stage on the first line of stderr —
+//! distinguishable from any code the Dart program produces.
 use std::io::Write;
 use std::process::ExitCode;
 
-/// Código de saída para falha do JIT, e não do programa.
+/// Exit code for a JIT failure, not a program failure.
 const JIT_FAILURE: u8 = 70;
 
 fn main() -> ExitCode {
@@ -32,7 +32,7 @@ fn main() -> ExitCode {
     while let Some(argument) = arguments.next() {
         match argument.to_str() {
             Some("--timings") => timings = true,
-            // O resto é do `main` do programa.
+            // The rest belongs to the program's `main`.
             Some("--") => {
                 from_program.extend(arguments.by_ref().map(|a| a.to_string_lossy().into_owned()));
             }
@@ -48,7 +48,7 @@ fn main() -> ExitCode {
         Ok(ir) => ir,
         Err(error) => {
             eprintln!(
-                "dartforge-executar-ir: não foi possível ler {}: {error}",
+                "dartforge-executar-ir: could not read {}: {error}",
                 std::path::Path::new(&file).display()
             );
             return ExitCode::from(JIT_FAILURE);
@@ -80,8 +80,8 @@ fn main() -> ExitCode {
     ExitCode::from(u8::try_from(report_data.entry.exit_code).unwrap_or(JIT_FAILURE))
 }
 
-/// Mostra o uso e sai com código 2.
+/// Shows the usage and exits with code 2.
 fn usage() -> ExitCode {
-    eprintln!("uso: dartforge-executar-ir <programa.ll> [--timings] [-- <argumentos do main>]");
+    eprintln!("usage: dartforge-executar-ir <program.ll> [--timings] [-- <main arguments>]");
     ExitCode::from(2)
 }

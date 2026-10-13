@@ -1,43 +1,43 @@
-//! Fronteira `unsafe` única do crate: a API C do LLVM (ORCv2) e os adaptadores
-//! que expõem o runtime nativo ao código gerado em memória.
+//! The crate's single `unsafe` boundary: the LLVM C API (ORCv2) and the adapters
+//! that expose the native runtime to the in-memory generated code.
 //!
-//! # Por que `unsafe` é inevitável aqui
+//! # Why `unsafe` is unavoidable here
 //!
-//! Não existe compilador JIT seguro para este trabalho. Três operações são
-//! inseguras por natureza e nenhuma abstração as elimina:
+//! There is no safe JIT compiler for this job. Three operations are
+//! unsafe by nature and no abstraction removes them:
 //!
-//! 1. **A API C do LLVM.** `llvm-sys` publica as assinaturas `extern "C"` de
-//!    ORCv2 tal como estão em `llvm-c/Orc.h` e `llvm-c/LLJIT.h`. Toda chamada é
-//!    `unsafe`, e a propriedade dos recursos (contexto, módulo, tracker) segue o
-//!    contrato daquela documentação, não o borrow checker.
-//! 2. **Publicar endereços de funções Rust como símbolos.** O código JIT chama
-//!    `@dartforge_print_i64` e companhia por endereço absoluto. Registrar esses
-//!    endereços exige transformá-los em inteiros e entregá-los ao LLVM.
-//! 3. **Chamar o código gerado.** O endereço devolvido por `LLVMOrcLLJITLookup`
-//!    é um `u64`; invocá-lo exige `transmute` para um ponteiro de função.
+//! 1. **The LLVM C API.** `llvm-sys` publishes the ORCv2 `extern "C"` signatures
+//!    as they are in `llvm-c/Orc.h` and `llvm-c/LLJIT.h`. Every call is
+//!    `unsafe`, and resource ownership (context, module, tracker) follows the
+//!    contract of that documentation, not the borrow checker.
+//! 2. **Publishing addresses of Rust functions as symbols.** JIT code calls
+//!    `@dartforge_print_i64` and company by absolute address. Registering those
+//!    addresses requires turning them into integers and handing them to LLVM.
+//! 3. **Calling the generated code.** The address returned by `LLVMOrcLLJITLookup`
+//!    is a `u64`; invoking it requires a `transmute` to a function pointer.
 //!
-//! # Invariantes que este módulo preserva
+//! # Invariants this module preserves
 //!
-//! * Cada recurso do LLVM pertence a exatamente um valor Rust com `Drop`
-//!   correspondente ([`Lljit`], [`ResourceTracker`], [`ThreadSafeModule`]). O
-//!   que a API C consome é entregue por valor e nunca liberado duas vezes.
-//! * Handles crus nunca atravessam a fronteira do crate: [`crate::JitSession`]
-//!   expõe apenas `Result`, `Duration` e `String`.
-//! * Os tipos daqui contêm ponteiros crus, portanto não são `Send` nem `Sync`.
-//!   O estado do runtime é `thread_local`; o programa executa numa thread
-//!   própria por execução ([`execute_program`]).
-//! * O runtime publicado ao JIT **não é reescrito aqui**: é a fonte do harness
-//!   AOT (os fragmentos de `crates/runtime/src`), compilada como o módulo
-//!   `dartforge_runtime::abi`; a tabela de símbolos é gerada da mesma fonte
-//!   pelo `build.rs` daquele crate (fonte única).
+//! * Each LLVM resource belongs to exactly one Rust value with a matching
+//!   `Drop` ([`Lljit`], [`ResourceTracker`], [`ThreadSafeModule`]). What
+//!   the C API consumes is handed over by value and never freed twice.
+//! * Raw handles never cross the crate boundary: [`crate::JitSession`]
+//!   exposes only `Result`, `Duration` and `String`.
+//! * The types here contain raw pointers, so they are neither `Send` nor `Sync`.
+//!   The runtime state is `thread_local`; the program runs on its own
+//!   thread per execution ([`execute_program`]).
+//! * The runtime published to the JIT **is not rewritten here**: it is the source of the AOT
+//!   harness (the fragments of `crates/runtime/src`), compiled as the module
+//!   `dartforge_runtime::abi`; the symbol table is generated from the same source
+//!   by that crate's `build.rs` (single source).
 //!
-//! Este módulo **não** é um verificador de segurança para IR arbitrário, pelo
-//! mesmo motivo que o driver AOT não é: a garantia vale para IR emitido pelo
-//! próprio compilador (`crates/emit_native`), com as assinaturas que ele declara.
+//! This module is **not** a safety checker for arbitrary IR, for the
+//! same reason the AOT driver is not: the guarantee holds for IR emitted by the
+//! compiler itself (`crates/emit_native`), with the signatures it declares.
 //
-// Único `allow` do crate. `src/lib.rs` e `src/reload.rs` permanecem sob
-// `unsafe_code = "deny"` do workspace, logo qualquer `unsafe` novo fora daqui
-// aparece como erro de compilação, não como detalhe escondido numa revisão.
+// The crate's only `allow`. `src/lib.rs` and `src/reload.rs` stay under the
+// workspace's `unsafe_code = "deny"`, so any new `unsafe` outside here
+// shows up as a compilation error, not as a detail hidden in a review.
 #![allow(unsafe_code)]
 
 use llvm_sys::core::{
@@ -79,18 +79,18 @@ use std::mem::ManuallyDrop;
 use std::ptr;
 use std::time::{Duration, Instant};
 
-/// Converte um `LLVMErrorRef` em `Option<String>` consumindo o erro.
+/// Converts an `LLVMErrorRef` into `Option<String>`, consuming the error.
 ///
-/// `LLVMGetErrorMessage` consome o `LLVMErrorRef` e transfere a propriedade da
-/// mensagem; devolvê-la exige copiar os bytes e liberar o original.
+/// `LLVMGetErrorMessage` consumes the `LLVMErrorRef` and transfers ownership of the
+/// message; returning it requires copying the bytes and freeing the original.
 fn take_error(error: LLVMErrorRef) -> Option<String> {
     if error.is_null() {
         return None;
     }
-    // SAFETY: `error` é não nulo e ainda não foi consumido, logo
-    // `LLVMGetErrorMessage` pode consumi-lo e devolver uma string C válida, cuja
-    // propriedade passa para nós. `llvm-c/Error.h` exige liberá-la com
-    // `LLVMDisposeErrorMessage`, e não com o `LLVMDisposeMessage` do núcleo.
+    // SAFETY: `error` is non-null and not yet consumed, so
+    // `LLVMGetErrorMessage` can consume it and return a valid C string, whose
+    // ownership passes to us. `llvm-c/Error.h` requires freeing it with
+    // `LLVMDisposeErrorMessage`, and not with the core's `LLVMDisposeMessage`.
     unsafe {
         let message = LLVMGetErrorMessage(error);
         let text = CStr::from_ptr(message).to_string_lossy().into_owned();
@@ -99,13 +99,13 @@ fn take_error(error: LLVMErrorRef) -> Option<String> {
     }
 }
 
-/// Copia uma mensagem `char*` do LLVM e libera o original.
+/// Copies a `char*` message from LLVM and frees the original.
 ///
 /// # Safety
-/// `message` deve ser não nulo e ter vindo de uma API do LLVM que transfere a
-/// propriedade da string ao chamador.
+/// `message` must be non-null and come from an LLVM API that transfers
+/// ownership of the string to the caller.
 unsafe fn take_message(message: *mut c_char) -> String {
-    // SAFETY: o chamador garante que o ponteiro é válido e nosso para liberar.
+    // SAFETY: the caller guarantees the pointer is valid and ours to free.
     unsafe {
         let text = CStr::from_ptr(message).to_string_lossy().into_owned();
         LLVMDisposeMessage(message);
@@ -113,57 +113,57 @@ unsafe fn take_message(message: *mut c_char) -> String {
     }
 }
 
-/// Inicializa o alvo nativo uma única vez por processo — a mesma
-/// inicialização do gerador de objetos do AOT (`dartforge-llvm`), que pode
-/// rodar no mesmo processo (`dartforge run` compila o SDK da fonte).
+/// Initializes the native target once per process — the same
+/// initialization as the AOT object generator (`dartforge-llvm`), which may
+/// run in the same process (`dartforge run` compiles the source SDK).
 ///
-/// # Erros
-/// Falha quando o LLVM ligado não inclui o backend da arquitetura do host.
+/// # Errors
+/// Fails when the linked LLVM does not include the backend for the host architecture.
 pub(crate) fn initialize_native_target() -> Result<(), String> {
     dartforge_llvm::init_native_target()
 }
 
-/// Módulo LLVM já analisado e pronto para entrar numa `JITDylib`.
+/// An LLVM module already parsed and ready to go into a `JITDylib`.
 ///
-/// O contexto do LLVM que hospeda o módulo vive dentro do `ThreadSafeContext`
-/// criado durante a análise; não há contexto compartilhado entre módulos.
+/// The LLVM context that hosts the module lives inside the `ThreadSafeContext`
+/// created during parsing; there is no context shared between modules.
 pub(crate) struct ThreadSafeModule {
     handle: LLVMOrcThreadSafeModuleRef,
 }
 impl Drop for ThreadSafeModule {
-    /// Libera o módulo quando ele não chegou a ser entregue à `LLJIT`.
+    /// Frees the module when it was never handed to `LLJIT`.
     fn drop(&mut self) {
-        // SAFETY: `handle` foi criado por `LLVMOrcCreateNewThreadSafeModule`,
-        // ainda não foi consumido (o consumo usa `ManuallyDrop`) e é liberado
-        // uma única vez, pois `ThreadSafeModule` não é `Copy` nem `Clone`.
+        // SAFETY: `handle` was created by `LLVMOrcCreateNewThreadSafeModule`,
+        // was not yet consumed (consumption uses `ManuallyDrop`) and is freed
+        // only once, since `ThreadSafeModule` is neither `Copy` nor `Clone`.
         unsafe { LLVMOrcDisposeThreadSafeModule(self.handle) }
     }
 }
 
-/// Módulo LLVM já analisado, ainda **fora** da sessão.
+/// An LLVM module already parsed, still **outside** the session.
 ///
-/// Existe para dar um ponto de inspeção e reescrita entre a análise do IR e a
-/// entrada na `LLJIT`: é aqui que o hot reload lê a impressão digital do
-/// contrato ([`ParsedModule::signatures`], [`ParsedModule::class_layouts`]) e
-/// versiona as implementações ([`ParsedModule::version_definitions`]) antes de
-/// qualquer efeito sobre o código que está executando.
+/// It exists to give an inspection and rewrite point between parsing the IR and
+/// entering the `LLJIT`: this is where hot reload reads the contract
+/// fingerprint ([`ParsedModule::signatures`], [`ParsedModule::class_layouts`]) and
+/// versions the implementations ([`ParsedModule::version_definitions`]) before
+/// any effect on the running code.
 ///
-/// O contexto e o módulo pertencem a este valor até [`ParsedModule::into_thread_safe`];
-/// depois disso pertencem ao `ThreadSafeModule` devolvido.
+/// The context and the module belong to this value until [`ParsedModule::into_thread_safe`];
+/// after that they belong to the returned `ThreadSafeModule`.
 pub(crate) struct ParsedModule {
     context: LLVMContextRef,
     module: LLVMModuleRef,
 }
 
 impl Drop for ParsedModule {
-    /// Libera módulo e contexto quando o módulo não chegou à `LLJIT`.
+    /// Frees module and context when the module never reached `LLJIT`.
     ///
-    /// A ordem importa: o módulo pertence ao contexto, logo é liberado primeiro.
-    /// `into_thread_safe` usa `ManuallyDrop` para não passar por aqui.
+    /// The order matters: the module belongs to the context, so it is freed first.
+    /// `into_thread_safe` uses `ManuallyDrop` to not go through here.
     fn drop(&mut self) {
-        // SAFETY: os dois ponteiros vêm de `parse_module`, que só constrói este
-        // valor depois de uma análise bem-sucedida, e nenhum deles foi consumido
-        // (o consumo em `into_thread_safe` suprime este `Drop`).
+        // SAFETY: both pointers come from `parse_module`, which only builds this
+        // value after a successful parse, and neither was consumed
+        // (consumption in `into_thread_safe` suppresses this `Drop`).
         unsafe {
             LLVMDisposeModule(self.module);
             LLVMContextDispose(self.context);
@@ -171,30 +171,30 @@ impl Drop for ParsedModule {
     }
 }
 
-/// Assinatura de uma função do módulo, em texto de LLVM IR.
+/// Signature of a module function, in LLVM IR text.
 ///
-/// É a **impressão digital do contrato de chamada** de uma função: o que precisa
-/// permanecer igual entre gerações para que a troca de implementação seja segura.
-/// O hash do corpo não entra aqui de propósito — o corpo é exatamente o que o
-/// hot reload troca.
+/// It is the **calling contract fingerprint** of a function: what must
+/// stay the same between generations for the implementation swap to be safe.
+/// The body hash is deliberately left out — the body is exactly what
+/// hot reload swaps.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FunctionSignature {
-    /// Nome do símbolo tal como o emissor o produziu (`df_fn_0`, `dartforge_entry`).
+    /// Symbol name as the emitter produced it (`df_fn_0`, `dartforge_entry`).
     pub(crate) name: String,
-    /// Tipo de retorno em texto de IR (`i64`, `void`).
+    /// Return type in IR text (`i64`, `void`).
     pub(crate) ret: String,
-    /// Tipos dos parâmetros em texto de IR, na ordem da chamada.
+    /// Parameter types in IR text, in call order.
     pub(crate) params: Vec<String>,
-    /// Função variádica; fora do contrato do emissor nativo.
+    /// Variadic function; outside the native emitter's contract.
     pub(crate) var_arg: bool,
 }
 
 impl FunctionSignature {
-    /// Apresenta a assinatura como o LLVM a escreveria: `i64 (i64, i64)`.
+    /// Shows the signature as LLVM would write it: `i64 (i64, i64)`.
     pub(crate) fn text(&self) -> String {
         format!("{} ({})", self.ret, self.params.join(", "))
     }
-    /// Lista de parâmetros nomeada `%a0, %a1, ...`, para gerar o trampolim.
+    /// Parameter list named `%a0, %a1, ...`, to generate the trampoline.
     pub(crate) fn declaration_params(&self) -> String {
         self.params
             .iter()
@@ -205,24 +205,24 @@ impl FunctionSignature {
     }
 }
 
-/// Analisa IR textual e devolve o módulo aberto para inspeção.
+/// Parses textual IR and returns the module open for inspection.
 ///
-/// Usa `LLVMParseIRInContext2`, que não consome o `MemoryBuffer`; a cópia do
-/// texto pertence ao buffer e é liberada antes do retorno em qualquer caminho.
+/// Uses `LLVMParseIRInContext2`, which does not consume the `MemoryBuffer`; the copy of the
+/// text belongs to the buffer and is freed before returning on every path.
 ///
-/// # Erros
-/// Devolve o diagnóstico do próprio LLVM quando o IR é inválido, e recusa nomes
-/// ou textos com byte nulo, que não sobrevivem à fronteira C.
+/// # Errors
+/// Returns LLVM's own diagnostic when the IR is invalid, and refuses names
+/// or texts with a null byte, which do not survive the C boundary.
 pub(crate) fn parse_module(name: &str, ir: &str) -> Result<ParsedModule, String> {
-    let name = CString::new(name).map_err(|_| "nome do módulo contém byte nulo".to_owned())?;
+    let name = CString::new(name).map_err(|_| "module name contains a null byte".to_owned())?;
     if ir.as_bytes().contains(&0) {
-        return Err("o IR contém byte nulo e não pode ser analisado".to_owned());
+        return Err("the IR contains a null byte and cannot be parsed".to_owned());
     }
-    // SAFETY: o bloco inteiro mantém a propriedade de cada recurso explícita.
-    // `buffer` é uma cópia do texto e é liberado em todos os caminhos;
-    // `context` é entregue ao `ThreadSafeContext`, que é liberado logo após
-    // `LLVMOrcCreateNewThreadSafeModule` reter sua própria referência; `module`
-    // só é consumido por essa mesma chamada, e apenas quando a análise venceu.
+    // SAFETY: the whole block keeps the ownership of each resource explicit.
+    // `buffer` is a copy of the text and is freed on all paths;
+    // `context` is handed to the `ThreadSafeContext`, which is freed right after
+    // `LLVMOrcCreateNewThreadSafeModule` keeps its own reference; `module`
+    // is only consumed by that same call, and only when parsing succeeded.
     unsafe {
         let context = LLVMContextCreate();
         let buffer = LLVMCreateMemoryBufferWithMemoryRangeCopy(
@@ -236,7 +236,7 @@ pub(crate) fn parse_module(name: &str, ir: &str) -> Result<ParsedModule, String>
         LLVMDisposeMemoryBuffer(buffer);
         if failed {
             let detail = if message.is_null() {
-                "IR inválido".to_owned()
+                "invalid IR".to_owned()
             } else {
                 take_message(message)
             };
@@ -244,16 +244,16 @@ pub(crate) fn parse_module(name: &str, ir: &str) -> Result<ParsedModule, String>
             return Err(detail);
         }
         if !message.is_null() {
-            // Diagnóstico não fatal; o módulo é válido e a mensagem é liberada.
+            // Non-fatal diagnostic; the module is valid and the message is freed.
             drop(take_message(message));
         }
-        // O analisador de IR textual não roda o verificador do LLVM, e o ORC
-        // também não. O Clang roda, e recusa o módulo. Sem esta chamada, o JIT
-        // gerava código para IR que o AOT recusa, como uma instrução que não
-        // domina todos os usos, e o programa executava ou caía no JIT e não
-        // compilava no AOT. O corpus inteiro no CI mostrou 13 programas assim
-        // (pesado.yml, job `jit`). Aceitar o mesmo IR que o AOT aceita é parte
-        // do contrato.
+        // The textual IR parser does not run the LLVM verifier, and ORC
+        // does not either. Clang does, and refuses the module. Without this call, the JIT
+        // generated code for IR the AOT refuses, like an instruction that does not
+        // dominate all its uses, and the program ran or crashed in the JIT and did not
+        // compile in the AOT. The whole corpus in CI showed 13 such programs
+        // (pesado.yml, job `jit`). Accepting the same IR the AOT accepts is part
+        // of the contract.
         let mut detail_msg = ptr::null_mut();
         let invalid_one = llvm_sys::analysis::LLVMVerifyModule(
             module,
@@ -264,35 +264,35 @@ pub(crate) fn parse_module(name: &str, ir: &str) -> Result<ParsedModule, String>
         if invalid_one {
             LLVMDisposeModule(module);
             LLVMContextDispose(context);
-            let first_one = text.lines().next().unwrap_or("módulo inválido").to_owned();
-            return Err(format!("o verificador do LLVM recusou o módulo: {first_one}"));
+            let first_one = text.lines().next().unwrap_or("invalid module").to_owned();
+            return Err(format!("the LLVM verifier refused the module: {first_one}"));
         }
         Ok(ParsedModule { context, module })
     }
 }
 
-/// Analisa IR textual e devolve um módulo pronto para entrar numa `JITDylib`.
+/// Parses textual IR and returns a module ready to go into a `JITDylib`.
 ///
-/// # Erros
-/// Os mesmos de [`parse_module`].
+/// # Errors
+/// The same as [`parse_module`].
 pub(crate) fn parse_ir(name: &str, ir: &str) -> Result<ThreadSafeModule, String> {
     Ok(parse_module(name, ir)?.into_thread_safe())
 }
 
 impl ParsedModule {
-    /// Empacota o módulo num `ThreadSafeModule`, transferindo a propriedade.
+    /// Packs the module into a `ThreadSafeModule`, transferring ownership.
     pub(crate) fn into_thread_safe(self) -> ThreadSafeModule {
         use llvm_sys::orc2::{
             LLVMOrcCreateNewThreadSafeContextFromLLVMContext, LLVMOrcCreateNewThreadSafeModule,
         };
-        // O `ThreadSafeContext` assume o contexto e o `ThreadSafeModule` assume o
-        // módulo; nenhum dos dois pode ser liberado por `Drop` depois daqui.
+        // The `ThreadSafeContext` takes over the context and the `ThreadSafeModule` takes over the
+        // module; neither of them can be freed by `Drop` after this point.
         let this = ManuallyDrop::new(self);
-        // SAFETY: `context` e `module` são válidos e ainda não foram consumidos.
-        // `LLVMOrcCreateNewThreadSafeContextFromLLVMContext` passa a ser o dono
-        // do contexto; `LLVMOrcCreateNewThreadSafeModule` retém sua própria
-        // referência ao contexto seguro, então a nossa pode ser devolvida logo
-        // depois, como já fazia o caminho não recarregável.
+        // SAFETY: `context` and `module` are valid and not yet consumed.
+        // `LLVMOrcCreateNewThreadSafeContextFromLLVMContext` becomes the owner
+        // of the context; `LLVMOrcCreateNewThreadSafeModule` keeps its own
+        // reference to the safe context, so ours can be returned right
+        // after, as the non-reloadable path already did.
         unsafe {
             let thread_safe_context =
                 LLVMOrcCreateNewThreadSafeContextFromLLVMContext(this.context);
@@ -302,28 +302,28 @@ impl ParsedModule {
         }
     }
 
-    /// Assinaturas das funções **exportadas** pelo módulo, na ordem do IR.
+    /// Signatures of the functions **exported** by the module, in IR order.
     ///
-    /// Declarações externas ficam de fora: elas são o que o módulo consome (o
-    /// runtime), não o que ele oferece para ser recarregado. Definições
-    /// `internal`/`private` pertencem à geração e também ficam de fora.
+    /// External declarations are left out: they are what the module consumes (the
+    /// runtime), not what it offers to be reloaded. `internal`/`private`
+    /// definitions belong to the generation and are also left out.
     pub(crate) fn signatures(&self) -> Vec<FunctionSignature> {
         self.definitions()
             .into_iter()
             .filter(|&function| !self.local_function(function))
-            // SAFETY: cada `function` é uma definição viva deste módulo,
-            // devolvida pela travessia do próprio LLVM.
+            // SAFETY: each `function` is a live definition of this module,
+            // returned by LLVM's own traversal.
             .map(|function| unsafe { self.signature_of(function) })
             .collect()
     }
 
-    /// Dá à função definida `de` o nome `to` (J03: a assinatura mudou e a
-    /// entrada estável nova tem outro nome). Os usos dela no módulo seguem o
-    /// valor, então passam a chamar `to`. `false` se `de` não é definida
-    /// aqui ou `to` já existe.
+    /// Gives the defined function `de` the name `to` (J03: the signature changed and the
+    /// new stable entry has another name). Its uses in the module follow the
+    /// value, so they start calling `to`. `false` if `de` is not defined
+    /// here or `to` already exists.
     pub(crate) fn rename_function(&self, de: &str, to: &str) -> bool {
-        // SAFETY: as definições são valores vivos deste módulo; o nome novo é
-        // copiado pelo LLVM.
+        // SAFETY: the definitions are live values of this module; the new name is
+        // copied by LLVM.
         unsafe {
             let definition = self.definitions().into_iter().find(|&f| value_name(f) == de);
             let busy = self.definitions().into_iter().any(|f| value_name(f) == to);
@@ -333,22 +333,22 @@ impl ParsedModule {
         }
     }
 
-    /// Dá o nome `to` à definição `function`, levando junto o `comdat` dela.
+    /// Gives the name `to` to the definition `function`, taking its `comdat` along.
     ///
-    /// Uma função `linkonce_odr` do SDK da fonte (entrada de tear-off,
-    /// constante canônica) mora num `comdat` com o nome dela. O ELF aceita
-    /// qualquer membro num grupo, mas no COFF o membro cujo nome não é a chave
-    /// do `comdat` é "associativo" e exige a chave no módulo — sem ela o LLVM
-    /// aborta a geração de código (`Associative COMDAT symbol '…' is not a key
-    /// for its COMDAT`). A função renomeada passa a one `comdat` com o nome
-    /// novo, de mesma seleção: a deduplicação entre módulos continua valendo
-    /// para quem tem o mesmo nome.
+    /// A `linkonce_odr` function of the source SDK (tear-off entry,
+    /// canonical constant) lives in a `comdat` with its name. ELF accepts
+    /// any member in a group, but in COFF the member whose name is not the key
+    /// of the `comdat` is "associative" and requires the key in the module — without it LLVM
+    /// aborts code generation (`Associative COMDAT symbol '…' is not a key
+    /// for its COMDAT`). The renamed function moves to a `comdat` with the new
+    /// name, with the same selection: deduplication across modules still holds
+    /// for those with the same name.
     ///
     /// # Safety
-    /// `function` precisa ser uma definição viva deste módulo.
+    /// `function` must be a live definition of this module.
     unsafe fn rename_definition(&self, function: LLVMValueRef, to: &str) {
-        // SAFETY: o chamador garante a validade; o nome é copiado pelo LLVM e
-        // o `comdat` pertence ao módulo.
+        // SAFETY: the caller guarantees validity; the name is copied by LLVM and
+        // the `comdat` belongs to the module.
         unsafe {
             LLVMSetValueName2(function, to.as_ptr().cast::<c_char>(), to.len());
             let old = llvm_sys::comdat::LLVMGetComdat(function);
@@ -363,16 +363,16 @@ impl ParsedModule {
         }
     }
 
-    /// Nomes que o módulo **declara sem definir**, isto é, o que ele consome.
+    /// Names the module **declares without defining**, that is, what it consumes.
     ///
-    /// Numa sessão JIT esse conjunto precisa estar contido na tabela do runtime,
-    /// na lista de CRT ([`CRT_SYMBOLS`]) e no que outros módulos já definem. Conferir isso antes de
-    /// mexer na sessão troca um erro de ligação do ORC por um diagnóstico com o
-    /// nome que falta.
+    /// In a JIT session this set must be contained in the runtime table,
+    /// in the CRT list ([`CRT_SYMBOLS`]) and in what other modules already define. Checking this before
+    /// touching the session replaces an ORC link error with a diagnostic carrying the
+    /// missing name.
     pub(crate) fn declarations(&self) -> Vec<String> {
         let mut names = Vec::new();
-        // SAFETY: travessia pela API do LLVM, terminada no primeiro nulo; os
-        // valores são válidos enquanto este módulo não for consumido.
+        // SAFETY: traversal through the LLVM API, ended at the first null; the
+        // values are valid while this module is not consumed.
         unsafe {
             let mut function = LLVMGetFirstFunction(self.module);
             while !function.is_null() {
@@ -385,15 +385,15 @@ impl ParsedModule {
         names
     }
 
-    /// Globais de dados declaradas sem definição neste módulo.
+    /// Data globals declared without a definition in this module.
     ///
-    /// A pré-verificação de funções não cobre `@nome = external global ...`.
-    /// Uma referência de dado ausente também pode falhar na materialização do
-    /// ORC depois de uma promoção já ter removido o módulo antigo.
+    /// The function pre-check does not cover `@name = external global ...`.
+    /// A missing data reference can also fail during ORC materialization
+    /// after a promotion has already removed the old module.
     pub(crate) fn external_globals(&self) -> Vec<String> {
         let mut names = Vec::new();
-        // SAFETY: travessia pela API do LLVM sobre o módulo vivo; cada nome é
-        // copiado antes de a referência ao módulo ser consumida pelo ORC.
+        // SAFETY: traversal through the LLVM API over the live module; each name is
+        // copied before the module reference is consumed by ORC.
         unsafe {
             let mut global = llvm_sys::core::LLVMGetFirstGlobal(self.module);
             while !global.is_null() {
@@ -406,10 +406,10 @@ impl ParsedModule {
         names
     }
 
-    /// `target datalayout` e `target triple` do módulo, vazios quando ausentes.
+    /// The module's `target datalayout` and `target triple`, empty when absent.
     pub(crate) fn target(&self) -> (String, String) {
-        // SAFETY: as duas funções devolvem strings que pertencem ao módulo vivo;
-        // são copiadas antes de qualquer outra chamada ao LLVM.
+        // SAFETY: both functions return strings that belong to the live module;
+        // they are copied before any other LLVM call.
         unsafe {
             (
                 CStr::from_ptr(llvm_sys::core::LLVMGetDataLayoutStr(self.module))
@@ -422,24 +422,24 @@ impl ParsedModule {
         }
     }
 
-    /// Layout nominal das classes construídas pelo módulo: `(class_id, fields)`.
+    /// Nominal layout of the classes the module constructs: `(class_id, fields)`.
     ///
-    /// Sai das chamadas a `@dartforge_object_new(i64 class_id, i64 field_count)`
-    /// com os dois argumentos constantes, que é a forma que o emissor nativo emite
-    /// nos construtores. Duas gerações que discordem no número de campos de uma
-    /// mesma classe têm layouts incompatíveis: os objetos já vivos no heap
-    /// gerenciado continuariam com o layout antigo, e o código novo leria campos
-    /// que não existem. Por isso essa divergência recusa a recarga em vez de
-    /// corromper o heap em silêncio.
+    /// It comes from the calls to `@dartforge_object_new(i64 class_id, i64 field_count)`
+    /// with both arguments constant, which is the form the native emitter emits
+    /// in constructors. Two generations that disagree on the number of fields of the
+    /// same class have incompatible layouts: the objects already alive in the managed
+    /// heap would keep the old layout, and the new code would read fields
+    /// that do not exist. That is why this divergence refuses the reload instead of
+    /// silently corrupting the heap.
     ///
-    /// Classes que o módulo novo não constrói não aparecem, e portanto não são
-    /// verificadas — limite declarado em `docs/JIT.md`.
+    /// Classes the new module does not construct do not appear, and therefore are not
+    /// checked — a limit declared in `docs/JIT.md`.
     pub(crate) fn class_layouts(&self) -> Vec<(i64, i64)> {
         let mut layouts = Vec::new();
         for function in self.definitions() {
-            // SAFETY: travessia da estrutura do módulo pela própria API do LLVM.
-            // Cada ponteiro devolvido é válido enquanto o módulo existir, e o
-            // laço termina no primeiro nulo, como manda `llvm-c/Core.h`.
+            // SAFETY: traversal of the module structure through LLVM's own API.
+            // Each returned pointer is valid while the module exists, and the
+            // loop ends at the first null, as `llvm-c/Core.h` requires.
             unsafe {
                 let mut block = LLVMGetFirstBasicBlock(function);
                 while !block.is_null() {
@@ -459,17 +459,17 @@ impl ParsedModule {
         layouts
     }
 
-    /// Os nomes das classes que o módulo registra: `(class_id, name)`, das
-    /// chamadas `dartforge_register_class_name(id, @.str, n)`.
+    /// The names of the classes the module registers: `(class_id, name)`, from the
+    /// calls `dartforge_register_class_name(id, @.str, n)`.
     ///
-    /// Os ids de classe do programa são posicionais; uma edição que insere
-    /// ou reordena classes muda o id de uma classe que já tem objetos no
-    /// heap, e a recarga precisa saber disso para recusar em vez de trocar a
-    /// classe dos objetos vivos.
+    /// The program's class ids are positional; an edit that inserts
+    /// or reorders classes changes the id of a class that already has objects in the
+    /// heap, and the reload needs to know that to refuse instead of changing the
+    /// class of the live objects.
     pub(crate) fn class_names(&self) -> Vec<(i64, String)> {
         let mut names = Vec::new();
         for function in self.definitions() {
-            // SAFETY: a mesma travessia de `class_layouts`.
+            // SAFETY: the same traversal as `class_layouts`.
             unsafe {
                 let mut block = LLVMGetFirstBasicBlock(function);
                 while !block.is_null() {
@@ -489,53 +489,53 @@ impl ParsedModule {
         names
     }
 
-    /// Versiona as implementações e desvia todas as chamadas para as entradas.
+    /// Versions the implementations and redirects all calls to the entries.
     ///
-    /// Para cada função definida `F` o módulo passa a conter:
+    /// For each defined function `F` the module comes to contain:
     ///
-    /// * a **implementação** renomeada para `F$suffix`, que é o que esta geração
-    ///   materializa e o que o `ResourceTracker` desta geração descarrega;
-    /// * uma **declaração externa** `F`, que é a entrada estável, resolvida pelo
-    ///   módulo de trampolins da sessão.
+    /// * the **implementation** renamed to `F$suffix`, which is what this generation
+    ///   materializes and what this generation's `ResourceTracker` unloads;
+    /// * an **external declaration** `F`, which is the stable entry, resolved by the
+    ///   session's trampoline module.
     ///
-    /// `LLVMReplaceAllUsesWith` troca *todos* os usos da implementação pela
-    /// declaração, inclusive os de dentro do próprio módulo e as recursões. É
-    /// isso que faz valer a regra do plano — «os chamadores passam pela entrada,
-    /// nunca pelo corpo».
+    /// `LLVMReplaceAllUsesWith` replaces *all* uses of the implementation with the
+    /// declaration, including those inside the module itself and recursions. That
+    /// is what enforces the plan's rule — «callers go through the entry,
+    /// never through the body».
     ///
-    /// Hoje essa indireção interna **não é observável**: `hot_reload` toma
-    /// `&mut self` e executar toma `&self`, logo nenhuma recarga acontece com
-    /// código gerado na pilha, e o caso «quadro antigo faz uma chamada nova» não
-    /// existe. Ela está aqui para que a regra continue valendo quando a recarga
-    /// for disparada de fora do fluxo — de um observador de arquivos, ou de dentro
-    /// de uma função de runtime chamada pelo programa. Sem ela, esse passo
-    /// exigiria reescrever call sites já materializados.
+    /// Today this internal indirection is **not observable**: `hot_reload` takes
+    /// `&mut self` and running takes `&self`, so no reload happens with
+    /// generated code on the stack, and the case «old frame makes a new call» does not
+    /// exist. It is here so that the rule keeps holding when the reload
+    /// is triggered from outside the flow — from a file watcher, or from inside
+    /// a runtime function called by the program. Without it, that step
+    /// would require rewriting already materialized call sites.
     ///
-    /// Devolve as assinaturas na ordem do IR, com os nomes **estáveis** (sem o
-    /// sufixo), que é a chave da tabela de entradas da sessão.
+    /// Returns the signatures in IR order, with the **stable** names (without the
+    /// suffix), which is the key of the session's entry table.
     pub(crate) fn version_definitions(&self, suffix: &str) -> Vec<FunctionSignature> {
         let mut signatures = Vec::new();
-        // A lista de definições é fotografada antes da primeira reescrita: os
-        // valores continuam válidos enquanto o módulo existir, e as declarações
-        // acrescentadas no laço não voltam a ser visitadas.
+        // The list of definitions is snapshotted before the first rewrite: the
+        // values stay valid while the module exists, and the declarations
+        // added in the loop are not visited again.
         for function in self.definitions() {
-            // Funções `internal`/`private` pertencem apenas a esta geração.
-            // Não ganham trampolim, nem podem ser resolvidas com LLJITLookup.
+            // `internal`/`private` functions belong only to this generation.
+            // They get no trampoline, nor can they be resolved with LLJITLookup.
             if self.local_function(function) {
                 continue;
             }
-            // SAFETY: `function` é uma definição viva deste módulo.
+            // SAFETY: `function` is a live definition of this module.
             let signature = unsafe { self.signature_of(function) };
             let versioned = format!("{}{suffix}", signature.name);
             let Ok(stable) = CString::new(signature.name.as_str()) else {
                 continue;
             };
-            // SAFETY: os dois nomes vivem até o fim da iteração. `AddFunction`
-            // cria uma declaração (sem corpo) com exatamente o tipo da
-            // implementação, o que mantém todas as chamadas bem tipadas depois do
-            // `RAUW`. Renomear antes de declarar é obrigatório: dois valores
-            // globais não podem dividir um nome, e o LLVM resolveria o conflito
-            // sufixando o segundo, quebrando a entrada estável em silêncio.
+            // SAFETY: both names live until the end of the iteration. `AddFunction`
+            // creates a declaration (without a body) with exactly the type of the
+            // implementation, which keeps all calls well typed after the
+            // `RAUW`. Renaming before declaring is mandatory: two global
+            // values cannot share a name, and LLVM would resolve the conflict
+            // by suffixing the second one, silently breaking the stable entry.
             unsafe {
                 let kind = LLVMGlobalGetValueType(function);
                 self.rename_definition(function, &versioned);
@@ -547,14 +547,14 @@ impl ParsedModule {
         signatures
     }
 
-    /// Lê a assinatura de uma função definida.
+    /// Reads the signature of a defined function.
     ///
     /// # Safety
-    /// `function` precisa ser uma função viva deste módulo.
+    /// `function` must be a live function of this module.
     unsafe fn signature_of(&self, function: LLVMValueRef) -> FunctionSignature {
-        // SAFETY: o chamador garante a validade; `GlobalGetValueType` de uma
-        // função devolve seu tipo de função, e as consultas seguintes apenas
-        // leem esse tipo.
+        // SAFETY: the caller guarantees validity; `GlobalGetValueType` of a
+        // function returns its function type, and the following queries only
+        // read that type.
         unsafe {
             let kind = LLVMGlobalGetValueType(function);
             FunctionSignature {
@@ -569,11 +569,11 @@ impl ParsedModule {
         }
     }
 
-    /// Funções com corpo, na ordem do IR.
+    /// Functions with a body, in IR order.
     fn definitions(&self) -> Vec<LLVMValueRef> {
         let mut functions = Vec::new();
-        // SAFETY: travessia pela API do LLVM, terminada no primeiro nulo; os
-        // valores são válidos enquanto este módulo não for consumido.
+        // SAFETY: traversal through the LLVM API, ended at the first null; the
+        // values are valid while this module is not consumed.
         unsafe {
             let mut function = LLVMGetFirstFunction(self.module);
             while !function.is_null() {
@@ -586,19 +586,19 @@ impl ParsedModule {
         functions
     }
 
-    /// Torna locais ao módulo todas as funções definidas, menos `keep`.
+    /// Makes all defined functions local to the module, except `keep`.
     ///
-    /// Um programa executado de uma vez (`dartforge run`) só precisa exportar
-    /// a entrada; exportar as dezenas de milhares de funções de um programa
-    /// com pacotes grandes faz o ORC rastrear a dependência de cada símbolo
-    /// emitido (`WaitingOnGraph`), o que cresce mais que linearmente e levava
-    /// minutos. Funções locais o ORC não rastreia, e o LLVM ainda pode
-    /// descartar as que nada alcança.
+    /// A program run at once (`dartforge run`) only needs to export
+    /// the entry; exporting the tens of thousands of functions of a program
+    /// with large packages makes ORC track the dependency of each emitted
+    /// symbol (`WaitingOnGraph`), which grows more than linearly and took
+    /// minutes. ORC does not track local functions, and LLVM can still
+    /// discard those nothing reaches.
     pub(crate) fn internalize_functions(&self, keep: &[&str]) {
         for function in self.definitions() {
-            // SAFETY: `function` veio da travessia de definições deste módulo;
-            // a troca de ligação e a retirada do comdat são as operações que a
-            // passagem `internalize` do LLVM faz.
+            // SAFETY: `function` came from the traversal of this module's definitions;
+            // changing the linkage and removing the comdat are the operations LLVM's
+            // `internalize` pass does.
             unsafe {
                 if keep.contains(&value_name(function).as_str()) {
                     continue;
@@ -608,12 +608,12 @@ impl ParsedModule {
                 llvm_sys::core::LLVMSetVisibility(function, llvm_sys::LLVMVisibility::LLVMDefaultVisibility);
             }
         }
-        // O que a entrada não alcança sai antes da geração de código (um
-        // pacote grande importado inteiro — todos os algoritmos de um
-        // `export.dart` — custava o código de máquina de tudo).
-        let pipeline = CString::new("globaldce").expect("sem NUL");
-        // SAFETY: o módulo é deste valor; as opções são criadas e liberadas
-        // aqui, e o erro devolvido é consumido.
+        // What the entry does not reach goes away before code generation (a
+        // large package imported whole — all the algorithms of an
+        // `export.dart` — cost the machine code of everything).
+        let pipeline = CString::new("globaldce").expect("no NUL");
+        // SAFETY: the module belongs to this value; the options are created and freed
+        // here, and the returned error is consumed.
         unsafe {
             let options = llvm_sys::transforms::pass_builder::LLVMCreatePassBuilderOptions();
             let error = llvm_sys::transforms::pass_builder::LLVMRunPasses(self.module, pipeline.as_ptr(), ptr::null_mut(), options);
@@ -626,29 +626,29 @@ impl ParsedModule {
     }
 
     fn local_function(&self, function: LLVMValueRef) -> bool {
-        // SAFETY: `function` veio da travessia de definições deste módulo.
+        // SAFETY: `function` came from the traversal of this module's definitions.
         let linkage = unsafe { llvm_sys::core::LLVMGetLinkage(function) };
         matches!(linkage, llvm_sys::LLVMLinkage::LLVMInternalLinkage | llvm_sys::LLVMLinkage::LLVMPrivateLinkage)
     }
 }
 
-/// Extrai `(class_id, fields)` de uma chamada constante a `@dartforge_object_new`.
+/// Extracts `(class_id, fields)` from a constant call to `@dartforge_object_new`.
 ///
 /// # Safety
-/// `instruction` precisa ser uma instrução viva de um módulo não consumido.
+/// `instruction` must be a live instruction of a module not yet consumed.
 unsafe fn object_new_layout(instruction: LLVMValueRef) -> Option<(i64, i64)> {
-    // SAFETY: as consultas abaixo só leem a instrução e seus operandos. `IsACall`
-    // devolve nulo quando a instrução não é chamada, e o operando final de uma
-    // chamada é o alvo — por isso os argumentos são lidos por índice explícito e
-    // a aritmética de operandos é conferida antes.
+    // SAFETY: the queries below only read the instruction and its operands. `IsACall`
+    // returns null when the instruction is not a call, and the last operand of a
+    // call is the callee — that is why the arguments are read by explicit index and
+    // the operand arithmetic is checked first.
     unsafe {
         if LLVMIsACallInst(instruction).is_null() {
             return None;
         }
         let callee = LLVMGetCalledValue(instruction);
-        // `dartforge_object_new_t` é a do SDK da fonte (registra a tabela de
-        // métodos na primeira alocação); os dois primeiros argumentos são os
-        // mesmos.
+        // `dartforge_object_new_t` is the source SDK's (registers the method
+        // table on the first allocation); the first two arguments are the
+        // same.
         if callee.is_null() || !matches!(value_name(callee).as_str(), "dartforge_object_new" | "dartforge_object_new_t") {
             return None;
         }
@@ -667,15 +667,15 @@ unsafe fn object_new_layout(instruction: LLVMValueRef) -> Option<(i64, i64)> {
     }
 }
 
-/// `(class_id, name)` de uma chamada `dartforge_register_class_name` com
-/// argumentos constantes.
+/// `(class_id, name)` of a `dartforge_register_class_name` call with
+/// constant arguments.
 ///
 /// # Safety
-/// `instruction` precisa ser uma instrução viva de um módulo não consumido.
+/// `instruction` must be a live instruction of a module not yet consumed.
 unsafe fn class_name_registration(instruction: LLVMValueRef) -> Option<(i64, String)> {
-    // SAFETY: como em `object_new_layout`; o texto é o inicializador de uma
-    // global constante do próprio módulo, lido com o comprimento que o LLVM
-    // informa e copiado.
+    // SAFETY: as in `object_new_layout`; the text is the initializer of a
+    // constant global of the module itself, read with the length LLVM
+    // reports and copied.
     unsafe {
         if LLVMIsACallInst(instruction).is_null() {
             return None;
@@ -706,14 +706,14 @@ unsafe fn class_name_registration(instruction: LLVMValueRef) -> Option<(i64, Str
     }
 }
 
-/// Lê o nome de um valor global do LLVM.
+/// Reads the name of an LLVM global value.
 ///
 /// # Safety
-/// `value` precisa ser um valor vivo de um módulo não consumido.
+/// `value` must be a live value of a module not yet consumed.
 unsafe fn value_name(value: LLVMValueRef) -> String {
     let mut len = 0usize;
-    // SAFETY: `GetValueName2` devolve ponteiro e comprimento de uma string que
-    // pertence ao LLVM e vive tanto quanto o valor; a cópia é feita aqui.
+    // SAFETY: `GetValueName2` returns pointer and length of a string that
+    // belongs to LLVM and lives as long as the value; the copy is made here.
     unsafe {
         let name = LLVMGetValueName2(value, &mut len);
         if name.is_null() {
@@ -723,23 +723,23 @@ unsafe fn value_name(value: LLVMValueRef) -> String {
     }
 }
 
-/// Imprime um tipo do LLVM como texto de IR.
+/// Prints an LLVM type as IR text.
 ///
 /// # Safety
-/// `kind` precisa ser um tipo vivo do contexto de um módulo não consumido.
+/// `kind` must be a live type of the context of a module not yet consumed.
 unsafe fn type_text(kind: LLVMTypeRef) -> String {
-    // SAFETY: `PrintTypeToString` transfere a propriedade da string, liberada
-    // aqui com `LLVMDisposeMessage`, como manda `llvm-c/Core.h`.
+    // SAFETY: `PrintTypeToString` transfers ownership of the string, freed
+    // here with `LLVMDisposeMessage`, as `llvm-c/Core.h` requires.
     unsafe { take_message(LLVMPrintTypeToString(kind)) }
 }
 
-/// Lista os tipos dos parâmetros de um tipo de função.
+/// Lists the parameter types of a function type.
 ///
 /// # Safety
-/// `kind` precisa ser um tipo de função vivo.
+/// `kind` must be a live function type.
 unsafe fn param_types(kind: LLVMTypeRef) -> Vec<LLVMTypeRef> {
-    // SAFETY: `CountParamTypes` informa o tamanho exato que `GetParamTypes`
-    // escreve, e o vetor é dimensionado antes da escrita.
+    // SAFETY: `CountParamTypes` reports the exact size `GetParamTypes`
+    // writes, and the vector is sized before the write.
     unsafe {
         let count = LLVMCountParamTypes(kind) as usize;
         let mut types = vec![ptr::null_mut::<llvm_sys::LLVMType>(); count];
@@ -750,28 +750,28 @@ unsafe fn param_types(kind: LLVMTypeRef) -> Vec<LLVMTypeRef> {
     }
 }
 
-/// Rastreador de recursos de um único módulo adicionado à sessão.
+/// Resource tracker of a single module added to the session.
 ///
-/// # Remoção
-/// [`ResourceTracker::remove`] descarrega o código do módulo e invalida os
-/// endereços já resolvidos a partir dele. **Só é seguro remover quando nenhuma
-/// função daquele módulo está executando, direta ou indiretamente**, inclusive
-/// em outra thread ou num quadro de pilha mais abaixo do chamador. O LLVM não
-/// verifica isso: chamar um endereço obtido antes da remoção é uso de memória
-/// liberada. Esta é a razão de [`crate::JitSession::remove_module`] exigir
-/// `&mut self` — a execução do código gerado toma `&self` e as duas coisas não
-/// podem coexistir.
+/// # Removal
+/// [`ResourceTracker::remove`] unloads the module's code and invalidates the
+/// addresses already resolved from it. **It is only safe to remove when no
+/// function of that module is running, directly or indirectly**, including
+/// on another thread or in a stack frame further below the caller. LLVM does not
+/// check this: calling an address obtained before the removal is a use after
+/// free. This is why [`crate::JitSession::remove_module`] requires
+/// `&mut self` — running the generated code takes `&self` and the two cannot
+/// coexist.
 pub(crate) struct ResourceTracker {
     handle: LLVMOrcResourceTrackerRef,
 }
 impl ResourceTracker {
-    /// Descarrega os recursos do módulo associado a este rastreador.
+    /// Unloads the resources of the module associated with this tracker.
     ///
-    /// # Erros
-    /// Propaga a falha do LLVM se a desmaterialização não puder ser concluída.
+    /// # Errors
+    /// Propagates LLVM's failure if dematerialization cannot be completed.
     pub(crate) fn remove(&self) -> Result<(), String> {
-        // SAFETY: `handle` é um tracker vivo desta sessão; `Remove` é idempotente
-        // do ponto de vista do LLVM e devolve o erro em vez de abortar.
+        // SAFETY: `handle` is a live tracker of this session; `Remove` is idempotent
+        // from LLVM's point of view and returns the error instead of aborting.
         match take_error(unsafe { LLVMOrcResourceTrackerRemove(self.handle) }) {
             Some(message) => Err(message),
             None => Ok(()),
@@ -779,19 +779,19 @@ impl ResourceTracker {
     }
 }
 impl Drop for ResourceTracker {
-    /// Devolve a referência ao tracker; a `LLJIT` ainda precisa estar viva.
+    /// Returns the reference to the tracker; the `LLJIT` must still be alive.
     fn drop(&mut self) {
-        // SAFETY: `crate::JitSession` declara os módulos antes da `LLJIT`, então
-        // os trackers são liberados enquanto a `LLJIT` que os criou existe.
+        // SAFETY: `crate::JitSession` declares the modules before the `LLJIT`, so
+        // the trackers are freed while the `LLJIT` that created them exists.
         unsafe { LLVMOrcReleaseResourceTracker(self.handle) }
     }
 }
 
-/// Marca um símbolo absoluto como visível fora do módulo e chamável.
+/// Marks an absolute symbol as visible outside the module and callable.
 ///
-/// `Exported` o torna alcançável por quem procurar o nome na dylib; `Callable`
-/// informa ao ORC que o endereço é código, não um dado — distinção que importa
-/// para os stubs indiretos que o hot reload usará numa etapa futura.
+/// `Exported` makes it reachable by whoever looks the name up in the dylib; `Callable`
+/// tells ORC the address is code, not data — a distinction that matters
+/// for the indirect stubs hot reload will use in a future stage.
 fn exported_callable() -> LLVMJITSymbolFlags {
     LLVMJITSymbolFlags {
         GenericFlags: LLVMJITSymbolGenericFlags::LLVMJITSymbolGenericFlagsExported as u8
@@ -800,10 +800,10 @@ fn exported_callable() -> LLVMJITSymbolFlags {
     }
 }
 
-/// Marca um símbolo absoluto como dado visível fora do módulo.
+/// Marks an absolute symbol as data visible outside the module.
 ///
-/// Sem `Callable`: é o endereço de uma célula de ponteiro, lida pelo trampolim
-/// da entrada estável, e não código que alguém possa chamar.
+/// Without `Callable`: it is the address of a pointer cell, read by the trampoline
+/// of the stable entry, and not code anyone can call.
 fn exported_data() -> LLVMJITSymbolFlags {
     LLVMJITSymbolFlags {
         GenericFlags: LLVMJITSymbolGenericFlags::LLVMJITSymbolGenericFlagsExported as u8,
@@ -811,79 +811,79 @@ fn exported_data() -> LLVMJITSymbolFlags {
     }
 }
 
-/// A máquina-alvo do JIT: triple do host, CPU genérica `x86-64` e geração de
-/// código **sem otimização**, o par do `clang -O0` do AOT. É a mesma para a
-/// sessão ([`Lljit::new`]) e para o objeto em cache ([`compile_object`]): um
-/// objeto compilado por uma e carregado na outra tem de ter o mesmo código.
+/// The JIT target machine: host triple, generic `x86-64` CPU and code
+/// generation **without optimization**, the counterpart of the AOT's `clang -O0`. It is the same for the
+/// session ([`Lljit::new`]) and for the cached object ([`compile_object`]): an
+/// object compiled by one and loaded into the other must have the same code.
 ///
-/// O modelo de código é o padrão de JIT do LLVM, que no x86-64 evita
-/// relocações de 32 bits entre o código gerado e o runtime do processo.
+/// The code model is LLVM's JIT default, which on x86-64 avoids
+/// 32-bit relocations between the generated code and the process runtime.
 ///
-/// Devolve a posse do `TargetMachine` ao chamador.
+/// Returns ownership of the `TargetMachine` to the caller.
 fn target_machine() -> Result<LLVMTargetMachineRef, String> {
     initialize_native_target()?;
-    // SAFETY: o triple e a mensagem de erro voltam para nós e são liberados
-    // com `LLVMDisposeMessage`; o `TargetMachine` criado é devolvido.
+    // SAFETY: the triple and the error message come back to us and are freed
+    // with `LLVMDisposeMessage`; the created `TargetMachine` is returned.
     unsafe {
         let triple = LLVMGetDefaultTargetTriple();
         let mut target = ptr::null_mut();
         let mut message = ptr::null_mut();
         if LLVMGetTargetFromTriple(triple, &mut target, &mut message) != 0 {
-            let detail = if message.is_null() { "alvo desconhecido".to_owned() } else { take_message(message) };
+            let detail = if message.is_null() { "unknown target".to_owned() } else { take_message(message) };
             LLVMDisposeMessage(triple);
-            return Err(format!("o LLVM não tem alvo para o host: {detail}"));
+            return Err(format!("LLVM has no target for the host: {detail}"));
         }
         let machine = LLVMCreateTargetMachine(
             target,
             triple,
             if cfg!(target_arch = "x86_64") { c"x86-64" } else { c"generic" }.as_ptr(),
             c"".as_ptr(),
-            // Com raízes por mapas, nunca o `-O0` (o FastISel tem defeitos
-            // conhecidos com `gc.relocate`, §3.4).
+            // With map-based roots, never `-O0` (FastISel has known defects
+            // with `gc.relocate`, §3.4).
             if roots_by_maps() { LLVMCodeGenOptLevel::LLVMCodeGenLevelLess } else { LLVMCodeGenOptLevel::LLVMCodeGenLevelNone },
             LLVMRelocMode::LLVMRelocDefault,
             LLVMCodeModel::LLVMCodeModelJITDefault,
         );
         LLVMDisposeMessage(triple);
         if machine.is_null() {
-            return Err("o LLVM não criou a máquina-alvo do host".to_owned());
+            return Err("LLVM did not create the host target machine".to_owned());
         }
         Ok(machine)
     }
 }
 
-/// Instância viva da `LLJIT` e sua `JITDylib` principal.
+/// Live instance of the `LLJIT` and its main `JITDylib`.
 pub(crate) struct Lljit {
     handle: LLVMOrcLLJITRef,
     main: LLVMOrcJITDylibRef,
-    /// Com raízes por mapas ou com o rastro simbólico, o contexto da camada
-    /// de objetos (quem registra os mapas e as seções do rastro); nulo sem
-    /// eles.
+    /// With map-based roots or with the symbolic stack trace, the context of the object
+    /// layer (which registers the maps and the trace sections); null without
+    /// them.
     layer: *mut LayerContext,
     maps: bool,
     trace: bool,
 }
 
 impl Lljit {
-    /// Cria uma `LLJIT` para o triple do host e resolve sua `JITDylib` principal.
+    /// Creates an `LLJIT` for the host triple and resolves its main `JITDylib`.
     ///
-    /// A máquina-alvo é montada explicitamente, e não detectada: CPU genérica
-    /// `x86-64` (a mesma que o `clang` do AOT assume sem `-march`) e geração de
-    /// código **sem otimização** (`CodeGenLevelNone`), o par do `clang -O0` do
-    /// ciclo de desenvolvimento. A detecção do host daria a CPU da máquina e
-    /// `CodeGenLevelDefault` — código diferente do AOT e mais lento de gerar.
-    /// O modelo de código é o padrão de JIT do LLVM, que no x86-64 evita
-    /// relocações de 32 bits entre o código gerado e o runtime do processo.
+    /// The target machine is built explicitly, not detected: generic CPU
+    /// `x86-64` (the same the AOT's `clang` assumes without `-march`) and code
+    /// generation **without optimization** (`CodeGenLevelNone`), the counterpart of `clang -O0` in the
+    /// development cycle. Host detection would give the machine's CPU and
+    /// `CodeGenLevelDefault` — code different from the AOT and slower to generate.
+    /// The code model is LLVM's JIT default, which on x86-64 avoids
+    /// 32-bit relocations between the generated code and the process runtime.
     ///
-    /// # Erros
-    /// Falha quando o alvo nativo não está disponível ou a construção da
-    /// `LLJIT` retorna erro, sempre com a mensagem original do LLVM anexada.
+    /// # Errors
+    /// Fails when the native target is not available or building the
+    /// `LLJIT` returns an error, always with the original LLVM message attached.
     pub(crate) fn new() -> Result<Self, String> {
         let machine = target_machine()?;
         let maps = roots_by_maps();
-        // O rastro simbólico (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
-        // §13.14): a seção `dfpcl` de cada objeto é registrada pelo
-        // gerenciador de memória da camada própria.
+        // The symbolic stack trace (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
+        // §13.14): the `dfpcl` section of each object is registered by the
+        // memory manager of our own layer.
         let trace = symbolic_trace();
         let layer: *mut LayerContext = if maps || trace {
             Box::into_raw(Box::new(LayerContext { rec: std::sync::Mutex::new(None), trace: std::sync::Mutex::new(None) }))
@@ -892,16 +892,16 @@ impl Lljit {
         };
         let release_layer = || {
             if !layer.is_null() {
-                // SAFETY: `layer` veio de `Box::into_raw` e não foi entregue
-                // a nenhuma `LLJIT` viva.
+                // SAFETY: `layer` came from `Box::into_raw` and was not handed
+                // to any live `LLJIT`.
                 drop(unsafe { Box::from_raw(layer) });
             }
         };
         let mut handle: LLVMOrcLLJITRef = ptr::null_mut();
-        // SAFETY: cada objeto criado aqui é entregue ao seguinte, que assume a
-        // propriedade: o `TargetMachine` ao JTMB, o JTMB ao builder e o builder
-        // a `LLVMOrcCreateLLJIT` (que o consome inclusive quando falha). A
-        // camada de objetos com mapas recebe o contexto, que vive até o `Drop`.
+        // SAFETY: each object created here is handed to the next, which takes
+        // ownership: the `TargetMachine` to the JTMB, the JTMB to the builder and the builder
+        // to `LLVMOrcCreateLLJIT` (which consumes it even when it fails). The
+        // object layer with maps receives the context, which lives until `Drop`.
         unsafe {
             let builder = LLVMOrcCreateLLJITBuilder();
             LLVMOrcLLJITBuilderSetJITTargetMachineBuilder(
@@ -918,11 +918,11 @@ impl Lljit {
         }
         if handle.is_null() {
             release_layer();
-            return Err("LLVM devolveu uma LLJIT nula sem diagnóstico".to_owned());
+            return Err("LLVM returned a null LLJIT without a diagnostic".to_owned());
         }
         if maps {
-            // SAFETY: a camada de transformação pertence à `LLJIT` viva; a
-            // função não usa contexto.
+            // SAFETY: the transform layer belongs to the live `LLJIT`; the
+            // function uses no context.
             unsafe {
                 llvm_sys::orc2::LLVMOrcIRTransformLayerSetTransform(
                     llvm_sys::orc2::lljit::LLVMOrcLLJITGetIRTransformLayer(handle),
@@ -931,19 +931,19 @@ impl Lljit {
                 );
             }
         }
-        // SAFETY: `handle` acabou de ser criado com sucesso; a dylib principal
-        // pertence à `LLJIT` e é válida enquanto esta estrutura viver.
+        // SAFETY: `handle` was just created successfully; the main dylib
+        // belongs to the `LLJIT` and is valid while this structure lives.
         let main = unsafe { LLVMOrcLLJITGetMainJITDylib(handle) };
         Ok(Self { handle, main, layer, maps, trace })
     }
 
-    /// Com raízes por mapas: os mapas dos objetos vão para o runtime deste
-    /// processo (a sessão que publica os símbolos dele).
+    /// With map-based roots: the objects' maps go to this process's
+    /// runtime (the session that publishes its symbols).
     pub(crate) fn use_local_registry(&self) {
         if self.layer.is_null() {
             return;
         }
-        // SAFETY: a camada vive enquanto a sessão.
+        // SAFETY: the layer lives as long as the session.
         let layer = unsafe { &*self.layer };
         if self.maps {
             *layer.rec.lock().unwrap_or_else(|e| e.into_inner()) = Some((register_local, deregister_local));
@@ -953,28 +953,28 @@ impl Lljit {
         }
     }
 
-    /// Com raízes por mapas: os mapas dos objetos vão para o runtime da
-    /// biblioteca do SDK da fonte (é ele que coleta).
+    /// With map-based roots: the objects' maps go to the runtime of the
+    /// source SDK library (it is the one that collects).
     ///
-    /// # Erros
-    /// A biblioteca não carrega ou não exporta o registro.
+    /// # Errors
+    /// The library does not load or does not export the registration.
     pub(crate) fn use_library_registry(&self, dll: &std::path::Path) -> Result<(), String> {
         if self.layer.is_null() {
             return Ok(());
         }
         let modulo = load_library(dll);
         if modulo.is_null() {
-            return Err(format!("não foi possível carregar a biblioteca do SDK {}", dll.display()));
+            return Err(format!("could not load the SDK library {}", dll.display()));
         }
         if self.maps {
             let register = address_in_library(modulo, c"dartforge_registrar_mapa_llvm");
             let deregister = address_in_library(modulo, c"dartforge_desregistrar_mapa");
             if register.is_null() || deregister.is_null() {
-                return Err("a biblioteca do SDK não exporta o registro dos mapas de pilha (dartforge_registrar_mapa_llvm)".to_owned());
+                return Err("the SDK library does not export the stack map registration (dartforge_registrar_mapa_llvm)".to_owned());
             }
-            // SAFETY: a camada vive enquanto a sessão; os símbolos são as
-            // funções do runtime com estas assinaturas (`gc_raizes.rs`), e a
-            // biblioteca nunca é descarregada.
+            // SAFETY: the layer lives as long as the session; the symbols are the
+            // runtime functions with these signatures (`gc_roots.rs`), and the
+            // library is never unloaded.
             unsafe {
                 let layer = &*self.layer;
                 *layer.rec.lock().unwrap_or_else(|e| e.into_inner()) = Some((
@@ -987,9 +987,9 @@ impl Lljit {
             let register = address_in_library(modulo, c"dartforge_registrar_rastro");
             let deregister = address_in_library(modulo, c"dartforge_desregistrar_rastro");
             if register.is_null() || deregister.is_null() {
-                return Err("a biblioteca do SDK não exporta o registro do rastro (dartforge_registrar_rastro)".to_owned());
+                return Err("the SDK library does not export the stack trace registration (dartforge_registrar_rastro)".to_owned());
             }
-            // SAFETY: como acima (`rastro.rs` do runtime).
+            // SAFETY: as above (the runtime's `stack_trace.rs`).
             unsafe {
                 let layer = &*self.layer;
                 *layer.trace.lock().unwrap_or_else(|e| e.into_inner()) = Some((
@@ -1001,9 +1001,9 @@ impl Lljit {
         Ok(())
     }
 
-    /// `target datalayout` e `target triple` que esta `LLJIT` impõe aos módulos.
+    /// `target datalayout` and `target triple` that this `LLJIT` imposes on modules.
     pub(crate) fn target(&self) -> (String, String) {
-        // SAFETY: as duas strings pertencem à `LLJIT` viva e são copiadas já.
+        // SAFETY: both strings belong to the live `LLJIT` and are copied right away.
         unsafe {
             (
                 CStr::from_ptr(LLVMOrcLLJITGetDataLayoutStr(self.handle))
@@ -1016,24 +1016,24 @@ impl Lljit {
         }
     }
 
-    /// Publica os endereços das funções de runtime como símbolos absolutos.
+    /// Publishes the addresses of the runtime functions as absolute symbols.
     ///
-    /// Esta é a contrapartida JIT da ligação que o driver AOT faz com o
-    /// runtime: em vez de um linker resolver `@dartforge_print_i64` num objeto,
-    /// a `JITDylib` passa a conter esse nome apontando para a função Rust já
-    /// carregada neste processo. A tabela é gerada da fonte do runtime
-    /// ([`RUNTIME_SYMBOLS`]); junto vão os dados que a CRT estática daria ao
-    /// executável AOT ([`crt_data_symbols`]).
+    /// This is the JIT counterpart of the linking the AOT driver does with the
+    /// runtime: instead of a linker resolving `@dartforge_print_i64` in an object,
+    /// the `JITDylib` comes to contain that name pointing to the Rust function already
+    /// loaded in this process. The table is generated from the runtime source
+    /// ([`RUNTIME_SYMBOLS`]); along with it go the data the static CRT would give the
+    /// AOT executable ([`crt_data_symbols`]).
     ///
-    /// # Erros
-    /// Falha se algum nome já estiver definido na dylib, caso em que a unidade
-    /// de materialização é liberada sem alterar a sessão.
+    /// # Errors
+    /// Fails if some name is already defined in the dylib, in which case the materialization
+    /// unit is freed without changing the session.
     pub(crate) fn define_runtime_symbols(&self) -> Result<(), String> {
         let names: Vec<(CString, u64)> = runtime_symbol_addresses()
             .into_iter()
             .map(|(name, address)| {
                 (
-                    CString::new(name).expect("nome de runtime sem byte nulo"),
+                    CString::new(name).expect("runtime name without a null byte"),
                     address as u64,
                 )
             })
@@ -1044,18 +1044,18 @@ impl Lljit {
         self.define_absolute(&crt_data_symbols(), exported_data())
     }
 
-    /// Publica endereços de **dados** desta thread como símbolos absolutos.
+    /// Publishes addresses of **data** of this thread as absolute symbols.
     ///
-    /// É como os ponteiros de implementação do hot reload entram na `JITDylib`:
-    /// cada nome passa a designar o endereço de uma célula Rust, e o trampolim
-    /// gerado lê essa célula a cada chamada. Os símbolos são exportados mas
-    /// **não** marcados como `Callable`, porque são dado, não código — a
-    /// distinção que `llvm-c/Orc.h` pede e que evita que um erro de nome
-    /// transforme uma célula em alvo de chamada.
+    /// It is how hot reload's implementation pointers enter the `JITDylib`:
+    /// each name comes to designate the address of a Rust cell, and the generated
+    /// trampoline reads that cell on every call. The symbols are exported but
+    /// **not** marked as `Callable`, because they are data, not code — the
+    /// distinction `llvm-c/Orc.h` asks for and that prevents a name mistake from
+    /// turning a cell into a call target.
     ///
-    /// # Erros
-    /// Falha se algum nome já estiver definido na dylib; nesse caso a unidade de
-    /// materialização é liberada e a sessão não muda.
+    /// # Errors
+    /// Fails if some name is already defined in the dylib; in that case the materialization
+    /// unit is freed and the session does not change.
     pub(crate) fn define_data_symbols(&self, pairs: &[(CString, u64)]) -> Result<(), String> {
         let borrowed: Vec<(&CStr, u64)> = pairs
             .iter()
@@ -1064,10 +1064,10 @@ impl Lljit {
         self.define_absolute(&borrowed, exported_data())
     }
 
-    /// Define uma lista de símbolos absolutos com as mesmas flags.
+    /// Defines a list of absolute symbols with the same flags.
     ///
-    /// # Erros
-    /// Propaga o diagnóstico do LLVM, tipicamente definição duplicada.
+    /// # Errors
+    /// Propagates LLVM's diagnostic, typically a duplicate definition.
     fn define_absolute(
         &self,
         symbols: &[(&CStr, u64)],
@@ -1078,9 +1078,9 @@ impl Lljit {
         }
         let mut pairs = Vec::with_capacity(symbols.len());
         for (name, address) in symbols {
-            // SAFETY: `name` está vivo durante a chamada e `self.handle` é válido.
-            // A entrada devolvida já vem retida e sua propriedade é transferida
-            // para `LLVMOrcAbsoluteSymbols` abaixo, que a consome.
+            // SAFETY: `name` is alive during the call and `self.handle` is valid.
+            // The returned entry comes already retained and its ownership is transferred
+            // to `LLVMOrcAbsoluteSymbols` below, which consumes it.
             let interned = unsafe { LLVMOrcLLJITMangleAndIntern(self.handle, name.as_ptr()) };
             pairs.push(LLVMOrcCSymbolMapPair {
                 Name: interned,
@@ -1093,46 +1093,46 @@ impl Lljit {
                 },
             });
         }
-        // SAFETY: `pairs` é um vetor contíguo de pares válidos, cujo tamanho é
-        // informado exatamente. `LLVMOrcAbsoluteSymbols` consome as entradas do
-        // pool de nomes, então `pairs` não pode ser reutilizado depois daqui.
+        // SAFETY: `pairs` is a contiguous vector of valid pairs, whose size is
+        // reported exactly. `LLVMOrcAbsoluteSymbols` consumes the entries of the
+        // name pool, so `pairs` cannot be reused after this point.
         let unit = unsafe { LLVMOrcAbsoluteSymbols(pairs.as_mut_ptr(), pairs.len()) };
-        // SAFETY: `unit` acabou de ser criada e é consumida por `Define` em caso
-        // de sucesso; no caso de erro a propriedade volta para nós e a unidade é
-        // liberada explicitamente, conforme documentado em `llvm-c/Orc.h`.
+        // SAFETY: `unit` was just created and is consumed by `Define` on
+        // success; on error the ownership comes back to us and the unit is
+        // freed explicitly, as documented in `llvm-c/Orc.h`.
         match take_error(unsafe { LLVMOrcJITDylibDefine(self.main, unit) }) {
             None => Ok(()),
             Some(message) => {
-                // SAFETY: `Define` falhou, logo `unit` continua sob nossa posse.
+                // SAFETY: `Define` failed, so `unit` is still ours.
                 unsafe { LLVMOrcDisposeMaterializationUnit(unit) };
                 Err(message)
             }
         }
     }
 
-    /// Cria um rastreador novo para os recursos de um módulo.
+    /// Creates a new tracker for the resources of a module.
     pub(crate) fn create_tracker(&self) -> ResourceTracker {
-        // SAFETY: `self.main` pertence a esta `LLJIT` viva; o tracker devolvido
-        // já vem retido e é liberado por `ResourceTracker::drop`.
+        // SAFETY: `self.main` belongs to this live `LLJIT`; the returned tracker
+        // comes already retained and is freed by `ResourceTracker::drop`.
         let handle = unsafe { LLVMOrcJITDylibCreateResourceTracker(self.main) };
         ResourceTracker { handle }
     }
 
-    /// Entrega o módulo à `LLJIT` sob o rastreador informado.
+    /// Hands the module to the `LLJIT` under the given tracker.
     ///
-    /// # Erros
-    /// Propaga a mensagem do LLVM, tipicamente definição duplicada de símbolo.
-    /// Em qualquer caso o módulo foi consumido e não pode ser reaproveitado.
+    /// # Errors
+    /// Propagates LLVM's message, typically a duplicate symbol definition.
+    /// In any case the module was consumed and cannot be reused.
     pub(crate) fn add_module(
         &self,
         tracker: &ResourceTracker,
         module: ThreadSafeModule,
     ) -> Result<(), String> {
-        // O LLVM assume a propriedade do módulo inclusive quando devolve erro,
-        // por isso `ManuallyDrop` suprime o `Drop` local antes da chamada.
+        // LLVM takes ownership of the module even when it returns an error,
+        // which is why `ManuallyDrop` suppresses the local `Drop` before the call.
         let module = ManuallyDrop::new(module);
-        // SAFETY: `module.handle` é válido e não foi consumido antes; a partir
-        // desta chamada ele pertence à `LLJIT` e não é mais liberado por nós.
+        // SAFETY: `module.handle` is valid and was not consumed before; from
+        // this call on it belongs to the `LLJIT` and is no longer freed by us.
         match take_error(unsafe {
             LLVMOrcLLJITAddLLVMIRModuleWithRT(self.handle, tracker.handle, module.handle)
         }) {
@@ -1141,46 +1141,46 @@ impl Lljit {
         }
     }
 
-    /// Resolve um símbolo, materializando o código necessário.
+    /// Resolves a symbol, materializing the necessary code.
     ///
-    /// O nome é informado sem o prefixo global da plataforma: `LLJITLookup`
-    /// aplica a mesma decoração usada na definição dos símbolos absolutos.
+    /// The name is given without the platform's global prefix: `LLJITLookup`
+    /// applies the same decoration used in the definition of the absolute symbols.
     ///
-    /// # Erros
-    /// Falha quando o símbolo não existe, quando a compilação sob demanda do
-    /// módulo que o define falha, ou quando o nome contém byte nulo.
+    /// # Errors
+    /// Fails when the symbol does not exist, when the on-demand compilation of the
+    /// module that defines it fails, or when the name contains a null byte.
     pub(crate) fn lookup(&self, symbol: &str) -> Result<u64, String> {
         let symbol =
-            CString::new(symbol).map_err(|_| "nome de símbolo contém byte nulo".to_owned())?;
+            CString::new(symbol).map_err(|_| "symbol name contains a null byte".to_owned())?;
         let mut address = 0u64;
-        // SAFETY: `address` é um destino válido e `symbol` está vivo durante a
-        // chamada. Materializar pode executar código do LLVM, não do programa.
+        // SAFETY: `address` is a valid destination and `symbol` is alive during the
+        // call. Materializing may run LLVM code, not program code.
         match take_error(unsafe { LLVMOrcLLJITLookup(self.handle, &mut address, symbol.as_ptr()) })
         {
             Some(message) => Err(message),
-            None if address == 0 => Err("símbolo resolvido para o endereço zero".to_owned()),
+            None if address == 0 => Err("symbol resolved to address zero".to_owned()),
             None => Ok(address),
         }
     }
 
-    /// Chama uma entrada estável cuja assinatura foi conferida aqui mesmo.
+    /// Calls a stable entry whose signature was checked right here.
     ///
-    /// A verificação é a razão de a função ser segura. O chamador informa o
-    /// endereço e a assinatura que a sessão registrou para aquela entrada — lida
-    /// do próprio IR por [`ParsedModule::signatures`] —, e só duas formas são
-    /// aceitas: `i64 ()` e `i64 (i64)`. Qualquer outra vira erro, jamais uma
-    /// chamada com ABI errada. É o mesmo raciocínio de [`Lljit::run_entry`], que
-    /// não aceita nome de símbolo do chamador, aplicado a assinaturas com valor
-    /// de retorno.
+    /// The check is the reason the function is safe. The caller gives the
+    /// address and the signature the session registered for that entry — read
+    /// from the IR itself by [`ParsedModule::signatures`] —, and only two forms are
+    /// accepted: `i64 ()` and `i64 (i64)`. Anything else becomes an error, never a
+    /// call with the wrong ABI. It is the same reasoning as [`Lljit::run_entry`], which
+    /// does not accept a symbol name from the caller, applied to signatures with a return
+    /// value.
     ///
-    /// O endereço precisa ser o de uma **entrada estável** (o trampolim), nunca
-    /// o de uma implementação de geração: o trampolim não é descarregado, e é o
-    /// que garante que uma chamada feita depois de uma recarga chegue à
-    /// implementação nova.
+    /// The address must be that of a **stable entry** (the trampoline), never
+    /// that of a generation implementation: the trampoline is not unloaded, and it is what
+    /// guarantees that a call made after a reload reaches the
+    /// new implementation.
     ///
-    /// # Erros
-    /// Assinatura fora das duas formas suportadas, ou argumento presente/ausente
-    /// em desacordo com a aridade.
+    /// # Errors
+    /// Signature outside the two supported forms, or an argument present/absent
+    /// in disagreement with the arity.
     pub(crate) fn call_stable(
         &self,
         address: u64,
@@ -1189,82 +1189,82 @@ impl Lljit {
     ) -> Result<i64, String> {
         if signature.var_arg || signature.ret != "i64" {
             return Err(format!(
-                "a entrada estável tem assinatura {} e este crate só chama i64 () e i64 (i64)",
+                "the stable entry has signature {} and this crate only calls i64 () and i64 (i64)",
                 signature.text()
             ));
         }
         let pointer = usize::try_from(address)
-            .map_err(|_| "endereço da entrada estável não cabe em usize".to_owned())?
+            .map_err(|_| "stable entry address does not fit in usize".to_owned())?
             as *const ();
         match (signature.params.as_slice(), argument) {
             ([], None) => {
-                // SAFETY: a assinatura registrada para este endereço é `i64 ()`,
-                // conferida acima, e o endereço veio de um `lookup` desta `LLJIT`
-                // viva, cujo trampolim nunca é descarregado. `extern "C"` é a ABI
-                // declarada no IR pelo emissor.
+                // SAFETY: the signature registered for this address is `i64 ()`,
+                // checked above, and the address came from a `lookup` of this live
+                // `LLJIT`, whose trampoline is never unloaded. `extern "C"` is the ABI
+                // declared in the IR by the emitter.
                 Ok(unsafe { std::mem::transmute::<*const (), extern "C" fn() -> i64>(pointer)() })
             }
             ([param], Some(value)) if param == "i64" => {
-                // SAFETY: idem, para a assinatura `i64 (i64)`.
+                // SAFETY: likewise, for the signature `i64 (i64)`.
                 Ok(unsafe {
                     std::mem::transmute::<*const (), extern "C" fn(i64) -> i64>(pointer)(value)
                 })
             }
             _ => Err(format!(
-                "a entrada estável tem assinatura {} e o argumento informado não corresponde",
+                "the stable entry has signature {} and the given argument does not match",
                 signature.text()
             )),
         }
     }
 
-    /// Invoca um trampolim recarregável com ABI `void ()`, conferida antes da FFI.
+    /// Invokes a reloadable trampoline with ABI `void ()`, checked before the FFI.
     pub(crate) fn call_stable_void(&self, address: u64, signature: &FunctionSignature) -> Result<(), String> {
         if signature.var_arg || signature.ret != "void" || !signature.params.is_empty() {
-            return Err(format!("a entrada estável tem assinatura {}, esperada void ()", signature.text()));
+            return Err(format!("the stable entry has signature {}, expected void ()", signature.text()));
         }
         let pointer = usize::try_from(address)
-            .map_err(|_| "endereço da entrada estável não cabe em usize".to_owned())?
+            .map_err(|_| "stable entry address does not fit in usize".to_owned())?
             as *const ();
-        // SAFETY: a assinatura `void ()` foi conferida acima; o endereço é o
-        // trampolim publicado pela LLJIT desta sessão e vive até ela terminar.
+        // SAFETY: the signature `void ()` was checked above; the address is the
+        // trampoline published by this session's LLJIT and lives until it ends.
         unsafe { std::mem::transmute::<*const (), extern "C" fn()>(pointer)() };
         Ok(())
     }
 
-    /// Chama uma entrada estável com ABI `i32 ()` (o `main` do SDK da fonte).
+    /// Calls a stable entry with ABI `i32 ()` (the source SDK's `main`).
     pub(crate) fn call_stable_i32(&self, address: u64, signature: &FunctionSignature) -> Result<i32, String> {
         if signature.var_arg || signature.ret != "i32" || !signature.params.is_empty() {
-            return Err(format!("a entrada estável tem assinatura {}, esperada i32 ()", signature.text()));
+            return Err(format!("the stable entry has signature {}, expected i32 ()", signature.text()));
         }
         let pointer = usize::try_from(address)
-            .map_err(|_| "endereço da entrada estável não cabe em usize".to_owned())?
+            .map_err(|_| "stable entry address does not fit in usize".to_owned())?
             as *const ();
-        // SAFETY: ABI `i32 ()` conferida acima; o trampolim pertence à LLJIT
-        // viva desta sessão, e o chamador só recarrega quando não há execução.
+        // SAFETY: ABI `i32 ()` checked above; the trampoline belongs to the live LLJIT
+        // of this session, and the caller only reloads when nothing is running.
         Ok(unsafe { std::mem::transmute::<*const (), extern "C" fn() -> i32>(pointer)() })
     }
 
-    /// Resolve e executa a entrada do módulo, medindo as duas fases.
+    /// Resolves and runs the module's entry, measuring both phases.
     ///
-    /// A assinatura é segura de propósito: o nome do símbolo **não** vem do
-    /// chamador. Resolver [`crate::ENTRY_SYMBOL`] nesta `LLJIT` viva e chamá-lo
-    /// como `void(void)` é correto porque `crates/emit_native` emite
-    /// `@dartforge_entry` exatamente com essa assinatura, e `crates/jit` só
-    /// aceita IR desse emissor — a mesma hipótese que o driver AOT faz. Se o
-    /// chamador pudesse escolher o nome, a função precisaria ser `unsafe`.
+    /// The signature is safe on purpose: the symbol name does **not** come from the
+    /// caller. Resolving [`crate::ENTRY_SYMBOL`] in this live `LLJIT` and calling it
+    /// as `void(void)` is correct because `crates/emit_native` emits
+    /// `@dartforge_entry` with exactly that signature, and `crates/jit` only
+    /// accepts IR from that emitter — the same assumption the AOT driver makes. If the
+    /// caller could choose the name, the function would have to be `unsafe`.
     ///
-    /// Depois da entrada vem `finalizar_programa` do runtime (a mesma fonte do
-    /// AOT), numa thread própria com `stack_bytes` de pilha: ver
-    /// [`execute_program`]. `&self` garante que a `LLJIT` e o módulo da entrada
-    /// continuam vivos até a thread terminar, porque remover exige `&mut`.
+    /// After the entry comes the runtime's `finalizar_programa` (the same source as the
+    /// AOT), on its own thread with `stack_bytes` of stack: see
+    /// [`execute_program`]. `&self` guarantees that the `LLJIT` and the entry module
+    /// stay alive until the thread ends, because removing requires `&mut`.
     ///
-    /// Devolve `(lookup, código de saída, execute)`; `lookup` inclui a geração
-    /// de código do módulo que define a entrada.
+    /// Returns `(lookup, exit code, execute)`; `lookup` includes the code
+    /// generation of the module that defines the entry.
     ///
-    /// # Erros
-    /// Falha quando nenhum módulo da sessão define a entrada, quando a
-    /// compilação sob demanda desse módulo falha, ou quando a thread do
-    /// programa não pode ser criada.
+    /// # Errors
+    /// Fails when no module of the session defines the entry, when the
+    /// on-demand compilation of that module fails, or when the program
+    /// thread cannot be created.
     pub(crate) fn run_entry(
         &self,
         stack_bytes: usize,
@@ -1273,8 +1273,8 @@ impl Lljit {
         let phase = Instant::now();
         let address = self.lookup(crate::ENTRY_SYMBOL)?;
         let lookup = phase.elapsed();
-        // Os estáticos da execução anterior (se houve) voltam a zero: cada
-        // execução começa como um processo novo do AOT.
+        // The statics of the previous execution (if any) go back to zero: each
+        // execution starts like a new AOT process.
         for global in globals {
             self.zero_global(global)?;
         }
@@ -1284,23 +1284,23 @@ impl Lljit {
 }
 
 impl Drop for Lljit {
-    /// Encerra a sessão do LLVM, descarregando todo o código ainda residente.
+    /// Ends the LLVM session, unloading all still resident code.
     fn drop(&mut self) {
-        // SAFETY: todos os trackers desta sessão já foram liberados, porque
-        // `crate::JitSession` declara o vetor de módulos antes deste campo e os
-        // campos são destruídos na ordem de declaração.
+        // SAFETY: all trackers of this session were already freed, because
+        // `crate::JitSession` declares the module vector before this field and
+        // fields are dropped in declaration order.
         let _ = take_error(unsafe { LLVMOrcDisposeLLJIT(self.handle) });
-        // Os objetos (e os mapas deles) saíram com a `LLJIT`; o contexto da
-        // camada sai depois.
+        // The objects (and their maps) went away with the `LLJIT`; the layer's
+        // context goes afterwards.
         if !self.layer.is_null() {
-            // SAFETY: veio de `Box::into_raw` em `new`, e a `LLJIT` que o
-            // usava já foi solta.
+            // SAFETY: it came from `Box::into_raw` in `new`, and the `LLJIT` that
+            // used it was already freed.
             drop(unsafe { Box::from_raw(self.layer) });
         }
     }
 }
 
-// ─── SDK da fonte (DLL) ────────────────────────────────────────────────────
+// ─── Source SDK (DLL) ──────────────────────────────────────────────────────
 
 #[cfg(windows)]
 #[link(name = "kernel32")]
@@ -1316,37 +1316,37 @@ unsafe extern "C" {
     fn dlsym(modulo: *mut std::ffi::c_void, name: *const std::ffi::c_char) -> *mut std::ffi::c_void;
 }
 
-/// `RTLD_NOW | RTLD_LOCAL`: tudo resolvido na carga, e os nomes da biblioteca
-/// não entram no escopo global do processo (o runtime dela não se mistura com
-/// o `dartforge_runtime::abi` deste executável). `RTLD_LOCAL` é 0 no Linux e
-/// 4 no macOS; `RTLD_NOW` é 2 nos dois.
+/// `RTLD_NOW | RTLD_LOCAL`: everything resolved at load time, and the library's names
+/// do not enter the process's global scope (its runtime does not mix with
+/// this executable's `dartforge_runtime::abi`). `RTLD_LOCAL` is 0 on Linux and
+/// 4 on macOS; `RTLD_NOW` is 2 on both.
 #[cfg(unix)]
 const RTLD_NOW_LOCAL: std::ffi::c_int = if cfg!(target_os = "macos") { 2 | 4 } else { 2 };
 
-/// Carrega a biblioteca compartilhada do SDK e devolve o handle, ou nulo.
+/// Loads the SDK shared library and returns the handle, or null.
 #[cfg(windows)]
 fn load_library(file_path: &std::path::Path) -> *mut std::ffi::c_void {
     use std::os::windows::ffi::OsStrExt;
     let wide: Vec<u16> = file_path.as_os_str().encode_wide().chain(Some(0)).collect();
-    // SAFETY: `wide` é um caminho terminado em zero; a DLL fica carregada
-    // até o fim do processo (nunca é descarregada).
+    // SAFETY: `wide` is a zero-terminated path; the DLL stays loaded
+    // until the end of the process (it is never unloaded).
     unsafe { LoadLibraryW(wide.as_ptr()) }
 }
 
-/// Carrega a biblioteca compartilhada do SDK e devolve o handle, ou nulo.
+/// Loads the SDK shared library and returns the handle, or null.
 #[cfg(unix)]
 fn load_library(file_path: &std::path::Path) -> *mut std::ffi::c_void {
     use std::os::unix::ffi::OsStrExt;
     let Ok(c) = CString::new(file_path.as_os_str().as_bytes()) else { return std::ptr::null_mut() };
-    // SAFETY: `c` é um caminho terminado em zero; a biblioteca fica carregada
-    // até o fim do processo (nunca é descarregada).
+    // SAFETY: `c` is a zero-terminated path; the library stays loaded
+    // until the end of the process (it is never unloaded).
     unsafe { dlopen(c.as_ptr(), RTLD_NOW_LOCAL) }
 }
 
-/// O endereço de `name` na biblioteca `modulo`, ou nulo.
+/// The address of `name` in the library `modulo`, or null.
 fn address_in_library(modulo: *mut std::ffi::c_void, name: &CStr) -> *mut std::ffi::c_void {
-    // SAFETY: `modulo` é um handle devolvido por `load_library` e
-    // `name` termina em zero.
+    // SAFETY: `modulo` is a handle returned by `load_library` and
+    // `name` is zero-terminated.
     #[cfg(windows)]
     let p = unsafe { GetProcAddress(modulo, name.as_ptr()) };
     #[cfg(unix)]
@@ -1354,24 +1354,24 @@ fn address_in_library(modulo: *mut std::ffi::c_void, name: &CStr) -> *mut std::f
     p
 }
 
-/// Chama `dartforge_definir_argumentos_do_main` do runtime da biblioteca do
-/// SDK (`data`: os argumentos em UTF-8, cada um terminado em NUL).
+/// Calls `dartforge_definir_argumentos_do_main` of the SDK library's
+/// runtime (`data`: the arguments in UTF-8, each terminated by NUL).
 pub(crate) fn set_arguments_in_library(dll: &std::path::Path, data: &[u8]) -> Result<(), String> {
     let modulo = load_library(dll);
     if modulo.is_null() {
-        return Err(format!("não foi possível carregar a biblioteca do SDK {}", dll.display()));
+        return Err(format!("could not load the SDK library {}", dll.display()));
     }
     let p = address_in_library(modulo, c"dartforge_definir_argumentos_do_main");
     if p.is_null() && data.is_empty() {
-        // Sem argumentos a entregar, uma biblioteca sem o runtime inteiro
-        // (as dos testes) serve.
+        // With no arguments to hand over, a library without the whole runtime
+        // (the test ones) will do.
         return Ok(());
     }
     if p.is_null() {
-        return Err("a DLL do SDK não exporta dartforge_definir_argumentos_do_main".to_string());
+        return Err("the SDK DLL does not export dartforge_definir_argumentos_do_main".to_string());
     }
-    // SAFETY: o símbolo é a função do runtime com esta assinatura
-    // (`io_plataforma.rs`); `data` vive durante a chamada, que o copia.
+    // SAFETY: the symbol is the runtime function with this signature
+    // (`io_platform.rs`); `data` lives during the call, which copies it.
     unsafe {
         let f: unsafe extern "C" fn(*const u8, usize) = std::mem::transmute(p);
         f(data.as_ptr(), data.len());
@@ -1379,20 +1379,20 @@ pub(crate) fn set_arguments_in_library(dll: &std::path::Path, data: &[u8]) -> Re
     Ok(())
 }
 
-/// Chama `dartforge_definir_script_do_programa` do runtime da biblioteca do
-/// SDK (o `Platform.script`). Uma biblioteca sem o runtime inteiro (as dos
-/// testes) não tem o símbolo, e o script fica o do processo.
+/// Calls `dartforge_definir_script_do_programa` of the SDK library's
+/// runtime (the `Platform.script`). A library without the whole runtime (the test
+/// ones) does not have the symbol, and the script stays the process's.
 pub(crate) fn set_script_in_library(dll: &std::path::Path, file_path: &[u8]) -> Result<(), String> {
     let modulo = load_library(dll);
     if modulo.is_null() {
-        return Err(format!("não foi possível carregar a biblioteca do SDK {}", dll.display()));
+        return Err(format!("could not load the SDK library {}", dll.display()));
     }
     let p = address_in_library(modulo, c"dartforge_definir_script_do_programa");
     if p.is_null() {
         return Ok(());
     }
-    // SAFETY: o símbolo é a função do runtime com esta assinatura
-    // (`io_plataforma.rs`); `file_path` vive durante a chamada, que o copia.
+    // SAFETY: the symbol is the runtime function with this signature
+    // (`io_platform.rs`); `file_path` lives during the call, which copies it.
     unsafe {
         let f: unsafe extern "C" fn(*const u8, usize) = std::mem::transmute(p);
         f(file_path.as_ptr(), file_path.len());
@@ -1400,50 +1400,50 @@ pub(crate) fn set_script_in_library(dll: &std::path::Path, file_path: &[u8]) -> 
     Ok(())
 }
 
-// ─── Recarga ao vivo ───────────────────────────────────────────────────────
+// ─── Live reload ───────────────────────────────────────────────────────────
 //
-// O programa roda numa thread própria enquanto o observador compila a
-// geração nova; a publicação (as células, os estáticos, os registros) roda
-// na thread do programa, no ponto seguro do isolado principal — entre dois
-// eventos do laço (`dartforge_pedir_no_ponto_seguro`, `portas.rs`), ou com o
-// programa parado. Tudo o que atravessa a fronteira é endereço: a tarefa de
-// publicação é dona dos seus dados e não empresta nada da sessão.
+// The program runs on its own thread while the watcher compiles the
+// new generation; publication (the cells, the statics, the registrations) runs
+// on the program thread, at the main isolate's safepoint — between two
+// loop events (`dartforge_pedir_no_ponto_seguro`, `ports.rs`), or with the
+// program stopped. Everything that crosses the boundary is an address: the publication
+// task owns its data and borrows nothing from the session.
 
-/// Uma tarefa que roda na thread do programa.
+/// A task that runs on the program thread.
 pub(crate) type Task = Box<dyn FnOnce() + Send>;
 
-/// As funções do runtime da sessão que a recarga ao vivo usa: as do runtime
-/// deste processo, ou as da biblioteca do SDK da fonte (o estado do runtime
-/// do programa é o dela).
+/// The functions of the session's runtime that live reload uses: those of this
+/// process's runtime, or those of the source SDK library (the runtime state
+/// of the program is the library's).
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ReloadRuntime {
     /// `dartforge_pedir_no_ponto_seguro`.
     request_fn: usize,
     /// `dartforge_publicar_geracao`.
     publicar: usize,
-    /// `dartforge_parar_isolados` e `dartforge_liberar_isolados`.
+    /// `dartforge_parar_isolados` and `dartforge_liberar_isolados`.
     stop: usize,
     free: usize,
-    /// `dartforge_definir_migracao` (J03); 0 numa biblioteca do SDK antiga.
+    /// `dartforge_definir_migracao` (J03); 0 in an old SDK library.
     migrate: usize,
 }
 
-/// O pedido entregue ao runtime: a tarefa (tomada por quem a roda) e a
-/// resposta, que o observador espera.
+/// The request handed to the runtime: the task (taken by whoever runs it) and the
+/// answer, which the watcher waits for.
 struct ReloadRequest {
     task: std::sync::Mutex<Option<Task>>,
-    /// `Some(true)`: rodou no ponto seguro; `Some(false)`: o isolado terminou
-    /// sem atendê-lo e a tarefa continua em `task`.
+    /// `Some(true)`: it ran at the safepoint; `Some(false)`: the isolate ended
+    /// without serving it and the task is still in `task`.
     response: std::sync::Mutex<Option<bool>>,
     sig_num: std::sync::Condvar,
 }
 
-/// O que o runtime chama no ponto seguro (`execute_fn` = 1) ou no descarte
-/// (`execute_fn` = 0), exatamente uma vez por pedido aceito.
+/// What the runtime calls at the safepoint (`execute_fn` = 1) or on discard
+/// (`execute_fn` = 0), exactly once per accepted request.
 extern "C" fn serve_reload_request(datum: usize, execute_fn: i32) {
-    // SAFETY: `datum` é o endereço do `ReloadRequest` que
-    // `ReloadRuntime::at_safepoint` mantém vivo até ler a resposta, e o
-    // runtime chama esta função uma única vez por pedido aceito.
+    // SAFETY: `datum` is the address of the `ReloadRequest` that
+    // `ReloadRuntime::at_safepoint` keeps alive until reading the answer, and the
+    // runtime calls this function only once per accepted request.
     let request = unsafe { &*(datum as *const ReloadRequest) };
     if execute_fn != 0 {
         let task = request.task.lock().unwrap_or_else(|e| e.into_inner()).take();
@@ -1456,7 +1456,7 @@ extern "C" fn serve_reload_request(datum: usize, execute_fn: i32) {
 }
 
 impl ReloadRuntime {
-    /// O runtime deste processo (`dartforge_runtime::abi`).
+    /// This process's runtime (`dartforge_runtime::abi`).
     pub(crate) fn embedded() -> Self {
         Self {
             request_fn: dartforge_runtime::abi::dartforge_pedir_no_ponto_seguro as *const () as usize,
@@ -1467,11 +1467,11 @@ impl ReloadRuntime {
         }
     }
 
-    /// O runtime da biblioteca do SDK da fonte.
+    /// The runtime of the source SDK library.
     pub(crate) fn from_library(dll: &std::path::Path) -> Result<Self, String> {
         let modulo = load_library(dll);
         if modulo.is_null() {
-            return Err(format!("não foi possível carregar a biblioteca do SDK {}", dll.display()));
+            return Err(format!("could not load the SDK library {}", dll.display()));
         }
         let request_fn = address_in_library(modulo, c"dartforge_pedir_no_ponto_seguro");
         let publicar = address_in_library(modulo, c"dartforge_publicar_geracao");
@@ -1479,8 +1479,8 @@ impl ReloadRuntime {
         let free = address_in_library(modulo, c"dartforge_liberar_isolados");
         if request_fn.is_null() || publicar.is_null() || stop.is_null() || free.is_null() {
             return Err(format!(
-                "a biblioteca do SDK {} não exporta a recarga ao vivo (dartforge_pedir_no_ponto_seguro); \
-                 recompile-a com este dartforge",
+                "the SDK library {} does not export live reload (dartforge_pedir_no_ponto_seguro); \
+                 recompile it with this dartforge",
                 dll.display()
             ));
         }
@@ -1494,50 +1494,50 @@ impl ReloadRuntime {
         })
     }
 
-    /// O runtime sabe migrar as instâncias vivas (J03)?
+    /// Does the runtime know how to migrate live instances (J03)?
     pub(crate) fn migrates(&self) -> bool {
         self.migrate != 0
     }
 
-    /// `dartforge_definir_migracao`: o plano da publicação em curso, que
-    /// cada isolado aplica ao seu heap ao publicar (`migracao.rs`).
+    /// `dartforge_definir_migracao`: the plan of the publication in progress, which
+    /// each isolate applies to its heap when publishing (`migration.rs`).
     pub(crate) fn set_migration(&self, data: &[i64]) {
         if self.migrate == 0 {
             return;
         }
-        // SAFETY: `migrate` é `dartforge_definir_migracao` (`seletores.rs`),
-        // que copia as `data.len()` palavras.
+        // SAFETY: `migrate` is `dartforge_definir_migracao` (`selectors.rs`),
+        // which copies the `data.len()` words.
         unsafe {
             std::mem::transmute::<usize, unsafe extern "C" fn(*const i64, i64)>(self.migrate)(data.as_ptr(), data.len() as i64);
         }
     }
 
-    /// Roda `task` no ponto seguro do isolado principal, na thread dele, e
-    /// espera. `Err(task)` (a tarefa NÃO rodou) quando não há isolado
-    /// principal no laço, ou quando ele terminou antes de atendê-la.
-    /// `waiting` é chamada uma vez se o isolado demorar a chegar ao ponto
-    /// seguro (código síncrono longo).
+    /// Runs `task` at the main isolate's safepoint, on its thread, and
+    /// waits. `Err(task)` (the task did NOT run) when there is no main
+    /// isolate in the loop, or when it ended before serving it.
+    /// `waiting` is called once if the isolate takes long to reach the
+    /// safepoint (long synchronous code).
     pub(crate) fn at_safepoint(&self, task: Task, waiting: &mut dyn FnMut()) -> Result<(), Task> {
         let request = ReloadRequest {
             task: std::sync::Mutex::new(Some(task)),
             response: std::sync::Mutex::new(None),
             sig_num: std::sync::Condvar::new(),
         };
-        // SAFETY: `request_fn` é `dartforge_pedir_no_ponto_seguro` (`portas.rs`),
-        // com esta assinatura; o pedido vive até a resposta abaixo.
+        // SAFETY: `request_fn` is `dartforge_pedir_no_ponto_seguro` (`ports.rs`),
+        // with this signature; the request lives until the answer below.
         let accepted = unsafe {
             let request_fn: extern "C" fn(extern "C" fn(usize, i32), usize) -> i32 = std::mem::transmute(self.request_fn);
             request_fn(serve_reload_request, &request as *const ReloadRequest as usize)
         };
         if accepted == 0 {
             let task = request.task.lock().unwrap_or_else(|e| e.into_inner()).take();
-            return Err(task.expect("pedido recusado mantém a tarefa"));
+            return Err(task.expect("a refused request keeps the task"));
         }
         let mut response = request.response.lock().unwrap_or_else(|e| e.into_inner());
         let mut notified = false;
-        // O pedido aceito é respondido exatamente uma vez (no ponto seguro
-        // ou no fim do isolado): esperar sem prazo é o que mantém o pedido
-        // vivo enquanto o runtime tem o endereço dele.
+        // An accepted request is answered exactly once (at the safepoint
+        // or at the end of the isolate): waiting without a deadline is what keeps the request
+        // alive while the runtime has its address.
         while response.is_none() {
             let (r, deadline) = request
                 .sig_num
@@ -1555,37 +1555,37 @@ impl ReloadRuntime {
             return Ok(());
         }
         let task = request.task.lock().unwrap_or_else(|e| e.into_inner()).take();
-        Err(task.expect("pedido descartado mantém a tarefa"))
+        Err(task.expect("a discarded request keeps the task"))
     }
 
-    /// Para os demais isolados no ponto seguro deles (chamada na thread do
-    /// isolado principal, no ponto seguro dele) e devolve a parada.
+    /// Stops the other isolates at their safepoint (called on the thread of the
+    /// main isolate, at its safepoint) and returns the stop.
     pub(crate) fn stop_isolates(&self) -> usize {
-        // SAFETY: `stop` é `dartforge_parar_isolados` (`portas.rs`).
+        // SAFETY: `stop` is `dartforge_parar_isolados` (`ports.rs`).
         unsafe { std::mem::transmute::<usize, extern "C" fn() -> usize>(self.stop)() }
     }
 
-    /// Libera a parada: cada isolado refaz os registros da geração nova.
+    /// Releases the stop: each isolate redoes the registrations of the new generation.
     pub(crate) fn release_isolates(&self, stopped_flag: usize, area: Option<u64>, register: Option<u64>, rti: Option<u64>) {
         let e = |x: Option<u64>| x.map_or(0, |v| v as usize);
-        // SAFETY: `free` é `dartforge_liberar_isolados` (`portas.rs`), e
-        // `stopped_flag` veio de `stop_isolates`, uma vez.
+        // SAFETY: `free` is `dartforge_liberar_isolados` (`ports.rs`), and
+        // `stopped_flag` came from `stop_isolates`, once.
         unsafe {
             std::mem::transmute::<usize, extern "C" fn(usize, usize, usize, usize)>(self.free)(stopped_flag, e(area), e(register), e(rti));
         }
     }
 
-    /// `dartforge_publicar_geracao(area, register, rti)`: a área de globais
-    /// e os registros da geração nova, na thread do programa.
+    /// `dartforge_publicar_geracao(area, register, rti)`: the globals area
+    /// and the registrations of the new generation, on the program thread.
     pub(crate) fn publish_records(&self, area: Option<u64>, register: Option<u64>, rti: Option<u64>) {
         let as_fn = |address: Option<u64>| {
-            // SAFETY: os endereços são trampolins `void ()` da sessão
+            // SAFETY: the addresses are `void ()` trampolines of the session
             // (`df.preparar_area`, `df.register.program`,
-            // `dartforge_rti_iniciar`), vivos
-            // enquanto ela existir.
+            // `dartforge_rti_iniciar`), alive
+            // while it exists.
             address.map(|e| unsafe { std::mem::transmute::<usize, extern "C" fn()>(e as usize) })
         };
-        // SAFETY: `publicar` é `dartforge_publicar_geracao` (`seletores.rs`).
+        // SAFETY: `publicar` is `dartforge_publicar_geracao` (`selectors.rs`).
         unsafe {
             let publicar: extern "C" fn(Option<extern "C" fn()>, Option<extern "C" fn()>, Option<extern "C" fn()>) =
                 std::mem::transmute(self.publicar);
@@ -1594,8 +1594,8 @@ impl ReloadRuntime {
     }
 }
 
-/// A célula de uma entrada estável, pelo endereço (a `Box<AtomicUsize>` da
-/// sessão, estável enquanto ela existir).
+/// The cell of a stable entry, by address (the session's `Box<AtomicUsize>`,
+/// stable while it exists).
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Cell(usize);
 
@@ -1604,16 +1604,16 @@ impl Cell {
         Self(cell as *const std::sync::atomic::AtomicUsize as usize)
     }
 
-    /// Aponta a entrada para `implementation`: as chamadas seguintes a usam.
+    /// Points the entry to `implementation`: the following calls use it.
     pub(crate) fn publicar(self, implementation: usize) {
-        // SAFETY: a célula pertence a uma entrada da sessão, que vive mais do
-        // que a thread do programa (`JitSession::com_programa_vivo`).
+        // SAFETY: the cell belongs to an entry of the session, which outlives
+        // the program thread (`JitSession::com_programa_vivo`).
         let cell = unsafe { &*(self.0 as *const std::sync::atomic::AtomicUsize) };
         cell.store(implementation, std::sync::atomic::Ordering::Release);
     }
 }
 
-/// A cópia de um estático de uma geração para a seguinte.
+/// The copy of a static from one generation to the next.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct GlobalCopy {
     de: usize,
@@ -1623,35 +1623,35 @@ pub(crate) struct GlobalCopy {
 
 impl GlobalCopy {
     pub(crate) fn apply(self) {
-        // SAFETY: os dois endereços são globais materializadas da LLJIT, do
-        // mesmo tamanho (`Lljit::global_copy`), de gerações retidas.
+        // SAFETY: both addresses are materialized LLJIT globals, of the
+        // same size (`Lljit::global_copy`), of retained generations.
         unsafe { std::ptr::copy_nonoverlapping(self.de as *const u8, self.to as *mut u8, self.size) };
     }
 }
 
-/// Chama o `main` `i32 ()` do SDK da fonte na thread atual (ele chama o
-/// `dartforge_iniciar` da biblioteca, que marca o isolado principal).
+/// Calls the source SDK's `i32 ()` `main` on the current thread (it calls the
+/// library's `dartforge_iniciar`, which marks the main isolate).
 pub(crate) fn call_source_main(address: u64) -> i32 {
-    // SAFETY: `address` é o trampolim `main`, conferido `i32 ()` pela
-    // sessão, que vive mais do que a thread do programa.
+    // SAFETY: `address` is the `main` trampoline, checked `i32 ()` by the
+    // session, which outlives the program thread.
     unsafe { std::mem::transmute::<usize, extern "C" fn() -> i32>(address as usize)() }
 }
 
-/// Chama a `dartforge_entry` do runtime embutido na thread atual, como o
-/// isolado principal, e finaliza o programa como o AOT.
+/// Calls the embedded runtime's `dartforge_entry` on the current thread, as the
+/// main isolate, and finalizes the program like the AOT.
 pub(crate) fn call_embedded_entry(address: u64) -> i32 {
     dartforge_runtime::abi::mark_main_isolate();
-    // SAFETY: `address` é o trampolim `dartforge_entry`, conferido
-    // `void ()` pela sessão, que vive mais do que a thread do programa.
+    // SAFETY: `address` is the `dartforge_entry` trampoline, checked
+    // `void ()` by the session, which outlives the program thread.
     unsafe { std::mem::transmute::<usize, extern "C" fn()>(address as usize)() };
     dartforge_runtime::abi::unmark_main_isolate();
     dartforge_runtime::abi::finalizar_programa()
 }
 
 impl Lljit {
-    /// Nomes pedidos que constam da lista de exportações da DLL do SDK.
-    /// A lista é consultada antes da publicação de uma geração nova, para que
-    /// uma referência desconhecida recuse a recarga sem mudar os ponteiros.
+    /// Requested names that appear in the SDK DLL's export list.
+    /// The list is consulted before publishing a new generation, so that
+    /// an unknown reference refuses the reload without changing the pointers.
     pub(crate) fn exported_symbols_in_dll(dll: &std::path::Path, used_count: &[String]) -> Result<Vec<String>, String> {
         let def = dll.with_file_name("exportados.def");
         let text = std::fs::read_to_string(&def).map_err(|e| format!("{}: {e}", def.display()))?;
@@ -1664,24 +1664,24 @@ impl Lljit {
             .collect())
     }
 
-    /// Carrega a DLL do SDK da fonte e publica na sessão o endereço de cada
-    /// nome que ela exporta (a lista é o `exportados.def` ao lado dela).
-    /// Devolve os nomes.
+    /// Loads the source SDK DLL and publishes in the session the address of each
+    /// name it exports (the list is the `exportados.def` next to it).
+    /// Returns the names.
     ///
-    /// # Erros
-    /// DLL ou lista ausente, ou um nome da lista que a DLL não exporta.
+    /// # Errors
+    /// Missing DLL or list, or a name in the list the DLL does not export.
     pub(crate) fn define_symbols_from_dll(&self, dll: &std::path::Path, used_count: &[String], publish_crt: bool) -> Result<Vec<String>, String> {
         let names = Self::exported_symbols_in_dll(dll, used_count)?;
         let modulo = load_library(dll);
         if modulo.is_null() {
-            return Err(format!("não foi possível carregar a biblioteca do SDK {}", dll.display()));
+            return Err(format!("could not load the SDK library {}", dll.display()));
         }
         let mut pair_list = Vec::with_capacity(names.len());
         for n in &names {
-            let c = CString::new(n.as_str()).map_err(|_| format!("nome com byte nulo: {n}"))?;
+            let c = CString::new(n.as_str()).map_err(|_| format!("name with a null byte: {n}"))?;
             let p = address_in_library(modulo, &c);
             if p.is_null() {
-                return Err(format!("a DLL do SDK não exporta {n}"));
+                return Err(format!("the SDK DLL does not export {n}"));
             }
             pair_list.push((c, p as u64));
         }
@@ -1693,13 +1693,13 @@ impl Lljit {
         Ok(names)
     }
 
-    /// Resolve o `main` do programa (SDK da fonte) e o executa numa thread
-    /// nova com pilha de `stack_bytes`; o código é o que ele devolve. As
-    /// globais dos módulos JIT recebidos voltam a zero como em `run_entry`.
-    /// Esta operação não reinicia os estáticos internos da DLL do SDK.
+    /// Resolves the program's `main` (source SDK) and runs it on a new thread
+    /// with a stack of `stack_bytes`; the code is what it returns. The
+    /// globals of the received JIT modules go back to zero as in `run_entry`.
+    /// This operation does not reset the SDK DLL's internal statics.
     pub(crate) fn run_main(&self, stack_bytes: usize, globals: &[&MutableGlobal]) -> Result<(Duration, i32, Duration), String> {
         let phase = Instant::now();
-        let address = usize::try_from(self.lookup("main")?).map_err(|_| "endereço do main".to_owned())?;
+        let address = usize::try_from(self.lookup("main")?).map_err(|_| "main address".to_owned())?;
         let lookup = phase.elapsed();
         for global in globals {
             self.zero_global(global)?;
@@ -1709,13 +1709,13 @@ impl Lljit {
                 .stack_size(stack_bytes)
                 .spawn_scoped(scope, move || {
                     let started = Instant::now();
-                    // SAFETY: `address` veio de `LLVMOrcLLJITLookup(main)`, que o
-                    // emissor escreve com a assinatura C `i32(void)`.
+                    // SAFETY: `address` came from `LLVMOrcLLJITLookup(main)`, which the
+                    // emitter writes with the C signature `i32(void)`.
                     let code = unsafe { std::mem::transmute::<usize, extern "C" fn() -> i32>(address)() };
                     (code, started.elapsed())
                 })
-                .map_err(|error| format!("não foi possível criar a thread do programa: {error}"))?;
-            handle.join().map_err(|_| "a thread do programa terminou em pânico".to_owned())
+                .map_err(|error| format!("could not create the thread of the program: {error}"))?;
+            handle.join().map_err(|_| "the program thread ended in a panic".to_owned())
         })?;
         Ok((lookup, code, execute))
     }
@@ -1723,136 +1723,136 @@ impl Lljit {
 
 // ─── Runtime ───────────────────────────────────────────────────────────────
 //
-// O runtime são os fragmentos de `crates/runtime/src`, a mesma fonte que o AOT
-// compila com `rustc` avulso, aqui compilada como o módulo
-// `dartforge_runtime::abi` (fonte única, plano do JIT §3.1). A tabela de
-// símbolos é gerada pelo `build.rs` daquele crate a partir dos
-// `#[unsafe(no_mangle)]` dos fragmentos.
+// The runtime is the fragments of `crates/runtime/src`, the same source the AOT
+// compiles with standalone `rustc`, here compiled as the module
+// `dartforge_runtime::abi` (single source, JIT plan §3.1). The symbol
+// table is generated by that crate's `build.rs` from the
+// `#[unsafe(no_mangle)]`s of the fragments.
 
-/// Nomes do runtime publicados na sessão, na ordem da fonte.
+/// Runtime names published in the session, in source order.
 pub(crate) const RUNTIME_SYMBOLS: &[&str] = dartforge_runtime::simbolos::NOMES;
 
-/// Endereço de cada função do runtime, na ordem de [`RUNTIME_SYMBOLS`].
+/// Address of each runtime function, in the order of [`RUNTIME_SYMBOLS`].
 fn runtime_symbol_addresses() -> Vec<(&'static str, usize)> {
     dartforge_runtime::simbolos::tabela()
 }
 
-/// Executa o programa cuja entrada está em `address`, como o `main` do AOT.
+/// Runs the program whose entry is at `address`, like the AOT `main`.
 ///
-/// O programa roda numa thread **nova**, com pilha de `stack_bytes`. Todo o
-/// estado do runtime é `thread_local` (heap, classes registradas, exceção
-/// pendente), então cada execução começa de um runtime limpo sem nenhum
-/// `reset` a manter em sincronia com o runtime — e a pilha é a mesma que o
-/// executável AOT recebe, para que recursão profunda falhe igual.
+/// The program runs on a **new** thread, with a stack of `stack_bytes`. All
+/// runtime state is `thread_local` (heap, registered classes, pending
+/// exception), so each execution starts from a clean runtime without any
+/// `reset` to keep in sync with the runtime — and the stack is the same the
+/// AOT executable receives, so that deep recursion fails the same way.
 ///
-/// Depois da entrada vem `dartforge_runtime::abi::finalizar_programa`, o mesmo
-/// código que o `main` C do AOT roda (exceção não capturada → 255, estatísticas
-/// do coletor). O código que ela devolve é devolvido aqui; os finais que o
-/// runtime trata com `process::exit` durante a execução — asserção de não
-/// nulidade e teto do heap (255, como a VM) — encerram **este processo**, como no
-/// AOT. Por isso testes e o harness diferencial executam por subprocesso
-/// (`dartforge-execute_fn-ir`).
+/// After the entry comes `dartforge_runtime::abi::finalizar_programa`, the same
+/// code the AOT's C `main` runs (uncaught exception → 255, collector
+/// statistics). The code it returns is returned here; the endings the
+/// runtime handles with `process::exit` during execution — non-null
+/// assertion and heap ceiling (255, like the VM) — end **this process**, as in the
+/// AOT. That is why tests and the differential harness run through a subprocess
+/// (`dartforge-executar-ir`).
 ///
-/// # Erros
-/// Falha ao criar a thread, ou se a thread terminar em pânico fora do código
-/// `extern "C"` (lá dentro um pânico aborta o processo, como no AOT).
+/// # Errors
+/// Failure to create the thread, or if the thread ends in a panic outside the
+/// `extern "C"` code (inside it a panic aborts the process, as in the AOT).
 pub(crate) fn execute_program(address: u64, stack_bytes: usize) -> Result<(i32, Duration), String> {
-    let address = usize::try_from(address).map_err(|_| "endereço da entrada não cabe em usize".to_owned())?;
+    let address = usize::try_from(address).map_err(|_| "entry address does not fit in usize".to_owned())?;
     std::thread::scope(|scope| {
         let handle = std::thread::Builder::new()
             .stack_size(stack_bytes)
             .spawn_scoped(scope, move || {
                 let started = Instant::now();
-                // SAFETY: `address` veio de `LLVMOrcLLJITLookup(dartforge_entry)`
-                // numa `LLJIT` que o chamador mantém viva durante toda a thread
-                // (`Lljit::run_entry` toma `&self` e só retorna depois do
-                // `join`), e `@dartforge_entry` é emitido com a assinatura C
+                // SAFETY: `address` came from `LLVMOrcLLJITLookup(dartforge_entry)`
+                // in an `LLJIT` the caller keeps alive during the whole thread
+                // (`Lljit::run_entry` takes `&self` and only returns after the
+                // `join`), and `@dartforge_entry` is emitted with the C signature
                 // `void(void)`.
                 unsafe { std::mem::transmute::<usize, extern "C" fn()>(address)() };
                 let code = dartforge_runtime::abi::finalizar_programa();
                 (code, started.elapsed())
             })
-            .map_err(|error| format!("não foi possível criar a thread do programa: {error}"))?;
+            .map_err(|error| format!("could not create the thread of the program: {error}"))?;
         handle
             .join()
-            .map_err(|_| "a thread do programa terminou em pânico".to_owned())
+            .map_err(|_| "the program thread ended in a panic".to_owned())
     })
 }
 
-/// Nomes externos que o IR pode **declarar** sem que o runtime os defina.
+/// External names the IR may **declare** without the runtime defining them.
 ///
-/// São funções da CRT que o processo já carrega (`vcruntime140`/`ucrtbase`) e
-/// que um emissor de LLVM IR pode chamar diretamente: cópia de memória e a
-/// biblioteca matemática de `double`. Ficam numa lista explícita, e não num
-/// «qualquer coisa que o processo tenha», para que um nome desconhecido falhe
-/// alto em vez de ser resolvido por acaso para algo homônimo. Símbolos que o
-/// **gerador de código** introduz sem aparecer no IR (`__chkstk`, `memcpy` de
-/// intrínsecos) não passam por esta lista: a `LLJIT` os resolve no processo.
+/// They are CRT functions the process already loads (`vcruntime140`/`ucrtbase`) and
+/// that an LLVM IR emitter may call directly: memory copy and the
+/// `double` math library. They are in an explicit list, and not in
+/// «anything the process has», so that an unknown name fails
+/// loudly instead of being resolved by chance to something homonymous. Symbols the
+/// **code generator** introduces without appearing in the IR (`__chkstk`, `memcpy` of
+/// intrinsics) do not go through this list: `LLJIT` resolves them in the process.
 pub(crate) const CRT_SYMBOLS: &[&str] = &[
     "memcpy", "memmove", "memset", "memcmp", "fmod", "pow", "sqrt", "floor", "ceil", "trunc",
     "round", "exp", "log", "log10", "sin", "cos", "tan", "asin", "acos", "atan", "atan2",
 ];
 
-/// Diz se `name` é um externo que a sessão sabe resolver sem outro módulo.
+/// Tells whether `name` is an external the session knows how to resolve without another module.
 pub(crate) fn is_known_external(name: &str) -> bool {
     RUNTIME_SYMBOLS.contains(&name) || CRT_SYMBOLS.contains(&name) || name.starts_with("llvm.")
 }
 
-/// Valor de `_fltused`, o marcador que o MSVC exige de quem usa ponto flutuante.
+/// Value of `_fltused`, the marker MSVC requires from whoever uses floating point.
 ///
-/// O gerador de código COFF referencia `_fltused` em todo objeto que usa
-/// `double`. No AOT ele vem da CRT estática ligada ao executável; num processo
-/// Rust ele não é exportado por nenhuma DLL, então a sessão o publica. O valor é
-/// o mesmo da CRT; só o endereço importa, ninguém o lê.
+/// The COFF code generator references `_fltused` in every object that uses
+/// `double`. In the AOT it comes from the static CRT linked to the executable; in a Rust
+/// process it is not exported by any DLL, so the session publishes it. The value is
+/// the same as the CRT's; only the address matters, nobody reads it.
 static FLTUSED: i32 = 0x9875;
 
-/// Símbolos de dado que a sessão publica além do runtime.
-/// Só o COFF referencia `_fltused`; no ELF e no Mach-O a lista é vazia.
+/// Data symbols the session publishes besides the runtime.
+/// Only COFF references `_fltused`; on ELF and Mach-O the list is empty.
 fn crt_data_symbols() -> Vec<(&'static CStr, u64)> {
     if cfg!(windows) { vec![(c"_fltused", std::ptr::addr_of!(FLTUSED) as u64)] } else { Vec::new() }
 }
 
-/// Versão da `LLVM-C.dll` efetivamente carregada, `(major, minor, patch)`.
+/// Version of the `LLVM-C.dll` actually loaded, `(major, minor, patch)`.
 pub(crate) fn llvm_version() -> (u32, u32, u32) {
     let (mut major, mut minor, mut patch) = (0, 0, 0);
-    // SAFETY: os três destinos são válidos; a função só escreve neles.
+    // SAFETY: the three destinations are valid; the function only writes to them.
     unsafe { llvm_sys::core::LLVMGetVersion(&mut major, &mut minor, &mut patch) };
     (major, minor, patch)
 }
 
-// ─── Estado mutável do módulo e objetos em cache ─────────────────────────
+// ─── Mutable module state and cached objects ─────────────────────────────
 
-/// Uma global mutável do módulo que precisa voltar a zero antes de cada
-/// execução: nome e tamanho em bytes.
+/// A mutable global of the module that must go back to zero before each
+/// execution: name and size in bytes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct MutableGlobal {
-    /// Nome do emissor antes do sufixo de módulo/geração.
+    /// Emitter name before the module/generation suffix.
     pub(crate) logical_name: String,
     pub(crate) name: String,
     pub(crate) size: usize,
 }
 
 impl ParsedModule {
-    /// Prepara as globais mutáveis para serem reiniciadas entre execuções.
+    /// Prepares the mutable globals to be reset between executions.
     ///
-    /// O emissor guarda os estáticos preguiçosos em globais do módulo
-    /// (`@dfg_<id>` e `@dfg_<id>_ok`, `internal`, iniciadas com zero). Numa
-    /// sessão que roda o mesmo módulo várias vezes, a segunda execução veria
-    /// os estáticos já «inicializados» com handles do heap da execução
-    /// anterior, que não existe mais. Cada execução precisa começar do zero,
-    /// como um processo novo do AOT.
+    /// The emitter keeps lazy statics in module globals
+    /// (`@dfg_<id>` and `@dfg_<id>_ok`, `internal`, initialized with zero). In a
+    /// session that runs the same module several times, the second execution would see
+    /// the statics already «initialized» with handles of the previous execution's heap,
+    /// which no longer exists. Each execution must start from zero,
+    /// like a new AOT process.
     ///
-    /// Para que a sessão consiga achar essas globais, a ligação delas passa de
-    /// `internal` para externa **nesta cópia** do módulo. O IR emitido não
-    /// muda. Só globais com inicializador nulo são aceitas: é o que o emissor
-    /// produz, e reiniciar é escrever zeros. Outra forma é recusada com o
-    /// nome, em vez de uma reinicialização errada em silêncio.
+    /// So that the session can find those globals, their linkage changes from
+    /// `internal` to external **in this copy** of the module. The emitted IR does not
+    /// change. Only globals with a null initializer are accepted: that is what the emitter
+    /// produces, and resetting is writing zeros. Any other form is refused with the
+    /// name, instead of a silently wrong reset.
     pub(crate) fn prepare_mutable_globals(&self) -> Result<Vec<MutableGlobal>, String> {
         self.prepare_mutable_globals_with_suffix("")
     }
 
-    /// A geração recarregável guarda uma cópia dos estáticos do programa.
-    /// O sufixo evita colisão entre gerações retidas na mesma `JITDylib`.
+    /// The reloadable generation keeps a copy of the program's statics.
+    /// The suffix avoids collisions between generations retained in the same `JITDylib`.
     pub(crate) fn version_mutable_globals(&self, suffix: &str) -> Result<Vec<MutableGlobal>, String> {
         self.prepare_mutable_globals_with_suffix(suffix)
     }
@@ -1860,9 +1860,9 @@ impl ParsedModule {
     fn prepare_mutable_globals_with_suffix(&self, suffix: &str) -> Result<Vec<MutableGlobal>, String> {
         use llvm_sys::LLVMLinkage;
         let mut globals = Vec::new();
-        // SAFETY: travessia pela API do LLVM sobre o módulo vivo, terminada no
-        // primeiro nulo; a troca de ligação é feita antes de o módulo ser
-        // entregue à `LLJIT` ou emitido.
+        // SAFETY: traversal through the LLVM API over the live module, ended at the
+        // first null; the linkage change is made before the module is
+        // handed to `LLJIT` or emitted.
         unsafe {
             let mut global = llvm_sys::core::LLVMGetFirstGlobal(self.module);
             while !global.is_null() {
@@ -1872,7 +1872,7 @@ impl ParsedModule {
                     let init = llvm_sys::core::LLVMGetInitializer(global);
                     if init.is_null() || llvm_sys::core::LLVMIsNull(init) == 0 {
                         return Err(format!(
-                            "a global mutável @{name} não começa em zero; a sessão não sabe reiniciá-la entre execuções"
+                            "the mutable global @{name} does not start at zero; the session cannot reset it between executions"
                         ));
                     }
                     let kind = type_text(LLVMGlobalGetValueType(global));
@@ -1881,12 +1881,12 @@ impl ParsedModule {
                         "i16" => 2,
                         "i32" | "float" => 4,
                         "i64" | "double" | "ptr" => 8,
-                        // O cache de um ponto de chamada por seletor (SDK da
-                        // fonte, `llvm/seletores.rs`): dois `i64`.
+                        // The cache of a call site by selector (source
+                        // SDK, `llvm/seletores.rs`): two `i64`s.
                         "[2 x i64]" => 16,
                         other_one => {
                             return Err(format!(
-                                "a global mutável @{name} tem tipo {other_one}, que a sessão não sabe reiniciar"
+                                "the mutable global @{name} has type {other_one}, which the session cannot reset"
                             ));
                         }
                     };
@@ -1910,42 +1910,42 @@ impl ParsedModule {
 }
 
 impl Lljit {
-    /// A transferência de um estático da geração anterior para a nova, que a
-    /// publicação aplica antes de redirecionar as entradas estáveis — com o
-    /// programa parado ou no ponto seguro, nunca no meio de um evento.
+    /// The transfer of a static from the previous generation to the new one, which the
+    /// publication applies before redirecting the stable entries — with the
+    /// program stopped or at the safepoint, never in the middle of an event.
     pub(crate) fn global_copy(&self, previous: &MutableGlobal, next: &MutableGlobal) -> Result<GlobalCopy, String> {
         if previous.size != next.size {
-            return Err(format!("a global {} mudou de {} para {} bytes", previous.logical_name, previous.size, next.size));
+            return Err(format!("the global {} changed from {} to {} bytes", previous.logical_name, previous.size, next.size));
         }
-        let de = usize::try_from(self.lookup(&previous.name)?).map_err(|_| "endereço da global".to_owned())?;
-        let to = usize::try_from(self.lookup(&next.name)?).map_err(|_| "endereço da global".to_owned())?;
+        let de = usize::try_from(self.lookup(&previous.name)?).map_err(|_| "global address".to_owned())?;
+        let to = usize::try_from(self.lookup(&next.name)?).map_err(|_| "global address".to_owned())?;
         Ok(GlobalCopy { de, to, size: next.size })
     }
 
-    /// Escreve zeros na global mutável, já materializada.
+    /// Writes zeros into the mutable global, already materialized.
     ///
-    /// # Erros
-    /// Falha se o símbolo não puder ser resolvido.
+    /// # Errors
+    /// Fails if the symbol cannot be resolved.
     pub(crate) fn zero_global(&self, global: &MutableGlobal) -> Result<(), String> {
         let address = self.lookup(&global.name)?;
-        // SAFETY: `address` foi resolvido nesta `LLJIT` viva para uma global de
-        // dado com exatamente `size` bytes (lido do tipo dela no IR). Nenhum
-        // código gerado está executando: `run_entry` só zera antes de criar a
-        // thread do programa, e a sessão é emprestada por `&self`.
+        // SAFETY: `address` was resolved in this live `LLJIT` to a data global
+        // with exactly `size` bytes (read from its type in the IR). No
+        // generated code is running: `run_entry` only zeroes before creating the
+        // program thread, and the session is borrowed through `&self`.
         unsafe {
             std::ptr::write_bytes(usize::try_from(address).unwrap_or(usize::MAX) as *mut u8, 0, global.size);
         }
         Ok(())
     }
 
-    /// Entrega à `LLJIT` um objeto já compilado, sob o rastreador informado.
+    /// Hands an already compiled object to the `LLJIT`, under the given tracker.
     ///
-    /// # Erros
-    /// Propaga a mensagem do LLVM (objeto inválido, símbolo duplicado).
+    /// # Errors
+    /// Propagates LLVM's message (invalid object, duplicate symbol).
     pub(crate) fn add_object(&self, tracker: &ResourceTracker, object: &[u8], name: &str) -> Result<(), String> {
-        let name = CString::new(name).map_err(|_| "nome do módulo contém byte nulo".to_owned())?;
-        // SAFETY: o buffer é uma cópia de `object` e passa a pertencer à
-        // `LLJIT` na chamada seguinte, inclusive quando ela devolve erro.
+        let name = CString::new(name).map_err(|_| "module name contains a null byte".to_owned())?;
+        // SAFETY: the buffer is a copy of `object` and comes to belong to the
+        // `LLJIT` in the next call, even when it returns an error.
         unsafe {
             let buffer = LLVMCreateMemoryBufferWithMemoryRangeCopy(
                 object.as_ptr().cast::<c_char>(),
@@ -1964,8 +1964,8 @@ impl Lljit {
     }
 }
 
-/// O que [`compile_object`] produz: o objeto e o que a sessão precisa saber
-/// dele sem o IR (externos, definições, globais a reiniciar, alvo).
+/// What [`compile_object`] produces: the object and what the session needs to know
+/// about it without the IR (externals, definitions, globals to reset, target).
 pub(crate) struct ObjectParts {
     pub(crate) object: Vec<u8>,
     pub(crate) declarations: Vec<String>,
@@ -1975,16 +1975,16 @@ pub(crate) struct ObjectParts {
     pub(crate) target: (String, String),
 }
 
-/// Compila IR textual em objeto COFF com a máquina-alvo do JIT, sem sessão.
+/// Compiles textual IR into a COFF object with the JIT target machine, without a session.
 ///
-/// É a peça do cache de módulos: compila uma vez e carrega o objeto em
-/// quantas sessões quiser ([`Lljit::add_object`]), sem pagar de novo a análise
-/// e a geração de código. O código é o mesmo que a sessão geraria, porque a
-/// máquina-alvo é a mesma ([`target_machine`]).
+/// It is the piece of the module cache: compile once and load the object into
+/// as many sessions as desired ([`Lljit::add_object`]), without paying again for parsing
+/// and code generation. The code is the same the session would generate, because the
+/// target machine is the same ([`target_machine`]).
 ///
-/// # Erros
-/// IR inválido (inclusive pelo verificador), global que não se reinicia, ou
-/// falha do gerador de código.
+/// # Errors
+/// Invalid IR (including by the verifier), a global that cannot be reset, or
+/// a code generator failure.
 pub(crate) fn compile_object(name: &str, ir: &str) -> Result<ObjectParts, String> {
     let parsed = parse_module(name, ir)?;
     let globals = parsed.prepare_mutable_globals()?;
@@ -1992,21 +1992,21 @@ pub(crate) fn compile_object(name: &str, ir: &str) -> Result<ObjectParts, String
     let signatures = parsed.signatures();
     let layouts = parsed.class_layouts();
     let machine = target_machine()?;
-    // Raízes por mapas: o objeto em cache passa pelo mesmo passe que a
-    // sessão roda nos módulos (`transform_ir`).
+    // Map-based roots: the cached object goes through the same pass the
+    // session runs on modules (`transform_ir`).
     if roots_by_maps() {
-        // SAFETY: o módulo pertence a `parsed`, vivo; a máquina é nossa e
-        // solta no erro.
+        // SAFETY: the module belongs to `parsed`, alive; the machine is ours and
+        // freed on error.
         if let Some(m) = take_error(unsafe { maps_pass(parsed.module, machine) }) {
-            // SAFETY: a máquina é nossa e ninguém mais a usa.
+            // SAFETY: the machine is ours and nobody else uses it.
             unsafe { LLVMDisposeTargetMachine(machine) };
-            return Err(format!("o passe dos mapas de pilha falhou: {m}"));
+            return Err(format!("the stack maps pass failed: {m}"));
         }
     }
-    // SAFETY: `machine` é nosso até o `Dispose` no fim; o módulo pertence a
-    // `parsed`, vivo durante a emissão; a camada de dados criada para um
-    // módulo sem layout é liberada logo depois de copiada para ele; o buffer
-    // devolvido é copiado e liberado.
+    // SAFETY: `machine` is ours until the `Dispose` at the end; the module belongs to
+    // `parsed`, alive during emission; the data layout created for a
+    // module without a layout is freed right after being copied into it; the returned
+    // buffer is copied and freed.
     let object = unsafe {
         if CStr::from_ptr(llvm_sys::core::LLVMGetDataLayoutStr(parsed.module)).to_bytes().is_empty() {
             let data = llvm_sys::target_machine::LLVMCreateTargetDataLayout(machine);
@@ -2023,7 +2023,7 @@ pub(crate) fn compile_object(name: &str, ir: &str) -> Result<ObjectParts, String
             &mut buffer,
         ) != 0;
         let result = if has_failed {
-            Err(if message.is_null() { "o gerador de código falhou".to_owned() } else { take_message(message) })
+            Err(if message.is_null() { "the code generator failed".to_owned() } else { take_message(message) })
         } else {
             let start = llvm_sys::core::LLVMGetBufferStart(buffer).cast::<u8>();
             let size = llvm_sys::core::LLVMGetBufferSize(buffer);
@@ -2039,62 +2039,62 @@ pub(crate) fn compile_object(name: &str, ir: &str) -> Result<ObjectParts, String
 }
 
 
-// ─── Raízes por mapas no JIT (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §3.8) ───
+// ─── Map-based roots in the JIT (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §3.8) ───
 //
-// Com `DARTFORGE_RAIZES=mapas`, a sessão:
+// With `DARTFORGE_RAIZES=mapas`, the session:
 //
-// * gera código com otimização mínima (`CodeGenLevelLess`): o `-O0` usa o
-//   FastISel, que tem defeitos conhecidos com `gc.relocate` (§3.4);
-// * roda o `rewrite-statepoints-for-gc` e o verificador em cada módulo, na
-//   camada de transformação de IR do `LLJIT` (e no objeto em cache,
+// * generates code with minimal optimization (`CodeGenLevelLess`): `-O0` uses
+//   FastISel, which has known defects with `gc.relocate` (§3.4);
+// * runs `rewrite-statepoints-for-gc` and the verifier on each module, in the
+//   IR transform layer of the `LLJIT` (and on the cached object,
 //   [`compile_object`]);
-// * liga os objetos pela camada RTDyld com um gerenciador de memória próprio
-//   ([`JitObject`]): uma região por objeto, o código numa metade e os
-//   dados na outra (no COFF, o `.pdata` e o `.xdata` precisam de RVAs de 32
-//   bits sobre a base da imagem, que o RTDyld calcula como o menor endereço
-//   das seções). Ele acha a seção do mapa de pilha pelo nome na alocação
-//   (StackMaps.rst), registra-a no runtime depois que o RTDyld aplicou as
-//   relocações (o mapa fica no formato do LLVM, com os endereços absolutos
-//   das funções), e a tira quando a memória do objeto é solta — uma geração
-//   aposentada da recarga. No Windows x64 ele também registra o `.pdata` do
-//   objeto (`RtlAddFunctionTable`): sem isso o percurso da pilha
-//   (`RtlVirtualUnwind`) não atravessa um quadro do JIT. No ELF e no Mach-O
-//   o RTDyld registra o `.eh_frame` no desenrolador do processo.
+// * links the objects through the RTDyld layer with its own memory manager
+//   ([`JitObject`]): one region per object, code in one half and
+//   data in the other (in COFF, `.pdata` and `.xdata` need 32-bit RVAs
+//   relative to the image base, which RTDyld computes as the lowest address
+//   of the sections). It finds the stack map section by name at allocation
+//   (StackMaps.rst), registers it in the runtime after RTDyld applied the
+//   relocations (the map stays in LLVM format, with the absolute addresses
+//   of the functions), and removes it when the object's memory is freed — a retired
+//   reload generation. On Windows x64 it also registers the object's `.pdata`
+//   (`RtlAddFunctionTable`): without it the stack walk
+//   (`RtlVirtualUnwind`) does not cross a JIT frame. On ELF and Mach-O
+//   RTDyld registers `.eh_frame` with the process's unwinder.
 //
-// O registro vai para o runtime que coleta: o deste processo
-// ([`Lljit::use_local_registry`]) ou o da biblioteca do SDK da fonte
+// The registration goes to the runtime that collects: this process's
+// ([`Lljit::use_local_registry`]) or the source SDK library's
 // ([`Lljit::use_library_registry`]).
 
-/// `DARTFORGE_RAIZES=mapas` neste processo (o emissor lê a mesma variável,
+/// `DARTFORGE_RAIZES=mapas` in this process (the emitter reads the same variable,
 /// `dartforge_emit_native::target::roots_by_maps`).
 pub(crate) fn roots_by_maps() -> bool {
     static SIM: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *SIM.get_or_init(|| std::env::var("DARTFORGE_RAIZES").is_ok_and(|v| v == "mapas"))
 }
 
-/// O rastro simbólico (`DARTFORGE_RASTRO_VM=simbolico`, o mesmo de
+/// The symbolic stack trace (`DARTFORGE_RASTRO_VM=simbolico`, the same as
 /// `emit_native::target::symbolic_trace`).
 pub(crate) fn symbolic_trace() -> bool {
     static SIM: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *SIM.get_or_init(|| std::env::var("DARTFORGE_RASTRO_VM").is_ok_and(|v| v == "simbolico"))
 }
 
-/// Registra a seção do mapa `[start, end)` no runtime.
+/// Registers the map section `[start, end)` in the runtime.
 type RegisterFunction = unsafe extern "C" fn(*const u8, *const u8);
-/// Tira o mapa registrado com o mesmo `start`.
+/// Removes the map registered with the same `start`.
 type DeregisterFunction = unsafe extern "C" fn(*const u8);
 
-/// O que a camada de objetos da sessão compartilha com cada objeto: quem
-/// registra os mapas. Vive enquanto a sessão (o [`Lljit`] o solta depois do
-/// `LLJIT`, que solta os objetos antes).
+/// What the session's object layer shares with each object: who
+/// registers the maps. It lives as long as the session (the [`Lljit`] frees it after the
+/// `LLJIT`, which frees the objects first).
 struct LayerContext {
     rec: std::sync::Mutex<Option<(RegisterFunction, DeregisterFunction)>>,
-    /// O registro e a retirada da seção do rastro (§13.14).
+    /// Registering and removing the stack trace section (§13.14).
     trace: std::sync::Mutex<Option<(RegisterFunction, DeregisterFunction)>>,
 }
 
 unsafe extern "C" fn register_local_trace(start: *const u8, end: *const u8) {
-    // SAFETY: a seção relocada do objeto, viva enquanto ele.
+    // SAFETY: the object's relocated section, alive as long as it.
     unsafe { dartforge_runtime::abi::dartforge_registrar_rastro(start, end) };
 }
 
@@ -2110,13 +2110,13 @@ unsafe extern "C" fn deregister_local(start: *const u8) {
     dartforge_runtime::heap::unregister_map(start as usize);
 }
 
-/// O tamanho da região reservada para um objeto (o código na primeira
-/// metade, os dados na segunda). Só endereço reservado: as páginas são
-/// confirmadas conforme as seções chegam.
+/// The size of the region reserved for an object (code in the first
+/// half, data in the second). Only reserved address space: the pages are
+/// committed as the sections arrive.
 const OBJECT_REGION: usize = 256 << 20;
 const HALF_REGION: usize = OBJECT_REGION / 2;
 
-/// A memória do sistema para o código do JIT.
+/// System memory for the JIT code.
 #[cfg(windows)]
 mod virtual_memory {
     #[link(name = "kernel32")]
@@ -2138,43 +2138,43 @@ mod virtual_memory {
         4096
     }
 
-    /// Reserva `n` bytes de endereço (nulo se falhar).
+    /// Reserves `n` bytes of address space (null on failure).
     pub(super) fn reserve_space(n: usize) -> *mut u8 {
-        // SAFETY: só reserva endereço novo.
+        // SAFETY: only reserves new address space.
         unsafe { VirtualAlloc(std::ptr::null_mut(), n, MEM_RESERVE, PAGE_NOACCESS) }
     }
 
-    /// Confirma `[p, p + n)`, já reservado, para leitura e escrita.
+    /// Commits `[p, p + n)`, already reserved, for reading and writing.
     ///
     /// # Safety
-    /// `[p, p + n)` está numa região de [`reserve_space`].
+    /// `[p, p + n)` is in a region from [`reserve_space`].
     pub(super) unsafe fn confirm(p: *mut u8, n: usize) -> bool {
-        // SAFETY: o contrato da função.
+        // SAFETY: the function contract.
         !unsafe { VirtualAlloc(p, n, MEM_COMMIT, PAGE_READWRITE) }.is_null()
     }
 
-    /// Torna `[p, p + n)` executável e só de leitura, e descarta o cache de
-    /// instruções dele.
+    /// Makes `[p, p + n)` executable and read-only, and flushes its instruction
+    /// cache.
     ///
     /// # Safety
-    /// `[p, p + n)` está confirmado.
+    /// `[p, p + n)` is committed.
     pub(super) unsafe fn make_executable(p: *mut u8, n: usize) -> bool {
         let mut old_value = 0u32;
-        // SAFETY: o contrato da função.
+        // SAFETY: the function contract.
         unsafe { VirtualProtect(p, n, PAGE_EXECUTE_READ, &mut old_value) != 0 && FlushInstructionCache(GetCurrentProcess(), p, n) != 0 }
     }
 
-    /// Solta a região inteira.
+    /// Frees the whole region.
     ///
     /// # Safety
-    /// `p` é o começo de uma região de [`reserve_space`], que nada mais usa.
+    /// `p` is the start of a region from [`reserve_space`], which nothing else uses.
     pub(super) unsafe fn release(p: *mut u8, _n: usize) {
-        // SAFETY: o contrato da função.
+        // SAFETY: the function contract.
         unsafe { VirtualFree(p, 0, MEM_RELEASE) };
     }
 }
 
-/// A memória do sistema para o código do JIT.
+/// System memory for the JIT code.
 #[cfg(unix)]
 mod virtual_memory {
     unsafe extern "C" {
@@ -2196,60 +2196,60 @@ mod virtual_memory {
     const PROT_EXEC: i32 = 4;
     const MAP_PRIVATE: i32 = 2;
     const MAP_ANON: i32 = if cfg!(target_os = "macos") { 0x1000 } else { 0x20 };
-    /// Sem reservar memória de troca para a região inteira (só Linux).
+    /// Without reserving swap for the whole region (Linux only).
     const MAP_NORESERVE: i32 = if cfg!(target_os = "linux") { 0x4000 } else { 0 };
     /// `_SC_PAGESIZE`.
     const SC_PAGESIZE: i32 = if cfg!(target_os = "macos") { 29 } else { 30 };
 
     pub(super) fn page() -> usize {
-        // SAFETY: só consulta o sistema.
+        // SAFETY: only queries the system.
         let n = unsafe { sysconf(SC_PAGESIZE) };
         if n > 0 { n as usize } else { 4096 }
     }
 
-    /// Mapeia `n` bytes para leitura e escrita, sem confirmar as páginas
-    /// (nulo se falhar).
+    /// Maps `n` bytes for reading and writing, without committing the pages
+    /// (null on failure).
     pub(super) fn reserve_space(n: usize) -> *mut u8 {
-        // SAFETY: mapeamento anônimo novo.
+        // SAFETY: new anonymous mapping.
         let p = unsafe { mmap(std::ptr::null_mut(), n, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON | MAP_NORESERVE, -1, 0) };
         if p as isize == -1 { std::ptr::null_mut() } else { p }
     }
 
-    /// As páginas de um mapeamento anônimo nascem quando tocadas.
+    /// The pages of an anonymous mapping are born when touched.
     ///
     /// # Safety
-    /// Nenhuma.
+    /// None.
     pub(super) unsafe fn confirm(_p: *mut u8, _n: usize) -> bool {
         true
     }
 
-    /// Torna `[p, p + n)` executável e só de leitura, e descarta o cache de
-    /// instruções dele (no aarch64; o x86-64 é coerente).
+    /// Makes `[p, p + n)` executable and read-only, and flushes its instruction
+    /// cache (on aarch64; x86-64 is coherent).
     ///
     /// # Safety
-    /// `[p, p + n)` está mapeado e alinhado à página.
+    /// `[p, p + n)` is mapped and page-aligned.
     pub(super) unsafe fn make_executable(p: *mut u8, n: usize) -> bool {
-        // SAFETY: o contrato da função.
+        // SAFETY: the function contract.
         let ok = unsafe { mprotect(p, n, PROT_READ | PROT_EXEC) } == 0;
         #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-        // SAFETY: o intervalo acabou de ser escrito e protegido.
+        // SAFETY: the range was just written and protected.
         unsafe {
             __clear_cache(p, p.add(n))
         };
         #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-        // SAFETY: o intervalo acabou de ser escrito e protegido.
+        // SAFETY: the range was just written and protected.
         unsafe {
             sys_icache_invalidate(p, n)
         };
         ok
     }
 
-    /// Desfaz o mapeamento inteiro.
+    /// Unmaps the whole mapping.
     ///
     /// # Safety
-    /// `[p, p + n)` é um mapeamento de [`reserve_space`], que nada mais usa.
+    /// `[p, p + n)` is a mapping from [`reserve_space`], which nothing else uses.
     pub(super) unsafe fn release(p: *mut u8, n: usize) {
-        // SAFETY: o contrato da função.
+        // SAFETY: the function contract.
         unsafe { munmap(p, n) };
     }
 }
@@ -2261,24 +2261,24 @@ unsafe extern "system" {
     fn RtlDeleteFunctionTable(tabela: *const u8) -> u8;
 }
 
-/// A memória de um objeto carregado pelo RTDyld (o contexto por objeto do
-/// gerenciador de memória da camada).
+/// The memory of an object loaded by RTDyld (the per-object context of the
+/// layer's memory manager).
 struct JitObject {
     layer: *const LayerContext,
-    /// O começo da região (nulo se a reserva falhou: toda alocação falha).
+    /// The start of the region (null if the reservation failed: every allocation fails).
     base: *mut u8,
-    /// O fim do código e o dos dados, em deslocamentos sobre `base`.
+    /// The end of the code and that of the data, as offsets relative to `base`.
     code: usize,
     data: usize,
-    /// A seção do mapa de pilha e a do `.pdata` (COFF).
+    /// The stack map section and the `.pdata` one (COFF).
     map: Option<(*const u8, usize)>,
     #[cfg_attr(not(all(windows, target_arch = "x86_64")), allow(dead_code))]
     pdata: Option<(*const u8, usize)>,
     registered_map: bool,
     #[cfg_attr(not(all(windows, target_arch = "x86_64")), allow(dead_code))]
     registered_table: bool,
-    /// As seções do rastro (`.dfpcl$m`, `dfpcl`, `__dfpcl`; no ELF, uma
-    /// por grupo `comdat`).
+    /// The stack trace sections (`.dfpcl$m`, `dfpcl`, `__dfpcl`; on ELF, one
+    /// per `comdat` group).
     trace: Vec<(*const u8, usize)>,
     registered_trace: bool,
     finished: bool,
@@ -2301,8 +2301,8 @@ impl JitObject {
         }
     }
 
-    /// Uma seção de `size` bytes alinhada a `alignment`, na metade do
-    /// código ou na dos dados; nula se não couber.
+    /// A section of `size` bytes aligned to `alignment`, in the code half
+    /// or in the data half; null if it does not fit.
     fn allocate(&mut self, size: usize, alignment: usize, code: bool) -> *mut u8 {
         if self.base.is_null() {
             return ptr::null_mut();
@@ -2317,17 +2317,17 @@ impl JitObject {
         let page = virtual_memory::page();
         let de = start & !(page - 1);
         let until = (end + page - 1) & !(page - 1);
-        // SAFETY: `[de, until)` está dentro da região reservada.
+        // SAFETY: `[de, until)` is inside the reserved region.
         if !unsafe { virtual_memory::confirm(self.base.add(de), until - de) } {
             return ptr::null_mut();
         }
         *cursor = end;
-        // SAFETY: `start` está dentro da região.
+        // SAFETY: `start` is inside the region.
         unsafe { self.base.add(start) }
     }
 
-    /// Depois das relocações: o código vira executável, o `.pdata` entra na
-    /// tabela de funções do sistema (Windows x64) e o mapa é registrado.
+    /// After the relocations: the code becomes executable, `.pdata` enters the
+    /// system function table (Windows x64) and the map is registered.
     fn finalize(&mut self) -> Result<(), String> {
         if self.finished {
             return Ok(());
@@ -2336,41 +2336,41 @@ impl JitObject {
         if self.code > 0 {
             let page = virtual_memory::page();
             let n = (self.code + page - 1) & !(page - 1);
-            // SAFETY: `[base, base + n)` é o código confirmado deste objeto.
+            // SAFETY: `[base, base + n)` is this object's committed code.
             if !unsafe { virtual_memory::make_executable(self.base, n) } {
-                return Err("não foi possível tornar executável o código do JIT".to_owned());
+                return Err("could not make the JIT code executable".to_owned());
             }
         }
         #[cfg(all(windows, target_arch = "x86_64"))]
         if let Some((p, n)) = self.pdata
             && n >= 12
         {
-            // SAFETY: o `.pdata` relocado do objeto; as RVAs dele são sobre a
-            // base da região (o menor endereço das seções, como o RTDyld a
-            // calcula: a primeira seção de código começa nela).
+            // SAFETY: the object's relocated `.pdata`; its RVAs are relative to the
+            // region base (the lowest address of the sections, as RTDyld
+            // computes it: the first code section starts there).
             if unsafe { RtlAddFunctionTable(p, (n / 12) as u32, self.base as u64) } == 0 {
-                return Err("o sistema recusou a tabela de funções do objeto do JIT".to_owned());
+                return Err("the system refused the function table of the JIT object".to_owned());
             }
             self.registered_table = true;
         }
         if let Some((p, n)) = self.map {
-            // SAFETY: a camada vive mais que os objetos dela.
+            // SAFETY: the layer outlives its objects.
             let layer = unsafe { &*self.layer };
             let rec = *layer.rec.lock().unwrap_or_else(|e| e.into_inner());
             let Some((register, _)) = rec else {
-                return Err("raízes por mapas no JIT sem o registro do runtime".to_owned());
+                return Err("map-based roots in the JIT without the runtime registration".to_owned());
             };
-            // SAFETY: a seção do mapa, relocada e viva enquanto o objeto.
+            // SAFETY: the map section, relocated and alive as long as the object.
             unsafe { register(p, p.add(n)) };
             self.registered_map = true;
         }
         if !self.trace.is_empty() {
-            // SAFETY: a camada vive mais que os objetos dela.
+            // SAFETY: the layer outlives its objects.
             let layer = unsafe { &*self.layer };
             if let Some((register, _)) = *layer.trace.lock().unwrap_or_else(|e| e.into_inner()) {
                 for &(p, n) in &self.trace {
-                    // SAFETY: a seção do rastro, relocada e viva enquanto o
-                    // objeto.
+                    // SAFETY: the stack trace section, relocated and alive as long as the
+                    // object.
                     unsafe { register(p, p.add(n)) };
                 }
                 self.registered_trace = true;
@@ -2383,11 +2383,11 @@ impl JitObject {
 impl Drop for JitObject {
     fn drop(&mut self) {
         if self.registered_trace {
-            // SAFETY: a camada vive mais que os objetos dela.
+            // SAFETY: the layer outlives its objects.
             let layer = unsafe { &*self.layer };
             if let Some((_, deregister)) = *layer.trace.lock().unwrap_or_else(|e| e.into_inner()) {
                 for &(p, _) in &self.trace {
-                    // SAFETY: a seção foi registrada com este começo.
+                    // SAFETY: the section was registered with this start.
                     unsafe { deregister(p) };
                 }
             }
@@ -2395,10 +2395,10 @@ impl Drop for JitObject {
         if self.registered_map
             && let Some((p, _)) = self.map
         {
-            // SAFETY: a camada vive mais que os objetos dela.
+            // SAFETY: the layer outlives its objects.
             let layer = unsafe { &*self.layer };
             if let Some((_, deregister)) = *layer.rec.lock().unwrap_or_else(|e| e.into_inner()) {
-                // SAFETY: o mapa foi registrado com este começo.
+                // SAFETY: the map was registered with this start.
                 unsafe { deregister(p) };
             }
         }
@@ -2406,19 +2406,19 @@ impl Drop for JitObject {
         if self.registered_table
             && let Some((p, _)) = self.pdata
         {
-            // SAFETY: a tabela foi registrada com este endereço.
+            // SAFETY: the table was registered with this address.
             unsafe { RtlDeleteFunctionTable(p) };
         }
         if !self.base.is_null() {
-            // SAFETY: a região deste objeto, que o RTDyld já soltou.
+            // SAFETY: this object's region, which RTDyld already freed.
             unsafe { virtual_memory::release(self.base, OBJECT_REGION) };
         }
     }
 }
 
-/// `CreateContext`: um contexto por objeto. A assinatura é a do
-/// `llvm-c/OrcEE.h` (devolve o contexto); o `llvm-sys` declara o tipo sem o
-/// retorno, e a conversão abaixo o corrige.
+/// `CreateContext`: one context per object. The signature is that of
+/// `llvm-c/OrcEE.h` (returns the context); `llvm-sys` declares the type without the
+/// return value, and the conversion below fixes it.
 extern "C" fn create_context(layer: *mut std::ffi::c_void) -> *mut std::ffi::c_void {
     Box::into_raw(Box::new(JitObject::new(layer.cast::<LayerContext>()))).cast()
 }
@@ -2426,7 +2426,7 @@ extern "C" fn create_context(layer: *mut std::ffi::c_void) -> *mut std::ffi::c_v
 extern "C" fn notify_end(_layer: *mut std::ffi::c_void) {}
 
 extern "C" fn allocate_code(opaque: *mut std::ffi::c_void, size: usize, alignment: u32, _id: u32, _name: *const c_char) -> *mut u8 {
-    // SAFETY: `opaque` é o `JitObject` de `create_context`, vivo até `destroy`.
+    // SAFETY: `opaque` is the `JitObject` from `create_context`, alive until `destroy`.
     let o = unsafe { &mut *opaque.cast::<JitObject>() };
     o.allocate(size, alignment as usize, true)
 }
@@ -2439,11 +2439,11 @@ extern "C" fn allocate_data(
     name: *const c_char,
     _read_only: llvm_sys::prelude::LLVMBool,
 ) -> *mut u8 {
-    // SAFETY: `opaque` é o `JitObject` de `create_context`, vivo até `destroy`.
+    // SAFETY: `opaque` is the `JitObject` from `create_context`, alive until `destroy`.
     let o = unsafe { &mut *opaque.cast::<JitObject>() };
     let p = o.allocate(size, alignment as usize, false);
     if !p.is_null() && !name.is_null() {
-        // SAFETY: o nome da seção, terminado em zero, vivo durante a chamada.
+        // SAFETY: the section name, zero-terminated, alive during the call.
         let n = unsafe { CStr::from_ptr(name) }.to_bytes();
         if n == b".llvm_stackmaps" || n == b"__llvm_stackmaps" {
             o.map = Some((p, size));
@@ -2457,15 +2457,15 @@ extern "C" fn allocate_data(
 }
 
 extern "C" fn finalize_memory(opaque: *mut std::ffi::c_void, error: *mut *mut c_char) -> llvm_sys::prelude::LLVMBool {
-    // SAFETY: `opaque` é o `JitObject` de `create_context`, vivo até `destroy`.
+    // SAFETY: `opaque` is the `JitObject` from `create_context`, alive until `destroy`.
     let o = unsafe { &mut *opaque.cast::<JitObject>() };
     match o.finalize() {
         Ok(()) => 0,
         Err(m) => {
             if !error.is_null() {
                 let c = CString::new(m).unwrap_or_default();
-                // SAFETY: o LLVM solta a mensagem com `free`; a do
-                // `LLVMCreateMessage` vem do `strdup`.
+                // SAFETY: LLVM frees the message with `free`; the one from
+                // `LLVMCreateMessage` comes from `strdup`.
                 unsafe { *error = llvm_sys::core::LLVMCreateMessage(c.as_ptr()) };
             }
             1
@@ -2474,15 +2474,15 @@ extern "C" fn finalize_memory(opaque: *mut std::ffi::c_void, error: *mut *mut c_
 }
 
 extern "C" fn destroy(opaque: *mut std::ffi::c_void) {
-    // SAFETY: `opaque` veio de `Box::into_raw` em `create_context` e é solto
-    // uma vez, aqui.
+    // SAFETY: `opaque` came from `Box::into_raw` in `create_context` and is freed
+    // once, here.
     drop(unsafe { Box::from_raw(opaque.cast::<JitObject>()) });
 }
 
 unsafe extern "C" {
-    /// A função como o cabeçalho C do LLVM 22 a declara (`llvm-c/OrcEE.h`):
-    /// o `llvm-sys` 221 a declara sem o `CreateContextCtx` (o contexto que
-    /// o `CreateContext` recebe) e com o `CreateContext` sem retorno.
+    /// The function as LLVM 22's C header declares it (`llvm-c/OrcEE.h`):
+    /// `llvm-sys` 221 declares it without `CreateContextCtx` (the context
+    /// `CreateContext` receives) and with `CreateContext` without a return value.
     #[link_name = "LLVMOrcCreateRTDyldObjectLinkingLayerWithMCJITMemoryManagerLikeCallbacks"]
     fn criar_camada_rtdyld_com_gerenciador(
         session: llvm_sys::orc2::LLVMOrcExecutionSessionRef,
@@ -2496,15 +2496,15 @@ unsafe extern "C" {
     ) -> llvm_sys::orc2::LLVMOrcObjectLayerRef;
 }
 
-/// A camada de objetos da sessão com mapas: RTDyld com o gerenciador de
-/// memória acima.
+/// The session's object layer with maps: RTDyld with the memory manager
+/// above.
 extern "C" fn create_layer(
     layer: *mut std::ffi::c_void,
     session: llvm_sys::orc2::LLVMOrcExecutionSessionRef,
     _triple: *const c_char,
 ) -> llvm_sys::orc2::LLVMOrcObjectLayerRef {
-    // SAFETY: a assinatura do cabeçalho C (acima); `layer` é o contexto da
-    // sessão, vivo até o `Drop` dela, e as funções vivem o processo.
+    // SAFETY: the C header signature (above); `layer` is the session's context,
+    // alive until its `Drop`, and the functions live for the whole process.
     unsafe {
         criar_camada_rtdyld_com_gerenciador(
             session,
@@ -2519,12 +2519,12 @@ extern "C" fn create_layer(
     }
 }
 
-/// O passe dos mapas e o verificador sobre um módulo.
+/// The maps pass and the verifier over a module.
 ///
 /// # Safety
-/// `modulo` é um módulo vivo; `llvm_machine` é nula ou uma máquina-alvo viva.
+/// `modulo` is a live module; `llvm_machine` is null or a live target machine.
 unsafe fn maps_pass(modulo: LLVMModuleRef, llvm_machine: LLVMTargetMachineRef) -> LLVMErrorRef {
-    // SAFETY: o contrato da função; as opções são criadas e soltas aqui.
+    // SAFETY: the function contract; the options are created and freed here.
     unsafe {
         let options = llvm_sys::transforms::pass_builder::LLVMCreatePassBuilderOptions();
         let error = llvm_sys::transforms::pass_builder::LLVMRunPasses(modulo, c"rewrite-statepoints-for-gc,verify".as_ptr(), llvm_machine, options);
@@ -2534,25 +2534,25 @@ unsafe fn maps_pass(modulo: LLVMModuleRef, llvm_machine: LLVMTargetMachineRef) -
 }
 
 extern "C" fn pass_in_module(_ctx: *mut std::ffi::c_void, modulo: LLVMModuleRef) -> LLVMErrorRef {
-    // SAFETY: o módulo da `ThreadSafeModule`, com o contexto travado.
+    // SAFETY: the module of the `ThreadSafeModule`, with the context locked.
     unsafe { maps_pass(modulo, ptr::null_mut()) }
 }
 
-/// A transformação de IR da sessão com mapas: o passe dos mapas em cada
-/// módulo antes da geração de código.
+/// The IR transform of the session with maps: the maps pass on each
+/// module before code generation.
 extern "C" fn transform_ir(
     _ctx: *mut std::ffi::c_void,
     modulo: *mut LLVMOrcThreadSafeModuleRef,
     _responsibility: llvm_sys::orc2::LLVMOrcMaterializationResponsibilityRef,
 ) -> LLVMErrorRef {
-    // SAFETY: `modulo` aponta para a `ThreadSafeModule` em materialização.
+    // SAFETY: `modulo` points to the `ThreadSafeModule` being materialized.
     unsafe { llvm_sys::orc2::LLVMOrcThreadSafeModuleWithModuleDo(*modulo, pass_in_module, ptr::null_mut()) }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    /// A tabela gerada cobre exatamente os nomes anunciados, com endereço real.
+    /// The generated table covers exactly the announced names, with real addresses.
     #[test]
     fn symbol_table_matches_the_announced_names() {
         let addresses = runtime_symbol_addresses();
@@ -2564,12 +2564,12 @@ mod tests {
         assert!(!RUNTIME_SYMBOLS.contains(&"main"));
         assert!(!RUNTIME_SYMBOLS.contains(&"dartforge_entry"));
     }
-    /// A função `linkonce_odr` num `comdat` (entrada de tear-off do SDK da
-    /// fonte) versionada pela recarga continua gerando objeto COFF (o do
-    /// Windows na arquitetura do host, a única que a LLVM inicializa aqui):
-    /// o `comdat` acompanha o nome novo. Antes, o nome `f$g1` num `comdat` `f`
-    /// sem chave abortava o LLVM no Windows ("Associative COMDAT symbol
-    /// 'f$g1' is not a key for its COMDAT"), e o ELF não acusava nada.
+    /// A `linkonce_odr` function in a `comdat` (tear-off entry of the source
+    /// SDK) versioned by the reload still generates a COFF object (the
+    /// Windows one on the host architecture, the only one LLVM initializes here):
+    /// the `comdat` follows the new name. Before, the name `f$g1` in a `comdat` `f`
+    /// without a key aborted LLVM on Windows ("Associative COMDAT symbol
+    /// 'f$g1' is not a key for its COMDAT"), and ELF reported nothing.
     #[test]
     fn function_version_in_comdat_produces_coff_object() {
         let (triple, cpu) = if cfg!(target_arch = "x86_64") {
@@ -2584,12 +2584,12 @@ mod tests {
         let fn_signatures = parsed.version_definitions("$g1");
         assert_eq!(fn_signatures.len(), 2);
         initialize_native_target().expect("alvo");
-        // SAFETY: triple, máquina e buffer são criados e liberados aqui; o
-        // módulo pertence a `parsed`, vivo durante a emissão.
+        // SAFETY: triple, machine and buffer are created and freed here; the
+        // module belongs to `parsed`, alive during emission.
         unsafe {
             let mut target = ptr::null_mut();
             let mut message = ptr::null_mut();
-            assert_eq!(LLVMGetTargetFromTriple(triple.as_ptr(), &mut target, &mut message), 0, "sem o alvo {triple:?}");
+            assert_eq!(LLVMGetTargetFromTriple(triple.as_ptr(), &mut target, &mut message), 0, "no target {triple:?}");
             llvm_sys::core::LLVMSetTarget(parsed.module, triple.as_ptr());
             let machine = LLVMCreateTargetMachine(
                 target,
@@ -2615,7 +2615,7 @@ mod tests {
         }
     }
 
-    /// Externos: runtime, CRT listada e intrínsecos passam; o resto não.
+    /// Externals: runtime, listed CRT and intrinsics pass; the rest does not.
     #[test]
     fn only_listed_externals_are_known() {
         assert!(is_known_external("dartforge_print_i64"));
