@@ -721,7 +721,7 @@ impl Motor {
                     analysis.report(&chave(p), d, f);
                 }
             }
-            for (u, d, f) in with_phase(phase::RESOLVER_VISITOR, dartforge_analysis::modifiers::fora_da_biblioteca(&program, *lib, &interner)) {
+            for (u, d, f) in with_phase(phase::RESOLVER_VISITOR, dartforge_analysis::modifiers::outside_library(&program, *lib, &interner)) {
                 if let Some(p) = &program.unit(u).path {
                     analysis.report(&chave(p), d, f);
                 }

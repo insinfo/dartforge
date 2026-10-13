@@ -1,95 +1,95 @@
-//! Modificadores de classe (`base`, `final`, `interface`, `sealed`) entre
-//! bibliotecas: as verificações do `ErrorVerifier` do analyzer 7.x
+//! Class modifiers (`base`, `final`, `interface`, `sealed`) across libraries:
+//! the checks of the `ErrorVerifier` of analyzer 7.x
 //! (`_checkForBaseClassOrMixinImplementedOutsideOfLibrary`,
 //! `_checkForInterfaceClassOrMixinSuperclassOutsideOfLibrary`,
 //! `_checkForFinalSupertypeOutsideOfLibrary`,
-//! `_checkForSealedSupertypeOutsideOfLibrary`) e o
+//! `_checkForSealedSupertypeOutsideOfLibrary`) and the
 //! `BaseOrFinalTypeVerifier` (`subtype_of_base_or_final_is_not_base_final_or_sealed`).
 //!
-//! Só nomes e a hierarquia declarada: cada tipo das cláusulas
-//! `extends`/`with`/`implements`/`on` é resolvido pelo nome no escopo da
-//! biblioteca. Uma cláusula que não resolve para classe ou mixin não é
-//! conferida, e as verificações do `ErrorVerifier` só rodam com a porta de
-//! `_checkClassInheritance` aberta (`clauses::porta`): uma classe com
-//! supertipo proibido (`extends int`, `extends Enum`), cláusula adiada ou
-//! erro de mixin fica de fora, como no analyzer.
+//! Only names and the declared hierarchy: each type of the
+//! `extends`/`with`/`implements`/`on` clauses is resolved by name in the
+//! library's scope. A clause that does not resolve to a class or mixin is not
+//! checked, and the `ErrorVerifier` checks only run with the
+//! `_checkClassInheritance` gate open (`clauses::porta`): a class with a
+//! forbidden supertype (`extends int`, `extends Enum`), a deferred clause or a
+//! mixin error is left out, as in the analyzer.
 
 use dartforge_diagnostics::{codigos::compile_time_error as c, Codigo, Diagnostic, Span};
 use dartforge_elements::model::{ClassId, ClassKind, Element, LibraryId, Program, UnitId};
 use dartforge_frontend::ast::{self, DeclKind, TypeKind};
 use dartforge_intern::Interner;
 
-/// As cláusulas de uma declaração, como escritas: `(tipo escrito, classe)`.
-struct Clausulas {
+/// The clauses of a declaration, as written: `(written type, class)`.
+struct Clauses {
     extends: Option<(ast::TypeId, Option<ClassId>)>,
     with: Vec<(ast::TypeId, Option<ClassId>)>,
     implements: Vec<(ast::TypeId, Option<ClassId>)>,
     on: Vec<(ast::TypeId, Option<ClassId>)>,
 }
 
-struct Contexto<'a> {
-    programa: &'a Program,
-    nomes: &'a Interner,
+struct Ctx<'a> {
+    program: &'a Program,
+    names: &'a Interner,
     lib: LibraryId,
 }
 
-impl Contexto<'_> {
-    fn classe(&self, id: ClassId) -> &dartforge_elements::model::ClassElement {
-        self.programa.class(id)
+impl Ctx<'_> {
+    fn class_of(&self, id: ClassId) -> &dartforge_elements::model::ClassElement {
+        self.program.class(id)
     }
 
-    fn nome(&self, id: ClassId) -> String {
-        self.nomes.resolve(self.classe(id).name).to_string()
+    fn name_of(&self, id: ClassId) -> String {
+        self.names.resolve(self.class_of(id).name).to_string()
     }
 
-    fn e_base(&self, id: ClassId) -> bool {
-        let c = self.classe(id);
+    fn is_base(&self, id: ClassId) -> bool {
+        let c = self.class_of(id);
         matches!(c.kind, ClassKind::Class | ClassKind::Mixin | ClassKind::MixinApplication) && c.modifiers.base
     }
 
-    fn e_final(&self, id: ClassId) -> bool {
-        let c = self.classe(id);
+    fn is_final(&self, id: ClassId) -> bool {
+        let c = self.class_of(id);
         matches!(c.kind, ClassKind::Class | ClassKind::MixinApplication) && c.modifiers.final_
     }
 
-    fn e_selada(&self, id: ClassId) -> bool {
-        let c = self.classe(id);
+    fn is_sealed(&self, id: ClassId) -> bool {
+        let c = self.class_of(id);
         matches!(c.kind, ClassKind::Class | ClassKind::MixinApplication) && c.modifiers.sealed
     }
 
-    fn e_interface(&self, id: ClassId) -> bool {
-        let c = self.classe(id);
+    fn is_interface(&self, id: ClassId) -> bool {
+        let c = self.class_of(id);
         matches!(c.kind, ClassKind::Class | ClassKind::MixinApplication) && c.modifiers.interface
     }
 
-    fn e_mixin(&self, id: ClassId) -> bool {
-        self.classe(id).kind == ClassKind::Mixin
+    fn is_mixin(&self, id: ClassId) -> bool {
+        self.class_of(id).kind == ClassKind::Mixin
     }
 
-    /// A biblioteca de `id` tem modificadores de classe (linguagem 3.0+)?
-    fn com_modificadores(&self, lib: LibraryId) -> bool {
-        self.programa.library(lib).features.versao().major >= 3
+    /// Does the library of `id` have class modifiers (language 3.0+)?
+    fn has_modifiers(&self, lib: LibraryId) -> bool {
+        self.program.library(lib).features.versao().major >= 3
     }
 
-    /// `_mayIgnoreClassModifiers`: modificador de biblioteca da plataforma,
-    /// visto do próprio SDK ou de biblioteca anterior aos modificadores
-    /// (`dart:ffi` não entra na primeira exceção do `ErrorVerifier`).
-    fn pode_ignorar(&self, de: LibraryId, ffi_conta: bool) -> bool {
-        let origem = self.programa.library(de);
+    /// `_mayIgnoreClassModifiers`: a modifier of a platform library, seen from
+    /// the SDK itself or from a library older than the modifiers (`dart:ffi`
+    /// is not part of the `ErrorVerifier`'s first exception).
+    fn may_ignore(&self, from: LibraryId, ffi_counts: bool) -> bool {
+        let origem = self.program.library(from);
         if !origem.is_sdk {
             return false;
         }
-        if ffi_conta && origem.uri == "dart:ffi" {
+        if ffi_counts && origem.uri == "dart:ffi" {
             return false;
         }
-        let atual = self.programa.library(self.lib);
-        atual.is_sdk || !self.com_modificadores(self.lib)
+        let current = self.program.library(self.lib);
+        current.is_sdk || !self.has_modifiers(self.lib)
     }
 
-    /// Supertipos diretos declarados de uma classe (supertipo, interfaces,
-    /// mixins, `on`), pelos elementos já ligados no modelo.
-    fn diretos(&self, id: ClassId) -> Vec<ClassId> {
-        let c = self.classe(id);
+    /// The declared direct supertypes of a class (supertype, interfaces,
+    /// mixins, `on`), through the elements already bound in the model.
+    fn direct(&self, id: ClassId) -> Vec<ClassId> {
+        let c = self.class_of(id);
         let mut v: Vec<ClassId> = c.supertype_class.into_iter().collect();
         v.extend(c.interface_classes.iter().copied());
         v.extend(c.mixin_classes.iter().copied());
@@ -97,39 +97,39 @@ impl Contexto<'_> {
         v
     }
 
-    /// `[tipo, ...allSupertypes]`, sem repetição, em profundidade.
-    fn todos(&self, id: ClassId) -> Vec<ClassId> {
-        let mut vistos = vec![id];
-        let mut pilha = vec![id];
-        while let Some(x) = pilha.pop() {
-            for s in self.diretos(x) {
-                if !vistos.contains(&s) {
-                    vistos.push(s);
-                    pilha.push(s);
+    /// `[type, ...allSupertypes]`, without repetition, depth first.
+    fn all_supertypes(&self, id: ClassId) -> Vec<ClassId> {
+        let mut seen = vec![id];
+        let mut stack = vec![id];
+        while let Some(x) = stack.pop() {
+            for s in self.direct(x) {
+                if !seen.contains(&s) {
+                    seen.push(s);
+                    stack.push(s);
                 }
             }
         }
-        vistos
+        seen
     }
 
     /// `_getExplicitlyBaseOrFinalElement`.
-    fn base_ou_final_explicito(&self, id: ClassId, visitados: &mut Vec<ClassId>) -> Option<ClassId> {
-        if visitados.contains(&id) {
+    fn explicit_base_or_final(&self, id: ClassId, visited: &mut Vec<ClassId>) -> Option<ClassId> {
+        if visited.contains(&id) {
             return None;
         }
-        visitados.push(id);
-        if (self.e_base(id) || self.e_final(id)) && !self.e_selada(id) {
+        visited.push(id);
+        if (self.is_base(id) || self.is_final(id)) && !self.is_sealed(id) {
             return Some(id);
         }
-        let c = self.classe(id);
-        let ordem = c
+        let c = self.class_of(id);
+        let order = c
             .supertype_class
             .into_iter()
             .chain(c.interface_classes.iter().copied())
             .chain(c.mixin_classes.iter().copied())
             .chain(if c.kind == ClassKind::Mixin { c.on_classes.clone() } else { Vec::new() });
-        for s in ordem.collect::<Vec<_>>() {
-            if let Some(r) = self.base_ou_final_explicito(s, visitados) {
+        for s in order.collect::<Vec<_>>() {
+            if let Some(r) = self.explicit_base_or_final(s, visited) {
                 return Some(r);
             }
         }
@@ -137,120 +137,120 @@ impl Contexto<'_> {
     }
 }
 
-/// Os diagnósticos de modificadores de classe da biblioteca `lib`.
-pub fn fora_da_biblioteca(programa: &Program, lib: LibraryId, nomes: &Interner) -> Vec<(UnitId, Diagnostic)> {
-    let cx = Contexto { programa, nomes, lib };
-    let mut saida = Vec::new();
-    for (i, classe) in programa.classes.iter().enumerate() {
-        if classe.library != lib {
+/// The class-modifier diagnostics of library `lib`.
+pub fn outside_library(program: &Program, lib: LibraryId, names: &Interner) -> Vec<(UnitId, Diagnostic)> {
+    let cx = Ctx { program, names, lib };
+    let mut out = Vec::new();
+    for (i, class_of) in program.classes.iter().enumerate() {
+        if class_of.library != lib {
             continue;
         }
-        let Some(decl) = classe.decl else { continue };
+        let Some(decl) = class_of.decl else { continue };
         let id = ClassId(i as u32);
-        let ast = &programa.unit(decl.unit).ast;
-        let Some(cl) = clausulas(programa, decl.unit, ast, &ast.decl(decl.decl).kind) else { continue };
+        let ast = &program.unit(decl.unit).ast;
+        let Some(cl) = clauses(program, decl.unit, ast, &ast.decl(decl.decl).kind) else { continue };
         let span = |t: ast::TypeId| ast.ty(t).span;
-        // O analyzer descarta o erro repetido (mesmo código, intervalo e
-        // mensagem): o `ErrorVerifier` e o `BaseOrFinalTypeVerifier` relatam
-        // `class X implements SealedDeBase` cada um.
-        let mut por = |codigo: Codigo, sp: Span, args: &[&str], contexto: Option<dartforge_diagnostics::Contexto>| {
-            let mut d = Diagnostic::com_codigo(codigo, sp, args.iter().copied());
-            d.contexto.extend(contexto);
-            if !saida.iter().any(|(u, x): &(UnitId, Diagnostic)| *u == decl.unit && x.span == d.span && x.message == d.message) {
-                saida.push((decl.unit, d));
+        // The analyzer drops the repeated error (same code, range and
+        // message): the `ErrorVerifier` and the `BaseOrFinalTypeVerifier`
+        // each report `class X implements SealedOfBase`.
+        let mut by = |code: Codigo, sp: Span, args: &[&str], context: Option<dartforge_diagnostics::Contexto>| {
+            let mut d = Diagnostic::com_codigo(code, sp, args.iter().copied());
+            d.contexto.extend(context);
+            if !out.iter().any(|(u, x): &(UnitId, Diagnostic)| *u == decl.unit && x.span == d.span && x.message == d.message) {
+                out.push((decl.unit, d));
             }
         };
 
-        // `ErrorVerifier`: só com a porta de `_checkClassInheritance` aberta
-        // (nenhum supertipo proibido, cláusula adiada ou erro de mixin).
-        if crate::clauses::porta(programa, lib, nomes, id) == crate::clauses::Porta::Aberta {
-            // base implementada fora da biblioteca.
-            for &(t, alvo) in &cl.implements {
-                let Some(alvo) = alvo else { continue };
-                for e in cx.todos(alvo) {
-                    if cx.e_base(e) && cx.classe(e).library != lib && !cx.pode_ignorar(cx.classe(e).library, true) {
-                        if cx.classe(e).kind != ClassKind::Mixin && !cx.e_selada(e) {
-                            por(c::BASE_CLASS_IMPLEMENTED_OUTSIDE_OF_LIBRARY, span(t), &[&cx.nome(e)], None);
-                        } else if cx.e_mixin(e) {
-                            por(c::BASE_MIXIN_IMPLEMENTED_OUTSIDE_OF_LIBRARY, span(t), &[&cx.nome(e)], None);
+        // `ErrorVerifier`: only with the `_checkClassInheritance` gate open (no
+        // forbidden supertype, deferred clause or mixin error).
+        if crate::clauses::porta(program, lib, names, id) == crate::clauses::Porta::Aberta {
+            // base implemented outside the library.
+            for &(t, target) in &cl.implements {
+                let Some(target) = target else { continue };
+                for e in cx.all_supertypes(target) {
+                    if cx.is_base(e) && cx.class_of(e).library != lib && !cx.may_ignore(cx.class_of(e).library, true) {
+                        if cx.class_of(e).kind != ClassKind::Mixin && !cx.is_sealed(e) {
+                            by(c::BASE_CLASS_IMPLEMENTED_OUTSIDE_OF_LIBRARY, span(t), &[&cx.name_of(e)], None);
+                        } else if cx.is_mixin(e) {
+                            by(c::BASE_MIXIN_IMPLEMENTED_OUTSIDE_OF_LIBRARY, span(t), &[&cx.name_of(e)], None);
                         }
                         break;
                     }
                 }
             }
-            // interface estendida fora da biblioteca.
+            // interface extended outside the library.
             if let Some((t, Some(s))) = cl.extends {
-                // Depois de `no_generative_constructors_in_superclass`
-                // (`extends Finalizable` só relata este; `extends Pointer`,
-                // `final` e também só com `factory`, relata o modificador).
-                if cx.e_interface(s)
-                    && !cx.e_selada(s)
-                    && cx.classe(s).library != lib
-                    && !cx.pode_ignorar(cx.classe(s).library, true)
-                    && !sem_construtor_generativo(&cx, s)
+                // After `no_generative_constructors_in_superclass`
+                // (`extends Finalizable` only reports that one; `extends
+                // Pointer`, `final` and also only with `factory`, reports the modifier).
+                if cx.is_interface(s)
+                    && !cx.is_sealed(s)
+                    && cx.class_of(s).library != lib
+                    && !cx.may_ignore(cx.class_of(s).library, true)
+                    && !without_generative_constructor(&cx, s)
                 {
-                    por(c::INTERFACE_CLASS_EXTENDED_OUTSIDE_OF_LIBRARY, span(t), &[&cx.nome(s)], None);
+                    by(c::INTERFACE_CLASS_EXTENDED_OUTSIDE_OF_LIBRARY, span(t), &[&cx.name_of(s)], None);
                 }
             }
-            // final: estendida, implementada, restrição de mixin.
+            // final: extended, implemented, mixin constraint.
             if let Some((t, Some(s))) = cl.extends {
-                if cx.e_final(s) && !cx.e_selada(s) && cx.classe(s).library != lib && !cx.pode_ignorar(cx.classe(s).library, true) {
-                    por(c::FINAL_CLASS_EXTENDED_OUTSIDE_OF_LIBRARY, span(t), &[&cx.nome(s)], None);
+                if cx.is_final(s) && !cx.is_sealed(s) && cx.class_of(s).library != lib && !cx.may_ignore(cx.class_of(s).library, true) {
+                    by(c::FINAL_CLASS_EXTENDED_OUTSIDE_OF_LIBRARY, span(t), &[&cx.name_of(s)], None);
                 }
             }
-            for &(t, alvo) in &cl.implements {
-                let Some(alvo) = alvo else { continue };
-                for e in cx.todos(alvo) {
-                    if cx.e_final(e) && !cx.e_selada(e) && cx.classe(e).library != lib && !cx.pode_ignorar(cx.classe(e).library, true) {
-                        // Indireta numa biblioteca com modificadores: a
-                        // declaração mais próxima já relata.
-                        if e != alvo && cx.com_modificadores(cx.classe(alvo).library) {
+            for &(t, target) in &cl.implements {
+                let Some(target) = target else { continue };
+                for e in cx.all_supertypes(target) {
+                    if cx.is_final(e) && !cx.is_sealed(e) && cx.class_of(e).library != lib && !cx.may_ignore(cx.class_of(e).library, true) {
+                        // Indirect in a library with modifiers: the nearest
+                        // declaration already reports.
+                        if e != target && cx.has_modifiers(cx.class_of(target).library) {
                             continue;
                         }
-                        por(c::FINAL_CLASS_IMPLEMENTED_OUTSIDE_OF_LIBRARY, span(t), &[&cx.nome(e)], None);
+                        by(c::FINAL_CLASS_IMPLEMENTED_OUTSIDE_OF_LIBRARY, span(t), &[&cx.name_of(e)], None);
                         break;
                     }
                 }
             }
-            for &(t, alvo) in &cl.on {
-                let Some(s) = alvo else { continue };
-                if cx.e_final(s) && !cx.e_selada(s) && cx.classe(s).library != lib && !cx.pode_ignorar(cx.classe(s).library, true) {
-                    por(c::FINAL_CLASS_USED_AS_MIXIN_CONSTRAINT_OUTSIDE_OF_LIBRARY, span(t), &[&cx.nome(s)], None);
+            for &(t, target) in &cl.on {
+                let Some(s) = target else { continue };
+                if cx.is_final(s) && !cx.is_sealed(s) && cx.class_of(s).library != lib && !cx.may_ignore(cx.class_of(s).library, true) {
+                    by(c::FINAL_CLASS_USED_AS_MIXIN_CONSTRAINT_OUTSIDE_OF_LIBRARY, span(t), &[&cx.name_of(s)], None);
                 }
             }
             // sealed: qualquer cláusula.
-            for &(t, alvo) in cl.extends.iter().chain(cl.with.iter()).chain(cl.implements.iter()).chain(cl.on.iter()) {
-                let Some(s) = alvo else { continue };
-                if cx.e_selada(s) && cx.classe(s).library != lib {
-                    por(c::SEALED_CLASS_SUBTYPE_OUTSIDE_OF_LIBRARY, span(t), &[&cx.nome(s)], None);
+            for &(t, target) in cl.extends.iter().chain(cl.with.iter()).chain(cl.implements.iter()).chain(cl.on.iter()) {
+                let Some(s) = target else { continue };
+                if cx.is_sealed(s) && cx.class_of(s).library != lib {
+                    by(c::SEALED_CLASS_SUBTYPE_OUTSIDE_OF_LIBRARY, span(t), &[&cx.name_of(s)], None);
                 }
             }
         }
 
-        // `BaseOrFinalTypeVerifier.checkElement`: classes, aliases de classe e
-        // mixins (enums não).
-        if !matches!(classe.kind, ClassKind::Class | ClassKind::Mixin | ClassKind::MixinApplication) {
+        // `BaseOrFinalTypeVerifier.checkElement`: classes, class aliases and
+        // mixins (not enums).
+        if !matches!(class_of.kind, ClassKind::Class | ClassKind::Mixin | ClassKind::MixinApplication) {
             continue;
         }
-        let Some(nome_sp) = nome_da_declaracao(&ast.decl(decl.decl).kind) else { continue };
+        let Some(name_span) = decl_name(&ast.decl(decl.decl).kind) else { continue };
         let supertipo: Vec<(Option<ast::TypeId>, ClassId)> = cl.extends.and_then(|(_, c)| c).map(|c| (None, c)).into_iter().collect();
         let interfaces: Vec<(Option<ast::TypeId>, ClassId)> =
             cl.implements.iter().filter_map(|&(t, c)| c.map(|c| (Some(t), c))).collect();
         let mixins: Vec<(Option<ast::TypeId>, ClassId)> = cl.with.iter().filter_map(|&(_, c)| c.map(|c| (None, c))).collect();
         let on: Vec<(Option<ast::TypeId>, ClassId)> = cl.on.iter().filter_map(|&(_, c)| c.map(|c| (None, c))).collect();
-        for grupo in [supertipo, interfaces, mixins, on] {
+        for group in [supertipo, interfaces, mixins, on] {
             let mut relatou = false;
-            for (implementado, sup) in grupo {
-                if let Some((codigo, sp, args, contexto)) = restricao(&cx, id, sup, implementado.map(span), nome_sp) {
+            for (implemented, sup) in group {
+                if let Some((code, sp, args, context)) = restriction(&cx, id, sup, implemented.map(span), name_span) {
                     let args: Vec<&str> = args.iter().map(String::as_str).collect();
-                    // A mensagem de contexto aponta o arquivo da declaração
-                    // quando não é o do erro.
-                    let contexto = contexto.map(|(u, span, mensagem)| dartforge_diagnostics::Contexto {
-                        arquivo: (u != decl.unit).then(|| programa.caminho_da_unidade(u).into()),
+                    // The context message points at the declaration's file
+                    // when it is not the error's.
+                    let context = context.map(|(u, span, message)| dartforge_diagnostics::Contexto {
+                        arquivo: (u != decl.unit).then(|| program.caminho_da_unidade(u).into()),
                         span,
-                        mensagem: mensagem.into(),
+                        mensagem: message.into(),
                     });
-                    por(codigo, sp, &args, contexto);
+                    by(code, sp, &args, context);
                     relatou = true;
                     break;
                 }
@@ -260,74 +260,74 @@ pub fn fora_da_biblioteca(programa: &Program, lib: LibraryId, nomes: &Interner) 
             }
         }
     }
-    saida
+    out
 }
 
-/// `_reportRestrictionError`: o diagnóstico, se houver, com a mensagem de
-/// contexto (unidade, intervalo e texto) que aponta o `base`/`final`
-/// explícito quando o supertipo direto o tem induzido (é `sealed`).
+/// `_reportRestrictionError`: the diagnostic, if any, with the context
+/// message (unit, range and text) that points at the explicit `base`/`final`
+/// when the direct supertype has it induced (it is `sealed`).
 #[allow(clippy::type_complexity)]
-fn restricao(
-    cx: &Contexto<'_>,
-    elemento: ClassId,
+fn restriction(
+    cx: &Ctx<'_>,
+    element: ClassId,
     sup: ClassId,
-    implementado: Option<Span>,
-    nome_sp: Span,
+    implemented: Option<Span>,
+    name_span: Span,
 ) -> Option<(Codigo, Span, Vec<String>, Option<(UnitId, Span, String)>)> {
-    let lib_el = cx.classe(elemento).library;
-    let lib_sup = cx.classe(sup).library;
-    // Uma `sealed` que estende `base`/`final` herda o modificador (é
-    // `base`/`final` induzida, como no elemento do analyzer).
-    let induzida = cx.e_selada(sup) && cx.base_ou_final_explicito(sup, &mut Vec::new()).is_some();
-    if !(cx.e_base(sup) || cx.e_final(sup) || induzida || (!cx.com_modificadores(lib_sup) && cx.com_modificadores(lib_el))) {
+    let lib_el = cx.class_of(element).library;
+    let lib_sup = cx.class_of(sup).library;
+    // A `sealed` that extends `base`/`final` inherits the modifier (it is an
+    // induced `base`/`final`, as in the analyzer's element).
+    let induzida = cx.is_sealed(sup) && cx.explicit_base_or_final(sup, &mut Vec::new()).is_some();
+    if !(cx.is_base(sup) || cx.is_final(sup) || induzida || (!cx.has_modifiers(lib_sup) && cx.has_modifiers(lib_el))) {
         return None;
     }
-    let bf = cx.base_ou_final_explicito(sup, &mut Vec::new())?;
-    let lib_bf = cx.classe(bf).library;
-    if cx.pode_ignorar(lib_bf, false) {
+    let bf = cx.explicit_base_or_final(sup, &mut Vec::new())?;
+    let lib_bf = cx.class_of(bf).library;
+    if cx.may_ignore(lib_bf, false) {
         return None;
     }
-    let contexto = cx.programa.nome_da_classe(bf).map(|(u, span)| {
-        let (s, b) = (cx.nome(sup), cx.nome(bf));
+    let context = cx.program.nome_da_classe(bf).map(|(u, span)| {
+        let (s, b) = (cx.name_of(sup), cx.name_of(bf));
         (u, span, format!("The type '{s}' is a subtype of '{b}', and '{b}' is defined here."))
     });
-    let se_selada = |x: Option<(UnitId, Span, String)>| if cx.e_selada(sup) { x } else { None };
-    if let Some(sp) = implementado {
-        if cx.e_selada(sup) && lib_bf != lib_el && cx.e_base(bf) {
-            let codigo = if cx.e_mixin(bf) { c::BASE_MIXIN_IMPLEMENTED_OUTSIDE_OF_LIBRARY } else { c::BASE_CLASS_IMPLEMENTED_OUTSIDE_OF_LIBRARY };
-            return Some((codigo, sp, vec![cx.nome(bf)], contexto));
+    let se_selada = |x: Option<(UnitId, Span, String)>| if cx.is_sealed(sup) { x } else { None };
+    if let Some(sp) = implemented {
+        if cx.is_sealed(sup) && lib_bf != lib_el && cx.is_base(bf) {
+            let code = if cx.is_mixin(bf) { c::BASE_MIXIN_IMPLEMENTED_OUTSIDE_OF_LIBRARY } else { c::BASE_CLASS_IMPLEMENTED_OUTSIDE_OF_LIBRARY };
+            return Some((code, sp, vec![cx.name_of(bf)], context));
         }
     }
-    if cx.e_base(elemento) || cx.e_final(elemento) || cx.e_selada(elemento) {
+    if cx.is_base(element) || cx.is_final(element) || cx.is_sealed(element) {
         return None;
     }
-    let mixin = cx.e_mixin(elemento);
-    if cx.e_final(bf) {
+    let mixin = cx.is_mixin(element);
+    if cx.is_final(bf) {
         if lib_bf != lib_el
-            && (cx.com_modificadores(lib_sup) || !cx.programa.library(lib_bf).is_sdk || implementado.is_some())
+            && (cx.has_modifiers(lib_sup) || !cx.program.library(lib_bf).is_sdk || implemented.is_some())
         {
             return None;
         }
-        let codigo = if mixin { c::MIXIN_SUBTYPE_OF_FINAL_IS_NOT_BASE } else { c::SUBTYPE_OF_FINAL_IS_NOT_BASE_FINAL_OR_SEALED };
-        return Some((codigo, nome_sp, vec![cx.nome(elemento), cx.nome(bf)], se_selada(contexto)));
+        let code = if mixin { c::MIXIN_SUBTYPE_OF_FINAL_IS_NOT_BASE } else { c::SUBTYPE_OF_FINAL_IS_NOT_BASE_FINAL_OR_SEALED };
+        return Some((code, name_span, vec![cx.name_of(element), cx.name_of(bf)], se_selada(context)));
     }
-    if cx.e_base(bf) {
-        let codigo = if mixin { c::MIXIN_SUBTYPE_OF_BASE_IS_NOT_BASE } else { c::SUBTYPE_OF_BASE_IS_NOT_BASE_FINAL_OR_SEALED };
-        return Some((codigo, nome_sp, vec![cx.nome(elemento), cx.nome(bf)], se_selada(contexto)));
+    if cx.is_base(bf) {
+        let code = if mixin { c::MIXIN_SUBTYPE_OF_BASE_IS_NOT_BASE } else { c::SUBTYPE_OF_BASE_IS_NOT_BASE_FINAL_OR_SEALED };
+        return Some((code, name_span, vec![cx.name_of(element), cx.name_of(bf)], se_selada(context)));
     }
     None
 }
 
-/// `_checkForNoGenerativeConstructorsInSuperclass`: a superclasse só tem
-/// construtores `factory` (como `Finalizable`).
-fn sem_construtor_generativo(cx: &Contexto<'_>, id: ClassId) -> bool {
-    let c = cx.classe(id);
+/// `_checkForNoGenerativeConstructorsInSuperclass`: the superclass only has
+/// `factory` constructors (like `Finalizable`).
+fn without_generative_constructor(cx: &Ctx<'_>, id: ClassId) -> bool {
+    let c = cx.class_of(id);
     c.kind == ClassKind::Class
         && !c.constructors.is_empty()
-        && c.constructors.values().all(|&f| cx.programa.function(f).factory)
+        && c.constructors.values().all(|&f| cx.program.function(f).factory)
 }
 
-fn nome_da_declaracao(k: &DeclKind) -> Option<Span> {
+fn decl_name(k: &DeclKind) -> Option<Span> {
     match k {
         DeclKind::Class(x) => Some(x.name.span),
         DeclKind::Mixin(x) => Some(x.name.span),
@@ -335,22 +335,22 @@ fn nome_da_declaracao(k: &DeclKind) -> Option<Span> {
     }
 }
 
-fn clausulas(programa: &Program, u: UnitId, ast: &ast::Ast, k: &DeclKind) -> Option<Clausulas> {
-    let r = |t: ast::TypeId| (t, classe_do_tipo(programa, u, ast, t));
+fn clauses(program: &Program, u: UnitId, ast: &ast::Ast, k: &DeclKind) -> Option<Clauses> {
+    let r = |t: ast::TypeId| (t, class_of_type(program, u, ast, t));
     match k {
-        DeclKind::Class(x) => Some(Clausulas {
+        DeclKind::Class(x) => Some(Clauses {
             extends: x.extends.map(r),
             with: x.with.iter().map(|&t| r(t)).collect(),
             implements: x.implements.iter().map(|&t| r(t)).collect(),
             on: Vec::new(),
         }),
-        DeclKind::Mixin(x) => Some(Clausulas {
+        DeclKind::Mixin(x) => Some(Clauses {
             extends: None,
             with: Vec::new(),
             implements: x.implements.iter().map(|&t| r(t)).collect(),
             on: x.on.iter().map(|&t| r(t)).collect(),
         }),
-        DeclKind::Enum(x) => Some(Clausulas {
+        DeclKind::Enum(x) => Some(Clauses {
             extends: None,
             with: x.with.iter().map(|&t| r(t)).collect(),
             implements: x.implements.iter().map(|&t| r(t)).collect(),
@@ -360,67 +360,67 @@ fn clausulas(programa: &Program, u: UnitId, ast: &ast::Ast, k: &DeclKind) -> Opt
     }
 }
 
-/// A classe (ou mixin) que o tipo escrito nomeia no escopo da unidade `u`.
-fn classe_do_tipo(programa: &Program, u: UnitId, ast: &ast::Ast, t: ast::TypeId) -> Option<ClassId> {
-    classe_do_tipo_em(programa, u, ast, t, 0)
+/// The class (or mixin) the written type names in the scope of unit `u`.
+fn class_of_type(program: &Program, u: UnitId, ast: &ast::Ast, t: ast::TypeId) -> Option<ClassId> {
+    class_of_type_in(program, u, ast, t, 0)
 }
 
-/// O elemento do tipo de uma cláusula é o da interface já expandida: o
-/// alias (`typedef T = FinalClass;`, também de outra biblioteca) leva à
-/// classe que ele nomeia; o que se expande num parâmetro de tipo, não.
-fn classe_do_tipo_em(programa: &Program, u: UnitId, ast: &ast::Ast, t: ast::TypeId, prof: u32) -> Option<ClassId> {
-    if prof > 8 {
+/// The element of a clause's type is that of the already expanded interface:
+/// the alias (`typedef T = FinalClass;`, also from another library) leads to
+/// the class it names; what expands to a type parameter does not.
+fn class_of_type_in(program: &Program, u: UnitId, ast: &ast::Ast, t: ast::TypeId, depth: u32) -> Option<ClassId> {
+    if depth > 8 {
         return None;
     }
     let TypeKind::Named { name, .. } = &ast.ty(t).kind else { return None };
     let b = match &name[..] {
-        [n] => programa.lookup_na_unidade(u, n.sym),
-        [p, n] => programa.lookup_prefixed_na_unidade(u, p.sym, n.sym),
+        [n] => program.lookup_na_unidade(u, n.sym),
+        [p, n] => program.lookup_prefixed_na_unidade(u, p.sym, n.sym),
         _ => None,
     }?;
     if b.ambiguous {
         return None;
     }
     match b.getter? {
-        Element::Class(c) if matches!(programa.class(c).kind, ClassKind::Class | ClassKind::Mixin | ClassKind::MixinApplication) => Some(c),
+        Element::Class(c) if matches!(program.class(c).kind, ClassKind::Class | ClassKind::Mixin | ClassKind::MixinApplication) => Some(c),
         Element::Typedef(tid) => {
-            let td = programa.typedef(tid);
-            let ast_td = &programa.unit(td.decl.unit).ast;
+            let td = program.typedef(tid);
+            let ast_td = &program.unit(td.decl.unit).ast;
             let DeclKind::Typedef(d) = &ast_td.decl(td.decl.decl).kind else { return None };
-            let ast::TypedefKind::Alias(corpo) = d.kind else { return None };
-            if let TypeKind::Named { name: n2, .. } = &ast_td.ty(corpo).kind
-                && let [unico] = &n2[..]
-                && d.type_params.iter().any(|p| p.name.sym == unico.sym)
+            let ast::TypedefKind::Alias(body) = d.kind else { return None };
+            if let TypeKind::Named { name: n2, .. } = &ast_td.ty(body).kind
+                && let [unique] = &n2[..]
+                && d.type_params.iter().any(|p| p.name.sym == unique.sym)
             {
                 return None;
             }
-            classe_do_tipo_em(programa, td.decl.unit, ast_td, corpo, prof + 1)
+            class_of_type_in(program, td.decl.unit, ast_td, body, depth + 1)
         }
         _ => None,
     }
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
     use dartforge_elements::{load::load_lenient, sdk::SdkLayout};
     use std::fs;
 
     #[test]
-    fn modificadores_de_outra_biblioteca() {
-        let raiz = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    fn modifiers_from_another_library() {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join(format!("../../target/tmp-agent/modificadores-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&raiz);
-        fs::create_dir_all(raiz.join("sdk/lib/core")).unwrap();
-        fs::write(raiz.join("sdk/lib/libraries.json"), r#"{"dartdevc":{"libraries":{"core":{"uri":"core/core.dart","patches":[]}}}}"#).unwrap();
-        fs::write(raiz.join("sdk/lib/core/core.dart"), "class Object {}").unwrap();
-        let sdk = SdkLayout::load(&raiz.join("sdk/lib"), "dartdevc").unwrap();
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("sdk/lib/core")).unwrap();
+        fs::write(root.join("sdk/lib/libraries.json"), r#"{"dartdevc":{"libraries":{"core":{"uri":"core/core.dart","patches":[]}}}}"#).unwrap();
+        fs::write(root.join("sdk/lib/core/core.dart"), "class Object {}").unwrap();
+        let sdk = SdkLayout::load(&root.join("sdk/lib"), "dartdevc").unwrap();
         fs::write(
-            raiz.join("a.dart"),
+            root.join("a.dart"),
             "base class B {}\nfinal class F {}\ninterface class I {}\nsealed class S {}\nsealed class SB extends B {}\n",
         )
         .unwrap();
-        let fonte = "import 'a.dart';\n\
+        let source = "import 'a.dart';\n\
             class X extends B {}\n\
             base class Y implements B {}\n\
             final class Z extends F {}\n\
@@ -428,14 +428,14 @@ mod testes {
             final class V extends S {}\n\
             base class Q implements SB {}\n\
             base class Ok extends B {}\n";
-        let entrada = raiz.join("main.dart");
-        fs::write(&entrada, fonte).unwrap();
-        let mut nomes = Interner::new();
-        let (programa, _) = load_lenient(&entrada, &sdk, None, &mut nomes);
-        let diags = fora_da_biblioteca(&programa, programa.entry.unwrap(), &nomes);
+        let entry = root.join("main.dart");
+        fs::write(&entry, source).unwrap();
+        let mut names = Interner::new();
+        let (program, _) = load_lenient(&entry, &sdk, None, &mut names);
+        let diags = outside_library(&program, program.entry.unwrap(), &names);
         let v: Vec<(&str, &str, &str)> = diags
             .iter()
-            .map(|(_, d)| (d.code.map_or("", |c| c.info().nome), &fonte[d.span.start..d.span.end], d.message.as_str()))
+            .map(|(_, d)| (d.code.map_or("", |c| c.info().nome), &source[d.span.start..d.span.end], d.message.as_str()))
             .collect();
         assert_eq!(
             v,
@@ -445,13 +445,13 @@ mod testes {
                 ("invalid_use_of_type_outside_library", "F", "The class 'F' can't be extended outside of its library because it's a final class."),
                 ("invalid_use_of_type_outside_library", "I", "The class 'I' can't be extended outside of its library because it's an interface class."),
                 ("invalid_use_of_type_outside_library", "S", "The class 'S' can't be extended, implemented, or mixed in outside of its library because it's a sealed class."),
-                // `ErrorVerifier` e `BaseOrFinalTypeVerifier` relatam o mesmo
-                // erro; o analyzer guarda um só.
+                // The `ErrorVerifier` and the `BaseOrFinalTypeVerifier` report
+                // the same error; the analyzer keeps only one.
                 ("invalid_use_of_type_outside_library", "SB", "The class 'B' can't be implemented outside of its library because it's a base class."),
                 ("invalid_use_of_type_outside_library", "SB", "The class 'SB' can't be extended, implemented, or mixed in outside of its library because it's a sealed class."),
             ],
             "{diags:?}"
         );
-        fs::remove_dir_all(&raiz).unwrap();
+        fs::remove_dir_all(&root).unwrap();
     }
 }
