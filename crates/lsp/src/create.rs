@@ -355,8 +355,10 @@ impl Context<'_> {
     /// The parameter (type) that receives argument `arg`
     /// (`staticParameterElement` / `correspondingParameter`).
     fn matching_parameter(&self, arg: usize) -> Option<TypeId> {
+        let label = |p: usize| self.children(p).first().and_then(|&r| self.children(r).first()).map(|&i| self.node_text(i).to_string());
         let (value, name) = match self.parent(arg) {
-            Some(p) if self.kind(p) == "NamedExpression" => (p, self.children(p).first().and_then(|&r| self.children(r).first()).map(|&i| self.node_text(i).to_string())),
+            _ if self.kind(arg) == "NamedExpression" => (arg, label(arg)),
+            Some(p) if self.kind(p) == "NamedExpression" => (p, label(p)),
             _ => (arg, None),
         };
         let list = self.parent(value).filter(|&l| self.kind(l) == "ArgumentList")?;
@@ -386,6 +388,97 @@ impl Context<'_> {
                 let position = self.children(list).iter().take_while(|&&a| a != value).filter(|&&a| self.kind(a) != "NamedExpression").count();
                 positional.iter().chain(optional.iter()).nth(position).copied()
             }
+        }
+    }
+
+    /// The names of the positional parameters of the function type of the
+    /// parameter that `arg` matches, as its declaration writes them (the
+    /// analyzer's `FunctionType` keeps them; the type table does not): a
+    /// `void Function(int a)` annotation, an old-form `void cb(int a)`
+    /// parameter, or a `typedef` naming either. `None` for an unnamed one.
+    fn matching_parameter_names(&self, arg: usize) -> Vec<Option<String>> {
+        self.matching_parameter_declaration(arg).unwrap_or_default()
+    }
+
+    fn matching_parameter_declaration(&self, arg: usize) -> Option<Vec<Option<String>>> {
+        use dartforge_elements::model::FunctionRef;
+        let label = |p: usize| self.children(p).first().and_then(|&r| self.children(r).first()).map(|&i| self.node_text(i).to_string());
+        let (value, name) = match self.parent(arg) {
+            _ if self.kind(arg) == "NamedExpression" => (arg, label(arg)),
+            Some(p) if self.kind(p) == "NamedExpression" => (p, label(p)),
+            _ => (arg, None),
+        };
+        let list = self.parent(value).filter(|&l| self.kind(l) == "ArgumentList")?;
+        let call = self.parent(list)?;
+        let function = match self.resolved(call) {
+            Some(Resolved::Constructor(f)) => *f,
+            _ => {
+                let target = match self.kind(call) {
+                    "MethodInvocation" => self.method_name(call)?,
+                    "FunctionExpressionInvocation" => *self.children(call).first()?,
+                    _ => return None,
+                };
+                match self.resolved(target)? {
+                    Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::ExtensionMember { member: f, .. } | Resolved::Element(Element::Function(f)) | Resolved::Constructor(f) => *f,
+                    _ => return None,
+                }
+            }
+        };
+        let prog = self.p.program();
+        let (unit, parameters) = match prog.function(function).node {
+            FunctionRef::Function { unit, function } => (unit, prog.unit(unit).ast.function(function).parameters.as_deref()?),
+            FunctionRef::Constructor { unit, member } => match &prog.unit(unit).ast.member(member).kind {
+                ast::MemberKind::Constructor(k) => (unit, &k.parameters[..]),
+                _ => return None,
+            },
+            FunctionRef::None => return None,
+        };
+        let parameter = match name {
+            Some(n) => parameters.iter().find(|q| q.kind == ast::ParameterKind::Named && q.name.is_some_and(|x| self.p.name(x.sym) == n))?,
+            None => {
+                let position = self.children(list).iter().take_while(|&&a| a != value).filter(|&&a| self.kind(a) != "NamedExpression").count();
+                parameters.iter().filter(|q| q.kind != ast::ParameterKind::Named).nth(position)?
+            }
+        };
+        self.function_parameter_names(unit, parameter)
+    }
+
+    /// The positional names of the function type that `parameter` declares.
+    fn function_parameter_names(&self, unit: UnitId, parameter: &ast::Parameter) -> Option<Vec<Option<String>>> {
+        let names = |ps: &[ast::Parameter]| -> Vec<Option<String>> {
+            ps.iter().filter(|q| q.kind != ast::ParameterKind::Named).map(|q| q.name.map(|n| self.p.name(n.sym).to_string())).collect()
+        };
+        if let Some(ps) = &parameter.function_parameters {
+            return Some(names(ps));
+        }
+        self.function_type_names(unit, parameter.ty?, 0)
+    }
+
+    /// The positional names of the function type written as `t` in `unit`,
+    /// through `typedef`s.
+    fn function_type_names(&self, unit: UnitId, t: ast::TypeId, depth: usize) -> Option<Vec<Option<String>>> {
+        let prog = self.p.program();
+        let a = &prog.unit(unit).ast;
+        let names = |ps: &[ast::Parameter]| -> Vec<Option<String>> {
+            ps.iter().filter(|q| q.kind != ast::ParameterKind::Named).map(|q| q.name.map(|n| self.p.name(n.sym).to_string())).collect()
+        };
+        match &a.ty(t).kind {
+            ast::TypeKind::Function { parameters, .. } => Some(names(parameters)),
+            ast::TypeKind::Named { name, .. } if depth < 8 => {
+                let binding = match &name[..] {
+                    [n] => prog.lookup_in_unit(unit, n.sym),
+                    [pf, n] => prog.lookup_prefixed_in_unit(unit, pf.sym, n.sym),
+                    _ => None,
+                };
+                let Some(Element::Typedef(td)) = binding.and_then(|b| b.getter) else { return None };
+                let decl = prog.typedef(td).decl;
+                let ast::DeclKind::Typedef(x) = &prog.unit(decl.unit).ast.decl(decl.decl).kind else { return None };
+                match &x.kind {
+                    ast::TypedefKind::Legacy { parameters, .. } => Some(names(&parameters[..])),
+                    ast::TypedefKind::Alias(t2) => self.function_type_names(decl.unit, t2.clone(), depth + 1),
+                }
+            }
+            _ => None,
         }
     }
 
@@ -1382,6 +1475,7 @@ impl Project {
             parameter = cx.matching_parameter(p);
         }
         let type_f = parameter?;
+        let declared_names = cx.matching_parameter_names(argument);
         // `Function` counts as `dynamic Function()`.
         let (ret, positional, optional, named): (TypeId, Vec<TypeId>, Vec<TypeId>, Vec<(dartforge_intern::SymbolId, TypeId, bool)>) = match self.query.table.get(type_f).clone() {
             Type::Interface { class, .. } if Some(class) == self.query.core.function_class => (self.query.core.dynamic_, Vec::new(), Vec::new(), Vec::new()),
@@ -1398,10 +1492,11 @@ impl Project {
                 e.linked("RETURN_TYPE", &r, &[]).write(" ");
             }
             e.linked("NAME", &name, &[]);
-            // `writeFormalParameters`: unnamed positionals become `p1`…
+            // `writeFormalParameters`: the declared names, and `p1`… for the
+            // unnamed positionals.
             e.write("(");
             let mut i = 0usize;
-            let mut used: BTreeSet<String> = named.iter().map(|(n, _, _)| self.name(*n).to_string()).collect();
+            let mut used: BTreeSet<String> = named.iter().map(|(n, _, _)| self.name(*n).to_string()).chain(declared_names.iter().flatten().cloned()).collect();
             let generate = |used: &mut BTreeSet<String>| {
                 let mut k = 1;
                 while used.contains(&format!("p{k}")) {
@@ -1421,7 +1516,10 @@ impl Project {
                     e.write("[");
                     opened_o = true;
                 }
-                let n = generate(&mut used);
+                let n = match declared_names.get(i) {
+                    Some(Some(d)) => d.clone(),
+                    _ => generate(&mut used),
+                };
                 if let Some(t) = writer.write(q, false) {
                     let suggestions = supertype_suggestions_at(self, &mut copy, q);
                     e.linked(&format!("TYPE{i}"), &t, &suggestions).write(" ");

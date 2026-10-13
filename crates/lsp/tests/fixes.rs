@@ -248,3 +248,26 @@ fn rewrite_assists() {
     let a = action(&r, "Assign value to new local variable");
     assert!(apply(&a["edit"], &uri, text).contains("  var dobro2 = dobro(3);\n") || apply(&a["edit"], &uri, text).contains("  var dobro = dobro(3);\n"));
 }
+
+#[test]
+fn create_function_keeps_the_declared_parameter_names() {
+    // The function type's parameters keep the names of their declaration (a
+    // `Function` annotation, an old-form parameter, a `typedef`); only the
+    // unnamed ones become `p1`… (`writeFormalParameters`). The named argument
+    // `k: onE` matches its named parameter.
+    let mut p = Project::with_literals("correcoes-criar-nomes");
+    let text = "typedef Cb = void Function(int value, String);\ntypedef void Old(bool flag);\nvoid run(void Function(int count, String label) f, Cb g, void h(int n), Old o, {required int Function(int) k}) {}\nvoid main() {\n  run(onA, onB, onC, onD, k: onE);\n}\n";
+    p.open("lib/a.dart", text);
+    for (name, signature) in [
+        ("onA", "void onA(int count, String label) {"),
+        ("onB", "void onB(int value, String p1) {"),
+        ("onC", "void onC(int n) {"),
+        ("onD", "void onD(bool flag) {"),
+        ("onE", "int onE(int p1) {"),
+    ] {
+        let r = actions(&mut p, "lib/a.dart", location(text, name, 0));
+        let a = action(&r, &format!("Create function '{name}'"));
+        let applied = apply(&a["edit"], &p.uri("lib/a.dart"), text);
+        assert!(applied.contains(signature), "{applied}");
+    }
+}
