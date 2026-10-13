@@ -1,21 +1,22 @@
-//! Oráculo do formatador: compara, byte a byte, a saída de
-//! `dartforge_formatter::formatar` com a do `dart format` do SDK 3.6.2 sobre
-//! um corpus de arquivos `.dart`.
+//! Formatter oracle: compares, byte for byte, the output of
+//! `dartforge_formatter::formatar` with that of `dart format` from SDK 3.6.2
+//! over a corpus of `.dart` files.
 //!
 //! ```text
-//! cargo run --release -p dartforge-formatter --example oraculo -- \
-//!     [--dart <dart>] [--cache <dir>] [--diffs <dir>] [--list] [<dir|arquivo>...]
+//! cargo run --release -p dartforge-formatter --example oracle -- \
+//!     [--dart <dart>] [--cache <dir>] [--diffs <dir>] [--list] [<dir|file>...]
 //! ```
 //!
-//! Sem caminhos, usa o corpus padrão: os `.dart` do repositório (menos
-//! `target/` e `references/`), a `lib/` do SDK e, se existir, o pub cache
-//! (`~/tools/dart/pub-cache/hosted/pub.dev`). As referências do Dart ficam
-//! em cache por conteúdo (FNV-1a de 64 bits) em `target/oraculo-formatar/`:
-//! `<hash>.out` com a saída, `<hash>.err` quando o `dart format` recusa o
-//! arquivo. O `dart format -o json` roda em lotes, em paralelo.
+//! Without paths, uses the default corpus: the repository's `.dart` files
+//! (except `target/` and `references/`), the SDK's `lib/` and, if present,
+//! the pub cache (`~/tools/dart/pub-cache/hosted/pub.dev`). Dart's reference
+//! outputs are cached by content (64-bit FNV-1a) in
+//! `target/formatter-oracle/`: `<hash>.out` with the output, `<hash>.err`
+//! when `dart format` rejects the file. `dart format -o json` runs in
+//! batches, in parallel.
 //!
-//! O placar conta só os arquivos que o `dart format` aceita; arquivos que os
-//! dois recusam saem à parte.
+//! The score counts only the files `dart format` accepts; files both reject
+//! are reported separately.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -58,7 +59,7 @@ fn collect(root: &Path, output: &mut Vec<PathBuf>) {
     }
 }
 
-/// Roda o `dart format -o json` num lote e grava o cache de cada arquivo.
+/// Runs `dart format -o json` on a batch and writes each file's cache entry.
 fn references(dart: &str, cache: &Path, lote: &[(PathBuf, u64)]) {
     let mut cmd = Command::new(dart);
     cmd.args(["format", "-o", "json", "--summary", "none"]);
@@ -68,7 +69,7 @@ fn references(dart: &str, cache: &Path, lote: &[(PathBuf, u64)]) {
     let output = match cmd.output() {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("falha ao rodar {dart}: {e}");
+            eprintln!("failed to run {dart}: {e}");
             return;
         }
     };
@@ -110,10 +111,10 @@ struct Scoreboard {
 fn main() {
     std::panic::set_hook(Box::new(|_| {}));
     let mut args = std::env::args().skip(1);
-    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().expect("raiz do repositório");
-    let matches_here = std::env::var("HOME").unwrap_or_default();
-    let mut dart = format!("{matches_here}/tools/dart/3.6.2/dart-sdk/bin/dart");
-    let mut cache = repo_root.join("target/oraculo-formatar");
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().expect("repository root");
+    let home = std::env::var("HOME").unwrap_or_default();
+    let mut dart = format!("{home}/tools/dart/3.6.2/dart-sdk/bin/dart");
+    let mut cache = repo_root.join("target/formatter-oracle");
     let mut diffs: Option<PathBuf> = None;
     let mut list_mode = false;
     let mut paths: Vec<PathBuf> = Vec::new();
@@ -122,26 +123,26 @@ fn main() {
             "--dart" => dart = args.next().expect("--dart <exe>"),
             "--cache" => cache = PathBuf::from(args.next().expect("--cache <dir>")),
             "--diffs" => diffs = Some(PathBuf::from(args.next().expect("--diffs <dir>"))),
-            "--lista" => list_mode = true,
+            "--list" => list_mode = true,
             _ => paths.push(PathBuf::from(a)),
         }
     }
     let sets: Vec<(String, Vec<PathBuf>)> = if paths.is_empty() {
         let mut v = vec![
-            ("repositório".into(), vec![repo_root.clone()]),
-            ("sdk/lib".into(), vec![PathBuf::from(format!("{matches_here}/tools/dart/3.6.2/dart-sdk/lib"))]),
+            ("repository".into(), vec![repo_root.clone()]),
+            ("sdk/lib".into(), vec![PathBuf::from(format!("{home}/tools/dart/3.6.2/dart-sdk/lib"))]),
         ];
-        let pub_cache = PathBuf::from(format!("{matches_here}/tools/dart/pub-cache/hosted/pub.dev"));
+        let pub_cache = PathBuf::from(format!("{home}/tools/dart/pub-cache/hosted/pub.dev"));
         if pub_cache.is_dir() {
             v.push(("pub-cache".into(), vec![pub_cache]));
         }
         v
     } else {
-        vec![("selecionados".into(), paths)]
+        vec![("selected".into(), paths)]
     };
-    fs::create_dir_all(&cache).expect("diretório do cache");
+    fs::create_dir_all(&cache).expect("cache directory");
     if let Some(d) = &diffs {
-        fs::create_dir_all(d).expect("diretório dos diffs");
+        fs::create_dir_all(d).expect("diffs directory");
     }
 
     let mut general = Scoreboard::default();
@@ -160,15 +161,15 @@ fn main() {
             .map(|(p, h, _)| (p.clone(), *h))
             .collect();
         if !missing.is_empty() {
-            eprintln!("{name_}: {} referências novas do dart format…", missing.len());
+            eprintln!("{name_}: {} new dart format references…", missing.len());
             let batches: Vec<&[(PathBuf, u64)]> = missing.chunks(150).collect();
-            let proximo = Mutex::new(0usize);
+            let next_batch = Mutex::new(0usize);
             std::thread::scope(|s| {
                 for _ in 0..8 {
                     s.spawn(|| {
                         loop {
                             let i = {
-                                let mut g = proximo.lock().expect("trava");
+                                let mut g = next_batch.lock().expect("lock");
                                 let i = *g;
                                 *g += 1;
                                 i
@@ -184,14 +185,14 @@ fn main() {
         }
 
         let scoreboard = Mutex::new(Scoreboard::default());
-        let proximo = Mutex::new(0usize);
+        let next_batch = Mutex::new(0usize);
         let failures = Mutex::new(Vec::<(PathBuf, &'static str)>::new());
         std::thread::scope(|s| {
             for _ in 0..8 {
                 s.spawn(|| {
                     loop {
                         let i = {
-                            let mut g = proximo.lock().expect("trava");
+                            let mut g = next_batch.lock().expect("lock");
                             let i = *g;
                             *g += 1;
                             i
@@ -202,7 +203,7 @@ fn main() {
                         let reference = fs::read_to_string(cache.join(format!("{h:016x}.out"))).ok();
                         let source = String::from_utf8_lossy(data).to_string();
                         let ours = std::panic::catch_unwind(|| formatar(&source, &Opcoes::default()));
-                        let mut pl = scoreboard.lock().expect("trava");
+                        let mut pl = scoreboard.lock().expect("lock");
                         match (reference, ours) {
                             (None, Ok(Err(_))) => pl.both_reject += 1,
                             (None, _) => pl.only_dart_rejects += 1,
@@ -217,28 +218,28 @@ fn main() {
                                         pl.different += 1;
                                         if let Some(d) = &diffs {
                                             let base = format!("{h:016x}");
-                                            let _ = fs::write(d.join(format!("{base}.dart.nosso")), &output);
+                                            let _ = fs::write(d.join(format!("{base}.dart.ours")), &output);
                                             let _ = fs::write(d.join(format!("{base}.dart.dart")), &r);
-                                            let _ = fs::write(d.join(format!("{base}.dart.fonte")), &source);
-                                            let _ = fs::write(d.join(format!("{base}.caminho")), p.to_string_lossy().as_bytes());
+                                            let _ = fs::write(d.join(format!("{base}.dart.source")), &source);
+                                            let _ = fs::write(d.join(format!("{base}.path")), p.to_string_lossy().as_bytes());
                                         }
-                                        Some("diferente")
+                                        Some("different")
                                     }
                                     Ok(Err(ErroFormatacao::Sintaxe(_))) => {
                                         pl.rejected += 1;
-                                        Some("recusado")
+                                        Some("rejected")
                                     }
                                     Ok(Err(ErroFormatacao::SaidaInesperada { .. })) => {
                                         pl.unexpected_output += 1;
-                                        Some("saída inesperada")
+                                        Some("unexpected output")
                                     }
                                     Err(_) => {
                                         pl.panics += 1;
-                                        Some("pânico")
+                                        Some("panic")
                                     }
                                 };
                                 if let Some(t) = kind_ {
-                                    failures.lock().expect("trava").push((p.clone(), t));
+                                    failures.lock().expect("lock").push((p.clone(), t));
                                 }
                             }
                         }
@@ -246,9 +247,9 @@ fn main() {
                 });
             }
         });
-        let pl = scoreboard.into_inner().expect("placar");
+        let pl = scoreboard.into_inner().expect("score");
         println!(
-            "{name_}: {}/{} idênticos ({:.1}%) — diferentes {}, recusados {}, saída inesperada {}, pânicos {}; o dart recusa {} (nós também: {})",
+            "{name_}: {}/{} identical ({:.1}%) — different {}, rejected {}, unexpected output {}, panics {}; dart rejects {} (we do too: {})",
             pl.equal,
             pl.total,
             100.0 * pl.equal as f64 / pl.total.max(1) as f64,
@@ -260,7 +261,7 @@ fn main() {
             pl.both_reject
         );
         if list_mode {
-            let mut f = failures.into_inner().expect("falhas");
+            let mut f = failures.into_inner().expect("failures");
             f.sort();
             for (p, t) in f {
                 println!("  {t}: {}", p.display());
@@ -271,7 +272,7 @@ fn main() {
     }
     if sets.len() > 1 {
         println!(
-            "total: {}/{} idênticos ({:.1}%)",
+            "total: {}/{} identical ({:.1}%)",
             general.equal,
             general.total,
             100.0 * general.equal as f64 / general.total.max(1) as f64

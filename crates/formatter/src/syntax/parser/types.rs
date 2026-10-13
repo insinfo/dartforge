@@ -1,23 +1,24 @@
-//! Anotações de tipo, argumentos e parâmetros de tipo, parâmetros formais e
-//! metadata (`parseType`, `parseRecordType`, `parseFormalParameter`,
-//! `parseMetadata` do fasta, com os nós do `AstBuilder`).
+//! Type annotations, type arguments and parameters, formal parameters and
+//! metadata (fasta's `parseType`, `parseRecordType`, `parseFormalParameter`,
+//! `parseMetadata`, with the `AstBuilder` nodes).
 //!
-//! Os tipos são lidos em duas etapas, como no fasta: o *lookahead*
-//! ([`Parser::type_at`]) decide a extensão do tipo e se o `?` final é dele;
-//! [`Parser::type_until`] lê a gramática até essa fronteira.
+//! Types are read in two steps, as in fasta: the *lookahead*
+//! ([`Parser::type_at`]) decides the extent of the type and whether the
+//! trailing `?` belongs to it; [`Parser::type_until`] reads the grammar up to
+//! that boundary.
 
 use dartforge_frontend::token::{Keyword, Op};
 
 use super::super::tree::{Node, NodeId, ParameterKind};
 use super::{Parser, R};
 
-/// Contexto da lista de parâmetros (`MemberKind` do fasta), no grão que
-/// muda a leitura.
+/// Context of the parameter list (fasta's `MemberKind`), at the granularity
+/// that changes how it is read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum MemberKind {
-    /// Parâmetros de `Function(...)`: nomes opcionais, tipos obrigatórios.
+    /// Parameters of `Function(...)`: optional names, required types.
     FunctionType,
-    /// Parâmetros de um parâmetro com tipo de função (`void f(int x)`).
+    /// Parameters of a function-typed parameter (`void f(int x)`).
     FunctionParameter,
     /// `typedef void F(int x);`.
     FunctionAlias,
@@ -30,7 +31,7 @@ pub(super) enum MemberKind {
 }
 
 impl Parser<'_> {
-    /// Lê um tipo que termina exatamente antes de `end_index` (calculado por
+    /// Reads a type that ends exactly before `end_index` (computed by
     /// [`Parser::type_at`]).
     pub(super) fn type_until(&mut self, end_index: usize) -> R<NodeId> {
         let start_ = self.pos;
@@ -128,7 +129,7 @@ impl Parser<'_> {
         ))
     }
 
-    /// Tipo record (`parseRecordType`).
+    /// Record type (`parseRecordType`).
     fn record_type_node(&mut self, end_index: usize) -> R<NodeId> {
         let start_ = self.pos;
         if self.version < (3, 0) {
@@ -137,7 +138,7 @@ impl Parser<'_> {
         let lp = self.expect_op(Op::LParen)?;
         let mut positionals = Vec::new();
         let mut named_args = None;
-        let mut virgula = false;
+        let mut comma = false;
         loop {
             if self.op(self.pos, Op::RParen) {
                 break;
@@ -172,10 +173,10 @@ impl Parser<'_> {
                 break;
             }
             self.advance();
-            virgula = true;
+            comma = true;
         }
         let rp = self.expect_op(Op::RParen)?;
-        if positionals.len() == 1 && named_args.is_none() && !virgula {
+        if positionals.len() == 1 && named_args.is_none() && !comma {
             return Err(self.error_at(
                 rp,
                 "A record type with exactly one positional field requires a trailing comma.",
@@ -240,7 +241,7 @@ impl Parser<'_> {
         ))
     }
 
-    /// `computeType(required: true)` seguido de `parseType`.
+    /// `computeType(required: true)` followed by `parseType`.
     pub(super) fn required_type(&mut self) -> R<NodeId> {
         let info = self.type_at(self.pos, true, false, false);
         if info.is_none() {
@@ -252,8 +253,8 @@ impl Parser<'_> {
         self.type_until(info.end_index)
     }
 
-    /// Tipo que não pode ser `void` nem record/função onde só cabe um
-    /// [`Node::NamedType`] (`extends`, `with`, `implements`, `on`).
+    /// A type that cannot be `void` or a record/function type where only a
+    /// [`Node::NamedType`] fits (`extends`, `with`, `implements`, `on`).
     pub(super) fn required_named_type(&mut self) -> R<NodeId> {
         let i = self.pos;
         let t = self.required_type()?;
@@ -263,7 +264,7 @@ impl Parser<'_> {
         Ok(t)
     }
 
-    /// `<` tipos `>`.
+    /// `<` types `>`.
     pub(super) fn type_args(&mut self) -> R<NodeId> {
         let start_ = self.pos;
         let lt = self.expect_op(Op::Lt)?;
@@ -286,7 +287,7 @@ impl Parser<'_> {
         ))
     }
 
-    /// `<` parâmetros de tipo `>`.
+    /// `<` type parameters `>`.
     pub(super) fn type_params(&mut self) -> R<NodeId> {
         let start_ = self.pos;
         if self.type_args_lt(self.pos, true).is_none() {
@@ -335,7 +336,7 @@ impl Parser<'_> {
         ))
     }
 
-    /// Lista de parâmetros formais (`parseFormalParametersRest`).
+    /// Formal parameter list (`parseFormalParametersRest`).
     pub(super) fn formal_params(&mut self, member: MemberKind) -> R<NodeId> {
         let start_ = self.pos;
         let lp = self.expect_op(Op::LParen)?;
@@ -357,7 +358,7 @@ impl Parser<'_> {
                     (Op::LBrace, Op::RBrace, ParameterKind::Named)
                 };
                 ld = Some(self.expect_op(opens)? as u32);
-                let antes = params.len();
+                let before = params.len();
                 loop {
                     if self.op(self.pos, closer) {
                         break;
@@ -368,7 +369,7 @@ impl Parser<'_> {
                     }
                     self.advance();
                 }
-                if params.len() == antes {
+                if params.len() == before {
                     return Err(self.error("Optional parameter lists can't be empty."));
                 }
                 rd = Some(self.expect_op(closer)? as u32);
@@ -393,8 +394,8 @@ impl Parser<'_> {
         ))
     }
 
-    /// Um parâmetro formal (`parseFormalParameter`), já embrulhado em
-    /// [`Node::DefaultFormalParameter`] quando opcional.
+    /// One formal parameter (`parseFormalParameter`), already wrapped in
+    /// [`Node::DefaultFormalParameter`] when optional.
     fn param_formal(&mut self, kind_: ParameterKind, member: MemberKind) -> R<NodeId> {
         let start_ = self.pos;
         let metadata = self.metadata_()?;
@@ -436,8 +437,8 @@ impl Parser<'_> {
         let mut info = info;
         if info.is_none() && (self.op(nx, Op::Dot) || (self.ident(nx) && self.op(nx + 1, Op::Dot)))
         {
-            // Recuperação do fasta: tipo prefixado malformado (por exemplo
-            // `p.import`), relida com `required`; o erro não é sintático.
+            // fasta recovery: a malformed prefixed type (for example `p.import`), read
+            // again with `required`; the error is not syntactic.
             info = self.type_at(self.pos, true, false, false);
             nx = info.end_index;
         }
@@ -450,12 +451,12 @@ impl Parser<'_> {
                 return Err(self.error_at(nx, "Expected '.' after 'this' or 'super'."));
             }
         }
-        let mut ultimo = nx;
+        let mut last = nx;
         if self.ident(nx) {
-            ultimo = nx;
+            last = nx;
             nx += 1;
         } else {
-            ultimo = ultimo.wrapping_sub(1);
+            last = last.wrapping_sub(1);
         }
         let mut inline_function = false;
         if self.op(nx, Op::Lt) {
@@ -467,7 +468,7 @@ impl Parser<'_> {
         } else if self.op(nx, Op::LParen) {
             inline_function = true;
         }
-        let _ = ultimo;
+        let _ = last;
         if inline_function && keyword.is_some() {
             return Err(
                 self.error("Function-typed parameters can't specify 'const', 'final' or 'var'.")
@@ -616,8 +617,8 @@ impl Parser<'_> {
         ))
     }
 
-    /// `checkFieldFormalParameters` do `AstBuilder` (métodos e funções
-    /// locais): `this.x` posicional obrigatório fora de construtor.
+    /// The `AstBuilder`'s `checkFieldFormalParameters` (methods and local
+    /// functions): a required positional `this.x` outside a constructor.
     pub(super) fn without_field_parameters(&self, list: Option<NodeId>) -> R<()> {
         let Some(l) = list else {
             return Ok(());
@@ -645,7 +646,7 @@ impl Parser<'_> {
         Ok(v)
     }
 
-    /// Uma anotação (`parseMetadata`).
+    /// One annotation (`parseMetadata`).
     fn annotation(&mut self) -> R<NodeId> {
         let start_ = self.pos;
         let at = self.expect_op(Op::At)?;

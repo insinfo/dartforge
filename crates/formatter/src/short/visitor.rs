@@ -1,11 +1,11 @@
-//! Porte de `short/source_visitor.dart` (`SourceVisitor`): percorre todos os
-//! tokens da árvore e passa ao [`ChunkBuilder`] o texto, os espaços, as quebras
-//! possíveis e os comentários.
+//! Port of `short/source_visitor.dart` (`SourceVisitor`): walks every token
+//! of the tree and hands the [`ChunkBuilder`] the text, spaces, possible
+//! splits and comments.
 //!
-//! Cada `visitX` do original virou `visit_x`; os auxiliares mantêm os nomes
-//! (`_visitCollectionLiteral` → `visit_collection_literal`). As correções
-//! opcionais (`--fix`) não são portadas: o `dart format` só as aplica quando
-//! pedidas.
+//! Each `visitX` in the original became `visit_x`; the helpers keep their
+//! names (`_visitCollectionLiteral` → `visit_collection_literal`). The
+//! optional fixes (`--fix`) are not ported: `dart format` only applies them
+//! when asked.
 
 use std::collections::{HashMap, HashSet};
 
@@ -15,8 +15,8 @@ use crate::syntax::tree::{Tree, Node, NodeId, ParameterKind};
 use crate::syntax::token::{TokenKind, Tk, Tokens};
 use dartforge_frontend::token::{Keyword, Op};
 
-/// Ação entre (ou antes/depois de) nós de uma lista, como as funções passadas
-/// a `visitNodes` no original.
+/// Action between (or before/after) the nodes of a list, like the functions
+/// passed to `visitNodes` in the original.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     Nothing,
@@ -29,8 +29,8 @@ pub enum Action {
     OneOrTwoNewlines,
 }
 
-/// Linhas da fonte (`LineInfo`), com a mesma regra do analyzer: `\n`, `\r\n`
-/// e `\r` sozinho terminam linha.
+/// Source lines (`LineInfo`), with the analyzer's rule: `\n`, `\r\n` and a
+/// lone `\r` end a line.
 pub struct LineInfo {
     starts: Vec<usize>,
 }
@@ -54,18 +54,18 @@ impl LineInfo {
         LineInfo { starts }
     }
 
-    /// Linha (a partir de 1) da posição.
+    /// Line (1-based) of the position.
     pub fn line(&self, pos: usize) -> i32 {
         self.starts.partition_point(|&s| s <= pos) as i32
     }
 
-    /// Coluna (a partir de 1) da posição.
+    /// Column (1-based) of the position.
     pub fn column(&self, pos: usize) -> usize {
         let l = self.line(pos) as usize;
         pos - self.starts[l - 1] + 1
     }
 
-    /// Início das linhas (para a primeira quebra).
+    /// Line starts (for the first line break).
     pub fn starts(&self) -> &[usize] {
         &self.starts
     }
@@ -79,7 +79,7 @@ pub struct SourceVisitor<'f> {
     lines_: LineInfo,
     pub a: Arenas,
     stack: Vec<ChunkBuilder>,
-    ultimo_token: Tk,
+    last_token: Tk,
     collections_: Vec<bool>,
     block_rules: HashMap<Tk, RuleId>,
     block_chunks: HashMap<Tk, ChunkId>,
@@ -90,15 +90,15 @@ impl<'f> SourceVisitor<'f> {
     /// `SourceVisitor(formatter, lineInfo, source)`.
     pub fn new(source: &'f str, tk: &'f Tokens, tree_: &'f Tree, page_width: usize, indentation: i32, line_ending: String) -> SourceVisitor<'f> {
         let mut a = Arenas::new(page_width, line_ending);
-        let topo = ChunkBuilder::topo(&mut a, indentation);
+        let top = ChunkBuilder::top(&mut a, indentation);
         SourceVisitor {
             source,
             tk,
             tree_,
             lines_: LineInfo::from(source),
             a,
-            stack: vec![topo],
-            ultimo_token: 0,
+            stack: vec![top],
+            last_token: 0,
             collections_: Vec::new(),
             block_rules: HashMap::new(),
             block_chunks: HashMap::new(),
@@ -106,15 +106,15 @@ impl<'f> SourceVisitor<'f> {
         }
     }
 
-    /// `run(node)`: visita a unidade e devolve os chunks de topo.
+    /// `run(node)`: visits the unit and returns the top-level chunks.
     pub fn run(mut self, root: NodeId) -> (Arenas, Vec<ChunkId>) {
         self.visit(Some(root));
-        // `node.endToken.next`: o EOF (numa unidade vazia, o próprio fim).
+        // `node.endToken.next`: the EOF (in an empty unit, the end itself).
         let eof = self.tk.list.len() as Tk - 1;
         let after = (self.tree_.end(root) + 1).min(eof);
         self.write_preceding_comments_and_newlines(after);
-        let topo = self.stack.pop().expect("construtor de topo");
-        let chunks = topo.finish(&mut self.a);
+        let top = self.stack.pop().expect("top-level builder");
+        let chunks = top.finish(&mut self.a);
         (self.a, chunks)
     }
 
@@ -144,7 +144,7 @@ impl<'f> SourceVisitor<'f> {
         let k = &self.tk.list[t as usize];
         let mut end = k.end;
         if k.kind_ == TokenKind::ScriptTag {
-            // O lexema do analyzer inclui a quebra de linha.
+            // The analyzer's lexeme includes the line break.
             let b = self.source.as_bytes();
             if b.get(end) == Some(&b'\r') {
                 end += 1;
@@ -158,19 +158,19 @@ impl<'f> SourceVisitor<'f> {
 
     /// `_linesBeforeNextToken`.
     fn lines_before_next(&self) -> i32 {
-        let anterior = self.ultimo_token;
-        let proximo = anterior + 1;
-        let start = match self.tk.comments_of(proximo).first() {
+        let previous = self.last_token;
+        let next = previous + 1;
+        let start = match self.tk.comments_of(next).first() {
             Some(c) => self.lines_.line(c.start),
-            None => self.start_line(proximo),
+            None => self.start_line(next),
         };
-        start - self.end_line(anterior)
+        start - self.end_line(previous)
     }
 
-    // ============================================================= construtor
+    // ================================================================ builder
 
     fn b(&mut self) -> (&mut ChunkBuilder, &mut Arenas) {
-        (self.stack.last_mut().expect("construtor"), &mut self.a)
+        (self.stack.last_mut().expect("builder"), &mut self.a)
     }
 
     pub fn space(&mut self) {
@@ -210,7 +210,7 @@ impl<'f> SourceVisitor<'f> {
         self.write_newline(double, false, false);
     }
 
-    /// `split()`: quebra com espaço na regra atual.
+    /// `split()`: a split with a space in the current rule.
     pub fn split(&mut self) -> ChunkId {
         let (b, a) = self.b();
         b.split(a, true, true)
@@ -268,7 +268,7 @@ impl<'f> SourceVisitor<'f> {
     }
 
     pub fn current_rule(&self) -> RuleId {
-        self.stack.last().expect("construtor").rule()
+        self.stack.last().expect("builder").rule()
     }
 
     pub fn force_rules(&mut self) {
@@ -276,12 +276,12 @@ impl<'f> SourceVisitor<'f> {
         b.force_rules_(a);
     }
 
-    pub fn nest_expression(&mut self, indentation: Option<i32>, agora: bool) {
+    pub fn nest_expression(&mut self, indentation: Option<i32>, now: bool) {
         let (b, a) = self.b();
-        b.nest_expression_at(a, indentation, agora);
+        b.nest_expression_at(a, indentation, now);
     }
 
-    /// `unnest()` (que por padrão confirma na hora).
+    /// `unnest()` (which by default commits right away).
     pub fn unnest(&mut self) {
         let (b, a) = self.b();
         b.unnest_(a, true);
@@ -317,13 +317,13 @@ impl<'f> SourceVisitor<'f> {
 
     /// `builder = builder.endBlock(forceSplit:)`.
     fn end_block(&mut self, force: bool) {
-        let child = self.stack.pop().expect("bloco");
+        let child = self.stack.pop().expect("block");
         if child.end_block(&mut self.a, force) {
             self.force_rules();
         }
     }
 
-    // ================================================================ escrita
+    // ================================================================ writing
 
     /// `token(token)`.
     pub fn token(&mut self, t: Tk) {
@@ -332,7 +332,7 @@ impl<'f> SourceVisitor<'f> {
         self.write_text(text, t);
     }
 
-    /// `token(token)` com token opcional.
+    /// `token(token)` with an optional token.
     pub fn token_opt(&mut self, t: Option<Tk>) {
         if let Some(t) = t {
             self.token(t);
@@ -347,7 +347,7 @@ impl<'f> SourceVisitor<'f> {
         }
     }
 
-    /// `token(token, before: space)`: o espaço vem depois dos comentários.
+    /// `token(token, before: space)`: the space comes after the comments.
     fn token_space_before(&mut self, t: Option<Tk>) {
         if let Some(t) = t {
             self.write_preceding_comments_and_newlines(t);
@@ -365,7 +365,7 @@ impl<'f> SourceVisitor<'f> {
     fn write_text_merge(&mut self, text: &str, t: Tk, join: bool) {
         let (b, a) = self.b();
         b.write(a, text, join);
-        self.ultimo_token = t;
+        self.last_token = t;
     }
 
     /// `writePrecedingCommentsAndNewlines(token)`.
@@ -377,16 +377,16 @@ impl<'f> SourceVisitor<'f> {
         if self.suppressed.contains(&t) {
             return false;
         }
-        let anterior = if t == 0 { None } else { Some(t - 1) };
-        let mut previous_line = anterior.map(|p| self.end_line(p)).unwrap_or(1);
+        let previous = if t == 0 { None } else { Some(t - 1) };
+        let mut previous_line = previous.map(|p| self.end_line(p)).unwrap_or(1);
         let token_line = self.start_line(t);
-        if anterior.is_some_and(|p| self.kind_(p) == TokenKind::ScriptTag) {
+        if previous.is_some_and(|p| self.kind_(p) == TokenKind::ScriptTag) {
             previous_line = token_line;
         }
         let mut list = Vec::with_capacity(comments.len());
         for (i, c) in comments.iter().enumerate() {
             let line_c = self.lines_.line(c.start);
-            if i == 0 && anterior.is_none() {
+            if i == 0 && previous.is_none() {
                 previous_line = line_c;
             }
             let text = self.source[c.start..c.end].trim();
@@ -422,7 +422,7 @@ impl<'f> SourceVisitor<'f> {
         list[0].lines_before > 0
     }
 
-    // ============================================================== consultas
+    // ============================================================== queries
 
     pub fn node(&self, id: NodeId) -> &'f Node {
         self.tree_.node(id)
@@ -438,12 +438,12 @@ impl<'f> SourceVisitor<'f> {
 
     /// `commaAfter`.
     pub fn comma_after(&self, id: NodeId) -> Option<Tk> {
-        let proximo = self.tree_.end(id) + 1;
-        if self.is_op(proximo, Op::Comma) {
-            return Some(proximo);
+        let next = self.tree_.end(id) + 1;
+        if self.is_op(next, Op::Comma) {
+            return Some(next);
         }
-        if self.is_op(proximo, Op::Question) && self.is_op(proximo + 1, Op::Comma) {
-            return Some(proximo + 1);
+        if self.is_op(next, Op::Question) && self.is_op(next + 1, Op::Comma) {
+            return Some(next + 1);
         }
         None
     }
@@ -466,9 +466,9 @@ impl<'f> SourceVisitor<'f> {
         self.tk.comments_of(t).iter().any(|c| c.is_line)
     }
 
-    /// `beginToken.hasLineCommentBefore` de um nó. Nós anotados com
-    /// comentário de documentação começam no próprio comentário no analyzer,
-    /// e um token de comentário não tem comentários antes.
+    /// A node's `beginToken.hasLineCommentBefore`. In the analyzer, nodes
+    /// annotated with a doc comment start at the comment itself, and a comment
+    /// token has no comments before it.
     fn node_has_line_comment_before(&self, id: NodeId) -> bool {
         let start = self.tree_.start(id);
         if matches!(self.node(id), Node::EnumConstantDeclaration { .. }) && self.has_doc(start) {
@@ -477,8 +477,8 @@ impl<'f> SourceVisitor<'f> {
         self.has_line_comment_before(start)
     }
 
-    /// Se os comentários antes de `t` têm um comentário de documentação
-    /// (`findDartDoc`: o último `/**`, ou uma sequência de `///`).
+    /// Whether the comments before `t` include a doc comment (`findDartDoc`: the
+    /// last `/**`, or a run of `///`).
     fn has_doc(&self, t: Tk) -> bool {
         self.tk.comments_of(t).iter().any(|c| {
             let s = &self.source[c.start..c.end];
@@ -601,7 +601,7 @@ impl<'f> SourceVisitor<'f> {
         }
     }
 
-    /// `allowInline` da cascata.
+    /// The cascade's `allowInline`.
     fn allow_inline(&self, target: NodeId, sections: usize) -> bool {
         if sections > 1 {
             return false;
@@ -612,7 +612,7 @@ impl<'f> SourceVisitor<'f> {
         )
     }
 
-    /// `isMultiline` de `SingleStringLiteral`.
+    /// `isMultiline` of a `SingleStringLiteral`.
     pub fn is_multiline_string(&self, id: NodeId) -> bool {
         let first = match self.node(id) {
             Node::SimpleStringLiteral { literal } => *literal,
@@ -636,13 +636,13 @@ impl<'f> SourceVisitor<'f> {
 
     fn named_parts(&self, id: NodeId) -> (Tk, Tk, NodeId) {
         let Node::NamedExpression { name, expression } = self.node(id) else {
-            panic!("NamedExpression esperado");
+            panic!("expected NamedExpression");
         };
         let Node::Label { label, colon } = self.node(*name) else {
-            panic!("Label esperado");
+            panic!("expected Label");
         };
         let Node::SimpleIdentifier { token } = self.node(*label) else {
-            panic!("SimpleIdentifier esperado");
+            panic!("expected SimpleIdentifier");
         };
         (*token, *colon, *expression)
     }
@@ -667,9 +667,9 @@ impl<'f> SourceVisitor<'f> {
         }
     }
 
-    fn visit_before(&mut self, node: Option<NodeId>, antes: Action) {
+    fn visit_before(&mut self, node: Option<NodeId>, before: Action) {
         if let Some(id) = node {
-            self.action(antes);
+            self.action(before);
             self.accept(id);
         }
     }
@@ -699,11 +699,11 @@ impl<'f> SourceVisitor<'f> {
     }
 
     /// `visitNodes(nodes, before:, between:, after:)`.
-    fn visit_nodes(&mut self, nodes: &[NodeId], antes: Action, between: Action, after: Action) {
+    fn visit_nodes(&mut self, nodes: &[NodeId], before: Action, between: Action, after: Action) {
         if nodes.is_empty() {
             return;
         }
-        self.action(antes);
+        self.action(before);
         self.accept(nodes[0]);
         for &n in &nodes[1..] {
             self.action(between);
@@ -719,9 +719,9 @@ impl<'f> SourceVisitor<'f> {
                 self.action(between);
             }
             self.accept(n);
-            let proximo = self.tree_.end(n) + 1;
-            if self.lexeme(proximo) == "," {
-                self.token(proximo);
+            let next = self.tree_.end(n) + 1;
+            if self.lexeme(next) == "," {
+                self.token(next);
             }
         }
     }
@@ -868,7 +868,7 @@ impl<'f> SourceVisitor<'f> {
             }
             Node::MixinDeclaration { .. } => self.visit_mixin_declaration(id),
             Node::ExtensionDeclaration { .. } => self.visit_extension_declaration(id),
-            Node::ExtensionOnClause { .. } => panic!("ExtensionOnClause é visitada pela extensão"),
+            Node::ExtensionOnClause { .. } => panic!("ExtensionOnClause is visited by the extension"),
             Node::ExtensionTypeDeclaration { .. } => self.visit_extension_type_declaration(id),
             Node::RepresentationDeclaration { .. } => self.visit_representation_declaration(id),
             Node::RepresentationConstructorName { period, name } => {
@@ -899,7 +899,7 @@ impl<'f> SourceVisitor<'f> {
                 }
             }
             Node::EnumConstantArguments { .. } | Node::ConstructorSelector { .. } => {
-                panic!("visitado pela constante do enum")
+                panic!("visited by the enum constant")
             }
             Node::ClassTypeAlias { .. } => self.visit_class_type_alias(id),
             Node::FunctionTypeAlias {
@@ -956,7 +956,7 @@ impl<'f> SourceVisitor<'f> {
                     body,
                 } = self.node(*function_expression)
                 else {
-                    panic!("FunctionExpression esperada");
+                    panic!("expected FunctionExpression");
                 };
                 self.visit_function_or_method_declaration(
                     metadata,
@@ -1224,7 +1224,7 @@ impl<'f> SourceVisitor<'f> {
                         self.space();
                     }
                     self.token(*sep);
-                    let dv = default_value.expect("valor padrão");
+                    let dv = default_value.expect("default value");
                     let c = self.assignment_cost(dv);
                     self.solo_split(c);
                     self.visit(Some(dv));
@@ -1262,7 +1262,7 @@ impl<'f> SourceVisitor<'f> {
                 self.token_opt(*question);
             }
             Node::RecordTypeAnnotation { .. } => self.visit_record_type_annotation(id),
-            Node::RecordTypeAnnotationNamedFields { .. } => panic!("visitado pelo tipo de registro"),
+            Node::RecordTypeAnnotationNamedFields { .. } => panic!("visited by the record type"),
             Node::RecordTypeAnnotationPositionalField { metadata, type_, name } => {
                 let (t, nm) = (*type_, *name);
                 let metadata = metadata.clone();
@@ -1374,7 +1374,7 @@ impl<'f> SourceVisitor<'f> {
             Node::FunctionDeclarationStatement { function_declaration } => self.visit(Some(*function_declaration)),
             Node::IfStatement { .. } => self.visit_if_statement(id),
             Node::CaseClause { .. } | Node::GuardedPattern { .. } | Node::WhenClause { .. } => {
-                panic!("visitado pelo if/case")
+                panic!("visited by the if/case")
             }
             Node::ForStatement {
                 await_keyword,
@@ -1484,7 +1484,7 @@ impl<'f> SourceVisitor<'f> {
             }
             Node::SwitchStatement { .. } => self.visit_switch_statement(id),
             Node::SwitchCase { .. } | Node::SwitchPatternCase { .. } | Node::SwitchDefault { .. } => {
-                panic!("visitado pelo switch")
+                panic!("visited by the switch")
             }
             Node::TryStatement {
                 try_keyword,
@@ -1937,7 +1937,7 @@ impl<'f> SourceVisitor<'f> {
                 }
                 _ => self.visit(Some(*pattern)),
             },
-            Node::PatternFieldName { .. } => panic!("visitado pelo campo"),
+            Node::PatternFieldName { .. } => panic!("visited by the field"),
             Node::RelationalPattern { operator, operand } => {
                 self.token(*operator);
                 self.space();
@@ -1958,7 +1958,7 @@ impl<'f> SourceVisitor<'f> {
         }
     }
 
-    // ======================================================== declarações
+    // ============================================================ declarations
 
     fn visit_compilation_unit(&mut self, id: NodeId) {
         let Node::CompilationUnit {
@@ -2100,9 +2100,9 @@ impl<'f> SourceVisitor<'f> {
                 self.a.add_name(rule, c);
             }
             self.accept(n);
-            let proximo = self.tree_.end(n) + 1;
-            if self.lexeme(proximo) == "," {
-                self.token(proximo);
+            let next = self.tree_.end(n) + 1;
+            if self.lexeme(next) == "," {
+                self.token(next);
             }
         }
         self.unnest();
@@ -2394,22 +2394,22 @@ impl<'f> SourceVisitor<'f> {
         self.unnest();
         self.begin_body(*left_bracket, true);
         self.visit_comma_separated_nodes(constants, Action::SplitOrTwoNewlines);
-        let ultima = *constants.last().expect("enum com constantes");
-        let virgula_final = self.comma_after(ultima);
-        if virgula_final.is_some() {
+        let last_item = *constants.last().expect("enum with constants");
+        let trailing_comma = self.comma_after(last_item);
+        if trailing_comma.is_some() {
             self.force_rules();
         }
-        let after = self.tree_.end(ultima) + 1;
+        let after = self.tree_.end(last_item) + 1;
         let mut semicolon_ = None;
         if self.is_op(after, Op::Semicolon) {
             semicolon_ = Some(after);
-        } else if let Some(v) = virgula_final
+        } else if let Some(v) = trailing_comma
             && self.is_op(v + 1, Op::Semicolon)
         {
             semicolon_ = Some(after + 1);
         }
         if let Some(pv) = semicolon_ {
-            if virgula_final.is_some() {
+            if trailing_comma.is_some() {
                 self.newline();
             }
             self.token(pv);
@@ -2419,7 +2419,7 @@ impl<'f> SourceVisitor<'f> {
         }
         self.visit_body_contents(members);
         let force = semicolon_.is_some()
-            || virgula_final.is_some()
+            || trailing_comma.is_some()
             || !members.is_empty()
             || self.contains_line_comments(constants, None);
         self.end_body(*right_bracket, force);
@@ -2499,13 +2499,13 @@ impl<'f> SourceVisitor<'f> {
             Node::FormalParameterList { parameters, .. } => parameters,
             _ => &[],
         };
-        let virgula_final = self.list_has_comma_after(params);
-        let sep = separator.expect("separador dos inicializadores");
-        if virgula_final {
+        let trailing_comma = self.list_has_comma_after(params);
+        let sep = separator.expect("initializer separator");
+        if trailing_comma {
             self.space();
             if initializers.len() > 1 {
-                let ultimo = *params.last().expect("parâmetro");
-                let k = self.param_kind(ultimo);
+                let last = *params.last().expect("parameter");
+                let k = self.param_kind(last);
                 let padding = if k == ParameterKind::Named || k == ParameterKind::OptionalPositional {
                     " "
                 } else {
@@ -2525,14 +2525,14 @@ impl<'f> SourceVisitor<'f> {
         }
         for (i, &start_) in initializers.iter().enumerate() {
             if i > 0 {
-                let virgula = self.tree_.start(start_) - 1;
-                self.token(virgula);
+                let comma = self.tree_.start(start_) - 1;
+                self.token(comma);
                 self.newline();
             }
             self.accept(start_);
         }
         self.unindent();
-        if !virgula_final {
+        if !trailing_comma {
             self.unindent();
         }
     }
@@ -2653,7 +2653,7 @@ impl<'f> SourceVisitor<'f> {
         self.token_opt(*semicolon);
     }
 
-    // ============================================================ parâmetros
+    // ============================================================== parameters
 
     /// `visitFormalParameterList(node, nestExpression:)`.
     fn visit_formal_parameter_list(&mut self, id: NodeId, nest: bool) {
@@ -2952,7 +2952,7 @@ impl<'f> SourceVisitor<'f> {
             self.write_preceding_comments_and_newlines(first_closer);
         }
         let force = match named_args {
-            None => positional_fields.len() > 1 && self.has_comma_after(*positional_fields.last().expect("campo")),
+            None => positional_fields.len() > 1 && self.has_comma_after(*positional_fields.last().expect("field")),
             Some((_, fields_, _)) => fields_.last().is_some_and(|&c| self.has_comma_after(c)),
         };
         self.end_block(force);
@@ -2978,11 +2978,11 @@ impl<'f> SourceVisitor<'f> {
         for (i, &n) in nodes.iter().enumerate() {
             self.visit(Some(n));
             if i + 1 != nodes.len() {
-                let mut virgula = self.tree_.end(n) + 1;
-                if self.lexeme(virgula) == "?" {
-                    virgula += 1;
+                let mut comma = self.tree_.end(n) + 1;
+                if self.lexeme(comma) == "?" {
+                    comma += 1;
                 }
-                self.token(virgula);
+                self.token(comma);
                 let c = self.split();
                 self.a.before_argument(rule, Some(c));
             }
@@ -2994,7 +2994,7 @@ impl<'f> SourceVisitor<'f> {
         self.end_rule();
     }
 
-    // ============================================================ instruções
+    // ============================================================== statements
 
     /// `_visitLoopBody(body)`.
     fn visit_loop_body(&mut self, body_: NodeId) {
@@ -3330,9 +3330,9 @@ impl<'f> SourceVisitor<'f> {
         self.token(*left_bracket);
         self.start_block(None, true, !cases.is_empty());
         self.visit_comma_separated_nodes(cases, Action::Split);
-        let virgula_final = cases.last().is_some_and(|&c| self.comma_after(c).is_some());
+        let trailing_comma = cases.last().is_some_and(|&c| self.comma_after(c).is_some());
         let force = self.contains_line_comments(cases, Some(*right_bracket));
-        self.end_body(*right_bracket, virgula_final || force);
+        self.end_body(*right_bracket, trailing_comma || force);
     }
 
     fn visit_switch_expression_case(&mut self, id: NodeId) {
@@ -3455,7 +3455,7 @@ impl<'f> SourceVisitor<'f> {
         self.end_rule();
     }
 
-    // ============================================================ expressões
+    // ============================================================= expressions
 
     fn visit_adjacent_strings(&mut self, id: NodeId) {
         let Node::AdjacentStrings { strings } = self.node(id) else {
@@ -3607,9 +3607,9 @@ impl<'f> SourceVisitor<'f> {
             self.newline();
             self.visit(Some(s));
         }
-        let ultimo = self.tree_.start(*sections.last().expect("seção"));
-        self.write_preceding_comments_and_newlines(ultimo);
-        self.suppressed.insert(ultimo);
+        let last = self.tree_.start(*sections.last().expect("section"));
+        self.write_preceding_comments_and_newlines(last);
+        self.suppressed.insert(last);
         self.end_block(true);
         self.visit(sections.last().copied());
         self.end_rule();
@@ -3837,12 +3837,12 @@ impl<'f> SourceVisitor<'f> {
                 self.before_block(bracket, spread_rule, None);
             }
         }
-        let ultimo = *elements_.last().expect("if");
-        let ultimo_else = match self.node(ultimo) {
+        let last = *elements_.last().expect("if");
+        let last_else = match self.node(last) {
             Node::IfElement { else_element, .. } => *else_element,
             _ => None,
         };
-        if let Some(le) = ultimo_else
+        if let Some(le) = last_else
             && let Some(bracket) = self.spread_collection_bracket(le)
         {
             spreads.push(le);
@@ -3893,12 +3893,12 @@ impl<'f> SourceVisitor<'f> {
                     self.split();
                 }
                 self.token_opt(*else_keyword);
-                if el != ultimo {
+                if el != last {
                     self.space();
                 }
             }
         }
-        if let Some(le) = ultimo_else {
+        if let Some(le) = last_else {
             visit_child(self, le, le, &spreads);
             if self.is_control_flow_element(le) {
                 inner_flow = true;
@@ -3952,12 +3952,12 @@ impl<'f> SourceVisitor<'f> {
         self.end_rule();
     }
 
-    // ============================================================= coleções
+    // ============================================================= collections
 
     /// `beforeBlock(token, rule, [previousChunk])`.
-    pub fn before_block(&mut self, t: Tk, rule: RuleId, anterior: Option<ChunkId>) {
+    pub fn before_block(&mut self, t: Tk, rule: RuleId, previous: Option<ChunkId>) {
         self.block_rules.insert(t, rule);
-        if let Some(c) = anterior {
+        if let Some(c) = previous {
             self.block_chunks.insert(t, c);
         }
     }
@@ -3992,11 +3992,11 @@ impl<'f> SourceVisitor<'f> {
             for (i, &arg) in arguments.iter().enumerate() {
                 self.visit(Some(arg));
                 if i + 1 != arguments.len() {
-                    let mut virgula = self.tree_.end(arg) + 1;
-                    if self.lexeme(virgula) == "?" {
-                        virgula += 1;
+                    let mut comma = self.tree_.end(arg) + 1;
+                    if self.lexeme(comma) == "?" {
+                        comma += 1;
                     }
-                    self.token(virgula);
+                    self.token(comma);
                     self.split();
                 }
             }
@@ -4043,7 +4043,7 @@ impl<'f> SourceVisitor<'f> {
         }
         let mut force = false;
         if split_outer {
-            force = self.collections_.pop().expect("coleção");
+            force = self.collections_.pop().expect("collection");
         }
         let single_record = is_record && elements_.len() == 1;
         if self.list_has_comma_after(elements_) && !single_record {
@@ -4057,8 +4057,8 @@ impl<'f> SourceVisitor<'f> {
         self.token(left_side);
         let rule = self.block_rules.get(&left_side).copied();
         self.start_rule(rule);
-        let anterior = self.block_chunks.get(&left_side).copied();
-        self.start_block(anterior, true, space);
+        let previous = self.block_chunks.get(&left_side).copied();
+        self.start_block(previous, true, space);
     }
 
     /// `_endBody(rightBracket, forceSplit:)`.
@@ -4096,7 +4096,7 @@ impl<'f> SourceVisitor<'f> {
         }
     }
 
-    // =============================================================== strings
+    // ================================================================= strings
 
     /// `_writeStringLiteral(string)`.
     fn write_string_literal(&mut self, t: Tk) {
@@ -4158,7 +4158,8 @@ impl<'f> SourceVisitor<'f> {
     }
 }
 
-/// Divide um lexema nas quebras `\r\n`, `\r` e `\n` (`_lineTerminatorRE`).
+/// Splits a lexeme at the `\r\n`, `\r` and `\n` line breaks
+/// (`_lineTerminatorRE`).
 fn split_lines(s: &str) -> Vec<&str> {
     let b = s.as_bytes();
     let mut v = Vec::new();
@@ -4206,7 +4207,7 @@ pub fn looks_like_class_name(name_: &str) -> bool {
     b[i..].iter().any(|c| c.is_ascii_lowercase())
 }
 
-/// Precedência de um operador binário (`TokenType.precedence`).
+/// Precedence of a binary operator (`TokenType.precedence`).
 pub fn precedence(op: &str) -> u8 {
     match op {
         "??" => 4,

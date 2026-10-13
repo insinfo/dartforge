@@ -1,14 +1,14 @@
-//! Porte de `short/call_chain_visitor.dart`: achata uma cadeia de seletores
-//! (`a.b(1)[2].c()!`) numa lista da esquerda para a direita e escreve as
-//! quebras antes de cada `.`, com o tratamento das propriedades iniciais,
-//! das chamadas com argumentos em bloco e da chamada pendurada final.
+//! Port of `short/call_chain_visitor.dart`: flattens a selector chain
+//! (`a.b(1)[2].c()!`) into a left-to-right list and writes the splits before
+//! each `.`, handling the leading properties, the calls with block arguments
+//! and the final hanging call.
 
 use super::arena::{RuleId, cost};
 use super::arguments::ArgumentListVisitor;
 use super::visitor::SourceVisitor;
 use crate::syntax::tree::{Node, NodeId};
 
-/// Tipo de seletor (`_MethodSelector`, `_PrefixedSelector`,
+/// Selector kind (`_MethodSelector`, `_PrefixedSelector`,
 /// `_PropertySelector`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SelectorKind {
@@ -17,7 +17,8 @@ enum SelectorKind {
     Property,
 }
 
-/// `_Selector`: o nó do seletor e os pós-fixos (`[i]`, `!`, `()`) presos a ele.
+/// `_Selector`: the selector node and the postfix operators (`[i]`, `!`, `()`)
+/// attached to it.
 #[derive(Debug, Clone)]
 struct Selector {
     kind_: SelectorKind,
@@ -123,7 +124,7 @@ impl CallChainVisitor {
             }
             for p in self.properties.clone() {
                 let c = v.zero_split();
-                v.a.before_argument(self.properties_rule.expect("regra"), Some(c));
+                v.a.before_argument(self.properties_rule.expect("rule"), Some(c));
                 self.write(v, &p);
             }
             v.end_rule();
@@ -301,13 +302,13 @@ fn forces_split(v: &SourceVisitor, expr: NodeId) -> bool {
     let Node::ArgumentList { arguments, .. } = v.node(list) else {
         return true;
     };
-    let Some(&ultimo) = arguments.last() else {
+    let Some(&last) = arguments.last() else {
         return true;
     };
-    if v.has_comma_after(ultimo) {
+    if v.has_comma_after(last) {
         return false;
     }
-    let mut arg = ultimo;
+    let mut arg = last;
     if let Node::NamedExpression { expression, .. } = v.node(arg) {
         arg = *expression;
     }
@@ -345,7 +346,7 @@ fn unwrap_postfix(v: &SourceVisitor, node: NodeId, target_: NodeId, calls: &mut 
     if calls.is_empty() {
         return node;
     }
-    calls.last_mut().expect("seletor").postfixes.push(node);
+    calls.last_mut().expect("selector").postfixes.push(node);
     target_
 }
 

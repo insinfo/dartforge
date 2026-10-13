@@ -1,7 +1,7 @@
-//! Casos fixos do formatador: cada `tests/cases_/<name_>.dart` formatado tem de
-//! ser igual, byte a byte, a `<name_>.expected`, gerado com
-//! `dart format -o show --summary none` do SDK 3.6.2. Para (re)gerar um
-//! esperado: `dart format -o show --summary none cases_/x.dart > cases_/x.expected`.
+//! Fixed formatter cases: every `tests/cases/<name>.dart`, once formatted, must
+//! equal `<name>.expected` byte for byte, generated with
+//! `dart format -o show --summary none` from SDK 3.6.2. To (re)generate an
+//! expected file: `dart format -o show --summary none cases/x.dart > cases/x.expected`.
 
 use std::path::Path;
 
@@ -19,8 +19,8 @@ fn cases_match_dart_format() {
     assert!(!names.is_empty());
     let mut failures = Vec::new();
     for p in &names {
-        let source = std::fs::read_to_string(p).expect("caso");
-        let expected = std::fs::read_to_string(p.with_extension("expected")).expect("esperado");
+        let source = std::fs::read_to_string(p).expect("case");
+        let expected = std::fs::read_to_string(p.with_extension("expected")).expect("expected");
         match formatar(&source, &Opcoes::default()) {
             Ok(output) if output == expected => {}
             Ok(output) => {
@@ -30,14 +30,14 @@ fn cases_match_dart_format() {
                     .position(|(a, b)| a != b)
                     .unwrap_or(output.lines().count().min(expected.lines().count()));
                 failures.push(format!(
-                    "{}: difere na linha {}:\n  nosso:    {:?}\n  esperado: {:?}",
+                    "{}: differs at line {}:\n  ours:     {:?}\n  expected: {:?}",
                     p.display(),
                     line + 1,
                     output.lines().nth(line).unwrap_or(""),
                     expected.lines().nth(line).unwrap_or("")
                 ));
             }
-            Err(e) => failures.push(format!("{}: erro {e}", p.display())),
+            Err(e) => failures.push(format!("{}: error {e}", p.display())),
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));

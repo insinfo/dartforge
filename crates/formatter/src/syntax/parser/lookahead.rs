@@ -1,42 +1,43 @@
-//! *Lookahead* sem efeitos, portado de `type_info.dart` e
-//! `type_info_impl.dart` do fasta (`computeType`, `computeTypeParamOrArg`,
-//! `ComplexTypeInfo`) e de utilidades do `parser_impl.dart`
+//! Side-effect-free *lookahead*, ported from fasta's `type_info.dart` and
+//! `type_info_impl.dart` (`computeType`, `computeTypeParamOrArg`,
+//! `ComplexTypeInfo`) and from helpers in `parser_impl.dart`
 //! (`skipOuterPattern`, `looksLikeLocalFunction`, `skipMetadata`...).
 //!
-//! Convenção: as funções recebem o índice do primeiro token da construção
-//! (o `token.next` do fasta) e devolvem o índice do primeiro token *depois*
-//! dela (`end_index`). Para "não é tipo", `end_index` é o próprio índice de partida.
+//! Convention: the functions take the index of the construct's first token
+//! (fasta's `token.next`) and return the index of the first token *after* it
+//! (`end_index`). For "not a type", `end_index` is the starting index itself.
 
 use dartforge_frontend::token::{Keyword, Op};
 
 use super::{WordStyle, Parser, word_style};
 
-/// Forma do tipo encontrado (`TypeInfo` do fasta).
+/// Shape of the type found (fasta's `TypeInfo`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Shape {
     /// `noType`.
     NoneKind,
-    /// `simpleType`: identificador.
+    /// `simpleType`: identifier.
     Simple,
-    /// `simpleNullableType`: identificador `?`.
+    /// `simpleNullableType`: identifier `?`.
     SimpleNullable,
     /// `voidType`.
     Void,
-    /// `prefixedType`: identificador `.` identificador.
+    /// `prefixedType`: identifier `.` identifier.
     Prefixed,
-    /// `simpleTypeWith1Argument` e variante anulável.
+    /// `simpleTypeWith1Argument` and its nullable variant.
     WithArg1,
     /// `ComplexTypeInfo`.
     Complex,
 }
 
-/// Resultado de [`Parser::type_at`].
+/// Result of [`Parser::type_at`].
 #[derive(Debug, Clone, Copy)]
 pub(super) struct TypeInfo {
     pub shape: Shape,
-    /// Primeiro token depois do tipo.
+    /// First token after the type.
     pub end_index: usize,
-    /// Índice do token antes do `?` final, se o `?` faz parte do tipo.
+    /// Index of the token before the trailing `?`, if the `?` is part of the
+    /// type.
     pub before_question: Option<usize>,
     /// `couldBeExpression`.
     pub could_be_expression: bool,
@@ -78,7 +79,7 @@ impl TypeInfo {
         self.before_question.is_some()
     }
 
-    /// `asNonNullable`: o `?` final deixa de fazer parte do tipo.
+    /// `asNonNullable`: the trailing `?` is no longer part of the type.
     pub fn without_question(mut self) -> TypeInfo {
         if let Some(a) = self.before_question {
             self.end_index = a + 1;
@@ -91,22 +92,22 @@ impl TypeInfo {
     }
 }
 
-/// Resultado de [`Parser::type_args_at`] (`TypeParamOrArgInfo`).
+/// Result of [`Parser::type_args_at`] (`TypeParamOrArgInfo`).
 #[derive(Debug, Clone, Copy)]
 pub(super) struct InfoArgs {
-    /// Primeiro token depois do `>`.
+    /// First token after the `>`.
     pub end_index: usize,
-    /// `isSimpleTypeArgument`: `<` identificador `>`.
+    /// `isSimpleTypeArgument`: `<` identifier `>`.
     pub simple: bool,
     pub recovered: bool,
 }
 
-/// Estado de `ComplexTypeInfo` durante o cálculo.
+/// State of `ComplexTypeInfo` during the computation.
 struct Complex {
     start: usize,
     args: Option<InfoArgs>,
     before_question: Option<usize>,
-    /// Último token do tipo.
+    /// Last token of the type.
     end: usize,
     function_starts: usize,
     gft_return: Option<bool>,
@@ -144,7 +145,7 @@ impl Complex {
 }
 
 impl Parser<'_> {
-    /// `isGeneralizedFunctionType`: `Function` seguido de `<` ou `(`.
+    /// `isGeneralizedFunctionType`: `Function` followed by `<` or `(`.
     pub(super) fn gft(&self, i: usize) -> bool {
         self.word(i, "Function") && (self.op(i + 1, Op::Lt) || self.op(i + 1, Op::LParen))
     }
@@ -174,13 +175,13 @@ impl Parser<'_> {
         self.looks_like_name(i) || self.eof(i) || self.op(i, Op::RBrace)
     }
 
-    /// `isCloser`: só `>` (os compostos são `>` isolados aqui).
+    /// `isCloser`: only `>` (composite ones are isolated `>` here).
     pub(super) fn type_closer(&self, i: usize) -> bool {
         self.op(i, Op::Gt)
     }
 
     /// `computeType(token, required, inDeclaration,
-    /// acceptKeywordForSimpleType)` to one kind_ que começa em `i`.
+    /// acceptKeywordForSimpleType)` for a type starting at `i`.
     pub(super) fn type_at(
         &self,
         i: usize,
@@ -227,7 +228,7 @@ impl Parser<'_> {
             return TypeInfo::simple(Shape::Void, n + 1, false, false);
         }
         if self.gft(n) {
-            // `computeNoTypeGFT`: o `Function` é o início do tipo.
+            // `computeNoTypeGFT`: the `Function` is the start of the type.
             let mut c = Complex::new(n, None);
             c.end = n.wrapping_sub(1);
             self.type_rest_from(&mut c, n, required_);
@@ -254,7 +255,7 @@ impl Parser<'_> {
             }
             return self.record_type(n, required_);
         }
-        // Identificador.
+        // Identifier.
         if let Some(tp) = self.type_args_at(n, decl) {
             if tp.simple {
                 let mut nx = tp.end_index;
@@ -320,8 +321,8 @@ impl Parser<'_> {
                 return c.info();
             }
             if required_ {
-                // `identifier . non-identifier` (recuperação): o tipo prefixado
-                // usa a palavra seguinte, se houver.
+                // `identifier . non-identifier` (recovery): the prefixed type uses the
+                // following word, if any.
                 let mut c = Complex::new(n, None);
                 let mut t = nx - 1;
                 if self.word_(nx) {
@@ -373,7 +374,7 @@ impl Parser<'_> {
         TypeInfo::none_(i)
     }
 
-    /// `computeRest` a partir do último token `c.end`.
+    /// `computeRest` starting from the last token `c.end`.
     fn type_rest(&self, c: &mut Complex, required_: bool) {
         let mut t = c.end;
         if self.op(t + 1, Op::Question) {
@@ -384,7 +385,7 @@ impl Parser<'_> {
         self.type_rest_from(c, t + 1, required_);
     }
 
-    /// Laço de `Function` de `computeRest`, começando em `t`.
+    /// The `Function` loop of `computeRest`, starting at `t`.
     fn type_rest_from(&self, c: &mut Complex, mut t: usize, required_: bool) {
         while self.word(t, "Function") {
             let var_start = t;
@@ -418,7 +419,7 @@ impl Parser<'_> {
         }
     }
 
-    /// `computeRecordType` para o `(` em `n`.
+    /// `computeRecordType` for the `(` at `n`.
     fn record_type(&self, n: usize, required_: bool) -> TypeInfo {
         let mut c = Complex::new(n, None);
         let closer_ = self.pair(n);
@@ -486,7 +487,7 @@ impl Parser<'_> {
         let mut token = opens;
         let mut count = 0;
         let mut named_args = false;
-        let mut virgula = false;
+        let mut comma = false;
         loop {
             let next = token + 1;
             if self.op(next, Op::RParen) {
@@ -525,18 +526,18 @@ impl Parser<'_> {
                 }
                 break;
             }
-            virgula = true;
+            comma = true;
             token = next;
         }
-        (count == 1 && !named_args && !virgula) || token != closer_
+        (count == 1 && !named_args && !comma) || token != closer_
     }
 
-    /// `computeTypeParamOrArg(token)`: o `<` está em `antes + 1`.
-    pub(super) fn type_args_at(&self, antes: usize, decl: bool) -> Option<InfoArgs> {
-        self.type_args_lt(antes + 1, decl)
+    /// `computeTypeParamOrArg(token)`: the `<` is at `before + 1`.
+    pub(super) fn type_args_at(&self, before: usize, decl: bool) -> Option<InfoArgs> {
+        self.type_args_lt(before + 1, decl)
     }
 
-    /// `computeTypeParamOrArg` com o `<` em `lt`.
+    /// `computeTypeParamOrArg` with the `<` at `lt`.
     pub(super) fn type_args_lt(&self, lt: usize, decl: bool) -> Option<InfoArgs> {
         if !self.op(lt, Op::Lt) {
             return None;
@@ -601,7 +602,7 @@ impl Parser<'_> {
                 if !decl {
                     return None;
                 }
-                // Recuperação: vírgula ausente.
+                // Recovery: missing comma.
                 if !(self.plain_ident(next)
                     && (self.plain_ident(next + 1)
                         || self.op(next + 1, Op::Comma)
@@ -612,7 +613,7 @@ impl Parser<'_> {
                 next = token;
             }
         }
-        // Recuperação.
+        // Recovery.
         if self.type_closer(next) {
             return Some(InfoArgs {
                 end_index: next + 1,
@@ -638,10 +639,10 @@ impl Parser<'_> {
         })
     }
 
-    /// `computeMethodTypeArguments`: argumentos de tipo seguidos de um token
-    /// que pode vir depois deles numa expressão (`mayFollowTypeArgs`).
-    pub(super) fn method_args_at(&self, antes: usize) -> Option<InfoArgs> {
-        let a = self.type_args_at(antes, false)?;
+    /// `computeMethodTypeArguments`: type arguments followed by a token that
+    /// may come after them in an expression (`mayFollowTypeArgs`).
+    pub(super) fn method_args_at(&self, before: usize) -> Option<InfoArgs> {
+        let a = self.type_args_at(before, false)?;
         if a.recovered {
             return None;
         }
@@ -665,7 +666,8 @@ impl Parser<'_> {
         if ok { Some(a) } else { None }
     }
 
-    /// `skipMetadata` para o `@` em `i`: devolve o índice depois da anotação.
+    /// `skipMetadata` for the `@` at `i`: returns the index after the
+    /// annotation.
     pub(super) fn skip_metadata(&self, i: usize) -> usize {
         let mut token = i;
         let mut next = token + 1;
@@ -711,7 +713,7 @@ impl Parser<'_> {
         t
     }
 
-    /// `looksLikeLocalFunction` para o token `i`.
+    /// `looksLikeLocalFunction` for token `i`.
     pub(super) fn looks_like_local_function(&self, i: usize) -> bool {
         if !self.ident(i) {
             return false;
@@ -742,8 +744,8 @@ impl Parser<'_> {
             || self.word(i, "sync")
     }
 
-    /// `skipOuterPattern`: devolve o último token do padrão externo que
-    /// começa em `i`, se houver.
+    /// `skipOuterPattern`: returns the last token of the outer pattern starting
+    /// at `i`, if any.
     pub(super) fn skip_outer_pattern(&self, i: usize) -> Option<usize> {
         if self.ident(i) {
             if !self.op(i + 1, Op::Dot) {
@@ -775,8 +777,8 @@ impl Parser<'_> {
         Some(self.pair(next))
     }
 
-    /// `looksLikeExpressionAfterAwaitOrYield` para a palavra em `i`;
-    /// `unary` é o contexto `UnaryExpression`.
+    /// `looksLikeExpressionAfterAwaitOrYield` for the word at `i`; `unary` is the
+    /// `UnaryExpression` context.
     pub(super) fn looks_like_expression_after(&self, i: usize, unary: bool) -> bool {
         let t = i + 1;
         if self.kw(t, Keyword::Null) {
@@ -833,12 +835,12 @@ impl Parser<'_> {
         )
     }
 
-    /// Palavra reservada (`isReservedWord`).
+    /// Reserved word (`isReservedWord`).
     pub(super) fn reserved(&self, i: usize) -> bool {
         matches!(self.kind_(i), super::TokenKind::Reserved(_))
     }
 
-    /// Estilo da palavra em `i`.
+    /// Style of the word at `i`.
     #[allow(dead_code)]
     pub(super) fn word_style_at(&self, i: usize) -> WordStyle {
         if self.ident(i) {

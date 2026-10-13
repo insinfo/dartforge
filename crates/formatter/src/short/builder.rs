@@ -1,15 +1,16 @@
-//! Porte de `short/chunk_builder.dart` e `short/nesting_builder.dart`: recebe
-//! a saída incremental do visitante (texto, espaços, quebras, comentários) e
-//! monta a árvore de chunks.
+//! Port of `short/chunk_builder.dart` and `short/nesting_builder.dart`:
+//! receives the visitor's incremental output (text, spaces, splits,
+//! comments) and builds the chunk tree.
 //!
-//! O original troca o `builder` do visitante pelo de um bloco filho em
-//! `startBlock` e volta ao pai em `endBlock`. Aqui os construtores vivem numa
-//! pilha no visitante; [`ChunkBuilder::block`] lembra o chunk de bloco cujos
-//! filhos este construtor escreve, e `endBlock` move a lista para lá.
+//! The original swaps the visitor's `builder` for a child block's builder in
+//! `startBlock` and goes back to the parent in `endBlock`. Here the builders
+//! live on a stack in the visitor; [`ChunkBuilder::block`] remembers the
+//! block chunk whose children this builder writes, and `endBlock` moves the
+//! list there.
 
 use super::arena::{Arenas, ChunkId, NestingId, RuleId, cost, indentation};
 
-/// Tipo de comentário (`CommentType`).
+/// Comment kind (`CommentType`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommentKind {
     Doc,
@@ -18,7 +19,7 @@ pub enum CommentKind {
     InlineBlock,
 }
 
-/// Comentário pronto para escrita (`SourceComment`).
+/// A comment ready to be written (`SourceComment`).
 #[derive(Debug, Clone)]
 pub struct SourceComment {
     pub text: String,
@@ -37,10 +38,10 @@ struct NestingStack {
 
 impl NestingStack {
     fn indentation(&self) -> i32 {
-        *self.stack.last().expect("pilha de recuo")
+        *self.stack.last().expect("indentation stack")
     }
 
-    fn corrente(&self) -> NestingId {
+    fn effective(&self) -> NestingId {
         self.pending.unwrap_or(self.current)
     }
 
@@ -52,7 +53,7 @@ impl NestingStack {
     fn unnest_(&mut self, a: &Arenas) {
         let base = self.pending.unwrap_or(self.current);
         self.pending = a.nestings[base as usize].parent;
-        debug_assert!(self.pending.is_some(), "unnest sem nest");
+        debug_assert!(self.pending.is_some(), "unnest without nest");
     }
 
     fn commit(&mut self) {
@@ -65,8 +66,8 @@ impl NestingStack {
 /// `ChunkBuilder`.
 #[derive(Debug)]
 pub struct ChunkBuilder {
-    /// O chunk de bloco cujos filhos este construtor escreve; `None` no
-    /// construtor de topo.
+    /// The block chunk whose children this builder writes; `None` for the
+    /// top-level builder.
     pub block: Option<ChunkId>,
     pub chunks: Vec<ChunkId>,
     pending_newlines: u8,
@@ -118,17 +119,17 @@ impl ChunkBuilder {
         c
     }
 
-    /// `ChunkBuilder(formatter, source)`: o construtor de topo.
-    pub fn topo(a: &mut Arenas, initial_indent: i32) -> ChunkBuilder {
+    /// `ChunkBuilder(formatter, source)`: the top-level builder.
+    pub fn top(a: &mut Arenas, initial_indent: i32) -> ChunkBuilder {
         let mut c = ChunkBuilder::base(a, None);
-        // `indent(_formatter.indent)` antes de `startBlockArgumentNesting`.
+        // `indent(_formatter.indent)` before `startBlockArgumentNesting`.
         c.nesting.stack.push(initial_indent);
         c
     }
 
-    /// A regra mais interna (`rule`).
+    /// The innermost rule (`rule`).
     pub fn rule(&self) -> RuleId {
-        *self.rules.last().expect("regra ativa")
+        *self.rules.last().expect("active rule")
     }
 
     /// `write(string, mergeEmptySplits:)`.
@@ -203,17 +204,17 @@ impl ChunkBuilder {
             let chunk = self.chunk_for_comment(a, &comment, token);
             if let Some(chunk) = chunk {
                 self.pending_space = self.needs_space_before(a, &comment, chunk);
-                let ultimo = *self.chunks.last().expect("chunk");
-                if self.pending_space && chunk != ultimo {
-                    a.update_split(ultimo, None, false, Some(true));
+                let last = *self.chunks.last().expect("chunk");
+                if self.pending_space && chunk != last {
+                    a.update_split(last, None, false, Some(true));
                 }
             } else {
                 if self.pending_newlines == 0 {
                     if comment.lines_before > 0 && (self.after_comment || comment.kind_ != CommentKind::InlineBlock) {
                         let double = self.needs_blank_line(a, &comment);
                         self.newline(double, comment.flush_left, true);
-                    } else if let Some(&ultimo) = self.chunks.last() {
-                        self.pending_space = self.needs_space_before(a, &comment, ultimo);
+                    } else if let Some(&last) = self.chunks.last() {
+                        self.pending_space = self.needs_space_before(a, &comment, last);
                     }
                 } else {
                     self.pending_flush_left = comment.flush_left;
@@ -229,7 +230,7 @@ impl ChunkBuilder {
                 lines_after = comments[i + 1].lines_before;
             } else {
                 lines_after = lines_before_token;
-                if lines_after == 0 && comments.last().expect("comentário").text.contains('\n') {
+                if lines_after == 0 && comments.last().expect("comment").text.contains('\n') {
                     lines_after = 1;
                 }
             }
@@ -239,8 +240,8 @@ impl ChunkBuilder {
             }
         }
 
-        let ultimo = comments.last().expect("comentário").clone();
-        self.pending_space = self.needs_space_after(a, &ultimo, token);
+        let last = comments.last().expect("comment").clone();
+        self.pending_space = self.needs_space_after(a, &last, token);
         self.after_comment = true;
     }
 
@@ -248,8 +249,8 @@ impl ChunkBuilder {
     pub fn indent(&mut self, spaces: Option<i32>) {
         let e = spaces.unwrap_or(indentation::BLOCK);
         debug_assert!(self.nesting.pending.is_none());
-        let topo = self.nesting.indentation();
-        self.nesting.stack.push(topo + e);
+        let top = self.nesting.indentation();
+        self.nesting.stack.push(top + e);
     }
 
     /// `unindent()`.
@@ -266,7 +267,7 @@ impl ChunkBuilder {
 
     /// `endSpan()`.
     pub fn end_span_(&mut self, a: &mut Arenas) {
-        let (start, cost) = self.open_spans.pop().expect("span aberto");
+        let (start, cost) = self.open_spans.pop().expect("open span");
         let end = self.chunks.len();
         if start == end {
             return;
@@ -322,24 +323,24 @@ impl ChunkBuilder {
     }
 
     /// `nestExpression(indent:, now:)`.
-    pub fn nest_expression_at(&mut self, a: &mut Arenas, indentation: Option<i32>, agora: bool) {
+    pub fn nest_expression_at(&mut self, a: &mut Arenas, indentation: Option<i32>, now: bool) {
         self.nesting.nest(a, indentation.unwrap_or(indentation::EXPRESSION));
-        if agora {
+        if now {
             self.nesting.commit();
         }
     }
 
     /// `unnest(now:)`.
-    pub fn unnest_(&mut self, a: &Arenas, agora: bool) {
+    pub fn unnest_(&mut self, a: &Arenas, now: bool) {
         self.nesting.unnest_(a);
-        if agora {
+        if now {
             self.nesting.commit();
         }
     }
 
     /// `startBlockArgumentNesting()`.
     pub fn start_argument_nesting(&mut self) {
-        self.argument_nesting.push(self.nesting.corrente());
+        self.argument_nesting.push(self.nesting.effective());
     }
 
     /// `endBlockArgumentNesting()`.
@@ -347,11 +348,11 @@ impl ChunkBuilder {
         self.argument_nesting.pop();
     }
 
-    /// `startBlock(argumentChunk:, indent:, space:)`: cria o chunk de bloco
-    /// aqui e devolve o construtor dos filhos.
+    /// `startBlock(argumentChunk:, indent:, space:)`: creates the block chunk
+    /// here and returns the builder for the children.
     pub fn start_block(&mut self, a: &mut Arenas, argument: Option<ChunkId>, indent: bool, space: bool) -> ChunkBuilder {
-        let rule = *self.rules.last().expect("regra do bloco");
-        let nesting_ = *self.argument_nesting.last().expect("aninhamento de argumento");
+        let rule = *self.rules.last().expect("block rule");
+        let nesting_ = *self.argument_nesting.last().expect("argument nesting");
         let chunk = a.new_block(argument, rule, self.nesting.indentation(), nesting_, space, self.pending_flush_left);
         self.chunks.push(chunk);
         self.pending_flush_left = false;
@@ -366,8 +367,8 @@ impl ChunkBuilder {
         child
     }
 
-    /// `endBlock(forceSplit:)`, primeira metade: fecha os filhos, move-os
-    /// para o chunk de bloco e diz se o pai deve forçar as regras.
+    /// `endBlock(forceSplit:)`, first half: closes the children, moves them to
+    /// the block chunk and tells whether the parent must force its rules.
     pub fn end_block(mut self, a: &mut Arenas, force: bool) -> bool {
         self.divide_chunks(a);
         let mut force = force || self.pending_nested;
@@ -387,14 +388,14 @@ impl ChunkBuilder {
                 }
             }
         }
-        let block = self.block.expect("endBlock fora de bloco");
+        let block = self.block.expect("endBlock outside a block");
         if let Some(b) = &mut a.chunks[block as usize].block {
             b.children = std::mem::take(&mut self.chunks);
         }
         force
     }
 
-    /// `end()`: divide os chunks de topo e devolve a lista.
+    /// `end()`: divides the top-level chunks and returns the list.
     pub fn finish(mut self, a: &mut Arenas) -> Vec<ChunkId> {
         debug_assert!(self.rules.is_empty());
         self.divide_chunks(a);
@@ -460,8 +461,8 @@ impl ChunkBuilder {
     }
 
     fn needs_space_after(&self, a: &Arenas, c: &SourceComment, token: &str) -> bool {
-        let ultimo = *self.chunks.last().expect("chunk");
-        if a.chunks[ultimo as usize].text.is_empty() {
+        let last = *self.chunks.last().expect("chunk");
+        if a.chunks[last as usize].text.is_empty() {
             return false;
         }
         if self.pending_newlines > 0 {
@@ -477,10 +478,10 @@ impl ChunkBuilder {
         if c.lines_before < 2 {
             return false;
         }
-        let Some(&ultimo) = self.chunks.last() else {
+        let Some(&last) = self.chunks.last() else {
             return false;
         };
-        let text = &a.chunks[ultimo as usize].text;
+        let text = &a.chunks[last as usize].text;
         if text.ends_with('{') || text.ends_with('[') {
             return false;
         }
@@ -531,7 +532,7 @@ impl ChunkBuilder {
     }
 
     fn start_chunk(&mut self, a: &mut Arenas, nesting_: NestingId, hard: bool, double: bool, space: bool) -> ChunkId {
-        let rule = if hard { a.hard_rule() } else { *self.rules.last().expect("regra ativa") };
+        let rule = if hard { a.hard_rule() } else { *self.rules.last().expect("active rule") };
         let c = a.new_chunk(rule, self.nesting.indentation(), nesting_, space, self.pending_flush_left, double);
         self.chunks.push(c);
         self.pending_flush_left = false;
@@ -565,14 +566,14 @@ impl ChunkBuilder {
     }
 
     fn handle_hard_split(&mut self, a: &Arenas) {
-        let Some(&ultima) = self.rules.last() else {
+        let Some(&last_item) = self.rules.last() else {
             return;
         };
-        if !a.splits_with_inner(ultima) {
+        if !a.splits_with_inner(last_item) {
             return;
         }
-        if !self.hard_rules.contains(&ultima) {
-            self.hard_rules.push(ultima);
+        if !self.hard_rules.contains(&last_item) {
+            self.hard_rules.push(last_item);
         }
     }
 

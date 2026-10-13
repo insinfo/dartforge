@@ -1,6 +1,6 @@
-//! Padrões do Dart 3 (`parsePattern`, `parsePrimaryPattern`,
-//! `parseVariablePattern` e os sufixos de lista, mapa, record e objeto do
-//! fasta), com os nós do `AstBuilder`.
+//! Dart 3 patterns (`parsePattern`, `parsePrimaryPattern`,
+//! `parseVariablePattern` and fasta's list, map, record and object suffixes),
+//! with the `AstBuilder` nodes.
 
 use dartforge_frontend::token::{Keyword, Op};
 
@@ -13,12 +13,12 @@ use super::{Parser, R};
 /// `PatternContext` do fasta.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum PatternCtx {
-    /// Declaração (`var (a, b) = ...`): identificadores declaram variáveis.
+    /// Declaration (`var (a, b) = ...`): identifiers declare variables.
     Declaration,
-    /// `case`, `if-case` e `switch` como expressão: identificadores são
-    /// constantes.
+    /// `case`, `if-case` and `switch` as an expression: identifiers are
+    /// constants.
     Matching,
-    /// Atribuição por padrão: identificadores são variáveis existentes.
+    /// Pattern assignment: identifiers are existing variables.
     Assignment,
 }
 
@@ -37,8 +37,8 @@ impl Parser<'_> {
 
     fn inner_pattern_prec(&mut self, ctx: PatternCtx, precedence: u8) -> R<NodeId> {
         let mut p = self.primary_pattern(ctx)?;
-        // O início dos padrões compostos é o do operando esquerdo (que pode
-        // não ser o primeiro token: ver `WildcardPattern`).
+        // Compound patterns start where the left operand starts (which may not be
+        // the first token: see `WildcardPattern`).
         let start_ = self.start_(p);
         loop {
             let level = self.precedence_at(self.pos, true);
@@ -324,8 +324,8 @@ impl Parser<'_> {
             }
         }
         if text == "_" {
-            // `WildcardPatternImpl.beginToken` é `type?.beginToken ?? name`:
-            // o `var`/`final` fica fora do intervalo do nó.
+            // `WildcardPatternImpl.beginToken` is `type?.beginToken ?? name`: the
+            // `var`/`final` stays outside the node's range.
             let start_ = type_.map_or(name_, |t| self.start_(t));
             return Ok(self.node(
                 Node::WildcardPattern {
@@ -353,7 +353,7 @@ impl Parser<'_> {
         ))
     }
 
-    /// `...` com subpadrão opcional.
+    /// `...` with an optional subpattern.
     fn pattern_rest(&mut self, ctx: PatternCtx) -> R<NodeId> {
         let o = self.advance();
         let pattern = if self.looks_like_pattern_start(self.pos) {
@@ -427,11 +427,11 @@ impl Parser<'_> {
                         ki,
                     ));
                 }
-                let virgula = self.optional_op(Op::Comma).is_some();
+                let comma = self.optional_op(Op::Comma).is_some();
                 if self.op(self.pos, Op::RBrace) {
                     break;
                 }
-                if !virgula {
+                if !comma {
                     return Err(self.expected("}"));
                 }
             }
@@ -449,7 +449,7 @@ impl Parser<'_> {
         ))
     }
 
-    /// Campo de padrão com nome opcional (`(name_)? :`).
+    /// Pattern field with an optional name (`(name)? :`).
     fn pattern_field(&mut self, ctx: PatternCtx, allows_parenthesized_name: bool) -> R<(NodeId, bool)> {
         let fi = self.pos;
         let mut name_ = None;
@@ -520,8 +520,8 @@ impl Parser<'_> {
                 break;
             }
             if !record {
-                let ultimo = fields_.len() - 1;
-                fields_[ultimo] = self.unnamed_field(fields_[ultimo]);
+                let last = fields_.len() - 1;
+                fields_[last] = self.unnamed_field(fields_[last]);
             }
             record = true;
             valid = true;
@@ -556,7 +556,7 @@ impl Parser<'_> {
         ))
     }
 
-    /// Embrulha um padrão posicional em [`Node::PatternField`] sem nome.
+    /// Wraps a positional pattern in an unnamed [`Node::PatternField`].
     fn unnamed_field(&mut self, pattern: NodeId) -> NodeId {
         if matches!(self.tree_.node(pattern), Node::PatternField { .. }) {
             return pattern;

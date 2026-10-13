@@ -1,17 +1,17 @@
-//! Varredura do parser do formatador sobre arquivos `.dart`.
+//! Sweep of the formatter's parser over `.dart` files.
 //!
 //! ```text
-//! cargo run --release -p dartforge-formatter --example parser_varredura -- \
-//!     [--dump] [--list] [<dir|arquivo>...]
+//! cargo run --release -p dartforge-formatter --example parser_sweep -- \
+//!     [--dump] [--list] [<dir|file>...]
 //! ```
 //!
-//! Para cada arquivo, roda [`parse`] e, se a análise teve sucesso, a
-//! conferência de cobertura de tokens ([`verify::check`]). Imprime a
-//! contagem de arquivos aceitos, recusados e com falha de cobertura, e o
-//! tempo total. Com `--list`, os caminhos vêm da entrada padrão, um por
-//! linha. Com `--dump`, escreve na saída padrão, para cada arquivo,
-//! `### path` seguido de `ERR <message>` ou do despejo da árvore
-//! ([`verify::dump`]), no formato do oráculo do analyzer.
+//! For each file, runs [`parse`] and, if parsing succeeded, the token
+//! coverage check ([`verify::check`]). Prints the number of accepted files,
+//! rejected files and files with coverage failures, and the total time. With
+//! `--list`, paths come from standard input, one per line. With `--dump`,
+//! writes to standard output, for each file, `### path` followed by
+//! `ERR <message>` or the tree dump ([`verify::dump`]), in the format of the
+//! analyzer oracle.
 
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -45,8 +45,8 @@ fn main() {
     let mut paths = Vec::new();
     for a in std::env::args().skip(1) {
         match a.as_str() {
-            "--despejar" => dump = true,
-            "--lista" => list = true,
+            "--dump" => dump = true,
+            "--list" => list = true,
             _ => collect(Path::new(&a), &mut paths),
         }
     }
@@ -85,13 +85,13 @@ fn main() {
                 if dump {
                     let _ = writeln!(output, "ERR {} @{}", e.mensagem, e.posicao);
                 } else {
-                    eprintln!("RECUSADO {}:{}: {}", p.display(), e.posicao, e.mensagem);
+                    eprintln!("REJECTED {}:{}: {}", p.display(), e.posicao, e.mensagem);
                 }
             }
         }
     }
     eprintln!(
-        "{} arquivos: {ok} aceitos, {rejected} recusados, {failures} falhas de cobertura, {:.2?}",
+        "{} files: {ok} accepted, {rejected} rejected, {failures} coverage failures, {:.2?}",
         paths.len(),
         start.elapsed()
     );

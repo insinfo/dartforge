@@ -1,29 +1,29 @@
-//! As estruturas do back end do estilo curto, em arenas: regras de quebra
-//! (`rule/*.dart`), *chunks* (`chunk.dart`), *spans* e níveis de
-//! aninhamento de expressão (`nesting_level.dart`).
+//! The short-style back end structures, in arenas: split rules
+//! (`rule/*.dart`), *chunks* (`chunk.dart`), *spans* and expression nesting
+//! levels (`nesting_level.dart`).
 //!
-//! O original usa objetos com identidade (comparações `==` entre chunks e
-//! regras, conjuntos e mapas com ordem de inserção). Aqui cada objeto é um
-//! índice na sua arena e a identidade é o índice; as coleções ordenadas são
-//! vetores, preservando a ordem de iteração do Dart.
+//! The original uses objects with identity (`==` comparisons between chunks
+//! and rules, insertion-ordered sets and maps). Here each object is an index
+//! into its arena and identity is the index; ordered collections are
+//! vectors, preserving Dart's iteration order.
 
-/// Índice de uma regra em [`Arenas::rules`].
+/// Index of a rule in [`Arenas::rules`].
 pub type RuleId = u32;
-/// Índice de um chunk em [`Arenas::chunks`].
+/// Index of a chunk in [`Arenas::chunks`].
 pub type ChunkId = u32;
-/// Índice de um span em [`Arenas::spans`].
+/// Index of a span in [`Arenas::spans`].
 pub type SpanId = u32;
-/// Índice de um nível de aninhamento em [`Arenas::nestings`].
+/// Index of a nesting level in [`Arenas::nestings`].
 pub type NestingId = u32;
 
 /// `Rule.unsplit`.
 pub const UNSPLIT: i32 = 0;
-/// `Rule.mustSplit`: qualquer valor, desde que quebre.
+/// `Rule.mustSplit`: any value, as long as it splits.
 pub const MUST_SPLIT: i32 = -1;
 /// `Rule._fullSplitConstraint`.
 const FULL_SPLIT: i32 = -2;
 
-/// Custos (`Cost` de `constants.dart`).
+/// Costs (`Cost` in `constants.dart`).
 pub mod cost {
     pub const ARROW: i32 = 0;
     pub const NORMAL: i32 = 1;
@@ -38,7 +38,7 @@ pub mod cost {
     pub const PARAMETER_TYPE: i32 = 4;
 }
 
-/// Recuos (`Indent` de `constants.dart`).
+/// Indentation amounts (`Indent` in `constants.dart`).
 pub mod indentation {
     pub const BLOCK: i32 = 2;
     pub const CASCADE: i32 = 2;
@@ -46,7 +46,7 @@ pub mod indentation {
     pub const CONSTRUCTOR_INITIALIZER: i32 = 4;
 }
 
-/// Restrição de uma regra sobre outra (`_Constraint`).
+/// Constraint of one rule on another (`_Constraint`).
 #[derive(Debug, Clone, Copy)]
 struct Constraint {
     min: i32,
@@ -54,13 +54,13 @@ struct Constraint {
     other_value: i32,
 }
 
-/// As subclasses de `Rule` e seus dados.
+/// The subclasses of `Rule` and their data.
 #[derive(Debug, Clone)]
 pub enum RuleKind {
     /// `Rule`.
     Simple,
-    /// `SplitContainingRule` puro (não usado diretamente pelo visitante, mas
-    /// a base de [`RuleKind::Positional`] e [`RuleKind::NamedRule`]).
+    /// Plain `SplitContainingRule` (not used directly by the visitor, but the
+    /// base of [`RuleKind::Positional`] and [`RuleKind::NamedRule`]).
     Positional {
         arguments_: Vec<Option<ChunkId>>,
         leading_collections: usize,
@@ -77,13 +77,13 @@ pub enum RuleKind {
     TypeArgument { arguments_: Vec<ChunkId> },
 }
 
-/// Uma regra de quebra (`Rule`).
+/// A split rule (`Rule`).
 #[derive(Debug, Clone)]
 pub struct Rule {
     pub kind_: RuleKind,
     cost: i32,
-    /// `index`: posição na lista de regras do último divisor que a usou.
-    /// Como no original, nunca volta a `None`.
+    /// `index`: position in the rule list of the last splitter that used it.
+    /// As in the original, it never goes back to `None`.
     pub index: Option<usize>,
     is_hardened: bool,
     /// `SplitContainingRule._trackInnerRules`.
@@ -92,22 +92,21 @@ pub struct Rule {
     all_constrained: Option<Vec<RuleId>>,
 }
 
-/// Dados de um chunk de bloco (`BlockChunk`).
+/// Data of a block chunk (`BlockChunk`).
 #[derive(Debug, Clone)]
 pub struct Block {
-    /// `argument`: o chunk antes do argumento que contém este bloco.
+    /// `argument`: the chunk before the argument that contains this block.
     pub argument: Option<ChunkId>,
     pub children: Vec<ChunkId>,
-    /// Memória de `unsplitBlockLength`, calculada depois que os filhos ficam
-    /// prontos.
+    /// Memoized `unsplitBlockLength`, computed once the children are ready.
     length: Option<usize>,
 }
 
-/// Um chunk (`Chunk`/`BlockChunk`).
+/// A chunk (`Chunk`/`BlockChunk`).
 #[derive(Debug, Clone)]
 pub struct Chunk {
     pub text: String,
-    /// Comprimento de `text` em unidades UTF-16 (o `length` do Dart).
+    /// Length of `text` in UTF-16 units (Dart's `length`).
     pub text_len: usize,
     pub indentation: i32,
     pub nesting_: NestingId,
@@ -127,7 +126,7 @@ impl Chunk {
     }
 }
 
-/// Um nível de aninhamento de expressão (`NestingLevel`).
+/// An expression nesting level (`NestingLevel`).
 #[derive(Debug, Clone)]
 pub struct Nesting {
     pub parent: Option<NestingId>,
@@ -136,14 +135,14 @@ pub struct Nesting {
     total: Option<i32>,
 }
 
-/// Um span (`Span`): custo pago uma vez se alguma quebra cair dentro dele.
+/// A span (`Span`): a cost paid once if any split falls inside it.
 #[derive(Debug, Clone)]
 pub struct SpanC {
     pub cost: i32,
     marked: bool,
 }
 
-/// As arenas de uma formatação e os parâmetros do formatador.
+/// The arenas of one formatting run and the formatter parameters.
 #[derive(Debug)]
 pub struct Arenas {
     pub rules: Vec<Rule>,
@@ -156,7 +155,7 @@ pub struct Arenas {
     pub line_ending: String,
 }
 
-/// Comprimento de um texto em unidades UTF-16.
+/// Length of a text in UTF-16 units.
 pub fn len16(s: &str) -> usize {
     if s.is_ascii() {
         s.len()
@@ -166,7 +165,7 @@ pub fn len16(s: &str) -> usize {
 }
 
 impl Arenas {
-    /// Arenas vazias com a regra falsa já criada.
+    /// Empty arenas with the dummy rule already created.
     pub fn new(page_width: usize, line_ending: String) -> Arenas {
         let mut a = Arenas {
             rules: Vec::new(),
@@ -181,7 +180,7 @@ impl Arenas {
         a
     }
 
-    // ------------------------------------------------------------- regras
+    // -------------------------------------------------------------- rules
 
     fn new_rule(&mut self, kind_: RuleKind, cost: i32) -> RuleId {
         self.rules.push(Rule {
@@ -243,19 +242,19 @@ impl Arenas {
         );
         let n = amount as i32;
         if leading > 0 {
-            self.add_constraint(r, 1, collection_rule.expect("regra de coleção"), UNSPLIT);
+            self.add_constraint(r, 1, collection_rule.expect("collection rule"), UNSPLIT);
         }
         if leading > 0 || trailing > 0 {
-            self.add_constraint(r, n + 1, collection_rule.expect("regra de coleção"), 1);
+            self.add_constraint(r, n + 1, collection_rule.expect("collection rule"), 1);
         }
         for arg in 0..leading as i32 {
             let value = n - arg + 1;
-            self.add_constraint(r, value, collection_rule.expect("regra de coleção"), UNSPLIT);
+            self.add_constraint(r, value, collection_rule.expect("collection rule"), UNSPLIT);
         }
         let mut arg = n - trailing as i32;
         while arg < n {
             let value = n - arg + 1;
-            self.add_constraint(r, value, collection_rule.expect("regra de coleção"), UNSPLIT);
+            self.add_constraint(r, value, collection_rule.expect("collection rule"), UNSPLIT);
             arg += 1;
         }
         r
@@ -265,7 +264,7 @@ impl Arenas {
     pub fn named_rule(&mut self, collection_rule: Option<RuleId>, leading: usize, trailing: usize) -> RuleId {
         let r = self.new_rule(RuleKind::NamedRule { arguments_: Vec::new() }, cost::NORMAL);
         if leading > 0 || trailing > 0 {
-            self.add_constraint(r, 1, collection_rule.expect("regra de coleção"), UNSPLIT);
+            self.add_constraint(r, 1, collection_rule.expect("collection rule"), UNSPLIT);
         }
         r
     }
@@ -274,8 +273,8 @@ impl Arenas {
     pub fn before_argument(&mut self, r: RuleId, chunk: Option<ChunkId>) {
         match &mut self.rules[r as usize].kind_ {
             RuleKind::Positional { arguments_, .. } | RuleKind::NamedRule { arguments_ } => arguments_.push(chunk),
-            RuleKind::TypeArgument { arguments_ } => arguments_.push(chunk.expect("chunk do argumento de tipo")),
-            _ => panic!("beforeArgument numa regra que não é de argumentos"),
+            RuleKind::TypeArgument { arguments_ } => arguments_.push(chunk.expect("type argument chunk")),
+            _ => panic!("beforeArgument on a rule that is not an argument rule"),
         }
     }
 
@@ -287,19 +286,19 @@ impl Arenas {
             }
             names.push(Vec::new());
         } else {
-            panic!("addCombinator fora de CombinatorRule");
+            panic!("addCombinator outside a CombinatorRule");
         }
     }
 
     /// `CombinatorRule.addName`.
     pub fn add_name(&mut self, r: RuleId, chunk: ChunkId) {
         if let RuleKind::Combinator { names, .. } = &mut self.rules[r as usize].kind_ {
-            let ultimo = names.last_mut().expect("combinador antes dos nomes");
-            if !ultimo.contains(&chunk) {
-                ultimo.push(chunk);
+            let last = names.last_mut().expect("combinator before the names");
+            if !last.contains(&chunk) {
+                last.push(chunk);
             }
         } else {
-            panic!("addName fora de CombinatorRule");
+            panic!("addName outside a CombinatorRule");
         }
     }
 
@@ -388,7 +387,7 @@ impl Arenas {
     pub fn split(&self, r: RuleId, value: i32, chunk: ChunkId) -> bool {
         let rule = &self.rules[r as usize];
         if let RuleKind::TypeArgument { arguments_ } = &rule.kind_ {
-            // `TypeArgumentRule` sobrescreve o `isSplit` inteiro.
+            // `TypeArgumentRule` overrides the whole `isSplit`.
             if value == UNSPLIT {
                 return false;
             }
@@ -533,17 +532,17 @@ impl Arenas {
         self.rules[r as usize].constraints.iter().map(|(o, _)| *o).collect()
     }
 
-    /// Quantidade de regras restringidas (`constrainedRules.length`).
+    /// Number of constrained rules (`constrainedRules.length`).
     pub fn has_constrained(&self, r: RuleId) -> bool {
         !self.rules[r as usize].constraints.is_empty()
     }
 
-    /// A regra restringida de posição `i`.
+    /// The constrained rule at position `i`.
     pub fn constrained(&self, r: RuleId, i: usize) -> Option<RuleId> {
         self.rules[r as usize].constraints.get(i).map(|(o, _)| *o)
     }
 
-    /// `allConstrainedRules`: o fecho transitivo, incluindo a própria regra.
+    /// `allConstrainedRules`: the transitive closure, including the rule itself.
     pub fn all_constrained(&mut self, r: RuleId) -> Vec<RuleId> {
         if let Some(v) = &self.rules[r as usize].all_constrained {
             return v.clone();
@@ -646,7 +645,8 @@ impl Arenas {
         n
     }
 
-    /// `indentBlock(getValue)`, com o valor da regra do argumento já dado.
+    /// `indentBlock(getValue)`, with the value of the argument's rule already
+    /// given.
     pub fn indents_block(&self, c: ChunkId, value_of: &dyn Fn(RuleId) -> i32) -> bool {
         let Some(b) = &self.chunks[c as usize].block else {
             return false;
@@ -661,7 +661,7 @@ impl Arenas {
         self.split(rule, value_of(rule), arg)
     }
 
-    // ------------------------------------------------------------ aninhamento
+    // -------------------------------------------------------------- nesting
 
     /// `NestingLevel()`.
     pub fn new_root_nesting(&mut self) -> NestingId {
@@ -722,7 +722,7 @@ impl Arenas {
         let mut total = 0;
         if let Some(p) = self.nestings[n as usize].parent {
             self.update_total(p);
-            total += self.nestings[p as usize].total.expect("total do pai");
+            total += self.nestings[p as usize].total.expect("parent total");
         }
         if self.nestings[n as usize].marked {
             total += self.nestings[n as usize].indentation;
@@ -732,7 +732,7 @@ impl Arenas {
 
     /// `totalUsedIndent`.
     pub fn nesting_total(&self, n: NestingId) -> i32 {
-        self.nestings[n as usize].total.expect("totalUsedIndent calculado")
+        self.nestings[n as usize].total.expect("totalUsedIndent computed")
     }
 
     // ------------------------------------------------------------- spans
@@ -743,7 +743,7 @@ impl Arenas {
         self.spans.len() as SpanId - 1
     }
 
-    /// `mark()` de span.
+    /// Span `mark()`.
     pub fn mark_span(&mut self, s: SpanId) -> bool {
         let x = &mut self.spans[s as usize];
         if x.marked {
@@ -753,7 +753,7 @@ impl Arenas {
         true
     }
 
-    /// `unmark()` de span.
+    /// Span `unmark()`.
     pub fn unmark_span(&mut self, s: SpanId) {
         self.spans[s as usize].marked = false;
     }

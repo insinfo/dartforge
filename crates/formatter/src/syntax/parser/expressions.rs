@@ -1,14 +1,14 @@
-//! Expressões (`parseExpression`, `parsePrecedenceExpression`,
+//! Expressions (fasta's `parseExpression`, `parsePrecedenceExpression`,
 //! `parseUnaryExpression`, `parsePrimary`, `parseSend`,
-//! `parseArgumentOrIndexStar`, `parseCascadeExpression` e os literais do
-//! fasta), montando os nós como o `AstBuilder`:
+//! `parseArgumentOrIndexStar`, `parseCascadeExpression` and the literals),
+//! building the nodes like the `AstBuilder`:
 //!
-//! * `handleSend` com argumentos: `MethodInvocation` se o receptor é
-//!   `SimpleIdentifier`, senão `FunctionExpressionInvocation`;
-//! * `doDotExpression`: `a.b` com `a` identificador simples é
-//!   `PrefixedIdentifier`; os demais acessos são `PropertyAccess`; uma
-//!   invocação à direita do `.` recebe o alvo;
-//! * argumentos de tipo sem chamada (`List<int>`, `a.b<T>`) são
+//! * `handleSend` with arguments: `MethodInvocation` if the receiver is a
+//!   `SimpleIdentifier`, otherwise `FunctionExpressionInvocation`;
+//! * `doDotExpression`: `a.b` with `a` a simple identifier is a
+//!   `PrefixedIdentifier`; other accesses are `PropertyAccess`; an
+//!   invocation to the right of the `.` receives the target;
+//! * type arguments without a call (`List<int>`, `a.b<T>`) are a
 //!   `FunctionReference` (`handleTypeArgumentApplication`).
 
 use dartforge_frontend::token::{Keyword, Op};
@@ -28,8 +28,8 @@ pub(super) enum ConstCtx {
     NumericOnly,
 }
 
-/// O primeiro escape inválido de `b` (o texto entre as aspas), como o
-/// `unescapeCodeUnits` do fasta (`quote.dart`).
+/// The first invalid escape in `b` (the text between the quotes), like
+/// fasta's `unescapeCodeUnits` (`quote.dart`).
 fn escape_error(b: &[u8]) -> Option<&'static str> {
     let n = b.len();
     let hex = |x: u8| x.is_ascii_hexdigit();
@@ -183,15 +183,15 @@ impl Parser<'_> {
         self.precedence_loop(level, cascades, targs, e, ctx)
     }
 
-    /// Argumentos de tipo de método depois de uma expressão (com `!`
-    /// opcional): `e<T>(...)` deixa os argumentos pendentes para a chamada;
-    /// `e<T>` sem chamada vira `FunctionReference`.
+    /// Method type arguments after an expression (with an optional `!`):
+    /// `e<T>(...)` leaves the arguments pending for the call; `e<T>` without a
+    /// call becomes a `FunctionReference`.
     fn method_args_after(&mut self, e: NodeId, ctx: ConstCtx) -> R<(NodeId, Option<NodeId>)> {
-        let ultimo = self.pos - 1;
+        let last = self.pos - 1;
         let bang = if self.op(self.pos, Op::Bang) {
             self.pos
         } else {
-            ultimo
+            last
         };
         if self.method_args_at(bang).is_none() {
             return Ok((e, None));
@@ -230,7 +230,7 @@ impl Parser<'_> {
         Ok((e, Some(ta)))
     }
 
-    /// Precedência do token `i` (`_computePrecedence`).
+    /// Precedence of token `i` (`_computePrecedence`).
     pub(super) fn precedence_at(&mut self, i: usize, pattern: bool) -> u8 {
         use prec::*;
         match self.kind_(i) {
@@ -294,7 +294,7 @@ impl Parser<'_> {
         }
     }
 
-    /// Operador de atribuição em `i` e quantos tokens ocupa.
+    /// Assignment operator at `i` and how many tokens it takes.
     fn assignment_op_at(&self, i: usize) -> Option<usize> {
         match self.kind_(i) {
             TokenKind::Op(
@@ -320,7 +320,7 @@ impl Parser<'_> {
         }
     }
 
-    /// Consome o operador composto ou simples em `self.pos`.
+    /// Consumes the composite or simple operator at `self.pos`.
     fn consume_operator(&mut self) -> usize {
         let i = self.pos;
         if self.op(i, Op::Gt)
@@ -334,7 +334,7 @@ impl Parser<'_> {
         i
     }
 
-    /// `canParseAsConditional`: `?` em `q` inicia um condicional válido.
+    /// `canParseAsConditional`: the `?` at `q` starts a valid conditional.
     pub(super) fn could_be_conditional(&mut self, q: usize) -> bool {
         self.probe(|p| {
             p.pos = q + 1;
@@ -359,7 +359,7 @@ impl Parser<'_> {
         )
     }
 
-    /// `reportErrorIfSuper`: `super` sozinho como operando.
+    /// `reportErrorIfSuper`: `super` alone as an operand.
     pub(super) fn without_super(&self, e: NodeId) -> R<()> {
         if matches!(self.tree_.node(e), Node::SuperExpression { .. }) {
             return Err(self.error_at(
@@ -530,7 +530,7 @@ impl Parser<'_> {
         Ok(e)
     }
 
-    /// `computeTypeAfterIsOrAs` seguido do tipo.
+    /// `computeTypeAfterIsOrAs` followed by the type.
     pub(super) fn type_after_is_as(&mut self) -> R<NodeId> {
         let i = self.pos;
         let mut ti = self.type_at(i, true, false, false);
@@ -775,14 +775,14 @@ impl Parser<'_> {
     }
 
     /// `doInvocation`.
-    fn invocation(&mut self, receptor: NodeId, targs: Option<NodeId>, args: NodeId) -> NodeId {
-        let start_ = self.start_(receptor);
-        if self.is_simple(receptor) {
+    fn invocation(&mut self, receiver: NodeId, targs: Option<NodeId>, args: NodeId) -> NodeId {
+        let start_ = self.start_(receiver);
+        if self.is_simple(receiver) {
             return self.node(
                 Node::MethodInvocation {
                     target: None,
                     operator: None,
-                    method_name: receptor,
+                    method_name: receiver,
                     type_arguments: targs,
                     argument_list: args,
                 },
@@ -791,7 +791,7 @@ impl Parser<'_> {
         }
         self.node(
             Node::FunctionExpressionInvocation {
-                function: receptor,
+                function: receiver,
                 type_arguments: targs,
                 argument_list: args,
             },
@@ -799,12 +799,12 @@ impl Parser<'_> {
         )
     }
 
-    /// `doDotExpression`: `receptor` é `None` numa seção de cascata.
-    fn dot(&mut self, receptor: Option<NodeId>, dot: usize, right: NodeId) -> R<NodeId> {
-        let start_ = receptor.map_or(dot, |r| self.start_(r));
+    /// `doDotExpression`: `receiver` is `None` in a cascade section.
+    fn dot(&mut self, receiver: Option<NodeId>, dot: usize, right: NodeId) -> R<NodeId> {
+        let start_ = receiver.map_or(dot, |r| self.start_(r));
         match self.tree_.node(right) {
             Node::SimpleIdentifier { .. } => {
-                if let Some(r) = receptor
+                if let Some(r) = receiver
                     && self.is_simple(r)
                     && self.op(dot, Op::Dot)
                 {
@@ -819,7 +819,7 @@ impl Parser<'_> {
                 }
                 Ok(self.node(
                     Node::PropertyAccess {
-                        target: receptor,
+                        target: receiver,
                         operator: dot as Tk,
                         property_name: right,
                     },
@@ -832,7 +832,7 @@ impl Parser<'_> {
                     target, operator, ..
                 } = &mut d.node
                 {
-                    *target = receptor;
+                    *target = receiver;
                     *operator = Some(dot as Tk);
                 }
                 d.start = start_ as Tk;
@@ -846,8 +846,8 @@ impl Parser<'_> {
     fn unary(&mut self, cascades: bool, ctx: ConstCtx) -> R<NodeId> {
         let i = self.pos;
         if self.word(i, "await") {
-            // Fora de corpo `async`, o fasta relata `AwaitNotAsync`, que no
-            // analyzer não é erro sintático, e monta o `AwaitExpression`.
+            // Outside an `async` body, fasta reports `AwaitNotAsync`, which is not a
+            // syntax error in the analyzer, and builds the `AwaitExpression`.
             if self.async_kind == AsyncKind::SyncKind && !self.looks_like_expression_after(i, true) {
                 return self.primary(ctx);
             }
@@ -933,7 +933,7 @@ impl Parser<'_> {
         self.primary(ctx)
     }
 
-    /// `parsePrimary` no contexto de expressão.
+    /// `parsePrimary` in expression context.
     fn primary(&mut self, ctx: ConstCtx) -> R<NodeId> {
         let i = self.pos;
         let explicit = ctx == ConstCtx::Explicit;
@@ -1016,7 +1016,7 @@ impl Parser<'_> {
         }
     }
 
-    /// `parsePrimary` depois de `.`/`?.` (`expressionContinuation`).
+    /// `parsePrimary` after `.`/`?.` (`expressionContinuation`).
     fn primary_continuation(&mut self, ctx: ConstCtx) -> R<NodeId> {
         if self.ident(self.pos) {
             return self.send_or_function(ctx);
@@ -1126,9 +1126,9 @@ impl Parser<'_> {
         Ok(e)
     }
 
-    /// `assert(...)` como expressão: o `AstBuilder` monta uma invocação de
-    /// função chamada `assert` (o erro `AssertAsExpression` não tem código
-    /// no analyzer).
+    /// `assert(...)` as an expression: the `AstBuilder` builds an invocation of
+    /// a function named `assert` (the `AssertAsExpression` error has no code in
+    /// the analyzer).
     fn assert_expression(&mut self) -> R<NodeId> {
         let (a, lp, condition, _comma, message, rp) = self.assert_parts()?;
         let function = self.simple(a);
@@ -1192,7 +1192,7 @@ impl Parser<'_> {
         ))
     }
 
-    /// `name_: expressão` (argumento nomeado ou campo de record).
+    /// `name: expression` (named argument or record field).
     fn named_expression(&mut self) -> R<NodeId> {
         let start_ = self.pos;
         let n = self.expect_ident()?;
@@ -1215,8 +1215,8 @@ impl Parser<'_> {
         ))
     }
 
-    /// `parseNewExpression`, `parseImplicitCreationExpression` e o fim de
-    /// `parseConstExpression`: `word_? ConstructorName arguments_`.
+    /// `parseNewExpression`, `parseImplicitCreationExpression` and the end of
+    /// `parseConstExpression`: `keyword? ConstructorName arguments`.
     fn creation(&mut self, word_: Option<usize>) -> R<NodeId> {
         let start_ = word_.unwrap_or(self.pos);
         if word_.is_some() {
@@ -1343,8 +1343,8 @@ impl Parser<'_> {
         Err(self.expected("["))
     }
 
-    /// Expressão de função (`parseFunctionExpression`) a partir dos
-    /// parâmetros formais.
+    /// Function expression (`parseFunctionExpression`) starting from the formal
+    /// parameters.
     fn function_expression_(&mut self, type_parameters: Option<NodeId>, start_: usize) -> R<NodeId> {
         let parameters = self.formal_params(MemberKind::Local)?;
         let body = self.function_body_(true, false)?;
@@ -1469,7 +1469,7 @@ impl Parser<'_> {
         ))
     }
 
-    /// `parseLiteralString`: literais adjacentes viram `AdjacentStrings`.
+    /// `parseLiteralString`: adjacent literals become `AdjacentStrings`.
     pub(super) fn string_literal(&mut self) -> R<NodeId> {
         let start_ = self.pos;
         let old = self.functions;
@@ -1566,11 +1566,11 @@ impl Parser<'_> {
                 return Err(self.error("Expected a string."));
             }
             self.advance();
-            let ultimo = !matches!(
+            let last = !matches!(
                 self.kind_(self.pos),
                 TokenKind::ExpressionInterpolation | TokenKind::IdentifierInterpolation
             );
-            self.check_escapes(s, false, ultimo)?;
+            self.check_escapes(s, false, last)?;
             elements_.push(self.node(Node::InterpolationString { contents: s as Tk }, s));
         }
         Ok(self.node(
@@ -1581,12 +1581,12 @@ impl Parser<'_> {
         ))
     }
 
-    /// Literal numérico malformado ou com separadores de dígitos (só no
-    /// Dart 3.7), que o scanner do analyzer recusa.
+    /// Malformed numeric literal, or one with digit separators (Dart 3.7 only),
+    /// which the analyzer's scanner rejects.
     fn check_number(&self, i: usize) -> R<()> {
         let t = self.txt(i);
         if t.contains('_') {
-            // `feature` precisa de `&mut self`; o erro de versão é direto.
+            // `feature` needs `&mut self`; the version error is direct.
             if self.version < (3, 6) {
                 return Err(self.error_at(
                     i,
@@ -1607,11 +1607,11 @@ impl Parser<'_> {
             if c != b'_' {
                 continue;
             }
-            // Cada sequência de `_` precisa de dígitos dos dois lados.
-            let antes = b[..k].iter().rev().find(|&&x| x != b'_').copied();
+            // Each run of `_` needs digits on both sides.
+            let before = b[..k].iter().rev().find(|&&x| x != b'_').copied();
             let after = b[k + 1..].iter().find(|&&x| x != b'_').copied();
             let ok =
-                antes.is_some_and(|x| digit(x) && !(hexa && k == 2)) && after.is_some_and(digit);
+                before.is_some_and(|x| digit(x) && !(hexa && k == 2)) && after.is_some_and(digit);
             if !ok || (hexa && k <= 2) {
                 return Err(self.error_at(i, "Digit separators ('_') in a number literal can only be placed between two digits."));
             }
@@ -1631,22 +1631,21 @@ impl Parser<'_> {
         Ok(())
     }
 
-    /// Escapes inválidos num pedaço de string não crua (`unescape` do
-    /// fasta). `first`/`ultimo` dizem se o pedaço tem as aspas de
-    /// abertura/fechamento.
-    fn check_escapes(&self, i: usize, first: bool, ultimo: bool) -> R<()> {
+    /// Invalid escapes in a piece of non-raw string (fasta's `unescape`).
+    /// `first`/`last` tell whether the piece has the opening/closing quotes.
+    fn check_escapes(&self, i: usize, first: bool, last: bool) -> R<()> {
         let mut t = self.txt(i);
         if first {
             for q in ["\"\"\"", "'''", "\"", "'"] {
                 if let Some(r) = t.strip_prefix(q) {
                     t = r;
-                    if ultimo {
+                    if last {
                         t = t.strip_suffix(q).unwrap_or(t);
                     }
                     break;
                 }
             }
-        } else if ultimo {
+        } else if last {
             for q in ["\"\"\"", "'''", "\"", "'"] {
                 if let Some(r) = t.strip_suffix(q) {
                     t = r;
@@ -1749,7 +1748,7 @@ impl Parser<'_> {
         ))
     }
 
-    /// Um elemento de coleção (`computeLiteralEntry` e passos seguintes).
+    /// A collection element (`computeLiteralEntry` and the following steps).
     fn element(&mut self, map: bool) -> R<NodeId> {
         self.enter_()?;
         let r = self.inner_element(map);
@@ -1838,8 +1837,8 @@ impl Parser<'_> {
         Ok(e)
     }
 
-    /// `ensureParenthesizedCondition`: `( expressão (case padrão (when
-    /// expressão)?)? )`.
+    /// `ensureParenthesizedCondition`: `( expression (case pattern (when
+    /// expression)?)? )`.
     pub(super) fn parenthesized_condition(
         &mut self,
         allows_case: bool,
@@ -1862,7 +1861,7 @@ impl Parser<'_> {
         Ok((lp, expression, case_clause, rp))
     }
 
-    /// Padrão com `when` opcional ([`Node::GuardedPattern`]).
+    /// Pattern with an optional `when` ([`Node::GuardedPattern`]).
     pub(super) fn guarded_pattern_(&mut self) -> R<NodeId> {
         let pattern = self.pattern(PatternCtx::Matching)?;
         let start_ = self.start_(pattern);
@@ -1916,11 +1915,11 @@ impl Parser<'_> {
                     },
                     ci,
                 ));
-                let virgula = self.optional_op(Op::Comma).is_some();
+                let comma = self.optional_op(Op::Comma).is_some();
                 if self.op(self.pos, Op::RBrace) {
                     break;
                 }
-                if !virgula {
+                if !comma {
                     return Err(self.expected(","));
                 }
             }
@@ -1941,13 +1940,13 @@ impl Parser<'_> {
         ))
     }
 
-    /// Expressão de padrão constante (`parsePrecedenceExpression` com
-    /// `EQUALITY_PRECEDENCE`), usada pelos padrões.
+    /// Constant pattern expression (`parsePrecedenceExpression` with
+    /// `EQUALITY_PRECEDENCE`), used by patterns.
     pub(super) fn constant_pattern_expression(&mut self, ctx: ConstCtx) -> R<NodeId> {
         self.precedence(prec::EQUALITY, false, ctx)
     }
 
-    /// Operando de padrão relacional (`BITWISE_OR_PRECEDENCE`).
+    /// Operand of a relational pattern (`BITWISE_OR_PRECEDENCE`).
     pub(super) fn relational_operand(&mut self) -> R<NodeId> {
         self.precedence(prec::BIT_OR, false, ConstCtx::NoneKind)
     }

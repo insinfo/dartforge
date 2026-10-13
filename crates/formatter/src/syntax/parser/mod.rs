@@ -1,36 +1,36 @@
-//! Parser de Dart 3.6 que monta a [`Tree`] com as
-//! mesmas formas do `parseString` do analyzer 3.6 (o parser do fasta mais o
-//! `AstBuilder`, sem resolução nem `AstRewriter`).
+//! Dart 3.6 parser that builds the [`Tree`] with the same shapes as the
+//! analyzer 3.6 `parseString` (fasta's parser plus the `AstBuilder`, without
+//! resolution or `AstRewriter`).
 //!
-//! É um descendente recursivo que porta as decisões do fasta
-//! (`_fe_analyzer_shared` 76, `parser_impl.dart` e `type_info*.dart`) ponto a
-//! ponto, porque o formatador distingue os nós que o analyzer produz: o
-//! mesmo texto `a.b()` vira `MethodInvocation`, `a.b()()` vira
-//! `FunctionExpressionInvocation`, `A<T>.b()` vira
-//! `InstanceCreationExpression` e assim por diante. Os módulos seguem a
-//! divisão da gramática:
+//! It is a recursive descent parser that ports fasta's decisions
+//! (`_fe_analyzer_shared` 76, `parser_impl.dart` and `type_info*.dart`) point
+//! by point, because the formatter tells apart the nodes the analyzer
+//! produces: the same text `a.b()` becomes `MethodInvocation`, `a.b()()`
+//! becomes `FunctionExpressionInvocation`, `A<T>.b()` becomes
+//! `InstanceCreationExpression` and so on. The modules follow the grammar's
+//! layout:
 //!
-//! * `olhar` — *lookahead* sem efeitos: `computeType`,
-//!   `computeTypeParamOrArg`, `skipOuterPattern` e afins;
-//! * `types_` — anotações de tipo, parâmetros e argumentos de tipo,
-//!   parâmetros formais e metadata;
-//! * `expressoes` — expressões, literais, cascatas e coleções;
-//! * `instrucoes` — comandos e declarações locais;
-//! * `patterns_` — padrões (Dart 3);
-//! * `declarations_` — unidade, diretivas e declarações de topo e de membro;
-//! * [`verificar`] — conferências da árvore (cobertura de tokens, limites) e
-//!   o despejo textual usado para comparar com o analyzer.
+//! * `lookahead` — side-effect-free *lookahead*: `computeType`,
+//!   `computeTypeParamOrArg`, `skipOuterPattern` and the like;
+//! * `types` — type annotations, type parameters and arguments, formal
+//!   parameters and metadata;
+//! * `expressions` — expressions, literals, cascades and collections;
+//! * `statements` — statements and local declarations;
+//! * `patterns` — patterns (Dart 3);
+//! * `declarations` — unit, directives and top-level and member declarations;
+//! * [`verify`] — checks on the tree (token coverage, bounds) and the text
+//!   dump used to compare against the analyzer.
 //!
-//! O parser não altera a lista de tokens enquanto trabalha: os `>` que
-//! formam `>>`, `>=`, `>>>`, `>>=` e `>>>=` em contexto de expressão, e os
-//! `[` `]` (`=`) dos nomes de operador `[]`/`[]=`, ficam anotados em
-//! `Parser::merges` e são fundidos só no fim, com o remapeamento dos
-//! índices de token dos nós. Assim o *lookahead* e a especulação
-//! (`canParseAsConditional`) trabalham sobre índices estáveis.
+//! The parser does not change the token list while it works: the `>` that
+//! form `>>`, `>=`, `>>>`, `>>=` and `>>>=` in expression context, and the
+//! `[` `]` (`=`) of the operator names `[]`/`[]=`, are recorded in
+//! `Parser::merges` and only merged at the end, remapping the nodes' token
+//! indices. That way the *lookahead* and the speculation
+//! (`canParseAsConditional`) work on stable indices.
 //!
-//! Erros: qualquer erro que o analyzer relataria e que dá para detectar sem
-//! resolução vira [`ErroSintaxe`]; o formatador recusa o arquivo, como o
-//! `dart format`. Não há recuperação de erros.
+//! Errors: any error the analyzer would report and that can be detected
+//! without resolution becomes an [`ErroSintaxe`]; the formatter rejects the
+//! file, like `dart format`. There is no error recovery.
 
 mod declarations;
 mod expressions;
@@ -45,15 +45,15 @@ use dartforge_frontend::token::{Keyword, Op};
 use super::tree::{Tree, Node, NodeId};
 use super::token::{ErroSintaxe, TokenKind, Tk, Token, Tokens};
 
-/// Resultado das funções do parser.
+/// Result of the parser functions.
 type R<T> = Result<T, ErroSintaxe>;
 
-/// Profundidade máxima de aninhamento de expressões e comandos, como os 500
-/// do fasta (`expressionDepth`/`statementDepth`), que relata
-/// `StackOverflow` além disso.
+/// Maximum nesting depth of expressions and statements, like fasta's 500
+/// (`expressionDepth`/`statementDepth`), which reports `StackOverflow`
+/// beyond that.
 const MAX_DEPTH: u32 = 500;
 
-/// Precedências do fasta (`token.dart`).
+/// fasta precedences (`token.dart`).
 mod prec {
     pub const ASSIGNMENT: u8 = 1;
     pub const CASCADE: u8 = 2;
@@ -74,7 +74,7 @@ mod prec {
     pub const SELECTOR: u8 = 17;
 }
 
-/// Estado `async` do corpo em análise (`AsyncModifier` do fasta).
+/// `async` state of the body being parsed (fasta's `AsyncModifier`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AsyncKind {
     SyncKind,
@@ -83,7 +83,7 @@ enum AsyncKind {
     Star,
 }
 
-/// Onde estamos em relação a laços (`LoopState` do fasta), para `break` e
+/// Where we are with respect to loops (fasta's `LoopState`), for `break` and
 /// `continue`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LoopState {
@@ -92,23 +92,23 @@ enum LoopState {
     Repetition,
 }
 
-/// Uma fusão de tokens adiada para o fim da análise.
+/// A token merge deferred to the end of parsing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Merge {
-    /// `>` composto ([`Tokens::merge_greater`]).
+    /// Composite `>` ([`Tokens::merge_greater`]).
     Greater(&'static str),
-    /// `[` `]` ou `[` `]` `=` colados: o token `INDEX`/`INDEX_EQ` do scanner
-    /// do analyzer, com `n` tokens nossos.
+    /// Glued `[` `]` or `[` `]` `=`: the analyzer scanner's `INDEX`/`INDEX_EQ`
+    /// token, made of `n` of our tokens.
     Brackets(usize),
 }
 
-/// Opções de análise.
+/// Parse options.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ParseOptions {
-    /// Versão da linguagem (maior, menor). Antes de 3.0 não há padrões: os
-    /// `case` de `switch` são expressões ([`Node::SwitchCase`]). Um comentário
-    /// `// @dart=X.Y` antes da primeira declaração tem precedência, como no
-    /// scanner do analyzer.
+    /// Language version (major, minor). Before 3.0 there are no patterns: the
+    /// `switch` `case`s are expressions ([`Node::SwitchCase`]). A
+    /// `// @dart=X.Y` comment before the first declaration takes precedence, as
+    /// in the analyzer's scanner.
     pub version: (u32, u32),
 }
 
@@ -118,7 +118,7 @@ impl Default for ParseOptions {
     }
 }
 
-/// Lê `source` inteira como unidade de compilação, na versão 3.6 da linguagem.
+/// Reads the whole `source` as a compilation unit, at language version 3.6.
 ///
 /// ```
 /// use dartforge_formatter::syntax::tree::Node;
@@ -128,13 +128,13 @@ impl Default for ParseOptions {
 /// assert!(matches!(tree.node(root), Node::CompilationUnit { .. }));
 /// ```
 ///
-/// # Erros
-/// O primeiro erro de sintaxe encontrado.
+/// # Errors
+/// The first syntax error found.
 pub fn parse(source: &str) -> Result<(Tokens, Tree), ErroSintaxe> {
     parse_with(source, ParseOptions::default())
 }
 
-/// Como [`parse`], com a versão da linguagem explícita.
+/// Like [`parse`], with an explicit language version.
 ///
 /// ```
 /// use dartforge_formatter::syntax::parser::{parse_with, ParseOptions};
@@ -142,8 +142,8 @@ pub fn parse(source: &str) -> Result<(Tokens, Tree), ErroSintaxe> {
 /// assert!(parse_with(source, ParseOptions { version: (2, 19) }).is_ok());
 /// ```
 ///
-/// # Erros
-/// O primeiro erro de sintaxe encontrado.
+/// # Errors
+/// The first syntax error found.
 pub fn parse_with(source: &str, options: ParseOptions) -> Result<(Tokens, Tree), ErroSintaxe> {
     let tokens = Tokens::read(source)?;
     let version = comment_version(source, &tokens).unwrap_or(options.version);
@@ -166,8 +166,8 @@ pub fn parse_with(source: &str, options: ParseOptions) -> Result<(Tokens, Tree),
     Ok((toks, tree_))
 }
 
-/// O `// @dart = X.Y` antes do primeiro token (`LanguageVersionToken` do
-/// scanner).
+/// The `// @dart = X.Y` before the first token (the scanner's
+/// `LanguageVersionToken`).
 fn comment_version(source: &str, tokens: &Tokens) -> Option<(u32, u32)> {
     let first = tokens.list.first()?;
     let target_ = if first.kind_ == TokenKind::ScriptTag {
@@ -198,14 +198,14 @@ fn comment_version(source: &str, tokens: &Tokens) -> Option<(u32, u32)> {
     None
 }
 
-/// Aplica as fusões adiadas e remapeia os índices de token da árvore.
+/// Applies the deferred merges and remaps the tree's token indices.
 fn apply_merges(toks: &mut Tokens, tree_: &mut Tree, merges: &[(usize, Merge)]) {
     if merges.is_empty() {
         return;
     }
     let n = toks.list.len();
-    // `removed[i]` = quantos tokens antes de `i` (exclusive) somem.
-    // `owner[i]`: para um token absorvido, o primeiro token da fusão.
+    // `removed[i]` = how many tokens before `i` (exclusive) disappear.
+    // `owner[i]`: for an absorbed token, the first token of the merge.
     let mut owner: Vec<Option<usize>> = vec![None; n];
     for &(i, f) in merges {
         let k = match f {
@@ -220,7 +220,7 @@ fn apply_merges(toks: &mut Tokens, tree_: &mut Tree, merges: &[(usize, Merge)]) 
     let mut removed = 0u32;
     for i in 0..n {
         match owner[i] {
-            // Um nó que termina num token absorvido termina no token fundido.
+            // A node that ends at an absorbed token ends at the merged token.
             Some(d) => {
                 new[i] = new[d];
                 removed += 1;
@@ -250,8 +250,8 @@ fn apply_merges(toks: &mut Tokens, tree_: &mut Tree, merges: &[(usize, Merge)]) 
     }
 }
 
-/// Classe de palavra do fasta para identificadores embutidos e
-/// pseudo-palavras (`KeywordStyle`).
+/// fasta's word class for built-in identifiers and pseudo-keywords
+/// (`KeywordStyle`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WordStyle {
     BuiltIn,
@@ -275,7 +275,7 @@ fn word_style(text: &str) -> WordStyle {
 pub(crate) struct Parser<'f> {
     source: &'f str,
     toks: Tokens,
-    /// Para cada `(`, `[`, `{` e `${`, o índice do fecho correspondente.
+    /// For each `(`, `[`, `{` and `${`, the index of the matching closer.
     pairs: Vec<u32>,
     pos: usize,
     tree_: Tree,
@@ -284,11 +284,11 @@ pub(crate) struct Parser<'f> {
     loop_: LoopState,
     /// `mayParseFunctionExpressions` do fasta.
     functions: bool,
-    /// `allowPatterns` do fasta (versão >= 3.0).
+    /// fasta's `allowPatterns` (version >= 3.0).
     patterns_: bool,
-    /// Versão da linguagem em vigor.
+    /// Language version in effect.
     version: (u32, u32),
-    /// Primeiro uso de recurso acima da versão em vigor.
+    /// First use of a feature above the version in effect.
     version_error: Option<ErroSintaxe>,
     depth: u32,
     /// `isLastPatternAllowedInsideUnaryPattern` do fasta.
@@ -372,13 +372,13 @@ impl<'f> Parser<'f> {
         self.kind_(i) == TokenKind::Reserved(k)
     }
 
-    /// `isIdentifier` do fasta: identificador comum, embutido ou pseudo.
+    /// fasta's `isIdentifier`: a plain, built-in or pseudo identifier.
     fn ident(&self, i: usize) -> bool {
         self.kind_(i) == TokenKind::Identifier
     }
 
-    /// `kind == IDENTIFIER_TOKEN`: identificador que não é embutido nem
-    /// pseudo-palavra.
+    /// `kind == IDENTIFIER_TOKEN`: an identifier that is neither built-in nor a
+    /// pseudo-keyword.
     fn plain_ident(&self, i: usize) -> bool {
         self.ident(i) && word_style(self.txt(i)) == WordStyle::NoneKind
     }
@@ -391,7 +391,7 @@ impl<'f> Parser<'f> {
         self.ident(i) && word_style(self.txt(i)) == WordStyle::Pseudo
     }
 
-    /// Identificador com o texto `s` (palavras contextuais).
+    /// Identifier with text `s` (contextual words).
     fn word(&self, i: usize, s: &str) -> bool {
         self.ident(i) && self.txt(i) == s
     }
@@ -412,7 +412,7 @@ impl<'f> Parser<'f> {
         self.kind_(i) == TokenKind::Text
     }
 
-    /// Fecho do grupo aberto em `i`.
+    /// Closer of the group opened at `i`.
     fn pair(&self, i: usize) -> usize {
         let p = self.pairs.get(i).copied().unwrap_or(u32::MAX);
         if p == u32::MAX {
@@ -422,9 +422,9 @@ impl<'f> Parser<'f> {
         }
     }
 
-    /// `isModifier` do fasta (`modifier_context.dart`): os embutidos só são
-    /// modificadores antes de outra palavra (ou de um tipo record seguido de
-    /// nome).
+    /// fasta's `isModifier` (`modifier_context.dart`): built-ins are only
+    /// modifiers before another word (or before a record type followed by a
+    /// name).
     fn modifier(&self, i: usize) -> bool {
         let t = self.txt(i);
         match self.kind_(i) {
@@ -460,8 +460,8 @@ impl<'f> Parser<'f> {
         }
     }
 
-    /// Operador definível pelo usuário começando em `i` e quantos tokens
-    /// nossos ele ocupa (`isUserDefinableOperator`).
+    /// User-definable operator starting at `i` and how many of our tokens it
+    /// takes (`isUserDefinableOperator`).
     fn user_definable_operator(&self, i: usize) -> Option<usize> {
         match self.kind_(i) {
             TokenKind::Op(
@@ -498,7 +498,7 @@ impl<'f> Parser<'f> {
         }
     }
 
-    // ------------------------------------------------------------ erros
+    // --------------------------------------------------------------- errors
 
     fn error_at(&self, i: usize, msg: &str) -> ErroSintaxe {
         token_error(self.source, self.tk(i), msg)
@@ -553,7 +553,7 @@ impl<'f> Parser<'f> {
         }
     }
 
-    /// `ensureIdentifier` para nomes: um identificador (qualquer estilo).
+    /// `ensureIdentifier` for names: an identifier (any style).
     fn expect_ident(&mut self) -> R<usize> {
         if self.ident(self.pos) {
             Ok(self.advance())
@@ -565,8 +565,8 @@ impl<'f> Parser<'f> {
         }
     }
 
-    /// Identificador ou `new` (nas continuações em que o fasta reescreve
-    /// `new` como identificador: `A.new`).
+    /// Identifier or `new` (in the continuations where fasta rewrites `new` as
+    /// an identifier: `A.new`).
     fn expect_ident_or_new(&mut self) -> R<usize> {
         if self.kw(self.pos, Keyword::New) {
             return Ok(self.advance());
@@ -574,9 +574,9 @@ impl<'f> Parser<'f> {
         self.expect_ident()
     }
 
-    /// Nome declarado (variável, parâmetro, função local): além de
-    /// identificador, `await`/`yield` não valem fora de corpo síncrono comum
-    /// (`checkAsyncAwaitYieldAsIdentifier`).
+    /// Declared name (variable, parameter, local function): besides being an
+    /// identifier, `await`/`yield` are not allowed outside a plain synchronous
+    /// body (`checkAsyncAwaitYieldAsIdentifier`).
     fn expect_declared_name(&mut self) -> R<usize> {
         let i = self.expect_ident()?;
         self.check_await_yield(i)?;
@@ -590,7 +590,8 @@ impl<'f> Parser<'f> {
         Ok(())
     }
 
-    /// Anota a fusão do `>` em `i` com os seguintes, formando `target_`.
+    /// Records the merge of the `>` at `i` with the following ones, forming
+    /// `target_`.
     fn merge_greater_at(&mut self, i: usize, target_: &'static str) {
         if target_.starts_with(">>>") {
             self.feature(i, (2, 14), "triple-shift");
@@ -598,8 +599,8 @@ impl<'f> Parser<'f> {
         self.merges.push((i, Merge::Greater(target_)));
     }
 
-    /// Consome um operador definível pelo usuário (nome de `operator` ou de
-    /// símbolo `#`), anotando as fusões necessárias; devolve o token.
+    /// Consumes a user-definable operator (an `operator` name or a `#` symbol),
+    /// recording the needed merges; returns the token.
     fn consume_user_definable_operator(&mut self) -> R<usize> {
         let i = self.pos;
         let Some(n) = self.user_definable_operator(i) else {
@@ -615,11 +616,11 @@ impl<'f> Parser<'f> {
         Ok(i)
     }
 
-    /// Recurso da linguagem que exige a versão `minima`: antes dela o
-    /// analyzer relata `EXPERIMENT_NOT_ENABLED`, que é erro sintático. O
-    /// primeiro erro fica guardado e é devolvido no fim da análise.
-    fn feature(&mut self, i: usize, minima: (u32, u32), name_: &str) {
-        if self.version < minima && self.version_error.is_none() {
+    /// Language feature that requires version `minimum`: before it the analyzer
+    /// reports `EXPERIMENT_NOT_ENABLED`, which is a syntax error. The first
+    /// error is stored and returned at the end of parsing.
+    fn feature(&mut self, i: usize, minimum: (u32, u32), name_: &str) {
+        if self.version < minimum && self.version_error.is_none() {
             self.version_error = Some(self.error_at(
                 i,
                 &format!("This requires the '{name_}' language feature to be enabled."),
@@ -627,9 +628,9 @@ impl<'f> Parser<'f> {
         }
     }
 
-    // ------------------------------------------------------------ nós
+    // ---------------------------------------------------------------- nodes
 
-    /// Cria o nó `node` de `start_` até o último token consumido.
+    /// Creates the node `node` from `start_` up to the last consumed token.
     fn node(&mut self, node: Node, start_: usize) -> NodeId {
         let end = self.pos.saturating_sub(1).max(start_);
         self.tree_.new(node, start_ as Tk, end as Tk)
@@ -655,8 +656,8 @@ impl<'f> Parser<'f> {
         matches!(self.tree_.node(id), Node::SimpleIdentifier { .. })
     }
 
-    /// Roda `f` como sonda: devolve a posição alcançada se `f` teve sucesso
-    /// e desfaz todo efeito (nós, fusões, cursor e estado).
+    /// Runs `f` as a probe: returns the position reached if `f` succeeded and
+    /// undoes every effect (nodes, merges, cursor and state).
     fn probe<T>(&mut self, f: impl FnOnce(&mut Self) -> R<T>) -> Option<usize> {
         let pos = self.pos;
         let nodes = self.tree_.nodes.len();
@@ -694,9 +695,9 @@ impl<'f> Parser<'f> {
     }
 }
 
-/// Entre dois tokens só pode haver brancos e comentários; o scanner do
-/// analyzer relata qualquer outro caractere (`Illegal character`), como o
-/// espaço não separável.
+/// Only whitespace and comments may appear between two tokens; the
+/// analyzer's scanner reports any other character (`Illegal character`),
+/// like the non-breaking space.
 fn check_gaps(source: &str, toks: &Tokens) -> R<()> {
     let b = source.as_bytes();
     let mut ant = 0usize;

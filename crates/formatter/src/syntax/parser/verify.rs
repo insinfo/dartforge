@@ -1,23 +1,22 @@
-//! Conferências da árvore produzida pelo parser e despejo textual.
+//! Checks on the tree produced by the parser, and a text dump.
 //!
-//! * [`tokens_mut`]/[`tokens_of_node`] enumeram os campos de token de cada nó
-//!   (o equivalente dos `childEntities` que são tokens no analyzer).
-//! * [`check`] verifica a cobertura: todo token (menos o fim do arquivo,
-//!   as vírgulas e os `.` entre componentes de nomes qualificados e
-//!   símbolos) é referenciado por exatamente um nó; `start <= end`; e o
-//!   intervalo de cada filho fica dentro do intervalo do pai.
-//! * [`dump`] escreve a árvore no mesmo formato do despejo feito com o
-//!   analyzer, para comparar nó a nó: uma linha por nó em pré-ordem com a
-//!   profundidade, o tipo, os offsets (em bytes) do primeiro e do último
-//!   token e os offsets dos tokens próprios.
+//! * [`tokens_mut`]/[`tokens_of_node`] enumerate the token fields of each node
+//!   (the equivalent of the analyzer's `childEntities` that are tokens).
+//! * [`check`] verifies coverage: every token (except end of file, the
+//!   commas and the `.` between components of qualified names and symbols)
+//!   is referenced by exactly one node; `start <= end`; and each child's
+//!   range lies inside its parent's range.
+//! * [`dump`] writes the tree in the same format as the dump made with the
+//!   analyzer, to compare node by node: one line per node in preorder with
+//!   the depth, the kind, the offsets (in bytes) of the first and last tokens
+//!   and the offsets of the node's own tokens.
 
 use dartforge_frontend::token::Op;
 
 use super::super::tree::{Tree, Node, NodeId, ParameterKind};
 use super::super::token::{TokenKind, Tk, Tokens};
 
-/// Chama `f` para cada campo de token de `node` (mutável), na ordem dos
-/// campos.
+/// Calls `f` for each token field of `node` (mutable), in field order.
 pub fn tokens_mut(node: &mut Node, f: &mut dyn FnMut(&mut Tk)) {
     macro_rules! t {
         ($($x:expr),*) => {{ $( f($x); )* }};
@@ -823,7 +822,7 @@ pub fn tokens_mut(node: &mut Node, f: &mut dyn FnMut(&mut Tk)) {
     }
 }
 
-/// Os tokens próprios de `node`, na ordem dos campos.
+/// The node's own tokens, in field order.
 pub fn tokens_of_node(node: &Node) -> Vec<Tk> {
     let mut c = node.clone();
     let mut v = Vec::new();
@@ -831,23 +830,23 @@ pub fn tokens_of_node(node: &Node) -> Vec<Tk> {
     v
 }
 
-/// Nome da variante (o nome da classe do analyzer).
+/// Variant name (the analyzer class name).
 pub fn node_name(node: &Node) -> String {
     let s = format!("{node:?}");
     s.split([' ', '{', '(']).next().unwrap_or("").to_string()
 }
 
-/// Confere a árvore: cobertura de tokens e limites (ver o módulo).
+/// Checks the tree: token coverage and bounds (see the module docs).
 ///
-/// # Erros
-/// A primeira inconsistência encontrada, descrita em texto.
+/// # Errors
+/// The first inconsistency found, described as text.
 pub fn check(tokens: &Tokens, tree_: &Tree, source: &str) -> Result<(), String> {
     let n = tokens.list.len();
     let mut usage = vec![0u32; n];
-    let mut visto = vec![false; tree_.nodes.len()];
+    let mut seen = vec![false; tree_.nodes.len()];
     let mut dots_ok = vec![false; n];
     let Some(root) = tree_.root else {
-        return Err("árvore sem raiz".into());
+        return Err("tree without a root".into());
     };
     let mut stack = vec![root];
     let text = |i: usize| -> String {
@@ -856,14 +855,14 @@ pub fn check(tokens: &Tokens, tree_: &Tree, source: &str) -> Result<(), String> 
     };
     while let Some(id) = stack.pop() {
         let i = id.0 as usize;
-        if visto[i] {
-            return Err(format!("nó {} visitado duas vezes", node_name(tree_.node(id))));
+        if seen[i] {
+            return Err(format!("node {} visited twice", node_name(tree_.node(id))));
         }
-        visto[i] = true;
+        seen[i] = true;
         let d = tree_.data(id);
         if d.start > d.end {
             return Err(format!(
-                "{}: início {} depois do fim {}",
+                "{}: start {} after end {}",
                 node_name(&d.node),
                 text(d.start as usize),
                 text(d.end as usize)
@@ -872,13 +871,13 @@ pub fn check(tokens: &Tokens, tree_: &Tree, source: &str) -> Result<(), String> 
         for t in tokens_of_node(&d.node) {
             let t = t as usize;
             if t >= n {
-                return Err(format!("{}: token fora da lista", node_name(&d.node)));
+                return Err(format!("{}: token outside the list", node_name(&d.node)));
             }
             let wildcard =
                 matches!(d.node, Node::WildcardPattern { keyword: Some(k), .. } if k as usize == t);
             if !wildcard && (t < d.start as usize || t > d.end as usize) {
                 return Err(format!(
-                    "{} [{}..{}]: token {} fora do intervalo",
+                    "{} [{}..{}]: token {} outside the range",
                     node_name(&d.node),
                     text(d.start as usize),
                     text(d.end as usize),
@@ -905,7 +904,7 @@ pub fn check(tokens: &Tokens, tree_: &Tree, source: &str) -> Result<(), String> 
             let fd = tree_.data(f);
             if fd.start < d.start || fd.end > d.end {
                 return Err(format!(
-                    "{} [{}..{}] fora de {} [{}..{}]",
+                    "{} [{}..{}] outside {} [{}..{}]",
                     node_name(&fd.node),
                     text(fd.start as usize),
                     text(fd.end as usize),
@@ -915,7 +914,7 @@ pub fn check(tokens: &Tokens, tree_: &Tree, source: &str) -> Result<(), String> 
                 ));
             }
             if fd.parent != Some(id) {
-                return Err(format!("{}: pai incorreto", node_name(&fd.node)));
+                return Err(format!("{}: wrong parent", node_name(&fd.node)));
             }
             stack.push(f);
         }
@@ -926,20 +925,20 @@ pub fn check(tokens: &Tokens, tree_: &Tree, source: &str) -> Result<(), String> 
             continue;
         }
         if u > 1 {
-            return Err(format!("token {} referenciado {} vezes", text(i), u));
+            return Err(format!("token {} referenced {} times", text(i), u));
         }
         if u == 0 {
-            let livre = t.kind_ == TokenKind::Op(Op::Comma)
+            let free = t.kind_ == TokenKind::Op(Op::Comma)
                 || (t.kind_ == TokenKind::Op(Op::Dot) && dots_ok[i]);
-            if !livre {
-                return Err(format!("token {} não referenciado", text(i)));
+            if !free {
+                return Err(format!("token {} not referenced", text(i)));
             }
         }
     }
     Ok(())
 }
 
-/// Despeja a árvore no formato do oráculo (ver o módulo).
+/// Dumps the tree in the oracle format (see the module docs).
 pub fn dump(tokens: &Tokens, tree_: &Tree) -> String {
     let mut s = String::new();
     if let Some(r) = tree_.root {

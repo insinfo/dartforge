@@ -1,15 +1,15 @@
-//! Varredura do parser sobre os `.dart` do repositório e da `lib/` do SDK
-//! (ignorada por padrão: depende do SDK instalado e leva alguns segundos).
+//! Parser sweep over the `.dart` files of the repository and of the SDK's
+//! `lib/` (ignored by default: it depends on the installed SDK and takes a
+//! few seconds).
 //!
 //! ```text
-//! cargo test -p dartforge-formatter --test parser_varredura -- --ignored --nocapture
+//! cargo test -p dartforge-formatter --test parser_sweep -- --ignored --nocapture
 //! ```
 //!
-//! Confere, para todo arquivo aceito, a cobertura de tokens
-//! ([`verify::check`]); exige que toda a `lib/` do SDK 3.6.2 (que o
-//! `dart format` aceita por inteiro) seja aceita. A comparação nó a nó com o
-//! analyzer fica no exemplo `parser_varredura --dump` mais o despejo do
-//! analyzer (ver o relatório da tarefa).
+//! For every accepted file, checks token coverage ([`verify::check`]); requires
+//! the whole `lib/` of SDK 3.6.2 (which `dart format` accepts entirely) to be
+//! accepted. The node-by-node comparison with the analyzer lives in the
+//! `parser_sweep --dump` example plus the analyzer dump (see the task report).
 
 use std::path::{Path, PathBuf};
 
@@ -34,7 +34,7 @@ fn collect(path: &Path, output: &mut Vec<PathBuf>) {
     }
 }
 
-/// (aceitos, recusados, falhas de cobertura com mensagens).
+/// (accepted, rejected, coverage failures with messages).
 fn sweep(root: &Path) -> (usize, Vec<String>, Vec<String>) {
     let mut files = Vec::new();
     collect(root, &mut files);
@@ -57,12 +57,12 @@ fn sweep(root: &Path) -> (usize, Vec<String>, Vec<String>) {
 }
 
 #[test]
-#[ignore = "varre o repositório e o SDK instalado"]
+#[ignore = "sweeps the repository and the installed SDK"]
 fn sweep_of_repository_and_sdk() {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let (ok, rejected, failures) = sweep(&repo);
     eprintln!(
-        "repositório: {ok} aceitos, {} recusados, {} falhas de cobertura",
+        "repository: {ok} accepted, {} rejected, {} coverage failures",
         rejected.len(),
         failures.len()
     );
@@ -73,7 +73,7 @@ fn sweep_of_repository_and_sdk() {
     if sdk.is_dir() {
         let (ok, rejected, failures) = sweep(&sdk);
         eprintln!(
-            "sdk: {ok} aceitos, {} recusados, {} falhas de cobertura",
+            "sdk: {ok} accepted, {} rejected, {} coverage failures",
             rejected.len(),
             failures.len()
         );

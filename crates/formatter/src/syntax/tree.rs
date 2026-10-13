@@ -1,59 +1,58 @@
-//! Árvore sintática concreta no formato do AST do analyzer 3.6
-//! (`package:analyzer/dart/ast/ast.dart`), que é o que o `dart_style`
-//! percorre.
+//! Concrete syntax tree in the shape of the analyzer 3.6 AST
+//! (`package:analyzer/dart/ast/ast.dart`), which is what `dart_style` walks.
 //!
-//! Os nomes das variantes e dos campos são os das classes e getters do
-//! analyzer (em `snake_case`), para que o porte do `SourceVisitor` possa ser
-//! conferido linha a linha contra o original. Cada nó guarda os índices dos
-//! seus tokens ([`Tk`]) e dos filhos ([`NodeId`]); o pai, o primeiro e o último
-//! token ficam em [`NodeData`].
+//! Variant and field names are those of the analyzer classes and getters
+//! (in `snake_case`), so that the `SourceVisitor` port can be checked line by
+//! line against the original. Each node stores the indices of its tokens
+//! ([`Tk`]) and of its children ([`NodeId`]); the parent and the first and
+//! last tokens live in [`NodeData`].
 //!
-//! Formas que o parser do analyzer (fasta + `AstBuilder`, sem resolução)
-//! produz e que o formatador distingue:
+//! Shapes that the analyzer parser (fasta + `AstBuilder`, without
+//! resolution) produces and that the formatter tells apart:
 //!
-//! * `foo()` e `a.foo()` são [`Node::MethodInvocation`]; `a()()` e `(a)()` são
-//!   [`Node::FunctionExpressionInvocation`]; `new A()`, `const A()` e
-//!   `A<T>.name_()` são [`Node::InstanceCreationExpression`].
-//! * `a.b` com `a` identificador simples é [`Node::PrefixedIdentifier`];
-//!   qualquer outro acesso (`a.b.c`, `a?.b`, `(a).b`, `this.x`) é
+//! * `foo()` and `a.foo()` are [`Node::MethodInvocation`]; `a()()` and
+//!   `(a)()` are [`Node::FunctionExpressionInvocation`]; `new A()`,
+//!   `const A()` and `A<T>.name()` are [`Node::InstanceCreationExpression`].
+//! * `a.b` with `a` a simple identifier is a [`Node::PrefixedIdentifier`];
+//!   any other access (`a.b.c`, `a?.b`, `(a).b`, `this.x`) is a
 //!   [`Node::PropertyAccess`].
-//! * Numa cascata, cada seção é a expressão com o alvo vazio: `..a` é
-//!   `PropertyAccess(target: None, operator: ..)`, `..f()` é
-//!   `MethodInvocation(target: None)`, `..[0]` é `IndexExpression(target:
+//! * In a cascade, each section is the expression with an empty target:
+//!   `..a` is `PropertyAccess(target: None, operator: ..)`, `..f()` is
+//!   `MethodInvocation(target: None)`, `..[0]` is `IndexExpression(target:
 //!   None, period: ..)`.
-//! * `List<int>` em posição de expressão é [`Node::FunctionReference`].
-//! * Parâmetros dentro de `[...]`/`{...}` são sempre embrulhados em
-//!   [`Node::DefaultFormalParameter`], com ou sem valor padrão.
+//! * `List<int>` in expression position is a [`Node::FunctionReference`].
+//! * Parameters inside `[...]`/`{...}` are always wrapped in a
+//!   [`Node::DefaultFormalParameter`], with or without a default value.
 
 use super::token::Tk;
 
-/// Índice de um nó em [`Tree::nodes`].
+/// Index of a node in [`Tree::nodes`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct NodeId(pub u32);
 
-/// Tipo de parâmetro formal, pela posição na lista.
+/// Formal parameter kind, by its position in the list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParameterKind {
-    /// Posicional obrigatório.
+    /// Required positional.
     Required,
-    /// Posicional opcional (`[...]`).
+    /// Optional positional (`[...]`).
     OptionalPositional,
-    /// Nomeado (`{...}`), obrigatório ou não.
+    /// Named (`{...}`), required or not.
     Named,
 }
 
-/// Um nó da árvore e suas ligações.
+/// A tree node and its links.
 #[derive(Debug, Clone)]
 pub struct NodeData {
     pub node: Node,
     pub parent: Option<NodeId>,
-    /// `beginToken` do analyzer (sem o comentário de documentação).
+    /// The analyzer's `beginToken` (without the doc comment).
     pub start: Tk,
     /// `endToken` do analyzer.
     pub end: Tk,
 }
 
-/// A árvore de uma unidade de compilação; a raiz é o último nó criado.
+/// The tree of a compilation unit; the root is the last node created.
 #[derive(Debug, Clone, Default)]
 pub struct Tree {
     pub nodes: Vec<NodeData>,
@@ -61,17 +60,17 @@ pub struct Tree {
 }
 
 impl Tree {
-    /// O nó `id`.
+    /// Node `id`.
     pub fn node(&self, id: NodeId) -> &Node {
         &self.nodes[id.0 as usize].node
     }
 
-    /// Os dados de ligação de `id`.
+    /// The link data of `id`.
     pub fn data(&self, id: NodeId) -> &NodeData {
         &self.nodes[id.0 as usize]
     }
 
-    /// O pai de `id`.
+    /// The parent of `id`.
     pub fn parent(&self, id: NodeId) -> Option<NodeId> {
         self.nodes[id.0 as usize].parent
     }
@@ -86,7 +85,7 @@ impl Tree {
         self.nodes[id.0 as usize].end
     }
 
-    /// Acrescenta um nó (sem pai ainda) e devolve seu índice.
+    /// Appends a node (without a parent yet) and returns its index.
     pub fn new(&mut self, node: Node, start: Tk, end: Tk) -> NodeId {
         self.nodes.push(NodeData {
             node,
@@ -97,7 +96,7 @@ impl Tree {
         NodeId(self.nodes.len() as u32 - 1)
     }
 
-    /// Preenche o pai de todos os nós a partir dos filhos de cada um.
+    /// Fills in every node's parent from each node's children.
     pub fn link_parents(&mut self) {
         for i in 0..self.nodes.len() {
             let mut children = Vec::new();
@@ -109,31 +108,31 @@ impl Tree {
     }
 }
 
-/// Os nós do AST do analyzer que o formatador visita.
+/// The analyzer AST nodes the formatter visits.
 ///
-/// Campos `Option<Tk>` são tokens opcionais; `Vec<NodeId>` são `NodeList`s.
-/// `metadata` são as anotações ([`Node::Annotation`]) do nó.
+/// `Option<Tk>` fields are optional tokens; `Vec<NodeId>` are `NodeList`s.
+/// `metadata` are the node's annotations ([`Node::Annotation`]).
 #[derive(Debug, Clone)]
 pub enum Node {
-    // ---------------------------------------------------------------- unidade
+    // ------------------------------------------------------------------- unit
     CompilationUnit {
         script_tag: Option<Tk>,
         directives: Vec<NodeId>,
         declarations: Vec<NodeId>,
     },
 
-    // -------------------------------------------------------------- diretivas
+    // ------------------------------------------------------------- directives
     LibraryDirective {
         metadata: Vec<NodeId>,
         library_keyword: Tk,
-        /// [`Node::LibraryIdentifier`]; ausente em `library;`.
+        /// [`Node::LibraryIdentifier`]; absent in `library;`.
         name2: Option<NodeId>,
         semicolon: Tk,
     },
     ImportDirective {
         metadata: Vec<NodeId>,
         import_keyword: Tk,
-        /// Literal de string.
+        /// String literal.
         uri: NodeId,
         configurations: Vec<NodeId>,
         deferred_keyword: Option<Tk>,
@@ -161,9 +160,9 @@ pub enum Node {
         metadata: Vec<NodeId>,
         part_keyword: Tk,
         of_keyword: Tk,
-        /// [`Node::LibraryIdentifier`] em `part of a.b;`.
+        /// [`Node::LibraryIdentifier`] in `part of a.b;`.
         library_name: Option<NodeId>,
-        /// Literal de string em `part of 'a.dart';`.
+        /// String literal in `part of 'a.dart';`.
         uri: Option<NodeId>,
         semicolon: Tk,
     },
@@ -178,7 +177,7 @@ pub enum Node {
         uri: NodeId,
     },
     DottedName {
-        /// [`Node::SimpleIdentifier`]s; os `.` ficam entre eles no fluxo.
+        /// [`Node::SimpleIdentifier`]s; the `.` sit between them in the stream.
         components: Vec<NodeId>,
     },
     LibraryIdentifier {
@@ -193,7 +192,7 @@ pub enum Node {
         hidden_names: Vec<NodeId>,
     },
 
-    // ------------------------------------------------------------ declarações
+    // ----------------------------------------------------------- declarations
     ClassDeclaration {
         metadata: Vec<NodeId>,
         augment_keyword: Option<Tk>,
@@ -256,7 +255,7 @@ pub enum Node {
         extension_keyword: Tk,
         name: Option<Tk>,
         type_parameters: Option<NodeId>,
-        /// [`Node::ExtensionOnClause`]; ausente só com erro.
+        /// [`Node::ExtensionOnClause`]; absent only on error.
         on_clause: Option<NodeId>,
         left_bracket: Tk,
         members: Vec<NodeId>,
@@ -305,7 +304,7 @@ pub enum Node {
         left_bracket: Tk,
         /// [`Node::EnumConstantDeclaration`]s.
         constants: Vec<NodeId>,
-        /// O `;` depois das constantes, se houver.
+        /// The `;` after the constants, if any.
         semicolon: Option<Tk>,
         members: Vec<NodeId>,
         right_bracket: Tk,
@@ -327,7 +326,7 @@ pub enum Node {
         /// [`Node::SimpleIdentifier`].
         name: NodeId,
     },
-    /// `class A = B with C;` (o "typedef_keyword" do analyzer é o `class`).
+    /// `class A = B with C;` (the analyzer's "typedef_keyword" is the `class`).
     ClassTypeAlias {
         metadata: Vec<NodeId>,
         augment_keyword: Option<Tk>,
@@ -347,7 +346,7 @@ pub enum Node {
         implements_clause: Option<NodeId>,
         semicolon: Tk,
     },
-    /// `typedef int F(int a);` (sintaxe antiga).
+    /// `typedef int F(int a);` (old syntax).
     FunctionTypeAlias {
         metadata: Vec<NodeId>,
         augment_keyword: Option<Tk>,
@@ -374,7 +373,7 @@ pub enum Node {
         augment_keyword: Option<Tk>,
         external_keyword: Option<Tk>,
         return_type: Option<NodeId>,
-        /// `get` ou `set`.
+        /// `get` or `set`.
         property_keyword: Option<Tk>,
         name: Tk,
         /// [`Node::FunctionExpression`].
@@ -389,22 +388,22 @@ pub enum Node {
         semicolon: Tk,
     },
 
-    // ---------------------------------------------------------------- membros
+    // ---------------------------------------------------------------- members
     ConstructorDeclaration {
         metadata: Vec<NodeId>,
         augment_keyword: Option<Tk>,
         external_keyword: Option<Tk>,
         const_keyword: Option<Tk>,
         factory_keyword: Option<Tk>,
-        /// [`Node::SimpleIdentifier`] com o nome da classe.
+        /// [`Node::SimpleIdentifier`] with the class name.
         return_type: NodeId,
         period: Option<Tk>,
         name: Option<Tk>,
         parameters: NodeId,
-        /// `:` antes dos inicializadores ou `=` do redirecionamento.
+        /// `:` before the initializers or the `=` of a redirection.
         separator: Option<Tk>,
         initializers: Vec<NodeId>,
-        /// [`Node::ConstructorName`] de `factory A() = B;`.
+        /// [`Node::ConstructorName`] of `factory A() = B;`.
         redirected_constructor: Option<NodeId>,
         body: NodeId,
     },
@@ -412,14 +411,14 @@ pub enum Node {
         metadata: Vec<NodeId>,
         augment_keyword: Option<Tk>,
         external_keyword: Option<Tk>,
-        /// `static` ou `abstract`.
+        /// `static` or `abstract`.
         modifier_keyword: Option<Tk>,
         return_type: Option<NodeId>,
         property_keyword: Option<Tk>,
         operator_keyword: Option<Tk>,
         name: Tk,
         type_parameters: Option<NodeId>,
-        /// Ausente em getters.
+        /// Absent in getters.
         parameters: Option<NodeId>,
         body: NodeId,
     },
@@ -463,9 +462,9 @@ pub enum Node {
         right_parenthesis: Tk,
     },
 
-    // ------------------------------------------------------------- corpos
+    // ----------------------------------------------------------------- bodies
     BlockFunctionBody {
-        /// `async` ou `sync`.
+        /// `async` or `sync`.
         keyword: Option<Tk>,
         star: Option<Tk>,
         /// [`Node::Block`].
@@ -487,7 +486,7 @@ pub enum Node {
         semicolon: Tk,
     },
 
-    // ----------------------------------------------------------- parâmetros
+    // ------------------------------------------------------------- parameters
     FormalParameterList {
         left_parenthesis: Tk,
         parameters: Vec<NodeId>,
@@ -499,7 +498,7 @@ pub enum Node {
         metadata: Vec<NodeId>,
         covariant_keyword: Option<Tk>,
         required_keyword: Option<Tk>,
-        /// `final`, `const` ou `var`.
+        /// `final`, `const` or `var`.
         keyword: Option<Tk>,
         type_: Option<NodeId>,
         name: Option<Tk>,
@@ -546,15 +545,15 @@ pub enum Node {
     },
     DefaultFormalParameter {
         parameter: NodeId,
-        /// `=` ou `:`.
+        /// `=` or `:`.
         separator: Option<Tk>,
         default_value: Option<NodeId>,
         kind: ParameterKind,
     },
 
-    // ---------------------------------------------------------------- tipos
+    // ------------------------------------------------------------------ types
     NamedType {
-        /// `prefix` e `.` de `p.Type`.
+        /// `prefix` and `.` of `p.Type`.
         import_prefix: Option<(Tk, Tk)>,
         name2: Tk,
         type_arguments: Option<NodeId>,
@@ -607,10 +606,10 @@ pub enum Node {
         bound: Option<NodeId>,
     },
 
-    // ----------------------------------------------------------- anotações
+    // ------------------------------------------------------------ annotations
     Annotation {
         at_sign: Tk,
-        /// [`Node::SimpleIdentifier`] ou [`Node::PrefixedIdentifier`].
+        /// [`Node::SimpleIdentifier`] or [`Node::PrefixedIdentifier`].
         name: NodeId,
         type_arguments: Option<NodeId>,
         period: Option<Tk>,
@@ -618,7 +617,7 @@ pub enum Node {
         arguments: Option<NodeId>,
     },
 
-    // ----------------------------------------------------------- instruções
+    // ------------------------------------------------------------- statements
     Block {
         left_bracket: Tk,
         statements: Vec<NodeId>,
@@ -626,7 +625,7 @@ pub enum Node {
     },
     ExpressionStatement {
         expression: NodeId,
-        /// Ausente só no corpo `=>`... nunca em código válido.
+        /// Absent only in the `=>` body... never in valid code.
         semicolon: Option<Tk>,
     },
     VariableDeclarationStatement {
@@ -634,11 +633,11 @@ pub enum Node {
         semicolon: Tk,
     },
     VariableDeclarationList {
-        /// Anotações de declarações locais; vazio em campos e variáveis de
-        /// topo (lá elas ficam na declaração).
+        /// Annotations of local declarations; empty for fields and top-level
+        /// variables (there they live on the declaration).
         metadata: Vec<NodeId>,
         late_keyword: Option<Tk>,
-        /// `final`, `const` ou `var`.
+        /// `final`, `const` or `var`.
         keyword: Option<Tk>,
         type_: Option<NodeId>,
         /// [`Node::VariableDeclaration`]s.
@@ -656,7 +655,7 @@ pub enum Node {
         if_keyword: Tk,
         left_parenthesis: Tk,
         expression: NodeId,
-        /// [`Node::CaseClause`] de `if (x case P)`.
+        /// [`Node::CaseClause`] of `if (x case P)`.
         case_clause: Option<NodeId>,
         right_parenthesis: Tk,
         then_statement: NodeId,
@@ -722,7 +721,7 @@ pub enum Node {
     },
     ForEachPartsWithPattern {
         metadata: Vec<NodeId>,
-        /// `var` ou `final`.
+        /// `var` or `final`.
         keyword: Tk,
         pattern: NodeId,
         in_keyword: Tk,
@@ -761,7 +760,7 @@ pub enum Node {
         members: Vec<NodeId>,
         right_bracket: Tk,
     },
-    /// `case expr:` em biblioteca sem padrões (não ocorre em 3.6).
+    /// `case expr:` in a library without patterns (does not occur in 3.6).
     SwitchCase {
         labels: Vec<NodeId>,
         keyword: Tk,
@@ -855,14 +854,14 @@ pub enum Node {
     },
     PatternVariableDeclaration {
         metadata: Vec<NodeId>,
-        /// `var` ou `final`.
+        /// `var` or `final`.
         keyword: Tk,
         pattern: NodeId,
         equals: Tk,
         expression: NodeId,
     },
 
-    // ---------------------------------------------------------- expressões
+    // ------------------------------------------------------------ expressions
     AdjacentStrings {
         strings: Vec<NodeId>,
     },
@@ -924,16 +923,16 @@ pub enum Node {
     },
     IndexExpression {
         target: Option<NodeId>,
-        /// `..` ou `?..` quando é seção de cascata.
+        /// `..` or `?..` when it is a cascade section.
         period: Option<Tk>,
-        /// `?` de `a?[i]`.
+        /// `?` of `a?[i]`.
         question: Option<Tk>,
         left_bracket: Tk,
         index: NodeId,
         right_bracket: Tk,
     },
     InstanceCreationExpression {
-        /// `new` ou `const`.
+        /// `new` or `const`.
         keyword: Option<Tk>,
         /// [`Node::ConstructorName`].
         constructor_name: NodeId,
@@ -973,7 +972,7 @@ pub enum Node {
     },
     MethodInvocation {
         target: Option<NodeId>,
-        /// `.`, `?.`, `..` ou `?..`.
+        /// `.`, `?.`, `..` or `?..`.
         operator: Option<Tk>,
         /// [`Node::SimpleIdentifier`].
         method_name: NodeId,
@@ -1027,12 +1026,12 @@ pub enum Node {
         literal: Tk,
     },
     StringInterpolation {
-        /// [`Node::InterpolationString`] e [`Node::InterpolationExpression`]
-        /// alternados, começando e terminando em texto.
+        /// Alternating [`Node::InterpolationString`] and
+        /// [`Node::InterpolationExpression`], starting and ending with text.
         elements: Vec<NodeId>,
     },
     InterpolationExpression {
-        /// `${` ou `$`.
+        /// `${` or `$`.
         left_bracket: Tk,
         expression: NodeId,
         right_bracket: Option<Tk>,
@@ -1048,7 +1047,7 @@ pub enum Node {
     },
     SymbolLiteral {
         pound_sign: Tk,
-        /// Os componentes; os `.` ficam entre eles no fluxo.
+        /// The components; the `.` sit between them in the stream.
         components: Vec<Tk>,
     },
     ThrowExpression {
@@ -1076,9 +1075,9 @@ pub enum Node {
         right_parenthesis: Tk,
     },
 
-    // ------------------------------------------------- elementos de coleção
+    // ---------------------------------------------------- collection elements
     SpreadElement {
-        /// `...` ou `...?`.
+        /// `...` or `...?`.
         spread_operator: Tk,
         expression: NodeId,
     },
@@ -1101,7 +1100,7 @@ pub enum Node {
         body: NodeId,
     },
 
-    // -------------------------------------------------------------- padrões
+    // --------------------------------------------------------------- patterns
     AssignedVariablePattern {
         name: Tk,
     },
@@ -1202,7 +1201,7 @@ pub enum Node {
 }
 
 impl Node {
-    /// Chama `f` para cada filho, na ordem do texto.
+    /// Calls `f` for each child, in text order.
     pub fn children(&self, f: &mut dyn FnMut(NodeId)) {
         let one = |o: &Option<NodeId>, f: &mut dyn FnMut(NodeId)| {
             if let Some(n) = o {

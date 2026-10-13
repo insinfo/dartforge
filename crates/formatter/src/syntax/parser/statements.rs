@@ -1,7 +1,7 @@
-//! Comandos, blocos, corpos de função e cabeçalhos de `for`
-//! (`parseStatementX`, `parseExpressionStatementOrDeclaration*`,
+//! Statements, blocks, function bodies and `for` headers (fasta's
+//! `parseStatementX`, `parseExpressionStatementOrDeclaration*`,
 //! `parseFunctionBody`, `parseForLoopParts*`, `parseSwitchBlock`,
-//! `parseTryStatement` do fasta), com os nós do `AstBuilder`.
+//! `parseTryStatement`), with the `AstBuilder` nodes.
 
 use dartforge_frontend::token::{Keyword, Op};
 
@@ -12,15 +12,15 @@ use super::patterns::PatternCtx;
 use super::types::MemberKind;
 use super::{AsyncKind, LoopState, Parser, R};
 
-/// Início de uma declaração local: metadata e modificadores já lidos.
+/// Start of a local declaration: metadata and modifiers already read.
 pub(super) struct Decl {
-    /// Primeiro token (metadata ou modificador).
+    /// First token (metadata or modifier).
     pub start: usize,
-    /// Onde começa o tipo.
+    /// Where the type starts.
     pub before_type: usize,
     pub meta: Vec<NodeId>,
     pub late: Option<usize>,
-    /// `var`, `final` ou `const`.
+    /// `var`, `final` or `const`.
     pub vfc: Option<usize>,
     pub ti: Option<TypeInfo>,
 }
@@ -31,15 +31,15 @@ impl Decl {
     }
 }
 
-/// Um membro de `switch` antes dos comandos: rótulos, `case`/`default`,
-/// padrão (ou expressão), dois-pontos e início.
+/// A `switch` member before its statements: labels, `case`/`default`,
+/// pattern (or expression), colon and start.
 type SwitchMember = (Vec<NodeId>, usize, Option<NodeId>, usize, usize);
 
-/// As partes de `assert(...)`: `assert`, `(`, condição, vírgula, mensagem e
+/// The parts of `assert(...)`: `assert`, `(`, condition, comma, message and
 /// `)`.
 pub(super) type AssertParts = (usize, usize, NodeId, Option<usize>, Option<NodeId>, usize);
 
-/// O que `parseExpressionStatementOrDeclaration` encontrou num `for`.
+/// What `parseExpressionStatementOrDeclaration` found in a `for`.
 enum ForStart {
     Expression,
     Declaration(Decl, Option<NodeId>),
@@ -181,7 +181,7 @@ impl Parser<'_> {
         ))
     }
 
-    /// Metadata e modificadores de uma declaração local
+    /// Metadata and modifiers of a local declaration
     /// (`parseExpressionStatementOrDeclaration`).
     fn local_modifiers(&mut self) -> R<Decl> {
         let start = self.pos;
@@ -258,8 +258,9 @@ impl Parser<'_> {
         self.expr_or_decl()
     }
 
-    /// O teste de `parseExpressionStatementOrDeclarationAfterModifiers` para
-    /// `Type? name_`: decide se é declaração ou o início de um condicional.
+    /// The `parseExpressionStatementOrDeclarationAfterModifiers` test for
+    /// `Type? name`: decides whether it is a declaration or the start of a
+    /// conditional.
     fn question_and_conditional(&mut self, ti: TypeInfo) -> R<bool> {
         let next = ti.end_index;
         if !self.looks_like_name(next) {
@@ -281,7 +282,7 @@ impl Parser<'_> {
                 || self.op(after, Op::RParen)))
     }
 
-    /// `parseExpressionStatementOrDeclarationAfterModifiers` (comando).
+    /// `parseExpressionStatementOrDeclarationAfterModifiers` (statement).
     fn expr_or_decl_after_modifier(&mut self, d: Decl) -> R<NodeId> {
         if self.patterns_
             && let Some(v) = d.vfc
@@ -342,7 +343,7 @@ impl Parser<'_> {
         ))
     }
 
-    /// Erros de `var`/tipo ausente ou redundante.
+    /// Errors for a missing or redundant `var`/type.
     fn check_decl(&self, d: &Decl, ti: &TypeInfo) -> R<()> {
         if self.ident(ti.end_index) {
             match d.vfc {
@@ -424,7 +425,7 @@ impl Parser<'_> {
         ))
     }
 
-    /// Função local (`parseNamedFunctionRest` com
+    /// Local function (`parseNamedFunctionRest` with
     /// `isFunctionExpression: false`).
     fn local_function(&mut self, d: Decl, ti: TypeInfo) -> R<NodeId> {
         let start_ = d.start;
@@ -582,7 +583,7 @@ impl Parser<'_> {
         ))
     }
 
-    /// Corpo de laço (`loopState = InsideLoop`).
+    /// Loop body (`loopState = InsideLoop`).
     fn loop_body(&mut self) -> R<NodeId> {
         let salvo = self.loop_;
         self.loop_ = LoopState::Repetition;
@@ -648,7 +649,7 @@ impl Parser<'_> {
         ))
     }
 
-    /// `parseExpressionStatementOrDeclaration` com `forPartsContext`.
+    /// `parseExpressionStatementOrDeclaration` with `forPartsContext`.
     fn for_start(&mut self) -> R<ForStart> {
         let d = self.local_modifiers()?;
         if self.patterns_
@@ -698,10 +699,10 @@ impl Parser<'_> {
         Ok(ForStart::Declaration(d, type_))
     }
 
-    /// O cabeçalho `( ... )` de `for` em comandos e coleções.
+    /// The `( ... )` header of `for` in statements and collections.
     pub(super) fn for_parts(&mut self, await_keyword: Option<usize>) -> R<(usize, NodeId, usize)> {
         let lp = self.expect_op(Op::LParen)?;
-        // `AwaitForNotAsync` não é erro sintático no analyzer.
+        // `AwaitForNotAsync` is not a syntax error in the analyzer.
         let check_await_in = |_: &Self| -> R<()> { Ok(()) };
         match self.for_start()? {
             ForStart::Pattern(meta, keyword, pattern, start_) => {
@@ -867,7 +868,7 @@ impl Parser<'_> {
             }
             self.advance();
         }
-        // `endToken` é a última atualização (sem a vírgula final) ou o `;`.
+        // `endToken` is the last updater (without the trailing comma) or the `;`.
         let end = updaters.last().map_or(r, |&u| self.end(u));
         let node = assemble(l as Tk, condition, r as Tk, updaters);
         Ok(self.node_between(node, start_, end))
@@ -1127,8 +1128,8 @@ impl Parser<'_> {
         Ok(self.node(node, k))
     }
 
-    /// `assert ( condição (, message)? ,? )` — as partes comuns a
-    /// [`Node::AssertStatement`] e [`Node::AssertInitializer`].
+    /// `assert ( condition (, message)? ,? )` — the parts shared by
+    /// [`Node::AssertStatement`] and [`Node::AssertInitializer`].
     pub(super) fn assert_parts(&mut self) -> R<AssertParts> {
         let a = self.expect_kw(Keyword::Assert)?;
         let lp = self.expect_op(Op::LParen)?;
@@ -1170,8 +1171,8 @@ impl Parser<'_> {
         ))
     }
 
-    /// `parseAsyncModifierOpt` e `parseFunctionBody`. `from_expression` é o
-    /// corpo de uma expressão de função (o `=>` não tem `;`).
+    /// `parseAsyncModifierOpt` and `parseFunctionBody`. `from_expression` is the
+    /// body of a function expression (the `=>` has no `;`).
     pub(super) fn function_body_(&mut self, from_expression: bool, allows_abstract: bool) -> R<NodeId> {
         let (async_kind, loop_) = (self.async_kind, self.loop_);
         let r = self.inner_function_body(from_expression, allows_abstract);

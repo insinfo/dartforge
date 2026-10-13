@@ -1,9 +1,9 @@
-//! Unidade de compilação, diretivas e declarações de topo e de membro
-//! (`parseUnit`, `parseTopLevelDeclarationImpl`,
+//! Compilation unit, directives and top-level and member declarations
+//! (fasta's `parseUnit`, `parseTopLevelDeclarationImpl`,
 //! `parseTopLevelKeywordDeclaration`, `parseTopLevelMemberImpl`,
 //! `parseClassOrMixinOrExtensionOrEnumMemberImpl`, `parseMethod`,
 //! `parseFields`, `parseFactoryMethod`, `parseInitializers`, `parseEnum`,
-//! `parseTypedef`, `parseImport`... do fasta), com os nós do `AstBuilder`.
+//! `parseTypedef`, `parseImport`...), with the `AstBuilder` nodes.
 
 use dartforge_frontend::token::{Keyword, Op};
 
@@ -15,7 +15,7 @@ use super::{Parser, R};
 
 /// `DirectiveState` do fasta.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum Estado {
+enum State {
     Unknown,
     Script,
     Library,
@@ -25,7 +25,7 @@ enum Estado {
     Declarations,
 }
 
-/// `DeclarationKind` dos membros.
+/// `DeclarationKind` of the members.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Body {
     Class,
@@ -35,7 +35,7 @@ enum Body {
     Enum,
 }
 
-/// Modificadores lidos (`ModifierContext`).
+/// Modifiers read (`ModifierContext`).
 #[derive(Debug, Default, Clone, Copy)]
 struct Modifiers {
     abstract_: Option<usize>,
@@ -63,17 +63,17 @@ fn tk(o: Option<usize>) -> Option<Tk> {
 impl Parser<'_> {
     /// `parseUnit`.
     pub(super) fn unit(&mut self) -> R<NodeId> {
-        let mut estado = Estado::Unknown;
+        let mut state = State::Unknown;
         let mut script_tag = None;
         if self.kind_(0) == TokenKind::ScriptTag {
             script_tag = Some(0);
-            estado = Estado::Script;
+            state = State::Script;
             self.pos = 1;
         }
         let mut directives = Vec::new();
         let mut declarations = Vec::new();
         while !self.eof(self.pos) {
-            let (directive, id) = self.top_level_declaration(&mut estado)?;
+            let (directive, id) = self.top_level_declaration(&mut state)?;
             if directive {
                 directives.push(id);
             } else {
@@ -102,19 +102,19 @@ impl Parser<'_> {
                 ))
     }
 
-    fn mark_declaration(estado: &mut Estado) {
-        if *estado != Estado::PartOf {
-            *estado = Estado::Declarations;
+    fn mark_declaration(state: &mut State) {
+        if *state != State::PartOf {
+            *state = State::Declarations;
         }
     }
 
     /// `parseTopLevelDeclarationImpl`.
-    fn top_level_declaration(&mut self, estado: &mut Estado) -> R<(bool, NodeId)> {
+    fn top_level_declaration(&mut self, state: &mut State) -> R<(bool, NodeId)> {
         let start_ = self.pos;
         let meta = self.metadata_()?;
         let next = self.pos;
         if self.top_level_word(next) {
-            return self.word_declaration(start_, meta, next, next, [None; 4], estado);
+            return self.word_declaration(start_, meta, next, next, [None; 4], state);
         }
         let beginning = next;
         let mut k = next;
@@ -127,7 +127,7 @@ impl Parser<'_> {
                 || (self.kw(next, Keyword::Final) && !next_class(self, next + 1))
                 || (self.kw(next, Keyword::Const) && !self.kw(next + 1, Keyword::Class))
             {
-                Self::mark_declaration(estado);
+                Self::mark_declaration(state);
                 return Ok((false, self.top_level_member(start_, meta)?));
             }
             while self.modifier(k) {
@@ -137,8 +137,8 @@ impl Parser<'_> {
         let mut extras: [Option<usize>; 4] = [None; 4]; // macro, sealed, base, interface
         let mut modifiers_start = beginning;
         if self.word(k, "macro") && self.kw(k + 1, Keyword::Class) {
-            // O experimento `macros` não está ligado no 3.6: o `AstBuilder`
-            // relata `EXPERIMENT_NOT_ENABLED`, que é erro sintático.
+            // The `macros` experiment is not enabled in 3.6: the `AstBuilder` reports
+            // `EXPERIMENT_NOT_ENABLED`, which is a syntax error.
             return Err(self.error_at(
                 k,
                 "This requires the 'macros' language feature to be enabled.",
@@ -176,10 +176,10 @@ impl Parser<'_> {
             }
         }
         if self.top_level_word(k) {
-            return self.word_declaration(start_, meta, modifiers_start, k, extras, estado);
+            return self.word_declaration(start_, meta, modifiers_start, k, extras, state);
         }
         if self.word_(k) || k != beginning || self.op(k, Op::LParen) {
-            Self::mark_declaration(estado);
+            Self::mark_declaration(state);
             return Ok((false, self.top_level_member(start_, meta)?));
         }
         Err(self.error_at(
@@ -188,8 +188,8 @@ impl Parser<'_> {
         ))
     }
 
-    /// Modificadores de `start` até `end` (exclusivo) aceitos numa
-    /// declaração de palavra-chave de topo.
+    /// Modifiers from `start` up to `end` (exclusive) accepted in a top-level
+    /// keyword declaration.
     fn top_level_modifiers(&mut self, start: usize, end: usize, allowed: &[&str]) -> R<Modifiers> {
         let salvo = self.pos;
         self.pos = start;
@@ -219,7 +219,7 @@ impl Parser<'_> {
         modifiers_start: usize,
         kw: usize,
         extras: [Option<usize>; 4],
-        estado: &mut Estado,
+        state: &mut State,
     ) -> R<(bool, NodeId)> {
         let [macro_, sealed, base, interface] = extras;
         if self.version < (3, 0)
@@ -230,7 +230,7 @@ impl Parser<'_> {
                 "This requires the 'class-modifiers' language feature to be enabled.",
             ));
         }
-        // Os modificadores reconhecidos à parte ficam entre os comuns.
+        // The separately recognized modifiers sit among the common ones.
         let modifiers_end = [macro_, sealed, base, interface]
             .into_iter()
             .flatten()
@@ -239,13 +239,13 @@ impl Parser<'_> {
             .max(modifiers_start);
         let text = self.txt(kw);
         if self.kw(kw, Keyword::Class) {
-            Self::mark_declaration(estado);
+            Self::mark_declaration(state);
             let m = self.top_level_modifiers(modifiers_start, modifiers_end, &["abstract", "augment", "final"])?;
             self.pos = kw;
             return Ok((false, self.class(start_, meta, m, extras, None)?));
         }
         if self.kw(kw, Keyword::Enum) {
-            Self::mark_declaration(estado);
+            Self::mark_declaration(state);
             if base.is_some() || sealed.is_some() || interface.is_some() {
                 return Err(self.error_at(
                     kw,
@@ -267,25 +267,25 @@ impl Parser<'_> {
                 }
             }
         }
-        let member = |p: &mut Self, estado: &mut Estado, meta: Vec<NodeId>| -> R<(bool, NodeId)> {
-            Self::mark_declaration(estado);
+        let member = |p: &mut Self, state: &mut State, meta: Vec<NodeId>| -> R<(bool, NodeId)> {
+            Self::mark_declaration(state);
             p.pos = modifiers_start;
             Ok((false, p.top_level_member(start_, meta)?))
         };
         if (self.op(nv, Op::LParen) || self.op(nv, Op::Dot)) && !record_typedef {
-            return member(self, estado, meta);
+            return member(self, state, meta);
         }
         if self.op(nv, Op::Lt) {
             if text == "extension"
                 && let Some(a) = self.type_args_lt(nv, true)
                 && self.word(a.end_index, "on")
             {
-                Self::mark_declaration(estado);
+                Self::mark_declaration(state);
                 let m = self.top_level_modifiers(modifiers_start, kw, &["augment"])?;
                 self.pos = kw;
                 return Ok((false, self.extension(start_, meta, m)?));
             }
-            return member(self, estado, meta);
+            return member(self, state, meta);
         }
         if base.is_some() && text != "mixin"
             || sealed.is_some()
@@ -300,17 +300,17 @@ impl Parser<'_> {
                 self.pos = kw;
                 let d = match text {
                     "import" => {
-                        self.check_import_export(estado, kw)?;
+                        self.check_import_export(state, kw)?;
                         self.import(start_, meta)?
                     }
                     "export" => {
-                        self.check_import_export(estado, kw)?;
+                        self.check_import_export(state, kw)?;
                         self.export(start_, meta)?
                     }
-                    "part" => self.part(start_, meta, estado)?,
+                    "part" => self.part(start_, meta, state)?,
                     _ => {
-                        if *estado < Estado::Library {
-                            *estado = Estado::Library;
+                        if *state < State::Library {
+                            *state = State::Library;
                         } else {
                             return Err(self.error_at(
                                 kw,
@@ -323,14 +323,14 @@ impl Parser<'_> {
                 Ok((true, d))
             }
             "typedef" => {
-                Self::mark_declaration(estado);
+                Self::mark_declaration(state);
                 let m = self.top_level_modifiers(modifiers_start, kw, &["augment"])?;
                 self.pos = kw;
                 Ok((false, self.alias(start_, meta, m)?))
             }
             "mixin" => {
                 if self.kw(nv, Keyword::Class) {
-                    Self::mark_declaration(estado);
+                    Self::mark_declaration(state);
                     if sealed.is_some() || interface.is_some() {
                         return Err(self.error_at(
                             kw,
@@ -341,13 +341,13 @@ impl Parser<'_> {
                     self.pos = nv;
                     return Ok((false, self.class(start_, meta, m, extras, Some(kw))?));
                 }
-                Self::mark_declaration(estado);
+                Self::mark_declaration(state);
                 let m = self.top_level_modifiers(modifiers_start, modifiers_end, &["augment"])?;
                 self.pos = kw;
                 Ok((false, self.mixin(start_, meta, m, base)?))
             }
             "extension" => {
-                Self::mark_declaration(estado);
+                Self::mark_declaration(state);
                 let m = self.top_level_modifiers(modifiers_start, kw, &["augment"])?;
                 self.pos = kw;
                 Ok((false, self.extension(start_, meta, m)?))
@@ -356,27 +356,27 @@ impl Parser<'_> {
         }
     }
 
-    fn check_import_export(&self, estado: &mut Estado, kw: usize) -> R<()> {
-        match *estado {
-            Estado::Unknown | Estado::Script | Estado::Library | Estado::ImportExport => {
-                *estado = Estado::ImportExport;
+    fn check_import_export(&self, state: &mut State, kw: usize) -> R<()> {
+        match *state {
+            State::Unknown | State::Script | State::Library | State::ImportExport => {
+                *state = State::ImportExport;
                 Ok(())
             }
-            Estado::Part => Err(self.error_at(
+            State::Part => Err(self.error_at(
                 kw,
                 "Import and export directives must come before part directives.",
             )),
-            Estado::PartOf => Err(self.error_at(
+            State::PartOf => Err(self.error_at(
                 kw,
                 "The part-of directive must be the only directive in a part.",
             )),
-            Estado::Declarations => {
+            State::Declarations => {
                 Err(self.error_at(kw, "Directives must appear before any declarations."))
             }
         }
     }
 
-    /// URI: um literal de string (`ensureLiteralString`).
+    /// URI: a string literal (`ensureLiteralString`).
     fn uri(&mut self) -> R<NodeId> {
         if !self.text(self.pos) {
             return Err(self.error("Expected a string literal."));
@@ -405,7 +405,7 @@ impl Parser<'_> {
         ))
     }
 
-    /// `a.b.c` como [`Node::LibraryIdentifier`] (ou [`Node::DottedName`]).
+    /// `a.b.c` as a [`Node::LibraryIdentifier`] (or [`Node::DottedName`]).
     fn qualified_name(&mut self, library: bool) -> R<NodeId> {
         let start_ = self.pos;
         let mut components = Vec::new();
@@ -457,7 +457,7 @@ impl Parser<'_> {
 
     /// `parseCombinatorStar`.
     fn combinators_(&mut self, v: &mut Vec<NodeId>) -> R<bool> {
-        let mut algum = false;
+        let mut any_ = false;
         while self.word(self.pos, "show") || self.word(self.pos, "hide") {
             let k = self.advance();
             let mut names = Vec::new();
@@ -481,13 +481,13 @@ impl Parser<'_> {
                 }
             };
             v.push(self.node(node, k));
-            algum = true;
+            any_ = true;
         }
-        Ok(algum)
+        Ok(any_)
     }
 
-    /// `parseImport` com a recuperação de cláusulas fora de ordem
-    /// (`parseImportRecovery`) nos casos que o fasta aceita sem erro.
+    /// `parseImport` with the recovery of out-of-order clauses
+    /// (`parseImportRecovery`) in the cases fasta accepts without error.
     fn import(&mut self, start_: usize, metadata: Vec<NodeId>) -> R<NodeId> {
         let i = self.advance();
         if self.word(self.pos, "augment") {
@@ -589,16 +589,16 @@ impl Parser<'_> {
     }
 
     /// `parsePartOrPartOf`.
-    fn part(&mut self, start_: usize, metadata: Vec<NodeId>, estado: &mut Estado) -> R<NodeId> {
+    fn part(&mut self, start_: usize, metadata: Vec<NodeId>, state: &mut State) -> R<NodeId> {
         let p = self.advance();
         if self.word(self.pos, "of") {
-            if *estado != Estado::Unknown {
+            if *state != State::Unknown {
                 return Err(self.error_at(
                     p,
                     "The part-of directive must be the only directive in a part.",
                 ));
             }
-            *estado = Estado::PartOf;
+            *state = State::PartOf;
             let o = self.advance();
             let (library_name, uri) = if self.ident(self.pos) {
                 (Some(self.qualified_name(true)?), None)
@@ -618,17 +618,17 @@ impl Parser<'_> {
                 start_,
             ));
         }
-        match *estado {
-            Estado::PartOf => {
+        match *state {
+            State::PartOf => {
                 return Err(self.error_at(
                     p,
                     "The part-of directive must be the only directive in a part.",
                 ));
             }
-            Estado::Declarations => {
+            State::Declarations => {
                 return Err(self.error_at(p, "Directives must appear before any declarations."));
             }
-            _ => *estado = Estado::Part,
+            _ => *state = State::Part,
         }
         let uri = self.uri()?;
         if self.kw(self.pos, Keyword::If) {
@@ -646,8 +646,8 @@ impl Parser<'_> {
         ))
     }
 
-    /// Port de `ModifierContext._parseModifiers`: lê modificadores em
-    /// qualquer ordem, com os erros de ordem e conflito do fasta.
+    /// Port of `ModifierContext._parseModifiers`: reads modifiers in any order,
+    /// with fasta's order and conflict errors.
     fn collect_modifiers(&mut self, m: &mut Modifiers) -> R<()> {
         while self.modifier(self.pos) {
             let i = self.pos;
@@ -759,7 +759,7 @@ impl Parser<'_> {
         Ok(())
     }
 
-    /// `parseClassOrNamedMixinApplication`; `self.pos` está no `class`.
+    /// `parseClassOrNamedMixinApplication`; `self.pos` is at the `class`.
     fn class(
         &mut self,
         start_: usize,
@@ -908,7 +908,7 @@ impl Parser<'_> {
         ))
     }
 
-    /// `implements T, U` opcional.
+    /// Optional `implements T, U`.
     fn implements_clause_(&mut self) -> R<Option<NodeId>> {
         if !self.word(self.pos, "implements") {
             return Ok(None);
@@ -948,7 +948,7 @@ impl Parser<'_> {
         Ok((lb, members_, rb))
     }
 
-    /// `parseMixin`; `self.pos` está no `mixin`.
+    /// `parseMixin`; `self.pos` is at the `mixin`.
     fn mixin(&mut self, start_: usize, metadata: Vec<NodeId>, m: Modifiers, base: Option<usize>) -> R<NodeId> {
         if m.final_.is_some() {
             return Err(self.error_at(
@@ -1004,7 +1004,7 @@ impl Parser<'_> {
         ))
     }
 
-    /// `parseExtension`; `self.pos` está no `extension`.
+    /// `parseExtension`; `self.pos` is at the `extension`.
     fn extension(&mut self, start_: usize, metadata: Vec<NodeId>, m: Modifiers) -> R<NodeId> {
         let e = self.advance();
         self.feature(e, (2, 6), "extension-methods");
@@ -1142,7 +1142,7 @@ impl Parser<'_> {
         ))
     }
 
-    /// `parseEnum`; `self.pos` está no `enum`.
+    /// `parseEnum`; `self.pos` is at the `enum`.
     fn enumeration(&mut self, start_: usize, metadata: Vec<NodeId>, m: Modifiers) -> R<NodeId> {
         let e = self.advance();
         let name = self.expect_ident()?;
@@ -1275,7 +1275,7 @@ impl Parser<'_> {
         ))
     }
 
-    /// `parseTypedef`; `self.pos` está no `typedef`.
+    /// `parseTypedef`; `self.pos` is at the `typedef`.
     fn alias(&mut self, start_: usize, metadata: Vec<NodeId>, m: Modifiers) -> R<NodeId> {
         let td = self.advance();
         let ti = self.type_at(self.pos, false, false, false);
@@ -1506,7 +1506,8 @@ impl Parser<'_> {
         ))
     }
 
-    /// `parseFields` até antes do `;`: o [`Node::VariableDeclarationList`].
+    /// `parseFields` up to just before the `;`: the
+    /// [`Node::VariableDeclarationList`].
     fn fields_(
         &mut self,
         m: &Modifiers,
@@ -1710,8 +1711,8 @@ impl Parser<'_> {
         ))
     }
 
-    /// `parseMethod`: métodos, getters, setters, operadores e construtores
-    /// não-fábrica. `name_` é o índice do nome (ou do `operator`).
+    /// `parseMethod`: methods, getters, setters, operators and non-factory
+    /// constructors. `name_` is the index of the name (or of `operator`).
     #[allow(clippy::too_many_arguments)]
     fn method(
         &mut self,
@@ -1821,7 +1822,7 @@ impl Parser<'_> {
         if self.op(self.pos, Op::Assign) {
             return Err(self.error("Only factory constructor can specify '=' redirection."));
         }
-        // `allowAbstract` do fasta exige corpo síncrono comum.
+        // fasta's `allowAbstract` requires a plain synchronous body.
         let async_kind = self.word(self.pos, "async") || self.word(self.pos, "sync");
         if async_kind && m.external.is_none() {
             let d = if self.op(self.pos + 1, Op::Star) {
@@ -1940,7 +1941,7 @@ impl Parser<'_> {
         ))
     }
 
-    /// `parseFactoryMethod`; `f` é o índice do `factory`.
+    /// `parseFactoryMethod`; `f` is the index of the `factory`.
     fn factory(
         &mut self,
         start_: usize,
@@ -2022,7 +2023,7 @@ impl Parser<'_> {
         ))
     }
 
-    /// `parseInitializers` (depois do `:`).
+    /// `parseInitializers` (after the `:`).
     fn initializers(&mut self) -> R<Vec<NodeId>> {
         let old = self.functions;
         self.functions = false;
@@ -2038,8 +2039,8 @@ impl Parser<'_> {
         Ok(v)
     }
 
-    /// O lado direito de `campo = ...` (o resto de `parseExpression` depois
-    /// do `=` de uma atribuição).
+    /// The right-hand side of `field = ...` (the rest of `parseExpression`
+    /// after the `=` of an assignment).
     fn initializer_right(&mut self) -> R<NodeId> {
         if self.kw(self.pos, Keyword::Throw) {
             return self.expression_without_cascade();

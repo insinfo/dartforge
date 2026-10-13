@@ -1,61 +1,61 @@
-//! Tokens do formatador, no formato que o `dart_style` enxerga: o fluxo do
-//! scanner do analyzer, com os comentários pendurados no token seguinte
+//! Formatter tokens, in the shape `dart_style` sees them: the analyzer
+//! scanner's stream, with comments hanging off the following token
 //! (`precedingComments`).
 //!
-//! A base é o lexer de `dartforge-frontend` ([`dartforge_frontend::lexer`]).
-//! Duas diferenças de contrato são resolvidas aqui:
+//! The base is the `dartforge-frontend` lexer ([`dartforge_frontend::lexer`]).
+//! Two contract differences are resolved here:
 //!
-//! * O lexer do frontend entrega strings interpoladas como trechos
-//!   `StrBegin`/`StrMid`/`StrEnd` que incluem o `${`, o `$` e a `}`. O
-//!   analyzer separa esses delimitadores em tokens próprios
+//! * The frontend lexer delivers interpolated strings as
+//!   `StrBegin`/`StrMid`/`StrEnd` pieces that include the `${`, the `$` and
+//!   the `}`. The analyzer splits those delimiters into tokens of their own
 //!   (`STRING_INTERPOLATION_EXPRESSION`, `STRING_INTERPOLATION_IDENTIFIER`,
-//!   `CLOSE_CURLY_BRACKET`) e o pedaço de texto vira um `STRING` à parte; o
-//!   `SourceVisitor` escreve cada um desses tokens, então eles são separados.
-//! * O lexer do frontend nunca combina `>`; quem compõe `>>`, `>=`, `>>>`,
-//!   `>>=` e `>>>=` é o parser (ver [`Tokens::merge_greater`]), só em
-//!   contexto de expressão, como o parser do fasta faz ao dividir os tokens
-//!   compostos do scanner em contexto de tipo.
+//!   `CLOSE_CURLY_BRACKET`) and the text piece becomes a separate `STRING`;
+//!   the `SourceVisitor` writes each of those tokens, so they are split.
+//! * The frontend lexer never combines `>`; the parser composes `>>`, `>=`,
+//!   `>>>`, `>>=` and `>>>=` (see [`Tokens::merge_greater`]), only in
+//!   expression context, just as fasta's parser splits the scanner's
+//!   composite tokens in type context.
 //!
-//! Os comentários são lidos aqui mesmo, no intervalo entre dois tokens (que
-//! só contém brancos e comentários), com a mesma regra do scanner do fasta:
-//! `//` vai até antes do `\n` ou `\r`, `/*` aninha.
+//! Comments are read right here, in the gap between two tokens (which only
+//! contains whitespace and comments), with the same rule as fasta's scanner:
+//! `//` runs up to the `\n` or `\r`, `/*` nests.
 
 use dartforge_frontend::token::{Keyword, Kind, Op};
 
-/// Índice de um token em [`Tokens::list`].
+/// Index of a token in [`Tokens::list`].
 pub type Tk = u32;
 
-/// Classe do token, no grão de que o formatador precisa.
+/// Token class, at the granularity the formatter needs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TokenKind {
-    /// Identificador, inclusive os embutidos e contextuais (`abstract`,
+    /// Identifier, including built-in and contextual ones (`abstract`,
     /// `async`, `show`…).
     Identifier,
-    /// Palavra reservada.
+    /// Reserved word.
     Reserved(Keyword),
-    /// Literal inteiro.
+    /// Integer literal.
     Integer,
     /// Literal `double`.
     Double,
-    /// Pedaço de string (`STRING` do analyzer): a string inteira quando não
-    /// há interpolação, ou um trecho entre interpolações.
+    /// A string piece (the analyzer's `STRING`): the whole string when there is
+    /// no interpolation, or a piece between interpolations.
     Text,
-    /// `${` que abre uma interpolação.
+    /// `${` that opens an interpolation.
     ExpressionInterpolation,
-    /// `$` antes de um identificador interpolado.
+    /// `$` before an interpolated identifier.
     IdentifierInterpolation,
-    /// Pontuação ou operador simples.
+    /// Punctuation or a simple operator.
     Op(Op),
-    /// `>` composto pelo parser com os seguintes (`>>`, `>=`, `>>>`, `>>=`,
-    /// `>>>=`); o texto vem do intervalo.
+    /// `>` composed by the parser with the following ones (`>>`, `>=`, `>>>`,
+    /// `>>=`, `>>>=`); the text comes from the range.
     ComposedGreater,
-    /// `#!...` na primeira linha.
+    /// `#!...` on the first line.
     ScriptTag,
-    /// Fim do arquivo.
+    /// End of file.
     Eof,
 }
 
-/// Um comentário entre dois tokens.
+/// A comment between two tokens.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Comment {
     pub start: usize,
@@ -64,29 +64,29 @@ pub struct Comment {
     pub is_line: bool,
 }
 
-/// Token com posição em bytes e os comentários que o precedem.
+/// Token with a byte position and the comments that precede it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Token {
     pub kind_: TokenKind,
     pub start: usize,
     pub end: usize,
-    /// O próximo token começa em `end` (sem branco nem comentário).
+    /// The next token starts at `end` (no whitespace or comment in between).
     pub glued: bool,
-    /// Faixa em [`Tokens::comments`] com os comentários antes deste token.
+    /// Range in [`Tokens::comments`] with the comments before this token.
     pub comments: (u32, u32),
 }
 
-/// Erro de sintaxe detectado ao ler os tokens ou a árvore.
+/// Syntax error detected while reading the tokens or the tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ErroSintaxe {
-    /// Posição em bytes na fonte.
+    /// Byte position in the source.
     pub posicao: usize,
-    /// Comprimento em bytes do trecho apontado (pelo menos 1).
+    /// Length in bytes of the highlighted excerpt (at least 1).
     pub comprimento: usize,
     pub mensagem: String,
 }
 
-/// O fluxo de tokens de uma unidade e seus comentários.
+/// The token stream of a unit and its comments.
 #[derive(Debug, Clone)]
 pub struct Tokens {
     pub list: Vec<Token>,
@@ -94,21 +94,21 @@ pub struct Tokens {
 }
 
 impl Tokens {
-    /// Lê `source` em tokens.
+    /// Reads `source` into tokens.
     ///
     /// ```
     /// use dartforge_formatter::syntax::token::{Tokens, TokenKind};
     /// let t = Tokens::read("a = 'x${b}y'; // end\n").unwrap();
-    /// let textos: Vec<_> = t.list.iter().map(|k| &"a = 'x${b}y'; // end\n"[k.start..k.end]).collect();
-    /// assert_eq!(textos, ["a", "=", "'x", "${", "b", "}", "y'", ";", ""]);
+    /// let texts: Vec<_> = t.list.iter().map(|k| &"a = 'x${b}y'; // end\n"[k.start..k.end]).collect();
+    /// assert_eq!(texts, ["a", "=", "'x", "${", "b", "}", "y'", ";", ""]);
     /// assert_eq!(t.list.last().unwrap().kind_, TokenKind::Eof);
     /// assert_eq!(t.comments.len(), 1);
     /// ```
     ///
-    /// # Erros
-    /// Caractere inesperado, string ou comentário de bloco sem fecho, e os
-    /// operadores `===`/`!==`, que o scanner do fasta aceita só para relatar
-    /// erro.
+    /// # Errors
+    /// An unexpected character, an unterminated string or block comment, and
+    /// the `===`/`!==` operators, which fasta's scanner only accepts to report an
+    /// error.
     pub fn read(source: &str) -> Result<Tokens, ErroSintaxe> {
         let raw_tokens = dartforge_frontend::lexer::lex(source).map_err(|d| ErroSintaxe {
             posicao: d.span.start,
@@ -116,8 +116,8 @@ impl Tokens {
             mensagem: d.message.clone(),
         })?;
         let mut list: Vec<Token> = Vec::with_capacity(raw_tokens.len() + 8);
-        // Pilha das interpolações abertas, por literal: `true` para `${…}`.
-        // O trecho que segue uma interpolação `${…}` começa pela `}`.
+        // Stack of open interpolations, per literal: `true` for `${…}`.
+        // The piece that follows a `${…}` interpolation starts at the `}`.
         let mut open_groups: Vec<bool> = Vec::new();
         let new = |kind_, start, end| Token {
             kind_,
@@ -194,7 +194,7 @@ impl Tokens {
                 Kind::Eof => list.push(new(TokenKind::Eof, start_, end)),
             }
         }
-        // Colagem e comentários a partir das posições finais.
+        // Gluing and comments, from the end positions.
         let mut comments = Vec::new();
         let bytes = source.as_bytes();
         let mut previous_end = 0usize;
@@ -254,23 +254,23 @@ impl Tokens {
         Ok(Tokens { list, comments })
     }
 
-    /// Texto do token `t`.
+    /// Text of token `t`.
     pub fn text<'a>(&self, source: &'a str, t: Tk) -> &'a str {
         let k = &self.list[t as usize];
         &source[k.start..k.end]
     }
 
-    /// Os comentários que precedem o token `t`.
+    /// The comments that precede token `t`.
     pub fn comments_of(&self, t: Tk) -> &[Comment] {
         let (a, b) = self.list[t as usize].comments;
         &self.comments[a as usize..b as usize]
     }
 
-    /// Junta o `>` em `t` com os `>`/`=` colados que o seguem, até formar o
-    /// operador `target_` (`">>"`, `">="`, `">>>"`, `">>="` ou `">>>="`). Só é
-    /// chamado pelo parser em contexto de expressão, logo depois de conferir
-    /// com [`Tokens::composed_greater`]. Os tokens absorvidos saem da lista;
-    /// nenhum nó aponta para eles ainda, porque o parser está exatamente em `t`.
+    /// Joins the `>` at `t` with the glued `>`/`=` that follow it, up to the
+    /// operator `target_` (`">>"`, `">="`, `">>>"`, `">>="` or `">>>="`). Only
+    /// called by the parser in expression context, right after checking with
+    /// [`Tokens::composed_greater`]. The absorbed tokens leave the list; no node
+    /// points to them yet, because the parser is exactly at `t`.
     pub fn merge_greater(&mut self, t: Tk, target_: &str) {
         let i = t as usize;
         let n = target_.len();
@@ -282,8 +282,8 @@ impl Tokens {
         self.list[i].glued = glued_last;
     }
 
-    /// Se o `>` em `t` começa um operador composto por tokens colados,
-    /// devolve o maior deles (`>>>=`, `>>>`, `>>=`, `>>`, `>=`).
+    /// If the `>` at `t` starts an operator made of glued tokens, returns the
+    /// longest of them (`>>>=`, `>>>`, `>>=`, `>>`, `>=`).
     pub fn composed_greater(&self, t: Tk) -> Option<&'static str> {
         let i = t as usize;
         let e = |k: usize, op: Op| self.list.get(i + k).is_some_and(|x| x.kind_ == TokenKind::Op(op));
@@ -306,7 +306,8 @@ impl Tokens {
         if e(1, Op::Assign) {
             return Some(">=");
         }
-        // `>==`, `>=>` etc. não existem; `>` seguido de `==` é `>=` e `=`.
+        // `>==`, `>=>` and the like do not exist; `>` followed by `==` is `>=` and
+        // `=`.
         if self.list.get(i + 1).is_some_and(|x| x.kind_ == TokenKind::Op(Op::EqEq)) {
             return None;
         }

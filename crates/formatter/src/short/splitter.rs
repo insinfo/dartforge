@@ -1,10 +1,10 @@
-//! Porte de `short/line_splitting/*`: o divisor de linhas (`LineSplitter`),
-//! os estados de solução (`SolveState`), a fila de prioridade com fusão de
-//! estados sobrepostos (`SolveStateQueue`), o `RuleSet` e o `SplitSet`.
+//! Port of `short/line_splitting/*`: the line splitter (`LineSplitter`), the
+//! solution states (`SolveState`), the priority queue that merges overlapping
+//! states (`SolveStateQueue`), the `RuleSet` and the `SplitSet`.
 //!
-//! A busca é a mesma do original, inclusive o limite de 5000 tentativas e a
-//! ordem de exploração, porque a escolha entre soluções de mesmo custo depende
-//! dela.
+//! The search is the same as the original's, including the limit of 5000
+//! attempts and the exploration order, because the choice between solutions
+//! of equal cost depends on it.
 
 use std::collections::HashSet;
 
@@ -32,7 +32,7 @@ impl Splits {
     }
 }
 
-/// `RuleSet`: valores por índice de regra.
+/// `RuleSet`: values by rule index.
 #[derive(Debug, Clone)]
 struct RuleValues(Vec<Option<i32>>);
 
@@ -131,7 +131,7 @@ pub struct LineSplitter {
 }
 
 /// `SolveState`.
-struct Estado {
+struct State {
     values: RuleValues,
     splits: Splits,
     overflow: i32,
@@ -174,7 +174,7 @@ impl LineSplitter {
         let mut queue = Queue { items: Vec::new() };
         let initial = self.new_state(a, cache, RuleValues(vec![None; self.rules.len()]));
         let mut best_idx;
-        let mut states: Vec<Estado> = vec![initial];
+        let mut states: Vec<State> = vec![initial];
         best_idx = 0usize;
         queue.add(self, a, &mut states, 0);
 
@@ -197,7 +197,7 @@ impl LineSplitter {
         states.swap_remove(best_idx).splits
     }
 
-    fn better_than(&self, e: &Estado, other_: &Estado) -> bool {
+    fn better_than(&self, e: &State, other_: &State) -> bool {
         if !e.full {
             return false;
         }
@@ -207,8 +207,8 @@ impl LineSplitter {
         e.splits.cost < other_.splits.cost
     }
 
-    fn new_state(&self, a: &mut Arenas, cache: &mut BlockCache, values: RuleValues) -> Estado {
-        let mut e = Estado {
+    fn new_state(&self, a: &mut Arenas, cache: &mut BlockCache, values: RuleValues) -> State {
+        let mut e = State {
             values,
             splits: Splits {
                 columns: Vec::new(),
@@ -229,7 +229,7 @@ impl LineSplitter {
         e
     }
 
-    fn compute_splits(&self, a: &mut Arenas, e: &mut Estado) {
+    fn compute_splits(&self, a: &mut Arenas, e: &mut State) {
         let mut used = Vec::new();
         for &c in &self.chunks {
             let r = a.chunks[c as usize].rule;
@@ -267,7 +267,7 @@ impl LineSplitter {
         e.splits = Splits { columns, cost: 0 };
     }
 
-    fn compute_cost(&self, a: &mut Arenas, cache: &mut BlockCache, e: &mut Estado) {
+    fn compute_cost(&self, a: &mut Arenas, cache: &mut BlockCache, e: &mut State) {
         let mut cost = 0;
         let mut length: i64 = 0;
         let mut found_rules = false;
@@ -277,7 +277,7 @@ impl LineSplitter {
         let mut split_spans = Vec::new();
         let mut previous_nesting = None;
 
-        let line_ending = |a: &mut Arenas, e: &mut Estado, end: usize, length: i64, start: &mut usize, found_it: &mut bool| {
+        let line_ending = |a: &mut Arenas, e: &mut State, end: usize, length: i64, start: &mut usize, found_it: &mut bool| {
             if length > page_width {
                 e.overflow += (length - page_width) as i32;
                 if !*found_it {
@@ -344,7 +344,7 @@ impl LineSplitter {
     }
 
     /// `expand()`.
-    fn expand(&self, a: &mut Arenas, cache: &mut BlockCache, states: &mut Vec<Estado>, queue: &mut Queue, current: usize) {
+    fn expand(&self, a: &mut Arenas, cache: &mut BlockCache, states: &mut Vec<State>, queue: &mut Queue, current: usize) {
         let mut no_split = states[current].values.clone();
         let mut attempted = 0;
         for &r in &self.rules {
@@ -380,13 +380,13 @@ impl LineSplitter {
         }
     }
 
-    fn value(&self, a: &Arenas, e: &Estado, r: RuleId) -> i32 {
+    fn value(&self, a: &Arenas, e: &State, r: RuleId) -> i32 {
         e.values.value(a, r)
     }
 
-    /// `compareOverlap(other)`: `<0` se `e` vence, `>0` se `other_` vence, `0`
-    /// se não se sobrepõem.
-    fn compare_overlap(&self, a: &mut Arenas, states: &mut [Estado], e: usize, other_: usize) -> i32 {
+    /// `compareOverlap(other)`: `<0` if `e` wins, `>0` if `other_` wins, `0` if
+    /// they do not overlap.
+    fn compare_overlap(&self, a: &mut Arenas, states: &mut [State], e: usize, other_: usize) -> i32 {
         if !self.overlaps(a, states, e, other_) {
             return 0;
         }
@@ -397,14 +397,14 @@ impl LineSplitter {
                 return if v < ov { -1 } else { 1 };
             }
         }
-        panic!("estados repetidos no divisor de linhas");
+        panic!("repeated states in the line splitter");
     }
 
-    fn overlaps(&self, a: &mut Arenas, states: &mut [Estado], e: usize, other_: usize) -> bool {
+    fn overlaps(&self, a: &mut Arenas, states: &mut [State], e: usize, other_: usize) -> bool {
         self.prepare_bound_in_lines(a, &mut states[e]);
         self.prepare_bound_in_lines(a, &mut states[other_]);
-        let le = states[e].bound_in_unbound_lines.as_ref().expect("preparado");
-        let lo = states[other_].bound_in_unbound_lines.as_ref().expect("preparado");
+        let le = states[e].bound_in_unbound_lines.as_ref().expect("prepared");
+        let lo = states[other_].bound_in_unbound_lines.as_ref().expect("prepared");
         if le.len() != lo.len() {
             return false;
         }
@@ -419,8 +419,8 @@ impl LineSplitter {
 
         self.prepare_constraints(a, &mut states[e]);
         self.prepare_constraints(a, &mut states[other_]);
-        let re = states[e].constraints.as_ref().expect("preparado");
-        let ro = states[other_].constraints.as_ref().expect("preparado");
+        let re = states[e].constraints.as_ref().expect("prepared");
+        let ro = states[other_].constraints.as_ref().expect("prepared");
         if re.len() != ro.len() {
             return false;
         }
@@ -432,13 +432,13 @@ impl LineSplitter {
 
         self.prepare_unbound_constraints(a, &mut states[e]);
         self.prepare_unbound_constraints(a, &mut states[other_]);
-        let if_ = states[e].unbound_constraints.as_ref().expect("preparado");
-        let so = states[other_].unbound_constraints.as_ref().expect("preparado");
-        if if_.len() != so.len() {
+        let if_ = states[e].unbound_constraints.as_ref().expect("prepared");
+        let only = states[other_].unbound_constraints.as_ref().expect("prepared");
+        if if_.len() != only.len() {
             return false;
         }
         for (r, forbidden) in if_ {
-            let Some((_, others)) = so.iter().find(|(o, _)| o == r) else {
+            let Some((_, others)) = only.iter().find(|(o, _)| o == r) else {
                 return false;
             };
             if forbidden.len() != others.len() {
@@ -453,7 +453,7 @@ impl LineSplitter {
         true
     }
 
-    fn prepare_bound_in_lines(&self, a: &Arenas, e: &mut Estado) {
+    fn prepare_bound_in_lines(&self, a: &Arenas, e: &mut State) {
         if e.bound_in_unbound_lines.is_some() {
             return;
         }
@@ -490,7 +490,7 @@ impl LineSplitter {
         e.bound_in_unbound_lines = Some(rules);
     }
 
-    fn prepare_constraints(&self, a: &Arenas, e: &mut Estado) {
+    fn prepare_constraints(&self, a: &Arenas, e: &mut State) {
         if e.constraints.is_some() {
             return;
         }
@@ -528,15 +528,15 @@ impl LineSplitter {
         e.unbound = Some(unbound);
     }
 
-    fn prepare_unbound_constraints(&self, a: &Arenas, e: &mut Estado) {
+    fn prepare_unbound_constraints(&self, a: &Arenas, e: &mut State) {
         if e.unbound_constraints.is_some() {
             return;
         }
-        let bound = e.bound.as_ref().expect("restrições preparadas");
-        let unbound = e.unbound.as_ref().expect("restrições preparadas");
+        let bound = e.bound.as_ref().expect("prepared constraints");
+        let unbound = e.unbound.as_ref().expect("prepared constraints");
         let mut result: Vec<(RuleId, Vec<i32>)> = Vec::new();
-        // `_unboundRules` é um conjunto em ordem de inserção: a ordem das
-        // regras do divisor.
+        // `_unboundRules` is an insertion-ordered set: the order of the splitter's
+        // rules.
         for &s in self.rules.iter().filter(|r| unbound.contains(r)) {
             let mut forbidden: Option<Vec<i32>> = None;
             let mut i = 0;
@@ -571,7 +571,7 @@ impl LineSplitter {
 }
 
 /// `_addLiveRules(rule)`.
-fn add_live_rules(a: &mut Arenas, e: &mut Estado, r: RuleId) -> bool {
+fn add_live_rules(a: &mut Arenas, e: &mut State, r: RuleId) -> bool {
     let mut added = false;
     for x in a.all_constrained(r) {
         if e.values.contains_rule(a, x) {
@@ -585,13 +585,13 @@ fn add_live_rules(a: &mut Arenas, e: &mut Estado, r: RuleId) -> bool {
     added
 }
 
-/// `SolveStateQueue`: heap binário de índices em `states`.
+/// `SolveStateQueue`: a binary heap of indices into `states`.
 struct Queue {
     items: Vec<usize>,
 }
 
 impl Queue {
-    fn compare_scores(states: &[Estado], x: usize, y: usize) -> i32 {
+    fn compare_scores(states: &[State], x: usize, y: usize) -> i32 {
         let (cx, cy) = (states[x].splits.cost, states[y].splits.cost);
         if cx != cy {
             return if cx < cy { -1 } else { 1 };
@@ -600,7 +600,7 @@ impl Queue {
         ox.cmp(&oy) as i32
     }
 
-    fn compare_rules(d: &LineSplitter, a: &Arenas, states: &[Estado], x: usize, y: usize) -> i32 {
+    fn compare_rules(d: &LineSplitter, a: &Arenas, states: &[State], x: usize, y: usize) -> i32 {
         for &r in &d.rules {
             let vx = d.value(a, &states[x], r);
             let vy = d.value(a, &states[y], r);
@@ -608,10 +608,10 @@ impl Queue {
                 return if vx < vy { -1 } else { 1 };
             }
         }
-        panic!("estados repetidos na fila do divisor");
+        panic!("repeated states in the splitter queue");
     }
 
-    fn compare(d: &LineSplitter, a: &Arenas, states: &[Estado], x: usize, y: usize) -> i32 {
+    fn compare(d: &LineSplitter, a: &Arenas, states: &[State], x: usize, y: usize) -> i32 {
         let c = Self::compare_scores(states, x, y);
         if c != 0 {
             return c;
@@ -619,7 +619,7 @@ impl Queue {
         Self::compare_rules(d, a, states, x, y)
     }
 
-    fn add(&mut self, d: &LineSplitter, a: &mut Arenas, states: &mut [Estado], e: usize) {
+    fn add(&mut self, d: &LineSplitter, a: &mut Arenas, states: &mut [State], e: usize) {
         if self.try_overlap(d, a, states, e) {
             return;
         }
@@ -628,16 +628,16 @@ impl Queue {
         self.sift_up(d, a, states, e, n);
     }
 
-    fn remove_first(&mut self, d: &LineSplitter, a: &Arenas, states: &mut [Estado]) -> usize {
+    fn remove_first(&mut self, d: &LineSplitter, a: &Arenas, states: &mut [State]) -> usize {
         let result = self.items[0];
-        let ultimo = self.items.pop().expect("fila não vazia");
+        let last = self.items.pop().expect("non-empty queue");
         if !self.items.is_empty() {
-            self.sift_down(d, a, states, ultimo, 0);
+            self.sift_down(d, a, states, last, 0);
         }
         result
     }
 
-    fn try_overlap(&mut self, d: &LineSplitter, a: &mut Arenas, states: &mut [Estado], e: usize) -> bool {
+    fn try_overlap(&mut self, d: &LineSplitter, a: &mut Arenas, states: &mut [State], e: usize) -> bool {
         let n = self.items.len();
         if n == 0 {
             return false;
@@ -681,7 +681,7 @@ impl Queue {
         false
     }
 
-    fn sift_up(&mut self, d: &LineSplitter, a: &Arenas, states: &[Estado], e: usize, mut index: usize) {
+    fn sift_up(&mut self, d: &LineSplitter, a: &Arenas, states: &[State], e: usize, mut index: usize) {
         while index > 0 {
             let parent_i = (index - 1) / 2;
             let parent = self.items[parent_i];
@@ -694,7 +694,7 @@ impl Queue {
         self.items[index] = e;
     }
 
-    fn sift_down(&mut self, d: &LineSplitter, a: &Arenas, states: &[Estado], e: usize, mut index: usize) {
+    fn sift_down(&mut self, d: &LineSplitter, a: &Arenas, states: &[State], e: usize, mut index: usize) {
         let n = self.items.len();
         let mut right = index * 2 + 2;
         while right < n {

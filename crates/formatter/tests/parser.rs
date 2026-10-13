@@ -1,20 +1,20 @@
-//! Testes do parser do formatador: as formas de nó que o analyzer produz
-//! nos casos em que o `dart_style` as distingue, a cobertura de tokens e os
-//! erros que o analyzer relata como sintáticos.
+//! Tests of the formatter's parser: the node shapes the analyzer produces in
+//! the cases where `dart_style` tells them apart, token coverage and the
+//! errors the analyzer reports as syntactic.
 
 use dartforge_formatter::syntax::tree::{Tree, Node, NodeId};
 use dartforge_formatter::syntax::parser::{ParseOptions, parse, parse_with, verify};
 use dartforge_formatter::syntax::token::Tokens;
 
-/// Analisa `source`, confere a cobertura e devolve tokens e árvore.
+/// Parses `source`, checks coverage and returns the tokens and the tree.
 fn read(source: &str) -> (Tokens, Tree) {
     let (t, a) = parse(source).unwrap_or_else(|e| panic!("{source:?}: {e:?}"));
     verify::check(&t, &a, source).unwrap_or_else(|e| panic!("{source:?}: {e}"));
     (t, a)
 }
 
-/// Renderiza a subárvore de `id` como `Type(children...)`; identificadores e
-/// literais simples viram o próprio texto.
+/// Renders the subtree of `id` as `Type(children...)`; identifiers and
+/// simple literals become their own text.
 fn render(source: &str, t: &Tokens, a: &Tree, id: NodeId) -> String {
     let text = |tk: u32| t.text(source, tk).to_string();
     match a.node(id) {
@@ -32,7 +32,7 @@ fn render(source: &str, t: &Tokens, a: &Tree, id: NodeId) -> String {
     format!("{}({})", verify::node_name(a.node(id)), children.join(", "))
 }
 
-/// A expressão de `f() { return <expr>; }`.
+/// The expression of `f() { return <expr>; }`.
 fn expr(e: &str) -> String {
     let source = format!("f() {{ return {e}; }}");
     let (t, a) = read(&source);
@@ -40,14 +40,14 @@ fn expr(e: &str) -> String {
         .nodes
         .iter()
         .position(|d| matches!(d.node, Node::ReturnStatement { .. }))
-        .expect("comando return");
+        .expect("return statement");
     let Node::ReturnStatement { expression, .. } = a.nodes[id].node else {
         unreachable!()
     };
-    render(&source, &t, &a, expression.expect("expressão"))
+    render(&source, &t, &a, expression.expect("expression"))
 }
 
-/// A primeira declaração de topo de `source`, renderizada.
+/// The first top-level declaration of `source`, rendered.
 fn decl(source: &str) -> String {
     let (t, a) = read(source);
     let Node::CompilationUnit { declarations, .. } = a.node(a.root.unwrap()) else {
@@ -56,14 +56,14 @@ fn decl(source: &str) -> String {
     render(source, &t, &a, declarations[0])
 }
 
-/// O primeiro nó do tipo `name_` em `source`, renderizado.
+/// The first node of kind `name_` in `source`, rendered.
 fn first(source: &str, name_: &str) -> String {
     let (t, a) = read(source);
     let i = a
         .nodes
         .iter()
         .position(|d| verify::node_name(&d.node) == name_)
-        .unwrap_or_else(|| panic!("sem {name_} em {source:?}"));
+        .unwrap_or_else(|| panic!("no {name_} in {source:?}"));
     render(source, &t, &a, NodeId(i as u32))
 }
 
@@ -134,7 +134,7 @@ fn instance_creation() {
         expr("new p.A<T>.b()"),
         "InstanceCreationExpression(ConstructorName(NamedType(TypeArgumentList(NamedType())), b), ArgumentList())"
     );
-    // `parseImplicitCreationExpression`: só com argumentos de tipo e nome.
+    // `parseImplicitCreationExpression`: only with type arguments and a name.
     assert_eq!(
         expr("A<T>.named()"),
         "InstanceCreationExpression(ConstructorName(NamedType(TypeArgumentList(NamedType())), named), ArgumentList())"
@@ -143,7 +143,7 @@ fn instance_creation() {
         expr("p.A<T>.named()"),
         "InstanceCreationExpression(ConstructorName(NamedType(TypeArgumentList(NamedType())), named), ArgumentList())"
     );
-    // Sem argumentos de tipo, `A.named()` é uma invocação de método.
+    // Without type arguments, `A.named()` is a method invocation.
     assert_eq!(
         expr("A.named()"),
         "MethodInvocation(A, named, ArgumentList())"
@@ -185,7 +185,7 @@ fn index_with_question() {
     };
     assert_eq!(t.text(source, question.unwrap()), "?");
     assert!(period.is_none());
-    // `a ? [b] : c` é condicional.
+    // `a ? [b] : c` is a conditional.
     assert_eq!(
         expr("a ? [b] : c"),
         "ConditionalExpression(a, ListLiteral(b), c)"
@@ -213,7 +213,7 @@ fn cascades() {
     );
     assert_eq!(expr("x?..a"), "CascadeExpression(x, PropertyAccess(a))");
     assert_eq!(expr("x..[0]"), "CascadeExpression(x, IndexExpression(0))");
-    // A seção sem alvo começa no operador.
+    // The section without a target starts at the operator.
     let source = "f() { return x..a; }";
     let (t, a) = read(source);
     let pa = a
@@ -238,7 +238,7 @@ fn function_references_and_relationals() {
         expr("a.b<int>"),
         "FunctionReference(PrefixedIdentifier(a, b), TypeArgumentList(NamedType()))"
     );
-    // `f(a < b, c > d)`: dois argumentos relacionais (`mayFollowTypeArgs`).
+    // `f(a < b, c > d)`: two relational arguments (`mayFollowTypeArgs`).
     assert_eq!(
         expr("f(a < b, c > d)"),
         "MethodInvocation(f, ArgumentList(BinaryExpression(a, b), BinaryExpression(c, d)))"
@@ -263,7 +263,7 @@ fn composed_greater_operators() {
             })
             .collect();
     assert_eq!(ops, [">>", ">>>", ">>=", ">="]);
-    // Em tipo, os `>` ficam separados.
+    // In a type, the `>` stay separate.
     let (t, a) = read("List<List<int>> x;");
     let gts = t
         .list
@@ -354,7 +354,7 @@ fn functions() {
         "FunctionDeclarationStatement(FunctionDeclaration(NamedType(), FunctionExpression(FormalParameterList(), \
          BlockFunctionBody(Block()))))"
     );
-    // O `;` do `=>`: presente em declarações, ausente em closures.
+    // The `;` of `=>`: present in declarations, absent in closures.
     let source = "f() => () => 1;";
     let (_, a) = read(source);
     let bodies: Vec<bool> = a
@@ -475,7 +475,7 @@ fn patterns_() {
         "PatternAssignment(RecordPattern(PatternField(AssignedVariablePattern()), PatternField(AssignedVariablePattern())), \
          RecordLiteral(b, a))"
     );
-    // `WildcardPatternImpl.beginToken` ignora o `var`.
+    // `WildcardPatternImpl.beginToken` ignores the `var`.
     let source = "f(o) { if (o case var _) {} }";
     let (t, a) = read(source);
     let w = a
@@ -526,7 +526,7 @@ fn statements_() {
         first("f() { int? x = 1; }", "VariableDeclarationStatement"),
         "VariableDeclarationStatement(VariableDeclarationList(NamedType(), VariableDeclaration(1)))"
     );
-    // `a ? b : c;` não é declaração de `a?`.
+    // `a ? b : c;` is not a declaration of `a?`.
     assert_eq!(
         first("f() { a ? b : c; }", "ExpressionStatement"),
         "ExpressionStatement(ConditionalExpression(a, b, c))"
@@ -538,7 +538,8 @@ fn statements_() {
 
 #[test]
 fn assert_as_expression() {
-    // O `AstBuilder` monta `assert(...)` fora de comando como invocação.
+    // The `AstBuilder` builds `assert(...)` outside a statement as an
+    // invocation.
     assert_eq!(
         first(
             "f() { var x = assert(true); }",
@@ -554,8 +555,9 @@ fn async_and_generators() {
         first("f() async { await x; }", "AwaitExpression"),
         "AwaitExpression(x)"
     );
-    // Fora de `async`, `await` seguido de expressão vira `AwaitExpression`
-    // (o erro do analyzer não é sintático); sozinho é identificador.
+    // Outside `async`, `await` followed by an expression becomes an
+    // `AwaitExpression` (the analyzer's error is not syntactic); alone it is an
+    // identifier.
     assert_eq!(
         first("f() { await g(); }", "AwaitExpression"),
         "AwaitExpression(MethodInvocation(g, ArgumentList()))"
@@ -663,7 +665,8 @@ fn annotations() {
         first("@p.A<int>.b(1)\nvoid f() {}", "Annotation"),
         "Annotation(PrefixedIdentifier(p, A), TypeArgumentList(NamedType()), b, ArgumentList(1))"
     );
-    // Sem colagem, o `(` não é argumento da anotação: é um tipo record.
+    // Without gluing, the `(` is not an argument of the annotation: it is a
+    // record type.
     assert_eq!(
         first("@a (int, int) f() => (1, 2);", "FunctionDeclaration"),
         "FunctionDeclaration(Annotation(a), RecordTypeAnnotation(RecordTypeAnnotationPositionalField(NamedType()), \
@@ -673,7 +676,7 @@ fn annotations() {
 
 #[test]
 fn symbols_and_merged_operator_names() {
-    // O analyzer tem um único token `[]`/`[]=`; o nó termina nele.
+    // The analyzer has a single `[]`/`[]=` token; the node ends at it.
     let source = "f() => g(#[], [n]);";
     let (t, a) = read(source);
     let s = a
@@ -718,8 +721,8 @@ fn syntax_errors() {
 
 #[test]
 fn errors_the_analyzer_does_not_treat_as_syntactic() {
-    // Relatados pelo fasta, mas com código de erro não sintático no
-    // analyzer: o `dart format` aceita.
+    // Reported by fasta, but with a non-syntactic error code in the analyzer:
+    // `dart format` accepts them.
     for source in [
         "f({_a}) {}",
         "const x;",
@@ -739,12 +742,12 @@ fn errors_the_analyzer_does_not_treat_as_syntactic() {
 
 #[test]
 fn language_version() {
-    // Antes do 3.0, `case` lê uma expressão: `SwitchCase`.
+    // Before 3.0, `case` reads an expression: `SwitchCase`.
     let source = "f(x) { switch (x) { case 1: break; } }";
     let (t, a) = parse_with(source, ParseOptions { version: (2, 19) }).unwrap();
     verify::check(&t, &a, source).unwrap();
     assert!(a.nodes.iter().any(|d| matches!(d.node, Node::SwitchCase { .. })));
-    // O comentário `// @dart=` vence a versão pedida.
+    // The `// @dart=` comment wins over the requested version.
     let source = "// @dart=2.19\nf(x) { switch (x) { case 1: break; } }";
     let (_, a) = parse(source).unwrap();
     assert!(a.nodes.iter().any(|d| matches!(d.node, Node::SwitchCase { .. })));
@@ -776,8 +779,8 @@ fn large_file_performance() {
     }
     let start = std::time::Instant::now();
     let (t, a) = parse(&source).unwrap();
-    let tempo = start.elapsed();
+    let elapsed_time = start.elapsed();
     verify::check(&t, &a, &source).unwrap();
-    // 10 mil linhas; o limite é folgado para o perfil de testes sem otimização.
-    assert!(tempo.as_secs_f64() < 5.0, "{tempo:?}");
+    // 10 thousand lines; the limit is generous for the unoptimized test profile.
+    assert!(elapsed_time.as_secs_f64() < 5.0, "{elapsed_time:?}");
 }

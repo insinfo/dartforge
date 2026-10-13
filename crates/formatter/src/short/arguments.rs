@@ -1,6 +1,6 @@
-//! Porte de `short/argument_list_visitor.dart`: `ArgumentListVisitor` e
-//! `ArgumentSublist`, com o tratamento especial de argumentos em bloco
-//! (funções com corpo `{}`, coleções e strings de várias linhas).
+//! Port of `short/argument_list_visitor.dart`: `ArgumentListVisitor` and
+//! `ArgumentSublist`, with the special handling of block arguments
+//! (functions with a `{}` body, collections and multiline strings).
 
 use super::arena::{ChunkId, RuleId, cost};
 use super::visitor::SourceVisitor;
@@ -38,7 +38,7 @@ impl ArgumentListVisitor {
             right_parenthesis,
         } = v.node(list)
         else {
-            panic!("ArgumentList esperada");
+            panic!("expected ArgumentList");
         };
         Self::for_arguments(v, *left_parenthesis, *right_parenthesis, arguments)
     }
@@ -96,12 +96,12 @@ impl ArgumentListVisitor {
                 }
                 v.visit(Some(arg));
                 if v.has_comma_after(arg) {
-                    let virgula = v.tree_.end(arg) + 1;
-                    v.token(virgula);
+                    let comma = v.tree_.end(arg) + 1;
+                    v.token(comma);
                 }
             }
             v.start_span(cost::NORMAL);
-            self.after_functions.as_mut().expect("sublista").visit(v);
+            self.after_functions.as_mut().expect("sublist").visit(v);
             v.end_span();
         }
         v.token(self.right_);
@@ -338,7 +338,7 @@ impl ArgumentSublist {
         let several = self.all.len() > 1 || matches!(v.node(self.all[0]), Node::RecordLiteral { .. });
         if let Some(t) = block {
             v.a.disable_inner(rule);
-            let rb = self.block_rule.expect("regra de bloco");
+            let rb = self.block_rule.expect("block rule");
             v.before_block(t, rb, self.previous_split);
         } else if several {
             v.start_block_argument_nesting();
@@ -348,10 +348,10 @@ impl ArgumentSublist {
 
         if let Node::NamedExpression { name, expression } = v.node(arg) {
             let Node::Label { label, colon } = v.node(*name) else {
-                panic!("Label esperado");
+                panic!("expected Label");
             };
             let Node::SimpleIdentifier { token } = v.node(*label) else {
-                panic!("SimpleIdentifier esperado");
+                panic!("expected SimpleIdentifier");
             };
             v.visit_named_node(*token, *colon, *expression, Some(rule));
         } else {
@@ -367,8 +367,8 @@ impl ArgumentSublist {
         }
 
         if v.has_comma_after(arg) {
-            let virgula = v.tree_.end(arg) + 1;
-            v.token(virgula);
+            let comma = v.tree_.end(arg) + 1;
+            v.token(comma);
         }
     }
 }
