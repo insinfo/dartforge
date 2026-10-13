@@ -695,12 +695,12 @@ impl Motor {
                     analysis.report(&chave(p), d, f);
                 }
             }
-            for (u, d, f) in with_phase(phase::DIRECTIVES, dartforge_analysis::importacoes::extensoes_adiadas(&program, *lib))
+            for (u, d, f) in with_phase(phase::DIRECTIVES, dartforge_analysis::importacoes::deferred_extensions(&program, *lib))
                 .into_iter()
-                .chain(with_phase(phase::DIRECTIVES, dartforge_analysis::importacoes::diretivas_internas_e_adiadas(&program, *lib)))
-                .chain(with_phase(phase::DIRECTIVES, dartforge_analysis::importacoes::nomes_mostrados_indefinidos(&program, *lib, &interner)))
-                .chain(with_phase(phase::DIRECTIVES, dartforge_analysis::importacoes::exports_ambiguos(&program, *lib, &interner)))
-                .chain(with_phase(phase::RESOLUTION_VISITOR, dartforge_analysis::importacoes::tipos_adiados(&program, *lib, &interner)))
+                .chain(with_phase(phase::DIRECTIVES, dartforge_analysis::importacoes::internal_and_deferred_directives(&program, *lib)))
+                .chain(with_phase(phase::DIRECTIVES, dartforge_analysis::importacoes::undefined_shown_names(&program, *lib, &interner)))
+                .chain(with_phase(phase::DIRECTIVES, dartforge_analysis::importacoes::ambiguous_exports(&program, *lib, &interner)))
+                .chain(with_phase(phase::RESOLUTION_VISITOR, dartforge_analysis::importacoes::deferred_types(&program, *lib, &interner)))
                 // NEW PHASES (INFRA step 6): the per-library warning verifiers.
                 .chain(with_phase(phase::IMPORTS_VERIFIER, dartforge_analysis::phases::repeated_directives(&program, *lib, &interner)))
                 // The `package:meta` annotations (batch II.7). Public API: the
@@ -1189,7 +1189,7 @@ impl Motor {
                 .filter_map(|k| analysis.arquivos.get(k))
                 .flat_map(|a| a.diags.iter().cloned())
                 .collect();
-            for (u, d) in dartforge_analysis::importacoes::nao_usados(&program, *lib, &interner, &existing, bodies.as_ref()) {
+            for (u, d) in dartforge_analysis::importacoes::unused(&program, *lib, &interner, &existing, bodies.as_ref()) {
                 if let Some(p) = &program.unit(u).path {
                     analysis.report(&chave(p), d, phase::IMPORTS_VERIFIER);
                 }
