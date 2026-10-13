@@ -1,17 +1,18 @@
-//! Servidor LSP do DartForge: documentos, sincronização incremental e despacho.
+//! DartForge's LSP server: documents, incremental synchronization and dispatch.
 //!
-//! O desenho copia o do rust-analyzer (`references/rust-analyzer`), não o
-//! código: um [`Server`] dono de tudo (documentos, fila, cancelamentos),
-//! passado por `&mut` ao despacho; documentos em memória versionados como em
-//! `mem_docs.rs`; fila com cancelamento como em `op_queue.rs`; conversão
-//! UTF-16 como em `lsp/utils.rs` (aqui em [`utf16`]).
+//! The design copies rust-analyzer's (`references/rust-analyzer`), not its
+//! code: a [`Server`] that owns everything (documents, queue,
+//! cancellations), passed by `&mut` to the dispatcher; in-memory versioned
+//! documents as in `mem_docs.rs`; a queue with cancellation as in
+//! `op_queue.rs`; UTF-16 conversion as in `lsp/utils.rs` (here in
+//! [`utf16`]).
 //!
-//! O servidor diagnostica em dois tempos: na hora, pelo parser novo e pelos
-//! verificadores locais de `crates/analysis` através do [`trait Analyzer`];
-//! em segundo plano, quando o analisador tem SDK
-//! ([`Analyzer::sdk_for_diagnostics`]), pela mesma análise tipada do
-//! `dartforge analyze` (`typed`), publicada só se a versão ainda é a
-//! vigente (`docs/LSP.md`, "Diagnósticos tipados").
+//! The server diagnoses in two stages: right away, through the new parser
+//! and the local checkers of `crates/analysis` via the [`trait Analyzer`];
+//! in the background, when the analyzer has an SDK
+//! ([`Analyzer::sdk_for_diagnostics`]), through the same typed analysis as
+//! `dartforge analyze` (`typed`), published only if the version is still
+//! the current one (`docs/LSP.md`, "Diagnósticos tipados").
 
 pub mod formatting;
 pub mod server;
@@ -106,60 +107,61 @@ pub use structure::Fold;
 pub use session::SessionStats;
 
 
-/// Posição LSP: linha e coluna em **unidades UTF-16** (ambas a partir de 0).
+/// LSP position: line and column in **UTF-16 units** (both 0-based).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Position {
-    /// Linha a partir de 0.
+    /// 0-based line.
     pub line: u32,
-    /// Coluna em unidades UTF-16 a partir de 0.
+    /// 0-based column in UTF-16 units.
     pub column: u32,
 }
 
-/// Uma entrada de `contentChanges` de `textDocument/didChange`.
+/// One entry of the `contentChanges` of `textDocument/didChange`.
 ///
-/// `range` ausente significa substituição integral (sincronização `full`,
-/// que o servidor aceita mas nunca pede: a capacidade anunciada é incremental).
+/// A missing `range` means a full replacement (`full` sync, which the server
+/// accepts but never asks for: the announced capability is incremental).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContentChange {
-    /// Intervalo em posições UTF-16 no texto vigente, ou `None` para tudo.
+    /// Range in UTF-16 positions in the current text, or `None` for everything.
     pub range: Option<(Position, Position)>,
-    /// Texto de substituição.
+    /// Replacement text.
     pub text: String,
 }
 
-/// Resposta de `textDocument/hover`: o intervalo (bytes) da referência sob
-/// o cursor, a descrição do elemento (`int sum(int a, int b)`), o tipo
-/// estático quando é variável ou getter, e o comentário de documentação.
+/// Response of `textDocument/hover`: the range (bytes) of the reference under
+/// the cursor, the element's description (`int sum(int a, int b)`), the
+/// static type when it is a variable or getter, and the documentation
+/// comment.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Hover {
-    /// Intervalo do nome sob o cursor, em bytes do texto vigente.
+    /// Range of the name under the cursor, in bytes of the current text.
     pub range: dartforge_diagnostics::Span,
-    /// Descrição do elemento, como o servidor do Dart a escreve.
+    /// Description of the element, as the Dart server writes it.
     pub description: String,
-    /// Tipo estático (variáveis e getters), já formatado.
+    /// Static type (variables and getters), already formatted.
     pub ty: Option<String>,
-    /// Documentação (`///` ou `/** */`), já sem os marcadores.
+    /// Documentation (`///` or `/** */`), already without the markers.
     pub documentation: Option<String>,
-    /// A biblioteca que declara o elemento (não local), como o Dart a
-    /// mostra: `package:x/y.dart`, `dart:core`, ou o caminho relativo à raiz
-    /// do projeto para um arquivo fora de `lib/`.
+    /// The library that declares the element (not local), as Dart shows it:
+    /// `package:x/y.dart`, `dart:core`, or the path relative to the project root
+    /// for a file outside `lib/`.
     pub library: Option<String>,
 }
 
-/// Resposta de `textDocument/references`: a declaração (quando se sabe onde
-/// está) e os usos, cada um com a URI do arquivo e o span em bytes do texto
-/// que o servidor enxerga (aberto, ou o do disco para arquivo fechado).
+/// Response of `textDocument/references`: the declaration (when its location
+/// is known) and the uses, each with the file's URI and the span in bytes of
+/// the text the server sees (open, or the disk's for a closed file).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct References {
-    /// Onde o elemento é declarado; pode estar fora do projeto (SDK).
+    /// Where the element is declared; it may be outside the project (SDK).
     pub declaration: Option<(String, dartforge_diagnostics::Span)>,
-    /// Usos, em ordem de (URI, offset).
+    /// Uses, in (URI, offset) order.
     pub uses: Vec<(String, dartforge_diagnostics::Span)>,
 }
 
 impl References {
-    /// A forma sintática (declaração primeiro, depois os usos, tudo no
-    /// mesmo documento) como [`References`].
+    /// The syntactic form (declaration first, then the uses, all in the same
+    /// document) as [`References`].
     fn of_list(uri: &str, spans: Vec<dartforge_diagnostics::Span>) -> Self {
         let mut spans = spans.into_iter().map(|s| (uri.to_string(), s));
         let declaration = spans.next();
@@ -167,19 +169,19 @@ impl References {
     }
 }
 
-/// Texto vigente de um documento aberto no editor.
+/// Current text of a document open in the editor.
 #[derive(Debug, Clone)]
 struct OpenDocument {
-    /// Versão LSP mais recente recebida; cresce a cada `didChange`.
+    /// Most recent LSP version received; grows with each `didChange`.
     version: i32,
-    /// Texto integral vigente. É o único estado retido por documento.
+    /// Whole current text. It is the only state retained per document.
     text: String,
-    /// Inícios de linha do texto vigente, para converter UTF-16 sem revarrer.
+    /// Line starts of the current text, to convert UTF-16 without rescanning.
     lines: LineTable,
 }
 
 impl OpenDocument {
-    /// Abre o documento já com a tabela de linhas pronta.
+    /// Opens the document with the line table already built.
     fn new(version: i32, text: String) -> Self {
         let lines = LineTable::build(&text);
         Self {
@@ -189,9 +191,9 @@ impl OpenDocument {
         }
     }
 
-    /// Aplica as mudanças em ordem e recalcula a tabela do ponto editado em
-    /// diante, uma vez por mudança. Devolve a primeira linha tocada, para
-    /// quem quiser medir o custo da atualização.
+    /// Applies the changes in order and recomputes the table from the edited
+    /// point on, once per change. Returns the first touched line, for whoever
+    /// wants to measure the cost of the update.
     fn apply(&mut self, changes: &[ContentChange]) {
         for change in changes {
             match change.range {
@@ -216,12 +218,13 @@ impl OpenDocument {
     }
 }
 
-/// Dono explícito dos documentos abertos: quem descarta a versão N−1.
+/// Explicit owner of the open documents: the one that discards version N−1.
 ///
-/// Cada documento tem **uma** entrada (texto + tabela + versão), e a chegada
-/// da versão N substitui a N−1 no lugar — o `drop` da `String` antiga é
-/// determinístico, não elegibilidade futura para um coletor. Fechar o
-/// documento remove a entrada, e nada do documento sobrevive.
+/// Each document has **one** entry (text + table + version), and the
+/// arrival of version N replaces N−1 in place — the `drop` of the old
+/// `String` is deterministic, not future eligibility for a collector.
+/// Closing the document removes the entry, and nothing of the document
+/// survives.
 ///
 /// ```
 /// let mut docs = dartforge_lsp::DocumentStore::new();
@@ -237,21 +240,22 @@ pub struct DocumentStore {
 }
 
 impl DocumentStore {
-    /// Cria um servidor vazio, sem documentos retidos.
+    /// Creates an empty server, with no retained documents.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Registra um documento aberto; reabrir substitui, sem reter o anterior.
+    /// Registers an open document; reopening replaces it, without retaining the
+    /// previous one.
     pub fn open(&mut self, uri: String, version: i32, text: String) {
         self.documents
             .insert(uri, OpenDocument::new(version, text));
     }
 
-    /// Aplica a versão N e descarta a N−1 no lugar; falso quando inexistente.
+    /// Applies version N and discards N−1 in place; false when it does not exist.
     ///
-    /// Versão menor ou igual à vigente é ignorada e devolve falso: fora de
-    /// ordem não pode ressuscitar texto velho.
+    /// A version lower than or equal to the current one is ignored and returns
+    /// false: out-of-order changes cannot resurrect old text.
     pub fn update(&mut self, uri: &str, version: i32, text: String) -> bool {
         match self.documents.get_mut(uri) {
             Some(current) if version > current.version => {
@@ -262,10 +266,10 @@ impl DocumentStore {
         }
     }
 
-    /// Aplica mudanças incrementais (intervalos UTF-16) como a versão N.
+    /// Applies incremental changes (UTF-16 ranges) as version N.
     ///
-    /// Mesma regra de versão de [`DocumentStore::update`]: documento
-    /// inexistente ou versão fora de ordem devolve falso e não toca em nada.
+    /// Same version rule as [`DocumentStore::update`]: a nonexistent document or
+    /// an out-of-order version returns false and touches nothing.
     ///
     /// ```
     /// use dartforge_lsp::{DocumentStore, ContentChange, Position};
@@ -289,45 +293,45 @@ impl DocumentStore {
         }
     }
 
-    /// Fecha o documento e descarta seu texto; falso quando inexistente.
+    /// Closes the document and discards its text; false when it does not exist.
     pub fn close(&mut self, uri: &str) -> bool {
         self.documents.remove(uri).is_some()
     }
 
-    /// Texto vigente de um documento aberto, se existir.
+    /// Current text of an open document, if it exists.
     pub fn get(&self, uri: &str) -> Option<&str> {
         self.documents.get(uri).map(|open| open.text.as_str())
     }
 
-    /// Versão vigente de um documento aberto, se existir.
+    /// Current version of an open document, if it exists.
     pub fn version(&self, uri: &str) -> Option<i32> {
         self.documents.get(uri).map(|open| open.version)
     }
 
-    /// Tabela de linhas do documento, para converter spans sem revarrer.
+    /// Line table of the document, to convert spans without rescanning.
     pub(crate) fn lines(&self, uri: &str) -> Option<&LineTable> {
         self.documents.get(uri).map(|open| &open.lines)
     }
 
-    /// Documentos atualmente retidos; cada um custa exatamente um texto.
+    /// Documents currently retained; each one costs exactly one text.
     pub fn len(&self) -> usize {
         self.documents.len()
     }
 
-    /// URIs dos documentos abertos, sem reter cópia dos textos.
+    /// URIs of the open documents, without retaining a copy of the texts.
     pub(crate) fn uris(&self) -> impl Iterator<Item = &str> {
         self.documents.keys().map(String::as_str)
     }
 
-    /// Verdadeiro quando nenhum documento está aberto.
+    /// True when no document is open.
     pub fn is_empty(&self) -> bool {
         self.documents.is_empty()
     }
 
-    /// Diagnostica o texto vigente pelo parser novo.
+    /// Diagnoses the current text through the new parser.
     ///
-    /// Lista vazia quando o documento está fechado; nunca retém o resultado,
-    /// que é transitório do chamador.
+    /// An empty list when the document is closed; never retains the result,
+    /// which is transient to the caller.
     pub fn diagnose_open(&self, uri: &str) -> Vec<Diagnostic> {
         match self.get(uri) {
             Some(text) => SyntacticAnalyzer::new().diagnose(uri, text),
@@ -336,57 +340,58 @@ impl DocumentStore {
     }
 }
 
-/// Análise que produz os diagnósticos publicados após cada mudança.
+/// Analysis that produces the diagnostics published after each change.
 ///
-/// O [`Server`] chama este trait, nunca o parser diretamente. A
-/// assinatura leva `uri` e `text` (não o documento) para que a
-/// implementação possa consultar outros arquivos. Os diagnósticos tipados
-/// não passam por [`Analyzer::diagnose`] (que é síncrono): o servidor
-/// os pede ao trabalhador em segundo plano com o SDK de
+/// The [`Server`] calls this trait, never the parser directly. The signature
+/// takes `uri` and `text` (not the document) so that the implementation can
+/// consult other files. Typed diagnostics do not go through
+/// [`Analyzer::diagnose`] (which is synchronous): the server requests them
+/// from the background worker with the SDK from
 /// [`Analyzer::sdk_for_diagnostics`].
 pub trait Analyzer {
-    /// Diagnostica o texto vigente e devolve spans em bytes UTF-8.
+    /// Diagnoses the current text and returns spans in UTF-8 bytes.
     ///
-    /// O resultado é transitório do chamador: nada é retido entre chamadas,
-    /// para que N edições não retenham N análises (o modo de falha do LSP do
-    /// Dart, medido no PLANO.md).
+    /// The result is transient to the caller: nothing is retained between
+    /// calls, so that N edits do not retain N analyses (the failure mode of
+    /// Dart's LSP, measured in PLANO.md).
     fn diagnose(&mut self, uri: &str, text: &str) -> Vec<Diagnostic>;
 
-    /// Símbolos sintáticos do documento, sem guardar a árvore entre edições.
+    /// Syntactic symbols of the document, without keeping the tree between edits.
     fn symbols(&mut self, _uri: &str, _text: &str) -> Vec<serde_json::Value> {
         Vec::new()
     }
 
-    /// Definição conservadora da posição no texto: URI e seleção no destino.
+    /// Conservative definition of the position in the text: URI and selection
+    /// at the target.
     fn definition(&mut self, _uri: &str, _text: &str, _offset: usize) -> Option<(String, Option<dartforge_diagnostics::Span>)> {
         None
     }
 
-    /// Variante com os buffers abertos, para resolver imports ainda não
-    /// salvos sem duplicar documentos no analisador residente.
+    /// Variant with the open buffers, to resolve imports not saved yet without
+    /// duplicating documents in the resident analyzer.
     fn definition_in_workspace(&mut self, uri: &str, text: &str, offset: usize, _documents: &DocumentStore) -> Option<(String, Option<dartforge_diagnostics::Span>)> {
         self.definition(uri, text, offset)
     }
 
-    /// Descrição, tipo e documentação do que está sob o cursor.
+    /// Description, type and documentation of what is under the cursor.
     fn hover(&mut self, _uri: &str, _text: &str, _offset: usize) -> Option<Hover> {
         None
     }
 
-    /// Variante com os buffers abertos (textos ainda não salvos).
+    /// Variant with the open buffers (texts not saved yet).
     fn hover_in_workspace(&mut self, uri: &str, text: &str, offset: usize, _documents: &DocumentStore) -> Option<Hover> {
         self.hover(uri, text, offset)
     }
 
-    /// Itens de completar na posição `offset` (bytes) do documento aberto
-    /// `uri`. `None` quando a análise não sabe responder (sem SDK, por
-    /// exemplo); lista vazia quando não há o que oferecer.
+    /// Completion items at position `offset` (bytes) of the open document
+    /// `uri`. `None` when the analysis cannot answer (no SDK, for example); an
+    /// empty list when there is nothing to offer.
     ///
     /// ```
     /// use dartforge_lsp::{Analyzer, SemanticAnalyzer, SyntacticAnalyzer, DocumentStore};
     /// let mut docs = DocumentStore::new();
     /// docs.open("file:///a.dart".into(), 1, "void f(int x) { x. }".into());
-    /// // Sem tipos não há o que completar; o semântico sem SDK também não sabe.
+    /// // Without types there is nothing to complete; the semantic one without an SDK does not know either.
     /// assert!(SyntacticAnalyzer::new().completion(&docs, "file:///a.dart", 18).is_none());
     /// assert!(SemanticAnalyzer::new(None).completion(&docs, "file:///a.dart", 18).is_none());
     /// ```
@@ -394,22 +399,22 @@ pub trait Analyzer {
         None
     }
 
-    /// O `maxCompletionItems` da configuração do cliente (o `maxSuggestions`
-    /// do coletor e do truncamento).
+    /// The client configuration's `maxCompletionItems` (the `maxSuggestions` of
+    /// the collector and of the truncation).
     fn set_completion_max(&mut self, _max: usize) {}
 
-    /// Se o completar sugere declarações de bibliotecas não importadas (o
-    /// `suggestFromUnimportedLibraries && capabilities.applyEdit` do
+    /// Whether completion suggests declarations from not-imported libraries
+    /// (the `suggestFromUnimportedLibraries && capabilities.applyEdit` of
     /// `handler_completion.dart:367`).
     fn set_not_imported_in_completion(&mut self, _yes: bool) {}
 
-    /// `prepareRename`: intervalo (bytes) e texto do nome renomeável sob o
-    /// cursor; `Ok(None)` quando não há nome ali.
+    /// `prepareRename`: range (bytes) and text of the renameable name under the
+    /// cursor; `Ok(None)` when there is no name there.
     ///
-    /// # Erros
+    /// # Errors
     ///
-    /// Mensagem para o usuário quando o elemento existe mas não pode ser
-    /// renomeado (SDK, pacote externo, forma ainda não suportada).
+    /// A message for the user when the element exists but cannot be renamed
+    /// (SDK, external package, shape not supported yet).
     fn prepare_rename(
         &mut self,
         _documents: &DocumentStore,
@@ -419,7 +424,7 @@ pub trait Analyzer {
         Ok(None)
     }
 
-    /// `rename`: as edições em todos os arquivos do projeto.
+    /// `rename`: the edits in all files of the project.
     ///
     /// ```
     /// use dartforge_lsp::{Analyzer, SyntacticAnalyzer, DocumentStore};
@@ -430,19 +435,19 @@ pub trait Analyzer {
     /// assert!(a.rename(&docs, "file:///a.dart", 4, "y").is_err());
     /// ```
     ///
-    /// # Erros
+    /// # Errors
     ///
-    /// Nome inválido, elemento não renomeável ou conflito, com a mensagem
-    /// para o usuário.
+    /// Invalid name, element that cannot be renamed, or a conflict, with the
+    /// message for the user.
     fn rename(&mut self, _documents: &DocumentStore, _uri: &str, _offset: usize, _new: &str) -> Result<Rename, String> {
         Err("Renomear exige a análise semântica (SDK do Dart).".into())
     }
 
-    /// `codeAction`: correções e assistências para o intervalo `start..end`
-    /// (bytes) do documento aberto. `published` são os diagnósticos tipados
-    /// já publicados para a versão vigente (o servidor não passa os de uma
-    /// versão velha). O padrão oferece as correções dos diagnósticos
-    /// sintáticos (inserir `;`).
+    /// `codeAction`: fixes and assists for the range `start..end` (bytes) of the
+    /// open document. `published` are the typed diagnostics already published
+    /// for the current version (the server does not pass those of an old
+    /// version). The default offers the fixes of the syntactic diagnostics
+    /// (insert `;`).
     ///
     /// ```
     /// use dartforge_lsp::{Analyzer, SyntacticAnalyzer, DocumentStore};
@@ -460,202 +465,199 @@ pub trait Analyzer {
         output
     }
 
-    /// As refatorações listadas em `offset..offset + length`
-    /// (docs/LSP-ESPECIFICACAO.md §13.11.1); `create_files` é o
-    /// `supportsFileCreation` do cliente.
+    /// The refactorings listed in `offset..offset + length`
+    /// (docs/LSP-ESPECIFICACAO.md §13.11.1); `create_files` is the client's
+    /// `supportsFileCreation`.
     fn refactorings(&mut self, _documents: &DocumentStore, _uri: &str, _offset: usize, _length: usize, _create_files: bool) -> Vec<Refactoring> {
         Vec::new()
     }
 
-    /// `refactor.perform`/`refactor.validate` de uma refatoração legada
-    /// (§13.11.2).
+    /// `refactor.perform`/`refactor.validate` of a legacy refactoring (§13.11.2).
     fn run_refactoring(&mut self, _documents: &DocumentStore, _uri: &str, _request: &RefactoringRequest) -> RefactoringResult {
         RefactoringResult::NotAnalyzed
     }
 
-    /// `dart.refactor.move_top_level_to_file` para o arquivo `target`
-    /// (§13.11.9 e).
+    /// `dart.refactor.move_top_level_to_file` to file `target` (§13.11.9 e).
     fn move_to_file(&mut self, _documents: &DocumentStore, _uri: &str, _offset: usize, _length: usize, _target: &str) -> RefactoringResult {
         RefactoringResult::NotAnalyzed
     }
 
-    /// Descarta estado associado ao documento quando ele sai do editor.
+    /// Discards state associated with the document when it leaves the editor.
     fn closed_document(&mut self, _uri: &str) {}
 
-    /// O texto de `uri` mudou (`didOpen` ou `didChange` aceito): o que o
-    /// analisador retém de consultas anteriores deixa de valer e cai aqui.
+    /// The text of `uri` changed (an accepted `didOpen` or `didChange`): what the
+    /// analyzer retains from previous queries stops being valid and drops here.
     fn changed_document(&mut self, _uri: &str) {}
 
-    /// `didOpen`: `uri` passou a estar aberto em `documents`. O padrão é
-    /// [`Analyzer::changed_document`]; quem retém estado pode mantê-lo
-    /// quando o texto aberto é o que já leu do disco.
+    /// `didOpen`: `uri` is now open in `documents`. The default is
+    /// [`Analyzer::changed_document`]; whoever retains state may keep it when
+    /// the open text is what it already read from disk.
     fn open_document(&mut self, _documents: &DocumentStore, uri: &str) {
         self.changed_document(uri);
     }
 
-    /// `didClose`: `uri` já saiu de `documents`. O padrão é
-    /// [`Analyzer::closed_document`]; quem retém estado pode mantê-lo
-    /// quando o texto do disco é o que já tinha.
+    /// `didClose`: `uri` has already left `documents`. The default is
+    /// [`Analyzer::closed_document`]; whoever retains state may keep it when the
+    /// disk text is what it already had.
     fn document_closed_at(&mut self, _documents: &DocumentStore, uri: &str) {
         self.closed_document(uri);
     }
 
-    /// `didChange` aceito: o texto de `uri` em `documents` é o novo. O
-    /// padrão é [`Analyzer::changed_document`]; quem retém
-    /// estado pode trocá-lo no lugar quando só corpos mudaram.
+    /// Accepted `didChange`: the text of `uri` in `documents` is the new one.
+    /// The default is [`Analyzer::changed_document`]; whoever retains state may
+    /// swap it in place when only bodies changed.
     fn edited_document(&mut self, _documents: &DocumentStore, uri: &str) {
         self.changed_document(uri);
     }
 
-    /// O `lib/` do SDK com que o servidor roda, em segundo plano, a análise
-    /// tipada do `dartforge analyze` sobre os documentos abertos
-    /// (`docs/LSP.md`, "Diagnósticos tipados"). `None` (o padrão): só os
-    /// diagnósticos de [`Analyzer::diagnose`].
+    /// The SDK `lib/` with which the server runs, in the background, the
+    /// `dartforge analyze` typed analysis over the open documents
+    /// (`docs/LSP.md`, "Diagnósticos tipados"). `None` (the default): only the
+    /// diagnostics of [`Analyzer::diagnose`].
     fn sdk_for_diagnostics(&self) -> Option<std::path::PathBuf> {
         None
     }
 
-    /// Referências conservadoras no próprio documento: declaração primeiro,
-    /// depois os usos, todos como spans em bytes UTF-8.
+    /// Conservative references in the document itself: the declaration first,
+    /// then the uses, all as spans in UTF-8 bytes.
     ///
-    /// Só responde nos mesmos casos seguros de [`Analyzer::definition`]
-    /// (tipo, variável, função ou getter de topo únicos, sem imports nem
-    /// sombras): `None` significa "não sei", nunca "não há". O resultado é
-    /// transitório do chamador, como nos demais métodos.
+    /// Only answers in the same safe cases as [`Analyzer::definition`] (a single
+    /// top-level type, variable, function or getter, without imports or
+    /// shadows): `None` means "I don't know", never "there are none". The
+    /// result is transient to the caller, as in the other methods.
     fn references(&mut self, _uri: &str, _text: &str, _offset: usize) -> Option<Vec<dartforge_diagnostics::Span>> {
         None
     }
 
-    /// Referências no workspace: a declaração e os usos, cada um com a URI
-    /// do arquivo. O padrão delega ao próprio documento. Nada é retido entre
-    /// pedidos além do que a política de sessão do analisador permite.
+    /// References in the workspace: the declaration and the uses, each with the
+    /// file's URI. The default delegates to the document itself. Nothing is
+    /// retained between requests beyond what the analyzer's session policy
+    /// allows.
     fn references_in(&mut self, documents: &DocumentStore, uri: &str, offset: usize) -> Option<References> {
         let text = documents.get(uri)?;
         let spans = self.references(uri, text, offset)?;
         Some(References::of_list(uri, spans))
     }
 
-    /// Ajuda de assinatura na lista de argumentos que contém `offset`
-    /// (`textDocument/signatureHelp`). `auto`: o editor pediu ao
-    /// digitar `(`; só responde se esse `(` abre a lista. O padrão: nenhuma.
+    /// Signature help in the argument list containing `offset`
+    /// (`textDocument/signatureHelp`). `auto`: the editor asked on typing `(`;
+    /// it only answers if that `(` opens the list. The default: none.
     fn signature(&mut self, _documents: &DocumentStore, _uri: &str, _offset: usize, _auto: bool) -> Option<Signature> {
         None
     }
 
-    /// As ocorrências, no próprio documento, do que `offset` denota
-    /// (`textDocument/documentHighlight`). O padrão usa as referências
-    /// conservadoras do documento.
+    /// The occurrences, in the document itself, of what `offset` denotes
+    /// (`textDocument/documentHighlight`). The default uses the document's
+    /// conservative references.
     fn document_highlights(&mut self, documents: &DocumentStore, uri: &str, offset: usize) -> Option<Vec<dartforge_diagnostics::Span>> {
         let text = documents.get(uri)?.to_string();
         self.references(uri, &text, offset)
     }
 
-    /// Implementações (`textDocument/implementation`): subtipos de uma
-    /// classe ou as sobrescritas de um membro, com a URI de cada uma.
+    /// Implementations (`textDocument/implementation`): subtypes of a class or
+    /// the overrides of a member, with each one's URI.
     fn implementations(&mut self, _documents: &DocumentStore, _uri: &str, _offset: usize) -> Vec<(String, dartforge_diagnostics::Span)> {
         Vec::new()
     }
 
-    /// As cores de `uri` (`textDocument/documentColor`): o intervalo e o
-    /// ARGB de 0 a 255.
+    /// The colors of `uri` (`textDocument/documentColor`): the range and the
+    /// ARGB from 0 to 255.
     fn colors(&mut self, _documents: &DocumentStore, _uri: &str) -> Vec<(dartforge_diagnostics::Span, [u8; 4])> {
         Vec::new()
     }
 
-    /// `textDocument/colorPresentation`: o `Color` do Flutter existe e a
-    /// expressão em `offset` exige `const` (`None`: sem o `Color`).
+    /// `textDocument/colorPresentation`: Flutter's `Color` exists and the
+    /// expression at `offset` requires `const` (`None`: without the `Color`).
     fn color_presentation(&mut self, _documents: &DocumentStore, _uri: &str, _offset: usize) -> Option<bool> {
         None
     }
 
-    /// As lentes de augmentation de `uri` (`AugmentationCodeLensProvider`):
-    /// o nome, o título e o alvo (URI e span).
+    /// The augmentation lenses of `uri` (`AugmentationCodeLensProvider`): the
+    /// name, the title and the target (URI and span).
     fn augmentation_lenses(&mut self, _documents: &DocumentStore, _uri: &str, _augmented: bool, _augmentations: bool) -> Vec<(dartforge_diagnostics::Span, &'static str, String, dartforge_diagnostics::Span)> {
         Vec::new()
     }
 
-    /// `dart/textDocument/augmented` (`next` falso) e
-    /// `dart/textDocument/augmentation`: o vizinho na cadeia de augmentation.
+    /// `dart/textDocument/augmented` (`next` false) and
+    /// `dart/textDocument/augmentation`: the neighbor in the augmentation chain.
     fn augmentation_neighbor(&mut self, _documents: &DocumentStore, _uri: &str, _offset: usize, _next: bool) -> Option<(String, dartforge_diagnostics::Span)> {
         None
     }
 
-    /// `dart/textDocument/super`: o construtor, a classe ou o membro que o
-    /// que `offset` denota sobrescreve ou estende.
+    /// `dart/textDocument/super`: the constructor, class or member that what
+    /// `offset` denotes overrides or extends.
     fn upper(&mut self, _documents: &DocumentStore, _uri: &str, _offset: usize) -> Option<(String, dartforge_diagnostics::Span)> {
         None
     }
 
-    /// A declaração do tipo estático do que `offset` denota
+    /// The declaration of the static type of what `offset` denotes
     /// (`textDocument/typeDefinition`).
     fn type_definition(&mut self, _documents: &DocumentStore, _uri: &str, _offset: usize) -> Option<(String, dartforge_diagnostics::Span)> {
         None
     }
 
-    /// Regiões de dobra (`textDocument/foldingRange`); `lines_only`: o
-    /// cliente anunciou `lineFoldingOnly`.
+    /// Folding regions (`textDocument/foldingRange`); `lines_only`: the client
+    /// announced `lineFoldingOnly`.
     fn folds(&mut self, _uri: &str, _text: &str, _only_lines: bool) -> Vec<Fold> {
         Vec::new()
     }
 
-    /// Faixas de seleção em `offset`, da mais interna à mais externa
+    /// Selection ranges at `offset`, from the innermost to the outermost
     /// (`textDocument/selectionRange`).
     fn selections(&mut self, _uri: &str, _text: &str, _offset: usize) -> Vec<dartforge_diagnostics::Span> {
         Vec::new()
     }
 
-    /// Os rótulos de fechamento do documento
-    /// (`dart/textDocument/publishClosingLabels`): o intervalo (bytes) do nó
-    /// e o texto. O padrão não tem nenhum.
+    /// The document's closing labels (`dart/textDocument/publishClosingLabels`):
+    /// the node's range (bytes) and the text. The default has none.
     fn closing_labels(&mut self, _documents: &DocumentStore, _uri: &str) -> Vec<(dartforge_diagnostics::Span, String)> {
         Vec::new()
     }
 
-    /// Dicas embutidas do documento inteiro (`textDocument/inlayHint`).
+    /// Inlay hints of the whole document (`textDocument/inlayHint`).
     fn hints(&mut self, _documents: &DocumentStore, _uri: &str) -> Vec<Hint> {
         Vec::new()
     }
 
-    /// Tokens semânticos do documento já codificados para o protocolo
-    /// (grupos de 5 números); `multiline`: o cliente aceita tokens de
-    /// várias linhas; `range` (bytes): só os que a tocam.
+    /// Semantic tokens of the document already encoded for the protocol (groups
+    /// of 5 numbers); `multiline`: the client accepts multi-line tokens; `range`
+    /// (bytes): only those that touch it.
     fn semantic_tokens(&mut self, _documents: &DocumentStore, _uri: &str, _multiline: bool, _range: Option<(usize, usize)>) -> Option<Vec<u32>> {
         None
     }
 
-    /// O executável em `offset` como item da hierarquia de chamadas
+    /// The executable at `offset` as a call hierarchy item
     /// (`textDocument/prepareCallHierarchy`).
     fn prepare_calls(&mut self, _documents: &DocumentStore, _uri: &str, _offset: usize) -> Option<CallItem> {
         None
     }
 
-    /// Chamadas recebidas (`true`) ou feitas pelo item do cliente: o nome
-    /// em `offset` de `uri`, o nome exibido (o `_isMatchingElement`) e se a
-    /// espécie é construtor (o construtor sem nome implícito da classe); os
-    /// intervalos de cada uma (no arquivo de quem chama, nas recebidas).
+    /// Incoming (`true`) or outgoing calls of the client's item: the name at
+    /// `offset` of `uri`, the displayed name (`_isMatchingElement`) and whether
+    /// the kind is constructor (the class's implicit unnamed constructor); the
+    /// ranges of each one (in the caller's file, for incoming calls).
     fn calls(&mut self, _documents: &DocumentStore, _uri: &str, _offset: usize, _name: &str, _constructor: bool, _received: bool) -> Vec<(CallItem, Vec<dartforge_diagnostics::Span>)> {
         Vec::new()
     }
 
-    /// O item da hierarquia de tipos em `offset`
-    /// (`textDocument/prepareTypeHierarchy`).
+    /// The type hierarchy item at `offset` (`textDocument/prepareTypeHierarchy`).
     fn prepare_hierarchy(&mut self, _documents: &DocumentStore, _uri: &str, _offset: usize) -> Option<TypeItem> {
         None
     }
 
-    /// Supertipos (`true`) ou subtipos diretos da classe cujo
-    /// `ElementLocation` é `reference` (o `data.ref` do item), no projeto de
-    /// `uri`; `anchor` é o `data.anchor` (a referência e o caminho). `None`
-    /// quando a referência não localiza uma classe (resposta `null`).
+    /// Supertypes (`true`) or direct subtypes of the class whose
+    /// `ElementLocation` is `reference` (the item's `data.ref`), in the project
+    /// of `uri`; `anchor` is the `data.anchor` (the reference and the path).
+    /// `None` when the reference does not locate a class (`null` response).
     fn hierarchy(&mut self, _documents: &DocumentStore, _uri: &str, _reference: &str, _anchor: Option<(&str, &[usize])>, _supertypes: bool) -> Option<Vec<TypeItem>> {
         None
     }
 }
 
-/// Um item da hierarquia de tipos: o nome exibido (`Base<int>`), o arquivo,
-/// a declaração inteira (com a documentação) e o nome, o `ElementLocation`
-/// da classe e a âncora (referência e caminho) dos supertipos com
-/// argumentos de tipo.
+/// A type hierarchy item: the displayed name (`Base<int>`), the file, the
+/// whole declaration (with the documentation) and the name, the class's
+/// `ElementLocation` and the anchor (reference and path) of the supertypes
+/// with type arguments.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypeItem {
     pub name: String,
@@ -666,40 +668,41 @@ pub struct TypeItem {
     pub anchor: Option<(String, Vec<usize>)>,
 }
 
-/// Análise sintática: o parser novo, sem resolução (nomes e tipos chegam depois).
+/// Syntactic analysis: the new parser, without resolution (names and types
+/// come later).
 ///
-/// Cada chamada interna num [`dartforge_intern::Interner`] novo e o descarta
-/// com a árvore: só os diagnósticos (mensagem + span) atravessam a chamada.
-/// Aceita 100% do SDK, do corpus pub e do `new_sali`; arquivos válidos não
-/// geram diagnósticos.
+/// Each call interns into a new [`dartforge_intern::Interner`] and discards
+/// it together with the tree: only the diagnostics (message + span) cross
+/// the call. Accepts 100% of the SDK, the pub corpus and `new_sali`; valid
+/// files produce no diagnostics.
 ///
 /// ```
 /// use dartforge_lsp::{Analyzer, SyntacticAnalyzer};
 /// let mut a = SyntacticAnalyzer::new();
 /// assert!(a.diagnose("file:///a.dart", "void main() {}").is_empty());
-/// // O identificador que falta e, como no `dart analyze`, o local não usado.
+/// // The missing identifier and, as in `dart analyze`, the unused local.
 /// assert_eq!(a.diagnose("file:///b.dart", "void a() { int x = ; }").len(), 2);
 /// ```
 #[derive(Debug, Default)]
 pub struct SyntacticAnalyzer {
-    /// `package_config.json` já lidos, pelo caminho (um por projeto aberto):
-    /// a versão de linguagem padrão de cada arquivo vem dele.
+    /// `package_config.json` files already read, by path (one per open
+    /// project): each file's default language version comes from it.
     configs: std::collections::HashMap<std::path::PathBuf, dartforge_elements::config::PackageConfig>,
-    /// Versão padrão (a do pacote) de cada documento já visto.
+    /// Default version (the package's) of each document already seen.
     patterns: std::collections::HashMap<String, dartforge_frontend::LanguageVersion>,
 }
 
 impl SyntacticAnalyzer {
-    /// Cria o analisador sintático.
+    /// Creates the syntactic analyzer.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Os recursos de linguagem do arquivo `uri` (`docs/VERSOES-LINGUAGEM.md`
-    /// §2): o marcador `// @dart = x.y`, senão o `languageVersion` do pacote
-    /// no `package_config.json` que o contém, senão a versão corrente. Sem
-    /// isso, um projeto 3.6 veria erro em `final` de parâmetro (proibido na
-    /// 3.13) e um 3.13 veria erro em construtor primário.
+    /// The language features of file `uri` (`docs/VERSOES-LINGUAGEM.md` §2): the
+    /// `// @dart = x.y` marker, else the package's `languageVersion` in the
+    /// `package_config.json` that contains it, else the current version. Without
+    /// this, a 3.6 project would see an error on a `final` parameter (forbidden
+    /// in 3.13) and a 3.13 one would see an error on a primary constructor.
     pub(crate) fn features(&mut self, uri: &str, text: &str) -> dartforge_frontend::LibraryFeatures {
         use dartforge_frontend::{LanguageVersion, LibraryFeatures};
         if let Some((v, _)) = dartforge_frontend::features::marcador_versao(text) {
@@ -708,8 +711,8 @@ impl SyntacticAnalyzer {
         if let Some(v) = self.patterns.get(uri) {
             return LibraryFeatures::new(*v, &[]);
         }
-        // Uma vez por documento: o caminho canônico (é o que o
-        // `package_config` guarda) e o pacote que o contém.
+        // Once per document: the canonical path (what the `package_config` stores)
+        // and the package that contains it.
         let path = url::Url::parse(uri)
             .ok()
             .filter(|u| u.scheme() == "file")
@@ -730,35 +733,35 @@ impl SyntacticAnalyzer {
         LibraryFeatures::new(pattern, &[])
     }
 
-    /// Só os diagnósticos do parser (sempre publicados), na versão de
-    /// linguagem do arquivo.
+    /// Only the parser's diagnostics (always published), in the file's language
+    /// version.
     pub(crate) fn syntax(&mut self, uri: &str, text: &str) -> Vec<Diagnostic> {
         let features = self.features(uri, text);
         let mut names = dartforge_intern::Interner::new();
         let parsed = dartforge_frontend::parser::parse_com(text, &mut names, features);
-        // Nome e texto do analyzer que é a referência do arquivo (T2).
+        // Name and text of the analyzer that is the file's reference (T2).
         let reference = parsed.referencia;
         parsed.diagnostics.into_iter().filter_map(|d| d.na_referencia(reference)).collect()
     }
 }
 
 impl Analyzer for SyntacticAnalyzer {
-    /// Analisa com o parser completo, na versão de linguagem do arquivo, com
-    /// recuperação por declaração.
+    /// Analyzes with the full parser, in the file's language version, with
+    /// per-declaration recovery.
     ///
-    /// Depois da sintaxe, os verificadores de `crates/analysis` que não
-    /// dependem de tipos (nomes duplicados, locais não usados) sobre o próprio
-    /// arquivo; destes, só sai o que a regra de publicação deixa
-    /// (`dartforge_analysis::publication`): código verificado contra o oráculo,
-    /// e não suprimido por `// ignore:` (o filtro do `dartforge analyze`).
+    /// After the syntax, the `crates/analysis` checkers that do not depend on
+    /// types (duplicate names, unused locals) over the file itself; of these,
+    /// only what the publication rule lets through comes out
+    /// (`dartforge_analysis::publicacao`): codes verified against the oracle,
+    /// and not suppressed by `// ignore:` (the `dartforge analyze` filter).
     fn diagnose(&mut self, uri: &str, text: &str) -> Vec<Diagnostic> {
         let features = self.features(uri, text);
         let mut names = dartforge_intern::Interner::new();
         let parsed = dartforge_frontend::parser::parse_com(text, &mut names, features);
         let mut output = parsed.diagnostics;
         let unit = dartforge_analysis::Unidade { ast: &parsed.ast, unit: &parsed.unit, fonte: text };
-        // Os locais não usados pela regra dos trechos pulados (T5), como no
-        // `dartforge analyze`: sem porta por erro de sintaxe.
+        // The unused locals by the skipped-spans rule (T5), as in `dartforge
+        // analyze`: no gate on syntax errors.
         let skipped = dartforge_analysis::Pulados { fonte: text, trechos: &parsed.pulados };
         let wildcard = features.tem(dartforge_frontend::features::Feature::WildcardVariables);
         let reference = parsed.referencia;
@@ -771,7 +774,7 @@ impl Analyzer for SyntacticAnalyzer {
             .chain(dartforge_analysis::locais::nao_usados_com_pulados(unit, &names, wildcard, skipped))
             .chain(dartforge_analysis::externos::inicializadores(unit))
             .chain(dartforge_analysis::operadores::aridade(unit, &names));
-        // `// ignore:` como no `dartforge analyze` (o mesmo filtro).
+        // `// ignore:` as in `dartforge analyze` (the same filter).
         let ignored = dartforge_parity::filtros::Ignorados::de_texto(text);
         let lines = dartforge_parity::json::Linhas::new(text);
         output.extend(
@@ -779,8 +782,8 @@ impl Analyzer for SyntacticAnalyzer {
                 .filter(|d| dartforge_analysis::publicacao::publicado(d, false))
                 .filter(|d| !ignored.ignora(d, lines.ponto(d.span.start).line)),
         );
-        // Por último, o nome e o texto do analyzer de referência (T2): os
-        // filtros acima conhecem os códigos pelo nome do 3.6.
+        // Last, the name and text of the reference analyzer (T2): the filters above
+        // know the codes by their 3.6 names.
         output.into_iter().filter_map(|d| d.na_referencia(reference)).collect()
     }
 
@@ -813,9 +816,9 @@ impl Analyzer for SyntacticAnalyzer {
 
     fn closed_document(&mut self, uri: &str) {
         self.patterns.remove(uri);
-        // A configuração pode ter mudado enquanto o arquivo estava fechado.
-        // A próxima análise a carrega novamente; nada do projeto fechado fica
-        // retido indefinidamente na sessão do servidor.
+        // The configuration may have changed while the file was closed. The next
+        // analysis loads it again; nothing of the closed project stays retained
+        // indefinitely in the server session.
         self.configs.clear();
     }
 

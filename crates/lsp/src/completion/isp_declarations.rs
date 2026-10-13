@@ -1,35 +1,35 @@
-//! O `DeclarationHelper` do analysis server 3.6.2
-//! (`AS:src/services/completion/dart/declaration_helper.dart`, lido inteiro),
-//! o `VisibilityTracker` e a tradução dos candidatos dele em itens
-//! (`candidate_suggestion.dart`, `suggestion_builder.dart`).
+//! The analysis server 3.6.2 `DeclarationHelper`
+//! (`AS:src/services/completion/dart/declaration_helper.dart`, read in
+//! full), the `VisibilityTracker` and the translation of its candidates into
+//! items (`candidate_suggestion.dart`, `suggestion_builder.dart`).
 //!
-//! A ordem das sugestões é a do Dart: os locais de dentro para fora (os
-//! comandos de um bloco do último para o primeiro), os membros da
-//! declaração envolvente, as declarações de topo de cada unidade da
-//! biblioteca por categoria (classes, enums, extension types, mixins,
-//! typedefs, acessores, extensões, funções, variáveis), os prefixos, os
-//! imports na ordem das diretivas da unidade definidora (o `dart:core`
-//! implícito por último) e os membros herdados. Os espaços de nomes do
-//! Dart são `HashMap` de `String` (a ordem de iteração é a do hash da VM);
-//! aqui a ordem dentro de um espaço de nomes é a dos nomes, o que só muda a
-//! ordem entre candidatos de mesmo `matcherScore` (o cliente reordena pelo
-//! `sortText`).
-//! Escrito sem compilar nem executar (2026-10-05).
+//! The order of the suggestions is Dart's: the locals from the inside out
+//! (the statements of a block from the last to the first), the members of
+//! the enclosing declaration, the top-level declarations of each unit of
+//! the library by category (classes, enums, extension types, mixins,
+//! typedefs, accessors, extensions, functions, variables), the prefixes,
+//! the imports in the order of the defining unit's directives (the implicit
+//! `dart:core` last) and the inherited members. Dart's namespaces are
+//! `HashMap`s of `String` (the iteration order is the VM's hash order);
+//! here the order inside a namespace is the names' order, which only
+//! changes the order among candidates with the same `matcherScore` (the
+//! client reorders by `sortText`).
+//! Written without compiling or running (2026-10-05).
 
 use super::isp::{Flags, Isp, Operation, Feature};
 use super::*;
 use dartforge_elements::model::{ExtensionId, TypedefId, UnitId, VariableId, VariableRef};
 use dartforge_frontend::token::Op;
 
-/// O `importData` de um candidato: o prefixo pelo qual o elemento é
-/// visível e se a biblioteca ainda não está importada.
+/// The `importData` of a candidate: the prefix through which the element is
+/// visible and whether the library is not imported yet.
 #[derive(Debug, Clone)]
 pub(super) struct Import {
     pub prefix: Option<String>,
     pub not_imported: bool,
 }
 
-/// Os elementos de uma unidade por categoria, na ordem de declaração
+/// The elements of a unit by category, in declaration order
 /// (`CompilationUnitElement.classes`, `.enums`…).
 #[derive(Default)]
 pub(super) struct OfUnit {
@@ -44,22 +44,22 @@ pub(super) struct OfUnit {
     pub(super) variables: Vec<VariableId>,
 }
 
-/// O nome de um item sem a chamada.
+/// The name of an item without the call.
 fn text_without_parens(s: &str) -> &str {
     s.split('(').next().unwrap_or(s)
 }
 
-/// O texto de um elemento sem o `=` de setter (`displayName`).
+/// The text of an element without a setter's `=` (`displayName`).
 fn without_equal(s: &str) -> String {
     s.trim_end_matches('=').to_string()
 }
 
 impl<'a, 'c> Isp<'a, 'c> {
-    // -- O estado ------------------------------------------------------------------
+    // -- The state ------------------------------------------------------------------
 
-    /// `declarationHelper(...)`: a primeira chamada fixa as opções; o tipo
-    /// de contexto função com retorno `void` desliga `mustBeNonVoid` e liga
-    /// `preferNonInvocation`.
+    /// `declarationHelper(...)`: the first call fixes the options; a function
+    /// context type with a `void` return turns `mustBeNonVoid` off and
+    /// `preferNonInvocation` on.
     pub(super) fn dh(&mut self, mut f: Flags) {
         if let Some(t) = self.context_type
             && let Type::Function { ret, .. } = self.query.table.get(t)
@@ -73,12 +73,12 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// As opções vigentes.
+    /// The current options.
     pub(super) fn fl(&self) -> Flags {
         self.flags.clone().unwrap_or_default()
     }
 
-    /// `state.matcher.score(text)`, `None` quando não casa.
+    /// `state.matcher.score(text)`, `None` when it does not match.
     pub(super) fn match_score(&mut self, text: &str) -> Option<f64> {
         let s = self.score(text);
         (s != -1.0).then_some(s)
@@ -101,9 +101,9 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.operations.push(o);
     }
 
-    /// Marca os itens do coletor desde `before` como do passe, com o score;
-    /// `identifier` é o `CompletionSuggestionKind.IDENTIFIER` de um
-    /// executável (o rótulo mostra os parâmetros; a inserção não).
+    /// Marks the collector's items since `before` as the pass's, with the score;
+    /// `identifier` is the `CompletionSuggestionKind.IDENTIFIER` of an
+    /// executable (the label shows the parameters; the insertion does not).
     pub(super) fn mark(&mut self, before: usize, score: f64, identifier: bool) {
         let method = self.super_method.clone();
         for i in &mut self.collector.items[before..] {
@@ -111,8 +111,8 @@ impl<'a, 'c> Isp<'a, 'c> {
             if identifier {
                 i.identifier = true;
             }
-            // `superMatchesFeature` e `isNoSuchMethodFeature` (o nome do
-            // método que contém o `super.▮` não é penalizado).
+            // `superMatchesFeature` and `isNoSuchMethodFeature` (the name of the method
+            // that contains the `super.▮` is not penalized).
             if let Some(m) = &method
                 && i.rel.kind.is_some_and(|e| matches!(e, crate::relevance::Kind::Method | crate::relevance::Kind::Field))
                 && text_without_parens(&i.insert) == m
@@ -124,7 +124,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.register(before, score);
     }
 
-    /// `completionPrefix` (`prefix.`) nos itens desde `before`.
+    /// `completionPrefix` (`prefix.`) on the items since `before`.
     pub(super) fn prefix(&mut self, before: usize, imp: Option<&Import>) {
         if let Some(p) = imp.and_then(|i| i.prefix.clone()) {
             for i in &mut self.collector.items[before..] {
@@ -134,8 +134,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// O grupo antigo do item pela biblioteca dona (só para a ordem do
-    /// caminho sem o passe).
+    /// The item's old group by owning library (only for the order of the path
+    /// without the pass).
     pub(super) fn group_of(&self, owning: LibraryId) -> u8 {
         if owning == self.library() { group::LIBRARY } else { group::IMPORTED }
     }
@@ -145,8 +145,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.fl().prefer_without_invocation
     }
 
-    /// `request.target.isFunctionalArgument()`: o alvo é um argumento cujo
-    /// parâmetro tem tipo de função (o tipo de contexto da posição).
+    /// `request.target.isFunctionalArgument()`: the target is an argument whose
+    /// parameter has a function type (the position's context type).
     pub(super) fn functional_argument(&self) -> bool {
         let Some(c) = self.covered_node() else { return false };
         let mut n = c;
@@ -159,22 +159,22 @@ impl<'a, 'c> Isp<'a, 'c> {
             && self.context_type.is_some_and(|t| matches!(self.query.table.get(t), Type::Function { .. }))
     }
 
-    /// `type is VoidType` de um retorno.
+    /// `type is VoidType` of a return.
     pub(super) fn is_void(&self, t: TypeId) -> bool {
         matches!(self.query.table.get(t), Type::Void)
     }
 
-    /// O retorno de uma função (`returnType`).
+    /// The return of a function (`returnType`).
     pub(super) fn return_of(&self, f: FunctionElementId) -> TypeId {
         self.query.outline.functions[f.0 as usize].return_type
     }
 
-    /// `isVisibleIn`: da biblioteca do pedido, ou de nome público.
+    /// `isVisibleIn`: from the request's library, or a public name.
     pub(super) fn visible_in(&self, owning: LibraryId, name: &str) -> bool {
         owning == self.library() || !name.starts_with('_')
     }
 
-    /// O `thisType` de uma classe (os parâmetros dela como argumentos).
+    /// The `thisType` of a class (its parameters as arguments).
     pub(super) fn type_this(&mut self, c: ClassId) -> TypeId {
         let params: Vec<_> = self.query.outline.classes.get(c.0 as usize).map(|d| d.type_params.to_vec()).unwrap_or_default();
         let args: Box<[TypeId]> = params.iter().map(|&p| self.query.table.intern(Type::TypeParameter { param: p, nullable: false })).collect();
@@ -186,7 +186,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.query.table.intern(ty)
     }
 
-    /// A versão de linguagem de uma biblioteca habilita o recurso.
+    /// The language version of a library enables the feature.
     pub(super) fn library_feature(&self, l: LibraryId, r: Feature) -> bool {
         let v = self.query.program.library(l).features.versao();
         let min = match r {
@@ -198,14 +198,14 @@ impl<'a, 'c> Isp<'a, 'c> {
         (v.major, v.minor) >= min
     }
 
-    /// `isWildcardVariable`: `_` com o recurso de curingas.
+    /// `isWildcardVariable`: `_` with the wildcards feature.
     pub(super) fn wildcard(&self, name: &str) -> bool {
         name == "_" && self.features.tem(dartforge_frontend::Feature::WildcardVariables)
     }
 
-    // -- Os itens ------------------------------------------------------------------
+    // -- The items ------------------------------------------------------------------
 
-    /// Um local (variável ou parâmetro): `LocalVariableSuggestion`,
+    /// A local (variable or parameter): `LocalVariableSuggestion`,
     /// `FormalParameterSuggestion`.
     pub(super) fn item_local(&mut self, name: &str, ty: Option<TypeId>, parameter: bool, score: f64) {
         let distance = self.distance;
@@ -220,8 +220,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.mark(before, score, false);
     }
 
-    /// O detalhe `(T a, …) → R` de um tipo de função com os nomes dos
-    /// posicionais dados.
+    /// The detail `(T a, …) → R` of a function type with the given positional names.
     pub(super) fn detail_with_names(&self, ty: TypeId, names: &[Option<String>]) -> String {
         let Type::Function { ret, positional, optional, named, .. } = self.query.table.get(ty).clone() else {
             return self.query.format(ty);
@@ -245,8 +244,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         format!("({}) → {}", parts.join(", "), self.query.format(ret))
     }
 
-    /// Uma função local (`LocalFunctionSuggestion`): o nó é o
-    /// `FunctionDeclaration` dela.
+    /// A local function (`LocalFunctionSuggestion`): the node is its
+    /// `FunctionDeclaration`.
     pub(super) fn local_function_item(&mut self, no: usize, name: &str, ty: Option<TypeId>, score: f64) {
         let f = self.real_function(no);
         let names: Vec<Option<String>> = f
@@ -278,7 +277,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.mark(before, score, ident);
     }
 
-    /// Um parâmetro de tipo (`TypeParameterSuggestion`).
+    /// A type parameter (`TypeParameterSuggestion`).
     pub(super) fn type_parameter_item(&mut self, name: &str, score: f64) {
         let before = self.collector.items.len();
         self.collector.push(group::LOCAL, kind::TYPE_PARAMETER, name.to_string(), name.to_string(), None).rel.kind =
@@ -286,8 +285,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.mark(before, score, false);
     }
 
-    /// Um membro (método, acessor) com o tipo visto pelo receptor; a
-    /// distância de herança é a partir de `reference`.
+    /// A member (method, accessor) with the type as seen through the receiver;
+    /// the inheritance distance is from `reference`.
     pub(super) fn item_member(&mut self, f: FunctionElementId, ty: TypeId, reference: Option<ClassId>, score: f64, identifier: bool) {
         let before = self.collector.items.len();
         let of_object = self.query.core.object_class.is_some() && self.query.program.function(f).class == self.query.core.object_class;
@@ -298,7 +297,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.mark(before, score, identifier);
     }
 
-    /// Um campo (`FieldSuggestion`): constante de enum vira `Enum.value`.
+    /// A field (`FieldSuggestion`): an enum constant becomes `Enum.value`.
     pub(super) fn item_field(&mut self, v: VariableId, ty: Option<TypeId>, reference: Option<ClassId>, score: f64) {
         let p = &self.query.program;
         let ve = p.variable(v);
@@ -333,8 +332,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.mark(before, score, false);
     }
 
-    /// Um elemento de topo (classe, enum, mixin, extensão, typedef, função,
-    /// acessor, variável) com o prefixo do import.
+    /// A top-level element (class, enum, mixin, extension, typedef, function,
+    /// accessor, variable) with the import's prefix.
     pub(super) fn item_element(&mut self, el: Element, imp: Option<&Import>, score: f64, identifier: bool) {
         let before = self.collector.items.len();
         let g = self.group_of(super::element_library(self.query, el));
@@ -343,8 +342,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.mark(before, score, identifier);
     }
 
-    /// Um construtor (`ConstructorSuggestion` pelo `suggestConstructor`): o
-    /// texto já calculado, `INVOCATION` ou `IDENTIFIER`.
+    /// A constructor (`ConstructorSuggestion` through `suggestConstructor`): the
+    /// already computed text, `INVOCATION` or `IDENTIFIER`.
     pub(super) fn item_constructor(&mut self, f: FunctionElementId, completion: String, invocation: bool, imp: Option<&Import>, score: f64) {
         let query = &*self.query;
         let class = query.program.function(f).class;
@@ -370,7 +369,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         item.call = Some(Call::Parameters(parameters));
         item.origin = origin;
         item.rel.kind = Some(crate::relevance::Kind::Constructor);
-        // `ctx(inst(class envolvente))`: a classe com argumentos `Never`.
+        // `ctx(inst(enclosing class))`: the class with `Never` arguments.
         item.class = class;
         self.prefix(before, imp);
         self.mark(before, score, !invocation);
@@ -415,7 +414,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// `_addLocalDeclarations`: devolve o membro que contém as declarações.
+    /// `_addLocalDeclarations`: returns the member that contains the declarations.
     pub(super) fn local_declarations(&mut self, n: usize) -> Option<usize> {
         let mut previous: Option<usize> = None;
         let mut current = Some(n);
@@ -514,8 +513,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         None
     }
 
-    /// `_suggestVariable` de um local declarado com o nome em `name_off`
-    /// (`constant`: a declaração é `const`).
+    /// `_suggestVariable` of a local declared with the name at `name_off`
+    /// (`constant`: the declaration is `const`).
     pub(super) fn suggest_variable(&mut self, name: &str, name_off: usize, constant: bool) {
         if self.wildcard(name) || !self.visible(name, None) {
             return;
@@ -529,7 +528,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// `_suggestParameter` (o nó é o do parâmetro).
+    /// `_suggestParameter` (the node is the parameter's).
     pub(super) fn suggest_parameter(&mut self, no: usize) {
         let Some(p) = self.real_parameter(no) else { return };
         let Some(name) = p.name else { return };
@@ -546,8 +545,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// O tipo de um parâmetro pela assinatura da função ou do construtor
-    /// declarado (quando o corpo não registrou o local).
+    /// The type of a parameter from the signature of the declared function or
+    /// constructor (when the body did not record the local).
     pub(super) fn declared_parameter_type(&self, no: usize, name: &str) -> Option<TypeId> {
         let list = self.parameter_list_of(no).or_else(|| self.parent(no))?;
         let owner = self.parent(list)?;
@@ -563,7 +562,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.query.outline.functions[f.0 as usize].parameters.iter().find(|p| p.name.is_some_and(|s| self.query.name(s) == name)).map(|p| p.ty)
     }
 
-    /// `_suggestLocalFunction` (o nó é o `FunctionDeclaration`).
+    /// `_suggestLocalFunction` (the node is the `FunctionDeclaration`).
     pub(super) fn suggest_local_function(&mut self, d: usize) {
         let Some(f) = self.real_function(d) else { return };
         let Some(name) = f.name else { return };
@@ -728,8 +727,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// `_visitStatements`: do último para o primeiro, sem o filho de onde se
-    /// veio.
+    /// `_visitStatements`: from the last to the first, without the child it came
+    /// from.
     pub(super) fn visit_commands(&mut self, commands: &[usize], child: Option<usize>) {
         for &c in commands.iter().rev() {
             if Some(c) == child {
@@ -848,10 +847,10 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// `_visitVariableDeclarationList`: as variáveis antes do filho.
+    /// `_visitVariableDeclarationList`: the variables before the child.
     pub(super) fn visit_variable_list(&mut self, k: usize, child: Option<usize>) {
         let Some(f) = child.filter(|&f| self.kind(f) == "VariableDeclaration") else { return };
-        // Só listas locais declaram `LocalVariableElement`.
+        // Only local lists declare a `LocalVariableElement`.
         let local = self.parent(k).is_some_and(|p| matches!(self.kind(p), "VariableDeclarationStatement" | "ForPartsWithDeclarations"));
         if !local {
             return;
@@ -867,7 +866,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    // -- A declaração envolvente -----------------------------------------------------
+    // -- The enclosing declaration -----------------------------------------------------
 
     /// `_addMembersOfEnclosingNode`.
     pub(super) fn enclosing_node_members(&mut self, d: usize) {
@@ -914,7 +913,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// O typedef declarado pelo nó.
+    /// The typedef declared by the node.
     pub(super) fn node_typedef(&self, d: usize) -> Option<TypedefId> {
         let target = self.map(self.real_decl(d)?.span.start);
         let p = &self.query.program;
@@ -932,8 +931,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// Os membros declarados de uma classe (ou extensão): acessores
-    /// declarados, campos, métodos, cada grupo na ordem de declaração.
+    /// The declared members of a class (or extension): declared accessors,
+    /// fields, methods, each group in declaration order.
     pub(super) fn declared_members(&self, c: Option<ClassId>, x: Option<ExtensionId>) -> (Vec<FunctionElementId>, Vec<VariableId>, Vec<FunctionElementId>) {
         let p = &self.query.program;
         let (inst, est, fields, constants): (Vec<FunctionElementId>, Vec<FunctionElementId>, Vec<VariableId>, Vec<VariableId>) = match (c, x) {
@@ -1005,7 +1004,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    // -- As sugestões de membros -----------------------------------------------------
+    // -- Member suggestions -----------------------------------------------------
 
     /// `_suggestField`.
     pub(super) fn suggest_field(&mut self, v: VariableId, ty: Option<TypeId>, reference: Option<ClassId>) {
@@ -1039,7 +1038,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             return;
         }
         let Some(s) = self.match_score(&name) else { return };
-        // Operadores: o `_getCompletionString` é nulo.
+        // Operators: `_getCompletionString` is null.
         if self.query.program.function(m).kind == FunctionKind::Operator {
             return;
         }
@@ -1053,7 +1052,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.prefix(before, imp);
     }
 
-    /// `ClassElement.isExactState`: o `State` do Flutter.
+    /// `ClassElement.isExactState`: Flutter's `State`.
     pub(super) fn is_exact_state(&self, m: FunctionElementId) -> bool {
         let p = &self.query.program;
         let Some(c) = p.function(m).class else { return false };
@@ -1076,17 +1075,17 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// `state.indent`: o recuo da linha do cursor.
+    /// `state.indent`: the indentation of the cursor's line.
     pub(super) fn line_indent(&self) -> String {
-        // `getRequestLineIndent`: o branco do começo da linha até o primeiro
-        // caractere que não é branco antes do cursor.
+        // `getRequestLineIndent`: the whitespace from the start of the line up to
+        // the first non-whitespace character before the cursor.
         let o = self.offset.min(self.source.len());
         let start = self.source[..o].rfind('\n').map_or(0, |i| i + 1);
         self.source[start..o].chars().take_while(|c| *c == ' ' || *c == '\t').collect()
     }
 
-    /// `_suggestProperty`: `f` é o getter ou o setter declarado (ou o
-    /// acessor implícito de um campo).
+    /// `_suggestProperty`: `f` is the declared getter or setter (or the implicit
+    /// accessor of a field).
     pub(super) fn suggest_property(&mut self, f: FunctionElementId, ty: Option<TypeId>, ignore_visibility: bool, imp: Option<&Import>, reference: Option<ClassId>) {
         let fe = self.query.program.function(f).clone();
         let name = without_equal(self.query.name(fe.name));
@@ -1102,7 +1101,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
         let Some(s) = self.match_score(&name) else { return };
         if fe.kind == FunctionKind::ImplicitAccessor {
-            // Sintético: só o getter, como `FieldSuggestion` da variável.
+            // Synthetic: only the getter, as the variable's `FieldSuggestion`.
             if getter && let Some(v) = fe.variable {
                 let before = self.collector.items.len();
                 self.item_field(v, ty, reference, s);
@@ -1116,7 +1115,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.prefix(before, imp);
     }
 
-    /// `correspondingSetter` de um getter (de membro ou de topo).
+    /// `correspondingSetter` of a getter (of a member or top-level).
     pub(super) fn matching_setter(&self, f: FunctionElementId) -> Option<FunctionElementId> {
         let p = &self.query.program;
         let fe = p.function(f);
@@ -1140,13 +1139,13 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    // -- Os membros de instância ------------------------------------------------------
+    // -- Instance members ------------------------------------------------------
 
-    /// Os membros de instância visíveis numa classe, na ordem dos mapas do
-    /// `InheritanceManager3` (`inheritance_manager3.dart`): o
-    /// `getInterface(c).map`; com `so_super`, o `getInheritedConcreteMap2`
-    /// (`superImplemented.last`); com `inherited`, o `getInheritedMap2` (os
-    /// `overridden`, na ordem dos candidatos).
+    /// The instance members visible in a class, in the order of the
+    /// `InheritanceManager3` maps (`inheritance_manager3.dart`): the
+    /// `getInterface(c).map`; with `only_super`, the `getInheritedConcreteMap2`
+    /// (`superImplemented.last`); with `inherited`, the `getInheritedMap2` (the
+    /// `overridden` ones, in candidate order).
     pub(super) fn interface_members(&self, c: ClassId, so_super: bool, inherited: bool) -> Vec<FunctionElementId> {
         let mut cache = HashMap::new();
         let mut processing = HashSet::new();
@@ -1161,9 +1160,9 @@ impl<'a, 'c> Isp<'a, 'c> {
         map.order.iter().map(|k| map.values[k]).collect()
     }
 
-    /// `_canAccessInstanceMember`: não estático, acessível (nome privado só
-    /// na biblioteca dele), e as anotações `@internal`, `@protected` e
-    /// `@visibleForTesting` do `package:meta`.
+    /// `_canAccessInstanceMember`: not static, accessible (a private name only
+    /// in its own library), and the `@internal`, `@protected` and
+    /// `@visibleForTesting` annotations from `package:meta`.
     pub(super) fn can_access_member(&self, f: FunctionElementId) -> bool {
         let p = &self.query.program;
         let fe = p.function(f);
@@ -1204,7 +1203,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         true
     }
 
-    /// Os nomes das anotações de um membro (o último segmento).
+    /// The names of a member's annotations (the last segment).
     pub(super) fn member_annotations(&self, f: FunctionElementId) -> Vec<String> {
         let p = &self.query.program;
         let meta: &[ast::Annotation] = match p.function(f).node {
@@ -1242,8 +1241,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         let Some(c) = class_ else { return };
         let lib = self.library();
         let members = self.interface_members(c, so_super, false);
-        // `membersByName` pelo `displayName`; `bestMember`: o getter antes
-        // do setter.
+        // `membersByName` by `displayName`; `bestMember`: the getter before the setter.
         let mut by_name: Vec<(String, Vec<FunctionElementId>)> = Vec::new();
         for f in members {
             if !self.can_access_member(f) {
@@ -1289,7 +1287,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                 _ => {}
             }
         }
-        // Os campos (sem acessor no mapa de membros): pelo getter implícito.
+        // The fields (without an accessor in the member map): through the implicit getter.
         let function = self.query.core.function_class;
         let is_function = Some(c) == function;
         let extends_function = function.is_some_and(|fc| inheritance_distance(self.query, c, fc).is_some_and(|d| d > 0));
@@ -1472,10 +1470,9 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    // -- As declarações de topo ------------------------------------------------------
+    // -- Top-level declarations ------------------------------------------------------
 
-    /// Os elementos de cada categoria de uma unidade, na ordem de
-    /// declaração.
+    /// The elements of each category of a unit, in declaration order.
     pub(super) fn unit_elements(&self, u: UnitId) -> OfUnit {
         use dartforge_elements::model::ClassKind as K;
         let p = &self.query.program;
@@ -1532,7 +1529,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         r
     }
 
-    /// `_addTopLevelDeclarations` da biblioteca do pedido.
+    /// `_addTopLevelDeclarations` of the request's library.
     pub(super) fn top_declarations(&mut self) {
         let units = self.query.program.library(self.library()).units.clone();
         let ty = self.fl().ty;
@@ -1575,7 +1572,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// `correspondingGetter` de um setter de topo.
+    /// `correspondingGetter` of a top-level setter.
     pub(super) fn top_getter(&self, f: FunctionElementId) -> Option<FunctionElementId> {
         let p = &self.query.program;
         let fe = p.function(f);
@@ -1586,9 +1583,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// Os imports da unidade definidora (`definingCompilationUnit.libraryImports`)
-    /// na ordem, com o `dart:core` implícito por último quando nenhum o
-    /// importa.
+    /// The imports of the defining unit (`definingCompilationUnit.libraryImports`)
+    /// in order, with the implicit `dart:core` last when none imports it.
     pub(super) fn defining_imports(&self) -> Vec<dartforge_elements::model::Import> {
         let p = &self.query.program;
         let lib = p.library(self.library());
@@ -1605,8 +1601,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         v
     }
 
-    /// O espaço de nomes de um import (`importElement.namespace`): o
-    /// exportado da biblioteca com os combinadores, por nome.
+    /// The namespace of an import (`importElement.namespace`): what the library
+    /// exports, with the combinators, by name.
     pub(super) fn import_space(&self, i: &dartforge_elements::model::Import) -> Vec<(SymbolId, dartforge_elements::model::Binding)> {
         let p = &self.query.program;
         let mut v: Vec<(SymbolId, dartforge_elements::model::Binding)> = p.library(i.library).exported.iter().map(|(&s, &b)| (s, b)).collect();
@@ -1622,9 +1618,9 @@ impl<'a, 'c> Isp<'a, 'c> {
                 }
             }
         }
-        // A ordem do `Namespace.definedNames`: a do `exportNamespace` da
-        // biblioteca (as declarações dela na ordem da fonte, unidade por
-        // unidade, depois as reexportadas, export por export).
+        // The order of `Namespace.definedNames`: that of the library's
+        // `exportNamespace` (its declarations in source order, unit by unit, then
+        // the re-exported ones, export by export).
         let order = export_order(&self.query.program, i.library, &mut HashSet::new());
         let position: HashMap<SymbolId, usize> = order.iter().enumerate().map(|(k, &s)| (s, k)).collect();
         v.sort_by_key(|(s, _)| (position.get(s).copied().unwrap_or(usize::MAX), self.query.name(*s).to_string()));
@@ -1683,7 +1679,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                         }
                     }
                     Element::Variable(_) => {
-                        // O getter sintético (o setter sintético não entra).
+                        // The synthetic getter (the synthetic setter is not included).
                         if !ty && b.getter == Some(el) {
                             self.suggest_top_property(el, Some(imp));
                         }
@@ -1704,7 +1700,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             }
             if let Some(s) = self.match_score(&name) {
                 let before = self.collector.items.len();
-                // O elemento é a biblioteca: `ElementKind.LIBRARY` → `File`/`Module`.
+                // The element is the library: `ElementKind.LIBRARY` → `File`/`Module`.
                 self.collector.push(group::PREFIX, 17, name.clone(), name, None).rel.kind = Some(crate::relevance::Kind::Prefix);
                 self.mark(before, s, false);
             }
@@ -1716,8 +1712,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         let p = &self.query.program;
         let lib = p.library(self.library());
         let unit = self.unit;
-        // Os imports com o prefixo na unidade do pedido (o fragmento que o
-        // declara).
+        // The imports with the prefix in the request's unit (the fragment that
+        // declares it).
         let mut imports: Vec<dartforge_elements::model::Import> =
             lib.imports.iter().filter(|i| i.prefix == Some(prefix) && (i.unit == unit || lib.units.first() == Some(&i.unit))).cloned().collect();
         imports.sort_by_key(|i| (i.unit != unit, i.directive));
@@ -1737,8 +1733,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// `addFromLibrary` (nomes de `show`/`hide`): sem rastreador nem
-    /// opções.
+    /// `addFromLibrary` (`show`/`hide` names): without a tracker or options.
     pub(super) fn library_dh(&mut self, lib: LibraryId, excluded: &HashSet<String>) {
         let p = &self.query.program;
         let mut v: Vec<(SymbolId, dartforge_elements::model::Binding)> = p.library(lib).exported.iter().map(|(&s, &b)| (s, b)).collect();
@@ -1751,7 +1746,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                 if excluded.contains(&key) {
                     continue;
                 }
-                // `_addImportedElement`: o setter sintético não vira sugestão.
+                // `_addImportedElement`: the synthetic setter does not become a suggestion.
                 if setter && matches!(el, Element::Variable(_)) {
                     continue;
                 }
@@ -1767,7 +1762,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    // -- Os elementos de topo ---------------------------------------------------------
+    // -- Top-level elements ---------------------------------------------------------
 
     /// `_suggestClass`.
     pub(super) fn suggest_class(&mut self, c: ClassId, imp: Option<&Import>) {
@@ -1937,8 +1932,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// `_suggestTopLevelProperty`: um getter/setter declarado
-    /// (`Element::Function`) ou o getter sintético de uma variável
+    /// `_suggestTopLevelProperty`: a declared getter/setter
+    /// (`Element::Function`) or the synthetic getter of a variable
     /// (`Element::Variable`).
     pub(super) fn suggest_top_property(&mut self, el: Element, imp: Option<&Import>) {
         let p = &self.query.program;
@@ -1986,11 +1981,11 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    // -- Campos estáticos e construtores ------------------------------------------------
+    // -- Static fields and constructors ------------------------------------------------
 
-    /// `_suggestStaticFields` de uma classe: as constantes de enum, o
-    /// `values`, os campos declarados e os getters estáticos (campos
-    /// sintéticos), na ordem de `fields`.
+    /// `_suggestStaticFields` of a class: the enum constants, `values`, the
+    /// declared fields and the static getters (synthetic fields), in `fields`
+    /// order.
     pub(super) fn suggest_static_fields(&mut self, c: ClassId, imp: Option<&Import>) {
         let p = &self.query.program;
         let cl = p.class(c);
@@ -2024,7 +2019,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// `_suggestStaticField` de um campo declarado.
+    /// `_suggestStaticField` of a declared field.
     pub(super) fn suggest_static_field(&mut self, v: VariableId, imp: Option<&Import>, owner: Option<String>) {
         let ve = self.query.program.variable(v).clone();
         let fl = self.fl();
@@ -2054,9 +2049,10 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.mark(before, s, false);
     }
 
-    /// `_suggestStaticField` de um campo sintético (getter estático; o
-    /// `values` de um enum): o getter sintético vira `FieldSuggestion` com o
-    /// nome só; o declarado, `PropertyAccessSuggestion` com o nome do dono.
+    /// `_suggestStaticField` of a synthetic field (static getter; an enum's
+    /// `values`): the synthetic getter becomes a `FieldSuggestion` with just the
+    /// name; the declared one, a `PropertyAccessSuggestion` with the owner's
+    /// name.
     pub(super) fn suggest_static_getter(&mut self, g: FunctionElementId, imp: Option<&Import>, owner: &str, synthetic: bool) {
         let fl = self.fl();
         if fl.constant || fl.assignable {
@@ -2114,8 +2110,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
         let Some(c) = fe.class else { return };
         let class = self.query.name(self.query.program.class(self.query.program.dono_da_classe(c)).name).to_string();
-        // O rastreador: a classe fica conhecida (ou, não importada, tem de
-        // estar visível).
+        // The tracker: the class becomes known (or, if not imported, has to be
+        // visible).
         if imp.is_some_and(|i| i.not_imported) {
             if !self.visible(&class, imp) {
                 return;
@@ -2274,7 +2270,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                 self.suggest_field(v, None, None);
             }
         }
-        // O `values` sintético do enum entra entre os campos.
+        // The enum's synthetic `values` is included among the fields.
         if is_enum
             && let Some(c) = c
             && let Some(s) = self.query.names.lookup("values")
@@ -2383,7 +2379,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// `addParametersFromSuperConstructor` (o nó é o `SuperFormalParameter`).
+    /// `addParametersFromSuperConstructor` (the node is the `SuperFormalParameter`).
     pub(super) fn dh_super_parameters(&mut self, n: usize) {
         self.dh(Flags::default());
         let Some(prm) = self.real_parameter(n) else { return };
@@ -2395,8 +2391,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         let Some(class) = self.parent(ctor).and_then(|c| self.node_class(c)) else { return };
         let p = &self.query.program;
         let Some(sup) = p.class(class).supertype_class else { return };
-        // `superConstructor`: o da invocação `super(...)`/`super.n(...)`, ou
-        // o sem nome.
+        // `superConstructor`: that of the `super(...)`/`super.n(...)` invocation,
+        // or the unnamed one.
         let name_sup = k
             .initializers
             .iter()
@@ -2457,11 +2453,11 @@ impl<'a, 'c> Isp<'a, 'c> {
 }
 
 
-/// O `Name` do analyzer: o nome, e a biblioteca quando é privado.
+/// The analyzer's `Name`: the name, and the library when it is private.
 type Key = (SymbolId, Option<dartforge_elements::model::LibraryId>);
 
-/// Um `Map<Name, ExecutableElement>` do Dart: a ordem é a da primeira
-/// inserção, e substituir mantém a posição.
+/// A Dart `Map<Name, ExecutableElement>`: the order is that of the first
+/// insertion, and replacing keeps the position.
 #[derive(Default, Clone)]
 struct SortedMap {
     order: Vec<Key>,
@@ -2483,9 +2479,9 @@ impl SortedMap {
         self.order.iter().map(|k| (*k, self.values[k]))
     }
 
-    /// O `_addCandidates` seguido do `_findMostSpecificFromNamedCandidates`
-    /// quando há um candidato só: os nomes ausentes entram no fim, e o
-    /// primeiro candidato de cada nome fica.
+    /// `_addCandidates` followed by `_findMostSpecificFromNamedCandidates` when
+    /// there is a single candidate: missing names go at the end, and the first
+    /// candidate of each name stays.
     fn append_missing(&mut self, other: &SortedMap) {
         for (k, v) in other.entries() {
             if !self.contains(&k) {
@@ -2495,7 +2491,7 @@ impl SortedMap {
     }
 }
 
-/// A `Interface` do `InheritanceManager3`, só com o que o completar lê.
+/// The `Interface` of `InheritanceManager3`, with only what completion reads.
 #[derive(Default)]
 struct Interface {
     map: SortedMap,
@@ -2512,8 +2508,8 @@ fn key(q: &Query, f: FunctionElementId) -> Key {
     (fe.name, private.then_some(fe.library))
 }
 
-/// `_getTypeMembers` (com `include_abstract`) ou `_addImplemented` (sem): os
-/// métodos e depois os acessores, na ordem de declaração.
+/// `_getTypeMembers` (with `include_abstract`) or `_addImplemented`
+/// (without): the methods and then the accessors, in declaration order.
 fn declared(q: &Query, c: ClassId, include_abstract: bool) -> Vec<(Key, FunctionElementId)> {
     let p = &q.program;
     let mut v: Vec<FunctionElementId> = p
@@ -2531,7 +2527,7 @@ fn of_object(p: &dartforge_elements::model::Program, object: Option<ClassId>, f:
     object.is_some() && p.function(f).class.map(|c| p.dono_da_classe(c)) == object
 }
 
-/// `getInterface`: `_getInterfaceClass`, `_getInterfaceMixin` e
+/// `getInterface`: `_getInterfaceClass`, `_getInterfaceMixin` and
 /// `_getInterfaceExtensionType`.
 fn interface_of(
     q: &Query,
@@ -2553,7 +2549,7 @@ fn interface_of(
     };
     let i = match cl.kind {
         ClassKind::Mixin => {
-            // `superclassConstraints` (`Object` quando não há `on`).
+            // `superclassConstraints` (`Object` when there is no `on`).
             let constraints: Vec<ClassId> = if cl.on_classes.is_empty() { object.into_iter().collect() } else { cl.on_classes.clone() };
             let mut super_candidates = SortedMap::default();
             for r in constraints {
@@ -2581,8 +2577,8 @@ fn interface_of(
             for (k, f) in declared(q, c, false) {
                 declared_map.insert(k, f);
             }
-            // Os nomes precluídos: os declarados, o setter de um método e o
-            // método de um setter declarados.
+            // The precluded names: the declared ones, the setter of a declared method
+            // and the method of a declared setter.
             let name = |k: &Key| q.name(k.0).to_string();
             let mut precluded: HashSet<String> = HashSet::new();
             for (k, f) in declared_map.entries() {
@@ -2649,9 +2645,9 @@ fn interface_of(
                 let owner_m = p.dono_da_classe(m);
                 let im = sub(m, cache, processing);
                 for (k, f) in im.map.entries() {
-                    // O membro declarado no próprio mixin substitui o da
-                    // superclasse; o que o mixin herda do `on` fica com o
-                    // mais específico, que é o já presente.
+                    // A member declared in the mixin itself replaces the superclass's; what the
+                    // mixin inherits from `on` keeps the most specific one, which is the one
+                    // already present.
                     if !candidates.contains(&k) || p.function(f).class.map(|d| p.dono_da_classe(d)) == Some(owner_m) {
                         candidates.insert(k, f);
                     }
@@ -2676,9 +2672,9 @@ fn interface_of(
                 map.insert(k, f);
             }
             map.append_missing(&candidates);
-            // Os encaminhadores de `noSuchMethod`: numa classe abstrata,
-            // os da superclasse; numa concreta com `noSuchMethod` que não é
-            // o de `Object`, os nomes da interface sem implementação.
+            // The `noSuchMethod` forwarders: in an abstract class, the superclass's;
+            // in a concrete one with a `noSuchMethod` that is not `Object`'s, the
+            // interface names without an implementation.
             let is_abstract = cl.kind == ClassKind::Class && cl.modifiers.abstract_ || cl.decl.is_none();
             let mut forwarded = HashSet::new();
             if is_abstract {
@@ -2705,9 +2701,9 @@ fn interface_of(
     i
 }
 
-/// O lugar de um elemento de topo na biblioteca `lib`: a unidade (na ordem
-/// das unidades dela), o início da declaração e a posição na lista de
-/// variáveis.
+/// The place of a top-level element in library `lib`: the unit (in the order
+/// of its units), the start of the declaration and the position in the
+/// variable list.
 fn place_in_library(p: &dartforge_elements::model::Program, lib: dartforge_elements::model::LibraryId, el: Element) -> Option<(usize, usize, usize)> {
     use dartforge_elements::model::{FunctionRef, VariableRef};
     let units = &p.library(lib).units;
@@ -2755,9 +2751,9 @@ fn element_library(p: &dartforge_elements::model::Program, el: Element) -> Optio
     })
 }
 
-/// Os nomes do `exportNamespace` de `lib` na ordem do analyzer: os
-/// declarados nela pela fonte, depois os de cada `export` na ordem das
-/// diretivas (com os combinadores), sem repetir.
+/// The names of the `exportNamespace` of `lib` in the analyzer's order:
+/// those declared in it in source order, then those of each `export` in
+/// directive order (with the combinators), without repetition.
 fn export_order(
     p: &dartforge_elements::model::Program,
     lib: dartforge_elements::model::LibraryId,
