@@ -1,19 +1,19 @@
-// Runtime nativo: o IOService da VM (`runtime/bin/io_service.cc`) — a
-// porta nativa que atende as operações assíncronas de arquivo e diretório
-// do `dart:io` (`File.readAsString()`, `Directory.list()`…) numa reserva de
-// threads, fora do isolado.
+// Native runtime: the VM's IOService (`runtime/bin/io_service.cc`) — the native
+// port that serves the asynchronous file and directory operations of `dart:io`
+// (`File.readAsString()`, `Directory.list()`…) on a thread pool, outside the
+// isolate.
 //
-// O Dart do patch da VM (`io_service_patch.dart`) envia
-// `[id, port de response, request, data]`; a thread que atende responde
-// `[id, result]` na porta de resposta, que chega à fila do isolado como
-// qualquer mensagem. Os pedidos são o `IO_SERVICE_REQUEST_LIST` e os
-// resultados o que os `*Request` de `file.cc`/`directory.cc` devolvem: o
-// valor, ou uma lista de erro `[kArgumentError]`, `[kFileClosedError]`,
-// `[kOSError, código, message]`.
+// The Dart side of the VM patch (`io_service_patch.dart`) sends
+// `[id, response port, request, data]`; the serving thread answers
+// `[id, result]` on the response port, which reaches the isolate's queue like any
+// message. The requests are `IO_SERVICE_REQUEST_LIST` and the results are what
+// the `*Request` functions of `file.cc`/`directory.cc` return: the value, or an
+// error list `[kArgumentError]`, `[kFileClosedError]`,
+// `[kOSError, code, message]`.
 //
-// Como a porta concorrente da VM (`Dart_NewConcurrentNativePort`, até 32
-// threads), os pedidos correm em paralelo; o Dart dos patches serializa o
-// que precisa (um mesmo arquivo nunca tem dois pedidos em voo).
+// Like the VM's concurrent port (`Dart_NewConcurrentNativePort`, up to 32
+// threads), requests run in parallel; the patches' Dart code serializes what it
+// needs to (the same file never has two requests in flight).
 
 /// `CObject::kSuccess`, `kArgumentError`, `kOSError`, `kFileClosedError`.
 const RESPONSE_SUCCESS: i64 = 0;
@@ -21,14 +21,14 @@ const RESPONSE_INVALID_ARGUMENT: i64 = 1;
 const RESPONSE_OS_ERROR: i64 = 2;
 const RESPONSE_FILE_CLOSED: i64 = 3;
 
-/// O máximo de threads que atendem o IOService ao mesmo tempo.
+/// The maximum number of threads serving the IOService at the same time.
 const MAX_SERVICE_THREADS: usize = 32;
 
-/// Quantos itens um `ListNext` devolve de uma vez (o `kArraySize` da VM).
+/// How many items one `ListNext` returns at a time (the VM's `kArraySize`).
 const LISTING_BATCH: usize = 128;
 
-/// A reserva de threads do IOService: uma fila de pedidos e as threads que
-/// a esvaziam, criadas sob demanda até o máximo.
+/// The IOService thread pool: a request queue and the threads that drain it,
+/// created on demand up to the maximum.
 struct ServicePool {
     queue: std::sync::Mutex<std::collections::VecDeque<Graph>>,
     sig_num: std::sync::Condvar,
@@ -47,7 +47,7 @@ fn service_pool() -> &'static ServicePool {
 }
 
 impl ServicePool {
-    /// Enfileira um pedido e acorda (ou cria) uma thread para ele.
+    /// Enqueues a request and wakes (or creates) a thread for it.
     fn enviar(&'static self, request: Graph) {
         use std::sync::atomic::Ordering;
         self.queue.lock().unwrap_or_else(|e| e.into_inner()).push_back(request);
@@ -61,7 +61,7 @@ impl ServicePool {
         self.sig_num.notify_one();
     }
 
-    /// O laço de uma thread: tira um pedido, atende, repete.
+    /// A thread's loop: take a request, serve it, repeat.
     fn serve(&self) {
         use std::sync::atomic::Ordering;
         loop {
@@ -81,7 +81,7 @@ impl ServicePool {
     }
 }
 
-/// `IOServiceCallback`: lê `[id, port, request, data]`, atende e responde
+/// `IOServiceCallback`: reads `[id, port, request, data]`, serves it and answers
 /// `[id, result]`.
 fn serve_io_request(g: Graph) {
     let message = g.to_portable();
@@ -109,7 +109,7 @@ fn closed_file() -> Portable {
     Portable::List(vec![Portable::Int(RESPONSE_FILE_CLOSED)])
 }
 
-/// O resultado Dart de uma operação: o valor por `f`, ou o erro do sistema.
+/// The Dart result of an operation: the value through `f`, or the system error.
 fn response<T>(r: IoResult<T>, f: impl FnOnce(T) -> Portable) -> Portable {
     match r {
         Ok(v) => f(v),
@@ -121,7 +121,7 @@ fn true_or_error(r: IoResult<()>) -> Portable {
     response(r, |()| Portable::Bool(true))
 }
 
-/// Um caminho em bytes (`CObjectUint8Array`, terminado em NUL).
+/// A path in bytes (`CObjectUint8Array`, NUL-terminated).
 fn request_path(p: &Portable) -> Option<std::path::PathBuf> {
     let b = p.bytes()?;
     let end = b.iter().position(|&c| c == 0).unwrap_or(b.len());
@@ -132,26 +132,26 @@ fn request_text(p: &Portable) -> Option<std::path::PathBuf> {
     Some(path_from_bytes(p.str()?.as_bytes()))
 }
 
-/// Atende o pedido `request` (o `IO_SERVICE_REQUEST_LIST` da VM) com `d`.
+/// Serves request `request` (the VM's `IO_SERVICE_REQUEST_LIST`) with `d`.
 fn answer_io_request(request: i64, d: &[Portable]) -> Portable {
-    // Os pedidos sobre um arquivo aberto: `d[0]` é o ponteiro, com a
-    // referência que o `getPointer` reteve (solta ao fim do pedido).
+    // Requests on an open file: `d[0]` is the pointer, with the reference that
+    // `getPointer` retained (released at the end of the request).
     if matches!(request, 7..=11 | 17..=22 | 30) {
         let Some(p) = d.first().and_then(Portable::int).filter(|&p| p != 0) else {
             return if request == 7 { Portable::Int(-1) } else { invalid_argument() };
         };
-        // SAFETY: o Dart só envia ponteiros de `getPointer`, que reteve esta
-        // referência para o pedido.
+        // SAFETY: Dart only sends pointers from `getPointer`, which retained this
+        // reference for the request.
         let file = unsafe { NativeFile::take(p) };
         return answer_file_request(request, &file, &d[1..]);
     }
     match request {
-        // Listagem assíncrona: `d[0]` é o ponteiro da listagem (retido).
+        // Asynchronous listing: `d[0]` is the listing's pointer (retained).
         40 | 41 => {
             let Some(p) = d.first().and_then(Portable::int).filter(|&p| p != 0) else {
                 return invalid_argument();
             };
-            // SAFETY: ponteiro de `getPointer` com a referência do pedido.
+            // SAFETY: pointer from `getPointer` with the request's reference.
             let listing = unsafe { AsyncListing::take(p) };
             if request == 40 {
                 Portable::List(listing.batch(LISTING_BATCH))
@@ -160,11 +160,11 @@ fn answer_io_request(request: i64, d: &[Portable]) -> Portable {
                 Portable::Bool(true)
             }
         }
-        // Pedidos sem caminho.
+        // Requests without a path.
         31 => response(create_pipe(), |(r, w)| {
             Portable::List(vec![Portable::Int(NativeFile::new(r)), Portable::Int(NativeFile::new(w))])
         }),
-        // Resolução de nomes e interfaces de rede (`io_soquetes.rs`).
+        // Name resolution and network interfaces (`io_sockets.rs`).
         32 => resolve_request(d),
         33 => interfaces_request(d),
         34 => reverse_resolve_request(d),
@@ -172,7 +172,7 @@ fn answer_io_request(request: i64, d: &[Portable]) -> Portable {
     }
 }
 
-/// Os pedidos sobre um arquivo aberto.
+/// Requests on an open file.
 fn answer_file_request(request: i64, a: &NativeFile, d: &[Portable]) -> Portable {
     if a.closed_flag() {
         return if request == 7 { Portable::Int(-1) } else { closed_file() };
@@ -247,8 +247,8 @@ fn answer_file_request(request: i64, a: &NativeFile, d: &[Portable]) -> Portable
     }
 }
 
-/// Os pedidos sobre caminhos: `d[0]` é o namespace (ignorado: só há o
-/// padrão), `d[1]` o caminho. `None`: argumentos de forma errada.
+/// Requests on paths: `d[0]` is the namespace (ignored: there is only the
+/// default one), `d[1]` the path. `None`: arguments of the wrong shape.
 fn answer_path_request(request: i64, d: &[Portable]) -> Option<Portable> {
     let file_path = || d.get(1).and_then(request_path);
     let text = |i: usize| d.get(i).and_then(request_text);
@@ -294,16 +294,16 @@ fn answer_path_request(request: i64, d: &[Portable]) -> Option<Portable> {
     })
 }
 
-/// `IOService_NewServicePort`: a `SendPort` de uma porta nativa atendida
-/// pela reserva de threads.
+/// `IOService_NewServicePort`: the `SendPort` of a native port served by the
+/// thread pool.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_IOService_NewServicePort() -> i64 {
     let id = open_native_port(std::sync::Arc::new(|_port, graph| service_pool().enviar(graph)));
     let Some(f) = ajudante("_dartforgeSendPort") else {
-        panic!("bug do compilador: dart:isolate sem `_dartforgeSendPort` registrado");
+        panic!("compiler bug: dart:isolate without a registered `_dartforgeSendPort`");
     };
-    // SAFETY: registrada pela biblioteca `dart:isolate` da sobreposição com
-    // a assinatura (`int`) → `SendPort`.
+    // SAFETY: registered by the overlay's `dart:isolate` library with the
+    // signature (`int`) → `SendPort`.
     let g = { let dart_target: usize = f; move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
     g(id)
 }

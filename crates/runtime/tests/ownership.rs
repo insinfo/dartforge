@@ -1,6 +1,6 @@
-//! A tabela parcial deve distinguir referências de escalares e ausência de contrato.
+//! The partial table must tell references from scalars and the absence of a contract.
 
-// Inclui as rejeições do gerador na suíte Cargo, sem executar seu main.
+// Includes the generator's rejections in the Cargo suite, without running its main.
 #[allow(dead_code)]
 #[path = "../build.rs"]
 mod gerador;
@@ -91,9 +91,8 @@ fn nsm_publishes_error_until_clear_without_owner_in_caller() {
     }).join().unwrap();
 }
 
-/// Os acessos por índice e por bytes das listas tipadas e o `codeUnitAt`
-/// (os caminhos do runtime sob ARC): emprestam o receptor e só lançam
-/// `RangeError`.
+/// The indexed and byte accesses of typed lists and `codeUnitAt` (the runtime
+/// paths under ARC): they borrow the receiver and only throw `RangeError`.
 const TYPED_ACCESSES: &[&str] = &[
     "dartforge_nativo_DartForge_typed_getInt8",
     "dartforge_nativo_DartForge_typed_getUint8",
@@ -120,8 +119,8 @@ const TYPED_ACCESSES: &[&str] = &[
     "dartforge_nativo_DartForge_string_codeUnitAt",
 ];
 
-/// Os natives de resultado escalar com contrato: Ref emprestado, saída pelos
-/// efeitos (`efeitos.tsv`).
+/// The natives with a scalar result and a contract: borrowed Ref, exit through
+/// the effects (`efeitos.tsv`).
 const SCALAR_NATIVES: &[&str] = &[
     "dartforge_nativo_Closure_computeHash",
     "dartforge_nativo_Closure_equals",
@@ -293,7 +292,7 @@ const SCALAR_NATIVES: &[&str] = &[
     "dartforge_nativo_Uri_isWindowsPlatform",
 ];
 
-/// Os natives sem resultado com contrato, gerados do mesmo jeito.
+/// The natives without a result that have a contract, generated the same way.
 const NATIVES_WITHOUT_RESULT: &[&str] = &[
     "dartforge_nativo_DartForge_GrowableList_reservar",
     "dartforge_nativo_DartForge_List_copiar",
@@ -555,7 +554,7 @@ fn arc_contracts_cover_exports_without_inventing_contracts_for_other_externs() {
         .find(|c| c.nome == "dartforge_nativo_DartForge_record_fieldAt")
         .unwrap();
     assert_eq!(field.resultado, ModoResultado::BorrowArg(0));
-    // Leituras do record: não alocam nem lançam (o lowering não confere).
+    // Record reads: they neither allocate nor throw (lowering does not check).
     assert!(!field.pode_falhar);
     for nome in [
         "dartforge_nativo_DartForge_record_numFields",

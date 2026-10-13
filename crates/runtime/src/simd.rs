@@ -1,24 +1,23 @@
-// Runtime nativo: os tipos SIMD do `dart:typed_data` — `Float32x4`,
-// `Int32x4` e `Float64x2` (`runtime/lib/simd128.cc` da VM) — e o acesso a
-// eles nas listas tipadas (`_getFloat32x4`…).
+// Native runtime: the SIMD types of `dart:typed_data` — `Float32x4`, `Int32x4`
+// and `Float64x2` (the VM's `runtime/lib/simd128.cc`) — and access to them in
+// typed lists (`_getFloat32x4`…).
 //
-// Um valor SIMD é um bloco `BRUTO` de duas palavras com as pistas
-// (`tipadas.rs`, docs/NATIVO-ESPACO-UNIFICADO.md §2.5), de cid fixo
-// `_Float32x4`, `_Int32x4` ou `_Float64x2` (19–21): imutável, comparado por
-// identidade como na VM, e com as pistas no endian do hospedeiro, como nas
-// listas `Float32x4List`. O código gerado encaixota e desencaixota em linha
-// (`@df.simd_caixa`, `llvm/tipados_ir.rs`). As operações seguem a VM pista a
-// pista: os `double` viram `float` por arredondamento, as comparações dão
-// `-1`/`0`, o `clamp` é `max(min(v, superior), inferior)` (com o `min`/`max`
-// da arquitetura, `clamp_hint`) e a máscara de `shuffle` fora de `0..255` é
-// `RangeError`.
+// A SIMD value is a `BRUTO` block of two words with the lanes (`tipadas.rs`,
+// docs/NATIVO-ESPACO-UNIFICADO.md §2.5), with the fixed cid `_Float32x4`,
+// `_Int32x4` or `_Float64x2` (19–21): immutable, compared by identity as in the
+// VM, and with the lanes in host endianness, as in the `Float32x4List` lists.
+// Generated code boxes and unboxes inline (`@df.simd_caixa`,
+// `llvm/tipados_ir.rs`). The operations follow the VM lane by lane: `double`s
+// become `float` by rounding, comparisons give `-1`/`0`, `clamp` is
+// `max(min(v, upper), lower)` (with the architecture's `min`/`max`,
+// `clamp_hint`) and a `shuffle` mask outside `0..255` is a `RangeError`.
 
 const CID_FLOAT32X4: i32 = crate::layout::cid::FLOAT32X4;
 const CID_INT32X4: i32 = crate::layout::cid::INT32X4;
 const CID_FLOAT64X2: i32 = crate::layout::cid::FLOAT64X2;
 
-/// Um valor SIMD novo da classe `cid` com as pistas (`_type` é o do elemento
-/// da lista correspondente, só documentação no ponto de chamada).
+/// A new SIMD value of class `cid` with the lanes (`_type` is that of the element
+/// of the corresponding list, only documentation at the call site).
 fn simd_new(cid: i32, _type: u8, bytes: [u8; 16]) -> i64 {
     HEAP.with(|h| h.borrow_mut().new_simd(cid, bytes))
 }
@@ -26,7 +25,7 @@ fn simd_new(cid: i32, _type: u8, bytes: [u8; 16]) -> i64 {
 fn simd_bytes(h: i64) -> [u8; 16] {
     match HEAP.with(|heap| heap.borrow().simd(h)) {
         Some(b) => b,
-        None => panic!("bug do compilador: valor SIMD esperado"),
+        None => panic!("compiler bug: SIMD value expected"),
     }
 }
 
@@ -73,7 +72,7 @@ fn new_f64x2(v: [f64; 2]) -> i64 {
     simd_new(CID_FLOAT64X2, TYPE_FLOAT64X2, b)
 }
 
-/// `Utils::Minimum`/`Maximum` da VM (com NaN, o segundo operando).
+/// The VM's `Utils::Minimum`/`Maximum` (with NaN, the second operand).
 fn simd_min<T: PartialOrd>(a: T, b: T) -> T {
     if a < b { a } else { b }
 }
@@ -81,11 +80,11 @@ fn simd_max<T: PartialOrd>(a: T, b: T) -> T {
     if a > b { a } else { b }
 }
 
-/// O `clamp` de uma pista, `max(min(v, superior), inferior)`, como o
-/// `Float32x4_clamp`/`Float64x2_clamp` da VM (`runtime/lib/simd128.cc`), que
-/// muda com a arquitetura: no x64 são os ternários de `simd_min`/`simd_max`;
-/// no arm64 são o `vminf`/`vmaxf` dela (com NaN fica o primeiro operando, e
-/// entre ±0 o `min` dá `-0` e o `max` dá `+0`).
+/// The `clamp` of one lane, `max(min(v, upper), lower)`, like the VM's
+/// `Float32x4_clamp`/`Float64x2_clamp` (`runtime/lib/simd128.cc`), which changes
+/// with the architecture: on x64 they are the ternaries of `simd_min`/`simd_max`;
+/// on arm64 they are its `vminf`/`vmaxf` (with NaN the first operand stays, and
+/// between ±0 `min` gives `-0` and `max` gives `+0`).
 #[cfg(target_arch = "aarch64")]
 fn clamp_hint<T: PartialOrd + Copy>(v: T, lo: T, hi: T, negative: impl Fn(T) -> bool) -> T {
     let m = if v == hi {
@@ -108,7 +107,7 @@ fn clamp_hint<T: PartialOrd + Copy>(v: T, lo: T, hi: T, _negative: impl Fn(T) ->
     simd_max(simd_min(v, hi), lo)
 }
 
-/// A máscara de `shuffle`/`shuffleMix`: `0..255`, senão `RangeError`.
+/// The `shuffle`/`shuffleMix` mask: `0..255`, otherwise `RangeError`.
 fn valid_mask(m: i64) -> Option<usize> {
     if (0..=255).contains(&m) {
         Some(m as usize)
@@ -418,8 +417,8 @@ pub extern "C" fn dartforge_nativo_Int32x4_shuffleMix(a: i64, b: i64, m: i64) ->
     let Some(m) = valid_mask(m) else { return 0 };
     new_i32x4(shuffle(i32x4_of(a), i32x4_of(b), m))
 }
-/// `select(t, f)`: bit a bit, os de `t` onde a máscara tem 1, os de `f`
-/// onde tem 0.
+/// `select(t, f)`: bit by bit, those of `t` where the mask has 1, those of `f`
+/// where it has 0.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Int32x4_select(m: i64, t: i64, f: i64) -> i64 {
     let (m, t, f) = (i32x4_of(m), f32x4_of(t), f32x4_of(f));
@@ -523,7 +522,7 @@ pub extern "C" fn dartforge_nativo_Float64x2_getSignMask(a: i64) -> i64 {
     i64::from((a[0].to_bits() >> 63) as u8) | (i64::from((a[1].to_bits() >> 63) as u8) << 1)
 }
 
-// --- Nas listas tipadas -------------------------------------------------
+// --- In typed lists -----------------------------------------------------
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_TypedData_GetFloat32x4(this: i64, off: i64) -> i64 {
@@ -559,13 +558,13 @@ pub extern "C" fn dartforge_nativo_TypedData_SetFloat64x2(this: i64, off: i64, v
     write_value::<16>(this, off, simd_bytes(v));
 }
 
-/// O elemento `i` de uma `Float32x4List`, `Int32x4List` ou `Float64x2List`
-/// (o `[]` reconhecido da VM).
+/// Element `i` of a `Float32x4List`, `Int32x4List` or `Float64x2List` (the VM's
+/// recognized `[]`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_typed_indexar_simd(this: i64, i: i64) -> i64 {
     let Some((t, p)) = element(this, i) else { return 0 };
     let mut b = [0u8; 16];
-    // SAFETY: `p` é o elemento `i < len` (16 bytes) da lista viva.
+    // SAFETY: `p` is element `i < len` (16 bytes) of the live list.
     unsafe { std::ptr::copy_nonoverlapping(p, b.as_mut_ptr(), 16) };
     match t.tipo {
         TYPE_INT32X4 => simd_new(CID_INT32X4, TYPE_INT32X4, b),
@@ -574,7 +573,7 @@ pub extern "C" fn dartforge_nativo_DartForge_typed_indexar_simd(this: i64, i: i6
     }
 }
 
-/// Um `double` como o `%f` do C (o `ToCString` dos SIMD na VM).
+/// A `double` like C's `%f` (the VM's `ToCString` of the SIMD types).
 fn percent_f(x: f64) -> String {
     if x.is_nan() {
         "nan".to_string()
@@ -585,9 +584,9 @@ fn percent_f(x: f64) -> String {
     }
 }
 
-/// O texto de um valor SIMD (o `Object.toString` da VM): `[x, y, z, w]` com
-/// `%f` nos `Float32x4`/`Float64x2` e `%08x` nos `Int32x4`; `None` para os
-/// outros valores.
+/// The text of a SIMD value (the VM's `Object.toString`): `[x, y, z, w]` with
+/// `%f` for `Float32x4`/`Float64x2` and `%08x` for `Int32x4`; `None` for other
+/// values.
 fn simd_string(h: i64) -> Option<String> {
     if !crate::layout::is_object(h) {
         return None;

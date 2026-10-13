@@ -1,17 +1,16 @@
-//! O hasher dos mapas internos do runtime: o Fx (o do `rustc`), no lugar do
-//! SipHash do `HashMap` padrão.
+//! The hasher of the runtime's internal maps: Fx (the one from `rustc`), instead of
+//! the SipHash of the standard `HashMap`.
 //!
-//! As chaves daqui são ids, handles e tipos do próprio runtime (a tabela de
-//! tipos, os caches de subtipo, os conjuntos de listas especiais) — nunca
-//! dados que o programa Dart escolhe: os `Map` e `Set` do Dart são
-//! implementados em Dart pelo SDK. Não há, portanto, colisão provocada a
-//! evitar, e o SipHash custava cerca de um terço do tempo de um laço de
-//! `Map.[]=` (medido com o callgrind). A ordem de iteração passa a ser
-//! determinística; nada no runtime dependia dela.
+//! The keys here are the runtime's own ids, handles and types (the type table,
+//! the subtype caches, the sets of special lists) — never data chosen by the
+//! Dart program: Dart's `Map` and `Set` are implemented in Dart by the SDK. So
+//! there are no provoked collisions to avoid, and SipHash cost about a third of
+//! the time of a `Map.[]=` loop (measured with callgrind). Iteration order
+//! becomes deterministic; nothing in the runtime depended on it.
 
 use std::hash::{BuildHasherDefault, Hasher};
 
-/// O `FxHasher`: rotaciona, mistura a palavra e multiplica.
+/// The `FxHasher`: rotate, mix in the word and multiply.
 #[derive(Default, Clone, Copy)]
 pub struct Fx(u64);
 
@@ -67,7 +66,7 @@ impl Hasher for Fx {
     }
 }
 
-/// `HashMap` com o hasher Fx.
+/// `HashMap` with the Fx hasher.
 pub type HashMap<K, V> = std::collections::HashMap<K, V, BuildHasherDefault<Fx>>;
-/// `HashSet` com o hasher Fx.
+/// `HashSet` with the Fx hasher.
 pub type HashSet<K> = std::collections::HashSet<K, BuildHasherDefault<Fx>>;

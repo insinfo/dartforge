@@ -1,15 +1,15 @@
-//! O universo de tipos (RTI, `src/tipos.rs`) e o laço de eventos
-//! (`src/eventos.rs`), pela ABI que o código gerado usa.
+//! The type universe (RTI, `src/types.rs`) and the event loop (`src/events.rs`),
+//! through the ABI that generated code uses.
 //!
-//! Cada teste roda numa thread própria: o estado do runtime é por thread (um
-//! isolado por thread).
+//! Each test runs on its own thread: the runtime state is per thread (one
+//! isolate per thread).
 
 use dartforge_runtime::abi::*;
 
-/// Lê uma receita (o texto vira `String` do heap, como no código gerado).
+/// Reads a recipe (the text becomes a heap `String`, as in generated code).
 #[allow(unsafe_code)]
 fn recipe(r: &str) -> i64 {
-    // SAFETY: `r` é UTF-8 válido com `r.len()` bytes, vivo durante a chamada.
+    // SAFETY: `r` is valid UTF-8 with `r.len()` bytes, alive during the call.
     let h = unsafe { dartforge_string_new(r.as_ptr(), r.len() as i64) };
     dartforge_rti_receita(h)
 }
@@ -31,12 +31,12 @@ fn internal_recipe_ids_without_collecting_retaining_string_or_changing_pending()
             let mut previous = None;
             for pending in [false, true] {
                 let mid = recipe.len() / 2;
-                // SAFETY: receitas ASCII; as duas partes são regiões válidas.
+                // SAFETY: ASCII recipes; both parts are valid regions.
                 let (a, b) = unsafe {
                     (dartforge_string_new(recipe.as_ptr(), mid as i64),
                      dartforge_string_new(recipe.as_ptr().add(mid), (recipe.len() - mid) as i64))
                 };
-                // Os literais são raízes canônicas; a concatenação é dinâmica.
+                // The literals are canonical roots; the concatenation is dynamic.
                 let text = dartforge_string_concat(a, b);
                 dartforge_arc_retain(text);
                 let trace = if pending {
@@ -45,7 +45,7 @@ fn internal_recipe_ids_without_collecting_retaining_string_or_changing_pending()
                     Some(r)
                 } else { None };
                 let name = b"dartforge_rti_receita";
-                // SAFETY: nome constante. Bit 0 proíbe coleta, bit 1 nova pendência.
+                // SAFETY: constant name. Bit 0 forbids collection, bit 1 a new pending exception.
                 unsafe { dartforge_efeitos_antes(name.as_ptr(), name.len() as i64, 3); }
                 let tipo = dartforge_rti_receita(text);
                 dartforge_efeitos_depois();
@@ -61,8 +61,8 @@ fn internal_recipe_ids_without_collecting_retaining_string_or_changing_pending()
                 assert_eq!(dartforge_arc_observar_heap_v1(text), 3);
                 dartforge_arc_release(text);
                 dartforge_arc_collect();
-                assert_eq!(dartforge_arc_observar_heap_v1(text), 0, "receita {recipe}; pendente {pending}");
-                // O ID canônico permanece válido sem reter a string da receita.
+                assert_eq!(dartforge_arc_observar_heap_v1(text), 0, "recipe {recipe}; pending {pending}");
+                // The canonical ID stays valid without retaining the recipe string.
                 assert_eq!(dartforge_rti_subtipo(tipo, tipo), 1);
             }
         }
@@ -80,12 +80,12 @@ fn set_rti_preserves_owner_pending_and_elements_on_decompact() {
         let int_type = recipe("C200<C201>");
         let general_type = recipe("C200<D>");
         let value_list = [i64::MAX, i64::MIN];
-        // SAFETY: vetor de palavras vivo e completo para a lista compacta.
+        // SAFETY: word vector alive and complete for the compact list.
         let list = unsafe { dartforge_lista_nova(value_list.as_ptr(), 2, 8, 1) };
         dartforge_arc_retain(list);
         let define = |tipo| {
             let name = b"dartforge_rti_definir";
-            // SAFETY: nome constante vivo, com seu comprimento exato.
+            // SAFETY: live constant name, with its exact length.
             unsafe { dartforge_efeitos_antes(name.as_ptr(), name.len() as i64, 2); }
             dartforge_rti_definir(list, tipo);
             dartforge_efeitos_depois();
@@ -97,7 +97,7 @@ fn set_rti_preserves_owner_pending_and_elements_on_decompact() {
         define(general_type);
         assert_eq!(dartforge_exception_pending(), 0);
         define(int_type);
-        // A chamada não limpa nem substitui uma pendência anterior.
+        // The call neither clears nor replaces a previous pending exception.
         let trace = dartforge_stack_trace_get();
         dartforge_throw_with_stack_trace(0, 3, trace);
         define(general_type);
@@ -135,61 +135,61 @@ fn late_field_tells_zero_value_from_missing_write() {
     });
 }
 
-/// Subtipagem (especificação, "Subtypes"): classes com argumentos pelas
-/// regras de supertipo, anuláveis, `FutureOr`, funções (parâmetros
-/// contravariantes), e a avaliação de uma receita com `P<i>` no tipo de
+/// Subtyping (specification, "Subtypes"): classes with arguments through the
+/// supertype rules, nullables, `FutureOr`, functions (contravariant
+/// parameters), and the evaluation of a recipe with `P<i>` in the type of
 /// `this`.
 #[test]
 fn subtyping_and_evaluation() {
     in_a_thread(|| {
-        // 0 = Object; 201 e 202 classes sem parâmetros; 210 = List<E>, 211 =
-        // Iterable<E>, 220 = Future<T> (classes do programa: cid ≥ 128, fora
-        // dos cids fixos do runtime, docs/NATIVO-ESPACO-UNIFICADO.md §2.4).
+        // 0 = Object; 201 and 202 classes without parameters; 210 = List<E>, 211 =
+        // Iterable<E>, 220 = Future<T> (program classes: cid ≥ 128, outside the
+        // runtime's fixed cids, docs/NATIVO-ESPACO-UNIFICADO.md §2.4).
         dartforge_rti_classe_do_runtime(10, 0);
         dartforge_rti_classe_do_runtime(9, 220);
         dartforge_rti_regra(210, recipe("C211<P0>"));
         dartforge_rti_regra(201, recipe("C202"));
         assert!(sub("C210<C201>", "C211<C201>"));
-        assert!(sub("C210<C201>", "C211<C202>"), "covariante pela regra 201 <: 202");
+        assert!(sub("C210<C201>", "C211<C202>"), "covariant through rule 201 <: 202");
         assert!(!sub("C210<C202>", "C211<C201>"));
         assert!(!sub("C211<C201>", "C210<C201>"));
-        assert!(sub("C201", "C0"), "tudo é Object");
-        assert!(!sub("U", "C0"), "Null não é Object");
+        assert!(sub("C201", "C0"), "everything is Object");
+        assert!(!sub("U", "C0"), "Null is not Object");
         assert!(sub("U", "C201?"));
         assert!(!sub("C201?", "C201"));
         assert!(sub("C201", "C201?"));
         assert!(sub("C220<C201>", "O<C201>"));
         assert!(sub("C201", "O<C201>"));
         assert!(!sub("C202", "O<C201>"));
-        assert!(sub("N", "C201"), "Never é o fundo");
-        assert!(sub("C201", "D"), "dynamic é o topo");
-        // R Function(P): retorno covariante, parâmetro contravariante.
+        assert!(sub("N", "C201"), "Never is the bottom");
+        assert!(sub("C201", "D"), "dynamic is the top");
+        // R Function(P): covariant return, contravariant parameter.
         assert!(sub("F<0;C201;1;C0;>", "F<0;C0;1;C201;>"));
         assert!(!sub("F<0;C0;1;C201;>", "F<0;C201;1;C0;>"));
         assert!(!sub("F<0;D;1;D;>", "F<0;D;2;C0,C0;>"), "aridade");
 
-        // `P0` avaliado no tipo de `this` (List<C201>) visto como Iterable.
+        // `P0` evaluated in the type of `this` (List<C201>) seen as Iterable.
         let obj = dartforge_object_new(210, 0);
         dartforge_rti_definir(obj, recipe("C210<C201>"));
         let t = dartforge_rti_avaliar(recipe("C211<P0>"), obj, 211, 0);
         assert_eq!(t, recipe("C211<C201>"));
         assert!(dartforge_rti_e(obj, recipe("C211<C202>")) != 0);
         assert!(dartforge_rti_e(obj, recipe("C211<U>")) == 0);
-        // `M0` da tupla.
+        // `M0` of the tuple.
         let t = dartforge_rti_avaliar(recipe("C210<M0>"), 0, 0, recipe("L<C202>"));
         assert_eq!(t, recipe("C210<C202>"));
     });
 }
 
-/// Os allocators de listas do SDK recebem `L<E>` pela ABI. A fatia de uma
-/// `_List<E>` e a cópia `_ImmutableList<E>` conservam E nos metadados, mesmo
-/// quando a classe concreta do resultado é diferente da origem.
+/// The SDK's list allocators receive `L<E>` through the ABI. The slice of a
+/// `_List<E>` and the `_ImmutableList<E>` copy keep E in the metadata, even when
+/// the concrete class of the result differs from the source.
 #[test]
 #[allow(unsafe_code)]
 fn list_allocators_preserve_type_argument() {
     in_a_thread(|| {
-        // 200 = List<E> (uma classe do programa, cid ≥ 128); as concretas têm
-        // os cids fixos do contrato (docs/NATIVO-ESPACO-UNIFICADO.md §2.4):
+        // 200 = List<E> (a program class, cid ≥ 128); the concrete ones have the
+        // contract's fixed cids (docs/NATIVO-ESPACO-UNIFICADO.md §2.4):
         // 8 = _List<E>, 9 = _ImmutableList<E>, 10 = _GrowableList<E>.
         dartforge_rti_classe_do_runtime(4, 200);
         for class in [8, 9, 10] {
@@ -225,8 +225,8 @@ extern "C" fn call(closure: i64) -> i64 {
     0
 }
 
-/// Microtarefas antes de qualquer timer; timers por (prazo, sequência); o
-/// timer cancelado não roda.
+/// Microtasks before any timer; timers by (deadline, sequence); a cancelled
+/// timer does not run.
 #[test]
 fn event_loop_in_vm_order() {
     in_a_thread(|| {

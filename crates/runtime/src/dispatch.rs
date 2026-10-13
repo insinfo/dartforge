@@ -1,15 +1,15 @@
-// Runtime nativo: operadores sobre `dynamic`/`num`/`Object` (P2).
+// Native runtime: operators on `dynamic`/`num`/`Object` (P2).
 //
-// TAPA-BURACO, marcado para remoção em P5: com o SDK da fonte, `a + b` sobre
-// `num` é a chamada do seletor `+` no `_IntegerImplementation`/`_Double` da
-// própria fonte. Até lá, o operador cujo receptor não é objeto do programa
-// (o lowering despacha antes os operadores declarados em classes do usuário)
-// cai aqui, com a semântica da VM: `/` sempre `double`, `~/` trunca, `%` é o
-// resto euclidiano (nunca negativo), `int` com `double` promove, `String +
-// String` concatena e `String * int` repete. O resultado é sempre uma
-// referência (escalar encaixotado).
+// STOPGAP, marked for removal in P5: with the SDK from source, `a + b` on `num`
+// is the call of the `+` selector on the source's own
+// `_IntegerImplementation`/`_Double`. Until then, an operator whose receiver is
+// not a program object (lowering dispatches the operators declared in user
+// classes first) lands here, with the VM semantics: `/` is always `double`, `~/`
+// truncates, `%` is the Euclidean remainder (never negative), `int` with `double`
+// promotes, `String + String` concatenates and `String * int` repeats. The result
+// is always a reference (boxed scalar).
 
-/// Códigos dos operadores (o mesmo número no lowering, `operadores.rs`).
+/// Operator codes (the same number in lowering, `operadores.rs`).
 const OP_ADD: i64 = 0;
 const OP_SUB: i64 = 1;
 const OP_MUL: i64 = 2;
@@ -52,7 +52,7 @@ fn operator_name(op: i64) -> &'static str {
     }
 }
 
-/// Um operando numérico, lido da caixa.
+/// A numeric operand, read from the box.
 #[derive(Clone, Copy)]
 enum Num {
     I(i64),
@@ -62,7 +62,7 @@ enum Num {
 fn read_num(h: i64) -> Option<Num> {
     HEAP.with(|heap| {
         let heap = heap.borrow();
-        // `Smi` ou `_Mint` (R10); senão o `_Double`.
+        // `Smi` or `_Mint` (R10); otherwise the `_Double`.
         match heap.value(h) {
             crate::heap::Value::Int(i) => Some(Num::I(i)),
             crate::heap::Value::Double(d) => Some(Num::D(d)),
@@ -87,7 +87,7 @@ fn box_bool(v: bool) -> i64 {
     Heap::box_bool(v)
 }
 
-/// `NoSuchMethodError` do operador `op` (receptor sem o operador).
+/// `NoSuchMethodError` of operator `op` (receiver without the operator).
 fn nsm_operator(op: i64) -> i64 {
     let name = HEAP.with(|heap| heap.borrow_mut().allocate_str(operator_name(op)));
     let error = with_roots(&[name], || dartforge_no_such_method_error_new(name));
@@ -102,17 +102,17 @@ fn division_by_zero() -> i64 {
     0
 }
 
-/// `a + b` de duas listas do núcleo: uma `_GrowableList` nova com os
-/// elementos das duas, na forma delas quando é a mesma, e o tipo da da
-/// esquerda (`List.+`). `None` se algum lado não é lista.
+/// `a + b` of two core lists: a new `_GrowableList` with the elements of both,
+/// in their shape when it is the same, and the type of the left one (`List.+`).
+/// `None` if either side is not a list.
 fn concat_lists(a: i64, b: i64) -> Option<i64> {
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
         if !heap.e_lista(a) || !heap.e_lista(b) {
             return None;
         }
-        // Cópias proprietárias de `a`, `b` e da saída protegem a alocação
-        // e as caixas quando as formas dos elementos são diferentes.
+        // Owning copies of `a`, `b` and of the output protect the allocation
+        // and the boxes when the element shapes differ.
         let frame = heap.push_owning_frame(0);
         heap.root(frame, a);
         heap.root(frame, b);
@@ -138,7 +138,7 @@ fn concat_lists(a: i64, b: i64) -> Option<i64> {
     })
 }
 
-/// Resto euclidiano do Dart (`int.%`): nunca negativo.
+/// Dart's Euclidean remainder (`int.%`): never negative.
 fn int_remainder(a: i64, b: i64) -> i64 {
     let r = a.wrapping_rem(b);
     if r < 0 { if b < 0 { r - b } else { r + b } } else { r }
@@ -149,7 +149,7 @@ fn double_remainder(a: f64, b: f64) -> f64 {
     if r < 0.0 { r + b.abs() } else { r }
 }
 
-/// `a op b` sobre referências.
+/// `a op b` on references.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_dyn_op(op: i64, a: i64, b: i64) -> i64 {
     if op == OP_ADD && e_string(a) {
@@ -169,7 +169,7 @@ pub extern "C" fn dartforge_dyn_op(op: i64, a: i64, b: i64) -> i64 {
     if op == OP_ADD
         && let Some(list) = concat_lists(a, b)
     {
-        // `List.+` devolve uma lista nova e expansível.
+        // `List.+` returns a new growable list.
         return list;
     }
     let (Some(x), Some(y)) = (read_num(a), read_num(b)) else {
@@ -237,8 +237,8 @@ pub extern "C" fn dartforge_dyn_op(op: i64, a: i64, b: i64) -> i64 {
     }
 }
 
-/// O elemento `i` de uma lista do núcleo, para o `for-in` e o espalhamento;
-/// `None` para outro valor ou índice fora.
+/// Element `i` of a core list, for `for-in` and spreading; `None` for another
+/// value or an out-of-range index.
 fn iterable_element(h: i64, i: i64) -> Option<crate::heap::Value> {
     HEAP.with(|heap| {
         let heap = heap.borrow();
@@ -247,8 +247,8 @@ fn iterable_element(h: i64, i: i64) -> Option<crate::heap::Value> {
     })
 }
 
-/// `iterable_element` como referência (escalar encaixotado); outro valor
-/// lança `TypeError`.
+/// `iterable_element` as a reference (boxed scalar); any other value throws
+/// `TypeError`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_iteravel_get_ref(h: i64, i: i64) -> i64 {
     match iterable_element(h, i) {
@@ -260,7 +260,7 @@ pub extern "C" fn dartforge_iteravel_get_ref(h: i64, i: i64) -> i64 {
     }
 }
 
-/// `iterable_element` pelos bits (a representação escalar do destino).
+/// `iterable_element` through the bits (the destination's scalar representation).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_iteravel_get_bits(h: i64, i: i64) -> i64 {
     match iterable_element(h, i) {

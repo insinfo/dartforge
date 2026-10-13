@@ -1,4 +1,4 @@
-//! Regressões da fronteira uniforme de closures, com heap e exceção reais.
+//! Regressions of the uniform closure boundary, with a real heap and real exceptions.
 use dartforge_runtime::abi::*;
 
 extern "C" fn mint(_: i64, _: *const i64, _: *const i64) -> i64 {
@@ -13,7 +13,7 @@ extern "C" fn error(_: i64) -> i64 {
 }
 
 #[test]
-#[allow(unsafe_code)] // Fixtures de ABI estática; cada chamada confere seu contrato.
+#[allow(unsafe_code)] // Static ABI fixtures; each call checks its contract.
 fn closure_preserves_one_owned_and_restores_scopes_even_when_pending() {
     std::thread::spawn(|| {
         dartforge_memoria_arc_v1();
@@ -23,11 +23,11 @@ fn closure_preserves_one_owned_and_restores_scopes_even_when_pending() {
             (mint as *const () as usize, false),
             (pending as *const () as usize, true),
         ] {
-            // SAFETY: fixtures estáticas de ABI uniforme readonly e retorno Owned/null pending.
+            // SAFETY: static fixtures of the readonly uniform ABI with an Owned return/null pending.
             let v = unsafe { dartforge_arc_registrar_uniforme_owned_v1(f as i64) };
             let c = dartforge_arc_closure_owned_v1(f as i64, 0, 0, 0);
             let scope = dartforge_arc_escopo_nativo_abrir_v1();
-            // SAFETY: closure, vetores e código registrados permanecem vivos.
+            // SAFETY: the registered closure, vectors and code stay alive.
             let x = unsafe {
                 dartforge_arc_invocar_closure_uniforme_v1(
                     c,
@@ -60,22 +60,22 @@ fn closure_preserves_one_owned_and_restores_scopes_even_when_pending() {
 }
 
 #[test]
-#[allow(unsafe_code)] // Fixtures de ABI estática; cada chamada confere seu contrato.
+#[allow(unsafe_code)] // Static ABI fixtures; each call checks its contract.
 fn invalid_lookup_holds_owned_helper_until_exception_is_published() {
     std::thread::spawn(|| {
         dartforge_memoria_arc_v1();
         let pc = error as *const () as usize;
         let name = b"_dartforgeErroDeChamada";
-        // SAFETY: fixture estática de uma palavra com retorno Mint Owned.
+        // SAFETY: static one-word fixture with an Owned Mint return.
         let v = unsafe { dartforge_arc_registrar_retorno_owned_v1(pc as i64, 1) };
-        // SAFETY: nome estático e callback de ABI compatível.
+        // SAFETY: static name and a callback with a compatible ABI.
         unsafe {
             dartforge_registrar_ajudante(name.as_ptr(), name.len() as i64, pc);
         }
         let args = [0_i64];
         let desc = [0_i64, 0];
         let scope = dartforge_arc_escopo_nativo_abrir_v1();
-        // SAFETY: null é receptor Ref válido; vetores vivos. Busca inválida devolve pending.
+        // SAFETY: null is a valid Ref receiver; vectors are alive. An invalid lookup returns pending.
         assert_eq!(
             unsafe {
                 dartforge_arc_invocar_closure_uniforme_v1(

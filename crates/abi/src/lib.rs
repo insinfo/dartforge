@@ -1,9 +1,9 @@
-//! Contratos iniciais de alvos e FFI C para LLVM; não carrega nem chama bibliotecas.
-//! Referência: Dart SDK 3.6.2 sdk/lib/ffi/{native_type,abi,dynamic_library}.dart.
-//! Handles gerenciados não são endereços C; WebAssembly exige imports próprios.
+//! Initial target and C FFI contracts for LLVM; it neither loads nor calls libraries.
+//! Reference: Dart SDK 3.6.2 sdk/lib/ffi/{native_type,abi,dynamic_library}.dart.
+//! Managed handles are not C addresses; WebAssembly requires its own imports.
 use std::fmt;
 
-/// Perfis explícitos; não representam suporte já implementado pelo driver.
+/// Explicit profiles; they do not represent support already implemented by the driver.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Target {
     WindowsX64,
@@ -11,7 +11,7 @@ pub enum Target {
     Wasm32,
 }
 impl Target {
-    /// Retorna o triple LLVM do perfil, sem inferir o alvo pelo tamanho de int Dart.
+    /// Returns the profile's LLVM triple, without inferring the target from the Dart int size.
     pub fn triple(self) -> &'static str {
         match self {
             Self::WindowsX64 => "x86_64-pc-windows-msvc",
@@ -19,21 +19,21 @@ impl Target {
             Self::Wasm32 => "wasm32-unknown-unknown",
         }
     }
-    /// Largura de endereços; handles internos i64 não mudam esta propriedade.
+    /// Address width; internal i64 handles do not change this property.
     pub fn pointer_bits(self) -> u8 {
         match self {
             Self::Wasm32 => 32,
             _ => 64,
         }
     }
-    /// Informa se o perfil admite bibliotecas dinâmicas nativas no modelo planejado.
+    /// Tells whether the profile admits native dynamic libraries in the planned model.
     pub fn supports_dynamic_libraries(self) -> bool {
         self != Self::Wasm32
     }
 }
 
-/// Subconjunto de marcadores nativos com lowering escalar não ambíguo.
-/// Structs, unions, varargs, callbacks e inteiros estreitos exigem regras adicionais.
+/// Subset of native markers with unambiguous scalar lowering.
+/// Structs, unions, varargs, callbacks and narrow integers require additional rules.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeType {
     Void,
@@ -43,7 +43,7 @@ pub enum NativeType {
     Pointer,
 }
 impl NativeType {
-    /// Representação LLVM; ptr permanece opaco e usa largura do alvo.
+    /// LLVM representation; ptr stays opaque and uses the target width.
     pub fn llvm(self) -> &'static str {
         match self {
             Self::Void => "void",
@@ -53,7 +53,7 @@ impl NativeType {
             Self::Pointer => "ptr",
         }
     }
-    /// Tamanho e alinhamento dos escalares nos perfis suportados; void não tem layout.
+    /// Size and alignment of scalars in the supported profiles; void has no layout.
     pub fn layout(self, target: Target) -> Option<(u8, u8)> {
         match self {
             Self::Void => None,
@@ -66,7 +66,7 @@ impl NativeType {
         }
     }
 }
-/// Categorias Dart esperadas em assinaturas FFI; não são os tipos da AST atual.
+/// Dart categories expected in FFI signatures; they are not the types of the current AST.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DartType {
     Void,
@@ -76,50 +76,50 @@ pub enum DartType {
     ManagedObject,
 }
 
-/// Assinatura C explícita; ponteiros não carregam referências ao GC.
+/// Explicit C signature; pointers do not carry references to the GC.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Signature {
     pub result: NativeType,
     pub parameters: Vec<NativeType>,
 }
-/// Diagnóstico de contrato antes de qualquer tentativa de ligação.
+/// Contract diagnostic before any linking attempt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AbiError(pub &'static str);
 impl fmt::Display for AbiError {
-    /// Apresenta erro estável sem depender de toolchain externa.
+    /// Presents a stable error without depending on an external toolchain.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.0)
     }
 }
 impl std::error::Error for AbiError {}
 impl Signature {
-    /// Verifica correspondência de marcadores nativos e assinatura Dart.
+    /// Checks that native markers and the Dart signature correspond.
     ///
-    /// # Erros
-    /// Rejeita aridade, tipos incompatíveis, objetos gerenciados e void em parâmetros.
+    /// # Errors
+    /// Rejects arity, incompatible types, managed objects and void in parameters.
     pub fn validate_binding(
         &self,
         result: DartType,
         parameters: &[DartType],
     ) -> Result<(), AbiError> {
         if self.parameters.len() != parameters.len() {
-            return Err(AbiError("aridade FFI incompatível"));
+            return Err(AbiError("incompatible FFI arity"));
         }
         if !compatible(self.result, result) {
-            return Err(AbiError("retorno FFI incompatível"));
+            return Err(AbiError("incompatible FFI return"));
         }
         for (&native, &dart) in self.parameters.iter().zip(parameters) {
             if native == NativeType::Void || !compatible(native, dart) {
-                return Err(AbiError("parâmetro FFI incompatível"));
+                return Err(AbiError("incompatible FFI parameter"));
             }
         }
         Ok(())
     }
-    /// Emite apenas declaração LLVM C de uma assinatura validada estruturalmente.
-    /// Não implementa conversão de argumentos Dart nem resolução/carregamento do símbolo.
+    /// Emits only the LLVM C declaration of a structurally validated signature.
+    /// Does not implement conversion of Dart arguments nor resolution/loading of the symbol.
     ///
-    /// # Erros
-    /// Rejeita símbolos fora do subconjunto C, nomes reservados e parâmetros void.
+    /// # Errors
+    /// Rejects symbols outside the C subset, reserved names and void parameters.
     pub fn llvm_declaration(&self, symbol: &str) -> Result<String, AbiError> {
         let bytes = symbol.as_bytes();
         if bytes.is_empty()
@@ -130,10 +130,10 @@ impl Signature {
             || symbol.starts_with("dartforge_")
             || symbol.starts_with("df_")
         {
-            return Err(AbiError("símbolo FFI inválido ou reservado"));
+            return Err(AbiError("invalid or reserved FFI symbol"));
         }
         if self.parameters.contains(&NativeType::Void) {
-            return Err(AbiError("void não é parâmetro C"));
+            return Err(AbiError("void is not a C parameter"));
         }
         Ok(format!(
             "declare {} @{}({})\n",
@@ -146,18 +146,18 @@ impl Signature {
                 .join(", ")
         ))
     }
-    /// Valida capacidade de biblioteca dinâmica sem prometer backend WebAssembly.
+    /// Validates dynamic library capability without promising a WebAssembly backend.
     ///
-    /// # Erros
-    /// WebAssembly requer imports/exportações e memória linear, não dlopen/LoadLibrary.
+    /// # Errors
+    /// WebAssembly requires imports/exports and linear memory, not dlopen/LoadLibrary.
     pub fn validate_dynamic_target(&self, target: Target) -> Result<(), AbiError> {
         if !target.supports_dynamic_libraries() {
-            return Err(AbiError("FFI dinâmica indisponível no perfil WebAssembly"));
+            return Err(AbiError("dynamic FFI unavailable in the WebAssembly profile"));
         }
         Ok(())
     }
 }
-/// Mapeia marcadores FFI conforme SDK 3.6.2, sem converter handles em ponteiros.
+/// Maps FFI markers per SDK 3.6.2, without converting handles into pointers.
 fn compatible(native: NativeType, dart: DartType) -> bool {
     matches!(
         (native, dart),
@@ -171,7 +171,7 @@ fn compatible(native: NativeType, dart: DartType) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    /// Ponteiros dependem do alvo, mas int64 permanece de oito bytes em wasm32.
+    /// Pointers depend on the target, but int64 stays eight bytes on wasm32.
     #[test]
     fn target_layouts_do_not_confuse_handles_and_pointers() {
         assert_eq!(NativeType::Pointer.layout(Target::Wasm32), Some((4, 4)));
@@ -179,7 +179,7 @@ mod tests {
         assert_eq!(NativeType::Int64.layout(Target::Wasm32), Some((8, 8)));
         assert_eq!(NativeType::Void.layout(Target::LinuxX64), None);
     }
-    /// Assinaturas preservam aridade/tipos e rejeitam handle gerenciado como ptr.
+    /// Signatures preserve arity/types and reject a managed handle as ptr.
     #[test]
     fn scalar_contracts_and_target_rejections() {
         let sig = Signature {

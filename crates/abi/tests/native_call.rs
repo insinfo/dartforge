@@ -1,19 +1,19 @@
-//! Verificação real da declaração LLVM contra uma função C no ABI do host.
+//! Real check of the LLVM declaration against a C function in the host ABI.
 use dartforge_abi::{NativeType, Signature, Target};
 use std::{path::PathBuf, process::Command};
 
-/// Diretório exclusivo criado pelo teste, sem receber caminhos externos para remoção.
+/// Exclusive directory created by the test, never given external paths to remove.
 struct Scratch(PathBuf);
 impl Drop for Scratch {
-    /// Libera somente os arquivos produzidos neste diretório exclusivo.
+    /// Frees only the files produced in this exclusive directory.
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
 
-/// Valida ponteiro, double, int32 e int64 em chamada real, sem frontend dart:ffi.
+/// Validates pointer, double, int32 and int64 in a real call, without the dart:ffi frontend.
 #[test]
-#[ignore = "requer clang com linker C nativo configurado"]
+#[ignore = "requires clang with a native C linker configured"]
 fn llvm_scalar_declaration_links_and_calls_c() {
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -58,7 +58,7 @@ entry:
     assert!(output.status.success(), "{output:?}");
     let run = Command::new(executable).output().unwrap();
     assert!(run.status.success(), "{run:?}");
-    // O mesmo contrato pode formar objeto wasm32, sem supor runtime Dart/Wasm pronto.
+    // The same contract can produce a wasm32 object, without assuming a ready Dart/Wasm runtime.
     let wasm = dir.0.join("contract.wasm.o");
     let output = Command::new(&clang)
         .arg(format!("--target={}", Target::Wasm32.triple()))

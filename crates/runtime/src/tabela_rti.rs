@@ -1,18 +1,18 @@
-//! A forma comprimida da tabela da RTI (`emit_native/src/lower/rti.rs`,
-//! `dartforge_rti_iniciar_tabela`): o texto das classes e das regras de
-//! supertipo de um programa grande passa de 1 MB (1,37 MB no
-//! `new_sali/backend`, 10 mil classes) e é muito repetitivo; o zlib o
-//! reduz a ~1/5. O compilador comprime, o runtime descomprime uma vez por
-//! processo. Os dois lados estão aqui, para o formato ficar num lugar só.
+//! The compressed form of the RTI table (`emit_native/src/lower/rti.rs`,
+//! `dartforge_rti_iniciar_tabela`): the text of the classes and supertype rules of
+//! a large program exceeds 1 MB (1.37 MB in `new_sali/backend`, 10 thousand
+//! classes) and is very repetitive; zlib reduces it to ~1/5. The compiler
+//! compresses, the runtime decompresses once per process. Both sides are here, so
+//! the format lives in a single place.
 
-/// O cabeçalho da forma comprimida: estes 4 bytes, o tamanho do texto (u32
-/// little-endian) e o fluxo zlib. O texto da tabela nunca começa com NUL.
+/// The header of the compressed form: these 4 bytes, the text size (u32
+/// little-endian) and the zlib stream. The table text never starts with NUL.
 pub const HEADER: &[u8; 4] = b"\0DFZ";
 
-/// A partir deste tamanho o compilador comprime a tabela.
+/// From this size on the compiler compresses the table.
 pub const LIMIAR: usize = 16 * 1024;
 
-/// A forma comprimida de `text` (o compilador).
+/// The compressed form of `text` (the compiler).
 ///
 /// ```
 /// use dartforge_runtime::tabela_rti::{comprimir, decompress, HEADER};
@@ -24,7 +24,7 @@ pub const LIMIAR: usize = 16 * 1024;
 pub fn comprimir(text: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(text.len() / 4 + 64);
     out.extend_from_slice(HEADER);
-    out.extend_from_slice(&u32::try_from(text.len()).expect("tabela da RTI acima de 4 GB").to_le_bytes());
+    out.extend_from_slice(&u32::try_from(text.len()).expect("RTI table above 4 GB").to_le_bytes());
     let mut z = flate2::Compress::new(flate2::Compression::best(), true);
     loop {
         out.reserve(64 * 1024);
@@ -36,25 +36,25 @@ pub fn comprimir(text: &[u8]) -> Vec<u8> {
     }
 }
 
-/// O texto de uma tabela comprimida por [`comprimir`].
+/// The text of a table compressed by [`comprimir`].
 ///
 /// # Panics
 ///
-/// O cabeçalho ou o fluxo zlib não confere.
+/// The header or the zlib stream does not check out.
 pub fn decompress(data: &[u8]) -> Vec<u8> {
-    assert!(data.starts_with(HEADER), "tabela da RTI sem o cabeçalho da forma comprimida");
-    let size = u32::from_le_bytes(data[4..8].try_into().expect("cabeçalho da tabela da RTI")) as usize;
+    assert!(data.starts_with(HEADER), "RTI table without the header of the compressed form");
+    let size = u32::from_le_bytes(data[4..8].try_into().expect("RTI table header")) as usize;
     let mut text = Vec::with_capacity(size);
     let mut z = flate2::Decompress::new(true);
-    let estado = z.decompress_vec(&data[8..], &mut text, flate2::FlushDecompress::Finish).expect("tabela da RTI comprimida");
-    assert!(estado == flate2::Status::StreamEnd && text.len() == size, "tabela da RTI comprimida incompleta");
+    let estado = z.decompress_vec(&data[8..], &mut text, flate2::FlushDecompress::Finish).expect("compressed RTI table");
+    assert!(estado == flate2::Status::StreamEnd && text.len() == size, "incomplete compressed RTI table");
     text
 }
 
-/// O texto de uma tabela comprimida que vive o processo inteiro (a constante
-/// do módulo), descomprimido uma vez: cada isolado registra o universo de
-/// novo. A chave é o endereço, o tamanho e o CRC dos dados: a recarga do JIT
-/// traz outra tabela, que pode reusar o endereço da anterior.
+/// The text of a compressed table that lives for the whole process (the module
+/// constant), decompressed once: each isolate registers the universe again. The
+/// key is the address, the size and the CRC of the data: a JIT reload brings
+/// another table, which may reuse the address of the previous one.
 pub fn decompressed(data: &'static [u8]) -> &'static [u8] {
     type Cache = std::sync::Mutex<Vec<((usize, usize, u32), &'static [u8])>>;
     static CACHE: std::sync::OnceLock<Cache> = std::sync::OnceLock::new();

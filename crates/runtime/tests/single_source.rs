@@ -1,9 +1,9 @@
-//! A fonte única do runtime: o que o AOT compila e o que o JIT usa são o mesmo
-//! código, com a mesma semântica.
+//! The runtime's single source: what the AOT compiles and what the JIT uses are the
+//! same code, with the same semantics.
 
-/// O texto que o AOT compila contém, sem alteração, os arquivos que este
-/// crate compila como `heap` e `abi`: o `heap.rs` e, em seguida, todos os
-/// fragmentos concatenados na ordem de `FRAGMENTOS`.
+/// The text the AOT compiles contains, unchanged, the files this crate compiles
+/// as `heap` and `abi`: `heap.rs` and then all the fragments concatenated in the
+/// order of `FRAGMENTOS`.
 #[test]
 fn aot_compiles_the_same_files() {
     let text = dartforge_runtime::RUNTIME_MAIN;
@@ -12,13 +12,13 @@ fn aot_compiles_the_same_files() {
     let mut concatenated = String::new();
     for f in dartforge_runtime::simbolos::FRAGMENTOS {
         concatenated.push_str(
-            &std::fs::read_to_string(src.join(format!("{f}.rs"))).expect("ler fragmento"),
+            &std::fs::read_to_string(src.join(format!("{f}.rs"))).expect("read fragment"),
         );
     }
     assert!(text.ends_with(&concatenated));
 }
 
-/// A tabela gerada tem nomes únicos, endereços reais e não tem o `main` C.
+/// The generated table has unique names, real addresses and no C `main`.
 #[test]
 fn the_table_covers_runtime_symbols() {
     let tabela = dartforge_runtime::simbolos::tabela();
@@ -34,23 +34,23 @@ fn the_table_covers_runtime_symbols() {
             .all(|(n, a)| n.starts_with("dartforge_") && *a != 0)
     );
     assert!(!names.contains(&"main"));
-    // Cada nome anunciado aparece no texto que o AOT compila.
+    // Every announced name appears in the text the AOT compiles.
     for name in &names {
         assert!(
             dartforge_runtime::RUNTIME_MAIN.contains(&format!("fn {name}(")),
-            "{name} não está no RUNTIME_MAIN"
+            "{name} is not in RUNTIME_MAIN"
         );
     }
 }
 
-/// @Native resolve todo o catálogo reservado na instância que atende a chamada,
-/// mesmo quando o executável não exporta suas funções para o lookup do processo.
+/// @Native resolves the whole reserved catalog in the instance serving the call,
+/// even when the executable does not export its functions to the process lookup.
 #[test]
-#[allow(unsafe_code)] // A prova chama a ABI cujo contrato exige bytes válidos.
+#[allow(unsafe_code)] // The proof calls the ABI whose contract requires valid bytes.
 fn native_resolver_and_its_cache_keep_this_runtimes_addresses() {
     for (name, expected) in dartforge_runtime::simbolos::tabela() {
         for _ in 0..2 {
-            // SAFETY: nome é uma string estática UTF-8 e vive durante a chamada.
+            // SAFETY: the name is a static UTF-8 string and lives during the call.
             let address = unsafe {
                 dartforge_runtime::abi::dartforge_ffi_simbolo_nativo(
                     name.as_ptr(),
@@ -62,11 +62,12 @@ fn native_resolver_and_its_cache_keep_this_runtimes_addresses() {
     }
 }
 
-/// O perfil deste pacote é o do AOT (`rustc -O`): estouro de inteiro é
-/// modular, não `panic`. A sobreposição `[profile.dev.package.dartforge-runtime]`
-/// do `Cargo.toml` da raiz vale para todos os alvos do pacote, inclusive este
-/// teste; sem ela, o perfil `test` (que herda de `dev`) entraria em pânico aqui,
-/// e o runtime do JIT divergiria do AOT em toda conta que estoura.
+/// This package's profile is the AOT one (`rustc -O`): integer overflow wraps
+/// around, it does not `panic`. The `[profile.dev.package.dartforge-runtime]`
+/// override in the root `Cargo.toml` applies to every target of the package,
+/// including this test; without it, the `test` profile (which inherits from `dev`)
+/// would panic here, and the JIT runtime would diverge from the AOT on every
+/// overflowing computation.
 #[test]
 fn overflow_wraps_as_in_aot() {
     let r = std::panic::catch_unwind(|| std::hint::black_box(i64::MAX) + std::hint::black_box(1));

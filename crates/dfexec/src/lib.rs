@@ -1,17 +1,17 @@
-//! Transporte comum do `dfexec/1`: um quadro JSON por mensagem, no mesmo
-//! processo persistente que atende os serviços `build.*` e `macro.*`.
+//! Common `dfexec/1` transport: one JSON frame per message, in the same
+//! persistent process that serves the `build.*` and `macro.*` services.
 use serde_json::Value;
 use std::io::{Read, Write};
 
 pub const PROTOCOLO: &str = "dfexec/1";
 
-/// Quadros maiores que 64 MiB são defeito do outro lado, não um modelo válido.
+/// Frames larger than 64 MiB are a defect on the other side, not a valid model.
 const LARGEST_FRAME: u32 = 64 << 20;
 
 pub fn escrever_quadro(w: &mut dyn Write, m: &Value) -> std::io::Result<()> {
     let body = serde_json::to_vec(m).map_err(std::io::Error::other)?;
     let n = u32::try_from(body.len()).map_err(std::io::Error::other)?;
-    if n > LARGEST_FRAME { return Err(std::io::Error::other(format!("quadro de {n} bytes excede o limite"))); }
+    if n > LARGEST_FRAME { return Err(std::io::Error::other(format!("frame of {n} bytes exceeds the limit"))); }
     w.write_all(&n.to_be_bytes())?;
     w.write_all(&body)?;
     w.flush()
@@ -23,12 +23,12 @@ pub fn ler_quadro(r: &mut dyn Read) -> std::io::Result<Option<Value>> {
     while read_list < 4 {
         match r.read(&mut n[read_list..])? {
             0 if read_list == 0 => return Ok(None),
-            0 => return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "quadro cortado no tamanho")),
+            0 => return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "frame truncated in the size")),
             k => read_list += k,
         }
     }
     let n = u32::from_be_bytes(n);
-    if n > LARGEST_FRAME { return Err(std::io::Error::other(format!("quadro de {n} bytes excede o limite"))); }
+    if n > LARGEST_FRAME { return Err(std::io::Error::other(format!("frame of {n} bytes exceeds the limit"))); }
     let mut body = vec![0u8; n as usize];
     r.read_exact(&mut body)?;
     serde_json::from_slice(&body).map(Some).map_err(std::io::Error::other)
@@ -39,12 +39,12 @@ pub trait Canal: Send {
     fn receber(&mut self) -> Result<Value, String>;
 }
 
-/// Processo filho que fala `dfexec/1` por stdin/stdout. stderr é herdado.
+/// Child process that speaks `dfexec/1` over stdin/stdout. stderr is inherited.
 ///
-/// Os quadros do filho são lidos por uma thread, e `receber` espera por eles
-/// no máximo o prazo ([`CanalDeProcesso::com_prazo`]): um executor travado
-/// (laço infinito num builder, um `await` que nunca completa) vira erro do
-/// canal em vez de prender o hospedeiro, e o processo é encerrado.
+/// The child's frames are read by a thread, and `receber` waits for them at most
+/// the deadline ([`CanalDeProcesso::com_prazo`]): a stuck executor (an infinite
+/// loop in a builder, an `await` that never completes) becomes a channel error
+/// instead of holding the host, and the process is terminated.
 pub struct CanalDeProcesso {
     child: std::process::Child,
     input: std::process::ChildStdin,
@@ -56,9 +56,9 @@ pub struct CanalDeProcesso {
 impl CanalDeProcesso {
     pub fn iniciar(mut command: std::process::Command) -> Result<Self, String> {
         command.stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped());
-        let mut child = command.spawn().map_err(|e| format!("não foi possível iniciar o executor: {e}"))?;
-        let input = child.stdin.take().ok_or("executor sem stdin")?;
-        let mut out = child.stdout.take().ok_or("executor sem stdout")?;
+        let mut child = command.spawn().map_err(|e| format!("could not start the executor: {e}"))?;
+        let input = child.stdin.take().ok_or("executor without stdin")?;
+        let mut out = child.stdout.take().ok_or("executor without stdout")?;
         let (tx, frames) = std::sync::mpsc::channel();
         std::thread::Builder::new()
             .name("dfexec-leitor".into())
@@ -69,12 +69,12 @@ impl CanalDeProcesso {
                     break;
                 }
             })
-            .map_err(|e| format!("não foi possível ler o executor: {e}"))?;
+            .map_err(|e| format!("could not read from the executor: {e}"))?;
         Ok(Self { child, input, frames, deadline: None, shut: false })
     }
 
-    /// Espera no máximo `deadline` por cada mensagem do executor (`None`: sem
-    /// limite). Esgotado, o processo é encerrado e `receber` falha.
+    /// Waits at most `deadline` for each message from the executor (`None`: no
+    /// limit). When it runs out, the process is terminated and `receber` fails.
     pub fn com_prazo(mut self, deadline: Option<std::time::Duration>) -> Self {
         self.deadline = deadline;
         self
@@ -110,7 +110,7 @@ impl Canal for CanalDeProcesso {
         };
         match q {
             Ok(Some(v)) => Ok(v),
-            Ok(None) => Err("o executor terminou no meio da sessão".into()),
+            Ok(None) => Err("the executor ended in the middle of the session".into()),
             Err(e) => Err(format!("executor: {e}")),
         }
     }

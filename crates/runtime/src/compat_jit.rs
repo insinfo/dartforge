@@ -1,41 +1,41 @@
-// Runtime nativo: o que um programa vê na VM JIT e o AOT da VM não dá, e de
-// que os builders do ecossistema dependem (B01). Duas partes:
+// Native runtime: what a program sees in the JIT VM that the VM's AOT does not
+// provide, and that the ecosystem's builders depend on (B01). Two parts:
 //
-// * o package config (`Isolate.resolvePackageUri`, `Isolate.packageConfig`):
-//   na VM vem do `--packages`; aqui, de `DARTFORGE_PACKAGE_CONFIG` (o
-//   hospedeiro do executor de builders o define). O `build_resolvers` acha
-//   o diretório dos pacotes por ele. A leitura e a resolução ficam no patch
-//   do `dart:isolate` (`native_sdk/isolate/isolate_patch.dart`), como no
-//   `builtin.dart` da VM; o runtime só dá o caminho e o texto do arquivo.
+// * the package config (`Isolate.resolvePackageUri`, `Isolate.packageConfig`):
+//   in the VM it comes from `--packages`; here, from `DARTFORGE_PACKAGE_CONFIG`
+//   (the host of the builder executor sets it). `build_resolvers` finds the
+//   packages directory through it. Reading and resolution live in the
+//   `dart:isolate` patch (`native_sdk/isolate/isolate_patch.dart`), as in the
+//   VM's `builtin.dart`; the runtime only provides the path and the file text.
 //
-// * o subconjunto de `dart:mirrors`:
+// * the `dart:mirrors` subset:
 //
-// O `TypeChecker.fromRuntime(T)` do `source_gen` (json_serializable, freezed,
-// built_value…) pede `reflectClass(T)` e lê só o nome da classe e a URI da
-// biblioteca que a declara (`(mirror.owner as LibraryMirror).uri`,
-// `MirrorSystem.getName(mirror.simpleName)`). O resto da API de reflexão não
-// existe no nativo (como no AOT da VM) e lança `UnsupportedError`
+// `source_gen`'s `TypeChecker.fromRuntime(T)` (json_serializable, freezed,
+// built_value…) asks for `reflectClass(T)` and reads only the class name and the
+// URI of the library that declares it (`(mirror.owner as LibraryMirror).uri`,
+// `MirrorSystem.getName(mirror.simpleName)`). The rest of the reflection API does
+// not exist in native code (as in the VM's AOT) and throws `UnsupportedError`
 // (`native_sdk/mirrors/mirrors_patch.dart`).
 //
-// O compilador registra, na tabela da RTI (`lower/rti.rs`), uma linha
-// `B<id> <uri> <nome>` por classe: a biblioteca que a declara e o nome
-// declarado (não o visível: `_Smi` continua `_Smi`).
+// The compiler registers, in the RTI table (`lower/rti.rs`), one line
+// `B<id> <uri> <name>` per class: the library that declares it and the declared
+// name (not the visible one: `_Smi` stays `_Smi`).
 
 thread_local! {
-    /// Classe RTI → (URI da biblioteca, nome declarado).
+    /// RTI class → (library URI, declared name).
     static CLASS_LIBRARIES: RefCell<HashMap<i64, (String, String)>> = RefCell::new(HashMap::default());
 }
 
-/// Registra a biblioteca e o nome declarado da classe RTI `class` (linha
-/// `B` da tabela da RTI).
+/// Registers the library and the declared name of RTI class `class` (line `B` of
+/// the RTI table).
 fn register_class_library(class: i64, uri: &str, name: &str) {
     CLASS_LIBRARIES.with(|m| {
         m.borrow_mut().insert(class, (uri.to_string(), name.to_string()));
     });
 }
 
-/// A classe RTI de um objeto `Type` de classe (`Type::Interface`, também
-/// anulável), ou `None` para os outros tipos (função, record, `dynamic`…).
+/// The RTI class of a class `Type` object (`Type::Interface`, nullable too), or
+/// `None` for the other types (function, record, `dynamic`…).
 fn type_object_class(tipo: i64) -> Option<i64> {
     let t = HEAP.with(|h| match h.borrow().object(tipo) {
         Some(o) if o.class_id == TYPE_CLASS => o.first().map(|f| f.0),
@@ -54,8 +54,8 @@ fn type_object_class(tipo: i64) -> Option<i64> {
     })
 }
 
-/// `DartForge_mirrors_uri`: a URI da biblioteca da classe do objeto `Type`, ou
-/// `null` quando o tipo não é de classe (ou a classe não foi registrada).
+/// `DartForge_mirrors_uri`: the URI of the library of the `Type` object's class,
+/// or `null` when the type is not a class type (or the class was not registered).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_mirrors_uri(tipo: i64) -> i64 {
     match type_object_class(tipo).and_then(|c| CLASS_LIBRARIES.with(|m| m.borrow().get(&c).cloned())) {
@@ -64,8 +64,8 @@ pub extern "C" fn dartforge_nativo_DartForge_mirrors_uri(tipo: i64) -> i64 {
     }
 }
 
-/// `DartForge_mirrors_nome`: o nome declarado da classe do objeto `Type`,
-/// ou `null` (ver [`dartforge_nativo_DartForge_mirrors_uri`]).
+/// `DartForge_mirrors_nome`: the declared name of the `Type` object's class, or
+/// `null` (see [`dartforge_nativo_DartForge_mirrors_uri`]).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_mirrors_nome(tipo: i64) -> i64 {
     match type_object_class(tipo).and_then(|c| CLASS_LIBRARIES.with(|m| m.borrow().get(&c).cloned())) {
@@ -74,8 +74,8 @@ pub extern "C" fn dartforge_nativo_DartForge_mirrors_nome(tipo: i64) -> i64 {
     }
 }
 
-/// `DartForge_package_config`: o caminho do `package_config.json` do
-/// processo (`DARTFORGE_PACKAGE_CONFIG`), ou `null`.
+/// `DartForge_package_config`: the path of the process's `package_config.json`
+/// (`DARTFORGE_PACKAGE_CONFIG`), or `null`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_package_config() -> i64 {
     match std::env::var("DARTFORGE_PACKAGE_CONFIG") {
@@ -84,8 +84,8 @@ pub extern "C" fn dartforge_nativo_DartForge_package_config() -> i64 {
     }
 }
 
-/// `DartForge_ler_texto`: o conteúdo UTF-8 do arquivo `file_path`, ou `null`
-/// quando ele não pode ser lido.
+/// `DartForge_ler_texto`: the UTF-8 content of the file `file_path`, or `null`
+/// when it cannot be read.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_ler_texto(file_path: i64) -> i64 {
     let file_path = HEAP.with(|h| h.borrow().text(file_path).map(|t| t.para_string()).unwrap_or_default());

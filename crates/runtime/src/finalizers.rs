@@ -1,18 +1,19 @@
-// Runtime nativo: `Finalizer` (dart:core) e `NativeFinalizer` (dart:ffi) —
-// o `FinalizerEntry` da VM (`runtime/vm/object.h`, `gc_marker.cc`) sobre os
-// anexos do coletor (`Heap::attachments`).
+// Native runtime: `Finalizer` (dart:core) and `NativeFinalizer` (dart:ffi) — the
+// VM's `FinalizerEntry` (`runtime/vm/object.h`, `gc_marker.cc`) on top of the
+// collector's attachments (`Heap::attachments`).
 //
-// * Um anexo guarda o valor e a chave de `detach` como referências fracas;
-//   a ação é aresta forte do dono, que o registro não enraíza. A coleta que acha o valor morto
-//   tira o anexo: a ação de um `Finalizer` (a closure `() => callback(token)`
-//   montada no Dart) vai para a fila de finalizações prontas, que o laço de
-//   eventos atende entre um evento e outro — na VM é uma mensagem ao
-//   isolado; a de um `NativeFinalizer` (`callback(token)`, função C) roda na
-//   própria coleta, como na VM, e não toca o heap.
-// * `detach(key)` tira os anexos do mesmo dono com a mesma chave.
-// * No fim do isolado os `NativeFinalizer` ainda anexados rodam (a VM os
-//   garante no encerramento); os `Finalizer`, não (a especificação não
-//   promete que rodem).
+// * An attachment keeps the value and the `detach` key as weak references; the
+//   action is a strong edge of the owner, which the registration does not root.
+//   The collection that finds the value dead removes the attachment: the action
+//   of a `Finalizer` (the closure `() => callback(token)` built in Dart) goes to
+//   the queue of ready finalizations, which the event loop serves between one
+//   event and the next — in the VM it is a message to the isolate; the action of
+//   a `NativeFinalizer` (`callback(token)`, a C function) runs during the
+//   collection itself, as in the VM, and does not touch the heap.
+// * `detach(key)` removes the attachments of the same owner with the same key.
+// * At the end of the isolate the still-attached `NativeFinalizer`s run (the VM
+//   guarantees them at shutdown); the `Finalizer`s do not (the specification
+//   does not promise that they run).
 
 /// `DartForge_finalizador_anexar(owner, value, action, detach)`.
 #[unsafe(no_mangle)]
@@ -27,22 +28,22 @@ pub extern "C" fn dartforge_nativo_DartForge_finalizador_anexar(owner: i64, valu
     });
 }
 
-/// `DartForge_finalizador_anexar_nativo(dono, valor, funcao, token,
-/// desanexo, tamanho_externo)`.
+/// `DartForge_finalizador_anexar_nativo(owner, value, function, token,
+/// detach, externalSize)`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_finalizador_anexar_nativo(owner: i64, value: i64, function: i64, token: i64, detach: i64, external_size: i64) {
     if function == 0 {
         throw_argument_error("NativeFinalizer callback must not be nullptr");
         return;
     }
-    // NativeFinalizer pode rodar fora da thread do isolado. Um trampolim
-    // síncrono entraria em Dart durante a coleta ou abortaria noutra thread.
+    // A NativeFinalizer may run outside the isolate's thread. A synchronous
+    // trampoline would enter Dart during the collection or abort on another thread.
     if callback_requires_isolate_thread(function as usize) {
         throw_argument_error("NativeFinalizer callback must not require the isolate thread");
         return;
     }
     if external_size < 0 || usize::try_from(external_size).ok().and_then(|n| isize::try_from(n).ok()).is_none() {
-        throw_argument_error("externalSize fora do intervalo suportado");
+        throw_argument_error("externalSize out of the supported range");
         return;
     }
     HEAP.with(|h| {
@@ -64,7 +65,7 @@ pub extern "C" fn dartforge_nativo_DartForge_finalizador_desanexar(owner: i64, d
     HEAP.with(|h| h.borrow_mut().detach_finalizer(owner, detach));
 }
 
-/// Consome a entrada antes de chamar Dart; reentrada só encontra ações pendentes.
+/// Consumes the entry before calling Dart; reentry only finds pending actions.
 fn start_finalization() -> Option<(i64, i64)> {
     HEAP.with(|h| {
         let mut h = h.borrow_mut();
@@ -79,7 +80,7 @@ fn finish_finalization(frame: i64) {
     HEAP.with(|h| h.borrow_mut().pop_frame(frame));
 }
 
-/// Fim do isolado: os `NativeFinalizer` ainda anexados rodam.
+/// End of the isolate: the still-attached `NativeFinalizer`s run.
 pub fn shutdown_isolate_finalizers() {
     HEAP.with(|h| h.borrow_mut().encerrar_finalizadores());
 }
@@ -96,7 +97,7 @@ mod tests_finalization_owner {
     extern "C" fn run_with_reentry(closure: i64) -> i64 {
         EXECUTED.with(|e| {
             let mut e = e.borrow_mut();
-            assert!(!e.contains(&closure), "cada entrada deve executar uma vez");
+            assert!(!e.contains(&closure), "each entry must run once");
             e.push(closure);
         });
         ACTIVE_COUNT.with(|a| a.borrow_mut().push(closure));
@@ -142,7 +143,7 @@ mod tests_finalization_owner {
             let mut h = h.borrow_mut();
             h.encerrar_finalizadores();
             h.collect();
-            assert!(h.is_live_object(closure), "o callback ativo sobrevive à retirada da fila");
+            assert!(h.is_live_object(closure), "the active callback survives removal from the queue");
         });
         0
     }

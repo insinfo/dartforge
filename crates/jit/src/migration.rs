@@ -1,24 +1,24 @@
-//! Migração das instâncias vivas numa recarga estrutural (J03).
+//! Migration of live instances on a structural reload (J03).
 //!
-//! O emissor nativo escreve no IR o layout dos objetos de cada classe do
-//! programa (`; df.campos <id> <base> nome:flags:tipo,…`, com `a` anulável e
-//! `l` late; `base` são os campos antes dos declarados, os de enum). Quando
-//! uma classe muda de campos, a recarga não precisa mais ser recusada: cada
-//! objeto vivo dela passa ao layout novo **pelo nome** do campo, na
-//! publicação — com todos os isolados parados no ponto seguro de evento, sem
-//! quadro Dart na pilha —, e o que ele não tem recebe:
+//! The native emitter writes into the IR the object layout of each program class
+//! (`; df.campos <id> <base> nome:flags:tipo,…`, with `a` nullable and `l` late;
+//! `base` are the fields before the declared ones, the enum ones). When a class
+//! changes its fields, the reload no longer has to be rejected: every live object
+//! of that class moves to the new layout **by field name**, at publication — with
+//! every isolate stopped at the event safepoint, with no Dart frame on the stack
+//! —, and whatever it lacks receives:
 //!
-//! * `null`, se o tipo do campo novo aceita `null`;
-//! * nada (fica não inicializado), se o campo novo é `late`: a leitura roda o
-//!   inicializador dele, como a VM faz com um campo acrescentado, ou lança o
+//! * `null`, if the new field's type accepts `null`;
+//! * nothing (it stays uninitialized), if the new field is `late`: reading it runs
+//!   its initializer, as the VM does with an added field, or throws
 //!   `LateInitializationError`.
 //!
-//! O resto é recusado com a mensagem exata, sem alterar a sessão: campo novo
-//! que não é anulável nem `late` (o objeto vivo não tem valor para ele), campo
-//! que mudou de tipo ou de `late` (o valor guardado pode não caber), e
-//! mudança nos campos de enum.
+//! The rest is rejected with the exact message, without changing the session: a
+//! new field that is neither nullable nor `late` (the live object has no value for
+//! it), a field that changed its type or its `late` (the stored value may not
+//! fit), and changes in the enum fields.
 
-/// Um campo do layout escrito no IR.
+/// A layout field written in the IR.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Field {
     pub name: String,
@@ -27,7 +27,7 @@ pub(crate) struct Field {
     pub tipo: String,
 }
 
-/// O layout de uma classe: id, campos de enum antes dos declarados, campos.
+/// The layout of a class: id, enum fields before the declared ones, fields.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Layout {
     pub class: i64,
@@ -35,17 +35,16 @@ pub(crate) struct Layout {
     pub fields: Vec<Field>,
 }
 
-/// A migração dos objetos de uma classe: o novo número de campos e, para cada
-/// posição nova, a antiga de onde vem o valor (`-1`: `null` ou não
-/// inicializado).
+/// The migration of a class's objects: the new number of fields and, for each new
+/// position, the old one the value comes from (`-1`: `null` or uninitialized).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Migration {
     pub class: i64,
     pub origin: Vec<i64>,
 }
 
-/// O inverso do `escapar` do emissor: `$` e dois dígitos hexadecimais por
-/// byte UTF-8.
+/// The inverse of the emitter's `escapar`: `$` and two hexadecimal digits per
+/// UTF-8 byte.
 fn unescape(part: &str) -> Option<String> {
     let b = part.as_bytes();
     let mut v = Vec::with_capacity(b.len());
@@ -62,8 +61,8 @@ fn unescape(part: &str) -> Option<String> {
     String::from_utf8(v).ok()
 }
 
-/// Os layouts escritos no IR `ir` (vazio num IR sem eles: a comparação fica
-/// com a contagem de campos das alocações).
+/// The layouts written in the IR `ir` (empty for an IR without them: the
+/// comparison falls back to the field count of the allocations).
 pub(crate) fn ir_layouts(ir: &str) -> Vec<Layout> {
     ir.lines()
         .filter_map(|l| {
@@ -88,8 +87,8 @@ pub(crate) fn ir_layouts(ir: &str) -> Vec<Layout> {
         .collect()
 }
 
-/// A migração das classes cujo layout mudou de `before` para `after`, ou a
-/// mensagem da recusa. `name` dá o nome de uma classe pelo id.
+/// The migration of the classes whose layout changed from `before` to `after`, or
+/// the rejection message. `name` gives a class's name by id.
 pub(crate) fn plan_fn(before: &[Layout], after: &[Layout], name: &dyn Fn(i64) -> String) -> Result<Vec<Migration>, String> {
     let mut plan = Vec::new();
     for old_gen in before {
@@ -99,7 +98,7 @@ pub(crate) fn plan_fn(before: &[Layout], after: &[Layout], name: &dyn Fn(i64) ->
         }
         let class = name(old_gen.class);
         if new.base != old_gen.base {
-            return Err(format!("os campos de enum de {class} mudaram; a recarga é recusada — reinicie a sessão"));
+            return Err(format!("the enum fields of {class} changed; the reload is rejected — restart the session"));
         }
         let mut origin: Vec<i64> = (0..new.base as i64).collect();
         for c in &new.fields {
@@ -108,16 +107,16 @@ pub(crate) fn plan_fn(before: &[Layout], after: &[Layout], name: &dyn Fn(i64) ->
                     let v = &old_gen.fields[i];
                     if v.tipo != c.tipo {
                         return Err(format!(
-                            "o campo `{}` de {class} mudou de tipo ({} para {}); os objetos vivos guardam valores do tipo \
-                             antigo, então a recarga é recusada — reinicie a sessão",
+                            "field `{}` of {class} changed its type ({} to {}); the live objects hold values of the \
+                             old type, so the reload is rejected — restart the session",
                             c.name, v.tipo, c.tipo
                         ));
                     }
                     if v.late != c.late {
                         return Err(format!(
-                            "o campo `{}` de {class} {} `late`; a recarga é recusada — reinicie a sessão",
+                            "field `{}` of {class} {} `late`; the reload is rejected — restart the session",
                             c.name,
-                            if c.late { "passou a ser" } else { "deixou de ser" }
+                            if c.late { "became" } else { "is no longer" }
                         ));
                     }
                     origin.push((old_gen.base + i) as i64);
@@ -125,8 +124,8 @@ pub(crate) fn plan_fn(before: &[Layout], after: &[Layout], name: &dyn Fn(i64) ->
                 None if c.nullable || c.late => origin.push(-1),
                 None => {
                     return Err(format!(
-                        "o campo novo `{}` de {class} ({}) não é anulável nem `late`: os objetos vivos não têm valor \
-                         para ele, então a recarga é recusada — reinicie a sessão, ou declare-o `late` ou anulável",
+                        "the new field `{}` of {class} ({}) is neither nullable nor `late`: the live objects have no \
+                         value for it, so the reload is rejected — restart the session, or declare it `late` or nullable",
                         c.name, c.tipo
                     ));
                 }
@@ -137,8 +136,8 @@ pub(crate) fn plan_fn(before: &[Layout], after: &[Layout], name: &dyn Fn(i64) ->
     Ok(plan)
 }
 
-/// O plano no formato do runtime (`dartforge_definir_migracao`):
-/// `[n, (class, novo_len, origin…)…]`.
+/// The plan in the runtime's format (`dartforge_definir_migracao`):
+/// `[n, (class, new_len, origin…)…]`.
 pub(crate) fn encode(plan: &[Migration]) -> Vec<i64> {
     let mut v = vec![plan.len() as i64];
     for m in plan {
@@ -184,9 +183,9 @@ mod tests_mod {
         let before = [Layout { class: 5, base: 0, fields: vec![field("a", false, false, "int")] }];
         let new = [Layout { class: 5, base: 0, fields: vec![field("a", false, false, "int"), field("z", false, false, "int")] }];
         let error = plan_fn(&before, &new, &|_| "C".into()).unwrap_err();
-        assert!(error.contains("o campo novo `z` de C (int) não é anulável nem `late`"), "{error}");
+        assert!(error.contains("the new field `z` of C (int) is neither nullable nor `late`"), "{error}");
         let tipo = [Layout { class: 5, base: 0, fields: vec![field("a", false, false, "String")] }];
         let error = plan_fn(&before, &tipo, &|_| "C".into()).unwrap_err();
-        assert!(error.contains("mudou de tipo (int para String)"), "{error}");
+        assert!(error.contains("changed its type (int to String)"), "{error}");
     }
 }

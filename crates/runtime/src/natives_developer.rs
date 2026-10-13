@@ -1,16 +1,16 @@
-// Runtime nativo: os natives de `dart:developer` (`runtime/lib/developer.cc`
-// e `timeline.cc` da VM) no perfil de um executável AOT — o `PRODUCT` da
-// VM, sem serviço de depuração nem timeline: extensões de serviço não são
-// registradas, eventos e logs não vão a lugar algum, e quem pede
-// informações do servidor recebe `null` na porta.
+// Native runtime: the `dart:developer` natives (the VM's `runtime/lib/developer.cc`
+// and `timeline.cc`) in the profile of an AOT executable — the VM's `PRODUCT`,
+// with no debugging service and no timeline: service extensions are not
+// registered, events and logs go nowhere, and whoever asks for server
+// information receives `null` on the port.
 
-/// O id de uma `SendPort` (o `_SendPort._id` da sobreposição de
-/// `dart:isolate`: o primeiro campo).
+/// The id of a `SendPort` (the `_SendPort._id` of the `dart:isolate` overlay:
+/// the first field).
 fn send_port_id(port: i64) -> i64 {
     native_field(port)
 }
 
-/// `Developer_debugger(when, message)`: sem depurador, devolve `when`.
+/// `Developer_debugger(when, message)`: without a debugger, returns `when`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Developer_debugger(when: u8, _message: i64) -> u8 {
     when
@@ -59,7 +59,7 @@ pub extern "C" fn dartforge_nativo_Developer_getServiceMinorVersion() -> i64 {
     0
 }
 
-/// `Developer_getServerInfo(port)`: sem servidor, `null` na porta.
+/// `Developer_getServerInfo(port)`: without a server, `null` on the port.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Developer_getServerInfo(port: i64) {
     post(send_port_id(port), Graph::null_val());
@@ -80,15 +80,15 @@ pub extern "C" fn dartforge_nativo_Developer_getObjectId(_object: i64) -> i64 {
     0
 }
 
-/// `Developer_reachability_barrier`: quantas coletas completas já houve (a
-/// barreira da VM avança a cada uma).
+/// `Developer_reachability_barrier`: how many full collections have happened (the
+/// VM's barrier advances on each one).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Developer_reachability_barrier() -> i64 {
     HEAP.with(|h| h.borrow().stats().collections as i64)
 }
 
-/// `Developer_NativeRuntime_buildId`: o executável não tem o id de build
-/// de um snapshot AOT da VM.
+/// `Developer_NativeRuntime_buildId`: the executable does not have the build id
+/// of a VM AOT snapshot.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Developer_NativeRuntime_buildId() -> i64 {
     0
@@ -104,7 +104,7 @@ pub extern "C" fn dartforge_nativo_Timeline_getNextTaskId() -> i64 {
     0
 }
 
-/// `Timeline_getTraceClock`: o relógio monotônico em microssegundos.
+/// `Timeline_getTraceClock`: the monotonic clock in microseconds.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Timeline_getTraceClock() -> i64 {
     dartforge_nativo_Stopwatch_now() / 1000
@@ -113,7 +113,7 @@ pub extern "C" fn dartforge_nativo_Timeline_getTraceClock() -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Timeline_reportTaskEvent(_id: i64, _stream: i64, _type: i64, _name: i64, _args: i64) {}
 
-/// `SendPort.nativePort` (o `NativePort` do `dart:ffi`): o id da porta.
+/// `SendPort.nativePort` (the `NativePort` of `dart:ffi`): the port id.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_SendPort_get_id(port: i64) -> i64 {
     send_port_id(port)
