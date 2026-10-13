@@ -241,7 +241,11 @@ impl<'a> BodyInferrer<'a> {
         } else {
             // S is X (bound R) or X & R: promotes to X & T if T <: R.
             match self.table.get(s).clone() {
-                Type::TypeParameter { param, nullable: false } if param != self.core.unknown_param => {
+                // `X?` too, when `T` has no `?` (`_promotedTypeParameterTypeNullability`,
+                // 6.11 `type_system.dart:2104-2121`: the intersection with a
+                // non-nullable type is non-nullable). With `T?` the result would
+                // be `(X & T)?`, which the table does not represent: no promotion.
+                Type::TypeParameter { param, nullable } if param != self.core.unknown_param && (!nullable || !self.table.get(t).is_declared_nullable()) => {
                     let b = self.table.param(param).bound;
                     if self.sub(t, b) {
                         Some(self.table.intern(Type::Intersection { param, bound: t }))

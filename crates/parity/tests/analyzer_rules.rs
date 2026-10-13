@@ -308,6 +308,14 @@ const CASES: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
             ("initializer_for_non_existent_field", 7, 11, 9),
         ],
     ),
+    // Pub-cache FP of `unchecked_use_of_nullable_value` (2026-10-13): `T?`
+    // promoted by `is R` to `T & R`; `r?.w(1)()` shorts the invocation too;
+    // the assert message sees the condition's false branch.
+    (
+        "nulos_pub_cache.dart",
+        "class R {\n  int get h => 1;\n  int Function() w(int x) => () => x;\n}\nvoid f<T>(T? d, R? r, String? s) {\n  if (d is R) print(d.h);\n  var x = r?.w(1)();\n  int y = r?.w(1)();\n  assert(s == null || s.isEmpty, s.length);\n  assert(true, s.length);\n  print([x, y]);\n}\n",
+        &[("invalid_assignment", 8, 11, 9), ("unchecked_use_of_nullable_value", 10, 18, 6)],
+    ),
     // A reserved word as a local variable's name (2026-10-13).
     (
         "palavra_reservada_local.dart",

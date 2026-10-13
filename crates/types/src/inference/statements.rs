@@ -611,8 +611,14 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
         }
         StmtKind::Assert { condition, message } => {
             let before = cx.flow.clone();
-            expr::assert_condition(inf, cx, *condition);
+            // `assert_afterCondition`: the message runs where the condition is
+            // false (`assert(x == null || …, '$x.y')` sees `x` non-null). The
+            // analyzer does not report dead code there (`assert(true, 'm')`).
+            let (_, if_false) = expr::assert_condition(inf, cx, *condition);
             if let Some(m) = message {
+                if if_false.reachable {
+                    cx.flow = if_false;
+                }
                 infer_free(inf, cx, *m);
             }
             cx.flow = before;

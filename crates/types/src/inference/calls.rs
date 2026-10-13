@@ -1805,7 +1805,10 @@ pub(crate) fn the_call(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                 }
                 return (d, false);
             }
-            let t = infer(inf, cx, target, u);
+            // The invocation belongs to the callee's null-shorting chain
+            // (`a?.f(x)()`, `a?.l[0]()`: a `FunctionExpressionInvocation` is a
+            // `NullShortableExpression`); a parenthesized callee closes its own.
+            let (t, short_circuit) = expr::infer_at(inf, cx, target, u, true);
             if let Some((x, ext_args)) = cx.overlays.get(&target).cloned() {
                 if let Some(call) = inf.sym.call {
                     if let Some(m) = inf.explicit_extension_member(x, &ext_args, call, false) {
@@ -1864,7 +1867,7 @@ pub(crate) fn the_call(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
             let (r, _) = invoke_value(inf, cx, e, t, args, ctx, explicit, span);
             inf.inference_entity = None;
             inf.arity_target = None;
-            (r, false)
+            (r, short_circuit)
         }
     }
 }

@@ -354,9 +354,16 @@ fn initializer(inf: &mut BodyInferrer<'_>, cx: &mut Body, cls: Option<ClassId>, 
             call_constructor_of(inf, cx, tgt, *constructor, arguments, &[], *span);
         }
         ast::Initializer::Assert { condition, message, .. } => {
-            expr::assert_condition(inf, cx, *condition);
+            let (_, if_false) = expr::assert_condition(inf, cx, *condition);
             if let Some(m) = message {
+                // The message runs where the condition is false (without
+                // dead code when it cannot be).
+                let before = cx.flow.clone();
+                if if_false.reachable {
+                    cx.flow = if_false;
+                }
                 infer_free(inf, cx, *m);
+                cx.flow = before;
             }
         }
     }
