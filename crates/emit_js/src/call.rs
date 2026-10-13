@@ -508,6 +508,16 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         if let Some(r) = self.lower_is_a(ext, name, recv, arguments) {
             return Some(r);
         }
+        if let (Some(js_name), FunctionKind::Function) = (self.ctx.interop_extension_member(fid), f.kind) {
+            // Interop: `recv.jsName(args)`, as for a member of an interop class.
+            let fty = self.ctx.fn_ty(fid).subst_prop(&subst);
+            let saved = self.interop_args;
+            self.interop_args = true;
+            let (args, ret, _) = self.emit_args_for(&fty, arguments, expected);
+            self.interop_args = saved;
+            let call = Js::prim(format!("{}{}({})", recv.at(P_PRIMARY), js::prop_access(&js_name), args.join(", ")));
+            return Some((self.js_null_check(call, &MemberKind::Method(fid)), ret));
+        }
         let ext_name = self.extension_js_name(ext);
         let lib_var = self.lib_var(e.library);
         let ext_tps: Vec<u32> = self.ctx.outline.extensions[ext.0 as usize].type_params.iter().map(|p| p.0).collect();
@@ -1022,8 +1032,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// of the type — in DDC 3.6.2, `x != null &&
     /// js_interop['JSAnyUtilityExtension|instanceOfString'](x, "HTMLElement")`
     /// (`x == null || …` with `T?`). The primitives (`JSString`…) go through
-    /// `typeof`. The rest (`JSAny`, `JSObject`, `JSArray`…) follows the
-    /// common path.
+    /// `typeof`; the other `dart:js_interop` types through the `@JS('…')`
+    /// name of their declaration (`JSObject` is `Object`, `JSArray` is
+    /// `Array`), `JSAny` is only the null check and `JSTypedArray` the
+    /// prototype of `Int8Array`, as DDC 3.6.2 emits them.
     pub(crate) fn lower_is_a(
         &mut self,
         ext: dartforge_elements::model::ExtensionId,
@@ -1052,6 +1064,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let class = self.ctx.program.class(c);
         let dart_name = self.ctx.name(class.name).to_string();
         let from_js_interop = self.ctx.program.library(class.library).uri == "dart:js_interop";
+        // `JSAny`: only the null check (`true` with `JSAny?`).
+        if from_js_interop && dart_name == "JSAny" {
+            let body = if nullable { "true" } else { "v != null" };
+            return Some((Js::prim(format!("((v) => {body})({})", recv.code)), self.ctx.t_bool()));
+        }
         let check = |v: &str| -> Option<String> {
             if from_js_interop {
                 let type_name = match dart_name.as_str() {
@@ -1060,7 +1077,21 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     "JSString" => "string",
                     "JSBigInt" => "bigint",
                     "JSSymbol" => "symbol",
-                    _ => return None,
+                    // DDC 3.6.2: the prototype of the typed array constructors.
+                    "JSTypedArray" => return Some(format!("{v} instanceof Object.getPrototypeOf(dart.global.Int8Array)")),
+                    // The `@JS('…')` name of the other `dart:js_interop` types.
+                    _ => {
+                        let js_name = match dart_name.as_str() {
+                            "JSObject" | "JSBoxedDartObject" => "Object",
+                            "JSFunction" | "JSExportedDartFunction" => "Function",
+                            "JSArray" => "Array",
+                            "JSPromise" => "Promise",
+                            "JSArrayBuffer" | "JSDataView" | "JSInt8Array" | "JSUint8Array" | "JSUint8ClampedArray" | "JSInt16Array"
+                            | "JSUint16Array" | "JSInt32Array" | "JSUint32Array" | "JSFloat32Array" | "JSFloat64Array" => &dart_name[2..],
+                            _ => return None,
+                        };
+                        return Some(format!("js_interop['JSAnyUtilityExtension|instanceOfString']({v}, \"{js_name}\")"));
+                    }
                 };
                 return Some(format!("typeof {v} === \"{type_name}\""));
             }

@@ -1973,6 +1973,24 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 return Some((Js::prim(call), ret));
             }
         }
+        if let Some(js_name) = self.ctx.interop_extension_member(fid) {
+            let ty = self.ctx.fn_ty(fid).subst_prop(&subst);
+            let read = format!("{}{}", recv.at(P_PRIMARY), js::prop_access(&js_name));
+            return match f.kind {
+                FunctionKind::Getter => {
+                    let ret = match &ty {
+                        Ty::Fn { ret, .. } => (**ret).clone(),
+                        _ => Ty::Dynamic,
+                    };
+                    Some((self.js_null_check(Js::prim(read), &MemberKind::Getter(fid)), ret))
+                }
+                FunctionKind::Function => {
+                    let checkable = self.ctx.js_null_checkable(&MemberKind::Method(fid));
+                    Some((Js::prim(format!("dart.tearoffInterop({read}, {checkable})")), ty))
+                }
+                _ => None,
+            };
+        }
         let ext_name = self.extension_js_name(ext);
         let lib_var = self.lib_var(e.library);
         let ty = self.ctx.fn_ty(fid).subst_prop(&subst);
@@ -2042,6 +2060,32 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 format!("_extension#{idx}")
             }
         }
+    }
+
+    /// `recv.name = v` through the setter `fid` of extension `ext`: the
+    /// `Ext|set#name` function, or the direct write of an interop `external`
+    /// setter (`Ctx::interop_extension_member`).
+    pub fn extension_set(
+        &mut self,
+        ext: dartforge_elements::model::ExtensionId,
+        fid: dartforge_elements::model::FunctionElementId,
+        subst: &HashMap<u32, Ty>,
+        recv: &Js,
+        v: &Js,
+        vty: &Ty,
+    ) -> Js {
+        if let Some(js_name) = self.ctx.interop_extension_member(fid) {
+            let v = self.assert_interop(v.clone(), vty);
+            return Js::new(format!("{}{} = {}", recv.at(P_PRIMARY), js::prop_access(&js_name), v.at(P_ASSIGN)), P_ASSIGN);
+        }
+        let e = self.ctx.program.extension(ext);
+        let lib_var = self.lib_var(e.library);
+        let ext_name = self.extension_js_name(ext);
+        let name = self.name(self.ctx.program.function(fid).name).trim_end_matches("_=").to_string();
+        let mut args = self.ext_type_args(ext, subst);
+        args.push(recv.code.clone());
+        args.push(v.code.clone());
+        Js::prim(format!("{lib_var}[{}]({})", js::string_literal(&format!("{ext_name}|set#{name}")), args.join(", ")))
     }
 
     /// Looks up an extension member applicable to the receiver type.
@@ -2933,14 +2977,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     }
                     IdentTarget::ThisExt => {
                         let t = self.class.map(|c| self.ctx.this_ty(c)).unwrap_or(Ty::Dynamic);
-                        if let Some((ext, _, subst)) = self.find_extension_member(&t, &name, true) {
-                            let e = self.ctx.program.extension(ext);
-                            let lib_var = self.lib_var(e.library);
-                            let ext_name = self.extension_js_name(ext);
-                            let mut args = self.ext_type_args(ext, &subst);
-                            args.push("this".into());
-                            args.push(v.code.clone());
-                            return (Js::prim(format!("{lib_var}[{}]({})", js::string_literal(&format!("{ext_name}|set#{name}")), args.join(", "))), vty.clone());
+                        if let Some((ext, fid, subst)) = self.find_extension_member(&t, &name, true) {
+                            return (self.extension_set(ext, fid, &subst, &Js::prim("this"), v, vty), vty.clone());
                         }
                         (Js::prim("null"), Ty::Dynamic)
                     }
@@ -2952,14 +2990,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     }
                     IdentTarget::ExtThisMember(_) | IdentTarget::ExtMember(..) | IdentTarget::ExtStatic(..) => {
                         let t = self.extension_this.clone().unwrap_or(Ty::Dynamic);
-                        if let Some((ext, _, subst)) = self.find_extension_member(&t, &name, true) {
-                            let e = self.ctx.program.extension(ext);
-                            let lib_var = self.lib_var(e.library);
-                            let ext_name = self.extension_js_name(ext);
-                            let mut args = self.ext_type_args(ext, &subst);
-                            args.push("$this".into());
-                            args.push(v.code.clone());
-                            return (Js::prim(format!("{lib_var}[{}]({})", js::string_literal(&format!("{ext_name}|set#{name}")), args.join(", "))), vty.clone());
+                        if let Some((ext, fid, subst)) = self.find_extension_member(&t, &name, true) {
+                            return (self.extension_set(ext, fid, &subst, &Js::prim("$this"), v, vty), vty.clone());
                         }
                         let access = self.member_access(&t, &name, true);
                         (Js::new(format!("$this{access} = {}", v.at(P_ASSIGN)), P_ASSIGN), Ty::Dynamic)
@@ -3027,14 +3059,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let setter = self.access_member(Some(target), &recv_ty, &n, true);
                 let js = if recv_ty.is_dynamic() || setter.is_none() {
                     if let Some((ext, fid, subst)) = self.find_extension_member(&recv_ty, &n, true) {
-                        let e = self.ctx.program.extension(ext);
-                        let lib_var = self.lib_var(e.library);
-                        let ext_name = self.extension_js_name(ext);
-                        let _ = fid;
-                        let mut args = self.ext_type_args(ext, &subst);
-                        args.push(recv_js.code.clone());
-                        args.push(v.code.clone());
-                        Js::prim(format!("{lib_var}[{}]({})", js::string_literal(&format!("{ext_name}|set#{n}")), args.join(", ")))
+                        self.extension_set(ext, fid, &subst, &recv_js, v, vty)
                     } else if let Ty::Record { .. } = recv_ty {
                         Js::new(format!("{}{} = {}", recv_js.at(P_PRIMARY), js::prop_access(&n), v.at(P_ASSIGN)), P_ASSIGN)
                     } else {
@@ -3315,14 +3340,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                             // An extension's setter (the read already went
                             // through its getter, `emit_member_get`), as in a
                             // simple assignment.
-                            if let Some((ext, _, subst)) = s.find_extension_member(&recv_ty2, &n2, true) {
-                                let e = s.ctx.program.extension(ext);
-                                let lib_var = s.lib_var(e.library);
-                                let ext_name = s.extension_js_name(ext);
-                                let mut args = s.ext_type_args(ext, &subst);
-                                args.push(recv_js.clone());
-                                args.push(v.code.clone());
-                                return Js::prim(format!("{lib_var}[{}]({})", js::string_literal(&format!("{ext_name}|set#{n2}")), args.join(", ")));
+                            if let Some((ext, fid, subst)) = s.find_extension_member(&recv_ty2, &n2, true) {
+                                return s.extension_set(ext, fid, &subst, &Js::prim(recv_js.clone()), v, &Ty::Dynamic);
                             }
                             Js::prim(format!("dart.dput({recv_js}, {}, {})", js::string_literal(&n2), v.code))
                         } else {

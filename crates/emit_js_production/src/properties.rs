@@ -122,6 +122,11 @@ pub fn compute(a: &dartforge_emit_js::Analysis<'_>, js_names: &HashSet<String>, 
         } else if f.extension.is_none() {
             top_level_name(name)
         } else {
+            // An `external` instance member of an extension on an interop
+            // type is a JS property read, call or write on the receiver.
+            if f.external && !f.static_ && !p.library(f.library).is_sdk {
+                n.reserved.insert(name.trim_end_matches("_=").to_string());
+            }
             continue;
         };
         // An SDK `external` with a *patch* (`unsafeCast`, `identical`) is

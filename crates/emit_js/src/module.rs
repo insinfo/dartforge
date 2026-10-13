@@ -2094,6 +2094,18 @@ fn emit_js_interop_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     crate::emit_line!(w, "{cref} = class {cname} {{");
     w.push_raw(&cw.out);
     w.line("};");
+    // Non-`external` static fields (package:web's `Node.ELEMENT_NODE`) are
+    // plain Dart, as the static methods above.
+    let static_fields: Vec<VariableId> = class
+        .fields
+        .iter()
+        .copied()
+        .filter(|v| {
+            let var = ctx.program.variable(*v);
+            var.static_ && !var.external && ctx.var_state(*v) != crate::filter::State::Dead
+        })
+        .collect();
+    crate::extension_type::emit_static_fields(ctx, m, c, &cref, &static_fields, w);
 }
 
 fn fix_equals_param(text: &str) -> String {

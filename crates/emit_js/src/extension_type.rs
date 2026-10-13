@@ -27,7 +27,7 @@ use crate::ctx::Ctx;
 use crate::js::{self, Js, Writer, P_ASSIGN, P_PRIMARY};
 use crate::module::{finish_body, flush_stmts, function_text, indent, ModState};
 use crate::ty::Ty;
-use dartforge_elements::model::{ClassId, ClassKind, FunctionElementId, FunctionKind, FunctionRef, VariableRef};
+use dartforge_elements::model::{ClassId, ClassKind, FunctionElementId, FunctionKind, FunctionRef, VariableId, VariableRef};
 use dartforge_frontend::ast::{self, DeclKind, ExprId, MemberKind};
 use dartforge_types::resolved::{MemberRef, Resolved};
 use dartforge_types::table::Type;
@@ -446,9 +446,15 @@ pub(crate) fn emit_extension_type(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut W
     crate::emit_line!(w, "{cref} = class {cname} {{");
     w.push_raw(&cw.out);
     w.line("};");
-    // Static fields: lazy, like those of a class.
+    emit_static_fields(ctx, m, c, &cref, &static_fields, w);
+}
+
+/// The static fields of an extension type (erased or interop) on its support
+/// object `cref`: lazy, like those of a class.
+pub(crate) fn emit_static_fields(ctx: &Ctx, m: &ModState, c: ClassId, cref: &str, static_fields: &[VariableId], w: &mut Writer) {
+    let class = ctx.program.class(c);
     let mut lazy: Vec<String> = Vec::new();
-    for vid in static_fields {
+    for &vid in static_fields {
         let v = ctx.program.variable(vid);
         let name = static_member_name(ctx.name(v.name));
         if ctx.var_state(vid) == crate::filter::State::Stub {

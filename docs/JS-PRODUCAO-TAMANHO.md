@@ -870,3 +870,54 @@ mesmo resultado com o binário do começo da sessão): `NoSuchMethodError` em
 5. Nomes de variável de tipo curtos nas receitas e regras (`|j.E` em vez de
    `Iterable.E`, ~1,3 KB no `01_print`) e as regras compactadas da sessão
    anterior (`"#": "|T|U"` para supertipos sem argumento, pequeno).
+
+## 11. Rodada de 2026-10-13, tarde (macOS): os erros do `limitless_ui` e as regras repetidas
+
+### 11.1 Os dois erros da §10.8 (desenvolvimento e produção)
+
+Os dois aconteciam nos **dois** perfis (o desenvolvimento usa o mesmo
+emissor), e o `dart2js -O4` das mesmas fontes passa limpo (47 rotas sem erro,
+e2e 15/15). Havia um terceiro, só no desenvolvimento, escondido atrás do
+primeiro.
+
+1. **`SafeElement|get#innerHtml`** (45 de 47 rotas). O `sanitize_dom` declara
+   `extension SafeElement on Element { @JS('innerHTML') external String get
+   innerHtml; … }` numa biblioteca **sem** `@JS()`. O CFE só aceita membro
+   `external` de `extension` sobre tipo de interop e o `JsUtilOptimizer` o
+   rebaixa para leitura, chamada ou escrita direta no receptor
+   (`js_util.getProperty`/`callMethod`/`setProperty`); a extensão não tem a
+   função `Ext|get#m`. O emissor chamava a função que não existe.
+   `Ctx::interop_extension_member` reconhece esses membros (nome do `@JS('x')`
+   ou o nome Dart) e as quatro rotas (leitura, chamada, escrita simples e
+   composta, `FnEmitter::extension_set`) escrevem `recv.innerHTML`,
+   `recv.indexOf(…)` e `recv.x = v`, com o `jsInteropNullCheck` dos membros
+   de interop. Na produção, o nome Dart de um `external` sem `@JS` fica
+   reservado (`properties.rs`).
+2. **`isA` não rebaixado** (rota `typeahead`, pelo `popper`):
+   `testViewport.isA<JSObject>()`. `lower_is_a` só conhecia os primitivos e
+   os tipos de interop do usuário; os de `dart:js_interop` caíam na função
+   `isA`, que lança `UnimplementedError`. Agora sai como o DDC 3.6.2:
+   `JSAny` é `v != null` (`true` com `JSAny?`), `JSObject`/`JSBoxedDartObject`
+   são `instanceOfString(v, "Object")`, `JSFunction` é `"Function"`, `JSArray`
+   `"Array"`, `JSPromise`, `JSArrayBuffer`, `JSDataView` e os *typed arrays*
+   pelo nome do `@JS`, e `JSTypedArray` é `instanceof
+   Object.getPrototypeOf(Int8Array)`.
+3. **Estáticos de tipo de extensão de interop** (só desenvolvimento, todas as
+   rotas com HTML sanitizado travavam): `switch (node.nodeType) { case
+   Node.ELEMENT_NODE: … }` do `sanitize_dom` lia `L.Node.ELEMENT_NODE`, mas o
+   objeto de suporte de um tipo de extensão de interop não tinha os campos
+   estáticos (só os métodos). Todo nó caía no `default`, que o remove, e o
+   `do { walk } while (houve modificação)` nunca terminava. A produção dobrava
+   a constante e escapava. `emit_js_interop_class` agora emite os campos
+   estáticos não `external` como os de um tipo de extensão apagado
+   (`extension_type::emit_static_fields`).
+
+Reprodução mínima: `corpus/js/239_interop_extension_members.dart` e
+`240_interop_extension_type_statics.dart` (DDC como oráculo, a VM não compila
+`dart:js_interop`). Corpus 240/240 em desenvolvimento e produção.
+
+`limitless_ui` (varredura das 47 rotas no Chrome *headless*): produção 47/47
+sem erro (antes 45 com erro), desenvolvimento 47/47. E2e (`ui_test/e2e` do
+projeto, hoje 15 testes; o "26/26" da §6 era a suíte antiga): produção
+**15/15** (o binário anterior dava 1/15), desenvolvimento **15/15**,
+`dart2js -O4` 15/15.

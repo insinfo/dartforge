@@ -600,10 +600,29 @@ impl<'a> Ctx<'a> {
         if self.fn_js.contains_key(&fid) || f.variable.is_some_and(|v| self.var_js.contains_key(&v)) {
             return true;
         }
+        if self.interop_extension_member(fid).is_some() {
+            return true;
+        }
         match f.class {
             Some(c) => self.js_classes.contains_key(&c),
             None => self.js_libs.contains_key(&f.library),
         }
+    }
+
+    /// JS property name of an `external` instance member of an `extension`
+    /// (`extension SafeElement on Element { @JS('innerHTML') external String
+    /// get innerHtml; }`): `@JS('x')` or the Dart name. The CFE only accepts
+    /// such members on interop types, and its `JsUtilOptimizer` lowers them to
+    /// a direct property access, call or write on the receiver
+    /// (`js_util.getProperty`/`callMethod`/`setProperty`); the extension has
+    /// no `Ext|get#m` function for them.
+    pub fn interop_extension_member(&self, fid: FunctionElementId) -> Option<String> {
+        let f = self.program.function(fid);
+        if !f.external || f.static_ || f.extension.is_none() || self.libs[f.library.0 as usize].is_sdk {
+            return None;
+        }
+        let explicit = self.fn_js.get(&fid).cloned().flatten().filter(|n| !n.is_empty());
+        Some(explicit.unwrap_or_else(|| self.name(f.name).trim_end_matches("_=").to_string()))
     }
 
     pub fn is_js_var(&self, vid: VariableId) -> bool {
