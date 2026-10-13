@@ -16,7 +16,7 @@ use oxc_ast_visit::{Visit, walk};
 use oxc_span::GetSpan;
 
 /// The helper function, declared at the top of the file.
-const HELPERS: &str = "var t$P = function(f, c) { f.prototype = c.prototype; };\nvar t$O = function(o, k, d) { return o && k in o ? o[k] : d; };\nvar t$G = function(s, g, c, f) { s(c, () => Object.setPrototypeOf(f(), g(c.__proto__))); };\n";
+const HELPERS: &str = "var t$P = function(f, c) { f.prototype = c.prototype; };\nvar t$C = function(c, f) { c.new = f; f.prototype = c.prototype; return c; };\nvar t$O = function(o, k, d) { return o && k in o ? o[k] : d; };\nvar t$G = function(s, g, c, f) { s(c, () => Object.setPrototypeOf(f(), g(c.__proto__))); };\n";
 
 struct Finder<'s> {
     source: &'s str,
@@ -31,11 +31,33 @@ struct Finder<'s> {
     /// The `X.$ti = X.$ti || t || G(X);` statements: (start, end, receiver,
     /// type argument, text of `G`).
     type_args: Vec<(u32, u32, String, String, String)>,
+    /// Starts of the constructor statements merged into their class
+    /// definition ([`class_with_constructor`]).
+    merged: std::collections::HashSet<u32>,
+    /// `DARTFORGE_JSPROD_CLASS_CONSTRUCTOR=0` turns the merge off.
+    merge_constructors: bool,
 }
 
 impl<'a> Visit<'a> for Finder<'_> {
+    fn visit_statements(&mut self, it: &oxc_allocator::Vec<'a, oxc_ast::ast::Statement<'a>>) {
+        if self.merge_constructors {
+            for pair in it.windows(2) {
+                if let (oxc_ast::ast::Statement::ExpressionStatement(class), oxc_ast::ast::Statement::ExpressionStatement(ctor)) = (&pair[0], &pair[1])
+                    && !self.merged.contains(&class.span.start)
+                    && let Some(t) = class_with_constructor(self.source, class, ctor)
+                {
+                    self.edits.extend(t);
+                    self.merged.insert(ctor.span.start);
+                }
+            }
+        }
+        walk::walk_statements(self, it);
+    }
     fn visit_expression_statement(&mut self, it: &ExpressionStatement<'a>) {
-        if let Some(t) = prototype_form(self.source, it) {
+        if self.merged.contains(&it.span.start) {
+            // Merged into the class definition: only what is inside the
+            // function is still rewritten.
+        } else if let Some(t) = prototype_form(self.source, it) {
             self.edits.extend(t);
         } else if let Some(t) = signature_form(self.source, it) {
             self.edits.push(t);
@@ -131,6 +153,68 @@ fn prototype_form(source: &str, it: &ExpressionStatement<'_>) -> Option<[(u32, u
     Some([
         (p.span.start, p.span.start + 1, "t$P(".to_string()),
         (p.span.end - 1, it.span.end, format!(", {class});")),
+    ])
+}
+
+/// A class definition followed by its default constructor,
+/// `C = class … {…};` and `(C.new = function(…) {…}).prototype = C.prototype;`
+/// (most Dart classes): `C = t$C(class … {…}, function(…) {…});`, whose
+/// function makes the same assignments and returns the class. The class name
+/// is written once instead of three times. The constructor function is
+/// created before `C` is assigned instead of after, which nothing observes
+/// (it is not called until the class exists). Three replacements around the
+/// class and the function, so that the ones inside them still apply.
+fn class_with_constructor(source: &str, class: &ExpressionStatement<'_>, ctor: &ExpressionStatement<'_>) -> Option<[(u32, u32, String); 3]> {
+    let Expression::AssignmentExpression(def) = &class.expression else {
+        return None;
+    };
+    if def.operator != AssignmentOperator::Assign || !matches!(def.right, Expression::ClassExpression(_)) {
+        return None;
+    }
+    let text = |s: oxc_span::Span| &source[s.start as usize..s.end as usize];
+    let name = match &def.left {
+        AssignmentTarget::AssignmentTargetIdentifier(i) => i.name.as_str(),
+        AssignmentTarget::StaticMemberExpression(m) => text(m.span),
+        _ => return None,
+    };
+    let Expression::AssignmentExpression(a) = &ctor.expression else {
+        return None;
+    };
+    let AssignmentTarget::StaticMemberExpression(left) = &a.left else {
+        return None;
+    };
+    let Expression::StaticMemberExpression(right) = &a.right else {
+        return None;
+    };
+    let Expression::ParenthesizedExpression(p) = &left.object else {
+        return None;
+    };
+    let Expression::AssignmentExpression(inner) = &p.expression else {
+        return None;
+    };
+    let AssignmentTarget::StaticMemberExpression(target) = &inner.left else {
+        return None;
+    };
+    let Expression::FunctionExpression(f) = &inner.right else {
+        return None;
+    };
+    if a.operator != AssignmentOperator::Assign
+        || inner.operator != AssignmentOperator::Assign
+        || left.property.name != "prototype"
+        || right.property.name != "prototype"
+        || target.property.name != "new"
+        || text(target.object.span()) != name
+        || text(right.object.span()) != name
+        || !name.bytes().all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'$' | b'.'))
+        || !text(class.span).ends_with(';')
+    {
+        return None;
+    }
+    let value = def.right.span();
+    Some([
+        (value.start, value.start, "t$C(".to_string()),
+        (value.end, f.span.start, ", ".to_string()),
+        (f.span.end, ctor.span.end, ");".to_string()),
     ])
 }
 
@@ -327,6 +411,8 @@ pub fn apply(source: &str) -> Result<String, String> {
         strings: std::collections::HashMap::new(),
         recipes: Vec::new(),
         type_args: Vec::new(),
+        merged: std::collections::HashSet::new(),
+        merge_constructors: std::env::var("DARTFORGE_JSPROD_CLASS_CONSTRUCTOR").map_or(true, |v| v != "0"),
     };
     a.visit_program(&parsed.program);
     // The generic constructor prologue through `t$Q`, for the most common
@@ -435,6 +521,16 @@ mod tests {
             "{s}"
         );
         assert!(s.contains(HELPERS), "{s}");
+    }
+
+    #[test]
+    fn class_with_default_constructor() {
+        let js = "(function () {\nC = class C extends P {\n  m() { return 1; }\n};\n(C.new = function(x) {\n  this.x = x;\n}).prototype = C.prototype;\n(C.n = function() {}).prototype = C.prototype;\nD = class {};\nf();\n(D.new = function() {}).prototype = D.prototype;\n})();\n";
+        let s = apply(js).unwrap();
+        assert!(s.contains("C = t$C(class C extends P {\n  m() { return 1; }\n}, function(x) {\n  this.x = x;\n});"), "{s}");
+        assert!(s.contains("t$P(C.n = function() {}, C);"), "{s}");
+        // Not adjacent: the usual prototype form.
+        assert!(s.contains("D = class {};\nf();\nt$P(D.new = function() {}, D);"), "{s}");
     }
 
     #[test]
