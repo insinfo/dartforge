@@ -346,6 +346,13 @@ const CASES: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
         "int? peek() => null;\nvoid f() {\n  switch (peek()) {\n    case null:\n      return;\n    case 1:\n      if (peek() case int(isEven: true) || 3) {\n        print(0);\n      }\n    case >= 3 && <= 9:\n      print(1);\n  }\n  switch (peek()) {\n    case 1:\n      print([if (peek() case 4) 1]);\n    case > 3:\n      print(2);\n  }\n}\n",
         &[("unchecked_use_of_nullable_value", 16, 10, 1)],
     ),
+    // `identical(x, null)` of `dart:core` promotes like `x == null`
+    // (ngcompiler; 2026-10-13).
+    (
+        "identical_nulo.dart",
+        "import 'dart:core' as core;\nimport 'dart:core';\nclass N { N? next; int v = 0; }\nvoid f(N? n, int? i) {\n  N? c = n;\n  while (!identical(c, null)) {\n    print(c.v);\n    c = c.next;\n  }\n  if (identical(null, i)) return;\n  print(i.isEven);\n  if (core.identical(n, null)) return;\n  print(n.v);\n}\nbool identical2(Object? a, Object? b) => true;\nvoid g(int? i) {\n  if (identical2(i, null)) return;\n  print(i.isEven);\n}\n",
+        &[("unchecked_use_of_nullable_value", 18, 11, 6)],
+    ),
     // A reserved word as a local variable's name (2026-10-13).
     (
         "palavra_reservada_local.dart",

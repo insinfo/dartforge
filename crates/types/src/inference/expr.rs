@@ -4995,6 +4995,37 @@ pub(crate) fn the_condition(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId
             record_type(inf, cx, e, t);
             r
         }
+        // `identical(a, b)` of `dart:core` is an equality for flow analysis
+        // (`InvocationInferrer._recordIdenticalInfo`, `_isIdentical`):
+        // `!identical(x, null)` promotes `x`.
+        ExprKind::Call { target, arguments }
+            if arguments.args.len() == 2
+                && arguments.args.iter().all(|x| x.name.is_none())
+                && match &a.expr(*target).kind {
+                    ExprKind::Identifier(n) => inf.interner.resolve(n.sym) == "identical",
+                    // `core.identical(…)` through an import prefix.
+                    ExprKind::Property { target: p, name, null_aware: false } => {
+                        matches!(a.expr(*p).kind, ExprKind::Identifier(_)) && inf.interner.resolve(name.sym) == "identical"
+                    }
+                    _ => false,
+                } =>
+        {
+            let (target, left, right) = (*target, arguments.args[0].value, arguments.args[1].value);
+            let b = inf.core.bool_;
+            infer(inf, cx, e, b);
+            let core_identical = super::calls::resolved_function_of(inf, cx, target).is_some_and(|f| {
+                let f = inf.program.function(f);
+                f.class.is_none() && f.extension.is_none() && inf.program.library(f.library).uri == "dart:core"
+            });
+            if !core_identical {
+                let f = cx.flow.clone();
+                return (f.clone(), f);
+            }
+            let types = &inf.body_types.units[cx.unit.0 as usize];
+            let u = inf.core.dynamic_;
+            let (tl, tr) = (types.get_type(left).unwrap_or(u), types.get_type(right).unwrap_or(u));
+            equality_flows(inf, cx, left, right, tl, tr)
+        }
         ExprKind::Is { value, ty, negated } => {
             let (value, ty, negated) = (*value, *ty, *negated);
             let r = type_test(inf, cx, value, ty, negated, span);
@@ -5375,46 +5406,7 @@ fn binary_condition(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: Bi
                     resolver(inf, cx, e, m.resolved);
                 }
             }
-            let after = cx.flow.clone();
-            let a = ast(inf, cx);
-            let is_null = |x: ExprId| {
-                let mut x = x;
-                loop {
-                    match &a.expr(x).kind {
-                        ExprKind::Parenthesized(i) => x = *i,
-                        ExprKind::Null => return true,
-                        _ => return false,
-                    }
-                }
-            };
-            let tgt = if is_null(right) {
-                promotion_target(inf, cx, left)
-            } else if is_null(left) {
-                promotion_target(inf, cx, right)
-            } else {
-                None
-            };
-            let _ = (tl, tr);
-            // The target (a field) may have just been created: the current flow has it.
-            let after = if tgt.is_some() { cx.flow.clone() } else { after };
-            let (mut the_equal, mut different) = (after.clone(), after.clone());
-            if let Some(id) = tgt {
-                let decl = cx.local(id).ty;
-                inf.promote_non_null(&mut different, id, decl);
-                let _ = &mut the_equal;
-            }
-            // Sound flow (3.9, `sound-flow-analysis`): comparing an expression of a
-            // non-nullable type with `null` has a known result: the "equal" branch
-            // is unreachable (`flow-analysis.md`, `equalityOp`:
-            // `equivalentToNull(T1)` and `T2` non-nullable, or the reverse). Before
-            // 3.9 both branches stay reachable (mixed mode).
-            let sound = inf.program.library(cx.lib).features.has(dartforge_frontend::Feature::SoundFlowAnalysis);
-            if sound {
-                let null = |inf: &BodyInferrer<'_>, t: TypeId| matches!(inf.table.get(t), Type::Null);
-                if (null(inf, tr) && inf.is_non_nullable(tl)) || (null(inf, tl) && inf.is_non_nullable(tr)) {
-                    the_equal = the_equal.unreachable();
-                }
-            }
+            let (the_equal, different) = equality_flows(inf, cx, left, right, tl, tr);
             if op == BinaryOp::Eq {
                 (the_equal, different)
             } else {
@@ -5422,6 +5414,54 @@ fn binary_condition(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: Bi
             }
         }
     }
+}
+
+/// The flows of `left == right` after both operands (`equalityOperation_end`):
+/// `(equal, different)`. Comparing a promotable reference with the `null`
+/// literal promotes it to non-null in the "different" branch. Also used for
+/// `identical(a, b)` (`InvocationInferrer._recordIdenticalInfo`).
+fn equality_flows(inf: &mut BodyInferrer<'_>, cx: &mut Body, left: ExprId, right: ExprId, tl: TypeId, tr: TypeId) -> (Flow, Flow) {
+    let after = cx.flow.clone();
+    let a = ast(inf, cx);
+    let is_null = |x: ExprId| {
+        let mut x = x;
+        loop {
+            match &a.expr(x).kind {
+                ExprKind::Parenthesized(i) => x = *i,
+                ExprKind::Null => return true,
+                _ => return false,
+            }
+        }
+    };
+    let tgt = if is_null(right) {
+        promotion_target(inf, cx, left)
+    } else if is_null(left) {
+        promotion_target(inf, cx, right)
+    } else {
+        None
+    };
+    let _ = (tl, tr);
+    // The target (a field) may have just been created: the current flow has it.
+    let after = if tgt.is_some() { cx.flow.clone() } else { after };
+    let (mut the_equal, mut different) = (after.clone(), after.clone());
+    if let Some(id) = tgt {
+        let decl = cx.local(id).ty;
+        inf.promote_non_null(&mut different, id, decl);
+        let _ = &mut the_equal;
+    }
+    // Sound flow (3.9, `sound-flow-analysis`): comparing an expression of a
+    // non-nullable type with `null` has a known result: the "equal" branch
+    // is unreachable (`flow-analysis.md`, `equalityOp`:
+    // `equivalentToNull(T1)` and `T2` non-nullable, or the reverse). Before
+    // 3.9 both branches stay reachable (mixed mode).
+    let sound = inf.program.library(cx.lib).features.has(dartforge_frontend::Feature::SoundFlowAnalysis);
+    if sound {
+        let null = |inf: &BodyInferrer<'_>, t: TypeId| matches!(inf.table.get(t), Type::Null);
+        if (null(inf, tr) && inf.is_non_nullable(tl)) || (null(inf, tl) && inf.is_non_nullable(tr)) {
+            the_equal = the_equal.unreachable();
+        }
+    }
+    (the_equal, different)
 }
 
 /// `e is T` / `e is! T`: `(true, false)` with promotion.

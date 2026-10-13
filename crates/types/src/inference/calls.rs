@@ -906,6 +906,11 @@ pub(crate) fn prepare_entity(inf: &mut BodyInferrer<'_>, sp: Span, f: Option<Fun
 }
 
 /// The function (top-level, member, extension) that `e` resolved to.
+/// [`resolved_function`] for the other inference modules.
+pub(crate) fn resolved_function_of(inf: &BodyInferrer<'_>, cx: &Body, e: ExprId) -> Option<FunctionElementId> {
+    resolved_function(inf, cx, e)
+}
+
 fn resolved_function(inf: &BodyInferrer<'_>, cx: &Body, e: ExprId) -> Option<FunctionElementId> {
     match inf.body_types.units[cx.unit.0 as usize].get_resolved(e)? {
         Resolved::Element(Element::Function(f)) => Some(*f),
