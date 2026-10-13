@@ -463,3 +463,61 @@ que já está neste plano não se repete aqui. O que ele acrescenta:
 **Comparação de tamanho.** O hello de ~320 KB divulgado pelo scriptc é macOS, ligado à
 libSystem, com runtime de escopo menor. Não é comparável aos números do Windows deste
 documento.
+
+## 5. Rodada de 2026-10-13 no modo padrão (A0, macOS arm64)
+
+Medido no macOS arm64 com a máquina carregada por outros agentes (carga 17–50):
+os tempos de parede oscilam 2–3×, então a medida principal é a de **ciclos do
+processo** (`/usr/bin/time -l`, mediana de execuções alternadas), menos sensível à
+carga. O `dart compile exe` é o do Dart 3.6.2.
+
+O que entrou (um commit cada):
+
+* **Objeto recém-alocado continua recém-alocado nos inicializadores de campo.**
+  O `dartforge_object_set`/`_get` com índice constante sai em linha como o
+  `SetField`, mas o `may_collect` o tratava como ponto de coleta (o `Ref` onde o
+  extern declara `i64`): cada inicializador de um construtor em linha passava
+  pelos `select` de null/`Smi`/corpo de fora e pela barreira, e o objeto era
+  enraizado. Agora: corpo direto, sem barreira, sem raiz.
+* **Contexto da thread pelo slot de uma chave `pthread`** (só macOS arm64): o
+  prólogo lê `TPIDRRO_EL0` mais o deslocamento que o runtime publica em
+  `dartforge_context_slot`, como o Go lê o seu `g`; some o `tlv_get_addr` (8% das
+  árvores). O caminho lento fica atrás de `@df.context.slow` (`noinline cold`):
+  com a chamada direta ao `dartforge_context` (declarado `speculatable`), o LLVM
+  trocava o desvio por um `select` e chamava o runtime em todo prólogo. A
+  referência ao slot passa pela GOT: em desenvolvimento o runtime é uma dylib.
+  O auxiliar é `memory(none)` com leituras `!invariant.load`, e as leituras dos
+  chamados em linha se fundem (uma ordenação tinha 197 chamadas a `@df.context`
+  numa função).
+* **Marcação sem procurar anexos quando não há nenhum** (~10% da marcação de uma
+  lista ligada).
+* **`is` com cache no ponto de uso:** duas palavras da área do isolado guardam a
+  chave do valor (metadado do cabeçalho ou `-16 - classe`) e `T << 1 | resposta`;
+  acerto são três leituras, sem chamada (`dartforge_rti_e` era 13% de
+  `ordenar_objetos`). Desligado sob `DARTFORGE_EFFECTS=check` e com
+  `DARTFORGE_NO_RTI_CACHE=1`.
+* **Leitura em linha do cache das receitas RTI:** o uso lê a bandeira e o id da
+  área e só chama o `df.rti.<hash>` na primeira vez (8% de uma ordenação).
+
+`bench/performance`, ciclos, nosso/Dart (média geométrica dos 9 programas):
+**0,963 → 0,877** (novo/antes 0,910). Por programa: chamadas 0,77 → 0,68;
+coleções 0,50 → 0,46; JSON 1,18 → 1,01; numérico 0,69 → 0,67; objetos em
+coleções 1,42 → 1,04; objetos que escapam 2,40 → 2,10; temporários 0,92 → 0,92;
+textos 1,10 → 1,08; tipados 0,66 → 0,66. Tamanhos sem mudança que conte ("olá"
+3,22 MB; Dart 5,33 MB).
+
+O que resta, pelo perfil:
+
+* **Promoção precoce no coletor:** o coletor promove na primeira sobrevivência;
+  nas árvores, a árvore em construção numa coleta menor vira velha e morre
+  velha (299 coletas completas em 3 000). Envelhecer (promover só na segunda
+  menor) exige manter no conjunto lembrado os velhos que apontam para jovens
+  sobreviventes. É o maior ganho em `objetos_escapam` (2,1× o Dart).
+* **Layout dos objetos:** cabeçalho de 16 bytes (palavra do cabeçalho e mapa
+  de referências): um nó de 2 campos tem 32 bytes contra 16–24 no Dart; a lista
+  ligada é limitada pela memória ao percorrer (4,8× o Dart).
+* **`List.[]=` covariante:** ainda passa pelo adaptador `$tc` e pelo
+  `rti_eval_cache` (o `is` de classe sem argumentos de tipo poderia ser uma faixa
+  de ids, como os *type testing stubs* da VM).
+* **Mapa de `String`:** busca no runtime e interpolação (`join_typed`,
+  `write_decimal`).
