@@ -214,7 +214,7 @@ impl<'a> Analise<'a> {
     pub fn emitir<'b>(&'b self, filter: Option<&'b dyn filtro::Vivos>) -> Result<Emitido, String> {
         let mut ctx: ctx::Ctx<'b> = ctx::Ctx::new(self.program, self.interner, self.table, self.core, self.outline, self.bodies);
         ctx.filtro = filter;
-        module::emitir_com_cache(&ctx, None, None).map_err(|ds| ds.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("\n"))
+        module::emit_with_cache(&ctx, None, None).map_err(|ds| ds.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("\n"))
     }
 
     /// Emits the program **and the SDK** through our own pipeline (SDK mode,
@@ -230,7 +230,7 @@ impl<'a> Analise<'a> {
         let mode = sdk_proprio::ModoSdk::new(&ctx);
         ctx.sdk = Some(Box::new(mode));
         let join = |ds: Vec<Diagnostic>| ds.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("\n");
-        let emitted = module::emitir_com_cache(&ctx, None, None).map_err(join)?;
+        let emitted = module::emit_with_cache(&ctx, None, None).map_err(join)?;
         let (sdk, mut dartx) = sdk_proprio::emit_sdk_module(&ctx);
         let errors = std::mem::take(&mut *ctx.erros.borrow_mut());
         if !errors.is_empty() {
@@ -290,7 +290,7 @@ pub fn emitir_programa_com_cache(
     cache: Option<&std::cell::RefCell<module::CacheFragmentos>>,
 ) -> Result<Emitido, Vec<Diagnostic>> {
     let ctx = ctx::Ctx::new(program, interner, table, core, outline, bodies);
-    module::emitir_com_cache(&ctx, None, cache)
+    module::emit_with_cache(&ctx, None, cache)
 }
 
 /// Emits only the modules that contain one of the given libraries, for the
@@ -331,7 +331,7 @@ pub fn emitir_modulos_com_cache(
     let ctx = ctx::Ctx::new(program, interner, table, core, outline, bodies);
     let context = t.elapsed();
     let only: std::collections::HashSet<u32> = libraries.iter().map(|l| l.0).collect();
-    module::emitir_com_cache(&ctx, Some(&only), cache).map(|e| (e, context))
+    module::emit_with_cache(&ctx, Some(&only), cache).map(|e| (e, context))
 }
 
 /// Per-phase timings and counts of a compilation (`dartforge compile-js --timings`).

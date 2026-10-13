@@ -188,22 +188,22 @@ pub fn dartx_var(name: &str) -> String {
 }
 
 /// Emits all modules of the program.
-pub fn emitir(ctx: &Ctx) -> Result<Emitido, Vec<Diagnostic>> {
+pub fn emit(ctx: &Ctx) -> Result<Emitido, Vec<Diagnostic>> {
     emit_filtered(ctx, None)
 }
 
-/// Like [`emitir`], emitting the text only of the modules that contain one of the
+/// Like [`emit`], emitting the text only of the modules that contain one of the
 /// libraries in `only` (resident session: the rest stays valid from the previous
 /// compilation). `None` emits everything.
 ///
 /// The skipped modules do not go into `Emitido::modulos`; the caller merges them
 /// with what it already had.
 pub fn emit_filtered(ctx: &Ctx, only: Option<&HashSet<u32>>) -> Result<Emitido, Vec<Diagnostic>> {
-    emitir_com_cache(ctx, only, None)
+    emit_with_cache(ctx, only, None)
 }
 
 /// Like [`emit_filtered`], reusing the already emitted fragments.
-pub fn emitir_com_cache(
+pub fn emit_with_cache(
     ctx: &Ctx,
     only: Option<&HashSet<u32>>,
     cache: Option<&RefCell<CacheFragmentos>>,
