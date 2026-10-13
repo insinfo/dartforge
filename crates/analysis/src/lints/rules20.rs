@@ -30,13 +30,13 @@ use dartforge_intern::Interner;
 use dartforge_types::resolved::Resolved;
 use dartforge_types::table::{Type, TypeId, TypeTable};
 
-fn anulavel(table: &TypeTable, t: TypeId) -> bool {
+fn is_nullable(table: &TypeTable, t: TypeId) -> bool {
     match table.get(t) {
         Type::Dynamic | Type::Void | Type::Null => true,
-        Type::Intersection { bound, .. } => anulavel(table, *bound),
+        Type::Intersection { bound, .. } => is_nullable(table, *bound),
         Type::Interface { nullable, .. } | Type::TypeParameter { nullable, .. } | Type::ExtensionType { nullable, .. } => *nullable,
         Type::Function { nullable, .. } | Type::Record { nullable, .. } => *nullable,
-        Type::FutureOr { arg, nullable } => *nullable || anulavel(table, *arg),
+        Type::FutureOr { arg, nullable } => *nullable || is_nullable(table, *arg),
         Type::Never => false,
     }
 }
@@ -369,7 +369,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
     if ligada("unnecessary_null_aware_operator_on_extension_on_nullable") {
         let extensao_anulavel = |e: ExprId| -> bool {
             match s.body.get_resolved(e) {
-                Some(Resolved::ExtensionMember { extension, .. }) => s.outline.extensions.get(extension.0 as usize).is_some_and(|x| anulavel(table, x.on)),
+                Some(Resolved::ExtensionMember { extension, .. }) => s.outline.extensions.get(extension.0 as usize).is_some_and(|x| is_nullable(table, x.on)),
                 _ => false,
             }
         };
@@ -445,7 +445,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 };
                 let Some(x) = identificador else { continue };
                 let ExprKind::Identifier(n) = &a.expr(x).kind else { continue };
-                if !s.body.get_type(x).is_some_and(|t| anulavel(table, t)) {
+                if !s.body.get_type(x).is_some_and(|t| is_nullable(table, t)) {
                     continue;
                 }
                 if !matches!(s.body.get_resolved(x), Some(Resolved::Parameter { .. })) {

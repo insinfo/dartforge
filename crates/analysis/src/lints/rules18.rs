@@ -46,13 +46,13 @@ use dartforge_types::resolved::Resolved;
 use dartforge_types::table::{Type, TypeId, TypeTable};
 use std::collections::{HashMap, HashSet};
 
-fn anulavel(table: &TypeTable, t: TypeId) -> bool {
+fn is_nullable(table: &TypeTable, t: TypeId) -> bool {
     match table.get(t) {
         Type::Dynamic | Type::Void | Type::Null => true,
-        Type::Intersection { bound, .. } => anulavel(table, *bound),
+        Type::Intersection { bound, .. } => is_nullable(table, *bound),
         Type::Interface { nullable, .. } | Type::TypeParameter { nullable, .. } | Type::ExtensionType { nullable, .. } => *nullable,
         Type::Function { nullable, .. } | Type::Record { nullable, .. } => *nullable,
-        Type::FutureOr { arg, nullable } => *nullable || anulavel(table, *arg),
+        Type::FutureOr { arg, nullable } => *nullable || is_nullable(table, *arg),
         Type::Never => false,
     }
 }
@@ -170,7 +170,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
         for (k, p) in a.patterns.iter().enumerate() {
             if let PatternKind::NullAssert(_) = &p.kind
                 && let Some(&t) = s.body.tipos_casados.get(&PatternId(k as u32))
-                && anulavel(table, t)
+                && is_nullable(table, t)
             {
                 relatar(&c::UNNECESSARY_NULL_CHECKS, Span { start: p.span.end - 1, end: p.span.end }, &[]);
             }
@@ -210,7 +210,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
         bangs.sort_by_key(|(e, _)| a.expr(*e).span.start);
         for (no, ancestrais) in bangs {
             let esperado = super::rules15::tipo_esperado(s, a, interner, &funcoes, &pai, &ancestrais, no, &real);
-            if esperado.is_some_and(|t| anulavel(table, t)) {
+            if esperado.is_some_and(|t| is_nullable(table, t)) {
                 let sp = a.expr(no).span;
                 relatar(&c::UNNECESSARY_NULL_CHECKS, Span { start: sp.end - 1, end: sp.end }, &[]);
             }

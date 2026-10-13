@@ -277,11 +277,11 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             let [p] = &ps[..] else { continue };
             let Some(pn) = p.name else { continue };
             // O tipo declarado do parâmetro precisa ter `?`.
-            let anulavel = match p.ty {
+            let is_nullable = match p.ty {
                 Some(t) => a.ty(t).nullable,
                 None => true,
             };
-            if !anulavel {
+            if !is_nullable {
                 continue;
             }
             let corpo = match &f.body {

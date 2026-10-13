@@ -300,7 +300,7 @@ impl Validator<'_> {
         };
         for (node, enabled) in entries {
             let Some(name) = text_of(node) else { continue };
-            let Some(rule) = lints::regra(name) else {
+            let Some(rule) = lints::rule(name) else {
                 self.report(&c::UNDEFINED_LINT, node, &[name]);
                 continue;
             };

@@ -96,13 +96,13 @@ pub(super) fn e_invocacao_de_metodo(s: &super::Semantics<'_>, a: &Ast, alvo: Exp
 }
 
 /// O `TypeSystemImpl.isNullable`/`isNonNullable` sintáticos.
-pub(super) fn anulavel(table: &TypeTable, t: TypeId) -> bool {
+pub(super) fn is_nullable(table: &TypeTable, t: TypeId) -> bool {
     match table.get(t) {
         Type::Dynamic | Type::Void | Type::Null => true,
-        Type::Intersection { bound, .. } => anulavel(table, *bound),
+        Type::Intersection { bound, .. } => is_nullable(table, *bound),
         Type::Interface { nullable, .. } | Type::TypeParameter { nullable, .. } | Type::ExtensionType { nullable, .. } => *nullable,
         Type::Function { nullable, .. } | Type::Record { nullable, .. } => *nullable,
-        Type::FutureOr { arg, nullable } => *nullable || anulavel(table, *arg),
+        Type::FutureOr { arg, nullable } => *nullable || is_nullable(table, *arg),
         Type::Never => false,
     }
 }
@@ -890,7 +890,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             if matches!(table.get(d), Type::Dynamic) {
                 return;
             }
-            if anulavel(table, d) && nao_anulavel(table, i) {
+            if is_nullable(table, d) && nao_anulavel(table, i) {
                 relatar(&c::UNNECESSARY_NULLABLE_FOR_FINAL_VARIABLE_DECLARATIONS, nome.span, &[]);
             }
         };
@@ -949,7 +949,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 if matches!(table.get(t), Type::Dynamic) {
                     continue;
                 }
-                if anulavel(table, t) && nao_anulavel(table, valor) {
+                if is_nullable(table, t) && nao_anulavel(table, valor) {
                     relatar(&c::UNNECESSARY_NULLABLE_FOR_FINAL_VARIABLE_DECLARATIONS, name.span, &[]);
                 }
             }

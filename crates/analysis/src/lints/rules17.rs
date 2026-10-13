@@ -55,13 +55,13 @@ fn privado(s: &str) -> bool {
     s.starts_with('_')
 }
 
-fn anulavel(table: &TypeTable, t: dartforge_types::table::TypeId) -> bool {
+fn is_nullable(table: &TypeTable, t: dartforge_types::table::TypeId) -> bool {
     match table.get(t) {
         Type::Dynamic | Type::Void | Type::Null => true,
-        Type::Intersection { bound, .. } => anulavel(table, *bound),
+        Type::Intersection { bound, .. } => is_nullable(table, *bound),
         Type::Interface { nullable, .. } | Type::TypeParameter { nullable, .. } | Type::ExtensionType { nullable, .. } => *nullable,
         Type::Function { nullable, .. } | Type::Record { nullable, .. } => *nullable,
-        Type::FutureOr { arg, nullable } => *nullable || anulavel(table, *arg),
+        Type::FutureOr { arg, nullable } => *nullable || is_nullable(table, *arg),
         Type::Never => false,
     }
 }
@@ -676,7 +676,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             if matches!(table.get(te), Type::Dynamic) || s.core.is_unknown(table, te) {
                 continue;
             }
-            if anulavel(table, te) && nao_anulavel(table, tt) {
+            if is_nullable(table, te) && nao_anulavel(table, tt) {
                 relatar(&c::CAST_NULLABLE_TO_NON_NULLABLE, e.span, &[]);
             }
         }

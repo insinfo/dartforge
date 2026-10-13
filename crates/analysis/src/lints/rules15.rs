@@ -38,13 +38,13 @@ use dartforge_types::table::{Type, TypeId, TypeTable};
 use std::collections::HashMap;
 
 /// `TypeSystemImpl.isNullable` (sintático).
-fn anulavel(table: &TypeTable, core: &dartforge_types::table::CoreTypes, t: TypeId) -> bool {
+fn is_nullable(table: &TypeTable, core: &dartforge_types::table::CoreTypes, t: TypeId) -> bool {
     match table.get(t) {
         Type::Dynamic | Type::Void | Type::Null => true,
-        Type::Intersection { bound, .. } => anulavel(table, core, *bound),
+        Type::Intersection { bound, .. } => is_nullable(table, core, *bound),
         Type::Interface { nullable, .. } | Type::TypeParameter { nullable, .. } | Type::ExtensionType { nullable, .. } => *nullable,
         Type::Function { nullable, .. } | Type::Record { nullable, .. } => *nullable,
-        Type::FutureOr { arg, nullable } => *nullable || anulavel(table, core, *arg),
+        Type::FutureOr { arg, nullable } => *nullable || is_nullable(table, core, *arg),
         _ => t == core.unknown,
     }
 }
@@ -282,7 +282,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
 
     // `null_check_on_nullable_type_parameter`.
     if ligada("null_check_on_nullable_type_parameter") {
-        let e_parametro_anulavel = |t: TypeId| matches!(table.get(t), Type::TypeParameter { .. } | Type::Intersection { .. }) && anulavel(table, core, t);
+        let e_parametro_anulavel = |t: TypeId| matches!(table.get(t), Type::TypeParameter { .. } | Type::Intersection { .. }) && is_nullable(table, core, t);
         // O padrão `p!`: o tipo casado.
         for (k, p) in a.patterns.iter().enumerate() {
             if let PatternKind::NullAssert(_) = &p.kind

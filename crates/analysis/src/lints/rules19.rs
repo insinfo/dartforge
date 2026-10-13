@@ -456,13 +456,13 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                     match *n {
                         "child" | "key" => {}
                         "color" => {
-                            let anulavel = s.body.get_type(*v).is_some_and(|t| match table.get(t) {
+                            let is_nullable = s.body.get_type(*v).is_some_and(|t| match table.get(t) {
                                 Type::Interface { nullable, .. } | Type::TypeParameter { nullable, .. } | Type::ExtensionType { nullable, .. } => *nullable,
                                 Type::Function { nullable, .. } | Type::Record { nullable, .. } | Type::FutureOr { nullable, .. } => *nullable,
                                 Type::Null | Type::Dynamic | Type::Void => false,
                                 _ => false,
                             });
-                            if anulavel {
+                            if is_nullable {
                                 ok = false;
                             } else {
                                 tem_cor = true;

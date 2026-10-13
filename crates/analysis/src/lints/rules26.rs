@@ -20,7 +20,7 @@
 use super::walk::No;
 use super::codigos_g as c;
 use super::rules::LintReport;
-use super::rules16::{anulavel, e_invocacao_de_metodo, pais_da_unidade, tipo_de_variavel, Pais};
+use super::rules16::{is_nullable, e_invocacao_de_metodo, pais_da_unidade, tipo_de_variavel, Pais};
 use super::CodigoLint;
 use crate::Unidade;
 use dartforge_diagnostics::Span;
@@ -493,7 +493,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             }
             if matches!(interno, ExprKind::Identifier(_)) || cadeia_null_aware(s, a, x) {
                 let extensao_anulavel = |nome: ExprId| match s.body.get_resolved(nome) {
-                    Some(Resolved::ExtensionMember { extension, .. }) => s.outline.extensions.get(extension.0 as usize).is_some_and(|d| anulavel(table, d.on)),
+                    Some(Resolved::ExtensionMember { extension, .. }) => s.outline.extensions.get(extension.0 as usize).is_some_and(|d| is_nullable(table, d.on)),
                     _ => false,
                 };
                 match pai {

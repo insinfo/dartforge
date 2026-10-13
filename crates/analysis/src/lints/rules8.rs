@@ -362,7 +362,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             for (k, v) in l.variables.iter().enumerate() {
                 if let Some(i) = v.initializer
                     && nulo(a, i)
-                    && tipo(k, v.name).is_some_and(|t| super::anulavel(s, t))
+                    && tipo(k, v.name).is_some_and(|t| super::is_nullable(s, t))
                 {
                     achados.push(Span { start: v.name.span.start, end: a.expr(i).span.end });
                 }
@@ -440,7 +440,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
         }
         for lista in sem_dono {
             for (pi, p) in lista.iter().enumerate() {
-                if p.default_value.is_some_and(|d| nulo(a, d)) && tipo_do_parametro(None, pi, p).is_some_and(|t| super::anulavel(s, t)) {
+                if p.default_value.is_some_and(|d| nulo(a, d)) && tipo_do_parametro(None, pi, p).is_some_and(|t| super::is_nullable(s, t)) {
                     achados.push(p.span);
                 }
             }
@@ -453,7 +453,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                     listas(internos, &mut ls);
                     for lista in ls {
                         for (qi, q) in lista.iter().enumerate() {
-                            if q.default_value.is_some_and(|d| nulo(a, d)) && tipo_do_parametro(None, qi, q).is_some_and(|t| super::anulavel(s, t)) {
+                            if q.default_value.is_some_and(|d| nulo(a, d)) && tipo_do_parametro(None, qi, q).is_some_and(|t| super::is_nullable(s, t)) {
                                 achados.push(q.span);
                             }
                         }
@@ -465,7 +465,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 if p.super_ && !padrao_do_super_nulo(mi, pi) {
                     continue;
                 }
-                if tipo_do_parametro(Some(mi), pi, p).is_some_and(|t| super::anulavel(s, t)) {
+                if tipo_do_parametro(Some(mi), pi, p).is_some_and(|t| super::is_nullable(s, t)) {
                     achados.push(p.span);
                 }
             }
