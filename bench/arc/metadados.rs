@@ -15,7 +15,7 @@ mod hash;
 #[path = "../../crates/runtime/src/layout.rs"]
 mod layout;
 
-use arc::{EstadoDoArc, Geometria};
+use arc::{EstadoDoArc, Geometry};
 use std::{hint::black_box, time::Instant};
 
 #[inline(never)]
@@ -23,26 +23,26 @@ fn medir(arc: &mut EstadoDoArc, handles: &[i64]) -> u64 {
     let mut soma = 0;
     for i in 0..10_000_000usize {
         let h = black_box(handles[i.wrapping_mul(4099) & (handles.len() - 1)]);
-        arc.reter(h).unwrap();
-        arc.soltar(h).unwrap();
+        arc.retain_ref(h).unwrap();
+        arc.release(h).unwrap();
         soma += black_box(arc.meta(h).unwrap().rc);
     }
     soma
 }
 
 fn main() {
-    let mut arc = EstadoDoArc::novo();
+    let mut arc = EstadoDoArc::new();
     let mut handles = Vec::new();
     for p in 0..8 {
-        let g = Geometria {
-            primeiro: (1u64 << 32) + p * 65536 + 1024,
-            tamanho: 48,
-            blocos: 1024,
+        let g = Geometry {
+            first: (1u64 << 32) + p * 65536 + 1024,
+            size: 48,
+            blocks: 1024,
         };
-        for i in 0..g.blocos {
-            let h = (g.primeiro + u64::from(i) * g.tamanho) as i64 + layout::DESLOCAMENTO_DO_HANDLE;
-            arc.registrar_vivo_em(h, Some(g));
-            arc.reter(h).unwrap();
+        for i in 0..g.blocks {
+            let h = (g.first + u64::from(i) * g.size) as i64 + layout::DESLOCAMENTO_DO_HANDLE;
+            arc.register_live_at(h, Some(g));
+            arc.retain_ref(h).unwrap();
             handles.push(h);
         }
     }
