@@ -1,43 +1,44 @@
-//! Expressões, literais, argumentos, cascatas e expressões de função.
+//! Expressions, literals, arguments, cascades and function expressions.
 //!
-//! A gramática de expressões de Dart 3.6 (§17 da especificação) é lida por
-//! descida recursiva com *precedence climbing* para os operadores binários:
-//! uma única função (`Parser::parse_binary`) trata todos os níveis de `??`
-//! até `*`, então a profundidade da pilha cresce com o aninhamento real da
-//! expressão e não com o número de níveis da gramática.
+//! The Dart 3.6 expression grammar (§17 of the specification) is read by
+//! recursive descent with *precedence climbing* for binary operators: a
+//! single function (`Parser::parse_binary`) handles every level from `??` to
+//! `*`, so the stack depth grows with the expression's real nesting and not
+//! with the number of grammar levels.
 //!
-//! Decisões de desambiguação que seguem o parser do SDK
-//! (`parser_impl.dart`), porque o corpus alvo foi validado por ele:
+//! Disambiguation decisions that follow the SDK parser (`parser_impl.dart`),
+//! because the target corpus was validated by it:
 //!
-//! * `>` chega isolado do lexer; `Parser::composed_gt` o recompõe em
-//!   `>=`, `>>`, `>>>`, `>>=`, `>>>=` só entre tokens colados e só fora de
-//!   listas de argumentos de tipo.
-//! * `e<T>(...)`/`e<T>.x`: `<...>` é lido como argumentos de tipo quando a
-//!   lista é bem formada **e** o token seguinte é um dos que podem seguir
-//!   argumentos de tipo (`(`, `.`, `==`, `!=`, `)`, `]`, `}`, `;`, `:`, `,`,
-//!   fim de interpolação, fim do arquivo). Assim `a < b > c` é relacional e
-//!   `f<int>(1)` é chamada genérica.
-//! * `e?[i]` contra `c ? [a] : b`: como no SDK, tenta-se ler o que segue o
-//!   `?` como `expressão : expressão` de forma especulativa; se der certo é
-//!   uma condicional, senão é índice null-aware. A especulação restaura o
-//!   cursor, as arenas e os diagnósticos.
-//! * `(` em posição primária é expressão de função se depois do `)`
-//!   correspondente vem `{`, `=>`, `async` ou `sync`; senão é record ou
-//!   expressão entre parênteses (record quando há vírgula, campo nomeado ou
-//!   nada dentro).
-//! * `new`/`const T.n()` guarda o nome como o SDK: `T.n` sem argumentos de
-//!   tipo vira nome de duas partes e `constructor` fica `None`; só depois de
-//!   argumentos de tipo (ou de um nome já qualificado) o `.n` vira
-//!   `constructor`. Distinguir prefixo de biblioteca de nome de construtor
-//!   exige resolução.
-//! * `throw` e `rethrow` só são aceitos no nível de `expression`, como na
-//!   gramática (`x ?? throw e` exige parênteses, e o corpus os tem).
-//! * `await` é operador em corpo `async`; fora dele é identificador, salvo
-//!   quando parece expressão (`looksLikeAwaitExpression`, com erro).
+//! * `>` arrives isolated from the lexer; `Parser::composed_gt` recomposes it
+//!   into `>=`, `>>`, `>>>`, `>>=`, `>>>=` only between glued tokens and only
+//!   outside type argument lists.
+//! * `e<T>(...)`/`e<T>.x`: `<...>` is read as type arguments when the list is
+//!   well formed **and** the next token is one of those that may follow type
+//!   arguments (`(`, `.`, `==`, `!=`, `)`, `]`, `}`, `;`, `:`, `,`, end of
+//!   interpolation, end of file). That way `a < b > c` is relational and
+//!   `f<int>(1)` is a generic call.
+//! * `e?[i]` versus `c ? [a] : b`: as in the SDK, what follows the `?` is
+//!   tried speculatively as `expression : expression`; if that works it is a
+//!   conditional, otherwise a null-aware index. The speculation restores the
+//!   cursor, the arenas and the diagnostics.
+//! * `(` in primary position is a function expression if the matching `)` is
+//!   followed by `{`, `=>`, `async` or `sync`; otherwise it is a record or a
+//!   parenthesized expression (a record when there is a comma, a named field
+//!   or nothing inside).
+//! * `new`/`const T.n()` stores the name like the SDK: `T.n` without type
+//!   arguments becomes a two-part name and `constructor` stays `None`; only
+//!   after type arguments (or an already qualified name) does `.n` become
+//!   `constructor`. Telling a library prefix from a constructor name needs
+//!   resolution.
+//! * `throw` and `rethrow` are only accepted at the `expression` level, as in
+//!   the grammar (`x ?? throw e` needs parentheses, and the corpus has them).
+//! * `await` is an operator in an `async` body; outside it it is an
+//!   identifier, except when it looks like an expression
+//!   (`looksLikeAwaitExpression`, with an error).
 //!
-//! Em padrões constantes (`parse_unary(true)`) o `!` final que
-//! não é seguido de seletor fica para o parser de padrões (é um padrão de
-//! asserção de nulo), exatamente como o SDK faz com `ConstantPatternContext`.
+//! In constant patterns (`parse_unary(true)`) a trailing `!` not followed by
+//! a selector is left to the pattern parser (it is a null-assert pattern),
+//! exactly as the SDK does with `ConstantPatternContext`.
 use super::{ComposedGt, ForHeader, PResult, Parser};
 use crate::ast::{
     Argument, Arguments, AssignOp, BinaryOp, CollectionElement, CreationKeyword, Expr, ExprId,
@@ -48,9 +49,9 @@ use crate::features::Feature;
 use crate::token::{Interp, Keyword, Kind, Op, StrFlags, Token};
 use dartforge_diagnostics::{Span, codigos};
 
-/// Níveis de precedência dos operadores binários, do mais baixo ao mais alto.
-/// Os valores são contíguos porque `Parser::parse_binary` usa `nível + 1`
-/// para o operando direito (associatividade à esquerda).
+/// Precedence levels of the binary operators, from lowest to highest. The
+/// values are contiguous because `Parser::parse_binary` uses `level + 1` for
+/// the right operand (left associativity).
 const LEVEL_IF_NULL: u8 = 0;
 const LEVEL_OR: u8 = 1;
 const LEVEL_AND: u8 = 2;
@@ -62,10 +63,11 @@ const LEVEL_BIT_AND: u8 = 7;
 const LEVEL_SHIFT: u8 = 8;
 const LEVEL_ADDITIVE: u8 = 9;
 const LEVEL_MULTIPLICATIVE: u8 = 10;
-/// `PREFIX_PRECEDENCE`: o `~` entre dois operandos (`a ~ b`).
+/// `PREFIX_PRECEDENCE`: the `~` between two operands (`a ~ b`).
 const LEVEL_PREFIX: u8 = 11;
 
-/// Operador binário encontrado no cursor, com seu nível e quantos tokens ocupa.
+/// Binary operator found at the cursor, with its level and how many tokens
+/// it takes.
 #[derive(Debug, Clone, Copy)]
 enum BinaryHere {
     Op { level: u8, op: BinaryOp, len: usize },
@@ -73,11 +75,11 @@ enum BinaryHere {
     As,
 }
 
-/// Estado salvo para análise especulativa (`?[` contra `? [...] :`).
+/// State saved for speculative parsing (`?[` versus `? [...] :`).
 ///
-/// Restaurar descarta os nós criados e os diagnósticos emitidos durante a
-/// especulação; como as arenas são só anexadas e nada fora da especulação
-/// referencia os nós novos, truncar é suficiente.
+/// Restoring discards the nodes created and the diagnostics emitted during
+/// the speculation; since the arenas are append-only and nothing outside the
+/// speculation references the new nodes, truncating is enough.
 struct Checkpoint {
     pos: usize,
     splices: usize,
@@ -95,9 +97,9 @@ struct Checkpoint {
     in_type_args: u32,
 }
 
-/// O primeiro erro de escape de `content` (o texto entre as aspas, não cru)
-/// como `unescapeCodeUnits` do fasta (`quote.dart:186`) o relata: código,
-/// início relativo (a `\`) e comprimento.
+/// The first escape error of `content` (the text between the quotes, not
+/// raw) as fasta's `unescapeCodeUnits` (`quote.dart:186`) reports it: code,
+/// relative start (the `\`) and length.
 fn escape_error(b: &[u8]) -> Option<(dartforge_diagnostics::Codigo, usize, usize)> {
     use codigos::parser as c;
     let n = b.len();
@@ -113,7 +115,7 @@ fn escape_error(b: &[u8]) -> Option<(dartforge_diagnostics::Codigo, usize, usize
         if i == n {
             return Some((c::INVALID_UNICODE_ESCAPE_STARTED, i - 1, 1));
         }
-        // `begin` do fasta é o índice do `x`/`u`; o erro começa na `\`.
+        // fasta's `begin` is the index of the `x`/`u`; the error starts at the `\`.
         let begin = i;
         match b[i] {
             b'x' => {
@@ -179,29 +181,29 @@ fn escape_error(b: &[u8]) -> Option<(dartforge_diagnostics::Codigo, usize, usize
 }
 
 impl<'s, 'i> Parser<'s, 'i> {
-    // -- Entradas públicas do contrato ----------------------------------
+    // -- Public entry points of the contract -------------------------------
 
-    /// `expression` completa, inclusive atribuição, cascata e `throw`.
+    /// Full `expression`, including assignment, cascade and `throw`.
     pub(crate) fn parse_expression(&mut self) -> PResult<ExprId> {
         self.parse_expression_ex(true)
     }
 
-    /// `expressionWithoutCascade` — usada em argumentos de cascata e em
-    /// lugares onde `..` fecharia a expressão.
+    /// `expressionWithoutCascade` — used in cascade arguments and in places
+    /// where `..` would close the expression.
     pub(crate) fn parse_expression_without_cascade(&mut self) -> PResult<ExprId> {
         self.parse_expression_ex(false)
     }
 
-    /// `bitwiseOrExpression` — operando de padrões relacionais.
+    /// `bitwiseOrExpression` — operand of relational patterns.
     pub(crate) fn parse_bitwise_or_expression(&mut self) -> PResult<ExprId> {
         self.parse_binary(LEVEL_BIT_OR)
     }
 
-    /// Separadores de dígito do literal numérico em `span`: fora de lugar
-    /// (não entre dois dígitos), `UNEXPECTED_SEPARATOR_IN_NUMBER` no início
-    /// do literal, com comprimento 1 (o token de erro do scanner); numa
-    /// biblioteca antes da 3.6, `EXPERIMENT_NOT_ENABLED` no literal inteiro
-    /// (`digit-separators` entrou na 3.6).
+    /// Digit separators of the numeric literal at `span`: when misplaced (not
+    /// between two digits), `UNEXPECTED_SEPARATOR_IN_NUMBER` at the start of the
+    /// literal, with length 1 (the scanner's error token); in a library before
+    /// 3.6, `EXPERIMENT_NOT_ENABLED` on the whole literal (`digit-separators`
+    /// arrived in 3.6).
     fn check_separators(&mut self, span: Span) {
         let texto = &self.source.as_bytes()[span.start..span.end];
         if !texto.contains(&b'_') {
@@ -231,17 +233,19 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// `(args)` com os parênteses; sem argumentos de tipo (o chamador os lê).
+    /// `(args)` with the parentheses; without type arguments (the caller reads
+    /// them).
     ///
-    /// Um argumento é nomeado quando é um identificador seguido de `:`.
+    /// An argument is named when it is an identifier followed by `:`.
     pub(crate) fn parse_arguments(&mut self) -> PResult<Arguments> {
         self.with_functions(|p| p.parse_arguments_inner())
     }
 
-    /// `mayParseFunctionExpressions = true` em volta de `f`: o fasta religa as
-    /// funções literais dentro de argumentos, parênteses, índices, coleções e
-    /// `assert` (`parseArgumentsRest`, `parseParenthesizedExpressionOrRecordLiteral`,
-    /// `parseLiteralListSuffix`, `parseLiteralSetOrMapSuffix`, `parseAssert`).
+    /// `mayParseFunctionExpressions = true` around `f`: fasta turns function
+    /// literals back on inside arguments, parentheses, indices, collections and
+    /// `assert` (`parseArgumentsRest`,
+    /// `parseParenthesizedExpressionOrRecordLiteral`, `parseLiteralListSuffix`,
+    /// `parseLiteralSetOrMapSuffix`, `parseAssert`).
     pub(crate) fn with_functions<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
         let salvo = std::mem::replace(&mut self.without_named_function, false);
         let r = f(self);
@@ -252,10 +256,10 @@ impl<'s, 'i> Parser<'s, 'i> {
     fn parse_arguments_inner(&mut self) -> PResult<Arguments> {
         let abre = self.pos;
         let start = self.expect_op(Op::LParen)?.span;
-        // Os argumentos vão para o rascunho compartilhado a partir de `base`
-        // (chamadas aninhadas empilham acima) e saem numa única alocação de
-        // tamanho exato. Um `Vec` local cresceria em dobro e realocaria ao
-        // virar `Box<[T]>`: no `new_sali` eram 57 mil chamadas.
+        // The arguments go to the shared scratch space from `base` (nested calls
+        // push on top) and come out in a single exact-size allocation. A local
+        // `Vec` would grow by doubling and reallocate when turned into a
+        // `Box<[T]>`: in `new_sali` there were 57 thousand calls.
         let base = self.scratch_args.len();
         let result = (|| {
             while !self.at_op(Op::RParen) {
@@ -269,9 +273,8 @@ impl<'s, 'i> Parser<'s, 'i> {
                 let value = self.parse_expression()?;
                 self.scratch_args.push(Argument { name, value });
                 if !self.eat_op(Op::Comma) {
-                    // `parseArgumentsRest`: o que parece começar outra
-                    // expressão é um argumento depois de uma vírgula que
-                    // falta; o resto fecha em `ensureCloseParen`.
+                    // `parseArgumentsRest`: what looks like the start of another expression is
+                    // an argument after a missing comma; the rest closes in `ensureCloseParen`.
                     if !self.at_op(Op::RParen) && self.looks_like_expression_start(self.pos) {
                         self.erro(codigos::parser::EXPECTED_TOKEN, &[","]);
                         continue;
@@ -291,18 +294,17 @@ impl<'s, 'i> Parser<'s, 'i> {
         })
     }
 
-    /// Literal de string (com adjacentes e interpolação) em posição de URI ou
-    /// de `native`.
+    /// String literal (with adjacent ones and interpolation) in URI or `native`
+    /// position.
     ///
-    /// Literais adjacentes (`'a' 'b'`) viram um só [`StringLit`] com os
-    /// trechos concatenados em `parts`. Cada trecho de texto já vem
-    /// decodificado ([`crate::lexer::decode_string`]).
+    /// Adjacent literals (`'a' 'b'`) become a single [`StringLit`] with the
+    /// pieces concatenated in `parts`. Each text piece arrives already decoded
+    /// ([`crate::lexer::decode_string`]).
     pub(crate) fn parse_string_literal(&mut self) -> PResult<StringLit> {
         let start = self.span();
-        // Trechos vão para o rascunho compartilhado a partir de `base` (uma
-        // string dentro de interpolação empilha acima) e saem numa alocação
-        // exata: a maioria dos literais tem um trecho só, e um `Vec` local
-        // reservava quatro.
+        // Pieces go to the shared scratch space from `base` (a string inside an
+        // interpolation pushes on top) and come out in an exact allocation: most
+        // literals have a single piece, and a local `Vec` reserved four.
         let base = self.scratch_parts.len();
         let result = (|| {
             let mut any = false;
@@ -334,9 +336,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         })
     }
 
-    // -- Níveis inferiores: throw, atribuição por padrão, atribuição -------
+    // -- Lower levels: throw, pattern assignment, assignment ---------------
 
-    /// `expression` ou `expressionWithoutCascade`, conforme `allow_cascade`.
+    /// `expression` or `expressionWithoutCascade`, depending on `allow_cascade`.
     fn parse_expression_ex(&mut self, allow_cascade: bool) -> PResult<ExprId> {
         self.enter()?;
         let result = self.parse_expression_inner(allow_cascade);
@@ -353,8 +355,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         if self.eat_kw(Keyword::Rethrow) {
             return Ok(self.push(start, ExprKind::Rethrow));
         }
-        // `allowPatterns` do fasta: antes da 3.0 (padrões), `(a) = 0` é
-        // atribuição a expressão entre parênteses.
+        // fasta's `allowPatterns`: before 3.0 (patterns), `(a) = 0` is an
+        // assignment to a parenthesized expression.
         if self.features.versao() >= crate::features::LanguageVersion::new(3, 0)
             && self.pattern_assignment_ahead()
             && self.looks_like_pattern_assignment(self.pos)
@@ -386,10 +388,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(left)
     }
 
-    /// Pré-filtro barato de atribuição por padrão: um `outerPattern`
-    /// (`(…)`, `[…]`, `{…}`, `<T>[…]`, `<T>{…}`, `Nome(…)`, `p.Nome<T>(…)`)
-    /// cujo delimitador de fechamento é seguido de `=`. Só então vale a pena
-    /// consultar `looks_like_pattern_assignment`, que confere o conteúdo.
+    /// Cheap pre-filter for pattern assignment: an `outerPattern` (`(…)`,
+    /// `[…]`, `{…}`, `<T>[…]`, `<T>{…}`, `Name(…)`, `p.Name<T>(…)`) whose
+    /// closing delimiter is followed by `=`. Only then is it worth asking
+    /// `looks_like_pattern_assignment`, which checks the content.
     fn pattern_assignment_ahead(&self) -> bool {
         let mut i = self.pos;
         match self.kind_of(i) {
@@ -429,9 +431,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.kind_of(close + 1) == Kind::Op(Op::Assign)
     }
 
-    /// Índice do `>` que fecha o `<` em `open`, contando aninhamento, ou
-    /// `None` se antes disso aparecer `{`, `}`, `;` ou o fim do arquivo
-    /// (nada disso cabe numa lista de parâmetros ou argumentos de tipo).
+    /// Index of the `>` that closes the `<` at `open`, counting nesting, or
+    /// `None` if `{`, `}`, `;` or end of file appears first (none of that fits
+    /// in a type parameter or argument list).
     fn angle_close(&self, open: usize) -> Option<usize> {
         let mut depth = 0usize;
         let mut i = open;
@@ -451,8 +453,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// Operador de atribuição no cursor e quantos tokens ocupa (`>>=` e
-    /// `>>>=` chegam como `>` isolados).
+    /// Assignment operator at the cursor and how many tokens it takes (`>>=`
+    /// and `>>>=` arrive as isolated `>`).
     fn assignment_op_here(&self) -> Option<(AssignOp, usize)> {
         let op = match self.kind() {
             Kind::Op(Op::Assign) => AssignOp::Assign,
@@ -479,8 +481,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         Some((op, 1))
     }
 
-    /// Composição de `>` válida no contexto corrente: dentro de argumentos de
-    /// tipo `>` nunca vira shift (só `>` ou `>=`).
+    /// A `>` composition valid in the current context: inside type arguments
+    /// `>` never becomes a shift (only `>` or `>=`).
     fn gt_here(&self) -> Option<ComposedGt> {
         let composed = self.composed_gt()?;
         if self.in_type_args == 0 {
@@ -492,11 +494,11 @@ impl<'s, 'i> Parser<'s, 'i> {
         })
     }
 
-    // -- Cascata ---------------------------------------------------------
+    // -- Cascade -----------------------------------------------------------
 
-    /// Seções `..x`, `?..x`, `..[i]`, cada uma uma expressão cujo receptor
-    /// mais interno é [`ExprKind::CascadeTarget`]. Uma seção pode terminar em
-    /// atribuição, cujo lado direito é `expressionWithoutCascade`.
+    /// Sections `..x`, `?..x`, `..[i]`, each one an expression whose innermost
+    /// receiver is [`ExprKind::CascadeTarget`]. A section may end in an
+    /// assignment, whose right-hand side is `expressionWithoutCascade`.
     fn parse_cascade_rest(&mut self, start: Span, target: ExprId) -> PResult<ExprId> {
         let null_aware = self.at_op(Op::QuestionDotDot);
         let mut sections = Vec::new();
@@ -520,7 +522,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                     },
                 )
             } else {
-                // `parseCascadeExpression`: o nome da seção é `parseSend`.
+                // `parseCascadeExpression`: the section's name is `parseSend`.
                 let name = self.member_name(false)?;
                 self.push(
                     section_start,
@@ -559,9 +561,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         ))
     }
 
-    // -- Condicional e binários -------------------------------------------
+    // -- Conditional and binaries ------------------------------------------
 
-    /// `c ? a : b`, associativa à direita; os ramos são
+    /// `c ? a : b`, right associative; the branches are
     /// `expressionWithoutCascade`.
     fn parse_conditional(&mut self) -> PResult<ExprId> {
         let start = self.span();
@@ -583,23 +585,23 @@ impl<'s, 'i> Parser<'s, 'i> {
         ))
     }
 
-    /// Operadores binários de `??` a `*` por *precedence climbing*: lê um
-    /// operando unário e, enquanto o operador no cursor tem nível ≥
-    /// `min_level`, lê o operando direito no nível seguinte. `is`/`as` entram
-    /// no nível relacional com um tipo à direita.
+    /// Binary operators from `??` to `*` by *precedence climbing*: reads a unary
+    /// operand and, while the operator at the cursor has level ≥ `min_level`,
+    /// reads the right operand at the next level. `is`/`as` enter at the
+    /// relational level with a type on the right.
     fn parse_binary(&mut self, min_level: u8) -> PResult<ExprId> {
         let start = self.span();
         let left = self.parse_unary(false)?;
         self.parse_binary_rest(start, left, min_level)
     }
 
-    /// Continuação de `Parser::parse_binary` com o operando esquerdo já
-    /// lido (o padrão constante lê o operando com as regras dele).
+    /// Continuation of `Parser::parse_binary` with the left operand already
+    /// read (the constant pattern reads the operand with its own rules).
     pub(crate) fn parse_binary_rest(&mut self, start: Span, mut left: ExprId, min_level: u8) -> PResult<ExprId> {
-        // `lastBinaryExpressionLevel` do fasta (`parser_impl.dart:6094`): dois
-        // operadores seguidos de igualdade (`a == b == c`) ou relacionais
-        // (`a < b < c`) no mesmo nível são
-        // `EQUALITY_CANNOT_BE_EQUALITY_OPERAND` no segundo, e a leitura segue.
+        // fasta's `lastBinaryExpressionLevel` (`parser_impl.dart:6094`): two
+        // equality (`a == b == c`) or relational (`a < b < c`) operators in a row
+        // at the same level are `EQUALITY_CANNOT_BE_EQUALITY_OPERAND` at the
+        // second, and reading goes on.
         let mut last_level: Option<u8> = None;
         loop {
             let Some(here) = self.binary_here() else {
@@ -680,10 +682,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// O tipo depois de `is`/`as` (`computeTypeAfterIsOrAs` +
-    /// `ensureTypeNotVoid`): o que não pode começar um tipo é
-    /// `EXPECTED_TYPE_NAME` nele, com um tipo sintético vazio, e a expressão
-    /// continua (`a is "A"`).
+    /// The type after `is`/`as` (`computeTypeAfterIsOrAs` +
+    /// `ensureTypeNotVoid`): what cannot start a type is `EXPECTED_TYPE_NAME` at
+    /// it, with an empty synthetic type, and the expression goes on
+    /// (`a is "A"`).
     pub(crate) fn type_after_is_or_as(&mut self) -> PResult<TypeId> {
         if matches!(self.kind(), Kind::Ident | Kind::Keyword(Keyword::Void) | Kind::Op(Op::LParen)) {
             return self.parse_type_after_is_or_as();
@@ -699,8 +701,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         }))
     }
 
-    /// `skipChainedAsIsOperators` (`parser_impl.dart`): `is`/`as` logo
-    /// depois de outro é `UNEXPECTED_TOKEN` nele, e o tipo dele é pulado.
+    /// `skipChainedAsIsOperators` (`parser_impl.dart`): `is`/`as` right after
+    /// another one is `UNEXPECTED_TOKEN` at it, and its type is skipped.
     fn skip_chained_is_as(&mut self) -> PResult<()> {
         while self.at_kw(Keyword::Is) || self.at_ident("as") {
             let texto = self.text().to_string();
@@ -712,12 +714,12 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(())
     }
 
-    /// `_attemptPrecedenceLevelRecovery` do fasta: um identificador `and`,
-    /// `or`, `xor`, `shl` ou `shr` onde cabe um operador binário é lido, em
-    /// tentativa, como cada operador que ele descreve (`and`: `&`, depois
-    /// `&&`); a primeira leitura sem erro que termina num ponto plausível
-    /// (`;`, `,`, `)`, `{`, `}`, `|`, `||`, `&`, `&&`, fim ou outra dessas
-    /// palavras) é aceita, com `BINARY_OPERATOR_WRITTEN_OUT`.
+    /// fasta's `_attemptPrecedenceLevelRecovery`: an identifier `and`, `or`,
+    /// `xor`, `shl` or `shr` where a binary operator fits is read, tentatively,
+    /// as each operator it describes (`and`: `&`, then `&&`); the first read
+    /// without errors that ends at a plausible point (`;`, `,`, `)`, `{`, `}`,
+    /// `|`, `||`, `&`, `&&`, end or another of these words) is accepted, with
+    /// `BINARY_OPERATOR_WRITTEN_OUT`.
     fn spelled_out_operator(&mut self, min_level: u8) -> Option<(u8, BinaryOp, &'static str)> {
         if self.recovering_operator || !self.is_plain_identifier(self.pos) {
             return None;
@@ -758,9 +760,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         None
     }
 
-    /// Operador binário (ou `is`) no cursor com nível a partir da igualdade:
-    /// o nível, o texto do token do fasta (`>>`, `>=`, `is`) e o intervalo
-    /// dele. `as` fica de fora (é o padrão de cast).
+    /// Binary operator (or `is`) at the cursor with a level from equality up:
+    /// the level, the text of the fasta token (`>>`, `>=`, `is`) and its range.
+    /// `as` is left out (it is the cast pattern).
     pub(crate) fn pattern_binary_operator(&self) -> Option<(u8, &'static str, Span)> {
         let start_offset = self.span();
         let (level, texto, len) = match self.binary_here()? {
@@ -798,7 +800,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         Some((level, texto, Span { start: start_offset.start, end: end_offset }))
     }
 
-    /// Operador binário no cursor, se houver, com nível e tamanho em tokens.
+    /// Binary operator at the cursor, if any, with its level and size in tokens.
     fn binary_here(&self) -> Option<BinaryHere> {
         let (level, op, len) = match self.kind() {
             Kind::Op(Op::QuestionQuestion) => (LEVEL_IF_NULL, BinaryOp::IfNull, 1),
@@ -809,8 +811,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             Kind::Op(Op::Lt) => (LEVEL_RELATIONAL, BinaryOp::Lt, 1),
             Kind::Op(Op::LtEq) => (LEVEL_RELATIONAL, BinaryOp::LtEq, 1),
             Kind::Keyword(Keyword::Is) => return Some(BinaryHere::Is),
-            // `as` é identificador embutido; depois de um operando só pode
-            // ser o operador de cast.
+            // `as` is a built-in identifier; after an operand it can only be the cast
+            // operator.
             Kind::Ident if self.text() == "as" => return Some(BinaryHere::As),
             Kind::Op(Op::Gt) => match self.gt_here()? {
                 ComposedGt::Gt => (LEVEL_RELATIONAL, BinaryOp::Gt, 1),
@@ -829,20 +831,20 @@ impl<'s, 'i> Parser<'s, 'i> {
             Kind::Op(Op::Slash) => (LEVEL_MULTIPLICATIVE, BinaryOp::Div, 1),
             Kind::Op(Op::Percent) => (LEVEL_MULTIPLICATIVE, BinaryOp::Rem, 1),
             Kind::Op(Op::TildeSlash) => (LEVEL_MULTIPLICATIVE, BinaryOp::TruncDiv, 1),
-            // `parsePrecedenceExpression` (`parser_impl.dart:6077-6113`): um
-            // token de `PREFIX_PRECEDENCE` depois do operando cai no ramo da
-            // expressão binária.
+            // `parsePrecedenceExpression` (`parser_impl.dart:6077-6113`): a
+            // `PREFIX_PRECEDENCE` token after the operand falls into the binary
+            // expression branch.
             Kind::Op(Op::Tilde) => (LEVEL_PREFIX, BinaryOp::NaoBinario, 1),
             _ => return None,
         };
         Some(BinaryHere::Op { level, op, len })
     }
 
-    // -- Unários, pós-fixos e seletores ------------------------------------
+    // -- Unaries, postfixes and selectors ----------------------------------
 
-    /// Prefixos `-`, `!`, `~`, `++`, `--`, `await`, seguidos do pós-fixo.
+    /// Prefixes `-`, `!`, `~`, `++`, `--`, `await`, followed by the postfix.
     ///
-    /// `constant_pattern` deixa o `!` pós-fixo final para o parser de padrões.
+    /// `constant_pattern` leaves the trailing postfix `!` to the pattern parser.
     pub(crate) fn parse_unary(&mut self, constant_pattern: bool) -> PResult<ExprId> {
         self.enter()?;
         let result = self.parse_unary_inner(constant_pattern);
@@ -858,10 +860,10 @@ impl<'s, 'i> Parser<'s, 'i> {
             Kind::Op(Op::Tilde) => UnaryOp::BitNot,
             Kind::Op(Op::PlusPlus) => UnaryOp::PrefixInc,
             Kind::Op(Op::MinusMinus) => UnaryOp::PrefixDec,
-            // `parseUnaryExpression` do fasta: fora de `async`/`async*`, o
-            // `await` que parece expressão (`looksLikeAwaitExpression`, só
-            // em corpo síncrono comum; em `sync*` sempre) é lido como tal e
-            // relatado (`AWAIT_IN_WRONG_CONTEXT` no `await`).
+            // fasta's `parseUnaryExpression`: outside `async`/`async*`, an `await` that
+            // looks like an expression (`looksLikeAwaitExpression`, only in a plain
+            // synchronous body; in `sync*` always) is read as such and reported
+            // (`AWAIT_IN_WRONG_CONTEXT` at the `await`).
             Kind::Ident
                 if self.text() == "await"
                     && (self.in_async || self.in_generator || self.looks_like_expression_after_await(self.pos, true)) =>
@@ -878,16 +880,16 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.advance();
         let operand = self.parse_unary(constant_pattern)?;
         if matches!(op, UnaryOp::PrefixInc | UnaryOp::PrefixDec) && !self.is_assignable(operand) {
-            // `handleUnaryPrefixAssignmentExpression` (`ast_builder.dart:5704`):
-            // no último token do operando.
+            // `handleUnaryPrefixAssignmentExpression` (`ast_builder.dart:5704`): at the
+            // operand's last token.
             let ultimo = self.tokens[self.pos - 1].span;
             self.error_at(codigos::parser::MISSING_ASSIGNABLE_SELECTOR, ultimo, &[]);
         }
         Ok(self.push(start, ExprKind::Unary { op, operand }))
     }
 
-    /// `Expression.isAssignable` do analyzer (`ast.dart`): só identificador
-    /// (simples ou prefixado), acesso a propriedade e índice.
+    /// The analyzer's `Expression.isAssignable` (`ast.dart`): only identifiers
+    /// (simple or prefixed), property access and index.
     pub(crate) fn is_assignable(&self, id: ExprId) -> bool {
         matches!(
             self.ast.expr(id).kind,
@@ -895,9 +897,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         )
     }
 
-    /// `handleAssignmentExpression` (`ast_builder.dart:3752`): lado
-    /// esquerdo não atribuível é `MISSING_ASSIGNABLE_SELECTOR` nele inteiro;
-    /// `super` à direita (`reportErrorIfSuper`), idem no `super`.
+    /// `handleAssignmentExpression` (`ast_builder.dart:3752`): a non-assignable
+    /// left-hand side is `MISSING_ASSIGNABLE_SELECTOR` on the whole of it;
+    /// `super` on the right (`reportErrorIfSuper`), likewise at the `super`.
     fn check_assignment(&mut self, target_expr: ExprId, value: ExprId) {
         if !self.is_assignable(target_expr) {
             let span = self.ast.expr(target_expr).span;
@@ -906,8 +908,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.check_stray_super(value);
     }
 
-    /// `reportErrorIfSuper` (`ast_builder.dart:5840`): `super` sozinho como
-    /// expressão é `MISSING_ASSIGNABLE_SELECTOR`.
+    /// `reportErrorIfSuper` (`ast_builder.dart:5840`): `super` alone as an
+    /// expression is `MISSING_ASSIGNABLE_SELECTOR`.
     pub(crate) fn check_stray_super(&mut self, id: ExprId) {
         if matches!(self.ast.expr(id).kind, ExprKind::Super) {
             let span = self.ast.expr(id).span;
@@ -915,10 +917,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// `looksLikeExpressionAfterAwaitOrYield` do fasta, com o `await` ou
-    /// `yield` em `pos`: o que segue só faz sentido como operando (`await
-    /// f();`, `await f + 1`, `if (await f)`, `await null`). `unario` é o
-    /// contexto `UnaryExpression` (também `await f,` e `await f;`).
+    /// fasta's `looksLikeExpressionAfterAwaitOrYield`, with the `await` or
+    /// `yield` at `pos`: what follows only makes sense as an operand
+    /// (`await f();`, `await f + 1`, `if (await f)`, `await null`). `unario` is
+    /// the `UnaryExpression` context (also `await f,` and `await f;`).
     pub(crate) fn looks_like_expression_after_await(&self, pos: usize, unary: bool) -> bool {
         let binary = |k: Kind| {
             matches!(
@@ -954,7 +956,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// Primária, seletores e `++`/`--`/`!` pós-fixos.
+    /// Primary, selectors and postfix `++`/`--`/`!`.
     fn parse_postfix(&mut self, constant_pattern: bool) -> PResult<ExprId> {
         let start = self.span();
         let creation = self.implicit_creation_ahead();
@@ -984,9 +986,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(self.push(start, ExprKind::Unary { op, operand: expr }))
     }
 
-    /// `parseUnaryExpression` (`parser_impl.dart:6426-6447`): no começo da
-    /// expressão unária, `id ('.' id)? <types_> '.' (new|id) '('` é criação
-    /// implícita. Devolve a posição do `(`.
+    /// `parseUnaryExpression` (`parser_impl.dart:6426-6447`): at the start of
+    /// the unary expression, `id ('.' id)? <types> '.' (new|id) '('` is an
+    /// implicit creation. Returns the position of the `(`.
     fn implicit_creation_ahead(&self) -> Option<usize> {
         if self.kind_of(self.pos) != Kind::Ident {
             return None;
@@ -1006,10 +1008,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         (self.kind_of(nome + 1) == Kind::Op(Op::LParen)).then_some(nome + 1)
     }
 
-    /// Cadeia de seletores sobre `expr`: `.x`, `?.x`, `[i]`, `?[i]`,
-    /// `(args)`, `<T>(args)`, `<T>` e `!`.
-    /// Com `cascade`, os seletores de uma seção de cascata, cujos `.`/`?.`
-    /// leem o nome por `parseSend` (no resto, por `parsePrimary`).
+    /// Selector chain over `expr`: `.x`, `?.x`, `[i]`, `?[i]`, `(args)`,
+    /// `<T>(args)`, `<T>` and `!`.
+    /// With `cascade`, the selectors of a cascade section, whose `.`/`?.` read
+    /// the name with `parseSend` (elsewhere, with `parsePrimary`).
     pub(crate) fn parse_selectors_at(
         &mut self,
         start: Span,
@@ -1090,8 +1092,8 @@ impl<'s, 'i> Parser<'s, 'i> {
                         );
                     } else {
                         if constant_pattern {
-                            // `parsePrecedenceExpression`: argumentos de tipo
-                            // sem `(` num padrão constante.
+                            // `parsePrecedenceExpression`: type arguments without `(` in a constant
+                            // pattern.
                             let lt = self.tokens[lt_pos].span;
                             self.error_at(codigos::parser::INVALID_CONSTANT_PATTERN_GENERIC, lt, &[]);
                         }
@@ -1123,8 +1125,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(expr)
     }
 
-    /// O `!` corrente é seguido de algo que continua a cadeia de seletores
-    /// (`x!.y`, `x![0]`, `f!()`, `x!?[0]`); senão é pós-fixo puro.
+    /// The current `!` is followed by something that continues the selector
+    /// chain (`x!.y`, `x![0]`, `f!()`, `x!?[0]`); otherwise it is a plain
+    /// postfix.
     fn bang_is_selector(&self) -> bool {
         matches!(
             self.kind_at(1),
@@ -1132,12 +1135,12 @@ impl<'s, 'i> Parser<'s, 'i> {
         )
     }
 
-    /// Nome após `.`/`?.`/`..`: identificador ou `new` (tearoff de construtor).
-    /// Com `primary`, o nome de um seletor `.`/`?.` fora de cascata, que o
-    /// fasta lê com `parsePrimary` (`parsePrecedenceExpression`): um
-    /// literal, `(…)`, `[…]`, `{…}` ou `<…>` é lido inteiro e o
-    /// `AstBuilder.doDotExpression` (`ast_builder.dart:851`) o recusa com
-    /// `MISSING_IDENTIFIER` no primeiro token, que vira o nome.
+    /// Name after `.`/`?.`/`..`: identifier or `new` (constructor tearoff).
+    /// With `primary`, the name of a `.`/`?.` selector outside a cascade, which
+    /// fasta reads with `parsePrimary` (`parsePrecedenceExpression`): a
+    /// literal, `(…)`, `[…]`, `{…}` or `<…>` is read whole and
+    /// `AstBuilder.doDotExpression` (`ast_builder.dart:851`) rejects it with
+    /// `MISSING_IDENTIFIER` at the first token, which becomes the name.
     pub(crate) fn member_name(&mut self, primary: bool) -> PResult<Name> {
         if primary
             && (matches!(
@@ -1158,10 +1161,10 @@ impl<'s, 'i> Parser<'s, 'i> {
             let token = self.advance();
             return Ok(self.name_from("new", token.span));
         }
-        // `x.this`, `x.super`, `x.null`…: o fasta lê a primária
-        // (`parsePrimary`) e o `AstBuilder.doDotExpression`
-        // (`ast_builder.dart:851`) a recusa como nome com `MISSING_IDENTIFIER`
-        // no token, que vira o nome da propriedade.
+        // `x.this`, `x.super`, `x.null`…: fasta reads the primary (`parsePrimary`)
+        // and `AstBuilder.doDotExpression` (`ast_builder.dart:851`) rejects it as a
+        // name with `MISSING_IDENTIFIER` at the token, which becomes the property
+        // name.
         if matches!(
             self.kind(),
             Kind::Keyword(Keyword::This | Keyword::Super | Keyword::Null | Keyword::True | Keyword::False)
@@ -1171,15 +1174,15 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.error_at(codigos::parser::MISSING_IDENTIFIER, token.span, &[]);
             return Ok(self.name_from(&texto, token.span));
         }
-        // Outro token (`b.` antes de `}`, `)`, `;`, `=>`…): o
+        // Another token (`b.` before `}`, `)`, `;`, `=>`…): the
         // `IdentifierContext.expressionContinuation.ensureIdentifier`.
         Ok(self.recovery_name(true))
     }
 
-    /// O `<` corrente abre argumentos de tipo de um seletor: a lista é bem
-    /// formada e o token seguinte é um dos que podem seguir argumentos de
-    /// tipo (regra `_mayFollowTypeArgs` do SDK; o fechamento de interpolação
-    /// entra porque o lexer o funde no trecho seguinte da string).
+    /// The current `<` opens a selector's type arguments: the list is well
+    /// formed and the next token is one of those that may follow type arguments
+    /// (the SDK's `_mayFollowTypeArgs` rule; the interpolation closer counts
+    /// because the lexer merges it into the next string piece).
     fn method_type_arguments_ahead(&self) -> bool {
         let Some(end) = self.skip_type_arguments(self.pos) else {
             return false;
@@ -1203,8 +1206,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         )
     }
 
-    /// O `?` corrente (seguido de `[`) começa uma condicional
-    /// `? expressão : expressão`? Lê especulativamente e desfaz tudo.
+    /// Does the current `?` (followed by `[`) start a conditional
+    /// `? expression : expression`? Reads speculatively and undoes everything.
     fn can_parse_as_conditional(&mut self) -> bool {
         let checkpoint = self.checkpoint();
         self.advance();
@@ -1253,10 +1256,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.in_type_args = checkpoint.in_type_args;
     }
 
-    // -- Primárias --------------------------------------------------------
+    // -- Primaries ---------------------------------------------------------
 
-    /// `primary`: literais, identificadores, `this`, `super`, coleções,
-    /// records, parênteses, `new`/`const`, expressões de função e `switch`.
+    /// `primary`: literals, identifiers, `this`, `super`, collections, records,
+    /// parentheses, `new`/`const`, function expressions and `switch`.
     fn parse_primary(&mut self) -> PResult<ExprId> {
         let start = self.span();
         match self.kind() {
@@ -1267,9 +1270,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                 let name = self.identifier();
                 Ok(self.push(start, ExprKind::Identifier(name)))
             }
-            // `void nome(…) {…}` em posição de expressão.
+            // `void name(…) {…}` in expression position.
             Kind::Keyword(Keyword::Void) if self.named_function_ahead().is_some() => {
-                let nome = self.named_function_ahead().expect("conferido na guarda");
+                let nome = self.named_function_ahead().expect("checked by the guard");
                 self.parse_named_function(nome)
             }
             Kind::Int => {
@@ -1322,9 +1325,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.parse_typed_collection(start, false, type_args)
             }
             Kind::Op(Op::LParen) => {
-                // `(params) {…}` é função só se a lista de parâmetros for
-                // válida: `x = (v as T?) { … }` num inicializador de construtor
-                // é expressão parentizada seguida do corpo.
+                // `(params) {…}` is a function only if the parameter list is valid:
+                // `x = (v as T?) { … }` in a constructor initializer is a parenthesized
+                // expression followed by the body.
                 if !self.without_named_function
                     && self.function_expression_ahead(self.pos)
                     && self.speculate(|p| p.parse_formal_parameters().is_ok())
@@ -1335,12 +1338,11 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             Kind::Keyword(Keyword::New) => {
                 let novo = self.advance().span;
-                // `parseNewExpression` (`parser_impl.dart:7270`): literal com
-                // `new` antes. `new List<T>[…]`, `new Map<K, V>{…}`,
-                // `new Set<T>{…}` são `LITERAL_WITH_CLASS_AND_NEW` de `new` ao
-                // nome; `new [..]`, `new {..}`, `new <T>[..]`,
-                // `LITERAL_WITH_NEW` no `new`; nos dois casos o literal é
-                // lido a partir do que segue.
+                // `parseNewExpression` (`parser_impl.dart:7270`): a literal with `new`
+                // before it. `new List<T>[…]`, `new Map<K, V>{…}`, `new Set<T>{…}` are
+                // `LITERAL_WITH_CLASS_AND_NEW` from `new` to the name; `new [..]`,
+                // `new {..}`, `new <T>[..]`, `LITERAL_WITH_NEW` at the `new`; in both cases
+                // the literal is read from what follows.
                 if self.at_identifier() && !self.at_op_at(1, Op::Dot) {
                     let class = self.text();
                     let after = if self.at_op_at(1, Op::Lt) {
@@ -1375,7 +1377,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 }
                 self.parse_instance_creation(start, Some(CreationKeyword::New))
             }
-            // Atalho de ponto (3.10): `.id`, `.new`.
+            // Dot shorthand (3.10): `.id`, `.new`.
             Kind::Op(Op::Dot) => self.parse_dot_shorthand(start, false),
             Kind::Keyword(Keyword::Const) => {
                 self.advance();
@@ -1393,9 +1395,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                 }
             }
             Kind::Keyword(Keyword::Switch) => self.parse_switch_expression(start),
-            // `parsePrimary`/`parseAssert(Assert.Expression)`: `assert(…)`
-            // como expressão; o `AssertAsExpression` do fasta não tem código
-            // no analyzer, e o `AstBuilder` monta a invocação de `assert`.
+            // `parsePrimary`/`parseAssert(Assert.Expression)`: `assert(…)` as an
+            // expression; fasta's `AssertAsExpression` has no code in the analyzer, and
+            // the `AstBuilder` builds the invocation of `assert`.
             Kind::Keyword(Keyword::Assert) if self.at_op_at(1, Op::LParen) => {
                 let token = self.advance();
                 let nome = self.name_from("assert", token.span);
@@ -1405,8 +1407,8 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.ast.invocacoes_de_assert.push(call);
                 Ok(call)
             }
-            // `parsePrimary`: `return` no lugar de uma expressão é
-            // `UNEXPECTED_TOKEN` e a primária seguinte é lida.
+            // `parsePrimary`: `return` in place of an expression is `UNEXPECTED_TOKEN`
+            // and the following primary is read.
             Kind::Keyword(Keyword::Return) => {
                 let token = self.advance();
                 self.error_at(codigos::parser::UNEXPECTED_TOKEN, token.span, &["return"]);
@@ -1417,20 +1419,20 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 
     /// `ExpressionIdentifierContext.ensureIdentifier`
-    /// (`identifier_context_impl.dart:324`) quando o token não é
-    /// identificador: a palavra reservada que não começa comando vira o nome
-    /// (`EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD`); senão `MISSING_IDENTIFIER` e
-    /// um identificador sintético vazio, depois de consumir o token quando
-    /// ele não é operador, pontuação de grupo nem começo de comando.
+    /// (`identifier_context_impl.dart:324`) when the token is not an
+    /// identifier: a reserved word that does not start a statement becomes the
+    /// name (`EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD`); otherwise
+    /// `MISSING_IDENTIFIER` and an empty synthetic identifier, after consuming
+    /// the token when it is not an operator, group punctuation or the start of
+    /// a statement.
     fn recovery_identifier(&mut self) -> ExprId {
         let name = self.recovery_name(false);
         self.ast.push_expr(Expr { span: name.span, kind: ExprKind::Identifier(name) })
     }
 
-    /// O nome do `ExpressionIdentifierContext.ensureIdentifier` sobre um
-    /// token que não é identificador; `continuation` é o contexto
-    /// `expressionContinuation` (depois de `.`), em que `as` e `is` também
-    /// viram nome.
+    /// The name from `ExpressionIdentifierContext.ensureIdentifier` over a token
+    /// that is not an identifier; `continuation` is the `expressionContinuation`
+    /// context (after `.`), in which `as` and `is` also become a name.
     fn recovery_name(&mut self, continuation: bool) -> Name {
         let starts_statement = self.looks_like_statement_start(self.pos);
         if !starts_statement
@@ -1442,10 +1444,10 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.error_at(codigos::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, token.span, &[&texto]);
             return self.name_from(&texto, token.span);
         }
-        // `!identifier.isOperator` e fora da pontuação da lista: na dúvida,
-        // o token é consumido (o identificador sintético vem depois dele).
-        // `StrMid`/`StrEnd` começam com a `}` que fecha a interpolação (a
-        // `}` da lista do fasta): não são consumidos.
+        // `!identifier.isOperator` and outside the list's punctuation: when in
+        // doubt, the token is consumed (the synthetic identifier comes after it).
+        // `StrMid`/`StrEnd` start with the `}` that closes the interpolation (the
+        // `}` in fasta's list): they are not consumed.
         let consume = !starts_statement
             && !matches!(self.kind(), Kind::Ident | Kind::Keyword(_) | Kind::Eof | Kind::StrMid(..) | Kind::StrEnd(_))
             && match self.kind() {
@@ -1456,14 +1458,14 @@ impl<'s, 'i> Parser<'s, 'i> {
         if consume {
             self.advance();
         }
-        // `insertSyntheticIdentifier`: no início do token seguinte.
+        // `insertSyntheticIdentifier`: at the start of the next token.
         let s = self.span().start;
         self.name_from("", Span { start: s, end: s })
     }
 
-    /// O *head* de um atalho de ponto, com o `.` corrente (Dart 3.10,
-    /// `<staticMemberShorthandHead>`): `.id` ou `.new`. Os seletores vêm
-    /// depois, como em qualquer primária. A forma `const` exige argumentos.
+    /// The *head* of a dot shorthand, with the current `.` (Dart 3.10,
+    /// `<staticMemberShorthandHead>`): `.id` or `.new`. The selectors come
+    /// after, as with any primary. The `const` form requires arguments.
     fn parse_dot_shorthand(&mut self, start: Span, const_: bool) -> PResult<ExprId> {
         let dot = self.advance();
         let name = if self.at_kw(Keyword::New) {
@@ -1474,21 +1476,21 @@ impl<'s, 'i> Parser<'s, 'i> {
         } else {
             return Err(self.identifier_error());
         };
-        // O analyzer 3.13.4 relata no `.` (`handleDotShorthandHead` e
-        // `handleDotShorthandContext`) e, em `const .x(…)`, também no `const`
+        // The 3.13.4 analyzer reports at the `.` (`handleDotShorthandHead` and
+        // `handleDotShorthandContext`) and, in `const .x(…)`, also at the `const`
         // (`endConstDotShorthand`).
         self.require(Feature::DotShorthands, dot.span);
         if const_ {
             self.require(Feature::DotShorthands, start);
         }
-        // `const .x<T>(…)`: os argumentos de tipo vêm antes dos parênteses.
+        // `const .x<T>(…)`: the type arguments come before the parentheses.
         if const_ && !self.at_op(Op::LParen) && !(self.at_op(Op::Lt) && self.method_type_arguments_ahead()) {
             return Err(self.expected_error("("));
         }
         Ok(self.push(start, ExprKind::DotShorthand { name, const_ }))
     }
 
-    /// Após argumentos de tipo explícitos: `<T>[...]` ou `<K, V>{...}`.
+    /// After explicit type arguments: `<T>[...]` or `<K, V>{...}`.
     fn parse_typed_collection(
         &mut self,
         start: Span,
@@ -1524,7 +1526,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         ))
     }
 
-    /// `{ elements_ }` — conjunto ou mapa, decidido depois pelos elementos.
+    /// `{ elements }` — a set or a map, decided later by the elements.
     fn parse_set_or_map_literal(
         &mut self,
         start: Span,
@@ -1546,8 +1548,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         ))
     }
 
-    /// Elementos separados por vírgula (com vírgula final opcional) até
-    /// `close`, que é consumido.
+    /// Comma-separated elements (with an optional trailing comma) up to `close`,
+    /// which is consumed.
     fn parse_collection_elements(&mut self, close: Op) -> PResult<Vec<CollectionElement>> {
         self.with_functions(|p| p.parse_collection_elements_inner(close))
     }
@@ -1563,9 +1565,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                 if self.at_op(close) {
                     break;
                 }
-                // `parseLiteralListSuffix`/`parseLiteralSetOrMapSuffix`: o que
-                // parece outro elemento é um elemento depois de uma vírgula que
-                // falta (`rewriteAndRecover`, o erro no token).
+                // `parseLiteralListSuffix`/`parseLiteralSetOrMapSuffix`: what looks like
+                // another element is an element after a missing comma (`rewriteAndRecover`,
+                // the error at the token).
                 if self.looks_like_literal_entry(self.pos) {
                     if ifs > 0 {
                         self.erro(codigos::parser::EXPECTED_ELSE_OR_COMMA, &[]);
@@ -1574,7 +1576,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                     }
                     continue;
                 }
-                // A lista leva o `]` sintético para cá (`moveSynthetic`).
+                // The list brings the synthetic `]` here (`moveSynthetic`).
                 if close == Op::RBracket && self.move_synthetic_closer(abre) {
                     self.advance();
                     return Ok(elements);
@@ -1582,9 +1584,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                 break;
             }
         }
-        // `parseLiteralListSuffix`/`parseLiteralSetOrMapSuffix`: o que sobra
-        // antes do fecho casado é `EXPECTED_TOKEN` (o fecho) no primeiro
-        // token dela, e o literal acaba no fecho (`{0: throw "y"; }`).
+        // `parseLiteralListSuffix`/`parseLiteralSetOrMapSuffix`: leftovers before
+        // the matching closer are `EXPECTED_TOKEN` (the closer) at their first
+        // token, and the literal ends at the closer (`{0: throw "y"; }`).
         if !self.at_op(close)
             && !self.at_eof()
             && let Some(closes) = self.matching_close(abre)
@@ -1606,8 +1608,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             || (self.text_of(pos) == "await" && self.kind_of(pos + 1) == Kind::Keyword(Keyword::For))
     }
 
-    /// `element`: expressão, `k: v`, `...e`, `...?e`, `if (...) e else e`,
-    /// `await? for (...) e`, aninhados à vontade.
+    /// `element`: expression, `k: v`, `...e`, `...?e`, `if (...) e else e`,
+    /// `await? for (...) e`, nested at will.
     fn parse_collection_element(&mut self) -> PResult<CollectionElement> {
         self.enter()?;
         let result = self.parse_collection_element_inner();
@@ -1681,15 +1683,15 @@ impl<'s, 'i> Parser<'s, 'i> {
                 },
             });
         }
-        // `?e` é elemento null-aware (Dart 3.8); `?` nunca inicia expressão,
-        // então não há ambiguidade com a condicional (`NullAwareEntry`).
-        // Com o recurso desligado, o `AstBuilder` relata uma vez (no `?` da
-        // chave, ou no do valor) e descarta os `?`: o elemento é comum
+        // `?e` is a null-aware element (Dart 3.8); `?` never starts an expression,
+        // so there is no ambiguity with the conditional (`NullAwareEntry`). With
+        // the feature disabled, the `AstBuilder` reports once (at the key's `?`, or
+        // at the value's) and drops the `?`: the element is a plain one
         // (`handleNullAwareElement`, `handleLiteralMapEntry`).
         let enabled_flag = self.features.tem(Feature::NullAwareElements);
         let q_key = if self.at_op(Op::Question) { Some(self.advance().span) } else { None };
         let key = self.parse_expression()?;
-        // Numa lista, só a entrada null-aware lê `:`.
+        // In a list, only the null-aware entry reads `:`.
         if (q_key.is_some() || !self.in_list) && self.eat_op(Op::Colon) {
             let q_value = if self.at_op(Op::Question) { Some(self.advance().span) } else { None };
             if let Some(q) = q_key.or(q_value) {
@@ -1713,10 +1715,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         })
     }
 
-    /// `(e)`, `(a, b)`, `(a,)`, `(nome: e)`, `()`; `const_` força record.
-    /// `de_padrao`: o `(` depois do `const` de um padrão constante, que o
-    /// fasta lê sem `constKeywordForRecord` (`parsePrimaryPattern`): `(e)` é
-    /// expressão entre parênteses; um record sai constante, como o contexto.
+    /// `(e)`, `(a, b)`, `(a,)`, `(name: e)`, `()`; `const_` forces a record.
+    /// `de_padrao`: the `(` after a constant pattern's `const`, which fasta
+    /// reads without `constKeywordForRecord` (`parsePrimaryPattern`): `(e)` is a
+    /// parenthesized expression; a record comes out constant, like the context.
     pub(crate) fn parse_parenthesized_or_record(&mut self, start: Span, const_: bool, de_padrao: bool) -> PResult<ExprId> {
         self.with_functions(|p| p.parse_parenthesized_or_record_inner(start, const_, de_padrao))
     }
@@ -1728,7 +1730,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         let mut named = Vec::new();
         let mut is_record = const_ || self.at_op(Op::RParen);
         let mut saw_comma = false;
-        // `(,)`: `EMPTY_RECORD_LITERAL_WITH_COMMA` na vírgula
+        // `(,)`: `EMPTY_RECORD_LITERAL_WITH_COMMA` at the comma
         // (`parseParenthesizedExpressionOrRecordLiteral`).
         if self.at_op(Op::Comma) && self.at_op_at(1, Op::RParen) {
             let virgula = self.advance().span;
@@ -1754,7 +1756,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
         }
         self.ensure_close_paren(abre)?;
-        // `const (e)`: um posicional sem vírgula, no `)`.
+        // `const (e)`: one positional without a comma, at the `)`.
         if const_ && positional.len() == 1 && named.is_empty() && !saw_comma {
             let closes = self.tokens[self.pos - 1].span;
             self.error_at(codigos::parser::RECORD_LITERAL_ONE_POSITIONAL_NO_TRAILING_COMMA, closes, &[]);
@@ -1773,7 +1775,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(self.push(start, ExprKind::Parenthesized(inner)))
     }
 
-    /// Depois do `)` que fecha o `(` em `open` vem corpo de função?
+    /// Does a function body come after the `)` that closes the `(` at `open`?
     fn function_expression_ahead(&self, open: usize) -> bool {
         let Some(close) = self.matching_close(open) else {
             return false;
@@ -1785,8 +1787,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// O `<` corrente abre parâmetros de tipo de uma expressão de função
-    /// genérica `<T>(...) ...`: fecha o `<` e exige `(` com corpo depois.
+    /// The current `<` opens the type parameters of a generic function
+    /// expression `<T>(...) ...`: it closes the `<` and requires `(` with a body
+    /// after it.
     fn generic_function_expression_ahead(&self) -> bool {
         let Some(close) = self.angle_close(self.pos) else {
             return false;
@@ -1794,17 +1797,17 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.kind_of(close + 1) == Kind::Op(Op::LParen) && self.function_expression_ahead(close + 1)
     }
 
-    /// `parseSendOrFunctionLiteral` (`parser_impl.dart:7188-7207` do fasta
-    /// 3.6.2): em posição de primária, um tipo opcional, um identificador,
-    /// `<…>` opcional e `(…)` seguido de corpo (`{`, `=>`, `async`, `sync`)
-    /// são uma função literal com nome. Devolve o índice do token do nome.
-    /// Não vale onde o fasta desliga `mayParseFunctionExpressions`
+    /// `parseSendOrFunctionLiteral` (`parser_impl.dart:7188-7207` of fasta
+    /// 3.6.2): in primary position, an optional type, an identifier, optional
+    /// `<…>` and `(…)` followed by a body (`{`, `=>`, `async`, `sync`) are a
+    /// named function literal. Returns the index of the name token. Does not
+    /// apply where fasta turns off `mayParseFunctionExpressions`
     /// ([`Parser::without_named_function`]).
     fn named_function_ahead(&self) -> Option<usize> {
         if self.without_named_function {
             return None;
         }
-        // O resto, a partir do nome.
+        // The rest, from the name.
         let rest = |nome: usize| -> bool {
             if self.kind_of(nome) != Kind::Ident {
                 return false;
@@ -1818,14 +1821,13 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             self.kind_of(abre) == Kind::Op(Op::LParen) && self.function_expression_ahead(abre)
         };
-        // Sem tipo: `g() {}`.
+        // Without a type: `g() {}`.
         if self.kind() == Kind::Ident && rest(self.pos) {
             return Some(self.pos);
         }
-        // Com tipo: `void g() {}`, `int g<T>() => 1`. Um identificador só
-        // começa um tipo seguido de nome se depois dele vem outro
-        // identificador, `<`, `.` ou `?` (o filtro poupa o `skip_type` em
-        // quase toda primária).
+        // With a type: `void g() {}`, `int g<T>() => 1`. An identifier only starts
+        // a type followed by a name if it is followed by another identifier, `<`,
+        // `.` or `?` (the filter spares the `skip_type` on almost every primary).
         if self.kind() == Kind::Ident
             && !matches!(self.kind_of(self.pos + 1), Kind::Ident | Kind::Op(Op::Lt | Op::Dot | Op::Question))
         {
@@ -1835,10 +1837,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         (after > self.pos && rest(after)).then_some(after)
     }
 
-    /// A função literal com nome: `NAMED_FUNCTION_EXPRESSION` no nome
-    /// (`parseNamedFunctionRest` com `isFunctionExpression`,
-    /// `parser_impl.dart:5286-5289`), e a expressão de função sem ele, como
-    /// o `AstBuilder` a monta. O tipo de retorno escrito é pulado.
+    /// The named function literal: `NAMED_FUNCTION_EXPRESSION` at the name
+    /// (`parseNamedFunctionRest` with `isFunctionExpression`,
+    /// `parser_impl.dart:5286-5289`), and the function expression without it,
+    /// as the `AstBuilder` builds it. The written return type is skipped.
     fn parse_named_function(&mut self, nome: usize) -> PResult<ExprId> {
         while self.pos < nome {
             self.advance();
@@ -1870,8 +1872,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(self.push(start, ExprKind::FunctionExpression(function)))
     }
 
-    /// Depois de `new`/`const`: `T`, `p.T`, `T<A>`, `p.T<A>.n`, `T.n`
-    /// (nome de duas partes, como o SDK) e os argumentos obrigatórios.
+    /// After `new`/`const`: `T`, `p.T`, `T<A>`, `p.T<A>.n`, `T.n` (a two-part
+    /// name, like the SDK) and the required arguments.
     fn parse_instance_creation(
         &mut self,
         start: Span,
@@ -1897,11 +1899,11 @@ impl<'s, 'i> Parser<'s, 'i> {
         } else {
             None
         };
-        // `parseConstructorInvocationArguments` (`parser_impl.dart:7243`):
-        // sem `(`, argumentos de tipo depois do nome são
-        // `CONSTRUCTOR_WITH_TYPE_ARGUMENTS` no último token do nome (e são
-        // lidos); senão `EXPECTED_TOKEN` (`(`) nele. Sem `(` depois disso, a
-        // lista de argumentos é sintética, vazia, e a expressão continua.
+        // `parseConstructorInvocationArguments` (`parser_impl.dart:7243`): without
+        // `(`, type arguments after the name are `CONSTRUCTOR_WITH_TYPE_ARGUMENTS`
+        // at the name's last token (and are read); otherwise `EXPECTED_TOKEN` (`(`)
+        // at it. Without `(` after that, the argument list is synthetic and empty,
+        // and the expression goes on.
         if !self.at_op(Op::LParen) && self.pos > 0 {
             let ultimo = self.tokens[self.pos - 1].span;
             if self.at_op(Op::Lt) && self.skip_type_arguments(self.pos).is_some() {
@@ -1935,8 +1937,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         let value = self.parse_expression()?;
         self.expect_op(Op::RParen)?;
         let abre = self.pos;
-        // `ensureBlock(…, switchExpression)`: sem `{`, o erro no `)` e um corpo
-        // vazio sintético.
+        // `ensureBlock(…, switchExpression)`: without `{`, the error at the `)` and
+        // a synthetic empty body.
         if !self.at_op(Op::LBrace) {
             let closes = self.tokens[self.pos - 1].span;
             self.error_at(codigos::parser::EXPECTED_SWITCH_EXPRESSION_BODY, closes, &[]);
@@ -1946,11 +1948,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         let mut cases = Vec::new();
         while !self.at_op(Op::RBrace) {
             let case_start = self.span();
-            // `parseSwitchExpression` (`parser_impl.dart`): a sintaxe de
-            // comando dentro da expressão. `default` é
-            // `DEFAULT_IN_SWITCH_EXPRESSION` e vale como `_`; `case` é
-            // `UNEXPECTED_TOKEN` e é pulado; `:` no lugar de `=>` e `;` no de
-            // `,` são `EXPECTED_TOKEN` neles.
+            // `parseSwitchExpression` (`parser_impl.dart`): statement syntax inside the
+            // expression. `default` is `DEFAULT_IN_SWITCH_EXPRESSION` and counts as
+            // `_`; `case` is `UNEXPECTED_TOKEN` and is skipped; `:` in place of `=>` and
+            // `;` in place of `,` are `EXPECTED_TOKEN` at them.
             let pattern = if self.at_kw(Keyword::Default) {
                 let t = self.advance().span;
                 self.error_at(codigos::parser::DEFAULT_IN_SWITCH_EXPRESSION, t, &[]);
@@ -1960,8 +1961,8 @@ impl<'s, 'i> Parser<'s, 'i> {
                     self.erro(codigos::parser::UNEXPECTED_TOKEN, &["case"]);
                     self.advance();
                 }
-                // O padrão e a guarda de um caso de `switch` expressão
-                // não leem função literal nomeada (o `=>` é o do caso).
+                // The pattern and guard of a `switch` expression case do not read a named
+                // function literal (the `=>` is the case's).
                 let salvo = std::mem::replace(&mut self.without_named_function, true);
                 let padrao = self.parse_pattern();
                 self.without_named_function = salvo;
@@ -1997,9 +1998,9 @@ impl<'s, 'i> Parser<'s, 'i> {
             if self.at_op(Op::RBrace) || virgula {
                 continue;
             }
-            // Sem vírgula: o que parece outro padrão é o caso seguinte (a
-            // vírgula que falta é relatada nele); senão pula até a próxima
-            // `,`/`;` antes do `}` casado, ou acaba no `}`.
+            // Without a comma: what looks like another pattern is the next case (the
+            // missing comma is reported at it); otherwise skips to the next `,`/`;`
+            // before the matching `}`, or ends at the `}`.
             if self.looks_like_pattern_start(self.pos) {
                 self.erro(codigos::parser::EXPECTED_TOKEN, &[","]);
                 continue;
@@ -2107,16 +2108,17 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(self.push(start, ExprKind::Symbol(names.into_boxed_slice())))
     }
 
-    // -- Strings ------------------------------------------------------------
+    // -- Strings -------------------------------------------------------------
 
-    /// Lê as interpolações e trechos que seguem um `StrBegin` até o `StrEnd`.
+    /// Reads the interpolations and pieces that follow a `StrBegin` up to the
+    /// `StrEnd`.
     fn parse_interpolations(&mut self, first: Interp) -> PResult<()> {
         let mut previous = first;
         loop {
             let expr = match previous {
-                // `$` sem nome (o lexer segue com o trecho seguinte):
-                // `MISSING_IDENTIFIER` no primeiro caractere depois do `$`,
-                // com comprimento 1, e nenhuma interpolação.
+                // `$` without a name (the lexer goes on with the next piece):
+                // `MISSING_IDENTIFIER` at the first character after the `$`, with length 1,
+                // and no interpolation.
                 Interp::Ident if !self.at_identifier() => {
                     let s = self.span().start;
                     self.error_at(codigos::scanner::MISSING_IDENTIFIER, Span { start: s, end: s + 1 }, &[]);
@@ -2124,11 +2126,10 @@ impl<'s, 'i> Parser<'s, 'i> {
                 }
                 Interp::Ident => {
                     let start = self.span();
-                    // `parseIdentifierExpression` (`parser_impl.dart:7584-7593`):
-                    // fora o `this`, o `ensureIdentifier` do contexto
-                    // `expression` (`identifier_context_impl.dart:346-354`)
-                    // relata a palavra reservada depois do `$`
-                    // (`"$class"`) e a usa como identificador.
+                    // `parseIdentifierExpression` (`parser_impl.dart:7584-7593`): except for
+                    // `this`, the `ensureIdentifier` of the `expression` context
+                    // (`identifier_context_impl.dart:346-354`) reports the reserved word after
+                    // the `$` (`"$class"`) and uses it as the identifier.
                     let texto = self.text().to_string();
                     if texto != "this" && matches!(super::fasta::word_style(&texto), Some(super::fasta::WordStyle::Reserved)) {
                         self.erro(codigos::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, &[&texto]);
@@ -2158,11 +2159,11 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// Decodifica o texto de um trecho de string e o anexa ao rascunho.
+    /// Decodes the text of a string piece and appends it to the scratch space.
     ///
-    /// `first` indica o trecho que começa na aspa de abertura (recebe o `r`
-    /// e a remoção da primeira quebra de linha em strings triplas);
-    /// `leading_brace` indica que o trecho começa na `}` de uma interpolação.
+    /// `first` marks the piece that starts at the opening quote (it gets the
+    /// `r` and the removal of the first line break in triple strings);
+    /// `leading_brace` marks a piece that starts at an interpolation's `}`.
     fn push_string_text(
         &mut self,
         token: Token,
@@ -2182,7 +2183,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             head += 1;
         }
         let tail = match token.kind {
-            // Sem o fecho (`StrFlags::aberta`): o conteúdo vai até o fim.
+            // Without the closer (`StrFlags::aberta`): the content runs to the end.
             Kind::Str(f) | Kind::StrEnd(f) if f.aberta => 0,
             Kind::Str(_) | Kind::StrEnd(_) => quote_len,
             Kind::StrBegin(_, Interp::Brace) | Kind::StrMid(_, Interp::Brace) => 2,
@@ -2191,9 +2192,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         let content = text
             .get(head..text.len().saturating_sub(tail))
             .unwrap_or("");
-        // Na string de três aspas as quebras de linha da fonte (CR LF e CR)
-        // valem LF (o `multiline_newline_test`: a mesma constante em arquivos
-        // CR, CRLF e LF); um `\r` escrito como escape fica.
+        // In a triple-quoted string the source's line breaks (CR LF and CR) count
+        // as LF (the `multiline_newline_test`: the same constant in CR, CRLF and LF
+        // files); a `\r` written as an escape stays.
         let normalized: std::borrow::Cow<'_, str> = if flags.triple && content.contains('\r') {
             std::borrow::Cow::Owned(content.replace("\r\n", "\n").replace('\r', "\n"))
         } else {
@@ -2207,14 +2208,14 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             Err(message) => {
                 let _ = message;
-                // `unescapeCodeUnits` (`quote.dart:186`): o escape inválido é
-                // relatado com o código e o trecho do fasta, e a string segue
-                // com o texto cru (o erro é recuperável).
+                // `unescapeCodeUnits` (`quote.dart:186`): the invalid escape is reported
+                // with fasta's code and excerpt, and the string goes on with the raw text
+                // (the error is recoverable).
                 let base = token.span.start + head;
                 match escape_error(content.as_bytes()) {
                     Some((code, start_offset, len)) => {
                         let span = Span { start: base + start_offset, end: base + start_offset + len };
-                        // `INVALID_CODE_POINT` leva o texto literal `\u{...}`.
+                        // `INVALID_CODE_POINT` carries the literal text `\u{...}`.
                         let args: &[&str] =
                             if code == codigos::parser::INVALID_CODE_POINT { &["\\u{...}"] } else { &[] };
                         self.error_at(code, span, args);
@@ -2229,7 +2230,8 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     // -- Utilidades ---------------------------------------------------------
 
-    /// Anexa uma expressão cujo span vai de `start` ao último token consumido.
+    /// Appends an expression whose span runs from `start` to the last consumed
+    /// token.
     pub(crate) fn push(&mut self, start: Span, kind: ExprKind) -> ExprId {
         let span = self.span_from(start);
         self.ast.push_expr(Expr { span, kind })
@@ -2237,8 +2239,8 @@ impl<'s, 'i> Parser<'s, 'i> {
 }
 
 
-/// A soma dos `ifConditionDelta` das entradas de um elemento: `+1` por
-/// `if`, `-1` por `else`.
+/// The sum of the `ifConditionDelta` of an element's entries: `+1` per
+/// `if`, `-1` per `else`.
 fn open_ifs(e: &CollectionElement) -> i32 {
     match e {
         CollectionElement::If { then, else_, .. } => 1 + open_ifs(then) + else_.as_ref().map_or(0, |e| open_ifs(e) - 1),
@@ -2255,7 +2257,8 @@ mod tests {
     };
     use crate::parser::Parser;
 
-    /// Constrói o parser e lê uma expressão inteira, exigindo consumir tudo.
+    /// Builds the parser and reads a whole expression, requiring everything to
+    /// be consumed.
     fn parse(src: &str) -> (Parser<'_, 'static>, ExprId) {
         parse_with(src, false)
     }
@@ -2281,21 +2284,21 @@ mod tests {
     fn ident_text<'a>(p: &'a Parser<'_, '_>, id: ExprId) -> &'a str {
         match kind(p, id) {
             ExprKind::Identifier(name) => p.interner.resolve(name.sym),
-            other => panic!("esperava identificador, veio {other:?}"),
+            other => panic!("expected an identifier, got {other:?}"),
         }
     }
 
     fn int_text<'a>(p: &'a Parser<'_, '_>, id: ExprId) -> &'a str {
         match kind(p, id) {
             ExprKind::Int(span) => &p.source[span.start..span.end],
-            other => panic!("esperava inteiro, veio {other:?}"),
+            other => panic!("expected an integer, got {other:?}"),
         }
     }
 
     fn binary(p: &Parser<'_, '_>, id: ExprId) -> (BinaryOp, ExprId, ExprId) {
         match kind(p, id) {
             ExprKind::Binary { op, left, right } => (*op, *left, *right),
-            other => panic!("esperava binário, veio {other:?}"),
+            other => panic!("expected a binary, got {other:?}"),
         }
     }
 
@@ -2350,7 +2353,7 @@ mod tests {
         assert_eq!(binary(&p, id).0, BinaryOp::UShr);
         let (p, id) = parse("x << 2 | y & z ^ w");
         assert_eq!(binary(&p, id).0, BinaryOp::BitOr);
-        // `a >> b > c` → `(a >> b) > c`: shift acima de relacional.
+        // `a >> b > c` → `(a >> b) > c`: shift above relational.
         let (p, id) = parse("a >> b > c");
         let (op, l, _) = binary(&p, id);
         assert_eq!(op, BinaryOp::Gt);
@@ -2364,8 +2367,8 @@ mod tests {
         let src = "a > > b";
         let tokens = crate::lexer::lex(src).unwrap();
         let mut p = Parser::new(src, tokens, names);
-        // O segundo `>` não tem operando à esquerda: `MISSING_IDENTIFIER` e
-        // identificador sintético, não `>>`.
+        // The second `>` has no left operand: `MISSING_IDENTIFIER` and a synthetic
+        // identifier, not `>>`.
         let id = p.parse_expression().unwrap();
         assert!(!p.diagnostics.is_empty());
         assert_eq!(binary(&p, id).0, BinaryOp::Gt);
@@ -2453,7 +2456,7 @@ mod tests {
             };
             assert_eq!(*op, expected, "{src}");
         }
-        // `-x.y` é `-(x.y)`: o operando é o pós-fixo inteiro.
+        // `-x.y` is `-(x.y)`: the operand is the whole postfix.
         let (p, id) = parse("-x.y");
         let ExprKind::Unary { operand, .. } = kind(&p, id) else {
             panic!()
@@ -2513,7 +2516,7 @@ mod tests {
                 ..
             }
         ));
-        assert!(p.ast.exprs.len() < 12, "especulação deixou nós na arena");
+        assert!(p.ast.exprs.len() < 12, "speculation left nodes in the arena");
     }
 
     #[test]
@@ -2785,7 +2788,7 @@ mod tests {
         };
         assert!(matches!(kind(&p, *target), ExprKind::Property { .. }));
 
-        // `a..b = c..d()`: a atribuição da seção termina antes do `..`.
+        // `a..b = c..d()`: the section's assignment ends before the `..`.
         let (p, id) = parse("a..b = c..d()");
         let ExprKind::Cascade { sections, .. } = kind(&p, id) else {
             panic!()
@@ -2853,8 +2856,8 @@ mod tests {
         for src in [")", "", "a +", "class"] {
             let tokens = crate::lexer::lex(src).unwrap();
             let mut p = Parser::new(src, tokens, names);
-            // `ensureIdentifier`: o erro sai e a expressão segue com um
-            // identificador sintético (ou com a palavra reservada como nome).
+            // `ensureIdentifier`: the error comes out and the expression goes on with a
+            // synthetic identifier (or with the reserved word as the name).
             let _ = p.parse_expression();
             assert!(!p.diagnostics.is_empty(), "{src}");
         }
@@ -2871,9 +2874,9 @@ mod tests {
         assert!(p.diagnostics.iter().any(|d| d.code.is_some_and(|c| c.info().nome == "stack_overflow")));
     }
 
-    // -- Testes que dependem de outros módulos (types, patterns, statements,
-    // declarations). Panicam com `not yet implemented` enquanto os stubs
-    // existirem; ficam aqui para valerem assim que os módulos chegarem.
+    // -- Tests that depend on other modules (types, patterns, statements,
+    // declarations). They panic with `not yet implemented` while the stubs
+    // exist; they stay here to apply as soon as the modules arrive.
 
     #[test]
     fn generic_call_and_explicit_instantiation() {
@@ -2890,8 +2893,8 @@ mod tests {
             panic!()
         };
         assert!(matches!(kind(&p, *target), ExprKind::TypeArguments { .. }));
-        // `a < b > c` lê como `(a < b) > c`, com o erro do fasta para
-        // relacionais encadeados no segundo operador.
+        // `a < b > c` reads as `(a < b) > c`, with fasta's error for chained
+        // relationals at the second operator.
         let src = "a < b > c";
         let names: &'static mut dartforge_intern::Interner =
             Box::leak(Box::new(dartforge_intern::Interner::new()));
@@ -2929,7 +2932,7 @@ mod tests {
             panic!()
         };
         assert_eq!(*keyword, Some(CreationKeyword::New));
-        assert!(constructor.is_none(), "A.b fica como nome de duas partes");
+        assert!(constructor.is_none(), "A.b stays as a two-part name");
         let (p, id) = parse("const p.T<A>.n(1)");
         let ExprKind::InstanceCreation {
             keyword,
@@ -2995,8 +2998,9 @@ mod tests {
         assert!(matches!(kind(&p, id), ExprKind::PatternAssign { .. }));
     }
 
-    /// Regressões do corpus: o `?` depois de `is T`/`as T` é da condicional
-    /// quando o que segue inicia expressão, e do tipo quando não.
+    /// Corpus regressions: the `?` after `is T`/`as T` belongs to the
+    /// conditional when what follows starts an expression, and to the type when
+    /// it does not.
     #[test]
     fn is_with_conditional_and_nullable_type() {
         for src in [
@@ -3034,7 +3038,7 @@ mod tests {
         }
     }
 
-    /// `.5` é literal `double` (gramática: `'.' DIGIT+`).
+    /// `.5` is a `double` literal (grammar: `'.' DIGIT+`).
     #[test]
     fn double_starting_with_dot() {
         let (p, id) = parse("log(n - .5)");
@@ -3047,7 +3051,7 @@ mod tests {
         assert!(matches!(kind(&p, *right), ExprKind::Double(_)));
     }
 
-    /// Elementos null-aware (Dart 3.8): `?e`, `?k: v`, `k: ?v`.
+    /// Null-aware elements (Dart 3.8): `?e`, `?k: v`, `k: ?v`.
     #[test]
     fn null_aware_elements() {
         let (p, id) = parse("[a, ?b, ...c]");
@@ -3076,8 +3080,8 @@ mod tests {
         assert_eq!(flags(2), (true, true));
     }
 
-    /// Surrogates: par de escapes vira o escalar; solto é guardado como
-    /// unidade UTF-16, como o Dart mede.
+    /// Surrogates: an escape pair becomes the scalar; a lone one is kept as a
+    /// UTF-16 unit, as Dart measures it.
     #[test]
     fn strings_with_surrogates() {
         let (p, id) = parse(r"'👭'");
@@ -3094,7 +3098,7 @@ mod tests {
         let v = lit.constant_value().unwrap();
         assert_eq!(v.as_str(), None);
         assert_eq!(v.utf16_len(), 3);
-        // Literais adjacentes concatenam por unidade: o par se forma.
+        // Adjacent literals concatenate by unit: the pair forms.
         let (p, id) = parse(r"'\uD83D' '\uDC6D'");
         let ExprKind::String(lit) = kind(&p, id) else {
             panic!()

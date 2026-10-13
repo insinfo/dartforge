@@ -1,36 +1,38 @@
-//! Padrões de Dart 3: `switch`, `if case`, declarações e atribuições.
+//! Dart 3 patterns: `switch`, `if case`, declarations and assignments.
 //!
-//! Gramática coberta (Dart 3.6): `pattern` = `logicalOrPattern`, com
+//! Grammar covered (Dart 3.6): `pattern` = `logicalOrPattern`, with
 //! `logicalAndPattern`, `relationalPattern`, `unaryPattern` (`p?`, `p!`,
-//! `p as T`) e `primaryPattern` (constante, variável, `_`, parênteses, lista,
-//! mapa, record e objeto).
+//! `p as T`) and `primaryPattern` (constant, variable, `_`, parentheses,
+//! list, map, record and object).
 //!
-//! Decisões que a resolução precisa conhecer:
+//! Decisions resolution needs to know about:
 //!
-//! * Um identificador solto (não seguido de `(`, `<` ou `.`) vira **sempre**
-//!   [`PatternKind::Variable`] sem `var`/`final`/tipo. Em contexto de
-//!   declaração ou atribuição isso é uma variável; em contexto de
-//!   correspondência (`case x:`) a linguagem lê como referência a uma
-//!   constante. O parser não sabe em que contexto está (o mesmo `case` serve
-//!   a `switch` e `if case`), então a fase seguinte decide pelo contexto.
-//! * `kind identifier` (`int x`, `List<int> xs`, `a.B c`, `(int, int) p`) é
-//!   variável tipada; `int _` é [`PatternKind::Wildcard`] tipado. Como no SDK,
-//!   `TIPO as`/`TIPO when` **não** é variável chamada `as`/`when`: `Foo as Bar`
-//!   é o padrão `Foo` convertido para `Bar`, e `x when g` termina o padrão em
-//!   `x`.
-//! * `Nome(...)`, `p.Nome(...)`, `Nome<T>(...)` é objeto; o tipo é montado
-//!   aqui (nunca tem `?`). `:x` em campo de record/objeto infere o nome do
-//!   padrão de variável interno, atravessando `?`, `!`, `as` e parênteses.
-//! * Constantes (literais, `-1`, `const [...]`, `a.b.c`) são lidas como no
-//!   `parsePrimaryPattern` do fasta: a expressão unária e, para recuperar,
-//!   os operadores binários até a igualdade, com os erros
-//!   `INVALID_CONSTANT_*` do `ConstantPatternContext`.
-//! * `(p)` sem vírgula nem nome é parênteses; `(p,)`, `()` e `(a: p)` são
-//!   records. `(int, int) x` é variável com tipo record.
-//! * `<T>[...]`/`<K, V>{...}` levam argumentos de tipo; `<` que não abre uma
-//!   lista de tipos válida seguida de `[`/`{` é o relacional `< e`.
-//! * `as` não é palavra reservada (`at_ident("as")`); `>=` chega como `>`
-//!   colado a `=` e é lido por `composed_gt`.
+//! * A bare identifier (not followed by `(`, `<` or `.`) **always** becomes
+//!   a [`PatternKind::Variable`] without `var`/`final`/type. In a declaration
+//!   or assignment context that is a variable; in a matching context
+//!   (`case x:`) the language reads it as a reference to a constant. The
+//!   parser does not know which context it is in (the same `case` serves
+//!   `switch` and `if case`), so the next phase decides by context.
+//! * `type identifier` (`int x`, `List<int> xs`, `a.B c`, `(int, int) p`) is
+//!   a typed variable; `int _` is a typed [`PatternKind::Wildcard`]. As in
+//!   the SDK, `TYPE as`/`TYPE when` is **not** a variable named `as`/`when`:
+//!   `Foo as Bar` is the pattern `Foo` cast to `Bar`, and `x when g` ends the
+//!   pattern at `x`.
+//! * `Name(...)`, `p.Name(...)`, `Name<T>(...)` is an object; the type is
+//!   built here (it never has `?`). `:x` in a record/object field infers the
+//!   name from the inner variable pattern, going through `?`, `!`, `as` and
+//!   parentheses.
+//! * Constants (literals, `-1`, `const [...]`, `a.b.c`) are read as in
+//!   fasta's `parsePrimaryPattern`: the unary expression and, to recover,
+//!   the binary operators up to equality, with the `ConstantPatternContext`'s
+//!   `INVALID_CONSTANT_*` errors.
+//! * `(p)` without a comma or name is a parenthesized pattern; `(p,)`, `()`
+//!   and `(a: p)` are records. `(int, int) x` is a variable with a record
+//!   type.
+//! * `<T>[...]`/`<K, V>{...}` take type arguments; a `<` that does not open a
+//!   valid type list followed by `[`/`{` is the relational `< e`.
+//! * `as` is not a reserved word (`at_ident("as")`); `>=` arrives as `>`
+//!   glued to `=` and is read by `composed_gt`.
 use super::{PResult, Parser};
 use crate::ast::{
     BinaryOp, ExprId, ExprKind, ListPatternElement, MapPatternEntry, Name, Pattern, PatternField,
@@ -39,7 +41,7 @@ use crate::ast::{
 use crate::token::{Keyword, Kind, Op};
 use dartforge_diagnostics::{Span, codigos};
 
-/// Onde termina a cadeia `a.b.c` de um padrão `const`
+/// Where the `a.b.c` chain of a `const` pattern ends
 /// ([`Parser::send_chain`]).
 enum SendKind {
     Invocation,
@@ -47,12 +49,12 @@ enum SendKind {
     Open,
 }
 
-/// `PatternContext` do fasta: onde o padrão aparece.
+/// fasta's `PatternContext`: where the pattern appears.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PatternContext {
     /// `var (a, b) = e;`, `for (final (a, b) in e)`.
     Declaration,
-    /// `case p`, `if (e case p)`, `switch` como expressão.
+    /// `case p`, `if (e case p)`, `switch` as an expression.
     Matching,
     /// `(a, b) = e`.
     Assignment,
@@ -61,18 +63,18 @@ pub(crate) enum PatternContext {
 /// `ConstantPatternContext` do fasta.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ConstContext {
-    /// Fora de padrão constante.
+    /// Outside a constant pattern.
     NoneFound,
-    /// Padrão constante sem `const`.
+    /// Constant pattern without `const`.
     Implicit,
-    /// Padrão constante com `const`.
+    /// Constant pattern with `const`.
     Explicit,
-    /// Operando de `-` num padrão constante: só literal numérico.
+    /// Operand of `-` in a constant pattern: numeric literals only.
     NumericOnly,
 }
 
 impl<'s, 'i> Parser<'s, 'i> {
-    /// Um padrão de nível mais externo no contexto `ctx`.
+    /// An outermost pattern in context `ctx`.
     pub(crate) fn parse_pattern_in(&mut self, ctx: PatternContext) -> PResult<PatternId> {
         let salvo = self.default_context;
         self.default_context = ctx;
@@ -81,17 +83,17 @@ impl<'s, 'i> Parser<'s, 'i> {
         r
     }
 
-    /// Os erros que `parseVariablePattern` (`parser_impl.dart:9908`) relata
-    /// pelo contexto: `var`/`final` em declaração é
-    /// `VARIABLE_PATTERN_KEYWORD_IN_DECLARATION_CONTEXT`; `var` com tipo em
-    /// correspondência, `VAR_AND_TYPE`; variável declarada (não um
-    /// identificador solto) em atribuição, `PATTERN_ASSIGNMENT_DECLARES_VARIABLE`
-    /// no nome; o nome `when`/`as`, `ILLEGAL_PATTERN_VARIABLE_NAME` (ou
-    /// `ILLEGAL_PATTERN_ASSIGNMENT_VARIABLE_NAME`, solto em atribuição).
+    /// The errors `parseVariablePattern` (`parser_impl.dart:9908`) reports by
+    /// context: `var`/`final` in a declaration is
+    /// `VARIABLE_PATTERN_KEYWORD_IN_DECLARATION_CONTEXT`; `var` with a type in
+    /// matching, `VAR_AND_TYPE`; a declared variable (not a bare identifier) in
+    /// an assignment, `PATTERN_ASSIGNMENT_DECLARES_VARIABLE` at the name; the
+    /// name `when`/`as`, `ILLEGAL_PATTERN_VARIABLE_NAME` (or
+    /// `ILLEGAL_PATTERN_ASSIGNMENT_VARIABLE_NAME`, bare in an assignment).
     fn check_variable_pattern(&mut self, word: Option<Span>, var_: bool, typed: bool, nome: Name) {
         let stray = word.is_none() && !typed;
-        // Solto num contexto refutável é padrão constante
-        // (`parsePrimaryPattern`): `when`/`as` ali é
+        // Bare in a refutable context it is a constant pattern
+        // (`parsePrimaryPattern`): `when`/`as` there is
         // `ILLEGAL_PATTERN_IDENTIFIER_NAME`.
         if stray && self.default_context == PatternContext::Matching {
             let texto = &self.source[nome.span.start..nome.span.end];
@@ -132,7 +134,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// `pattern` completo (com `||`, `&&`, `as`, `?`, `!`).
+    /// Full `pattern` (with `||`, `&&`, `as`, `?`, `!`).
     pub(crate) fn parse_pattern(&mut self) -> PResult<PatternId> {
         self.enter()?;
         let result = self.parse_or_pattern();
@@ -140,9 +142,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         result
     }
 
-    /// Em `pos` começa uma declaração por padrão `var (…) =`, `final [`,
-    /// `var {`, `final <T>[`? Para `(` exige `=` ou `in` após o `)`
-    /// correspondente, porque `final (int, int) r = …` é um tipo record.
+    /// Does a pattern declaration `var (…) =`, `final [`, `var {`, `final <T>[`
+    /// start at `pos`? For `(` it requires `=` or `in` after the matching `)`,
+    /// because `final (int, int) r = …` is a record type.
     pub(crate) fn looks_like_pattern_declaration(&self, pos: usize) -> bool {
         if !matches!(
             self.kind_of(pos),
@@ -160,9 +162,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         match self.kind_of(i) {
             Kind::Op(Op::LBracket | Op::LBrace) => true,
             Kind::Op(Op::LParen) if i == pos + 1 => self.paren_group_then_assign_or_in(i),
-            // Padrão de objeto: `final MapEntry(key: k, value: v) in …`,
-            // `final p.Nome<T>(…) = …`. Uma declaração comum nunca tem `(`
-            // logo após o nome do tipo.
+            // Object pattern: `final MapEntry(key: k, value: v) in …`,
+            // `final p.Name<T>(…) = …`. A regular declaration never has `(` right after
+            // the type name.
             Kind::Ident if i == pos + 1 => {
                 let mut j = i + 1;
                 if self.kind_of(j) == Kind::Op(Op::Dot) && self.kind_of(j + 1) == Kind::Ident {
@@ -180,7 +182,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// O grupo `(...)` em `pos` fecha e é seguido de `=` ou `in`.
+    /// The `(...)` group at `pos` closes and is followed by `=` or `in`.
     fn paren_group_then_assign_or_in(&self, pos: usize) -> bool {
         match self.matching_close(pos) {
             Some(close) => matches!(
@@ -191,10 +193,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// Em `pos` começa uma atribuição por padrão: um `outerPattern` —
-    /// `(a, b)`, `[x]`, `{'k': v}`, `<T>[…]`, `Nome(…)`, `p.Nome<T>(…)` —
-    /// cujo fechamento é seguido de `=` (e não de `==`, que o lexer já
-    /// distingue)?
+    /// Does a pattern assignment start at `pos`: an `outerPattern` — `(a, b)`,
+    /// `[x]`, `{'k': v}`, `<T>[…]`, `Name(…)`, `p.Name<T>(…)` — whose closer is
+    /// followed by `=` (and not `==`, which the lexer already tells apart)?
     pub(crate) fn looks_like_pattern_assignment(&self, pos: usize) -> bool {
         let mut i = pos;
         match self.kind_of(i) {
@@ -222,7 +223,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    // -- Níveis binários e unários ----------------------------------------
+    // -- Binary and unary levels -----------------------------------------------
 
     fn parse_or_pattern(&mut self) -> PResult<PatternId> {
         let start = self.span();
@@ -244,13 +245,13 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(left)
     }
 
-    /// `primaryPattern` seguido de `?`, `!` ou `as T`, quantos houver.
+    /// `primaryPattern` followed by `?`, `!` or `as T`, as many as there are.
     fn parse_unary_pattern(&mut self) -> PResult<PatternId> {
         let start = self.span();
         let mut pattern = self.parse_primary_pattern()?;
-        // `isLastPatternAllowedInsideUnaryPattern` do fasta: um padrão
-        // relacional ou unário dentro de outro unário (`_ as int as num`,
-        // `> 1?`) é `INVALID_INSIDE_UNARY_PATTERN`, do início ao último token.
+        // fasta's `isLastPatternAllowedInsideUnaryPattern`: a relational or unary
+        // pattern inside another unary one (`_ as int as num`, `> 1?`) is
+        // `INVALID_INSIDE_UNARY_PATTERN`, from the start to the last token.
         let mut allowed = !matches!(
             self.ast.pattern(pattern).kind,
             PatternKind::Relational { .. }
@@ -275,8 +276,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             } else if self.eat_op(Op::Bang) {
                 pattern = self.push_pattern(start, PatternKind::NullAssert(pattern));
             } else if self.eat_ident("as") {
-                // `computeTypeAfterIsOrAs` + `ensureTypeNotVoid`, como na
-                // expressão `as`: sem tipo, `EXPECTED_TYPE_NAME` e um vazio.
+                // `computeTypeAfterIsOrAs` + `ensureTypeNotVoid`, as in the `as`
+                // expression: without a type, `EXPECTED_TYPE_NAME` and an empty one.
                 let ty = self.type_after_is_or_as()?;
                 pattern = self.push_pattern(start, PatternKind::Cast { pattern, ty });
             } else {
@@ -285,7 +286,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    // -- Primários --------------------------------------------------------
+    // -- Primaries -------------------------------------------------------------
 
     fn parse_primary_pattern(&mut self) -> PResult<PatternId> {
         let start = self.span();
@@ -311,7 +312,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             Kind::Keyword(Keyword::Var | Keyword::Final) => self.parse_variable_pattern(start),
             Kind::Keyword(Keyword::Const) => self.parse_constant_pattern(start),
-            // `void Function() f` / `void Function() _`: variável tipada.
+            // `void Function() f` / `void Function() _`: a typed variable.
             Kind::Keyword(Keyword::Void) if self.variable_pattern_type_end(self.pos).is_some() => {
                 let ty = self.parse_type()?;
                 let name = self.expect_identifier()?;
@@ -333,11 +334,11 @@ impl<'s, 'i> Parser<'s, 'i> {
                 | Keyword::Switch,
             )
             | Kind::Op(Op::Minus | Op::Hash | Op::Bang | Op::Tilde | Op::Dot) => {
-                // `.x` é atalho de ponto constante (3.10).
+                // `.x` is a constant dot shorthand (3.10).
                 self.parse_constant_pattern(start)
             }
-            // `parsePrimaryPattern`: o resto é padrão constante
-            // (`parsePrecedenceExpression`), com a recuperação da expressão.
+            // `parsePrimaryPattern`: the rest is a constant pattern
+            // (`parsePrecedenceExpression`), with expression recovery.
             _ => self.parse_constant_pattern(start),
         }
     }
@@ -364,12 +365,13 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(self.push_pattern(start, PatternKind::Relational { op, value }))
     }
 
-    /// Padrão constante, como o `parsePrimaryPattern` do fasta: com `const`
-    /// (contexto explícito) ou sem (implícito), lido por
-    /// `parsePrecedenceExpression(EQUALITY_PRECEDENCE)` — a gramática só
-    /// aceita a precedência de seletor, mas o fasta lê até a igualdade para
-    /// recuperar e relata o que sobra (`INVALID_CONSTANT_PATTERN_*`,
-    /// `INVALID_CONSTANT_CONST_PREFIX`). A árvore é a da expressão lida.
+    /// Constant pattern, like fasta's `parsePrimaryPattern`: with `const`
+    /// (explicit context) or without (implicit), read by
+    /// `parsePrecedenceExpression(EQUALITY_PRECEDENCE)` — the grammar only
+    /// accepts selector precedence, but fasta reads up to equality to recover
+    /// and reports the leftovers (`INVALID_CONSTANT_PATTERN_*`,
+    /// `INVALID_CONSTANT_CONST_PREFIX`). The tree is that of the expression
+    /// read.
     fn parse_constant_pattern(&mut self, start: Span) -> PResult<PatternId> {
         let explicit = self.at_kw(Keyword::Const);
         let ctx = if explicit {
@@ -387,11 +389,12 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(self.push_pattern(start, PatternKind::Constant(expr)))
     }
 
-    /// `_parsePrecedenceExpressionLoop` no contexto de padrão constante: um
-    /// operador binário (ou `is`) entre a igualdade e o seletor é relatado —
-    /// com `const`, `INVALID_CONSTANT_CONST_PREFIX` no último token lido;
-    /// sem, `INVALID_CONSTANT_PATTERN_BINARY` no operador — e a expressão
-    /// continua sem contexto. `as` e o `!` final ficam para o padrão.
+    /// `_parsePrecedenceExpressionLoop` in constant pattern context: a binary
+    /// operator (or `is`) between equality and selector is reported — with
+    /// `const`, `INVALID_CONSTANT_CONST_PREFIX` at the last token read; without,
+    /// `INVALID_CONSTANT_PATTERN_BINARY` at the operator — and the expression
+    /// goes on without context. `as` and the trailing `!` are left to the
+    /// pattern.
     fn binary_const_pattern(
         &mut self,
         start_offset: Span,
@@ -414,10 +417,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.parse_binary_rest(start_offset, expr, super::expressions::LEVEL_EQUALITY)
     }
 
-    /// `const` seguido do resto: as formas que a gramática aceita
-    /// (`const [..]`, `const {..}`, `const <T>…`, `const (..)`, `const
-    /// C(..)`) são lidas com o `const`; as outras, sem ele, com o erro do
-    /// `parsePrimary`/`parseSend` do fasta.
+    /// `const` followed by the rest: the forms the grammar accepts
+    /// (`const [..]`, `const {..}`, `const <T>…`, `const (..)`,
+    /// `const C(..)`) are read with the `const`; the others, without it, with
+    /// the error from fasta's `parsePrimary`/`parseSend`.
     fn explicit_const_pattern(&mut self) -> PResult<ExprId> {
         let after = self.pos + 1;
         match self.kind_of(after) {
@@ -431,8 +434,8 @@ impl<'s, 'i> Parser<'s, 'i> {
                         &[],
                     );
                 }
-                // `parsePrecedenceExpression` depois do `const`: o `(` é o
-                // primário, sem o `const` de record.
+                // `parsePrecedenceExpression` after the `const`: the `(` is the primary,
+                // without the record's `const`.
                 self.advance();
                 let start_offset = self.span();
                 let e = self.parse_parenthesized_or_record(start_offset, false, true)?;
@@ -449,14 +452,13 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.parse_unary(true)
             }
             Kind::Ident if self.text_of(after) == "await" => {
-                // `await` é prefixo (`parseUnaryExpression`), sem o erro.
+                // `await` is a prefix (`parseUnaryExpression`), without the error.
                 self.advance();
                 self.parse_unary(false)
             }
             Kind::Ident => {
-                // `parseSend` em cada identificador da cadeia `a.b.c`: o que
-                // não é seguido de `.`, `(` ou `<` (uma invocação constante
-                // ainda pode vir) leva o erro.
+                // `parseSend` on each identifier of the `a.b.c` chain: the one not followed
+                // by `.`, `(` or `<` (a constant invocation may still come) gets the error.
                 match self.send_chain(after) {
                     SendKind::Invocation => self.parse_unary(true),
                     SendKind::Error(end_offset) => {
@@ -478,12 +480,12 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// A cadeia `a.b.c` que começa em `pos` (depois de `const`), pelo
-    /// `parseSend` do fasta: termina numa invocação (`C(`, `C<T>(`,
-    /// `C<T>.n(`, `p.C.n(`); ou no identificador (ou no `>` dos argumentos
-    /// de tipo dele) que não é seguido de `.`, `(` nem `<`, onde o erro é
-    /// relatado; ou em `<` que não abre invocação (o erro, se houver, é o
-    /// dos argumentos de tipo sem `(`).
+    /// The `a.b.c` chain starting at `pos` (after `const`), following fasta's
+    /// `parseSend`: it ends at an invocation (`C(`, `C<T>(`, `C<T>.n(`,
+    /// `p.C.n(`); or at the identifier (or at the `>` of its type arguments) not
+    /// followed by `.`, `(` or `<`, where the error is reported; or at a `<`
+    /// that does not open an invocation (the error, if any, is that of type
+    /// arguments without `(`).
     fn send_chain(&self, mut pos: usize) -> SendKind {
         loop {
             if self.kind_of(pos) != Kind::Ident {
@@ -515,10 +517,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// `parseUnaryExpression` + `parsePrimary` com o contexto de padrão
-    /// constante: `!`/`~` não são aceitos (`INVALID_CONSTANT_PATTERN_UNARY`),
-    /// `-` só nega literal numérico (`INVALID_CONSTANT_PATTERN_NEGATION`), e
-    /// com `const` nenhum literal nem `-` é aceito.
+    /// `parseUnaryExpression` + `parsePrimary` with the constant pattern
+    /// context: `!`/`~` are not accepted (`INVALID_CONSTANT_PATTERN_UNARY`), `-`
+    /// only negates a numeric literal (`INVALID_CONSTANT_PATTERN_NEGATION`), and
+    /// with `const` no literal or `-` is accepted.
     fn unary_const_pattern(&mut self, ctx: ConstContext) -> PResult<ExprId> {
         let start = self.span();
         match self.kind() {
@@ -577,8 +579,8 @@ impl<'s, 'i> Parser<'s, 'i> {
                         self.erro(codigos::parser::INVALID_CONSTANT_CONST_PREFIX, &[]);
                     }
                     (ConstContext::NumericOnly, Kind::Ident) => {
-                        // `parsePrimary` de cada identificador da cadeia
-                        // (`-p.x`: os dois), no nível de fora dos grupos.
+                        // `parsePrimary` of each identifier of the chain (`-p.x`: both), at the
+                        // level outside the groups.
                         self.erro(codigos::parser::INVALID_CONSTANT_PATTERN_NEGATION, &[]);
                         let p0 = self.pos;
                         let expr = self.parse_unary(true)?;
@@ -607,7 +609,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                         return Ok(expr);
                     }
                     (ConstContext::NumericOnly, _) if literal => {
-                        // A string inteira (com interpolações) é o token do fasta.
+                        // The whole string (with interpolations) is the fasta token.
                         let span = self.string_or_token_span();
                         self.error_at(
                             codigos::parser::INVALID_CONSTANT_PATTERN_NEGATION,
@@ -622,8 +624,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// O intervalo do token corrente; numa string com interpolação, até o
-    /// fim dela.
+    /// The range of the current token; in a string with interpolation, up to
+    /// its end.
     fn string_or_token_span(&self) -> Span {
         let s = self.span();
         if let Kind::StrBegin(..) = self.kind() {
@@ -655,8 +657,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         let final_ = self.at_kw(Keyword::Final);
         let var_ = !final_;
         let word = self.advance().span;
-        // `var int x` (erro: `VAR_AND_TYPE` em correspondência) também lê
-        // o tipo, como `computeVariablePatternType` do fasta.
+        // `var int x` (an error: `VAR_AND_TYPE` in matching) also reads the type,
+        // like fasta's `computeVariablePatternType`.
         let ty = if self.variable_pattern_type_end(self.pos).is_some() {
             Some(self.parse_type()?)
         } else {
@@ -667,8 +669,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(self.finish_variable(start, final_, var_, ty, name))
     }
 
-    /// Padrão que começa com identificador: `_`, `int x`, `int _`, `Nome(…)`,
-    /// `a.b` constante ou identificador solto.
+    /// A pattern starting with an identifier: `_`, `int x`, `int _`, `Name(…)`,
+    /// a constant `a.b` or a bare identifier.
     fn parse_identifier_pattern(&mut self, start: Span) -> PResult<PatternId> {
         let pos = self.pos;
         let next = self.kind_of(pos + 1);
@@ -685,21 +687,21 @@ impl<'s, 'i> Parser<'s, 'i> {
         if self.object_pattern_paren(pos).is_some() {
             return self.parse_object_pattern(start);
         }
-        // `await e` num contexto refutável: o identificador solto vai para o
-        // padrão constante (`parsePrecedenceExpression`), que lê o `await`.
+        // `await e` in a refutable context: the bare identifier goes to the
+        // constant pattern (`parsePrecedenceExpression`), which reads the `await`.
         if self.text() == "await" && (self.in_async || self.looks_like_expression_after_await(pos, true)) && self.default_context == PatternContext::Matching {
             return self.parse_constant_pattern(start);
         }
-        // `a--`/`a++`: o fasta lê a `unaryExpression` inteira como padrão
-        // constante (e o analyzer a recusa como não constante).
+        // `a--`/`a++`: fasta reads the whole `unaryExpression` as a constant
+        // pattern (and the analyzer rejects it as non-constant).
         if matches!(
             next,
             Kind::Op(Op::Dot | Op::Lt | Op::PlusPlus | Op::MinusMinus)
         ) {
             return self.parse_constant_pattern(start);
         }
-        // `a + 1`: um identificador só, num contexto refutável, é padrão
-        // constante no fasta, e o operador vira `INVALID_CONSTANT_PATTERN_BINARY`.
+        // `a + 1`: a lone identifier, in a refutable context, is a constant pattern
+        // in fasta, and the operator becomes `INVALID_CONSTANT_PATTERN_BINARY`.
         {
             self.advance();
             let binary = self.pattern_binary_operator().is_some();
@@ -713,7 +715,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(self.finish_variable(start, false, false, None, name))
     }
 
-    /// Variável ou, se o nome é `_`, curinga (com o mesmo tipo).
+    /// A variable or, if the name is `_`, a wildcard (with the same type).
     fn finish_variable(
         &mut self,
         start: Span,
@@ -736,7 +738,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         )
     }
 
-    /// `Nome<T>(fields_)` / `p.Nome(fields_)`, com o `(` garantido por
+    /// `Name<T>(fields)` / `p.Name(fields)`, with the `(` guaranteed by
     /// [`Parser::object_pattern_paren`].
     fn parse_object_pattern(&mut self, start: Span) -> PResult<PatternId> {
         let mut name = vec![self.identifier()];
@@ -762,7 +764,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         ))
     }
 
-    /// `(p)`, `()`, `(p,)`, `(a, b: p, :x)` ou `(int, int) nome`.
+    /// `(p)`, `()`, `(p,)`, `(a, b: p, :x)` or `(int, int) name`.
     fn parse_parenthesized_or_record_pattern(&mut self, start: Span) -> PResult<PatternId> {
         if self.variable_pattern_type_end(self.pos).is_some() {
             let ty = self.parse_type()?;
@@ -779,8 +781,8 @@ impl<'s, 'i> Parser<'s, 'i> {
                 },
             ));
         }
-        // `parseParenthesizedPatternOrRecordPattern`: sem vírgula depois do
-        // campo, o laço para e o `ensureCloseParen` pula até o `)` casado.
+        // `parseParenthesizedPatternOrRecordPattern`: without a comma after the
+        // field, the loop stops and `ensureCloseParen` skips to the matching `)`.
         let first = self.parse_pattern_field()?;
         if first.name.is_none() && !self.at_op(Op::Comma) {
             self.ensure_close_paren(abre)?;
@@ -802,7 +804,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         ))
     }
 
-    /// `(campo, nome: p, :x)` de um padrão de objeto, com os parênteses.
+    /// `(field, name: p, :x)` of an object pattern, with the parentheses.
     fn parse_pattern_fields(&mut self) -> PResult<Vec<PatternField>> {
         self.expect_op(Op::LParen)?;
         let mut fields = Vec::new();
@@ -816,7 +818,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(fields)
     }
 
-    /// `p`, `nome: p` ou `:p` (nome inferido do padrão de variável).
+    /// `p`, `name: p` or `:p` (name inferred from the variable pattern).
     fn parse_pattern_field(&mut self) -> PResult<PatternField> {
         let start = self.span();
         if self.eat_op(Op::Colon) {
@@ -843,8 +845,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         })
     }
 
-    /// Nome do campo `:x`: o da variável dentro de `x`, `x?`, `x!`, `x as T`,
-    /// `(x)`, `var x`, `final int x`.
+    /// Name of the `:x` field: that of the variable inside `x`, `x?`, `x!`,
+    /// `x as T`, `(x)`, `var x`, `final int x`.
     fn inferred_field_name(&mut self, pattern: PatternId) -> PResult<Name> {
         let mut current = pattern;
         loop {
@@ -862,7 +864,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// `[p, ..., ...rest]` após os argumentos de tipo.
+    /// `[p, ..., ...rest]` after the type arguments.
     fn parse_list_pattern(
         &mut self,
         start: Span,
@@ -895,7 +897,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         ))
     }
 
-    /// `{k: p, ...}` após os argumentos de tipo; `...` só sem sub-padrão.
+    /// `{k: p, ...}` after the type arguments; `...` only without a subpattern.
     fn parse_map_pattern(
         &mut self,
         start: Span,
@@ -930,18 +932,17 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     // -- Lookaheads -------------------------------------------------------
 
-    /// Se em `pos` há `kind identifier` de padrão de variável, a posição
-    /// do identificador. Aplica a regra do SDK de que `TIPO as`/`TIPO when`
-    /// não é variável, e pré-filtra as formas que nunca são tipo antes de
-    /// consultar [`Parser::looks_like_type_then_identifier`].
+    /// If a variable pattern's `type identifier` is at `pos`, the position of
+    /// the identifier. Applies the SDK rule that `TYPE as`/`TYPE when` is not a
+    /// variable, and pre-filters the forms that are never a type before asking
+    /// [`Parser::looks_like_type_then_identifier`].
     fn variable_pattern_type_end(&self, pos: usize) -> Option<usize> {
         let candidate = match self.kind_of(pos) {
             Kind::Ident => match self.kind_of(pos + 1) {
                 Kind::Ident => pos + 1,
-                // `int? x`: num padrão não há condicional (a constante é uma
-                // `unaryExpression`), então `T? nome` é sempre tipo e
-                // variável, qualquer que seja o que vem depois — inclusive
-                // outro `?` (`int? x?`, verificação de nulo).
+                // `int? x`: a pattern has no conditional (the constant is a
+                // `unaryExpression`), so `T? name` is always a type and a variable,
+                // whatever follows — including another `?` (`int? x?`, a null check).
                 Kind::Op(Op::Question) if self.kind_of(pos + 2) == Kind::Ident => pos + 2,
                 Kind::Op(Op::Dot | Op::Lt | Op::Question) => {
                     if !self.looks_like_type_then_identifier(pos) {
@@ -975,13 +976,13 @@ impl<'s, 'i> Parser<'s, 'i> {
         Some(candidate)
     }
 
-    /// `as` e `when` terminam o padrão anterior em vez de nomear uma variável.
+    /// `as` and `when` end the previous pattern instead of naming a variable.
     fn is_pattern_terminator(&self, pos: usize) -> bool {
         matches!(self.text_of(pos), "as" | "when")
     }
 
-    /// Posição do `(` de um padrão de objeto que começa em `pos`:
-    /// `Nome(`, `p.Nome(`, `Nome<T>(`.
+    /// Position of the `(` of an object pattern starting at `pos`: `Name(`,
+    /// `p.Name(`, `Name<T>(`.
     fn object_pattern_paren(&self, pos: usize) -> Option<usize> {
         if self.kind_of(pos) != Kind::Ident {
             return None;
@@ -1016,7 +1017,7 @@ mod tests {
     use dartforge_diagnostics::Diagnostic;
     use dartforge_intern::Interner;
 
-    /// `(código, texto do intervalo)` dos diagnósticos de uma unidade.
+    /// `(code, range text)` of a unit's diagnostics.
     fn unit_errors(fonte: &str) -> Vec<(String, String)> {
         let mut names = Interner::new();
         let out = crate::parser::parse(fonte, &mut names);
@@ -1033,7 +1034,7 @@ mod tests {
             .collect()
     }
 
-    /// Padrões constantes com a recuperação do fasta (conferidos com o
+    /// Constant patterns with fasta's recovery (checked against
     /// `dart analyze` 3.6.2).
     #[test]
     fn constant_patterns_with_fasta_errors() {
@@ -1075,7 +1076,7 @@ mod tests {
             case_("const ()"),
             e("invalid_constant_pattern_empty_record_literal", "(")
         );
-        // `const (e)`: expressão entre parênteses, sem o erro de record.
+        // `const (e)`: a parenthesized expression, without the record error.
         assert_eq!(case_("const (b * 2)"), vec![]);
         assert_eq!(case_("const (1, 2)"), vec![]);
         assert_eq!(case_("A<int>"), e("invalid_constant_pattern_generic", "<"));
@@ -1086,9 +1087,9 @@ mod tests {
         assert_eq!(case_("> 1?"), e("invalid_inside_unary_pattern", "> 1"));
     }
 
-    /// `parseInitializers` desliga `mayParseFunctionExpressions`: `(v == null) {`
-    /// num inicializador é expressão seguida do corpo; dentro de argumentos
-    /// a função literal volta.
+    /// `parseInitializers` turns off `mayParseFunctionExpressions`:
+    /// `(v == null) {` in an initializer is an expression followed by the body;
+    /// inside arguments the function literal comes back.
     #[test]
     fn initializer_without_function_literal() {
         assert_eq!(
@@ -1098,8 +1099,9 @@ mod tests {
         assert_eq!(unit_errors("class A { var f; A() : f = g((x) { return x; }) {} }"), vec![]);
     }
 
-    /// `ensureCloseParen`: o `)` que falta é relatado no token corrente e o
-    /// resto até o `)` casado é pulado; os comandos seguintes continuam.
+    /// `ensureCloseParen`: the missing `)` is reported at the current token and
+    /// the rest up to the matching `)` is skipped; the following statements go
+    /// on.
     #[test]
     fn closes_parens_like_fasta() {
         assert_eq!(
@@ -1120,7 +1122,7 @@ mod tests {
         ast: Ast,
         result: PResult<PatternId>,
         diagnostics: Vec<Diagnostic>,
-        /// Texto do token onde o parser parou.
+        /// Text of the token where the parser stopped.
         rest: String,
     }
 
@@ -1130,7 +1132,7 @@ mod tests {
         let (ast, result, diagnostics, rest) = {
             let mut p = Parser::new(src, tokens, &mut names);
             let result = p.parse_pattern();
-            assert_eq!(p.depth, 0, "profundidade não restaurada");
+            assert_eq!(p.depth, 0, "depth not restored");
             let rest = src[p.span().start..].to_string();
             (p.ast, result, p.diagnostics, rest)
         };
@@ -1143,7 +1145,7 @@ mod tests {
         }
     }
 
-    /// Padrão aceito sem diagnósticos, consumindo toda a fonte.
+    /// A pattern accepted without diagnostics, consuming the whole source.
     fn ok(src: &str) -> Out {
         let out = pattern(src);
         assert!(out.diagnostics.is_empty(), "{src}: {:?}", out.diagnostics);
@@ -1172,12 +1174,12 @@ mod tests {
         fn var_name(&self, id: PatternId) -> &str {
             match self.kind_of(id) {
                 PatternKind::Variable { name, .. } => self.name(name),
-                other => panic!("não é variável: {other:?}"),
+                other => panic!("not a variable: {other:?}"),
             }
         }
     }
 
-    // -- Independentes de outros módulos ------------------------------------
+    // -- Independent of other modules ------------------------------------------
 
     #[test]
     fn nullable_variable_with_null_check() {
@@ -1199,7 +1201,7 @@ mod tests {
 
     #[test]
     fn postfix_increment_and_constant_pattern() {
-        // `if (x case a--)`: constante (não constante), não variável `a`.
+        // `if (x case a--)`: a (non-constant) constant, not the variable `a`.
         let out = ok("a--");
         assert!(
             matches!(out.kind(), PatternKind::Constant(_)),
@@ -1438,8 +1440,8 @@ mod tests {
 
     #[test]
     fn errors() {
-        // `parsePrimaryPattern`: padrão constante, com o identificador
-        // sintético da expressão.
+        // `parsePrimaryPattern`: a constant pattern, with the expression's
+        // synthetic identifier.
         let out = pattern(")");
         assert!(out.diagnostics.iter().any(|d| {
             d.code
@@ -1494,9 +1496,9 @@ mod tests {
         );
     }
 
-    // -- Dependentes de expressions.rs / types.rs ---------------------------
+    // -- Depending on expressions.rs / types.rs --------------------------------
     //
-    // Panicam com "not yet implemented" enquanto esses módulos forem stubs.
+    // They panic with "not yet implemented" while those modules are stubs.
     mod dependents {
         use super::*;
 
@@ -1627,7 +1629,7 @@ mod tests {
         fn cast_and_type_followed_by_as() {
             let out = ok("x as int");
             assert!(matches!(out.kind(), PatternKind::Cast { .. }));
-            // `Foo as Bar` é o padrão `Foo` convertido, não variável `as`.
+            // `Foo as Bar` is the pattern `Foo` cast, not the variable `as`.
             let out = ok("Foo as Bar");
             let PatternKind::Cast { pattern, .. } = out.kind() else {
                 panic!()

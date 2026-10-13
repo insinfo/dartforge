@@ -1,33 +1,34 @@
-//! Parser de Dart 3.6 completo, descendente recursivo, sem resolução.
+//! Complete Dart 3.6 parser, recursive descent, without resolution.
 //!
-//! O parser está dividido em módulos por área da gramática, todos como
-//! `impl Parser` sobre o mesmo cursor:
+//! The parser is split into modules by grammar area, all as `impl Parser`
+//! over the same cursor:
 //!
-//! * [`types`] — anotações de tipo, argumentos e parâmetros de tipo, listas de
-//!   parâmetros formais e os *lookaheads* especulativos (`skip_type`);
-//! * [`declarations`] — unidade, diretivas, metadata, classes, mixins, enums,
-//!   extensions, extension types, typedefs, membros, construtores e corpos de
-//!   função;
-//! * [`expressions`] — expressões, literais (strings com interpolação e
-//!   decodificação de escapes, coleções, records), argumentos, cascatas,
-//!   expressões de função e `switch` como expressão;
-//! * [`statements`] — statements, declarações locais e cabeçalhos de `for`;
-//! * [`patterns`] — padrões (Dart 3).
+//! * [`types`] — type annotations, type arguments and parameters, formal
+//!   parameter lists and the speculative *lookaheads* (`skip_type`);
+//! * [`declarations`] — unit, directives, metadata, classes, mixins, enums,
+//!   extensions, extension types, typedefs, members, constructors and
+//!   function bodies;
+//! * [`expressions`] — expressions, literals (strings with interpolation and
+//!   escape decoding, collections, records), arguments, cascades, function
+//!   expressions and `switch` as an expression;
+//! * [`statements`] — statements, local declarations and `for` headers;
+//! * [`patterns`] — patterns (Dart 3).
 //!
-//! Regras comuns a todos os módulos:
+//! Rules shared by every module:
 //!
-//! * `>` chega sempre isolado do lexer; em contexto de expressão use
-//!   `Parser::composed_gt` para ler `>>`, `>>>`, `>=`, `>>=` e `>>>=`.
-//! * Identificadores embutidos e contextuais (`abstract`, `async`, `show`,
-//!   `when`, `on`…) são [`Kind::Ident`]; compare o texto com
-//!   `Parser::at_ident`. Só palavras reservadas são [`Kind::Keyword`].
-//! * Um erro produz um [`Diagnostic`] em `Parser::diagnostics` e devolve
-//!   [`ParseError`]; o chamador propaga com `?`. A recuperação, quando houver,
-//!   fica nas fronteiras de declaração de topo e de membro.
-//! * O parser aceita um **superconjunto** de programas válidos onde a
-//!   distinção exigiria resolução (por exemplo, qualquer expressão unária
-//!   como padrão constante): rejeitar programas inválidos é papel das fases
-//!   seguintes, e aceitar todo programa válido é o critério de aceite aqui.
+//! * `>` always arrives isolated from the lexer; in expression context use
+//!   `Parser::composed_gt` to read `>>`, `>>>`, `>=`, `>>=` and `>>>=`.
+//! * Built-in and contextual identifiers (`abstract`, `async`, `show`,
+//!   `when`, `on`…) are [`Kind::Ident`]; compare the text with
+//!   `Parser::at_ident`. Only reserved words are [`Kind::Keyword`].
+//! * An error produces a [`Diagnostic`] in `Parser::diagnostics` and returns
+//!   [`ParseError`]; the caller propagates it with `?`. Recovery, where
+//!   there is any, sits at top-level and member declaration boundaries.
+//! * The parser accepts a **superset** of the valid programs where the
+//!   distinction would need resolution (for example, any unary expression as
+//!   a constant pattern): rejecting invalid programs is the job of later
+//!   phases, and accepting every valid program is the acceptance criterion
+//!   here.
 pub mod declarations;
 pub(crate) mod fasta;
 pub(crate) mod modifiers;
@@ -43,14 +44,15 @@ use crate::token::{Keyword, Kind, Op, Token};
 use dartforge_diagnostics::{Codigo, Diagnostic, Span, codigos};
 use dartforge_intern::Interner;
 
-/// Marcador de falha: o diagnóstico já foi registrado em `Parser::diagnostics`.
+/// Failure marker: the diagnostic was already recorded in
+/// `Parser::diagnostics`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ParseError;
 
-/// Resultado das funções do parser.
+/// Result of the parser functions.
 pub type PResult<T> = Result<T, ParseError>;
 
-/// Composição de `>` isolados em contexto de expressão.
+/// Composition of isolated `>` in expression context.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ComposedGt {
     /// `>`
@@ -68,7 +70,7 @@ pub enum ComposedGt {
 }
 
 impl ComposedGt {
-    /// Quantos tokens a composição consome (nunca zero: `>` sozinho é 1).
+    /// How many tokens the composition consumes (never zero: a lone `>` is 1).
     #[allow(clippy::len_without_is_empty)]
     pub fn len(self) -> usize {
         match self {
@@ -80,7 +82,7 @@ impl ComposedGt {
     }
 }
 
-/// Cabeçalho de `for (...)` já consumido, incluindo os parênteses.
+/// A `for (...)` header already consumed, including the parentheses.
 #[derive(Debug)]
 pub enum ForHeader {
     Classic {
@@ -94,33 +96,33 @@ pub enum ForHeader {
     },
 }
 
-/// Resultado de [`parse`].
+/// Result of [`parse`].
 #[derive(Debug)]
 pub struct Parsed {
     pub unit: CompilationUnit,
     pub ast: Ast,
     pub diagnostics: Vec<Diagnostic>,
-    /// Os trechos da fonte cujos tokens a recuperação de erro descartou (do
-    /// primeiro ao último token pulado): a declaração, o membro ou o comando
-    /// que não fechou, e o que `ensureCloseParen` saltou. Um nome citado
-    /// num desses trechos pode ter uso ou declaração que a árvore não tem
-    /// (docs/ANALYZER-ESPECIFICACAO.md §G, T5, estrutura (b)).
+    /// The source ranges whose tokens error recovery discarded (from the first
+    /// to the last skipped token): the declaration, member or statement that did
+    /// not close, and what `ensureCloseParen` jumped over. A name mentioned in
+    /// one of these ranges may have a use or declaration the tree does not have
+    /// (docs/ANALYZER-ESPECIFICACAO.md §G, T5, structure (b)).
     pub pulados: Vec<Span>,
-    /// Qual analyzer é a referência de nomes de código e de textos desta
-    /// unidade: o 3.13.4 se a biblioteca está acima da 3.6 ou se a unidade
-    /// usa sintaxe de um recurso desligado que o 3.6.2 não conhece
-    /// ([`Feature::DESCONHECIDOS_NO_3_6`]); senão o 3.6.2
+    /// Which analyzer is the reference for this unit's code names and texts:
+    /// 3.13.4 if the library is above 3.6 or if the unit uses the syntax of a
+    /// disabled feature that 3.6.2 does not know
+    /// ([`Feature::DESCONHECIDOS_NO_3_6`]); otherwise 3.6.2
     /// (docs/ANALYZER-ESPECIFICACAO.md, T2).
     pub referencia: Referencia,
 }
 
-/// Analisa uma unidade de compilação inteira na versão de linguagem corrente
-/// ([`LibraryFeatures::atual`]); ver [`parse_com`].
+/// Parses a whole compilation unit at the current language version
+/// ([`LibraryFeatures::atual`]); see [`parse_com`].
 ///
-/// Os erros do scanner não interrompem a leitura (o lexer segue como o do fasta); todos ficam
-/// em [`Parsed::diagnostics`], e a unidade devolvida contém o que foi lido
-/// até o ponto de recuperação mais recente. Lista vazia significa que a
-/// unidade inteira foi aceita pela gramática.
+/// Scanner errors do not stop reading (the lexer goes on like fasta's); all
+/// of them end up in [`Parsed::diagnostics`], and the returned unit holds
+/// what was read up to the latest recovery point. An empty list means the
+/// whole unit was accepted by the grammar.
 ///
 /// ```
 /// let mut names = dartforge_intern::Interner::new();
@@ -132,22 +134,22 @@ pub fn parse(source: &str, interner: &mut Interner) -> Parsed {
     parse_com(source, interner, LibraryFeatures::atual())
 }
 
-/// Como [`parse`], com os recursos da biblioteca a que a unidade pertence
-/// (`docs/VERSOES-LINGUAGEM.md`). A gramática aceita é sempre o
-/// superconjunto; um recurso desligado vira diagnóstico, e onde a gramática
-/// **diverge** entre versões (`factory() {}`, `var`/`final` em parâmetro) a
-/// versão decide.
+/// Like [`parse`], with the features of the library the unit belongs to
+/// (`docs/VERSOES-LINGUAGEM.md`). The accepted grammar is always the
+/// superset; a disabled feature becomes a diagnostic, and where the grammar
+/// **diverges** between versions (`factory() {}`, `var`/`final` on a
+/// parameter) the version decides.
 pub fn parse_com(source: &str, interner: &mut Interner, features: LibraryFeatures) -> Parsed {
     parse_lexed_with(source, lexer::lex(source), interner, features)
 }
 
-/// Os erros do scanner do fasta que não interrompem a leitura (o token
-/// sintético segue para o parser), tirados dos lexemas dos tokens:
-/// `UNSUPPORTED_OPERATOR` no começo de `===`/`!==` (com o lexema),
-/// `MISSING_DIGIT` no último caractere de um `double` cujo expoente não tem
-/// dígito e `MISSING_HEX_DIGIT` no último caractere de um `0x` sem dígito
-/// hexadecimal (`fe:scanner/errors.dart`, `translateErrorToken`). Todos com
-/// comprimento 1.
+/// The fasta scanner errors that do not stop reading (the synthetic token
+/// goes on to the parser), taken from the token lexemes:
+/// `UNSUPPORTED_OPERATOR` at the start of `===`/`!==` (with the lexeme),
+/// `MISSING_DIGIT` at the last character of a `double` whose exponent has
+/// no digit and `MISSING_HEX_DIGIT` at the last character of a `0x` without
+/// a hexadecimal digit (`fe:scanner/errors.dart`, `translateErrorToken`).
+/// All of length 1.
 fn recoverable_scanner_errors(source: &str, tokens: &[Token]) -> Vec<Diagnostic> {
     use crate::token::{Kind, Op};
     let mut output = Vec::new();
@@ -166,8 +168,8 @@ fn recoverable_scanner_errors(source: &str, tokens: &[Token]) -> Vec<Diagnostic>
                     }
                 }
             }
-            // `translateErrorToken` (`errors.dart:36`): no caractere antes do
-            // `endOffset`, que é a quebra de linha ou o fim do arquivo.
+            // `translateErrorToken` (`errors.dart:36`): at the character before the
+            // `endOffset`, which is the line break or the end of the file.
             Kind::Str(f) | Kind::StrEnd(f) if f.aberta => {
                 let mut ultimo = t.span.end.saturating_sub(1);
                 while ultimo > 0 && !source.is_char_boundary(ultimo) {
@@ -175,8 +177,8 @@ fn recoverable_scanner_errors(source: &str, tokens: &[Token]) -> Vec<Diagnostic>
                 }
                 output.push(Diagnostic::com_codigo(dartforge_diagnostics::codigos::scanner::UNTERMINATED_STRING_LITERAL, one(ultimo), Vec::<&str>::new()));
             }
-            // `NonAsciiIdentifierToken`: cada caractere fora do
-            // identificador ASCII, com o ponto de código.
+            // `NonAsciiIdentifierToken`: each character outside the ASCII identifier,
+            // with its code point.
             Kind::Ident if !lexeme.chars().all(crate::lexer::identifier_char) => {
                 for (i, ch) in lexeme.char_indices() {
                     if !crate::lexer::identifier_char(ch) {
@@ -198,9 +200,10 @@ fn recoverable_scanner_errors(source: &str, tokens: &[Token]) -> Vec<Diagnostic>
             _ => {}
         }
     }
-    // Entre os tokens só há espaço e comentário, mais o que o scanner pulou
-    // (controle ASCII, espaço não ASCII) e o comentário de bloco sem fecho
-    // (`UNTERMINATED_MULTI_LINE_COMMENT` no último caractere, `errors.dart:39-44`).
+    // Between tokens there are only whitespace and comments, plus what the
+    // scanner skipped (ASCII control, non-ASCII whitespace) and the
+    // unterminated block comment (`UNTERMINATED_MULTI_LINE_COMMENT` at the last
+    // character, `errors.dart:39-44`).
     let mut previous_end = 0usize;
     for t in tokens {
         lacuna(source, previous_end, t.span.start, &mut output);
@@ -209,7 +212,7 @@ fn recoverable_scanner_errors(source: &str, tokens: &[Token]) -> Vec<Diagnostic>
     output
 }
 
-/// Os erros do scanner no trecho `[de, until)` entre dois tokens.
+/// The scanner errors in the gap `[de, until)` between two tokens.
 fn lacuna(source: &str, de: usize, until: usize, output: &mut Vec<Diagnostic>) {
     if de >= until {
         return;
@@ -260,9 +263,9 @@ fn lacuna(source: &str, de: usize, until: usize, output: &mut Vec<Diagnostic>) {
     }
 }
 
-/// Como [`parse`], com a fonte já lexada. O lexer é puro (não interna nomes),
-/// então pode correr noutra thread; só a análise sintática precisa do
-/// `Interner` e fica sequencial.
+/// Like [`parse`], with the source already lexed. The lexer is pure (it does
+/// not intern names), so it can run on another thread; only parsing needs
+/// the `Interner` and stays sequential.
 pub fn parse_lexed(
     source: &str,
     tokens: Result<Vec<Token>, Diagnostic>,
@@ -271,7 +274,7 @@ pub fn parse_lexed(
     parse_lexed_with(source, tokens, interner, LibraryFeatures::atual())
 }
 
-/// [`parse_lexed`] com os recursos da biblioteca; ver [`parse_com`].
+/// [`parse_lexed`] with the library's features; see [`parse_com`].
 pub fn parse_lexed_with(
     source: &str,
     tokens: Result<Vec<Token>, Diagnostic>,
@@ -285,24 +288,24 @@ pub fn parse_lexed_with(
                 unit: CompilationUnit::default(),
                 ast: Ast::default(),
                 diagnostics: vec![diagnostic],
-                // Erro léxico: nada foi lido, a fonte inteira ficou de fora.
+                // Lexical error: nothing was read, the whole source was left out.
                 pulados: vec![Span { start: 0, end: source.len() }],
                 referencia: if features.versao() > LanguageVersion::PISO { Referencia::V3_13 } else { Referencia::V3_6 },
             };
         }
     };
     let mut from_scanner = recoverable_scanner_errors(source, &tokens);
-    // Os fechos que faltam (e o erro de cada um), como o scanner do fasta.
+    // The missing closers (and the error of each), like fasta's scanner.
     let (tokens, group_of, mut closers) = crate::grouping::group_tokens(source, tokens);
     for f in &mut closers {
         f.erro += from_scanner.len();
     }
     from_scanner.extend(group_of);
-    // A leitura, no modo do 3.13.4 ou não. A árvore de algumas construções
-    // diverge entre as referências (`factory new()`: construtor no 3.13.4,
-    // campo `factory` no 3.6.2), e a referência só se sabe no fim da unidade
-    // (a sintaxe nova pode vir depois): a unidade que divergiu e terminou na
-    // referência 3.13 é lida de novo no modo 3.13.
+    // The read, in 3.13.4 mode or not. The tree of some constructs diverges
+    // between the references (`factory new()`: a constructor in 3.13.4, a
+    // `factory` field in 3.6.2), and the reference is only known at the end of
+    // the unit (the new syntax may come later): a unit that diverged and ended
+    // up with the 3.13 reference is read again in 3.13 mode.
     let ler = |interner: &mut Interner, mode_313: bool| {
         let mut parser = Parser::new(source, tokens.clone(), interner);
         parser.synthetic_closers = closers.clone();
@@ -318,15 +321,15 @@ pub fn parse_lexed_with(
         reading = ler(interner, true);
     }
     let (unit, mut ast, diags, pulados, new_syntax, so_3_6, so_3_13, _) = reading;
-    // A árvore devolvida vive muito (um editor a retém por arquivo aberto) e
-    // as arenas cresceram em potências de dois: no `new_sali` a folga era
-    // 29 MiB de 132 MiB. Uma realocação por arena aqui é mais barata do que
-    // reter a folga pela vida inteira da unidade.
+    // The returned tree lives long (an editor keeps it per open file) and the
+    // arenas grew in powers of two: in `new_sali` the slack was 29 MiB out of
+    // 132 MiB. One reallocation per arena here is cheaper than keeping the
+    // slack for the unit's whole life.
     ast.shrink_to_fit();
     let referencia =
         if features.versao() > LanguageVersion::PISO || new_syntax { Referencia::V3_13 } else { Referencia::V3_6 };
-    // Os diagnósticos que só a outra referência relata saem agora, que se
-    // sabe qual é a desta unidade.
+    // The diagnostics only the other reference reports come out now, when this
+    // unit's reference is known.
     let mut diagnostics = diags;
     let fora = if referencia == Referencia::V3_13 { &so_3_6 } else { &so_3_13 };
     if !fora.is_empty() {
@@ -341,17 +344,17 @@ pub fn parse_lexed_with(
     }
 }
 
-/// Uma reescrita do fluxo de tokens, para as tentativas a desfazerem.
+/// A rewrite of the token stream, for speculative attempts to undo.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Splice {
-    /// `n` tokens inseridos em `em`.
+    /// `n` tokens inserted at `em`.
     Insertion { em: usize, n: usize },
-    /// O fecho sintético `closer` saiu de `de` (onde era `token`, em `em`)
-    /// para `to`; o erro dele tinha `error_span`.
+    /// The synthetic closer `closer` moved from `de` (where it was `token`, at
+    /// `em`) to `to`; its error had `error_span`.
     Move { de: usize, to: usize, token: Token, closer: usize, em: usize, error_span: Option<Span> },
 }
 
-/// Cursor sobre os tokens de uma unidade mais as arenas em construção.
+/// Cursor over a unit's tokens plus the arenas under construction.
 pub struct Parser<'s, 'i> {
     pub(crate) source: &'s str,
     pub(crate) tokens: Vec<Token>,
@@ -361,97 +364,98 @@ pub struct Parser<'s, 'i> {
     pub(crate) diagnostics: Vec<Diagnostic>,
     /// Ver [`Parsed::pulados`].
     pub(crate) pulados: Vec<Span>,
-    /// Profundidade de aninhamento de expressões/statements, para recusar
-    /// entradas patológicas antes de estourar a pilha.
+    /// Nesting depth of expressions/statements, to reject pathological input
+    /// before blowing the stack.
     pub(crate) depth: u32,
-    /// Dentro de um corpo `async`/`async*`: `await` e `yield` são palavras-chave.
+    /// Inside an `async`/`async*` body: `await` and `yield` are keywords.
     pub(crate) in_async: bool,
-    /// Dentro de um corpo `sync*`/`async*`: `yield` é palavra-chave.
+    /// Inside a `sync*`/`async*` body: `yield` is a keyword.
     pub(crate) in_generator: bool,
-    /// Dentro de `<...>` de tipo: `>` nunca se compõe.
+    /// Inside a type's `<...>`: `>` never composes.
     pub(crate) in_type_args: u32,
-    /// Rascunho de argumentos de chamada, compartilhado por todas as
-    /// chamadas (aninhadas empilham acima da anterior); ver
-    /// [`Parser::parse_arguments`].
+    /// Scratch space for call arguments, shared by every call (nested ones push
+    /// on top of the previous); see [`Parser::parse_arguments`].
     pub(crate) scratch_args: Vec<crate::ast::Argument>,
-    /// Rascunho de trechos de string literal; ver
+    /// Scratch space for string literal pieces; see
     /// [`Parser::parse_string_literal`].
     pub(crate) scratch_parts: Vec<crate::ast::StringPart>,
-    /// Recursos da biblioteca (versão de linguagem e experimentos).
+    /// Library features (language version and experiments).
     pub(crate) features: LibraryFeatures,
-    /// Lendo a lista de parâmetros de um construtor primário (Dart 3.13):
-    /// `var`/`final` declaram campo e nomeado privado declarante é permitido.
+    /// Reading a primary constructor's parameter list (Dart 3.13): `var`/`final`
+    /// declare a field and a declaring private named parameter is allowed.
     pub(crate) in_primary_constructor: bool,
-    /// Lendo a representação de um extension type (que relata o `var` da
-    /// representação à parte, em `parse_representation`).
+    /// Reading an extension type's representation (which reports the
+    /// representation's `var` separately, in `parse_representation`).
     pub(crate) in_representation: bool,
-    /// O token que abre o corpo (`{` ou `=>`) de cada parte `this` de
-    /// construtor primário, pelo início do `this`: a elaboração, que sabe se
-    /// o construtor é `const`, relata ali os erros de corpo do analyzer.
+    /// The token that opens the body (`{` or `=>`) of each `this` part of a
+    /// primary constructor, by the start of the `this`: elaboration, which
+    /// knows whether the constructor is `const`, reports the analyzer's body
+    /// errors there.
     pub(crate) primary_bodies: std::collections::HashMap<usize, Span>,
-    /// As reinserções de tokens no fluxo (o `rewriter.insertToken` do
-    /// fasta), como `(índice, quantidade)`, na ordem em que foram feitas:
-    /// as tentativas especulativas as desfazem ao recuar
-    /// ([`Parser::undo_splices`]).
+    /// The token reinsertions in the stream (fasta's `rewriter.insertToken`), as
+    /// `(index, count)`, in the order they were made: speculative attempts undo
+    /// them when backtracking ([`Parser::undo_splices`]).
     pub(crate) splices: Vec<Splice>,
-    /// Os fechos sintéticos do scanner ([`crate::grouping::group_tokens`]);
-    /// o `erro` de cada um é o índice em `diagnostics`.
+    /// The scanner's synthetic closers ([`crate::grouping::group_tokens`]); the
+    /// `erro` of each is the index in `diagnostics`.
     pub(crate) synthetic_closers: Vec<crate::grouping::SyntheticCloser>,
-    /// Numa tentativa de `spelled_out_operator` (o `_currentlyRecovering` do
-    /// fasta): não se tenta outra dentro dela.
+    /// Inside a `spelled_out_operator` attempt (fasta's `_currentlyRecovering`):
+    /// no other attempt is made inside it.
     pub(crate) recovering_operator: bool,
-    /// A declaração cujos membros estão sendo lidos (o `DeclarationKind` do
-    /// fasta): decide os erros próprios de extension e mixin.
+    /// The declaration whose members are being read (fasta's
+    /// `DeclarationKind`): decides the errors specific to extensions and mixins.
     pub(crate) owner: MemberOwner,
-    /// O dono da próxima lista de parâmetros formais (o `MemberKind` do
-    /// fasta), posto por quem a lê logo antes; a lista o consome (as listas
-    /// aninhadas, de parâmetro-função, são `Other`).
+    /// The owner of the next formal parameter list (fasta's `MemberKind`), set
+    /// by whoever reads it right before; the list consumes it (nested
+    /// function-parameter lists are `Other`).
     pub(crate) params_owner: modifiers::ParameterOwner,
-    /// O nome da declaração cujo membro está sendo lido (`None` no topo):
-    /// campo, getter ou setter com ele é `MEMBER_WITH_CLASS_NAME`.
+    /// The name of the declaration whose member is being read (`None` at top
+    /// level): a field, getter or setter with that name is
+    /// `MEMBER_WITH_CLASS_NAME`.
     pub(crate) enclosing_name: Option<&'s str>,
-    /// O `PatternContext` do fasta do padrão em leitura.
+    /// fasta's `PatternContext` of the pattern being read.
     pub(crate) default_context: patterns::PatternContext,
     /// O `DirectiveState` do fasta (`directive_context.dart`).
     pub(crate) directive_state: DirectiveState,
-    /// Numa tentativa especulativa de `recover_member`: o `;` que falta não
-    /// é inserido diante de qualquer token (a tentativa só vinga com
-    /// membro bem terminado).
+    /// In a speculative `recover_member` attempt: the missing `;` is not
+    /// inserted before just any token (the attempt only succeeds with a
+    /// well-terminated member).
     pub(crate) speculating: bool,
-    /// O lugar do nome sintético da classe/mixin em leitura (recuperação de
-    /// `declaration_name`), onde vai o erro de corpo ausente.
+    /// The place of the synthetic name of the class/mixin being read (recovery
+    /// of `declaration_name`), where the missing-body error goes.
     pub(crate) synthetic_name: Option<dartforge_diagnostics::Span>,
-    /// A unidade usa sintaxe de um recurso desligado que o analyzer 3.6.2
-    /// não conhece: a referência dela é o 3.13.4 ([`Parsed::referencia`]).
+    /// The unit uses the syntax of a disabled feature that the 3.6.2 analyzer
+    /// does not know: its reference is 3.13.4 ([`Parsed::referencia`]).
     pub(crate) new_syntax: bool,
-    /// Lê as construções em que a árvore do 3.6.2 e a do 3.13.4 divergem
-    /// pelo caminho do 3.13.4 (`factory new()`): a unidade com versão acima
-    /// do piso, ou a segunda leitura de uma unidade que terminou na
-    /// referência 3.13 ([`Self::diverged_313`]).
+    /// Reads the constructs where the 3.6.2 and 3.13.4 trees diverge the 3.13.4
+    /// way (`factory new()`): a unit with a version above the floor, or the
+    /// second read of a unit that ended up with the 3.13 reference
+    /// ([`Self::diverged_313`]).
     pub(crate) mode_313: bool,
-    /// A leitura fora do [`Self::mode_313`] passou por uma construção em que
-    /// as árvores divergem: se a unidade terminar na referência 3.13, ela é
-    /// lida de novo no modo 3.13.
+    /// The read outside [`Self::mode_313`] went through a construct where the
+    /// trees diverge: if the unit ends up with the 3.13 reference, it is read
+    /// again in 3.13 mode.
     pub(crate) diverged_313: bool,
-    /// Lendo os elementos de um literal de lista: o elemento comum não lê
-    /// `: value` (`parseLiteralListSuffix` lê as entradas com
-    /// `parseExpression`); só o null-aware `?k: v` vira entrada.
+    /// Reading the elements of a list literal: a plain element does not read
+    /// `: value` (`parseLiteralListSuffix` reads the entries with
+    /// `parseExpression`); only the null-aware `?k: v` becomes an entry.
     pub(crate) in_list: bool,
-    /// Os diagnósticos (código e lugar) que só o analyzer 3.6.2 relata; saem
-    /// da lista se a referência da unidade acabar sendo o 3.13.4. Guardados
-    /// por código e lugar, não por índice: as tentativas especulativas
-    /// truncam a lista de diagnósticos.
+    /// The diagnostics (code and place) only the 3.6.2 analyzer reports; they
+    /// leave the list if the unit's reference ends up being 3.13.4. Stored by
+    /// code and place, not by index: speculative attempts truncate the
+    /// diagnostic list.
     pub(crate) so_3_6: Vec<(Codigo, Span)>,
-    /// O inverso: os que só o 3.13.4 relata.
+    /// The inverse: those only 3.13.4 reports.
     pub(crate) so_3_13: Vec<(Codigo, Span)>,
-    /// O `!mayParseFunctionExpressions` do fasta: lendo um inicializador de
-    /// construtor ou o padrão e a guarda de um caso de `switch` expressão,
-    /// onde `nome(…) {` e `nome(…) =>` não são função literal nomeada (o
-    /// `{` é o corpo do construtor e o `=>` é o do caso).
+    /// fasta's `!mayParseFunctionExpressions`: reading a constructor
+    /// initializer or the pattern and guard of a `switch` expression case,
+    /// where `name(…) {` and `name(…) =>` are not a named function literal (the
+    /// `{` is the constructor body and the `=>` is the case's).
     pub(crate) without_named_function: bool,
 }
 
-/// `DirectiveState` (`directive_context.dart`), na ordem do enum do fasta.
+/// `DirectiveState` (`directive_context.dart`), in the order of fasta's
+/// enum.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum DirectiveState {
     NoneFound,
@@ -463,7 +467,7 @@ pub(crate) enum DirectiveState {
     Declarations,
 }
 
-/// O `DeclarationKind` do fasta para os membros em leitura.
+/// fasta's `DeclarationKind` for the members being read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MemberOwner {
     Class,
@@ -473,7 +477,7 @@ pub(crate) enum MemberOwner {
     ExtensionType,
 }
 
-/// Limite de aninhamento antes de um diagnóstico de profundidade.
+/// Nesting limit before a depth diagnostic.
 pub const MAX_DEPTH: u32 = 512;
 
 impl<'s, 'i> Parser<'s, 'i> {
@@ -518,12 +522,12 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     // -- Cursor ---------------------------------------------------------
 
-    /// Token corrente (o último é sempre [`Kind::Eof`]).
+    /// Current token (the last one is always [`Kind::Eof`]).
     pub(crate) fn peek(&self) -> Token {
         self.tokens[self.pos.min(self.tokens.len() - 1)]
     }
 
-    /// Token `n` posições à frente, saturando em `Eof`.
+    /// Token `n` positions ahead, saturating at `Eof`.
     pub(crate) fn peek_at(&self, n: usize) -> Token {
         self.tokens[(self.pos + n).min(self.tokens.len() - 1)]
     }
@@ -540,7 +544,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.peek().span
     }
 
-    /// Texto do token corrente.
+    /// Text of the current token.
     pub(crate) fn text(&self) -> &'s str {
         let token = self.peek();
         &self.source[token.span.start..token.span.end]
@@ -551,12 +555,12 @@ impl<'s, 'i> Parser<'s, 'i> {
         &self.source[token.span.start..token.span.end]
     }
 
-    /// Texto de um token qualquer.
+    /// Text of any token.
     pub(crate) fn token_text(&self, token: Token) -> &'s str {
         &self.source[token.span.start..token.span.end]
     }
 
-    /// Avança e devolve o token consumido.
+    /// Advances and returns the consumed token.
     pub(crate) fn advance(&mut self) -> Token {
         let token = self.peek();
         if self.pos < self.tokens.len() - 1 {
@@ -585,7 +589,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.kind_at(n) == Kind::Keyword(kw)
     }
 
-    /// O token corrente é um identificador (qualquer, inclusive embutido).
+    /// The current token is an identifier (any, including built-in ones).
     pub(crate) fn at_identifier(&self) -> bool {
         self.kind() == Kind::Ident
     }
@@ -594,7 +598,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.kind_at(n) == Kind::Ident
     }
 
-    /// O token corrente é o identificador contextual `text`.
+    /// The current token is the contextual identifier `text`.
     pub(crate) fn at_ident(&self, text: &str) -> bool {
         self.kind() == Kind::Ident && self.text() == text
     }
@@ -603,7 +607,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.kind_at(n) == Kind::Ident && self.text_at(n) == text
     }
 
-    /// Consome o operador se for o corrente.
+    /// Consumes the operator if it is the current one.
     pub(crate) fn eat_op(&mut self, op: Op) -> bool {
         if self.at_op(op) {
             self.advance();
@@ -622,7 +626,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// Consome o identificador contextual se for o corrente.
+    /// Consumes the contextual identifier if it is the current one.
     pub(crate) fn eat_ident(&mut self, text: &str) -> bool {
         if self.at_ident(text) {
             self.advance();
@@ -648,7 +652,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// Exige o identificador contextual `text`.
+    /// Requires the contextual identifier `text`.
     pub(crate) fn expect_ident(&mut self, text: &str) -> PResult<Token> {
         if self.at_ident(text) {
             Ok(self.advance())
@@ -657,7 +661,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// Exige um identificador qualquer e devolve seu [`Name`].
+    /// Requires any identifier and returns its [`Name`].
     pub(crate) fn expect_identifier(&mut self) -> PResult<Name> {
         if self.at_identifier() {
             Ok(self.identifier())
@@ -666,7 +670,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// Consome o identificador corrente (precondição: [`Parser::at_identifier`]).
+    /// Consumes the current identifier (precondition:
+    /// [`Parser::at_identifier`]).
     pub(crate) fn identifier(&mut self) -> Name {
         let token = self.advance();
         let sym = self
@@ -678,7 +683,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// Interna um texto arbitrário como nome (operadores, `unary-`, `[]=`).
+    /// Interns arbitrary text as a name (operators, `unary-`, `[]=`).
     pub(crate) fn name_from(&mut self, text: &str, span: Span) -> Name {
         Name {
             sym: self.interner.intern(text),
@@ -686,9 +691,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// Span do início dado até o fim do último token consumido.
-    /// Reinsere no cursor cópias dos tokens de `indices`, nessa ordem (o
-    /// `rewriter.insertToken` do fasta): são os próximos a serem lidos.
+    /// Span from the given start up to the end of the last consumed token.
+    /// Reinserts copies of the tokens of `indices` into the cursor, in that
+    /// order (fasta's `rewriter.insertToken`): they are the next to be read.
     pub(crate) fn reinject(&mut self, indices: &[usize]) {
         let copies: Vec<Token> = indices.iter().map(|&i| Token { glued: false, ..self.tokens[i] }).collect();
         let n = copies.len();
@@ -696,9 +701,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.splices.push(Splice::Insertion { em: self.pos, n });
     }
 
-    /// `rewriter.moveSynthetic` (`token_stream_rewriter.dart:80`): se o fecho
-    /// do abridor em `abre` é sintético, ele (e o erro do scanner dele) vai
-    /// para o cursor, na posição do token corrente, e é o próximo a ser lido.
+    /// `rewriter.moveSynthetic` (`token_stream_rewriter.dart:80`): if the closer
+    /// of the opener at `abre` is synthetic, it (and its scanner error) moves to
+    /// the cursor, at the current token's position, and is the next to be read.
     pub(crate) fn move_synthetic_closer(&mut self, abre: usize) -> bool {
         let Some(start_offset) = self.tokens.get(abre).map(|t| t.span.start) else { return false };
         let Some(k) = self.synthetic_closers.iter().position(|f| f.abre == start_offset) else { return false };
@@ -723,10 +728,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         true
     }
 
-    /// Desfaz as emendas feitas depois que havia `mark` delas.
+    /// Undoes the splices made after `mark` of them.
     pub(crate) fn undo_splices(&mut self, mark: usize) {
         while self.splices.len() > mark {
-            match self.splices.pop().expect("emenda") {
+            match self.splices.pop().expect("splice") {
                 Splice::Insertion { em, n } => {
                     self.tokens.drain(em..em + n);
                 }
@@ -755,7 +760,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// Fim do último token consumido.
+    /// End of the last consumed token.
     pub(crate) fn last_end(&self) -> usize {
         if self.pos == 0 {
             0
@@ -764,19 +769,21 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    // -- Diagnósticos ---------------------------------------------------
+    // -- Diagnostics -------------------------------------------------------
 
-    /// Registra o diagnóstico `code` (do `ParserErrorCode`/`ScannerErrorCode`
-    /// do analyzer, mensagem oficial em inglês) em `span` e devolve o marcador.
+    /// Records the diagnostic `code` (from the analyzer's
+    /// `ParserErrorCode`/`ScannerErrorCode`, official English message) at
+    /// `span` and returns the marker.
     pub(crate) fn error_at(&mut self, code: Codigo, span: Span, args: &[&str]) -> ParseError {
         self.diagnostics.push(Diagnostic::com_codigo(code, span, args.iter().copied()));
         ParseError
     }
 
-    /// `code` no token corrente — onde o fasta reporta o que falta ou sobra.
+    /// `code` at the current token — where fasta reports what is missing or
+    /// extra.
     pub(crate) fn erro(&mut self, code: Codigo, args: &[&str]) -> ParseError {
-        // `findNonZeroLengthToken`: o erro num fecho sintético vai para o
-        // primeiro token de verdade depois dele.
+        // `findNonZeroLengthToken`: an error at a synthetic closer goes to the
+        // first real token after it.
         let i = (self.pos..self.tokens.len())
             .find(|&i| self.tokens[i].span.start < self.tokens[i].span.end || self.tokens[i].kind == Kind::Eof)
             .unwrap_or(self.pos);
@@ -784,13 +791,13 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.error_at(code, span, args)
     }
 
-    /// `EXPECTED_TOKEN`, no lugar em que o analyzer o põe: `;` que falta vai no
-    /// token **anterior** (`ensureSemicolon` do fasta); fecho `)`/`]`/`}` que
-    /// falta no fim do arquivo é erro do scanner, no fim, com comprimento 1
-    /// (`translateErrorToken`); o resto, no token corrente.
+    /// `EXPECTED_TOKEN`, where the analyzer puts it: a missing `;` goes at the
+    /// **previous** token (fasta's `ensureSemicolon`); a closer `)`/`]`/`}`
+    /// missing at end of file is a scanner error, at the end, with length 1
+    /// (`translateErrorToken`); the rest, at the current token.
     pub(crate) fn expected_error(&mut self, texto: &str) -> ParseError {
         if texto == ";" && self.pos > 0 {
-            // `findPreviousNonZeroLengthToken`: os sintéticos não contam.
+            // `findPreviousNonZeroLengthToken`: synthetic tokens do not count.
             let anterior = (0..self.pos).rev().find(|&i| self.tokens[i].span.start < self.tokens[i].span.end).unwrap_or(self.pos - 1);
             let span = self.tokens[anterior].span;
             return self.error_at(codigos::parser::EXPECTED_TOKEN, span, &[";"]);
@@ -799,8 +806,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             let s = self.span().start;
             return self.error_at(codigos::scanner::EXPECTED_TOKEN, Span { start: s, end: s + 1 }, &[texto]);
         }
-        // Um `>` que o scanner do fasta lê junto do seguinte (`>=`, `>>`,
-        // `>>=`…) é um token só lá: o erro cobre a composição inteira.
+        // A `>` that fasta's scanner reads together with the next one (`>=`, `>>`,
+        // `>>=`…) is a single token there: the error covers the whole composition.
         if self.in_type_args == 0
             && let Some(c) = self.composed_gt()
             && c.len() > 1
@@ -812,19 +819,19 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.erro(codigos::parser::EXPECTED_TOKEN, &[texto])
     }
 
-    /// Como [`Parser::error_at`], sem repetir um diagnóstico igual (código e
-    /// intervalo) já registrado: o analyzer não relata duas vezes o mesmo
-    /// erro no mesmo lugar (o fasta às vezes o pede duas vezes, como o
-    /// `INVALID_CONSTANT_CONST_PREFIX` de `const 1 + 2`).
+    /// Like [`Parser::error_at`], without repeating an identical diagnostic
+    /// (code and range) already recorded: the analyzer does not report the same
+    /// error at the same place twice (fasta sometimes asks for it twice, like
+    /// the `INVALID_CONSTANT_CONST_PREFIX` of `const 1 + 2`).
     pub(crate) fn single_error(&mut self, code: Codigo, span: Span, args: &[&str]) {
         if !self.diagnostics.iter().any(|d| d.code == Some(code) && d.span == span) {
             self.error_at(code, span, args);
         }
     }
 
-    /// `ensureSemicolon` do fasta: sem `;`, `EXPECTED_TOKEN` (`;`) no último
-    /// token lido e a análise segue como se ele estivesse ali (o fasta
-    /// insere um `;` sintético), sem pular nada.
+    /// fasta's `ensureSemicolon`: without `;`, `EXPECTED_TOKEN` (`;`) at the
+    /// last token read and parsing goes on as if it were there (fasta inserts a
+    /// synthetic `;`), without skipping anything.
     pub(crate) fn ensure_semicolon(&mut self) -> PResult<()> {
         if !self.eat_op(Op::Semicolon) {
             self.expected_error(";");
@@ -832,19 +839,19 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(())
     }
 
-    /// `ensureSemicolon` sem a prudência de [`Parser::ensure_semicolon`]:
-    /// para onde a construção acabou num token certo (nome, URI, prefixo), o
-    /// `;` que falta é relatado no último token lido e a análise segue no
-    /// token corrente, qualquer que seja.
+    /// `ensureSemicolon` without the caution of [`Parser::ensure_semicolon`]:
+    /// for where the construct ended at a definite token (name, URI, prefix),
+    /// the missing `;` is reported at the last token read and parsing goes on at
+    /// the current token, whatever it is.
     pub(crate) fn ensure_semicolon_forced(&mut self) {
         if !self.eat_op(Op::Semicolon) {
             self.expected_error(";");
         }
     }
 
-    /// Registra como pulados os tokens de `de` até o cursor (o que uma
-    /// recuperação acabou de descartar), juntando com o trecho anterior
-    /// quando são contíguos ou se sobrepõem.
+    /// Records as skipped the tokens from `de` up to the cursor (what a recovery
+    /// just discarded), merging with the previous range when they are contiguous
+    /// or overlap.
     pub(crate) fn record_skipped(&mut self, de: usize) {
         if self.pos <= de || de >= self.tokens.len() {
             return;
@@ -864,17 +871,17 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.pulados.push(Span { start: start_offset, end: end_offset });
     }
 
-    /// `ensureCloseParen` do fasta: o `)` que fecha o `(` na posição absoluta
-    /// `abre`. Se o token corrente não é ele, `EXPECTED_TOKEN` (`)`) no token
-    /// corrente e o cursor pula para depois do `)` casado — o que fica no
-    /// meio não é lido, como no fasta. Sem `)` casado (fim de arquivo), o
-    /// erro de sempre.
+    /// fasta's `ensureCloseParen`: the `)` that closes the `(` at absolute
+    /// position `abre`. If the current token is not it, `EXPECTED_TOKEN` (`)`)
+    /// at the current token and the cursor jumps past the matching `)` — what
+    /// is in between is not read, as in fasta. Without a matching `)` (end of
+    /// file), the usual error.
     pub(crate) fn ensure_close_paren(&mut self, abre: usize) -> PResult<()> {
         if self.eat_op(Op::RParen) {
             return Ok(());
         }
-        // `ensureCloseParen`: o `)` sintético fora do lugar vem para cá (o
-        // erro é o do scanner).
+        // `ensureCloseParen`: the misplaced synthetic `)` comes here (the error is
+        // the scanner's).
         if self.move_synthetic_closer(abre) {
             self.advance();
             return Ok(());
@@ -892,9 +899,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// Faltou um comando: `MISSING_STATEMENT` no token corrente, precedido de
-    /// `EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD` se ele é uma palavra reservada
-    /// (o fasta tenta o comando de expressão e tropeça no identificador).
+    /// A statement was missing: `MISSING_STATEMENT` at the current token,
+    /// preceded by `EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD` if it is a reserved
+    /// word (fasta tries the expression statement and trips over the
+    /// identifier).
     pub(crate) fn statement_error(&mut self) -> ParseError {
         if let Kind::Keyword(_) = self.kind() {
             let texto = self.text().to_string();
@@ -904,8 +912,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.erro(codigos::parser::MISSING_STATEMENT, &[])
     }
 
-    /// Faltou um identificador: `MISSING_IDENTIFIER` no token corrente, ou
-    /// `EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD` se ele é uma palavra reservada.
+    /// An identifier was missing: `MISSING_IDENTIFIER` at the current token, or
+    /// `EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD` if it is a reserved word.
     pub(crate) fn identifier_error(&mut self) -> ParseError {
         if let Kind::Keyword(_) = self.kind() {
             let texto = self.text().to_string();
@@ -913,19 +921,20 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
         self.erro(codigos::parser::MISSING_IDENTIFIER, &[])
     }
-    /// Registra que `span` usa o recurso `f`: diagnóstico se a versão da
-    /// biblioteca não o liga. A análise continua (o superconjunto é aceito).
+    /// Records that `span` uses feature `f`: a diagnostic if the library's
+    /// version does not enable it. Parsing goes on (the superset is accepted).
     ///
-    /// Os argumentos são `[recurso, versão que o 3.6.2 escreve, versão que o
-    /// 3.13.4 escreve]`: o molde usa o segundo, e a variante 3.13 do código
-    /// troca-o pelo terceiro (`Diagnostic::na_referencia`).
+    /// The arguments are `[feature, version 3.6.2 writes, version 3.13.4
+    /// writes]`: the template uses the second, and the code's 3.13 variant
+    /// swaps it for the third (`Diagnostic::na_referencia`).
     pub(crate) fn require(&mut self, f: Feature, span: Span) {
         if !self.features.tem(f) {
             if Feature::DESCONHECIDOS_NO_3_6.contains(&f) {
                 self.new_syntax = true;
             }
-            // `EXPERIMENT_NOT_ENABLED` (com a versão em que o recurso liga) ou
-            // `EXPERIMENT_NOT_ENABLED_OFF_BY_DEFAULT` (experimento sem versão).
+            // `EXPERIMENT_NOT_ENABLED` (with the version in which the feature turns
+            // on) or `EXPERIMENT_NOT_ENABLED_OFF_BY_DEFAULT` (an experiment without a
+            // version).
             match f.enabled_in() {
                 Some(v) => {
                     let nova = format!("{v}.0");
@@ -939,10 +948,11 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// Como [`Parser::require`], para os recursos que o analyzer confere ao
-    /// montar a árvore (`AstBuilder`), não no parser do fasta: a correção
-    /// leva a versão como `x.y` (`3.13`), não `x.y.0`. São o corpo `;`, os
-    /// membros `this`/`new` e o `final` declarante (medido no oráculo 3.13.4).
+    /// Like [`Parser::require`], for the features the analyzer checks while
+    /// building the tree (`AstBuilder`), not in fasta's parser: the fix carries
+    /// the version as `x.y` (`3.13`), not `x.y.0`. These are the `;` body, the
+    /// `this`/`new` members and the declaring `final` (measured on the 3.13.4
+    /// oracle).
     pub(crate) fn require_in_ast(&mut self, f: Feature, span: Span) {
         if self.features.tem(f) {
             return;
@@ -960,7 +970,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// Entra num nível de aninhamento; falha além de [`MAX_DEPTH`].
+    /// Enters a nesting level; fails beyond [`MAX_DEPTH`].
     pub(crate) fn enter(&mut self) -> PResult<()> {
         if self.depth >= MAX_DEPTH {
             return Err(self.erro(codigos::parser::STACK_OVERFLOW, &[]));
@@ -973,12 +983,13 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.depth -= 1;
     }
 
-    // -- Composição de `>` ---------------------------------------------
+    // -- Composing `>` -----------------------------------------------------
 
-    /// Lê, sem consumir, a composição de `>` que começa no token corrente.
+    /// Reads, without consuming, the `>` composition starting at the current
+    /// token.
     ///
-    /// Só compõe tokens **colados** (`glued`), então `a > >b` nunca vira
-    /// shift. Devolve `None` se o token corrente não é `>`.
+    /// It only composes **glued** tokens, so `a > >b` never becomes a shift.
+    /// Returns `None` if the current token is not `>`.
     pub(crate) fn composed_gt(&self) -> Option<ComposedGt> {
         if !self.at_op(Op::Gt) {
             return None;
@@ -1013,18 +1024,18 @@ impl<'s, 'i> Parser<'s, 'i> {
         })
     }
 
-    /// Consome a composição devolvida por `Parser::composed_gt`.
+    /// Consumes the composition returned by `Parser::composed_gt`.
     pub(crate) fn eat_composed_gt(&mut self, composed: ComposedGt) {
         for _ in 0..composed.len() {
             self.advance();
         }
     }
 
-    // -- Utilidades de lookahead ----------------------------------------
+    // -- Lookahead helpers -------------------------------------------------
 
-    /// Índice do token que fecha o delimitador aberto em `open_pos`, ou
-    /// `None` se não houver. Considera `( ) [ ] { }` e trata `<`/`>` **não**
-    /// como delimitadores. Usado por lookaheads que precisam pular um grupo.
+    /// Index of the token that closes the delimiter opened at `open_pos`, or
+    /// `None` if there is none. Considers `( ) [ ] { }` and does **not** treat
+    /// `<`/`>` as delimiters. Used by lookaheads that need to skip a group.
     pub(crate) fn matching_close(&self, open_pos: usize) -> Option<usize> {
         let mut depth = 0usize;
         let mut i = open_pos;
@@ -1045,13 +1056,13 @@ impl<'s, 'i> Parser<'s, 'i> {
         None
     }
 
-    /// Texto do token na posição absoluta `pos`.
+    /// Text of the token at absolute position `pos`.
     pub(crate) fn text_of(&self, pos: usize) -> &'s str {
         let token = self.tokens[pos.min(self.tokens.len() - 1)];
         &self.source[token.span.start..token.span.end]
     }
 
-    /// Kind do token na posição absoluta `pos`.
+    /// Kind of the token at absolute position `pos`.
     pub(crate) fn kind_of(&self, pos: usize) -> Kind {
         self.tokens[pos.min(self.tokens.len() - 1)].kind
     }

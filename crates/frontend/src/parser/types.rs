@@ -1,37 +1,38 @@
-//! Tipos, parâmetros de tipo, argumentos de tipo e parâmetros formais.
+//! Types, type parameters, type arguments and formal parameters.
 //!
-//! Cobre as seções `type`, `typeParameters`, `typeArguments`,
-//! `formalParameterList` e `parameterTypeList` da gramática de Dart 3.6, mais
-//! os *lookaheads* que o resto do parser usa para decidir se uma sequência de
-//! tokens é um tipo sem consumir nada (`Parser::skip_type`,
-//! `Parser::skip_type_arguments`, `Parser::looks_like_type_then_identifier`).
+//! Covers the `type`, `typeParameters`, `typeArguments`,
+//! `formalParameterList` and `parameterTypeList` sections of the Dart 3.6
+//! grammar, plus the *lookaheads* the rest of the parser uses to decide
+//! whether a token sequence is a type without consuming anything
+//! (`Parser::skip_type`, `Parser::skip_type_arguments`,
+//! `Parser::looks_like_type_then_identifier`).
 //!
-//! Decisões que não são tradução direta da gramática:
+//! Decisions that are not a direct translation of the grammar:
 //!
-//! * **Tipos de função encadeados** (`int Function(int) Function(String)`)
-//!   associam à esquerda: o `Function` mais à direita é o nó externo e o da
-//!   esquerda é seu tipo de retorno. Um `?` entre duas caudas
-//!   (`int Function()? Function()`) torna nulável a cauda da esquerda.
-//! * **Records** podem ser tipo de retorno de função (`(int, int) Function()`),
-//!   como no parser do SDK (`computeRecordTypeGFT`).
-//! * **`?` após `is`/`as`**: `x is int ? a : b` é uma condicional, não um tipo
-//!   nulável. `Parser::parse_type_after_is_or_as` reproduz a regra de
-//!   `computeTypeAfterIsOrAs` do SDK: o `?` final só pertence ao tipo se o
-//!   token seguinte não puder começar o ramo de uma condicional.
-//! * **Identificadores embutidos** (`get`, `set`, `static`, `typedef`…) não
-//!   contam como nome de tipo nos *lookaheads*, salvo se qualificados
-//!   (`p.get`): é a regra `isValidNonRecordTypeReference` do SDK, que evita
-//!   ler `get x` como "tipo `get`, nome `x`". `dynamic` e `Function` são
-//!   nomes de tipo normais.
-//! * **Uma lista de parâmetros, dois modos.** A mesma rotina lê listas de
-//!   parâmetros de declaração (`this.x`, `super.x`, defaults, forma antiga
-//!   `int f(int x)`) e de tipo de função (`Function(int, String)`, onde o nome
-//!   é opcional). O modo é um booleano interno; publicamente
-//!   `Parser::parse_formal_parameters` é o modo declaração e
-//!   `Parser::parse_function_type_parameters` o modo tipo de função.
-//! * `>` sempre chega isolado do lexer, então `<` … `>` de tipos nunca precisa
-//!   de retrocesso; `in_type_args` é incrementado durante a leitura para que
-//!   expressões dentro de metadata não componham `>>`.
+//! * **Chained function types** (`int Function(int) Function(String)`)
+//!   associate to the left: the rightmost `Function` is the outer node and
+//!   the left one is its return type. A `?` between two tails
+//!   (`int Function()? Function()`) makes the left tail nullable.
+//! * **Records** can be a function's return type (`(int, int) Function()`),
+//!   as in the SDK parser (`computeRecordTypeGFT`).
+//! * **`?` after `is`/`as`**: `x is int ? a : b` is a conditional, not a
+//!   nullable type. `Parser::parse_type_after_is_or_as` reproduces the SDK's
+//!   `computeTypeAfterIsOrAs` rule: the trailing `?` only belongs to the type
+//!   if the next token cannot start a conditional's branch.
+//! * **Built-in identifiers** (`get`, `set`, `static`, `typedef`…) do not
+//!   count as a type name in the *lookaheads*, unless qualified (`p.get`):
+//!   it is the SDK's `isValidNonRecordTypeReference` rule, which avoids
+//!   reading `get x` as "type `get`, name `x`". `dynamic` and `Function` are
+//!   regular type names.
+//! * **One parameter list, two modes.** The same routine reads declaration
+//!   parameter lists (`this.x`, `super.x`, defaults, the old form
+//!   `int f(int x)`) and function type ones (`Function(int, String)`, where
+//!   the name is optional). The mode is an internal boolean; publicly
+//!   `Parser::parse_formal_parameters` is the declaration mode and
+//!   `Parser::parse_function_type_parameters` the function type mode.
+//! * `>` always arrives isolated from the lexer, so the `<` … `>` of types
+//!   never needs backtracking; `in_type_args` is incremented while reading so
+//!   that expressions inside metadata do not compose `>>`.
 use super::modifiers::{ParameterOwner, ModifierTokens};
 use super::{MAX_DEPTH, PResult, Parser};
 use crate::ast::{
@@ -42,18 +43,19 @@ use crate::features::Feature;
 use crate::token::{Keyword, Kind, Op};
 use dartforge_diagnostics::{Diagnostic, Span, codigos};
 
-/// Como tratar um `?` final ao ler um tipo.
+/// How to treat a trailing `?` when reading a type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TrailingQuestion {
-    /// Contexto de tipo puro: `?` final é sempre nulabilidade.
+    /// Pure type context: a trailing `?` is always nullability.
     Always,
-    /// Após `is`/`as` numa expressão: `?` só pertence ao tipo se o token
-    /// seguinte não puder iniciar o ramo `then` de uma condicional.
+    /// After `is`/`as` in an expression: `?` only belongs to the type if the
+    /// next token cannot start a conditional's `then` branch.
     AfterIsOrAs,
 }
 
-/// Identificadores embutidos (§17.1) que não servem de nome de tipo sem
-/// qualificação. `dynamic` e `Function` ficam de fora porque são tipos.
+/// Built-in identifiers (§17.1) that cannot serve as a type name without
+/// qualification. `dynamic` and `Function` are left out because they are
+/// types.
 fn is_builtin_identifier(text: &str) -> bool {
     matches!(
         text,
@@ -82,19 +84,19 @@ fn is_builtin_identifier(text: &str) -> bool {
 }
 
 impl<'s, 'i> Parser<'s, 'i> {
-    // -- Tipos -----------------------------------------------------------
+    // -- Types -----------------------------------------------------------------
 
-    /// `type`: nome qualificado com argumentos, `void`, tipo de função ou
-    /// record, com `?` final.
+    /// `type`: a qualified name with arguments, `void`, a function or record
+    /// type, with a trailing `?`.
     pub(crate) fn parse_type(&mut self) -> PResult<TypeId> {
         self.parse_type_with(TrailingQuestion::Always)
     }
 
-    /// Tipo após `is`/`as` numa expressão: igual a [`Parser::parse_type`],
-    /// mas um `?` final só é consumido quando o token seguinte é um dos que
-    /// podem seguir um tipo nulável nesse lugar (`)`, `,`, `;`, `:`, `?`,
-    /// `??`, `..`, `}`, `]`, `is`, `as` ou fim do arquivo). Assim
-    /// `x is int ? a : b` deixa o `?` para a condicional, como no SDK.
+    /// Type after `is`/`as` in an expression: like [`Parser::parse_type`], but a
+    /// trailing `?` is only consumed when the next token is one of those that
+    /// may follow a nullable type in that place (`)`, `,`, `;`, `:`, `?`, `??`,
+    /// `..`, `}`, `]`, `is`, `as` or end of file). That way `x is int ? a : b`
+    /// leaves the `?` to the conditional, as in the SDK.
     pub(crate) fn parse_type_after_is_or_as(&mut self) -> PResult<TypeId> {
         self.parse_type_with(TrailingQuestion::AfterIsOrAs)
     }
@@ -106,8 +108,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         result
     }
 
-    /// Lê o tipo base e depois zero ou mais caudas `Function<T>(...)`,
-    /// aplicando `?` onde a gramática permite.
+    /// Reads the base type and then zero or more `Function<T>(...)` tails,
+    /// applying `?` where the grammar allows it.
     fn parse_type_inner(&mut self, mode: TrailingQuestion) -> PResult<TypeId> {
         let start = self.span();
         let mut ty = if self.at_function_tail(self.pos) {
@@ -118,7 +120,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         loop {
             if self.at_op(Op::Question) && !self.is_bare_void(ty) {
                 if self.at_function_tail(self.pos + 1) {
-                    // `int? Function()` ou `int Function()? Function()`.
+                    // `int? Function()` or `int Function()? Function()`.
                     self.advance();
                     self.mark_nullable(ty);
                     ty = self.parse_function_tail(Some(ty), start)?;
@@ -142,15 +144,14 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(ty)
     }
 
-    /// `void`, record `(...)` ou nome qualificado com argumentos — sem `?` e
-    /// sem cauda `Function`.
+    /// `void`, a record `(...)` or a qualified name with arguments — without
+    /// `?` and without a `Function` tail.
     fn parse_non_function_type(&mut self) -> PResult<TypeId> {
         let start = self.span();
         if self.eat_kw(Keyword::Void) {
             let span = self.span_from(start);
-            // `VoidType.parseType` (`type_info_impl.dart:446`): argumentos de
-            // tipo depois de `void` são `VOID_WITH_TYPE_ARGUMENTS` no `<` e
-            // são lidos.
+            // `VoidType.parseType` (`type_info_impl.dart:446`): type arguments after
+            // `void` are `VOID_WITH_TYPE_ARGUMENTS` at the `<` and are read.
             if self.at_op(Op::Lt) && self.skip_type_arguments(self.pos).is_some() {
                 self.erro(codigos::parser::VOID_WITH_TYPE_ARGUMENTS, &[]);
                 self.parse_type_arguments_opt()?;
@@ -184,7 +185,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         Err(self.erro(codigos::parser::EXPECTED_TYPE_NAME, &[]))
     }
 
-    /// `Function<T>(params)` com o tipo de retorno já lido (ou nenhum).
+    /// `Function<T>(params)` with the return type already read (or none).
     fn parse_function_tail(&mut self, return_type: Option<TypeId>, start: Span) -> PResult<TypeId> {
         self.expect_ident("Function")?;
         let type_params = self.parse_type_parameters_opt()?;
@@ -201,9 +202,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         }))
     }
 
-    /// `recordType`: `()`, `(T, U)`, `(T a, {U b})`, `({U b})`. O nome de um
-    /// campo posicional e a metadata dos campos são aceitos e descartados —
-    /// a árvore não os guarda.
+    /// `recordType`: `()`, `(T, U)`, `(T a, {U b})`, `({U b})`. The name of a
+    /// positional field and the fields' metadata are accepted and discarded —
+    /// the tree does not keep them.
     fn parse_record_type(&mut self) -> PResult<TypeId> {
         let start = self.span();
         self.expect_op(Op::LParen)?;
@@ -211,7 +212,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         let mut named = Vec::new();
         let mut saw_comma = false;
         let mut with_named = false;
-        // `(,)`: `EMPTY_RECORD_TYPE_WITH_COMMA` na vírgula (`parser_impl.dart:1673-1676`).
+        // `(,)`: `EMPTY_RECORD_TYPE_WITH_COMMA` at the comma
+        // (`parser_impl.dart:1673-1676`).
         if self.at_op(Op::Comma) && self.at_op_at(1, Op::RParen) {
             let virgula = self.advance().span;
             self.error_at(codigos::parser::EMPTY_RECORD_TYPE_WITH_COMMA, virgula, &[]);
@@ -226,8 +228,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 let mut fields_ = 0usize;
                 loop {
                     if self.at_op(Op::RBrace) {
-                        // `parseRecordTypeNamedFields` (`:1743-1745`): grupo
-                        // vazio, no `}`.
+                        // `parseRecordTypeNamedFields` (`:1743-1745`): an empty group, at the `}`.
                         if fields_ == 0 {
                             let closes = self.span();
                             self.error_at(codigos::parser::EMPTY_RECORD_TYPE_NAMED_FIELDS_LIST, closes, &[]);
@@ -261,8 +262,8 @@ impl<'s, 'i> Parser<'s, 'i> {
                 break;
             }
         }
-        // `(int)`: um posicional, sem nomeados e sem vírgula, no `)`
-        // (`parser_impl.dart:1677-1680`).
+        // `(int)`: one positional, without named fields and without a comma, at the
+        // `)` (`parser_impl.dart:1677-1680`).
         if positional.len() == 1 && !with_named && !saw_comma {
             let closes = self.tokens[self.pos - 1].span;
             self.error_at(codigos::parser::RECORD_TYPE_ONE_POSITIONAL_NO_TRAILING_COMMA, closes, &[]);
@@ -289,8 +290,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         matches!(self.ast.ty(ty).kind, TypeKind::Void)
     }
 
-    /// Token corrente é `Function` seguido de `<` ou `(` — início de uma
-    /// cauda de tipo de função (`isGeneralizedFunctionType` do SDK).
+    /// The current token is `Function` followed by `<` or `(` — the start of a
+    /// function type tail (the SDK's `isGeneralizedFunctionType`).
     pub(crate) fn at_function_tail(&self, pos: usize) -> bool {
         self.kind_of(pos) == Kind::Ident
             && self.text_of(pos) == "Function"
@@ -300,15 +301,15 @@ impl<'s, 'i> Parser<'s, 'i> {
             )
     }
 
-    /// Após `is`/`as`, o token em `pos` (o que segue o `?`) permite que o `?`
-    /// seja parte do tipo. Lista de `computeTypeAfterIsOrAs` no SDK.
-    /// Após `is T` / `as T`, o `?` é sufixo do tipo só quando o token
-    /// seguinte não pode iniciar o ramo verdadeiro de uma condicional. É a
-    /// lista de `computeTypeAfterIsOrAs` do parser do SDK
-    /// (`parser_impl.dart`): fechamentos, separadores, `is`/`as`, `..`,
-    /// `||`, `&&` e fim. `{` e `when` são ambíguos (`x is T ? {} : y` contra
-    /// o último inicializador de um construtor com corpo) e o SDK resolve por
-    /// tentativa: é condicional se `? expr : expr` analisa a partir dali.
+    /// After `is`/`as`, the token at `pos` (the one after the `?`) lets the `?`
+    /// be part of the type. The list of `computeTypeAfterIsOrAs` in the SDK.
+    /// After `is T` / `as T`, the `?` is a suffix of the type only when the next
+    /// token cannot start a conditional's true branch. It is the list of the
+    /// SDK parser's `computeTypeAfterIsOrAs` (`parser_impl.dart`): closers,
+    /// separators, `is`/`as`, `..`, `||`, `&&` and end. `{` and `when` are
+    /// ambiguous (`x is T ? {} : y` versus the last initializer of a
+    /// constructor with a body) and the SDK resolves them by trying: it is a
+    /// conditional if `? expr : expr` parses from there.
     fn question_may_end_type(&mut self, pos: usize) -> bool {
         match self.kind_of(pos) {
             Kind::Op(
@@ -336,8 +337,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// `expr : expr` analisa a partir de `pos` (o token após o `?`)? Desfaz
-    /// tudo o que tentou.
+    /// Does `expr : expr` parse from `pos` (the token after the `?`)? Undoes
+    /// everything it tried.
     fn conditional_parses_at(&mut self, pos: usize) -> bool {
         let saved = self.pos;
         self.pos = pos;
@@ -350,7 +351,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         ok
     }
 
-    /// Metadata se houver `@`; caso contrário lista vazia sem tocar em nada.
+    /// Metadata if there is an `@`; otherwise an empty list without touching
+    /// anything.
     fn parse_metadata_opt(&mut self) -> PResult<Vec<Annotation>> {
         if self.at_op(Op::At) {
             self.parse_metadata()
@@ -359,12 +361,12 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    // -- Argumentos e parâmetros de tipo ----------------------------------
+    // -- Type arguments and parameters -----------------------------------------
 
-    /// `<T, U>` de argumentos, ou lista vazia se não houver `<`.
+    /// `<T, U>` arguments, or an empty list if there is no `<`.
     ///
-    /// Em contexto de tipo `<` é sempre argumento; quem está em contexto de
-    /// expressão decide antes com `Parser::skip_type_arguments`.
+    /// In type context `<` is always an argument; whoever is in expression
+    /// context decides beforehand with `Parser::skip_type_arguments`.
     pub(crate) fn parse_type_arguments_opt(&mut self) -> PResult<Vec<TypeId>> {
         if !self.at_op(Op::Lt) {
             return Ok(Vec::new());
@@ -379,15 +381,15 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.expect_op(Op::Lt)?;
         let mut args = Vec::new();
         loop {
-            // Anotação num argumento de tipo é `ANNOTATION_ON_TYPE_ARGUMENT`
-            // nela (`AstBuilder`), e é lida e descartada.
+            // An annotation in a type argument is `ANNOTATION_ON_TYPE_ARGUMENT` at it
+            // (`AstBuilder`), and is read and discarded.
             if self.at_op(Op::At) {
                 for a in self.parse_metadata()? {
                     self.error_at(codigos::parser::ANNOTATION_ON_TYPE_ARGUMENT, a.span, &[]);
                 }
             }
-            // `NoType.ensureTypeOrVoid`: o que não começa tipo é
-            // `EXPECTED_TYPE_NAME` nele e um tipo sintético vazio.
+            // `NoType.ensureTypeOrVoid`: what does not start a type is
+            // `EXPECTED_TYPE_NAME` at it and an empty synthetic type.
             if !matches!(self.kind(), Kind::Ident | Kind::Keyword(Keyword::Void) | Kind::Op(Op::LParen)) {
                 self.erro(codigos::parser::EXPECTED_TYPE_NAME, &[]);
                 let s = self.span().start;
@@ -408,15 +410,15 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(args)
     }
 
-    /// `<@meta T extends B, U>` de parâmetros, ou lista vazia se não houver `<`,
-    /// sem modificadores de variância (funções, métodos, `typedef`,
-    /// extensões): `in`/`out` ali são nomes.
+    /// `<@meta T extends B, U>` parameters, or an empty list if there is no `<`,
+    /// without variance modifiers (functions, methods, `typedef`, extensions):
+    /// `in`/`out` there are names.
     pub(crate) fn parse_type_parameters_opt(&mut self) -> PResult<Vec<TypeParameter>> {
         self.parse_type_parameters_with(false)
     }
 
-    /// Como [`Parser::parse_type_parameters_opt`], onde o fasta aceita
-    /// variância (`allowsVariance`: classe, mixin, enum).
+    /// Like [`Parser::parse_type_parameters_opt`], where fasta accepts variance
+    /// (`allowsVariance`: class, mixin, enum).
     pub(crate) fn parse_type_parameters_opt_variance(&mut self) -> PResult<Vec<TypeParameter>> {
         self.parse_type_parameters_with(true)
     }
@@ -431,19 +433,19 @@ impl<'s, 'i> Parser<'s, 'i> {
         result
     }
 
-    /// Porte de `ComplexTypeParamOrArgInfo.parseVariables`
-    /// (`type_info_impl.dart`): metadata, variância (com
-    /// `MULTIPLE_VARIANCE_MODIFIERS` para as sobras e o experimento
-    /// `variance` relatado no primeiro modificador, como o
-    /// `AstBuilder.endTypeVariable`), o nome pelo contexto
-    /// `typeVariableDeclaration`, o limite, e a recuperação: vírgula que
-    /// falta entre dois nomes (`parseMissingComma`) e fim inesperado
+    /// Port of `ComplexTypeParamOrArgInfo.parseVariables`
+    /// (`type_info_impl.dart`): metadata, variance (with
+    /// `MULTIPLE_VARIANCE_MODIFIERS` for the extras and the `variance`
+    /// experiment reported at the first modifier, like
+    /// `AstBuilder.endTypeVariable`), the name via the
+    /// `typeVariableDeclaration` context, the bound, and recovery: a missing
+    /// comma between two names (`parseMissingComma`) and an unexpected end
     /// (`parseUnexpectedEnd`).
     fn parse_type_parameters_inner(&mut self, variance_: bool) -> PResult<Vec<TypeParameter>> {
         let abre = self.pos;
         self.expect_op(Op::Lt)?;
         let mut params = Vec::new();
-        // O último token consumido é sintético (nome inserido).
+        // The last consumed token is synthetic (an inserted name).
         let mut synthetic;
         loop {
             let start = self.span();
@@ -490,13 +492,13 @@ impl<'s, 'i> Parser<'s, 'i> {
             if self.eat_op(Op::Comma) {
                 continue;
             }
-            // `isCloser(token)`: o limite terminou num `>`.
+            // `isCloser(token)`: the bound ended at a `>`.
             let last_closer =
                 self.pos > 0 && self.tokens[self.pos - 1].kind == Kind::Op(Op::Gt) && !synthetic;
             if last_closer || !self.looks_like_type_param_or_arg(true, self.pos) {
                 break;
             }
-            // `parseMissingComma`: `Expected to find ','.` no token seguinte.
+            // `parseMissingComma`: `Expected to find ','.` at the next token.
             self.erro(codigos::parser::EXPECTED_TOKEN, &[","]);
         }
         if self.eat_op(Op::Gt) {
@@ -506,24 +508,24 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(params)
     }
 
-    /// `ensureIdentifier` no contexto `typeVariableDeclaration`
-    /// (`TypeVariableDeclarationIdentifierContext`): pseudo-palavra e
-    /// identificador embutido servem de nome; um token que parece começar a
-    /// próxima declaração, membro ou comando, ou que segue um nome
-    /// (`<`, `>`, `;`, `}`, `extends`, `super`, `=`, fim), fica onde está e o
-    /// nome é sintético (`MISSING_IDENTIFIER`); palavra reservada vira o nome
-    /// (`EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD`); outro token é consumido no
-    /// lugar do nome. Devolve o nome e se ele é sintético.
+    /// `ensureIdentifier` in the `typeVariableDeclaration` context
+    /// (`TypeVariableDeclarationIdentifierContext`): a pseudo-keyword or
+    /// built-in identifier serves as a name; a token that looks like the start
+    /// of the next declaration, member or statement, or that follows a name
+    /// (`<`, `>`, `;`, `}`, `extends`, `super`, `=`, end), stays where it is and
+    /// the name is synthetic (`MISSING_IDENTIFIER`); a reserved word becomes the
+    /// name (`EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD`); any other token is consumed
+    /// in place of the name. Returns the name and whether it is synthetic.
     fn ensure_type_variable_name(&mut self) -> (Name, bool) {
         use super::fasta::WordStyle;
         let pos = self.pos;
         if self.kind() == Kind::Ident {
-            // Identificador, pseudo-palavra ou embutido: o embutido é relatado
-            // por `analise` (`BUILT_IN_IDENTIFIER_IN_DECLARATION`)…
+            // Identifier, pseudo-keyword or built-in: the built-in one is reported by
+            // `analise` (`BUILT_IN_IDENTIFIER_IN_DECLARATION`)…
             let segue = self.looks_like_top_level_start(pos)
                 || self.looks_like_member_start(pos)
                 || self.looks_like_statement_start(pos);
-            // …salvo quando parece começar outra coisa.
+            // …except when it looks like the start of something else.
             if !(segue && self.word_style_of(pos) == Some(WordStyle::BuiltIn)) {
                 return (self.identifier(), false);
             }
@@ -563,12 +565,12 @@ impl<'s, 'i> Parser<'s, 'i> {
         (synthetic(self), true)
     }
 
-    /// `parseUnexpectedEnd` de `type_info_impl.dart` para parâmetros de tipo:
-    /// `Expected to find '>'.` no último token lido (uma vez só), e o resto
-    /// pulado até o `>` que pode fechar a lista — depois de `extends` e de um
-    /// tipo, de uma lista `<…>` aninhada, de `(…)`, ou do `>` que o scanner
-    /// casou com o `<` de abertura. Sem `>` nenhum, a lista termina ali (o
-    /// fasta insere um `>` sintético).
+    /// `parseUnexpectedEnd` from `type_info_impl.dart` for type parameters:
+    /// `Expected to find '>'.` at the last token read (only once), and the rest
+    /// skipped up to the `>` that may close the list — after `extends` and a
+    /// type, a nested `<…>` list, `(…)`, or the `>` the scanner matched with the
+    /// opening `<`. Without any `>`, the list ends there (fasta inserts a
+    /// synthetic `>`).
     fn unexpected_end_of_type_parameters(
         &mut self,
         abre: usize,
@@ -640,27 +642,27 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(())
     }
 
-    // -- Parâmetros formais ------------------------------------------------
+    // -- Formal parameters -----------------------------------------------------
 
-    /// `(a, [b = 1], {required c})` completo, com os parênteses, no modo
-    /// declaração: nomes obrigatórios, `this.x`/`super.x`, defaults e a forma
-    /// antiga `int f(int x)`.
+    /// Full `(a, [b = 1], {required c})`, with the parentheses, in declaration
+    /// mode: required names, `this.x`/`super.x`, defaults and the old form
+    /// `int f(int x)`.
     pub(crate) fn parse_formal_parameters(&mut self) -> PResult<Vec<Parameter>> {
         self.parse_parameter_list(false)
     }
 
-    /// `parameterTypeList` de um tipo de função, com os parênteses:
-    /// `(int, String name, [int], {required int a})`. Um item sem nome vira
+    /// The `parameterTypeList` of a function type, with the parentheses:
+    /// `(int, String name, [int], {required int a})`. An unnamed item becomes
     /// `Parameter { ty: Some(_), name: None }`.
     pub(crate) fn parse_function_type_parameters(&mut self) -> PResult<Vec<Parameter>> {
         self.parse_parameter_list(true)
     }
 
     fn parse_parameter_list(&mut self, in_function_type: bool) -> PResult<Vec<Parameter>> {
-        // O construtor primário de extension type chega como
-        // `PrimaryConstructor`; o de classe e enum (3.13) chega como `Other`:
-        // o `covariant` dele é conferido na elaboração, que sabe se o
-        // parâmetro declara campo.
+        // The extension type primary constructor arrives as `PrimaryConstructor`;
+        // the class and enum one (3.13) arrives as `Other`: its `covariant` is
+        // checked during elaboration, which knows whether the parameter declares a
+        // field.
         let owner = if in_function_type {
             ParameterOwner::FunctionTypeKind
         } else {
@@ -684,9 +686,9 @@ impl<'s, 'i> Parser<'s, 'i> {
             if let Some((kind, close)) = group {
                 let open_group = self.pos;
                 self.advance();
-                // Grupo vazio (`({})`, `([])`): `MISSING_IDENTIFIER` no fecho
-                // e o parâmetro sintético que o fasta insere (sem tipo e de
-                // nome vazio: `C Function({dynamic })`).
+                // Empty group (`({})`, `([])`): `MISSING_IDENTIFIER` at the closer and the
+                // synthetic parameter fasta inserts (untyped and with an empty name:
+                // `C Function({dynamic })`).
                 if self.at_op(close) {
                     self.erro(codigos::parser::MISSING_IDENTIFIER, &[]);
                     params.push(self.synthetic_parameter(kind));
@@ -695,9 +697,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                     if self.eat_op(close) {
                         break;
                     }
-                    // Um grupo dentro do grupo (`{a, {b}}`): o `ensureIdentifier`
-                    // do parâmetro relata `MISSING_IDENTIFIER` no token e põe
-                    // um parâmetro sintético (aqui omitido).
+                    // A group inside the group (`{a, {b}}`): the parameter's
+                    // `ensureIdentifier` reports `MISSING_IDENTIFIER` at the token and adds a
+                    // synthetic parameter (omitted here).
                     if matches!(self.kind(), Kind::Op(Op::LBrace | Op::LBracket)) {
                         self.erro(codigos::parser::MISSING_IDENTIFIER, &[]);
                         params.push(self.synthetic_parameter(kind));
@@ -705,9 +707,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                         params.push(self.parse_formal_parameter(kind, in_function_type, owner)?);
                     }
                     if !self.eat_op(Op::Comma) {
-                        // `parseOptionalNamedParameters`/`…PositionalParameters`:
-                        // sem `,` nem fecho, `EXPECTED_TOKEN` (o fecho) no token
-                        // e o grupo acaba no fecho casado com o abridor.
+                        // `parseOptionalNamedParameters`/`…PositionalParameters`: without a `,` or
+                        // closer, `EXPECTED_TOKEN` (the closer) at the token and the group ends at
+                        // the closer matched with the opener.
                         if !self.at_op(close)
                             && let Some(closes) = self.matching_close(open_group)
                             && closes > self.pos
@@ -728,13 +730,12 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             params.push(self.parse_formal_parameter(ParameterKind::Required, in_function_type, owner)?);
             if !self.eat_op(Op::Comma) {
-                // `parseFormalParametersRest`: o `)` sintético fora do lugar
-                // vem para cá; dois identificadores seguidos são a vírgula
-                // que falta (`EXPECTED_TOKEN` no segundo); o resto é o
-                // `ensureCloseParen`, até o `)` casado.
+                // `parseFormalParametersRest`: the misplaced synthetic `)` comes here; two
+                // identifiers in a row are the missing comma (`EXPECTED_TOKEN` at the
+                // second); the rest is `ensureCloseParen`, up to the matching `)`.
                 if !self.at_op(Op::RParen) {
                     if self.move_synthetic_closer(abre) {
-                        // O `)` agora é o token corrente.
+                        // The `)` is now the current token.
                     } else if self.is_plain_identifier(self.pos) && self.is_plain_identifier(self.pos + 1) {
                         self.erro(codigos::parser::EXPECTED_TOKEN, &[","]);
                         continue;
@@ -751,8 +752,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// O parâmetro que o `ensureIdentifier` insere no lugar do nome que
-    /// falta: sem tipo, com nome vazio no token corrente.
+    /// The parameter `ensureIdentifier` inserts in place of the missing name:
+    /// untyped, with an empty name at the current token.
     fn synthetic_parameter(&mut self, kind: ParameterKind) -> Parameter {
         let here = self.span().start;
         let s = Span { start: here, end: here };
@@ -779,8 +780,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// Um parâmetro: metadata, modificadores, tipo opcional, nome (opcional
-    /// só em tipo de função), parte de função da forma antiga e default.
+    /// One parameter: metadata, modifiers, optional type, name (optional only in
+    /// function types), the old-form function part and the default.
     fn parse_formal_parameter(
         &mut self,
         kind: ParameterKind,
@@ -789,12 +790,11 @@ impl<'s, 'i> Parser<'s, 'i> {
     ) -> PResult<Parameter> {
         let start = self.span();
         let metadata = self.parse_metadata_opt()?;
-        // Modificadores em qualquer ordem (superconjunto), lidos pelo
-        // `ModifierContext` do fasta (`parseFormalParameterModifiers`), que
-        // relata ordem errada, repetição e o que não cabe num parâmetro.
-        // `required`/`covariant`… são identificadores comuns quando nada
-        // declarável os segue (`{required}` é um parâmetro chamado
-        // `required`).
+        // Modifiers in any order (superset), read by fasta's `ModifierContext`
+        // (`parseFormalParameterModifiers`), which reports wrong order, repetition
+        // and what does not fit in a parameter. `required`/`covariant`… are plain
+        // identifiers when nothing declarable follows them (`{required}` is a
+        // parameter named `required`).
         let mut f = ModifierTokens::default();
         self.modifier_context(&mut f, false);
         for p in [f.final_, f.var_].into_iter().flatten() {
@@ -821,9 +821,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         let name = if self.at_field_formal(self.pos) {
             this_ = self.at_kw(Keyword::This);
             super_ = !this_;
-            // `final`/`var` com `this.`/`super.` no construtor primário: o
-            // parâmetro seria declarante e inicializador (o parser do 3.13.4
-            // relata no `this`/`super`).
+            // `final`/`var` with `this.`/`super.` in the primary constructor: the
+            // parameter would be both declaring and initializing (the 3.13.4 parser
+            // reports it at the `this`/`super`).
             if self.in_primary_constructor && (final_ || var_) {
                 let code = if this_ {
                     codigos::parser::INITIALIZING_DECLARING_PARAMETER
@@ -839,17 +839,17 @@ impl<'s, 'i> Parser<'s, 'i> {
         } else if self.at_identifier() {
             Some(self.identifier())
         } else if in_function_type && ty.is_some() && kind == ParameterKind::Named {
-            // Nomeado num tipo de função sem nome (`Function({int})`): o tipo
-            // lido e `MISSING_IDENTIFIER` no token seguinte (o nome é exigido,
-            // `parseFormalParameter`), com um nome sintético.
+            // Named in an unnamed function type (`Function({int})`): the type read and
+            // `MISSING_IDENTIFIER` at the next token (the name is required,
+            // `parseFormalParameter`), with a synthetic name.
             self.erro(codigos::parser::MISSING_IDENTIFIER, &[]);
             let s = self.span().start;
             Some(self.name_from("", Span { start: s, end: s }))
         } else if in_function_type && ty.is_some() {
             None
         } else if matches!(self.kind(), Kind::Op(Op::Comma | Op::RParen | Op::RBracket | Op::RBrace)) {
-            // Parâmetro sem nome antes de `,` ou do fecho (`f(,[])`):
-            // `MISSING_IDENTIFIER` nele e um nome sintético; a lista segue.
+            // Unnamed parameter before `,` or the closer (`f(,[])`):
+            // `MISSING_IDENTIFIER` at it and a synthetic name; the list goes on.
             self.erro(codigos::parser::MISSING_IDENTIFIER, &[]);
             let s = self.span().start;
             Some(self.name_from("", Span { start: s, end: s }))
@@ -857,7 +857,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             return Err(self.identifier_error());
         };
 
-        // Forma antiga de parâmetro-função: `int f<T>(T x)`, `this.f(int x)`.
+        // Old form of a function parameter: `int f<T>(T x)`, `this.f(int x)`.
         let mut function_type_params = Vec::new();
         let mut function_parameters = None;
         let mut function_nullable = false;
@@ -865,15 +865,15 @@ impl<'s, 'i> Parser<'s, 'i> {
             function_type_params = self.parse_type_parameters_opt()?;
             self.params_owner = ParameterOwner::FunctionParameter;
             function_parameters = Some(self.parse_formal_parameters()?);
-            // `int f(int x)?` — nulabilidade da forma antiga.
+            // `int f(int x)?` — old-form nullability.
             function_nullable = self.eat_op(Op::Question);
         }
 
-        // `parseFormalParameterRest` (`parser_impl.dart:2228-2300` do
-        // checkout main), no cabeçalho primário com o recurso desligado: o
-        // `var`/`final`/`const` de um parâmetro de forma de função, e o `var`
-        // seguido de tipo, são o recurso desligado (fora do primário, são
-        // `FUNCTION_TYPED_PARAMETER_VAR` e `VAR_AND_TYPE`).
+        // `parseFormalParameterRest` (`parser_impl.dart:2228-2300` in the main
+        // checkout), in the primary header with the feature disabled: the
+        // `var`/`final`/`const` of a function-form parameter, and `var` followed by
+        // a type, are the disabled feature (outside the primary one, they are
+        // `FUNCTION_TYPED_PARAMETER_VAR` and `VAR_AND_TYPE`).
         if owner == ParameterOwner::PrimaryConstructor && !self.in_representation && !self.features.tem(Feature::PrimaryConstructors) {
             let word = if function_parameters.is_some() {
                 f.var_final_or_const()
@@ -883,8 +883,8 @@ impl<'s, 'i> Parser<'s, 'i> {
                 None
             };
             if let Some(tk) = word {
-                // A correção do oráculo 3.13.4 leva `3.13` (a forma do
-                // `AstBuilder`), não `3.13.0`.
+                // The 3.13.4 oracle's fix carries `3.13` (the `AstBuilder` form), not
+                // `3.13.0`.
                 let sp = self.span_of(tk);
                 self.require_in_ast(Feature::PrimaryConstructors, sp);
             }
@@ -892,10 +892,10 @@ impl<'s, 'i> Parser<'s, 'i> {
 
         let default_value =
             if self.at_op(Op::Assign) || (kind == ParameterKind::Named && self.at_op(Op::Colon)) {
-                // `parseFormalParameter` (`parser_impl.dart:2170`): default em
-                // posicional obrigatório é `NAMED_PARAMETER_OUTSIDE_GROUP`; em
-                // tipo de função, `typedef` antigo ou parâmetro-função,
-                // `DEFAULT_VALUE_IN_FUNCTION_TYPE` (no `=`/`:`).
+                // `parseFormalParameter` (`parser_impl.dart:2170`): a default on a required
+                // positional is `NAMED_PARAMETER_OUTSIDE_GROUP`; in a function type, an old
+                // `typedef` or a function parameter, `DEFAULT_VALUE_IN_FUNCTION_TYPE` (at
+                // the `=`/`:`).
                 let equals_ = self.span();
                 if kind == ParameterKind::Required {
                     self.error_at(codigos::parser::NAMED_PARAMETER_OUTSIDE_GROUP, equals_, &[]);
@@ -940,20 +940,19 @@ impl<'s, 'i> Parser<'s, 'i> {
         })
     }
 
-    /// Parâmetro nomeado com nome privado (`{this._x}`): só é permitido
-    /// quando inicializa campo (`this._x`) ou o declara (`var`/`final` num
-    /// construtor primário), a partir da 3.12, e se houver nome público
-    /// correspondente (`accepted/3.12/private-named-parameters`, "Static
-    /// semantics"). Devolve o nome público; os erros ficam registrados e a
-    /// análise continua.
+    /// Named parameter with a private name (`{this._x}`): only allowed when it
+    /// initializes a field (`this._x`) or declares it (`var`/`final` in a
+    /// primary constructor), from 3.12 on, and if there is a matching public
+    /// name (`accepted/3.12/private-named-parameters`, "Static semantics").
+    /// Returns the public name; errors are recorded and parsing goes on.
     fn public_name_of_named(&mut self, n: Name, this_: bool, declarante: bool) -> Option<Name> {
         let texto = &self.source[n.span.start..n.span.end];
         let rest = texto.strip_prefix('_')?;
         let initializes_field = this_ || (declarante && self.in_primary_constructor);
-        // `_checkPrivateOptionalParameter` (`error_verifier.dart:8622-8661`
-        // do checkout main): com o recurso desligado, só o `this._x`
-        // sintático (`FieldFormalParameter`) é o recurso desligado; o
-        // declarante (`final`/`var`, sintaticamente simples) e os demais são
+        // `_checkPrivateOptionalParameter` (`error_verifier.dart:8622-8661` in the
+        // main checkout): with the feature disabled, only the syntactic `this._x`
+        // (`FieldFormalParameter`) is the disabled feature; the declaring one
+        // (`final`/`var`, syntactically simple) and the rest are
         // `PRIVATE_OPTIONAL_PARAMETER`.
         if !initializes_field || (!this_ && !self.features.tem(Feature::PrivateNamedParameters)) {
             self.diagnostics.push(Diagnostic::com_codigo(
@@ -964,9 +963,9 @@ impl<'s, 'i> Parser<'s, 'i> {
             return None;
         }
         self.require(Feature::PrivateNamedParameters, n.span);
-        // Com o recurso desligado, o parâmetro fica com o nome privado (o
-        // oráculo 3.13.4 não renomeia: `this._foo` e `foo` não colidem, e dois
-        // `this._foo` colidem como `_foo`).
+        // With the feature disabled, the parameter keeps the private name (the
+        // 3.13.4 oracle does not rename: `this._foo` and `foo` do not collide, and
+        // two `this._foo` collide as `_foo`).
         if !self.features.tem(Feature::PrivateNamedParameters) {
             return None;
         }
@@ -976,8 +975,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             .is_some_and(|c| c.is_ascii_alphabetic() || c == '$')
             && Keyword::from_text(rest).is_none();
         if !valid {
-            // Sem o recurso, o analyzer 3.13.4 relata só o recurso desligado,
-            // sem conferir o nome público (oráculo gravado, biblioteca 3.6).
+            // Without the feature, the 3.13.4 analyzer only reports the disabled
+            // feature, without checking the public name (recorded oracle, 3.6 library).
             if self.features.tem(Feature::PrivateNamedParameters) {
                 self.diagnostics.push(Diagnostic::new(
                     format!(
@@ -992,11 +991,11 @@ impl<'s, 'i> Parser<'s, 'i> {
         Some(Name { sym, span: n.span })
     }
 
-    /// `var`/`final` num parâmetro: a partir da 3.13 só existem em parâmetro
-    /// declarante de construtor primário (quebra da 3.13,
-    /// `primary-constructors` "Language versioning"; o CFE diz `Can't have
-    /// modifier 'final' here`). Antes, `final` é permitido em qualquer
-    /// parâmetro de declaração.
+    /// `var`/`final` on a parameter: from 3.13 on they only exist on a primary
+    /// constructor's declaring parameter (a 3.13 break,
+    /// `primary-constructors` "Language versioning"; the CFE says `Can't have
+    /// modifier 'final' here`). Before that, `final` is allowed on any
+    /// declaration parameter.
     fn check_parameter_modifier(&mut self, span: Span, in_function_type: bool) {
         if in_function_type
             || self.in_primary_constructor
@@ -1012,13 +1011,13 @@ impl<'s, 'i> Parser<'s, 'i> {
         ));
     }
 
-    /// Nome público de nomeado privado que repete o de outro parâmetro é
-    /// erro, mesmo contra posicional (spec da 3.12).
+    /// A private named parameter's public name that repeats another
+    /// parameter's is an error, even against a positional one (3.12 spec).
     /// `_checkUseOfDefaultValuesInParameters` (3.6.2 `error_verifier.dart:6211-6221`,
-    /// no `visitFormalParameterList`, toda lista, inclusive a de tipo de função e
-    /// a de método abstrato): o nomeado `required` com valor padrão relata
-    /// `DEFAULT_VALUE_ON_REQUIRED_PARAMETER` no nome (`_parameterName`) ou, sem
-    /// nome, no parâmetro.
+    /// in `visitFormalParameterList`, every list, including function type lists
+    /// and abstract method lists): a `required` named parameter with a default
+    /// value reports `DEFAULT_VALUE_ON_REQUIRED_PARAMETER` at the name
+    /// (`_parameterName`) or, without a name, at the parameter.
     fn check_required_default(&mut self, params: &[Parameter]) {
         for p in params {
             if p.kind == ParameterKind::Named && p.required && p.default_value.is_some() {
@@ -1052,7 +1051,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// `this.` ou `super.` em `pos`.
+    /// `this.` or `super.` at `pos`.
     fn at_field_formal(&self, pos: usize) -> bool {
         matches!(
             self.kind_of(pos),
@@ -1060,9 +1059,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         ) && self.kind_of(pos + 1) == Kind::Op(Op::Dot)
     }
 
-    /// Variante de `Parser::looks_like_type_then_identifier` para listas de
-    /// parâmetros: aceita `this.`/`super.` como "nome" e não aplica a
-    /// heurística da condicional, porque `{int? a: 1}` é legítimo aqui.
+    /// Variant of `Parser::looks_like_type_then_identifier` for parameter
+    /// lists: accepts `this.`/`super.` as the "name" and does not apply the
+    /// conditional heuristic, because `{int? a: 1}` is legitimate here.
     fn looks_like_type_then_name(&self, pos: usize) -> bool {
         let Some(end) = self.skip_type(pos) else {
             return false;
@@ -1072,15 +1071,15 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     // -- Lookaheads --------------------------------------------------------
 
-    /// Posição após um tipo que começa em `pos`, se houver um sintaticamente.
+    /// Position after a type starting at `pos`, if there is one syntactically.
     ///
-    /// Aceita `p.Nome<Args>?`, `void`, caudas `Function<T>(...)` (parênteses
-    /// pulados com [`Parser::matching_close`]), records `(...)` com campos
-    /// validados como tipos, e `?` final. Conservador em `<`: se os argumentos
-    /// não formam uma lista bem formada, o tipo termina antes do `<`
-    /// (`a < b` fica como expressão).
-    /// `looksLikeName` (`type_info.dart`): identificador, `this` ou `super`;
-    /// `typedef` seguido de identificador não (é outra declaração).
+    /// Accepts `p.Name<Args>?`, `void`, `Function<T>(...)` tails (parentheses
+    /// skipped with [`Parser::matching_close`]), records `(...)` with fields
+    /// validated as types, and a trailing `?`. Conservative on `<`: if the
+    /// arguments do not form a well-formed list, the type ends before the `<`
+    /// (`a < b` stays an expression).
+    /// `looksLikeName` (`type_info.dart`): identifier, `this` or `super`;
+    /// `typedef` followed by an identifier is not (it is another declaration).
     pub(crate) fn looks_like_name(&self, pos: usize) -> bool {
         match self.kind_of(pos) {
             Kind::Ident => !(self.text_of(pos) == "typedef" && self.kind_of(pos + 1) == Kind::Ident),
@@ -1106,8 +1105,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             Kind::Op(Op::LParen) => self.skip_record_type(pos, depth)?,
             Kind::Ident if self.at_function_tail(pos) => pos,
             Kind::Ident => {
-                // `computeType`: embutido seguido de `<…>` e de um nome é
-                // tipo (recuperação, `import<int> x = [];`).
+                // `computeType`: a built-in followed by `<…>` and a name is a type
+                // (recovery, `import<int> x = [];`).
                 if is_builtin_identifier(self.text_of(pos))
                     && self.kind_of(pos + 1) != Kind::Op(Op::Dot)
                     && !self.skip_type_arguments_at(pos + 1, depth).is_some_and(|d| self.looks_like_name(d))
@@ -1146,7 +1145,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         Some(p)
     }
 
-    /// Pula `Function<T>(...)` a partir do `Function` em `pos`.
+    /// Skips `Function<T>(...)` from the `Function` at `pos`.
     fn skip_function_tail(&self, pos: usize, depth: u32) -> Option<usize> {
         let mut p = pos + 1;
         if self.kind_of(p) == Kind::Op(Op::Lt) {
@@ -1158,8 +1157,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         Some(self.matching_close(p)? + 1)
     }
 
-    /// Pula `(fields_)` de um record a partir do `(` em `pos`, validando que
-    /// cada campo é `metadata kind nome?` (ou `{metadata kind nome, ...}`).
+    /// Skips the `(fields)` of a record from the `(` at `pos`, validating that
+    /// each field is `metadata type name?` (or `{metadata type name, ...}`).
     fn skip_record_type(&self, pos: usize, depth: u32) -> Option<usize> {
         let mut p = pos + 1;
         loop {
@@ -1205,8 +1204,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// Pula zero ou mais `@nome.member<T>(args)` a partir de `pos`. Uma
-    /// anotação malformada interrompe e devolve a posição do seu `@`.
+    /// Skips zero or more `@name.member<T>(args)` from `pos`. A malformed
+    /// annotation stops it and returns the position of its `@`.
     fn skip_metadata(&self, pos: usize, depth: u32) -> usize {
         let mut p = pos;
         while self.kind_of(p) == Kind::Op(Op::At) {
@@ -1235,13 +1234,13 @@ impl<'s, 'i> Parser<'s, 'i> {
         p
     }
 
-    /// Posição após `<...>` que começa em `pos`, se for uma lista de
-    /// argumentos de tipo bem formada.
+    /// Position after the `<...>` starting at `pos`, if it is a well-formed type
+    /// argument list.
     ///
-    /// Exige `<`, um ou mais tipos separados por vírgula e um `>` de
-    /// fechamento; aceita também `extends B` e metadata por item, para servir
-    /// como lookahead de listas de parâmetros de tipo. Qualquer outra coisa
-    /// (`a < b`, `a < b, c > d` sem `>` no lugar certo) devolve `None`.
+    /// Requires `<`, one or more comma-separated types and a closing `>`; also
+    /// accepts `extends B` and per-item metadata, to serve as a lookahead for
+    /// type parameter lists. Anything else (`a < b`, `a < b, c > d` without `>`
+    /// in the right place) returns `None`.
     pub(crate) fn skip_type_arguments(&self, pos: usize) -> Option<usize> {
         self.skip_type_arguments_at(pos, 0)
     }
@@ -1254,9 +1253,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         let mut first = true;
         loop {
             p = self.skip_metadata(p, depth + 1);
-            // `ComplexTypeParamOrArgInfo.compute`: sem tipo (`<>`, `<int,>`)
-            // a lista ainda vale, com o tipo sintético que o
-            // `ensureTypeOrVoid` põe; na primeira posição, só diante do `>`.
+            // `ComplexTypeParamOrArgInfo.compute`: without a type (`<>`, `<int,>`) the
+            // list is still valid, with the synthetic type `ensureTypeOrVoid` adds; in
+            // the first position, only before the `>`.
             p = match self.skip_type_at(p, depth + 1) {
                 Some(d) => d,
                 None if self.kind_of(p) == Kind::Op(Op::Gt) || (!first && self.kind_of(p) == Kind::Op(Op::Comma)) => p,
@@ -1274,27 +1273,28 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// Em `pos` começa `kind identifier` (declaração de variável, parâmetro
-    /// ou função)? Não consome nada.
+    /// Does a `type identifier` (variable, parameter or function declaration)
+    /// start at `pos`? Consumes nothing.
     ///
-    /// Segue `computeType(required: false)` do SDK: o tipo precisa ser
-    /// seguido de um identificador. Quando o tipo termina em `?`, aplica
-    /// também a regra de `parseExpressionStatementOrDeclarationAfterModifiers`
-    /// para não ler `a ? b : c` como declaração: depois do identificador tem
-    /// de vir `=`, `;`, `,`, `)`, uma palavra reservada, outro identificador,
-    /// o fim do arquivo, ou `<T>(...)` seguido de corpo de função
-    /// (`int? f() {}`). O SDK ainda desfaz `a ? b = c : d` analisando a
-    /// expressão; aqui `=` conta como declaração.
+    /// Follows the SDK's `computeType(required: false)`: the type must be
+    /// followed by an identifier. When the type ends with `?`, it also applies
+    /// the `parseExpressionStatementOrDeclarationAfterModifiers` rule so as not
+    /// to read `a ? b : c` as a declaration: after the identifier there must be
+    /// `=`, `;`, `,`, `)`, a reserved word, another identifier, end of file, or
+    /// `<T>(...)` followed by a function body (`int? f() {}`). The SDK still
+    /// undoes `a ? b = c : d` by parsing the expression; here `=` counts as a
+    /// declaration.
     pub(crate) fn looks_like_type_then_identifier(&self, pos: usize) -> bool {
         self.looks_like_type_then_identifier_with(pos, false)
     }
 
-    /// Variante de `Parser::looks_like_type_then_identifier` para contextos
-    /// que já decidiram por declaração (membro de classe, topo): `int? a]` e
-    /// `int? a}` continuam declaração — o fasta 3.6.2 relata o `;` que falta
-    /// no nome e denuncia o fecho (`expected_class_member`/`expected_executable`
-    /// nele), em vez de cair no ramo de condicional. Em corpo de função a
-    /// forma restrita prevalece (`int ? a : ...` é condicional).
+    /// Variant of `Parser::looks_like_type_then_identifier` for contexts that
+    /// have already decided on a declaration (class member, top level):
+    /// `int? a]` and `int? a}` stay declarations — fasta 3.6.2 reports the
+    /// missing `;` at the name and flags the closer (`expected_class_member`/
+    /// `expected_executable` at it), instead of falling into the conditional
+    /// branch. In a function body the restricted form prevails (`int ? a : ...`
+    /// is a conditional).
     pub(crate) fn looks_like_type_then_identifier_in_declaration(&self, pos: usize) -> bool {
         self.looks_like_type_then_identifier_with(pos, true)
     }
@@ -1303,13 +1303,13 @@ impl<'s, 'i> Parser<'s, 'i> {
         let Some(end) = self.skip_type(pos) else {
             return false;
         };
-        // `looksLikeName`: `typedef` seguido de identificador não é nome
-        // (`base typedef E = Enum;`: `base` é o nome de um campo).
+        // `looksLikeName`: `typedef` followed by an identifier is not a name
+        // (`base typedef E = Enum;`: `base` is a field's name).
         if self.kind_of(end) != Kind::Ident || !self.looks_like_name(end) {
             return false;
         }
-        // `T operator +(...)` é operador; `final O operator;` usa `operator`
-        // como nome comum (é identificador embutido, não reservado).
+        // `T operator +(...)` is an operator; `final O operator;` uses `operator`
+        // as a plain name (it is a built-in identifier, not reserved).
         if self.text_of(end) == "operator" && self.operator_follows_at(end) {
             return true;
         }
@@ -1319,7 +1319,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         true
     }
 
-    /// O token em `pos` é `operator` seguido de um operador declarável?
+    /// Is the token at `pos` `operator` followed by a declarable operator?
     pub(crate) fn operator_follows_at(&self, pos: usize) -> bool {
         match self.kind_of(pos + 1) {
             Kind::Op(op) => match op {
@@ -1345,10 +1345,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// Depois de `T? nome`, o token em `pos` é compatível com uma declaração
-    /// (e não com o ramo de uma condicional). Com `closer_counts` (contexto de
-    /// declaração: membro, topo), `]`/`}` também valem — o `;` é relatado no
-    /// nome e o fecho é denunciado à parte, como faz o fasta.
+    /// After `T? name`, the token at `pos` is compatible with a declaration (and
+    /// not with a conditional's branch). With `closer_counts` (declaration
+    /// context: member, top level), `]`/`}` also count — the `;` is reported at
+    /// the name and the closer is flagged separately, as fasta does.
     fn declaration_may_continue_at(&self, pos: usize, closer_counts: bool) -> bool {
         match self.kind_of(pos) {
             Kind::Ident | Kind::Keyword(_) | Kind::Eof => true,
@@ -1359,9 +1359,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// `<T>(...)` ou `(...)` em `pos` seguido de `{`, `=>`, `async`, `sync`,
-    /// `;` (métodos abstratos/externos) ou `native` — o resto de uma declaração
-    /// de função, não uma chamada.
+    /// `<T>(...)` or `(...)` at `pos` followed by `{`, `=>`, `async`, `sync`,
+    /// `;` (abstract/external methods) or `native` — the rest of a function
+    /// declaration, not a call.
     pub(crate) fn looks_like_function_rest(&self, pos: usize) -> bool {
         let mut p = pos;
         if self.kind_of(p) == Kind::Op(Op::Lt) {
@@ -1391,13 +1391,13 @@ mod tests {
     use crate::lexer::lex;
     use dartforge_intern::Interner;
 
-    /// Constrói um parser sobre `src` e roda `f` com ele.
+    /// Builds a parser over `src` and runs `f` with it.
     fn with_parser<T>(src: &str, f: impl FnOnce(&mut Parser<'_, '_>) -> T) -> T {
         let mut names = Interner::new();
         let tokens = lex(src).unwrap();
         let mut p = Parser::new(src, tokens, &mut names);
-        // A gramática de parâmetros testada aqui é a da 3.6 (`final` em
-        // qualquer parâmetro); a da 3.13 está em `tests/versoes.rs`.
+        // The parameter grammar tested here is 3.6's (`final` on any parameter);
+        // 3.13's is in `tests/versions.rs`.
         p.features = crate::features::LibraryFeatures::piso();
         f(&mut p)
     }
@@ -1406,7 +1406,7 @@ mod tests {
         src[name.span.start..name.span.end].to_string()
     }
 
-    /// Reescreve um tipo numa forma canônica, para comparar textualmente.
+    /// Rewrites a type in a canonical form, to compare textually.
     fn render_type(src: &str, ast: &Ast, id: TypeId) -> String {
         let ty = ast.ty(id);
         let mut out = match &ty.kind {
@@ -1572,7 +1572,7 @@ mod tests {
         s
     }
 
-    /// Lê `src` inteiro como um tipo e devolve a forma canônica.
+    /// Reads the whole `src` as a type and returns the canonical form.
     fn ty(src: &str) -> String {
         with_parser(src, |p| {
             let id = p.parse_type().unwrap();
@@ -1584,7 +1584,7 @@ mod tests {
         })
     }
 
-    /// Lê `src` inteiro como lista de parâmetros formais (modo declaração).
+    /// Reads the whole `src` as a formal parameter list (declaration mode).
     fn params(src: &str) -> String {
         with_parser(src, |p| {
             let list = p.parse_formal_parameters().unwrap();
@@ -1597,7 +1597,7 @@ mod tests {
     fn type_fails(src: &str) {
         with_parser(src, |p| {
             let r = p.parse_type();
-            assert!(r.is_err() || !p.at_eof(), "aceitou '{src}' inteiro");
+            assert!(r.is_err() || !p.at_eof(), "accepted the whole '{src}'");
         })
     }
 
@@ -1671,7 +1671,7 @@ mod tests {
 
     #[test]
     fn chained_function_types() {
-        // O `Function` mais à direita é o tipo externo.
+        // The rightmost `Function` is the outer type.
         with_parser("int Function(int) Function(String)", |p| {
             let id = p.parse_type().unwrap();
             assert!(p.diagnostics.is_empty());
@@ -1745,13 +1745,14 @@ mod tests {
 
     #[test]
     fn question_after_is_or_as() {
-        // `x is int ? a : b`: o `?` fica para a condicional.
+        // `x is int ? a : b`: the `?` goes to the conditional.
         with_parser("int ? a : b", |p| {
             let id = p.parse_type_after_is_or_as().unwrap();
             assert!(!p.ast.ty(id).nullable);
             assert!(p.at_op(Op::Question));
         });
-        // `(x is int?)`, `x is int?;`, `x is int? ? a : b`: o `?` é do tipo.
+        // `(x is int?)`, `x is int?;`, `x is int? ? a : b`: the `?` belongs to the
+        // type.
         for src in [
             "int?)",
             "int?;",
@@ -1765,24 +1766,26 @@ mod tests {
                 assert!(p.ast.ty(id).nullable, "{src}");
             });
         }
-        // `x is int? && y`: no SDK `&&` fecha o tipo (não inicia expressão).
+        // `x is int? && y`: in the SDK `&&` closes the type (it does not start an
+        // expression).
         with_parser("int? && y", |p| {
             let id = p.parse_type_after_is_or_as().unwrap();
             assert!(p.ast.ty(id).nullable);
         });
-        // `x is T ? a : b` com `a` iniciando por `{` ou `when`: condicional.
+        // `x is T ? a : b` with `a` starting with `{` or `when`: a conditional.
         for src in ["int ? {} : b", "int ? when : b"] {
             with_parser(src, |p| {
                 let id = p.parse_type_after_is_or_as().unwrap();
                 assert!(!p.ast.ty(id).nullable, "{src}");
             });
         }
-        // `{` que não forma condicional fecha o tipo (corpo de construtor).
+        // A `{` that does not form a conditional closes the type (a constructor
+        // body).
         with_parser("int? { }", |p| {
             let id = p.parse_type_after_is_or_as().unwrap();
             assert!(p.ast.ty(id).nullable);
         });
-        // Em contexto de tipo puro o `?` sempre entra.
+        // In pure type context the `?` always goes in.
         with_parser("int ? a : b", |p| {
             let id = p.parse_type().unwrap();
             assert!(p.ast.ty(id).nullable);
@@ -1800,7 +1803,7 @@ mod tests {
         });
     }
 
-    // -- parâmetros de tipo -------------------------------------------------
+    // -- type parameters -------------------------------------------------------
 
     #[test]
     fn type_parameters_() {
@@ -1825,7 +1828,7 @@ mod tests {
         });
     }
 
-    /// `(código, line:column)` dos diagnósticos de `src`, analisado na 3.6.
+    /// `(code, line:column)` of the diagnostics of `src`, parsed at 3.6.
     fn diagnostics_36(src: &str) -> Vec<(String, usize, usize)> {
         let mut names = Interner::new();
         let out =
@@ -1847,7 +1850,7 @@ mod tests {
             .collect()
     }
 
-    /// Casos conferidos com o `dart analyze` 3.6.2 (só os erros de sintaxe).
+    /// Cases checked against `dart analyze` 3.6.2 (syntax errors only).
     #[test]
     fn variance_and_type_parameter_recovery() {
         let d = |c: &str, l, col| (c.to_string(), l, col);
@@ -1858,10 +1861,10 @@ mod tests {
         let mut v = diagnostics_36("class C<in out X> {}");
         v.sort();
         assert_eq!(v, [d(exp, 1, 9), d("multiple_variance_modifiers", 1, 12)]);
-        // `out` seguido de `>` é o nome.
+        // `out` followed by `>` is the name.
         assert_eq!(diagnostics_36("class G<out out> {}"), [d(exp, 1, 9)]);
-        // Fora de classe, mixin e enum não há variância: `out` é nome e
-        // falta a vírgula antes de `T`.
+        // Outside class, mixin and enum there is no variance: `out` is a name and
+        // the comma before `T` is missing.
         assert_eq!(
             diagnostics_36("typedef E<out T> = T Function(T a);"),
             [d("expected_token", 1, 15)]
@@ -1881,7 +1884,7 @@ mod tests {
             diagnostics_36("class I<T U V> {}"),
             [d("expected_token", 1, 11), d("expected_token", 1, 13)]
         );
-        // A variância fica na árvore.
+        // The variance stays in the tree.
         let mut names = Interner::new();
         let out = crate::parser::parse_com(
             "mixin M<inout T> {}",
@@ -1899,7 +1902,7 @@ mod tests {
         );
     }
 
-    // -- parâmetros formais -------------------------------------------------
+    // -- formal parameters -----------------------------------------------------
 
     #[test]
     fn positional_parameters() {
@@ -1914,7 +1917,7 @@ mod tests {
             params("(Map<String, List<int>>? x)"),
             "(Map<String, List<int>>? x)"
         );
-        // `const` em parâmetro é `EXTRANEOUS_MODIFIER` (fasta).
+        // `const` on a parameter is `EXTRANEOUS_MODIFIER` (fasta).
         assert_eq!(params("(final x, var y)"), "(final x, var y)");
         assert_eq!(params("(final int x)"), "(final int x)");
         assert_eq!(params("(void Function() cb)"), "(void Function() cb)");
@@ -1984,8 +1987,9 @@ mod tests {
         assert_eq!(params("(Function() f)"), "(Function() f)");
     }
 
-    // Dependem de `parse_expression` (expressions.rs) e de `parse_metadata`
-    // (declarations.rs); panicam com `not yet implemented` enquanto forem stubs.
+    // They depend on `parse_expression` (expressions.rs) and `parse_metadata`
+    // (declarations.rs); they panic with `not yet implemented` while those are
+    // stubs.
     #[test]
     fn parameters_with_default_and_metadata() {
         assert_eq!(params("({int z = 3})"), "({int z = 3})");
@@ -2118,8 +2122,8 @@ mod tests {
         assert_eq!(skip_args("<int Function(int)>"), Some(7));
         assert_eq!(skip_args("< b"), None);
         assert_eq!(skip_args("< b, c > d"), Some(5));
-        // `ComplexTypeParamOrArgInfo.compute`: a lista vazia e a vírgula
-        // final valem (o tipo que falta é recuperação do `parseArguments`).
+        // `ComplexTypeParamOrArgInfo.compute`: the empty list and the trailing
+        // comma are valid (the missing type is `parseArguments` recovery).
         assert_eq!(skip_args("<>"), Some(2));
         assert_eq!(skip_args("<1>"), None);
         assert_eq!(skip_args("<a + b>"), None);

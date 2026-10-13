@@ -1,43 +1,44 @@
-//! Statements, declarações locais e cabeçalhos de `for`.
+//! Statements, local declarations and `for` headers.
 //!
-//! Cobre `statement` da gramática de Dart 3.6: bloco, declaração de variável
-//! local (inclusive por padrão), função local, `for`/`await for`, `while`,
-//! `do`, `switch` (com padrões e guardas), `if` (com `case`), `try`, `break`,
-//! `continue`, `return`, `yield`, `assert`, rótulos, `;` vazio e statement de
-//! expressão.
+//! Covers `statement` from the Dart 3.6 grammar: block, local variable
+//! declaration (including pattern ones), local function, `for`/`await for`,
+//! `while`, `do`, `switch` (with patterns and guards), `if` (with `case`),
+//! `try`, `break`, `continue`, `return`, `yield`, `assert`, labels, empty
+//! `;` and expression statement.
 //!
-//! Desambiguação, na ordem em que o parser real do SDK (`parseStatementX`) a
-//! faz:
+//! Disambiguation, in the order the SDK's real parser (`parseStatementX`)
+//! does it:
 //!
-//! * `nome:` no início é rótulo;
-//! * `{` é bloco, salvo quando o `}` correspondente é seguido de `=`
-//!   (atribuição por padrão de mapa, que é uma expressão);
-//! * `var`/`final` seguidos de `(`, `[` ou `{` começam uma declaração por
-//!   padrão; `late`, `final`, `const`, `var` e `kind nome` começam uma
-//!   declaração de variáveis; `kind? nome(...)` seguido de `{`, `=>`, `async`
-//!   ou `sync` é função local — a diferença para a chamada `nome(args);` é só
-//!   o que vem depois do `)`;
-//! * `await` e `yield` só são especiais em corpos `async`/geradores, mas
-//!   `await for` é sempre laço e `yield e;` fora de gerador é aceito como
-//!   `yield` (não há statement de expressão válido com essa forma);
-//! * o resto é statement de expressão.
+//! * `name:` at the start is a label;
+//! * `{` is a block, except when the matching `}` is followed by `=` (a map
+//!   pattern assignment, which is an expression);
+//! * `var`/`final` followed by `(`, `[` or `{` start a pattern declaration;
+//!   `late`, `final`, `const`, `var` and `type name` start a variable
+//!   declaration; `type? name(...)` followed by `{`, `=>`, `async` or `sync`
+//!   is a local function — the only difference from the call `name(args);`
+//!   is what comes after the `)`;
+//! * `await` and `yield` are only special in `async`/generator bodies, but
+//!   `await for` is always a loop and `yield e;` outside a generator is
+//!   accepted as `yield` (no valid expression statement has that shape);
+//! * the rest is an expression statement.
 //!
-//! A ambiguidade clássica `a ? b : c;` contra `int? x = e;` é resolvida como no
-//! SDK: um `?` logo após um nome simples só é tipo anulável se o identificador
-//! seguinte for seguido de `;`, `,`, `)`, `in` ou de `=` cuja expressão **não**
-//! é seguida de `:` (isso exige uma análise especulativa da expressão, que é
-//! descartada depois).
+//! The classic ambiguity `a ? b : c;` versus `int? x = e;` is resolved as in
+//! the SDK: a `?` right after a simple name is only a nullable type if the
+//! following identifier is followed by `;`, `,`, `)`, `in` or by `=` whose
+//! expression is **not** followed by `:` (that needs a speculative parse of
+//! the expression, which is discarded afterwards).
 //!
-//! Recuperação: dentro de um bloco ou de um `case`, um statement que falha faz
-//! o parser pular até o próximo `;` de mesmo nível ou até a `}` que fecha o
-//! bloco, e continuar. O diagnóstico já foi registrado no ponto da falha.
+//! Recovery: inside a block or a `case`, a statement that fails makes the
+//! parser skip to the next `;` at the same level or to the `}` that closes
+//! the block, and go on. The diagnostic was already recorded at the point of
+//! failure.
 //!
-//! Limitações do contrato (ver relatório): metadata antes de uma declaração
-//! local (`@pragma(...) final x = 1;`) vai para a tabela lateral
-//! `Ast::metadados_locais` porque [`StmtKind::Variables`] e
-//! [`StmtKind::Function`] não têm campo para ela; e
-//! `for (var (a, b) = e; ...; ...)` (declaração por padrão como inicializador
-//! clássico) não cabe em [`ForInit`] e produz erro.
+//! Contract limitations (see the report): metadata before a local
+//! declaration (`@pragma(...) final x = 1;`) goes to the side table
+//! `Ast::metadados_locais` because [`StmtKind::Variables`] and
+//! [`StmtKind::Function`] have no field for it; and
+//! `for (var (a, b) = e; ...; ...)` (a pattern declaration as the classic
+//! initializer) does not fit in [`ForInit`] and produces an error.
 use super::{ForHeader, PResult, ParseError, Parser};
 use crate::ast::{
     CatchClause, Expr, ExprKind, ForInTarget, ForInit, Function, FunctionKind, Stmt, StmtId,
@@ -47,7 +48,7 @@ use crate::token::{Keyword, Kind, Op};
 use dartforge_diagnostics::{Span, codigos};
 
 impl<'s, 'i> Parser<'s, 'i> {
-    /// `statement` completo, com rótulos.
+    /// Full `statement`, with labels.
     pub(crate) fn parse_statement(&mut self) -> PResult<StmtId> {
         self.enter()?;
         let result = self.parse_statement_inner();
@@ -55,13 +56,13 @@ impl<'s, 'i> Parser<'s, 'i> {
         result
     }
 
-    /// `{ stmts }` com as chaves, recuperando de statements malformados.
+    /// `{ stmts }` with the braces, recovering from malformed statements.
     pub(crate) fn parse_block(&mut self) -> PResult<StmtId> {
         self.parse_block_with(false)
     }
 
-    /// O bloco de um corpo de função (`parseFunctionBody`), cujo laço relata
-    /// o comando sem progresso pelo último token lido.
+    /// The block of a function body (`parseFunctionBody`), whose loop reports a
+    /// statement without progress at the last token read.
     pub(crate) fn parse_body_block(&mut self) -> PResult<StmtId> {
         self.parse_block_with(true)
     }
@@ -76,8 +77,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(self.push_stmt(start, StmtKind::Block(stmts.into_boxed_slice())))
     }
 
-    /// `(init; cond; upd)` ou `(decl in e)`, com os parênteses, após `for`
-    /// (e após `await`, que o chamador consome).
+    /// `(init; cond; upd)` or `(decl in e)`, with the parentheses, after `for`
+    /// (and after `await`, which the caller consumes).
     pub(crate) fn parse_for_header(&mut self) -> PResult<ForHeader> {
         self.expect_op(Op::LParen)?;
         let metadata = if self.at_op(Op::At) {
@@ -86,15 +87,15 @@ impl<'s, 'i> Parser<'s, 'i> {
             Vec::new()
         };
 
-        // `for (final (a, b) in e)` — declaração por padrão.
+        // `for (final (a, b) in e)` — a pattern declaration.
         if (self.at_kw(Keyword::Var) || self.at_kw(Keyword::Final))
             && self.looks_like_pattern_declaration(self.pos)
         {
             let final_ = self.at_kw(Keyword::Final);
             self.advance();
             let pattern = self.parse_pattern_in(super::patterns::PatternContext::Declaration)?;
-            // `for (var (a, b) = e; c; u)`: com `=`, o padrão é a
-            // inicialização de um `for` clássico
+            // `for (var (a, b) = e; c; u)`: with `=`, the pattern is the
+            // initialization of a classic `for`
             // (`parseForStatement`, `handleForInitializerPatternVariableAssignment`).
             if self.eat_op(Op::Assign) {
                 let value = self.parse_expression()?;
@@ -109,7 +110,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             });
         }
 
-        // Declaração de variável: com modificador ou com tipo.
+        // Variable declaration: with a modifier or with a type.
         let has_modifier =
             self.at_kw(Keyword::Var) || self.at_kw(Keyword::Final) || self.at_kw(Keyword::Const);
         if has_modifier || self.declaration_type_at(self.pos, true) {
@@ -174,7 +175,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             return self.parse_classic_for_rest(None);
         }
 
-        // `for (x in e)` ou `for (e; ...; ...)`.
+        // `for (x in e)` or `for (e; ...; ...)`.
         let expr = self.parse_expression()?;
         if self.eat_kw(Keyword::In) {
             let iterable = self.parse_expression()?;
@@ -187,10 +188,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.parse_classic_for_rest(Some(ForInit::Expression(expr)))
     }
 
-    // -- Listas de statements e recuperação -------------------------------
+    // -- Statement lists and recovery ------------------------------------------
 
-    /// Statements até `}`/fim (ou até o próximo `case`/`default` quando
-    /// `in_switch`), com recuperação por statement.
+    /// Statements up to `}`/end (or up to the next `case`/`default` when
+    /// `in_switch`), with per-statement recovery.
     fn parse_statement_list(&mut self, in_switch: bool) -> Vec<StmtId> {
         self.parse_statement_list_with(in_switch, false)
     }
@@ -208,10 +209,10 @@ impl<'s, 'i> Parser<'s, 'i> {
             match self.parse_statement() {
                 Ok(id) => {
                     stmts.push(id);
-                    // `parseBlock`/`parseFunctionBody`/`parseStatementsInSwitchCase`:
-                    // sem progresso, `UNEXPECTED_TOKEN` e o token é pulado. No
-                    // corpo de função o texto é o do último token lido (o `;`
-                    // sintético do comando); nos outros, o do token pulado.
+                    // `parseBlock`/`parseFunctionBody`/`parseStatementsInSwitchCase`: without
+                    // progress, `UNEXPECTED_TOKEN` and the token is skipped. In a function body
+                    // the text is that of the last token read (the statement's synthetic `;`);
+                    // in the others, that of the skipped token.
                     if self.pos == statement_start && !self.at_eof() {
                         let texto = if body_node { ";".to_string() } else { self.text().to_string() };
                         self.erro(codigos::parser::UNEXPECTED_TOKEN, &[&texto]);
@@ -227,10 +228,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         stmts
     }
 
-    /// Pula tokens até o próximo `;` de mesmo nível (consumido) ou até a
-    /// `}` que fecha o bloco corrente (não consumida). Dentro de `switch`
-    /// também para em `case`/`default`. Sempre avança pelo menos um token
-    /// quando o corrente não é um ponto de parada, garantindo progresso.
+    /// Skips tokens up to the next `;` at the same level (consumed) or up to the
+    /// `}` that closes the current block (not consumed). Inside a `switch` it
+    /// also stops at `case`/`default`. Always advances at least one token when
+    /// the current one is not a stopping point, guaranteeing progress.
     fn synchronize_statement(&mut self, in_switch: bool) {
         let mut depth = 0usize;
         loop {
@@ -257,7 +258,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// O token corrente, passando por rótulos `nome:`, é `case` ou `default`.
+    /// The current token, going through `name:` labels, is `case` or `default`.
     fn at_switch_case_start(&self) -> bool {
         let mut i = self.pos;
         while self.kind_of(i) == Kind::Ident && self.kind_of(i + 1) == Kind::Op(Op::Colon) {
@@ -312,13 +313,13 @@ impl<'s, 'i> Parser<'s, 'i> {
                     self.parse_expression_statement(start)
                 }
             }
-            // `)` e `]`: comando de expressão com o identificador sintético
-            // (o laço do bloco pula o token sem progresso).
+            // `)` and `]`: an expression statement with the synthetic identifier (the
+            // block loop skips the token without progress).
             Kind::Op(Op::RParen | Op::RBracket) => self.parse_expression_statement(start),
-            // `}` e o fim no lugar de um comando (o corpo de `if (x) }`, o
-            // comando de um rótulo): `parseExpressionStatement` com o
-            // identificador sintético (`MISSING_IDENTIFIER` no token) e o `;`
-            // que falta no token anterior, sem consumir o `}`.
+            // `}` and the end in place of a statement (the body of `if (x) }`, a
+            // label's statement): `parseExpressionStatement` with the synthetic
+            // identifier (`MISSING_IDENTIFIER` at the token) and the missing `;` at the
+            // previous token, without consuming the `}`.
             Kind::Op(Op::RBrace) | Kind::Eof => self.parse_expression_statement(start),
             Kind::ScriptTag => Err(self.statement_error()),
             Kind::Keyword(kw) => self.parse_keyword_statement(start, kw),
@@ -327,7 +328,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// Statement que começa com palavra reservada.
+    /// Statement starting with a reserved word.
     fn parse_keyword_statement(&mut self, start: Span, kw: Keyword) -> PResult<StmtId> {
         match kw {
             Keyword::If => self.parse_if(start),
@@ -381,10 +382,10 @@ impl<'s, 'i> Parser<'s, 'i> {
             Keyword::Assert => self.parse_assert(start),
             Keyword::Var | Keyword::Final => self.parse_local_declaration(start),
             Keyword::Const => {
-                // `const x = 1;` / `const int x = 1;` são declarações;
-                // `const Foo();` / `const [1].length;` são expressões.
-                // `const x;` e `const x, y = 1;` também (o `const` sem
-                // inicializador é erro da fase seguinte, `CONST_NOT_INITIALIZED`).
+                // `const x = 1;` / `const int x = 1;` are declarations;
+                // `const Foo();` / `const [1].length;` are expressions.
+                // `const x;` and `const x, y = 1;` too (a `const` without an initializer is
+                // an error of the next phase, `CONST_NOT_INITIALIZED`).
                 let declaration = self.declaration_type_at(self.pos + 1, false)
                     || (self.at_identifier_at(1)
                         && matches!(self.kind_at(2), Kind::Op(Op::Assign | Op::Semicolon | Op::Comma)));
@@ -395,10 +396,10 @@ impl<'s, 'i> Parser<'s, 'i> {
                 }
             }
             Keyword::Void => self.parse_typed_declaration(start),
-            // `parseStatementX` não as trata: comando de expressão, em que o
-            // `ensureIdentifier` usa a palavra como nome (ou insere um
-            // sintético, para as que começam comando e para `is`) e o
-            // `handleExpressionStatement` relata `MISSING_STATEMENT`.
+            // `parseStatementX` does not handle them: an expression statement, where
+            // `ensureIdentifier` uses the word as a name (or inserts a synthetic one,
+            // for those that start a statement and for `is`) and
+            // `handleExpressionStatement` reports `MISSING_STATEMENT`.
             Keyword::Case
             | Keyword::Catch
             | Keyword::Class
@@ -414,8 +415,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// Statement que começa com identificador (inclusive os contextuais
-    /// `await`, `yield` e `late`), já sem rótulos.
+    /// Statement starting with an identifier (including the contextual `await`,
+    /// `yield` and `late`), already without labels.
     fn parse_identifier_statement(&mut self, start: Span) -> PResult<StmtId> {
         if self.at_ident("await") {
             if self.at_kw_at(1, Keyword::For) {
@@ -423,7 +424,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.advance();
                 return self.parse_for_rest(start, true);
             }
-            // `await e;` (e `await` como nome comum) é sempre expressão.
+            // `await e;` (and `await` as a plain name) is always an expression.
             return self.parse_expression_statement(start);
         }
         if self.at_ident("yield") && self.looks_like_yield_statement() {
@@ -445,28 +446,28 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.parse_expression_statement(start)
     }
 
-    /// `yield` é statement quando estamos num gerador ou quando o que segue
-    /// só faz sentido como operando (`yield* e`, `yield x`, `yield 1`…).
+    /// `yield` is a statement when we are in a generator or when what follows
+    /// only makes sense as an operand (`yield* e`, `yield x`, `yield 1`…).
     fn looks_like_yield_statement(&self) -> bool {
-        // `parseStatementX` do fasta: em `async`, `sync*` e `async*` é sempre
-        // o comando; num corpo síncrono comum só quando o que segue parece
-        // operando (`looksLikeYieldStatement`, a mesma regra do `await`):
-        // `yield 0;` ali é a expressão `yield` com o `;` que falta.
+        // fasta's `parseStatementX`: in `async`, `sync*` and `async*` it is always
+        // the statement; in a plain synchronous body only when what follows looks
+        // like an operand (`looksLikeYieldStatement`, the same rule as `await`):
+        // `yield 0;` there is the `yield` expression with the missing `;`.
         if self.in_generator || self.in_async {
             return true;
         }
         self.looks_like_expression_after_await(self.pos, false)
     }
 
-    /// Statement de expressão `e;`.
+    /// Expression statement `e;`.
     fn parse_expression_statement(&mut self, start: Span) -> PResult<StmtId> {
         let expr = self.parse_expression()?;
-        // `handleExpressionStatement` (`ast_builder.dart:4253`): `super;` e
-        // atribuição a alvo não atribuível (este, além do
-        // `MISSING_ASSIGNABLE_SELECTOR` da atribuição).
+        // `handleExpressionStatement` (`ast_builder.dart:4253`): `super;` and
+        // assignment to a non-assignable target (this one, besides the
+        // assignment's `MISSING_ASSIGNABLE_SELECTOR`).
         self.check_stray_super(expr);
-        // `handleExpressionStatement`: o comando que é só uma palavra
-        // reservada usada como nome é `MISSING_STATEMENT` nela.
+        // `handleExpressionStatement`: a statement that is just a reserved word
+        // used as a name is `MISSING_STATEMENT` at it.
         if let crate::ast::ExprKind::Identifier(n) = self.ast.expr(expr).kind
             && n.span.start < n.span.end
             && crate::token::Keyword::from_text(&self.source[n.span.start..n.span.end]).is_some()
@@ -483,9 +484,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(self.push_stmt(start, StmtKind::Expression(expr)))
     }
 
-    /// `@anotação` antes de uma declaração local. A metadata vai para a
-    /// tabela lateral [`Ast::metadados_locais`](crate::ast::Ast::metadados_locais),
-    /// pela instrução, porque os nós de instrução não têm campo para ela.
+    /// `@annotation` before a local declaration. The metadata goes to the side
+    /// table [`Ast::metadados_locais`](crate::ast::Ast::metadados_locais), by
+    /// statement, because the statement nodes have no field for it.
     fn parse_annotated_declaration(&mut self, start: Span) -> PResult<StmtId> {
         let metadata = self.parse_metadata()?;
         let s = if self.at_kw(Keyword::Var)
@@ -507,10 +508,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(s)
     }
 
-    // -- Declarações locais -----------------------------------------------
+    // -- Local declarations ----------------------------------------------------
 
-    /// `late? (final | var | const)? kind? nome (= e)? (, nome (= e)?)* ;`
-    /// ou, com `var`/`final` seguido de `(`/`[`/`{`, uma declaração por padrão.
+    /// `late? (final | var | const)? type? name (= e)? (, name (= e)?)* ;` or,
+    /// with `var`/`final` followed by `(`/`[`/`{`, a pattern declaration.
     fn parse_local_declaration(&mut self, start: Span) -> PResult<StmtId> {
         if (self.at_kw(Keyword::Var) || self.at_kw(Keyword::Final))
             && self.looks_like_pattern_declaration(self.pos)
@@ -569,7 +570,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         ))
     }
 
-    /// Declaração que começa por um tipo (`int x = 1;`, `void f() {}`,
+    /// Declaration starting with a type (`int x = 1;`, `void f() {}`,
     /// `List<int> Function() g() => ...;`).
     fn parse_typed_declaration(&mut self, start: Span) -> PResult<StmtId> {
         let ty = self.parse_type()?;
@@ -591,7 +592,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.parse_variables_rest(start, list)
     }
 
-    /// `nome (= e)? (, nome (= e)?)* ;` após os modificadores e o tipo.
+    /// `name (= e)? (, name (= e)?)* ;` after the modifiers and the type.
     fn parse_variables_rest(&mut self, start: Span, mut list: VariableList) -> PResult<StmtId> {
         let mut variables = Vec::new();
         loop {
@@ -613,15 +614,15 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(self.push_stmt(start, StmtKind::Variables(list)))
     }
 
-    /// `endVariablesDeclaration` do `AstBuilder` (`ast_builder.dart:3601`,
-    /// issue 53964): a declaração de uma variável só, de tipo prefixado, sem
-    /// o `;` (que o `ensureSemicolon` insere) é o código incompleto
-    /// `x.foo` seguido de outro comando na linha de baixo. Vira o comando
-    /// de expressão `x.foo;` e o nome volta ao fluxo de tokens; com `await`
-    /// no lugar do nome do tipo (`x.` e, embaixo, `await y.foo();`), a
-    /// expressão é `x.` com um identificador sintético e voltam o `await` e
-    /// o nome. Os modificadores, o `?`, os argumentos de tipo e o
-    /// inicializador já lidos se perdem, como lá.
+    /// The `AstBuilder`'s `endVariablesDeclaration` (`ast_builder.dart:3601`,
+    /// issue 53964): the declaration of a single variable of a prefixed type,
+    /// without the `;` (which `ensureSemicolon` inserts), is the incomplete
+    /// code `x.foo` followed by another statement on the next line. It becomes
+    /// the expression statement `x.foo;` and the name goes back to the token
+    /// stream; with `await` in place of the type name (`x.` and, below,
+    /// `await y.foo();`), the expression is `x.` with a synthetic identifier
+    /// and the `await` and the name go back. The modifiers, the `?`, the type
+    /// arguments and the initializer already read are lost, as there.
     fn prefix_without_semicolon(&mut self, start: Span, list: &VariableList) -> Option<StmtId> {
         let [variable] = &*list.variables else {
             return None;
@@ -665,7 +666,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 
     /// `checkAsyncAwaitYieldAsIdentifier` (`identifier_context_impl.dart:1387`):
-    /// fora de corpo síncrono comum, `await`/`yield` como nome declarado é
+    /// outside a plain synchronous body, `await`/`yield` as a declared name is
     /// `ASYNC_KEYWORD_USED_AS_IDENTIFIER`.
     pub(crate) fn check_await_yield_as_name(&mut self, nome: Span) {
         if (self.in_async || self.in_generator) && matches!(&self.source[nome.start..nome.end], "await" | "yield") {
@@ -673,7 +674,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// `= e` opcional após um nome de variável.
+    /// Optional `= e` after a variable name.
     fn parse_initializer_opt(&mut self) -> PResult<Option<crate::ast::ExprId>> {
         if self.eat_op(Op::Assign) {
             Ok(Some(self.parse_expression()?))
@@ -682,7 +683,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// `nome<T>(params) body_node` após o tipo de retorno opcional.
+    /// `name<T>(params) body` after the optional return type.
     fn parse_local_function(
         &mut self,
         start: Span,
@@ -708,7 +709,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(self.push_stmt(start, StmtKind::Function(id)))
     }
 
-    // -- Statements compostos ---------------------------------------------
+    // -- Compound statements ---------------------------------------------------
 
     /// `if (e) s`, `if (e) s else s`, `if (e case p when g) s`.
     fn parse_if(&mut self, start: Span) -> PResult<StmtId> {
@@ -743,7 +744,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         ))
     }
 
-    /// Cabeçalho e corpo de `for`, com `for` (e `await`) já consumidos.
+    /// `for` header and body, with `for` (and `await`) already consumed.
     fn parse_for_rest(&mut self, start: Span, await_: bool) -> PResult<StmtId> {
         let header = self.parse_for_header()?;
         let body = self.parse_statement()?;
@@ -769,7 +770,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(self.push_stmt(start, kind))
     }
 
-    /// `; cond? ; (e (, e)*)? )` após o inicializador de um `for` clássico.
+    /// `; cond? ; (e (, e)*)? )` after the initializer of a classic `for`.
     fn parse_classic_for_rest(&mut self, init: Option<ForInit>) -> PResult<ForHeader> {
         self.expect_semicolon()?;
         let condition = if self.at_op(Op::Semicolon) {
@@ -779,8 +780,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         };
         self.expect_semicolon()?;
         let mut updates = Vec::new();
-        // A gramática escrita não tem vírgula final aqui, mas o SDK aceita
-        // `i += 15,)` (verificado no Dart 3.6.2), e o corpus usa.
+        // The written grammar has no trailing comma here, but the SDK accepts
+        // `i += 15,)` (verified on Dart 3.6.2), and the corpus uses it.
         while !self.at_op(Op::RParen) {
             updates.push(self.parse_expression()?);
             if !self.eat_op(Op::Comma) {
@@ -817,19 +818,19 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(self.push_stmt(start, StmtKind::DoWhile { body, condition }))
     }
 
-    /// `switch (e) { (rótulo:)* case p when g: stmts ... default: stmts }`.
+    /// `switch (e) { (label:)* case p when g: stmts ... default: stmts }`.
     ///
-    /// Cada `case` vira um [`SwitchCase`]; em `case a: case b: stmts` o corpo
-    /// fica no último. Um erro dentro do corpo pula até a `}` que fecha o
-    /// `switch` e devolve os cases já lidos.
+    /// Each `case` becomes a [`SwitchCase`]; in `case a: case b: stmts` the body
+    /// goes on the last one. An error inside the body skips to the `}` that
+    /// closes the `switch` and returns the cases already read.
     fn parse_switch(&mut self, start: Span) -> PResult<StmtId> {
         self.advance();
         let abre = self.pos;
         self.expect_op(Op::LParen)?;
         let value = self.parse_expression()?;
         self.ensure_close_paren(abre)?;
-        // `ensureBlock(…, switchStatement)`: sem `{`, o erro no `)` e um
-        // corpo vazio sintético; o que vem depois é a próxima instrução.
+        // `ensureBlock(…, switchStatement)`: without `{`, the error at the `)` and
+        // a synthetic empty body; what comes next is the next statement.
         if !self.at_op(Op::LBrace) {
             let closes = self.tokens[self.pos - 1].span;
             self.error_at(codigos::parser::EXPECTED_SWITCH_STATEMENT_BODY, closes, &[]);
@@ -858,12 +859,12 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     fn parse_switch_cases(&mut self, cases: &mut Vec<SwitchCase>) -> PResult<()> {
         let mut saw_default = false;
-        // O `default` mais recente (início da palavra): o `parseSwitchBlock`
-        // (`parser_impl.dart:8975-9030`) o mantém depois do grupo dele e o
-        // passa ao `endSwitchCase` de cada grupo seguinte; o `AstBuilder`
-        // (`ast_builder.dart:3210-3247`) acrescenta então ao fim de cada
-        // grupo de `case` um `SwitchDefault` com essa mesma palavra, que leva
-        // as instruções do grupo.
+        // The most recent `default` (start of the word): `parseSwitchBlock`
+        // (`parser_impl.dart:8975-9030`) keeps it after its group and passes it to
+        // the `endSwitchCase` of each following group; the `AstBuilder`
+        // (`ast_builder.dart:3210-3247`) then appends to the end of each `case`
+        // group a `SwitchDefault` with that same word, which carries the group's
+        // statements.
         let mut ultimo_default: Option<usize> = None;
         while !self.at_op(Op::RBrace) && !self.at_eof() {
             let case_start = self.span();
@@ -872,9 +873,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                 labels.push(self.identifier());
                 self.advance();
             }
-            // `parseSwitchCase` (`parser_impl.dart:9044`): `case` depois de
-            // `default` é `SWITCH_HAS_CASE_AFTER_DEFAULT_CASE` no `case`;
-            // outro `default`, `SWITCH_HAS_MULTIPLE_DEFAULT_CASES`.
+            // `parseSwitchCase` (`parser_impl.dart:9044`): `case` after `default` is
+            // `SWITCH_HAS_CASE_AFTER_DEFAULT_CASE` at the `case`; another `default`,
+            // `SWITCH_HAS_MULTIPLE_DEFAULT_CASES`.
             if saw_default && self.at_kw(Keyword::Case) {
                 self.erro(codigos::parser::SWITCH_HAS_CASE_AFTER_DEFAULT_CASE, &[]);
             } else if saw_default && self.at_kw(Keyword::Default) {
@@ -885,8 +886,8 @@ impl<'s, 'i> Parser<'s, 'i> {
                 ultimo_default = Some(self.span().start);
             }
             let (pattern, guard) = if self.eat_kw(Keyword::Case) {
-                // Antes da 3.0 (`allowPatterns` falso), o `case` leva uma
-                // expressão (`parseSwitchCase`: `parseExpression`).
+                // Before 3.0 (`allowPatterns` false), `case` takes an expression
+                // (`parseSwitchCase`: `parseExpression`).
                 let pattern = if self.features.versao() < crate::features::LanguageVersion::new(3, 0) {
                     let start_offset = self.span();
                     let e = self.parse_expression()?;
@@ -907,8 +908,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             } else {
                 return Err(self.erro(codigos::parser::EXPECTED_CASE_OR_DEFAULT, &[]));
             };
-            // Fim de um grupo de `case` depois de um `default`: o próximo
-            // membro (depois dos rótulos) não é `case` nem `default`.
+            // End of a `case` group after a `default`: the next member (after the
+            // labels) is neither `case` nor `default`.
             let group_end_after_default = pattern.is_some() && ultimo_default.is_some() && {
                 let mut k = 0;
                 while self.at_identifier_at(k) && self.at_op_at(k + 1, Op::Colon) {
@@ -948,9 +949,9 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 
     /// `try {} (on T (catch (e, st))? {})* (catch (e, st) {})* (finally {})?`
-    /// `ensureBlock(token, kind)` de um `try`/`catch`/`finally`: sem `{`, o
-    /// `EXPECTED_*_BODY` no token anterior e um bloco vazio sintético no
-    /// lugar do seguinte.
+    /// `ensureBlock(token, kind)` of a `try`/`catch`/`finally`: without `{`, the
+    /// `EXPECTED_*_BODY` at the previous token and a synthetic empty block in
+    /// place of the next one.
     fn required_block(&mut self, code: dartforge_diagnostics::Codigo) -> PResult<StmtId> {
         if self.at_op(Op::LBrace) {
             return self.parse_block();
@@ -1009,7 +1010,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         ))
     }
 
-    /// `(e)` ou `(e, st)` após `catch`.
+    /// `(e)` or `(e, st)` after `catch`.
     fn parse_catch_parameters(
         &mut self,
     ) -> PResult<(Option<crate::ast::Name>, Option<crate::ast::Name>)> {
@@ -1031,9 +1032,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         let star = self.eat_op(Op::Star);
         let value = self.parse_expression()?;
         self.expect_semicolon()?;
-        // `parseYieldStatement`: fora de gerador, o `messageYieldNotGenerator`
-        // no `yield` (o `YIELD_IN_NON_GENERATOR` do analyzer, também com
-        // `*`); o comando continua na árvore, e o resolvedor relata de novo
+        // `parseYieldStatement`: outside a generator, `messageYieldNotGenerator` at
+        // the `yield` (the analyzer's `YIELD_IN_NON_GENERATOR`, also with `*`); the
+        // statement stays in the tree, and the resolver reports it again
         // (`c2_sintaticos`).
         if !self.in_generator {
             self.error_at(codigos::compile_time_error::YIELD_IN_NON_GENERATOR, word, &[]);
@@ -1052,8 +1053,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             message = Some(self.parse_expression()?);
             self.eat_op(Op::Comma);
         }
-        // `parseAssert` (`parser_impl.dart`): sobra antes do `)` casado é
-        // `UNEXPECTED_TOKEN` no primeiro token dela, e o resto é pulado.
+        // `parseAssert` (`parser_impl.dart`): leftovers before the matching `)` are
+        // `UNEXPECTED_TOKEN` at their first token, and the rest is skipped.
         if !self.at_op(Op::RParen)
             && let Some(closes) = self.matching_close(abre)
             && closes > self.pos
@@ -1075,8 +1076,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.at_identifier() && self.at_op_at(1, Op::Colon)
     }
 
-    /// Em `pos` há `nome<T>?(params)` seguido de `{`, `=>`, `async` ou
-    /// `sync` — uma função local, e não uma chamada.
+    /// Is there `name<T>?(params)` at `pos` followed by `{`, `=>`, `async` or
+    /// `sync` — a local function, and not a call?
     pub(crate) fn looks_like_local_function(&self, pos: usize) -> bool {
         if self.kind_of(pos) != Kind::Ident {
             return false;
@@ -1101,9 +1102,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// Posição após o grupo `<...>` que começa em `pos`, contando só `<` e
-    /// `>` (que chegam isolados do lexer). Desiste em `;`, `{`, `}`, `=>`,
-    /// `<<` ou fim — nada disso cabe numa lista de parâmetros de tipo.
+    /// Position after the `<...>` group starting at `pos`, counting only `<` and
+    /// `>` (which arrive isolated from the lexer). Gives up at `;`, `{`, `}`,
+    /// `=>`, `<<` or end — none of that fits in a type parameter list.
     fn skip_angle_group(&self, pos: usize) -> Option<usize> {
         let mut depth = 0usize;
         let mut i = pos;
@@ -1124,28 +1125,28 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// Em `pos` começa `kind identifier` de uma declaração local?
+    /// Does a local declaration's `type identifier` start at `pos`?
     ///
-    /// Pré-filtra as formas que nunca são tipo (para não pagar o lookahead
-    /// completo em todo statement de expressão), aplica as regras do SDK que
-    /// são do statement e não do tipo — `x as y` é expressão, `(…) async` é
-    /// função anônima, e `a ? b : c` contra `int? x` quando
-    /// `could_be_expression` — e delega o resto a
+    /// Pre-filters the forms that are never a type (so as not to pay the full
+    /// lookahead on every expression statement), applies the SDK rules that
+    /// belong to the statement and not to the type — `x as y` is an expression,
+    /// `(…) async` is an anonymous function, and `a ? b : c` versus `int? x`
+    /// when `could_be_expression` — and delegates the rest to
     /// [`Parser::looks_like_type_then_identifier`].
     fn declaration_type_at(&mut self, pos: usize, could_be_expression: bool) -> bool {
         match self.kind_of(pos) {
             Kind::Keyword(Keyword::Void) => true,
             Kind::Ident => {
-                // `await` só pode ser o tipo de uma declaração em corpo
-                // síncrono comum, quando não parece expressão (o
-                // `looksLikeAwaitExpression` de `parseStatementX`).
+                // `await` can only be the type of a declaration in a plain synchronous
+                // body, when it does not look like an expression (`parseStatementX`'s
+                // `looksLikeAwaitExpression`).
                 if self.text_of(pos) == "yield"
                     || self.text_of(pos) == "await"
                         && (self.in_async || self.in_generator || self.looks_like_expression_after_await(pos, false))
                 {
                     return false;
                 }
-                // `Function(...) nome`/`Function<T>(...) nome`: tipo de função.
+                // `Function(...) name`/`Function<T>(...) name`: a function type.
                 if self.at_function_tail(pos) {
                     return self.looks_like_type_then_identifier(pos);
                 }
@@ -1163,8 +1164,8 @@ impl<'s, 'i> Parser<'s, 'i> {
                         ) && !self.is_expression_continuation(pos + 3)
                             && self.looks_like_type_then_identifier(pos)
                     }
-                    // `skip_type_arguments`, não `skip_angle_group`: um record nomeado
-                    // `Future<({int a, int b})>` tem `{` dentro dos `<...>`.
+                    // `skip_type_arguments`, not `skip_angle_group`: a named record
+                    // `Future<({int a, int b})>` has `{` inside the `<...>`.
                     Kind::Op(Op::Lt) => match self.skip_type_arguments(pos + 1) {
                         Some(after) => {
                             matches!(self.kind_of(after), Kind::Ident | Kind::Op(Op::Question))
@@ -1174,9 +1175,8 @@ impl<'s, 'i> Parser<'s, 'i> {
                         None => false,
                     },
                     Kind::Op(Op::Question) => {
-                        // `T? Function(…) nome`: depois da cauda de tipo de
-                        // função vem um nome, o que nenhuma condicional
-                        // admite — é declaração, mesmo com `? … :` adiante.
+                        // `T? Function(…) name`: after the function type tail comes a name, which
+                        // no conditional allows — it is a declaration, even with `? … :` ahead.
                         if self.at_function_tail(pos + 2) && self.looks_like_type_then_identifier(pos) {
                             return true;
                         }
@@ -1210,12 +1210,12 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// O identificador em `pos` continua uma expressão em vez de nomear uma
-    /// variável: `as` (salvo `x as = 1;`/`x as;`, que o SDK lê como variável
-    /// chamada `as`), e `async`/`sync` de corpo de função anônima.
+    /// The identifier at `pos` continues an expression instead of naming a
+    /// variable: `as` (except `x as = 1;`/`x as;`, which the SDK reads as a
+    /// variable named `as`), and `async`/`sync` of an anonymous function body.
     fn is_expression_continuation(&self, pos: usize) -> bool {
         match self.text_of(pos) {
-            // Só com o corpo em seguida: `int async;` declara `async`.
+            // Only with the body right after: `int async;` declares `async`.
             "async" | "sync" => matches!(self.kind_of(pos + 1), Kind::Op(Op::LBrace | Op::Arrow | Op::Star)),
             "as" => !matches!(
                 self.kind_of(pos + 1),
@@ -1225,12 +1225,12 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// Em `q` há `?` após um tipo simples; o que segue é uma expressão
-    /// condicional (`a ? b : c`) em vez de `kind? nome`?
+    /// Is there a `?` at `q` after a simple type, and what follows is a
+    /// conditional expression (`a ? b : c`) rather than `type? name`?
     ///
-    /// Segue o SDK: só é declaração quando o identificador seguinte é
-    /// seguido de `;`, `,`, `)`, `in`, fim, ou de `=` cuja expressão não é
-    /// seguida de `:` — este último caso exige análise especulativa.
+    /// Follows the SDK: it is only a declaration when the following identifier
+    /// is followed by `;`, `,`, `)`, `in`, end, or by `=` whose expression is
+    /// not followed by `:` — this last case needs a speculative parse.
     fn conditional_after_question(&mut self, q: usize) -> bool {
         if self.kind_of(q + 1) != Kind::Ident {
             return false;
@@ -1238,9 +1238,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         match self.kind_of(q + 2) {
             Kind::Op(Op::Semicolon | Op::Comma | Op::RParen) | Kind::Eof => false,
             Kind::Keyword(Keyword::In) => false,
-            // `Object? convert(Object? o) {` é função local com retorno
-            // anulável; `Object ? convert(o) : x` é condicional. O que
-            // distingue é o que vem depois dos parênteses.
+            // `Object? convert(Object? o) {` is a local function with a nullable
+            // return; `Object ? convert(o) : x` is a conditional. What tells them apart
+            // is what comes after the parentheses.
             Kind::Op(Op::LParen | Op::Lt) => !self.looks_like_function_rest(q + 2),
             Kind::Op(Op::Assign) => {
                 let saved = self.pos;
@@ -1255,8 +1255,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// Executa `f` e desfaz tudo o que ela produziu: posição, nós, diagnósticos
-    /// e profundidade. Serve para decidir uma ambiguidade olhando adiante.
+    /// Runs `f` and undoes everything it produced: position, nodes, diagnostics
+    /// and depth. Used to settle an ambiguity by looking ahead.
     pub(crate) fn speculate<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
         let pos = self.pos;
         let splices = self.splices.len();
@@ -1294,15 +1294,15 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     // -- Utilidades -------------------------------------------------------
 
-    /// `ensureColon`: o `:` que falta é `EXPECTED_TOKEN` no token seguinte
-    /// (`rewriteAndRecover`) e um `:` sintético segue no lugar.
+    /// `ensureColon`: the missing `:` is `EXPECTED_TOKEN` at the next token
+    /// (`rewriteAndRecover`) and a synthetic `:` follows in its place.
     fn ensure_colon(&mut self) {
         if !self.eat_op(Op::Colon) {
             self.erro(codigos::parser::EXPECTED_TOKEN, &[":"]);
         }
     }
 
-    /// `ensureSemicolon` do fasta: o `;` que falta é relatado e inserido.
+    /// fasta's `ensureSemicolon`: the missing `;` is reported and inserted.
     fn expect_semicolon(&mut self) -> PResult<()> {
         self.ensure_semicolon()
     }
@@ -1320,7 +1320,7 @@ mod tests {
     use dartforge_diagnostics::Diagnostic;
     use dartforge_intern::Interner;
 
-    /// Resultado de um `parse_statement` sobre `src`.
+    /// Result of a `parse_statement` on `src`.
     struct Out {
         names: Interner,
         ast: Ast,
@@ -1337,7 +1337,7 @@ mod tests {
             setup(&mut p);
             let result = p.parse_statement();
             let at_eof = p.at_eof();
-            assert_eq!(p.depth, 0, "profundidade não restaurada");
+            assert_eq!(p.depth, 0, "depth not restored");
             (p.ast, result, p.diagnostics, at_eof)
         };
         Out {
@@ -1353,12 +1353,12 @@ mod tests {
         stmt_with(src, |_| {})
     }
 
-    /// Statement aceito sem diagnósticos, consumindo toda a fonte.
+    /// A statement accepted without diagnostics, consuming the whole source.
     fn ok(src: &str) -> Out {
         let out = stmt(src);
         assert!(out.diagnostics.is_empty(), "{src}: {:?}", out.diagnostics);
         assert!(out.result.is_ok(), "{src}");
-        assert!(out.at_eof, "{src}: sobrou entrada");
+        assert!(out.at_eof, "{src}: input left over");
         out
     }
 
@@ -1371,11 +1371,11 @@ mod tests {
         }
     }
 
-    // -- Independentes de outros módulos ------------------------------------
+    // -- Independent of other modules ------------------------------------------
 
-    /// `int? Function(int) f = … ? … : …;` é declaração (o `?` é do tipo
-    /// anulável, não uma condicional, mesmo com `? :` no inicializador); uma
-    /// condicional de verdade continua expressão.
+    /// `int? Function(int) f = … ? … : …;` is a declaration (the `?` belongs to
+    /// the nullable type, not a conditional, even with `? :` in the
+    /// initializer); a real conditional stays an expression.
     #[test]
     fn function_type_after_nullable_type() {
         let out = ok("int? Function(int) talvez = (x) => x > 0 ? x : null;");
@@ -1523,10 +1523,10 @@ mod tests {
 
     #[test]
     fn switch_without_expressions_fails_early_but_recovers_at_brace() {
-        // Sem `case`/`default` o corpo é inválido; o parser pula até a `}`.
+        // Without `case`/`default` the body is invalid; the parser skips to the `}`.
         let out = stmt("switch (x) { break; }");
-        // `x` exige o módulo de expressões; se ele ainda é stub o teste
-        // panica, e isso é esperado (ver módulo `dependents`).
+        // `x` needs the expressions module; if it is still a stub the test panics,
+        // and that is expected (see the `dependents` module).
         assert!(out.result.is_ok());
         assert_eq!(out.diagnostics.len(), 1);
         assert!(out.at_eof);
@@ -1534,31 +1534,32 @@ mod tests {
 
     #[test]
     fn recovery_in_block() {
-        // `)` no começo: comando de expressão com identificador sintético
-        // (`;` que falta no `{`, `MISSING_IDENTIFIER` no `)`) e, sem
-        // progresso, `UNEXPECTED_TOKEN` no `)`, que é pulado; depois o `;`
-        // vazio e o `break` (sondado no SDK 3.6.2).
+        // `)` at the start: an expression statement with a synthetic identifier
+        // (missing `;` at the `{`, `MISSING_IDENTIFIER` at the `)`) and, without
+        // progress, `UNEXPECTED_TOKEN` at the `)`, which is skipped; then the empty
+        // `;` and the `break` (probed on SDK 3.6.2).
         let out = stmt("{ ) ; break; }");
         assert!(out.result.is_ok());
         assert_eq!(out.diagnostics.len(), 3, "{:?}", out.diagnostics);
         assert!(matches!(out.kind(), StmtKind::Block(s) if s.len() == 3));
         assert!(out.at_eof);
 
-        // Falta `;`: o `ensureSemicolon` do fasta o insere; o `break` fica
-        // e a `}` do bloco não é consumida por ele.
+        // Missing `;`: fasta's `ensureSemicolon` inserts it; the `break` stays and
+        // the block's `}` is not consumed by it.
         let out = stmt("{ break }");
         assert!(out.result.is_ok());
         assert_eq!(out.diagnostics.len(), 1);
         assert!(matches!(out.kind(), StmtKind::Block(s) if s.len() == 1));
         assert!(out.at_eof);
 
-        // O mesmo, com a lista `[ ; { ; } ]` lida como literal (os erros do
-        // SDK 3.6.2: os três do `)` e, no `;`, o elemento e o `]` que faltam).
+        // The same, with the list `[ ; { ; } ]` read as a literal (SDK 3.6.2's
+        // errors: the three of the `)` and, at the `;`, the missing element and
+        // `]`).
         let out = stmt("{ ) [ ; { ; } ] ; break; }");
         assert!(out.result.is_ok());
         assert_eq!(out.diagnostics.len(), 5, "{:?}", out.diagnostics);
 
-        // Bloco sem fechamento.
+        // Unclosed block.
         let out = stmt("{ break;");
         assert!(out.result.is_err());
         assert!(out.diagnostics.iter().any(|d| d.code.is_some_and(|c| c.info().nome == "expected_token")));
@@ -1566,13 +1567,13 @@ mod tests {
 
     #[test]
     fn reserved_words_that_do_not_start_statement() {
-        // Comando de expressão com a palavra como nome (`MISSING_STATEMENT`
-        // do `handleExpressionStatement`), como no fasta.
+        // Expression statement with the word as a name (`MISSING_STATEMENT` from
+        // `handleExpressionStatement`), as in fasta.
         for src in ["case 1:", "class A {}", "finally {}"] {
             let out = stmt(src);
             assert!(out.diagnostics.iter().any(|d| d.code.is_some_and(|c| c.info().nome == "missing_statement")), "{src}");
         }
-        // `else` começa comando: identificador sintético antes dele.
+        // `else` starts a statement: a synthetic identifier before it.
         let out = stmt("else;");
         assert!(out.diagnostics.iter().any(|d| d.code.is_some_and(|c| c.info().nome == "missing_identifier")));
     }
@@ -1606,15 +1607,15 @@ mod tests {
         assert!(!lookahead("f"));
     }
 
-    // -- Dependentes de expressions.rs / types.rs / declarations.rs ---------
+    // -- Depending on expressions.rs / types.rs / declarations.rs --------------
     //
-    // Enquanto esses módulos forem stubs `todo!()`, estes testes panicam com
-    // "not yet implemented"; passam a valer quando os módulos existirem.
+    // While those modules are `todo!()` stubs, these tests panic with
+    // "not yet implemented"; they become meaningful once the modules exist.
     mod dependents {
         use super::*;
 
-        /// Regressões do corpus: função local com retorno anulável, campo
-        /// `operator`, padrão de objeto em `for-in`, vírgula final em `for`.
+        /// Corpus regressions: local function with a nullable return, `operator`
+        /// field, object pattern in `for-in`, trailing comma in `for`.
         #[test]
         fn local_function_with_nullable_return() {
             for src in [
@@ -1622,13 +1623,13 @@ mod tests {
                 "Object? anything() => _inscrutable(0);",
                 "_Credentials? find(_Scheme scheme) { return null; }",
                 "T? g<T>(T t) => t;",
-                // Record nomeado dentro de `<...>` (visto no projeto new_sali).
+                // Named record inside `<...>` (seen in the new_sali project).
                 "Future<({int total, List<Map<String, dynamic>> itens})> paginar() async {}",
             ] {
                 let out = ok(src);
                 assert!(matches!(out.kind(), StmtKind::Function(_)), "{src}");
             }
-            // A condicional continua sendo condicional.
+            // The conditional stays a conditional.
             let out = ok("Object ? convert(o) : x;");
             assert!(matches!(out.kind(), StmtKind::Expression(_)));
         }
@@ -1913,7 +1914,7 @@ mod tests {
             ));
             let out = ok("final {'k': v} = map;");
             assert!(matches!(out.kind(), StmtKind::PatternVariables { .. }));
-            // Tipo record não é padrão.
+            // A record type is not a pattern.
             let out = ok("final (int, int) r = (1, 2);");
             assert!(matches!(out.kind(), StmtKind::Variables(_)));
         }
@@ -1934,7 +1935,7 @@ mod tests {
             assert!(matches!(out.kind(), StmtKind::Function(_)));
             let out = ok("int Function(int) g() => h;");
             assert!(matches!(out.kind(), StmtKind::Function(_)));
-            // Chamada, não função.
+            // A call, not a function.
             let out = ok("f(x);");
             assert!(matches!(out.kind(), StmtKind::Expression(_)));
         }
@@ -1962,12 +1963,12 @@ mod tests {
                 let out = ok(src);
                 assert!(matches!(out.kind(), StmtKind::Expression(_)), "{src}");
             }
-            // `await x;` só é expressão dentro de `async`; fora, o SDK lê
-            // `await` como nome de tipo de uma declaração (`await x;`).
+            // `await x;` is only an expression inside `async`; outside, the SDK reads
+            // `await` as the type name of a declaration (`await x;`).
             let out = stmt_with("await x;", |p| p.in_async = true);
             assert!(out.diagnostics.is_empty(), "{:?}", out.diagnostics);
             assert!(matches!(out.kind(), StmtKind::Expression(_)));
-            // `int? x = c;` continua sendo declaração.
+            // `int? x = c;` stays a declaration.
             let out = ok("int? x = c;");
             assert!(matches!(out.kind(), StmtKind::Variables(_)));
             let out = ok("int? x;");
