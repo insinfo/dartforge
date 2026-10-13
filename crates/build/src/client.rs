@@ -815,7 +815,7 @@ mod tests {
         let mut service = FakeService { writes: Vec::new() };
         let t0 = std::time::Instant::now();
         let e = client.execute(&request, &mut service).unwrap_err();
-        assert!(e.0.contains("não respondeu"), "{}", e.0);
+        assert!(e.0.contains("did not respond"), "{}", e.0);
         assert!(t0.elapsed() < std::time::Duration::from_secs(20));
     }
 }

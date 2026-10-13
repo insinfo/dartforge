@@ -100,7 +100,7 @@ impl Canal for CanalDeProcesso {
                     let _ = self.child.kill();
                     let _ = self.child.wait();
                     return Err(format!(
-                        "o executor não respondeu em {} s (travado?); processo encerrado",
+                        "the executor did not respond within {} s (hung?); process terminated",
                         p.as_secs_f64()
                     ));
                 }
@@ -138,7 +138,7 @@ mod tests_mod {
             .unwrap()
             .com_prazo(Some(std::time::Duration::from_millis(200)));
         let e = chan.receber().unwrap_err();
-        assert!(e.contains("não respondeu"), "{e}");
+        assert!(e.contains("did not respond"), "{e}");
         assert!(t0.elapsed() < std::time::Duration::from_secs(10));
         assert!(chan.receber().is_err());
     }
