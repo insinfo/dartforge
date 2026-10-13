@@ -481,6 +481,12 @@ pub(crate) fn emit_static_fields(ctx: &Ctx, m: &ModState, c: ClassId, cref: &str
             }
             None => "return null;".to_string(),
         };
+        if !v.late {
+            if let Some(lit) = crate::module::eager_literal(ctx, &init, &name) {
+                w.line(&format!("{cref}{} = {lit};", js::prop_access(&name)));
+                continue;
+            }
+        }
         let mut entry = format!("get {}() {{\n{}\n}}", js::prop_key(&name), indent(&init));
         if !v.final_ && !v.const_ || v.late && var.initializer.is_none() {
             entry.push_str(&format!(",\nset {}(value) {{}}", js::prop_key(&name)));

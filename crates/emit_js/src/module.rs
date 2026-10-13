@@ -1016,6 +1016,7 @@ pub(crate) fn emit_top_variables(ctx: &Ctx, m: &ModState, lib: LibraryId, vars: 
     let lvar = &ctx.libs[lib.0 as usize].js_var;
     let mut lazy: Vec<String> = Vec::new();
     let mut props: Vec<String> = Vec::new();
+    let mut eager: Vec<String> = Vec::new();
     for &vid in vars {
         let v = ctx.program.variable(vid);
         let name = ctx.name(v.name);
@@ -1077,6 +1078,8 @@ pub(crate) fn emit_top_variables(ctx: &Ctx, m: &ModState, lib: LibraryId, vars: 
                     js::string_literal(&storage)
                 ));
             }
+        } else if let Some(lit) = eager_literal(ctx, &init, name) {
+            eager.push(format!("{lvar}{} = {lit};", js::prop_access(name)));
         } else {
             let mut entry = format!("get {}() {{\n{}\n}}", js::prop_key(name), indent(&init));
             if !v.final_ && !v.const_ {
@@ -1084,6 +1087,9 @@ pub(crate) fn emit_top_variables(ctx: &Ctx, m: &ModState, lib: LibraryId, vars: 
             }
             lazy.push(entry);
         }
+    }
+    for l in &eager {
+        w.line(l);
     }
     if !props.is_empty() {
         crate::emit_line!(w, "dart.copyProperties({lvar}, {{");
@@ -1095,6 +1101,26 @@ pub(crate) fn emit_top_variables(ctx: &Ctx, m: &ModState, lib: LibraryId, vars: 
         w.push_raw(&indent(&lazy.join(",\n")));
         w.push_raw("\n});\n");
     }
+}
+
+/// Production profile: the literal that a static or top-level variable's
+/// initializer text (`return null;`, `return 0;`, `return "a";`) returns,
+/// when there is nothing else in it. Such a variable needs no lazy getter:
+/// evaluating the literal at load has no effect, so `C.x = literal` reads and
+/// writes the same. `None` in development, for any other initializer and for
+/// the names a JS function owns or guards (`length`, `caller`…), which an
+/// assignment on a class cannot shadow.
+pub(crate) fn eager_literal(ctx: &Ctx, init: &str, name: &str) -> Option<String> {
+    if ctx.filter.is_none() || matches!(name, "length" | "name" | "prototype" | "caller" | "arguments") {
+        return None;
+    }
+    let lit = init.strip_prefix("return ")?.strip_suffix(';')?;
+    let number = |t: &str| {
+        let t = t.strip_prefix('-').unwrap_or(t);
+        !t.is_empty() && t.chars().all(|c| c.is_ascii_digit() || c == '.' || c == 'e' || c == 'E' || c == '+' || c == '-') && t.starts_with(|c: char| c.is_ascii_digit())
+    };
+    let string = lit.len() >= 2 && lit.starts_with('"') && lit.ends_with('"') && !lit[1..lit.len() - 1].contains(['"', '\\', '\n']);
+    (matches!(lit, "null" | "true" | "false") || number(lit) || string).then(|| lit.to_string())
 }
 
 pub(crate) fn indent(s: &str) -> String {
@@ -1800,10 +1826,15 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     getter_sigs.retain(|(n, _)| ctx.signature_live(n));
     setter_sigs.retain(|(n, _)| ctx.signature_live(n));
     let fields_sig: Vec<&FieldInfo> = fields.iter().filter(|f| ctx.signature_live(&f.name)).collect();
+    // Production profile: a signature that does not depend on the instance's
+    // type arguments is the rti itself, not a `_ti => rti` function
+    // (`rtiFromSignature` and the other readers of the runtime only call the
+    // entry when it is a function); the whole object is already built lazily.
+    let sig_value = |code: String| if ctx.filter.is_some() && !code.contains("_ti") { code } else { format!("_ti => {code}") };
     if !method_sigs.is_empty() {
         let mut items: Vec<String> = Vec::new();
         for (n, t) in method_sigs.iter() {
-            let value = format!("_ti => {}", se.rti(t));
+            let value = sig_value(se.rti(t));
             items.push(format!("{}: {value}", sig_key(n, &se, c)));
             let dart_n = match n.as_str() { "_equals" => "==", "_get" => "[]", "_set" => "[]=", "_negate" => "unary-", x => x };
             with_dartx(&mut items, dart_n, &value);
@@ -1813,14 +1844,14 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     if !generic_methods.is_empty() {
         let items: Vec<String> = generic_methods
             .iter()
-            .map(|(n, ds)| format!("{}: _ti => [{}]", sig_key(n, &se, c), ds.iter().map(|d| se.rti(d)).collect::<Vec<_>>().join(", ")))
+            .map(|(n, ds)| format!("{}: {}", sig_key(n, &se, c), sig_value(format!("[{}]", ds.iter().map(|d| se.rti(d)).collect::<Vec<_>>().join(", ")))))
             .collect();
         w.line(&format!("dart.setMethodsDefaultTypeArgSignature({cref}, {});", sig(&items, "getMethodsDefaultTypeArgs")));
     }
     if !getter_sigs.is_empty() {
         let mut items: Vec<String> = Vec::new();
         for (n, t) in getter_sigs.iter() {
-            let value = format!("_ti => {}", se.rti(t));
+            let value = sig_value(se.rti(t));
             items.push(format!("{}: {value}", sig_key(n, &se, c)));
             with_dartx(&mut items, n, &value);
         }
@@ -1829,7 +1860,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     if !setter_sigs.is_empty() {
         let mut items: Vec<String> = Vec::new();
         for (n, t) in setter_sigs.iter() {
-            let value = format!("_ti => {}", se.rti(t));
+            let value = sig_value(se.rti(t));
             items.push(format!("{}: {value}", sig_key(n, &se, c)));
             with_dartx(&mut items, n, &value);
         }
@@ -1856,7 +1887,15 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                     _ => js::prop_key(&crate::body::js_member_name(&f.name)),
                 };
                 let ty = if f.late { f.ty.with_nullable(true) } else { f.ty.clone() };
-                format!("{key}: {{type: _ti => {}, isConst: false, isFinal: {}}}", se.rti(&ty), f.final_ && !f.late)
+                let final_ = f.final_ && !f.late;
+                if ctx.filter.is_some() {
+                    // Production profile: `isConst` is only read by the
+                    // debugger, and a missing `isFinal` reads as `false`.
+                    let fin = if final_ { ", isFinal: true" } else { "" };
+                    format!("{key}: {{type: {}{fin}}}", sig_value(se.rti(&ty)))
+                } else {
+                    format!("{key}: {{type: _ti => {}, isConst: false, isFinal: {final_}}}", se.rti(&ty))
+                }
             })
             .collect();
         w.line(&format!("dart.setFieldSignature({cref}, {});", sig(&items, "getFields")));
@@ -1976,6 +2015,8 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             };
             let setter = format!("set {}(v) {{\n  {cref}[{}] = v;\n}}", js::prop_key(&name), js::string_literal(&storage));
             w.line(&format!("dart.copyProperties({cref}, {{\n{},\n{}\n}});", indent(&getter), indent(&setter)));
+        } else if let Some(lit) = eager_literal(ctx, &init, &name) {
+            w.line(&format!("{cref}{} = {lit};", js::prop_access(&name)));
         } else {
             let mut entry = format!("get {}() {{\n{}\n}}", js::prop_key(&name), indent(&init));
             if !v.final_ && !v.const_ {
