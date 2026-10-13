@@ -316,6 +316,28 @@ const CASES: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
         "class R {\n  int get h => 1;\n  int Function() w(int x) => () => x;\n}\nvoid f<T>(T? d, R? r, String? s) {\n  if (d is R) print(d.h);\n  var x = r?.w(1)();\n  int y = r?.w(1)();\n  assert(s == null || s.isEmpty, s.length);\n  assert(true, s.length);\n  print([x, y]);\n}\n",
         &[("invalid_assignment", 8, 11, 9), ("unchecked_use_of_nullable_value", 10, 18, 6)],
     ),
+    // `[m]` in a type's comment resolves `m` on the type, through the imported
+    // extensions that apply to it (stream_transform; 2026-10-13).
+    (
+        "doc_ext_s.dart",
+        "import 'doc_ext_e.dart';\nextension S<T> on Stream<T> {\n  /// See [expandIt].\n  Stream<T> sw() => this;\n}\n",
+        &[],
+    ),
+    (
+        "doc_ext_e.dart",
+        "import 'doc_ext_s.dart';\nextension E<T> on Stream<T> {\n  /// See [sw].\n  Stream<T> expandIt() => this;\n}\n",
+        &[],
+    ),
+    (
+        "doc_ext_c.dart",
+        "import 'doc_ext_e.dart';\nimport 'doc_ext_s.dart' as p;\nabstract class C<T> extends Stream<T> {\n  /// [expandIt] and [sw]\n  void m() {}\n}\n",
+        &[],
+    ),
+    (
+        "doc_ext_d.dart",
+        "import 'doc_ext_e.dart';\nclass D {\n  /// [expandIt]\n  void m() {}\n}\n",
+        &[("unused_import", 1, 8, 16)],
+    ),
     // A reserved word as a local variable's name (2026-10-13).
     (
         "palavra_reservada_local.dart",

@@ -452,7 +452,18 @@ enum Lookup {
     Prefixed(SymbolId, SymbolId),
     /// `[p]`: the prefix cited in a documentation comment.
     PrefixInComment(SymbolId),
+    /// `[x]` in the documentation comment of a type or of one of its members:
+    /// when the lexical lookup finds nothing, the analyzer looks `x` up as a
+    /// property of the enclosing type, extensions included
+    /// (`CommentReferenceResolver._resolveSimpleIdentifier`,
+    /// `an611:src/dart/resolver/comment_reference_resolver.dart:143-180`).
+    NameInTypeComment(SymbolId, EnclosingType),
 }
+
+/// The type whose scope a documentation comment is in: the name of the
+/// class, mixin, enum, extension type or extension (`None` for an unnamed
+/// extension).
+type EnclosingType = Option<SymbolId>;
 
 /// The name lookups of a unit that the import usage tracking sees
 /// (`ImportsTrackingOfPrefix`): expression identifiers, type names,
@@ -524,7 +535,8 @@ fn unit_lookups(
     // The references of documentation comments, in the scope of the
     // documented declaration.
     let comments = dartforge_frontend::comments::Comments::scan(source);
-    for (doc, pos, extras) in doc_comments(a, &unit.unit, source, &comments) {
+    for (doc, pos, extras, in_type) in doc_comments(a, &unit.unit, source, &comments) {
+        let in_type: Option<EnclosingType> = in_type;
         for parts in doc_references(&source[doc.start..doc.end]) {
             let symbols: Vec<Option<SymbolId>> = parts.iter().map(|x| interner.lookup(x)).collect();
             let Some(first) = symbols[0] else { continue };
@@ -539,8 +551,88 @@ fn unit_lookups(
                     // `[p]`: the prefix cited in a comment.
                     None => f(Lookup::PrefixInComment(first)),
                 }
+            } else if let (Some(owner), 1) = (in_type, parts.len()) {
+                f(Lookup::NameInTypeComment(first, owner));
             } else {
                 f(Lookup::Name(first));
+            }
+        }
+    }
+}
+
+/// `[n]` in a comment in the scope of type `owner` that the lexical lookup
+/// does not find: the analyzer resolves it as a property of the enclosing
+/// type (for an extension, its extended type), and a member that comes from
+/// an imported extension marks that import as used. Without the types, the
+/// enclosing type is its class and supertypes by name: a member of one of
+/// them wins over the extensions; an extension applies when its `on` names
+/// one of those classes, or something else (a type parameter, a function
+/// type, an alias, a class whose relation is unknown here). Marking an import
+/// too many times can only hide a warning.
+fn mark_extension_in_comment(
+    program: &Program,
+    unit: dartforge_elements::model::UnitId,
+    owner: EnclosingType,
+    n: SymbolId,
+    imps: &[Imp<'_>],
+    used: &mut [HashSet<Element>],
+) {
+    use dartforge_elements::model::{ClassId, UnitId};
+    // The class a written type names, by name.
+    let named_class = |u: UnitId, t: dartforge_frontend::ast::TypeId| -> Option<ClassId> {
+        let TypeKind::Named { name, .. } = &program.unit(u).ast.ty(t).kind else { return None };
+        let b = match &name[..] {
+            [x] => program.lookup_in_unit(u, x.sym)?,
+            [p, x] => program.lookup_prefixed_in_unit(u, p.sym, x.sym)?,
+            _ => return None,
+        };
+        match b.getter? {
+            Element::Class(c) => Some(c),
+            _ => None,
+        }
+    };
+    let enclosing: Option<ClassId> = owner.and_then(|o| match program.lookup_in_unit(unit, o)?.getter? {
+        Element::Class(c) => Some(c),
+        Element::Extension(x) => {
+            let (u, t) = program.extension(x).on;
+            named_class(u, t)
+        }
+        _ => None,
+    });
+    // The enclosing class and its supertypes.
+    let mut supers: Vec<ClassId> = Vec::new();
+    if let Some(c) = enclosing {
+        let mut stack = vec![c];
+        while let Some(c) = stack.pop() {
+            if supers.contains(&c) {
+                continue;
+            }
+            supers.push(c);
+            let k = program.class(c);
+            stack.extend(k.supertype_class);
+            stack.extend(k.mixin_classes.iter().copied());
+            stack.extend(k.interface_classes.iter().copied());
+            stack.extend(k.on_classes.iter().copied());
+        }
+        if supers.iter().any(|&c| program.class(c).instance_members.contains_key(&n)) {
+            return;
+        }
+    }
+    let applies = |x: dartforge_elements::model::ExtensionId| {
+        let (u, t) = program.extension(x).on;
+        match named_class(u, t) {
+            Some(c) => enclosing.is_none() || supers.contains(&c) || program.class(c).supertype_class.is_none(),
+            None => true,
+        }
+    };
+    for (i, imp) in imps.iter().enumerate() {
+        for (k, b) in program.library(imp.target).exported.iter() {
+            if let Some(Element::Extension(x)) = b.getter
+                && program.extension(x).instance_members.contains_key(&n)
+                && applies(x)
+                && provides(program, imp, *k).is_some()
+            {
+                used[i].insert(Element::Extension(x));
             }
         }
     }
@@ -782,6 +874,16 @@ pub fn unused(
             Lookup::PrefixInComment(p) => {
                 prefix_in_comment.insert(p);
             }
+            Lookup::NameInTypeComment(n, owner) => {
+                let lexical = declared.contains_key(&n)
+                    || prefixes.contains(&n)
+                    || imps.iter().any(|imp| imp.prefix.is_none() && provides(program, imp, n).is_some());
+                if lexical {
+                    mark(&mut used, n);
+                    return;
+                }
+                mark_extension_in_comment(program, u, owner, n, &imps, &mut used);
+            }
         });
     }
     // `notifyExtensionUsed`.
@@ -973,13 +1075,16 @@ fn pattern_constants(a: &dartforge_frontend::ast::Ast) -> Vec<dartforge_frontend
 /// The documentation comments of the unit, each one with the position for the
 /// lexical lookup of the references and the names of the documented
 /// declaration's scope that the position does not cover (the parameters and
-/// type parameters of the documented function, method or typedef).
+/// type parameters of the documented function, method or typedef), and
+/// whether the comment is in a type's scope (the type's own comment, its
+/// members' and its enum constants': the `enclosingClass` or
+/// `enclosingExtension` of the resolver).
 fn doc_comments(
     a: &dartforge_frontend::ast::Ast,
     unit: &dartforge_frontend::ast::CompilationUnit,
     source: &str,
     comments: &dartforge_frontend::comments::Comments,
-) -> Vec<(dartforge_diagnostics::Span, usize, Vec<SymbolId>)> {
+) -> Vec<(dartforge_diagnostics::Span, usize, Vec<SymbolId>, Option<EnclosingType>)> {
     use dartforge_frontend::ast::{Annotation, DeclKind, MemberKind, Parameter, TypedefKind};
     // `_findComment(metadata, tokenAfterMetadata)`.
     let doc = |metadata: &[Annotation], start: usize| {
@@ -1009,10 +1114,35 @@ fn doc_comments(
     let names_of = |ps: &[Parameter], tps: &[dartforge_frontend::ast::TypeParameter]| -> Vec<SymbolId> {
         ps.iter().filter_map(|p| p.name.map(|n| n.sym)).chain(tps.iter().map(|t| t.name.sym)).collect()
     };
+    // The type of each member.
+    let type_name = |k: &DeclKind| -> Option<EnclosingType> {
+        match k {
+            DeclKind::Class(c) => Some(Some(c.name.sym)),
+            DeclKind::Mixin(c) => Some(Some(c.name.sym)),
+            DeclKind::Enum(c) => Some(Some(c.name.sym)),
+            DeclKind::ExtensionType(c) => Some(Some(c.name.sym)),
+            DeclKind::Extension(c) => Some(c.name.map(|n| n.sym)),
+            DeclKind::Function(_) | DeclKind::Typedef(_) | DeclKind::Variables(_) => None,
+        }
+    };
+    let mut owners: std::collections::HashMap<dartforge_frontend::ast::MemberId, EnclosingType> = std::collections::HashMap::new();
+    for decl in a.decls.iter() {
+        let members: &[dartforge_frontend::ast::MemberId] = match &decl.kind {
+            DeclKind::Class(x) => &x.members,
+            DeclKind::Mixin(x) => &x.members,
+            DeclKind::Enum(x) => &x.members,
+            DeclKind::ExtensionType(x) => &x.members,
+            DeclKind::Extension(x) => &x.members,
+            _ => &[],
+        };
+        if let Some(owner) = type_name(&decl.kind) {
+            owners.extend(members.iter().map(|&m| (m, owner)));
+        }
+    }
     let mut v = Vec::new();
     for d in unit.directives.iter() {
         if let Some(x) = doc(&d.metadata, d.span.start) {
-            v.push((whole(x), d.span.start, Vec::new()));
+            v.push((whole(x), d.span.start, Vec::new(), None));
         }
     }
     for decl in a.decls.iter() {
@@ -1037,17 +1167,18 @@ fn doc_comments(
             DeclKind::Extension(c) => (c.name.map_or(decl.span.start, |n| n.span.end) + 1, c.type_params.iter().map(|t| t.name.sym).collect()),
             DeclKind::Variables(_) => (decl.span.start, Vec::new()),
         };
-        v.push((whole(x), pos, extras));
+        v.push((whole(x), pos, extras, type_name(&decl.kind)));
         if let DeclKind::Enum(c) = &decl.kind {
             for k in c.constants.iter() {
                 if let Some(y) = doc(&k.metadata, k.span.start) {
-                    v.push((whole(y), k.span.start, Vec::new()));
+                    v.push((whole(y), k.span.start, Vec::new(), Some(Some(c.name.sym))));
                 }
             }
         }
     }
-    for m in a.members.iter() {
+    for (i, m) in a.members.iter().enumerate() {
         let Some(x) = doc(&m.metadata, m.span.start) else { continue };
+        let owner = owners.get(&dartforge_frontend::ast::MemberId(i as u32)).copied();
         let extras = match &m.kind {
             MemberKind::Method(f) => {
                 let g = a.function(*f);
@@ -1056,7 +1187,7 @@ fn doc_comments(
             MemberKind::Constructor(k) => names_of(&k.parameters, &[]),
             MemberKind::Field(_) => Vec::new(),
         };
-        v.push((whole(x), m.span.start, extras));
+        v.push((whole(x), m.span.start, extras, owner));
     }
     v
 }
