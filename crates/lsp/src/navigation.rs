@@ -1,6 +1,6 @@
-//! Navegação segura de diretivas com URI relativa ou de pacote.
-//! O analyzer original registra a região do literal em `ImportDirective`,
-//! `ExportDirective` e `PartDirective` quando o destino existe.
+//! Safe navigation of directives with a relative or package URI. The
+//! original analyzer records the literal's region in `ImportDirective`,
+//! `ExportDirective` and `PartDirective` when the target exists.
 
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{Ast, CompilationUnit, DeclKind, Directive, DirectiveKind, ExprKind, ForInTarget, ForInit, FunctionKind, MemberKind, Name, ParameterKind, StmtKind, StringLit, TypeKind};
@@ -23,9 +23,9 @@ pub(super) struct LocalType {
     pub static_type: Option<String>,
 }
 
-/// Destino para um literal de URI relativa/de pacote ou tipo único do próprio
-/// arquivo. Bibliotecas `dart:` exigem o mapeamento do SDK; caminho inexistente
-/// não gera navegação falsa.
+/// Target for a relative/package URI literal or a single type of the file
+/// itself. `dart:` libraries require the SDK mapping; a nonexistent path
+/// produces no false navigation.
 pub(super) fn target(
     current_uri: &str,
     text: &str,
@@ -43,10 +43,10 @@ pub(super) fn target(
         .map(Target::LocalName)
 }
 
-/// Destino de um literal de diretiva (`import`, `export`, `part`, ...) sob o
-/// cursor, quando o arquivo relativo existe no disco. É um `stat` por pedido,
-/// nunca varredura: a regra de ativação segue a navegação de diretivas do
-/// analyzer (só existe alvo quando o arquivo existe).
+/// Target of a directive literal (`import`, `export`, `part`, ...) under the
+/// cursor, when the relative file exists on disk. It is one `stat` per
+/// request, never a scan: the activation rule follows the analyzer's
+/// directive navigation (there is only a target when the file exists).
 fn directive_target(current_uri: &str, unit: &CompilationUnit, offset: usize) -> Option<String> {
     for directive in &unit.directives {
         let literal = match &directive.kind {
@@ -74,8 +74,9 @@ fn local_type(
     names: &Interner,
     offset: usize,
 ) -> Option<LocalType> {
-    // Imports/exports/parts podem trazer nomes que o AST de um arquivo só não
-    // distingue. Até a resolução de biblioteca entrar no LSP, devolva vazio.
+    // Imports/exports/parts may bring in names that the AST of a single file
+    // cannot distinguish. Until library resolution comes to the LSP, return
+    // empty.
     if unit.directives.iter().any(|d| !matches!(&d.kind, DirectiveKind::Library { .. })) {
         return None;
     }
@@ -86,7 +87,7 @@ fn local_type(
         (n.span.start <= offset && offset < n.span.end).then_some(n)
     })?;
     let key = reference.sym;
-    // Um parâmetro de tipo homônimo pode sombrear a declaração de topo.
+    // A homonymous type parameter may shadow the top-level declaration.
     if ast.functions.iter().any(|f| f.type_params.iter().any(|p| p.name.sym == key))
         || ast.types.iter().any(|t| matches!(&t.kind, TypeKind::Function { type_params, .. }
             if type_params.iter().any(|p| p.name.sym == key)))
@@ -126,9 +127,9 @@ fn local_type(
     })
 }
 
-/// Referência a variável de topo única, sem qualquer declaração homônima que
-/// possa sombreá-la. Só os tipos primitivos escritos dão hover: os outros
-/// precisam da resolução de aliases, limites e imports.
+/// Reference to a single top-level variable, without any homonymous
+/// declaration that could shadow it. Only written primitive types give a
+/// hover: the others need resolution of aliases, bounds and imports.
 fn top_variable(
     unit: &dartforge_frontend::ast::CompilationUnit,
     ast: &dartforge_frontend::ast::Ast,
@@ -253,7 +254,7 @@ fn top_function(
         }
         if function.kind != FunctionKind::Function { return None; }
         let parameters = function.parameters.as_ref()?;
-        // Com 3+ parâmetros, o analyzer muda para layout multilinha.
+        // With 3+ parameters, the analyzer switches to a multi-line layout.
         if parameters.len() > 2 { return None; }
         let mut descriptions = Vec::new();
         for p in parameters.iter() {
@@ -284,8 +285,8 @@ fn resolve(base: &Url, literal: &StringLit) -> Option<String> {
         let config = PackageConfig::discover(&origin)?;
         let config = PackageConfig::load(&config).ok()?;
         let name = path.strip_prefix("package:")?.split('/').next()?;
-        // O resolver de compilação tem fallback para `references/pub`; no LSP
-        // a navegação deve seguir apenas o mapeamento do projeto aberto.
+        // The compilation resolver falls back to `references/pub`; in the LSP,
+        // navigation must follow only the mapping of the open project.
         if !config.packages.contains_key(name) { return None; }
         config.resolve_package_uri(path).ok()?
     } else {
@@ -302,15 +303,15 @@ fn resolve(base: &Url, literal: &StringLit) -> Option<String> {
     Url::from_file_path(canonical).ok().map(|u| u.to_string())
 }
 
-/// Referências no próprio documento para os casos seguros de [`target`].
+/// References in the document itself for the safe cases of [`target`].
 ///
-/// Devolve a declaração primeiro e depois os usos em ordem de offset, todos
-/// no mesmo arquivo. `None` significa "não sei" (imports, padrões, sombras,
-/// nomes duplicados ou cursor fora de nome conhecido) — nunca "não há".
-/// Entre arquivos aguarda a resolução de bibliotecas e elementos.
+/// Returns the declaration first and then the uses in offset order, all in
+/// the same file. `None` means "I don't know" (imports, patterns, shadows,
+/// duplicate names or cursor outside a known name) — never "there are
+/// none". Across files it waits for library and element resolution.
 ///
-/// A árvore é temporária (um `Interner` novo por chamada), como em
-/// [`target`]: nada é retido entre edições, mantendo o platô de memória.
+/// The tree is temporary (a new `Interner` per call), as in [`target`]:
+/// nothing is retained between edits, keeping the memory plateau.
 pub(super) fn references(
     _current_uri: &str,
     text: &str,
@@ -321,17 +322,17 @@ pub(super) fn references(
     let parsed = dartforge_frontend::parser::parse_com(text, &mut names, features);
     let unit = &parsed.unit;
     let ast = &parsed.ast;
-    // Só o próprio arquivo, sem nomes vindos de fora; padrões ligam nomes
-    // que o AST de um arquivo só não distingue.
+    // Only the file itself, without names coming from outside; patterns bind
+    // names that the AST of a single file cannot distinguish.
     if unit.directives.iter().any(|d| !matches!(&d.kind, DirectiveKind::Library { .. }))
         || !ast.patterns.is_empty()
     {
         return None;
     }
-    // Descobre a chave sob o cursor: referência de tipo, nome declarado de
-    // tipo, identificador de expressão ou nome declarado de valor de topo.
+    // Finds the key under the cursor: type reference, declared type name,
+    // expression identifier or declared top-level value name.
     let key = key_at_cursor(unit, ast, offset)?;
-    // Sem sombras em qualquer escopo que o AST enxerga.
+    // No shadows in any scope the AST can see.
     if shadowed(ast, key) {
         return None;
     }
@@ -370,12 +371,12 @@ pub(super) fn references(
             uses[1..].sort_by_key(|s| s.start);
             Some(uses)
         }
-        // Zero ou dois namespaces com o mesmo nome: conservador, sem resposta.
+        // Zero or two namespaces with the same name: conservative, no answer.
         _ => None,
     }
 }
 
-/// Símbolo sob o cursor, seja numa referência ou no próprio nome declarado.
+/// Symbol under the cursor, whether in a reference or in the declared name itself.
 fn key_at_cursor(
     unit: &dartforge_frontend::ast::CompilationUnit,
     ast: &dartforge_frontend::ast::Ast,
@@ -402,7 +403,7 @@ fn key_at_cursor(
     declared_value_name_at_cursor(unit, ast, offset)
 }
 
-/// Nome de tipo declarado (classe, mixin, enum, extension type, typedef).
+/// Declared type name (class, mixin, enum, extension type, typedef).
 fn declared_type_name_at_cursor(
     unit: &dartforge_frontend::ast::CompilationUnit,
     ast: &dartforge_frontend::ast::Ast,
@@ -427,7 +428,7 @@ fn declared_type_name_at_cursor(
     None
 }
 
-/// Nome de valor de topo declarado (variável, função, getter, setter).
+/// Declared top-level value name (variable, function, getter, setter).
 fn declared_value_name_at_cursor(
     unit: &dartforge_frontend::ast::CompilationUnit,
     ast: &dartforge_frontend::ast::Ast,
@@ -456,7 +457,7 @@ fn declared_value_name_at_cursor(
     None
 }
 
-/// Algum parâmetro de tipo homônimo pode sombrear a declaração de topo.
+/// Some homonymous type parameter may shadow the top-level declaration.
 fn has_homonymous_type_parameter(
     unit: &dartforge_frontend::ast::CompilationUnit,
     ast: &dartforge_frontend::ast::Ast,
@@ -484,7 +485,7 @@ fn has_homonymous_type_parameter(
     })
 }
 
-/// Declaração de tipo única com o nome (span do nome declarado).
+/// Single type declaration with the name (span of the declared name).
 fn type_declaration(
     unit: &dartforge_frontend::ast::CompilationUnit,
     ast: &dartforge_frontend::ast::Ast,
@@ -505,7 +506,7 @@ fn type_declaration(
     found.next().is_none().then_some(single)
 }
 
-/// Declaração de valor de topo única com o nome (span do nome declarado).
+/// Single top-level value declaration with the name (span of the declared name).
 fn value_declaration(
     unit: &dartforge_frontend::ast::CompilationUnit,
     ast: &dartforge_frontend::ast::Ast,
@@ -537,18 +538,19 @@ fn value_declaration(
 }
 
 // ---------------------------------------------------------------------------
-// Entre documentos abertos: o menor passo útil da resolução semântica.
+// Across open documents: the smallest useful step of semantic resolution.
 // ---------------------------------------------------------------------------
 
-/// Espaço de nomes da declaração de topo: tipos e valores não colidem, então
-/// cada busca carrega o seu para não misturar `class Caixa` com `int Caixa`.
+/// Namespace of the top-level declaration: types and values do not collide,
+/// so each search carries its own so as not to mix `class Caixa` with
+/// `int Caixa`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Space {
     Type,
     Value,
 }
 
-/// Símbolo de topo resolvido entre os documentos abertos.
+/// Top-level symbol resolved across the open documents.
 struct Symbol {
     owner: String,
     space: Space,
@@ -556,10 +558,10 @@ struct Symbol {
     declaration: Span,
 }
 
-/// Nome sob o cursor com o seu intervalo: a chave (`SymbolId` só vale no
-/// próprio internador) e o span da referência no arquivo vigente. Cobre os
-/// mesmos lugares que [`key_at_cursor`] (referência ou nome declarado);
-/// o hover devolve este span como `range`, no arquivo do cursor.
+/// Name under the cursor with its range: the key (a `SymbolId` is only valid
+/// in its own interner) and the span of the reference in the current file.
+/// Covers the same places as [`key_at_cursor`] (reference or declared name);
+/// hover returns this span as `range`, in the cursor's file.
 fn key_and_span_at_cursor(
     unit: &dartforge_frontend::ast::CompilationUnit,
     ast: &dartforge_frontend::ast::Ast,
@@ -619,32 +621,33 @@ fn key_and_span_at_cursor(
     None
 }
 
-/// Um arquivo analisado com o seu internador: os `SymbolId` valem só dentro
-/// dele, então entre arquivos compara-se o texto (`lookup`/`resolve`).
+/// An analyzed file with its interner: the `SymbolId`s are only valid inside
+/// it, so across files the text is compared (`lookup`/`resolve`).
 struct File {
     names: Interner,
     unit: CompilationUnit,
     ast: Ast,
 }
 
-/// Analisa o texto com os recursos do próprio arquivo e descarta o diagnóstico:
-/// aqui só interessa a árvore, transitória do pedido como em [`references`].
+/// Analyzes the text with the file's own features and discards the
+/// diagnostic: only the tree matters here, transient to the request as in
+/// [`references`].
 fn analyze(text: &str, features: LibraryFeatures) -> File {
     let mut names = Interner::new();
     let parsed = dartforge_frontend::parser::parse_com(text, &mut names, features);
     File { names, unit: parsed.unit, ast: parsed.ast }
 }
 
-/// Classe de uma diretiva para a resolução entre abertos.
+/// Class of a directive for resolution across open documents.
 enum DirectiveClass {
     Library,
-    /// Import relativo simples: sem prefixo, combinadores, `deferred` ou
-    /// condição, com literal constante fora de `dart:`/`package:`.
+    /// Simple relative import: no prefix, combinators, `deferred` or condition,
+    /// with a constant literal outside `dart:`/`package:`.
     SimpleImport(String),
-    /// Todo o resto: `export`, `part`, `part of`, augmentations, prefixo,
-    /// `show`/`hide`, `dart:`/`package:`, interpolação. Traz nomes que só a
-    /// resolução de bibliotecas distingue: arquivo com uma destas nunca é
-    /// dono nem testemunha, e cursor sob uma delas é "não sei".
+    /// Everything else: `export`, `part`, `part of`, augmentations, prefix,
+    /// `show`/`hide`, `dart:`/`package:`, interpolation. Brings names that only
+    /// library resolution can distinguish: a file with one of these is never an
+    /// owner nor a witness, and a cursor on one of them is "I don't know".
     Complex,
 }
 
@@ -669,11 +672,12 @@ fn classify(directive: &Directive) -> DirectiveClass {
     }
 }
 
-/// Resolve um import relativo contra a URI base sem tocar no disco: junta os
-/// segmentos (`Url::join`) e devolve a URI normalizada. `None` para
-/// `dart:`/`package:`, base fora de `file:`, consulta ou fragmento. Difere do
-/// [`resolve`] de propósito: sem `canonicalize`, sem `is_file` — a pergunta
-/// aqui é "qual aberto este URI nomeia", nunca "o que existe no disco".
+/// Resolves a relative import against the base URI without touching the
+/// disk: joins the segments (`Url::join`) and returns the normalized URI.
+/// `None` for `dart:`/`package:`, a base outside `file:`, a query or a
+/// fragment. Differs from [`resolve`] on purpose: no `canonicalize`, no
+/// `is_file` — the question here is "which open document does this URI
+/// name", never "what exists on disk".
 fn resolve_open(base_uri: &str, path: &str) -> Option<String> {
     if path.starts_with("dart:") || path.starts_with("package:") {
         return None;
@@ -689,14 +693,15 @@ fn resolve_open(base_uri: &str, path: &str) -> Option<String> {
     Some(resolved.to_string())
 }
 
-/// Resolve o símbolo sob o cursor para o documento aberto que o declara.
+/// Resolves the symbol under the cursor to the open document that declares it.
 ///
-/// Caso local (sem diretivas além de `library`): o próprio arquivo, como em
-/// [`references`]. Caso importado (só imports simples, nome sem declaração
-/// local): o único aberto importado que declara o nome sozinho num espaço,
-/// ele mesmo sem diretivas que tragam outros nomes. Todo o resto — diretiva
-/// complexa, padrões, sombras, parâmetro de tipo homônimo, zero ou vários
-/// donos — é `None` ("não sei", nunca resposta errada).
+/// Local case (no directives besides `library`): the file itself, as in
+/// [`references`]. Imported case (only simple imports, a name without a
+/// local declaration): the single imported open document that declares the
+/// name alone in one namespace, itself without directives that bring other
+/// names. Everything else — complex directive, patterns, shadows, homonymous
+/// type parameter, zero or several owners — is `None` ("I don't know",
+/// never a wrong answer).
 fn resolve_symbol(
     documents: &DocumentStore,
     current_uri: &str,
@@ -763,9 +768,10 @@ fn resolve_symbol(
     single_owner(documents, analyzer, &candidates, &name).map(|s| (s, reference))
 }
 
-/// O único candidato aberto que declara `name` sozinho num espaço, sem
-/// diretivas que tragam outros nomes, padrões, sombras ou parâmetro de tipo
-/// homônimo. Zero (dono fechado ou no disco) ou vários: `None`.
+/// The single open candidate that declares `name` alone in one namespace,
+/// without directives that bring other names, patterns, shadows or a
+/// homonymous type parameter. Zero (owner closed or on disk) or several:
+/// `None`.
 fn single_owner(
     documents: &DocumentStore,
     analyzer: &mut SyntacticAnalyzer,
@@ -807,7 +813,7 @@ fn single_owner(
                 name: name.to_string(),
                 declaration,
             },
-            // Não declara, ou declara nos dois espaços: não é um dono limpo.
+            // Does not declare it, or declares it in both namespaces: not a clean owner.
             _ => continue,
         };
         if found.is_some() {
@@ -818,9 +824,10 @@ fn single_owner(
     found
 }
 
-/// Definição entre documentos abertos: o literal de diretiva segue a regra de
-/// disco ([`directive_target`], um `stat`); o nome segue [`resolve_symbol`]
-/// (só abertos, nunca o disco). `None` é "não sei".
+/// Definition across open documents: a directive literal follows the disk
+/// rule ([`directive_target`], one `stat`); a name follows
+/// [`resolve_symbol`] (only open documents, never the disk). `None` is "I
+/// don't know".
 pub(super) fn definition_in(
     documents: &DocumentStore,
     current_uri: &str,
@@ -838,17 +845,19 @@ pub(super) fn definition_in(
     Some((symbol.owner, Some(symbol.declaration)))
 }
 
-/// Referências entre documentos abertos via [`resolve_symbol`]: a declaração
-/// primeiro, depois os usos ordenados por (URI, offset), cada arquivo
-/// analisado e liberado antes do próximo — como `workspace/symbol`, nada é
-/// retido entre pedidos e o `DocumentStore` continua dono único dos textos.
+/// References across open documents through [`resolve_symbol`]: the
+/// declaration first, then the uses sorted by (URI, offset), each file
+/// analyzed and released before the next one — like `workspace/symbol`,
+/// nothing is retained between requests and the `DocumentStore` stays the
+/// sole owner of the texts.
 ///
-/// Usos de um arquivo só entram quando ele importa o dono por import simples
-/// e nada mais pode trazer o nome: diretiva complexa, padrão, sombra,
-/// declaração local homônima, import simples para fora dos abertos (cujo
-/// conteúdo o pedido não pode ler sem varrer o disco) ou outro aberto que
-/// declare o nome — qualquer dúvida pula o arquivo, nunca inventa uso nem
-/// devolve lista parcial como total: o chamador não tem como distinguir.
+/// Uses of a file only count when it imports the owner through a simple
+/// import and nothing else can bring the name: complex directive, pattern,
+/// shadow, homonymous local declaration, a simple import outside the open
+/// documents (whose content the request cannot read without scanning the
+/// disk) or another open document that declares the name — any doubt skips
+/// the file, never invents a use nor returns a partial list as complete:
+/// the caller cannot tell the difference.
 pub(super) fn references_in(
     documents: &DocumentStore,
     current_uri: &str,
@@ -873,9 +882,10 @@ pub(super) fn references_in(
     Some(outputs)
 }
 
-/// Usos no documento dono, sem a declaração. `None` quando o dono deixou de
-/// ser legível entre a resolução e a coleta (não acontece no despacho
-/// síncrono; o `None` conservador evita inventar localização).
+/// Uses in the owner document, without the declaration. `None` when the
+/// owner stopped being readable between resolution and collection (does not
+/// happen in synchronous dispatch; the conservative `None` avoids inventing
+/// a location).
 fn owner_uses(
     documents: &DocumentStore,
     analyzer: &mut SyntacticAnalyzer,
@@ -887,9 +897,9 @@ fn owner_uses(
     Some(uses_without_declaration(&file, key, symbol.space, symbol.declaration))
 }
 
-/// Usos num arquivo que importa o dono por import simples. `None` pula o
-/// arquivo (dúvida ou nome ausente por outro motivo); `Some` — mesmo vazio,
-/// quando importa mas não usa — contribui.
+/// Uses in a file that imports the owner through a simple import. `None`
+/// skips the file (doubt, or name absent for another reason); `Some` — even
+/// empty, when it imports but does not use — contributes.
 fn uses_if_imports(
     documents: &DocumentStore,
     analyzer: &mut SyntacticAnalyzer,
@@ -914,9 +924,9 @@ fn uses_if_imports(
                         return None;
                     }
                 } else {
-                    // Fora dos abertos: pode declarar o mesmo nome e o pedido
-                    // não lê disco por tecla. Pula o arquivo em vez de
-                    // atribuir os usos ao dono errado.
+                    // Outside the open documents: it may declare the same name and the request
+                    // does not read the disk on each keystroke. Skips the file instead of
+                    // assigning the uses to the wrong owner.
                     return None;
                 }
             }
@@ -940,14 +950,14 @@ fn uses_if_imports(
     if type_declaration(&file.unit, &file.ast, key).is_some()
         || value_declaration(&file.unit, &file.ast, key).is_some()
     {
-        // Declaração local homônima: os usos miram ela, não o dono.
+        // Homonymous local declaration: the uses target it, not the owner.
         return None;
     }
     Some(uses_without_declaration(&file, key, symbol.space, symbol.declaration))
 }
 
-/// Verdadeiro quando o aberto declara `name` em qualquer espaço (tipo ou
-/// valor): um importador que também o importa não tem dono único.
+/// True when the open document declares `name` in any namespace (type or
+/// value): an importer that also imports it has no single owner.
 fn declares_name(
     documents: &DocumentStore,
     analyzer: &mut SyntacticAnalyzer,
@@ -965,7 +975,7 @@ fn declares_name(
         || value_declaration(&file.unit, &file.ast, key).is_some()
 }
 
-/// Usos do nome no arquivo, sem a declaração do dono.
+/// Uses of the name in the file, without the owner's declaration.
 fn uses_without_declaration(
     file: &File,
     key: dartforge_intern::SymbolId,
@@ -997,17 +1007,18 @@ fn uses_without_declaration(
     uses
 }
 
-/// Hover entre documentos abertos: resolve como [`resolve_symbol`] e
-/// formata a descrição a partir do documento dono, com as mesmas regras do
-/// hover local (tipos não genéricos, variáveis de tipo primitivo escrito,
-/// funções de até dois posicionais tipados, getters de retorno primitivo).
-/// O `range` devolvido é o da referência sob o cursor, no arquivo vigente.
+/// Hover across open documents: resolves like [`resolve_symbol`] and formats
+/// the description from the owner document, with the same rules as the local
+/// hover (non-generic types, variables of a written primitive type,
+/// functions of up to two typed positionals, getters with a primitive
+/// return). The returned `range` is that of the reference under the cursor,
+/// in the current file.
 ///
-/// Bancada: dono não-aberto, símbolo ambíguo (zero ou dois donos), diretiva
-/// complexa (`prefix`, `show`/`hide`, ...), sombra, padrão ou assinatura que
-/// exige formatação completa → `None` (hover vazio), nunca texto errado.
-/// Nada é retido entre pedidos: cada árvore é transitória, como em
-/// [`references_in`]; só os documentos abertos são lidos, nunca o disco.
+/// Bench: owner not open, ambiguous symbol (zero or two owners), complex
+/// directive (`prefix`, `show`/`hide`, ...), shadow, pattern or a signature
+/// that requires full formatting → `None` (empty hover), never a wrong
+/// text. Nothing is retained between requests: each tree is transient, as in
+/// [`references_in`]; only the open documents are read, never the disk.
 pub(super) fn hover_in(
     documents: &DocumentStore,
     current_uri: &str,
@@ -1019,10 +1030,10 @@ pub(super) fn hover_in(
     Some((reference, description, ty))
 }
 
-/// Descrição do símbolo a partir do dono, com o mesmo formato do hover
-/// local. `None` quando a assinatura não pode ser mostrada com fidelidade
-/// (genérico, typedef, tipo não primitivo, parâmetros opcionais/nomeados,
-/// retorno inferido, setter): o chamador devolve hover vazio.
+/// Description of the symbol from the owner, with the same format as the
+/// local hover. `None` when the signature cannot be shown faithfully
+/// (generic, typedef, non-primitive type, optional/named parameters,
+/// inferred return, setter): the caller returns an empty hover.
 fn description_in_owner(
     documents: &DocumentStore,
     analyzer: &mut SyntacticAnalyzer,
@@ -1037,8 +1048,8 @@ fn description_in_owner(
     }
 }
 
-/// `class C` / `enum E` / `mixin M` / `extension type X`, quando não
-/// genérico; mesma regra de [`local_type`].
+/// `class C` / `enum E` / `mixin M` / `extension type X`, when not generic;
+/// same rule as [`local_type`].
 fn type_description_in_file(
     file: &File,
     key: dartforge_intern::SymbolId,
@@ -1061,8 +1072,9 @@ fn type_description_in_file(
     (!single.2).then(|| format!("{} {}", single.1, file.names.resolve(key)))
 }
 
-/// Variável de topo com tipo primitivo escrito ou função/getter de topo com
-/// assinatura fiel; mesmas regras de [`top_variable`] e [`top_function`].
+/// Top-level variable with a written primitive type, or a top-level
+/// function/getter with a faithful signature; same rules as
+/// [`top_variable`] and [`top_function`].
 fn value_description_in_file(
     file: &File,
     key: dartforge_intern::SymbolId,
@@ -1084,9 +1096,8 @@ fn value_description_in_file(
             DeclKind::Function(f)
                 if file.ast.function(*f).name.is_some_and(|n| n.sym == key) =>
             {
-                // Nome de função/getter: não é variável (como em
-                // [`top_variable`); cai para a formatação de assinatura
-                // abaixo (como em [`top_function`]).
+                // Function/getter name: not a variable (as in [`top_variable`]); falls
+                // through to the signature formatting below (as in [`top_function`]).
                 has_function = true;
             }
             DeclKind::Extension(d) if d.name.is_some_and(|n| n.sym == key) => return None,

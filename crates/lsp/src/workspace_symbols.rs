@@ -1,25 +1,25 @@
-//! `workspace/symbol` como o servidor do Dart 3.6.2 (docs/LSP-ESPECIFICACAO.md
-//! §5): o `WorkspaceSymbolHandler` sobre o `FindDeclarations` do analyzer.
+//! `workspace/symbol` like the Dart 3.6.2 server (docs/LSP-ESPECIFICACAO.md
+//! §5): the `WorkspaceSymbolHandler` over the analyzer's `FindDeclarations`.
 //!
-//! * as bibliotecas vêm na ordem do `OwnedFiles`: primeiro os arquivos
-//!   adicionados (os do projeto), depois os conhecidos pelo
-//!   `discoverAvailableFiles` (as bibliotecas do SDK na ordem do
-//!   `libraries.dart` e os `lib/` dos pacotes do `package_config.json`); uma
-//!   parte não é biblioteca e fica de fora (o conteúdo dela entra pela
-//!   biblioteca dona);
-//! * cada biblioteca passa pelo pré-filtro `ElementNameUnion.contains`;
-//! * por unidade, na ordem do `_FindCompilationUnitDeclarations`: acessores
-//!   de topo, classes (com os acessores, construtores, campos e métodos),
-//!   enums, mixins, extensões, extension types, funções, typedefs e
-//!   variáveis; só os elementos não sintéticos;
-//! * o nome casa pelo `FuzzyMatcher` (`MatchStyle.TEXT`) com score ≥ 0, sem
-//!   ordenar; a coleta para em 500;
-//! * o item: o nome com `()`/`(…)` pelo `getDisplayString()` do executável,
-//!   a espécie pelo `declarationKindToSymbolKind`, o code range do elemento
-//!   e o `containerName` de classe ou mixin.
+//! * the libraries come in `OwnedFiles` order: first the added files (the
+//!   project's), then those known through `discoverAvailableFiles` (the SDK
+//!   libraries in `libraries.dart` order and the `lib/` of the packages in
+//!   `package_config.json`); a part is not a library and is left out (its
+//!   content comes in through the owning library);
+//! * each library goes through the `ElementNameUnion.contains` pre-filter;
+//! * per unit, in the order of `_FindCompilationUnitDeclarations`: top-level
+//!   accessors, classes (with their accessors, constructors, fields and
+//!   methods), enums, mixins, extensions, extension types, functions,
+//!   typedefs and variables; only non-synthetic elements;
+//! * the name matches through the `FuzzyMatcher` (`MatchStyle.TEXT`) with
+//!   score ≥ 0, without sorting; collection stops at 500;
+//! * the item: the name with `()`/`(…)` from the executable's
+//!   `getDisplayString()`, the kind from `declarationKindToSymbolKind`, the
+//!   element's code range and the `containerName` of a class or mixin.
 //!
-//! O índice é só sintático (o parser, sem resolução) e fica em cache por
-//! arquivo; o de uma biblioteca é refeito quando ela ou uma das partes muda.
+//! The index is only syntactic (the parser, without resolution) and is
+//! cached per file; a library's index is rebuilt when it or one of its
+//! parts changes.
 
 use crate::fuzzy_matcher::{Matcher, Style};
 use dartforge_frontend::ast::{self, Annotation, Ast, DeclKind, DirectiveKind, FunctionKind, MemberKind, TypeKind};
@@ -31,13 +31,13 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
 
-/// O limite de resultados do handler.
+/// The handler's result limit.
 pub(crate) const LIMIT: usize = 500;
 
 // -- ElementNameUnion ---------------------------------------------------------
 
-/// `ElementNameUnion`: para cada posição de letra (até 63), as letras que
-/// algum nome da biblioteca tem nela; `mask[0]` é o maior comprimento.
+/// `ElementNameUnion`: for each letter position (up to 63), the letters that
+/// some name of the library has there; `mask[0]` is the longest length.
 #[derive(Debug, Clone)]
 struct NameUnion {
     mask: [u32; 64],
@@ -103,42 +103,42 @@ impl NameUnion {
     }
 }
 
-// -- Resumo de tipos (para o `getDisplayString()`) -----------------------------
+// -- Type summary (for `getDisplayString()`) ----------------------------------
 
-/// O que importa de um tipo escrito para saber onde fica o primeiro `(` do
-/// `getDisplayString()` do executável.
+/// What matters about a written type to know where the first `(` of the
+/// executable's `getDisplayString()` is.
 #[derive(Debug, Clone)]
 enum Summary {
-    /// `Name<args>` (o último segmento de `p.Name`).
+    /// `Name<args>` (the last segment of `p.Name`).
     Name { name: String, args: Vec<Summary> },
-    /// `R Function(…)`, com o retorno escrito.
+    /// `R Function(…)`, with the written return.
     Function(Option<Box<Summary>>),
     /// `(int, String)`.
     Registration,
     Void,
-    /// O parâmetro de tipo `i` do `typedef` que está sendo expandido.
+    /// Type parameter `i` of the `typedef` being expanded.
     Parameter(usize),
 }
 
-/// Um `typedef`: o tipo apelidado (os parâmetros de tipo viram
+/// A `typedef`: the aliased type (the type parameters become
 /// [`Summary::Parameter`]).
 #[derive(Debug, Clone)]
 struct Alias {
     target: Summary,
 }
 
-/// Onde o `(` aparece no texto exibido de um tipo.
+/// Where the `(` appears in the displayed text of a type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Paren {
     None,
     Contains,
-    /// O texto começa com `(` (um registro).
+    /// The text starts with `(` (a record).
     StartsWith,
 }
 
-/// Os tipos declarados numa biblioteca: `Some` num `typedef`, `None` numa
-/// classe, mixin, enum ou extension type (que esconde um `typedef` homônimo
-/// de outra biblioteca).
+/// The types declared in a library: `Some` for a `typedef`, `None` for a
+/// class, mixin, enum or extension type (which hides a homonymous `typedef`
+/// from another library).
 type LocalTypes = HashMap<String, Option<Alias>>;
 
 fn paren(r: &Summary, ctx: &[Paren], locals: &LocalTypes, global: &HashMap<String, Alias>, depth: u32) -> Paren {
@@ -146,7 +146,7 @@ fn paren(r: &Summary, ctx: &[Paren], locals: &LocalTypes, global: &HashMap<Strin
         Summary::Void => Paren::None,
         Summary::Registration => Paren::StartsWith,
         Summary::Parameter(i) => ctx.get(*i).copied().unwrap_or(Paren::None),
-        // `R Function(…)`: começa com `(` só quando o retorno começa.
+        // `R Function(…)`: starts with `(` only when the return does.
         Summary::Function(return_) => match return_ {
             Some(x) if paren(x, ctx, locals, global, depth) == Paren::StartsWith => Paren::StartsWith,
             _ => Paren::Contains,
@@ -158,8 +158,7 @@ fn paren(r: &Summary, ctx: &[Paren], locals: &LocalTypes, global: &HashMap<Strin
                     Some(local) => local.as_ref(),
                     None => global.get(name),
                 };
-                // O `getDisplayString()` sem `preferTypeAlias` mostra o tipo
-                // apelidado.
+                // `getDisplayString()` without `preferTypeAlias` shows the aliased type.
                 if let Some(a) = alias {
                     return paren(&a.target, &arguments, locals, global, depth + 1);
                 }
@@ -188,9 +187,9 @@ fn summarize(ast: &Ast, names: &Interner, t: ast::TypeId, parameters: &[String])
     }
 }
 
-// -- Declarações ----------------------------------------------------------------
+// -- Declarations ---------------------------------------------------------------
 
-/// `DeclarationKind` do analyzer (as usadas pelo `_getSearchElementKind`).
+/// The analyzer's `DeclarationKind` (those used by `_getSearchElementKind`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Kind {
     Class,
@@ -211,7 +210,7 @@ enum Kind {
 }
 
 impl Kind {
-    /// As preferências do `declarationKindToSymbolKind`.
+    /// The preferences of `declarationKindToSymbolKind`.
     fn preferences(self) -> &'static [u64] {
         match self {
             Kind::Class | Kind::ClassAlias | Kind::Extension | Kind::ExtensionType | Kind::Mixin | Kind::Typedef => &[5],
@@ -227,14 +226,14 @@ impl Kind {
     }
 }
 
-/// O que o `getDisplayString()` do elemento precisa para o sufixo.
+/// What the element's `getDisplayString()` needs for the suffix.
 #[derive(Debug, Clone)]
 enum Signature {
-    /// Não é executável.
+    /// Not an executable.
     None,
-    /// `A A.n(…)`: o primeiro `(` é o da lista.
+    /// `A A.n(…)`: the first `(` is the list's.
     List { empty: bool },
-    /// `R get x`: só o retorno pode ter `(`.
+    /// `R get x`: only the return can have a `(`.
     Getter { return_: Option<Summary>, augment: bool },
     /// `R name<T>(…)`.
     Executable { return_: Option<Summary>, empty: bool, augment: bool },
@@ -247,7 +246,7 @@ struct Declaration {
     /// `className ?? mixinName`.
     container: Option<String>,
     signature: Signature,
-    /// O code range em posições LSP do arquivo.
+    /// The code range in LSP positions of the file.
     start: (u32, u32),
     end: (u32, u32),
 }
@@ -265,8 +264,8 @@ struct Library {
     types: LocalTypes,
 }
 
-/// A impressão de um arquivo lido: o tamanho e a data no disco, ou o texto
-/// aberto (pelo tamanho e um resumo).
+/// The fingerprint of a read file: its size and date on disk, or the open
+/// text (by size and a digest).
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Fingerprint {
     Disk(Option<SystemTime>, u64),
@@ -275,29 +274,29 @@ enum Fingerprint {
 
 #[derive(Debug)]
 struct Entry {
-    /// O arquivo da biblioteca e as partes, com as impressões.
+    /// The library's file and its parts, with their fingerprints.
     files: Vec<(PathBuf, Fingerprint)>,
     library: Option<Arc<Library>>,
 }
 
-/// O índice: as bibliotecas já lidas, pelo caminho.
+/// The index: the libraries already read, by path.
 #[derive(Debug, Default)]
 pub(crate) struct Index {
     entries: HashMap<PathBuf, Entry>,
-    /// As bibliotecas do SDK na ordem do `libraries.dart`, pelo `lib/`.
+    /// The SDK libraries in `libraries.dart` order, by `lib/`.
     sdk: Option<(PathBuf, Vec<PathBuf>)>,
 }
 
-/// Lê um arquivo (aberto ou do disco) com a sua impressão.
+/// Reads a file (open or from disk) with its fingerprint.
 type Reader<'a> = dyn Fn(&Path) -> Option<(String, Fingerprint)> + 'a;
 
-/// A impressão de um arquivo no disco, sem lê-lo.
+/// The fingerprint of a file on disk, without reading it.
 fn disk_fingerprint(path: &Path) -> Option<Fingerprint> {
     let m = std::fs::metadata(path).ok()?;
     Some(Fingerprint::Disk(m.modified().ok(), m.len()))
 }
 
-/// A impressão de um texto aberto.
+/// The fingerprint of an open text.
 fn text_fingerprint(text: &str) -> Fingerprint {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -305,8 +304,7 @@ fn text_fingerprint(text: &str) -> Fingerprint {
     Fingerprint::Open(text.len(), h.finish())
 }
 
-/// A primeira posição de código a partir de `pos` (pula espaços e
-/// comentários).
+/// The first code position from `pos` (skips whitespace and comments).
 fn next_code(source: &str, mut pos: usize) -> usize {
     let b = source.as_bytes();
     loop {
@@ -341,7 +339,7 @@ fn next_code(source: &str, mut pos: usize) -> usize {
     }
 }
 
-/// O que lê uma unidade: o texto, as linhas e os comentários.
+/// What reads a unit: the text, the lines and the comments.
 struct Read<'a> {
     source: &'a str,
     ast: &'a Ast,
@@ -355,8 +353,8 @@ impl Read<'_> {
         self.names.resolve(n.sym).to_string()
     }
 
-    /// O `offset` de um `AnnotatedNode`: o comentário de documentação e as
-    /// anotações (`AnnotatedNodeImpl.beginToken`).
+    /// The `offset` of an `AnnotatedNode`: the documentation comment and the
+    /// annotations (`AnnotatedNodeImpl.beginToken`).
     fn annotated_start(&self, start_: usize, metadata: &[Annotation]) -> usize {
         let after = match metadata.last() {
             Some(m) => next_code(self.source, m.span.end),
@@ -389,13 +387,13 @@ impl Read<'_> {
         Declaration { name, kind, container, signature, start: self.position(start), end: self.position(end) }
     }
 
-    /// O fim de uma variável: o do inicializador, senão o do nome.
+    /// The end of a variable: that of the initializer, else that of the name.
     fn variable_end(&self, v: &ast::Variable) -> usize {
         v.initializer.map_or(v.name.span.end, |e| self.ast.expr(e).span.end)
     }
 }
 
-/// O conteúdo de uma unidade para a lista de declarações e a união.
+/// The content of a unit for the declaration list and the union.
 struct Collector<'a, 'b> {
     l: &'b Read<'a>,
     output: Vec<Declaration>,
@@ -404,7 +402,7 @@ struct Collector<'a, 'b> {
 }
 
 impl Collector<'_, '_> {
-    /// `_addDeclaration` sem o casamento (que é feito na consulta).
+    /// `_addDeclaration` without the matching (which is done at query time).
     fn push(&mut self, d: Declaration) {
         self.output.push(d);
     }
@@ -420,9 +418,9 @@ impl Collector<'_, '_> {
         }
     }
 
-    /// Os membros de uma classe, mixin, enum, extensão ou extension type, na
-    /// ordem do `_addClasses`/`_addExtensions`: acessores, construtores,
-    /// campos (`primeiros` antes dos declarados) e métodos.
+    /// The members of a class, mixin, enum, extension or extension type, in the
+    /// order of `_addClasses`/`_addExtensions`: accessors, constructors, fields
+    /// (`first_fields` before the declared ones) and methods.
     fn members(&mut self, members: &[ast::MemberId], container: Option<&str>, constructors: bool, first_fields: Vec<Declaration>, first_constructors: Vec<Declaration>) {
         let l = self.l;
         let ast = l.ast;
@@ -527,8 +525,7 @@ impl Collector<'_, '_> {
                     self.union.add(&name);
                     self.types.insert(name.clone(), None);
                     self.push(l.declaration(name, Kind::Enum, None, Signature::None, start, d.span.end));
-                    // As constantes são campos; o `values` sintético só
-                    // entra na união.
+                    // The constants are fields; the synthetic `values` only goes into the union.
                     let mut constants = Vec::new();
                     for k in &e.constants {
                         let n = l.name(k.name);
@@ -568,8 +565,8 @@ impl Collector<'_, '_> {
             self.types.insert(name.clone(), None);
             let start = l.annotated_start(d.span.start, &d.metadata);
             self.push(l.declaration(name.clone(), Kind::ExtensionType, None, Signature::None, start, d.span.end));
-            // O campo de representação e o construtor primário
-            // (`_builtRepresentationDeclaration`) vêm antes dos declarados.
+            // The representation field and the primary constructor
+            // (`_builtRepresentationDeclaration`) come before the declared ones.
             let field_name_ = Some(l.name(x.representation_name)).filter(|n| !n.is_empty()).unwrap_or_else(|| "<empty>".to_string());
             self.union.add(&field_name_);
             let field_start = x.representation_metadata.first().map_or(l.ast.ty(x.representation_type).span.start, |m| m.span.start);
@@ -577,7 +574,7 @@ impl Collector<'_, '_> {
             let (ctor_name, ctor_start) = match x.constructor {
                 Some(n) => {
                     let text = l.name(n);
-                    // O nó começa no `.` do nome.
+                    // The node starts at the `.` of the name.
                     let before = l.source[..n.span.start].trim_end();
                     let dot = if before.ends_with('.') { before.len() - 1 } else { n.span.start };
                     (if text == "new" { String::new() } else { text }, dot)
@@ -627,7 +624,7 @@ impl Collector<'_, '_> {
     }
 }
 
-/// As partes declaradas por uma unidade, resolvidas a partir do arquivo.
+/// The parts declared by a unit, resolved from the file.
 fn parts(unit: &ast::CompilationUnit, path: &Path) -> Vec<PathBuf> {
     let mut output = Vec::new();
     for d in &unit.directives {
@@ -646,13 +643,13 @@ fn is_part(unit: &ast::CompilationUnit) -> bool {
     unit.directives.iter().any(|d| matches!(d.kind, DirectiveKind::PartOf { .. }))
 }
 
-/// Indexa a biblioteca de `path`: `None` quando é parte ou não se lê.
+/// Indexes the library at `path`: `None` when it is a part or cannot be read.
 fn index(path: &Path, read_: &Reader<'_>, uri_of: &dyn Fn(&Path) -> String) -> (Vec<(PathBuf, Fingerprint)>, Option<Library>) {
     let mut files = Vec::new();
     let mut union = NameUnion::empty();
     let mut types = LocalTypes::new();
     let mut units = Vec::new();
-    // As unidades em pré-ordem: a que define, cada parte e as partes dela.
+    // The units in pre-order: the defining one, each part and its parts.
     let mut pending = vec![path.to_path_buf()];
     let mut seen: HashSet<PathBuf> = HashSet::new();
     let mut first = true;
@@ -693,7 +690,7 @@ fn index(path: &Path, read_: &Reader<'_>, uri_of: &dyn Fn(&Path) -> String) -> (
 }
 
 impl Index {
-    /// A biblioteca de `path`, do cache quando nenhum dos arquivos mudou.
+    /// The library at `path`, from the cache when none of its files changed.
     fn library(&mut self, path: &Path, read: &Reader<'_>, open: &HashMap<PathBuf, Fingerprint>, uri_of: &dyn Fn(&Path) -> String) -> Option<Arc<Library>> {
         let current = |p: &Path| open.get(&dartforge_elements::gerado::chave(p)).cloned().or_else(|| disk_fingerprint(p));
         if let Some(e) = self.entries.get(path)
@@ -707,9 +704,9 @@ impl Index {
         library
     }
 
-    /// As bibliotecas do SDK (`dartSdk.sdkLibraries`): as entradas do mapa
-    /// `libraries` de `_internal/sdk_library_metadata/lib/libraries.dart`,
-    /// na ordem escrita, com o caminho relativo a `lib/`.
+    /// The SDK libraries (`dartSdk.sdkLibraries`): the entries of the
+    /// `libraries` map in `_internal/sdk_library_metadata/lib/libraries.dart`,
+    /// in written order, with the path relative to `lib/`.
     fn sdk_libraries(&mut self, lib: &Path) -> Vec<PathBuf> {
         if let Some((root, list)) = &self.sdk
             && root == lib
@@ -721,12 +718,11 @@ impl Index {
         list
     }
 
-    /// `FindDeclarations.compute` + o `_asSymbolInformation` do handler.
-    /// `added` são os arquivos do projeto; `packages`, os `lib/` dos
-    /// pacotes (na ordem do `package_config.json`); `open_texts`, a URI
-    /// e o texto dos documentos abertos pelo caminho normalizado
-    /// (`generated::key`);
-    /// `kinds` os `SymbolKind` aceitos pelo cliente.
+    /// `FindDeclarations.compute` + the handler's `_asSymbolInformation`.
+    /// `added` are the project files; `packages`, the packages' `lib/`s (in
+    /// `package_config.json` order); `open_texts`, the URI and text of the open
+    /// documents by normalized path (`gerado::chave`); `kinds`, the
+    /// `SymbolKind`s the client accepts.
     pub(crate) fn search(
         &mut self,
         query: &str,
@@ -736,8 +732,8 @@ impl Index {
         open_texts: &HashMap<PathBuf, (String, String)>,
         kinds: Option<&[u64]>,
     ) -> Vec<Value> {
-        // Os documentos abertos valem pelo texto do editor (o overlay), com
-        // a URI do cliente.
+        // Open documents count through the editor's text (the overlay), with the
+        // client's URI.
         let open: HashMap<PathBuf, Fingerprint> = open_texts.iter().map(|(k, (_, t))| (k.clone(), text_fingerprint(t))).collect();
         let read = |p: &Path| -> Option<(String, Fingerprint)> {
             let k = dartforge_elements::gerado::chave(p);
@@ -756,8 +752,8 @@ impl Index {
                 None => url::Url::from_file_path(p).map(|u| u.to_string()).unwrap_or_default(),
             }
         };
-        // Os arquivos na ordem do `OwnedFiles` (adicionados, depois os
-        // conhecidos que não foram adicionados).
+        // The files in `OwnedFiles` order (added ones, then the known ones that
+        // were not added).
         let mut paths: Vec<PathBuf> = Vec::new();
         let mut seen: HashSet<PathBuf> = HashSet::new();
         let mut include = |p: PathBuf, paths: &mut Vec<PathBuf>| {
@@ -781,8 +777,8 @@ impl Index {
             }
         }
         let libraries: Vec<Arc<Library>> = paths.iter().filter_map(|c| self.library(c, read, open, &uri_of)).collect();
-        // Os `typedef` de todas as bibliotecas, para expandir os apelidos de
-        // outra biblioteca (o primeiro de cada nome).
+        // The `typedef`s of every library, to expand aliases from another library
+        // (the first one of each name).
         let mut global: HashMap<String, Alias> = HashMap::new();
         for b in &libraries {
             for (name, a) in &b.types {
@@ -813,15 +809,15 @@ impl Index {
     }
 }
 
-/// O `SymbolInformation` de uma declaração.
+/// The `SymbolInformation` of a declaration.
 fn symbol(d: &Declaration, uri: &str, locals: &LocalTypes, global: &HashMap<String, Alias>, kinds: Option<&[u64]>) -> Value {
     let by_return = |return_: &Option<Summary>, augment: bool| {
         let p = return_.as_ref().map_or(Paren::None, |r| paren(r, &[], locals, global, 0));
-        // `augment ` antes do retorno: o `(` nunca fica no começo.
+        // `augment ` before the return: the `(` is never at the start.
         if augment && p == Paren::StartsWith { Paren::Contains } else { p }
     };
-    // `parameters`: o texto exibido a partir do primeiro `(` (que não pode
-    // ser o primeiro caractere); `()` quando é só a lista vazia.
+    // `parameters`: the displayed text from the first `(` (which cannot be the
+    // first character); `()` when it is only the empty list.
     let suffix = match &d.signature {
         Signature::None => "",
         Signature::List { empty } => {
@@ -861,8 +857,8 @@ fn symbol(d: &Declaration, uri: &str, locals: &LocalTypes, global: &HashMap<Stri
     v
 }
 
-/// `discoverRecursively`: os `.dart` da pasta e das subpastas, na ordem do
-/// sistema de arquivos (a mesma do `Directory.listSync` do Dart).
+/// `discoverRecursively`: the `.dart` files of the folder and its subfolders,
+/// in file system order (the same as Dart's `Directory.listSync`).
 fn discover(folder: &Path, output: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(folder) else { return };
     for e in entries.flatten() {
@@ -878,8 +874,8 @@ fn discover(folder: &Path, output: &mut Vec<PathBuf>) {
     }
 }
 
-/// As entradas do mapa `libraries` do `libraries.dart` do SDK, na ordem
-/// escrita: `'name': const LibraryInfo('path', …)`.
+/// The entries of the `libraries` map of the SDK's `libraries.dart`, in
+/// written order: `'name': const LibraryInfo('path', …)`.
 fn read_libraries_dart(lib: &Path) -> Vec<PathBuf> {
     let file = lib.join("_internal").join("sdk_library_metadata").join("lib").join("libraries.dart");
     let Ok(text) = std::fs::read_to_string(&file) else { return Vec::new() };
@@ -901,8 +897,8 @@ fn read_libraries_dart(lib: &Path) -> Vec<PathBuf> {
     output
 }
 
-/// Os diretórios `lib/` (o `packageUri`) dos pacotes do
-/// `.dart_tool/package_config.json` de `root`, na ordem do arquivo.
+/// The `lib/` directories (the `packageUri`) of the packages of `root`'s
+/// `.dart_tool/package_config.json`, in file order.
 pub(crate) fn package_folders(root: &Path) -> Vec<PathBuf> {
     let file = root.join(".dart_tool").join("package_config.json");
     let Ok(text) = std::fs::read_to_string(&file) else { return Vec::new() };

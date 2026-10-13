@@ -1,35 +1,36 @@
-//! Destaques no documento, implementações, definição do tipo e hierarquia
-//! de tipos, sobre o mesmo modelo de identidade de `crate::project` (o que
-//! a posição denota vem de [`Project::identify`]).
+//! Document highlights, implementations, type definition and type
+//! hierarchy, over the same identity model as `crate::project` (what the
+//! position denotes comes from [`Project::identify`]).
 //!
-//! Regras do servidor do Dart (ver `docs/LSP.md`, "Paridade com o servidor
-//! do Dart"):
+//! Rules of the Dart server (see `docs/LSP.md`, "Paridade com o servidor do
+//! Dart"):
 //!
-//! * `documentHighlight` — as ocorrências do elemento sob o cursor no
-//!   próprio arquivo, declaração incluída (`DartUnitOccurrencesComputer`);
-//! * `implementation` — numa classe (ou num construtor dela), os subtipos
-//!   transitivos; num membro de instância, a declaração do membro em cada
-//!   subtipo que o declara (ou o recebe de um mixin); nada para locais,
-//!   topo que não é classe e membros de extension type
-//!   (`ImplementationHandler` + `TypeHierarchyComputerHelper`);
-//! * `typeDefinition` — o tipo estático do que está sob o cursor (a classe
-//!   num nome de tipo, o tipo declarado numa declaração de variável ou
-//!   parâmetro, o tipo estático numa expressão), só quando é tipo de
-//!   interface (`TypeDefinitionHandler`);
-//! * hierarquia de tipos (`DartLazyTypeHierarchyComputer`) — o alvo é o
-//!   tipo escrito do `NamedType` sob o cursor (`List<String>`, `String?`) ou
-//!   o `thisType` da classe que o contém; supertipos diretos (superclasse,
-//!   `on`, interfaces, mixins) com os argumentos levados pela âncora; subtipos
-//!   diretos pelas relações do índice; o item leva o `ElementLocation` da
-//!   classe em `data.ref`.
+//! * `documentHighlight` — the occurrences of the element under the cursor
+//!   in the file itself, declaration included
+//!   (`DartUnitOccurrencesComputer`);
+//! * `implementation` — on a class (or one of its constructors), the
+//!   transitive subtypes; on an instance member, the member's declaration in
+//!   each subtype that declares it (or gets it from a mixin); nothing for
+//!   locals, top-level declarations that are not classes and extension type
+//!   members (`ImplementationHandler` + `TypeHierarchyComputerHelper`);
+//! * `typeDefinition` — the static type of what is under the cursor (the
+//!   class on a type name, the declared type on a variable or parameter
+//!   declaration, the static type on an expression), only when it is an
+//!   interface type (`TypeDefinitionHandler`);
+//! * type hierarchy (`DartLazyTypeHierarchyComputer`) — the target is the
+//!   written type of the `NamedType` under the cursor (`List<String>`,
+//!   `String?`) or the `thisType` of the containing class; direct
+//!   supertypes (superclass, `on`, interfaces, mixins) with the arguments
+//!   carried by the anchor; direct subtypes through the index relations;
+//!   the item carries the class's `ElementLocation` in `data.ref`.
 
 use crate::arvore_analyzer::Marca;
 
-/// O elemento de que o `dart/textDocument/super` procura o "super".
+/// The element whose "super" `dart/textDocument/super` looks for.
 enum SuperElement {
     Constructor(dartforge_elements::model::FunctionElementId),
     Class(ClassId),
-    /// O membro herdado de nome `name` (o de setter com `=`) na `class`.
+    /// The inherited member named `name` (a setter's with `=`) in `class`.
     Other { name: String, setter: bool, class: ClassId },
 }
 use crate::project::{Target, Concrete, Owner, Project};
@@ -43,13 +44,13 @@ use dartforge_types::{Type, TypeId, TypeParamId};
 use std::collections::{BTreeSet, HashMap};
 
 impl Project {
-    /// Os destaques de `offset` em `unit` (`DartUnitOccurrencesComputer`,
-    /// `document_highlight.rs`): lista vazia quando nada cobre o cursor.
+    /// The highlights of `offset` in `unit` (`DartUnitOccurrencesComputer`,
+    /// `document_highlight.rs`): an empty list when nothing covers the cursor.
     pub(crate) fn document_highlights(&self, unit: UnitId, offset: usize) -> Option<Vec<Span>> {
         Some(self.dart_highlights(unit, offset))
     }
 
-    /// As classes que têm `c` como supertipo (transitivo), com declaração.
+    /// The classes that have `c` as a (transitive) supertype, with a declaration.
     pub(crate) fn subtypes(&self, c: ClassId, direct: bool) -> Vec<ClassId> {
         let p = self.program();
         (0..p.classes.len())
@@ -68,13 +69,14 @@ impl Project {
             .collect()
     }
 
-    /// `dart/textDocument/super` (docs/LSP-ESPECIFICACAO.md §8.6; o
-    /// `_SuperComputer` de `handler_super.dart`): o "super" do elemento sob
-    /// o cursor — ou, sem elemento ali, o da declaração que o envolve —: o
-    /// construtor da superclasse que um construtor chama, a superclasse de
-    /// uma classe, ou o membro herdado do mesmo nome (`getInherited2`) na
-    /// classe que envolve o elemento. A posição é a do nome do elemento não
-    /// sintético (a classe, no construtor implícito; o campo, no acessor).
+    /// `dart/textDocument/super` (docs/LSP-ESPECIFICACAO.md §8.6; the
+    /// `_SuperComputer` of `handler_super.dart`): the "super" of the element
+    /// under the cursor — or, without an element there, that of the enclosing
+    /// declaration —: the superclass constructor that a constructor calls, the
+    /// superclass of a class, or the inherited member with the same name
+    /// (`getInherited2`) in the class enclosing the element. The position is
+    /// that of the name of the non-synthetic element (the class, for an
+    /// implicit constructor; the field, for an accessor).
     pub(crate) fn upper(&mut self, unit: UnitId, offset: usize) -> Option<(UnitId, Span)> {
         match self.super_element(unit, offset)? {
             SuperElement::Constructor(f) => {
@@ -92,8 +94,8 @@ impl Project {
         }
     }
 
-    /// O elemento de `offset` para o `super`: o que o nome ali denota, ou o
-    /// da declaração que o envolve (o `getElementOfNode` subindo pelos nós).
+    /// The element at `offset` for `super`: what the name there denotes, or that
+    /// of the enclosing declaration (`getElementOfNode` walking up the nodes).
     fn super_element(&self, unit: UnitId, offset: usize) -> Option<SuperElement> {
         let p = self.program();
         let is_constructor = |f: dartforge_elements::model::FunctionElementId| matches!(p.function(f).kind, FunctionKind::Constructor | FunctionKind::SyntheticConstructor);
@@ -102,15 +104,15 @@ impl Project {
                 (_, Some(Concrete::Function(f))) if is_constructor(f) => Some(SuperElement::Constructor(f)),
                 (Target::Constructor(f), _) => Some(SuperElement::Constructor(*f)),
                 (Target::Top(Element::Class(c)), _) => {
-                    // A mixin não tem `supertype` (só as restrições `on`).
+                    // A mixin has no `supertype` (only the `on` constraints).
                     (p.class(*c).kind != ClassKind::Mixin).then_some(SuperElement::Class(*c))
                 }
                 (Target::Member { owner: Owner::Class(c), name, .. }, concrete) => {
                     let setter = matches!(concrete, Some(Concrete::Function(f)) if self.is_setter(f));
                     Some(SuperElement::Other { name: name.clone(), setter, class: *c })
                 }
-                // Um local ou um parâmetro de tipo: o nome dele na classe que
-                // o envolve (`thisOrAncestorOfType<InterfaceElement>`).
+                // A local or a type parameter: its name in the enclosing class
+                // (`thisOrAncestorOfType<InterfaceElement>`).
                 (Target::Local { .. } | Target::TypeParameter { .. }, _) => {
                     let class = self.enclosing_class(unit, offset)?;
                     let source = &p.unit(unit).source;
@@ -132,8 +134,8 @@ impl Project {
         }
     }
 
-    /// A classe (de interface: classe, mixin, enum, extension type) cuja
-    /// declaração contém `offset`.
+    /// The (interface) class — class, mixin, enum, extension type — whose
+    /// declaration contains `offset`.
     fn enclosing_class(&self, unit: UnitId, offset: usize) -> Option<ClassId> {
         let p = self.program();
         let ast = &p.unit(unit).ast;
@@ -153,17 +155,18 @@ impl Project {
             .find(|c| p.class(*c).decl.is_some_and(|d| d.unit == unit && d.decl.0 as usize == decl))
     }
 
-    /// Sem nome sob o cursor: a função (local, ou de expressão, que não tem
-    /// nome) mais interna que contém `offset`, o membro, ou a classe.
+    /// Without a name under the cursor: the innermost function (local, or a
+    /// function expression, which has no name) containing `offset`, the member,
+    /// or the class.
     fn enclosing_declaration(&self, unit_: UnitId, offset: usize) -> Option<SuperElement> {
         use dartforge_elements::model::FunctionRef;
         use dartforge_frontend::ast::MemberKind;
         let p = self.program();
         let ast = &p.unit(unit_).ast;
         let contains = |s: Span| s.start <= offset && offset <= s.end;
-        // O membro que contém o offset.
+        // The member that contains the offset.
         let member_ = ast.members.iter().enumerate().filter(|(_, m)| contains(m.span)).min_by_key(|(_, m)| m.span.end - m.span.start);
-        // A função mais interna (local ou de expressão) dentro do membro.
+        // The innermost function (local or expression) inside the member.
         let member_function = member_.and_then(|(_, m)| match m.kind {
             MemberKind::Method(f) => Some(f),
             _ => None,
@@ -176,7 +179,7 @@ impl Project {
             .filter(|(i, _)| !ast.decls.iter().any(|d| matches!(d.kind, dartforge_frontend::ast::DeclKind::Function(x) if x.0 as usize == *i)))
             .min_by_key(|(_, f)| f.span.end - f.span.start);
         if let Some((_, f)) = internal {
-            // A função de expressão tem nome vazio: nenhum membro herdado.
+            // A function expression has an empty name: no inherited member.
             let name = f.name?;
             let class = self.enclosing_class(unit_, offset)?;
             return Some(SuperElement::Other { name: self.name(name.sym).to_string(), setter: false, class });
@@ -205,8 +208,9 @@ impl Project {
         (p.class(class).kind != ClassKind::Mixin).then_some(SuperElement::Class(class))
     }
 
-    /// A superclasse de `c`, passando pelas aplicações de mixin sintéticas
-    /// (o analyzer não as tem: `supertype` de `C extends S with M` é `S`).
+    /// The superclass of `c`, going through the synthetic mixin applications
+    /// (the analyzer does not have them: the `supertype` of `C extends S with M`
+    /// is `S`).
     pub(crate) fn non_synthetic_superclass(&self, c: ClassId) -> Option<ClassId> {
         let p = self.program();
         let mut s = p.class(c).supertype_class?;
@@ -218,9 +222,10 @@ impl Project {
         Some(s)
     }
 
-    /// `ConstructorElement.superConstructor`: o construtor da superclasse
-    /// que o construtor generativo `f` chama (o do `super(…)`/`super.name(…)`
-    /// escrito, ou o sem nome); nenhum numa fábrica ou num redirecionador.
+    /// `ConstructorElement.superConstructor`: the superclass constructor that
+    /// the generative constructor `f` calls (that of the written
+    /// `super(…)`/`super.name(…)`, or the unnamed one); none for a factory or a
+    /// redirecting constructor.
     pub(crate) fn super_constructor(&self, f: dartforge_elements::model::FunctionElementId) -> Option<dartforge_elements::model::FunctionElementId> {
         use dartforge_elements::model::FunctionRef;
         use dartforge_frontend::ast::{Initializer, MemberKind};
@@ -254,8 +259,8 @@ impl Project {
         p.class(s).constructors.get(&key).copied()
     }
 
-    /// `InheritanceManager3.getInherited2(classe, Name(biblioteca da classe,
-    /// nome))`.
+    /// `InheritanceManager3.getInherited2(class, Name(the class's library,
+    /// name))`.
     fn inherited_member(&mut self, class: ClassId, name: &str, setter: bool) -> Option<dartforge_elements::model::FunctionElementId> {
         let crate::query::Query { program, names, core, outline, table, .. } = &mut self.query;
         let symbol = names.lookup(name)?;
@@ -268,8 +273,8 @@ impl Project {
         inheritance.herdado(&mut provider, class, n).map(|m| m.funcao)
     }
 
-    /// As implementações do que `offset` denota: subtipos de uma classe, ou
-    /// o membro declarado em cada subtipo.
+    /// The implementations of what `offset` denotes: subtypes of a class, or the
+    /// member declared in each subtype.
     pub(crate) fn implementations(&self, unit: UnitId, offset: usize) -> Vec<(UnitId, Span)> {
         let Ok(Some(d)) = self.identify(unit, offset) else { return Vec::new() };
         let p = self.program();
@@ -280,7 +285,7 @@ impl Project {
                 None => return Vec::new(),
             },
             (Target::Member { owner: Owner::Class(c), name, is_static }, concrete) => {
-                // Construtor chamado por `A.name()` resolve para a classe.
+                // A constructor called through `A.name()` resolves to the class.
                 if let Some(Concrete::Function(f)) = concrete
                     && matches!(p.function(f).kind, FunctionKind::Constructor | FunctionKind::SyntheticConstructor)
                 {
@@ -291,13 +296,13 @@ impl Project {
             }
             _ => return Vec::new(),
         };
-        // Membros de extension type não sobrescrevem: só redeclaram.
+        // Extension type members do not override: they only redeclare.
         let is_extension_type = |c: ClassId| {
             p.class(c).decl.is_some_and(|dr| matches!(p.unit(dr.unit).ast.decl(dr.decl).kind, dartforge_frontend::ast::DeclKind::ExtensionType(_)))
         };
-        // `TypeHierarchyComputerHelper`: a espécie do pivô (o elemento do
-        // nó: o getter de uma leitura, o setter de uma escrita, o campo na
-        // declaração) e a biblioteca dele.
+        // `TypeHierarchyComputerHelper`: the pivot's kind (the node's element: the
+        // getter of a read, the setter of a write, the field at the declaration)
+        // and its library.
         let kind = match d.concrete {
             Some(Concrete::Function(f)) => {
                 let fe = p.function(f);
@@ -325,10 +330,10 @@ impl Project {
             Some(Concrete::Variable(v)) => p.variable(v).library,
             None => p.class(class).library,
         };
-        // `needsMember`: o pivô tem o membro na própria classe.
+        // `needsMember`: the pivot has the member in its own class.
         let needs_member = match &member {
             Some((name, _)) => self.implementation_member(class, name, kind, pivot_library, pivot).is_some() || {
-                // O próprio pivô (o lookup acha ele mesmo, sem mixin).
+                // The pivot itself (the lookup finds itself, without a mixin).
                 pivot.is_some_and(|f| p.function(f).class == Some(class))
                     || matches!(d.concrete, Some(Concrete::Variable(v)) if p.variable(v).class == Some(class))
             },
@@ -351,10 +356,10 @@ impl Project {
         output
     }
 
-    /// `findMemberElement`: o membro da espécie do pivô declarado em `c`
-    /// (acessível na biblioteca do pivô), senão no último mixin que o
-    /// declara; a localização do não sintético (o campo de um acessor
-    /// implícito).
+    /// `findMemberElement`: the member of the pivot's kind declared in `c`
+    /// (accessible in the pivot's library), else in the last mixin that
+    /// declares it; the location of the non-synthetic one (the field of an
+    /// implicit accessor).
     fn implementation_member(&self, c: ClassId, name: &str, kind: PivotKind, library: LibraryId, pivot: Option<dartforge_elements::model::FunctionElementId>) -> Option<(UnitId, Span)> {
         let p = self.program();
         let find = |x: ClassId| -> Option<dartforge_elements::model::FunctionElementId> {
@@ -394,14 +399,14 @@ impl Project {
         None
     }
 
-    /// A declaração do tipo estático do que `offset` denota.
+    /// The declaration of the static type of what `offset` denotes.
     pub(crate) fn type_definition(&self, unit: UnitId, offset: usize) -> Option<(UnitId, Span)> {
         let p = self.program();
         let ast = &p.unit(unit).ast;
         let inside = |s: Span| s.start <= offset && offset <= s.end;
-        // O nome de uma anotação: o `SimpleIdentifier` da classe dá o
-        // `thisType`; o de uma variável constante (`@override`), o prefixo e
-        // o nome do construtor não têm tipo estático.
+        // The name of an annotation: the class's `SimpleIdentifier` gives the
+        // `thisType`; that of a constant variable (`@override`), the prefix and the
+        // constructor name have no static type.
         for a in crate::project::metadata(ast, &p.unit(unit).unit) {
             let Some(i) = a.name.iter().position(|n| inside(n.span)) else { continue };
             let lib = p.unit(unit).library;
@@ -416,9 +421,9 @@ impl Project {
                 _ => None,
             };
         }
-        // O `returnType` da declaração de construtor (`A(…)`, o `A` de
-        // `A.n(…)`) é a classe; o nome do construtor (`n`) não é nó com tipo;
-        // o campo de um inicializador (`x = …`) também não.
+        // The `returnType` of a constructor declaration (`A(…)`, the `A` of
+        // `A.n(…)`) is the class; the constructor name (`n`) is not a node with a
+        // type; neither is the field of an initializer (`x = …`).
         for (i, m) in ast.members.iter().enumerate() {
             let ast::MemberKind::Constructor(k) = &m.kind else { continue };
             if inside(k.class_name.span) {
@@ -430,8 +435,8 @@ impl Project {
             }
         }
         let d = self.identify(unit, offset).ok()??;
-        // O nome de uma declaração de classe, função, método ou constante
-        // de enum não é um nó com tipo para o analyzer.
+        // The name of a class, function, method or enum constant declaration is not
+        // a node with a type for the analyzer.
         let declared = match (&d.target, d.concrete) {
             (Target::Top(Element::Class(c)), None) => self.top_element_name(Element::Class(*c)),
             (_, Some(Concrete::Function(f))) => self.function_name(f),
@@ -447,19 +452,19 @@ impl Project {
         }
         let bodies = &self.query.bodies.units[unit.0 as usize];
         let ty = match (&d.target, d.concrete) {
-            // Nome de classe (tipo, referência, construtor sem nome).
+            // Class name (type, reference, unnamed constructor).
             (Target::Top(Element::Class(c)), _) => return self.top_element_name(Element::Class(*c)),
-            // Construtor nomeado: o analyzer olha o nome (expressão sem tipo
-            // de interface).
+            // Named constructor: the analyzer looks at the name (an expression without
+            // an interface type).
             (Target::Constructor(_), _) => return None,
             (_, Some(Concrete::Function(f)))
                 if !matches!(self.program().function(f).kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor) =>
             {
-                // Método ou função: o tipo é uma função.
+                // Method or function: the type is a function.
                 return None;
             }
             _ => match d.expr {
-                // `inSetterContext`: o tipo da variável do `writeElement`.
+                // `inSetterContext`: the type of the `writeElement`'s variable.
                 Some(e) if self.write_target(unit, e) && !matches!(d.target, Target::Local { .. }) => match d.concrete {
                     Some(Concrete::Variable(v)) => self.query.variable_type(v)?,
                     Some(Concrete::Function(f)) => match (self.program().function(f).kind, self.program().function(f).variable) {
@@ -486,7 +491,7 @@ impl Project {
         self.top_element_name(Element::Class(class_))
     }
 
-    /// `e` é escrito: o alvo de uma atribuição ou de `++`/`--`.
+    /// `e` is written: the target of an assignment or of `++`/`--`.
     fn write_target(&self, unit: UnitId, e: dartforge_frontend::ast::ExprId) -> bool {
         use dartforge_frontend::ast::{ExprKind, UnaryOp};
         self.program().unit(unit).ast.exprs.iter().any(|x| match &x.kind {
@@ -496,11 +501,11 @@ impl Project {
         })
     }
 
-    // -- Hierarquia de tipos (`DartLazyTypeHierarchyComputer`) ---------------
+    // -- Type hierarchy (`DartLazyTypeHierarchyComputer`) ---------------------
 
-    /// A classe e os argumentos de um tipo que o analyzer tem como
-    /// `InterfaceType`: classe, mixin, enum, extension type, `FutureOr` e
-    /// `Null`; nada no `InvalidType`, no `Never?` e nos outros tipos.
+    /// The class and the arguments of a type the analyzer has as an
+    /// `InterfaceType`: class, mixin, enum, extension type, `FutureOr` and
+    /// `Null`; nothing for `InvalidType`, `Never?` and the other types.
     pub(crate) fn interface_class(&self, t: TypeId) -> Option<(ClassId, Vec<TypeId>)> {
         let table = &self.query.table;
         if matches!(table.exibicao(t), Some(Exibicao::Invalido | Exibicao::NeverAnulavel)) {
@@ -515,7 +520,7 @@ impl Project {
         }
     }
 
-    /// A classe `name` declarada na biblioteca `lib`.
+    /// The class `name` declared in library `lib`.
     fn sdk_class(&self, lib: LibraryId, name: &str) -> Option<ClassId> {
         let symbol = self.query.names.lookup(name)?;
         match self.program().library(lib).declared.get(&symbol)?.getter {
@@ -524,7 +529,7 @@ impl Project {
         }
     }
 
-    /// O `thisType` de `c`: os argumentos são os próprios parâmetros de tipo.
+    /// The `thisType` of `c`: the arguments are its own type parameters.
     fn type_this(&mut self, c: ClassId) -> (TypeId, Vec<TypeId>) {
         let parameters: Vec<TypeParamId> = self.query.outline.classes.get(c.0 as usize).map(|d| d.type_params.to_vec()).unwrap_or_default();
         let extension = self.program().class(c).kind == ClassKind::ExtensionType;
@@ -538,8 +543,8 @@ impl Project {
         (ty, args)
     }
 
-    /// `_isInterfaceTypeInterface`: um tipo de interface não anulável que não
-    /// é enum, extension type, `Function` nem `Null`.
+    /// `_isInterfaceTypeInterface`: a non-nullable interface type that is not an
+    /// enum, extension type, `Function` nor `Null`.
     fn valid_interface(&self, t: TypeId) -> bool {
         let Some((c, _)) = self.interface_class(t) else { return false };
         let core = &self.query.core;
@@ -549,7 +554,7 @@ impl Project {
             && !self.query.table.get(t).is_declared_nullable()
     }
 
-    /// `_isInterfaceTypeClass`: a interface válida cujo elemento é classe.
+    /// `_isInterfaceTypeClass`: a valid interface whose element is a class.
     fn valid_class(&self, t: TypeId) -> bool {
         self.valid_interface(t)
             && self.interface_class(t).is_some_and(|(c, _)| matches!(self.program().class(c).kind, ClassKind::Class | ClassKind::MixinApplication))
@@ -567,10 +572,11 @@ impl Project {
             && Some(c) != core.record_class
     }
 
-    /// `_getSupertypes` de `c<args>`: a superclasse (`Object` sem `extends`
-    /// válido; `Enum` num enum; nenhuma em `Object`, mixin e extension type),
-    /// as restrições `on` (`[Object]` num mixin sem elas), as interfaces e os
-    /// mixins, com os parâmetros de `c` substituídos por `args`.
+    /// `_getSupertypes` of `c<args>`: the superclass (`Object` without a valid
+    /// `extends`; `Enum` for an enum; none for `Object`, a mixin and an
+    /// extension type), the `on` constraints (`[Object]` for a mixin without
+    /// them), the interfaces and the mixins, with the parameters of `c`
+    /// substituted by `args`.
     fn type_supertypes(&mut self, c: ClassId, args: &[TypeId]) -> Vec<TypeId> {
         let Some(data) = self.query.outline.classes.get(c.0 as usize).cloned() else { return Vec::new() };
         let kind = self.program().class(c).kind;
@@ -612,9 +618,9 @@ impl Project {
         list.into_iter().map(|t| dartforge_types::substitute(t, &map, &mut self.query.table)).collect()
     }
 
-    /// A URI do `Source` de uma unidade: a da biblioteca na unidade que a
-    /// define; numa parte de biblioteca `dart:`, `dart:core/list.dart`; senão
-    /// a URI canônica da unidade.
+    /// The URI of a unit's `Source`: the library's for the unit that defines
+    /// it; for a part of a `dart:` library, `dart:core/list.dart`; otherwise the
+    /// unit's canonical URI.
     fn origin_uri(&self, u: UnitId) -> String {
         let p = self.program();
         let unit = p.unit(u);
@@ -631,8 +637,8 @@ impl Project {
         unit.uri.clone()
     }
 
-    /// O `ElementLocation.encoding` de uma classe: a URI da biblioteca, a da
-    /// unidade e o nome, separados por `;` (o `;` de um componente dobrado).
+    /// The `ElementLocation.encoding` of a class: the library URI, the unit URI
+    /// and the name, separated by `;` (a component's `;` doubled).
     pub(crate) fn class_reference(&self, c: ClassId) -> Option<String> {
         let p = self.program();
         let class = p.class(c);
@@ -641,9 +647,9 @@ impl Project {
         Some(components.iter().map(|s| s.replace(';', ";;")).collect::<Vec<_>>().join(";"))
     }
 
-    /// `session.locateElement(ElementLocationImpl.con2(reference))` restrito
-    /// a classes: a biblioteca, a unidade e o nome; a declaração `augment`
-    /// não é o elemento.
+    /// `session.locateElement(ElementLocationImpl.con2(reference))` restricted
+    /// to classes: the library, the unit and the name; an `augment` declaration
+    /// is not the element.
     pub(crate) fn reference_class(&self, reference: &str) -> Option<ClassId> {
         let components = decode_reference(reference);
         let [lib, unit, name] = components.as_slice() else { return None };
@@ -659,14 +665,14 @@ impl Project {
         })
     }
 
-    /// A classe declarada por `did` em `u`.
+    /// The class declared by `did` in `u`.
     fn declaration_class(&self, u: UnitId, did: ast::DeclId) -> Option<ClassId> {
         let p = self.program();
         (0..p.classes.len()).map(|i| ClassId(i as u32)).find(|&c| p.class(c).decl.is_some_and(|d| d.unit == u && d.decl == did))
     }
 
-    /// O `NamedType.type` do nó `k`: o tipo construído numa criação de
-    /// instância, senão o da anotação de tipo com o mesmo intervalo.
+    /// The `NamedType.type` of node `k`: the type built in an instance creation,
+    /// otherwise that of the type annotation with the same range.
     fn named_type_type(&self, cx: &Context<'_>, k: usize) -> Option<TypeId> {
         if let Some(parent) = cx.parent(k)
             && cx.kind(parent) == "ConstructorName"
@@ -687,9 +693,9 @@ impl Project {
             })
     }
 
-    /// `findTarget`: o tipo do `NamedType` que contém o nó que cobre o
-    /// cursor (`nodeCovering`); sem ele, o `thisType` da classe, mixin, enum
-    /// ou extension type que o contém. Só tipos de interface.
+    /// `findTarget`: the type of the `NamedType` containing the node that covers
+    /// the cursor (`nodeCovering`); without it, the `thisType` of the containing
+    /// class, mixin, enum or extension type. Only interface types.
     pub(crate) fn hierarchy_target(&mut self, unit: UnitId, offset: usize) -> Option<(ClassId, TypeId)> {
         let (written, declared) = {
             let cx = Context::new(self, unit);
@@ -716,14 +722,14 @@ impl Project {
         Some((c, ty))
     }
 
-    /// `TypeHierarchyItem.forType`: o `getDisplayString()` do tipo, a
-    /// referência da classe, o arquivo, o código da declaração (com a
-    /// documentação e as anotações) e o nome.
+    /// `TypeHierarchyItem.forType`: the type's `getDisplayString()`, the class
+    /// reference, the file, the declaration's code (with the documentation and
+    /// the annotations) and the name.
     pub(crate) fn type_item(&self, c: ClassId, ty: TypeId) -> Option<crate::TypeItem> {
         self.type_items(&[(c, ty)]).pop()
     }
 
-    /// Os itens de vários tipos, com uma árvore por arquivo.
+    /// The items of several types, with one tree per file.
     fn type_items(&self, types: &[(ClassId, TypeId)]) -> Vec<crate::TypeItem> {
         let p = self.program();
         let mut trees: HashMap<UnitId, Context<'_>> = HashMap::new();
@@ -747,8 +753,9 @@ impl Project {
         output
     }
 
-    /// `_locateTargetFromAnchor`: do `thisType` da âncora, segue os índices
-    /// pelos supertipos; o tipo encontrado vale se o elemento é `target`.
+    /// `_locateTargetFromAnchor`: from the anchor's `thisType`, follows the
+    /// indexes through the supertypes; the found type counts if its element is
+    /// `target`.
     fn type_by_anchor(&mut self, reference: &str, path: &[usize], target: ClassId) -> Option<(ClassId, Vec<TypeId>)> {
         let root = self.reference_class(reference)?;
         let mut current = Some((root, self.type_this(root).1));
@@ -760,10 +767,10 @@ impl Project {
         current.filter(|(c, _)| *c == target)
     }
 
-    /// `findSupertypes` (`typeHierarchy/supertypes`): `None` quando a
-    /// referência não localiza uma classe. Os supertipos com argumentos de
-    /// tipo levam a âncora (a do pedido, ou a do próprio item com caminho
-    /// vazio) com o índice acrescentado.
+    /// `findSupertypes` (`typeHierarchy/supertypes`): `None` when the reference
+    /// does not locate a class. Supertypes with type arguments carry the anchor
+    /// (the request's, or the item's own with an empty path) with the index
+    /// appended.
     pub(crate) fn reference_supertypes(&mut self, reference: &str, anchor: Option<(&str, &[usize])>) -> Option<Vec<crate::TypeItem>> {
         let c = self.reference_class(reference)?;
         let mut target = (c, self.type_this(c).1);
@@ -791,8 +798,8 @@ impl Project {
         Some(output)
     }
 
-    /// `findSubtypes` (`typeHierarchy/subtypes`): `None` quando a referência
-    /// não localiza uma classe; cada subtipo direto pelo seu `thisType`.
+    /// `findSubtypes` (`typeHierarchy/subtypes`): `None` when the reference does
+    /// not locate a class; each direct subtype through its `thisType`.
     pub(crate) fn reference_subtypes(&mut self, reference: &str) -> Option<Vec<crate::TypeItem>> {
         let c = self.reference_class(reference)?;
         let subtypes = self.index_subtypes(c);
@@ -800,8 +807,8 @@ impl Project {
         Some(self.type_items(&types))
     }
 
-    /// O tipo escrito `t` de `u` nomeia `target` diretamente (o
-    /// `NamedType.element` do índice: um alias `typedef` não conta).
+    /// The written type `t` of `u` names `target` directly (the index's
+    /// `NamedType.element`: a `typedef` alias does not count).
     fn names_a_class(&self, u: UnitId, t: ast::TypeId, target: ClassId) -> bool {
         let Some(&ty) = self.query.outline.tipos_escritos.get(&(u, t)) else { return false };
         if matches!(self.query.table.exibicao(ty), Some(Exibicao::Alias { .. })) {
@@ -810,13 +817,13 @@ impl Project {
         self.interface_class(ty).is_some_and(|(c, _)| c == target)
     }
 
-    /// `searchSubtypes` (`SearchEngineImpl._searchDirectSubtypes` e
-    /// `Search.subTypes`): as relações `IS_EXTENDED_BY` (inclusive a
-    /// implícita de `Object` numa classe sem `extends`), `IS_MIXED_IN_BY`,
-    /// `IS_IMPLEMENTED_BY` e `CONSTRAINS` de `target`, nos arquivos que citam o
-    /// nome (num nome privado, só os da biblioteca) mais os da biblioteca de
-    /// `target`; uma por relação, na ordem dos arquivos e das cláusulas. A
-    /// declaração `augment` fica de fora.
+    /// `searchSubtypes` (`SearchEngineImpl._searchDirectSubtypes` and
+    /// `Search.subTypes`): the `IS_EXTENDED_BY` relations (including the
+    /// implicit one from `Object` for a class without `extends`),
+    /// `IS_MIXED_IN_BY`, `IS_IMPLEMENTED_BY` and `CONSTRAINS` of `target`, in
+    /// the files that cite the name (for a private name, only those of the
+    /// library) plus those of `target`'s library; one per relation, in the order
+    /// of the files and of the clauses. An `augment` declaration is left out.
     fn index_subtypes(&self, target: ClassId) -> Vec<ClassId> {
         let p = self.program();
         let Some(d) = p.class(target).decl else { return Vec::new() };
@@ -868,8 +875,8 @@ impl Project {
     }
 }
 
-/// O `referencedNames` do arquivo contém `name`: um identificador do texto
-/// (sem comentários) igual a ele.
+/// The file's `referencedNames` contains `name`: an identifier of the text
+/// (without comments) equal to it.
 fn cites_name(source: &str, name: &str) -> bool {
     if !source.contains(name) {
         return false;
@@ -880,8 +887,8 @@ fn cites_name(source: &str, name: &str) -> bool {
     }
 }
 
-/// `ElementLocationImpl._decode`: os componentes separados por `;`, com
-/// `;;` como um `;` literal.
+/// `ElementLocationImpl._decode`: the components separated by `;`, with
+/// `;;` as a literal `;`.
 fn decode_reference(text: &str) -> Vec<String> {
     let mut components = Vec::new();
     let mut current = String::new();
@@ -902,7 +909,7 @@ fn decode_reference(text: &str) -> Vec<String> {
     components
 }
 
-/// A espécie do elemento-pivô da busca de implementações (`pivotKind`).
+/// The kind of the pivot element of the implementations search (`pivotKind`).
 #[derive(Clone, Copy)]
 enum PivotKind {
     Method,

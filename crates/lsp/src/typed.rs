@@ -1,33 +1,34 @@
-//! Diagnósticos tipados no fluxo contínuo (auditoria L01).
+//! Typed diagnostics in the continuous flow (audit L01).
 //!
-//! A cada `didOpen`/`didChange`/`didClose`, o [`crate::Server`] publica na
-//! hora os diagnósticos sintáticos (parser + verificadores locais de
-//! `crates/analysis`) e pede a este trabalhador a análise completa do pacote
-//! do documento. A análise é **a mesma** do `dartforge analyze`:
-//! [`dartforge_parity::analysis::Engine`] (carga, outline, inferência de
-//! `crates/types` e os verificadores de `crates/analysis`) seguida de
-//! [`dartforge_parity::publicaveis`] (regra de publicação de
-//! `verificados.txt`, `analysis_options.yaml` e `// ignore:`). Nenhuma regra
-//! é duplicada aqui: só se escolhe quais arquivos analisar e se descarta o
-//! que ficou velho.
+//! At each `didOpen`/`didChange`/`didClose`, the [`crate::Server`] publishes
+//! the syntactic diagnostics right away (parser + local checkers of
+//! `crates/analysis`) and asks this worker for the full analysis of the
+//! document's package. The analysis is **the same** as `dartforge analyze`'s:
+//! [`dartforge_parity::analise::Motor`] (load, outline, `crates/types`
+//! inference and the `crates/analysis` checkers) followed by
+//! [`dartforge_parity::publicaveis`] (the publication rule of
+//! `verificados.txt`, `analysis_options.yaml` and `// ignore:`). No rule is
+//! duplicated here: this only chooses which files to analyze and discards
+//! what became stale.
 //!
-//! * **Um programa por pacote.** Todos os documentos abertos do pacote
-//!   (mais a biblioteca dona de cada parte aberta) entram num único
-//!   `Engine::analisar_com`, com os textos abertos valendo mais que o disco.
-//!   Assim, editar um arquivo importado reanalisa quem o importa, direta ou
-//!   transitivamente, sem grafo de dependências próprio.
-//! * **Versão.** Cada resultado leva a versão do texto analisado; o servidor
-//!   só o publica se ela ainda é a vigente. Resultado de versão velha é
-//!   descartado, nunca sobrescreve o de uma nova.
-//! * **Edições rápidas.** O pedido de um pacote é um conjunto (marcar de
-//!   novo não enfileira outra análise): uma rajada de edições vira uma
-//!   análise. A análise em curso consulta, entre as fases do motor, se o
-//!   pacote foi marcado de novo; se foi, para e recomeça com o texto novo.
-//! * **Memória.** O trabalhador retém só o [`Engine`] (layout do SDK e nomes
-//!   de bibliotecas) e uma cópia do texto vigente de cada documento aberto.
-//!   Programa, árvores e tabela de tipos vivem uma análise e caem com ela.
+//! * **One program per package.** All open documents of the package (plus
+//!   the owning library of each open part) go into a single
+//!   `Motor::analisar_com`, with the open texts winning over the disk. So
+//!   editing an imported file reanalyzes whoever imports it, directly or
+//!   transitively, without a dependency graph of its own.
+//! * **Version.** Each result carries the version of the analyzed text; the
+//!   server only publishes it if it is still the current one. A result of
+//!   an old version is discarded, never overwrites that of a new one.
+//! * **Fast edits.** A package's request is a set (marking it again does not
+//!   enqueue another analysis): a burst of edits becomes one analysis. The
+//!   running analysis checks, between the engine's phases, whether the
+//!   package was marked again; if so, it stops and restarts with the new
+//!   text.
+//! * **Memory.** The worker retains only the [`Motor`] (SDK layout and
+//!   library names) and a copy of the current text of each open document.
+//!   Program, trees and type table live for one analysis and drop with it.
 //!
-//! [`Engine`]: dartforge_parity::analise::Motor
+//! [`Motor`]: dartforge_parity::analise::Motor
 
 use crate::{Analyzer, SyntacticAnalyzer};
 use dartforge_diagnostics::Diagnostic;
@@ -37,25 +38,25 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
-/// Resultado de uma análise para um arquivo: um documento aberto (com a
-/// versão do texto analisado) ou um arquivo das raízes que não está aberto
-/// (sem versão, com o texto do disco para as faixas).
+/// Result of an analysis for one file: an open document (with the version
+/// of the analyzed text) or a file of the roots that is not open (without a
+/// version, with the disk text for the ranges).
 #[derive(Debug)]
 pub(crate) struct Result {
     pub uri: String,
-    /// Versão do texto analisado; `None` num arquivo não aberto.
+    /// Version of the analyzed text; `None` for a file that is not open.
     pub version: Option<i32>,
-    /// O texto analisado de um arquivo não aberto.
+    /// The analyzed text of a file that is not open.
     pub text: Option<String>,
-    /// Lista completa a publicar: sintaxe (parser) + semântica publicada.
+    /// Full list to publish: syntax (parser) + published semantics.
     pub diagnostics: Vec<Diagnostic>,
-    /// Os diagnósticos de um arquivo YAML do pacote (`analysis_options.yaml`,
-    /// `pubspec.yaml`), já no JSON do analyzer (§3.2: os arquivos não-Dart
-    /// validados na criação dos contextos e a cada evento do observador).
+    /// The diagnostics of a YAML file of the package (`analysis_options.yaml`,
+    /// `pubspec.yaml`), already in the analyzer's JSON (§3.2: the non-Dart
+    /// files validated when the contexts are created and at each watcher event).
     pub yaml: Vec<dartforge_parity::json::DiagJson>,
 }
 
-/// Documento aberto como o trabalhador o vê.
+/// Open document as the worker sees it.
 struct Document {
     version: i32,
     text: String,
@@ -66,30 +67,30 @@ struct Document {
 #[derive(Default)]
 struct State {
     documents: HashMap<String, Document>,
-    /// Pacotes (raiz) com análise pedida e ainda não iniciada.
+    /// Packages (root) with an analysis requested and not started yet.
     dirty: BTreeSet<PathBuf>,
-    /// Pacote em análise agora.
+    /// Package being analyzed now.
     running: Option<PathBuf>,
-    /// Gancho de teste: não inicia análise enquanto verdadeiro.
+    /// Test hook: no analysis starts while true.
     paused: bool,
     shutdown: bool,
-    /// `showTodos`: todos os TODOs, ou os destes tipos (em maiúsculas).
+    /// `showTodos`: all TODOs, or those of these kinds (in uppercase).
     all: bool,
     all_types: Vec<String>,
-    /// As pastas excluídas da análise (`analysisExcludedFolders`).
+    /// The folders excluded from analysis (`analysisExcludedFolders`).
     excluded: Vec<PathBuf>,
-    /// As pastas do workspace (as raízes incluídas, §3.3).
+    /// The workspace folders (the included roots, §3.3).
     folders: Vec<PathBuf>,
-    /// Por pacote, os arquivos alterados desde a última análise dele.
+    /// Per package, the files changed since its last analysis.
     changed: HashMap<PathBuf, BTreeSet<PathBuf>>,
-    /// Pacotes cuja próxima análise publica todos os arquivos (a primeira,
-    /// ou depois de mudar a configuração).
+    /// Packages whose next analysis publishes every file (the first one, or
+    /// after the configuration changes).
     publish_all: BTreeSet<PathBuf>,
 }
 
 type Shared = Arc<(Mutex<State>, Condvar)>;
 
-/// Gancho chamado quando há resultado (o laço do `main` acorda com ele).
+/// Hook called when there is a result (the `main` loop wakes up with it).
 #[derive(Clone)]
 pub(crate) struct Wake(pub Arc<dyn Fn() + Send + Sync>);
 
@@ -99,7 +100,7 @@ impl std::fmt::Debug for Wake {
     }
 }
 
-/// O lado do servidor: pedidos entram por aqui, resultados saem por `receive`.
+/// The server side: requests come in here, results go out through `receive`.
 pub(crate) struct Typed {
     shared: Shared,
     results: mpsc::Receiver<Result>,
@@ -111,9 +112,10 @@ impl std::fmt::Debug for Typed {
     }
 }
 
-/// A raiz do pacote: o diretório mais próximo, subindo, com `pubspec.yaml`
-/// (a mesma regra do `dartforge analyze`); sem `pubspec.yaml` até a pasta do
-/// workspace que contém o arquivo, a pasta (o contexto da raiz incluída).
+/// The package root: the closest directory, walking up, with a
+/// `pubspec.yaml` (the same rule as `dartforge analyze`); without a
+/// `pubspec.yaml` up to the workspace folder that contains the file, that
+/// folder (the context of the included root).
 fn package_root(file: &Path, folders: &[PathBuf]) -> PathBuf {
     let mut current = file.parent();
     let folder = folders.iter().filter(|p| file.starts_with(p)).max_by_key(|p| p.components().count());
@@ -130,12 +132,12 @@ fn package_root(file: &Path, folders: &[PathBuf]) -> PathBuf {
 }
 
 impl Typed {
-    /// Inicia o trabalhador com o SDK em `sdk_lib` (o `lib/` do SDK).
+    /// Starts the worker with the SDK at `sdk_lib` (the SDK's `lib/`).
     pub(crate) fn start(sdk_lib: PathBuf, wake: Option<Wake>) -> Option<Self> {
         let shared: Shared = Arc::new((Mutex::new(State::default()), Condvar::new()));
         let (tx, rx) = mpsc::channel();
         let p = Arc::clone(&shared);
-        // Corpos profundos recursam fundo: pilha própria, como no `analyze`.
+        // Deep bodies recurse deeply: a dedicated stack, as in `analyze`.
         std::thread::Builder::new()
             .name("dartforge-lsp-tipado".into())
             .stack_size(1 << 30)
@@ -154,8 +156,9 @@ impl Typed {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    /// O documento `uri` está na versão `version` com `text`: pede a análise
-    /// do pacote dele (e cancela a que estiver em curso para o mesmo pacote).
+    /// Document `uri` is at version `version` with `text`: requests the
+    /// analysis of its package (and cancels the one running for the same
+    /// package).
     pub(crate) fn document(&self, uri: &str, version: i32, text: &str) {
         let Some(path) = url::Url::parse(uri)
             .ok()
@@ -183,8 +186,8 @@ impl Typed {
         self.shared.1.notify_all();
     }
 
-    /// A configuração da análise (`showTodos`, `analysisExcludedFolders`); os
-    /// pacotes dos documentos abertos são analisados de novo.
+    /// The analysis configuration (`showTodos`, `analysisExcludedFolders`); the
+    /// packages of the open documents are analyzed again.
     pub(crate) fn configure(&self, all: bool, all_types: Vec<String>, excluded: Vec<PathBuf>) {
         let mut e = self.state();
         e.all = all;
@@ -196,9 +199,9 @@ impl Typed {
         self.shared.1.notify_all();
     }
 
-    /// As pastas do workspace (§3.3): todo `.dart` delas é analisado e
-    /// publicado (§3.2, I7 de §16.10), pacote a pacote; a primeira análise de
-    /// cada pacote publica todos os arquivos.
+    /// The workspace folders (§3.3): every `.dart` in them is analyzed and
+    /// published (§3.2, I7 of §16.10), package by package; the first analysis of
+    /// each package publishes every file.
     pub(crate) fn folders(&self, folders: Vec<PathBuf>) {
         let mut e = self.state();
         e.folders = folders;
@@ -208,12 +211,11 @@ impl Typed {
         self.shared.1.notify_all();
     }
 
-    /// Um arquivo mudou no disco (`workspace/didChangeWatchedFiles`, o
-    /// observador do Dart, §3.3): um `.dart` não aberto passa a valer pelo
-    /// disco, e os que dependem dele são reanalisados; o
-    /// `analysis_options.yaml`, o `pubspec.yaml` e o `package_config.json`
-    /// reconstroem os contextos (o pacote inteiro é analisado e publicado de
-    /// novo, os YAML também).
+    /// A file changed on disk (`workspace/didChangeWatchedFiles`, Dart's
+    /// watcher, §3.3): a `.dart` that is not open now counts from disk, and
+    /// those that depend on it are reanalyzed; `analysis_options.yaml`,
+    /// `pubspec.yaml` and `package_config.json` rebuild the contexts (the whole
+    /// package is analyzed and published again, the YAML files too).
     pub(crate) fn file_on_disk(&self, path: &Path) {
         let mut e = self.state();
         let root = package_root(path, &e.folders);
@@ -232,7 +234,7 @@ impl Typed {
         if path.extension().is_none_or(|x| x != "dart") {
             return;
         }
-        // O documento aberto vale pelo editor.
+        // An open document counts through the editor.
         if e.documents.values().any(|d| chave(&d.path) == chave(path)) {
             return;
         }
@@ -241,13 +243,13 @@ impl Typed {
         self.shared.1.notify_all();
     }
 
-    /// O documento fechou: o texto sai da cópia e os que dependiam dele são
-    /// reanalisados com o disco.
+    /// The document closed: its text leaves the copy and those that depended on
+    /// it are reanalyzed with the disk.
     pub(crate) fn closed(&self, uri: &str) {
         let mut e = self.state();
         if let Some(d) = e.documents.remove(uri) {
-            // Sem o texto do editor, vale o do disco: o arquivo mudou para a
-            // análise (o `removeOverlay` do Dart), e os que dependem dele.
+            // Without the editor's text, the disk's counts: the file changed for the
+            // analysis (Dart's `removeOverlay`), and so did those that depend on it.
             let inside = e.folders.iter().any(|p| d.path.starts_with(p));
             if inside || e.documents.values().any(|o| o.root == d.root) {
                 e.changed.entry(d.root.clone()).or_default().insert(chave(&d.path));
@@ -257,20 +259,20 @@ impl Typed {
         }
     }
 
-    /// Resultados prontos, sem bloquear.
+    /// Ready results, without blocking.
     pub(crate) fn receive(&self) -> Vec<Result> {
         self.results.try_iter().collect()
     }
 
-    /// O trabalhador está ocioso agora (nada pedido, nada em curso), sem
-    /// esperar.
+    /// The worker is idle now (nothing requested, nothing running), without
+    /// waiting.
     pub(crate) fn idle(&self) -> bool {
         let e = self.state();
         (e.dirty.is_empty() || e.paused) && e.running.is_none()
     }
 
-    /// Espera o trabalhador ficar ocioso (nada pedido, nada em curso), até
-    /// `limit`. Verdadeiro se ficou.
+    /// Waits for the worker to become idle (nothing requested, nothing
+    /// running), up to `limit`. True if it did.
     pub(crate) fn wait_idle(&self, limit: Duration) -> bool {
         let end = Instant::now() + limit;
         let mut e = self.state();
@@ -299,14 +301,14 @@ impl Typed {
 
 impl Drop for Typed {
     fn drop(&mut self) {
-        // Não espera a análise em curso: ela vê `shutdown` no próximo ponto
-        // de cancelamento e a thread termina sozinha.
+        // Does not wait for the running analysis: it sees `shutdown` at the next
+        // cancellation point and the thread ends on its own.
         self.state().shutdown = true;
         self.shared.1.notify_all();
     }
 }
 
-/// Laço do trabalhador: um pacote por vez, o mais antigo marcado primeiro.
+/// Worker loop: one package at a time, the oldest marked first.
 fn work(
     p: &Shared,
     sdk_lib: &Path,
@@ -338,7 +340,7 @@ fn work(
                 .filter(|(_, d)| d.root == root)
                 .map(|(u, d)| (u.clone(), d.version, d.path.clone(), d.text.clone()))
                 .collect();
-            // Todos os abertos (de qualquer pacote) valem mais que o disco.
+            // All open documents (of any package) win over the disk.
             let texts: HashMap<PathBuf, String> = e
                 .documents
                 .values()
@@ -346,8 +348,8 @@ fn work(
                 .collect();
             e.running = Some(root.clone());
             let config = AnalysisConfiguration { all: e.all, all_types: e.all_types.clone(), excluded: e.excluded.clone() };
-            // Os arquivos não abertos só entram com o pacote numa pasta do
-            // workspace.
+            // Files that are not open only come in with the package in a workspace
+            // folder.
             let in_workspace = e.folders.iter().any(|p| root.starts_with(p) || p.starts_with(&root));
             let all = in_workspace && e.publish_all.remove(&root);
             let changed_ = e.changed.remove(&root).unwrap_or_default();
@@ -409,14 +411,14 @@ fn work(
     }
 }
 
-/// O que da configuração do cliente muda a análise.
+/// What in the client configuration changes the analysis.
 struct AnalysisConfiguration {
     all: bool,
     all_types: Vec<String>,
     excluded: Vec<PathBuf>,
 }
 
-/// Os pacotes das pastas do workspace: o de cada `.dart` delas.
+/// The packages of the workspace folders: that of each `.dart` in them.
 fn folder_packages(folders: &[PathBuf]) -> Vec<PathBuf> {
     let mut v: BTreeSet<PathBuf> = BTreeSet::new();
     for p in folders {
@@ -427,9 +429,9 @@ fn folder_packages(folders: &[PathBuf]) -> Vec<PathBuf> {
     v.into_iter().collect()
 }
 
-/// Os arquivos `affected` por uma mudança em `changed`: eles e, pelas
-/// diretivas (`import`, `export`, `part`, `part of`), os que dependem deles,
-/// transitivamente (os que o driver do Dart reanalisa e republica).
+/// The files `affected` by a change in `changed`: they and, through the
+/// directives (`import`, `export`, `part`, `part of`), those that depend on
+/// them, transitively (those that Dart's driver reanalyzes and republishes).
 fn affected(files: &std::collections::BTreeMap<PathBuf, dartforge_parity::analise::Arquivo>, changed: &BTreeSet<PathBuf>, packages: Option<&dartforge_elements::PackageConfig>) -> BTreeSet<PathBuf> {
     let mut dependents: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
     for (path, a) in files {
@@ -468,11 +470,12 @@ fn affected(files: &std::collections::BTreeMap<PathBuf, dartforge_parity::analis
     output
 }
 
-/// Analisa o pacote `root` num programa só: os documentos abertos dele e,
-/// com o pacote numa pasta do workspace, todos os `.dart` que o `dart
-/// analyze` veria (§3.2, I7). Os abertos sempre saem; os não abertos, na
-/// primeira análise do pacote (ou depois de mudar a configuração) todos, e
-/// depois os afetados pelos arquivos alterados. Vazio quando cancelada.
+/// Analyzes package `root` in a single program: its open documents and, with
+/// the package in a workspace folder, every `.dart` that `dart analyze`
+/// would see (§3.2, I7). The open ones always come out; the ones not open,
+/// all of them on the package's first analysis (or after the configuration
+/// changes), and afterwards those affected by the changed files. Empty when
+/// cancelled.
 #[allow(clippy::type_complexity)]
 fn analyze_package(
     engine: &Motor,
@@ -484,8 +487,7 @@ fn analyze_package(
     changed: &(bool, bool, BTreeSet<PathBuf>),
 ) -> Vec<Result> {
     let (in_workspace, all, changed) = (changed.0, changed.1, &changed.2);
-    // Os documentos nas pastas excluídas não são analisados: a publicação
-    // deles fica vazia.
+    // Documents in excluded folders are not analyzed: their publication is empty.
     let excluded = |c: &Path| config.excluded.iter().any(|e| c.starts_with(e));
     let mut excluded_output: Vec<Result> = open
         .iter()
@@ -495,8 +497,8 @@ fn analyze_package(
     let open: Vec<(String, i32, PathBuf, String)> = open.iter().filter(|(_, _, c, _)| !excluded(c)).cloned().collect();
     let open = &open[..];
     let options = dartforge_parity::filtros::Opcoes::ler(root);
-    // Os `.dart` do pacote que o `dart analyze` veria (fora das exclusões do
-    // `analysis_options.yaml` e das `analysisExcludedFolders`).
+    // The package's `.dart` files that `dart analyze` would see (outside the
+    // exclusions of `analysis_options.yaml` and of `analysisExcludedFolders`).
     let of_package: Vec<PathBuf> = if in_workspace {
         dartforge_parity::projetos::arquivos(root, &options).into_iter().filter(|a| !excluded(a)).collect()
     } else {
@@ -507,7 +509,7 @@ fn analyze_package(
     }
     let mut files: Vec<PathBuf> = of_package.clone();
     for (_, _, path, text) in open {
-        // Uma parte entra pela biblioteca dona (o motor não importa partes).
+        // A part comes in through its owning library (the engine does not import parts).
         if e_parte(text)
             && let Some(owning) = crate::semantic::owning_library(path, text, None)
         {
@@ -526,7 +528,7 @@ fn analyze_package(
     };
     let mut syntactic = SyntacticAnalyzer::new();
     let mut output = Vec::new();
-    // Os não abertos a publicar.
+    // The files not open to publish.
     let open_keys: BTreeSet<PathBuf> = open.iter().map(|(_, _, c, _)| chave(c)).collect();
     let publish: BTreeSet<PathBuf> = if all {
         of_package.iter().map(|a| chave(a)).collect()
@@ -552,13 +554,13 @@ fn analyze_package(
         {
             continue;
         }
-        // Sintaxe pelo mesmo parser do fluxo imediato (sem piscar); a
-        // semântica, toda do motor, pela regra de publicação comum.
+        // Syntax through the same parser as the immediate flow (no flicker); the
+        // semantics, all from the engine, through the common publication rule.
         let mut diagnostics = syntactic.syntax(uri, text);
-        // Os publicados e, com o `showTodos` (`_shouldSendError`), os TODOs
-        // (todos, ou os tipos pedidos; sempre quando a severidade foi
-        // promovida acima de INFO pelo `analysis_options.yaml`), cada um na
-        // posição em que o analisador o relatou.
+        // The published ones and, with `showTodos` (`_shouldSendError`), the TODOs
+        // (all, or the requested kinds; always when the severity was promoted above
+        // INFO by `analysis_options.yaml`), each at the position where the analyzer
+        // reported it.
         let published: Vec<Diagnostic> =
             dartforge_parity::publicaveis(file, &options, true)
                 .into_iter()
@@ -581,15 +583,15 @@ fn analyze_package(
                 semantic.push(d);
             }
         }
-        // Um publicado que a lista sem filtro não traz (o `IgnoreValidator`
-        // relata à parte) vai no fim, como no analisador.
+        // A published one that the unfiltered list does not bring (the
+        // `IgnoreValidator` reports separately) goes at the end, as in the analyzer.
         for d in published {
             if !semantic.iter().any(|x| x.span == d.span && x.code == d.code && x.message == d.message) {
                 semantic.push(d);
             }
         }
-        // A ordem é a do `LibraryAnalyzer` (as fases, §1.2 da INFRA): o
-        // servidor do Dart manda a lista na ordem de inserção (§3.6).
+        // The order is that of the `LibraryAnalyzer` (the phases, §1.2 of INFRA):
+        // the Dart server sends the list in insertion order (§3.6).
         diagnostics.extend(semantic);
         output.push(Result {
             uri: uri.clone(),
@@ -599,9 +601,9 @@ fn analyze_package(
             yaml: Vec::new(),
         });
     }
-    // Os arquivos YAML do pacote: na primeira análise (e depois de mudar a
-    // configuração) e quando um deles mudou no disco. O texto é o do disco,
-    // como o observador do Dart o lê.
+    // The package's YAML files: on the first analysis (and after the
+    // configuration changes) and when one of them changed on disk. The text is
+    // the disk's, as Dart's watcher reads it.
     if in_workspace {
         let options_yaml = root.join("analysis_options.yaml");
         let pubspec_yaml = root.join("pubspec.yaml");
@@ -623,7 +625,7 @@ fn analyze_package(
     output
 }
 
-/// O `lib/` do SDK do analisador, quando ele diagnostica com tipos.
+/// The SDK `lib/` of the analyzer, when it diagnoses with types.
 pub(crate) fn analyzer_sdk<A: Analyzer>(analyzer: &A) -> Option<PathBuf> {
     if std::env::var("DARTFORGE_LSP_TIPADO").is_ok_and(|v| v == "0") {
         return None;
