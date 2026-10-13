@@ -237,9 +237,45 @@ impl Project {
         })
     }
 
+    /// The `==` of `a == b` is `Object`'s in the inference; the analyzer's
+    /// `staticElement` is the receiver interface's (`lookUpMethod2`): `num.==`
+    /// for an `int`, `String.==` for a `String`.
+    fn specific_equality(&self, cx: &Context<'_>, x: dartforge_frontend::ast::ExprId, e: CallElem) -> CallElem {
+        let p = self.program();
+        let CallElem::Function(f) = e else { return e };
+        let fe = p.function(f);
+        if self.name(fe.name) != "==" || fe.class.is_none() || fe.class != self.query.core.object_class {
+            return e;
+        }
+        let ast::ExprKind::Binary { left, .. } = &cx.ast.expr(x).kind else { return e };
+        let Some(&t) = cx.bodies.static_types.get(left.0 as usize) else { return e };
+        let dartforge_types::Type::Interface { class, .. } = self.query.table.get(t) else { return e };
+        let mut queue = std::collections::VecDeque::from([*class]);
+        let mut seen = std::collections::HashSet::new();
+        while let Some(c) = queue.pop_front() {
+            if !seen.insert(c) || Some(c) == self.query.core.object_class {
+                continue;
+            }
+            let cl = p.class(c);
+            if let Some(&g) = cl.instance_members.get(&fe.name) {
+                return CallElem::Function(g);
+            }
+            queue.extend(cl.mixin_classes.iter().rev().copied());
+            queue.extend(cl.supertype_class);
+            queue.extend(cl.interface_classes.iter().copied());
+            queue.extend(cl.on_classes.iter().copied());
+        }
+        e
+    }
+
     /// `ElementLocator.locate(node)` for the kinds the hierarchy uses.
     fn locate_element(&self, cx: &Context<'_>, n: usize) -> Option<CallElem> {
         match cx.kind(n) {
+            // `annotation.element`: the constructor of `@A(…)`/`@A.n(…)`.
+            "Annotation" => match self.identify(cx.unit, cx.tree.nodes[n].start + 1).ok()?? {
+                crate::project::Denoted { target: Target::Constructor(f), .. } => Some(CallElem::Function(f)),
+                _ => None,
+            },
             "SimpleIdentifier" => self.call_identifier_element(cx, n),
             "MethodInvocation" => self.call_identifier_element(cx, cx.method_name(n)?),
             "PrefixedIdentifier" => self.call_identifier_element(cx, *cx.children(n).get(1)?),
@@ -273,7 +309,8 @@ impl Project {
                     Mark::Operator(x) => x,
                     _ => cx.node_expr(n)?,
                 };
-                self.from_resolution(cx.bodies.get_resolved(x)?)
+                let e = self.from_resolution(cx.bodies.get_resolved(x)?)?;
+                Some(self.specific_equality(cx, x, e))
             }
             _ => None,
         }

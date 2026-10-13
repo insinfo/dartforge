@@ -299,3 +299,21 @@ fn implementation_follows_the_index_relations() {
     let r = p.in_position("textDocument/implementation", "lib/i.dart", l, c, json!({}))["result"].clone();
     assert_eq!(lines(&r), vec![10], "only Direct's override: {r}");
 }
+
+#[test]
+fn call_hierarchy_targets_like_the_resolved_ast() {
+    // `b == c` with `B implements A`: the `==` of the receiver's interface
+    // (`lookUpMethod2`), not `Object`'s; `@D()` prepares the constructor
+    // (`annotation.element`).
+    let mut p = Project::new("chamadas-alvos");
+    let text = "abstract class A {\n  @override\n  bool operator ==(Object o);\n  @override\n  int get hashCode => 0;\n}\nabstract class B implements A {}\nclass D {\n  const D();\n}\n@D()\nbool f(B b, B c) => b == c;\n";
+    p.open("lib/o.dart", text);
+    let (l, c) = location(text, "== c", 0, 0);
+    let r = p.in_position("textDocument/prepareCallHierarchy", "lib/o.dart", l, c, json!({}))["result"].clone();
+    assert_eq!(r[0]["name"], "==", "{r}");
+    assert_eq!(r[0]["selectionRange"]["start"], json!({"line": 2, "character": 16}), "{r}");
+    let (l, c) = location(text, "D()\nbool", 0, 0);
+    let r = p.in_position("textDocument/prepareCallHierarchy", "lib/o.dart", l, c, json!({}))["result"].clone();
+    assert_eq!(r[0]["kind"], 9, "{r}");
+    assert_eq!(r[0]["selectionRange"]["start"], json!({"line": 8, "character": 8}), "{r}");
+}
