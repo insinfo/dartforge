@@ -68,8 +68,8 @@ impl Exibidor<'_> {
     /// two or more arguments with the same text — even the elements that do not
     /// collide —, `<name> is defined in <caminho>`, at the element name, in its
     /// file.
-    pub fn arguments_and_context(&self, args: &[Arg<'_>]) -> (Vec<String>, Vec<dartforge_diagnostics::Contexto>) {
-        let mut context: Vec<dartforge_diagnostics::Contexto> = Vec::new();
+    pub fn arguments_and_context(&self, args: &[Arg<'_>]) -> (Vec<String>, Vec<dartforge_diagnostics::ContextMessage>) {
+        let mut context: Vec<dartforge_diagnostics::ContextMessage> = Vec::new();
         let mut output: Vec<String> = args
             .iter()
             .map(|a| match a {
@@ -114,7 +114,7 @@ impl Exibidor<'_> {
                     // The context message is output for every element (outside the `if` in
                     // the analyzer).
                     if let Some(span) = self.class_name(c) {
-                        context.push(dartforge_diagnostics::Contexto { arquivo: Some(self.file_of(c).into()), span, mensagem: snippet.clone().into() });
+                        context.push(dartforge_diagnostics::ContextMessage { file: Some(self.file_of(c).into()), span, message: snippet.clone().into() });
                     }
                     if by_name.get(&element_name).is_none_or(|l| l.len() < 2) {
                         continue;

@@ -10,7 +10,7 @@
 use crate::resolve::OutlineTypes;
 use crate::subtyping::{is_subtype, SubtypeEnv};
 use crate::table::{CoreTypes, Type, TypeTable};
-use dartforge_diagnostics::codigos::compile_time_error as c;
+use dartforge_diagnostics::codes::compile_time_error as c;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_elements::model::{FunctionKind, FunctionRef, LibraryId, Program, UnitId};
 use dartforge_frontend::ast::ParameterKind;
@@ -40,10 +40,10 @@ pub fn funcao_main(
         let empty: Vec<&str> = Vec::new();
         let required = ps.iter().filter(|p| p.kind == ParameterKind::Required).count();
         if required > 2 {
-            output.push((unit, Diagnostic::com_codigo(c::MAIN_HAS_TOO_MANY_REQUIRED_POSITIONAL_PARAMETERS, name.span, empty.iter().copied())));
+            output.push((unit, Diagnostic::with_code(c::MAIN_HAS_TOO_MANY_REQUIRED_POSITIONAL_PARAMETERS, name.span, empty.iter().copied())));
         }
         if ps.iter().any(|p| p.kind == ParameterKind::Named && p.required) {
-            output.push((unit, Diagnostic::com_codigo(c::MAIN_HAS_REQUIRED_NAMED_PARAMETERS, name.span, empty.iter().copied())));
+            output.push((unit, Diagnostic::with_code(c::MAIN_HAS_REQUIRED_NAMED_PARAMETERS, name.span, empty.iter().copied())));
         }
         // The first positional (required or optional), by its written type:
         // without a type it is `dynamic` and the condition does not fire.
@@ -85,7 +85,7 @@ pub fn funcao_main(
             is_subtype(string_list, ty, &mut env)
         };
         if !fits {
-            output.push((unit, Diagnostic::com_codigo(c::MAIN_FIRST_POSITIONAL_PARAMETER_TYPE, span, empty.iter().copied())));
+            output.push((unit, Diagnostic::with_code(c::MAIN_FIRST_POSITIONAL_PARAMETER_TYPE, span, empty.iter().copied())));
         }
     }
     output

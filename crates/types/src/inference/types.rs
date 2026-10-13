@@ -412,7 +412,7 @@ impl<'a> BodyInferrer<'a> {
                     let name_text = self.interner.resolve(name[0].sym).to_string();
                     let msg = format!("{}: '{}'", crate::codes::REFERENCED_BEFORE_DECLARATION.template, name_text);
                     let context_msg = format!("The declaration of '{name_text}' is here.");
-                    self.diagnostics.push(dartforge_diagnostics::Diagnostic::new(msg, name[0].span).com_contexto(decl, context_msg));
+                    self.diagnostics.push(dartforge_diagnostics::Diagnostic::new(msg, name[0].span).with_context(decl, context_msg));
                     self.warning_units.push(self.current_unit);
                 }
                 if name.len() == 2 && name[0].span.start != name[0].span.end {
@@ -421,7 +421,7 @@ impl<'a> BodyInferrer<'a> {
                     let local = scope.contains_key(&p) || self.locals_as_type.contains_key(&p);
                     if crate::resolve::shadowed_prefix(self.program, self.interner, unit, p, local, cls, extension) {
                         let the_name = self.interner.resolve(p).to_string();
-                        self.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::PREFIX_SHADOWED_BY_LOCAL_DECLARATION, name[0].span, &[&the_name]);
+                        self.warning_with_code(dartforge_diagnostics::codes::compile_time_error::PREFIX_SHADOWED_BY_LOCAL_DECLARATION, name[0].span, &[&the_name]);
                         return self.table.invalid(self.core.dynamic_);
                     }
                 }
@@ -435,7 +435,7 @@ impl<'a> BodyInferrer<'a> {
                         }
                         if self.in_static_member && crate::resolve::class_param(self.table, pid) {
                             self.warning_with_code(
-                                dartforge_diagnostics::codigos::compile_time_error::TYPE_PARAMETER_REFERENCED_BY_STATIC,
+                                dartforge_diagnostics::codes::compile_time_error::TYPE_PARAMETER_REFERENCED_BY_STATIC,
                                 range,
                                 &[],
                             );
@@ -458,7 +458,7 @@ impl<'a> BodyInferrer<'a> {
                         let name_text = self.interner.resolve(sym).to_string();
                         let msg = format!("{}: '{}'", crate::codes::REFERENCED_BEFORE_DECLARATION.template, name_text);
                         let context = format!("The declaration of '{name_text}' is here.");
-                        self.diagnostics.push(dartforge_diagnostics::Diagnostic::new(msg, range).com_contexto(decl, context));
+                        self.diagnostics.push(dartforge_diagnostics::Diagnostic::new(msg, range).with_context(decl, context));
                         self.warning_units.push(self.current_unit);
                         return self.table.invalid(self.core.dynamic_);
                     }
@@ -632,7 +632,7 @@ impl<'a> BodyInferrer<'a> {
     pub(crate) fn report_type_arguments(&mut self, the_name: &str, params_list: usize, arguments: usize, span: dartforge_diagnostics::Span) {
         let (p, a) = (params_list.to_string(), arguments.to_string());
         self.warning_with_code(
-            dartforge_diagnostics::codigos::compile_time_error::WRONG_NUMBER_OF_TYPE_ARGUMENTS,
+            dartforge_diagnostics::codes::compile_time_error::WRONG_NUMBER_OF_TYPE_ARGUMENTS,
             span,
             &[the_name, &p, &a],
         );

@@ -22,7 +22,7 @@
 
 use crate::resolve::OutlineTypes;
 use crate::resolved::{BodyTypes, MemberRef, Resolved};
-use dartforge_diagnostics::codigos::warning as w;
+use dartforge_diagnostics::codes::warning as w;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_elements::model::{
     ClassId, ClassKind, Element, FunctionElementId, FunctionKind, FunctionRef, LibraryId, Program, UnitId,
@@ -400,7 +400,7 @@ pub fn parametros_nao_usados(
             let text = interner.resolve(the_name.sym).to_string();
             output.push((
                 unit,
-                Diagnostic::com_codigo(w::UNUSED_ELEMENT_PARAMETER, Span { start: the_name.span.start, end: the_name.span.end }, [text]),
+                Diagnostic::with_code(w::UNUSED_ELEMENT_PARAMETER, Span { start: the_name.span.start, end: the_name.span.end }, [text]),
             ));
         }
     }

@@ -12,7 +12,7 @@
 use crate::resolve::OutlineTypes;
 use crate::resolved::BodyTypes;
 use crate::table::{CoreTypes, Exibicao, Type, TypeId, TypeTable};
-use dartforge_diagnostics::{codigos::warning as w, Diagnostic, Span};
+use dartforge_diagnostics::{codes::warning as w, Diagnostic, Span};
 use dartforge_elements::model::{ClassId, ClassKind, FunctionElementId, FunctionKind, FunctionRef, LibraryId, Program, UnitId};
 use dartforge_frontend::ast::{self, ExprKind, FunctionBody, StmtKind};
 use dartforge_intern::{Interner, SymbolId};
@@ -67,7 +67,7 @@ pub fn parametro_de_igualdade_anulavel(
             continue;
         }
         let Some(the_name) = af.name else { continue };
-        output.push((unit, Diagnostic::com_codigo(w::NON_NULLABLE_EQUALS_PARAMETER, the_name.span, Vec::<&str>::new())));
+        output.push((unit, Diagnostic::with_code(w::NON_NULLABLE_EQUALS_PARAMETER, the_name.span, Vec::<&str>::new())));
     }
     output
 }
@@ -144,7 +144,7 @@ pub fn no_such_method_desnecessario(program: &Program, interner: &Interner, core
             continue;
         }
         let Some(the_name) = af.name else { continue };
-        output.push((unit, Diagnostic::com_codigo(w::UNNECESSARY_NO_SUCH_METHOD, the_name.span, Vec::<&str>::new())));
+        output.push((unit, Diagnostic::with_code(w::UNNECESSARY_NO_SUCH_METHOD, the_name.span, Vec::<&str>::new())));
     }
     output
 }
@@ -190,7 +190,7 @@ pub fn interrogacoes_desnecessarias(
             let text: Vec<&str> = name.iter().map(|n| interner.resolve(n.sym)).collect();
             let qualified = text.join(".");
             let sp = Span { start: ty.span.end - 1, end: ty.span.end };
-            output.push((u, Diagnostic::com_codigo(w::UNNECESSARY_QUESTION_MARK, sp, [qualified.as_str()])));
+            output.push((u, Diagnostic::with_code(w::UNNECESSARY_QUESTION_MARK, sp, [qualified.as_str()])));
         }
     }
     output

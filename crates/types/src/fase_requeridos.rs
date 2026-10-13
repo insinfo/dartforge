@@ -14,7 +14,7 @@
 //! Written without compiling or running (2026-10-05).
 
 use crate::resolved::{MemberRef, Resolved, UnitBodyTypes};
-use dartforge_diagnostics::codigos::warning as w;
+use dartforge_diagnostics::codes::warning as w;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_elements::model::{Element, FunctionElementId, FunctionRef, Program, UnitId};
 use dartforge_frontend::ast::{self, ExprKind, MemberKind, ParameterKind, TypeKind};
@@ -111,8 +111,8 @@ pub fn requeridos_ausentes(program: &Program, interner: &Interner, body: &UnitBo
             }
             let text = interner.resolve(the_name.sym);
             out.push(match reason {
-                Some(m) => Diagnostic::com_codigo(w::MISSING_REQUIRED_PARAM_WITH_DETAILS, entity, [text, m.as_str()]),
-                None => Diagnostic::com_codigo(w::MISSING_REQUIRED_PARAM, entity, [text]),
+                Some(m) => Diagnostic::with_code(w::MISSING_REQUIRED_PARAM_WITH_DETAILS, entity, [text, m.as_str()]),
+                None => Diagnostic::with_code(w::MISSING_REQUIRED_PARAM, entity, [text]),
             });
         }
     }

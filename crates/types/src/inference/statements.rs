@@ -425,7 +425,7 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                 let version = inf.program.library(cx.lib).features.versao();
                 if cx.flow.reachable && j + 1 < n && version < dartforge_frontend::features::LanguageVersion::new(3, 0) {
                     let keyword = case_keyword(inf, cx, &cases[group]);
-                    inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::SWITCH_CASE_COMPLETES_NORMALLY, keyword, &[]);
+                    inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::SWITCH_CASE_COMPLETES_NORMALLY, keyword, &[]);
                 }
                 if cx.flow.reachable {
                     exits.push(cx.flow.clone());
@@ -473,7 +473,7 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                 expr::void_use(inf, cx, *value, t);
                 // `YieldStatementResolver._resolve_generator` (`:171-175`).
                 if matches!(m, AsyncModifier::SyncStar | AsyncModifier::AsyncStar) {
-                    expr::nullable_dereference(inf, cx, *value, t, dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_USE_OF_NULLABLE_VALUE_IN_YIELD_EACH);
+                    expr::nullable_dereference(inf, cx, *value, t, dartforge_diagnostics::codes::compile_time_error::UNCHECKED_USE_OF_NULLABLE_VALUE_IN_YIELD_EACH);
                 }
                 invalid_yield(inf, cx, *value, t, declared, true, m);
                 let cls = if m == AsyncModifier::AsyncStar { inf.core.stream_class } else { inf.core.iterable_class };
@@ -510,7 +510,7 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                     None => inf.core.object,
                 };
                 {
-                    use dartforge_diagnostics::codigos::warning as w;
+                    use dartforge_diagnostics::codes::warning as w;
                     // `on T` with `T` potentially nullable (and not invalid): a nullable
                     // value is not thrown.
                     if let Some(t) = c.on_type {
@@ -708,7 +708,7 @@ pub(crate) fn exit_flow(cx: &mut Body) {
 /// different types or `final`, `…_DIFFERENT_FINALITY_OR_TYPE`.
 /// The code applies to each reference in the body.
 fn group_joins(inf: &mut BodyInferrer<'_>, cx: &mut Body, members: &[Vec<(SymbolId, LocalId)>], with_label: bool) {
-    use dartforge_diagnostics::codigos::compile_time_error as c;
+    use dartforge_diagnostics::codes::compile_time_error as c;
     let mut names: Vec<SymbolId> = Vec::new();
     let mut components: std::collections::HashMap<SymbolId, (Vec<LocalId>, bool)> = std::collections::HashMap::new();
     for (k, m) in members.iter().enumerate() {
@@ -948,7 +948,7 @@ fn always_exhaustive(inf: &mut BodyInferrer<'_>, t: TypeId, prof: u32) -> bool {
 /// (`YIELD_OF_INVALID_TYPE`), or that of a `yield*` does not fit the return
 /// (`YIELD_EACH_OF_INVALID_TYPE`), at the expression.
 fn invalid_yield(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, t: TypeId, r: Option<TypeId>, the_star: bool, m: AsyncModifier) {
-    use dartforge_diagnostics::codigos::compile_time_error as c;
+    use dartforge_diagnostics::codes::compile_time_error as c;
     if !matches!(m, AsyncModifier::SyncStar | AsyncModifier::AsyncStar) {
         return;
     }
@@ -1052,7 +1052,7 @@ pub(crate) fn variable_declaration(inf: &mut BodyInferrer<'_>, cx: &mut Body, vl
             // an initializer, which is never evaluated.
             if vl.late && cx.wildcard == Some(v.name.sym) {
                 let sp = inf.span_expr(cx.unit, init);
-                inf.warning_with_code(dartforge_diagnostics::codigos::warning::DEAD_CODE_LATE_WILDCARD_VARIABLE_INITIALIZER, sp, &[]);
+                inf.warning_with_code(dartforge_diagnostics::codes::warning::DEAD_CODE_LATE_WILDCARD_VARIABLE_INITIALIZER, sp, &[]);
             }
         }
         let typ = typ.unwrap_or(inf.core.dynamic_);
@@ -1155,14 +1155,14 @@ pub(crate) fn for_in_header(inf: &mut BodyInferrer<'_>, cx: &mut Body, target: &
     let t = infer(inf, cx, iterable, ctx);
     expr::void_use(inf, cx, iterable, t);
     // `ForResolver._forEachParts` (`for_resolver.dart:164-169`).
-    expr::nullable_dereference(inf, cx, iterable, t, dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_USE_OF_NULLABLE_VALUE_AS_ITERATOR);
+    expr::nullable_dereference(inf, cx, iterable, t, dartforge_diagnostics::codes::compile_time_error::UNCHECKED_USE_OF_NULLABLE_VALUE_AS_ITERATOR);
     let valid_parts = for_in_invalid_type(inf, cx, target, iterable, t, written, await_);
     // `visitForEachPartsWithDeclaration` (`error_verifier.dart:912-921`): with
     // `_checkForEachParts` without error, the variable's `const`.
     if valid_parts
         && let ast::ForInTarget::Declared { const_: Some(keyword), .. } = target
     {
-        inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::FOR_IN_WITH_CONST_VARIABLE, *keyword, &[]);
+        inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::FOR_IN_WITH_CONST_VARIABLE, *keyword, &[]);
     }
     // `_computeForEachElementType` (`for_resolver.dart:92-116`): a `dynamic`
     // iterable gives `dynamic`; what is not an `Iterable`/`Stream` (including
@@ -1201,11 +1201,11 @@ pub(crate) fn for_in_header(inf: &mut BodyInferrer<'_>, cx: &mut Body, target: &
                     // (3.6.2 `error_verifier.dart:926-930`, `:2155-2161`): the local constant,
                     // with the loop's parts valid.
                     if l.const_ && valid_parts {
-                        inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::ASSIGNMENT_TO_CONST, n.span, &[]);
+                        inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::ASSIGNMENT_TO_CONST, n.span, &[]);
                     }
                     if l.final_ && !l.const_ && !cx.local_functions.contains(&id) {
                         if l.late {
-                            inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::LATE_FINAL_LOCAL_ALREADY_ASSIGNED, n.span, &[]);
+                            inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::LATE_FINAL_LOCAL_ALREADY_ASSIGNED, n.span, &[]);
                         } else {
                             let msg = format!("{}: '{}'", crate::codes::ASSIGNMENT_TO_FINAL_LOCAL.template, inf.interner.resolve(l.name));
                             inf.warning(msg, n.span);
@@ -1246,7 +1246,7 @@ pub(crate) fn validate_local_annotation(inf: &mut BodyInferrer<'_>, cx: &Body, m
         Some(Nome::Local(id)) => {
             let l = cx.local(id);
             if cx.local_functions.contains(&id) || !l.const_ || m.arguments.is_some() || m.name.len() > 1 {
-                inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::INVALID_ANNOTATION, m.span, &[]);
+                inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::INVALID_ANNOTATION, m.span, &[]);
             }
         }
         Some(_) => {}
@@ -1271,7 +1271,7 @@ fn for_in_invalid_type(
     written: Option<TypeId>,
     await_: bool,
 ) -> bool {
-    use dartforge_diagnostics::codigos::compile_time_error as ce;
+    use dartforge_diagnostics::codes::compile_time_error as ce;
     let Some(cls) = (if await_ { inf.core.stream_class } else { inf.core.iterable_class }) else { return false };
     // `for (var (p) in e)`: `_checkForEachParts` does not run (only the parts
     // with a declaration and with an identifier); the shared
@@ -1409,7 +1409,7 @@ fn return_(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: Option<ExprId>, span: d
                     let tv = if fc.modifier == AsyncModifier::Async { inf.future_value_type(t) } else { t };
                     if !matches!(inf.table.get(tv), Type::Void | Type::Dynamic | Type::Null) {
                         let sp = dartforge_diagnostics::Span { start: span.start, end: span.start + "return".len() };
-                        inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::RETURN_WITHOUT_VALUE, sp, &[]);
+                        inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::RETURN_WITHOUT_VALUE, sp, &[]);
                     }
                 }
             }

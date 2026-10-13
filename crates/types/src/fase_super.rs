@@ -11,7 +11,7 @@
 //! `super` call is searched for in the body tree, nested functions included.
 //! Written without compiling or running (2026-10-04).
 
-use dartforge_diagnostics::codigos::warning as w;
+use dartforge_diagnostics::codes::warning as w;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_elements::model::{
     ClassId, ClassKind, FunctionElementId, FunctionKind as ElementKind, FunctionRef, LibraryId, Program, UnitId, VariableRef,
@@ -234,7 +234,7 @@ pub fn sem_chamada_ao_super(program: &Program, interner: &Interner, lib: Library
             }
             if !calls_super(a, &unit_id.source, interner, func, text, func.kind) {
                 let owner_name = interner.resolve(program.class(owner).name);
-                output.push((decl.unit, Diagnostic::com_codigo(w::MUST_CALL_SUPER, the_name.span, [owner_name])));
+                output.push((decl.unit, Diagnostic::with_code(w::MUST_CALL_SUPER, the_name.span, [owner_name])));
             }
         }
     }

@@ -24,7 +24,7 @@
 use crate::fase_deprecado::{of_function, of_variable, of_element};
 use crate::resolve::OutlineTypes;
 use crate::resolved::{MemberRef, Resolved, UnitBodyTypes};
-use dartforge_diagnostics::codigos::warning as w;
+use dartforge_diagnostics::codes::warning as w;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_elements::model::{ClassId, ClassKind, Element, LibraryId, Program, UnitId};
 use dartforge_frontend::ast::{self, DeclKind, ExprKind, MemberKind, TypeKind};
@@ -117,7 +117,7 @@ pub fn acessos_invalidos(
             }
         };
         if has(tgt.annotations, "internal") && !same_package(owner.library) {
-            report(Diagnostic::com_codigo(w::INVALID_USE_OF_INTERNAL_MEMBER, span, [the_name]));
+            report(Diagnostic::with_code(w::INVALID_USE_OF_INTERNAL_MEMBER, span, [the_name]));
         }
         let protected = has(tgt.annotations, "protected");
         if protected && tgt.class.is_some_and(|defining| inherits(class_in(where_), defining)) {
@@ -141,16 +141,16 @@ pub fn acessos_invalidos(
         }
         let uri = owner.uri.as_str();
         if protected {
-            report(Diagnostic::com_codigo(w::INVALID_USE_OF_PROTECTED_MEMBER, span, [the_name, uri]));
+            report(Diagnostic::with_code(w::INVALID_USE_OF_PROTECTED_MEMBER, span, [the_name, uri]));
         }
         if for_template {
-            report(Diagnostic::com_codigo(w::INVALID_USE_OF_VISIBLE_FOR_TEMPLATE_MEMBER, span, [the_name, uri]));
+            report(Diagnostic::with_code(w::INVALID_USE_OF_VISIBLE_FOR_TEMPLATE_MEMBER, span, [the_name, uri]));
         }
         if for_test {
-            report(Diagnostic::com_codigo(w::INVALID_USE_OF_VISIBLE_FOR_TESTING_MEMBER, span, [the_name, uri]));
+            report(Diagnostic::with_code(w::INVALID_USE_OF_VISIBLE_FOR_TESTING_MEMBER, span, [the_name, uri]));
         }
         if for_override {
-            report(Diagnostic::com_codigo(w::INVALID_USE_OF_VISIBLE_FOR_OVERRIDING_MEMBER, span, [the_name]));
+            report(Diagnostic::with_code(w::INVALID_USE_OF_VISIBLE_FOR_OVERRIDING_MEMBER, span, [the_name]));
         }
     };
     // Named types (`verifyNamedType`).
@@ -210,7 +210,7 @@ pub fn acessos_invalidos(
             } else {
                 w::SUBTYPE_OF_SEALED_CLASS
             };
-            out.push(Diagnostic::com_codigo(code, a.decl(decl.decl).span, [interner.resolve(superclass.name)]));
+            out.push(Diagnostic::with_code(code, a.decl(decl.decl).span, [interner.resolve(superclass.name)]));
         }
     }
     out

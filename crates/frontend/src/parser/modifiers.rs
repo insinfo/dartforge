@@ -16,7 +16,7 @@
 
 use super::Parser;
 use crate::token::{Keyword, Kind, Op};
-use dartforge_diagnostics::{Codigo, Span, codigos};
+use dartforge_diagnostics::{Code, Span, codes};
 
 /// Absolute position of the token of each modifier read (the
 /// `ModifierContext` fields).
@@ -109,7 +109,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 
     /// Error without arguments at the token at `pos`.
-    pub(crate) fn error_at_token(&mut self, pos: usize, code: Codigo) {
+    pub(crate) fn error_at_token(&mut self, pos: usize, code: Code) {
         let span = self.span_of(pos);
         self.error_at(code, span, &[]);
     }
@@ -119,21 +119,21 @@ impl<'s, 'i> Parser<'s, 'i> {
         if let Some(pos) = pos {
             let texto = self.text_of(pos).to_string();
             let span = self.span_of(pos);
-            self.error_at(codigos::parser::EXTRANEOUS_MODIFIER, span, &[&texto]);
+            self.error_at(codes::parser::EXTRANEOUS_MODIFIER, span, &[&texto]);
         }
     }
 
     fn duplicate_modifier(&mut self, pos: usize) {
         let texto = self.text_of(pos).to_string();
         let span = self.span_of(pos);
-        self.error_at(codigos::parser::DUPLICATED_MODIFIER, span, &[&texto]);
+        self.error_at(codes::parser::DUPLICATED_MODIFIER, span, &[&texto]);
     }
 
     /// `reportModifierOutOfOrder`: `pos` should come before `before`.
     fn out_of_order_modifier(&mut self, pos: usize, before: &str) {
         let texto = self.text_of(pos).to_string();
         let span = self.span_of(pos);
-        self.error_at(codigos::parser::MODIFIER_OUT_OF_ORDER, span, &[&texto, before]);
+        self.error_at(codes::parser::MODIFIER_OUT_OF_ORDER, span, &[&texto, before]);
     }
 
     /// `reportConflictingModifiers`.
@@ -141,7 +141,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         let texto = self.text_of(pos).to_string();
         let before = self.text_of(previous).to_string();
         let span = self.span_of(pos);
-        self.error_at(codigos::parser::CONFLICTING_MODIFIERS, span, &[&texto, &before]);
+        self.error_at(codes::parser::CONFLICTING_MODIFIERS, span, &[&texto, &before]);
     }
 
     /// `ModifierContext._parseModifiers`: consumes every modifier from the
@@ -202,7 +202,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         } else if let Some(c) = f.covariant {
             self.conflicting_modifiers(pos, c);
         } else if f.final_.is_some() {
-            self.error_at_token(pos, codigos::parser::CONST_AND_FINAL);
+            self.error_at_token(pos, codes::parser::CONST_AND_FINAL);
         } else if let Some(v) = f.var_ {
             self.conflicting_modifiers(pos, v);
         }
@@ -230,7 +230,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         } else if let Some(c) = f.const_ {
             self.conflicting_modifiers(pos, c);
         } else if f.static_.is_some() {
-            self.error_at_token(pos, codigos::parser::COVARIANT_AND_STATIC);
+            self.error_at_token(pos, codes::parser::COVARIANT_AND_STATIC);
         }
     }
 
@@ -264,9 +264,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         } else if after_factory {
             self.stray_modifier(Some(pos));
         } else if f.const_.is_some() {
-            self.error_at_token(pos, codigos::parser::CONST_AND_FINAL);
+            self.error_at_token(pos, codes::parser::CONST_AND_FINAL);
         } else if f.var_.is_some() {
-            self.error_at_token(pos, codigos::parser::FINAL_AND_VAR);
+            self.error_at_token(pos, codes::parser::FINAL_AND_VAR);
         } else if let Some(l) = f.late {
             let t = self.text_of(l);
             self.out_of_order_modifier(pos, t);
@@ -312,7 +312,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             return;
         }
         if f.covariant.is_some() {
-            self.error_at_token(pos, codigos::parser::COVARIANT_AND_STATIC);
+            self.error_at_token(pos, codes::parser::COVARIANT_AND_STATIC);
         } else if f.static_.is_some() {
             self.duplicate_modifier(pos);
         } else if after_factory {
@@ -332,7 +332,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         } else if let Some(c) = f.const_ {
             self.conflicting_modifiers(pos, c);
         } else if f.final_.is_some() {
-            self.error_at_token(pos, codigos::parser::FINAL_AND_VAR);
+            self.error_at_token(pos, codes::parser::FINAL_AND_VAR);
         }
     }
 
@@ -437,13 +437,13 @@ impl<'s, 'i> Parser<'s, 'i> {
             ParameterOwner::Extension => {
                 if let Some(c) = f.covariant {
                     let span = self.span_of(c);
-                    self.error_at(codigos::parser::INVALID_USE_OF_COVARIANT_IN_EXTENSION, span, &["covariant"]);
+                    self.error_at(codes::parser::INVALID_USE_OF_COVARIANT_IN_EXTENSION, span, &["covariant"]);
                 }
             }
             ParameterOwner::ExtensionType => {
                 if let Some(c) = f.covariant {
                     let span = self.span_of(c);
-                    self.error_at(codigos::parser::EXTRANEOUS_MODIFIER_IN_EXTENSION_TYPE, span, &["covariant"]);
+                    self.error_at(codes::parser::EXTRANEOUS_MODIFIER_IN_EXTENSION_TYPE, span, &["covariant"]);
                 }
             }
             // `modifier_context.dart:234-249` (main checkout): without the feature,
@@ -453,7 +453,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                     && (!self.features.tem(crate::Feature::PrimaryConstructors) || f.var_.is_none())
                 {
                     let span = self.span_of(c);
-                    self.error_at(codigos::parser::EXTRANEOUS_MODIFIER_IN_PRIMARY_CONSTRUCTOR, span, &["covariant"]);
+                    self.error_at(codes::parser::EXTRANEOUS_MODIFIER_IN_PRIMARY_CONSTRUCTOR, span, &["covariant"]);
                 }
             }
             ParameterOwner::FunctionTypeKind
@@ -466,7 +466,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         } else if owner == ParameterOwner::FunctionTypeKind
             && let Some(v) = f.var_final_or_const()
         {
-            self.error_at_token(v, codigos::parser::FUNCTION_TYPED_PARAMETER_VAR);
+            self.error_at_token(v, codes::parser::FUNCTION_TYPED_PARAMETER_VAR);
         }
         self.stray_modifier(f.abstract_);
         self.stray_modifier(f.external);
@@ -486,16 +486,16 @@ impl<'s, 'i> Parser<'s, 'i> {
         let directive_or_typedef = matches!(word, "typedef" | "library" | "import" | "export" | "part");
         if let Some(c) = f.const_ {
             if class {
-                self.error_at_token(c, codigos::parser::CONST_CLASS);
+                self.error_at_token(c, codes::parser::CONST_CLASS);
             } else {
                 self.stray_modifier(Some(c));
             }
         }
         if let Some(e) = f.external {
             match word {
-                "class" => self.error_at_token(e, codigos::parser::EXTERNAL_CLASS),
-                "enum" => self.error_at_token(e, codigos::parser::EXTERNAL_ENUM),
-                "typedef" => self.error_at_token(e, codigos::parser::EXTERNAL_TYPEDEF),
+                "class" => self.error_at_token(e, codes::parser::EXTERNAL_CLASS),
+                "enum" => self.error_at_token(e, codes::parser::EXTERNAL_ENUM),
+                "typedef" => self.error_at_token(e, codes::parser::EXTERNAL_TYPEDEF),
                 _ => self.stray_modifier(Some(e)),
             }
         }

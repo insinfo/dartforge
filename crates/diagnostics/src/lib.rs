@@ -1,20 +1,20 @@
 //! Diagnostics shared by the compiler, the analyzer and the language server.
 //!
-//! A [`Diagnostic`] may carry a [`Codigo`] from the official `package:analyzer`,
+//! A [`Diagnostic`] may carry a [`Code`] from the official `package:analyzer`,
 //! with severity and arguments. The message of a diagnostic with a code is
-//! **rendered from the official English template** ([`InfoCodigo::mensagem`]), with
+//! **rendered from the official English template** ([`CodeInfo::message`]), with
 //! the same rule as the analyzer's `formatList` (`src/generated/java_core.dart`):
-//! each `{n}` becomes argument `n`. The template table ([`codigos`]) is generated
+//! each `{n}` becomes argument `n`. The template table ([`codes`]) is generated
 //! from `analyzer-6.11.0` (the analyzer of SDK 3.6) by
-//! `cargo run -p dartforge-parity --example gerar_codigos`, and is not edited
+//! `cargo run -p dartforge-parity --example generate_codes`, and is not edited
 //! by hand.
 
-mod codigos_g;
+mod codes_g;
 
-/// Analyzer codes grouped by their originating class (`codigos::compile_time_error::X`,
-/// `codigos::warning::X`, `codigos::parser::X`...), generated.
-pub mod codigos {
-    pub use crate::codigos_g::modulos::*;
+/// Analyzer codes grouped by their originating class (`codes::compile_time_error::X`,
+/// `codes::warning::X`, `codes::parser::X`...), generated.
+pub mod codes {
+    pub use crate::codes_g::modules::*;
 }
 
 /// Half-open range of UTF-8 bytes in the source file.
@@ -33,7 +33,7 @@ pub struct Span {
 ///
 /// The variant order is the reporting order of `dart analyze`: errors first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub enum Severidade {
+pub enum Severity {
     /// `ERROR`: compile-time or syntax error.
     #[default]
     Error,
@@ -43,22 +43,22 @@ pub enum Severidade {
     Info,
 }
 
-impl Severidade {
+impl Severity {
     /// The name in `ErrorSeverity.name` (`"ERROR"`, `"WARNING"`, `"INFO"`).
-    pub const fn nome(self) -> &'static str {
+    pub const fn name(self) -> &'static str {
         match self {
-            Severidade::Error => "ERROR",
-            Severidade::Warning => "WARNING",
-            Severidade::Info => "INFO",
+            Severity::Error => "ERROR",
+            Severity::Warning => "WARNING",
+            Severity::Info => "INFO",
         }
     }
 
-    /// Parses a name produced by [`Severidade::nome`].
-    pub fn por_nome(name: &str) -> Option<Self> {
+    /// Parses a name produced by [`Severity::name`].
+    pub fn by_name(name: &str) -> Option<Self> {
         match name {
-            "ERROR" => Some(Severidade::Error),
-            "WARNING" => Some(Severidade::Warning),
-            "INFO" => Some(Severidade::Info),
+            "ERROR" => Some(Severity::Error),
+            "WARNING" => Some(Severity::Warning),
+            "INFO" => Some(Severity::Info),
             _ => None,
         }
     }
@@ -66,7 +66,7 @@ impl Severidade {
 
 /// Type of a code, in the terms of the analyzer's `ErrorType`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum TipoErro {
+pub enum ErrorType {
     /// `TODO`.
     Todo,
     /// `HINT`.
@@ -83,113 +83,113 @@ pub enum TipoErro {
     Lint,
 }
 
-impl TipoErro {
+impl ErrorType {
     /// The name in `ErrorType.name`.
-    pub const fn nome(self) -> &'static str {
+    pub const fn name(self) -> &'static str {
         match self {
-            TipoErro::Todo => "TODO",
-            TipoErro::Hint => "HINT",
-            TipoErro::CompileTimeError => "COMPILE_TIME_ERROR",
-            TipoErro::CheckedModeCompileTimeError => "CHECKED_MODE_COMPILE_TIME_ERROR",
-            TipoErro::StaticWarning => "STATIC_WARNING",
-            TipoErro::SyntacticError => "SYNTACTIC_ERROR",
-            TipoErro::Lint => "LINT",
+            ErrorType::Todo => "TODO",
+            ErrorType::Hint => "HINT",
+            ErrorType::CompileTimeError => "COMPILE_TIME_ERROR",
+            ErrorType::CheckedModeCompileTimeError => "CHECKED_MODE_COMPILE_TIME_ERROR",
+            ErrorType::StaticWarning => "STATIC_WARNING",
+            ErrorType::SyntacticError => "SYNTACTIC_ERROR",
+            ErrorType::Lint => "LINT",
         }
     }
 
-    /// Parses a name produced by [`TipoErro::nome`].
-    pub fn por_nome(name: &str) -> Option<Self> {
+    /// Parses a name produced by [`ErrorType::name`].
+    pub fn by_name(name: &str) -> Option<Self> {
         [
-            TipoErro::Todo,
-            TipoErro::Hint,
-            TipoErro::CompileTimeError,
-            TipoErro::CheckedModeCompileTimeError,
-            TipoErro::StaticWarning,
-            TipoErro::SyntacticError,
-            TipoErro::Lint,
+            ErrorType::Todo,
+            ErrorType::Hint,
+            ErrorType::CompileTimeError,
+            ErrorType::CheckedModeCompileTimeError,
+            ErrorType::StaticWarning,
+            ErrorType::SyntacticError,
+            ErrorType::Lint,
         ]
         .into_iter()
-        .find(|t| t.nome() == name)
+        .find(|t| t.name() == name)
     }
 
     /// The default severity of the type (`ErrorType.severity`).
-    pub const fn severidade(self) -> Severidade {
+    pub const fn severity(self) -> Severity {
         match self {
-            TipoErro::Todo | TipoErro::Hint | TipoErro::Lint => Severidade::Info,
-            TipoErro::StaticWarning => Severidade::Warning,
-            TipoErro::CompileTimeError | TipoErro::CheckedModeCompileTimeError | TipoErro::SyntacticError => {
-                Severidade::Error
+            ErrorType::Todo | ErrorType::Hint | ErrorType::Lint => Severity::Info,
+            ErrorType::StaticWarning => Severity::Warning,
+            ErrorType::CompileTimeError | ErrorType::CheckedModeCompileTimeError | ErrorType::SyntacticError => {
+                Severity::Error
             }
         }
     }
 
     /// Compile-time and syntax errors: `compile-js` rejects the program.
-    pub const fn e_erro_de_compilacao(self) -> bool {
+    pub const fn is_compile_error(self) -> bool {
         matches!(
             self,
-            TipoErro::CompileTimeError | TipoErro::CheckedModeCompileTimeError | TipoErro::SyntacticError
+            ErrorType::CompileTimeError | ErrorType::CheckedModeCompileTimeError | ErrorType::SyntacticError
         )
     }
 }
 
 /// An entry of the generated table: one analyzer `ErrorCode`.
 #[derive(Debug, PartialEq, Eq)]
-pub struct InfoCodigo {
+pub struct CodeInfo {
     /// The code as `dart analyze` reports it: `ErrorCode.name` in lower case.
     /// Several codes may share the name (with a different `uniqueName`).
-    pub nome: &'static str,
+    pub name: &'static str,
     /// `ErrorCode.uniqueName`, for example `CompileTimeErrorCode.RETURN_OF_INVALID_TYPE_FROM_FUNCTION`.
-    pub unico: &'static str,
+    pub unique: &'static str,
     /// Message template, with `{0}`, `{1}`...
-    pub mensagem: &'static str,
+    pub message: &'static str,
     /// Correction template, if any.
-    pub correcao: Option<&'static str>,
+    pub correction: Option<&'static str>,
     /// `ErrorCode.type`.
-    pub tipo: TipoErro,
+    pub error_type: ErrorType,
     /// `ErrorCode.errorSeverity`.
-    pub severidade: Severidade,
+    pub severity: Severity,
     /// `hasPublishedDocs`: the `dart analyze` JSON carries the `documentation` field.
-    pub documentado: bool,
+    pub documented: bool,
 }
 
-impl InfoCodigo {
+impl CodeInfo {
     /// `ErrorCode.url`: the address of the published documentation.
     pub fn url(&self) -> Option<String> {
-        self.documentado.then(|| format!("https://dart.dev/diagnostics/{}", self.nome))
+        self.documented.then(|| format!("https://dart.dev/diagnostics/{}", self.name))
     }
 }
 
 /// An analyzer code: index into the generated table (2 bytes per diagnostic).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Codigo(u16);
+pub struct Code(u16);
 
-impl Codigo {
+impl Code {
     /// The table entry.
-    pub fn info(self) -> &'static InfoCodigo {
-        &codigos_g::TABELA[self.0 as usize]
+    pub fn info(self) -> &'static CodeInfo {
+        &codes_g::TABLE[self.0 as usize]
     }
 
     /// All codes of the table, in generated order.
-    pub fn todos() -> impl Iterator<Item = Codigo> {
-        (0..codigos_g::TABELA.len() as u16).map(Codigo)
+    pub fn all() -> impl Iterator<Item = Code> {
+        (0..codes_g::TABLE.len() as u16).map(Code)
     }
 
     /// Looks up by `uniqueName` (`"CompileTimeErrorCode.UNDEFINED_FUNCTION"`).
-    pub fn por_unico(unique: &str) -> Option<Codigo> {
-        codigos_g::POR_UNICO
+    pub fn by_unique(unique: &str) -> Option<Code> {
+        codes_g::BY_UNIQUE
             .binary_search_by(|(u, _)| (*u).cmp(unique))
             .ok()
-            .map(|i| Codigo(codigos_g::POR_UNICO[i].1))
+            .map(|i| Code(codes_g::BY_UNIQUE[i].1))
     }
 
     /// Looks up by the reported code (`"undefined_function"`). Among codes that
     /// share the name, returns the one whose `uniqueName` is the name itself.
-    pub fn por_nome(name: &str) -> Option<Codigo> {
+    pub fn by_name(name: &str) -> Option<Code> {
         let mut found = None;
-        for c in Codigo::todos() {
+        for c in Code::all() {
             let info = c.info();
-            if info.nome == name {
-                let own = info.unico.rsplit('.').next().is_some_and(|u| u.eq_ignore_ascii_case(name));
+            if info.name == name {
+                let own = info.unique.rsplit('.').next().is_some_and(|u| u.eq_ignore_ascii_case(name));
                 if own {
                     return Some(c);
                 }
@@ -205,7 +205,7 @@ impl Codigo {
 /// language version is above 3.6 and for those using syntax that 3.6.2
 /// does not know.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, serde::Serialize, serde::Deserialize)]
-pub enum Referencia {
+pub enum AnalyzerReference {
     /// Analyzer 6.11.0, from SDK 3.6.2.
     #[default]
     V3_6,
@@ -215,60 +215,60 @@ pub enum Referencia {
 
 /// How a code of the 6.11 catalog is reported when the reference is 3.13.4.
 #[derive(Debug, PartialEq, Eq)]
-pub struct Variante313 {
+pub struct Variant313 {
     /// The 6.11 catalog entry.
-    pub de: Codigo,
+    pub from: Code,
     /// The entry 3.13.4 reports with (may be the same one); `None` when
     /// 3.13.4 does not report it.
-    pub para: Option<Codigo>,
+    pub to: Option<Code>,
     /// The indices, into the diagnostic's arguments, of the target template's
     /// arguments, in the order of its `{n}`.
     pub args: &'static [u8],
     /// How many arguments the diagnostic must carry for this row to apply.
-    pub exige: u8,
+    pub requires: u8,
 }
 
-impl Codigo {
+impl Code {
     /// The rows of the variant table for this code, in the order they are
     /// tried.
-    pub fn variantes_3_13(self) -> &'static [Variante313] {
-        let t = &codigos_g::VARIANTES_3_13[..];
-        let start = t.partition_point(|v| v.de < self);
-        let end = t.partition_point(|v| v.de <= self);
+    pub fn variants_3_13(self) -> &'static [Variant313] {
+        let t = &codes_g::VARIANTS_3_13[..];
+        let start = t.partition_point(|v| v.from < self);
+        let end = t.partition_point(|v| v.from <= self);
         &t[start..end]
     }
 
     /// The variant that applies to a diagnostic with `arg_count` arguments:
     /// the first one that fits. An emitter that does not pass the arguments
     /// only 3.13 uses gets no variant, and the diagnostic is reported as in 3.6.
-    pub fn variante_3_13(self, arg_count: usize) -> Option<&'static Variante313> {
-        self.variantes_3_13().iter().find(|v| arg_count >= v.exige as usize)
+    pub fn variant_3_13(self, arg_count: usize) -> Option<&'static Variant313> {
+        self.variants_3_13().iter().find(|v| arg_count >= v.requires as usize)
     }
 }
 
-impl serde::Serialize for Codigo {
+impl serde::Serialize for Code {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        s.serialize_str(self.info().unico)
+        s.serialize_str(self.info().unique)
     }
 }
 
-impl<'de> serde::Deserialize<'de> for Codigo {
+impl<'de> serde::Deserialize<'de> for Code {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let s = String::deserialize(d)?;
-        Codigo::por_unico(&s).ok_or_else(|| serde::de::Error::custom(format!("unknown code: {s}")))
+        Code::by_unique(&s).ok_or_else(|| serde::de::Error::custom(format!("unknown code: {s}")))
     }
 }
 
-impl serde::Serialize for Severidade {
+impl serde::Serialize for Severity {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        s.serialize_str(self.nome())
+        s.serialize_str(self.name())
     }
 }
 
-impl<'de> serde::Deserialize<'de> for Severidade {
+impl<'de> serde::Deserialize<'de> for Severity {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let s = String::deserialize(d)?;
-        Severidade::por_nome(&s).ok_or_else(|| serde::de::Error::custom(format!("unknown severity: {s}")))
+        Severity::by_name(&s).ok_or_else(|| serde::de::Error::custom(format!("unknown severity: {s}")))
     }
 }
 
@@ -276,12 +276,12 @@ impl<'de> serde::Deserialize<'de> for Severidade {
 /// `args[n]`. Without arguments the template is returned untouched (the
 /// analyzer does not substitute anything either). An index without an
 /// argument is left as is.
-pub fn formatar(molde: &str, args: &[Box<str>]) -> String {
+pub fn format_list(template: &str, args: &[Box<str>]) -> String {
     if args.is_empty() {
-        return molde.to_string();
+        return template.to_string();
     }
-    let mut out = String::with_capacity(molde.len() + 16);
-    let mut rest = molde;
+    let mut out = String::with_capacity(template.len() + 16);
+    let mut rest = template;
     while let Some(i) = rest.find('{') {
         out.push_str(&rest[..i]);
         let after = &rest[i + 1..];
@@ -307,13 +307,13 @@ pub fn formatar(molde: &str, args: &[Box<str>]) -> String {
 /// same name…), which the output shows below it
 /// (docs/ANALYZER-ESPECIFICACAO-INFRA.md §3.3, §5.4, §5.5).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct Contexto {
+pub struct ContextMessage {
     /// The file of the message, when it is not the diagnostic's own
     /// (absolute path).
     #[serde(default)]
-    pub arquivo: Option<Box<str>>,
+    pub file: Option<Box<str>>,
     pub span: Span,
-    pub mensagem: Box<str>,
+    pub message: Box<str>,
 }
 
 /// An error together with its location in the source code.
@@ -326,17 +326,17 @@ pub struct Diagnostic {
     pub span: Span,
     /// Analyzer code, when the diagnostic has parity with one.
     #[serde(default)]
-    pub code: Option<Codigo>,
+    pub code: Option<Code>,
     /// Effective severity (the code's, unless reconfigured by
     /// `analysis_options.yaml`). Without a code, `Error`.
     #[serde(default)]
-    pub severity: Severidade,
+    pub severity: Severity,
     /// Template arguments, in the order of the `{n}`.
     #[serde(default)]
     pub args: Box<[Box<str>]>,
     /// The context messages (`contextMessages`); almost always empty.
     #[serde(default)]
-    pub contexto: Vec<Contexto>,
+    pub context: Vec<ContextMessage>,
 }
 
 impl Diagnostic {
@@ -355,27 +355,27 @@ impl Diagnostic {
             message: message.into(),
             span,
             code: None,
-            severity: Severidade::Error,
+            severity: Severity::Error,
             args: Box::default(),
-            contexto: Vec::new(),
+            context: Vec::new(),
         }
     }
 
     /// Adds a context message in the same file as the diagnostic.
-    pub fn com_contexto(mut self, span: Span, message: impl Into<Box<str>>) -> Self {
-        self.contexto.push(Contexto { arquivo: None, span, mensagem: message.into() });
+    pub fn with_context(mut self, span: Span, message: impl Into<Box<str>>) -> Self {
+        self.context.push(ContextMessage { file: None, span, message: message.into() });
         self
     }
 
     /// Creates a diagnostic with a code: the message comes from the official template.
     ///
     /// ```
-    /// use dartforge_diagnostics::{codigos, Diagnostic, Span};
-    /// let d = Diagnostic::com_codigo(codigos::compile_time_error::UNDEFINED_FUNCTION, Span { start: 0, end: 1 }, ["h"]);
+    /// use dartforge_diagnostics::{codes, Diagnostic, Span};
+    /// let d = Diagnostic::with_code(codes::compile_time_error::UNDEFINED_FUNCTION, Span { start: 0, end: 1 }, ["h"]);
     /// assert_eq!(d.message, "The function 'h' isn't defined.");
-    /// assert_eq!(d.code.unwrap().info().nome, "undefined_function");
+    /// assert_eq!(d.code.unwrap().info().name, "undefined_function");
     /// ```
-    pub fn com_codigo<I, A>(code: Codigo, span: Span, args: I) -> Self
+    pub fn with_code<I, A>(code: Code, span: Span, args: I) -> Self
     where
         I: IntoIterator<Item = A>,
         A: Into<Box<str>>,
@@ -383,42 +383,42 @@ impl Diagnostic {
         let args: Box<[Box<str>]> = args.into_iter().map(Into::into).collect();
         let info = code.info();
         Self {
-            message: formatar(info.mensagem, &args),
+            message: format_list(info.message, &args),
             span,
             code: Some(code),
-            severity: info.severidade,
+            severity: info.severity,
             args,
-            contexto: Vec::new(),
+            context: Vec::new(),
         }
     }
 
     /// The diagnostic as the analyzer of reference `r` reports it: for 3.6,
     /// itself; for 3.13.4, with the code, text and arguments of the variant
-    /// ([`Codigo::variante_3_13`]), or `None` when 3.13.4 does not report it.
+    /// ([`Code::variant_3_13`]), or `None` when 3.13.4 does not report it.
     /// The severity follows the target code's, unless it was already
     /// reconfigured.
-    pub fn na_referencia(mut self, r: Referencia) -> Option<Diagnostic> {
-        if r == Referencia::V3_6 {
+    pub fn for_reference(mut self, r: AnalyzerReference) -> Option<Diagnostic> {
+        if r == AnalyzerReference::V3_6 {
             return Some(self);
         }
         let Some(from) = self.code else { return Some(self) };
-        let Some(v) = from.variante_3_13(self.args.len()) else { return Some(self) };
-        let to = v.para?;
+        let Some(v) = from.variant_3_13(self.args.len()) else { return Some(self) };
+        let to = v.to?;
         let args: Box<[Box<str>]> = v.args.iter().map(|&i| self.args[i as usize].clone()).collect();
         let info = to.info();
-        if self.severity == from.info().severidade {
-            self.severity = info.severidade;
+        if self.severity == from.info().severity {
+            self.severity = info.severity;
         }
-        self.message = formatar(info.mensagem, &args);
+        self.message = format_list(info.message, &args);
         self.code = Some(to);
         self.args = args;
         Some(self)
     }
 
     /// The correction rendered from the official template, if the code has one.
-    pub fn correcao(&self) -> Option<String> {
-        let template = self.code?.info().correcao?;
-        Some(formatar(template, &self.args))
+    pub fn correction(&self) -> Option<String> {
+        let template = self.code?.info().correction?;
+        Some(format_list(template, &self.args))
     }
 }
 
@@ -426,7 +426,7 @@ impl std::fmt::Display for Diagnostic {
     /// Formats the message with its byte range.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(c) = self.code {
-            write!(f, "{}: ", c.info().nome)?;
+            write!(f, "{}: ", c.info().name)?;
         }
         write!(f, "{} at bytes {}..{}", self.message, self.span.start, self.span.end)
     }
@@ -441,11 +441,11 @@ mod tests {
     fn formats_like_format_list() {
         let a: Vec<Box<str>> = vec!["String".into(), "int".into(), "".into()];
         assert_eq!(
-            formatar("The argument type '{0}' can't be assigned to the parameter type '{1}'. {2}", &a),
+            format_list("The argument type '{0}' can't be assigned to the parameter type '{1}'. {2}", &a),
             "The argument type 'String' can't be assigned to the parameter type 'int'. "
         );
-        assert_eq!(formatar("no {0} args", &[]), "no {0} args");
-        assert_eq!(formatar("{x} {9}", &a), "{x} {9}");
+        assert_eq!(format_list("no {0} args", &[]), "no {0} args");
+        assert_eq!(format_list("{x} {9}", &a), "{x} {9}");
     }
 
     /// The analyzer 6.11 table plus the generator's 3.13.4 supplement
@@ -457,95 +457,95 @@ mod tests {
     /// 6.11 codes (12, 1 and 1).
     #[test]
     fn table_has_the_counts_of_analyzer_6_11_and_the_supplement() {
-        let count = |prefix: &str| Codigo::todos().filter(|c| c.info().unico.starts_with(prefix)).count();
+        let count = |prefix: &str| Code::all().filter(|c| c.info().unique.starts_with(prefix)).count();
         assert_eq!(count("CompileTimeErrorCode."), 542 + 4 + 4 + 5 + 12);
         assert_eq!(count("StaticWarningCode."), 7);
         assert_eq!(count("WarningCode."), 144 + 2 + 1);
         assert_eq!(count("ParserErrorCode."), 265 + 6 + 3 + 1);
-        for c in Codigo::todos() {
-            assert_eq!(Codigo::por_unico(c.info().unico), Some(c));
+        for c in Code::all() {
+            assert_eq!(Code::by_unique(c.info().unique), Some(c));
         }
     }
 
     /// The variant table is sorted, and each row fits the templates.
     #[test]
     fn variants_3_13_sorted_and_consistent() {
-        let t = &codigos_g::VARIANTES_3_13;
-        assert!(t.windows(2).all(|w| w[0].de <= w[1].de));
+        let t = &codes_g::VARIANTS_3_13;
+        assert!(t.windows(2).all(|w| w[0].from <= w[1].from));
         for v in t.iter() {
-            assert!(v.args.iter().all(|&i| i < v.exige));
-            assert_eq!(v.de.variantes_3_13().first().map(|p| p.de), Some(v.de));
+            assert!(v.args.iter().all(|&i| i < v.requires));
+            assert_eq!(v.from.variants_3_13().first().map(|p| p.from), Some(v.from));
         }
-        assert!(codigos::compile_time_error::UNDEFINED_FUNCTION.variantes_3_13().is_empty());
+        assert!(codes::compile_time_error::UNDEFINED_FUNCTION.variants_3_13().is_empty());
     }
 
     /// Cases c02, c03, c04, c05, c13 and c16 of `corpus/especificacao/t2/v`.
     #[test]
-    fn na_referencia_switches_name_text_and_arguments() {
-        use codigos::{compile_time_error as c, parser as p, warning as w};
+    fn for_reference_switches_name_text_and_arguments() {
+        use codes::{compile_time_error as c, parser as p, warning as w};
         let s = Span { start: 0, end: 1 };
-        let same = Diagnostic::com_codigo(c::ENUM_WITHOUT_CONSTANTS, s, Vec::<String>::new());
-        assert_eq!(same.clone().na_referencia(Referencia::V3_6), Some(same.clone()));
-        let new = same.na_referencia(Referencia::V3_13).unwrap();
+        let same = Diagnostic::with_code(c::ENUM_WITHOUT_CONSTANTS, s, Vec::<String>::new());
+        assert_eq!(same.clone().for_reference(AnalyzerReference::V3_6), Some(same.clone()));
+        let new = same.for_reference(AnalyzerReference::V3_13).unwrap();
         assert_eq!(new.message, "The enum must have at least one enum constant.");
-        assert_eq!(new.correcao().as_deref(), Some("Try declaring an enum constant."));
-        assert_eq!(new.code.unwrap().info().nome, "enum_without_constants");
+        assert_eq!(new.correction().as_deref(), Some("Try declaring an enum constant."));
+        assert_eq!(new.code.unwrap().info().name, "enum_without_constants");
 
-        let field = Diagnostic::com_codigo(p::REPRESENTATION_FIELD_MODIFIER, s, ["var"]);
+        let field = Diagnostic::with_code(p::REPRESENTATION_FIELD_MODIFIER, s, ["var"]);
         assert_eq!(field.message, "Representation fields can't have modifiers.");
-        assert_eq!(field.na_referencia(Referencia::V3_13).unwrap().message, "Representation fields can't have the modifier 'var'.");
+        assert_eq!(field.for_reference(AnalyzerReference::V3_13).unwrap().message, "Representation fields can't have the modifier 'var'.");
 
-        let param = Diagnostic::com_codigo(w::UNUSED_ELEMENT_PARAMETER, s, ["p"]);
-        assert_eq!(param.code.unwrap().info().nome, "unused_element");
-        let param = param.na_referencia(Referencia::V3_13).unwrap();
-        assert_eq!(param.code.unwrap().info().nome, "unused_element_parameter");
+        let param = Diagnostic::with_code(w::UNUSED_ELEMENT_PARAMETER, s, ["p"]);
+        assert_eq!(param.code.unwrap().info().name, "unused_element");
+        let param = param.for_reference(AnalyzerReference::V3_13).unwrap();
+        assert_eq!(param.code.unwrap().info().name, "unused_element_parameter");
         assert_eq!(param.message, "A value for optional parameter 'p' isn't ever given.");
-        assert_eq!(param.severity, Severidade::Warning);
+        assert_eq!(param.severity, Severity::Warning);
 
-        let superclass = Diagnostic::com_codigo(c::CONST_CONSTRUCTOR_WITH_NON_CONST_SUPER, s, ["B", "A"]);
+        let superclass = Diagnostic::with_code(c::CONST_CONSTRUCTOR_WITH_NON_CONST_SUPER, s, ["B", "A"]);
         assert!(superclass.message.ends_with("of 'B'."));
-        assert!(superclass.na_referencia(Referencia::V3_13).unwrap().message.ends_with("of 'A'."));
+        assert!(superclass.for_reference(AnalyzerReference::V3_13).unwrap().message.ends_with("of 'A'."));
         // Without the argument only 3.13 uses, the diagnostic does not change.
-        let old = Diagnostic::com_codigo(c::CONST_CONSTRUCTOR_WITH_NON_CONST_SUPER, s, ["B"]);
-        assert_eq!(old.clone().na_referencia(Referencia::V3_13), Some(old));
+        let old = Diagnostic::with_code(c::CONST_CONSTRUCTOR_WITH_NON_CONST_SUPER, s, ["B"]);
+        assert_eq!(old.clone().for_reference(AnalyzerReference::V3_13), Some(old));
 
-        let two = Diagnostic::com_codigo(
+        let two = Diagnostic::with_code(
             c::AMBIGUOUS_EXTENSION_MEMBER_ACCESS,
             s,
             ["m", "extension 'E1' and extension 'E2'", "extension E1 on int", "extension E2 on int"],
         );
         assert_eq!(
-            two.na_referencia(Referencia::V3_13).unwrap().message,
+            two.for_reference(AnalyzerReference::V3_13).unwrap().message,
             "A member named 'm' is defined in 'extension E1 on int' and 'extension E2 on int', and neither is more specific."
         );
         // Three or more: the 3.13.4 text is the 3.6.2 one (case c25).
-        let three = Diagnostic::com_codigo(c::AMBIGUOUS_EXTENSION_MEMBER_ACCESS, s, ["m", "extension 'E1', extension 'E2', and extension 'E3'"]);
-        assert_eq!(three.clone().na_referencia(Referencia::V3_13), Some(three));
+        let three = Diagnostic::with_code(c::AMBIGUOUS_EXTENSION_MEMBER_ACCESS, s, ["m", "extension 'E1', extension 'E2', and extension 'E3'"]);
+        assert_eq!(three.clone().for_reference(AnalyzerReference::V3_13), Some(three));
 
-        let private = Diagnostic::com_codigo(c::NON_EXHAUSTIVE_SWITCH_EXPRESSION, s, ["P", "P._b", "P._b", ""]);
-        let private = private.na_referencia(Referencia::V3_13).unwrap();
+        let private = Diagnostic::with_code(c::NON_EXHAUSTIVE_SWITCH_EXPRESSION, s, ["P", "P._b", "P._b", ""]);
+        let private = private.for_reference(AnalyzerReference::V3_13).unwrap();
         assert_eq!(private.message, "The enum 'P' isn't exhaustively matched by the switch cases because some of the enum constants are private.");
-        assert_eq!(private.correcao().as_deref(), Some("Try adding a wildcard pattern."));
+        assert_eq!(private.correction().as_deref(), Some("Try adding a wildcard pattern."));
 
-        let outside = Diagnostic::com_codigo(c::FIELD_INITIALIZER_OUTSIDE_CONSTRUCTOR, s, Vec::<String>::new());
-        assert_eq!(outside.na_referencia(Referencia::V3_13), None);
-        let from_parser = Diagnostic::com_codigo(p::FIELD_INITIALIZER_OUTSIDE_CONSTRUCTOR, s, Vec::<String>::new());
-        assert!(from_parser.na_referencia(Referencia::V3_13).is_some());
+        let outside = Diagnostic::with_code(c::FIELD_INITIALIZER_OUTSIDE_CONSTRUCTOR, s, Vec::<String>::new());
+        assert_eq!(outside.for_reference(AnalyzerReference::V3_13), None);
+        let from_parser = Diagnostic::with_code(p::FIELD_INITIALIZER_OUTSIDE_CONSTRUCTOR, s, Vec::<String>::new());
+        assert!(from_parser.for_reference(AnalyzerReference::V3_13).is_some());
     }
 
     #[test]
-    fn por_nome_prefers_own_name() {
-        let c = Codigo::por_nome("abstract_field_initializer").unwrap();
-        assert_eq!(c.info().unico, "CompileTimeErrorCode.ABSTRACT_FIELD_INITIALIZER");
-        assert_eq!(c.info().severidade, Severidade::Error);
-        let w = Codigo::por_nome("unused_local_variable").unwrap();
-        assert_eq!(w.info().tipo, TipoErro::StaticWarning);
-        assert_eq!(w.info().severidade, Severidade::Warning);
+    fn by_name_prefers_own_name() {
+        let c = Code::by_name("abstract_field_initializer").unwrap();
+        assert_eq!(c.info().unique, "CompileTimeErrorCode.ABSTRACT_FIELD_INITIALIZER");
+        assert_eq!(c.info().severity, Severity::Error);
+        let w = Code::by_name("unused_local_variable").unwrap();
+        assert_eq!(w.info().error_type, ErrorType::StaticWarning);
+        assert_eq!(w.info().severity, Severity::Warning);
     }
 
     #[test]
     fn code_serde_by_unique_name() {
-        let d = Diagnostic::com_codigo(codigos::compile_time_error::NON_BOOL_CONDITION, Span { start: 1, end: 2 }, Vec::<String>::new());
+        let d = Diagnostic::with_code(codes::compile_time_error::NON_BOOL_CONDITION, Span { start: 1, end: 2 }, Vec::<String>::new());
         let j = serde_json::to_string(&d).unwrap();
         assert!(j.contains("CompileTimeErrorCode.NON_BOOL_CONDITION"), "{j}");
         let back: Diagnostic = serde_json::from_str(&j).unwrap();

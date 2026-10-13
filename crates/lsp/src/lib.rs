@@ -741,7 +741,7 @@ impl SyntacticAnalyzer {
         let parsed = dartforge_frontend::parser::parse_com(text, &mut names, features);
         // Name and text of the analyzer that is the file's reference (T2).
         let reference = parsed.referencia;
-        parsed.diagnostics.into_iter().filter_map(|d| d.na_referencia(reference)).collect()
+        parsed.diagnostics.into_iter().filter_map(|d| d.for_reference(reference)).collect()
     }
 }
 
@@ -765,7 +765,7 @@ impl Analyzer for SyntacticAnalyzer {
         let skipped = dartforge_analysis::Pulados { fonte: text, trechos: &parsed.pulados };
         let wildcard = features.tem(dartforge_frontend::features::Feature::WildcardVariables);
         let reference = parsed.referencia;
-        let join = reference == dartforge_diagnostics::Referencia::V3_6;
+        let join = reference == dartforge_diagnostics::AnalyzerReference::V3_6;
         let semantic = dartforge_analysis::duplicatas::duplicatas(&[unit], &names, wildcard, join)
             .into_iter()
             .map(|(_, d)| d)
@@ -784,7 +784,7 @@ impl Analyzer for SyntacticAnalyzer {
         );
         // Last, the name and text of the reference analyzer (T2): the filters above
         // know the codes by their 3.6 names.
-        output.into_iter().filter_map(|d| d.na_referencia(reference)).collect()
+        output.into_iter().filter_map(|d| d.for_reference(reference)).collect()
     }
 
     fn symbols(&mut self, uri: &str, text: &str) -> Vec<serde_json::Value> {

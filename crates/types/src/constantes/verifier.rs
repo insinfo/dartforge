@@ -10,7 +10,7 @@ use super::exhaustiveness::{Case, Entry, Exhaustiveness};
 use super::valor::{Estado, Valor};
 use crate::resolved::Resolved;
 use crate::table::{Type, TypeId};
-use dartforge_diagnostics::{codigos::compile_time_error as c, codigos::warning as w, Codigo, Diagnostic, Span};
+use dartforge_diagnostics::{codes::compile_time_error as c, codes::warning as w, Code, Diagnostic, Span};
 use dartforge_elements::model::{ClassId, LibraryId, UnitId, VariableId, VariableRef};
 use dartforge_frontend::ast::{
     self, CollectionElement, DeclKind, ExprId, ExprKind, MemberKind, PatternId, PatternKind, StmtId, StmtKind,
@@ -19,7 +19,7 @@ use std::collections::HashMap;
 
 /// The codes more specific than the default (`_reportError`): reported as
 /// they are, instead of the default code at the point of use.
-const SPECIFIC: &[Codigo] = &[
+const SPECIFIC: &[Code] = &[
     c::CONST_EVAL_EXTENSION_METHOD,
     c::CONST_EVAL_EXTENSION_TYPE_METHOD,
     c::CONST_EVAL_FOR_ELEMENT,
@@ -163,7 +163,7 @@ pub fn creation_can_be_const(m: &mut Motor<'_>, lib: LibraryId, unit_id: UnitId,
         in_constant_expression: false,
     };
     v.constant_creation(a, e, args_list);
-    !v.output.iter().any(|(_, d)| d.code.is_some_and(|c| CONSTANT_ERRORS.contains(&c.info().unico)))
+    !v.output.iter().any(|(_, d)| d.code.is_some_and(|c| CONSTANT_ERRORS.contains(&c.info().unique)))
 }
 
 /// A verifier without the library's tables (the lint queries).
@@ -191,7 +191,7 @@ pub fn literal_can_be_const(m: &mut Motor<'_>, lib: LibraryId, unit_id: UnitId, 
     let a = m.ast(unit_id);
     let mut v = standalone_verifier(m, lib, unit_id);
     v.expr(a, e, true);
-    !v.output.iter().any(|(_, d)| d.code.is_some_and(|c| CONSTANT_ERRORS.contains(&c.info().unico)))
+    !v.output.iter().any(|(_, d)| d.code.is_some_and(|c| CONSTANT_ERRORS.contains(&c.info().unique)))
 }
 
 /// `ConstructorDeclaration.canBeConst` (`analyzer/lib/src/lint/linter.dart`):
@@ -244,7 +244,7 @@ pub fn constructor_can_be_const(m: &mut Motor<'_>, lib: LibraryId, unit_id: Unit
         }
     }
     v.default_values(a, &k.parameters);
-    !v.output.iter().any(|(_, d)| d.code.is_some_and(|c| CONSTANT_ERRORS.contains(&c.info().unico)))
+    !v.output.iter().any(|(_, d)| d.code.is_some_and(|c| CONSTANT_ERRORS.contains(&c.info().unique)))
 }
 
 /// The constant errors of the units of `lib`.
@@ -415,24 +415,24 @@ impl Verifier<'_, '_> {
         Ctx::simples(self.unit, self.lib)
     }
 
-    fn report(&mut self, code: Codigo, span: Span, args: Vec<String>) {
-        self.output.push((self.unit, Diagnostic::com_codigo(code, span, args)));
+    fn report(&mut self, code: Code, span: Span, args: Vec<String>) {
+        self.output.push((self.unit, Diagnostic::with_code(code, span, args)));
     }
 
     /// The error with its code and the `contextMessages` (in each one's file,
     /// when it is not this unit's).
     fn report_with_context(&mut self, i: &Invalid) {
-        let mut d = Diagnostic::com_codigo(i.code, i.span, i.args.clone());
+        let mut d = Diagnostic::with_code(i.code, i.span, i.args.clone());
         for (u, span, text) in &i.context {
             let file = (*u != self.unit).then(|| self.m.program.caminho_da_unidade(*u).into());
-            d.contexto.push(dartforge_diagnostics::Contexto { arquivo: file, span: *span, mensagem: text.as_str().into() });
+            d.context.push(dartforge_diagnostics::ContextMessage { file: file, span: *span, message: text.as_str().into() });
         }
         self.output.push((self.unit, d));
     }
 
     /// `_reportError`: the specific code carries the context messages; the
     /// default one does not.
-    fn report_invalid(&mut self, i: &Invalid, the_pattern: Option<Codigo>) {
+    fn report_invalid(&mut self, i: &Invalid, the_pattern: Option<Code>) {
         if i.avoid_report || i.unit != self.unit {
             return;
         }
@@ -444,7 +444,7 @@ impl Verifier<'_, '_> {
     }
 
     /// `_evaluateAndReportError`.
-    fn evaluate_and_report(&mut self, e: ExprId, in_const: bool, the_pattern: Codigo) -> Constante {
+    fn evaluate_and_report(&mut self, e: ExprId, in_const: bool, the_pattern: Code) -> Constante {
         let cx = self.cx();
         let r = self.m.avaliar(&cx, e, in_const);
         if let Constante::Invalid(i) = &r {
@@ -737,7 +737,7 @@ impl Verifier<'_, '_> {
         // `const`. In 3.13.4 (`link.dart:284-323`, `_computeHasNonFinalField`)
         // only a field with storage counts: `abstract int x;` does not (in
         // 3.6.2, `element.dart:329-356`, it does).
-        let reference_313 = program.referencia(self.unit) == dartforge_diagnostics::Referencia::V3_13;
+        let reference_313 = program.referencia(self.unit) == dartforge_diagnostics::AnalyzerReference::V3_13;
         if data.kind == ClassKind::Class {
             let mut queue: Vec<ClassId> = vec![cls];
             let mut seen: Vec<ClassId> = Vec::new();
@@ -786,7 +786,7 @@ impl Verifier<'_, '_> {
             let primary = self.is_primary(a, mid, k);
             if in_cycle && !k.factory && !primary {
                 let span = match k.name {
-                    Some(n) if self.m.program.referencia(self.unit) == dartforge_diagnostics::Referencia::V3_13 => {
+                    Some(n) if self.m.program.referencia(self.unit) == dartforge_diagnostics::AnalyzerReference::V3_13 => {
                         Span { start: k.class_name.span.start, end: n.span.end }
                     }
                     _ => k.class_name.span,
@@ -1255,8 +1255,8 @@ impl Verifier<'_, '_> {
                         if !self.can_be_equal(v.tipo, matched, 0) {
                             let displayer = crate::exibicao::Exibidor { table: &*self.m.table, interner: self.m.interner, program: self.m.program };
                             let (texts, context) = displayer.arguments_and_context(&[crate::exibicao::Arg::Type_(matched), crate::exibicao::Arg::Type_(v.tipo)]);
-                            let mut d = Diagnostic::com_codigo(dartforge_diagnostics::codigos::warning::CONSTANT_PATTERN_NEVER_MATCHES_VALUE_TYPE, a.pattern(p).span, texts);
-                            d.contexto.extend(context);
+                            let mut d = Diagnostic::with_code(dartforge_diagnostics::codes::warning::CONSTANT_PATTERN_NEVER_MATCHES_VALUE_TYPE, a.pattern(p).span, texts);
+                            d.context.extend(context);
                             self.output.push((self.unit, d));
                             self.the_default_values.insert(p, v);
                             return;
@@ -1331,7 +1331,7 @@ impl Verifier<'_, '_> {
                 }
                 // `equalKeysInMapPattern`: the context is the first key.
                 for (sp, original) in the_repeated {
-                    let d = Diagnostic::com_codigo(c::EQUAL_KEYS_IN_MAP_PATTERN, sp, Vec::<String>::new()).com_contexto(original, "The first key with this value.");
+                    let d = Diagnostic::with_code(c::EQUAL_KEYS_IN_MAP_PATTERN, sp, Vec::<String>::new()).with_context(original, "The first key with this value.");
                     self.output.push((self.unit, d));
                 }
             }
@@ -1457,7 +1457,7 @@ impl Verifier<'_, '_> {
                             (c::EQUAL_ELEMENTS_IN_CONST_SET, "The first element with this value.")
                         };
                         for (dup, original) in std::mem::take(&mut lv.duplicates) {
-                            let d = Diagnostic::com_codigo(code, dup, Vec::<String>::new()).com_contexto(original, context);
+                            let d = Diagnostic::with_code(code, dup, Vec::<String>::new()).with_context(original, context);
                             self.output.push((self.unit, d));
                         }
                     }
@@ -1747,7 +1747,7 @@ impl Verifier<'_, '_> {
 
     // -- Constant literals (`_ConstLiteralVerifier`) ----------------------------
 
-    fn literal_code(t: &LiteralType) -> Codigo {
+    fn literal_code(t: &LiteralType) -> Code {
         match t {
             LiteralType::Lista(_) => c::NON_CONSTANT_LIST_ELEMENT,
             LiteralType::Set(_) => c::NON_CONSTANT_SET_ELEMENT,
@@ -1900,7 +1900,7 @@ impl Verifier<'_, '_> {
     /// that names an outer type parameter (at the node, without descending), and
     /// its arguments; in a function type, its own formals are allowed, and the
     /// bounds, the return and the simple parameters are checked.
-    fn without_type_parameters(&mut self, a: &ast::Ast, x: ast::TypeId, code: Codigo, allowed: &[crate::table::TypeParamId]) {
+    fn without_type_parameters(&mut self, a: &ast::Ast, x: ast::TypeId, code: Code, allowed: &[crate::table::TypeParamId]) {
         let annotation = a.ty(x);
         match &annotation.kind {
             ast::TypeKind::Named { args, .. } => {
@@ -1988,7 +1988,7 @@ impl Verifier<'_, '_> {
     /// with the displayed type. Descends into the arguments, the simple
     /// parameters and the return of a function type, and into the fields of a
     /// record.
-    fn const_type_argument(&mut self, a: &ast::Ast, x: ast::TypeId, code: Codigo) {
+    fn const_type_argument(&mut self, a: &ast::Ast, x: ast::TypeId, code: Code) {
         let is_parameter = |s: &Self, t: ast::TypeId| s.annotation_type(t).filter(|r| matches!(s.m.table.get(*r), Type::TypeParameter { .. }));
         let annotation = a.ty(x);
         match &annotation.kind {
@@ -2021,7 +2021,7 @@ impl Verifier<'_, '_> {
 
     /// A parameter, return or record field: a type parameter reports with the
     /// displayed type; otherwise it descends.
-    fn const_type_field(&mut self, a: &ast::Ast, y: ast::TypeId, code: Codigo) {
+    fn const_type_field(&mut self, a: &ast::Ast, y: ast::TypeId, code: Code) {
         match self.annotation_type(y) {
             Some(r) if matches!(self.m.table.get(r), Type::TypeParameter { .. }) => {
                 let displayed = self.m.format(r);
@@ -2095,7 +2095,7 @@ impl Verifier<'_, '_> {
     fn potential_in_literal(&mut self, a: &ast::Ast, lv: &Literal, el: &CollectionElement) -> bool {
         let _ = a;
         let cx = self.cx();
-        let mut nodes: Vec<(Span, Codigo)> = Vec::new();
+        let mut nodes: Vec<(Span, Code)> = Vec::new();
         let base = Self::literal_code(&lv.ty);
         self.collect_element(&cx, el, base, &mut nodes);
         if nodes.is_empty() {
@@ -2107,9 +2107,9 @@ impl Verifier<'_, '_> {
         false
     }
 
-    fn collect_element(&mut self, cx: &Ctx, el: &CollectionElement, base: Codigo, nodes: &mut Vec<(Span, Codigo)>) {
+    fn collect_element(&mut self, cx: &Ctx, el: &CollectionElement, base: Code, nodes: &mut Vec<(Span, Code)>) {
         let map = base == c::NON_CONSTANT_MAP_ELEMENT;
-        let one = |m: &Motor<'_>, x: ExprId, code: Codigo, nodes: &mut Vec<(Span, Codigo)>| {
+        let one = |m: &Motor<'_>, x: ExprId, code: Code, nodes: &mut Vec<(Span, Code)>| {
             let mut v = Vec::new();
             super::potential::collect_into(m, cx, x, false, true, &mut v);
             nodes.extend(v.into_iter().map(|s| (s, code)));

@@ -66,7 +66,7 @@ impl SymbolId {
 #[derive(Debug, Default)]
 pub struct Interner {
     ids: HashMap<Box<str>, SymbolId>,
-    textos: Vec<Box<str>>,
+    texts: Vec<Box<str>>,
     payload_bytes: usize,
 }
 
@@ -102,10 +102,10 @@ impl Interner {
         if let Some(id) = self.ids.get(text) {
             return *id;
         }
-        let id = SymbolId::from_index(self.textos.len() as u32);
+        let id = SymbolId::from_index(self.texts.len() as u32);
         let stored: Box<str> = text.into();
         self.payload_bytes = self.payload_bytes.saturating_add(stored.len());
-        self.textos.push(stored.clone());
+        self.texts.push(stored.clone());
         self.ids.insert(stored, id);
         id
     }
@@ -125,23 +125,23 @@ impl Interner {
     /// assert_eq!(arena.resolve(id), "x");
     /// ```
     pub fn resolve(&self, id: SymbolId) -> &str {
-        &self.textos[id.as_u32() as usize]
+        &self.texts[id.as_u32() as usize]
     }
 
     /// Distinct names retained by this arena.
     pub fn len(&self) -> usize {
-        self.textos.len()
+        self.texts.len()
     }
 
-    /// Texts in index order (`textos()[id.as_u32()]`), to rebuild an arena with
+    /// Texts in index order (`texts()[id.as_u32()]`), to rebuild an arena with
     /// the same ids (SDK cache).
-    pub fn textos(&self) -> impl Iterator<Item = &str> {
-        self.textos.iter().map(|t| &**t)
+    pub fn texts(&self) -> impl Iterator<Item = &str> {
+        self.texts.iter().map(|t| &**t)
     }
 
     /// True when no name was interned.
     pub fn is_empty(&self) -> bool {
-        self.textos.is_empty()
+        self.texts.is_empty()
     }
 
     /// Retained text bytes; saturating sums prevent a bypassed budget.
@@ -153,7 +153,7 @@ impl Interner {
     /// valid.
     pub fn clear(&mut self) {
         self.ids.clear();
-        self.textos.clear();
+        self.texts.clear();
         self.payload_bytes = 0;
     }
 }

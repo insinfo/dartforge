@@ -21,7 +21,7 @@
 //! `wildcard-variables` (3.7+), `_` does not even declare.
 
 use crate::Unidade;
-use dartforge_diagnostics::codigos::warning as w;
+use dartforge_diagnostics::codes::warning as w;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_frontend::ast::{
     self, AssignOp, Ast, BinaryOp, CollectionElement, DeclKind, ExprId, ExprKind, ForInTarget, ForInit,
@@ -968,10 +968,10 @@ fn unused_unfiltered(u: Unidade<'_>, interner: &Interner, wildcard: bool) -> Vec
             continue;
         }
         match l.kind {
-            LocalKind::Variable => out.push(Diagnostic::com_codigo(w::UNUSED_LOCAL_VARIABLE, l.span, [name])),
-            LocalKind::Function => out.push(Diagnostic::com_codigo(w::UNUSED_ELEMENT, l.span, [name])),
-            LocalKind::CatchException => out.push(Diagnostic::com_codigo(w::UNUSED_CATCH_CLAUSE, l.span, [name])),
-            LocalKind::CatchStack => out.push(Diagnostic::com_codigo(w::UNUSED_CATCH_STACK, l.span, [name])),
+            LocalKind::Variable => out.push(Diagnostic::with_code(w::UNUSED_LOCAL_VARIABLE, l.span, [name])),
+            LocalKind::Function => out.push(Diagnostic::with_code(w::UNUSED_ELEMENT, l.span, [name])),
+            LocalKind::CatchException => out.push(Diagnostic::with_code(w::UNUSED_CATCH_CLAUSE, l.span, [name])),
+            LocalKind::CatchStack => out.push(Diagnostic::with_code(w::UNUSED_CATCH_STACK, l.span, [name])),
             LocalKind::Hidden => {}
         }
     }
@@ -989,7 +989,7 @@ mod tests {
         let u = Unidade { ast: &p.ast, unit: &p.unit, fonte: source };
         let mut v: Vec<_> = unused(u, &interner, false)
             .into_iter()
-            .map(|d| (d.code.unwrap().info().nome.to_string(), source[d.span.start..d.span.end].to_string()))
+            .map(|d| (d.code.unwrap().info().name.to_string(), source[d.span.start..d.span.end].to_string()))
             .collect();
         v.sort();
         v

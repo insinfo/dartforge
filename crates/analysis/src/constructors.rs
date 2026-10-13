@@ -22,7 +22,7 @@
 //! Written without compiling or running (2026-10-05).
 
 use crate::Unidade;
-use dartforge_diagnostics::codigos::compile_time_error as c;
+use dartforge_diagnostics::codes::compile_time_error as c;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_frontend::ast::{self, DeclKind, FunctionKind, Initializer, MemberKind};
 use dartforge_intern::{Interner, SymbolId};
@@ -196,7 +196,7 @@ pub fn check(units: &[Unidade<'_>], names: &Interner) -> Vec<(usize, Diagnostic)
                     let sp = param_span(u.fonte, p);
                     match target {
                         Found::Missing | Found::Synthetic => {
-                            out.push((iu, Diagnostic::com_codigo(c::INITIALIZING_FORMAL_FOR_NON_EXISTENT_FIELD, sp, [name.as_str()])));
+                            out.push((iu, Diagnostic::with_code(c::INITIALIZING_FORMAL_FOR_NON_EXISTENT_FIELD, sp, [name.as_str()])));
                         }
                         Found::Declared(i) if owner.fields[i].is_static => {
                             // The primary constructor (3.13.4,
@@ -207,7 +207,7 @@ pub fn check(units: &[Unidade<'_>], names: &Interner) -> Vec<(usize, Diagnostic)
                                     .map_or(sp, |i| Span { start: sp.start + i, end: sp.start + i + 4 }),
                                 _ => sp,
                             };
-                            out.push((iu, Diagnostic::com_codigo(c::INITIALIZER_FOR_STATIC_FIELD, sp, [name.as_str()])));
+                            out.push((iu, Diagnostic::with_code(c::INITIALIZER_FOR_STATIC_FIELD, sp, [name.as_str()])));
                         }
                         Found::Declared(_) => {}
                     }
@@ -218,10 +218,10 @@ pub fn check(units: &[Unidade<'_>], names: &Interner) -> Vec<(usize, Diagnostic)
                         let text = names.resolve(name.sym).to_string();
                         match owner.find(name.sym) {
                             Found::Missing | Found::Synthetic => {
-                                out.push((iu, Diagnostic::com_codigo(c::INITIALIZER_FOR_NON_EXISTENT_FIELD, *span, [text.as_str()])));
+                                out.push((iu, Diagnostic::with_code(c::INITIALIZER_FOR_NON_EXISTENT_FIELD, *span, [text.as_str()])));
                             }
                             Found::Declared(i) if owner.fields[i].is_static => {
-                                out.push((iu, Diagnostic::com_codigo(c::INITIALIZER_FOR_STATIC_FIELD, *span, [text.as_str()])));
+                                out.push((iu, Diagnostic::with_code(c::INITIALIZER_FOR_STATIC_FIELD, *span, [text.as_str()])));
                             }
                             Found::Declared(_) => {}
                         }
@@ -250,14 +250,14 @@ pub fn check(units: &[Unidade<'_>], names: &Interner) -> Vec<(usize, Diagnostic)
                             Some(State::InDeclaration) if is_primary => {
                                 out.push((
                                     iu,
-                                    Diagnostic::com_codigo(c::FIELD_INITIALIZED_IN_DECLARATION_AND_PARAMETER_OF_PRIMARY_CONSTRUCTOR, n.span, Vec::<&str>::new()),
+                                    Diagnostic::with_code(c::FIELD_INITIALIZED_IN_DECLARATION_AND_PARAMETER_OF_PRIMARY_CONSTRUCTOR, n.span, Vec::<&str>::new()),
                                 ));
                                 states[i] = Some(State::InParameter);
                             }
                             Some(State::InDeclaration) if owner.fields[i].final_or_const => {
                                 out.push((
                                     iu,
-                                    Diagnostic::com_codigo(c::FINAL_INITIALIZED_IN_DECLARATION_AND_CONSTRUCTOR, n.span, [names.resolve(n.sym)]),
+                                    Diagnostic::with_code(c::FINAL_INITIALIZED_IN_DECLARATION_AND_CONSTRUCTOR, n.span, [names.resolve(n.sym)]),
                                 ));
                             }
                             _ => {}
@@ -273,20 +273,20 @@ pub fn check(units: &[Unidade<'_>], names: &Interner) -> Vec<(usize, Diagnostic)
                         Some(State::InDeclaration) if is_primary => {
                             out.push((
                                 iu,
-                                Diagnostic::com_codigo(c::FIELD_INITIALIZED_IN_DECLARATION_AND_INITIALIZER_OF_PRIMARY_CONSTRUCTOR, name.span, Vec::<&str>::new()),
+                                Diagnostic::with_code(c::FIELD_INITIALIZED_IN_DECLARATION_AND_INITIALIZER_OF_PRIMARY_CONSTRUCTOR, name.span, Vec::<&str>::new()),
                             ));
                             states[i] = Some(State::InInitializer);
                         }
                         Some(State::InDeclaration) => {
                             if owner.fields[i].final_or_const {
-                                out.push((iu, Diagnostic::com_codigo(c::FIELD_INITIALIZED_IN_INITIALIZER_AND_DECLARATION, name.span, Vec::<&str>::new())));
+                                out.push((iu, Diagnostic::with_code(c::FIELD_INITIALIZED_IN_INITIALIZER_AND_DECLARATION, name.span, Vec::<&str>::new())));
                             }
                         }
                         Some(State::InParameter) => {
-                            out.push((iu, Diagnostic::com_codigo(c::FIELD_INITIALIZED_IN_PARAMETER_AND_INITIALIZER, name.span, Vec::<&str>::new())));
+                            out.push((iu, Diagnostic::with_code(c::FIELD_INITIALIZED_IN_PARAMETER_AND_INITIALIZER, name.span, Vec::<&str>::new())));
                         }
                         Some(State::InInitializer) => {
-                            out.push((iu, Diagnostic::com_codigo(c::FIELD_INITIALIZED_BY_MULTIPLE_INITIALIZERS, name.span, [names.resolve(name.sym)])));
+                            out.push((iu, Diagnostic::with_code(c::FIELD_INITIALIZED_BY_MULTIPLE_INITIALIZERS, name.span, [names.resolve(name.sym)])));
                         }
                         None => {}
                     }

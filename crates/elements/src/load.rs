@@ -3,7 +3,7 @@ use crate::config::PackageConfig;
 use crate::model::*;
 use crate::outline;
 use crate::sdk::SdkLayout;
-use dartforge_diagnostics::{Diagnostic, Span, codigos};
+use dartforge_diagnostics::{Diagnostic, Span, codes};
 use dartforge_frontend::ast::{self, DirectiveKind};
 use dartforge_frontend::{Feature, LanguageVersion, LibraryFeatures};
 use dartforge_intern::{Interner, SymbolId};
@@ -368,7 +368,7 @@ fn load_lenient_(
                         role: u.role,
                         features: LibraryFeatures::piso(),
                         pulados: Vec::new(),
-                        referencia: dartforge_diagnostics::Referencia::V3_6,
+                        referencia: dartforge_diagnostics::AnalyzerReference::V3_6,
                     });
                     program.libraries[lib_id.0 as usize].units.push(unit_id);
                 }
@@ -958,8 +958,8 @@ fn own_version(
         if v > current_version {
             // WarningCode.INVALID_LANGUAGE_VERSION_OVERRIDE_GREATER.
             let (greater, lesser) = (current_version.major.to_string(), current_version.minor.to_string());
-            error_code(Diagnostic::com_codigo(
-                codigos::warning::INVALID_LANGUAGE_VERSION_OVERRIDE_GREATER,
+            error_code(Diagnostic::with_code(
+                codes::warning::INVALID_LANGUAGE_VERSION_OVERRIDE_GREATER,
                 span,
                 [greater.as_str(), lesser.as_str()],
             ));
@@ -967,7 +967,7 @@ fn own_version(
         } else if v < LanguageVersion::MINIMA {
             // CompileTimeErrorCode.ILLEGAL_LANGUAGE_VERSION_OVERRIDE.
             let minima = format!(">={}.0", LanguageVersion::MINIMA);
-            error_code(Diagnostic::com_codigo(codigos::compile_time_error::ILLEGAL_LANGUAGE_VERSION_OVERRIDE, span, [minima.as_str()]));
+            error_code(Diagnostic::with_code(codes::compile_time_error::ILLEGAL_LANGUAGE_VERSION_OVERRIDE, span, [minima.as_str()]));
             None
         } else {
             Some((v, span))

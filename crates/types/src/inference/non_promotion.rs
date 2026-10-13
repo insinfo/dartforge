@@ -17,7 +17,7 @@ use super::BodyInferrer;
 use crate::field_promotion::{self, WhyNotPromoted, LibraryPromotion};
 use crate::resolved::LocalId;
 use crate::table::TypeId;
-use dartforge_diagnostics::{Contexto, Span};
+use dartforge_diagnostics::{ContextMessage, Span};
 use dartforge_elements::model::{ClassId, ClassKind, FunctionElementId, FunctionKind, LibraryId, Program, UnitId};
 use dartforge_frontend::ast::{ExprId, ExprKind};
 use dartforge_intern::SymbolId;
@@ -35,8 +35,8 @@ fn the_kind(program: &Program, c: ClassId) -> &'static str {
 
 /// A context message at a point of `u` (the file, when it is not the
 /// error's).
-fn context(program: &Program, error_unit: UnitId, u: UnitId, span: Span, message: String) -> Contexto {
-    Contexto { arquivo: (u != error_unit).then(|| program.caminho_da_unidade(u).into()), span, mensagem: message.into() }
+fn context(program: &Program, error_unit: UnitId, u: UnitId, span: Span, message: String) -> ContextMessage {
+    ContextMessage { file: (u != error_unit).then(|| program.caminho_da_unidade(u).into()), span, message: message.into() }
 }
 
 impl BodyInferrer<'_> {
@@ -178,7 +178,7 @@ impl BodyInferrer<'_> {
     /// `computeWhyNotPromotedMessages(errorEntity, whyNotPromoted(target))`: the
     /// messages of the first non-potentially-nullable type in the map. `target`
     /// `None` is the implicit `this`; `error` is the `errorEntity`.
-    pub(crate) fn non_promotion_messages(&mut self, cx: &Body, target: Option<ExprId>, error: Span) -> Vec<Contexto> {
+    pub(crate) fn non_promotion_messages(&mut self, cx: &Body, target: Option<ExprId>, error: Span) -> Vec<ContextMessage> {
         let reasons = match target {
             Some(e) => {
                 let a = &self.program.unit(cx.unit).ast;
@@ -203,13 +203,13 @@ impl BodyInferrer<'_> {
     }
 
     /// O `_WhyNotPromotedVisitor`.
-    fn reason_messages(&mut self, cx: &Body, m: &NonPromotionReason, error: Span) -> Vec<Contexto> {
+    fn reason_messages(&mut self, cx: &Body, m: &NonPromotionReason, error: Span) -> Vec<ContextMessage> {
         match m {
             NonPromotionReason::Escrita { nome: name, span } => {
                 let text = format!("Variable '{}' could not be promoted due to an assignment", self.interner.resolve(*name));
-                vec![Contexto { arquivo: None, span: *span, mensagem: text.into() }]
+                vec![ContextMessage { file: None, span: *span, message: text.into() }]
             }
-            NonPromotionReason::This => vec![Contexto { arquivo: None, span: error, mensagem: "'this' can't be promoted".into() }],
+            NonPromotionReason::This => vec![ContextMessage { file: None, span: error, message: "'this' can't be promoted".into() }],
             NonPromotionReason::Property { nome: name, membro: member, inherent, enabled } => {
                 let program = self.program;
                 let fe = program.function(*member);
@@ -286,7 +286,7 @@ impl BodyInferrer<'_> {
             return;
         }
         for d in &mut self.diagnostics[since..] {
-            d.contexto.extend(messages.iter().cloned());
+            d.context.extend(messages.iter().cloned());
         }
     }
 }

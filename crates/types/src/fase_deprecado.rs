@@ -28,7 +28,7 @@
 use crate::lints_tipados::Finding;
 use crate::resolved::{MemberRef, Resolved, UnitBodyTypes};
 use crate::table::{Type, TypeTable};
-use dartforge_diagnostics::codigos::hint as h;
+use dartforge_diagnostics::codes::hint as h;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_elements::model::{Element, FunctionElementId, FunctionKind, FunctionRef, LibraryId, Program, UnitId, VariableId, VariableRef};
 use dartforge_frontend::ast::{self, Combinator, DeclKind, DirectiveKind, ExprId, ExprKind, Initializer, MemberKind, ParameterKind, PatternKind, TypeKind, UnaryOp};
@@ -662,13 +662,13 @@ pub fn usos_de_deprecados(
         let d = match x.message.as_deref().map(str::trim).filter(|m| !m.is_empty() && *m != ".") {
             None => {
                 let code = if the_same { h::DEPRECATED_MEMBER_USE_FROM_SAME_PACKAGE } else { h::DEPRECATED_MEMBER_USE };
-                Diagnostic::com_codigo(code, x.span, [x.name.as_str()])
+                Diagnostic::with_code(code, x.span, [x.name.as_str()])
             }
             Some(m) => {
                 let dotted = if m.ends_with(['.', '?', '!']) { m.to_string() } else { format!("{m}.") };
                 let code =
                     if the_same { h::DEPRECATED_MEMBER_USE_FROM_SAME_PACKAGE_WITH_MESSAGE } else { h::DEPRECATED_MEMBER_USE_WITH_MESSAGE };
-                Diagnostic::com_codigo(code, x.span, [x.name.as_str(), dotted.as_str()])
+                Diagnostic::with_code(code, x.span, [x.name.as_str(), dotted.as_str()])
             }
         };
         if !out.iter().any(|y| y.code == d.code && y.span == d.span) {
@@ -792,10 +792,10 @@ fn the_optional(p: &ast::Parameter) -> bool {
 /// constructors that go through the superclass constructor without it (the
 /// `super.` parameters and the `super(…)`) and in redirected constructors.
 pub fn opcionais_depreciados(program: &Program, interner: &Interner, body: Option<&UnitBodyTypes>, u: UnitId) -> Vec<Diagnostic> {
-    use dartforge_diagnostics::codigos::warning::DEPRECATED_OPTIONAL;
+    use dartforge_diagnostics::codes::warning::DEPRECATED_OPTIONAL;
     let mut out: Vec<Diagnostic> = Vec::new();
     let unit_id = program.unit(u);
-    if program.referencia_da_biblioteca(unit_id.library) != dartforge_diagnostics::Referencia::V3_13 {
+    if program.referencia_da_biblioteca(unit_id.library) != dartforge_diagnostics::AnalyzerReference::V3_13 {
         return out;
     }
     if interner.lookup("Deprecated").is_none() {
@@ -804,7 +804,7 @@ pub fn opcionais_depreciados(program: &Program, interner: &Interner, body: Optio
     let a = &unit_id.ast;
     let text = |s: dartforge_intern::SymbolId| interner.resolve(s).to_string();
     let report = |out: &mut Vec<Diagnostic>, span: Span, the_name: String| {
-        let d = Diagnostic::com_codigo(DEPRECATED_OPTIONAL, span, [the_name.as_str()]);
+        let d = Diagnostic::with_code(DEPRECATED_OPTIONAL, span, [the_name.as_str()]);
         if !out.iter().any(|y| y.code == d.code && y.span == d.span && y.message == d.message) {
             out.push(d);
         }

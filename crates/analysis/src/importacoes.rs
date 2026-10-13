@@ -9,7 +9,7 @@
 //! `dartforge_types::anotacoes::sombreado`, and the extensions chosen during
 //! member resolution (`BodyTypes::extensoes_usadas`); see [`unused`].
 
-use dartforge_diagnostics::codigos::{compile_time_error as c, warning as w};
+use dartforge_diagnostics::codes::{compile_time_error as c, warning as w};
 use dartforge_diagnostics::Diagnostic;
 use dartforge_elements::model::{Element, LibraryId, Program, UnitRole};
 use dartforge_frontend::ast::{Combinator, DirectiveKind, ExprKind, PatternKind, TypeKind};
@@ -162,7 +162,7 @@ pub fn deferred_types(program: &Program, lib: LibraryId, names: &Interner) -> Ve
                 continue;
             }
             let text = format!("{}.{}", names.resolve(p.sym), names.resolve(n.sym));
-            out.push((u, Diagnostic::com_codigo(c::TYPE_ANNOTATION_DEFERRED_CLASS, annotation.span, [text.as_str()])));
+            out.push((u, Diagnostic::with_code(c::TYPE_ANNOTATION_DEFERRED_CLASS, annotation.span, [text.as_str()])));
         }
     }
     out
@@ -190,7 +190,7 @@ pub fn deferred_extensions(program: &Program, lib: LibraryId) -> Vec<(dartforge_
         }
         let Some(dir) = program.unit(imp.unit).unit.directives.get(imp.directive) else { continue };
         let DirectiveKind::Import { uri, .. } = &dir.kind else { continue };
-        out.push((imp.unit, Diagnostic::com_codigo(c::DEFERRED_IMPORT_OF_EXTENSION, uri.span, std::iter::empty::<&str>())));
+        out.push((imp.unit, Diagnostic::with_code(c::DEFERRED_IMPORT_OF_EXTENSION, uri.span, std::iter::empty::<&str>())));
     }
     out
 }
@@ -231,7 +231,7 @@ pub fn internal_and_deferred_directives(program: &Program, lib: LibraryId) -> Ve
             }
             let Some(dir) = program.unit(imp.unit).unit.directives.get(imp.directive) else { continue };
             let DirectiveKind::Import { uri, .. } = &dir.kind else { continue };
-            out.push((imp.unit, Diagnostic::com_codigo(c::IMPORT_INTERNAL_LIBRARY, uri.span, [target])));
+            out.push((imp.unit, Diagnostic::with_code(c::IMPORT_INTERNAL_LIBRARY, uri.span, [target])));
         }
         for exp in &library.exports {
             let target = program.library(exp.library).uri.as_str();
@@ -242,7 +242,7 @@ pub fn internal_and_deferred_directives(program: &Program, lib: LibraryId) -> Ve
                 continue;
             }
             let Some(dir) = program.unit(exp.unit).unit.directives.get(exp.directive) else { continue };
-            out.push((exp.unit, Diagnostic::com_codigo(c::EXPORT_INTERNAL_LIBRARY, dir.span, [target])));
+            out.push((exp.unit, Diagnostic::with_code(c::EXPORT_INTERNAL_LIBRARY, dir.span, [target])));
         }
     }
     // `SHARED_DEFERRED_PREFIX`, unit by unit.
@@ -264,7 +264,7 @@ pub fn internal_and_deferred_directives(program: &Program, lib: LibraryId) -> Ve
                 let fragment = unit.source.get(uri.span.end..p.span.start).unwrap_or("");
                 if let Some(k) = fragment.find("deferred") {
                     let start = uri.span.end + k;
-                    out.push((u, Diagnostic::com_codigo(c::SHARED_DEFERRED_PREFIX, dartforge_diagnostics::Span { start, end: start + "deferred".len() }, [] as [&str; 0])));
+                    out.push((u, Diagnostic::with_code(c::SHARED_DEFERRED_PREFIX, dartforge_diagnostics::Span { start, end: start + "deferred".len() }, [] as [&str; 0])));
                 }
             }
         }
@@ -298,7 +298,7 @@ pub fn undefined_shown_names(program: &Program, lib: LibraryId, interner: &Inter
             let Combinator::Show(names) = k else { continue };
             for n in names.iter() {
                 if !exportado.contains_key(&n.sym) {
-                    out.push((unit, Diagnostic::com_codigo(w::UNDEFINED_SHOWN_NAME, n.span, [uri, interner.resolve(n.sym)])));
+                    out.push((unit, Diagnostic::with_code(w::UNDEFINED_SHOWN_NAME, n.span, [uri, interner.resolve(n.sym)])));
                 }
             }
         }
@@ -370,7 +370,7 @@ pub fn ambiguous_exports(program: &Program, lib: LibraryId, interner: &Interner)
         let DirectiveKind::Export { uri, .. } = &dir.kind else { continue };
         let uri_of = |e: Element| -> String { element_library(program, e).map(|l| program.library(l).uri.clone()).unwrap_or_default() };
         let (one, other) = (uri_of(previous), uri_of(current));
-        out.push((exp.unit, Diagnostic::com_codigo(c::AMBIGUOUS_EXPORT, uri.span, [interner.resolve(name), one.as_str(), other.as_str()])));
+        out.push((exp.unit, Diagnostic::with_code(c::AMBIGUOUS_EXPORT, uri.span, [interner.resolve(name), one.as_str(), other.as_str()])));
     }
     out
 }
@@ -826,7 +826,7 @@ pub fn unused(
         }
         if used[i].is_empty() {
             unused_one[i] = true;
-            out.push((imp.unit, Diagnostic::com_codigo(w::UNUSED_IMPORT, imp.uri, [imp.text.as_str()])));
+            out.push((imp.unit, Diagnostic::with_code(w::UNUSED_IMPORT, imp.uri, [imp.text.as_str()])));
         }
     }
     // `generateUnusedShownNameHints`: the shown name whose element was not
@@ -842,7 +842,7 @@ pub fn unused(
                 let Some(b) = target.exported.get(&n.sym) else { continue };
                 let Some(element) = b.getter.or(b.setter) else { continue };
                 if !used[i].contains(&element) {
-                    out.push((imp.unit, Diagnostic::com_codigo(w::UNUSED_SHOWN_NAME, n.span, [interner.resolve(n.sym)])));
+                    out.push((imp.unit, Diagnostic::with_code(w::UNUSED_SHOWN_NAME, n.span, [interner.resolve(n.sym)])));
                 }
             }
         }
@@ -866,8 +866,8 @@ pub fn unused(
             if acessados[i].is_subset(&acessados[j]) && acessados[j].len() > acessados[i].len() {
                 out.push((
                     first.unit,
-                    Diagnostic::com_codigo(
-                        dartforge_diagnostics::codigos::hint::UNNECESSARY_IMPORT,
+                    Diagnostic::with_code(
+                        dartforge_diagnostics::codes::hint::UNNECESSARY_IMPORT,
                         first.uri,
                         [first.text.as_str(), segundo.text.as_str()],
                     ),

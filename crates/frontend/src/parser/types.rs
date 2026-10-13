@@ -41,7 +41,7 @@ use crate::ast::{
 };
 use crate::features::Feature;
 use crate::token::{Keyword, Kind, Op};
-use dartforge_diagnostics::{Diagnostic, Span, codigos};
+use dartforge_diagnostics::{Diagnostic, Span, codes};
 
 /// How to treat a trailing `?` when reading a type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -153,7 +153,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             // `VoidType.parseType` (`type_info_impl.dart:446`): type arguments after
             // `void` are `VOID_WITH_TYPE_ARGUMENTS` at the `<` and are read.
             if self.at_op(Op::Lt) && self.skip_type_arguments(self.pos).is_some() {
-                self.erro(codigos::parser::VOID_WITH_TYPE_ARGUMENTS, &[]);
+                self.erro(codes::parser::VOID_WITH_TYPE_ARGUMENTS, &[]);
                 self.parse_type_arguments_opt()?;
             }
             return Ok(self.ast.push_type(TypeAnnotation {
@@ -182,7 +182,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 },
             }));
         }
-        Err(self.erro(codigos::parser::EXPECTED_TYPE_NAME, &[]))
+        Err(self.erro(codes::parser::EXPECTED_TYPE_NAME, &[]))
     }
 
     /// `Function<T>(params)` with the return type already read (or none).
@@ -216,7 +216,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         // (`parser_impl.dart:1673-1676`).
         if self.at_op(Op::Comma) && self.at_op_at(1, Op::RParen) {
             let comma = self.advance().span;
-            self.error_at(codigos::parser::EMPTY_RECORD_TYPE_WITH_COMMA, comma, &[]);
+            self.error_at(codes::parser::EMPTY_RECORD_TYPE_WITH_COMMA, comma, &[]);
             saw_comma = true;
         }
         loop {
@@ -231,7 +231,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                         // `parseRecordTypeNamedFields` (`:1743-1745`): an empty group, at the `}`.
                         if fields_ == 0 {
                             let closes = self.span();
-                            self.error_at(codigos::parser::EMPTY_RECORD_TYPE_NAMED_FIELDS_LIST, closes, &[]);
+                            self.error_at(codes::parser::EMPTY_RECORD_TYPE_NAMED_FIELDS_LIST, closes, &[]);
                         }
                         self.advance();
                         break;
@@ -266,7 +266,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         // `)` (`parser_impl.dart:1677-1680`).
         if positional.len() == 1 && !with_named && !saw_comma {
             let closes = self.tokens[self.pos - 1].span;
-            self.error_at(codigos::parser::RECORD_TYPE_ONE_POSITIONAL_NO_TRAILING_COMMA, closes, &[]);
+            self.error_at(codes::parser::RECORD_TYPE_ONE_POSITIONAL_NO_TRAILING_COMMA, closes, &[]);
         }
         let span = self.span_from(start);
         Ok(self.ast.push_type(TypeAnnotation {
@@ -385,13 +385,13 @@ impl<'s, 'i> Parser<'s, 'i> {
             // (`AstBuilder`), and is read and discarded.
             if self.at_op(Op::At) {
                 for a in self.parse_metadata()? {
-                    self.error_at(codigos::parser::ANNOTATION_ON_TYPE_ARGUMENT, a.span, &[]);
+                    self.error_at(codes::parser::ANNOTATION_ON_TYPE_ARGUMENT, a.span, &[]);
                 }
             }
             // `NoType.ensureTypeOrVoid`: what does not start a type is
             // `EXPECTED_TYPE_NAME` at it and an empty synthetic type.
             if !matches!(self.kind(), Kind::Ident | Kind::Keyword(Keyword::Void) | Kind::Op(Op::LParen)) {
-                self.erro(codigos::parser::EXPECTED_TYPE_NAME, &[]);
+                self.erro(codes::parser::EXPECTED_TYPE_NAME, &[]);
                 let s = self.span().start;
                 let nome = self.name_from("", Span { start: s, end: s });
                 args.push(self.ast.push_type(TypeAnnotation {
@@ -462,14 +462,14 @@ impl<'s, 'i> Parser<'s, 'i> {
                     && self.is_word_or_identifier(self.pos + 2)
                 {
                     let leftover = self.peek_at(1).span;
-                    self.error_at(codigos::parser::MULTIPLE_VARIANCE_MODIFIERS, leftover, &[]);
+                    self.error_at(codes::parser::MULTIPLE_VARIANCE_MODIFIERS, leftover, &[]);
                     self.advance();
                 }
                 self.advance();
                 let texto = self.token_text(first_);
                 variance = Variance::from_text_(texto).map(|v| (v, first_.span));
                 self.error_at(
-                    codigos::parser::EXPERIMENT_NOT_ENABLED_OFF_BY_DEFAULT,
+                    codes::parser::EXPERIMENT_NOT_ENABLED_OFF_BY_DEFAULT,
                     first_.span,
                     &["variance"],
                 );
@@ -499,7 +499,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 break;
             }
             // `parseMissingComma`: `Expected to find ','.` at the next token.
-            self.erro(codigos::parser::EXPECTED_TOKEN, &[","]);
+            self.erro(codes::parser::EXPECTED_TOKEN, &[","]);
         }
         if self.eat_op(Op::Gt) {
             return Ok(params);
@@ -549,18 +549,18 @@ impl<'s, 'i> Parser<'s, 'i> {
             || self.looks_like_statement_start(pos)
             || name_follows
         {
-            self.erro(codigos::parser::MISSING_IDENTIFIER, &[]);
+            self.erro(codes::parser::MISSING_IDENTIFIER, &[]);
             return (synthetic(self), true);
         }
         if let Kind::Keyword(_) = self.kind() {
             let texto = self.text().to_string();
             self.erro(
-                codigos::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD,
+                codes::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD,
                 &[&texto],
             );
             return (self.identifier(), false);
         }
-        self.erro(codigos::parser::MISSING_IDENTIFIER, &[]);
+        self.erro(codes::parser::MISSING_IDENTIFIER, &[]);
         self.advance();
         (synthetic(self), true)
     }
@@ -580,7 +580,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         let mut reported = synthetic;
         let report = |p: &mut Self, reported: &mut bool, where_: Span| {
             if !*reported {
-                p.error_at(codigos::parser::EXPECTED_TOKEN, where_, &[">"]);
+                p.error_at(codes::parser::EXPECTED_TOKEN, where_, &[">"]);
                 *reported = true;
             }
         };
@@ -690,7 +690,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 // synthetic parameter fasta inserts (untyped and with an empty name:
                 // `C Function({dynamic })`).
                 if self.at_op(close) {
-                    self.erro(codigos::parser::MISSING_IDENTIFIER, &[]);
+                    self.erro(codes::parser::MISSING_IDENTIFIER, &[]);
                     params.push(self.synthetic_parameter(kind));
                 }
                 loop {
@@ -701,7 +701,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                     // `ensureIdentifier` reports `MISSING_IDENTIFIER` at the token and adds a
                     // synthetic parameter (omitted here).
                     if matches!(self.kind(), Kind::Op(Op::LBrace | Op::LBracket)) {
-                        self.erro(codigos::parser::MISSING_IDENTIFIER, &[]);
+                        self.erro(codes::parser::MISSING_IDENTIFIER, &[]);
                         params.push(self.synthetic_parameter(kind));
                     } else {
                         params.push(self.parse_formal_parameter(kind, in_function_type, owner)?);
@@ -714,7 +714,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                             && let Some(closes) = self.matching_close(open_group)
                             && closes > self.pos
                         {
-                            self.erro(codigos::parser::EXPECTED_TOKEN, &[close.text()]);
+                            self.erro(codes::parser::EXPECTED_TOKEN, &[close.text()]);
                             let de = self.pos;
                             self.pos = closes;
                             self.record_skipped(de);
@@ -737,7 +737,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                     if self.move_synthetic_closer(abre) {
                         // The `)` is now the current token.
                     } else if self.is_plain_identifier(self.pos) && self.is_plain_identifier(self.pos + 1) {
-                        self.erro(codigos::parser::EXPECTED_TOKEN, &[","]);
+                        self.erro(codes::parser::EXPECTED_TOKEN, &[","]);
                         continue;
                     } else {
                         self.ensure_close_paren(abre)?;
@@ -826,9 +826,9 @@ impl<'s, 'i> Parser<'s, 'i> {
             // reports it at the `this`/`super`).
             if self.in_primary_constructor && (final_ || var_) {
                 let code = if this_ {
-                    codigos::parser::INITIALIZING_DECLARING_PARAMETER
+                    codes::parser::INITIALIZING_DECLARING_PARAMETER
                 } else {
-                    codigos::parser::SUPER_INITIALIZING_DECLARING_PARAMETER
+                    codes::parser::SUPER_INITIALIZING_DECLARING_PARAMETER
                 };
                 let sp = self.span();
                 self.error_at(code, sp, &[]);
@@ -842,7 +842,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             // Named in an unnamed function type (`Function({int})`): the type read and
             // `MISSING_IDENTIFIER` at the next token (the name is required,
             // `parseFormalParameter`), with a synthetic name.
-            self.erro(codigos::parser::MISSING_IDENTIFIER, &[]);
+            self.erro(codes::parser::MISSING_IDENTIFIER, &[]);
             let s = self.span().start;
             Some(self.name_from("", Span { start: s, end: s }))
         } else if in_function_type && ty.is_some() {
@@ -850,7 +850,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         } else if matches!(self.kind(), Kind::Op(Op::Comma | Op::RParen | Op::RBracket | Op::RBrace)) {
             // Unnamed parameter before `,` or the closer (`f(,[])`):
             // `MISSING_IDENTIFIER` at it and a synthetic name; the list goes on.
-            self.erro(codigos::parser::MISSING_IDENTIFIER, &[]);
+            self.erro(codes::parser::MISSING_IDENTIFIER, &[]);
             let s = self.span().start;
             Some(self.name_from("", Span { start: s, end: s }))
         } else {
@@ -898,12 +898,12 @@ impl<'s, 'i> Parser<'s, 'i> {
                 // the `=`/`:`).
                 let equals_ = self.span();
                 if kind == ParameterKind::Required {
-                    self.error_at(codigos::parser::NAMED_PARAMETER_OUTSIDE_GROUP, equals_, &[]);
+                    self.error_at(codes::parser::NAMED_PARAMETER_OUTSIDE_GROUP, equals_, &[]);
                 } else if matches!(
                     owner,
                     ParameterOwner::FunctionTypeKind | ParameterOwner::TypeAlias | ParameterOwner::FunctionParameter
                 ) {
-                    self.error_at(codigos::parser::DEFAULT_VALUE_IN_FUNCTION_TYPE, equals_, &[]);
+                    self.error_at(codes::parser::DEFAULT_VALUE_IN_FUNCTION_TYPE, equals_, &[]);
                 }
                 self.advance();
                 Some(self.parse_expression()?)
@@ -955,8 +955,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         // (`final`/`var`, syntactically simple) and the rest are
         // `PRIVATE_OPTIONAL_PARAMETER`.
         if !initializes_field || (!this_ && !self.features.tem(Feature::PrivateNamedParameters)) {
-            self.diagnostics.push(Diagnostic::com_codigo(
-                codigos::compile_time_error::PRIVATE_OPTIONAL_PARAMETER,
+            self.diagnostics.push(Diagnostic::with_code(
+                codes::compile_time_error::PRIVATE_OPTIONAL_PARAMETER,
                 n.span,
                 Vec::<&str>::new(),
             ));
@@ -1004,8 +1004,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             return;
         }
         let texto = &self.source[span.start..span.end];
-        self.diagnostics.push(Diagnostic::com_codigo(
-            codigos::parser::EXTRANEOUS_MODIFIER,
+        self.diagnostics.push(Diagnostic::with_code(
+            codes::parser::EXTRANEOUS_MODIFIER,
             span,
             [texto],
         ));
@@ -1022,8 +1022,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         for p in params {
             if p.kind == ParameterKind::Named && p.required && p.default_value.is_some() {
                 let sp = p.name.map(|n| n.span).unwrap_or(p.span);
-                self.diagnostics.push(Diagnostic::com_codigo(
-                    codigos::compile_time_error::DEFAULT_VALUE_ON_REQUIRED_PARAMETER,
+                self.diagnostics.push(Diagnostic::with_code(
+                    codes::compile_time_error::DEFAULT_VALUE_ON_REQUIRED_PARAMETER,
                     sp,
                     Vec::<&str>::new(),
                 ));
@@ -1042,8 +1042,8 @@ impl<'s, 'i> Parser<'s, 'i> {
                 .any(|(j, q)| j != i && q.name.is_some_and(|qn| qn.sym == public.sym));
             if collides {
                 let texto = self.interner.resolve(public.sym).to_string();
-                self.diagnostics.push(Diagnostic::com_codigo(
-                    codigos::compile_time_error::DUPLICATE_DEFINITION,
+                self.diagnostics.push(Diagnostic::with_code(
+                    codes::compile_time_error::DUPLICATE_DEFINITION,
                     public.span,
                     [texto.as_str()],
                 ));
@@ -1841,7 +1841,7 @@ mod tests {
                 let column = d.span.start - before.rfind('\n').map_or(0, |i| i + 1) + 1;
                 (
                     d.code
-                        .map(|c| c.info().nome.to_string())
+                        .map(|c| c.info().name.to_string())
                         .unwrap_or_default(),
                     line,
                     column,

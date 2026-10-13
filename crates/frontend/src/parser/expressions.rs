@@ -47,7 +47,7 @@ use crate::ast::{
 };
 use crate::features::Feature;
 use crate::token::{Interp, Keyword, Kind, Op, StrFlags, Token};
-use dartforge_diagnostics::{Span, codigos};
+use dartforge_diagnostics::{Span, codes};
 
 /// Precedence levels of the binary operators, from lowest to highest. The
 /// values are contiguous because `Parser::parse_binary` uses `level + 1` for
@@ -100,8 +100,8 @@ struct Checkpoint {
 /// The first escape error of `content` (the text between the quotes, not
 /// raw) as fasta's `unescapeCodeUnits` (`quote.dart:186`) reports it: code,
 /// relative start (the `\`) and length.
-fn escape_error(b: &[u8]) -> Option<(dartforge_diagnostics::Codigo, usize, usize)> {
-    use codigos::parser as c;
+fn escape_error(b: &[u8]) -> Option<(dartforge_diagnostics::Code, usize, usize)> {
+    use codes::parser as c;
     let n = b.len();
     let hex = |x: u8| x.is_ascii_hexdigit();
     let value = |x: u8| (x as char).to_digit(16).unwrap_or(0);
@@ -226,10 +226,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
         if fora {
             let one = Span { start: span.start, end: span.start + 1 };
-            self.error_at(codigos::scanner::UNEXPECTED_SEPARATOR_IN_NUMBER, one, &[]);
+            self.error_at(codes::scanner::UNEXPECTED_SEPARATOR_IN_NUMBER, one, &[]);
         }
         if self.features.versao() < crate::features::LanguageVersion::new(3, 6) {
-            self.error_at(codigos::parser::EXPERIMENT_NOT_ENABLED, span, &["digit-separators", "3.6.0", "3.6.0"]);
+            self.error_at(codes::parser::EXPERIMENT_NOT_ENABLED, span, &["digit-separators", "3.6.0", "3.6.0"]);
         }
     }
 
@@ -276,7 +276,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                     // `parseArgumentsRest`: what looks like the start of another expression is
                     // an argument after a missing comma; the rest closes in `ensureCloseParen`.
                     if !self.at_op(Op::RParen) && self.looks_like_expression_start(self.pos) {
-                        self.erro(codigos::parser::EXPECTED_TOKEN, &[","]);
+                        self.erro(codes::parser::EXPECTED_TOKEN, &[","]);
                         continue;
                     }
                     break;
@@ -324,7 +324,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 any = true;
             }
             if !any {
-                return Err(self.erro(codigos::parser::EXPECTED_STRING_LITERAL, &[]));
+                return Err(self.erro(codes::parser::EXPECTED_STRING_LITERAL, &[]));
             }
             Ok(())
         })();
@@ -608,7 +608,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 match self.spelled_out_operator(min_level) {
                     Some((level, op, texto)) => {
                         let word = self.text().to_string();
-                        self.erro(codigos::parser::BINARY_OPERATOR_WRITTEN_OUT, &[&word, texto]);
+                        self.erro(codes::parser::BINARY_OPERATOR_WRITTEN_OUT, &[&word, texto]);
                         self.advance();
                         let right = self.parse_binary(level + 1)?;
                         left = self.push(start, ExprKind::Binary { op, left, right });
@@ -626,7 +626,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                         if last_level == Some(level) {
                             let end_offset = self.peek_at(len - 1).span.end;
                             let span = Span { start: self.span().start, end: end_offset };
-                            self.error_at(codigos::parser::EQUALITY_CANNOT_BE_EQUALITY_OPERAND, span, &[]);
+                            self.error_at(codes::parser::EQUALITY_CANNOT_BE_EQUALITY_OPERAND, span, &[]);
                         }
                         last_level = Some(level);
                     } else {
@@ -691,7 +691,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             return self.parse_type_after_is_or_as();
         }
         let here = self.span();
-        self.error_at(codigos::parser::EXPECTED_TYPE_NAME, here, &[]);
+        self.error_at(codes::parser::EXPECTED_TYPE_NAME, here, &[]);
         let s = Span { start: here.start, end: here.start };
         let nome = self.name_from("", s);
         Ok(self.ast.push_type(crate::ast::TypeAnnotation {
@@ -706,7 +706,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     fn skip_chained_is_as(&mut self) -> PResult<()> {
         while self.at_kw(Keyword::Is) || self.at_ident("as") {
             let texto = self.text().to_string();
-            self.erro(codigos::parser::UNEXPECTED_TOKEN, &[&texto]);
+            self.erro(codes::parser::UNEXPECTED_TOKEN, &[&texto]);
             self.advance();
             self.eat_op(Op::Bang);
             self.type_after_is_or_as()?;
@@ -871,7 +871,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.advance();
                 let operand = self.parse_unary(constant_pattern)?;
                 if !self.in_async {
-                    self.error_at(codigos::compile_time_error::AWAIT_IN_WRONG_CONTEXT, start, &[]);
+                    self.error_at(codes::compile_time_error::AWAIT_IN_WRONG_CONTEXT, start, &[]);
                 }
                 return Ok(self.push(start, ExprKind::Await(operand)));
             }
@@ -883,7 +883,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             // `handleUnaryPrefixAssignmentExpression` (`ast_builder.dart:5704`): at the
             // operand's last token.
             let last = self.tokens[self.pos - 1].span;
-            self.error_at(codigos::parser::MISSING_ASSIGNABLE_SELECTOR, last, &[]);
+            self.error_at(codes::parser::MISSING_ASSIGNABLE_SELECTOR, last, &[]);
         }
         Ok(self.push(start, ExprKind::Unary { op, operand }))
     }
@@ -903,7 +903,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     fn check_assignment(&mut self, target_expr: ExprId, value: ExprId) {
         if !self.is_assignable(target_expr) {
             let span = self.ast.expr(target_expr).span;
-            self.error_at(codigos::parser::MISSING_ASSIGNABLE_SELECTOR, span, &[]);
+            self.error_at(codes::parser::MISSING_ASSIGNABLE_SELECTOR, span, &[]);
         }
         self.check_stray_super(value);
     }
@@ -913,7 +913,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     pub(crate) fn check_stray_super(&mut self, id: ExprId) {
         if matches!(self.ast.expr(id).kind, ExprKind::Super) {
             let span = self.ast.expr(id).span;
-            self.error_at(codigos::parser::MISSING_ASSIGNABLE_SELECTOR, span, &[]);
+            self.error_at(codes::parser::MISSING_ASSIGNABLE_SELECTOR, span, &[]);
         }
     }
 
@@ -980,7 +980,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         if !self.is_assignable(expr) {
             // `handleUnaryPostfixAssignmentExpression` (`ast_builder.dart:5688`).
             let span = self.span();
-            self.error_at(codigos::parser::ILLEGAL_ASSIGNMENT_TO_NON_ASSIGNABLE, span, &[]);
+            self.error_at(codes::parser::ILLEGAL_ASSIGNMENT_TO_NON_ASSIGNABLE, span, &[]);
         }
         self.advance();
         Ok(self.push(start, ExprKind::Unary { op, operand: expr }))
@@ -1095,7 +1095,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                             // `parsePrecedenceExpression`: type arguments without `(` in a constant
                             // pattern.
                             let lt = self.tokens[lt_pos].span;
-                            self.error_at(codigos::parser::INVALID_CONSTANT_PATTERN_GENERIC, lt, &[]);
+                            self.error_at(codes::parser::INVALID_CONSTANT_PATTERN_GENERIC, lt, &[]);
                         }
                         expr = self.push(
                             start,
@@ -1151,7 +1151,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             let token = self.peek();
             let texto = self.text().to_string();
             self.parse_primary()?;
-            self.error_at(codigos::parser::MISSING_IDENTIFIER, token.span, &[]);
+            self.error_at(codes::parser::MISSING_IDENTIFIER, token.span, &[]);
             return Ok(self.name_from(&texto, token.span));
         }
         if self.at_identifier() {
@@ -1171,7 +1171,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         ) {
             let texto = self.text().to_string();
             let token = self.advance();
-            self.error_at(codigos::parser::MISSING_IDENTIFIER, token.span, &[]);
+            self.error_at(codes::parser::MISSING_IDENTIFIER, token.span, &[]);
             return Ok(self.name_from(&texto, token.span));
         }
         // Another token (`b.` before `}`, `)`, `;`, `=>`…): the
@@ -1310,7 +1310,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 // `parseSuperExpression` (`parser_impl.dart:6906`): `super?.`.
                 if self.at_op(Op::QuestionDot) {
                     let span = self.span();
-                    self.error_at(codigos::parser::INVALID_OPERATOR_QUESTIONMARK_PERIOD_FOR_SUPER, span, &[]);
+                    self.error_at(codes::parser::INVALID_OPERATOR_QUESTIONMARK_PERIOD_FOR_SUPER, span, &[]);
                 }
                 Ok(self.push(start, ExprKind::Super))
             }
@@ -1359,7 +1359,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                         let nome = self.advance().span;
                         let lowercase = class.to_lowercase();
                         let span = Span { start: novo.start, end: nome.end };
-                        self.error_at(codigos::parser::LITERAL_WITH_CLASS_AND_NEW, span, &[&lowercase, class]);
+                        self.error_at(codes::parser::LITERAL_WITH_CLASS_AND_NEW, span, &[&lowercase, class]);
                         return self.parse_primary();
                     }
                 } else if !self.at_identifier() {
@@ -1371,7 +1371,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                         _ => false,
                     };
                     if literal {
-                        self.error_at(codigos::parser::LITERAL_WITH_NEW, novo, &[]);
+                        self.error_at(codes::parser::LITERAL_WITH_NEW, novo, &[]);
                         return self.parse_primary();
                     }
                 }
@@ -1411,7 +1411,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             // and the following primary is read.
             Kind::Keyword(Keyword::Return) => {
                 let token = self.advance();
-                self.error_at(codigos::parser::UNEXPECTED_TOKEN, token.span, &["return"]);
+                self.error_at(codes::parser::UNEXPECTED_TOKEN, token.span, &["return"]);
                 self.parse_primary()
             }
             _ => Ok(self.recovery_identifier()),
@@ -1441,7 +1441,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         {
             let texto = self.text().to_string();
             let token = self.advance();
-            self.error_at(codigos::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, token.span, &[&texto]);
+            self.error_at(codes::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, token.span, &[&texto]);
             return self.name_from(&texto, token.span);
         }
         // `!identifier.isOperator` and outside the list's punctuation: when in
@@ -1454,7 +1454,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 Kind::Op(op) => matches!(op, Op::At | Op::Hash | Op::Arrow | Op::Ellipsis | Op::EllipsisQuestion),
                 _ => true,
             };
-        self.erro(codigos::parser::MISSING_IDENTIFIER, &[]);
+        self.erro(codes::parser::MISSING_IDENTIFIER, &[]);
         if consume {
             self.advance();
         }
@@ -1570,9 +1570,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                 // the error at the token).
                 if self.looks_like_literal_entry(self.pos) {
                     if ifs > 0 {
-                        self.erro(codigos::parser::EXPECTED_ELSE_OR_COMMA, &[]);
+                        self.erro(codes::parser::EXPECTED_ELSE_OR_COMMA, &[]);
                     } else {
-                        self.erro(codigos::parser::EXPECTED_TOKEN, &[","]);
+                        self.erro(codes::parser::EXPECTED_TOKEN, &[","]);
                     }
                     continue;
                 }
@@ -1734,7 +1734,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         // (`parseParenthesizedExpressionOrRecordLiteral`).
         if self.at_op(Op::Comma) && self.at_op_at(1, Op::RParen) {
             let comma = self.advance().span;
-            self.error_at(codigos::parser::EMPTY_RECORD_LITERAL_WITH_COMMA, comma, &[]);
+            self.error_at(codes::parser::EMPTY_RECORD_LITERAL_WITH_COMMA, comma, &[]);
             is_record = true;
             saw_comma = true;
         }
@@ -1759,7 +1759,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         // `const (e)`: one positional without a comma, at the `)`.
         if const_ && positional.len() == 1 && named.is_empty() && !saw_comma {
             let closes = self.tokens[self.pos - 1].span;
-            self.error_at(codigos::parser::RECORD_LITERAL_ONE_POSITIONAL_NO_TRAILING_COMMA, closes, &[]);
+            self.error_at(codes::parser::RECORD_LITERAL_ONE_POSITIONAL_NO_TRAILING_COMMA, closes, &[]);
         }
         if is_record {
             return Ok(self.push(
@@ -1846,7 +1846,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.advance();
         }
         let span = self.span();
-        self.error_at(codigos::parser::NAMED_FUNCTION_EXPRESSION, span, &[]);
+        self.error_at(codes::parser::NAMED_FUNCTION_EXPRESSION, span, &[]);
         self.advance();
         let start_offset = self.span();
         self.parse_function_expression(start_offset)
@@ -1907,10 +1907,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         if !self.at_op(Op::LParen) && self.pos > 0 {
             let last = self.tokens[self.pos - 1].span;
             if self.at_op(Op::Lt) && self.skip_type_arguments(self.pos).is_some() {
-                self.error_at(codigos::parser::CONSTRUCTOR_WITH_TYPE_ARGUMENTS, last, &[]);
+                self.error_at(codes::parser::CONSTRUCTOR_WITH_TYPE_ARGUMENTS, last, &[]);
                 self.parse_type_arguments_opt()?;
             } else {
-                self.error_at(codigos::parser::EXPECTED_TOKEN, last, &["("]);
+                self.error_at(codes::parser::EXPECTED_TOKEN, last, &["("]);
             }
             if !self.at_op(Op::LParen) {
                 let empty = Span { start: last.end, end: last.end };
@@ -1941,7 +1941,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         // a synthetic empty body.
         if !self.at_op(Op::LBrace) {
             let closes = self.tokens[self.pos - 1].span;
-            self.error_at(codigos::parser::EXPECTED_SWITCH_EXPRESSION_BODY, closes, &[]);
+            self.error_at(codes::parser::EXPECTED_SWITCH_EXPRESSION_BODY, closes, &[]);
             return Ok(self.push(start, ExprKind::Switch { value, cases: Vec::new().into_boxed_slice() }));
         }
         self.expect_op(Op::LBrace)?;
@@ -1954,11 +1954,11 @@ impl<'s, 'i> Parser<'s, 'i> {
             // `;` in place of `,` are `EXPECTED_TOKEN` at them.
             let pattern = if self.at_kw(Keyword::Default) {
                 let t = self.advance().span;
-                self.error_at(codigos::parser::DEFAULT_IN_SWITCH_EXPRESSION, t, &[]);
+                self.error_at(codes::parser::DEFAULT_IN_SWITCH_EXPRESSION, t, &[]);
                 self.ast.push_pattern(crate::ast::Pattern { span: t, kind: crate::ast::PatternKind::Wildcard { ty: None } })
             } else {
                 if self.at_kw(Keyword::Case) {
-                    self.erro(codigos::parser::UNEXPECTED_TOKEN, &["case"]);
+                    self.erro(codes::parser::UNEXPECTED_TOKEN, &["case"]);
                     self.advance();
                 }
                 // The pattern and guard of a `switch` expression case do not read a named
@@ -1977,7 +1977,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 None
             };
             if self.at_op(Op::Colon) {
-                self.erro(codigos::parser::EXPECTED_TOKEN, &["=>"]);
+                self.erro(codes::parser::EXPECTED_TOKEN, &["=>"]);
                 self.advance();
             } else {
                 self.expect_op(Op::Arrow)?;
@@ -1991,7 +1991,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             });
             let mut comma = self.eat_op(Op::Comma);
             if !comma && self.at_op(Op::Semicolon) {
-                self.erro(codigos::parser::EXPECTED_TOKEN, &[","]);
+                self.erro(codes::parser::EXPECTED_TOKEN, &[","]);
                 self.advance();
                 comma = true;
             }
@@ -2002,7 +2002,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             // missing comma is reported at it); otherwise skips to the next `,`/`;`
             // before the matching `}`, or ends at the `}`.
             if self.looks_like_pattern_start(self.pos) {
-                self.erro(codigos::parser::EXPECTED_TOKEN, &[","]);
+                self.erro(codes::parser::EXPECTED_TOKEN, &[","]);
                 continue;
             }
             let Some(closes) = self.matching_close(abre) else { break };
@@ -2023,11 +2023,11 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             match found_it {
                 Some(v) => {
-                    self.erro(codigos::parser::EXPECTED_TOKEN, &[","]);
+                    self.erro(codes::parser::EXPECTED_TOKEN, &[","]);
                     self.pos = v + 1;
                 }
                 None => {
-                    self.erro(codigos::parser::EXPECTED_TOKEN, &["}"]);
+                    self.erro(codes::parser::EXPECTED_TOKEN, &["}"]);
                     self.pos = closes;
                     break;
                 }
@@ -2121,7 +2121,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 // and no interpolation.
                 Interp::Ident if !self.at_identifier() => {
                     let s = self.span().start;
-                    self.error_at(codigos::scanner::MISSING_IDENTIFIER, Span { start: s, end: s + 1 }, &[]);
+                    self.error_at(codes::scanner::MISSING_IDENTIFIER, Span { start: s, end: s + 1 }, &[]);
                     None
                 }
                 Interp::Ident => {
@@ -2132,7 +2132,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                     // the `$` (`"$class"`) and uses it as the identifier.
                     let texto = self.text().to_string();
                     if texto != "this" && matches!(super::fasta::word_style(&texto), Some(super::fasta::WordStyle::Reserved)) {
-                        self.erro(codigos::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, &[&texto]);
+                        self.erro(codes::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, &[&texto]);
                     }
                     let name = self.identifier();
                     Some(self.push(start, ExprKind::Identifier(name)))
@@ -2217,12 +2217,12 @@ impl<'s, 'i> Parser<'s, 'i> {
                         let span = Span { start: base + start_offset, end: base + start_offset + len };
                         // `INVALID_CODE_POINT` carries the literal text `\u{...}`.
                         let args: &[&str] =
-                            if code == codigos::parser::INVALID_CODE_POINT { &["\\u{...}"] } else { &[] };
+                            if code == codes::parser::INVALID_CODE_POINT { &["\\u{...}"] } else { &[] };
                         self.error_at(code, span, args);
                         self.scratch_parts.push(StringPart::Text(crate::text::DartStr::from(content)));
                         Ok(())
                     }
-                    None => Err(self.error_at(codigos::parser::INVALID_UNICODE_ESCAPE_STARTED, token.span, &[])),
+                    None => Err(self.error_at(codes::parser::INVALID_UNICODE_ESCAPE_STARTED, token.span, &[])),
                 }
             }
         }
@@ -2652,7 +2652,7 @@ mod tests {
         let tokens = crate::lexer::lex(src).unwrap();
         let mut p = Parser::new(src, tokens, names);
         assert!(p.parse_expression().is_err());
-        assert!(p.diagnostics.iter().any(|d| d.code.is_some_and(|c| c.info().nome == "expected_token")));
+        assert!(p.diagnostics.iter().any(|d| d.code.is_some_and(|c| c.info().name == "expected_token")));
     }
 
     #[test]
@@ -2871,7 +2871,7 @@ mod tests {
         let tokens = crate::lexer::lex(&src).unwrap();
         let mut p = Parser::new(&src, tokens, names);
         assert!(p.parse_expression().is_err());
-        assert!(p.diagnostics.iter().any(|d| d.code.is_some_and(|c| c.info().nome == "stack_overflow")));
+        assert!(p.diagnostics.iter().any(|d| d.code.is_some_and(|c| c.info().name == "stack_overflow")));
     }
 
     // -- Tests that depend on other modules (types, patterns, statements,
@@ -2902,7 +2902,7 @@ mod tests {
         let id = p.parse_expression().unwrap();
         assert_eq!(binary(&p, id).0, BinaryOp::Gt);
         assert_eq!(p.diagnostics.len(), 1);
-        assert_eq!(p.diagnostics[0].code, Some(dartforge_diagnostics::codigos::parser::EQUALITY_CANNOT_BE_EQUALITY_OPERAND));
+        assert_eq!(p.diagnostics[0].code, Some(dartforge_diagnostics::codes::parser::EQUALITY_CANNOT_BE_EQUALITY_OPERAND));
         let (p, id) = parse("a < b && c > d");
         let (op, l, r) = binary(&p, id);
         assert_eq!(op, BinaryOp::And);

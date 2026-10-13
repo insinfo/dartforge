@@ -69,7 +69,7 @@ pub struct Anterior {
     ast: Ast,
     unit: CompilationUnit,
     pulados: Vec<Span>,
-    referencia: dartforge_diagnostics::Referencia,
+    referencia: dartforge_diagnostics::AnalyzerReference,
     /// Old → new `TypeId` of the signatures' annotations.
     map: HashMap<TypeId, TypeId>,
     alterados: Vec<UnitBody>,

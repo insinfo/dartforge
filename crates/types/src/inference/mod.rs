@@ -679,7 +679,7 @@ impl<'a> BodyInferrer<'a> {
             };
             let name = self.interner.resolve(var.name).to_string();
             self.current_unit = Some(unit);
-            self.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::TOP_LEVEL_CYCLE, span, &[&name, &list]);
+            self.warning_with_code(dartforge_diagnostics::codes::compile_time_error::TOP_LEVEL_CYCLE, span, &[&name, &list]);
         }
         self.current_unit = saved_unit;
     }
@@ -903,11 +903,11 @@ impl<'a> BodyInferrer<'a> {
     /// one of the `UNCHECKED_…_OF_NULLABLE_VALUE`); with a receiver of type
     /// `Null`, it is `INVALID_USE_OF_NULL_VALUE` (without arguments), at the
     /// same place.
-    pub(crate) fn null_warning(&mut self, recv: TypeId, code: dartforge_diagnostics::Codigo, span: Span, args: &[&str]) {
+    pub(crate) fn null_warning(&mut self, recv: TypeId, code: dartforge_diagnostics::Code, span: Span, args: &[&str]) {
         // `Never?` is not `Null` for the analyzer (it is `NeverType` with `?`).
         let nullable_never = matches!(self.table.exibicao(recv), Some(crate::table::Exibicao::NeverAnulavel));
         if matches!(self.table.get(recv), crate::table::Type::Null) && !nullable_never {
-            self.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::INVALID_USE_OF_NULL_VALUE, span, &[]);
+            self.warning_with_code(dartforge_diagnostics::codes::compile_time_error::INVALID_USE_OF_NULL_VALUE, span, &[]);
         } else {
             self.warning_with_code(code, span, args);
         }
@@ -915,16 +915,16 @@ impl<'a> BodyInferrer<'a> {
 
     /// A warning already with the analyzer's code, the official message and the
     /// arguments (the T1 design): the parity bridge leaves it as is.
-    pub(crate) fn warning_with_code(&mut self, code: dartforge_diagnostics::Codigo, span: Span, args: &[&str]) {
-        self.diagnostics.push(Diagnostic::com_codigo(code, span, args.iter().copied()));
+    pub(crate) fn warning_with_code(&mut self, code: dartforge_diagnostics::Code, span: Span, args: &[&str]) {
+        self.diagnostics.push(Diagnostic::with_code(code, span, args.iter().copied()));
         self.warning_units.push(self.current_unit);
     }
 
     /// A warning with a code and context messages (`DiagnosticFactory`):
     /// `(file, intervalo, text)`, the file when it is not the warning's.
-    pub(crate) fn warning_with_context(&mut self, code: dartforge_diagnostics::Codigo, span: Span, args: &[&str], context: Vec<(Option<String>, Span, String)>) {
-        let mut d = Diagnostic::com_codigo(code, span, args.iter().copied());
-        d.contexto.extend(context.into_iter().map(|(file, span, message)| dartforge_diagnostics::Contexto { arquivo: file.map(Into::into), span, mensagem: message.into() }));
+    pub(crate) fn warning_with_context(&mut self, code: dartforge_diagnostics::Code, span: Span, args: &[&str], context: Vec<(Option<String>, Span, String)>) {
+        let mut d = Diagnostic::with_code(code, span, args.iter().copied());
+        d.context.extend(context.into_iter().map(|(file, span, message)| dartforge_diagnostics::ContextMessage { file: file.map(Into::into), span, message: message.into() }));
         self.diagnostics.push(d);
         self.warning_units.push(self.current_unit);
     }
@@ -933,13 +933,13 @@ impl<'a> BodyInferrer<'a> {
     /// `ErrorReporter`'s conversion ([`crate::exibicao::Exibidor::argumentos`],
     /// T7): the types come out with aliases, and two types of the same report
     /// with the same text get the `(where X is defined in …)`.
-    pub(crate) fn warning_with_args(&mut self, code: dartforge_diagnostics::Codigo, span: Span, args: &[crate::exibicao::Arg<'_>]) {
+    pub(crate) fn warning_with_args(&mut self, code: dartforge_diagnostics::Code, span: Span, args: &[crate::exibicao::Arg<'_>]) {
         let (texts, context) = {
             let displayer = crate::exibicao::Exibidor { table: &*self.table, interner: self.interner, program: self.program };
             displayer.arguments_and_context(args)
         };
-        let mut d = Diagnostic::com_codigo(code, span, texts);
-        d.contexto.extend(context);
+        let mut d = Diagnostic::with_code(code, span, texts);
+        d.context.extend(context);
         self.diagnostics.push(d);
         self.warning_units.push(self.current_unit);
     }
@@ -968,7 +968,7 @@ impl<'a> BodyInferrer<'a> {
         // conversion (aliases and the `(where C is defined in …)`
         // disambiguation of two types with the same name).
         use crate::exibicao::Arg;
-        use dartforge_diagnostics::codigos::compile_time_error as c;
+        use dartforge_diagnostics::codes::compile_time_error as c;
         if template == crate::codes::INVALID_ASSIGNMENT.template {
             self.warning_with_args(c::INVALID_ASSIGNMENT, span, &[Arg::Type_(of), Arg::Type_(for_)]);
             return;

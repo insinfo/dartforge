@@ -167,7 +167,7 @@ fn decimal_of(d: f64) -> String {
 /// `_checkForOutOfRange` on the integer literal `e` of static type `ty`;
 /// `the_negated` when the parent is the unary `-`.
 pub(crate) fn literal_out_of_range(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, ty: TypeId, the_negated: bool) {
-    use dartforge_diagnostics::codigos::compile_time_error as c;
+    use dartforge_diagnostics::codes::compile_time_error as c;
     let sp = inf.span_expr(cx.unit, e);
     let lexeme = &inf.program.unit(cx.unit).source[sp.start..sp.end];
     // `0x` without a digit: the scanner reports `MISSING_HEX_DIGIT` and

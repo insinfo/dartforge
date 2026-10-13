@@ -11,7 +11,7 @@
 //! parsing; the parser and later phases only query a bit set
 //! ([`LibraryFeatures::tem`]). No phase redoes the computation per node.
 
-pub use dartforge_diagnostics::Referencia;
+pub use dartforge_diagnostics::AnalyzerReference;
 use dartforge_diagnostics::Span;
 
 /// Language version `major.minor` (there is no patch version for the

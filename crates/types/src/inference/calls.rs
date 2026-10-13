@@ -71,7 +71,7 @@ pub(crate) struct ArityTarget {
 /// `MISSING_REQUIRED_ARGUMENT` there too
 /// (an611:src/error/required_parameters_verifier.dart:37-43).
 pub(crate) fn arity_without_arguments(inf: &mut BodyInferrer<'_>, f: FunctionElementId, enum_name: String, span: Span) {
-    use dartforge_diagnostics::codigos::compile_time_error as ce;
+    use dartforge_diagnostics::codes::compile_time_error as ce;
     let sig = inf.outline.functions[f.0 as usize].signature;
     let Type::Function { positional, named, .. } = inf.table.get(sig).clone() else { return };
     let n = positional.len();
@@ -144,7 +144,7 @@ fn verify_arity(
     args: &ast::Arguments,
     tgt: Option<ArityTarget>,
 ) {
-    use dartforge_diagnostics::codigos::compile_time_error as ce;
+    use dartforge_diagnostics::codes::compile_time_error as ce;
     let tgt = tgt.unwrap_or_default();
     let a = &inf.program.unit(cx.unit).ast;
     let source = &inf.program.unit(cx.unit).source;
@@ -184,7 +184,7 @@ fn verify_arity(
     };
     let total_pos = npos + tgt.super_positional_args;
     let mut used: Vec<dartforge_intern::SymbolId> = tgt.super_named_args.clone();
-    let mut warnings: Vec<(dartforge_diagnostics::Codigo, Span, Vec<String>)> = Vec::new();
+    let mut warnings: Vec<(dartforge_diagnostics::Code, Span, Vec<String>)> = Vec::new();
     for x in args.args.iter() {
         if let Some(n) = &x.name {
             let text = inf.interner.resolve(n.sym).to_string();
@@ -373,7 +373,7 @@ pub(crate) fn check_explicit_bounds(
         let a = inf.table.format(types[i], inf.interner, inf.program);
         let the_name = inf.interner.resolve(data.name).to_string();
         let l = inf.table.format(bnd, inf.interner, inf.program);
-        inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::TYPE_ARGUMENT_NOT_MATCHING_BOUNDS, sp, &[&a, &the_name, &l]);
+        inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::TYPE_ARGUMENT_NOT_MATCHING_BOUNDS, sp, &[&a, &the_name, &l]);
     }
 }
 
@@ -498,7 +498,7 @@ pub(crate) fn invoke(
         let end = source.get(until..).and_then(|t| t.find('>')).map_or(until, |i| until + i + 1);
         let typ = inf.table.format(f, inf.interner, inf.program);
         inf.warning_with_code(
-            dartforge_diagnostics::codigos::compile_time_error::WRONG_NUMBER_OF_TYPE_ARGUMENTS_METHOD,
+            dartforge_diagnostics::codes::compile_time_error::WRONG_NUMBER_OF_TYPE_ARGUMENTS_METHOD,
             Span { start: start, end: end },
             &[&typ, &type_params.len().to_string(), &ex.len().to_string()],
         );
@@ -602,7 +602,7 @@ pub(crate) fn invoke(
     drop(env);
     if let Some(sp) = entity {
         for (the_name, suffix) in failures {
-            inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::COULD_NOT_INFER, sp, &[&the_name, &suffix]);
+            inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::COULD_NOT_INFER, sp, &[&the_name, &suffix]);
         }
     }
     inf.body_types.units[cx.unit.0 as usize].set_instantiation(args.span.start, finals.clone().into_boxed_slice());
@@ -653,7 +653,7 @@ fn invoke_value(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, t: TypeId,
         && let ExprKind::Call { target, .. } = &inf.program.unit(cx.unit).ast.expr(e).kind
     {
         let function = *target;
-        expr::nullable_dereference(inf, cx, function, t, dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_INVOCATION_OF_NULLABLE_VALUE);
+        expr::nullable_dereference(inf, cx, function, t, dartforge_diagnostics::codes::compile_time_error::UNCHECKED_INVOCATION_OF_NULLABLE_VALUE);
         for a in args.args.iter() {
             infer_free(inf, cx, a.value);
         }
@@ -675,7 +675,7 @@ fn invoke_value(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, t: TypeId,
             // a nullable function type, at the function's node.
             if let ExprKind::Call { target, .. } = &inf.program.unit(cx.unit).ast.expr(e).kind {
                 let function = *target;
-                expr::nullable_dereference(inf, cx, function, t, dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_INVOCATION_OF_NULLABLE_VALUE);
+                expr::nullable_dereference(inf, cx, function, t, dartforge_diagnostics::codes::compile_time_error::UNCHECKED_INVOCATION_OF_NULLABLE_VALUE);
             }
             inf.arity_target = tgt;
             invoke(inf, cx, t_nn, args, ctx, explicit)
@@ -700,7 +700,7 @@ fn invoke_value(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, t: TypeId,
                 && let ExprKind::Call { target, .. } = &inf.program.unit(cx.unit).ast.expr(e).kind
             {
                 let function = *target;
-                expr::nullable_dereference(inf, cx, function, t, dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_INVOCATION_OF_NULLABLE_VALUE);
+                expr::nullable_dereference(inf, cx, function, t, dartforge_diagnostics::codes::compile_time_error::UNCHECKED_INVOCATION_OF_NULLABLE_VALUE);
             }
             for a in args.args.iter() {
                 infer_free(inf, cx, a.value);
@@ -719,7 +719,7 @@ fn invoke_value(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, t: TypeId,
                 && let ExprKind::Call { target, .. } = &inf.program.unit(cx.unit).ast.expr(e).kind
             {
                 let function = *target;
-                expr::nullable_dereference(inf, cx, function, t, dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_INVOCATION_OF_NULLABLE_VALUE);
+                expr::nullable_dereference(inf, cx, function, t, dartforge_diagnostics::codes::compile_time_error::UNCHECKED_INVOCATION_OF_NULLABLE_VALUE);
             }
             // `createT()('')` with `T extends int Function(int)`: the parser's
             // `FunctionExpressionInvocation` (a target that is neither a name nor a
@@ -748,7 +748,7 @@ fn invoke_value(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, t: TypeId,
             let call_not_method = |inf: &mut BodyInferrer<'_>, cx: &mut Body| -> (TypeId, TypeId) {
                 if let ExprKind::Call { target, .. } = &inf.program.unit(cx.unit).ast.expr(e).kind {
                     let sp = inf.span_expr(cx.unit, *target);
-                    inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::INVOCATION_OF_NON_FUNCTION_EXPRESSION, sp, &[]);
+                    inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::INVOCATION_OF_NON_FUNCTION_EXPRESSION, sp, &[]);
                 }
                 for a in args.args.iter() {
                     infer_free(inf, cx, a.value);
@@ -774,7 +774,7 @@ fn invoke_value(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, t: TypeId,
                             infer_free(inf, cx, a.value);
                         }
                         let sp = inf.span_expr(cx.unit, super_target);
-                        inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::INVOCATION_OF_NON_FUNCTION_EXPRESSION, sp, &[]);
+                        inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::INVOCATION_OF_NON_FUNCTION_EXPRESSION, sp, &[]);
                         return (inf.table.invalid(inf.core.dynamic_), t);
                     }
                 }
@@ -873,7 +873,7 @@ fn invoke_value(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, t: TypeId,
                 || matches!(inf.table.get(t_nn), Type::Void | Type::TypeParameter { .. } | Type::Intersection { .. });
             if let (false, Some(tgt)) = (outside, tgt) {
                 let sp = inf.span_expr(cx.unit, tgt);
-                inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::INVOCATION_OF_NON_FUNCTION_EXPRESSION, sp, &[]);
+                inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::INVOCATION_OF_NON_FUNCTION_EXPRESSION, sp, &[]);
                 // `result.isGetterInvalid` (3.6.2
                 // `function_expression_invocation_resolver.dart:89-92`): without any
                 // `call`, the type is `InvalidType`.
@@ -936,7 +936,7 @@ fn override_without_access(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId) {
     };
     if !valid {
         let sp = inf.span_expr(cx.unit, e);
-        inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::EXTENSION_OVERRIDE_WITHOUT_ACCESS, sp, &[]);
+        inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::EXTENSION_OVERRIDE_WITHOUT_ACCESS, sp, &[]);
     }
 }
 
@@ -962,7 +962,7 @@ pub(crate) fn types_in_constructor(inf: &mut BodyInferrer<'_>, unit: dartforge_e
     let source = &inf.program.unit(unit).source;
     let cls = source[written_class.start..written_class.end].split_whitespace().collect::<String>();
     let the_name = inf.interner.resolve(ctor.sym).to_string();
-    inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::WRONG_NUMBER_OF_TYPE_ARGUMENTS_CONSTRUCTOR, sp, &[&cls, &the_name]);
+    inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::WRONG_NUMBER_OF_TYPE_ARGUMENTS_CONSTRUCTOR, sp, &[&cls, &the_name]);
 }
 
 pub(crate) fn the_call(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx: TypeId) -> (TypeId, bool) {
@@ -1014,7 +1014,7 @@ pub(crate) fn the_call(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                 _ => String::new(),
             };
             let the_name = inf.interner.resolve(name.sym).to_string();
-            inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::NEW_WITH_UNDEFINED_CONSTRUCTOR, name.span, &[&qualified, &the_name]);
+            inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::NEW_WITH_UNDEFINED_CONSTRUCTOR, name.span, &[&qualified, &the_name]);
         }
         for x in args.args.iter() {
             infer_free(inf, cx, x.value);
@@ -1046,7 +1046,7 @@ pub(crate) fn the_call(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
             // `_verifyTypeAliasForContext`: at the name, without the arguments.
             if let (Some(p), Some(u)) = (names.first(), names.last()) {
                 let sp = Span { start: p.span.start, end: u.span.end };
-                inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::INSTANTIATE_TYPE_ALIAS_EXPANDS_TO_TYPE_PARAMETER, sp, &[]);
+                inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::INSTANTIATE_TYPE_ALIAS_EXPANDS_TO_TYPE_PARAMETER, sp, &[]);
             }
         } else if !names.is_empty() {
             creation_without_class(inf, cx, &names);
@@ -1208,7 +1208,7 @@ pub(crate) fn the_call(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                 && k.constructors.is_empty()
             {
                 let sp = creation_named_type(inf, cx, target, &args.type_args);
-                inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::INSTANTIATE_ABSTRACT_CLASS, sp, &[]);
+                inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::INSTANTIATE_ABSTRACT_CLASS, sp, &[]);
             }
         }
         if inf.program.class(c).kind == ClassKind::Enum
@@ -1243,7 +1243,7 @@ pub(crate) fn the_call(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                 },
                 _ => String::new(),
             };
-            inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::NEW_WITH_UNDEFINED_CONSTRUCTOR_DEFAULT, sp, &[&qualified]);
+            inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::NEW_WITH_UNDEFINED_CONSTRUCTOR_DEFAULT, sp, &[&qualified]);
             for arg in args.args.iter() {
                 infer_free(inf, cx, arg.value);
             }
@@ -1265,7 +1265,7 @@ pub(crate) fn the_call(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
         let begin = args.type_args.last().map(|&t| a.ty(t).span.end).unwrap_or(args.span.start);
         let open = source.get(begin..).and_then(|r| r.find('(')).map(|i| begin + i).unwrap_or(args.span.start);
         let sp = Span { start: open, end: args.span.end.max(open) };
-        inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::INVALID_EXTENSION_ARGUMENT_COUNT, sp, &[]);
+        inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::INVALID_EXTENSION_ARGUMENT_COUNT, sp, &[]);
         for arg in args.args.iter() {
             infer_free(inf, cx, arg.value);
         }
@@ -1294,7 +1294,7 @@ pub(crate) fn the_call(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
             let the_name = inf.program.extension(x).name.map(|n| inf.interner.resolve(n).to_string()).unwrap_or_default();
             let (np, at) = (data.type_params.len().to_string(), ex.len().to_string());
             inf.warning_with_code(
-                dartforge_diagnostics::codigos::compile_time_error::WRONG_NUMBER_OF_TYPE_ARGUMENTS_EXTENSION,
+                dartforge_diagnostics::codes::compile_time_error::WRONG_NUMBER_OF_TYPE_ARGUMENTS_EXTENSION,
                 Span { start: open, end: closes },
                 &[&the_name, &np, &at],
             );
@@ -1349,7 +1349,7 @@ pub(crate) fn the_call(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                 let failures = gi.failures(&finals, &mut env, interner, program);
                 drop(env);
                 for (the_name, suffix) in failures {
-                    inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::COULD_NOT_INFER, entity, &[&the_name, &suffix]);
+                    inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::COULD_NOT_INFER, entity, &[&the_name, &suffix]);
                 }
                 finals
             }
@@ -1365,7 +1365,7 @@ pub(crate) fn the_call(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
             let empty = matches!(inf.table.get(t), Type::Void);
             if empty {
                 let sp = inf.span_expr(cx.unit, arg);
-                inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, sp, &[]);
+                inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::USE_OF_VOID_RESULT, sp, &[]);
             } else {
                 let map = inf.map(&data.type_params, &ext_args);
                 let on = inf.subst(data.on, &map);
@@ -1385,7 +1385,7 @@ pub(crate) fn the_call(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                     let sp = inf.span_expr(cx.unit, arg);
                     let since = inf.diagnostics.len();
                     inf.warning_with_args(
-                        dartforge_diagnostics::codigos::compile_time_error::EXTENSION_OVERRIDE_ARGUMENT_NOT_ASSIGNABLE,
+                        dartforge_diagnostics::codes::compile_time_error::EXTENSION_OVERRIDE_ARGUMENT_NOT_ASSIGNABLE,
                         sp,
                         &[crate::exibicao::Arg::Type_(t), crate::exibicao::Arg::Type_(on)],
                     );
@@ -1423,7 +1423,7 @@ pub(crate) fn the_call(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                         if !crate::scope::should_ignore_undefined(inf.program, inf.interner, cx.unit, Some(p.sym), name.sym) {
                             let the_name = inf.interner.resolve(name.sym).to_string();
                             inf.warning_with_code(
-                                dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_FUNCTION,
+                                dartforge_diagnostics::codes::compile_time_error::UNDEFINED_FUNCTION,
                                 name.span,
                                 &[&the_name],
                             );
@@ -1463,7 +1463,7 @@ pub(crate) fn the_call(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                 let qualified = inf.program.unit(cx.unit).source[sp_base.start..sp_base.end].to_string();
                 let the_name = inf.interner.resolve(name.sym).to_string();
                 inf.warning_with_code(
-                    dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_METHOD_ON_FUNCTION_TYPE,
+                    dartforge_diagnostics::codes::compile_time_error::UNDEFINED_METHOD_ON_FUNCTION_TYPE,
                     name.span,
                     &[&the_name, &qualified],
                 );
@@ -1522,7 +1522,7 @@ pub(crate) fn the_call(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                 {
                     let the_name = inf.interner.resolve(name.sym).to_string();
                     let typ = inf.interner.resolve(inf.program.class(c).name).to_string();
-                    inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_METHOD, name.span, &[&the_name, &typ]);
+                    inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::UNDEFINED_METHOD, name.span, &[&the_name, &typ]);
                     // The receiver was already resolved by `ResolverVisitor` before
                     // `MethodInvocationResolver`: the element (the class or the alias)
                     // and the type literal's `Type` type.
@@ -1590,7 +1590,7 @@ pub(crate) fn the_call(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                 // target, made there.
                 if !matches!(inf.program.unit(cx.unit).ast.expr(recv).kind, ExprKind::CascadeTarget) {
                     let sp = inf.span_expr(cx.unit, recv);
-                    inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, sp, &[]);
+                    inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::USE_OF_VOID_RESULT, sp, &[]);
                 }
                 let d = inf.core.dynamic_;
                 registrar(inf, cx, target, d);
@@ -1606,7 +1606,7 @@ pub(crate) fn the_call(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                 let since = inf.diagnostics.len();
                 inf.null_warning(
                     r_ty,
-                    dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE,
+                    dartforge_diagnostics::codes::compile_time_error::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE,
                     name.span,
                     &[&the_name],
                 );
@@ -1747,7 +1747,7 @@ pub(crate) fn the_call(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                     // an611:src/dart/resolver/method_invocation_resolver.dart:862-873).
                     let the_name = inf.interner.resolve(name.sym).to_string();
                     let typ = receiver_name(inf, r_ty);
-                    inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_METHOD, name.span, &[&the_name, &typ]);
+                    inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::UNDEFINED_METHOD, name.span, &[&the_name, &typ]);
                     // `_setInvalidTypeResolution`
                     // (`method_invocation_resolver.dart:1062-1068`).
                     let d = inf.table.invalid(inf.core.dynamic_);
@@ -1788,7 +1788,7 @@ pub(crate) fn the_call(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                     || (cx.lookup(n.sym).is_none() && expr::non_class_type_alias(inf, cx, target)))
             {
                 let the_name = inf.interner.resolve(n.sym).to_string();
-                inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::INVOCATION_OF_NON_FUNCTION, n.span, &[&the_name]);
+                inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::INVOCATION_OF_NON_FUNCTION, n.span, &[&the_name]);
                 // The `methodName` keeps the type parameter as its element:
                 // `visitSimpleIdentifier` reports the class's one in a static member
                 // (`error_verifier.dart:1421`).
@@ -1796,7 +1796,7 @@ pub(crate) fn the_call(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                     && let Some(super::body::Nome::TypeParam(p)) = cx.lookup(n.sym)
                     && crate::resolve::class_param(inf.table, p)
                 {
-                    inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::TYPE_PARAMETER_REFERENCED_BY_STATIC, n.span, &[]);
+                    inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::TYPE_PARAMETER_REFERENCED_BY_STATIC, n.span, &[]);
                 }
                 let d = inf.table.invalid(inf.core.dynamic_);
                 registrar(inf, cx, target, d);
@@ -2324,7 +2324,7 @@ fn creation_without_class(inf: &mut BodyInferrer<'_>, cx: &Body, name: &[ast::Na
     let start = if prefix { last.span.start } else { first.span.start };
     let text = inf.interner.resolve(last.sym).to_string();
     inf.warning_with_code(
-        dartforge_diagnostics::codigos::compile_time_error::NEW_WITH_NON_TYPE,
+        dartforge_diagnostics::codes::compile_time_error::NEW_WITH_NON_TYPE,
         Span { start: start, end: last.span.end },
         &[&text],
     );
@@ -2336,7 +2336,7 @@ fn creation_without_class(inf: &mut BodyInferrer<'_>, cx: &Body, name: &[ast::Na
         && let Some(&p) = cx.visible_type_parameters().get(&first.sym)
         && crate::resolve::class_param(inf.table, p)
     {
-        inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::TYPE_PARAMETER_REFERENCED_BY_STATIC, first.span, &[]);
+        inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::TYPE_PARAMETER_REFERENCED_BY_STATIC, first.span, &[]);
     }
 }
 
@@ -2381,7 +2381,7 @@ fn undefined_constructor(
     ctor_of_name: bool,
     constant: bool,
 ) {
-    use dartforge_diagnostics::codigos::compile_time_error as c;
+    use dartforge_diagnostics::codes::compile_time_error as c;
     let parts = if ctor_of_name { &name[..1] } else { name };
     let qualified = parts.iter().map(|n| inf.interner.resolve(n.sym)).collect::<Vec<_>>().join(".");
     match constructor {
@@ -2419,7 +2419,7 @@ pub(crate) fn instantiation(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId
         let local = cx.visible_type_parameters().contains_key(&p) || cx.visible_locals(inf.interner).contains_key(&p);
         if crate::resolve::shadowed_prefix(inf.program, inf.interner, cx.unit, p, local, cx.class, cx.extension) {
             let the_name = inf.interner.resolve(p).to_string();
-            inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::PREFIX_SHADOWED_BY_LOCAL_DECLARATION, name[0].span, &[&the_name]);
+            inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::PREFIX_SHADOWED_BY_LOCAL_DECLARATION, name[0].span, &[&the_name]);
             for x in args.args.iter() {
                 infer_free(inf, cx, x.value);
             }
@@ -2474,7 +2474,7 @@ pub(crate) fn instantiation(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId
             None
         };
         if let Some(sp) = range {
-            inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::INSTANTIATE_TYPE_ALIAS_EXPANDS_TO_TYPE_PARAMETER, sp, &[]);
+            inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::INSTANTIATE_TYPE_ALIAS_EXPANDS_TO_TYPE_PARAMETER, sp, &[]);
             for x in args.args.iter() {
                 infer_free(inf, cx, x.value);
             }
@@ -2552,7 +2552,7 @@ pub(crate) fn instantiation(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId
     // at the named type; a constructor the mixin does not have stays silent.
     if inf.program.class(c).kind == ClassKind::Mixin {
         let sp = if constructor.is_some() && ctor_of_name { name[0].span } else { a.ty(ty).span };
-        inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::MIXIN_INSTANTIATE, sp, &[]);
+        inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::MIXIN_INSTANTIATE, sp, &[]);
         if constant {
             undefined_const_constructor(inf, a, ty, name, constructor, ctor_of_name);
         }
@@ -2596,7 +2596,7 @@ pub(crate) fn instantiation(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId
             let k = inf.program.class(c);
             if matches!(k.kind, ClassKind::Class | ClassKind::MixinApplication) && (k.modifiers.abstract_ || k.modifiers.sealed) {
                 let sp = a.ty(ty).span;
-                inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::INSTANTIATE_ABSTRACT_CLASS, sp, &[]);
+                inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::INSTANTIATE_ABSTRACT_CLASS, sp, &[]);
             }
         }
         for x in args.args.iter() {
@@ -2674,5 +2674,5 @@ fn warn_abstract_class(inf: &mut BodyInferrer<'_>, c: ClassId, f: FunctionElemen
     if inf.program.function(f).factory {
         return;
     }
-    inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::INSTANTIATE_ABSTRACT_CLASS, span, &[]);
+    inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::INSTANTIATE_ABSTRACT_CLASS, span, &[]);
 }

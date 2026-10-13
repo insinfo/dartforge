@@ -19,7 +19,7 @@
 //! counted in [`Analise::ambiguos`] — the scoreboard shows them.
 
 use crate::bridge;
-use dartforge_diagnostics::{Diagnostic, Span, codigos};
+use dartforge_diagnostics::{Diagnostic, Span, codes};
 use dartforge_elements::model::{LibraryId, Program, UnitId};
 use dartforge_elements::sdk::SdkLayout;
 use dartforge_frontend::ast::DirectiveKind;
@@ -512,7 +512,7 @@ impl Motor {
                 if let Some(msg) = d.message.strip_prefix(&prefix) {
                     let mut raw = d.clone();
                     raw.message = msg.to_string();
-                    let syntactic = raw.code.is_none_or(|c| c.info().tipo == dartforge_diagnostics::TipoErro::SyntacticError);
+                    let syntactic = raw.code.is_none_or(|c| c.info().error_type == dartforge_diagnostics::ErrorType::SyntacticError);
                     if syntactic {
                         analysis.report(k, bridge::encode_syntax(&raw), phase::PARSER);
                         analysis.arquivos.get_mut(k).expect("own").syntactic_count += 1;
@@ -539,14 +539,14 @@ impl Motor {
             for i in dartforge_analysis::a_doc::library_doc_imports(tree) {
                 // The interpolated URI (`DirectiveUriWithInterpolation`, on the literal).
                 if i.interpolated {
-                    let d = Diagnostic::com_codigo(codigos::compile_time_error::URI_WITH_INTERPOLATION, i.literal, [] as [&str; 0]);
+                    let d = Diagnostic::with_code(codes::compile_time_error::URI_WITH_INTERPOLATION, i.literal, [] as [&str; 0]);
                     analysis.report(k, d, phase::DIRECTIVES);
                     continue;
                 }
                 let Some(uri) = i.uri else { continue };
                 // `_reportImportDirectiveErrors`: `dart-ext:` instead of the missing target.
                 if uri.starts_with("dart-ext:") {
-                    let d = Diagnostic::com_codigo(codigos::compile_time_error::USE_OF_NATIVE_EXTENSION, i.literal, [] as [&str; 0]);
+                    let d = Diagnostic::with_code(codes::compile_time_error::USE_OF_NATIVE_EXTENSION, i.literal, [] as [&str; 0]);
                     analysis.report(k, d, phase::DIRECTIVES);
                     continue;
                 }
@@ -554,7 +554,7 @@ impl Motor {
                     continue;
                 }
                 if self.directive_without_target(&uri, &base, config.as_ref(), i.literal, false).is_some() {
-                    let d = Diagnostic::com_codigo(codigos::warning::URI_DOES_NOT_EXIST_IN_DOC_IMPORT, i.literal, [uri.as_str()]);
+                    let d = Diagnostic::with_code(codes::warning::URI_DOES_NOT_EXIST_IN_DOC_IMPORT, i.literal, [uri.as_str()]);
                     analysis.report(k, d, phase::DIRECTIVES);
                 }
             }
@@ -568,7 +568,7 @@ impl Motor {
                 // `USE_OF_NATIVE_EXTENSION` (`library_analyzer.dart:672-684`, `:906-916`):
                 // an import or export of `dart-ext:`, instead of the missing target.
                 if !part && text.starts_with("dart-ext:") {
-                    let d = Diagnostic::com_codigo(codigos::compile_time_error::USE_OF_NATIVE_EXTENSION, lit.span, [] as [&str; 0]);
+                    let d = Diagnostic::with_code(codes::compile_time_error::USE_OF_NATIVE_EXTENSION, lit.span, [] as [&str; 0]);
                     analysis.report(k, d, phase::DIRECTIVES);
                     continue;
                 }
@@ -581,7 +581,7 @@ impl Motor {
                 } else if part && let Some(target_uri) = self.part_without_part_of(&text, &base, config.as_ref(), &program, &texts) {
                     // `_resolvePartDirective` (`library_analyzer.dart:971-1032`):
                     // the file exists and is not a part.
-                    let d = Diagnostic::com_codigo(codigos::compile_time_error::PART_OF_NON_PART, lit.span, [target_uri.as_str()]);
+                    let d = Diagnostic::with_code(codes::compile_time_error::PART_OF_NON_PART, lit.span, [target_uri.as_str()]);
                     analysis.report(k, d, phase::DIRECTIVES);
                 }
             }
@@ -641,7 +641,7 @@ impl Motor {
             // The library's reference is the highest among its units (T2): the
             // parser marks the unit that uses syntax 3.6.2 does not know, and
             // a version above 3.6 marks all of them.
-            let new_syntax = program.referencia_da_biblioteca(*lib) == dartforge_diagnostics::Referencia::V3_13;
+            let new_syntax = program.referencia_da_biblioteca(*lib) == dartforge_diagnostics::AnalyzerReference::V3_13;
             let paths: Vec<String> = ids.iter().map(|u| program.caminho_da_unidade(*u)).collect();
             let mut found: Vec<(usize, Diagnostic, u16)> =
                 with_phase(phase::ERROR_VERIFIER, dartforge_analysis::duplicatas::duplicates_with_paths(&units, &paths, &interner, wildcard, !new_syntax)).collect();
@@ -994,7 +994,7 @@ impl Motor {
             if let Some(bodies) = &bodies {
                 // Also runs on the libraries judged by 3.13.4: there the code
                 // comes out as `unused_element_parameter`, through the variant
-                // (`Diagnostic::na_referencia`, in the final loop).
+                // (`Diagnostic::for_reference`, in the final loop).
                 attributed.extend(with_phase(phase::UNUSED_LOCAL_ELEMENTS, dartforge_types::parametros::parametros_nao_usados(&program, &interner, &outline, bodies, *lib)));
             }
             // `UnusedLocalElementsVerifier` (library declarations).
@@ -1142,7 +1142,7 @@ impl Motor {
             .iter()
             .flat_map(|lib| dartforge_analysis::clauses::clause_name_starts(&program, *lib))
             .collect();
-        let mut seen: BTreeSet<(UnitId, Option<dartforge_diagnostics::Codigo>, usize, usize, String)> = BTreeSet::new();
+        let mut seen: BTreeSet<(UnitId, Option<dartforge_diagnostics::Code>, usize, usize, String)> = BTreeSet::new();
         for (unit, d, emitter_phase) in &attributed {
             let unit = *unit;
             if !own_units.contains(&unit) {
@@ -1154,7 +1154,7 @@ impl Motor {
             // emits of them (without a code) is left out.
             if d.code.is_none() {
                 let coded = bridge::encode_types(d, fragment);
-                if coded.code.is_some_and(|c| dartforge_types::constantes::CODIGOS.contains(&c.info().nome)) {
+                if coded.code.is_some_and(|c| dartforge_types::constantes::CODIGOS.contains(&c.info().name)) {
                     continue;
                 }
             }
@@ -1162,12 +1162,12 @@ impl Motor {
             // An annotation's validity depends on the SDK
             // (`@Deprecated.optional()` only exists after 3.6.2): in a library
             // judged by 3.13.4, our 3.6.2 SDK does not decide.
-            if coded.code.is_some_and(|c| matches!(c.info().nome, "invalid_annotation" | "undefined_annotation"))
-                && program.referencia_da_biblioteca(program.unit(unit).library) == dartforge_diagnostics::Referencia::V3_13
+            if coded.code.is_some_and(|c| matches!(c.info().name, "invalid_annotation" | "undefined_annotation"))
+                && program.referencia_da_biblioteca(program.unit(unit).library) == dartforge_diagnostics::AnalyzerReference::V3_13
             {
                 continue;
             }
-            if coded.code.is_some_and(|c| matches!(c.info().nome, "undefined_class" | "not_a_type"))
+            if coded.code.is_some_and(|c| matches!(c.info().name, "undefined_class" | "not_a_type"))
                 && clause_names.contains(&(unit, coded.span.start))
             {
                 continue;
@@ -1228,7 +1228,7 @@ impl Motor {
                     if i <= n {
                         return true;
                     }
-                    let Some(c) = d.code.map(|c| c.info().nome) else { return true };
+                    let Some(c) = d.code.map(|c| c.info().name) else { return true };
                     if depends_on_declarations(c) {
                         let name = source.get(d.span.start..d.span.end).unwrap_or("");
                         return !units.iter().any(|u| {
@@ -1251,13 +1251,13 @@ impl Motor {
             // and arguments of the analyzer that is the file's reference. No
             // emitter consults the reference; they just pass, after the 3.6
             // template's arguments, those only 3.13 uses.
-            let reference = unit_of.get(k).map_or(dartforge_diagnostics::Referencia::V3_6, |u| program.referencia(*u));
-            if reference == dartforge_diagnostics::Referencia::V3_13 {
+            let reference = unit_of.get(k).map_or(dartforge_diagnostics::AnalyzerReference::V3_6, |u| program.referencia(*u));
+            if reference == dartforge_diagnostics::AnalyzerReference::V3_13 {
                 let n = a.syntactic_count;
                 let mut syntactic_dropped = 0;
                 let before = std::mem::take(&mut a.diags);
                 for (i, d) in before.into_iter().enumerate() {
-                    match d.na_referencia(reference) {
+                    match d.for_reference(reference) {
                         Some(d) => a.diags.push(d),
                         None if i < n => syntactic_dropped += 1,
                         None => {}
@@ -1273,10 +1273,10 @@ impl Motor {
                 let mut i = 0;
                 a.diags.retain(|d| {
                     i += 1;
-                    i <= n || d.span.start != d.span.end || !d.code.is_some_and(|c| c.info().nome.starts_with("undefined_"))
+                    i <= n || d.span.start != d.span.end || !d.code.is_some_and(|c| c.info().name.starts_with("undefined_"))
                 });
             }
-            let mut seen: BTreeSet<(Option<dartforge_diagnostics::Codigo>, usize, usize, String)> = BTreeSet::new();
+            let mut seen: BTreeSet<(Option<dartforge_diagnostics::Code>, usize, usize, String)> = BTreeSet::new();
             let n = a.syntactic_count;
             let mut i = 0;
             let mut syntactic_removed = 0;
@@ -1401,18 +1401,18 @@ impl Motor {
             return None;
         }
         let code = if !uri.starts_with("dart:") && is_generated(uri) {
-            codigos::compile_time_error::URI_HAS_NOT_BEEN_GENERATED
+            codes::compile_time_error::URI_HAS_NOT_BEEN_GENERATED
         } else {
-            codigos::compile_time_error::URI_DOES_NOT_EXIST
+            codes::compile_time_error::URI_DOES_NOT_EXIST
         };
         // In a `part` with a relative URI, the analyzer shows the resolved URI
         // (`file:///…/a.dart`); in `import`/`export`, the directive's text.
         if part && !uri.contains(':') {
             let abs = chave(&base.join(uri)).to_string_lossy().replace('\\', "/");
             let file_uri = format!("file://{}{abs}", if abs.starts_with('/') { "" } else { "/" });
-            return Some(Diagnostic::com_codigo(code, span, [file_uri.as_str()]));
+            return Some(Diagnostic::with_code(code, span, [file_uri.as_str()]));
         }
-        Some(Diagnostic::com_codigo(code, span, [uri]))
+        Some(Diagnostic::with_code(code, span, [uri]))
     }
 }
 
@@ -1607,7 +1607,7 @@ mod tests {
         std::fs::write(&b, "bool x = true;\n").unwrap();
         let engine = Motor::novo(&root.join("sdk/lib")).unwrap();
         let non_bool = |r: &Analise| {
-            r.arquivos[&chave(&a)].diags.iter().filter(|d| d.code == Some(codigos::compile_time_error::NON_BOOL_CONDITION)).count()
+            r.arquivos[&chave(&a)].diags.iter().filter(|d| d.code == Some(codes::compile_time_error::NON_BOOL_CONDITION)).count()
         };
         let disk = engine.analisar(&root, std::slice::from_ref(&a), None);
         assert_eq!(non_bool(&disk), 0);
@@ -1634,7 +1634,7 @@ mod tests {
         let engine = Motor::novo(&root.join("sdk/lib")).unwrap();
         let result = engine.analisar(&root, std::slice::from_ref(&entry), None);
         let file = &result.arquivos[&chave(&entry)];
-        let found: Vec<_> = file.diags.iter().filter(|d| d.code == Some(codigos::compile_time_error::CONFLICTING_STATIC_AND_INSTANCE)).collect();
+        let found: Vec<_> = file.diags.iter().filter(|d| d.code == Some(codes::compile_time_error::CONFLICTING_STATIC_AND_INSTANCE)).collect();
         assert_eq!(found.len(), 1, "{:?}", file.diags);
         assert_eq!(&source[found[0].span.start as usize..found[0].span.end as usize], "foo");
         std::fs::remove_dir_all(&root).unwrap();

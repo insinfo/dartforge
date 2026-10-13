@@ -137,7 +137,7 @@ pub struct Unit {
     /// Which analyzer is the reference for this file's code names and texts
     /// (`dartforge_frontend::parser::Parsed::referencia`). SDK units are
     /// 3.6.2's.
-    pub referencia: dartforge_diagnostics::Referencia,
+    pub referencia: dartforge_diagnostics::AnalyzerReference,
 }
 
 /// An import already resolved to a library of the program.
@@ -491,12 +491,12 @@ impl Program {
     }
     /// The reference of file `u` (docs/ANALYZER-ESPECIFICACAO.md, T2): the
     /// corpus rule is per file.
-    pub fn referencia(&self, u: UnitId) -> dartforge_diagnostics::Referencia {
+    pub fn referencia(&self, u: UnitId) -> dartforge_diagnostics::AnalyzerReference {
         self.unit(u).referencia
     }
     /// The reference of a library, for the rules that belong to the whole
     /// library (merging homonymous classes): the highest among its units'.
-    pub fn referencia_da_biblioteca(&self, l: LibraryId) -> dartforge_diagnostics::Referencia {
+    pub fn referencia_da_biblioteca(&self, l: LibraryId) -> dartforge_diagnostics::AnalyzerReference {
         self.library(l).units.iter().map(|&u| self.unit(u).referencia).max().unwrap_or_default()
     }
     pub fn library(&self, id: LibraryId) -> &Library {

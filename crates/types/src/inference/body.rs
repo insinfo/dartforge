@@ -145,7 +145,7 @@ pub(crate) struct Body {
     pub last_pattern_locals: std::ops::Range<usize>,
     /// Inconsistent join variables of cases that share a body, with the code that
     /// each reference reports (`finishJoinedPatternVariable`).
-    pub inconsistent_joins: HashMap<LocalId, dartforge_diagnostics::Codigo>,
+    pub inconsistent_joins: HashMap<LocalId, dartforge_diagnostics::Code>,
     /// The pattern match in progress (T6: the matched value's reference and the
     /// "did not match" state); `None` outside a pattern.
     pub matching: Option<super::patterns::Matching>,

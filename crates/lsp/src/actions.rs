@@ -168,7 +168,7 @@ const ONLY_ONE_PLACE: &[&str] = &["quickfix.add.await", "quickfix.convert.bodyTo
 /// The same error code (`errorCode.name`).
 fn same_code(a: &Diagnostic, b: &Diagnostic) -> bool {
     match (a.code, b.code) {
-        (Some(x), Some(y)) => x.info().nome == y.info().nome,
+        (Some(x), Some(y)) => x.info().name == y.info().name,
         _ => false,
     }
 }
@@ -252,7 +252,7 @@ pub(crate) fn fix_syntax(
         let touches = d.span.start <= end && start <= d.span.end;
         // `InsertSemicolon`: the message cites `';'` and the `node` is not the
         // `await` identifier.
-        let semicolon = d.code.is_some_and(|c| c.info().nome == "expected_token")
+        let semicolon = d.code.is_some_and(|c| c.info().name == "expected_token")
             && d.message.contains("';'")
             && text.get(d.span.start..d.span.end) != Some("await");
         if touches && semicolon {
@@ -634,7 +634,7 @@ pub(crate) fn import(
 
 /// Published code of a diagnostic (`unused_local_variable`, …).
 fn code(d: &Diagnostic) -> Option<&'static str> {
-    d.code.map(|c| c.info().nome)
+    d.code.map(|c| c.info().name)
 }
 
 /// A fix action with a single edit.
@@ -709,7 +709,7 @@ pub(crate) fn fix_published(
                 let Some(edits) = cx().remove_local_variable(d.span) else { continue };
                 output.push(fix(uri, "Remove unused local variable".into(), "quickfix.remove.unusedLocalVariable", edits, d));
             }
-            Some("unused_element") if d.code.is_some_and(|c| c.info().unico.ends_with("UNUSED_ELEMENT_PARAMETER")) => {
+            Some("unused_element") if d.code.is_some_and(|c| c.info().unique.ends_with("UNUSED_ELEMENT_PARAMETER")) => {
                 // `RemoveUnusedParameter`.
                 let Some(s) = cx().remove_parameter(d.span) else { continue };
                 output.push(fix(uri, "Remove the unused parameter".into(), "quickfix.remove.unusedParameter", vec![(s, String::new())], d));

@@ -4,7 +4,7 @@
 //! `[]=` (`_checkForNonVoidReturnTypeForOperator`).
 
 use crate::Unidade;
-use dartforge_diagnostics::codigos::compile_time_error as c;
+use dartforge_diagnostics::codes::compile_time_error as c;
 use dartforge_diagnostics::Diagnostic;
 use dartforge_frontend::ast::{Ast, DeclKind, FunctionKind, MemberKind, ParameterKind, TypeId, TypeKind, TypedefKind};
 use dartforge_intern::{Interner, SymbolId};
@@ -46,7 +46,7 @@ pub fn aridade(unit: Unidade<'_>, names: &Interner) -> Vec<Diagnostic> {
             if let Some(expected) = expected {
                 if params.len() != expected {
                     wrong_arity = true;
-                    out.push(Diagnostic::com_codigo(
+                    out.push(Diagnostic::with_code(
                         c::WRONG_NUMBER_OF_PARAMETERS_FOR_OPERATOR,
                         name.span,
                         [
@@ -58,7 +58,7 @@ pub fn aridade(unit: Unidade<'_>, names: &Interner) -> Vec<Diagnostic> {
                 }
             } else if text == "-" && params.len() > 1 {
                 wrong_arity = true;
-                out.push(Diagnostic::com_codigo(
+                out.push(Diagnostic::with_code(
                     c::WRONG_NUMBER_OF_PARAMETERS_FOR_OPERATOR_MINUS,
                     name.span,
                     [params.len().to_string()],
@@ -72,7 +72,7 @@ pub fn aridade(unit: Unidade<'_>, names: &Interner) -> Vec<Diagnostic> {
                     p.kind == ParameterKind::Optional || (p.kind == ParameterKind::Named && !p.required)
                 });
                 for p in optional {
-                    out.push(Diagnostic::com_codigo(c::OPTIONAL_PARAMETER_IN_OPERATOR, p.span, [] as [&str; 0]));
+                    out.push(Diagnostic::with_code(c::OPTIONAL_PARAMETER_IN_OPERATOR, p.span, [] as [&str; 0]));
                 }
             }
             // `_checkForNonVoidReturnTypeForOperator`: `[]=` with a written
@@ -82,7 +82,7 @@ pub fn aridade(unit: Unidade<'_>, names: &Interner) -> Vec<Diagnostic> {
                 && let Some(t) = function.return_type
                 && !is_void(ast, &void_aliases, t)
             {
-                out.push(Diagnostic::com_codigo(c::NON_VOID_RETURN_FOR_OPERATOR, ast.ty(t).span, [] as [&str; 0]));
+                out.push(Diagnostic::with_code(c::NON_VOID_RETURN_FOR_OPERATOR, ast.ty(t).span, [] as [&str; 0]));
             }
         }
     }
@@ -188,7 +188,7 @@ mod tests {
         let found = aridade(Unidade { ast: &parsed.ast, unit: &parsed.unit, fonte: source }, &names);
         let v: Vec<(&str, &str)> = found
             .iter()
-            .map(|d| (d.code.unwrap().info().nome, &source[d.span.start..d.span.end]))
+            .map(|d| (d.code.unwrap().info().name, &source[d.span.start..d.span.end]))
             .collect();
         assert_eq!(
             v,

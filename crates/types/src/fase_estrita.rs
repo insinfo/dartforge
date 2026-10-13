@@ -42,7 +42,7 @@
 
 use crate::resolve::OutlineTypes;
 use crate::resolved::UnitBodyTypes;
-use dartforge_diagnostics::codigos::warning as w;
+use dartforge_diagnostics::codes::warning as w;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_elements::model::{ClassId, Program, UnitId};
 use dartforge_frontend::ast::{self, DeclKind, ExprId, ExprKind, FunctionBody, Initializer, MemberKind, Parameter, TypeKind, TypedefKind};
@@ -119,7 +119,7 @@ pub fn falhas_de_inferencia(
                 // The node of the `SimpleFormalParameter`, without the default value: the
                 // name is its last token.
                 let end = if p.default_value.is_some() { n.span.end } else { p.span.end };
-                out.push(Diagnostic::com_codigo(w::INFERENCE_FAILURE_ON_UNTYPED_PARAMETER, Span { start: p.span.start, end: end }, [name(n.sym)]));
+                out.push(Diagnostic::with_code(w::INFERENCE_FAILURE_ON_UNTYPED_PARAMETER, Span { start: p.span.start, end: end }, [name(n.sym)]));
             }
         }
     };
@@ -143,7 +143,7 @@ pub fn falhas_de_inferencia(
                 let g = a.function(*f);
                 // Only the top-level one has its return type checked.
                 if g.return_type.is_none() && g.kind != ast::FunctionKind::Setter && let Some(n) = g.name {
-                    out.push(Diagnostic::com_codigo(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, n.span, [name(n.sym)]));
+                    out.push(Diagnostic::with_code(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, n.span, [name(n.sym)]));
                 }
                 if let Some(ps) = &g.parameters {
                     params_list(ps, regions_of(a, &g.body, None).as_deref(), &mut out);
@@ -153,14 +153,14 @@ pub fn falhas_de_inferencia(
             DeclKind::Typedef(t) => match &t.kind {
                 TypedefKind::Legacy { return_type, parameters } => {
                     if return_type.is_none() {
-                        out.push(Diagnostic::com_codigo(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, d.span, [name(t.name.sym)]));
+                        out.push(Diagnostic::with_code(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, d.span, [name(t.name.sym)]));
                     }
                     params_list(parameters, None, &mut out);
                 }
                 // `visitGenericTypeAlias`.
                 TypedefKind::Alias(ty) => {
                     if let TypeKind::Function { return_type: None, .. } = &a.ty(*ty).kind {
-                        out.push(Diagnostic::com_codigo(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, d.span, [name(t.name.sym)]));
+                        out.push(Diagnostic::with_code(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, d.span, [name(t.name.sym)]));
                     }
                 }
             },
@@ -198,7 +198,7 @@ pub fn falhas_de_inferencia(
                         continue;
                     }
                     if g.return_type.is_none() && g.kind != ast::FunctionKind::Setter {
-                        out.push(Diagnostic::com_codigo(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, n.span, [name(n.sym)]));
+                        out.push(Diagnostic::with_code(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, n.span, [name(n.sym)]));
                     }
                     if let Some(ps) = &g.parameters {
                         params_list(ps, regions_of(a, &g.body, None).as_deref(), &mut out);
@@ -255,7 +255,7 @@ pub fn falhas_de_inferencia(
         {
             if q.ty.is_none() {
                 let end = if q.default_value.is_some() { fim_do_parametro_funcao(source, n.span.end) } else { q.span.end };
-                out.push(Diagnostic::com_codigo(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, Span { start: q.span.start, end: end }, [name(n.sym)]));
+                out.push(Diagnostic::with_code(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, Span { start: q.span.start, end: end }, [name(n.sym)]));
             }
             params_list(fs, None, &mut out);
         }
@@ -280,7 +280,7 @@ pub fn falhas_de_inferencia(
             && !dos_typedefs.contains(&id)
         {
             let text = dartforge_frontend::fonte::de_tipo(a, source, interner, id);
-            out.push(Diagnostic::com_codigo(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, t.span, [text]));
+            out.push(Diagnostic::with_code(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, t.span, [text]));
         }
     }
     // The analyzer's error set: the same report is output once.

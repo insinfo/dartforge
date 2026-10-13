@@ -13,7 +13,7 @@
 //! `include:`s merged (docs/ANALYZER-ESPECIFICACAO-INFRA.md, III.2.4;
 //! rewritten on 2026-10-04 without compiling or running).
 
-use dartforge_diagnostics::{Diagnostic, Severidade};
+use dartforge_diagnostics::{Diagnostic, Severity};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use yaml_rust2::{Yaml, YamlLoader};
@@ -29,7 +29,7 @@ pub struct Opcoes {
     /// `analyzer: exclude:` globs, relative to the options' directory.
     pub exclude: Vec<String>,
     /// `analyzer: errors:` — code → `None` (ignore) or the new severity.
-    pub errors: BTreeMap<String, Option<Severidade>>,
+    pub errors: BTreeMap<String, Option<Severity>>,
     /// `analyzer: cannot-ignore:` — codes (lower case) and severities
     /// (`error`, `warning`, `info`) that an `// ignore:` does not silence.
     pub unignorable: BTreeSet<String>,
@@ -176,9 +176,9 @@ impl Opcoes {
                 let (Some(k), Some(v)) = (k.as_str(), v.as_str()) else { continue };
                 let sev = match v.to_lowercase().as_str() {
                     "ignore" => None,
-                    "info" => Some(Severidade::Info),
-                    "warning" => Some(Severidade::Warning),
-                    "error" => Some(Severidade::Error),
+                    "info" => Some(Severity::Info),
+                    "warning" => Some(Severity::Warning),
+                    "error" => Some(Severity::Error),
                     _ => continue,
                 };
                 o.errors.insert(k.to_lowercase(), sev);
@@ -251,25 +251,25 @@ impl Opcoes {
         }
         let Some(c) = d.code else { return true };
         let info = c.info();
-        if self.unignorable.contains(info.nome) {
+        if self.unignorable.contains(info.name) {
             return false;
         }
-        let name_of = |s: Severidade| match s {
-            Severidade::Error => "error",
-            Severidade::Warning => "warning",
-            Severidade::Info => "info",
+        let name_of = |s: Severity| match s {
+            Severity::Error => "error",
+            Severity::Warning => "warning",
+            Severity::Info => "info",
         };
         // `applyUnignorables` (docs/ANALYZER-ESPECIFICACAO-INFRA.md §4.3,
         // fact c): the code is added through the severity `errors:` gave it
         // and also through the default one (the second `if` runs whenever the
         // first did not `continue`): an error downgraded to `warning` stays
         // unignorable with `cannot-ignore: [error]`.
-        if let Some(Some(s)) = self.errors.get(info.nome)
+        if let Some(Some(s)) = self.errors.get(info.name)
             && self.unignorable.contains(name_of(*s))
         {
             return false;
         }
-        !self.unignorable.contains(name_of(info.severidade))
+        !self.unignorable.contains(name_of(info.severity))
     }
 
     /// Can the lint `name` (with unique name `unique`) be silenced by
@@ -290,7 +290,7 @@ impl Opcoes {
     /// Applies `errors:` to a diagnostic: `None` if ignored.
     pub fn processar(&self, mut d: Diagnostic) -> Option<Diagnostic> {
         let Some(c) = d.code else { return Some(d) };
-        match self.errors.get(c.info().nome) {
+        match self.errors.get(c.info().name) {
             None => Some(d),
             Some(None) => None,
             Some(Some(s)) => {
@@ -644,7 +644,7 @@ impl Ignorados {
     pub fn duplicados(&self) -> Vec<Diagnostic> {
         self.repeated
             .iter()
-            .map(|(name, span)| Diagnostic::com_codigo(dartforge_diagnostics::codigos::warning::DUPLICATE_IGNORE, *span, [name.as_str()]))
+            .map(|(name, span)| Diagnostic::with_code(dartforge_diagnostics::codes::warning::DUPLICATE_IGNORE, *span, [name.as_str()]))
             .collect()
     }
 
@@ -666,18 +666,18 @@ impl Ignorados {
         // The catalog's 3.13.4 shapes carry the `_3_13` suffix only to tell
         // the entry apart; the analyzer's unique name does not have it.
         let unique = info
-            .unico
+            .unique
             .split_once('.')
             .map_or(String::new(), |(_, r)| r.strip_suffix("_3_13").unwrap_or(r).to_lowercase());
-        let code_kind = match info.tipo {
-            dartforge_diagnostics::TipoErro::Hint => "hint",
-            dartforge_diagnostics::TipoErro::Lint => "lint",
-            dartforge_diagnostics::TipoErro::StaticWarning => "warning",
+        let code_kind = match info.error_type {
+            dartforge_diagnostics::ErrorType::Hint => "hint",
+            dartforge_diagnostics::ErrorType::Lint => "lint",
+            dartforge_diagnostics::ErrorType::StaticWarning => "warning",
             _ => "",
         };
         let matches = |list: &Vec<Ignored>| {
             list.iter().any(|e| match e {
-                Ignored::Name { name, .. } => name == info.nome || *name == unique,
+                Ignored::Name { name, .. } => name == info.name || *name == unique,
                 Ignored::Type { kind } => !code_kind.is_empty() && kind == code_kind,
             })
         };
@@ -708,7 +708,7 @@ mod tests {
         );
         assert_eq!(o.exclude, vec!["build/**", "build", "lib/**.g.dart"]);
         assert_eq!(o.errors.get("uri_has_not_been_generated"), Some(&None));
-        assert_eq!(o.errors.get("dead_code"), Some(&Some(Severidade::Info)));
+        assert_eq!(o.errors.get("dead_code"), Some(&Some(Severity::Info)));
         assert!(o.excluido("build/x/y.dart"));
         assert!(o.excluido("lib/a/b.g.dart"));
         assert!(!o.excluido("lib/a/b.dart"));
@@ -763,7 +763,7 @@ linter:
 ");
         let o = Opcoes::from_map(&merge(base, top));
         assert_eq!(o.exclude, vec!["a", "b", "c"]);
-        assert_eq!(o.errors.get("dead_code"), Some(&Some(Severidade::Error)));
+        assert_eq!(o.errors.get("dead_code"), Some(&Some(Severity::Error)));
         assert_eq!(o.errors.get("todo"), Some(&None));
         assert_eq!(o.regras.get("r1"), Some(&true));
         assert_eq!(o.regras.get("r2"), Some(&false));
@@ -774,8 +774,8 @@ linter:
     /// found!"), except what `cannot-ignore` lists.
     #[test]
     fn ignore_applies_to_errors_except_cannot_ignore() {
-        use dartforge_diagnostics::codigos::compile_time_error as c;
-        let d = Diagnostic::com_codigo(c::URI_HAS_NOT_BEEN_GENERATED, dartforge_diagnostics::Span { start: 0, end: 1 }, ["a.template.dart"]);
+        use dartforge_diagnostics::codes::compile_time_error as c;
+        let d = Diagnostic::with_code(c::URI_HAS_NOT_BEEN_GENERATED, dartforge_diagnostics::Span { start: 0, end: 1 }, ["a.template.dart"]);
         let file = Ignorados::de_texto("// ignore_for_file: uri_has_not_been_generated\nimport 'a.template.dart';\n");
         assert!(file.ignora(&d, 2));
         let line = Ignorados::de_texto("// ignore: uri_has_not_been_generated\nimport 'a.template.dart';\n");
@@ -806,8 +806,8 @@ linter:
     /// on line 2.
     #[test]
     fn oracle_table() {
-        use dartforge_diagnostics::codigos::warning as w;
-        let d = Diagnostic::com_codigo(w::UNUSED_LOCAL_VARIABLE, dartforge_diagnostics::Span { start: 0, end: 1 }, ["x"]);
+        use dartforge_diagnostics::codes::warning as w;
+        let d = Diagnostic::with_code(w::UNUSED_LOCAL_VARIABLE, dartforge_diagnostics::Span { start: 0, end: 1 }, ["x"]);
         let silences = |text: &str, line: usize| Ignorados::de_texto(text).ignora(&d, line);
         assert!(silences("// ignore: type=warning
 var x = 1;

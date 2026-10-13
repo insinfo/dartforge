@@ -17,7 +17,7 @@
 use crate::heranca::{combine, Conflict, Kind, Heranca, Membro, Nome, ProvedorDoOutline};
 use crate::resolve::OutlineTypes;
 use crate::table::{CoreTypes, TypeTable};
-use dartforge_diagnostics::codigos::compile_time_error as c;
+use dartforge_diagnostics::codes::compile_time_error as c;
 use dartforge_diagnostics::Diagnostic;
 use dartforge_elements::model::{ClassId, FunctionElementId, FunctionRef, Program, UnitId};
 use dartforge_frontend::ast::{self, DeclKind, MemberKind};
@@ -143,14 +143,14 @@ pub fn inconsistencias(
                     let g = interner.resolve(program.class(getter.class).name).to_string();
                     let m = interner.resolve(program.class(method.class).name).to_string();
                     if seen.insert((true, n.clone(), format!("{g}\u{0}{m}"))) {
-                        output.push((u, Diagnostic::com_codigo(c::INCONSISTENT_INHERITANCE_GETTER_AND_METHOD, class_name.span, [n.as_str(), g.as_str(), m.as_str()])));
+                        output.push((u, Diagnostic::with_code(c::INCONSISTENT_INHERITANCE_GETTER_AND_METHOD, class_name.span, [n.as_str(), g.as_str(), m.as_str()])));
                     }
                 }
                 Conflict::Candidates { nome: name, candidatos: candidates } => {
                     let n = member_name(interner, name);
                     let list = displayed_candidates(program, interner, table, &n, candidates);
                     if seen.insert((false, n.clone(), list.clone())) {
-                        output.push((u, Diagnostic::com_codigo(c::INCONSISTENT_INHERITANCE, class_name.span, [n.as_str(), list.as_str()])));
+                        output.push((u, Diagnostic::with_code(c::INCONSISTENT_INHERITANCE, class_name.span, [n.as_str(), list.as_str()])));
                     }
                 }
                 Conflict::ExtensionAndNonExtension { .. } | Conflict::NonUniqueExtension { .. } => {}
@@ -162,7 +162,7 @@ pub fn inconsistencias(
     for (cid, _, n, explanation) in methods_without_combined_signature(program, interner, table, core, outline, classes) {
         let Some((u, _, _)) = declaration(program, cid) else { continue };
         let class = interner.resolve(program.class(cid).name).to_string();
-        output.push((u, Diagnostic::com_codigo(c::NO_COMBINED_SUPER_SIGNATURE, n.span, [class.as_str(), explanation.as_str()])));
+        output.push((u, Diagnostic::with_code(c::NO_COMBINED_SUPER_SIGNATURE, n.span, [class.as_str(), explanation.as_str()])));
     }
     output
 }

@@ -72,14 +72,14 @@ pub(crate) fn ignore(uri: &str, text: &str, diagnostics: &[Diagnostic], start_: 
         let Some(c) = d.code else { continue };
         let info = c.info();
         // Only `LintCode`, `HintCode` and `WarningCode`.
-        if !(info.unico.starts_with("HintCode.") || info.unico.starts_with("WarningCode.") || info.unico.starts_with("LintCode.")) {
+        if !(info.unique.starts_with("HintCode.") || info.unique.starts_with("WarningCode.") || info.unique.starts_with("LintCode.")) {
             continue;
         }
         // `_isCodeUnignorable`.
-        if !options.ignoravel(d) || matches!(options.errors.get(info.nome), Some(None)) {
+        if !options.ignoravel(d) || matches!(options.errors.get(info.name), Some(None)) {
             continue;
         }
-        let code = info.nome;
+        let code = info.name;
         let insert_in = |o: usize, before: bool, after: bool, prefix: &str| -> (Span, String) {
             let indent = tx.line_prefix(o);
             let mut s = String::new();

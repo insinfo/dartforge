@@ -14,7 +14,7 @@ use crate::resolve::OutlineTypes;
 use crate::resolved::{BodyTypes, MemberRef, Resolved};
 use crate::subtyping::{is_subtype, SubtypeEnv};
 use crate::table::{CoreTypes, Type, TypeId, TypeParamId, TypeTable};
-use dartforge_diagnostics::{codigos::compile_time_error as c, Codigo, Span};
+use dartforge_diagnostics::{codes::compile_time_error as c, Code, Span};
 use dartforge_elements::model::{
     ClassId, ClassKind, Element, FunctionElementId, FunctionKind, FunctionRef, LibraryId, Program, UnitId, VariableId,
     VariableRef,
@@ -27,7 +27,7 @@ use std::rc::Rc;
 /// `InvalidConstant`.
 #[derive(Clone, Debug)]
 pub struct Invalid {
-    pub code: Codigo,
+    pub code: Code,
     pub unit: UnitId,
     pub span: Span,
     pub args: Vec<String>,
@@ -279,7 +279,7 @@ impl<'a> Motor<'a> {
 
     // -- Errors --------------------------------------------------------------
 
-    pub fn error(&self, u: UnitId, span: Span, code: Codigo) -> Invalid {
+    pub fn error(&self, u: UnitId, span: Span, code: Code) -> Invalid {
         Invalid { code, unit: u, span, args: Vec::new(), avoid_report: false, unresolved: false, exception: false, context: Vec::new() }
     }
 
@@ -335,7 +335,7 @@ impl<'a> Motor<'a> {
         Some((u, span, text))
     }
 
-    fn inv(&self, u: UnitId, e: ExprId, code: Codigo) -> R {
+    fn inv(&self, u: UnitId, e: ExprId, code: Code) -> R {
         Constante::Invalid(Box::new(self.error(u, self.span(u, e), code)))
     }
 
@@ -753,7 +753,7 @@ impl<'a> Motor<'a> {
                 n.avoid_report = i.avoid_report;
                 // The exception's context, in the library's file
                 // (`library.source`), after those the error already had.
-                let text = dartforge_diagnostics::Diagnostic::com_codigo(i.code, i.span, i.args.iter().map(|s| s.as_str())).message;
+                let text = dartforge_diagnostics::Diagnostic::with_code(i.code, i.span, i.args.iter().map(|s| s.as_str())).message;
                 let defining = self.program.library(self.program.unit(u).library).units.first().copied().unwrap_or(u);
                 n.context = i.context.clone();
                 n.context.push((defining, i.span, format!("The exception is '{text}' and occurs here.")));
@@ -1088,7 +1088,7 @@ impl<'a> Motor<'a> {
 
     // -- Operadores ------------------------------------------------------------
 
-    fn is_of_extension(&self, u: UnitId, e: ExprId) -> Option<Codigo> {
+    fn is_of_extension(&self, u: UnitId, e: ExprId) -> Option<Code> {
         match self.resolved(u, e)? {
             Resolved::ExtensionMember { .. } => Some(c::CONST_EVAL_EXTENSION_METHOD),
             Resolved::Member { class, .. } if self.program.class(*class).kind == ClassKind::ExtensionType => {
@@ -1538,7 +1538,7 @@ impl<'a> Motor<'a> {
     /// the ascent continues through the smallest expression that contains the
     /// fragment (a function expression, a `switch` expression, the collection of
     /// an `if (… case …)`).
-    fn deferred_library_code(&self, u: UnitId, no: ExprId) -> Option<Codigo> {
+    fn deferred_library_code(&self, u: UnitId, no: ExprId) -> Option<Code> {
         let a = self.ast(u);
         let pais = crate::lints_tipados::unit_parents(self.program, u);
         let lib = self.program.unit(u).library;
@@ -1619,12 +1619,12 @@ impl<'a> Motor<'a> {
 
     /// The code that expression `p`, parent of fragment `child`, decides in the
     /// ascent.
-    fn role_on_ascent(&self, u: UnitId, p: ExprId, child: Span, no: ExprId) -> Option<Codigo> {
+    fn role_on_ascent(&self, u: UnitId, p: ExprId, child: Span, no: ExprId) -> Option<Code> {
         let a = self.ast(u);
         let contains = |of: Span, sp: Span| of.start <= sp.start && sp.end <= of.end;
         // The collection element that contains the child, from deepest to
         // shallowest.
-        fn the_element(a: &ast::Ast, el: &ast::CollectionElement, child: Span, no: ExprId, contains: &dyn Fn(Span, Span) -> bool) -> Option<Option<Codigo>> {
+        fn the_element(a: &ast::Ast, el: &ast::CollectionElement, child: Span, no: ExprId, contains: &dyn Fn(Span, Span) -> bool) -> Option<Option<Code>> {
             let span = |e: ExprId| a.expr(e).span;
             match el {
                 ast::CollectionElement::Expression(e) | ast::CollectionElement::NullAwareExpression(e) => {
@@ -2226,7 +2226,7 @@ impl<'a> Motor<'a> {
                     Constante::Invalid(i) if i.exception => {
                         let mut n = self.error(unit, span, c::CONST_EVAL_THROWS_EXCEPTION);
                         n.avoid_report = i.avoid_report;
-                        let msg = dartforge_diagnostics::Diagnostic::com_codigo(i.code, i.span, i.args.iter().map(|s| s.as_str())).message;
+                        let msg = dartforge_diagnostics::Diagnostic::with_code(i.code, i.span, i.args.iter().map(|s| s.as_str())).message;
                         let defining = self.program.library(self.program.unit(unit).library).units.first().copied().unwrap_or(unit);
                         n.context = i.context.clone();
                         n.context.push((defining, i.span, format!("The exception is '{msg}' and occurs here.")));

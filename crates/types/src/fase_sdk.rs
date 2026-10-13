@@ -16,7 +16,7 @@
 //! Written without compiling or running (2026-10-04).
 
 use crate::resolved::{MemberRef, Resolved, UnitBodyTypes};
-use dartforge_diagnostics::codigos::warning as w;
+use dartforge_diagnostics::codes::warning as w;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_elements::model::{ClassId, Element, FunctionElementId, FunctionRef, Program, UnitId, VariableId, VariableRef};
 use dartforge_frontend::ast::{self, BinaryOp, DeclKind, ExprKind, FunctionKind, MemberKind, TypeKind};
@@ -176,7 +176,7 @@ pub fn restricao_de_sdk(
             if let ExprKind::Binary { op: BinaryOp::UShr, left, right } = &e.kind {
                 let (of, until) = (a.expr(*left).span.end, a.expr(*right).span.start);
                 if let Some(k) = unit_id.source.get(of..until).and_then(|t| t.find(">>>")) {
-                    out.push(Diagnostic::com_codigo(w::SDK_VERSION_GT_GT_GT_OPERATOR, Span { start: of + k, end: of + k + 3 }, std::iter::empty::<&str>()));
+                    out.push(Diagnostic::with_code(w::SDK_VERSION_GT_GT_GT_OPERATOR, Span { start: of + k, end: of + k + 3 }, std::iter::empty::<&str>()));
                 }
             }
         }
@@ -184,7 +184,7 @@ pub fn restricao_de_sdk(
             if let (FunctionKind::Operator, Some(n)) = (f.kind, f.name)
                 && interner.resolve(n.sym) == ">>>"
             {
-                out.push(Diagnostic::com_codigo(w::SDK_VERSION_GT_GT_GT_OPERATOR, n.span, std::iter::empty::<&str>()));
+                out.push(Diagnostic::with_code(w::SDK_VERSION_GT_GT_GT_OPERATOR, n.span, std::iter::empty::<&str>()));
             }
         }
     }
@@ -197,7 +197,7 @@ pub fn restricao_de_sdk(
         // The listener is a set: one report per position.
         if !out.iter().any(|x| x.code == Some(w::SDK_VERSION_SINCE) && x.span == span) {
             let text = v.to_string();
-            out.push(Diagnostic::com_codigo(w::SDK_VERSION_SINCE, span, [text.as_str(), constraint.text.as_str()]));
+            out.push(Diagnostic::with_code(w::SDK_VERSION_SINCE, span, [text.as_str(), constraint.text.as_str()]));
         }
     };
     // Named types: the SDK class, at the name.

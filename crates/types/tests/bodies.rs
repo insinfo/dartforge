@@ -223,7 +223,7 @@ fn verify_diagnostic(dart_code: &str, expected_diagnostic: DiagnosticCode) {
     // with the analyzer's code (the official English message).
     let found = diags.iter().any(|d| {
         d.message.contains(expected_diagnostic.template)
-            || d.code.is_some_and(|c| c.info().nome == expected_diagnostic.name)
+            || d.code.is_some_and(|c| c.info().name == expected_diagnostic.name)
     });
     assert!(
         found,
@@ -583,7 +583,7 @@ fn missing_new_after_instantiated_type_keeps_constructor_diagnostic() {
         assert_eq!(at_target.len(), 1, "{expr}: {diags:?}");
         // By the analyzer's code (the report carries its message, not the legacy
         // text of `codes.rs`); or, without a code, by the legacy text.
-        let by_code = at_target[0].code.is_some_and(|c| c.info().nome == code.name);
+        let by_code = at_target[0].code.is_some_and(|c| c.info().name == code.name);
         assert!(by_code || at_target[0].message.starts_with(code.template), "{expr}: {diags:?}");
         assert_eq!(at_target[0].span.end as usize, offset + 3);
     }
@@ -1608,7 +1608,7 @@ fn creation_of_non_class_name() {
     let diags = diagnostics_of(source);
     let creations: Vec<_> = diags
         .iter()
-        .filter(|d| d.code.is_some_and(|c| c.info().nome == "creation_with_non_type"))
+        .filter(|d| d.code.is_some_and(|c| c.info().name == "creation_with_non_type"))
         .map(|d| (&source[d.span.start..d.span.end], d.message.as_str()))
         .collect();
     assert_eq!(
@@ -1796,7 +1796,7 @@ fn void_result_use() {
     let diags = diagnostics_of(source);
     let v: Vec<(&str, &str)> = diags
         .iter()
-        .map(|d| (&source[d.span.start..d.span.end], d.code.map_or("", |c| c.info().nome)))
+        .map(|d| (&source[d.span.start..d.span.end], d.code.map_or("", |c| c.info().name)))
         .collect();
     assert_eq!(
         v,
@@ -2020,7 +2020,7 @@ fn dead_code_snippets_like_analyzer() {
     let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
     let mut snippets: Vec<&str> = diags
         .iter()
-        .filter(|d| d.message.contains(DEAD_CODE.template) || d.code.is_some_and(|c| c.info().nome == "dead_code"))
+        .filter(|d| d.message.contains(DEAD_CODE.template) || d.code.is_some_and(|c| c.info().name == "dead_code"))
         .map(|d| &source[d.span.start..d.span.end])
         .collect();
     snippets.sort();
@@ -2070,7 +2070,7 @@ fn augmentation_inherits_omitted_types() {
     let snippet = |d: &dartforge_diagnostics::Diagnostic| principal.get(d.span.start..d.span.end).unwrap_or("").to_string();
     // The analyzer's code, or the `types::codes` template (the parity bridge
     // converts one into the other).
-    let code = |d: &dartforge_diagnostics::Diagnostic| match d.code.map(|c| c.info().nome) {
+    let code = |d: &dartforge_diagnostics::Diagnostic| match d.code.map(|c| c.info().name) {
         Some(n) => n,
         None if d.message.starts_with(INVALID_ASSIGNMENT.template) => "invalid_assignment",
         None if d.message.starts_with(ARGUMENT_TYPE_NOT_ASSIGNABLE.template) => "argument_type_not_assignable",
@@ -2129,7 +2129,7 @@ fn enum_augmentation_adds_values_and_members() {
     let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
     let errors: Vec<String> = diags
         .iter()
-        .filter(|d| d.severity == dartforge_diagnostics::Severidade::Error)
+        .filter(|d| d.severity == dartforge_diagnostics::Severity::Error)
         .map(|d| format!("{} @ {}", d.message, principal.get(d.span.start..d.span.end).unwrap_or("?")))
         .collect();
     assert_eq!(errors.len(), 1, "{errors:?}");

@@ -308,7 +308,7 @@ fn refutable_in_irrefutable(inf: &mut BodyInferrer<'_>, cx: &mut Body, sp: Span)
     if !irrefutable_now(cx) {
         return false;
     }
-    inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::REFUTABLE_PATTERN_IN_IRREFUTABLE_CONTEXT, sp, &[]);
+    inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::REFUTABLE_PATTERN_IN_IRREFUTABLE_CONTEXT, sp, &[]);
     cx.forced_refutable = true;
     true
 }
@@ -318,7 +318,7 @@ fn refutable_in_irrefutable(inf: &mut BodyInferrer<'_>, cx: &mut Body, sp: Span)
 fn wrong_type_in_irrefutable(inf: &mut BodyInferrer<'_>, matched: TypeId, the_required: TypeId, sp: Span) {
     let a1 = inf.table.format(matched, inf.interner, inf.program);
     let a2 = inf.table.format(the_required, inf.interner, inf.program);
-    inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::PATTERN_TYPE_MISMATCH_IN_IRREFUTABLE_CONTEXT, sp, &[&a1, &a2]);
+    inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::PATTERN_TYPE_MISMATCH_IN_IRREFUTABLE_CONTEXT, sp, &[&a1, &a2]);
 }
 
 /// The variables the pattern declares, in `VariableBinder` order (a `||`
@@ -385,7 +385,7 @@ fn variables_missing_in_or(inf: &mut BodyInferrer<'_>, cx: &Body, x: PatternId, 
         let a = &inf.program.unit(cx.unit).ast;
         (a.pattern(x).span, a.pattern(y).span)
     };
-    let code = dartforge_diagnostics::codigos::compile_time_error::MISSING_VARIABLE_PATTERN;
+    let code = dartforge_diagnostics::codes::compile_time_error::MISSING_VARIABLE_PATTERN;
     for n in &left {
         if !right.iter().any(|d| d.sym == n.sym) {
             let the_name = inf.interner.resolve(n.sym).to_string();
@@ -433,12 +433,12 @@ fn duplicate_rests(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId) {
     // `duplicateRestElementInPattern`: the context is the first one.
     let Some(&first) = rests.first() else { return };
     for s in rests.into_iter().skip(1) {
-        inf.warning_with_context(dartforge_diagnostics::codigos::compile_time_error::DUPLICATE_REST_ELEMENT_IN_PATTERN, s, &[], vec![(None, first, "The first rest element.".to_string())]);
+        inf.warning_with_context(dartforge_diagnostics::codes::compile_time_error::DUPLICATE_REST_ELEMENT_IN_PATTERN, s, &[], vec![(None, first, "The first rest element.".to_string())]);
     }
 }
 
 pub(crate) fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, final_: bool, assignment: bool, of_e: bool) {
-    use dartforge_diagnostics::codigos::{static_warning as sw, warning as w};
+    use dartforge_diagnostics::codes::{static_warning as sw, warning as w};
     let a = &inf.program.unit(cx.unit).ast;
     let Some(r) = top(cx) else { return };
     // The matched type is that at the pattern's ENTRY, before it promotes
@@ -519,7 +519,7 @@ pub(crate) fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId
                     // gives `CONST_TYPE_PARAMETER` at the name (3.6.2
                     // `evaluation.dart:1847-1859`).
                     expr::NameRef::TypeParam(_) => {
-                        inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::CONST_TYPE_PARAMETER, name.span, &[]);
+                        inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::CONST_TYPE_PARAMETER, name.span, &[]);
                     }
                     _ => {}
                 }
@@ -543,7 +543,7 @@ pub(crate) fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId
                         expr::undefined_name_without_this(inf, cx, name);
                     }
                     _ => {
-                        inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::PATTERN_ASSIGNMENT_NOT_LOCAL_VARIABLE, name.span, &[]);
+                        inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::PATTERN_ASSIGNMENT_NOT_LOCAL_VARIABLE, name.span, &[]);
                     }
                 }
                 if let Some(Nome::Local(id)) = cx.lookup(name.sym) {
@@ -623,7 +623,7 @@ pub(crate) fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId
                 let a1 = inf.table.format(c, inf.interner, inf.program);
                 let a2 = inf.table.format(t, inf.interner, inf.program);
                 inf.warning_with_code(
-                    dartforge_diagnostics::codigos::compile_time_error::CASE_EXPRESSION_TYPE_IS_NOT_SWITCH_EXPRESSION_SUBTYPE,
+                    dartforge_diagnostics::codes::compile_time_error::CASE_EXPRESSION_TYPE_IS_NOT_SWITCH_EXPRESSION_SUBTYPE,
                     sp,
                     &[&a1, &a2],
                 );
@@ -931,7 +931,7 @@ pub(crate) fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId
                         let text = inf.interner.resolve(nm).to_string();
                         inf.null_warning(
                             obj,
-                            dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_PROPERTY_ACCESS_OF_NULLABLE_VALUE,
+                            dartforge_diagnostics::codes::compile_time_error::UNCHECKED_PROPERTY_ACCESS_OF_NULLABLE_VALUE,
                             sp,
                             &[&text],
                         );

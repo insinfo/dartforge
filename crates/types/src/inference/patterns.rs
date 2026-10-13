@@ -359,7 +359,7 @@ fn never_matches(inf: &mut BodyInferrer<'_>, cx: &Body, matched: TypeId, the_req
         return;
     }
     inf.warning_with_args(
-        dartforge_diagnostics::codigos::warning::PATTERN_NEVER_MATCHES_VALUE_TYPE,
+        dartforge_diagnostics::codes::warning::PATTERN_NEVER_MATCHES_VALUE_TYPE,
         span,
         &[crate::exibicao::Arg::Type_(matched), crate::exibicao::Arg::Type_(the_required)],
     );
@@ -838,7 +838,7 @@ pub(crate) fn relational_pattern(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: P
     {
         let start = inf.program.unit(cx.unit).ast.pattern(p).span.start;
         let token = dartforge_diagnostics::Span { start: start, end: start + lexeme.len() };
-        inf.null_warning(t, dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_OPERATOR_INVOCATION_OF_NULLABLE_VALUE, token, &[the_name]);
+        inf.null_warning(t, dartforge_diagnostics::codes::compile_time_error::UNCHECKED_OPERATOR_INVOCATION_OF_NULLABLE_VALUE, token, &[the_name]);
     }
     let operator = match inf.interner.lookup(the_name).map(|s| inf.lookup_member(cx.lib, t, s, false)) {
         Some(Search::Finding(m)) => match {
@@ -862,7 +862,7 @@ pub(crate) fn relational_pattern(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: P
             let a1 = inf.table.format(tv, inf.interner, inf.program);
             let a2 = inf.table.format(parameter, inf.interner, inf.program);
             inf.warning_with_code(
-                dartforge_diagnostics::codigos::compile_time_error::RELATIONAL_PATTERN_OPERAND_TYPE_NOT_ASSIGNABLE,
+                dartforge_diagnostics::codes::compile_time_error::RELATIONAL_PATTERN_OPERAND_TYPE_NOT_ASSIGNABLE,
                 sp,
                 &[&a1, &a2, lexeme],
             );
@@ -872,7 +872,7 @@ pub(crate) fn relational_pattern(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: P
             let start = inf.program.unit(cx.unit).ast.pattern(p).span.start;
             let token = dartforge_diagnostics::Span { start: start, end: start + lexeme.len() };
             inf.warning_with_code(
-                dartforge_diagnostics::codigos::compile_time_error::RELATIONAL_PATTERN_OPERATOR_RETURN_TYPE_NOT_ASSIGNABLE_TO_BOOL,
+                dartforge_diagnostics::codes::compile_time_error::RELATIONAL_PATTERN_OPERATOR_RETURN_TYPE_NOT_ASSIGNABLE_TO_BOOL,
                 token,
                 &[],
             );

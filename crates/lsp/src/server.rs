@@ -40,17 +40,17 @@ const SYNC_INCREMENTAL: u32 = 2;
 const SEVERITY_ERROR: u32 = 1;
 
 /// LSP `DiagnosticSeverity` for the analyzer's severity (1 error, 2 warning, 3 information).
-fn severity(s: dartforge_diagnostics::Severidade) -> u32 {
+fn severity(s: dartforge_diagnostics::Severity) -> u32 {
     match s {
-        dartforge_diagnostics::Severidade::Error => SEVERITY_ERROR,
-        dartforge_diagnostics::Severidade::Warning => 2,
-        dartforge_diagnostics::Severidade::Info => 3,
+        dartforge_diagnostics::Severity::Error => SEVERITY_ERROR,
+        dartforge_diagnostics::Severity::Warning => 2,
+        dartforge_diagnostics::Severity::Info => 3,
     }
 }
 
 /// The message as the Dart server shows it: the problem and, if any, the correction.
 fn message(d: &dartforge_diagnostics::Diagnostic) -> String {
-    match d.correcao() {
+    match d.correction() {
         Some(c) => format!("{}\n{c}", d.message),
         None => d.message.clone(),
     }
@@ -2580,7 +2580,7 @@ impl<A: Analyzer> Server<A> {
                 // `hasScanParseErrors`: some scanner or parser error.
                 let with_errors = analyzed.diagnostics.iter().any(|d| {
                     d.code.is_none_or(|c| {
-                        let single = c.info().unico;
+                        let single = c.info().unique;
                         single.starts_with("ParserErrorCode.") || single.starts_with("ScannerErrorCode.")
                     })
                 });
@@ -2617,7 +2617,7 @@ impl<A: Analyzer> Server<A> {
                         .map(|(_, d)| d.as_slice())
                         .unwrap_or_default();
                     let name_of =
-                        |d: &dartforge_diagnostics::Diagnostic| d.code.map_or("", |c| c.info().unico.rsplit('.').next().unwrap_or(""));
+                        |d: &dartforge_diagnostics::Diagnostic| d.code.map_or("", |c| c.info().unique.rsplit('.').next().unwrap_or(""));
                     let removable: Vec<usize> = typed
                         .iter()
                         .filter(|d| matches!(name_of(d), "DUPLICATE_IMPORT" | "UNUSED_IMPORT" | "UNNECESSARY_IMPORT"))
@@ -3574,7 +3574,7 @@ fn convert_diagnostic(
         "severity": severity(diagnostic.severity),
         "source": SOURCE,
         "message": message(diagnostic),
-        "code": diagnostic.code.map(|c| c.info().nome),
+        "code": diagnostic.code.map(|c| c.info().name),
     })
 }
 

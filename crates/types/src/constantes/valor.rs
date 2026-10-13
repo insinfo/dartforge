@@ -7,7 +7,7 @@
 //! on without proving any error about them.
 
 use crate::table::{CoreTypes, Type, TypeId, TypeTable};
-use dartforge_diagnostics::{codigos::compile_time_error as c, Codigo};
+use dartforge_diagnostics::{codes::compile_time_error as c, Code};
 use dartforge_elements::model::{ClassId, FunctionElementId, VariableId};
 use dartforge_intern::SymbolId;
 use std::rc::Rc;
@@ -66,19 +66,19 @@ pub struct Valor {
 /// `EvaluationException`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Exception {
-    pub code: Codigo,
+    pub code: Code,
     pub runtime: bool,
 }
 
 impl Exception {
-    pub fn new(code: Codigo) -> Self {
+    pub fn new(code: Code) -> Self {
         Exception { code, runtime: false }
     }
 }
 
 type R<T> = Result<T, Exception>;
 
-fn throws<T>(code: Codigo) -> R<T> {
+fn throws<T>(code: Code) -> R<T> {
     Err(Exception::new(code))
 }
 

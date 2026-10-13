@@ -34,7 +34,7 @@
 //! Written without compiling or running (2026-10-05).
 
 use crate::resolved::{MemberRef, Resolved, UnitBodyTypes};
-use dartforge_diagnostics::codigos::warning as w;
+use dartforge_diagnostics::codes::warning as w;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_elements::model::{Element, Program, UnitId};
 use dartforge_frontend::ast::{self, DeclKind, DirectiveKind, ExprId, ExprKind, ForInTarget, FunctionBody, MemberKind, StmtId, StmtKind};
@@ -282,7 +282,7 @@ pub fn guardados_e_devolvidos(program: &Program, interner: &Interner, body: &Uni
         let mut findings = Vec::new();
         marked_(program, interner, u, body, e, &mut findings);
         for (s, the_name) in findings {
-            out.push(Diagnostic::com_codigo(w::ASSIGNMENT_OF_DO_NOT_STORE, s, [the_name.as_str()]));
+            out.push(Diagnostic::with_code(w::ASSIGNMENT_OF_DO_NOT_STORE, s, [the_name.as_str()]));
         }
     }
 
@@ -344,7 +344,7 @@ pub fn guardados_e_devolvidos(program: &Program, interner: &Interner, body: &Uni
         // The nearest function or method declaration that contains the return.
         let Some(owner) = declarations.iter().filter(|x| inside(sp, x.0)).min_by_key(|x| x.0.end - x.0.start) else { continue };
         for (s, the_name) in findings {
-            out.push(Diagnostic::com_codigo(w::RETURN_OF_DO_NOT_STORE, s, [the_name.as_str(), owner.1.as_str()]));
+            out.push(Diagnostic::with_code(w::RETURN_OF_DO_NOT_STORE, s, [the_name.as_str(), owner.1.as_str()]));
         }
     }
     out

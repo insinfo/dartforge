@@ -4,14 +4,14 @@
 //! on the variable/field name.
 
 use crate::Unidade;
-use dartforge_diagnostics::codigos::compile_time_error as c;
+use dartforge_diagnostics::codes::compile_time_error as c;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_frontend::ast::{DeclKind, Initializer, MemberId, MemberKind};
 use dartforge_intern::SymbolId;
 use std::collections::HashSet;
 
-fn report(code: dartforge_diagnostics::Codigo, span: Span) -> Diagnostic {
-    Diagnostic::com_codigo(code, span, std::iter::empty::<&str>())
+fn report(code: dartforge_diagnostics::Code, span: Span) -> Diagnostic {
+    Diagnostic::with_code(code, span, std::iter::empty::<&str>())
 }
 
 /// This unit's diagnostics that do not need type inference.
@@ -151,7 +151,7 @@ mod tests {
             let found = inicializadores(Unidade { ast: &parsed.ast, unit: &parsed.unit, fonte: source });
             assert!(found.iter().any(|d|
                 d.code == Some(code) && d.span.start == start && d.span.end == start + 1
-                    && d.message == message && d.correcao().as_deref() == Some(correction)
+                    && d.message == message && d.correction().as_deref() == Some(correction)
             ), "{source}: {found:?}");
         }
     }
@@ -204,7 +204,7 @@ mod tests {
             assert!(found.iter().any(|d|
                 d.code == Some(code) && d.span.start == start && d.span.end == start + 1
                     && d.message == "Abstract fields can't have initializers."
-                    && d.correcao().as_deref() == Some(correction)
+                    && d.correction().as_deref() == Some(correction)
             ), "{source}: {found:?}");
         }
     }

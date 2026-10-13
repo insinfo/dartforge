@@ -29,7 +29,7 @@
 //! Libraries with a syntax error or with `augment` are left out.
 
 use crate::Unidade;
-use dartforge_diagnostics::codigos::warning as w;
+use dartforge_diagnostics::codes::warning as w;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_frontend::ast::{self, DeclKind, Initializer, MemberKind};
 use dartforge_frontend::token::{Kind, Op};
@@ -422,7 +422,7 @@ pub fn unused(units: &[Unidade<'_>], names: &Interner) -> Vec<(usize, Diagnostic
         };
         out.push((
             k.unit,
-            Diagnostic::com_codigo(code, k.span, [k.displayed.as_str()]),
+            Diagnostic::with_code(code, k.span, [k.displayed.as_str()]),
         ));
     }
     out
@@ -445,7 +445,7 @@ mod tests {
             .into_iter()
             .map(|(_, d)| {
                 (
-                    d.code.unwrap().info().nome.to_string(),
+                    d.code.unwrap().info().name.to_string(),
                     source[d.span.start..d.span.end].to_string(),
                     d.message,
                 )

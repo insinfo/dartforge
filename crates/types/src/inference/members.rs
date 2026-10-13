@@ -709,7 +709,7 @@ impl<'a> BodyInferrer<'a> {
     /// `extension_member_resolver.dart:115-128`).
     pub(crate) fn report_extension_ambiguity(&mut self, name: dartforge_diagnostics::Span) {
         if let Some((n, list, two)) = self.extension_ambiguity.take() {
-            let code = dartforge_diagnostics::codigos::compile_time_error::AMBIGUOUS_EXTENSION_MEMBER_ACCESS;
+            let code = dartforge_diagnostics::codes::compile_time_error::AMBIGUOUS_EXTENSION_MEMBER_ACCESS;
             match two {
                 Some((a, b)) => self.warning_with_code(code, name, &[&n, &list, &a, &b]),
                 None => self.warning_with_code(code, name, &[&n, &list]),
@@ -852,7 +852,7 @@ impl<'a> BodyInferrer<'a> {
         let text = self.interner.resolve(name).to_string();
         let cls = self.interner.resolve(c.name).to_string();
         self.warning_with_code(
-            dartforge_diagnostics::codigos::compile_time_error::INSTANCE_ACCESS_TO_STATIC_MEMBER,
+            dartforge_diagnostics::codes::compile_time_error::INSTANCE_ACCESS_TO_STATIC_MEMBER,
             span,
             &[&text, kind, &cls, owner_type],
         );

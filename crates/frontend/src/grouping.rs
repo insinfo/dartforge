@@ -17,7 +17,7 @@
 //! discard an interpolation group, here the closer read is ignored.
 
 use crate::token::{Interp, Keyword, Kind, Op, Token};
-use dartforge_diagnostics::{Diagnostic, Span, codigos};
+use dartforge_diagnostics::{Diagnostic, Span, codes};
 
 /// The `kind` of a `BeginToken`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -375,7 +375,7 @@ pub fn group_tokens(source: &str, tokens: Vec<Token>) -> (Vec<Token>, Vec<Diagno
         let (op, texto) = g.closer();
         insertions.push((before, synthetic(op, em)));
         closers.push(SyntheticCloser { abre: tokens[opener].span.start, em, erro: errors.len() });
-        errors.push(Diagnostic::com_codigo(codigos::scanner::EXPECTED_TOKEN, Span { start: em, end: em + 1 }, [texto]));
+        errors.push(Diagnostic::with_code(codes::scanner::EXPECTED_TOKEN, Span { start: em, end: em + 1 }, [texto]));
     };
     for (i, (t, p)) in tokens.iter().zip(&steps).enumerate() {
         if t.kind == Kind::Eof {

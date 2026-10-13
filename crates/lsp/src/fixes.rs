@@ -122,7 +122,7 @@ pub(crate) fn fix(project: &mut Project, uri: &str, diagnostics: &[Diagnostic], 
         if !(d.span.start <= end && start_ <= d.span.end) {
             continue;
         }
-        let Some(code) = d.code.map(|c| c.info().nome) else { continue };
+        let Some(code) = d.code.map(|c| c.info().name) else { continue };
         let text = project.program().unit(unit).source.clone();
         if d.span.end > text.len() {
             continue;
@@ -309,7 +309,7 @@ pub(crate) fn fix(project: &mut Project, uri: &str, diagnostics: &[Diagnostic], 
             "type_check_with_null" => {
                 let cx = crate::refactorings::Context::new(project, unit);
                 if let Some(s) = cx.is_null_range(d.span) {
-                    let negated = d.code.is_some_and(|c| c.info().unico.ends_with("TYPE_CHECK_IS_NOT_NULL"));
+                    let negated = d.code.is_some_and(|c| c.info().unique.ends_with("TYPE_CHECK_IS_NOT_NULL"));
                     let (title, kind, new_text) = if negated {
                         ("Use != null instead of 'is! Null'", "quickfix.use.notEqNull", " != null")
                     } else {
@@ -367,7 +367,7 @@ pub(crate) fn fix(project: &mut Project, uri: &str, diagnostics: &[Diagnostic], 
                 }
             }
             "unnecessary_null_comparison" => {
-                let is_true = d.code.is_some_and(|c| c.info().unico.ends_with("_TRUE"));
+                let is_true = d.code.is_some_and(|c| c.info().unique.ends_with("_TRUE"));
                 let cx = crate::refactorings::Context::new(project, unit);
                 if let Some(e) = cx.remove_comparison(d.span, is_true) {
                     output.push(action(uri, "Remove comparison".into(), "quickfix.remove.comparison", e, d));

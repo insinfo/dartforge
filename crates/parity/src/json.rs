@@ -10,7 +10,7 @@
 //! URL). The order is dartdev's `DiagnosticWithPath.compareTo`: severity
 //! (errors first), path, line, column, message.
 
-use dartforge_diagnostics::{Diagnostic, Severidade};
+use dartforge_diagnostics::{Diagnostic, Severity};
 use serde::{Deserialize, Serialize};
 
 /// The whole document.
@@ -133,7 +133,7 @@ pub fn to_json(file: &str, lines: &Linhas<'_>, d: &Diagnostic, syntax: bool) -> 
     let (code, kind, doc) = match d.code {
         Some(c) => {
             let i = c.info();
-            (i.nome.to_string(), i.tipo.nome().to_string(), i.url())
+            (i.name.to_string(), i.error_type.name().to_string(), i.url())
         }
         None => {
             let kind = if syntax { "SYNTACTIC_ERROR" } else { "COMPILE_TIME_ERROR" };
@@ -142,25 +142,25 @@ pub fn to_json(file: &str, lines: &Linhas<'_>, d: &Diagnostic, syntax: bool) -> 
     };
     DiagJson {
         code,
-        severity: d.severity.nome().to_string(),
+        severity: d.severity.name().to_string(),
         tipo: kind,
         location: Local {
             file: file.to_string(),
             range: Faixa { start: lines.ponto(d.span.start), end: lines.ponto(d.span.end.max(d.span.start)) },
         },
         problem_message: d.message.clone(),
-        correction_message: d.correcao(),
+        correction_message: d.correction(),
         // Line and column come from the `lineInfo` of the ERROR's file, even
         // when the message points at another file (`protocol_server.dart:185-191`).
         context_messages: d
-            .contexto
+            .context
             .iter()
             .map(|c| ContextJson {
                 location: Local {
-                    file: c.arquivo.as_deref().unwrap_or(file).to_string(),
+                    file: c.file.as_deref().unwrap_or(file).to_string(),
                     range: Faixa { start: lines.ponto(c.span.start), end: lines.ponto(c.span.end.max(c.span.start)) },
                 },
-                message: c.mensagem.to_string(),
+                message: c.message.to_string(),
             })
             .collect(),
         documentation: doc,
@@ -168,10 +168,10 @@ pub fn to_json(file: &str, lines: &Linhas<'_>, d: &Diagnostic, syntax: bool) -> 
 }
 
 fn priority(sev: &str) -> u8 {
-    match Severidade::por_nome(sev) {
-        Some(Severidade::Error) => 0,
-        Some(Severidade::Warning) => 1,
-        Some(Severidade::Info) => 3,
+    match Severity::by_name(sev) {
+        Some(Severity::Error) => 0,
+        Some(Severity::Warning) => 1,
+        Some(Severity::Info) => 3,
         None => 4,
     }
 }

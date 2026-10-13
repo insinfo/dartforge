@@ -11,7 +11,7 @@
 //! (or the `;`).
 
 use crate::Unidade;
-use dartforge_diagnostics::codigos::parser as p;
+use dartforge_diagnostics::codes::parser as p;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_frontend::ast::{DeclKind, FunctionBody};
 
@@ -106,7 +106,7 @@ pub fn outside_sdk(unit: Unidade<'_>) -> Vec<Diagnostic> {
             i += 1;
         }
         if let Some(span) = clause(b, i) {
-            out.push(Diagnostic::com_codigo(p::NATIVE_CLAUSE_IN_NON_SDK_CODE, span, std::iter::empty::<&str>()));
+            out.push(Diagnostic::with_code(p::NATIVE_CLAUSE_IN_NON_SDK_CODE, span, std::iter::empty::<&str>()));
         }
     }
     for f in &ast.functions {
@@ -115,7 +115,7 @@ pub fn outside_sdk(unit: Unidade<'_>) -> Vec<Diagnostic> {
         let Some(start) = unit.fonte[f.span.start.min(limit)..limit].rfind("native").map(|k| k + f.span.start.min(limit)) else {
             continue;
         };
-        out.push(Diagnostic::com_codigo(
+        out.push(Diagnostic::with_code(
             p::NATIVE_FUNCTION_BODY_IN_NON_SDK_CODE,
             Span { start, end: f.span.end },
             std::iter::empty::<&str>(),
@@ -135,7 +135,7 @@ mod tests {
         let out = parse(source, &mut names);
         assert!(out.diagnostics.is_empty(), "{source}: {:?}", out.diagnostics);
         let u = Unidade { ast: &out.ast, unit: &out.unit, fonte: source };
-        outside_sdk(u).into_iter().map(|d| (d.code.unwrap().info().nome, d.span.start, d.span.end)).collect()
+        outside_sdk(u).into_iter().map(|d| (d.code.unwrap().info().name, d.span.start, d.span.end)).collect()
     }
 
     /// Positions from `dart analyze` 3.6.2 (`syntax/syntax_native_test.dart`

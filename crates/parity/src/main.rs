@@ -311,8 +311,8 @@ fn scoreboard(a: &Args, workers: usize) -> (String, bool) {
     }
     // Syntactic codes are always published: they are not candidates.
     let syntactic = |k: &str| {
-        dartforge_diagnostics::Codigo::por_nome(k)
-            .is_some_and(|c| c.info().tipo == dartforge_diagnostics::TipoErro::SyntacticError)
+        dartforge_diagnostics::Code::by_name(k)
+            .is_some_and(|c| c.info().error_type == dartforge_diagnostics::ErrorType::SyntacticError)
     };
     let candidates: Vec<&String> = total
         .by_code

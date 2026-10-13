@@ -18,7 +18,7 @@
 //! invoked through `super` in the mixin), it answers [`Gate::Uncertain`] and
 //! nothing that depends on it is emitted.
 
-use dartforge_diagnostics::{Codigo, Diagnostic, Span, codigos::compile_time_error as c};
+use dartforge_diagnostics::{Code, Diagnostic, Span, codes::compile_time_error as c};
 use dartforge_elements::model::{
     ClassId, ClassKind, Element, FunctionKind, LibraryId, Program, UnitId,
 };
@@ -619,7 +619,7 @@ fn evaluate(l: &Reader<'_>, lib: LibraryId, id: ClassId) -> Option<GateResult> {
                 a if forbidden(a) => closed = true,
                 ClauseTarget::Class(_) => {
                     if l.is_deferred(u, ast_, t) {
-                        reports.push(Diagnostic::com_codigo(
+                        reports.push(Diagnostic::with_code(
                             c::MIXIN_SUPER_CLASS_CONSTRAINT_DEFERRED_CLASS,
                             ast_.ty(t).span,
                             [] as [&str; 0],
@@ -686,7 +686,7 @@ fn evaluate(l: &Reader<'_>, lib: LibraryId, id: ClassId) -> Option<GateResult> {
             && !l.only_factories(id)
             && l.only_factories(s)
         {
-            reports.push(Diagnostic::com_codigo(
+            reports.push(Diagnostic::with_code(
                 c::NO_GENERATIVE_CONSTRUCTORS_IN_SUPERCLASS,
                 ast_.ty(t).span,
                 [l.name(class.name), l.name(l.program.class(s).name)],
@@ -764,7 +764,7 @@ fn implicit_super_of_class(
         Some(Ok(f)) if l.program.function(f).factory => {
             let super_name = l.name(se.name).to_string();
             let displayed = display_unnamed_constructor(l, s, f);
-            return Some(Diagnostic::com_codigo(
+            return Some(Diagnostic::with_code(
                 c::NON_GENERATIVE_IMPLICIT_CONSTRUCTOR,
                 name_span,
                 [super_name.as_str(), class.as_str(), displayed.as_str()],
@@ -785,7 +785,7 @@ fn implicit_super_of_class(
         return None;
     }
     let displayed = l.display(u, ast_, t, params)?;
-    Some(Diagnostic::com_codigo(c::NO_DEFAULT_SUPER_CONSTRUCTOR_IMPLICIT, name_span, [displayed.as_str(), class.as_str()]))
+    Some(Diagnostic::with_code(c::NO_DEFAULT_SUPER_CONSTRUCTOR_IMPLICIT, name_span, [displayed.as_str(), class.as_str()]))
 }
 
 /// `ConstructorElement.getDisplayString()` of the unnamed `f` of `s` (it only
@@ -867,7 +867,7 @@ fn implements(
             ClauseTarget::Unknown => *uncertain = true,
             _ => {
                 if l.is_deferred(u, ast_, t) {
-                    reports.push(Diagnostic::com_codigo(
+                    reports.push(Diagnostic::with_code(
                         c::IMPLEMENTS_DEFERRED_CLASS,
                         ast_.ty(t).span,
                         [] as [&str; 0],
@@ -911,7 +911,7 @@ fn mixins(
         previous.push(m);
         let previous = previous_here;
         if l.is_deferred(u, ast_, t) {
-            reports.push(Diagnostic::com_codigo(
+            reports.push(Diagnostic::with_code(
                 c::MIXIN_DEFERRED_CLASS,
                 span,
                 [] as [&str; 0],
@@ -976,7 +976,7 @@ fn mixins(
             ClassKind::Class | ClassKind::MixinApplication => {
                 let name = l.name(el.name);
                 if !el.modifiers.mixin && l.declares_constructor(m) {
-                    reports.push(Diagnostic::com_codigo(
+                    reports.push(Diagnostic::with_code(
                         c::MIXIN_CLASS_DECLARES_CONSTRUCTOR,
                         span,
                         [name],
@@ -1001,7 +1001,7 @@ fn mixins(
                     || !(el.mixins.is_empty()
                         || el.kind == ClassKind::MixinApplication && el.mixins.len() < 2);
                 if herda {
-                    reports.push(Diagnostic::com_codigo(
+                    reports.push(Diagnostic::with_code(
                         c::MIXIN_INHERITS_FROM_NOT_OBJECT,
                         span,
                         [name],
@@ -1068,7 +1068,7 @@ fn mixin_class(
                 }
             };
             if let Some(sp) = sp {
-                out.push(Diagnostic::com_codigo(c::MIXIN_CLASS_DECLARES_CONSTRUCTOR, sp, [name]));
+                out.push(Diagnostic::with_code(c::MIXIN_CLASS_DECLARES_CONSTRUCTOR, sp, [name]));
             }
             continue;
         }
@@ -1081,7 +1081,7 @@ fn mixin_class(
             && matches!(k.body, ast::FunctionBody::Empty)
             && !k.external;
         if !trivial {
-            out.push(Diagnostic::com_codigo(
+            out.push(Diagnostic::with_code(
                 c::MIXIN_CLASS_DECLARES_CONSTRUCTOR,
                 k.class_name.span,
                 [name],
@@ -1102,7 +1102,7 @@ fn mixin_class(
         },
     };
     match (extends_another, d.extends) {
-        (Some(true), Some(t)) => out.push(Diagnostic::com_codigo(
+        (Some(true), Some(t)) => out.push(Diagnostic::with_code(
             c::MIXIN_CLASS_DECLARATION_EXTENDS_NOT_OBJECT,
             ast_.ty(t).span,
             [name],
@@ -1117,7 +1117,7 @@ fn mixin_class(
                         start: before.len() - 4,
                         end: ast_.ty(last).span.end,
                     };
-                    out.push(Diagnostic::com_codigo(
+                    out.push(Diagnostic::with_code(
                         c::MIXIN_CLASS_DECLARATION_EXTENDS_NOT_OBJECT,
                         span,
                         [name],
@@ -1242,7 +1242,7 @@ fn not_implemented(
     let restricao = l.display(mu, mast, mt, &[])?;
     let TypeKind::Named { name, .. } = &ast_.ty(t).kind else { return None };
     let span = name.last()?.span;
-    Some(Diagnostic::com_codigo(
+    Some(Diagnostic::with_code(
         c::MIXIN_APPLICATION_NOT_IMPLEMENTED_INTERFACE,
         span,
         [mixin_text.as_str(), super_txt.as_str(), restricao.as_str()],
@@ -1496,7 +1496,7 @@ fn repeated(
     u: UnitId,
     ast_: &ast::Ast,
     types: &[ast::TypeId],
-    code: Codigo,
+    code: Code,
     out: &mut Vec<(UnitId, Diagnostic)>,
 ) {
     let mut seen: Vec<ClassId> = Vec::new();
@@ -1504,7 +1504,7 @@ fn repeated(
         if let ClauseTarget::Class(x) = l.target(u, ast_, t, 0) {
             if seen.contains(&x) {
                 let name = l.name(l.program.class(x).name);
-                out.push((u, Diagnostic::com_codigo(code, ast_.ty(t).span, [name])));
+                out.push((u, Diagnostic::with_code(code, ast_.ty(t).span, [name])));
             } else {
                 seen.push(x);
             }
@@ -1547,7 +1547,7 @@ pub fn check(
             for &t in x.implements.iter() {
                 let resolved = l.resolve(u, ast_, t, &params, 0, true);
                 if l.is_nullable(u, ast_, t, 0) && l.nullability_checked(u, ast_, t, &params, &resolved) {
-                    out.push((u, Diagnostic::com_codigo(c::NULLABLE_TYPE_IN_IMPLEMENTS_CLAUSE, ast_.ty(t).span, [] as [&str; 0])));
+                    out.push((u, Diagnostic::with_code(c::NULLABLE_TYPE_IN_IMPLEMENTS_CLAUSE, ast_.ty(t).span, [] as [&str; 0])));
                 }
             }
             continue;
@@ -1569,14 +1569,14 @@ pub fn check(
             if let Some(t) = cl.extends
                 && is_function(t)
             {
-                out.push((decl.unit, Diagnostic::com_codigo(dartforge_diagnostics::codigos::warning::DEPRECATED_EXTENDS_FUNCTION, ast_.ty(t).span, empty)));
+                out.push((decl.unit, Diagnostic::with_code(dartforge_diagnostics::codes::warning::DEPRECATED_EXTENDS_FUNCTION, ast_.ty(t).span, empty)));
             }
             if let Some(&t) = cl.implements.iter().find(|&&t| is_function(t)) {
-                out.push((decl.unit, Diagnostic::com_codigo(dartforge_diagnostics::codigos::warning::DEPRECATED_IMPLEMENTS_FUNCTION, ast_.ty(t).span, empty)));
+                out.push((decl.unit, Diagnostic::with_code(dartforge_diagnostics::codes::warning::DEPRECATED_IMPLEMENTS_FUNCTION, ast_.ty(t).span, empty)));
             }
             for &t in cl.with {
                 if is_function(t) {
-                    out.push((decl.unit, Diagnostic::com_codigo(dartforge_diagnostics::codigos::warning::DEPRECATED_MIXIN_FUNCTION, ast_.ty(t).span, empty)));
+                    out.push((decl.unit, Diagnostic::with_code(dartforge_diagnostics::codes::warning::DEPRECATED_MIXIN_FUNCTION, ast_.ty(t).span, empty)));
                 }
             }
         }
@@ -1584,7 +1584,7 @@ pub fn check(
         // `ResolutionVisitor._resolveType`: each clause type must name a class
         // (or a mixin, outside the `extends`).
         let mixin_application = matches!(&ast_.decl(decl.decl).kind, DeclKind::Class(d) if d.mixin_application);
-        let resolution_groups: [(&[ast::TypeId], Codigo, bool); 4] = [
+        let resolution_groups: [(&[ast::TypeId], Code, bool); 4] = [
             (
                 cl.extends.as_slice(),
                 if mixin_application || !cl.with.is_empty() {
@@ -1614,7 +1614,7 @@ pub fn check(
                     } else {
                         c::NULLABLE_TYPE_IN_EXTENDS_CLAUSE
                     };
-                    out.push((decl.unit, Diagnostic::com_codigo(nullable_code, ast_.ty(t).span, [] as [&str; 0])));
+                    out.push((decl.unit, Diagnostic::with_code(nullable_code, ast_.ty(t).span, [] as [&str; 0])));
                 }
                 // `_verifyTypeAliasForContext`: the clause's code, and the type
                 // becomes `InvalidType` (no `*_non_class`).
@@ -1632,7 +1632,7 @@ pub fn check(
                         && let (Some(p), Some(n)) = (name.first(), name.last())
                     {
                         let span = dartforge_diagnostics::Span { start: p.span.start, end: n.span.end };
-                        out.push((decl.unit, Diagnostic::com_codigo(alias_code, span, [] as [&str; 0])));
+                        out.push((decl.unit, Diagnostic::with_code(alias_code, span, [] as [&str; 0])));
                     }
                     continue;
                 }
@@ -1650,7 +1650,7 @@ pub fn check(
                     && let (Some(p), Some(n)) = (name.first(), name.last())
                 {
                     let span = dartforge_diagnostics::Span { start: p.span.start, end: n.span.end };
-                    out.push((decl.unit, Diagnostic::com_codigo(code, span, [] as [&str; 0])));
+                    out.push((decl.unit, Diagnostic::with_code(code, span, [] as [&str; 0])));
                 }
             }
         }
@@ -1664,7 +1664,7 @@ pub fn check(
             let may_have_enum = class.kind == ClassKind::Enum
                 || class.kind == ClassKind::Mixin
                 || class.modifiers.abstract_;
-            let groups: [(&[ast::TypeId], Codigo); 4] = [
+            let groups: [(&[ast::TypeId], Code); 4] = [
                 (cl.implements, c::IMPLEMENTS_DISALLOWED_CLASS),
                 (cl.on, c::MIXIN_SUPER_CLASS_CONSTRAINT_DISALLOWED_CLASS),
                 (cl.extends.as_slice(), c::EXTENDS_DISALLOWED_CLASS),
@@ -1681,7 +1681,7 @@ pub fn check(
                             direct_error = true;
                             out.push((
                                 decl.unit,
-                                Diagnostic::com_codigo(
+                                Diagnostic::with_code(
                                     c::CONCRETE_CLASS_HAS_ENUM_SUPERINTERFACE,
                                     span,
                                     [] as [&str; 0],
@@ -1698,7 +1698,7 @@ pub fn check(
                     {
                         out.push((
                             decl.unit,
-                            Diagnostic::com_codigo(code, span, [text.as_str()]),
+                            Diagnostic::with_code(code, span, [text.as_str()]),
                         ));
                     }
                 }
@@ -1718,7 +1718,7 @@ pub fn check(
             let mut all = Vec::new();
             supertypes(&l, id, &mut all);
             if all.iter().any(|&x| x != id && l.is_core_enum(x)) {
-                out.push((decl.unit, Diagnostic::com_codigo(c::CONCRETE_CLASS_HAS_ENUM_SUPERINTERFACE, d.name.span, [] as [&str; 0])));
+                out.push((decl.unit, Diagnostic::with_code(c::CONCRETE_CLASS_HAS_ENUM_SUPERINTERFACE, d.name.span, [] as [&str; 0])));
                 direct_error = true;
             }
         }
@@ -1730,7 +1730,7 @@ pub fn check(
                 if let ClauseTarget::Class(m) = l.target(u, ast_, t, 0)
                     && l.has_instance_field(m)
                 {
-                    out.push((decl.unit, Diagnostic::com_codigo(c::ENUM_MIXIN_WITH_INSTANCE_VARIABLE, ast_.ty(t).span, [] as [&str; 0])));
+                    out.push((decl.unit, Diagnostic::with_code(c::ENUM_MIXIN_WITH_INSTANCE_VARIABLE, ast_.ty(t).span, [] as [&str; 0])));
                     direct_error = true;
                 }
             }
@@ -1759,9 +1759,9 @@ pub fn check(
                     match component_3_13(&l, lib, id) {
                         Some(componente) => {
                             let new = componente.iter().map(|&x| l.name(program.class(x).name)).collect::<Vec<&str>>().join(", ");
-                            Diagnostic::com_codigo(c::RECURSIVE_INTERFACE_INHERITANCE, span, [name, antigo.as_str(), new.as_str()])
+                            Diagnostic::with_code(c::RECURSIVE_INTERFACE_INHERITANCE, span, [name, antigo.as_str(), new.as_str()])
                         }
-                        None => Diagnostic::com_codigo(c::RECURSIVE_INTERFACE_INHERITANCE, span, [name, antigo.as_str()]),
+                        None => Diagnostic::with_code(c::RECURSIVE_INTERFACE_INHERITANCE, span, [name, antigo.as_str()]),
                     }
                 } else {
                     let (sup, mixins, on, _) = direct_supertypes(&l, id);
@@ -1774,7 +1774,7 @@ pub fn check(
                     } else {
                         c::RECURSIVE_INTERFACE_INHERITANCE_IMPLEMENTS
                     };
-                    Diagnostic::com_codigo(code, span, [name])
+                    Diagnostic::with_code(code, span, [name])
                 };
                 out.push((decl.unit, d));
             }
@@ -1839,7 +1839,7 @@ pub fn check(
                     if l.target(u, ast_, t, 0) == ClauseTarget::Class(s)
                         && let Some(text) = l.display_class(s)
                     {
-                        out.push((decl.unit, Diagnostic::com_codigo(code, ast_.ty(t).span, [text.as_str()])));
+                        out.push((decl.unit, Diagnostic::with_code(code, ast_.ty(t).span, [text.as_str()])));
                     }
                 }
             }
@@ -1850,7 +1850,7 @@ pub fn check(
         {
             out.push((
                 decl.unit,
-                Diagnostic::com_codigo(c::EXTENDS_DEFERRED_CLASS, ast_.ty(t).span, [] as [&str; 0]),
+                Diagnostic::with_code(c::EXTENDS_DEFERRED_CLASS, ast_.ty(t).span, [] as [&str; 0]),
             ));
         }
         for &t in cl.with {
@@ -1877,7 +1877,7 @@ pub fn check(
             }
             out.push((
                 decl.unit,
-                Diagnostic::com_codigo(
+                Diagnostic::with_code(
                     c::CLASS_USED_AS_MIXIN,
                     ast_.ty(t).span,
                     [names.resolve(target.name)],
@@ -1934,7 +1934,7 @@ mod tests {
                 .into_iter()
                 .map(|(_, d)| {
                     (
-                        d.code.map_or("", |c| c.info().nome).to_string(),
+                        d.code.map_or("", |c| c.info().name).to_string(),
                         source[d.span.start..d.span.end].to_string(),
                         d.message,
                     )

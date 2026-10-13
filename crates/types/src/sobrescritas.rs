@@ -23,7 +23,7 @@ use crate::ops::substitute;
 use crate::resolve::OutlineTypes;
 use crate::subtyping::{SubtypeEnv, is_subtype};
 use crate::table::{CoreTypes, Type, TypeId, TypeParamId, TypeTable};
-use dartforge_diagnostics::{Diagnostic, Span, codigos::compile_time_error as c};
+use dartforge_diagnostics::{Diagnostic, Span, codes::compile_time_error as c};
 use dartforge_elements::model::{
     ClassId, FunctionElementId, FunctionKind, FunctionRef, Program, UnitId, VariableRef,
 };
@@ -265,7 +265,7 @@ impl Ctx<'_> {
                         self.interner.resolve(self.program.class(s).name).to_string(),
                         formatar(self.table, super_sig, self.interner, self.program),
                     ];
-                    output.push(Diagnostic::com_codigo(c::INVALID_OVERRIDE, m.span, args));
+                    output.push(Diagnostic::with_code(c::INVALID_OVERRIDE, m.span, args));
                 }
             }
         }
@@ -333,12 +333,12 @@ impl Ctx<'_> {
                 ];
                 // `invalidOverride`: the overridden member, at its non-synthetic
                 // name (in its own file, if it is a different one).
-                let mut d = Diagnostic::com_codigo(code, m.span, args);
+                let mut d = Diagnostic::with_code(code, m.span, args);
                 if let Some((u, span)) = self.program.nome_nao_sintetico_da_funcao(finding.function) {
                     let error_unit = self.program.nome_nao_sintetico_da_funcao(m.funcao).map(|(x, _)| x);
                     let file = (Some(u) != error_unit).then(|| self.program.caminho_da_unidade(u).into());
                     let text = if the_kind == Kind::Setter { "The setter being overridden." } else { "The member being overridden." };
-                    d.contexto.push(dartforge_diagnostics::Contexto { arquivo: file, span, mensagem: text.into() });
+                    d.context.push(dartforge_diagnostics::ContextMessage { file: file, span, message: text.into() });
                 }
                 output.push(d);
             }
@@ -745,7 +745,7 @@ pub fn getters_e_setters(
         if !ok && let Some((u, span)) = place {
             let the_name = interner.resolve(k.1).to_string();
             let args = [the_name.clone(), formatar(cx.table, tg, interner, program), formatar(cx.table, ts, interner, program), the_name];
-            output.push((u, Diagnostic::com_codigo(c::GETTER_NOT_SUBTYPE_SETTER_TYPES, span, args)));
+            output.push((u, Diagnostic::with_code(c::GETTER_NOT_SUBTYPE_SETTER_TYPES, span, args)));
         }
     }
     // `dart:core`'s `Enum`: an enum's synthetic getters `index` and `name`
@@ -848,7 +848,7 @@ pub fn getters_e_setters(
                 if owner == cid { text.clone() } else { format!("{}.{text}", interner.resolve(program.class(owner).name)) }
             };
             let args = [qualified(g.owner), formatar(cx.table, ret, interner, program), formatar(cx.table, param, interner, program), qualified(s.owner)];
-            output.push((u, Diagnostic::com_codigo(c::GETTER_NOT_SUBTYPE_SETTER_TYPES, span, args)));
+            output.push((u, Diagnostic::with_code(c::GETTER_NOT_SUBTYPE_SETTER_TYPES, span, args)));
         }
     }
     output
@@ -1115,7 +1115,7 @@ pub fn membros_abstratos(
                         }
                         let span = Span { start: start_with_documentation(source, sp.start), end: sp.end };
                         let code = if e_enum { c::ENUM_WITH_ABSTRACT_MEMBER } else { c::CONCRETE_CLASS_WITH_ABSTRACT_MEMBER };
-                        output.push((decl.unit, Diagnostic::com_codigo(code, span, [displayed.as_str(), interner.resolve(cls.name)])));
+                        output.push((decl.unit, Diagnostic::with_code(code, span, [displayed.as_str(), interner.resolve(cls.name)])));
                         continue;
                     }
                     if let Some(s) = concrete_superclass
@@ -1161,7 +1161,7 @@ pub fn membros_abstratos(
                             interner.resolve(program.class(mem.owner).name).to_string(),
                             formatar(cx.table, member_type, interner, program),
                         ];
-                        output.push((decl.unit, Diagnostic::com_codigo(code, class_name.span, args)));
+                        output.push((decl.unit, Diagnostic::with_code(code, class_name.span, args)));
                     }
                 }
             }
@@ -1181,7 +1181,7 @@ pub fn membros_abstratos(
         if the_inherited.len() > 4 {
             args.push((the_inherited.len() - 4).to_string());
         }
-        output.push((decl.unit, Diagnostic::com_codigo(code, class_name.span, args)));
+        output.push((decl.unit, Diagnostic::with_code(code, class_name.span, args)));
     }
     output
 }
@@ -1245,7 +1245,7 @@ pub fn variaveis_nao_inicializadas(
         }
         // Also at the synthetic (empty) name, like the analyzer.
         let the_name = var.name;
-        output.push((unit, Diagnostic::com_codigo(c::NOT_INITIALIZED_NON_NULLABLE_VARIABLE, the_name.span, [interner.resolve(the_name.sym)])));
+        output.push((unit, Diagnostic::with_code(c::NOT_INITIALIZED_NON_NULLABLE_VARIABLE, the_name.span, [interner.resolve(the_name.sym)])));
     }
     output
 }
@@ -1471,14 +1471,14 @@ pub fn valores_padrao_com(
             let Some(the_name) = p.name else { continue };
             let annotated = p.metadata.iter().any(|a| a.name.last().is_some_and(|n| interner.resolve(n.sym) == "required"));
             let d = if annotated {
-                Diagnostic::com_codigo(c::MISSING_DEFAULT_VALUE_FOR_PARAMETER_WITH_ANNOTATION, the_name.span, [] as [&str; 0])
+                Diagnostic::with_code(c::MISSING_DEFAULT_VALUE_FOR_PARAMETER_WITH_ANNOTATION, the_name.span, [] as [&str; 0])
             } else {
                 let code = if p.kind == ast::ParameterKind::Optional {
                     c::MISSING_DEFAULT_VALUE_FOR_PARAMETER_POSITIONAL
                 } else {
                     c::MISSING_DEFAULT_VALUE_FOR_PARAMETER
                 };
-                Diagnostic::com_codigo(code, the_name.span, [interner.resolve(the_name.sym)])
+                Diagnostic::with_code(code, the_name.span, [interner.resolve(the_name.sym)])
             };
             output.push((unit, d));
         }
@@ -1557,7 +1557,7 @@ pub fn membros_em_conflito(
             {
                 output.push((
                     decl.unit,
-                    Diagnostic::com_codigo(c::CONFLICTING_STATIC_AND_INSTANCE, n.span, [class_text.clone(), the_name.clone(), owner(a)]),
+                    Diagnostic::with_code(c::CONFLICTING_STATIC_AND_INSTANCE, n.span, [class_text.clone(), the_name.clone(), owner(a)]),
                 ));
                 continue;
             }
@@ -1568,7 +1568,7 @@ pub fn membros_em_conflito(
             if let Some(a) = accessor(getter).or(accessor(setter)) {
                 output.push((
                     decl.unit,
-                    Diagnostic::com_codigo(c::CONFLICTING_METHOD_AND_FIELD, n.span, [class_text.clone(), the_name.clone(), owner(a)]),
+                    Diagnostic::with_code(c::CONFLICTING_METHOD_AND_FIELD, n.span, [class_text.clone(), the_name.clone(), owner(a)]),
                 ));
             }
         }
@@ -1601,7 +1601,7 @@ pub fn membros_em_conflito(
                 if static_ && let Some(a) = inherited {
                     output.push((
                         decl.unit,
-                        Diagnostic::com_codigo(c::CONFLICTING_STATIC_AND_INSTANCE, span, [class_text.clone(), the_name.clone(), owner(a)]),
+                        Diagnostic::with_code(c::CONFLICTING_STATIC_AND_INSTANCE, span, [class_text.clone(), the_name.clone(), owner(a)]),
                     ));
                     conflicting.push(the_name);
                 } else if let Some(a) = inherited
@@ -1612,7 +1612,7 @@ pub fn membros_em_conflito(
                     }
                     output.push((
                         decl.unit,
-                        Diagnostic::com_codigo(c::CONFLICTING_FIELD_AND_METHOD, span, [class_text.clone(), the_name.clone(), owner(a)]),
+                        Diagnostic::with_code(c::CONFLICTING_FIELD_AND_METHOD, span, [class_text.clone(), the_name.clone(), owner(a)]),
                     ));
                     conflicting.push(the_name);
                 }
@@ -1638,7 +1638,7 @@ pub fn membros_em_conflito(
                 };
                 // The two context messages: where the method and the setter come from
                 // (the type and the name of the owner class, at the member's name).
-                let mut d = Diagnostic::com_codigo(c::CONFLICTING_INHERITED_METHOD_AND_SETTER, class_name.span, [typ, class_text.as_str(), the_name.as_str()]);
+                let mut d = Diagnostic::with_code(c::CONFLICTING_INHERITED_METHOD_AND_SETTER, class_name.span, [typ, class_text.as_str(), the_name.as_str()]);
                 for (a, template) in [(method, "The method is inherited from the"), (setter, "The setter is inherited from the")] {
                     let p = program;
                     let (f, owner) = (a.function, a.owner);
@@ -1651,7 +1651,7 @@ pub fn membros_em_conflito(
                     let Some((u, span)) = p.nome_nao_sintetico_da_funcao(f) else { continue };
                     let file = (u != decl.unit).then(|| p.caminho_da_unidade(u).into());
                     let text = format!("{template} {owner_kind} '{}'.", interner.resolve(p.class(owner).name));
-                    d.contexto.push(dartforge_diagnostics::Contexto { arquivo: file, span, mensagem: text.into() });
+                    d.context.push(dartforge_diagnostics::ContextMessage { file: file, span, message: text.into() });
                 }
                 output.push((decl.unit, d));
             }
@@ -1734,12 +1734,12 @@ pub fn estaticos_de_enum(
         }
         for (the_name, span) in accessors {
             if the_name != "values" && in_interface(&mut cx, &the_name) {
-                output.push((decl.unit, Diagnostic::com_codigo(c::CONFLICTING_STATIC_AND_INSTANCE, span, [enum_text.as_str(), the_name.as_str(), enum_text.as_str()])));
+                output.push((decl.unit, Diagnostic::with_code(c::CONFLICTING_STATIC_AND_INSTANCE, span, [enum_text.as_str(), the_name.as_str(), enum_text.as_str()])));
             }
         }
         for (the_name, span) in methods {
             if in_interface(&mut cx, &the_name) {
-                output.push((decl.unit, Diagnostic::com_codigo(c::CONFLICTING_STATIC_AND_INSTANCE, span, [enum_text.as_str(), the_name.as_str(), enum_text.as_str()])));
+                output.push((decl.unit, Diagnostic::with_code(c::CONFLICTING_STATIC_AND_INSTANCE, span, [enum_text.as_str(), the_name.as_str(), enum_text.as_str()])));
             }
         }
         // `_checkEnum` (3.6.2 `duplicate_definition_verifier.dart:600-640`): the
@@ -1802,7 +1802,7 @@ pub fn estaticos_de_enum(
                 && cx.kind(a.function) == Some(Kind::Metodo)
             {
                 let d_ = owner_of(&a);
-                output.push((decl.unit, Diagnostic::com_codigo(c::CONFLICTING_FIELD_AND_METHOD, span, [enum_text.as_str(), the_name.as_str(), d_.as_str()])));
+                output.push((decl.unit, Diagnostic::with_code(c::CONFLICTING_FIELD_AND_METHOD, span, [enum_text.as_str(), the_name.as_str(), d_.as_str()])));
             }
         }
         for (the_name, span) in methods {
@@ -1810,7 +1810,7 @@ pub fn estaticos_de_enum(
                 && cx.kind(a.function).is_some_and(|e| e != Kind::Metodo)
             {
                 let d_ = owner_of(&a);
-                output.push((decl.unit, Diagnostic::com_codigo(c::CONFLICTING_METHOD_AND_FIELD, span, [enum_text.as_str(), the_name.as_str(), d_.as_str()])));
+                output.push((decl.unit, Diagnostic::with_code(c::CONFLICTING_METHOD_AND_FIELD, span, [enum_text.as_str(), the_name.as_str(), d_.as_str()])));
             }
         }
     }
@@ -1865,10 +1865,10 @@ pub fn membros_de_enum(
                     for v in vl.variables.iter() {
                         let n = interner.resolve(v.name.sym);
                         if !e_enum && n == "values" {
-                            output.push((decl.unit, Diagnostic::com_codigo(c::ILLEGAL_ENUM_VALUES_DECLARATION, v.name.span, [] as [&str; 0])));
+                            output.push((decl.unit, Diagnostic::with_code(c::ILLEGAL_ENUM_VALUES_DECLARATION, v.name.span, [] as [&str; 0])));
                         }
                         if forbidden(n) {
-                            output.push((decl.unit, Diagnostic::com_codigo(c::ILLEGAL_CONCRETE_ENUM_MEMBER_DECLARATION, v.name.span, [n])));
+                            output.push((decl.unit, Diagnostic::with_code(c::ILLEGAL_CONCRETE_ENUM_MEMBER_DECLARATION, v.name.span, [n])));
                         }
                     }
                 }
@@ -1879,10 +1879,10 @@ pub fn membros_de_enum(
                     let the_abstract_ = !af.external && matches!(af.body, ast::FunctionBody::Empty);
                     let setter = af.kind == ast::FunctionKind::Setter;
                     if !(af.static_ || the_abstract_ || setter) && forbidden(n) {
-                        output.push((decl.unit, Diagnostic::com_codigo(c::ILLEGAL_CONCRETE_ENUM_MEMBER_DECLARATION, the_name.span, [n])));
+                        output.push((decl.unit, Diagnostic::with_code(c::ILLEGAL_CONCRETE_ENUM_MEMBER_DECLARATION, the_name.span, [n])));
                     }
                     if !af.static_ && !e_enum && n == "values" {
-                        output.push((decl.unit, Diagnostic::com_codigo(c::ILLEGAL_ENUM_VALUES_DECLARATION, the_name.span, [] as [&str; 0])));
+                        output.push((decl.unit, Diagnostic::with_code(c::ILLEGAL_ENUM_VALUES_DECLARATION, the_name.span, [] as [&str; 0])));
                     }
                 }
                 _ => {}
@@ -1921,7 +1921,7 @@ pub fn membros_de_enum(
                 if count {
                     output.push((
                         decl.unit,
-                        Diagnostic::com_codigo(c::ILLEGAL_CONCRETE_ENUM_MEMBER_INHERITANCE, class_name.span, [n, interner.resolve(owner.name)]),
+                        Diagnostic::with_code(c::ILLEGAL_CONCRETE_ENUM_MEMBER_INHERITANCE, class_name.span, [n, interner.resolve(owner.name)]),
                     ));
                 }
             }
@@ -1933,7 +1933,7 @@ pub fn membros_de_enum(
         if let Some((a, _)) = inherited {
             output.push((
                 decl.unit,
-                Diagnostic::com_codigo(c::ILLEGAL_ENUM_VALUES_INHERITANCE, class_name.span, [interner.resolve(program.class(a.owner).name)]),
+                Diagnostic::with_code(c::ILLEGAL_ENUM_VALUES_INHERITANCE, class_name.span, [interner.resolve(program.class(a.owner).name)]),
             ));
         }
     }

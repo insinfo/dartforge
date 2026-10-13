@@ -136,7 +136,7 @@ pub(crate) fn remove_imports(text: &str, unit: &CompilationUnit, diagnostics: &[
         .iter()
         .filter(|d| {
             d.code.is_some_and(|c| {
-                matches!(c.info().unico.rsplit('.').next(), Some("DUPLICATE_IMPORT" | "UNNECESSARY_IMPORT" | "UNUSED_IMPORT"))
+                matches!(c.info().unique.rsplit('.').next(), Some("DUPLICATE_IMPORT" | "UNNECESSARY_IMPORT" | "UNUSED_IMPORT"))
             })
         })
         .map(|d| d.span.start)

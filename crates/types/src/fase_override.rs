@@ -23,7 +23,7 @@
 use crate::heranca::{Kind, Heranca, Membro, Nome, ProvedorDoOutline};
 use crate::resolve::OutlineTypes;
 use crate::table::{CoreTypes, TypeTable};
-use dartforge_diagnostics::codigos::warning as w;
+use dartforge_diagnostics::codes::warning as w;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_elements::model::{ClassId, FunctionKind as Fk, FunctionRef, LibraryId, Program, UnitId, UnitRole, VariableRef};
 use dartforge_frontend::ast::{self, DeclKind, FunctionKind, MemberKind};
@@ -131,7 +131,7 @@ pub fn sem_sobrescrita(
                         && !par.final_
                         && current.is_some_and(|c| the_overrides(&mut h, &mut p, c, lib, setter_key(interner, name.sym)));
                     if !through_getter && !through_setter {
-                        output.push((u, Diagnostic::com_codigo(w::OVERRIDE_ON_NON_OVERRIDING_FIELD, name.span, empty)));
+                        output.push((u, Diagnostic::with_code(w::OVERRIDE_ON_NON_OVERRIDING_FIELD, name.span, empty)));
                     }
                 }
             }
@@ -146,7 +146,7 @@ pub fn sem_sobrescrita(
                             && has_setter(l, var)
                             && current.is_some_and(|c| the_overrides(&mut h, &mut p, c, lib, setter_key(interner, var.name.sym)));
                         if !through_getter && !through_setter {
-                            output.push((u, Diagnostic::com_codigo(w::OVERRIDE_ON_NON_OVERRIDING_FIELD, var.name.span, empty)));
+                            output.push((u, Diagnostic::with_code(w::OVERRIDE_ON_NON_OVERRIDING_FIELD, var.name.span, empty)));
                         }
                     }
                 }
@@ -159,7 +159,7 @@ pub fn sem_sobrescrita(
                         FunctionKind::Function | FunctionKind::Operator => (Some(name.sym), w::OVERRIDE_ON_NON_OVERRIDING_METHOD),
                     };
                     if !current.is_some_and(|c| the_overrides(&mut h, &mut p, c, lib, key)) {
-                        output.push((u, Diagnostic::com_codigo(code, name.span, empty)));
+                        output.push((u, Diagnostic::with_code(code, name.span, empty)));
                     }
                 }
                 MemberKind::Constructor(_) => {}
@@ -208,7 +208,7 @@ pub fn sem_redeclaracao(
                 h.interface(&mut p, c).redeclared.contains_key(&n)
             });
             if !redeclares {
-                output.push((u, Diagnostic::com_codigo(w::REDECLARE_ON_NON_REDECLARING_MEMBER, name.span, [kind])));
+                output.push((u, Diagnostic::with_code(w::REDECLARE_ON_NON_REDECLARING_MEMBER, name.span, [kind])));
             }
         }
     }
@@ -345,7 +345,7 @@ pub fn sobrescritas_de_nao_virtuais(
                         {
                             let text = interner.resolve(var.name.sym);
                             let owner = interner.resolve(program.class(m.class).name);
-                            output.push((u, Diagnostic::com_codigo(w::INVALID_OVERRIDE_OF_NON_VIRTUAL_MEMBER, var.name.span, [text, owner])));
+                            output.push((u, Diagnostic::with_code(w::INVALID_OVERRIDE_OF_NON_VIRTUAL_MEMBER, var.name.span, [text, owner])));
                         }
                     }
                 }
@@ -362,7 +362,7 @@ pub fn sobrescritas_de_nao_virtuais(
                     {
                         let text = interner.resolve(name.sym);
                         let owner = interner.resolve(program.class(m.class).name);
-                        output.push((u, Diagnostic::com_codigo(w::INVALID_OVERRIDE_OF_NON_VIRTUAL_MEMBER, name.span, [text, owner])));
+                        output.push((u, Diagnostic::with_code(w::INVALID_OVERRIDE_OF_NON_VIRTUAL_MEMBER, name.span, [text, owner])));
                     }
                 }
                 MemberKind::Constructor(_) => {}

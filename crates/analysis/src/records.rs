@@ -14,7 +14,7 @@
 //! Written without compiling or running (2026-10-05).
 
 use crate::Unidade;
-use dartforge_diagnostics::codigos::compile_time_error as c;
+use dartforge_diagnostics::codes::compile_time_error as c;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_frontend::ast::{ExprKind, TypeKind};
 use dartforge_frontend::features::Feature;
@@ -84,7 +84,7 @@ fn report(fields: &[Field], n_positional: usize, wildcard: bool, out: &mut Vec<D
             // `duplicateFieldDefinitionIn{Literal,Type}`: the analyzer's text is
             // `'The first '`, on the first one's name, with the name's length.
             let context = Span { start: first.start, end: first.start + f.name.len() };
-            out.push(Diagnostic::com_codigo(c::DUPLICATE_FIELD_NAME, f.span, [f.name.as_str()]).com_contexto(context, "The first "));
+            out.push(Diagnostic::with_code(c::DUPLICATE_FIELD_NAME, f.span, [f.name.as_str()]).with_context(context, "The first "));
         } else {
             seen.push((&f.name, f.span));
         }
@@ -93,15 +93,15 @@ fn report(fields: &[Field], n_positional: usize, wildcard: bool, out: &mut Vec<D
     for f in fields {
         if f.name.starts_with('_') {
             if !(wildcard && f.positional.is_some() && f.name == "_") {
-                out.push(Diagnostic::com_codigo(c::INVALID_FIELD_NAME_PRIVATE, f.span, [] as [&str; 0]));
+                out.push(Diagnostic::with_code(c::INVALID_FIELD_NAME_PRIVATE, f.span, [] as [&str; 0]));
             }
         } else if let Some(i) = positional_index(&f.name)
             && i < n_positional
             && f.positional != Some(i)
         {
-            out.push(Diagnostic::com_codigo(c::INVALID_FIELD_NAME_POSITIONAL, f.span, [] as [&str; 0]));
+            out.push(Diagnostic::with_code(c::INVALID_FIELD_NAME_POSITIONAL, f.span, [] as [&str; 0]));
         } else if from_object(&f.name) {
-            out.push(Diagnostic::com_codigo(c::INVALID_FIELD_NAME_FROM_OBJECT, f.span, [] as [&str; 0]));
+            out.push(Diagnostic::with_code(c::INVALID_FIELD_NAME_FROM_OBJECT, f.span, [] as [&str; 0]));
         }
     }
 }

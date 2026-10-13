@@ -170,8 +170,8 @@ pub enum TypeContext {
 /// `an611:src/dart/resolver/named_type_resolver.dart:515-643`): `found` means
 /// the lookup found an element (that is not a type). Inheritance clauses and
 /// instance creation do not go through here (other codes).
-pub fn type_name_code(context: TypeContext, found: bool, the_name: &str) -> dartforge_diagnostics::Codigo {
-    use dartforge_diagnostics::codigos::compile_time_error as c;
+pub fn type_name_code(context: TypeContext, found: bool, the_name: &str) -> dartforge_diagnostics::Code {
+    use dartforge_diagnostics::codes::compile_time_error as c;
     if the_name == "boolean" {
         return c::UNDEFINED_CLASS_BOOLEAN;
     }
@@ -191,10 +191,10 @@ pub fn type_name_code(context: TypeContext, found: bool, the_name: &str) -> dart
 /// the prefix, if any, to the end of the name, as in `_getErrorRange`).
 pub fn type_name_diagnostic(context: TypeContext, found: bool, the_name: &str, range: dartforge_diagnostics::Span) -> Diagnostic {
     let code = type_name_code(context, found, the_name);
-    if code == dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_IDENTIFIER_AWAIT {
-        return Diagnostic::com_codigo(code, range, std::iter::empty::<&str>());
+    if code == dartforge_diagnostics::codes::compile_time_error::UNDEFINED_IDENTIFIER_AWAIT {
+        return Diagnostic::with_code(code, range, std::iter::empty::<&str>());
     }
-    Diagnostic::com_codigo(code, range, [the_name])
+    Diagnostic::with_code(code, range, [the_name])
 }
 
 /// `WRONG_NUMBER_OF_TYPE_ARGUMENTS` (`_buildTypeArguments`,
@@ -202,8 +202,8 @@ pub fn type_name_diagnostic(context: TypeContext, found: bool, the_name: &str, r
 /// type, with the name, the number of parameters and the number of
 /// arguments.
 pub fn type_arguments_diagnostic(the_name: &str, params_list: usize, args_list: usize, span: dartforge_diagnostics::Span) -> Diagnostic {
-    Diagnostic::com_codigo(
-        dartforge_diagnostics::codigos::compile_time_error::WRONG_NUMBER_OF_TYPE_ARGUMENTS,
+    Diagnostic::with_code(
+        dartforge_diagnostics::codes::compile_time_error::WRONG_NUMBER_OF_TYPE_ARGUMENTS,
         span,
         [the_name.to_string(), params_list.to_string(), args_list.to_string()],
     )
@@ -218,8 +218,8 @@ pub(crate) fn class_param(table: &TypeTable, p: TypeParamId) -> bool {
 /// `an611:src/generated/error_verifier.dart:5419-5434`): a type parameter of the
 /// class cited in a static method or field, at the name.
 pub fn parameter_in_static_diagnostic(range: dartforge_diagnostics::Span) -> Diagnostic {
-    Diagnostic::com_codigo(
-        dartforge_diagnostics::codigos::compile_time_error::TYPE_PARAMETER_REFERENCED_BY_STATIC,
+    Diagnostic::with_code(
+        dartforge_diagnostics::codes::compile_time_error::TYPE_PARAMETER_REFERENCED_BY_STATIC,
         range,
         std::iter::empty::<&str>(),
     )
@@ -311,7 +311,7 @@ pub(crate) fn top_level_shadowed_prefix(program: &Program, unit: UnitId, p: Symb
 
 /// `PREFIX_SHADOWED_BY_LOCAL_DECLARATION` at the prefix, with its name.
 pub fn shadowed_prefix_diagnostic(the_name: &str, range: dartforge_diagnostics::Span) -> Diagnostic {
-    Diagnostic::com_codigo(dartforge_diagnostics::codigos::compile_time_error::PREFIX_SHADOWED_BY_LOCAL_DECLARATION, range, [the_name])
+    Diagnostic::with_code(dartforge_diagnostics::codes::compile_time_error::PREFIX_SHADOWED_BY_LOCAL_DECLARATION, range, [the_name])
 }
 
 /// A declaration whose members form a scope (the analyzer's `InstanceScope`).
@@ -1906,7 +1906,7 @@ impl<'a> OutlineResolver<'a> {
                                 let the_list = crate::scope::ambiguous_libraries(self.program, unit_id, None, sym);
                                 self.warn(
                                     unit_id,
-                                    Diagnostic::com_codigo(dartforge_diagnostics::codigos::compile_time_error::AMBIGUOUS_IMPORT, name[0].span, [text.as_str(), the_list.as_str()]),
+                                    Diagnostic::with_code(dartforge_diagnostics::codes::compile_time_error::AMBIGUOUS_IMPORT, name[0].span, [text.as_str(), the_list.as_str()]),
                                 );
                                 return self.table.invalid(self.core.dynamic_);
                             }
@@ -2141,7 +2141,7 @@ impl<'a> OutlineResolver<'a> {
                                 let complete = format!("{}.{}", self.interner.resolve(prefix), text);
                                 self.warn(
                                     unit_id,
-                                    Diagnostic::com_codigo(dartforge_diagnostics::codigos::compile_time_error::NOT_A_TYPE, range, [complete.as_str()]),
+                                    Diagnostic::with_code(dartforge_diagnostics::codes::compile_time_error::NOT_A_TYPE, range, [complete.as_str()]),
                                 );
                             } else if !crate::scope::should_ignore_undefined(self.program, self.interner, unit_id, Some(name[0].sym), name[1].sym) {
                                 self.warn_type_name(unit_id, context, false, &text, range);

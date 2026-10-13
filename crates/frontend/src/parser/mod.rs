@@ -38,10 +38,10 @@ pub mod statements;
 pub mod types;
 
 use crate::ast::{Ast, CompilationUnit, ExprId, ForInTarget, ForInit, Name};
-use crate::features::{Feature, LanguageVersion, LibraryFeatures, Referencia};
+use crate::features::{Feature, LanguageVersion, LibraryFeatures, AnalyzerReference};
 use crate::lexer;
 use crate::token::{Keyword, Kind, Op, Token};
-use dartforge_diagnostics::{Codigo, Diagnostic, Span, codigos};
+use dartforge_diagnostics::{Code, Diagnostic, Span, codes};
 use dartforge_intern::Interner;
 
 /// Failure marker: the diagnostic was already recorded in
@@ -113,7 +113,7 @@ pub struct Parsed {
     /// disabled feature that 3.6.2 does not know
     /// ([`Feature::DESCONHECIDOS_NO_3_6`]); otherwise 3.6.2
     /// (docs/ANALYZER-ESPECIFICACAO.md, T2).
-    pub referencia: Referencia,
+    pub referencia: AnalyzerReference,
 }
 
 /// Parses a whole compilation unit at the current language version
@@ -158,13 +158,13 @@ fn recoverable_scanner_errors(source: &str, tokens: &[Token]) -> Vec<Diagnostic>
         let lexeme = &source[t.span.start..t.span.end];
         match t.kind {
             Kind::Op(Op::EqEq | Op::BangEq) if lexeme.len() == 3 => {
-                output.push(Diagnostic::com_codigo(dartforge_diagnostics::codigos::scanner::UNSUPPORTED_OPERATOR, one(t.span.start), [lexeme]));
+                output.push(Diagnostic::with_code(dartforge_diagnostics::codes::scanner::UNSUPPORTED_OPERATOR, one(t.span.start), [lexeme]));
             }
             Kind::Double => {
                 if let Some(i) = lexeme.find(['e', 'E']) {
                     let exponent = &lexeme[i + 1..];
                     if !exponent.bytes().any(|b| b.is_ascii_digit()) {
-                        output.push(Diagnostic::com_codigo(dartforge_diagnostics::codigos::scanner::MISSING_DIGIT, one(t.span.end - 1), Vec::<&str>::new()));
+                        output.push(Diagnostic::with_code(dartforge_diagnostics::codes::scanner::MISSING_DIGIT, one(t.span.end - 1), Vec::<&str>::new()));
                     }
                 }
             }
@@ -175,7 +175,7 @@ fn recoverable_scanner_errors(source: &str, tokens: &[Token]) -> Vec<Diagnostic>
                 while last > 0 && !source.is_char_boundary(last) {
                     last -= 1;
                 }
-                output.push(Diagnostic::com_codigo(dartforge_diagnostics::codigos::scanner::UNTERMINATED_STRING_LITERAL, one(last), Vec::<&str>::new()));
+                output.push(Diagnostic::with_code(dartforge_diagnostics::codes::scanner::UNTERMINATED_STRING_LITERAL, one(last), Vec::<&str>::new()));
             }
             // `NonAsciiIdentifierToken`: each character outside the ASCII identifier,
             // with its code point.
@@ -184,8 +184,8 @@ fn recoverable_scanner_errors(source: &str, tokens: &[Token]) -> Vec<Diagnostic>
                     if !crate::lexer::identifier_char(ch) {
                         let start_offset = t.span.start + i;
                         let n = (ch as u32).to_string();
-                        output.push(Diagnostic::com_codigo(
-                            dartforge_diagnostics::codigos::scanner::ILLEGAL_CHARACTER,
+                        output.push(Diagnostic::with_code(
+                            dartforge_diagnostics::codes::scanner::ILLEGAL_CHARACTER,
                             Span { start: start_offset, end: start_offset + ch.len_utf8() },
                             [n.as_str()],
                         ));
@@ -194,7 +194,7 @@ fn recoverable_scanner_errors(source: &str, tokens: &[Token]) -> Vec<Diagnostic>
             }
             Kind::Int => {
                 if (lexeme.starts_with("0x") || lexeme.starts_with("0X")) && !lexeme[2..].bytes().any(|b| b.is_ascii_hexdigit()) {
-                    output.push(Diagnostic::com_codigo(dartforge_diagnostics::codigos::scanner::MISSING_HEX_DIGIT, one(t.span.end - 1), Vec::<&str>::new()));
+                    output.push(Diagnostic::with_code(dartforge_diagnostics::codes::scanner::MISSING_HEX_DIGIT, one(t.span.end - 1), Vec::<&str>::new()));
                 }
             }
             _ => {}
@@ -242,8 +242,8 @@ fn lacuna(source: &str, de: usize, until: usize, output: &mut Vec<Diagnostic>) {
             }
             if prof != 0 {
                 let end_offset = bytes.len().saturating_sub(1);
-                output.push(Diagnostic::com_codigo(
-                    dartforge_diagnostics::codigos::scanner::UNTERMINATED_MULTI_LINE_COMMENT,
+                output.push(Diagnostic::with_code(
+                    dartforge_diagnostics::codes::scanner::UNTERMINATED_MULTI_LINE_COMMENT,
                     Span { start: end_offset, end: end_offset + 1 },
                     Vec::<&str>::new(),
                 ));
@@ -253,8 +253,8 @@ fn lacuna(source: &str, de: usize, until: usize, output: &mut Vec<Diagnostic>) {
         let Some(ch) = source[i..].chars().next() else { break };
         if !ch.is_ascii_whitespace() && crate::lexer::skipped_char(ch) {
             let n = (ch as u32).to_string();
-            output.push(Diagnostic::com_codigo(
-                dartforge_diagnostics::codigos::scanner::ILLEGAL_CHARACTER,
+            output.push(Diagnostic::with_code(
+                dartforge_diagnostics::codes::scanner::ILLEGAL_CHARACTER,
                 Span { start: i, end: i + ch.len_utf8() },
                 [n.as_str()],
             ));
@@ -290,7 +290,7 @@ pub fn parse_lexed_with(
                 diagnostics: vec![diagnostic],
                 // Lexical error: nothing was read, the whole source was left out.
                 pulados: vec![Span { start: 0, end: source.len() }],
-                referencia: if features.versao() > LanguageVersion::PISO { Referencia::V3_13 } else { Referencia::V3_6 },
+                referencia: if features.versao() > LanguageVersion::PISO { AnalyzerReference::V3_13 } else { AnalyzerReference::V3_6 },
             };
         }
     };
@@ -327,11 +327,11 @@ pub fn parse_lexed_with(
     // slack for the unit's whole life.
     ast.shrink_to_fit();
     let referencia =
-        if features.versao() > LanguageVersion::PISO || new_syntax { Referencia::V3_13 } else { Referencia::V3_6 };
+        if features.versao() > LanguageVersion::PISO || new_syntax { AnalyzerReference::V3_13 } else { AnalyzerReference::V3_6 };
     // The diagnostics only the other reference reports come out now, when this
     // unit's reference is known.
     let mut diagnostics = diags;
-    let fora = if referencia == Referencia::V3_13 { &only_3_6 } else { &only_3_13 };
+    let fora = if referencia == AnalyzerReference::V3_13 { &only_3_6 } else { &only_3_13 };
     if !fora.is_empty() {
         diagnostics.retain(|d| !d.code.is_some_and(|c| fora.contains(&(c, d.span))));
     }
@@ -444,9 +444,9 @@ pub struct Parser<'s, 'i> {
     /// leave the list if the unit's reference ends up being 3.13.4. Stored by
     /// code and place, not by index: speculative attempts truncate the
     /// diagnostic list.
-    pub(crate) only_3_6: Vec<(Codigo, Span)>,
+    pub(crate) only_3_6: Vec<(Code, Span)>,
     /// The inverse: those only 3.13.4 reports.
-    pub(crate) only_3_13: Vec<(Codigo, Span)>,
+    pub(crate) only_3_13: Vec<(Code, Span)>,
     /// fasta's `!mayParseFunctionExpressions`: reading a constructor
     /// initializer or the pattern and guard of a `switch` expression case,
     /// where `name(…) {` and `name(…) =>` are not a named function literal (the
@@ -774,14 +774,14 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// Records the diagnostic `code` (from the analyzer's
     /// `ParserErrorCode`/`ScannerErrorCode`, official English message) at
     /// `span` and returns the marker.
-    pub(crate) fn error_at(&mut self, code: Codigo, span: Span, args: &[&str]) -> ParseError {
-        self.diagnostics.push(Diagnostic::com_codigo(code, span, args.iter().copied()));
+    pub(crate) fn error_at(&mut self, code: Code, span: Span, args: &[&str]) -> ParseError {
+        self.diagnostics.push(Diagnostic::with_code(code, span, args.iter().copied()));
         ParseError
     }
 
     /// `code` at the current token — where fasta reports what is missing or
     /// extra.
-    pub(crate) fn erro(&mut self, code: Codigo, args: &[&str]) -> ParseError {
+    pub(crate) fn erro(&mut self, code: Code, args: &[&str]) -> ParseError {
         // `findNonZeroLengthToken`: an error at a synthetic closer goes to the
         // first real token after it.
         let i = (self.pos..self.tokens.len())
@@ -800,11 +800,11 @@ impl<'s, 'i> Parser<'s, 'i> {
             // `findPreviousNonZeroLengthToken`: synthetic tokens do not count.
             let previous = (0..self.pos).rev().find(|&i| self.tokens[i].span.start < self.tokens[i].span.end).unwrap_or(self.pos - 1);
             let span = self.tokens[previous].span;
-            return self.error_at(codigos::parser::EXPECTED_TOKEN, span, &[";"]);
+            return self.error_at(codes::parser::EXPECTED_TOKEN, span, &[";"]);
         }
         if matches!(texto, ")" | "]" | "}") && self.kind() == Kind::Eof {
             let s = self.span().start;
-            return self.error_at(codigos::scanner::EXPECTED_TOKEN, Span { start: s, end: s + 1 }, &[texto]);
+            return self.error_at(codes::scanner::EXPECTED_TOKEN, Span { start: s, end: s + 1 }, &[texto]);
         }
         // A `>` that fasta's scanner reads together with the next one (`>=`, `>>`,
         // `>>=`…) is a single token there: the error covers the whole composition.
@@ -814,16 +814,16 @@ impl<'s, 'i> Parser<'s, 'i> {
         {
             let s = self.span().start;
             let end_offset = self.peek_at(c.len() - 1).span.end;
-            return self.error_at(codigos::parser::EXPECTED_TOKEN, Span { start: s, end: end_offset }, &[texto]);
+            return self.error_at(codes::parser::EXPECTED_TOKEN, Span { start: s, end: end_offset }, &[texto]);
         }
-        self.erro(codigos::parser::EXPECTED_TOKEN, &[texto])
+        self.erro(codes::parser::EXPECTED_TOKEN, &[texto])
     }
 
     /// Like [`Parser::error_at`], without repeating an identical diagnostic
     /// (code and range) already recorded: the analyzer does not report the same
     /// error at the same place twice (fasta sometimes asks for it twice, like
     /// the `INVALID_CONSTANT_CONST_PREFIX` of `const 1 + 2`).
-    pub(crate) fn single_error(&mut self, code: Codigo, span: Span, args: &[&str]) {
+    pub(crate) fn single_error(&mut self, code: Code, span: Span, args: &[&str]) {
         if !self.diagnostics.iter().any(|d| d.code == Some(code) && d.span == span) {
             self.error_at(code, span, args);
         }
@@ -907,9 +907,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         if let Kind::Keyword(_) = self.kind() {
             let texto = self.text().to_string();
             let span = self.span();
-            self.error_at(codigos::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, span, &[&texto]);
+            self.error_at(codes::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, span, &[&texto]);
         }
-        self.erro(codigos::parser::MISSING_STATEMENT, &[])
+        self.erro(codes::parser::MISSING_STATEMENT, &[])
     }
 
     /// An identifier was missing: `MISSING_IDENTIFIER` at the current token, or
@@ -917,16 +917,16 @@ impl<'s, 'i> Parser<'s, 'i> {
     pub(crate) fn identifier_error(&mut self) -> ParseError {
         if let Kind::Keyword(_) = self.kind() {
             let texto = self.text().to_string();
-            return self.erro(codigos::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, &[&texto]);
+            return self.erro(codes::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, &[&texto]);
         }
-        self.erro(codigos::parser::MISSING_IDENTIFIER, &[])
+        self.erro(codes::parser::MISSING_IDENTIFIER, &[])
     }
     /// Records that `span` uses feature `f`: a diagnostic if the library's
     /// version does not enable it. Parsing goes on (the superset is accepted).
     ///
     /// The arguments are `[feature, version 3.6.2 writes, version 3.13.4
     /// writes]`: the template uses the second, and the code's 3.13 variant
-    /// swaps it for the third (`Diagnostic::na_referencia`).
+    /// swaps it for the third (`Diagnostic::for_reference`).
     pub(crate) fn require(&mut self, f: Feature, span: Span) {
         if !self.features.tem(f) {
             if Feature::DESCONHECIDOS_NO_3_6.contains(&f) {
@@ -939,10 +939,10 @@ impl<'s, 'i> Parser<'s, 'i> {
                 Some(v) => {
                     let new_ = format!("{v}.0");
                     let old = f.version_reported_in_3_6().map_or_else(|| new_.clone(), |a| format!("{a}.0"));
-                    self.error_at(codigos::parser::EXPERIMENT_NOT_ENABLED, span, &[f.nome(), &old, &new_]);
+                    self.error_at(codes::parser::EXPERIMENT_NOT_ENABLED, span, &[f.nome(), &old, &new_]);
                 }
                 None => {
-                    self.error_at(codigos::parser::EXPERIMENT_NOT_ENABLED_OFF_BY_DEFAULT, span, &[f.nome()]);
+                    self.error_at(codes::parser::EXPERIMENT_NOT_ENABLED_OFF_BY_DEFAULT, span, &[f.nome()]);
                 }
             }
         }
@@ -964,7 +964,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 }
                 let new_ = v.to_string();
                 let old = f.version_reported_in_3_6().map_or_else(|| new_.clone(), |a| a.to_string());
-                self.error_at(codigos::parser::EXPERIMENT_NOT_ENABLED, span, &[f.nome(), &old, &new_]);
+                self.error_at(codes::parser::EXPERIMENT_NOT_ENABLED, span, &[f.nome(), &old, &new_]);
             }
             None => self.require(f, span),
         }
@@ -973,7 +973,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// Enters a nesting level; fails beyond [`MAX_DEPTH`].
     pub(crate) fn enter(&mut self) -> PResult<()> {
         if self.depth >= MAX_DEPTH {
-            return Err(self.erro(codigos::parser::STACK_OVERFLOW, &[]));
+            return Err(self.erro(codes::parser::STACK_OVERFLOW, &[]));
         }
         self.depth += 1;
         Ok(())

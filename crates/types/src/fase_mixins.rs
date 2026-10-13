@@ -28,7 +28,7 @@ use crate::ops;
 use crate::resolve::OutlineTypes;
 use crate::subtyping::{is_subtype, SubtypeEnv};
 use crate::table::{CoreTypes, Type, TypeId, TypeParamId, TypeTable};
-use dartforge_diagnostics::codigos::compile_time_error as c;
+use dartforge_diagnostics::codes::compile_time_error as c;
 use dartforge_diagnostics::Diagnostic;
 use dartforge_elements::model::{ClassId, ClassKind, LibraryId, Program};
 use dartforge_frontend::ast::{self, AssignOp, BinaryOp, DeclKind, ExprKind, MemberKind, UnaryOp};
@@ -293,7 +293,7 @@ pub fn decisoes(
                     };
                     let Some(sp) = the_name else { break };
                     let (a0, a1, a2) = (table.format(mt, interner, program), table.format(the_supertype, interner, program), table.format(constraint, interner, program));
-                    decision = Some(Diagnostic::com_codigo(c::MIXIN_APPLICATION_NOT_IMPLEMENTED_INTERFACE, sp, [a0.as_str(), a1.as_str(), a2.as_str()]));
+                    decision = Some(Diagnostic::with_code(c::MIXIN_APPLICATION_NOT_IMPLEMENTED_INTERFACE, sp, [a0.as_str(), a1.as_str(), a2.as_str()]));
                     break;
                 }
             }
@@ -318,13 +318,13 @@ pub fn decisoes(
                             None => (c::MIXIN_APPLICATION_NO_CONCRETE_SUPER_INVOKED_MEMBER, the_name.clone()),
                         };
                         let Some(key) = model_key(interner, &the_name) else {
-                            decision = Some(Diagnostic::com_codigo(missing_code, sp, [missing_text.as_str()]));
+                            decision = Some(Diagnostic::with_code(missing_code, sp, [missing_text.as_str()]));
                             break;
                         };
                         let n = Nome::novo(interner, me.library, key);
                         let super_member_of = usize::try_from(type_index).ok().and_then(|k| interface.super_implemented.get(k)).and_then(|mp| mp.get(&n)).cloned();
                         let Some(super_member_of) = super_member_of else {
-                            decision = Some(Diagnostic::com_codigo(missing_code, sp, [missing_text.as_str()]));
+                            decision = Some(Diagnostic::with_code(missing_code, sp, [missing_text.as_str()]));
                             break;
                         };
                         // `getMember(mixinType, name, forSuper: true)`: the mixin's own `super`
@@ -338,7 +338,7 @@ pub fn decisoes(
                         };
                         if !correct {
                             let (t1, t2) = (table.format(mixin_type, interner, program), table.format(super_member_of.ty, interner, program));
-                            decision = Some(Diagnostic::com_codigo(c::MIXIN_APPLICATION_CONCRETE_SUPER_INVOKED_MEMBER_TYPE, sp, [the_name.as_str(), t1.as_str(), t2.as_str()]));
+                            decision = Some(Diagnostic::with_code(c::MIXIN_APPLICATION_CONCRETE_SUPER_INVOKED_MEMBER_TYPE, sp, [the_name.as_str(), t1.as_str(), t2.as_str()]));
                             break;
                         }
                     }

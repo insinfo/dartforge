@@ -6,7 +6,7 @@
 //! user sees is right, even if something is missing. The rest exists
 //! internally and only goes to the scoreboard.
 
-use dartforge_diagnostics::{Diagnostic, TipoErro};
+use dartforge_diagnostics::{Diagnostic, ErrorType};
 
 /// The versioned list of verified semantic codes.
 pub const VERIFICADOS: &str = include_str!("../verificados.txt");
@@ -26,8 +26,8 @@ pub fn publicado(d: &Diagnostic, syntax: bool) -> bool {
         return true;
     }
     match d.code {
-        Some(c) if c.info().tipo == TipoErro::SyntacticError => true,
-        Some(c) => verificados().contains(&c.info().nome),
+        Some(c) if c.info().error_type == ErrorType::SyntacticError => true,
+        Some(c) => verificados().contains(&c.info().name),
         None => false,
     }
 }

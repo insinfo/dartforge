@@ -23,7 +23,7 @@ use crate::heranca::{Conflict, Heranca, ProvedorDoOutline};
 use crate::resolve::OutlineTypes;
 use crate::subtyping::{is_subtype, SubtypeEnv};
 use crate::table::{CoreTypes, Type, TypeId, TypeTable};
-use dartforge_diagnostics::codigos::compile_time_error as c;
+use dartforge_diagnostics::codes::compile_time_error as c;
 use dartforge_diagnostics::Diagnostic;
 use dartforge_elements::model::{ClassId, ClassKind, LibraryId, Program, UnitId};
 use dartforge_frontend::ast::{self, DeclKind};
@@ -266,7 +266,7 @@ pub fn verificar(
                     } else {
                         table.format(ty, interner, program)
                     };
-                    output.push((u, Diagnostic::com_codigo(c::EXTENSION_TYPE_IMPLEMENTS_DISALLOWED_TYPE, sp, [text.as_str()])));
+                    output.push((u, Diagnostic::with_code(c::EXTENSION_TYPE_IMPLEMENTS_DISALLOWED_TYPE, sp, [text.as_str()])));
                     continue;
                 }
                 let fits = {
@@ -295,7 +295,7 @@ pub fn verificar(
                         let rd = table.format(r, interner, program);
                         output.push((
                             u,
-                            Diagnostic::com_codigo(
+                            Diagnostic::with_code(
                                 c::EXTENSION_TYPE_IMPLEMENTS_REPRESENTATION_NOT_SUPERTYPE,
                                 sp,
                                 [ri.as_str(), ni.as_str(), rd.as_str(), the_name.as_str()],
@@ -306,21 +306,21 @@ pub fn verificar(
                 }
                 let ti = table.format(ty, interner, program);
                 let rd = table.format(r, interner, program);
-                output.push((u, Diagnostic::com_codigo(c::EXTENSION_TYPE_IMPLEMENTS_NOT_SUPERTYPE, sp, [ti.as_str(), rd.as_str()])));
+                output.push((u, Diagnostic::with_code(c::EXTENSION_TYPE_IMPLEMENTS_NOT_SUPERTYPE, sp, [ti.as_str(), rd.as_str()])));
             }
         }
 
         // `ErrorVerifier.visitExtensionTypeDeclaration`, in order.
         if rep_in_cycle.contains(&t) {
-            output.push((u, Diagnostic::com_codigo(c::EXTENSION_TYPE_REPRESENTATION_DEPENDS_ON_ITSELF, et.name.span, empty.iter().copied())));
+            output.push((u, Diagnostic::with_code(c::EXTENSION_TYPE_REPRESENTATION_DEPENDS_ON_ITSELF, et.name.span, empty.iter().copied())));
         } else if let Some(r) = rep
             && is_bottom(table, r, 0)
         {
             let sp = a.ty(et.representation_type).span;
-            output.push((u, Diagnostic::com_codigo(c::EXTENSION_TYPE_REPRESENTATION_TYPE_BOTTOM, sp, empty.iter().copied())));
+            output.push((u, Diagnostic::with_code(c::EXTENSION_TYPE_REPRESENTATION_TYPE_BOTTOM, sp, empty.iter().copied())));
         }
         if impl_in_cycle.contains(&t) {
-            output.push((u, Diagnostic::com_codigo(c::EXTENSION_TYPE_IMPLEMENTS_ITSELF, et.name.span, empty.iter().copied())));
+            output.push((u, Diagnostic::with_code(c::EXTENSION_TYPE_IMPLEMENTS_ITSELF, et.name.span, empty.iter().copied())));
         }
         let interface = {
             let mut p = ProvedorDoOutline { program, interner, core, outline, table: &mut *table };
@@ -338,12 +338,12 @@ pub fn verificar(
             // The setter's `Name.name` is `x=`; the model key, `x_=`.
             let text = interner.resolve(n.key);
             let member = text.strip_suffix("_=").map_or_else(|| text.to_string(), |s| format!("{s}="));
-            let mut d = Diagnostic::com_codigo(c::EXTENSION_TYPE_INHERITED_MEMBER_CONFLICT, et.name.span, [the_name.as_str(), member.as_str()]);
+            let mut d = Diagnostic::with_code(c::EXTENSION_TYPE_INHERITED_MEMBER_CONFLICT, et.name.span, [the_name.as_str(), member.as_str()]);
             for m in candidates {
                 let Some((mu, span)) = program.nome_nao_sintetico_da_funcao(m.funcao) else { continue };
                 let file = (mu != u).then(|| program.caminho_da_unidade(mu).into());
                 let message = format!("Inherited from '{}'", interner.resolve(program.class(m.class).name));
-                d.contexto.push(dartforge_diagnostics::Contexto { arquivo: file, span, mensagem: message.into() });
+                d.context.push(dartforge_diagnostics::ContextMessage { file: file, span, message: message.into() });
             }
             output.push((u, d));
         }

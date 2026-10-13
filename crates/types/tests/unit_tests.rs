@@ -518,7 +518,7 @@ fn test_accumulated_diagnostics_unknown_type() {
         "must accumulate a diagnostic for the nonexistent type"
     );
     assert!(
-        diags.iter().any(|d| d.code.is_some_and(|c| c.info().nome == "undefined_class")
+        diags.iter().any(|d| d.code.is_some_and(|c| c.info().name == "undefined_class")
             && d.message.starts_with("Undefined class '")),
         "the error must be the analyzer's undefined_class: {:?}",
         diags

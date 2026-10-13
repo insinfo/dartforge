@@ -227,7 +227,7 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx:
         drop(env);
         let sp = inf.span_expr(cx.unit, e);
         for (name, suffix) in failures {
-            inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::COULD_NOT_INFER, sp, &[&name, &suffix]);
+            inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::COULD_NOT_INFER, sp, &[&name, &suffix]);
         }
         final_type(inf, shape, &finals)
     };
@@ -240,9 +240,9 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx:
     if let Some(both) = ambiguous {
         let sp = inf.span_expr(cx.unit, e);
         let code = if both {
-            dartforge_diagnostics::codigos::compile_time_error::AMBIGUOUS_SET_OR_MAP_LITERAL_BOTH
+            dartforge_diagnostics::codes::compile_time_error::AMBIGUOUS_SET_OR_MAP_LITERAL_BOTH
         } else {
-            dartforge_diagnostics::codigos::compile_time_error::AMBIGUOUS_SET_OR_MAP_LITERAL_EITHER
+            dartforge_diagnostics::codes::compile_time_error::AMBIGUOUS_SET_OR_MAP_LITERAL_EITHER
         };
         inf.warning_with_code(code, sp, &[]);
         return inf.core.dynamic_;
@@ -274,7 +274,7 @@ fn verify_elements(
     const_: bool,
     in_control: bool,
 ) {
-    use dartforge_diagnostics::codigos::compile_time_error as ce;
+    use dartforge_diagnostics::codes::compile_time_error as ce;
     let args: Vec<TypeId> = match inf.table.get(t) {
         Type::Interface { args, .. } => args.to_vec(),
         _ => return,
@@ -738,7 +738,7 @@ fn visit(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, shap
                 super::expr::unnecessary_null_spread(inf, cx, *value, t);
             } else {
                 // `ResolverVisitor.visitSpreadElement` (`resolver.dart:3673-3692`).
-                super::expr::nullable_dereference(inf, cx, *value, t, dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_USE_OF_NULLABLE_VALUE_IN_SPREAD);
+                super::expr::nullable_dereference(inf, cx, *value, t, dartforge_diagnostics::codes::compile_time_error::UNCHECKED_USE_OF_NULLABLE_VALUE_IN_SPREAD);
             }
             // `_computeElementType` / `_inferCollectionElementType`
             // (`typed_literal_resolver.dart:203-226, 380-425`), through the

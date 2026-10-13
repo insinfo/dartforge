@@ -14,7 +14,7 @@
 //! Written without compiling or running (2026-10-04).
 
 use crate::Unidade;
-use dartforge_diagnostics::codigos::warning as w;
+use dartforge_diagnostics::codes::warning as w;
 use dartforge_diagnostics::{Diagnostic, Span};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -190,7 +190,7 @@ fn directive(contents: &str, base: usize, before: usize, index: usize, out: &mut
     // `_parseArguments`: the end of the line without `}`, on the last character.
     if !closed && n > 0 {
         let p = in_analyzer(n) - 1;
-        out.push(Diagnostic::com_codigo(w::DOC_DIRECTIVE_MISSING_CLOSING_BRACE, Span { start: p, end: p + 1 }, Vec::<&str>::new()));
+        out.push(Diagnostic::with_code(w::DOC_DIRECTIVE_MISSING_CLOSING_BRACE, Span { start: p, end: p + 1 }, Vec::<&str>::new()));
     }
     let tag = Span { start: base + start, end: in_analyzer(end) };
     // `validateArgumentCount`.
@@ -207,19 +207,19 @@ fn directive(contents: &str, base: usize, before: usize, index: usize, out: &mut
         if let Some(code) = code {
             let mut args: Vec<&str> = vec![ty.nome];
             args.extend(names);
-            out.push(Diagnostic::com_codigo(code, tag, args));
+            out.push(Diagnostic::with_code(code, tag, args));
         }
     }
     if !ty.rest {
         if positional.len() > required {
             let span = Span { start: positional[required].span.start, end: positional[positional.len() - 1].span.end };
             let (given, expected) = (positional.len().to_string(), required.to_string());
-            out.push(Diagnostic::com_codigo(w::DOC_DIRECTIVE_HAS_EXTRA_ARGUMENTS, span, [ty.nome, given.as_str(), expected.as_str()]));
+            out.push(Diagnostic::with_code(w::DOC_DIRECTIVE_HAS_EXTRA_ARGUMENTS, span, [ty.nome, given.as_str(), expected.as_str()]));
         }
         for a in &named {
             let arg_name = a.nome.unwrap_or("");
             if !ty.named.contains(&arg_name) {
-                out.push(Diagnostic::com_codigo(w::DOC_DIRECTIVE_HAS_UNEXPECTED_NAMED_ARGUMENT, a.span, [ty.nome, arg_name]));
+                out.push(Diagnostic::with_code(w::DOC_DIRECTIVE_HAS_UNEXPECTED_NAMED_ARGUMENT, a.span, [ty.nome, arg_name]));
             }
         }
     }
@@ -232,7 +232,7 @@ fn directive(contents: &str, base: usize, before: usize, index: usize, out: &mut
             Format::Youtube => is_uri(a.value) && a.value.starts_with(YOUTUBE_PREFIX),
         };
         if !ok {
-            out.push(Diagnostic::com_codigo(w::DOC_DIRECTIVE_ARGUMENT_WRONG_FORMAT, a.span, [*param_name, format.display()]));
+            out.push(Diagnostic::with_code(w::DOC_DIRECTIVE_ARGUMENT_WRONG_FORMAT, a.span, [*param_name, format.display()]));
         }
     }
 }
@@ -351,7 +351,7 @@ fn references_with_new(contents: &str, base: usize, out: &mut Vec<Diagnostic>) {
                             && after.trim_start().starts_with(|c: char| c.is_ascii_alphabetic() || c == '_' || c == '$')
                         {
                             let start = base + start + leading;
-                            out.push(Diagnostic::com_codigo(w::DEPRECATED_NEW_IN_COMMENT_REFERENCE, Span { start, end: start + 3 }, Vec::<&str>::new()));
+                            out.push(Diagnostic::with_code(w::DEPRECATED_NEW_IN_COMMENT_REFERENCE, Span { start, end: start + 3 }, Vec::<&str>::new()));
                         }
                     }
                     i = end;
@@ -434,10 +434,10 @@ pub fn check(u: Unidade<'_>) -> Vec<Diagnostic> {
         // `DocCommentVerifier.docImport` (`doc_comment_verifier.dart:35-51`).
         if let Some(i) = doc_import(contents, base, blanks) {
             if let Some(s) = i.deferred {
-                out.push(Diagnostic::com_codigo(w::DOC_IMPORT_CANNOT_BE_DEFERRED, s, Vec::<&str>::new()));
+                out.push(Diagnostic::with_code(w::DOC_IMPORT_CANNOT_BE_DEFERRED, s, Vec::<&str>::new()));
             }
             if let Some(s) = i.configurations {
-                out.push(Diagnostic::com_codigo(w::DOC_IMPORT_CANNOT_HAVE_CONFIGURATIONS, s, Vec::<&str>::new()));
+                out.push(Diagnostic::with_code(w::DOC_IMPORT_CANNOT_HAVE_CONFIGURATIONS, s, Vec::<&str>::new()));
             }
             previous_empty = false;
             continue;
@@ -456,7 +456,7 @@ mod tests {
         let mut names = dartforge_intern::Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut names);
         let u = Unidade { ast: &p.ast, unit: &p.unit, fonte: source };
-        check(u).into_iter().map(|d| (d.code.map_or("", |c| c.info().nome), d.span.start, d.span.end - d.span.start)).collect()
+        check(u).into_iter().map(|d| (d.code.map_or("", |c| c.info().name), d.span.start, d.span.end - d.span.start)).collect()
     }
 
     /// The live-oracle example in A.R4-2 (the arity and named-argument

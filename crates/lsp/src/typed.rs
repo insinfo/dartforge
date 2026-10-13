@@ -574,10 +574,10 @@ fn analyze_package(
             }
             let published_ = published.iter().any(|x| x.span == d.span && x.code == d.code && x.message == d.message);
             let todo = d.code.is_some_and(|c| {
-                c.info().tipo == dartforge_diagnostics::TipoErro::Todo
-                    && (d.severity != dartforge_diagnostics::Severidade::Info
+                c.info().error_type == dartforge_diagnostics::ErrorType::Todo
+                    && (d.severity != dartforge_diagnostics::Severity::Info
                         || config.all
-                        || config.all_types.iter().any(|t| *t == c.info().nome.to_uppercase()))
+                        || config.all_types.iter().any(|t| *t == c.info().name.to_uppercase()))
             });
             if (published_ || todo) && !semantic.iter().any(|x: &Diagnostic| x.span == d.span && x.code == d.code && x.message == d.message) {
                 semantic.push(d);

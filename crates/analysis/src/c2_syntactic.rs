@@ -24,8 +24,8 @@
 //! Written without compiling or running (2026-10-04).
 
 use crate::Unidade;
-use dartforge_diagnostics::codigos::{compile_time_error as c, parser as pe, warning as w};
-use dartforge_diagnostics::{Codigo, Diagnostic, Span};
+use dartforge_diagnostics::codes::{compile_time_error as c, parser as pe, warning as w};
+use dartforge_diagnostics::{Code, Diagnostic, Span};
 use dartforge_frontend::ast::{
     self, AsyncModifier, CollectionElement, DeclKind, DirectiveKind, ExprId, ExprKind, FunctionBody, FunctionKind, MemberId,
     MemberKind, PatternId, PatternKind, StmtId, StmtKind,
@@ -114,8 +114,8 @@ pub fn check(u: Unidade<'_>, names: &Interner) -> Vec<Diagnostic> {
 }
 
 impl<'a> Visitor<'a> {
-    fn report(&mut self, code: Codigo, span: Span, args: &[&str]) {
-        self.out.push(Diagnostic::com_codigo(code, span, args.iter().copied()));
+    fn report(&mut self, code: Code, span: Span, args: &[&str]) {
+        self.out.push(Diagnostic::with_code(code, span, args.iter().copied()));
     }
 
     fn decl(&mut self, d: ast::DeclId, main_sym: Option<SymbolId>) {
@@ -579,7 +579,7 @@ impl<'a> Visitor<'a> {
                     } else {
                         (c::DUPLICATE_VARIABLE_PATTERN, "The first definition of this name.")
                     };
-                    self.out.push(Diagnostic::com_codigo(code, name.span, [text.as_str()]).com_contexto(first, contexto));
+                    self.out.push(Diagnostic::with_code(code, name.span, [text.as_str()]).with_context(first, contexto));
                 } else {
                     seen.push((name.sym, name.span));
                 }
@@ -695,7 +695,7 @@ impl<'a> Visitor<'a> {
             let Some(name) = name else { continue };
             if let Some(&(_, first)) = seen.iter().find(|(s, _)| *s == name) {
                 let text = self.names.resolve(name).to_string();
-                self.out.push(Diagnostic::com_codigo(c::DUPLICATE_PATTERN_FIELD, span, [text.as_str()]).com_contexto(first, "The first field."));
+                self.out.push(Diagnostic::with_code(c::DUPLICATE_PATTERN_FIELD, span, [text.as_str()]).with_context(first, "The first field."));
             } else {
                 seen.push((name, span));
             }
@@ -932,7 +932,7 @@ mod tests {
         let mut names = Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut names);
         let u = Unidade { ast: &p.ast, unit: &p.unit, fonte: source };
-        check(u, &names).into_iter().map(|d| (d.code.map_or("", |c| c.info().nome), d.span.start, d.span.end)).collect()
+        check(u, &names).into_iter().map(|d| (d.code.map_or("", |c| c.info().name), d.span.start, d.span.end)).collect()
     }
 
     #[test]

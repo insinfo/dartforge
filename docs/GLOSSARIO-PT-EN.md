@@ -174,3 +174,19 @@ outras já em inglês ficam.
 | variavel | variable |
 | verificar | verify |
 | vivo, vivos | live |
+
+## Nomes públicos dos crates de base (fase 3b-1)
+
+| antes | depois |
+|---|---|
+| `diagnostics::Codigo`, `InfoCodigo`, `codigos`, `codigos_g` | `Code`, `CodeInfo`, `codes`, `codes_g` |
+| `Severidade`, `TipoErro` | `Severity`, `ErrorType` |
+| `Referencia` (analyzer de referência, 3.6/3.13) | `AnalyzerReference` |
+| `Variante313` (`de`, `para`, `exige`) | `Variant313` (`from`, `to`, `requires`) |
+| `Contexto` (mensagem de contexto do diagnóstico), campo `contexto` | `ContextMessage`, campo `context` |
+| `InfoCodigo { nome, unico, mensagem, correcao, tipo, severidade, documentado }` | `CodeInfo { name, unique, message, correction, error_type, severity, documented }` |
+| `com_codigo`, `com_contexto`, `na_referencia` | `with_code`, `with_context`, `for_reference` |
+| `por_nome`, `por_unico`, `todos` | `by_name`, `by_unique`, `all` |
+| `e_erro_de_compilacao` | `is_compile_error` |
+| `formatar` (molde do analyzer) | `format_list` |
+| exemplo `gerar_codigos` | exemplo `generate_codes` |

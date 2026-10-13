@@ -13,8 +13,8 @@
 //! name of the **second** declaration.
 
 use crate::Unidade;
-use dartforge_diagnostics::codigos::compile_time_error as c;
-use dartforge_diagnostics::{Codigo, Diagnostic, Span};
+use dartforge_diagnostics::codes::compile_time_error as c;
+use dartforge_diagnostics::{Code, Diagnostic, Span};
 use dartforge_frontend::ast::{
     self, Ast, DeclKind, DirectiveKind, ForInit, FunctionKind, ListPatternElement, MemberId, MemberKind,
     Parameter, PatternId, PatternKind, StmtKind, TypeKind, TypeParameter, TypedefKind,
@@ -65,8 +65,8 @@ impl Reporter<'_> {
         self.interner.resolve(n.sym).to_string()
     }
 
-    fn report(&mut self, code: Codigo, span: Span, args: &[&str]) {
-        self.out.push((self.unit, Diagnostic::com_codigo(code, span, args.iter().copied())));
+    fn report(&mut self, code: Code, span: Span, args: &[&str]) {
+        self.out.push((self.unit, Diagnostic::with_code(code, span, args.iter().copied())));
     }
 
     /// `DiagnosticFactory.duplicateDefinition`: the first definition goes as
@@ -77,11 +77,11 @@ impl Reporter<'_> {
             return d;
         }
         if previous.unit == self.unit {
-            return d.com_contexto(previous.at, FIRST_DEFINITION);
+            return d.with_context(previous.at, FIRST_DEFINITION);
         }
         let Some(path) = self.paths.get(previous.unit) else { return d };
         let mut d = d;
-        d.contexto.push(dartforge_diagnostics::Contexto { arquivo: Some(path.as_str().into()), span: previous.at, mensagem: FIRST_DEFINITION.into() });
+        d.context.push(dartforge_diagnostics::ContextMessage { file: Some(path.as_str().into()), span: previous.at, message: FIRST_DEFINITION.into() });
         d
     }
 
@@ -101,7 +101,7 @@ impl Reporter<'_> {
                     } else {
                         c::DUPLICATE_DEFINITION
                     };
-                    let d = self.with_first(Diagnostic::com_codigo(code, span, [name]), previous);
+                    let d = self.with_first(Diagnostic::with_code(code, span, [name]), previous);
                     self.out.push((self.unit, d));
                 }
             }
@@ -113,7 +113,7 @@ impl Reporter<'_> {
             if e.kind == ElemKind::Setter {
                 match setters.get(name).copied() {
                     Some(previous) => {
-                        let d = self.with_first(Diagnostic::com_codigo(c::DUPLICATE_DEFINITION, span, [name]), previous);
+                        let d = self.with_first(Diagnostic::with_code(c::DUPLICATE_DEFINITION, span, [name]), previous);
                         self.out.push((self.unit, d));
                     }
                     None => {
@@ -835,7 +835,7 @@ mod tests {
         let u = Unidade { ast: &p.ast, unit: &p.unit, fonte: source };
         let mut v: Vec<_> = duplicatas(&[u], &interner, false, true)
             .into_iter()
-            .map(|(_, d)| (d.code.unwrap().info().nome.to_string(), d.span.start, d.span.end))
+            .map(|(_, d)| (d.code.unwrap().info().name.to_string(), d.span.start, d.span.end))
             .collect();
         v.sort();
         v

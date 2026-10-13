@@ -39,7 +39,7 @@ use crate::ast::{
     PatternId, PatternKind, TypeAnnotation, TypeKind, UnaryOp,
 };
 use crate::token::{Keyword, Kind, Op};
-use dartforge_diagnostics::{Span, codigos};
+use dartforge_diagnostics::{Span, codes};
 
 /// Where the `a.b.c` chain of a `const` pattern ends
 /// ([`Parser::send_chain`]).
@@ -99,26 +99,26 @@ impl<'s, 'i> Parser<'s, 'i> {
             let texto = &self.source[nome.span.start..nome.span.end];
             if matches!(texto, "when" | "as") {
                 let texto = texto.to_string();
-                self.error_at(codigos::parser::ILLEGAL_PATTERN_IDENTIFIER_NAME, nome.span, &[&texto]);
+                self.error_at(codes::parser::ILLEGAL_PATTERN_IDENTIFIER_NAME, nome.span, &[&texto]);
             }
             return;
         }
         match self.default_context {
             PatternContext::Declaration => {
                 if let Some(p) = word {
-                    self.error_at(codigos::parser::VARIABLE_PATTERN_KEYWORD_IN_DECLARATION_CONTEXT, p, &[]);
+                    self.error_at(codes::parser::VARIABLE_PATTERN_KEYWORD_IN_DECLARATION_CONTEXT, p, &[]);
                 }
             }
             PatternContext::Matching => {
                 if let (Some(p), true, true) = (word, var_, typed) {
-                    self.error_at(codigos::parser::VAR_AND_TYPE, p, &[]);
+                    self.error_at(codes::parser::VAR_AND_TYPE, p, &[]);
                 }
             }
             PatternContext::Assignment => {
                 if !stray {
                     let texto = self.source[nome.span.start..nome.span.end].to_string();
                     let texto = if texto.is_empty() { "(unnamed)".to_string() } else { texto };
-                    self.error_at(codigos::parser::PATTERN_ASSIGNMENT_DECLARES_VARIABLE, nome.span, &[&texto]);
+                    self.error_at(codes::parser::PATTERN_ASSIGNMENT_DECLARES_VARIABLE, nome.span, &[&texto]);
                 }
             }
         }
@@ -126,9 +126,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         if matches!(texto, "when" | "as") {
             let texto = texto.to_string();
             let code = if self.default_context == PatternContext::Assignment && stray {
-                codigos::parser::ILLEGAL_PATTERN_ASSIGNMENT_VARIABLE_NAME
+                codes::parser::ILLEGAL_PATTERN_ASSIGNMENT_VARIABLE_NAME
             } else {
-                codigos::parser::ILLEGAL_PATTERN_VARIABLE_NAME
+                codes::parser::ILLEGAL_PATTERN_VARIABLE_NAME
             };
             self.error_at(code, nome.span, &[&texto]);
         }
@@ -262,7 +262,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             {
                 let end_offset = self.tokens[self.pos - 1].span.end;
                 self.error_at(
-                    codigos::parser::INVALID_INSIDE_UNARY_PATTERN,
+                    codes::parser::INVALID_INSIDE_UNARY_PATTERN,
                     Span {
                         start: start.start,
                         end: end_offset,
@@ -406,10 +406,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         };
         if ctx == ConstContext::Explicit {
             let last = self.tokens[self.pos - 1].span;
-            self.single_error(codigos::parser::INVALID_CONSTANT_CONST_PREFIX, last, &[]);
+            self.single_error(codes::parser::INVALID_CONSTANT_CONST_PREFIX, last, &[]);
         } else {
             self.error_at(
-                codigos::parser::INVALID_CONSTANT_PATTERN_BINARY,
+                codes::parser::INVALID_CONSTANT_PATTERN_BINARY,
                 span,
                 &[texto],
             );
@@ -429,7 +429,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 if self.kind_of(after + 1) == Kind::Op(Op::RParen) {
                     let abre = self.tokens[after].span;
                     self.error_at(
-                        codigos::parser::INVALID_CONSTANT_PATTERN_EMPTY_RECORD_LITERAL,
+                        codes::parser::INVALID_CONSTANT_PATTERN_EMPTY_RECORD_LITERAL,
                         abre,
                         &[],
                     );
@@ -444,7 +444,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             Kind::Keyword(Keyword::Const) => {
                 let second = self.tokens[after].span;
                 self.error_at(
-                    codigos::parser::INVALID_CONSTANT_PATTERN_DUPLICATE_CONST,
+                    codes::parser::INVALID_CONSTANT_PATTERN_DUPLICATE_CONST,
                     second,
                     &[],
                 );
@@ -463,7 +463,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                     SendKind::Invocation => self.parse_unary(true),
                     SendKind::Error(end_offset) => {
                         let span = self.tokens[end_offset].span;
-                        self.error_at(codigos::parser::INVALID_CONSTANT_CONST_PREFIX, span, &[]);
+                        self.error_at(codes::parser::INVALID_CONSTANT_CONST_PREFIX, span, &[]);
                         self.advance();
                         self.parse_unary(true)
                     }
@@ -527,7 +527,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             Kind::Op(op @ (Op::Bang | Op::Tilde)) => {
                 if ctx != ConstContext::NoneFound {
                     self.erro(
-                        codigos::parser::INVALID_CONSTANT_PATTERN_UNARY,
+                        codes::parser::INVALID_CONSTANT_PATTERN_UNARY,
                         &[op.text()],
                     );
                 }
@@ -543,7 +543,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             Kind::Op(Op::Minus) => {
                 let mut inner = ctx;
                 if ctx == ConstContext::Explicit {
-                    self.erro(codigos::parser::INVALID_CONSTANT_CONST_PREFIX, &[]);
+                    self.erro(codes::parser::INVALID_CONSTANT_CONST_PREFIX, &[]);
                     inner = ConstContext::NoneFound;
                 }
                 self.advance();
@@ -573,15 +573,15 @@ impl<'s, 'i> Parser<'s, 'i> {
                 );
                 match (ctx, kind) {
                     (ConstContext::Explicit, Kind::Int | Kind::Double) => {
-                        self.erro(codigos::parser::INVALID_CONSTANT_CONST_PREFIX, &[]);
+                        self.erro(codes::parser::INVALID_CONSTANT_CONST_PREFIX, &[]);
                     }
                     (ConstContext::Explicit, _) if literal => {
-                        self.erro(codigos::parser::INVALID_CONSTANT_CONST_PREFIX, &[]);
+                        self.erro(codes::parser::INVALID_CONSTANT_CONST_PREFIX, &[]);
                     }
                     (ConstContext::NumericOnly, Kind::Ident) => {
                         // `parsePrimary` of each identifier of the chain (`-p.x`: both), at the
                         // level outside the groups.
-                        self.erro(codigos::parser::INVALID_CONSTANT_PATTERN_NEGATION, &[]);
+                        self.erro(codes::parser::INVALID_CONSTANT_PATTERN_NEGATION, &[]);
                         let p0 = self.pos;
                         let expr = self.parse_unary(true)?;
                         let mut prof = 0usize;
@@ -598,7 +598,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                                 {
                                     let span = self.tokens[i + 1].span;
                                     self.error_at(
-                                        codigos::parser::INVALID_CONSTANT_PATTERN_NEGATION,
+                                        codes::parser::INVALID_CONSTANT_PATTERN_NEGATION,
                                         span,
                                         &[],
                                     );
@@ -612,7 +612,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                         // The whole string (with interpolations) is the fasta token.
                         let span = self.string_or_token_span();
                         self.error_at(
-                            codigos::parser::INVALID_CONSTANT_PATTERN_NEGATION,
+                            codes::parser::INVALID_CONSTANT_PATTERN_NEGATION,
                             span,
                             &[],
                         );
@@ -858,7 +858,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 | PatternKind::Parenthesized(inner) => current = *inner,
                 _ => {
                     let span = self.ast.pattern(pattern).span;
-                    return Err(self.error_at(codigos::parser::MISSING_IDENTIFIER, span, &[]));
+                    return Err(self.error_at(codes::parser::MISSING_IDENTIFIER, span, &[]));
                 }
             }
         }
@@ -1026,7 +1026,7 @@ mod tests {
             .map(|d| {
                 (
                     d.code
-                        .map(|c| c.info().nome.to_string())
+                        .map(|c| c.info().name.to_string())
                         .unwrap_or_default(),
                     fonte[d.span.start..d.span.end].to_string(),
                 )
@@ -1360,7 +1360,7 @@ mod tests {
         assert!(out.result.is_err());
         assert!(out.diagnostics.iter().any(|d| {
             d.code
-                .is_some_and(|c| c.info().nome == "missing_identifier")
+                .is_some_and(|c| c.info().name == "missing_identifier")
         }));
     }
 
@@ -1445,7 +1445,7 @@ mod tests {
         let out = pattern(")");
         assert!(out.diagnostics.iter().any(|d| {
             d.code
-                .is_some_and(|c| c.info().nome == "missing_identifier")
+                .is_some_and(|c| c.info().name == "missing_identifier")
         }));
         let out = pattern("[a");
         assert!(out.result.is_err());
@@ -1492,7 +1492,7 @@ mod tests {
         assert!(
             out.diagnostics
                 .iter()
-                .any(|d| d.code.is_some_and(|c| c.info().nome == "stack_overflow"))
+                .any(|d| d.code.is_some_and(|c| c.info().name == "stack_overflow"))
         );
     }
 

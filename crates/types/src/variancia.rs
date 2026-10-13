@@ -23,7 +23,7 @@
 use crate::despejo::formatar;
 use crate::resolve::OutlineTypes;
 use crate::table::{Type, TypeId, TypeParamId, TypeTable, Variance as Declared};
-use dartforge_diagnostics::{Diagnostic, Span, codigos::compile_time_error as c};
+use dartforge_diagnostics::{Diagnostic, Span, codes::compile_time_error as c};
 use dartforge_elements::model::{FunctionRef, LibraryId, Program, UnitId, VariableRef};
 use dartforge_frontend::ast::{self, DeclKind, MemberKind};
 use dartforge_intern::Interner;
@@ -212,7 +212,7 @@ pub fn variancia(
             let d = V::of_parameter(table.param(x).variance);
             if !v.greater_or_equal(d) {
                 let name = interner.resolve(table.param(x).name);
-                diags.push(Diagnostic::com_codigo(
+                diags.push(Diagnostic::with_code(
                     c::WRONG_TYPE_PARAMETER_VARIANCE_POSITION,
                     span,
                     [d.keyword(), name, v.keyword()],
@@ -340,13 +340,13 @@ pub fn variancia(
                     None => formatar(table, s, interner, program),
                 };
                 if table.param(x).variance == Declared::Unspecified {
-                    diags.push(Diagnostic::com_codigo(
+                    diags.push(Diagnostic::with_code(
                         c::WRONG_TYPE_PARAMETER_VARIANCE_IN_SUPERINTERFACE,
                         tp.name.span,
                         [name, displayed.as_str()],
                     ));
                 } else {
-                    diags.push(Diagnostic::com_codigo(
+                    diags.push(Diagnostic::with_code(
                         c::WRONG_EXPLICIT_TYPE_PARAMETER_VARIANCE_IN_SUPERINTERFACE,
                         tp.name.span,
                         [name, d.keyword(), v.keyword(), displayed.as_str()],
@@ -432,7 +432,7 @@ pub fn posicoes_nao_covariantes_na_representacao(program: &Program, table: &Type
             if in_non_covariant_position(table, pid, t, Position::CovariantPos, 0) {
                 let start = tp.metadata.first().map_or(tp.span.start, |m| m.span.start.min(tp.span.start));
                 let sp = Span { start: start, end: tp.span.end };
-                output.push((d.unit, Diagnostic::com_codigo(c::NON_COVARIANT_TYPE_PARAMETER_POSITION_IN_REPRESENTATION_TYPE, sp, std::iter::empty::<&str>())));
+                output.push((d.unit, Diagnostic::with_code(c::NON_COVARIANT_TYPE_PARAMETER_POSITION_IN_REPRESENTATION_TYPE, sp, std::iter::empty::<&str>())));
             }
         }
     }

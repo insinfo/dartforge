@@ -22,7 +22,7 @@
 use crate::resolve::OutlineTypes;
 use crate::subtyping::{is_subtype, SubtypeEnv};
 use crate::table::{CoreTypes, Type, TypeId, TypeParamId, TypeTable};
-use dartforge_diagnostics::{codigos::compile_time_error as c, Diagnostic, Span};
+use dartforge_diagnostics::{codes::compile_time_error as c, Diagnostic, Span};
 use dartforge_elements::model::{Element, Program, UnitId};
 use dartforge_frontend::ast::{self, DeclKind, ExprKind, ParameterKind, TypeKind};
 use dartforge_intern::{Interner, SymbolId};
@@ -238,7 +238,7 @@ pub fn enum_instanciado_aos_limites(
             }
         }
         if !well_bounded {
-            output.push((d.unit, Diagnostic::com_codigo(c::ENUM_INSTANTIATED_TO_BOUNDS_IS_NOT_WELL_BOUNDED, x.name.span, Vec::<String>::new())));
+            output.push((d.unit, Diagnostic::with_code(c::ENUM_INSTANTIATED_TO_BOUNDS_IS_NOT_WELL_BOUNDED, x.name.span, Vec::<String>::new())));
         }
     }
     output
@@ -306,7 +306,7 @@ pub fn argumentos_inferidos_fora_dos_limites(
                 let ta = v.format(types[i]);
                 let the_name = interner.resolve(v.table.param(p).name).to_string();
                 let l = v.format(bnd);
-                out.push(Diagnostic::com_codigo(c::TYPE_ARGUMENT_NOT_MATCHING_BOUNDS, span, [ta.as_str(), the_name.as_str(), l.as_str()]));
+                out.push(Diagnostic::with_code(c::TYPE_ARGUMENT_NOT_MATCHING_BOUNDS, span, [ta.as_str(), the_name.as_str(), l.as_str()]));
             }
         }
     }
@@ -477,9 +477,9 @@ impl Verifier<'_> {
         let a = self.format(arg);
         let the_name = self.interner.resolve(self.table.param(p).name).to_string();
         let l = self.format(bnd);
-        let mut d = Diagnostic::com_codigo(c::TYPE_ARGUMENT_NOT_MATCHING_BOUNDS, span, [a.as_str(), the_name.as_str(), l.as_str()]);
+        let mut d = Diagnostic::with_code(c::TYPE_ARGUMENT_NOT_MATCHING_BOUNDS, span, [a.as_str(), the_name.as_str(), l.as_str()]);
         for m in context {
-            d.contexto.push(dartforge_diagnostics::Contexto { arquivo: None, span: typ, mensagem: m.as_str().into() });
+            d.context.push(dartforge_diagnostics::ContextMessage { file: None, span: typ, message: m.as_str().into() });
         }
         out.push(d);
     }

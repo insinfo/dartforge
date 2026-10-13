@@ -99,7 +99,7 @@ pub fn diagnosticos_json(analysis: &Analise, root: &Path, options: &filtros::Opc
             for r in reports {
                 let severity = match options.errors.get(r.code.nome) {
                     Some(None) => continue,
-                    Some(Some(s)) => s.nome(),
+                    Some(Some(s)) => s.name(),
                     None => "INFO",
                 };
                 // `cannot-ignore` with the lint's name: `// ignore:` does not silence it.
@@ -132,8 +132,8 @@ pub fn diagnosticos_json(analysis: &Analise, root: &Path, options: &filtros::Opc
 fn report_to_json(file: &str, lines: &json::Linhas<'_>, r: &dartforge_analysis::naodart::Report) -> json::DiagJson {
     json::DiagJson {
         code: r.code.nome.to_string(),
-        severity: r.code.severidade.nome().to_string(),
-        tipo: r.code.tipo.nome().to_string(),
+        severity: r.code.severidade.name().to_string(),
+        tipo: r.code.tipo.name().to_string(),
         location: json::Local {
             file: file.to_string(),
             range: json::Faixa { start: lines.ponto(r.span.start), end: lines.ponto(r.span.end.max(r.span.start)) },
@@ -227,8 +227,8 @@ pub fn diagnosticos_do_pubspec(root: &Path, options: &filtros::Opcoes) -> Vec<js
         .filter(|r| !ignored.ignores(r.code.nome, r.code.nome, r.span.start))
         .map(|r| json::DiagJson {
             code: r.code.nome.to_string(),
-            severity: r.code.severidade.nome().to_string(),
-            tipo: r.code.tipo.nome().to_string(),
+            severity: r.code.severidade.name().to_string(),
+            tipo: r.code.tipo.name().to_string(),
             location: json::Local {
                 file: path.to_string(),
                 range: json::Faixa { start: lines.ponto(r.span.start), end: lines.ponto(r.span.end.max(r.span.start)) },
@@ -247,7 +247,7 @@ pub fn diagnosticos_do_pubspec(root: &Path, options: &filtros::Opcoes) -> Vec<js
             }
             let severity = match options.errors.get(r.code.nome) {
                 Some(None) => continue,
-                Some(Some(s)) => s.nome(),
+                Some(Some(s)) => s.name(),
                 None => "INFO",
             };
             out.push(json::DiagJson {
@@ -285,7 +285,7 @@ pub fn publicaveis(a: &analise::Arquivo, options: &filtros::Opcoes, only_publish
         // with `strict-inference: true` (INFRA §4.6); the engine always
         // reports them.
         if !options.strict_inference
-            && d.code.is_some_and(|c| matches!(c.info().nome, "inference_failure_on_untyped_parameter" | "inference_failure_on_function_return_type"))
+            && d.code.is_some_and(|c| matches!(c.info().name, "inference_failure_on_untyped_parameter" | "inference_failure_on_function_return_type"))
         {
             continue;
         }
@@ -408,7 +408,7 @@ pub fn run_ours(
             None => Some(r),
             Some(None) => None,
             Some(Some(s)) => {
-                r.severity = s.nome().to_string();
+                r.severity = s.name().to_string();
                 Some(r)
             }
         })

@@ -16,8 +16,8 @@
 //! Written without compiling or running (2026-10-04).
 
 use crate::Unidade;
-use dartforge_diagnostics::codigos::compile_time_error as c;
-use dartforge_diagnostics::{Codigo, Diagnostic, Span};
+use dartforge_diagnostics::codes::compile_time_error as c;
+use dartforge_diagnostics::{Code, Diagnostic, Span};
 use dartforge_frontend::ast::{
     self, AsyncModifier, CollectionElement, DeclKind, ExprId, ExprKind, FunctionBody, MemberId, MemberKind, PatternId,
     PatternKind, StmtId, StmtKind,
@@ -75,8 +75,8 @@ pub fn check(u: Unidade<'_>) -> Vec<Diagnostic> {
 }
 
 impl<'a> Visitor<'a> {
-    fn report(&mut self, code: Codigo, span: Span, args: &[&str]) {
-        self.out.push(Diagnostic::com_codigo(code, span, args.iter().copied()));
+    fn report(&mut self, code: Code, span: Span, args: &[&str]) {
+        self.out.push(Diagnostic::with_code(code, span, args.iter().copied()));
     }
 
     // -- Declarations -------------------------------------------------------------
@@ -623,7 +623,7 @@ mod tests {
         let mut names = dartforge_intern::Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut names);
         let u = Unidade { ast: &p.ast, unit: &p.unit, fonte: source };
-        check(u).into_iter().map(|d| (d.code.map_or("", |c| c.info().nome), d.span.start, d.span.end)).collect()
+        check(u).into_iter().map(|d| (d.code.map_or("", |c| c.info().name), d.span.start, d.span.end)).collect()
     }
 
     #[test]

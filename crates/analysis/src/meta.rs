@@ -30,8 +30,8 @@
 //! Written without compiling or running (2026-10-04; recognition by element
 //! on 2026-10-05).
 
-use dartforge_diagnostics::codigos::{hint as h, warning as w};
-use dartforge_diagnostics::{Codigo, Diagnostic, Span};
+use dartforge_diagnostics::codes::{hint as h, warning as w};
+use dartforge_diagnostics::{Code, Diagnostic, Span};
 use dartforge_elements::model::{ClassId, ClassKind, Element, FunctionRef, LibraryId, Program, UnitId, VariableRef};
 use dartforge_frontend::ast::{
     self, Combinator, DeclKind, DirectiveKind, ExprKind, FunctionBody, FunctionKind, MemberKind, ParameterKind, StmtKind, TypeKind,
@@ -75,8 +75,8 @@ impl<'a> Ctx<'a> {
         self.interner.resolve(n.sym)
     }
 
-    fn report(&mut self, code: Codigo, span: Span, args: &[&str]) {
-        self.out.push((self.unit, Diagnostic::com_codigo(code, span, args.iter().copied())));
+    fn report(&mut self, code: Code, span: Span, args: &[&str]) {
+        self.out.push((self.unit, Diagnostic::with_code(code, span, args.iter().copied())));
     }
 
     /// `node.name`: the annotation's identifier (one or two parts; with three,
@@ -748,7 +748,7 @@ fn internal_exports(program: &Program, lib: LibraryId, interner: &Interner, out:
             && internal(&d.metadata)
         {
             let name = target.name.as_ref().map(|parts| parts.iter().map(|s| interner.resolve(*s)).collect::<Vec<_>>().join(".")).unwrap_or_default();
-            out.push((exp.unit, Diagnostic::com_codigo(w::INVALID_EXPORT_OF_INTERNAL_ELEMENT, directive.span, [name.as_str()])));
+            out.push((exp.unit, Diagnostic::with_code(w::INVALID_EXPORT_OF_INTERNAL_ELEMENT, directive.span, [name.as_str()])));
         }
         // The namespace the directive exports, in name order.
         let mut names: Vec<SymbolId> = target
@@ -768,7 +768,7 @@ fn internal_exports(program: &Program, lib: LibraryId, interner: &Interner, out:
             let text = interner.resolve(k);
             for e in binding.getter.into_iter().chain(binding.setter.filter(|s| Some(*s) != binding.getter)) {
                 if internal(top_level_annotations(program, e)) {
-                    out.push((exp.unit, Diagnostic::com_codigo(w::INVALID_EXPORT_OF_INTERNAL_ELEMENT, directive.span, [text])));
+                    out.push((exp.unit, Diagnostic::with_code(w::INVALID_EXPORT_OF_INTERNAL_ELEMENT, directive.span, [text])));
                     continue;
                 }
                 // A function: the written types of the signature that are an
@@ -791,7 +791,7 @@ fn internal_exports(program: &Program, lib: LibraryId, interner: &Interner, out:
                         let alias_name = interner.resolve(program.typedef(td).name);
                         out.push((
                             exp.unit,
-                            Diagnostic::com_codigo(w::INVALID_EXPORT_OF_INTERNAL_ELEMENT_INDIRECTLY, directive.span, [alias_name, text]),
+                            Diagnostic::with_code(w::INVALID_EXPORT_OF_INTERNAL_ELEMENT_INDIRECTLY, directive.span, [alias_name, text]),
                         ));
                     }
                 }
@@ -973,7 +973,7 @@ pub fn check(program: &Program, lib: LibraryId, interner: &Interner, in_public_a
             if let (true, Some(d)) = (exports, directive)
                 && matches!(d.kind, DirectiveKind::Import { .. })
             {
-                out.push((imp.unit, Diagnostic::com_codigo(h::IMPORT_DEFERRED_LIBRARY_WITH_LOAD_FUNCTION, d.span, std::iter::empty::<&str>())));
+                out.push((imp.unit, Diagnostic::with_code(h::IMPORT_DEFERRED_LIBRARY_WITH_LOAD_FUNCTION, d.span, std::iter::empty::<&str>())));
             }
         }
     }

@@ -41,8 +41,8 @@ use crate::resolve::OutlineTypes;
 use crate::resolved::{BodyTypes, MemberRef, Resolved, UnitBodyTypes};
 use crate::subtyping::{SubtypeEnv, is_subtype};
 use crate::table::{CoreTypes, Type, TypeId, TypeTable};
-use dartforge_diagnostics::codigos::ffi as cf;
-use dartforge_diagnostics::{Codigo, Diagnostic, Span};
+use dartforge_diagnostics::codes::ffi as cf;
+use dartforge_diagnostics::{Code, Diagnostic, Span};
 use dartforge_elements::model::{
     ClassId, ClassKind, Element, ExtensionId, FunctionElementId, FunctionKind, FunctionRef, Library, LibraryId, Program, UnitId, VariableId,
     VariableRef,
@@ -311,10 +311,10 @@ impl<'a> V<'a> {
         is_subtype(a, b, &mut env)
     }
 
-    fn report(&mut self, code: Codigo, span: Span, args: &[Arg<'_>]) {
+    fn report(&mut self, code: Code, span: Span, args: &[Arg<'_>]) {
         let (texts, context) = Exibidor { table: self.table_ref(), interner: self.interner, program: self.program }.arguments_and_context(args);
-        let mut d = Diagnostic::com_codigo(code, span, texts);
-        d.contexto.extend(context);
+        let mut d = Diagnostic::with_code(code, span, texts);
+        d.context.extend(context);
         self.out.push(d);
     }
 
@@ -1436,7 +1436,7 @@ impl<'a> V<'a> {
     }
 
     /// `checkSupertype` of `implements` and `with`.
-    fn check_supertype(&mut self, x: &'a ast::ClassDecl, t: ast::TypeId, code: Codigo) {
+    fn check_supertype(&mut self, x: &'a ast::ClassDecl, t: ast::TypeId, code: Code) {
         let el = self.named_type_element(t, &x.type_params);
         let the_name = match el {
             Some(Element::Class(c)) => Some(self.name(self.program.class(c).name)),
@@ -1782,7 +1782,7 @@ impl<'a> V<'a> {
         // `RangeError` — the library ends up without diagnostics
         // ([`QuebraDoAnalyzer`]). In 3.13.4 (`:2171-2220`), the last argument
         // that exists up to `i`, and the annotation when there are no arguments.
-        let reference_313 = self.program.referencia(self.u) == dartforge_diagnostics::Referencia::V3_13;
+        let reference_313 = self.program.referencia(self.u) == dartforge_diagnostics::AnalyzerReference::V3_13;
         let mut error_node = the_first.span;
         for (i, d) in dimensions.iter().enumerate() {
             if reference_313 && let Some(&s) = nodes.get(i) {

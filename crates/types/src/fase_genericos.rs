@@ -11,7 +11,7 @@
 use crate::ops;
 use crate::resolve::OutlineTypes;
 use crate::table::{CoreTypes, Type, TypeId, TypeParamId, TypeTable};
-use dartforge_diagnostics::codigos::compile_time_error as c;
+use dartforge_diagnostics::codes::compile_time_error as c;
 use dartforge_diagnostics::Diagnostic;
 use dartforge_elements::model::{ClassId, ClassKind, LibraryId, Program, UnitId};
 use dartforge_frontend::ast::DeclKind;
@@ -240,7 +240,7 @@ pub fn conflitos_genericos(
         for &(first, second) in h.1.iter() {
             let a1 = cx.table.format_sem_alias(first, interner, program);
             let a2 = cx.table.format_sem_alias(second, interner, program);
-            output.push((d.unit, Diagnostic::com_codigo(c::CONFLICTING_GENERIC_INTERFACES, name.span, [kind, text.as_str(), a1.as_str(), a2.as_str()])));
+            output.push((d.unit, Diagnostic::with_code(c::CONFLICTING_GENERIC_INTERFACES, name.span, [kind, text.as_str(), a1.as_str(), a2.as_str()])));
         }
     }
     output

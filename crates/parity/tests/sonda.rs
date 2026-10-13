@@ -7,12 +7,12 @@
 //! analysis (`types`, request T1) decides code, arguments and range; the
 //! scoreboard of the `sonda` group measures how much of it already gets there.
 
-use dartforge_diagnostics::{Codigo, Diagnostic, Span};
+use dartforge_diagnostics::{Code, Diagnostic, Span};
 use dartforge_parity::json;
 
 fn d(unique: &str, start: usize, end: usize, args: &[&str]) -> Diagnostic {
-    let c = Codigo::por_unico(unique).unwrap_or_else(|| panic!("code {unique}"));
-    Diagnostic::com_codigo(c, Span { start, end }, args.iter().copied())
+    let c = Code::by_unique(unique).unwrap_or_else(|| panic!("code {unique}"));
+    Diagnostic::with_code(c, Span { start, end }, args.iter().copied())
 }
 
 #[test]

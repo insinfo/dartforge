@@ -1,6 +1,6 @@
 // GERADO por `scripts/gerar-tabelas-analise.py` (frente INFRA-FASES). NÃO EDITE.
 // Fonte: `linter/lib/src/linter_lint_codes.dart` do SDK 3.6.2 (LinterLintCode).
-// TODO(catálogo): os `LintCode` não estão em `crates/diagnostics/src/codigos_g.rs`.
+// TODO(catálogo): os `LintCode` não estão em `crates/diagnostics/src/codes_g.rs`.
 #![allow(missing_docs)]
 
 use super::CodigoLint;

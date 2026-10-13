@@ -20,7 +20,7 @@ fn errors_in(versao: (u16, u16), fonte: &str) -> Vec<(String, String)> {
         .diagnostics
         .iter()
         .map(|d| {
-            let code = d.code.map(|c| c.info().nome.to_string()).unwrap_or_default();
+            let code = d.code.map(|c| c.info().name.to_string()).unwrap_or_default();
             (d.span.start, d.span.end, code, fonte[d.span.start..d.span.end].to_string())
         })
         .collect();

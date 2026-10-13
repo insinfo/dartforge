@@ -318,8 +318,8 @@ fn lookup_through_this(inf: &mut BodyInferrer<'_>, cx: &Body, this: TypeId, the_
 /// (and what it nests), a factory constructor, a constructor initializer
 /// (field ones are left out: see the `Raiz::Nada` arm). `None` where `this`
 /// is available.
-fn instance_without_this_error(inf: &BodyInferrer<'_>, cx: &Body) -> Option<dartforge_diagnostics::Codigo> {
-    use dartforge_diagnostics::codigos::compile_time_error as c;
+fn instance_without_this_error(inf: &BodyInferrer<'_>, cx: &Body) -> Option<dartforge_diagnostics::Code> {
+    use dartforge_diagnostics::codes::compile_time_error as c;
     if cx.this_type.is_some() && !cx.the_static {
         return None;
     }
@@ -347,7 +347,7 @@ fn instance_without_this_error(inf: &BodyInferrer<'_>, cx: &Body) -> Option<dart
 fn warn_instance_without_this(inf: &mut BodyInferrer<'_>, cx: &Body, n: ast::Name) {
     if let Some(code) = instance_without_this_error(inf, cx) {
         let the_name = inf.interner.resolve(n.sym).to_string();
-        if code.info().nome == "implicit_this_reference_in_initializer" {
+        if code.info().name == "implicit_this_reference_in_initializer" {
             inf.warning_with_code(code, n.span, &[&the_name]);
         } else {
             inf.warning_with_code(code, n.span, &[]);
@@ -361,7 +361,7 @@ fn warn_instance_without_this(inf: &mut BodyInferrer<'_>, cx: &Body, n: ast::Nam
 /// `_reportInstanceAccessToStaticMember`,
 /// `an611:src/dart/resolver/method_invocation_resolver.dart:208-227`).
 fn warn_unqualified_static(inf: &mut BodyInferrer<'_>, cx: &Body, owner: ClassId, n: ast::Name) {
-    use dartforge_diagnostics::codigos::compile_time_error as c;
+    use dartforge_diagnostics::codes::compile_time_error as c;
     let code = if cx.extension.is_some() {
         c::UNQUALIFIED_REFERENCE_TO_STATIC_MEMBER_OF_EXTENDED_TYPE
     } else {
@@ -413,7 +413,7 @@ pub(crate) fn warn_undefined_prefixed_name(inf: &mut BodyInferrer<'_>, cx: &Body
     }
     let the_name = inf.interner.resolve(name.sym).to_string();
     let p = inf.interner.resolve(prefix).to_string();
-    inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_PREFIXED_NAME, name.span, &[&the_name, &p]);
+    inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::UNDEFINED_PREFIXED_NAME, name.span, &[&the_name, &p]);
 }
 
 /// The read of a simple name whose lexical lookup found no getter
@@ -459,13 +459,13 @@ fn undefined_read_name(inf: &mut BodyInferrer<'_>, cx: &Body, n: ast::Name, lexi
 /// (also in a function inside them), at the written name.
 pub(crate) fn write_in_primary(inf: &mut BodyInferrer<'_>, cx: &Body, id: LocalId, span: dartforge_diagnostics::Span) {
     if cx.primary_parameters.contains(&id) {
-        inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::ASSIGNMENT_TO_PRIMARY_CONSTRUCTOR_PARAMETER, span, &[]);
+        inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::ASSIGNMENT_TO_PRIMARY_CONSTRUCTOR_PARAMETER, span, &[]);
     }
 }
 
 pub(crate) fn write_in_guard(inf: &mut BodyInferrer<'_>, cx: &Body, id: LocalId, span: dartforge_diagnostics::Span) {
     if cx.variables_in_guard.contains(&id) {
-        inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::PATTERN_VARIABLE_ASSIGNMENT_INSIDE_GUARD, span, &[]);
+        inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::PATTERN_VARIABLE_ASSIGNMENT_INSIDE_GUARD, span, &[]);
     }
 }
 
@@ -485,7 +485,7 @@ pub(crate) fn undefined_name_without_this(inf: &mut BodyInferrer<'_>, cx: &Body,
     let text = inf.interner.resolve(n.sym).to_string();
     let in_function = !matches!(cx.root, super::body::Root::Nothing) || !cx.functions.is_empty();
     if text == "await" && in_function {
-        inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_IDENTIFIER_AWAIT, n.span, &[]);
+        inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::UNDEFINED_IDENTIFIER_AWAIT, n.span, &[]);
         return;
     }
     if crate::scope::should_ignore_undefined(inf.program, inf.interner, cx.unit, None, n.sym) {
@@ -514,7 +514,7 @@ pub(crate) fn undefined_name_without_this(inf: &mut BodyInferrer<'_>, cx: &Body,
 /// there was to report): the caller infers the arguments without a context and
 /// gives `dynamic`.
 pub(crate) fn undefined_targetless_invocation(inf: &mut BodyInferrer<'_>, cx: &Body, n: ast::Name) -> bool {
-    use dartforge_diagnostics::codigos::compile_time_error as c;
+    use dartforge_diagnostics::codes::compile_time_error as c;
     if cx.wildcard == Some(n.sym) {
         return false;
     }
@@ -691,9 +691,9 @@ pub(crate) fn function_type_literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, t
     let qualified = inf.program.unit(cx.unit).source[sp_base.start..sp_base.end].to_string();
     let text = inf.interner.resolve(the_name.sym).to_string();
     let code = if read {
-        dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_GETTER_ON_FUNCTION_TYPE
+        dartforge_diagnostics::codes::compile_time_error::UNDEFINED_GETTER_ON_FUNCTION_TYPE
     } else {
-        dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_SETTER_ON_FUNCTION_TYPE
+        dartforge_diagnostics::codes::compile_time_error::UNDEFINED_SETTER_ON_FUNCTION_TYPE
     };
     inf.warning_with_code(code, the_name.span, &[&text, &qualified]);
     true
@@ -823,7 +823,7 @@ fn read_local(inf: &mut BodyInferrer<'_>, cx: &mut Body, id: LocalId, span: dart
         if l.late {
             if cx.flow.unassigned(id) {
                 inf.warning_with_code(
-                    dartforge_diagnostics::codigos::compile_time_error::DEFINITELY_UNASSIGNED_LATE_LOCAL_VARIABLE,
+                    dartforge_diagnostics::codes::compile_time_error::DEFINITELY_UNASSIGNED_LATE_LOCAL_VARIABLE,
                     span,
                     &[&the_name],
                 );
@@ -831,7 +831,7 @@ fn read_local(inf: &mut BodyInferrer<'_>, cx: &mut Body, id: LocalId, span: dart
         } else if !cx.flow.assigned(id) {
             if l.final_ {
                 inf.warning_with_code(
-                    dartforge_diagnostics::codigos::compile_time_error::READ_POTENTIALLY_UNASSIGNED_FINAL,
+                    dartforge_diagnostics::codes::compile_time_error::READ_POTENTIALLY_UNASSIGNED_FINAL,
                     span,
                     &[&the_name],
                 );
@@ -859,7 +859,7 @@ fn extension_as_expression(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, sp:
         }
     }
     let text = inf.program.unit(cx.unit).source[sp.start..sp.end].to_string();
-    inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::EXTENSION_AS_EXPRESSION, sp, &[&text]);
+    inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::EXTENSION_AS_EXPRESSION, sp, &[&text]);
     true
 }
 
@@ -924,7 +924,7 @@ pub(crate) fn lexical_member_resolved(inf: &BodyInferrer<'_>, cx: &Body, f: dart
 /// context is the declaration, at its name.
 fn warning_before_declaration(inf: &mut BodyInferrer<'_>, n: ast::Name, msg: String, decl: dartforge_diagnostics::Span) {
     let text = format!("The declaration of '{}' is here.", inf.interner.resolve(n.sym));
-    inf.diagnostics.push(dartforge_diagnostics::Diagnostic::new(msg, n.span).com_contexto(decl, text));
+    inf.diagnostics.push(dartforge_diagnostics::Diagnostic::new(msg, n.span).with_context(decl, text));
     inf.warning_units.push(inf.current_unit);
 }
 
@@ -959,7 +959,7 @@ fn identifier(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, n: ast::Name
             // `_checkForTypeParameterReferencedByStatic` of
             // `visitSimpleIdentifier` (3.6.2, `error_verifier.dart:5419-5434`).
             if cx.static_member && crate::resolve::class_param(inf.table, p) {
-                inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::TYPE_PARAMETER_REFERENCED_BY_STATIC, n.span, &[]);
+                inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::TYPE_PARAMETER_REFERENCED_BY_STATIC, n.span, &[]);
             }
             inf.core.type_
         }
@@ -1089,7 +1089,7 @@ fn identifier(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, n: ast::Name
             });
             if forward_final {
                 let the_name = inf.interner.resolve(n.sym).to_string();
-                inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::READ_POTENTIALLY_UNASSIGNED_FINAL, n.span, &[&the_name]);
+                inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::READ_POTENTIALLY_UNASSIGNED_FINAL, n.span, &[&the_name]);
             }
             // The analyzer resolves the name to the local declared ahead (the
             // block's scope already has it): `ReferenceFinder` sees the dependency
@@ -1135,8 +1135,8 @@ fn identifier(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, n: ast::Name
 /// (`type_property_resolver.dart:107-140`): by the name's parent: a method
 /// invocation, a binary operator (a cascade parent counts through its first
 /// section), otherwise a property access.
-fn nullable_this_code(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId) -> dartforge_diagnostics::Codigo {
-    use dartforge_diagnostics::codigos::compile_time_error as c;
+fn nullable_this_code(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId) -> dartforge_diagnostics::Code {
+    use dartforge_diagnostics::codes::compile_time_error as c;
     let a = ast(inf, cx);
     let parent = match inf.parent_of(cx.unit, e) {
         dartforge_frontend::pais::Pai::Expr(p) => p,
@@ -1419,7 +1419,7 @@ fn instantiate_in_context_with(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId,
     drop(env);
     let sp = inf.span_expr(cx.unit, e);
     for (the_name, suffix) in failures {
-        inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::COULD_NOT_INFER, sp, &[&the_name, &suffix]);
+        inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::COULD_NOT_INFER, sp, &[&the_name, &suffix]);
     }
     if registrar {
         inf.body_types.units[cx.unit.0 as usize].tearoff_instantiations.insert(e, args.into_boxed_slice());
@@ -1521,7 +1521,7 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                 let tp = dynamic_cast_in_field(inf, tp, c);
                 if matches!(inf.table.get(tp), Type::Void) {
                     let sp = inf.span_expr(cx.unit, *p);
-                    inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, sp, &[]);
+                    inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::USE_OF_VOID_RESULT, sp, &[]);
                 }
                 pos.push(tp);
             }
@@ -1533,7 +1533,7 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                 if matches!(inf.table.get(tx), Type::Void) {
                     let end = inf.span_expr(cx.unit, *x).end;
                     let sp = dartforge_diagnostics::Span { start: n.span.start, end: end };
-                    inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, sp, &[]);
+                    inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::USE_OF_VOID_RESULT, sp, &[]);
                 }
                 nm.push((n.sym, tx));
             }
@@ -1673,7 +1673,7 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                             let (n, d) = (type_params.len().to_string(), targs.len().to_string());
                             match referenced_function_name(inf, cx, *target) {
                                 Some(the_name) => inf.warning_with_code(
-                                    dartforge_diagnostics::codigos::compile_time_error::WRONG_NUMBER_OF_TYPE_ARGUMENTS_FUNCTION,
+                                    dartforge_diagnostics::codes::compile_time_error::WRONG_NUMBER_OF_TYPE_ARGUMENTS_FUNCTION,
                                     sp,
                                     &[&the_name, &n, &d],
                                 ),
@@ -1682,7 +1682,7 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                                 None => {
                                     let typ = inf.table.format(raw, inf.interner, inf.program);
                                     inf.warning_with_code(
-                                        dartforge_diagnostics::codigos::compile_time_error::WRONG_NUMBER_OF_TYPE_ARGUMENTS_ANONYMOUS_FUNCTION,
+                                        dartforge_diagnostics::codes::compile_time_error::WRONG_NUMBER_OF_TYPE_ARGUMENTS_ANONYMOUS_FUNCTION,
                                         sp,
                                         &[&n, &d, &typ],
                                     )
@@ -1725,7 +1725,7 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                                     if let Some(sp) = super::calls::type_list_range(inf, cx.unit, type_args) {
                                         let (n, d) = (type_params.len().to_string(), targs.len().to_string());
                                         inf.warning_with_code(
-                                            dartforge_diagnostics::codigos::compile_time_error::WRONG_NUMBER_OF_TYPE_ARGUMENTS_FUNCTION,
+                                            dartforge_diagnostics::codes::compile_time_error::WRONG_NUMBER_OF_TYPE_ARGUMENTS_FUNCTION,
                                             sp,
                                             &["call", &n, &d],
                                         );
@@ -1745,7 +1745,7 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                         let version = inf.program.library(cx.lib).features.versao();
                         if version >= dartforge_frontend::features::LanguageVersion::new(2, 15) {
                             let sp = inf.span_expr(cx.unit, *target);
-                            inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::DISALLOWED_TYPE_INSTANTIATION_EXPRESSION, sp, &[]);
+                            inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::DISALLOWED_TYPE_INSTANTIATION_EXPRESSION, sp, &[]);
                             inf.table.invalid(inf.core.dynamic_)
                         } else {
                             inf.core.dynamic_
@@ -1790,7 +1790,7 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
             // `best_practices_verifier.dart:135-150`).
             let non_nullable = inf.is_non_nullable(t);
             if non_nullable && e_null_do_core(inf, v) {
-                inf.warning_with_code(dartforge_diagnostics::codigos::warning::CAST_FROM_NULL_ALWAYS_FAILS, span, &[]);
+                inf.warning_with_code(dartforge_diagnostics::codes::warning::CAST_FROM_NULL_ALWAYS_FAILS, span, &[]);
             }
             // `CAST_FROM_NULLABLE_ALWAYS_FAILS` (`ResolverVisitor.visitAsExpression`,
             // `resolver.dart:1871-1887`): the operand is the identifier of a local
@@ -1803,7 +1803,7 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                 let declared = cx.local(id).ty;
                 if inf.the_is_nullable(declared) && cx.flow.unassigned(id) {
                     let the_name = inf.interner.resolve(n.sym).to_string();
-                    inf.warning_with_code(dartforge_diagnostics::codigos::warning::CAST_FROM_NULLABLE_ALWAYS_FAILS, n.span, &[&the_name]);
+                    inf.warning_with_code(dartforge_diagnostics::codes::warning::CAST_FROM_NULLABLE_ALWAYS_FAILS, n.span, &[&the_name]);
                 }
             }
             if let Some(id) = promotion_target(inf, cx, *value) {
@@ -1840,7 +1840,7 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                     _ => None,
                 };
                 if let Some(sp) = the_name {
-                    inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::EXTENSION_OVERRIDE_WITH_CASCADE, sp, &[]);
+                    inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::EXTENSION_OVERRIDE_WITH_CASCADE, sp, &[]);
                 }
             }
             // `c?..x` with `c` non-nullable: reported through the first section
@@ -1931,7 +1931,7 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
             if incompatible_with_await(inf, t1, 0) {
                 let begin = inf.span_expr(cx.unit, e).start;
                 let sp = dartforge_diagnostics::Span { start: begin, end: begin + 5 };
-                inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::AWAIT_OF_INCOMPATIBLE_TYPE, sp, &[]);
+                inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::AWAIT_OF_INCOMPATIBLE_TYPE, sp, &[]);
             }
             let t = inf.flatten(t1);
             instantiate_in_context(inf, cx, e, t, ctx)
@@ -1945,7 +1945,7 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
             if !inf.assignable(t, object) {
                 let tt = inf.table.format(t, inf.interner, inf.program);
                 let sp = inf.span_expr(cx.unit, *i);
-                inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::THROW_OF_INVALID_TYPE, sp, &[&tt]);
+                inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::THROW_OF_INVALID_TYPE, sp, &[&tt]);
             }
             cx.flow.reachable = false;
             inf.core.never
@@ -2035,7 +2035,7 @@ pub(crate) fn void_use(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, t: Type
         },
         _ => a.expr(e).span,
     };
-    inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, sp, &[]);
+    inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::USE_OF_VOID_RESULT, sp, &[]);
     true
 }
 
@@ -2110,7 +2110,7 @@ pub(crate) fn verify_assignable_expr_at(inf: &mut BodyInferrer<'_>, cx: &Body, e
         && inf.assignable(positional[0], of)
     {
         let sp = inf.span_expr(cx.unit, e);
-        inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::RECORD_LITERAL_ONE_POSITIONAL_NO_TRAILING_COMMA, sp, &[]);
+        inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::RECORD_LITERAL_ONE_POSITIONAL_NO_TRAILING_COMMA, sp, &[]);
         return;
     }
     let no = if unwrap { without_parentheses(inf, cx, e) } else { e };
@@ -2157,7 +2157,7 @@ pub(crate) fn verify_assignable_expr_at(inf: &mut BodyInferrer<'_>, cx: &Body, e
         }
         let a3 = info.join(" ");
         inf.warning_with_args(
-            dartforge_diagnostics::codigos::compile_time_error::ARGUMENT_TYPE_NOT_ASSIGNABLE,
+            dartforge_diagnostics::codes::compile_time_error::ARGUMENT_TYPE_NOT_ASSIGNABLE,
             sp,
             &[crate::exibicao::Arg::Type_(of), crate::exibicao::Arg::Type_(for_), crate::exibicao::Arg::Text(a3.into())],
         );
@@ -2289,7 +2289,7 @@ pub(crate) fn never_receiver(inf: &mut BodyInferrer<'_>, cx: &Body, r: ExprId, t
         r
     };
     let sp = inf.span_expr(cx.unit, r);
-    inf.warning_with_code(dartforge_diagnostics::codigos::warning::RECEIVER_OF_TYPE_NEVER, sp, &[]);
+    inf.warning_with_code(dartforge_diagnostics::codes::warning::RECEIVER_OF_TYPE_NEVER, sp, &[]);
     true
 }
 
@@ -2310,7 +2310,7 @@ fn dynamic_cast_in_field(inf: &mut BodyInferrer<'_>, t: TypeId, context: TypeId)
 fn warn_dead_null(inf: &mut BodyInferrer<'_>, cx: &Body, the_left: TypeId, the_right: ExprId) {
     if strictly_non_nullable(inf, the_left) {
         let sp = inf.span_expr(cx.unit, the_right);
-        inf.warning_with_code(dartforge_diagnostics::codigos::static_warning::DEAD_NULL_AWARE_EXPRESSION, sp, &[]);
+        inf.warning_with_code(dartforge_diagnostics::codes::static_warning::DEAD_NULL_AWARE_EXPRESSION, sp, &[]);
     }
 }
 
@@ -2376,7 +2376,7 @@ pub(crate) fn null_operator_on_type(inf: &mut BodyInferrer<'_>, cx: &Body, r: Ex
 /// (`?.`, `?..` or `?[`); `chain`: with an earlier `?.` in the same chain,
 /// it is the `…_AFTER_SHORT_CIRCUIT`.
 fn report_null_operator(inf: &mut BodyInferrer<'_>, cx: &Body, r: ExprId, chain: bool) {
-    use dartforge_diagnostics::codigos::static_warning as w;
+    use dartforge_diagnostics::codes::static_warning as w;
     let end = inf.span_expr(cx.unit, r).end;
     let source = &inf.program.unit(cx.unit).source;
     let rest = source.get(end..).unwrap_or("");
@@ -2409,7 +2409,7 @@ fn report_null_operator(inf: &mut BodyInferrer<'_>, cx: &Body, r: ExprId, chain:
 
 /// `...?e` with `e` strictly non-nullable: at the `...?`.
 pub(crate) fn unnecessary_null_spread(inf: &mut BodyInferrer<'_>, cx: &Body, the_value: ExprId, t: TypeId) {
-    use dartforge_diagnostics::codigos::static_warning as w;
+    use dartforge_diagnostics::codes::static_warning as w;
     if !strictly_non_nullable(inf, t) {
         return;
     }
@@ -2499,7 +2499,7 @@ pub(crate) fn shortening_waived(inf: &BodyInferrer<'_>, cx: &Body, target: ExprI
 /// `PREFIX_IDENTIFIER_NOT_FOLLOWED_BY_DOT` at the prefix's name.
 pub(crate) fn prefix_without_dot(inf: &mut BodyInferrer<'_>, n: ast::Name) {
     let the_name = inf.interner.resolve(n.sym).to_string();
-    inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::PREFIX_IDENTIFIER_NOT_FOLLOWED_BY_DOT, n.span, &[&the_name]);
+    inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::PREFIX_IDENTIFIER_NOT_FOLLOWED_BY_DOT, n.span, &[&the_name]);
 }
 
 fn property(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, target: ExprId, name: ast::Name, null_aware: bool) -> (TypeId, bool) {
@@ -2567,7 +2567,7 @@ fn property(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, target: ExprId
     // nullable type.
     if !cx.overlays.contains_key(&target) && inf.interner.resolve(name.sym) == "new" {
         let typ = inf.table.format(recv, inf.interner, inf.program);
-        inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_GETTER, name.span, &["new", &typ]);
+        inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::UNDEFINED_GETTER, name.span, &["new", &typ]);
         return (inf.table.invalid(inf.core.dynamic_), short_circuit);
     }
     if let Some((x, args)) = cx.overlays.get(&target).cloned() {
@@ -2586,7 +2586,7 @@ fn property(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, target: ExprId
     if !cx.overlays.contains_key(&target) && matches!(inf.table.get(recv), Type::Void) {
         // In `x..p`, the report is at the cascade target (made there).
         if !matches!(a.expr(target).kind, ExprKind::CascadeTarget) {
-            inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, name.span, &[]);
+            inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::USE_OF_VOID_RESULT, name.span, &[]);
         }
         return (inf.core.dynamic_, short_circuit);
     }
@@ -2600,7 +2600,7 @@ fn property(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, target: ExprId
         let since = inf.diagnostics.len();
         inf.null_warning(
             recv,
-            dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_PROPERTY_ACCESS_OF_NULLABLE_VALUE,
+            dartforge_diagnostics::codes::compile_time_error::UNCHECKED_PROPERTY_ACCESS_OF_NULLABLE_VALUE,
             name.span,
             &[&the_name],
         );
@@ -2741,7 +2741,7 @@ pub(crate) fn check_literal_arguments(inf: &mut BodyInferrer<'_>, cx: &Body, e: 
         dartforge_diagnostics::Span { start: open, end: closes }
     };
     let (text, p, n) = (inf.interner.resolve(the_name.sym).to_string(), parameters.to_string(), n_args.to_string());
-    inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::WRONG_NUMBER_OF_TYPE_ARGUMENTS, span, &[&text, &p, &n]);
+    inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::WRONG_NUMBER_OF_TYPE_ARGUMENTS, span, &[&text, &p, &n]);
 }
 
 /// Static access `C.x` / `E.x` / `C.new`.
@@ -2891,7 +2891,7 @@ fn constructor_tearoff(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, c: 
     let synthetic = constructor.is_none() && !primary && Some(the_key) == inf.sym.empty && super::functions::without_implicit_name(inf, c);
     if abstract_ && (synthetic || constructor.is_some_and(|f| !inf.program.function(f).factory)) {
         let sp = ast(inf, cx).expr(e).span;
-        inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::TEAROFF_OF_GENERATIVE_CONSTRUCTOR_OF_ABSTRACT_CLASS, sp, &[]);
+        inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::TEAROFF_OF_GENERATIVE_CONSTRUCTOR_OF_ABSTRACT_CLASS, sp, &[]);
     }
     if synthetic {
         let ret = inf.class_this_type(c);
@@ -2937,14 +2937,14 @@ fn constructor_tearoff(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, c: 
         // in an enum the code is `UNDEFINED_ENUM_CONSTANT`.
         if inf.program.class(c).kind == dartforge_elements::model::ClassKind::Enum {
             let (n, en) = (inf.interner.resolve(name.sym).to_string(), inf.interner.resolve(inf.program.class(c).name).to_string());
-            inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_ENUM_CONSTANT, name.span, &[&n, &en]);
+            inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::UNDEFINED_ENUM_CONSTANT, name.span, &[&n, &en]);
             return inf.core.dynamic_;
         }
         // `[propertyName.name, typeReference.name]`
         // (`property_element_resolver.dart:697-705`): the class name, also
         // through the alias.
         let (n, cls) = (inf.interner.resolve(name.sym).to_string(), inf.interner.resolve(inf.program.class(c).name).to_string());
-        inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_GETTER, name.span, &[&n, &cls]);
+        inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::UNDEFINED_GETTER, name.span, &[&n, &cls]);
         return inf.core.dynamic_;
     };
     if inf.program.function(f).class == Some(c) {
@@ -3122,7 +3122,7 @@ pub(crate) fn member_reached_through_super(
 /// `method_invocation_resolver.dart:744-788`). `Object`'s members count
 /// (every chain ends at it).
 pub(crate) fn super_member(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, name: ast::Name, use_: SuperUse) -> TypeId {
-    use dartforge_diagnostics::codigos::compile_time_error as c;
+    use dartforge_diagnostics::codes::compile_time_error as c;
     let setter = use_ == SuperUse::Write;
     let Some(cls) = cx.class else { return inf.core.dynamic_ };
     let Some(this) = cx.this_type else { return inf.core.dynamic_ };
@@ -3330,7 +3330,7 @@ fn read_index(
     };
     if matches!(inf.table.get(bnd), Type::Void) {
         infer_free(inf, cx, index);
-        inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, undefined, &[]);
+        inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::USE_OF_VOID_RESULT, undefined, &[]);
         return (inf.core.dynamic_, short_circuit);
     }
     let token = dartforge_diagnostics::Span { start: undefined.start, end: undefined.start + 1 };
@@ -3398,9 +3398,9 @@ pub(crate) fn binary_operator(
     if check_null {
         let text = inf.interner.resolve(op).to_string();
         let code = if text == "[]" || text == "[]=" || positions.compound {
-            dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE
+            dartforge_diagnostics::codes::compile_time_error::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE
         } else {
-            dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_OPERATOR_INVOCATION_OF_NULLABLE_VALUE
+            dartforge_diagnostics::codes::compile_time_error::UNCHECKED_OPERATOR_INVOCATION_OF_NULLABLE_VALUE
         };
         let since = inf.diagnostics.len();
         inf.null_warning(recv, code, positions.token, &[&text]);
@@ -3454,7 +3454,7 @@ pub(crate) fn binary_operator(
                 let text = inf.interner.resolve(op).to_string();
                 let typ = inf.table.format(recv, inf.interner, inf.program);
                 inf.warning_with_code(
-                    dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_SUPER_OPERATOR,
+                    dartforge_diagnostics::codes::compile_time_error::UNDEFINED_SUPER_OPERATOR,
                     positions.undefined,
                     &[&text, &typ],
                 );
@@ -3466,7 +3466,7 @@ pub(crate) fn binary_operator(
             let text = inf.interner.resolve(op).to_string();
             let typ = inf.table.format(recv, inf.interner, inf.program);
             inf.warning_with_code(
-                dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_OPERATOR,
+                dartforge_diagnostics::codes::compile_time_error::UNDEFINED_OPERATOR,
                 positions.undefined,
                 &[&text, &typ],
             );
@@ -3587,7 +3587,7 @@ fn binary(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: BinaryOp, le
         BinaryOp::NaoBinario => {
             let left_end = inf.span_expr(cx.unit, left).end;
             let token = operator_token(inf, cx, left_end);
-            inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::NOT_BINARY_OPERATOR, token, &["~"]);
+            inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::NOT_BINARY_OPERATOR, token, &["~"]);
             infer_free(inf, cx, left);
             infer_free(inf, cx, right);
             inf.table.invalid(inf.core.dynamic_)
@@ -3701,13 +3701,13 @@ fn unary(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: UnaryOp, oper
             // `NULL_CHECK_ALWAYS_FAILS` (`visitPostfixExpression`,
             // `best_practices_verifier.dart:686-697`): `e!` with `e` of type `Null`.
             if e_null_do_core(inf, t) {
-                inf.warning_with_code(dartforge_diagnostics::codigos::warning::NULL_CHECK_ALWAYS_FAILS, span, &[]);
+                inf.warning_with_code(dartforge_diagnostics::codes::warning::NULL_CHECK_ALWAYS_FAILS, span, &[]);
             }
             // `unnecessary_non_null_assertion` (at the `!`): only with an operand
             // that is certainly non-nullable (`T extends Object?` is not).
             if !c && strictly_non_nullable(inf, t) {
                 let sp = dartforge_diagnostics::Span { start: span.end.saturating_sub(1), end: span.end };
-                inf.warning_with_code(dartforge_diagnostics::codigos::static_warning::UNNECESSARY_NON_NULL_ASSERTION, sp, &[]);
+                inf.warning_with_code(dartforge_diagnostics::codes::static_warning::UNNECESSARY_NON_NULL_ASSERTION, sp, &[]);
             }
             if let Some(id) = promotion_target(inf, cx, operand) {
                 let decl = cx.local(id).ty;
@@ -3719,7 +3719,7 @@ fn unary(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: UnaryOp, oper
             // (3.6.2 `error_verifier.dart:1310-1316`), on the whole `e!`.
             let r = inf.non_null_promotion(t);
             if matches!(inf.table.get(r), Type::Void) {
-                inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, span, &[]);
+                inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::USE_OF_VOID_RESULT, span, &[]);
             }
             r
         }
@@ -3874,7 +3874,7 @@ fn null_in_unary(inf: &mut BodyInferrer<'_>, cx: &Body, recv: TypeId, sym: Symbo
         return false;
     }
     let since = inf.diagnostics.len();
-    inf.null_warning(recv, dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE, sp, &[the_name]);
+    inf.null_warning(recv, dartforge_diagnostics::codes::compile_time_error::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE, sp, &[the_name]);
     inf.attach_non_promotion(since, cx, Some(operand), sp);
     true
 }
@@ -3887,7 +3887,7 @@ fn undefined_unary_operator(inf: &mut BodyInferrer<'_>, recv: TypeId, the_name: 
         return;
     }
     let typ = inf.table.format(recv, inf.interner, inf.program);
-    inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_OPERATOR, sp, &[the_name, &typ]);
+    inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::UNDEFINED_OPERATOR, sp, &[the_name, &typ]);
 }
 
 fn check_final_local(inf: &mut BodyInferrer<'_>, cx: &Body, id: LocalId, span: dartforge_diagnostics::Span) {
@@ -3898,7 +3898,7 @@ fn check_final_local(inf: &mut BodyInferrer<'_>, cx: &Body, id: LocalId, span: d
         inf.warning(ASSIGNMENT_TO_CONST.template.to_string(), span);
     } else if l.final_ && l.late {
         if cx.flow.assigned(id) {
-            inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::LATE_FINAL_LOCAL_ALREADY_ASSIGNED, span, &[]);
+            inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::LATE_FINAL_LOCAL_ALREADY_ASSIGNED, span, &[]);
         }
     } else if l.final_ && !cx.flow.unassigned(id) {
         let msg = format!("{}: '{}'", ASSIGNMENT_TO_FINAL_LOCAL.template, inf.interner.resolve(l.name));
@@ -4019,7 +4019,7 @@ fn read_for_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, short_
                         let span = index_span(inf, cx, tgt, target);
                         let this = cx.this_type.unwrap_or(inf.core.dynamic_);
                         let typ = inf.table.format(this, inf.interner, inf.program);
-                        inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_SUPER_OPERATOR, span, &["[]=", &typ]);
+                        inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::UNDEFINED_SUPER_OPERATOR, span, &["[]=", &typ]);
                     }
                     Search::Finding(m) => {
                         if let Some(p1) = second(inf, m.ty) {
@@ -4052,7 +4052,7 @@ fn read_for_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, short_
                         Search::Missing => {
                             let span = index_span(inf, cx, tgt, target);
                             let typ = inf.table.format(r, inf.interner, inf.program);
-                            inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_OPERATOR, span, &["[]=", &typ]);
+                            inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::UNDEFINED_OPERATOR, span, &["[]=", &typ]);
                         }
                         // `checkIndexExpressionIndex` with the `writeElement` (3.6.2
                         // `error_detection_helpers.dart:257-287`, `resolver.dart:1443`): the
@@ -4095,7 +4095,7 @@ pub(crate) fn ambiguous_import(inf: &mut BodyInferrer<'_>, cx: &Body, prefix: Op
     }
     let list = crate::scope::ambiguous_libraries(inf.program, cx.unit, prefix, the_name.sym);
     let text = inf.interner.resolve(the_name.sym).to_string();
-    inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::AMBIGUOUS_IMPORT, the_name.span, &[&text, &list]);
+    inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::AMBIGUOUS_IMPORT, the_name.span, &[&text, &list]);
     true
 }
 
@@ -4227,7 +4227,7 @@ fn name_write_type(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, n: as
             if inf.requires_null_check(cx.lib, this, n.sym, true) {
                 let the_name = inf.interner.resolve(n.sym).to_string();
                 let since = inf.diagnostics.len();
-                inf.null_warning(this, dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE, n.span, &[&the_name]);
+                inf.null_warning(this, dartforge_diagnostics::codes::compile_time_error::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE, n.span, &[&the_name]);
                 inf.attach_non_promotion(since, cx, None, n.span);
                 let nn = inf.non_null(this);
                 return match inf.lookup_member(cx.lib, nn, n.sym, true) {
@@ -4340,7 +4340,7 @@ fn assignment(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: AssignOp
                                 } else if l.final_ && l.late {
                                     if cx.flow.assigned(id) {
                                         inf.warning_with_code(
-                                            dartforge_diagnostics::codigos::compile_time_error::LATE_FINAL_LOCAL_ALREADY_ASSIGNED,
+                                            dartforge_diagnostics::codes::compile_time_error::LATE_FINAL_LOCAL_ALREADY_ASSIGNED,
                                             n.span,
                                             &[],
                                         );
@@ -4420,7 +4420,7 @@ fn assignment(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: AssignOp
             // `x += 1` / `x ??= 3` with `x` of type `void`: at the operator.
             if matches!(inf.table.get(read), Type::Void) {
                 let token = operator_token(inf, cx, inf.span_expr(cx.unit, tgt).end);
-                inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, token, &[]);
+                inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::USE_OF_VOID_RESULT, token, &[]);
             }
             if bop == BinaryOp::IfNull {
                 // `checkFinalAlreadyAssigned(left)` before the right side (3.6.2
@@ -4598,7 +4598,7 @@ fn property_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, target
                     && inf.program.class(*c).library != cx.lib
                 {
                     let text = inf.interner.resolve(name.sym).to_string();
-                    inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::PRIVATE_SETTER, name.span, &[&text]);
+                    inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::PRIVATE_SETTER, name.span, &[&text]);
                 }
                 resolver(inf, cx, tgt, m.resolved.clone());
                 m.ty
@@ -4696,7 +4696,7 @@ fn property_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, target
     *short_circuit = c;
     // A `void` receiver (`property_element_resolver.dart:449-455`): at the name.
     if !cx.overlays.contains_key(&target) && matches!(inf.table.get(recv), Type::Void) {
-        inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, name.span, &[]);
+        inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::USE_OF_VOID_RESULT, name.span, &[]);
         return inf.core.dynamic_;
     }
     // `x.new = v` (`type_property_resolver.dart:75-79`): no `new` setter.
@@ -4748,7 +4748,7 @@ fn property_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, target
         let since = inf.diagnostics.len();
         inf.null_warning(
             recv,
-            dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_PROPERTY_ACCESS_OF_NULLABLE_VALUE,
+            dartforge_diagnostics::codes::compile_time_error::UNCHECKED_PROPERTY_ACCESS_OF_NULLABLE_VALUE,
             name.span,
             &[&the_name],
         );
@@ -4867,7 +4867,7 @@ fn index_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, recv: Typ
             let start = index_span(inf, cx, tgt, t).start;
             let sp = dartforge_diagnostics::Span { start: start, end: start + 1 };
             let since = inf.diagnostics.len();
-            inf.null_warning(recv, dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE, sp, &["[]"]);
+            inf.null_warning(recv, dartforge_diagnostics::codes::compile_time_error::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE, sp, &["[]"]);
             inf.attach_non_promotion(since, cx, Some(t), sp);
         }
         // `super[i] = v`: the `[]=` of the `super` chain.
@@ -4906,13 +4906,13 @@ fn index_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, recv: Typ
                 Some(t) => {
                     let sup = matches!(ast(inf, cx).expr(t).kind, ExprKind::Super);
                     let c = if sup {
-                        dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_SUPER_OPERATOR
+                        dartforge_diagnostics::codes::compile_time_error::UNDEFINED_SUPER_OPERATOR
                     } else {
-                        dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_OPERATOR
+                        dartforge_diagnostics::codes::compile_time_error::UNDEFINED_OPERATOR
                     };
                     (index_span(inf, cx, tgt, t), c)
                 }
-                None => (span, dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_OPERATOR),
+                None => (span, dartforge_diagnostics::codes::compile_time_error::UNDEFINED_OPERATOR),
             };
             // A compound one without `[]` or `[]=`: the oracle only reports the `[]=`
             // (the read's `[]`, at the same range, is dropped).
@@ -5057,7 +5057,7 @@ enum BoolUse {
 /// as a condition, in any of the uses. With `void`, the analyzer reports the
 /// use of the `void` result instead (not here); nothing comes out.
 fn verify_bool(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, use_: BoolUse) {
-    use dartforge_diagnostics::codigos::compile_time_error as c;
+    use dartforge_diagnostics::codes::compile_time_error as c;
     let t = inf.body_types.units[cx.unit.0 as usize].get_type(e).unwrap_or(inf.core.bool_);
     let b = inf.core.bool_;
     if void_use(inf, cx, e, t) || inf.assignable(t, b) {
@@ -5091,7 +5091,7 @@ fn verify_bool(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, use_: BoolUse) 
 /// `NullableDereferenceVerifier.expression` (`an611:src/error/nullable_dereference_verifier.dart:33-90`):
 /// on the whole expression, when the type is not `dynamic`, invalid or
 /// non-nullable; with type `Null`, `INVALID_USE_OF_NULL_VALUE`.
-pub(crate) fn nullable_dereference(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, t: TypeId, code: dartforge_diagnostics::Codigo) {
+pub(crate) fn nullable_dereference(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, t: TypeId, code: dartforge_diagnostics::Code) {
     if inf.e_dynamic(t) || inf.table.e_invalido(t) || inf.is_non_nullable(t) {
         return;
     }
@@ -5120,7 +5120,7 @@ pub(crate) fn e_double_nan(inf: &BodyInferrer<'_>, cx: &Body, x: ExprId) -> bool
 /// one side of `==`/`!=`, from the `double.nan` to the operator or from the
 /// operator to the end.
 fn comparison_with_nan(inf: &mut BodyInferrer<'_>, cx: &Body, op: BinaryOp, left: ExprId, right: ExprId) {
-    use dartforge_diagnostics::codigos::warning as w;
+    use dartforge_diagnostics::codes::warning as w;
     let code = match op {
         BinaryOp::NotEq => w::UNNECESSARY_NAN_COMPARISON_TRUE,
         BinaryOp::Eq => w::UNNECESSARY_NAN_COMPARISON_FALSE,
@@ -5219,12 +5219,12 @@ fn null_free_api(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, result: TypeI
             }
         }
         let displayed = inf.table.format_sem_alias(typ, inf.interner, inf.program);
-        inf.warning_with_code(dartforge_diagnostics::codigos::warning::NULL_ARGUMENT_TO_NON_NULL_TYPE, sp, &[the_name, &displayed]);
+        inf.warning_with_code(dartforge_diagnostics::codes::warning::NULL_ARGUMENT_TO_NON_NULL_TYPE, sp, &[the_name, &displayed]);
     }
 }
 
 fn comparison_with_null(inf: &mut BodyInferrer<'_>, cx: &Body, op: BinaryOp, left: ExprId, right: ExprId, tl: TypeId, tr: TypeId) {
-    use dartforge_diagnostics::codigos::warning as w;
+    use dartforge_diagnostics::codes::warning as w;
     let a = ast(inf, cx);
     let null = |x: ExprId| matches!(a.expr(x).kind, ExprKind::Null);
     let (sl, sr) = (inf.span_expr(cx.unit, left), inf.span_expr(cx.unit, right));
@@ -5429,7 +5429,7 @@ fn unnecessary_type_test(
     invalid: bool,
     span: dartforge_diagnostics::Span,
 ) {
-    use dartforge_diagnostics::codigos::warning as w;
+    use dartforge_diagnostics::codes::warning as w;
     // An `InvalidType` operand or type: no unnecessary-test warning
     // (`best_practices_verifier.dart:790`, `:801`).
     if invalid || inf.table.e_invalido(v) || inf.table.e_invalido(t) {

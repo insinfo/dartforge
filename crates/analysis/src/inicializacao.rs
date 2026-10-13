@@ -2,7 +2,7 @@
 //! `_checkForNotInitializedFieldDeclaration` and top-level variable check.
 
 use crate::Unidade;
-use dartforge_diagnostics::codigos::compile_time_error as c;
+use dartforge_diagnostics::codes::compile_time_error as c;
 use dartforge_diagnostics::Diagnostic;
 use dartforge_frontend::ast::{Ast, DeclKind, Initializer, MemberKind, TypeId, TypeKind, VariableList};
 use dartforge_intern::{Interner, SymbolId};
@@ -14,7 +14,7 @@ fn final_without_initializer(v: &VariableList, names: &Interner, out: &mut Vec<(
     }
     for var in v.variables.iter().filter(|var| var.initializer.is_none()) {
         if enum_index && names.resolve(var.name.sym) == "index" { continue; }
-        out.push((unit, Diagnostic::com_codigo(
+        out.push((unit, Diagnostic::with_code(
             c::FINAL_NOT_INITIALIZED,
             var.name.span,
             [names.resolve(var.name.sym)],
@@ -59,7 +59,7 @@ fn non_final_non_nullable_instance(v: &VariableList, ast: &Ast, names: &Interner
             continue;
         }
         if enum_index && names.resolve(var.name.sym) == "index" { continue; }
-        out.push((unit, Diagnostic::com_codigo(
+        out.push((unit, Diagnostic::with_code(
             c::NOT_INITIALIZED_NON_NULLABLE_INSTANCE_FIELD,
             var.name.span,
             [names.resolve(var.name.sym)],
@@ -87,7 +87,7 @@ pub fn uninitialized_constants(u: &Unidade<'_>, names: &Interner) -> Vec<Diagnos
             return;
         }
         for var in l.variables.iter().filter(|v| v.initializer.is_none()) {
-            out.push(Diagnostic::com_codigo(c::CONST_NOT_INITIALIZED, var.name.span, [names.resolve(var.name.sym)]));
+            out.push(Diagnostic::with_code(c::CONST_NOT_INITIALIZED, var.name.span, [names.resolve(var.name.sym)]));
         }
     };
     for d in &a.decls {
@@ -248,7 +248,7 @@ pub fn uninitialized_finals_with(units: &[Unidade<'_>], names: &Interner, non_nu
                                 || k.initializers.iter().any(|y| matches!(y, Initializer::Field { name, .. } if name.sym == rep));
                             if !inicializa && !names.resolve(rep).is_empty() {
                                 let name = names.resolve(rep).to_string();
-                                out.push((i, Diagnostic::com_codigo(c::FINAL_NOT_INITIALIZED_CONSTRUCTOR_1, k.class_name.span, [name])));
+                                out.push((i, Diagnostic::with_code(c::FINAL_NOT_INITIALIZED_CONSTRUCTOR_1, k.class_name.span, [name])));
                             }
                             continue;
                         }
@@ -282,14 +282,14 @@ pub fn uninitialized_finals_with(units: &[Unidade<'_>], names: &Interner, non_nu
                                 1 | 2 => missing_names,
                                 n => vec![missing_names[0].clone(), missing_names[1].clone(), (n - 2).to_string()],
                             };
-                            out.push((i, Diagnostic::com_codigo(code, k.class_name.span, arguments)));
+                            out.push((i, Diagnostic::with_code(code, k.class_name.span, arguments)));
                         }
                         let mut non_finals = pending_non_finals.get(&key).cloned().unwrap_or_default();
                         non_finals.retain(|name| !initialized(name));
                         let mut non_final_names: Vec<_> = non_finals.iter().map(|s| names.resolve(*s).to_string()).collect();
                         non_final_names.sort();
                         for name in non_final_names {
-                            out.push((i, Diagnostic::com_codigo(
+                            out.push((i, Diagnostic::with_code(
                                 c::NOT_INITIALIZED_NON_NULLABLE_INSTANCE_FIELD_CONSTRUCTOR,
                                 k.class_name.span,
                                 [name],
@@ -449,7 +449,7 @@ mod tests {
             let found = finais_nao_inicializados(&[Unidade { ast: &parsed.ast, unit: &parsed.unit, fonte: source }], &names);
             assert_eq!(found[0].1.code, Some(c::NOT_INITIALIZED_NON_NULLABLE_INSTANCE_FIELD));
             assert_eq!((found[0].1.span.start, found[0].1.span.end), (16, 17));
-            assert_eq!(found[0].1.code.unwrap().info().correcao, Some("Try adding an initializer expression, or a generative constructor that initializes it, or mark it 'late'."));
+            assert_eq!(found[0].1.code.unwrap().info().correction, Some("Try adding an initializer expression, or a generative constructor that initializes it, or mark it 'late'."));
         }
         assert_eq!(run("class A { int x; Object? y; late int z; factory A() => throw 0; }"), vec![(
             "x".into(), "Non-nullable instance field 'x' must be initialized.".into(),
@@ -479,7 +479,7 @@ mod tests {
             assert_eq!(d.code, Some(c::NOT_INITIALIZED_NON_NULLABLE_INSTANCE_FIELD_CONSTRUCTOR));
             assert_eq!((d.span.start, d.span.end), (offset, offset + 1));
             assert_eq!(d.message, format!("Non-nullable instance field '{field}' must be initialized."));
-            assert_eq!(d.code.unwrap().info().correcao, Some("Try adding an initializer expression, or add a field initializer in this constructor, or mark it 'late'."));
+            assert_eq!(d.code.unwrap().info().correction, Some("Try adding an initializer expression, or add a field initializer in this constructor, or mark it 'late'."));
         }
         assert!(run("class A { int x; A(this.x); A.named() : x = 0; }").is_empty());
     }

@@ -17,7 +17,7 @@
 //! The Portuguese strings matched below are the texts the other crates emit
 //! today; they must change together with them.
 
-use dartforge_diagnostics::{Codigo, Diagnostic, codigos};
+use dartforge_diagnostics::{Code, Diagnostic, codes};
 
 /// The single-quoted fragments of `s`, in order.
 fn quoted(s: &str) -> Vec<String> {
@@ -52,12 +52,12 @@ const VARIANTS: &[(&str, &str)] = &[
     ("class_instantiation_access_to_unknown_member", "CompileTimeErrorCode.CLASS_INSTANTIATION_ACCESS_TO_UNKNOWN_MEMBER"),
 ];
 
-fn by_name(name: &str) -> Option<Codigo> {
+fn by_name(name: &str) -> Option<Code> {
     let name = ALIASES.iter().find(|(a, _)| *a == name).map(|(_, b)| *b).unwrap_or(name);
     if let Some((_, u)) = VARIANTS.iter().find(|(n, _)| *n == name) {
-        return Codigo::por_unico(u);
+        return Code::by_unique(u);
     }
-    Codigo::por_nome(name)
+    Code::by_name(name)
 }
 
 /// Codes whose last argument is additional information that, outside of
@@ -132,29 +132,29 @@ pub fn encode_types(d: &Diagnostic, span_text: &str) -> Diagnostic {
         if let Some(rest) = d.message.strip_prefix(m.template) {
             let Some(code) = by_name(m.name) else { break };
             let mut args = quoted(rest);
-            if LAST_OPTIONAL.contains(&code.info().nome) && args.len() == 2 {
+            if LAST_OPTIONAL.contains(&code.info().name) && args.len() == 2 {
                 args.push(String::new());
             }
-            return Diagnostic::com_codigo(code, d.span, args);
+            return Diagnostic::with_code(code, d.span, args);
         }
     }
     // Old fixed messages of the outline (today `types` reports type names
     // already with the analyzer code); the name is the text in the span.
     let name = span_text.split('<').next().unwrap_or("").trim_end_matches('?').trim();
     let code = match d.message.as_str() {
-        "Tipo não encontrado no escopo da biblioteca" => Some((codigos::compile_time_error::UNDEFINED_CLASS, vec![name])),
+        "Tipo não encontrado no escopo da biblioteca" => Some((codes::compile_time_error::UNDEFINED_CLASS, vec![name])),
         "O símbolo encontrado não é um tipo" | "O elemento prefixado não é um tipo" => {
-            Some((codigos::compile_time_error::NOT_A_TYPE, vec![name]))
+            Some((codes::compile_time_error::NOT_A_TYPE, vec![name]))
         }
-        "Tipo prefixado não encontrado" => Some((codigos::compile_time_error::UNDEFINED_CLASS, vec![name])),
+        "Tipo prefixado não encontrado" => Some((codes::compile_time_error::UNDEFINED_CLASS, vec![name])),
         "Parâmetro de tipo não aceita argumentos de tipo" => {
-            Some((codigos::parser::TYPE_ARGUMENTS_ON_TYPE_VARIABLE, vec![name]))
+            Some((codes::parser::TYPE_ARGUMENTS_ON_TYPE_VARIABLE, vec![name]))
         }
-        "Referência ambígua de tipo" => Some((codigos::compile_time_error::AMBIGUOUS_IMPORT, vec![name, ""])),
+        "Referência ambígua de tipo" => Some((codes::compile_time_error::AMBIGUOUS_IMPORT, vec![name, ""])),
         _ => None,
     };
     match code {
-        Some((c, args)) => Diagnostic::com_codigo(c, d.span, args),
+        Some((c, args)) => Diagnostic::with_code(c, d.span, args),
         None => d.clone(),
     }
 }
@@ -163,13 +163,13 @@ pub fn encode_types(d: &Diagnostic, span_text: &str) -> Diagnostic {
 /// `ParserErrorCode`/`ScannerErrorCode` code. Syntax is always published; the
 /// code only serves parity (a separate metric, not blocking).
 pub fn encode_syntax(d: &Diagnostic) -> Diagnostic {
-    use codigos::{parser as p, scanner as s};
+    use codes::{parser as p, scanner as s};
     if d.code.is_some() {
         return d.clone();
     }
     // The parser appends the token found: `esperava ';', encontrou '}'`.
     let m = d.message.split(", encontrou ").next().unwrap_or("");
-    let (code, args): (Option<Codigo>, Vec<String>) = if let Some(c) = m.strip_prefix("caractere inesperado '") {
+    let (code, args): (Option<Code>, Vec<String>) = if let Some(c) = m.strip_prefix("caractere inesperado '") {
         let ch = c.chars().next().map(|c| (c as u32).to_string()).unwrap_or_default();
         (Some(s::ILLEGAL_CHARACTER), vec![ch])
     } else {
@@ -200,7 +200,7 @@ pub fn encode_syntax(d: &Diagnostic) -> Diagnostic {
         }
     };
     match code {
-        Some(c) => Diagnostic::com_codigo(c, d.span, args),
+        Some(c) => Diagnostic::with_code(c, d.span, args),
         None => d.clone(),
     }
 }
@@ -215,7 +215,7 @@ mod tests {
         let t = dartforge_types::codes::UNDEFINED_IDENTIFIER.template;
         let d = Diagnostic::new(format!("{t}: 'h'"), Span { start: 3, end: 4 });
         let c = encode_types(&d, "h");
-        assert_eq!(c.code.unwrap().info().nome, "undefined_identifier");
+        assert_eq!(c.code.unwrap().info().name, "undefined_identifier");
         assert_eq!(c.message, "Undefined name 'h'.");
     }
 
@@ -228,10 +228,10 @@ mod tests {
             span,
         );
         let constant = encode_types(&constant, "x");
-        assert_eq!(constant.code, Some(codigos::compile_time_error::ASSIGNMENT_TO_CONST));
+        assert_eq!(constant.code, Some(codes::compile_time_error::ASSIGNMENT_TO_CONST));
         assert_eq!(constant.message, "Constant variables can't be assigned a value.");
         let final_ = encode_types(&final_, "x");
-        assert_eq!(final_.code, Some(codigos::compile_time_error::ASSIGNMENT_TO_FINAL));
+        assert_eq!(final_.code, Some(codes::compile_time_error::ASSIGNMENT_TO_FINAL));
         assert_eq!(final_.message, "'x' can't be used as a setter because it's final.");
     }
 
@@ -239,8 +239,8 @@ mod tests {
     fn assignment_to_type_and_function_gives_official_messages() {
         let span = Span { start: 4, end: 5 };
         for (template, code, message) in [
-            (dartforge_types::codes::ASSIGNMENT_TO_TYPE.template, codigos::compile_time_error::ASSIGNMENT_TO_TYPE, "Types can't be assigned a value."),
-            (dartforge_types::codes::ASSIGNMENT_TO_FUNCTION.template, codigos::compile_time_error::ASSIGNMENT_TO_FUNCTION, "Functions can't be assigned a value."),
+            (dartforge_types::codes::ASSIGNMENT_TO_TYPE.template, codes::compile_time_error::ASSIGNMENT_TO_TYPE, "Types can't be assigned a value."),
+            (dartforge_types::codes::ASSIGNMENT_TO_FUNCTION.template, codes::compile_time_error::ASSIGNMENT_TO_FUNCTION, "Functions can't be assigned a value."),
         ] {
             let c = encode_types(&Diagnostic::new(template, span), "C");
             assert_eq!(c.code, Some(code));
@@ -255,7 +255,7 @@ mod tests {
             Span { start: 4, end: 5 },
         );
         let c = encode_types(&d, "x");
-        assert_eq!(c.code, Some(codigos::compile_time_error::ASSIGNMENT_TO_FINAL_NO_SETTER));
+        assert_eq!(c.code, Some(codes::compile_time_error::ASSIGNMENT_TO_FINAL_NO_SETTER));
         assert_eq!(c.message, "There isn't a setter named 'x' in class 'A'.");
     }
 
@@ -266,7 +266,7 @@ mod tests {
             Span { start: 2, end: 5 },
         );
         let c = encode_types(&d, "foo");
-        assert_eq!(c.code, Some(codigos::compile_time_error::ASSIGNMENT_TO_METHOD));
+        assert_eq!(c.code, Some(codes::compile_time_error::ASSIGNMENT_TO_METHOD));
         assert_eq!(c.message, "Methods can't be assigned a value.");
     }
 
@@ -277,7 +277,7 @@ mod tests {
             Span { start: 12, end: 15 },
         );
         let c = encode_types(&d, "new");
-        assert_eq!(c.code, Some(codigos::compile_time_error::NEW_WITH_UNDEFINED_CONSTRUCTOR));
+        assert_eq!(c.code, Some(codes::compile_time_error::NEW_WITH_UNDEFINED_CONSTRUCTOR));
         assert_eq!(c.message, "The class 'NoUnnamed' doesn't have a constructor named 'new'.");
     }
 
@@ -288,7 +288,7 @@ mod tests {
             Span { start: 2, end: 7 },
         );
         let c = encode_types(&d, "E.new");
-        assert_eq!(c.code, Some(codigos::compile_time_error::INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR));
+        assert_eq!(c.code, Some(codes::compile_time_error::INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR));
         assert_eq!(c.message, "Generative enum constructors can only be used as targets of redirection.");
     }
 
@@ -299,7 +299,7 @@ mod tests {
             Span { start: 7, end: 10 },
         );
         let c = encode_types(&d, "foo");
-        assert_eq!(c.code, Some(codigos::compile_time_error::UNDEFINED_EXTENSION_SETTER));
+        assert_eq!(c.code, Some(codes::compile_time_error::UNDEFINED_EXTENSION_SETTER));
         assert_eq!(c.message, "The setter 'foo' isn't defined for the extension 'E'.");
     }
 
@@ -310,7 +310,7 @@ mod tests {
             Span { start: 7, end: 10 },
         );
         let c = encode_types(&d, "foo");
-        assert_eq!(c.code, Some(codigos::compile_time_error::UNDEFINED_EXTENSION_GETTER));
+        assert_eq!(c.code, Some(codes::compile_time_error::UNDEFINED_EXTENSION_GETTER));
         assert_eq!(c.message, "The getter 'foo' isn't defined for the extension 'E'.");
     }
 
@@ -321,7 +321,7 @@ mod tests {
             Span { start: 7, end: 8 },
         );
         let c = encode_types(&d, "m");
-        assert_eq!(c.code, Some(codigos::compile_time_error::UNDEFINED_EXTENSION_METHOD));
+        assert_eq!(c.code, Some(codes::compile_time_error::UNDEFINED_EXTENSION_METHOD));
         assert_eq!(c.message, "The method 'm' isn't defined for the extension 'E'.");
     }
 
@@ -332,7 +332,7 @@ mod tests {
             Span { start: 7, end: 11 },
         );
         let c = encode_types(&d, "E(0)");
-        assert_eq!(c.code, Some(codigos::compile_time_error::INVOCATION_OF_EXTENSION_WITHOUT_CALL));
+        assert_eq!(c.code, Some(codes::compile_time_error::INVOCATION_OF_EXTENSION_WITHOUT_CALL));
         assert_eq!(c.message, "The extension 'E' doesn't define a 'call' method so the override can't be used in an invocation.");
     }
 
@@ -343,7 +343,7 @@ mod tests {
             Span { start: 33, end: 34 },
         );
         let c = encode_types(&d, "-");
-        assert_eq!(c.code, Some(codigos::compile_time_error::UNDEFINED_EXTENSION_OPERATOR));
+        assert_eq!(c.code, Some(codes::compile_time_error::UNDEFINED_EXTENSION_OPERATOR));
         assert_eq!(c.message, "The operator 'unary-' isn't defined for the extension 'E'.");
     }
 
@@ -354,7 +354,7 @@ mod tests {
             Span { start: 7, end: 12 },
         );
         let c = encode_types(&d, "empty");
-        assert_eq!(c.code, Some(codigos::compile_time_error::EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER));
+        assert_eq!(c.code, Some(codes::compile_time_error::EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER));
         assert_eq!(c.message, "An extension override can't be used to access a static member from an extension.");
         assert_eq!((c.span.start, c.span.end), (7, 12));
     }
@@ -366,7 +366,7 @@ mod tests {
             Span { start: 7, end: 8 },
         );
         let c = encode_types(&d, "g");
-        assert_eq!(c.code, Some(codigos::compile_time_error::STATIC_ACCESS_TO_INSTANCE_MEMBER));
+        assert_eq!(c.code, Some(codes::compile_time_error::STATIC_ACCESS_TO_INSTANCE_MEMBER));
         assert_eq!(c.message, "Instance member 'g' can't be accessed using static access.");
     }
 
@@ -377,7 +377,7 @@ mod tests {
             Span { start: 7, end: 15 },
         );
         let c = encode_types(&d, "A<int>.i");
-        assert_eq!(c.code, Some(codigos::compile_time_error::CLASS_INSTANTIATION_ACCESS_TO_INSTANCE_MEMBER));
+        assert_eq!(c.code, Some(codes::compile_time_error::CLASS_INSTANTIATION_ACCESS_TO_INSTANCE_MEMBER));
         assert_eq!(c.message, "The instance member 'i' can't be accessed on a class instantiation.");
         assert_eq!((c.span.start, c.span.end), (7, 15));
     }
@@ -389,14 +389,14 @@ mod tests {
             Span { start: 7, end: 15 },
         );
         let c = encode_types(&static_, "A<int>.i");
-        assert_eq!(c.code, Some(codigos::compile_time_error::CLASS_INSTANTIATION_ACCESS_TO_STATIC_MEMBER));
+        assert_eq!(c.code, Some(codes::compile_time_error::CLASS_INSTANTIATION_ACCESS_TO_STATIC_MEMBER));
         assert_eq!(c.message, "The static member 'i' can't be accessed on a class instantiation.");
         let unknown = Diagnostic::new(
             format!("{}: 'A', 'i'", dartforge_types::codes::CLASS_INSTANTIATION_ACCESS_TO_UNKNOWN_MEMBER.template),
             Span { start: 7, end: 15 },
         );
         let c = encode_types(&unknown, "A<int>.i");
-        assert_eq!(c.code, Some(codigos::compile_time_error::CLASS_INSTANTIATION_ACCESS_TO_UNKNOWN_MEMBER));
+        assert_eq!(c.code, Some(codes::compile_time_error::CLASS_INSTANTIATION_ACCESS_TO_UNKNOWN_MEMBER));
         assert_eq!(c.message, "The class 'A' doesn't have a constructor named 'i'.");
     }
 
@@ -404,7 +404,7 @@ mod tests {
     fn syntax_expected_token() {
         let d = Diagnostic::new("esperava ';'", Span { start: 3, end: 4 });
         let c = encode_syntax(&d);
-        assert_eq!(c.code.unwrap().info().nome, "expected_token");
+        assert_eq!(c.code.unwrap().info().name, "expected_token");
         assert_eq!(c.message, "Expected to find ';'.");
     }
 }

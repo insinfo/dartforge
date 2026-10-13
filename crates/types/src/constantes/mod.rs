@@ -84,7 +84,7 @@ pub fn verificar_com_quebras(
     for &lib in libs {
         m.analyzer_break = false;
         out.extend(verifier::the_verify(&mut m, lib));
-        if m.analyzer_break && program.referencia_da_biblioteca(lib) == dartforge_diagnostics::Referencia::V3_6 {
+        if m.analyzer_break && program.referencia_da_biblioteca(lib) == dartforge_diagnostics::AnalyzerReference::V3_6 {
             broken.push(lib);
         }
     }

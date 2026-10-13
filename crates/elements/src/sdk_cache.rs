@@ -213,7 +213,7 @@ impl SdkCache {
         let bytes = {
             let cab = Header {
                 format: FORMAT,
-                simbolos: interner.textos().collect(),
+                simbolos: interner.texts().collect(),
                 bibliotecas: bibliotecas
                     .iter()
                     .map(|(n, b, d)| (n.as_str(), b.as_slice(), d.iter().map(String::as_str).collect()))

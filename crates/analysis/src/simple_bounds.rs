@@ -16,7 +16,7 @@
 //!
 //! Written without compiling or running (2026-10-05).
 
-use dartforge_diagnostics::codigos::compile_time_error as c;
+use dartforge_diagnostics::codes::compile_time_error as c;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_elements::model::{ClassId, ClassKind, Element, LibraryId, Program, TypedefId, UnitId};
 use dartforge_frontend::ast::{self, DeclKind, Parameter, TypeKind, TypeParameter, TypedefKind};
@@ -387,7 +387,7 @@ fn uninstantiated(program: &Program, u: UnitId, a: &ast::Ast, t: ast::TypeId, vi
             if let Some(node) = element(program, u, name).and_then(|el| node_of(program, el))
                 && bounds.not_simple.contains(&node)
             {
-                out.push((u, Diagnostic::com_codigo(c::NOT_INSTANTIATED_BOUND, type_node.span, [] as [&str; 0])));
+                out.push((u, Diagnostic::with_code(c::NOT_INSTANTIATED_BOUND, type_node.span, [] as [&str; 0])));
             }
         }
         TypeKind::Void => {}
@@ -447,7 +447,7 @@ pub fn check(program: &Program, lib: LibraryId, names: &Interner, bounds: &Simpl
                 let TypeKind::Named { args, .. } = &t.kind else { continue };
                 for &x in args.iter() {
                     if generic_function(program, u, a, x, 0) {
-                        out.push((u, Diagnostic::com_codigo(c::GENERIC_FUNCTION_TYPE_CANNOT_BE_TYPE_ARGUMENT, a.ty(x).span, [] as [&str; 0])));
+                        out.push((u, Diagnostic::with_code(c::GENERIC_FUNCTION_TYPE_CANNOT_BE_TYPE_ARGUMENT, a.ty(x).span, [] as [&str; 0])));
                     }
                 }
             }
@@ -497,7 +497,7 @@ pub fn check(program: &Program, lib: LibraryId, names: &Interner, bounds: &Simpl
                         } else {
                             tp.bound.map(|b| a.ty(b).span).map(|s| program.unit(u).source[s.start..s.end].to_string()).unwrap_or_default()
                         };
-                        out.push((u, Diagnostic::com_codigo(c::TYPE_PARAMETER_SUPERTYPE_OF_ITS_BOUND, tp.name.span, [name.as_str(), bound.as_str()])));
+                        out.push((u, Diagnostic::with_code(c::TYPE_PARAMETER_SUPERTYPE_OF_ITS_BOUND, tp.name.span, [name.as_str(), bound.as_str()])));
                         break;
                     }
                     step += 1;

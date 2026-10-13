@@ -17,7 +17,7 @@ use crate::constantes::avaliador::Motor;
 use crate::resolve::OutlineTypes;
 use crate::resolved::{BodyTypes, Resolved};
 use crate::table::{CoreTypes, TypeTable};
-use dartforge_diagnostics::codigos::warning as w;
+use dartforge_diagnostics::codes::warning as w;
 use dartforge_diagnostics::Diagnostic;
 use dartforge_elements::model::{LibraryId, Program, UnitId};
 use dartforge_frontend::ast::{self, CreationKeyword, ExprId, ExprKind};
@@ -103,7 +103,7 @@ pub fn construtores_literais(
         }
         let code = if c.with_new { w::NON_CONST_CALL_TO_LITERAL_CONSTRUCTOR_USING_NEW } else { w::NON_CONST_CALL_TO_LITERAL_CONSTRUCTOR };
         let span = program.unit(c.unit).ast.expr(c.expr).span;
-        out.push((c.unit, Diagnostic::com_codigo(code, span, [c.name.as_str()])));
+        out.push((c.unit, Diagnostic::with_code(code, span, [c.name.as_str()])));
     }
     out
 }

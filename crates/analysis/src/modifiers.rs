@@ -14,7 +14,7 @@
 //! forbidden supertype (`extends int`, `extends Enum`), a deferred clause or a
 //! mixin error is left out, as in the analyzer.
 
-use dartforge_diagnostics::{codigos::compile_time_error as c, Codigo, Diagnostic, Span};
+use dartforge_diagnostics::{codes::compile_time_error as c, Code, Diagnostic, Span};
 use dartforge_elements::model::{ClassId, ClassKind, Element, LibraryId, Program, UnitId};
 use dartforge_frontend::ast::{self, DeclKind, TypeKind};
 use dartforge_intern::Interner;
@@ -153,9 +153,9 @@ pub fn outside_library(program: &Program, lib: LibraryId, names: &Interner) -> V
         // The analyzer drops the repeated error (same code, range and
         // message): the `ErrorVerifier` and the `BaseOrFinalTypeVerifier`
         // each report `class X implements SealedOfBase`.
-        let mut by = |code: Codigo, sp: Span, args: &[&str], context: Option<dartforge_diagnostics::Contexto>| {
-            let mut d = Diagnostic::com_codigo(code, sp, args.iter().copied());
-            d.contexto.extend(context);
+        let mut by = |code: Code, sp: Span, args: &[&str], context: Option<dartforge_diagnostics::ContextMessage>| {
+            let mut d = Diagnostic::with_code(code, sp, args.iter().copied());
+            d.context.extend(context);
             if !out.iter().any(|(u, x): &(UnitId, Diagnostic)| *u == decl.unit && x.span == d.span && x.message == d.message) {
                 out.push((decl.unit, d));
             }
@@ -245,10 +245,10 @@ pub fn outside_library(program: &Program, lib: LibraryId, names: &Interner) -> V
                     let args: Vec<&str> = args.iter().map(String::as_str).collect();
                     // The context message points at the declaration's file
                     // when it is not the error's.
-                    let context = context.map(|(u, span, message)| dartforge_diagnostics::Contexto {
-                        arquivo: (u != decl.unit).then(|| program.caminho_da_unidade(u).into()),
+                    let context = context.map(|(u, span, message)| dartforge_diagnostics::ContextMessage {
+                        file: (u != decl.unit).then(|| program.caminho_da_unidade(u).into()),
                         span,
-                        mensagem: message.into(),
+                        message: message.into(),
                     });
                     by(code, sp, &args, context);
                     relatou = true;
@@ -273,7 +273,7 @@ fn restriction(
     sup: ClassId,
     implemented: Option<Span>,
     name_span: Span,
-) -> Option<(Codigo, Span, Vec<String>, Option<(UnitId, Span, String)>)> {
+) -> Option<(Code, Span, Vec<String>, Option<(UnitId, Span, String)>)> {
     let lib_el = cx.class_of(element).library;
     let lib_sup = cx.class_of(sup).library;
     // A `sealed` that extends `base`/`final` inherits the modifier (it is an
@@ -435,7 +435,7 @@ mod tests {
         let diags = outside_library(&program, program.entry.unwrap(), &names);
         let v: Vec<(&str, &str, &str)> = diags
             .iter()
-            .map(|(_, d)| (d.code.map_or("", |c| c.info().nome), &source[d.span.start..d.span.end], d.message.as_str()))
+            .map(|(_, d)| (d.code.map_or("", |c| c.info().name), &source[d.span.start..d.span.end], d.message.as_str()))
             .collect();
         assert_eq!(
             v,

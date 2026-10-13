@@ -283,7 +283,7 @@ pub fn marker_3_13(dir: &Path, sources: &[std::path::PathBuf]) -> std::collectio
         let Ok(text) = std::fs::read_to_string(f) else { continue };
         let mut names = dartforge_intern::Interner::new();
         let parsed = dartforge_frontend::parser::parse_com(&text, &mut names, features);
-        if parsed.referencia == dartforge_diagnostics::Referencia::V3_13
+        if parsed.referencia == dartforge_diagnostics::AnalyzerReference::V3_13
             && let Some(r) = relativo(f, dir)
         {
             marked.insert(r);

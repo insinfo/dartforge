@@ -2,7 +2,7 @@
 //! main declaration uses the values of the whole augmented enum.
 
 use crate::Unidade;
-use dartforge_diagnostics::codigos::compile_time_error as c;
+use dartforge_diagnostics::codes::compile_time_error as c;
 use dartforge_diagnostics::Diagnostic;
 use dartforge_frontend::ast::DeclKind;
 use dartforge_intern::SymbolId;
@@ -35,7 +35,7 @@ pub fn sem_constantes(units: &[Unidade<'_>]) -> Vec<(usize, Diagnostic)> {
                 if !decl.augment && e.constants.is_empty() && !augmented_with_constants.contains(&e.name.sym) {
                     out.push((
                         i,
-                        Diagnostic::com_codigo(
+                        Diagnostic::with_code(
                             c::ENUM_WITHOUT_CONSTANTS,
                             e.name.span,
                             std::iter::empty::<&str>(),
@@ -70,7 +70,7 @@ mod tests {
         assert_eq!(d.code, Some(c::ENUM_WITHOUT_CONSTANTS));
         assert_eq!((d.span.start, d.span.end), (5, 6));
         assert_eq!(d.message, "The enum must have at least one constant.");
-        assert_eq!(d.correcao().as_deref(), Some("Try declaring a constant."));
+        assert_eq!(d.correction().as_deref(), Some("Try declaring a constant."));
     }
 
     #[test]

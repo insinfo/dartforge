@@ -7,7 +7,7 @@
 //!
 //! Written without compiling or running (2026-10-05).
 
-use dartforge_diagnostics::{Severidade, Span, TipoErro};
+use dartforge_diagnostics::{Severity, Span, ErrorType};
 
 pub mod codigos_g;
 pub mod manifest;
@@ -28,8 +28,8 @@ pub struct CodigoNaoDart {
     pub mensagem: &'static str,
     /// The correction template.
     pub correcao: Option<&'static str>,
-    pub tipo: TipoErro,
-    pub severidade: Severidade,
+    pub tipo: ErrorType,
+    pub severidade: Severity,
     pub documentado: bool,
 }
 

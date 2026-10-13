@@ -45,7 +45,7 @@ use crate::ast::{
     StmtKind, SwitchCase, TypeId, Variable, VariableList,
 };
 use crate::token::{Keyword, Kind, Op};
-use dartforge_diagnostics::{Span, codigos};
+use dartforge_diagnostics::{Span, codes};
 
 impl<'s, 'i> Parser<'s, 'i> {
     /// Full `statement`, with labels.
@@ -215,7 +215,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                     // in the others, that of the skipped token.
                     if self.pos == statement_start && !self.at_eof() {
                         let texto = if body_node { ";".to_string() } else { self.text().to_string() };
-                        self.erro(codigos::parser::UNEXPECTED_TOKEN, &[&texto]);
+                        self.erro(codes::parser::UNEXPECTED_TOKEN, &[&texto]);
                         self.advance();
                     }
                 }
@@ -472,13 +472,13 @@ impl<'s, 'i> Parser<'s, 'i> {
             && n.span.start < n.span.end
             && crate::token::Keyword::from_text(&self.source[n.span.start..n.span.end]).is_some()
         {
-            self.error_at(codigos::parser::MISSING_STATEMENT, n.span, &[]);
+            self.error_at(codes::parser::MISSING_STATEMENT, n.span, &[]);
         }
         if let crate::ast::ExprKind::Assign { target, .. } = self.ast.expr(expr).kind
             && !self.is_assignable(target)
         {
             let span = self.ast.expr(target).span;
-            self.error_at(codigos::parser::ILLEGAL_ASSIGNMENT_TO_NON_ASSIGNABLE, span, &[]);
+            self.error_at(codes::parser::ILLEGAL_ASSIGNMENT_TO_NON_ASSIGNABLE, span, &[]);
         }
         self.expect_semicolon()?;
         Ok(self.push_stmt(start, StmtKind::Expression(expr)))
@@ -500,7 +500,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         } else if self.declaration_type_at(self.pos, false) {
             self.parse_typed_declaration(start)?
         } else {
-            return Err(self.erro(codigos::parser::MISSING_STATEMENT, &[]));
+            return Err(self.erro(codes::parser::MISSING_STATEMENT, &[]));
         };
         if !metadata.is_empty() {
             self.ast.metadados_locais.push((s, metadata.into_boxed_slice()));
@@ -535,7 +535,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             None
         };
         if !late && !final_ && !var_ && !const_ && ty.is_none() {
-            return Err(self.erro(codigos::parser::MISSING_CONST_FINAL_VAR_OR_TYPE, &[]));
+            return Err(self.erro(codes::parser::MISSING_CONST_FINAL_VAR_OR_TYPE, &[]));
         }
         let list = VariableList {
             external: false,
@@ -670,7 +670,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `ASYNC_KEYWORD_USED_AS_IDENTIFIER`.
     pub(crate) fn check_await_yield_as_name(&mut self, nome: Span) {
         if (self.in_async || self.in_generator) && matches!(&self.source[nome.start..nome.end], "await" | "yield") {
-            self.error_at(codigos::parser::ASYNC_KEYWORD_USED_AS_IDENTIFIER, nome, &[]);
+            self.error_at(codes::parser::ASYNC_KEYWORD_USED_AS_IDENTIFIER, nome, &[]);
         }
     }
 
@@ -833,7 +833,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         // a synthetic empty body; what comes next is the next statement.
         if !self.at_op(Op::LBrace) {
             let closes = self.tokens[self.pos - 1].span;
-            self.error_at(codigos::parser::EXPECTED_SWITCH_STATEMENT_BODY, closes, &[]);
+            self.error_at(codes::parser::EXPECTED_SWITCH_STATEMENT_BODY, closes, &[]);
             return Ok(self.push_stmt(start, StmtKind::Switch { value, cases: Vec::new().into_boxed_slice() }));
         }
         let close = self.matching_close(self.pos);
@@ -877,9 +877,9 @@ impl<'s, 'i> Parser<'s, 'i> {
             // `SWITCH_HAS_CASE_AFTER_DEFAULT_CASE` at the `case`; another `default`,
             // `SWITCH_HAS_MULTIPLE_DEFAULT_CASES`.
             if saw_default && self.at_kw(Keyword::Case) {
-                self.erro(codigos::parser::SWITCH_HAS_CASE_AFTER_DEFAULT_CASE, &[]);
+                self.erro(codes::parser::SWITCH_HAS_CASE_AFTER_DEFAULT_CASE, &[]);
             } else if saw_default && self.at_kw(Keyword::Default) {
-                self.erro(codigos::parser::SWITCH_HAS_MULTIPLE_DEFAULT_CASES, &[]);
+                self.erro(codes::parser::SWITCH_HAS_MULTIPLE_DEFAULT_CASES, &[]);
             }
             saw_default |= self.at_kw(Keyword::Default);
             if self.at_kw(Keyword::Default) {
@@ -906,7 +906,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.ensure_colon();
                 (None, None)
             } else {
-                return Err(self.erro(codigos::parser::EXPECTED_CASE_OR_DEFAULT, &[]));
+                return Err(self.erro(codes::parser::EXPECTED_CASE_OR_DEFAULT, &[]));
             };
             // End of a `case` group after a `default`: the next member (after the
             // labels) is neither `case` nor `default`.
@@ -952,7 +952,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `ensureBlock(token, kind)` of a `try`/`catch`/`finally`: without `{`, the
     /// `EXPECTED_*_BODY` at the previous token and a synthetic empty block in
     /// place of the next one.
-    fn required_block(&mut self, code: dartforge_diagnostics::Codigo) -> PResult<StmtId> {
+    fn required_block(&mut self, code: dartforge_diagnostics::Code) -> PResult<StmtId> {
         if self.at_op(Op::LBrace) {
             return self.parse_block();
         }
@@ -964,7 +964,7 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     fn parse_try(&mut self, start: Span) -> PResult<StmtId> {
         self.advance();
-        let body = self.required_block(codigos::parser::EXPECTED_TRY_STATEMENT_BODY)?;
+        let body = self.required_block(codes::parser::EXPECTED_TRY_STATEMENT_BODY)?;
         let mut catches = Vec::new();
         loop {
             let clause_start = self.span();
@@ -983,7 +983,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             } else {
                 break;
             }
-            let body = self.required_block(codigos::parser::EXPECTED_CATCH_CLAUSE_BODY)?;
+            let body = self.required_block(codes::parser::EXPECTED_CATCH_CLAUSE_BODY)?;
             catches.push(CatchClause {
                 span: self.span_from(clause_start),
                 on_type,
@@ -993,12 +993,12 @@ impl<'s, 'i> Parser<'s, 'i> {
             });
         }
         let finally_ = if self.eat_kw(Keyword::Finally) {
-            Some(self.required_block(codigos::parser::EXPECTED_FINALLY_CLAUSE_BODY)?)
+            Some(self.required_block(codes::parser::EXPECTED_FINALLY_CLAUSE_BODY)?)
         } else {
             None
         };
         if catches.is_empty() && finally_.is_none() {
-            return Err(self.erro(codigos::parser::MISSING_CATCH_OR_FINALLY, &[]));
+            return Err(self.erro(codes::parser::MISSING_CATCH_OR_FINALLY, &[]));
         }
         Ok(self.push_stmt(
             start,
@@ -1037,7 +1037,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         // statement stays in the tree, and the resolver reports it again
         // (`c2_sintaticos`).
         if !self.in_generator {
-            self.error_at(codigos::compile_time_error::YIELD_IN_NON_GENERATOR, word, &[]);
+            self.error_at(codes::compile_time_error::YIELD_IN_NON_GENERATOR, word, &[]);
         }
         Ok(self.push_stmt(start, StmtKind::Yield { star, value }))
     }
@@ -1061,7 +1061,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             && self.kind_of(closes) == Kind::Op(Op::RParen)
         {
             let texto = self.text().to_string();
-            self.erro(codigos::parser::UNEXPECTED_TOKEN, &[&texto]);
+            self.erro(codes::parser::UNEXPECTED_TOKEN, &[&texto]);
             self.pos = closes;
         }
         self.expect_op(Op::RParen)?;
@@ -1298,7 +1298,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// (`rewriteAndRecover`) and a synthetic `:` follows in its place.
     fn ensure_colon(&mut self) {
         if !self.eat_op(Op::Colon) {
-            self.erro(codigos::parser::EXPECTED_TOKEN, &[":"]);
+            self.erro(codes::parser::EXPECTED_TOKEN, &[":"]);
         }
     }
 
@@ -1562,7 +1562,7 @@ mod tests {
         // Unclosed block.
         let out = stmt("{ break;");
         assert!(out.result.is_err());
-        assert!(out.diagnostics.iter().any(|d| d.code.is_some_and(|c| c.info().nome == "expected_token")));
+        assert!(out.diagnostics.iter().any(|d| d.code.is_some_and(|c| c.info().name == "expected_token")));
     }
 
     #[test]
@@ -1571,11 +1571,11 @@ mod tests {
         // `handleExpressionStatement`), as in fasta.
         for src in ["case 1:", "class A {}", "finally {}"] {
             let out = stmt(src);
-            assert!(out.diagnostics.iter().any(|d| d.code.is_some_and(|c| c.info().nome == "missing_statement")), "{src}");
+            assert!(out.diagnostics.iter().any(|d| d.code.is_some_and(|c| c.info().name == "missing_statement")), "{src}");
         }
         // `else` starts a statement: a synthetic identifier before it.
         let out = stmt("else;");
-        assert!(out.diagnostics.iter().any(|d| d.code.is_some_and(|c| c.info().nome == "missing_identifier")));
+        assert!(out.diagnostics.iter().any(|d| d.code.is_some_and(|c| c.info().name == "missing_identifier")));
     }
 
     #[test]
@@ -1585,7 +1585,7 @@ mod tests {
         let out = stmt(&src);
         assert!(out.result.is_ok());
         assert_eq!(out.diagnostics.len(), 1);
-        assert!(out.diagnostics.iter().any(|d| d.code.is_some_and(|c| c.info().nome == "stack_overflow")));
+        assert!(out.diagnostics.iter().any(|d| d.code.is_some_and(|c| c.info().name == "stack_overflow")));
         assert!(out.at_eof);
     }
 

@@ -13,7 +13,7 @@ fn get_sdk() -> Option<(PathBuf, SdkLayout)> {
 }
 
 fn is_parser_diagnostic(d: &dartforge_diagnostics::Diagnostic) -> bool {
-    d.code.is_some_and(|c| c.info().tipo == dartforge_diagnostics::TipoErro::SyntacticError)
+    d.code.is_some_and(|c| c.info().error_type == dartforge_diagnostics::ErrorType::SyntacticError)
 }
 
 #[test]

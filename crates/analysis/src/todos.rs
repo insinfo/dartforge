@@ -7,11 +7,11 @@
 //!
 //! Written without compiling or running (2026-10-04).
 
-use dartforge_diagnostics::codigos::todo as t;
-use dartforge_diagnostics::{Codigo, Diagnostic, Span};
+use dartforge_diagnostics::codes::todo as t;
+use dartforge_diagnostics::{Code, Diagnostic, Span};
 use dartforge_frontend::token::Kind;
 
-const WORDS: [(&str, Codigo); 4] = [("TODO", t::TODO), ("FIXME", t::FIXME), ("HACK", t::HACK), ("UNDONE", t::UNDONE)];
+const WORDS: [(&str, Code); 4] = [("TODO", t::TODO), ("FIXME", t::FIXME), ("HACK", t::HACK), ("UNDONE", t::UNDONE)];
 
 /// A comment of the source.
 struct Comment {
@@ -35,7 +35,7 @@ fn line_rest_end(s: &str, i: usize) -> usize {
 
 /// The first match of `Todo.TODO_REGEX` in `lexeme` from `from` on: the
 /// start and end of group 2 (the word and the text) and the code.
-fn find_match(lexeme: &str, from: usize) -> Option<(usize, usize, Codigo)> {
+fn find_match(lexeme: &str, from: usize) -> Option<(usize, usize, Code)> {
     for (p, c) in lexeme[from..].char_indices() {
         // Group 1: a whitespace character, `/` or `*`.
         if !(c.is_whitespace() || c == '/' || c == '*') {
@@ -192,7 +192,7 @@ pub fn check(source: &str) -> Vec<Diagnostic> {
                     }
                     consumed = n;
                 }
-                out.push(Diagnostic::com_codigo(code, Span { start: offset, end }, [text.as_str()]));
+                out.push(Diagnostic::with_code(code, Span { start: offset, end }, [text.as_str()]));
             }
             k += 1 + consumed;
         }
@@ -208,7 +208,7 @@ mod tests {
     fn findings(source: &str) -> Vec<(&'static str, usize, usize, String)> {
         check(source)
             .into_iter()
-            .map(|d| (d.code.map_or("", |c| c.info().nome), d.span.start, d.span.end - d.span.start, d.message))
+            .map(|d| (d.code.map_or("", |c| c.info().name), d.span.start, d.span.end - d.span.start, d.message))
             .collect()
     }
 

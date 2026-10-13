@@ -17,7 +17,7 @@
 //! Written without compiling or running (2026-10-04).
 
 use crate::resolved::{MemberRef, Resolved, UnitBodyTypes};
-use dartforge_diagnostics::codigos::warning as w;
+use dartforge_diagnostics::codes::warning as w;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_elements::model::{Element, FunctionElementId, FunctionRef, Program, UnitId, VariableId, VariableRef};
 use dartforge_frontend::ast::{self, CollectionElement, DeclKind, ExprId, ExprKind, ForInit, MemberKind, StmtKind, UnaryOp};
@@ -263,8 +263,8 @@ pub fn resultados_nao_usados(program: &Program, interner: &Interner, the_body: &
             continue;
         }
         match use_.message.as_deref().filter(|m| !m.is_empty()) {
-            None => out.push(Diagnostic::com_codigo(w::UNUSED_RESULT, span, [the_name.as_str()])),
-            Some(m) => out.push(Diagnostic::com_codigo(w::UNUSED_RESULT_WITH_MESSAGE, span, [the_name.as_str(), m])),
+            None => out.push(Diagnostic::with_code(w::UNUSED_RESULT, span, [the_name.as_str()])),
+            Some(m) => out.push(Diagnostic::with_code(w::UNUSED_RESULT_WITH_MESSAGE, span, [the_name.as_str(), m])),
         }
     }
     out

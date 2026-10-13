@@ -19,7 +19,7 @@
 //! The positions are the analyzer's: the name (`atToken`) or the whole node
 //! (`atNode`, which starts at the documentation comment or at the annotation).
 
-use dartforge_diagnostics::{Codigo, Diagnostic, Span, codigos::compile_time_error as c};
+use dartforge_diagnostics::{Code, Diagnostic, Span, codes::compile_time_error as c};
 use dartforge_elements::model::{DeclRef, Element, LibraryId, Program, UnitId};
 use dartforge_frontend::ast::{
     self, DeclKind, FunctionBody, FunctionKind, Initializer, MemberKind, Parameter, StmtId,
@@ -40,8 +40,8 @@ struct Ctx<'a> {
     super_in_primary: bool,
 }
 
-fn diag(code: Codigo, span: Span, args: &[&str]) -> Diagnostic {
-    Diagnostic::com_codigo(code, span, args.iter().copied())
+fn diag(code: Code, span: Span, args: &[&str]) -> Diagnostic {
+    Diagnostic::with_code(code, span, args.iter().copied())
 }
 
 /// The names of `Object` members (`MethodDeclarationExtension.hasObjectMemberName`).
@@ -130,7 +130,7 @@ impl Ctx<'_> {
         self.names.resolve(s)
     }
 
-    fn report(&mut self, code: Codigo, span: Span, args: &[&str]) {
+    fn report(&mut self, code: Code, span: Span, args: &[&str]) {
         self.out.push((self.u, diag(code, span, args)));
     }
 
@@ -709,7 +709,7 @@ fn built_in_identifiers(cx: &mut Ctx<'_>) {
     let program = cx.program;
     let unit = program.unit(cx.u);
     let sdk = program.library(unit.library).is_sdk;
-    let mut found: Vec<(Codigo, ast::Name)> = Vec::new();
+    let mut found: Vec<(Code, ast::Name)> = Vec::new();
     for d in &unit.unit.directives {
         if let ast::DirectiveKind::Import { prefix: Some(p), .. } = &d.kind {
             found.push((c::BUILT_IN_IDENTIFIER_AS_PREFIX_NAME, *p));
@@ -717,7 +717,7 @@ fn built_in_identifiers(cx: &mut Ctx<'_>) {
     }
     let mut params: Vec<ast::Name> = Vec::new();
     for &id in &unit.unit.declarations {
-        let (code, name, tps): (Codigo, Option<ast::Name>, &[ast::TypeParameter]) = match &ast_.decl(id).kind {
+        let (code, name, tps): (Code, Option<ast::Name>, &[ast::TypeParameter]) = match &ast_.decl(id).kind {
             // `visitClassTypeAlias`: a class alias uses the `typedef` code.
             DeclKind::Class(d) if d.mixin_application => (c::BUILT_IN_IDENTIFIER_AS_TYPEDEF_NAME, Some(d.name), &d.type_params),
             DeclKind::Class(d) => (c::BUILT_IN_IDENTIFIER_AS_TYPE_NAME, Some(d.name), &d.type_params),
@@ -1098,7 +1098,7 @@ pub fn check(
                 let Some(fragment) = cx.source.get(p.span.start..end) else { continue };
                 let Some(i) = fragment.rfind("this") else { continue };
                 let s = Span { start: p.span.start + i, end: p.span.start + i + 4 };
-                cx.report(dartforge_diagnostics::codigos::parser::FIELD_INITIALIZER_OUTSIDE_CONSTRUCTOR, s, &[]);
+                cx.report(dartforge_diagnostics::codes::parser::FIELD_INITIALIZER_OUTSIDE_CONSTRUCTOR, s, &[]);
             }
         }
         misplaced_super(&mut cx, ast_);
@@ -1150,7 +1150,7 @@ mod tests {
                 .into_iter()
                 .map(|(_, d)| {
                     (
-                        d.code.map_or("", |c| c.info().nome).to_string(),
+                        d.code.map_or("", |c| c.info().name).to_string(),
                         source[d.span.start..d.span.end].to_string(),
                         d.message,
                     )

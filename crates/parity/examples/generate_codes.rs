@@ -1,9 +1,9 @@
-//! Generates `crates/diagnostics/src/codigos_g.rs`: the code table of
+//! Generates `crates/diagnostics/src/codes_g.rs`: the code table of
 //! `package:analyzer` 6.11.0 (the analyzer of SDK 3.6.2), read from the
 //! sources in the pub cache.
 //!
 //! ```text
-//! cargo run -p dartforge-parity --example gerar_codigos [-- <pub-cache/hosted/pub.dev>]
+//! cargo run -p dartforge-parity --example generate_codes [-- <pub-cache/hosted/pub.dev>]
 //! ```
 //!
 //! Deterministic: the same source gives the same file, byte for byte. The
@@ -36,7 +36,7 @@ const CLASSES: &[(&str, &str, &str)] = &[
 /// 6.11 codes do not change.
 ///
 /// (class, module, constant, name, unique, message, correction, type)
-const SUPLEMENTO_3_13: &[(&str, &str, &str, &str, &str, &str, &str, &str)] = &[
+const SUPPLEMENT_3_13: &[(&str, &str, &str, &str, &str, &str, &str, &str)] = &[
     (
         "CompileTimeErrorCode",
         "compile_time_error",
@@ -285,7 +285,7 @@ const SUPLEMENTO_3_13: &[(&str, &str, &str, &str, &str, &str, &str, &str)] = &[
         "STATIC_WARNING",
     ),
     // The 3.13.4 shapes of codes 6.11 already has (T2 §1.3 (a) and (b)): the targets of
-    // `VARIANTES_3_13`. The `_3_13` suffix only distinguishes the unique name; the reported
+    // `VARIANTS_3_13`. The `_3_13` suffix only distinguishes the unique name; the reported
     // name is the next column. Texts from the live 3.13.4 oracle (cases `corpus/especificacao/t2/v`).
     (
         "WarningCode",
@@ -441,7 +441,7 @@ const SUPLEMENTO_3_13: &[(&str, &str, &str, &str, &str, &str, &str, &str)] = &[
 /// reported as in 3.6. Empty target: 3.13.4 does not report it.
 ///
 /// (from, to, arguments, minimum)
-const VARIANTES_3_13: &[(&str, &str, &[u8], u8)] = &[
+const VARIANTS_3_13: &[(&str, &str, &[u8], u8)] = &[
     // `{1}` of the correction: `[feature, version 3.6.2, version 3.13.4]`.
     ("ParserErrorCode.EXPERIMENT_NOT_ENABLED", "ParserErrorCode.EXPERIMENT_NOT_ENABLED", &[0, 2], 0),
     ("ParserErrorCode.REPRESENTATION_FIELD_MODIFIER", "ParserErrorCode.REPRESENTATION_FIELD_MODIFIER_3_13", &[0], 0),
@@ -696,7 +696,7 @@ fn read_class(src: &str, class: &str) -> (Vec<Entry>, String, String) {
                     j += 1;
                 }
                 let value = match expr.as_slice() {
-                    [a, x, s] if a == "ErrorType" && s == "severity" => format!("tipo:{x}"),
+                    [a, x, s] if a == "ErrorType" && s == "severity" => format!("type:{x}"),
                     [a, x] if a == "ErrorSeverity" || a == "ErrorType" => x.clone(),
                     _ => panic!("getter {getter} of {class} not recognized: {expr:?}"),
                 };
@@ -717,13 +717,13 @@ fn read_class(src: &str, class: &str) -> (Vec<Entry>, String, String) {
 
 fn rust_type(t: &str) -> &'static str {
     match t {
-        "TODO" => "TipoErro::Todo",
-        "HINT" => "TipoErro::Hint",
-        "COMPILE_TIME_ERROR" => "TipoErro::CompileTimeError",
-        "CHECKED_MODE_COMPILE_TIME_ERROR" => "TipoErro::CheckedModeCompileTimeError",
-        "STATIC_WARNING" => "TipoErro::StaticWarning",
-        "SYNTACTIC_ERROR" => "TipoErro::SyntacticError",
-        "LINT" => "TipoErro::Lint",
+        "TODO" => "ErrorType::Todo",
+        "HINT" => "ErrorType::Hint",
+        "COMPILE_TIME_ERROR" => "ErrorType::CompileTimeError",
+        "CHECKED_MODE_COMPILE_TIME_ERROR" => "ErrorType::CheckedModeCompileTimeError",
+        "STATIC_WARNING" => "ErrorType::StaticWarning",
+        "SYNTACTIC_ERROR" => "ErrorType::SyntacticError",
+        "LINT" => "ErrorType::Lint",
         _ => panic!("ErrorType {t}"),
     }
 }
@@ -731,11 +731,11 @@ fn rust_type(t: &str) -> &'static str {
 /// `ErrorType.X.severity` (`errors.dart:196-238` of `_fe_analyzer_shared`).
 fn rust_severity(s: &str) -> &'static str {
     match s {
-        "ERROR" | "tipo:COMPILE_TIME_ERROR" | "tipo:SYNTACTIC_ERROR" | "tipo:CHECKED_MODE_COMPILE_TIME_ERROR" => {
-            "Severidade::Error"
+        "ERROR" | "type:COMPILE_TIME_ERROR" | "type:SYNTACTIC_ERROR" | "type:CHECKED_MODE_COMPILE_TIME_ERROR" => {
+            "Severity::Error"
         }
-        "WARNING" | "tipo:STATIC_WARNING" => "Severidade::Warning",
-        "INFO" | "tipo:HINT" | "tipo:LINT" | "tipo:TODO" => "Severidade::Info",
+        "WARNING" | "type:STATIC_WARNING" => "Severity::Warning",
+        "INFO" | "type:HINT" | "type:LINT" | "type:TODO" => "Severity::Info",
         _ => panic!("severity {s}"),
     }
 }
@@ -759,7 +759,7 @@ fn main() {
             all.push((e, module, ty.clone(), sev.clone()));
         }
     }
-    for (class, module, constant, name, unique, message, correction, ty) in SUPLEMENTO_3_13 {
+    for (class, module, constant, name, unique, message, correction, ty) in SUPPLEMENT_3_13 {
         let e = Entry {
             class: class.to_string(),
             constant: constant.to_string(),
@@ -769,15 +769,15 @@ fn main() {
             correction: (!correction.is_empty()).then(|| correction.to_string()),
             documented: false,
         };
-        all.push((e, module, ty.to_string(), format!("tipo:{ty}")));
+        all.push((e, module, ty.to_string(), format!("type:{ty}")));
     }
-    let _ = writeln!(summary, "3.13.4 supplement (new codes and new shapes of 6.11 codes): {}", SUPLEMENTO_3_13.len());
+    let _ = writeln!(summary, "3.13.4 supplement (new codes and new shapes of 6.11 codes): {}", SUPPLEMENT_3_13.len());
     // The variants: unique names become indices; the sort is stable, and the
     // order of the rows of one code is the table's.
     let mut variants: Vec<(usize, Option<usize>, &'static [u8], u8)> = Vec::new();
     {
         let index = |unique: &str| all.iter().position(|e| e.0.unique == unique).unwrap_or_else(|| panic!("variant: {unique} is not in the table"));
-        for (from_code, to, args, requires) in VARIANTES_3_13 {
+        for (from_code, to, args, requires) in VARIANTS_3_13 {
             let minimum = args.iter().map(|a| *a + 1).max().unwrap_or(0).max(*requires);
             variants.push((index(*from_code), (!to.is_empty()).then(|| index(*to)), *args, minimum));
         }
@@ -795,17 +795,17 @@ fn main() {
     let _ = writeln!(summary, "3.13.4 variants: {}", variants.len());
     let n = all.len();
     let mut s = String::new();
-    s.push_str("// GENERATED by `cargo run -p dartforge-parity --example gerar_codigos`. DO NOT EDIT.\n");
+    s.push_str("// GENERATED by `cargo run -p dartforge-parity --example generate_codes`. DO NOT EDIT.\n");
     s.push_str("// Source: analyzer-6.11.0 and _fe_analyzer_shared-76.0.0 (Dart SDK 3.6), pub cache.\n");
     for l in summary.lines() {
         let _ = writeln!(s, "// {l}");
     }
-    s.push_str("#![allow(missing_docs)]\n\nuse crate::{Codigo, InfoCodigo, Severidade, TipoErro, Variante313};\n\n");
-    let _ = writeln!(s, "pub(crate) static TABELA: [InfoCodigo; {n}] = [");
+    s.push_str("#![allow(missing_docs)]\n\nuse crate::{Code, CodeInfo, Severity, ErrorType, Variant313};\n\n");
+    let _ = writeln!(s, "pub(crate) static TABLE: [CodeInfo; {n}] = [");
     for (e, _, ty, sev) in &all {
         let _ = writeln!(
             s,
-            "    InfoCodigo {{ nome: {:?}, unico: {:?}, mensagem: {:?}, correcao: {}, tipo: {}, severidade: {}, documentado: {} }},",
+            "    CodeInfo {{ name: {:?}, unique: {:?}, message: {:?}, correction: {}, error_type: {}, severity: {}, documented: {} }},",
             e.name,
             e.unique,
             e.message,
@@ -824,33 +824,33 @@ fn main() {
     for w in by_unique.windows(2) {
         assert_ne!(w[0].0, w[1].0, "repeated uniqueName");
     }
-    let _ = writeln!(s, "pub(crate) static POR_UNICO: [(&str, u16); {n}] = [");
+    let _ = writeln!(s, "pub(crate) static BY_UNIQUE: [(&str, u16); {n}] = [");
     for (u, i) in &by_unique {
         let _ = writeln!(s, "    ({u:?}, {i}),");
     }
     s.push_str("];\n\n");
-    let _ = writeln!(s, "/// Sorted by `de`; see `Codigo::variantes_3_13`.");
-    let _ = writeln!(s, "pub(crate) static VARIANTES_3_13: [Variante313; {}] = [", variants.len());
+    let _ = writeln!(s, "/// Sorted by `from`; see `Code::variants_3_13`.");
+    let _ = writeln!(s, "pub(crate) static VARIANTS_3_13: [Variant313; {}] = [", variants.len());
     for (from_code, to, args, requires) in &variants {
         let to = match to {
-            Some(p) => format!("Some(Codigo({p}))"),
+            Some(p) => format!("Some(Code({p}))"),
             None => "None".to_string(),
         };
-        let _ = writeln!(s, "    Variante313 {{ de: Codigo({from_code}), para: {to}, args: &{args:?}, exige: {requires} }},");
+        let _ = writeln!(s, "    Variant313 {{ from: Code({from_code}), to: {to}, args: &{args:?}, requires: {requires} }},");
     }
-    s.push_str("];\n\npub mod modulos {\n");
+    s.push_str("];\n\npub mod modules {\n");
     for (class, module, _) in CLASSES {
-        let _ = writeln!(s, "    /// `{class}`.\n    pub mod {module} {{\n        use crate::Codigo;");
+        let _ = writeln!(s, "    /// `{class}`.\n    pub mod {module} {{\n        use crate::Code;");
         for (i, (e, m, _, _)) in all.iter().enumerate() {
             if m == module {
-                let _ = writeln!(s, "        pub const {}: Codigo = Codigo({i});", e.constant.to_uppercase());
+                let _ = writeln!(s, "        pub const {}: Code = Code({i});", e.constant.to_uppercase());
             }
         }
         s.push_str("    }\n");
         let _ = &class;
     }
     s.push_str("}\n");
-    let dest = Path::new(env!("CARGO_MANIFEST_DIR")).join("../diagnostics/src/codigos_g.rs");
+    let dest = Path::new(env!("CARGO_MANIFEST_DIR")).join("../diagnostics/src/codes_g.rs");
     std::fs::write(&dest, s).expect("write table");
     print!("{summary}");
     println!("total: {n} -> {}", dest.display());

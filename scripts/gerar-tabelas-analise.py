@@ -246,12 +246,12 @@ linhas = [
     "// GERADO por `scripts/gerar-tabelas-analise.py` (frente INFRA-FASES). NÃO EDITE.",
     "// Fonte: analyzer do SDK 3.6.2 — `analysis_options/error/option_codes.g.dart`,",
     "// `pubspec/pubspec_warning_code.g.dart`, `manifest/manifest_warning_code.g.dart`.",
-    "// TODO(catálogo): estes 53 códigos não estão em `crates/diagnostics/src/codigos_g.rs`;",
-    "// quando entrarem, `Relato::para_diagnostic` passa a usar `Diagnostic::com_codigo`.",
+    "// TODO(catálogo): estes 53 códigos não estão em `crates/diagnostics/src/codes_g.rs`;",
+    "// quando entrarem, `Relato::para_diagnostic` passa a usar `Diagnostic::with_code`.",
     "#![allow(missing_docs)]",
     "",
     "use super::CodigoNaoDart;",
-    "use dartforge_diagnostics::{Severidade, TipoErro};",
+    "use dartforge_diagnostics::{Severity, ErrorType};",
     "",
 ]
 for mod in ["opcoes", "pubspec", "manifesto"]:
@@ -262,7 +262,7 @@ for mod in ["opcoes", "pubspec", "manifesto"]:
             continue
         sev, tipo = CLASSES_ND[c["classe"]]
         linhas.append(
-            "    pub static %s: CodigoNaoDart = CodigoNaoDart { nome: %s, unico: %s, mensagem: %s, correcao: %s, tipo: TipoErro::%s, severidade: Severidade::%s, documentado: %s };"
+            "    pub static %s: CodigoNaoDart = CodigoNaoDart { nome: %s, unico: %s, mensagem: %s, correcao: %s, tipo: ErrorType::%s, severidade: Severity::%s, documentado: %s };"
             % (c["const"], rs(c["nome"].lower()), rs(c["classe"] + "." + (c["unico"] or c["nome"])), rs(c["mensagem"]), opt(c["correcao"]), tipo, sev, "true" if c["documentado"] else "false")
         )
     linhas.append("}")
@@ -400,7 +400,7 @@ print("LinterLintCode:", len(lc))
 linhas = [
     "// GERADO por `scripts/gerar-tabelas-analise.py` (frente INFRA-FASES). NÃO EDITE.",
     "// Fonte: `linter/lib/src/linter_lint_codes.dart` do SDK 3.6.2 (LinterLintCode).",
-    "// TODO(catálogo): os `LintCode` não estão em `crates/diagnostics/src/codigos_g.rs`.",
+    "// TODO(catálogo): os `LintCode` não estão em `crates/diagnostics/src/codes_g.rs`.",
     "#![allow(missing_docs)]",
     "",
     "use super::CodigoLint;",

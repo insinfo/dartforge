@@ -197,7 +197,7 @@ pub(crate) fn value_(
                 if generator {
                     let span = inf.program.unit(cx.unit).ast.expr(e).span;
                     inf.warning_with_code(
-                        dartforge_diagnostics::codigos::compile_time_error::TEAROFF_OF_GENERATIVE_CONSTRUCTOR_OF_ABSTRACT_CLASS,
+                        dartforge_diagnostics::codes::compile_time_error::TEAROFF_OF_GENERATIVE_CONSTRUCTOR_OF_ABSTRACT_CLASS,
                         span,
                         &[],
                     );
@@ -228,7 +228,7 @@ pub(crate) fn value_(
 /// Reports by the code's unique name (all three are from the 3.13.4
 /// supplement of `dartforge_diagnostics`' table).
 fn report(inf: &mut BodyInferrer<'_>, unique: &str, span: dartforge_diagnostics::Span, args: &[&str]) {
-    if let Some(code) = dartforge_diagnostics::Codigo::por_unico(unique) {
+    if let Some(code) = dartforge_diagnostics::Code::by_unique(unique) {
         inf.warning_with_code(code, span, args);
     }
 }
@@ -301,7 +301,7 @@ pub(crate) fn construction(
             && k.constructors.is_empty()
         {
             let span = inf.program.unit(cx.unit).ast.expr(e).span;
-            inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::INSTANTIATE_ABSTRACT_CLASS, span, &[]);
+            inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::INSTANTIATE_ABSTRACT_CLASS, span, &[]);
             // The target goes through the common path (`valor`), which is not a
             // tear-off.
             cx.reported_shorthands.insert(tgt.0);
@@ -332,7 +332,7 @@ pub(crate) fn construction(
         let k = inf.program.class(d);
         if k.kind == dartforge_elements::model::ClassKind::Class && k.modifiers.abstract_ && !inf.program.function(fid).factory {
             let span = program.unit(cx.unit).ast.expr(e).span;
-            inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::INSTANTIATE_ABSTRACT_CLASS, span, &[]);
+            inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::INSTANTIATE_ABSTRACT_CLASS, span, &[]);
         } else if let Some(sp) = super::calls::type_list_range(inf, cx.unit, &arguments.type_args) {
             let (text, _) = name_and_span(inf, cx, tgt);
             let cls = inf.interner.resolve(k.name).to_string();

@@ -43,7 +43,7 @@ use crate::constantes::avaliador::{Constante, Ctx, Motor};
 use crate::resolve::OutlineTypes;
 use crate::resolved::{BodyTypes, MemberRef, Resolved};
 use crate::table::{CoreTypes, TypeTable};
-use dartforge_diagnostics::codigos::warning as w;
+use dartforge_diagnostics::codes::warning as w;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_elements::model::{
     ClassId, ClassKind, Element, ExtensionId, FunctionElementId, FunctionKind, LibraryId, Program, TypedefId, UnitId, UnitRole, VariableId,
@@ -972,7 +972,7 @@ pub fn elementos_nao_usados(
     // arguments: joined into `output` at the end.
     let mut of_primary: Vec<(UnitId, Diagnostic)> = Vec::new();
     let mut report = |u: UnitId, code, n: ast::Name, displayed: String| {
-        output.push((u, Diagnostic::com_codigo(code, n.span, [displayed.as_str()])));
+        output.push((u, Diagnostic::with_code(code, n.span, [displayed.as_str()])));
     };
     let used_element = |el: El, metadata: &[ast::Annotation], u: UnitId, engine: &mut Option<Motor<'_>>| {
         used.elements.contains(&el) || marked(&cx, engine, u, metadata, false)
@@ -1160,7 +1160,7 @@ pub fn elementos_nao_usados(
                                     let keyword = if l.final_ { "final" } else { "var" };
                                     of_primary.push((
                                         u,
-                                        Diagnostic::com_codigo(w::UNUSED_FIELD_FROM_PRIMARY_CONSTRUCTOR, v.name.span, [interner.resolve(v.name.sym), keyword]),
+                                        Diagnostic::with_code(w::UNUSED_FIELD_FROM_PRIMARY_CONSTRUCTOR, v.name.span, [interner.resolve(v.name.sym), keyword]),
                                     ));
                                 } else {
                                     report(u, w::UNUSED_FIELD, v.name, interner.resolve(v.name.sym).to_string());

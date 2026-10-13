@@ -44,7 +44,7 @@ use crate::resolve::OutlineTypes;
 use crate::resolved::{Resolved, UnitBodyTypes};
 use crate::subtyping::{SubtypeEnv, is_subtype};
 use crate::table::{CoreTypes, Type, TypeId, TypeTable};
-use dartforge_diagnostics::codigos::{compile_time_error, warning};
+use dartforge_diagnostics::codes::{compile_time_error, warning};
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_elements::model::{ClassId, Element, LibraryId, Program, UnitId};
 use dartforge_frontend::ast::{self, AsyncModifier, ExprId, ExprKind, FunctionBody, StmtKind};
@@ -133,7 +133,7 @@ impl Verifier<'_> {
         let Type::Function { positional, optional, named, .. } = self.table.get(ty).clone() else { return };
         let report = |v: &mut Self| {
             let args = [v.format(ty), v.format(expected_return)];
-            v.output.push(Diagnostic::com_codigo(warning::ARGUMENT_TYPE_NOT_ASSIGNABLE_TO_ERROR_HANDLER, where_, args));
+            v.output.push(Diagnostic::with_code(warning::ARGUMENT_TYPE_NOT_ASSIGNABLE_TO_ERROR_HANDLER, where_, args));
         };
         // The parameters in order: positional, optional, named.
         let positional_args: Vec<TypeId> = positional.iter().chain(optional.iter()).copied().collect();
@@ -225,7 +225,7 @@ pub fn retornos_de_catch_error(
                 let Type::Function { ret, .. } = *v.table.get(t) else { continue };
                 if !v.assignable(ret, expected) {
                     let args = [v.format(ret), v.format(expected)];
-                    v.output.push(Diagnostic::com_codigo(warning::RETURN_TYPE_INVALID_FOR_CATCH_ERROR, a.expr(callback).span, args));
+                    v.output.push(Diagnostic::with_code(warning::RETURN_TYPE_INVALID_FOR_CATCH_ERROR, a.expr(callback).span, args));
                 }
                 v.handler(a.expr(callback).span, t, expected, true);
             }
@@ -288,7 +288,7 @@ fn closure_returns(v: &mut Verifier<'_>, a: &ast::Ast, source: &str, body: &Unit
                     // `_checkReturnWithoutValue` with `T_v = X`.
                     StmtKind::Return(None) if !x_empty_dynamic_or_null => {
                         let end = if source.get(s.span.start..).is_some_and(|t| t.starts_with("return")) { s.span.start + 6 } else { s.span.end };
-                        v.output.push(Diagnostic::com_codigo(compile_time_error::RETURN_WITHOUT_VALUE, Span { start: s.span.start, end: end }, std::iter::empty::<&str>()));
+                        v.output.push(Diagnostic::with_code(compile_time_error::RETURN_WITHOUT_VALUE, Span { start: s.span.start, end: end }, std::iter::empty::<&str>()));
                     }
                     _ => {}
                 }
@@ -314,7 +314,7 @@ fn closure_returns(v: &mut Verifier<'_>, a: &ast::Ast, source: &str, body: &Unit
         };
         if error {
             let args = [v.format(s), v.format(expected)];
-            v.output.push(Diagnostic::com_codigo(warning::RETURN_OF_INVALID_TYPE_FROM_CATCH_ERROR, a.expr(r).span, args));
+            v.output.push(Diagnostic::with_code(warning::RETURN_OF_INVALID_TYPE_FROM_CATCH_ERROR, a.expr(r).span, args));
         }
     }
 }

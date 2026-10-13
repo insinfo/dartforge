@@ -8,8 +8,8 @@
 //! Written without compiling or running (2026-10-05).
 
 use crate::Unidade;
-use dartforge_diagnostics::codigos::warning as w;
-use dartforge_diagnostics::{Codigo, Diagnostic, Span};
+use dartforge_diagnostics::codes::warning as w;
+use dartforge_diagnostics::{Code, Diagnostic, Span};
 use dartforge_frontend::comentarios::Comentarios;
 
 fn is_blank(c: u8) -> bool {
@@ -27,7 +27,7 @@ fn is_letter(c: u8) -> bool {
 /// `_findLanguageVersionOverrideComment`: `Ok(true)` on a valid override (the
 /// search stops), `Ok(false)` when it is not an attempt, `Err(code)` when it
 /// is an invalid attempt (the search goes on).
-fn check_comment(comment: &[u8]) -> Result<bool, Codigo> {
+fn check_comment(comment: &[u8]) -> Result<bool, Code> {
     let n = comment.len();
     let mut i = 0usize;
     let skip_blanks = |i: &mut usize| {
@@ -197,7 +197,7 @@ pub fn check(u: Unidade<'_>) -> Vec<Diagnostic> {
             if let Some(end) = match_override(lexeme)
                 && let Some(at_sign) = u.fonte[c.start..c.end].find("@dart")
             {
-                out.push(Diagnostic::com_codigo(
+                out.push(Diagnostic::with_code(
                     w::INVALID_LANGUAGE_VERSION_OVERRIDE_LOCATION,
                     Span { start: c.start + at_sign, end: c.start + end },
                     Vec::<&str>::new(),
@@ -212,7 +212,7 @@ pub fn check(u: Unidade<'_>) -> Vec<Diagnostic> {
         match check_comment(&source[c.start..c.end]) {
             Ok(true) => break,
             Ok(false) => {}
-            Err(code) => out.push(Diagnostic::com_codigo(code, *c, Vec::<&str>::new())),
+            Err(code) => out.push(Diagnostic::with_code(code, *c, Vec::<&str>::new())),
         }
     }
     out
