@@ -852,7 +852,9 @@ fn visit(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, shap
             for u2 in updates.iter() {
                 infer_free(inf, cx, *u2);
             }
-            cx.flow = before;
+            // Without a condition the loop never ends (an element has no
+            // `break`): what follows the element is unreachable.
+            cx.flow = if condition.is_none() { before.unreachable() } else { before };
             if dead_at_start {
                 cx.dead_code = if condition.is_some() && updates.is_empty() { Some(0) } else { None };
             }

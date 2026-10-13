@@ -231,6 +231,11 @@ pub(crate) struct Body {
     /// (unreachable branch) or the block that contains it. A `for` reports the
     /// updates when it is its body (`_reportForUpdaters`).
     pub dead_origin: Option<ast::StmtId>,
+    /// An annotation of a class or extension member: the error of an
+    /// instance member read without `this` there (the `ErrorVerifier` visits
+    /// the metadata with the member's own context: static method, factory,
+    /// field that is static or not `late`).
+    pub annotation_access: Option<dartforge_diagnostics::Code>,
 }
 
 /// Base of a reference to a promotable field.
@@ -313,6 +318,7 @@ impl Body {
             untyped_this: false,
             dead_code: None,
             dead_origin: None,
+            annotation_access: None,
         };
         if inf.program.library(lib).features.has(dartforge_frontend::Feature::WildcardVariables) {
             cx.wildcard = inf.interner.lookup("_");

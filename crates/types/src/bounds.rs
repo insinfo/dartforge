@@ -9,7 +9,7 @@
 
 use crate::ops::{non_nullable, nullable};
 use crate::subtyping::{is_subtype, SubtypeEnv};
-use crate::table::{Type, TypeId, TypeParamId};
+use crate::table::{Type, TypeId, TypeParamId, Variance};
 use std::collections::HashMap;
 
 /// **TOP**(`T`): `dynamic`, `void`, `S?` with **TOP**/**OBJECT**(`S`), `FutureOr<S>` with **TOP**(`S`).
@@ -489,7 +489,26 @@ fn up_depth(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv, depth: u32) -> TypeId 
         let ext1 = matches!(ty1, Type::ExtensionType { .. });
         let ext2 = matches!(ty2, Type::ExtensionType { .. });
         if c1 == c2 && a1.len() == a2.len() && ext1 == ext2 {
-            let args: Vec<TypeId> = a1.iter().zip(a2.iter()).map(|(x, y)| up_depth(*x, *y, env, depth + 1)).collect();
+            // By the declared variance (`least_upper_bound.dart:63-99`, the
+            // `variance` experiment): `in` takes DOWN, `inout` needs equal
+            // arguments (otherwise the interface level decides).
+            let variances: Vec<Variance> = match env.hierarchy.get(*c1) {
+                Some(data) if data.type_params.len() == a1.len() => data.type_params.iter().map(|&p| env.table.param(p).variance).collect(),
+                _ => vec![Variance::Unspecified; a1.len()],
+            };
+            let mut args: Vec<TypeId> = Vec::with_capacity(a1.len());
+            for ((x, y), v) in a1.iter().zip(a2.iter()).zip(variances) {
+                match v {
+                    Variance::Contravariant => args.push(down_depth(*x, *y, env, depth + 1)),
+                    Variance::Invariant => {
+                        if !(is_subtype(*x, *y, env) && is_subtype(*y, *x, env)) {
+                            return interface_lub(t1, t2, env);
+                        }
+                        args.push(*x);
+                    }
+                    Variance::Covariant | Variance::Unspecified => args.push(up_depth(*x, *y, env, depth + 1)),
+                }
+            }
             let args = args.into_boxed_slice();
             return if ext1 {
                 env.table.intern(Type::ExtensionType { decl: *c1, args, nullable: false })

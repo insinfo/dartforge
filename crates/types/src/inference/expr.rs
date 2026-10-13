@@ -326,6 +326,9 @@ fn instance_without_this_error(inf: &BodyInferrer<'_>, cx: &Body) -> Option<dart
     if cx.class.is_none() && cx.extension.is_none() {
         return None;
     }
+    if cx.annotation_access.is_some() {
+        return cx.annotation_access;
+    }
     match cx.root {
         super::body::Root::Function(_) if cx.static_member => Some(c::INSTANCE_MEMBER_ACCESS_FROM_STATIC),
         super::body::Root::Function(_) => None,
@@ -1477,6 +1480,7 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                 if let ast::StringPart::Interpolation(i) = p {
                     let t = infer_free(inf, cx, *i);
                     void_use(inf, cx, *i, t);
+                    dead_after_interpolation(inf, cx, *i);
                 }
             }
             inf.core.string
@@ -3692,6 +3696,27 @@ fn dead_in_right_operand(inf: &mut BodyInferrer<'_>, cx: &mut Body, left: ExprId
     cx.dead_code = Some(cx.flow_ends.len());
 }
 
+/// An interpolated `${e}` that ends the flow (`'${throw x} …'`): the
+/// `InterpolationString` that always follows it (from just after the `}`) is
+/// the first dead node (`checkUnreachableNode` of `visitNode`), and the
+/// fragment runs to the end of the current basic block.
+fn dead_after_interpolation(inf: &mut BodyInferrer<'_>, cx: &mut Body, i: ExprId) {
+    if cx.flow.reachable || cx.dead_code.is_some() {
+        return;
+    }
+    let after = inf.span_expr(cx.unit, i).end;
+    let source = &inf.program.unit(cx.unit).source;
+    let rest = source.get(after..).unwrap_or("");
+    let pos = after + skip_whitespace_and_comments(rest);
+    if !source.get(pos..).unwrap_or("").starts_with('}') {
+        return;
+    }
+    let start = pos + 1;
+    let end = cx.flow_ends.last().copied().or(cx.block_ends.last().copied()).unwrap_or(start).max(start);
+    inf.warning(DEAD_CODE.template.to_string(), dartforge_diagnostics::Span { start, end });
+    cx.dead_code = Some(cx.flow_ends.len());
+}
+
 /// Unary operators (`!`, `-`, `~`, `++`, `--`, postfix `!`).
 fn unary(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: UnaryOp, operand: ExprId, ctx: TypeId, short_circuit: &mut bool) -> TypeId {
     let span = inf.span_expr(cx.unit, e);
@@ -4888,7 +4913,18 @@ fn index_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, recv: Typ
         if target.is_some_and(|t| matches!(ast(inf, cx).expr(t).kind, ExprKind::Super)) {
             lookup_super_operator(inf, cx, op)
         } else {
-            inf.lookup_member(cx.lib, recv, op, false)
+            let found = inf.lookup_member(cx.lib, recv, op, false);
+            // Two extensions, one with `[]` and the other with `[]=`, neither
+            // more specific: `AMBIGUOUS_EXTENSION_MEMBER_ACCESS` with the name the
+            // `TypePropertyResolver` looked up (`[]`), at the target.
+            if let Some(t) = target
+                && let Some(amb) = inf.extension_ambiguity.as_mut()
+            {
+                amb.0 = "[]".to_string();
+                let sp = inf.span_expr(cx.unit, t);
+                inf.report_extension_ambiguity(sp);
+            }
+            found
         }
     };
     match search {

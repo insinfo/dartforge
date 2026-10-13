@@ -1086,12 +1086,18 @@ impl<'a> OutlineResolver<'a> {
                         // The representation is resolved before the instance
                         // scope (`an611:src/summary2/reference_resolver.dart:204-207`).
                         let scope = self.get_enclosing_type_param_scope(var.class, None);
-                        let ty = self.resolve_annotation(
-                            unit,
-                            ext.representation_type,
-                            var.library,
-                            &scope,
-                        );
+                        // A named representation without a type (`ET(name)`, which
+                        // the parser completes with a synthetic name): for the 3.13.4
+                        // oracle it is a declaring parameter of type `Object?`.
+                        let untyped = matches!(
+                            &self.program.unit(unit).ast.ty(ext.representation_type).kind,
+                            ast::TypeKind::Named { name, .. } if name.len() == 1 && self.interner.resolve(name[0].sym).is_empty()
+                        ) && !self.interner.resolve(ext.representation_name.sym).is_empty();
+                        let ty = if untyped && self.program.reference(unit) == dartforge_diagnostics::AnalyzerReference::V3_13 {
+                            self.core.object_nullable
+                        } else {
+                            self.resolve_annotation(unit, ext.representation_type, var.library, &scope)
+                        };
                         (Some(ty), Some(ty))
                     } else {
                         (None, None)

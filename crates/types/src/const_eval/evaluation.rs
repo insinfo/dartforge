@@ -600,13 +600,38 @@ impl<'a> Engine<'a> {
                 self.inv(u, e, c::CONST_EVAL_METHOD_INVOCATION)
             }
             ExprKind::Property { target, name, .. } => self.property(cx, e, *target, *name, in_const),
-            ExprKind::TypeArguments { target, .. } => {
+            ExprKind::TypeArguments { target, type_args } => {
                 // Generic type literal or function instantiation: the exact
                 // value of the type is not reconstructed here.
                 match self.evaluate(cx, *target, in_const) {
                     Constant::Value(v) => match v.state {
                         InstanceState::Type(_) => Constant::Value(Value::new(self.core.type_, InstanceState::Type(None))),
                         InstanceState::Function { element, .. } => {
+                            // `visitFunctionReference` (3.6.2 `evaluation.dart:884-896`):
+                            // a written argument that names a type parameter outside
+                            // the constructor's lexical environment (`_getConstantValue`
+                            // gives `CONST_TYPE_PARAMETER`, with constructor tear-offs)
+                            // is `CONST_WITH_TYPE_PARAMETERS_FUNCTION_TEAROFF`.
+                            let lib = self.program.unit(u).library;
+                            if self.program.library(lib).features.version() >= dartforge_frontend::features::LanguageVersion::new(2, 15) {
+                                for &ty in type_args.iter() {
+                                    let Some(t) = self
+                                        .body
+                                        .units
+                                        .get(u.0 as usize)
+                                        .and_then(|b| b.annotation_types.get(&ty).copied())
+                                        .or_else(|| self.outline.written_types.get(&(u, ty)).copied())
+                                    else {
+                                        continue;
+                                    };
+                                    if let Type::TypeParameter { param, .. } = self.table.get(t)
+                                        && !cx.types.as_ref().is_some_and(|m| m.contains_key(param))
+                                    {
+                                        let span = self.program.unit(u).ast.ty(ty).span;
+                                        return Constant::Invalid(Box::new(self.error(u, span, c::CONST_WITH_TYPE_PARAMETERS_FUNCTION_TEAROFF)));
+                                    }
+                                }
+                            }
                             // `_instantiateFunctionType`: the instantiated type goes
                             // through the constructor's substitution.
                             let t = self.the_static(u, e);

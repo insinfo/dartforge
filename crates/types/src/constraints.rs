@@ -394,7 +394,25 @@ impl GenericInferrer {
         (lower, upper)
     }
 
-    fn choose(lower: TypeId, upper: TypeId, grounded: bool, env: &mut SubtypeEnv) -> TypeId {
+    /// `_chooseTypeFromConstraints` (3.6.2 `generic_inferrer.dart:447-491`): the
+    /// known bound first, the lower one by preference; the upper one for a
+    /// parameter declared contravariant (`in T`, the `variance` experiment).
+    fn choose(lower: TypeId, upper: TypeId, grounded: bool, contravariant: bool, env: &mut SubtypeEnv) -> TypeId {
+        if contravariant {
+            if !has_unknown(upper, env) {
+                return upper;
+            }
+            if !has_unknown(lower, env) {
+                return lower;
+            }
+            if !env.core.is_unknown(env.table, upper) {
+                return if grounded { schema_greatest(upper, env) } else { upper };
+            }
+            if !env.core.is_unknown(env.table, lower) {
+                return if grounded { schema_least(lower, env) } else { lower };
+            }
+            return upper;
+        }
         if !has_unknown(lower, env) {
             return lower;
         }
@@ -408,6 +426,11 @@ impl GenericInferrer {
             return if grounded { schema_greatest(upper, env) } else { upper };
         }
         lower
+    }
+
+    /// Whether parameter `i` is declared `in` (`typeParam.variance.isContravariant`).
+    fn contravariant(&self, i: usize, env: &SubtypeEnv) -> bool {
+        matches!(env.table.param(self.params[i]).variance, crate::table::Variance::Contravariant)
     }
 
     /// Declared bound of parameter `i`, if written (not the implicit `Object?`).
@@ -480,7 +503,7 @@ impl GenericInferrer {
                 continue;
             }
             let (lower, upper) = self.merge(i, env);
-            let t = Self::choose(lower, upper, false, env);
+            let t = Self::choose(lower, upper, false, self.contravariant(i, env), env);
             if has_unknown(t, env) {
                 types[i] = t;
                 continue;
@@ -488,7 +511,7 @@ impl GenericInferrer {
             let t = match self.bound(i, &types, env) {
                 Some(b) => {
                     let upper2 = down(upper, b, env);
-                    Self::choose(lower, upper2, false, env)
+                    Self::choose(lower, upper2, false, self.contravariant(i, env), env)
                 }
                 None => t,
             };
@@ -518,7 +541,7 @@ impl GenericInferrer {
             if let Some(b) = self.bound(i, &types, env) {
                 upper = down(upper, b, env);
             }
-            let t = Self::choose(lower, upper, true, env);
+            let t = Self::choose(lower, upper, true, self.contravariant(i, env), env);
             types[i] = t;
             known[i] = !has_unknown(t, env);
         }
@@ -565,7 +588,7 @@ impl GenericInferrer {
             }
             let t = match self.the_fixed[i] {
                 Some(f) => f,
-                None => Self::choose(lower, upper, true, env),
+                None => Self::choose(lower, upper, true, self.contravariant(i, env), env),
             };
             inferred[i] = t;
         }

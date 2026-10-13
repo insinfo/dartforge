@@ -729,6 +729,13 @@ pub(crate) fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId
                     cx.flow = non_null;
                 }
                 None => {
+                    // `nullCheckOrAssertPattern_begin` (3.6.2): a `?` may still not
+                    // match a non-nullable value (mixed mode); only sound flow
+                    // analysis (3.9) skips that join.
+                    if !assertion && !inf.program.library(cx.lib).features.has(dartforge_frontend::Feature::SoundFlowAnalysis) {
+                        let current = cx.flow.clone();
+                        join_not_matched(inf, cx, &current);
+                    }
                     // The matched value cannot be null: the `?`/`!` does nothing. A `?` in
                     // an irrefutable context is already another error.
                     if assertion || (!forced && !irrefutable_now(cx)) {

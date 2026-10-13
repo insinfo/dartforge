@@ -285,11 +285,16 @@ pub fn unused_parameters(
                 }
             }
             if kk.parameters.iter().any(|p| p.super_) {
+                let v3_13 = program.reference(unit) == dartforge_diagnostics::AnalyzerReference::V3_13;
                 if let Some(s) = superclass_constructor(program, interner, c, kk) {
                     if let Some((_, sps)) = params_list(program, s) {
                         let mut pos = 0usize;
                         for p in kk.parameters.iter() {
-                            if p.kind != ParameterKind::Named && p.super_ {
+                            // Only a `DefaultFormalParameter` (`[super.x]`, `{super.x}`)
+                            // marks its super parameter (`visitDefaultFormalParameter`,
+                            // `:113-121`); a required positional `super.x` does not
+                            // (it does for the 3.13.4 oracle).
+                            if p.kind != ParameterKind::Named && p.super_ && (p.kind == ParameterKind::Optional || v3_13) {
                                 if let Some((j, _)) = sps.iter().enumerate().filter(|(_, x)| x.kind != ParameterKind::Named).nth(pos) {
                                     used.insert((s, j));
                                 }

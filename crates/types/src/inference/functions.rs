@@ -177,8 +177,16 @@ pub(crate) fn infer_declared_function(inf: &mut BodyInferrer<'_>, f: FunctionEle
             let saved_this = cx.this_type.take();
             let saved_static = cx.the_static;
             cx.the_static = true;
+            // A dead fragment that starts inside an initializer runs to the end
+            // of the constructor (`flowEnd` of the `ConstructorDeclaration`).
+            cx.flow_ends.push(inf.program.unit(unit).ast.member(member).span.end);
             for init in ctor.initializers.iter() {
                 initializer(inf, &mut cx, fe.class, init, &ctor.parameters, fe.const_, f);
+            }
+            cx.flow_ends.pop();
+            // The fragment also covers the body: it stays open there.
+            if cx.dead_code.is_some_and(|p| p > cx.flow_ends.len()) {
+                cx.dead_code = Some(cx.flow_ends.len());
             }
             // `_checkForRecursiveConstructorRedirect` (`error_verifier.dart:5047-5066`):
             // at the first `this(...)` of a generative constructor in a cycle.
@@ -1866,7 +1874,15 @@ fn function_literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, fid: ast::Functio
     // Only a write to a variable from outside the function is a capture:
     // that of its own parameters and locals (a declaration found in its scan)
     // is not.
-    cx.written_in_closure.extend(written_ones.iter().copied().filter(|e| e.1.is_none()));
+    // Each one by its declaration (a later variable with the same name, in
+    // another block, is not the captured one).
+    let resolved: Vec<statements::Write> = written_ones
+        .iter()
+        .copied()
+        .filter(|e| e.1.is_none())
+        .filter_map(|e| statements::write_local(cx, e).map(|id| (e.0, Some(cx.local(id).offset))))
+        .collect();
+    cx.written_in_closure.extend(resolved);
     cx.flow = flow_inside;
     cx.push_scope();
     // Type parameters of the function literal.
@@ -2502,10 +2518,52 @@ pub(crate) fn infer_unit_metadata(inf: &mut BodyInferrer<'_>, unit: UnitId) {
             }
         }
     }
-    for mb in a.members.iter() {
+    // The container of each member: a member's annotation is resolved in the
+    // container's scope (`ResolverVisitor` visits the metadata inside the
+    // class or extension scope), where a setter-only member hides an outer
+    // getter of the same name.
+    let mut owners: std::collections::HashMap<u32, (Option<ClassId>, Option<dartforge_elements::model::ExtensionId>)> = std::collections::HashMap::new();
+    for (di, d) in a.decls.iter().enumerate() {
+        let members: &[ast::MemberId] = match &d.kind {
+            ast::DeclKind::Class(x) => &x.members,
+            ast::DeclKind::Mixin(x) => &x.members,
+            ast::DeclKind::Enum(x) => &x.members,
+            ast::DeclKind::Extension(x) => &x.members,
+            ast::DeclKind::ExtensionType(x) => &x.members,
+            ast::DeclKind::Typedef(_) | ast::DeclKind::Function(_) | ast::DeclKind::Variables(_) => &[],
+        };
+        let owner = match &d.kind {
+            ast::DeclKind::Extension(_) => {
+                let decl = ast::DeclId(di as u32);
+                let x = inf.program.extensions.iter().position(|x| x.decl.unit == unit && x.decl.decl == decl);
+                (None, x.map(|i| dartforge_elements::model::ExtensionId(i as u32)))
+            }
+            _ => decl_class(inf, unit, d),
+        };
+        if owner == (None, None) {
+            continue;
+        }
+        for &mid in members {
+            owners.insert(mid.0, owner);
+        }
+    }
+    for (mi, mb) in a.members.iter().enumerate() {
+        let (owner, owner_extension) = owners.get(&(mi as u32)).copied().unwrap_or((None, None));
+        // `_checkForInvalidInstanceMemberAccess` with the member's context.
+        let access = {
+            use dartforge_diagnostics::codes::compile_time_error as ce;
+            match &mb.kind {
+                ast::MemberKind::Constructor(k) if k.factory => Some(ce::INSTANCE_MEMBER_ACCESS_FROM_FACTORY),
+                ast::MemberKind::Constructor(_) => None,
+                ast::MemberKind::Field(v) if v.static_ || !v.late => Some(ce::IMPLICIT_THIS_REFERENCE_IN_INITIALIZER),
+                ast::MemberKind::Field(_) => None,
+                ast::MemberKind::Method(f) if a.function(*f).static_ => Some(ce::INSTANCE_MEMBER_ACCESS_FROM_STATIC),
+                ast::MemberKind::Method(_) => None,
+            }
+        };
         for m in mb.metadata.iter() {
-            // Owner class unknown here: resolves in the library's scope.
-            annotation(inf, unit, None, None, m);
+            validate_annotation_at(inf, unit, owner, owner_extension, m);
+            annotation_arguments(inf, unit, owner, owner_extension, m, &[], access);
         }
         if let ast::MemberKind::Constructor(ctor) = &mb.kind {
             for p in ctor.parameters.iter() {
@@ -2706,6 +2764,19 @@ pub(crate) fn validate_annotation_at(
             }
             return;
         }
+        // Another member declared in the container (instance getter, method,
+        // static method): not a constant; a setter alone hides the outer
+        // getter and the name does not resolve.
+        let setter_key = inf.setter_key(n1.sym);
+        if let Some((f, _)) = inf.lexical_declared_member(cls, extension, n1.sym, setter_key) {
+            if inf.program.function(f).kind == dartforge_elements::model::FunctionKind::Setter {
+                let t = inf.interner.resolve(n1.sym).to_string();
+                inf.warning_with_code(c::UNDEFINED_ANNOTATION, span, &[&t]);
+            } else {
+                inf.warning_with_code(c::INVALID_ANNOTATION, span, &[]);
+            }
+            return;
+        }
     }
     let b1 = inf.program.lookup_in_unit(unit, n1.sym);
     let mut e1 = classify_in_annotation(inf, b1);
@@ -2852,8 +2923,23 @@ fn unvalidated_annotation_with(
     m: &ast::Annotation,
     types: &[(dartforge_intern::SymbolId, TypeParamId)],
 ) {
+    annotation_arguments(inf, unit, cls, extension, m, types, None);
+}
+
+/// [`unvalidated_annotation_with`] of a member's annotation, with the error of
+/// an instance member read without `this` in that member's context.
+fn annotation_arguments(
+    inf: &mut BodyInferrer<'_>,
+    unit: UnitId,
+    cls: Option<ClassId>,
+    extension: Option<dartforge_elements::model::ExtensionId>,
+    m: &ast::Annotation,
+    types: &[(dartforge_intern::SymbolId, TypeParamId)],
+    access: Option<dartforge_diagnostics::Code>,
+) {
     let Some(args) = &m.arguments else { return };
     let mut cx = Body::new(inf, unit, cls, extension, true);
+    cx.annotation_access = access;
     for &(the_name, p) in types {
         cx.declare_type_param(the_name, p);
     }
