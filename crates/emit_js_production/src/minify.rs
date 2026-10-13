@@ -272,6 +272,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn shares_short_names_only_outside_common_groups() {
+        let js = "a.foo; a.foo; a.foo; b.bar; b.bar; c.baz; d.stat; e.unknown;";
+        let allocator = oxc_allocator::Allocator::default();
+        let parsed = oxc_parser::Parser::new(&allocator, js, oxc_span::SourceType::cjs()).parse();
+        let renamed: std::collections::HashSet<String> = ["foo", "bar", "baz", "stat", "unknown"].iter().map(|s| s.to_string()).collect();
+        // `foo` and `bar` never meet; `baz` lives with `foo`.
+        let names = crate::properties::Names {
+            groups: vec![vec!["foo".into(), "baz".into()], vec!["bar".into()]],
+            solitary: ["stat".to_string()].into_iter().collect(),
+            ..Default::default()
+        };
+        let map: std::collections::HashMap<String, String> = assign_names(&parsed.program, &renamed, &[], &names).into_iter().collect();
+        assert_eq!(map["foo"], map["bar"]);
+        assert_ne!(map["foo"], map["baz"]);
+        for solo in ["stat", "unknown"] {
+            for other in ["foo", "bar", "baz", if solo == "stat" { "unknown" } else { "stat" }] {
+                assert_ne!(map[solo], map[other], "{solo} shares with {other}");
+            }
+        }
+        // Without groups, every name gets its own target.
+        let map: std::collections::HashMap<String, String> =
+            assign_names(&parsed.program, &renamed, &[], &crate::properties::Names::default()).into_iter().collect();
+        let targets: std::collections::HashSet<&String> = map.values().collect();
+        assert_eq!(targets.len(), renamed.len());
+    }
+
+    #[test]
     fn removes_comments_and_indentation() {
         let js = "// header\nfunction f(a, b) {\n  /* sum */\n  return a + b;\n}\n";
         assert_eq!(compact(js), "function f(a,b){\nreturn a+b;\n}\n");
@@ -724,10 +751,21 @@ const JS_PROTOTYPE_NAMES: &[&str] = &[
 /// Counts the program's properties and gives each name in `renamed` a short
 /// name: the most used gets the smallest (`base54`, `oxc`'s order). No
 /// target coincides with a name that **stays** in the file (a property not
-/// renamed, a quoted key, `extra_taken`) nor with another target; a renamed
-/// name may become another's target, because all of its occurrences change.
-/// Deterministic: ties broken by name order.
-fn assign_names(program: &oxc_ast::ast::Program<'_>, renamed: &std::collections::HashSet<String>, extra_taken: &[&str]) -> Vec<(String, String)> {
+/// renamed, a quoted key, `extra_taken`); a renamed name may become another's
+/// target, because all of its occurrences change. Deterministic: ties broken
+/// by name order.
+///
+/// Two renamed names share a target only when [`crate::properties::Names`]
+/// says no object can carry both (they never meet in a cohabitation group,
+/// and neither is solitary): the field slots of `dart2js`, which make the
+/// views of different libraries read alike (`docs/JS-PRODUCAO-TAMANHO.md`
+/// §13.1). Without groups every name gets its own target.
+fn assign_names(
+    program: &oxc_ast::ast::Program<'_>,
+    renamed: &std::collections::HashSet<String>,
+    extra_taken: &[&str],
+    names: &crate::properties::Names,
+) -> Vec<(String, String)> {
     use oxc_ast_visit::Visit;
     struct Count(std::collections::HashMap<String, u32>);
     impl Count {
@@ -773,18 +811,77 @@ fn assign_names(program: &oxc_ast::ast::Program<'_>, renamed: &std::collections:
     taken.extend(extra_taken.iter().copied());
     let mut order: Vec<(&String, u32)> = renamed.iter().map(|n| (n, c.0.get(n).copied().unwrap_or(0))).collect();
     order.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
-    let mut out = Vec::with_capacity(order.len());
+    // The groups of each shareable name (renamed, not solitary).
+    let mut groups_of: std::collections::HashMap<&str, Vec<usize>> = std::collections::HashMap::new();
+    for (g, members) in names.groups.iter().enumerate() {
+        for m in members {
+            if renamed.contains(m) && !names.solitary.contains(m) {
+                groups_of.entry(m.as_str()).or_default().push(g);
+            }
+        }
+    }
+    // The valid targets in `base54` order, generated on demand.
+    let mut targets: Vec<String> = Vec::new();
     let mut k = 0u32;
-    for (from, _) in order {
-        let to = loop {
+    let mut target = |j: usize, targets: &mut Vec<String>| -> String {
+        while targets.len() <= j {
             let n = oxc_mangler::base54(k);
             k += 1;
             let n = n.as_str();
             if !taken.contains(n) && !matches!(n, "__proto__" | "constructor" | "prototype") {
-                break n.to_string();
+                targets.push(n.to_string());
+            }
+        }
+        targets[j].clone()
+    };
+    // Bit sets over target indices: used by anyone, by a solitary name, and
+    // inside each group.
+    fn get(bits: &[u64], j: usize) -> bool {
+        bits.get(j / 64).is_some_and(|w| w >> (j % 64) & 1 == 1)
+    }
+    fn put(bits: &mut Vec<u64>, j: usize) {
+        if bits.len() <= j / 64 {
+            bits.resize(j / 64 + 1, 0);
+        }
+        bits[j / 64] |= 1 << (j % 64);
+    }
+    let mut any: Vec<u64> = Vec::new();
+    let mut solo: Vec<u64> = Vec::new();
+    let mut used: Vec<Vec<u64>> = vec![Vec::new(); names.groups.len()];
+    let mut out = Vec::with_capacity(order.len());
+    for (from, _) in order {
+        let j = match groups_of.get(from.as_str()) {
+            None => {
+                let mut j = 0;
+                while get(&any, j) {
+                    j += 1;
+                }
+                put(&mut solo, j);
+                j
+            }
+            Some(gs) => {
+                let mut forbidden = solo.clone();
+                for &g in gs {
+                    let u = &used[g];
+                    if forbidden.len() < u.len() {
+                        forbidden.resize(u.len(), 0);
+                    }
+                    for (w, x) in forbidden.iter_mut().zip(u.iter()) {
+                        *w |= x;
+                    }
+                }
+                let mut j = 0;
+                while get(&forbidden, j) {
+                    j += 1;
+                }
+                for &g in gs {
+                    put(&mut used[g], j);
+                }
+                j
             }
         };
-        out.push((from.clone(), to));
+        put(&mut any, j);
+        out.push((from.clone(), target(j, &mut targets)));
     }
     out
 }
@@ -895,7 +992,7 @@ pub fn minify_with_properties(js: &str, names: &crate::properties::Names) -> Res
             let mut extra_taken: Vec<&str> = JS_PROTOTYPE_NAMES.to_vec();
             extra_taken.extend(names.reserved.iter().map(String::as_str));
             extra_taken.extend(strings.names.iter().map(String::as_str));
-            for (from, to) in assign_names(&program, &renamed, &extra_taken) {
+            for (from, to) in assign_names(&program, &renamed, &extra_taken, names) {
                 o.cache.insert(from.into(), Some(to.into())).map_err(|e| e.to_string())?;
             }
         }

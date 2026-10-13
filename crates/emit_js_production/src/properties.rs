@@ -47,6 +47,19 @@ pub struct Names {
     /// Labels of the program's libraries (`dartforge_emit_js::recipe_tag`):
     /// the properties of private names end with them.
     pub tags: HashSet<String>,
+    /// Cohabitation groups (`docs/JS-PRODUCAO-TAMANHO.md` §13.1): for each
+    /// class without subtypes, the JS names of the instance members of its
+    /// whole supertype chain (superclasses, mixins, interfaces and `on`),
+    /// which are the only renamable names an object of that class can carry.
+    /// Two names that never share a group may get the same short name, as the
+    /// field slots of `dart2js`. Empty when the sharing is off
+    /// (`DARTFORGE_JSPROD_SHARED_NAMES=0`).
+    pub groups: Vec<Vec<String>>,
+    /// Names that may live outside the instances of the classes of
+    /// [`Names::groups`]: statics and constructors (on the constructor
+    /// function), top-level members and classes (on the library objects) and
+    /// the runtime helpers. They never share a short name.
+    pub solitary: HashSet<String>,
 }
 
 fn has_interop_annotation(p: &Program, i: &Interner, c: ClassId) -> bool {
@@ -194,5 +207,112 @@ pub fn compute(a: &dartforge_emit_js::Analysis<'_>, js_names: &HashSet<String>, 
     // JavaScript property: renamed along with it.
     n.reserved.extend(js_names.iter().filter(|w| *w != "new").cloned());
     n.reserved.extend(JS_PROTOCOL.iter().map(|s| s.to_string()));
+    if std::env::var("DARTFORGE_JSPROD_SHARED_NAMES").map_or(true, |v| v != "0") {
+        cohabitation(a, &mut n);
+    }
     n
+}
+
+/// Fills [`Names::groups`] and [`Names::solitary`] from the element model.
+///
+/// An instance member of class `C` gives the names its emission may use on
+/// the instances: the member name ([`js_member_name`]) and, for a program
+/// library, the private or storage property
+/// ([`dartforge_emit_js::production_private_name`]). The SDK's private names
+/// are symbols and do not matter here. Every other element (static,
+/// constructor, top-level, class) puts all of its spellings in the solitary
+/// set, and a renamed name that no group knows is treated as solitary by the
+/// assignment: an unknown name never shares.
+///
+/// The groups are conservative: the interfaces' members are included (a
+/// `noSuchMethod` forwarder puts them on the class), and so are dead classes.
+fn cohabitation(a: &dartforge_emit_js::Analysis<'_>, n: &mut Names) {
+    use dartforge_emit_js::body::{js_member_name, static_member_name, top_level_name};
+    use dartforge_emit_js::production_private_name;
+    let (p, i) = (a.program, a.interner);
+    let classes = p.classes.len();
+    let mut declared: Vec<HashSet<String>> = vec![HashSet::new(); classes];
+    let spellings = |name: &str, lib: dartforge_elements::model::LibraryId, out: &mut dyn FnMut(String)| {
+        let sdk = p.library(lib).is_sdk;
+        if name.starts_with('_') {
+            if !sdk {
+                out(production_private_name(name, lib));
+            }
+        } else {
+            out(name.to_string());
+            if !sdk {
+                out(production_private_name(name, lib));
+            }
+        }
+    };
+    for f in p.functions.iter() {
+        let name = i.resolve(f.name);
+        if name.is_empty() || f.extension.is_some() {
+            continue;
+        }
+        let instance = f.class.is_some() && !f.static_ && !matches!(f.kind, FunctionKind::Constructor | FunctionKind::SyntheticConstructor);
+        if instance {
+            let c = f.class.map_or(0, |c| c.0 as usize);
+            let js = js_member_name(name.trim_end_matches('='));
+            spellings(&js, f.library, &mut |x| {
+                declared[c].insert(x);
+            });
+        } else {
+            for x in [name.to_string(), static_member_name(name), top_level_name(name)] {
+                spellings(&x, f.library, &mut |y| {
+                    n.solitary.insert(y);
+                });
+            }
+        }
+    }
+    for v in p.variables.iter() {
+        let name = i.resolve(v.name);
+        if name.is_empty() || v.extension.is_some() {
+            continue;
+        }
+        if v.class.is_some() && !v.static_ {
+            let c = v.class.map_or(0, |c| c.0 as usize);
+            let js = js_member_name(name);
+            spellings(&js, v.library, &mut |x| {
+                declared[c].insert(x);
+            });
+        } else {
+            for x in [name.to_string(), static_member_name(name), top_level_name(name)] {
+                spellings(&x, v.library, &mut |y| {
+                    n.solitary.insert(y);
+                });
+            }
+        }
+    }
+    for c in p.classes.iter() {
+        let name = i.resolve(c.name);
+        spellings(name, c.library, &mut |y| {
+            n.solitary.insert(y);
+        });
+    }
+    for x in ["privateName", "lateFields", "$constCache", "$C", "new"] {
+        n.solitary.insert(x.to_string());
+    }
+    // Only the classes without subtypes: the names of a class are a subset of
+    // those of each of its subtypes.
+    let h = dartforge_world::Hierarchy::new(p);
+    let mut leaf = vec![true; classes];
+    for c in 0..classes {
+        for s in h.supertypes(ClassId(c as u32)) {
+            if s.0 as usize != c {
+                leaf[s.0 as usize] = false;
+            }
+        }
+    }
+    for (c, _) in leaf.iter().enumerate().filter(|(_, l)| **l) {
+        let mut g: HashSet<&String> = HashSet::new();
+        for s in h.supertypes(ClassId(c as u32)) {
+            g.extend(declared[s.0 as usize].iter());
+        }
+        if !g.is_empty() {
+            let mut g: Vec<String> = g.into_iter().cloned().collect();
+            g.sort_unstable();
+            n.groups.push(g);
+        }
+    }
 }
