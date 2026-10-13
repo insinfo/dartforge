@@ -2268,7 +2268,36 @@ fn superclass_js(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) -> String 
 
 /// Initializers of declared fields (`int x = 0;` / `null`), except those already
 /// initialized by `this.x` or by the initializer list.
+/// Field initializations to `null`, in production chained in one statement
+/// (`this.c = this.b = this.a = null;`, written backwards so that the
+/// properties are still created in declaration order): the views of an ngdart
+/// project initialize dozens of nullable fields in a row.
+#[derive(Default)]
+struct NullInits {
+    production: bool,
+    targets: Vec<String>,
+}
+
+impl NullInits {
+    fn push(&mut self, target: String, body: &mut Writer) {
+        if self.production {
+            self.targets.push(target);
+        } else {
+            crate::emit_line!(body, "{target} = null;");
+        }
+    }
+
+    fn flush(&mut self, body: &mut Writer) {
+        if !self.targets.is_empty() {
+            self.targets.reverse();
+            crate::emit_line!(body, "{} = null;", self.targets.join(" = "));
+            self.targets.clear();
+        }
+    }
+}
+
 fn emit_field_inits(ctx: &Ctx, m: &ModState, c: ClassId, fields: &[FieldInfo], skip: &HashSet<String>, body: &mut Writer) {
+    let mut nulls = NullInits { production: ctx.filter.is_some(), ..NullInits::default() };
     for f in fields {
         if skip.contains(&f.name) || f.helper {
             continue;
@@ -2279,6 +2308,7 @@ fn emit_field_inits(ctx: &Ctx, m: &ModState, c: ClassId, fields: &[FieldInfo], s
         };
         match f.init {
             Some(i) if !f.late => {
+                nulls.flush(body);
                 let mut e = FnEmitter::new(ctx, m, f.unit, Some(c), false);
                 let (js, _) = e.emit_expr(i, Some(&f.ty));
                 if !e.temps.is_empty() {
@@ -2289,9 +2319,10 @@ fn emit_field_inits(ctx: &Ctx, m: &ModState, c: ClassId, fields: &[FieldInfo], s
                 }
                 crate::emit_line!(body, "{target} = {};", js.code);
             }
-            _ => crate::emit_line!(body, "{target} = null;"),
+            _ => nulls.push(target, body),
         }
     }
+    nulls.flush(body);
 }
 
 /// The body of a `mixin` shell: empty (as it always was), or its statics.
@@ -2320,6 +2351,7 @@ fn is_primary_constructor(ctx: &Ctx, c: ClassId, ctor: &ast::Constructor) -> boo
 /// Field initializers emitted by the constructor's own emitter (primary
 /// constructor): its parameters are in scope.
 fn emit_field_inits_in_constructor(e: &mut FnEmitter, fields: &[FieldInfo], skip: &HashSet<String>, body: &mut Writer) {
+    let mut nulls = NullInits { production: e.ctx.filter.is_some(), ..NullInits::default() };
     for f in fields {
         if skip.contains(&f.name) || f.helper {
             continue;
@@ -2330,13 +2362,15 @@ fn emit_field_inits_in_constructor(e: &mut FnEmitter, fields: &[FieldInfo], skip
         };
         match f.init {
             Some(i) if !f.late => {
+                nulls.flush(body);
                 let (js, _) = e.emit_expr(i, Some(&f.ty));
                 flush_stmts(e, body);
                 crate::emit_line!(body, "{target} = {};", js.code);
             }
-            _ => crate::emit_line!(body, "{target} = null;"),
+            _ => nulls.push(target, body),
         }
     }
+    nulls.flush(body);
 }
 
 fn emit_super_call_default(ctx: &Ctx, m: &ModState, c: ClassId, body: &mut Writer) {
