@@ -18,7 +18,7 @@
 //!
 //! Escrito sem compilar nem executar (2026-10-05).
 
-use super::walk::{andar, No};
+use super::walk::{walk, Node};
 use super::codigos_g as c;
 use super::rules::LintReport;
 use super::CodigoLint;
@@ -445,10 +445,10 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
 
     // `prefer_int_literals`.
     if ligada("prefer_int_literals") {
-        let mut pai: HashMap<ExprId, No> = HashMap::new();
-        let mut ancestrais_de: HashMap<ExprId, Vec<No>> = HashMap::new();
-        andar(u, &mut |no, anc| {
-            if let No::Expr(e) = no {
+        let mut pai: HashMap<ExprId, Node> = HashMap::new();
+        let mut ancestrais_de: HashMap<ExprId, Vec<Node>> = HashMap::new();
+        walk(u, &mut |no, anc| {
+            if let Node::Expr(e) = no {
                 if let Some(p) = anc.last() {
                     pai.insert(e, *p);
                 }
@@ -465,7 +465,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             }
             a.function(f).return_type.and_then(|t| escrito(s, t)).is_some_and(|t| e_double(s, t))
         };
-        let mut lits: Vec<(&ExprId, &Vec<No>)> = ancestrais_de.iter().collect();
+        let mut lits: Vec<(&ExprId, &Vec<Node>)> = ancestrais_de.iter().collect();
         lits.sort_by_key(|(e, _)| a.expr(**e).span.start);
         for (&e, anc) in lits {
             let ExprKind::Double(sp) = &a.expr(e).kind else { continue };
@@ -479,7 +479,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             let inicio = if negativo { sp.start + (fonte[sp.start..sp.end].len() - fonte[sp.start..sp.end].trim_start_matches('-').trim_start().len()) } else { sp.start };
             // `hasTypeDouble` do nó (o literal, ou o `-` que o contém).
             let tipo_double = match pai.get(&e).copied() {
-                Some(No::Expr(p)) => match &a.expr(p).kind {
+                Some(Node::Expr(p)) => match &a.expr(p).kind {
                     ExprKind::Call { arguments, .. } | ExprKind::InstanceCreation { arguments, .. } => {
                         arguments.args.iter().any(|x| x.value == e) && s.body.tipos_de_parametros.get(&e).is_some_and(|t| e_double(s, *t))
                     }
@@ -490,10 +490,10 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                     }
                     _ => false,
                 },
-                Some(No::Funcao(f)) => matches!(a.function(f).body, FunctionBody::Expression(x) if x == e) && retorno_double(f),
-                Some(No::Stmt(st)) => match &a.stmt(st).kind {
+                Some(Node::Function(f)) => matches!(a.function(f).body, FunctionBody::Expression(x) if x == e) && retorno_double(f),
+                Some(Node::Stmt(st)) => match &a.stmt(st).kind {
                     StmtKind::Return(Some(_)) => anc.iter().rev().find_map(|n| match n {
-                        No::Funcao(f) => Some(*f),
+                        Node::Function(f) => Some(*f),
                         _ => None,
                     })
                     .is_some_and(|f| matches!(a.function(f).body, FunctionBody::Block(_)) && retorno_double(f)),
@@ -501,11 +501,11 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                     StmtKind::For { init: Some(ForInit::Variables(l)), .. } => l.ty.and_then(|t| escrito(s, t)).is_some_and(|t| e_double(s, t)),
                     _ => false,
                 },
-                Some(No::Membro(m)) => match &a.member(m).kind {
+                Some(Node::Member(m)) => match &a.member(m).kind {
                     MemberKind::Field(l) => l.ty.and_then(|t| escrito(s, t)).is_some_and(|t| e_double(s, t)),
                     _ => false,
                 },
-                Some(No::Decl(d)) => match &a.decl(d).kind {
+                Some(Node::Decl(d)) => match &a.decl(d).kind {
                     DeclKind::Variables(l) => l.ty.and_then(|t| escrito(s, t)).is_some_and(|t| e_double(s, t)),
                     _ => false,
                 },

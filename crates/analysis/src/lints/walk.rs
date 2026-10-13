@@ -1,16 +1,15 @@
-//! Um passeio pela árvore de uma unidade com a pilha de ancestrais, para as
-//! regras de lint que perguntam "dentro de quê" (o `thisOrAncestorMatching`
-//! do analyzer): a árvore do DartForge fica em arenas e os nós não conhecem
-//! o pai.
+//! A walk over a unit's tree with the stack of ancestors, for the lint rules
+//! that ask "inside what" (the analyzer's `thisOrAncestorMatching`): the
+//! DartForge tree lives in arenas and the nodes do not know their parent.
 //!
-//! A visita é em pré-ordem. Entram as declarações, os membros, as funções
-//! (declaradas, locais e literais), os comandos, as expressões e os
-//! padrões; também os argumentos das anotações e os valores padrão dos
-//! parâmetros. Os tipos não são nós do passeio. As anotações e os
-//! argumentos das constantes de enum entram como nós só para marcar o
-//! contexto constante dos argumentos.
+//! The visit is pre-order. It covers the declarations, the members, the
+//! functions (declared, local and literal), the statements, the expressions
+//! and the patterns; also the annotations' arguments and the parameters'
+//! default values. Types are not nodes of the walk. Annotations and the
+//! arguments of enum constants are nodes only to mark the constant context of
+//! the arguments.
 //!
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Written without compiling or running (2026-10-05).
 
 use crate::Unidade;
 use dartforge_diagnostics::Span;
@@ -19,77 +18,77 @@ use dartforge_frontend::ast::{
     ListPatternElement, MemberId, MemberKind, PatternId, PatternKind, StmtId, StmtKind, StringPart,
 };
 
-/// Um nó do passeio.
+/// A node of the walk.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum No {
+pub enum Node {
     Decl(DeclId),
-    Membro(MemberId),
-    Funcao(FunctionId),
+    Member(MemberId),
+    Function(FunctionId),
     Stmt(StmtId),
     Expr(ExprId),
-    Padrao(PatternId),
-    /// Uma anotação com argumentos (o intervalo dela): os argumentos são
-    /// os filhos. Contexto constante.
-    Anotacao(Span),
-    /// Os argumentos de uma constante de enum (o intervalo da constante).
-    /// Contexto constante.
-    ArgumentosDeEnum(Span),
+    Pattern(PatternId),
+    /// An annotation with arguments (its range): the arguments are the
+    /// children. Constant context.
+    Annotation(Span),
+    /// The arguments of an enum constant (the constant's range). Constant
+    /// context.
+    EnumArguments(Span),
 }
 
-struct Andador<'a, 'f> {
+struct Walker<'a, 'f> {
     a: &'a Ast,
-    pilha: Vec<No>,
-    f: &'f mut dyn FnMut(No, &[No]),
+    stack: Vec<Node>,
+    f: &'f mut dyn FnMut(Node, &[Node]),
 }
 
-/// Chama `f(nó, ancestrais)` para cada nó da unidade; `ancestrais` vai da
-/// declaração de topo até o pai do nó.
-pub fn andar(u: Unidade<'_>, f: &mut dyn FnMut(No, &[No])) {
-    let mut x = Andador { a: u.ast, pilha: Vec::new(), f };
+/// Calls `f(node, ancestors)` for each node of the unit; `ancestors` goes from
+/// the top-level declaration to the node's parent.
+pub fn walk(u: Unidade<'_>, f: &mut dyn FnMut(Node, &[Node])) {
+    let mut x = Walker { a: u.ast, stack: Vec::new(), f };
     for &d in u.unit.declarations.iter() {
         x.decl(d);
     }
 }
 
-impl<'a> Andador<'a, '_> {
-    fn entra(&mut self, no: No) {
-        (self.f)(no, &self.pilha);
-        self.pilha.push(no);
+impl<'a> Walker<'a, '_> {
+    fn enter(&mut self, node: Node) {
+        (self.f)(node, &self.stack);
+        self.stack.push(node);
     }
 
-    fn sai(&mut self) {
-        self.pilha.pop();
+    fn exit(&mut self) {
+        self.stack.pop();
     }
 
-    fn anotacoes(&mut self, anotacoes: &[ast::Annotation]) {
-        for m in anotacoes {
+    fn annotations(&mut self, annotations: &[ast::Annotation]) {
+        for m in annotations {
             if let Some(args) = &m.arguments {
-                self.entra(No::Anotacao(m.span));
-                self.argumentos(args);
-                self.sai();
+                self.enter(Node::Annotation(m.span));
+                self.arguments(args);
+                self.exit();
             }
         }
     }
 
-    fn argumentos(&mut self, args: &ast::Arguments) {
+    fn arguments(&mut self, args: &ast::Arguments) {
         for x in args.args.iter() {
             self.expr(x.value);
         }
     }
 
-    fn parametros(&mut self, ps: &[ast::Parameter]) {
+    fn params(&mut self, ps: &[ast::Parameter]) {
         for p in ps {
-            self.anotacoes(&p.metadata);
+            self.annotations(&p.metadata);
             if let Some(d) = p.default_value {
                 self.expr(d);
             }
-            if let Some(internos) = &p.function_parameters {
-                self.parametros(internos);
+            if let Some(inner) = &p.function_parameters {
+                self.params(inner);
             }
         }
     }
 
-    fn lista(&mut self, l: &ast::VariableList) {
+    fn list(&mut self, l: &ast::VariableList) {
         for v in l.variables.iter() {
             if let Some(i) = v.initializer {
                 self.expr(i);
@@ -97,7 +96,7 @@ impl<'a> Andador<'a, '_> {
         }
     }
 
-    fn corpo(&mut self, b: &FunctionBody) {
+    fn body(&mut self, b: &FunctionBody) {
         match b {
             FunctionBody::Block(s) => self.stmt(*s),
             FunctionBody::Expression(e) => self.expr(*e),
@@ -105,62 +104,62 @@ impl<'a> Andador<'a, '_> {
         }
     }
 
-    fn membros(&mut self, primario: Option<MemberId>, membros: &[MemberId]) {
-        if let Some(p) = primario
-            && !membros.contains(&p)
+    fn members(&mut self, primary: Option<MemberId>, members: &[MemberId]) {
+        if let Some(p) = primary
+            && !members.contains(&p)
         {
-            self.membro(p);
+            self.member(p);
         }
-        for &m in membros {
-            self.membro(m);
+        for &m in members {
+            self.member(m);
         }
     }
 
     fn decl(&mut self, d: DeclId) {
         let a: &'a Ast = self.a;
         let n = a.decl(d);
-        self.entra(No::Decl(d));
-        self.anotacoes(&n.metadata);
+        self.enter(Node::Decl(d));
+        self.annotations(&n.metadata);
         match &n.kind {
-            DeclKind::Class(x) => self.membros(x.primary_constructor, &x.members),
-            DeclKind::Mixin(x) => self.membros(None, &x.members),
+            DeclKind::Class(x) => self.members(x.primary_constructor, &x.members),
+            DeclKind::Mixin(x) => self.members(None, &x.members),
             DeclKind::Enum(x) => {
                 for k in x.constants.iter() {
-                    self.anotacoes(&k.metadata);
+                    self.annotations(&k.metadata);
                     if let Some(args) = &k.arguments {
-                        self.entra(No::ArgumentosDeEnum(k.span));
-                        self.argumentos(args);
-                        self.sai();
+                        self.enter(Node::EnumArguments(k.span));
+                        self.arguments(args);
+                        self.exit();
                     }
                 }
-                self.membros(x.primary_constructor, &x.members);
+                self.members(x.primary_constructor, &x.members);
             }
-            DeclKind::Extension(x) => self.membros(None, &x.members),
+            DeclKind::Extension(x) => self.members(None, &x.members),
             DeclKind::ExtensionType(x) => {
-                self.anotacoes(&x.representation_metadata);
-                self.membros(None, &x.members);
+                self.annotations(&x.representation_metadata);
+                self.members(None, &x.members);
             }
             DeclKind::Typedef(_) => {}
-            DeclKind::Function(f) => self.funcao(*f),
-            DeclKind::Variables(l) => self.lista(l),
+            DeclKind::Function(f) => self.function(*f),
+            DeclKind::Variables(l) => self.list(l),
         }
-        self.sai();
+        self.exit();
     }
 
-    fn membro(&mut self, m: MemberId) {
+    fn member(&mut self, m: MemberId) {
         let a: &'a Ast = self.a;
         let n = a.member(m);
-        self.entra(No::Membro(m));
-        self.anotacoes(&n.metadata);
+        self.enter(Node::Member(m));
+        self.annotations(&n.metadata);
         match &n.kind {
-            MemberKind::Field(l) => self.lista(l),
-            MemberKind::Method(f) => self.funcao(*f),
+            MemberKind::Field(l) => self.list(l),
+            MemberKind::Method(f) => self.function(*f),
             MemberKind::Constructor(k) => {
-                self.parametros(&k.parameters);
+                self.params(&k.parameters);
                 for i in k.initializers.iter() {
                     match i {
                         Initializer::Field { value, .. } => self.expr(*value),
-                        Initializer::Super { arguments, .. } | Initializer::Redirect { arguments, .. } => self.argumentos(arguments),
+                        Initializer::Super { arguments, .. } | Initializer::Redirect { arguments, .. } => self.arguments(arguments),
                         Initializer::Assert { condition, message, .. } => {
                             self.expr(*condition);
                             if let Some(m) = message {
@@ -169,38 +168,38 @@ impl<'a> Andador<'a, '_> {
                         }
                     }
                 }
-                self.corpo(&k.body);
+                self.body(&k.body);
             }
         }
-        self.sai();
+        self.exit();
     }
 
-    fn funcao(&mut self, f: FunctionId) {
+    fn function(&mut self, f: FunctionId) {
         let a: &'a Ast = self.a;
         let n = a.function(f);
-        self.entra(No::Funcao(f));
+        self.enter(Node::Function(f));
         if let Some(ps) = &n.parameters {
-            self.parametros(ps);
+            self.params(ps);
         }
-        self.corpo(&n.body);
-        self.sai();
+        self.body(&n.body);
+        self.exit();
     }
 
-    fn inicio_do_for(&mut self, i: &ForInit) {
+    fn for_init(&mut self, i: &ForInit) {
         match i {
-            ForInit::Variables(l) => self.lista(l),
+            ForInit::Variables(l) => self.list(l),
             ForInit::Expression(e) => self.expr(*e),
             ForInit::Pattern { pattern, value, .. } => {
-                self.padrao(*pattern);
+                self.pattern(*pattern);
                 self.expr(*value);
             }
         }
     }
 
-    fn alvo_do_for(&mut self, t: &ForInTarget) {
+    fn for_target(&mut self, t: &ForInTarget) {
         match t {
             ForInTarget::Declared { .. } => {}
-            ForInTarget::Pattern { pattern, .. } => self.padrao(*pattern),
+            ForInTarget::Pattern { pattern, .. } => self.pattern(*pattern),
             ForInTarget::Expression(e) => self.expr(*e),
         }
     }
@@ -208,24 +207,24 @@ impl<'a> Andador<'a, '_> {
     fn stmt(&mut self, s: StmtId) {
         let a: &'a Ast = self.a;
         let n = a.stmt(s);
-        self.entra(No::Stmt(s));
+        self.enter(Node::Stmt(s));
         match &n.kind {
             StmtKind::Block(ss) => {
                 for &x in ss.iter() {
                     self.stmt(x);
                 }
             }
-            StmtKind::Variables(l) => self.lista(l),
+            StmtKind::Variables(l) => self.list(l),
             StmtKind::PatternVariables { pattern, value, .. } => {
-                self.padrao(*pattern);
+                self.pattern(*pattern);
                 self.expr(*value);
             }
-            StmtKind::Function(f) => self.funcao(*f),
+            StmtKind::Function(f) => self.function(*f),
             StmtKind::Expression(e) => self.expr(*e),
             StmtKind::If { condition, case_pattern, guard, then, else_ } => {
                 self.expr(*condition);
                 if let Some(p) = case_pattern {
-                    self.padrao(*p);
+                    self.pattern(*p);
                 }
                 if let Some(g) = guard {
                     self.expr(*g);
@@ -237,7 +236,7 @@ impl<'a> Andador<'a, '_> {
             }
             StmtKind::For { init, condition, updates, body, .. } => {
                 if let Some(i) = init {
-                    self.inicio_do_for(i);
+                    self.for_init(i);
                 }
                 if let Some(c) = condition {
                     self.expr(*c);
@@ -248,7 +247,7 @@ impl<'a> Andador<'a, '_> {
                 self.stmt(*body);
             }
             StmtKind::ForIn { target, iterable, body, .. } => {
-                self.alvo_do_for(target);
+                self.for_target(target);
                 self.expr(*iterable);
                 self.stmt(*body);
             }
@@ -264,7 +263,7 @@ impl<'a> Andador<'a, '_> {
                 self.expr(*value);
                 for k in cases.iter() {
                     if let Some(p) = k.pattern {
-                        self.padrao(p);
+                        self.pattern(p);
                     }
                     if let Some(g) = k.guard {
                         self.expr(g);
@@ -298,10 +297,10 @@ impl<'a> Andador<'a, '_> {
                 }
             }
         }
-        self.sai();
+        self.exit();
     }
 
-    fn elemento(&mut self, e: &CollectionElement) {
+    fn element(&mut self, e: &CollectionElement) {
         match e {
             CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) => self.expr(*x),
             CollectionElement::MapEntry { key, value, .. } => {
@@ -312,19 +311,19 @@ impl<'a> Andador<'a, '_> {
             CollectionElement::If { condition, case_pattern, guard, then, else_ } => {
                 self.expr(*condition);
                 if let Some(p) = case_pattern {
-                    self.padrao(*p);
+                    self.pattern(*p);
                 }
                 if let Some(g) = guard {
                     self.expr(*g);
                 }
-                self.elemento(then);
+                self.element(then);
                 if let Some(x) = else_ {
-                    self.elemento(x);
+                    self.element(x);
                 }
             }
             CollectionElement::For { init, condition, updates, body, .. } => {
                 if let Some(i) = init {
-                    self.inicio_do_for(i);
+                    self.for_init(i);
                 }
                 if let Some(c) = condition {
                     self.expr(*c);
@@ -332,12 +331,12 @@ impl<'a> Andador<'a, '_> {
                 for &x in updates.iter() {
                     self.expr(x);
                 }
-                self.elemento(body);
+                self.element(body);
             }
             CollectionElement::ForIn { target, iterable, body, .. } => {
-                self.alvo_do_for(target);
+                self.for_target(target);
                 self.expr(*iterable);
-                self.elemento(body);
+                self.element(body);
             }
         }
     }
@@ -345,7 +344,7 @@ impl<'a> Andador<'a, '_> {
     fn expr(&mut self, e: ExprId) {
         let a: &'a Ast = self.a;
         let n = a.expr(e);
-        self.entra(No::Expr(e));
+        self.enter(Node::Expr(e));
         match &n.kind {
             ExprKind::Int(_)
             | ExprKind::Double(_)
@@ -368,7 +367,7 @@ impl<'a> Andador<'a, '_> {
             ExprKind::Parenthesized(x) | ExprKind::Await(x) | ExprKind::Throw(x) => self.expr(*x),
             ExprKind::List { elements, .. } | ExprKind::SetOrMap { elements, .. } => {
                 for el in elements.iter() {
-                    self.elemento(el);
+                    self.element(el);
                 }
             }
             ExprKind::Record { positional, named, .. } => {
@@ -379,8 +378,8 @@ impl<'a> Andador<'a, '_> {
                     self.expr(*x);
                 }
             }
-            ExprKind::InstanceCreation { arguments, .. } => self.argumentos(arguments),
-            ExprKind::FunctionExpression(f) => self.funcao(*f),
+            ExprKind::InstanceCreation { arguments, .. } => self.arguments(arguments),
+            ExprKind::FunctionExpression(f) => self.function(*f),
             ExprKind::Property { target, .. } | ExprKind::TypeArguments { target, .. } => self.expr(*target),
             ExprKind::Index { target, index, .. } => {
                 self.expr(*target);
@@ -388,7 +387,7 @@ impl<'a> Andador<'a, '_> {
             }
             ExprKind::Call { target, arguments } => {
                 self.expr(*target);
-                self.argumentos(arguments);
+                self.arguments(arguments);
             }
             ExprKind::Unary { operand, .. } => self.expr(*operand),
             ExprKind::Binary { left, right, .. } => {
@@ -406,7 +405,7 @@ impl<'a> Andador<'a, '_> {
                 self.expr(*value);
             }
             ExprKind::PatternAssign { pattern, value } => {
-                self.padrao(*pattern);
+                self.pattern(*pattern);
                 self.expr(*value);
             }
             ExprKind::Cascade { target, sections, .. } => {
@@ -418,7 +417,7 @@ impl<'a> Andador<'a, '_> {
             ExprKind::Switch { value, cases } => {
                 self.expr(*value);
                 for k in cases.iter() {
-                    self.padrao(k.pattern);
+                    self.pattern(k.pattern);
                     if let Some(g) = k.guard {
                         self.expr(g);
                     }
@@ -426,27 +425,27 @@ impl<'a> Andador<'a, '_> {
                 }
             }
         }
-        self.sai();
+        self.exit();
     }
 
-    fn padrao(&mut self, p: PatternId) {
+    fn pattern(&mut self, p: PatternId) {
         let a: &'a Ast = self.a;
         let n = a.pattern(p);
-        self.entra(No::Padrao(p));
+        self.enter(Node::Pattern(p));
         match &n.kind {
             PatternKind::Wildcard { .. } | PatternKind::Variable { .. } => {}
             PatternKind::Constant(e) | PatternKind::Relational { value: e, .. } => self.expr(*e),
             PatternKind::Or(x, y) | PatternKind::And(x, y) => {
-                self.padrao(*x);
-                self.padrao(*y);
+                self.pattern(*x);
+                self.pattern(*y);
             }
             PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) | PatternKind::Cast { pattern: x, .. } => {
-                self.padrao(*x)
+                self.pattern(*x)
             }
             PatternKind::List { elements, .. } => {
                 for el in elements.iter() {
                     match el {
-                        ListPatternElement::Pattern(x) | ListPatternElement::Rest(Some(x)) => self.padrao(*x),
+                        ListPatternElement::Pattern(x) | ListPatternElement::Rest(Some(x)) => self.pattern(*x),
                         ListPatternElement::Rest(None) => {}
                     }
                 }
@@ -454,40 +453,40 @@ impl<'a> Andador<'a, '_> {
             PatternKind::Map { entries, .. } => {
                 for en in entries.iter() {
                     self.expr(en.key);
-                    self.padrao(en.value);
+                    self.pattern(en.value);
                 }
             }
             PatternKind::Record { fields } | PatternKind::Object { fields, .. } => {
                 for c in fields.iter() {
-                    self.padrao(c.pattern);
+                    self.pattern(c.pattern);
                 }
             }
         }
-        self.sai();
+        self.exit();
     }
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
     use dartforge_intern::Interner;
 
     #[test]
-    fn pilha_de_ancestrais() {
-        let fonte = "void f() {\n  try {\n  } finally {\n    g(() => 1);\n  }\n}\n";
-        let mut nomes = Interner::new();
-        let p = dartforge_frontend::parser::parse(fonte, &mut nomes);
-        let u = Unidade { ast: &p.ast, unit: &p.unit, fonte };
-        let mut inteiros = Vec::new();
-        andar(u, &mut |no, pilha| {
-            if let No::Expr(e) = no
+    fn ancestor_stack() {
+        let source = "void f() {\n  try {\n  } finally {\n    g(() => 1);\n  }\n}\n";
+        let mut names = Interner::new();
+        let p = dartforge_frontend::parser::parse(source, &mut names);
+        let u = Unidade { ast: &p.ast, unit: &p.unit, fonte: source };
+        let mut ints = Vec::new();
+        walk(u, &mut |node, stack| {
+            if let Node::Expr(e) = node
                 && matches!(p.ast.expr(e).kind, ExprKind::Int(_))
             {
-                inteiros.push(pilha.iter().filter(|n| matches!(n, No::Funcao(_))).count());
-                assert!(matches!(pilha[0], No::Decl(_)));
+                ints.push(stack.iter().filter(|n| matches!(n, Node::Function(_))).count());
+                assert!(matches!(stack[0], Node::Decl(_)));
             }
         });
-        // O `1` está dentro de `f` e da função literal.
-        assert_eq!(inteiros, vec![2]);
+        // The `1` is inside `f` and the function literal.
+        assert_eq!(ints, vec![2]);
     }
 }

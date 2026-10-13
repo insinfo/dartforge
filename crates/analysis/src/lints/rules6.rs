@@ -28,7 +28,7 @@
 //! - `prefer_null_aware_operators`: o `toString` dos nós.
 //! Escrito sem compilar nem executar (2026-10-05).
 
-use super::walk::{andar, No};
+use super::walk::{walk, Node};
 use super::codigos_g as c;
 use super::rules::LintReport;
 use super::CodigoLint;
@@ -53,17 +53,17 @@ enum Fluxo {
 /// está no `finally` do `try` mais próximo, e nada dentro do `finally` o
 /// contém: nem uma função (para `return` e `throw`), nem o alvo do desvio
 /// (para `break` e `continue`).
-fn foge_do_finally(a: &Ast, pilha: &[No], fluxo: &Fluxo) -> bool {
-    let Some(t) = pilha.iter().rposition(|n| matches!(n, No::Stmt(s) if matches!(a.stmt(*s).kind, StmtKind::Try { .. }))) else {
+fn foge_do_finally(a: &Ast, pilha: &[Node], fluxo: &Fluxo) -> bool {
+    let Some(t) = pilha.iter().rposition(|n| matches!(n, Node::Stmt(s) if matches!(a.stmt(*s).kind, StmtKind::Try { .. }))) else {
         return false;
     };
-    let No::Stmt(tentativa) = pilha[t] else { return false };
+    let Node::Stmt(tentativa) = pilha[t] else { return false };
     let StmtKind::Try { finally_: Some(fim), .. } = &a.stmt(tentativa).kind else { return false };
-    if pilha.get(t + 1) != Some(&No::Stmt(*fim)) {
+    if pilha.get(t + 1) != Some(&Node::Stmt(*fim)) {
         return false;
     }
     let dentro = &pilha[t + 2..];
-    if dentro.iter().any(|n| matches!(n, No::Funcao(_))) {
+    if dentro.iter().any(|n| matches!(n, Node::Function(_))) {
         return false;
     }
     let rotulo = match fluxo {
@@ -71,8 +71,8 @@ fn foge_do_finally(a: &Ast, pilha: &[No], fluxo: &Fluxo) -> bool {
         Fluxo::Break(r) | Fluxo::Continue(r) => *r,
     };
     let de_break = matches!(fluxo, Fluxo::Break(_));
-    let e_alvo = |n: &No| {
-        let No::Stmt(s) = n else { return false };
+    let e_alvo = |n: &Node| {
+        let Node::Stmt(s) = n else { return false };
         match (&a.stmt(*s).kind, rotulo) {
             (StmtKind::For { .. } | StmtKind::ForIn { .. } | StmtKind::While { .. } | StmtKind::DoWhile { .. }, None) => true,
             (StmtKind::Switch { .. }, None) => de_break,
@@ -526,11 +526,11 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
         // declarada ou método), se o tipo de retorno do elemento é `void`
         // (ou `Future<void>` num corpo assíncrono). Pede a semântica da
         // unidade.
-        let codigo_do_nulo = |pilha: &[No], propria: Option<FunctionId>| -> Option<&'static CodigoLint> {
+        let codigo_do_nulo = |pilha: &[Node], propria: Option<FunctionId>| -> Option<&'static CodigoLint> {
             let s = sem?;
             let f = propria.or_else(|| {
                 pilha.iter().rev().find_map(|n| match n {
-                    No::Funcao(f) => Some(*f),
+                    Node::Function(f) => Some(*f),
                     _ => None,
                 })
             })?;
@@ -554,8 +554,8 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 &c::AVOID_RETURNING_NULL_FOR_VOID_FROM_FUNCTION
             })
         };
-        andar(u, &mut |no, pilha| match no {
-            No::Stmt(s) => {
+        walk(u, &mut |no, pilha| match no {
+            Node::Stmt(s) => {
                 let n = a.stmt(s);
                 match &n.kind {
                     StmtKind::Break(r) if do_finally => {
@@ -582,12 +582,12 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                     _ => {}
                 }
             }
-            No::Expr(e) => {
+            Node::Expr(e) => {
                 if do_throw && matches!(a.expr(e).kind, ExprKind::Throw(_)) && foge_do_finally(a, pilha, &Fluxo::Saida) {
                     relatar(&c::THROW_IN_FINALLY, a.expr(e).span, &["throw"]);
                 }
             }
-            No::Funcao(f) => {
+            Node::Function(f) => {
                 if do_nulo
                     && let FunctionBody::Expression(v) = &a.function(f).body
                     && nulo(*v)

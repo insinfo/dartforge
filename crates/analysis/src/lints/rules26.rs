@@ -17,7 +17,7 @@
 //!
 //! Escrito sem compilar nem executar (2026-10-05).
 
-use super::walk::No;
+use super::walk::Node;
 use super::codigos_g as c;
 use super::rules::LintReport;
 use super::rules16::{is_nullable, e_invocacao_de_metodo, pais_da_unidade, tipo_de_variavel, Pais};
@@ -194,7 +194,7 @@ fn papel_nos_argumentos(args: &ast::Arguments, eu: ExprId) -> Pai {
 }
 
 /// Os argumentos das anotações e das constantes de enum pelo intervalo
-/// (os nós `No::Anotacao`/`No::ArgumentosDeEnum` do passeio).
+/// (os nós `Node::Annotation`/`Node::EnumArguments` do passeio).
 fn argumentos_por_intervalo(a: &Ast) -> HashMap<(usize, usize), &ast::Arguments> {
     let mut m = HashMap::new();
     fn anotacoes<'a>(xs: &'a [ast::Annotation], m: &mut HashMap<(usize, usize), &'a ast::Arguments>) {
@@ -248,7 +248,7 @@ fn argumentos_por_intervalo(a: &Ast) -> HashMap<(usize, usize), &ast::Arguments>
 fn pai_de(s: &super::Semantics<'_>, a: &Ast, pais: &Pais, por_intervalo: &HashMap<(usize, usize), &ast::Arguments>, eu: ExprId) -> Pai {
     let Some(no) = pais.expr.get(&eu).copied() else { return Pai::Outro };
     match no {
-        No::Expr(p) => match &a.expr(p).kind {
+        Node::Expr(p) => match &a.expr(p).kind {
             ExprKind::Parenthesized(_) => Pai::Parenteses,
             ExprKind::String(_) => Pai::Interpolacao,
             ExprKind::Call { target, arguments } => {
@@ -261,7 +261,7 @@ fn pai_de(s: &super::Semantics<'_>, a: &Ast, pais: &Pais, por_intervalo: &HashMa
             ExprKind::InstanceCreation { arguments, .. } => papel_nos_argumentos(arguments, eu),
             ExprKind::Property { .. } => {
                 // O alvo de `(x).m(…)` é o do `MethodInvocation`.
-                if let Some(No::Expr(ch)) = pais.expr.get(&p).copied()
+                if let Some(Node::Expr(ch)) = pais.expr.get(&p).copied()
                     && matches!(&a.expr(ch).kind, ExprKind::Call { target, .. } if *target == p)
                     && e_invocacao_de_metodo(s, a, p)
                 {
@@ -297,12 +297,12 @@ fn pai_de(s: &super::Semantics<'_>, a: &Ast, pais: &Pais, por_intervalo: &HashMa
                 }
             }
             ExprKind::TypeArguments { .. } => match pais.expr.get(&p).copied() {
-                Some(No::Expr(ch)) if matches!(&a.expr(ch).kind, ExprKind::Call { target, .. } if *target == p) => Pai::InvocacaoDeFuncao { args_de_tipo: true },
+                Some(Node::Expr(ch)) if matches!(&a.expr(ch).kind, ExprKind::Call { target, .. } if *target == p) => Pai::InvocacaoDeFuncao { args_de_tipo: true },
                 _ => Pai::OutraExpressao,
             },
             _ => Pai::OutraExpressao,
         },
-        No::Stmt(st) => match &a.stmt(st).kind {
+        Node::Stmt(st) => match &a.stmt(st).kind {
             StmtKind::Expression(_) => Pai::InstrucaoDeExpressao,
             StmtKind::Return(_) => Pai::Retorno,
             StmtKind::Yield { .. } => Pai::Yield,
@@ -316,11 +316,11 @@ fn pai_de(s: &super::Semantics<'_>, a: &Ast, pais: &Pais, por_intervalo: &HashMa
             },
             _ => Pai::Outro,
         },
-        No::Funcao(f) => match a.function(f).body {
+        Node::Function(f) => match a.function(f).body {
             FunctionBody::Expression(x) if x == eu => Pai::CorpoDeExpressao,
             _ => Pai::Outro,
         },
-        No::Membro(m) => match &a.member(m).kind {
+        Node::Member(m) => match &a.member(m).kind {
             MemberKind::Constructor(k) => {
                 for i in k.initializers.iter() {
                     match i {
@@ -339,18 +339,18 @@ fn pai_de(s: &super::Semantics<'_>, a: &Ast, pais: &Pais, por_intervalo: &HashMa
             },
             _ => Pai::Outro,
         },
-        No::Decl(d) => match &a.decl(d).kind {
+        Node::Decl(d) => match &a.decl(d).kind {
             DeclKind::Variables(l) => match l.variables.iter().position(|v| v.initializer == Some(eu)) {
                 Some(index) => Pai::Variavel(tipo_de_variavel(s, VariableRef::TopLevel { unit: s.unit, decl: d, index })),
                 None => Pai::Outro,
             },
             _ => Pai::Outro,
         },
-        No::Padrao(p) => match &a.pattern(p).kind {
+        Node::Pattern(p) => match &a.pattern(p).kind {
             PatternKind::Constant(_) => Pai::PadraoConstante,
             _ => Pai::Outro,
         },
-        No::Anotacao(sp) | No::ArgumentosDeEnum(sp) => match por_intervalo.get(&(sp.start, sp.end)) {
+        Node::Annotation(sp) | Node::EnumArguments(sp) => match por_intervalo.get(&(sp.start, sp.end)) {
             Some(args) => papel_nos_argumentos(args, eu),
             None => Pai::Outro,
         },
@@ -530,7 +530,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 relatar(&c::UNNECESSARY_PARENTHESIS, e.span, &[]);
                 continue;
             }
-            let ancestrais: &[No] = pais.ancestrais.get(&no).map(|v| &v[..]).unwrap_or(&[]);
+            let ancestrais: &[Node] = pais.ancestrais.get(&no).map(|v| &v[..]).unwrap_or(&[]);
             // `a..b = (c..d)`: a cascata, ou a cascata antes da instrução.
             if matches!(interno, ExprKind::Cascade { .. }) {
                 continue;
@@ -538,8 +538,8 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             let mut em_cascata = false;
             for n in ancestrais.iter().rev() {
                 match n {
-                    No::Stmt(_) => break,
-                    No::Expr(p) if matches!(a.expr(*p).kind, ExprKind::Cascade { .. }) => {
+                    Node::Stmt(_) => break,
+                    Node::Expr(p) if matches!(a.expr(*p).kind, ExprKind::Cascade { .. }) => {
                         em_cascata = true;
                         break;
                     }
@@ -553,15 +553,15 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             let mut nu = false;
             for n in ancestrais.iter().rev() {
                 match n {
-                    No::Funcao(_) => break,
-                    No::Expr(p) => {
+                    Node::Function(_) => break,
+                    Node::Expr(p) => {
                         if let ExprKind::Call { target, .. } = &a.expr(*p).kind
                             && e_invocacao_de_metodo(s, a, *target)
                         {
                             break;
                         }
                     }
-                    No::Membro(m) => {
+                    Node::Member(m) => {
                         if let MemberKind::Constructor(k) = &a.member(*m).kind {
                             nu = k.initializers.iter().any(|i| matches!(i, Initializer::Field { value, .. } if { let sp = a.expr(*value).span; sp.start <= e.span.start && e.span.end <= sp.end }));
                         }
@@ -603,7 +603,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                     _ => None,
                 };
                 if let Some(np) = no_do_pai {
-                    let avo_prefixo = matches!(pais.expr.get(&np).copied(), Some(No::Expr(g)) if matches!(a.expr(g).kind, ExprKind::Unary { op: UnaryOp::Neg | UnaryOp::Not | UnaryOp::BitNot | UnaryOp::PrefixInc | UnaryOp::PrefixDec, .. }));
+                    let avo_prefixo = matches!(pais.expr.get(&np).copied(), Some(Node::Expr(g)) if matches!(a.expr(g).kind, ExprKind::Unary { op: UnaryOp::Neg | UnaryOp::Not | UnaryOp::BitNot | UnaryOp::PrefixInc | UnaryOp::PrefixDec, .. }));
                     if avo_prefixo && tem_espaco(s, a, x) {
                         continue;
                     }
@@ -614,7 +614,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 // `({1, 2}).forEach(print);`: sem os parênteses vira bloco.
                 if matches!(interno, ExprKind::SetOrMap { .. }) {
                     let instrucao = ancestrais.iter().rev().find_map(|n| match n {
-                        No::Stmt(st) if matches!(a.stmt(*st).kind, StmtKind::Expression(_)) => Some(*st),
+                        Node::Stmt(st) if matches!(a.stmt(*st).kind, StmtKind::Expression(_)) => Some(*st),
                         _ => None,
                     });
                     if instrucao.is_some_and(|st| a.stmt(st).span.start == e.span.start) {

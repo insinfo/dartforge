@@ -21,7 +21,7 @@
 //!
 //! Escrito sem compilar nem executar (2026-10-05).
 
-use super::walk::{andar, No};
+use super::walk::{walk, Node};
 use super::codigos_g as c;
 use super::rules::LintReport;
 use super::CodigoLint;
@@ -161,10 +161,10 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
         return out;
     }
     // O pai de cada expressão e os ancestrais dos `!`.
-    let mut pai: HashMap<ExprId, No> = HashMap::new();
-    let mut ancestrais_do_bang: HashMap<ExprId, Vec<No>> = HashMap::new();
-    andar(u, &mut |no, ancestrais| {
-        if let No::Expr(e) = no {
+    let mut pai: HashMap<ExprId, Node> = HashMap::new();
+    let mut ancestrais_do_bang: HashMap<ExprId, Vec<Node>> = HashMap::new();
+    walk(u, &mut |no, ancestrais| {
+        if let Node::Expr(e) = no {
             if let Some(p) = ancestrais.last() {
                 pai.insert(e, *p);
             }
@@ -174,7 +174,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
         }
     });
     let pai_expr = |e: ExprId| match pai.get(&e) {
-        Some(No::Expr(p)) => Some(*p),
+        Some(Node::Expr(p)) => Some(*p),
         _ => None,
     };
     // O `realTarget` de uma seção de cascata.
@@ -293,7 +293,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             }
         }
         let funcoes = Funcoes::de(s, a);
-        let mut bangs: Vec<(&ExprId, &Vec<No>)> = ancestrais_do_bang.iter().collect();
+        let mut bangs: Vec<(&ExprId, &Vec<Node>)> = ancestrais_do_bang.iter().collect();
         bangs.sort_by_key(|(e, _)| a.expr(**e).span.start);
         for (&no, ancestrais) in bangs {
             let ExprKind::Unary { operand, .. } = &a.expr(no).kind else { continue };
@@ -353,8 +353,8 @@ pub(super) fn tipo_esperado(
     a: &Ast,
     interner: &Interner,
     funcoes: &Funcoes,
-    pai: &HashMap<ExprId, No>,
-    ancestrais: &[No],
+    pai: &HashMap<ExprId, Node>,
+    ancestrais: &[Node],
     no: ExprId,
     real_alvo: &dyn Fn(ExprId) -> Option<ExprId>,
 ) -> Option<TypeId> {
@@ -369,22 +369,22 @@ pub(super) fn tipo_esperado(
     };
     // `realNode`: o parêntese mais de fora.
     let mut real = no;
-    while let Some(No::Expr(p)) = pai.get(&real)
+    while let Some(Node::Expr(p)) = pai.get(&real)
         && matches!(a.expr(*p).kind, ExprKind::Parenthesized(_))
     {
         real = *p;
     }
     let mut filho = real;
     let mut pai_no = pai.get(&real).copied();
-    let com_await = matches!(pai_no, Some(No::Expr(p)) if matches!(a.expr(p).kind, ExprKind::Await(_)));
-    if com_await && let Some(No::Expr(p)) = pai_no {
+    let com_await = matches!(pai_no, Some(Node::Expr(p)) if matches!(a.expr(p).kind, ExprKind::Await(_)));
+    if com_await && let Some(Node::Expr(p)) = pai_no {
         filho = p;
         pai_no = pai.get(&p).copied();
     }
     // A `FunctionExpression` mais próxima (o método não é uma).
     let funcao_mais_proxima = || -> Option<(FunctionId, Option<TypeId>)> {
         for n in ancestrais.iter().rev() {
-            if let No::Funcao(g) = n {
+            if let Node::Function(g) = n {
                 return funcoes.tipo(s, *g).map(|t| (*g, t));
             }
         }
@@ -398,8 +398,8 @@ pub(super) fn tipo_esperado(
     };
     // Retorno e corpo de expressão.
     let e_retorno = match pai_no {
-        Some(No::Stmt(st)) => matches!(a.stmt(st).kind, StmtKind::Return(Some(v)) if v == filho),
-        Some(No::Funcao(g)) => matches!(a.function(g).body, FunctionBody::Expression(v) if v == filho),
+        Some(Node::Stmt(st)) => matches!(a.stmt(st).kind, StmtKind::Return(Some(v)) if v == filho),
+        Some(Node::Function(g)) => matches!(a.function(g).body, FunctionBody::Expression(v) if v == filho),
         _ => false,
     };
     if e_retorno {
@@ -411,7 +411,7 @@ pub(super) fn tipo_esperado(
         return Some(ret);
     }
     // `yield`.
-    if let Some(No::Stmt(st)) = pai_no
+    if let Some(Node::Stmt(st)) = pai_no
         && matches!(a.stmt(st).kind, StmtKind::Yield { .. })
     {
         let (_, t) = funcao_mais_proxima()?;
@@ -420,7 +420,7 @@ pub(super) fn tipo_esperado(
     }
     let Some(pai_no) = pai_no else { return None };
     match pai_no {
-        No::Expr(p) => match &a.expr(p).kind {
+        Node::Expr(p) => match &a.expr(p).kind {
             // Atribuição `=` (fora `x = x!`).
             ExprKind::Assign { op: AssignOp::Assign, target, .. } => {
                 let nome = |e: ExprId| -> Option<String> {
@@ -523,7 +523,7 @@ pub(super) fn tipo_esperado(
             _ => None,
         },
         // Declaração de variável.
-        No::Stmt(st) => {
+        Node::Stmt(st) => {
             let lista = match &a.stmt(st).kind {
                 StmtKind::Variables(l) => l,
                 StmtKind::For { init: Some(ForInit::Variables(l)), .. } => l,
@@ -532,12 +532,12 @@ pub(super) fn tipo_esperado(
             let v = lista.variables.iter().find(|v| v.initializer == Some(real))?;
             s.body.tipo_local(v.name.span.start).or_else(|| s.body.get_type(real)).filter(|t| *t != core.unknown)
         }
-        No::Membro(m) => {
+        Node::Member(m) => {
             let MemberKind::Field(l) = &a.member(m).kind else { return None };
             let index = l.variables.iter().position(|v| v.initializer == Some(real))?;
             variable_type(s, VariableRef::Field { unit: s.unit, member: m, index }, l.variables[index].name.span.start, real)
         }
-        No::Decl(d) => {
+        Node::Decl(d) => {
             let DeclKind::Variables(l) = &a.decl(d).kind else { return None };
             let index = l.variables.iter().position(|v| v.initializer == Some(real))?;
             variable_type(s, VariableRef::TopLevel { unit: s.unit, decl: d, index }, l.variables[index].name.span.start, real)

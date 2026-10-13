@@ -32,7 +32,7 @@
 //!
 //! Escrito sem compilar nem executar (2026-10-05).
 
-use super::walk::{andar, No};
+use super::walk::{walk, Node};
 use super::codigos_g as c;
 use super::scope::{Escopos, Especie};
 use super::rules::LintReport;
@@ -149,16 +149,16 @@ pub(super) enum Contexto {
 
 /// Os pais das expressões e das funções (pelo passeio).
 pub(super) struct Pais {
-    pub(super) expr: HashMap<ExprId, No>,
-    pub(super) funcao: HashMap<dartforge_frontend::ast::FunctionId, No>,
-    pub(super) ancestrais: HashMap<ExprId, Vec<No>>,
+    pub(super) expr: HashMap<ExprId, Node>,
+    pub(super) funcao: HashMap<dartforge_frontend::ast::FunctionId, Node>,
+    pub(super) ancestrais: HashMap<ExprId, Vec<Node>>,
 }
 
 pub(super) fn pais_da_unidade(u: Unidade<'_>, guardar: &dyn Fn(ExprId) -> bool) -> Pais {
     let mut p = Pais { expr: HashMap::new(), funcao: HashMap::new(), ancestrais: HashMap::new() };
-    andar(u, &mut |no, ancestrais| {
+    walk(u, &mut |no, ancestrais| {
         match no {
-            No::Expr(e) => {
+            Node::Expr(e) => {
                 if let Some(x) = ancestrais.last() {
                     p.expr.insert(e, *x);
                 }
@@ -166,7 +166,7 @@ pub(super) fn pais_da_unidade(u: Unidade<'_>, guardar: &dyn Fn(ExprId) -> bool) 
                     p.ancestrais.insert(e, ancestrais.to_vec());
                 }
             }
-            No::Funcao(f) => {
+            Node::Function(f) => {
                 if let Some(x) = ancestrais.last() {
                     p.funcao.insert(f, *x);
                 }
@@ -246,7 +246,7 @@ fn retorno_esperado(s: &super::Semantics<'_>, interner: &Interner, a: &Ast, pais
 pub(super) fn contexto_aproximado(s: &super::Semantics<'_>, interner: &Interner, a: &Ast, pais: &Pais, eu: ExprId) -> Contexto {
     let mut filho = eu;
     let mut pai = pais.expr.get(&eu).copied();
-    while let Some(No::Expr(p)) = pai {
+    while let Some(Node::Expr(p)) = pai {
         match &a.expr(p).kind {
             ExprKind::Parenthesized(_) => {}
             ExprKind::Cascade { target, .. } if *target == filho => {}
@@ -257,7 +257,7 @@ pub(super) fn contexto_aproximado(s: &super::Semantics<'_>, interner: &Interner,
     }
     let tipo = |e: ExprId| s.body.get_type(e).map_or(Contexto::Nenhum, Contexto::Tipo);
     match pai {
-        Some(No::Expr(p)) => match &a.expr(p).kind {
+        Some(Node::Expr(p)) => match &a.expr(p).kind {
             // Argumento (posicional ou nomeado).
             ExprKind::Call { arguments, .. } | ExprKind::InstanceCreation { arguments, .. } => {
                 let Some(arg) = arguments.args.iter().find(|x| x.value == filho) else { return Contexto::Nenhum };
@@ -273,7 +273,7 @@ pub(super) fn contexto_aproximado(s: &super::Semantics<'_>, interner: &Interner,
             _ => Contexto::Nenhum,
         },
         // Corpo de expressão.
-        Some(No::Funcao(f)) if matches!(a.function(f).body, FunctionBody::Expression(x) if x == filho) => {
+        Some(Node::Function(f)) if matches!(a.function(f).body, FunctionBody::Expression(x) if x == filho) => {
             let literal = a.exprs.iter().position(|e| matches!(e.kind, ExprKind::FunctionExpression(g) if g == f)).map(|k| ExprId(k as u32));
             match literal {
                 Some(fe) => match contexto_aproximado(s, interner, a, pais, fe) {
@@ -287,7 +287,7 @@ pub(super) fn contexto_aproximado(s: &super::Semantics<'_>, interner: &Interner,
             }
         }
         // Inicializador de campo de construtor: o tipo do campo.
-        Some(No::Membro(m)) => {
+        Some(Node::Member(m)) => {
             let MemberKind::Constructor(k) = &a.member(m).kind else {
                 return variavel_de_lista(s, a, Some(m), None, filho);
             };
@@ -319,12 +319,12 @@ pub(super) fn contexto_aproximado(s: &super::Semantics<'_>, interner: &Interner,
             }
             Contexto::Nenhum
         }
-        Some(No::Stmt(st)) => match &a.stmt(st).kind {
+        Some(Node::Stmt(st)) => match &a.stmt(st).kind {
             StmtKind::Return(Some(_)) | StmtKind::Yield { .. } => {
                 let Some(anc) = pais.ancestrais.get(&eu) else { return Contexto::Nenhum };
                 // O corpo de função mais próximo.
                 let f = anc.iter().rev().find_map(|n| match n {
-                    No::Funcao(f) => Some(*f),
+                    Node::Function(f) => Some(*f),
                     _ => None,
                 });
                 match f.and_then(|f| retorno_esperado(s, interner, a, pais, f)) {
@@ -344,7 +344,7 @@ pub(super) fn contexto_aproximado(s: &super::Semantics<'_>, interner: &Interner,
             }
             _ => Contexto::Nenhum,
         },
-        Some(No::Decl(d)) => variavel_de_lista(s, a, None, Some(d), filho),
+        Some(Node::Decl(d)) => variavel_de_lista(s, a, None, Some(d), filho),
         _ => Contexto::Nenhum,
     }
 }
@@ -483,8 +483,8 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             let em_cascata = pais.ancestrais.get(&id).is_some_and(|anc| {
                 for n in anc.iter().rev() {
                     match n {
-                        No::Stmt(_) => return false,
-                        No::Expr(p) if matches!(a.expr(*p).kind, ExprKind::Cascade { .. }) => return true,
+                        Node::Stmt(_) => return false,
+                        Node::Expr(p) if matches!(a.expr(*p).kind, ExprKind::Cascade { .. }) => return true,
                         _ => {}
                     }
                 }
@@ -988,7 +988,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             if !matches!(e.kind, ExprKind::This) {
                 continue;
             }
-            let Some(No::Expr(p)) = pais.expr.get(&id).copied() else { continue };
+            let Some(Node::Expr(p)) = pais.expr.get(&id).copied() else { continue };
             let ExprKind::Property { target, name, null_aware: false } = &a.expr(p).kind else { continue };
             if *target != id {
                 continue;

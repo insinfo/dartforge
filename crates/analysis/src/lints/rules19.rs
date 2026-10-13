@@ -26,7 +26,7 @@
 //!
 //! Escrito sem compilar nem executar (2026-10-05).
 
-use super::walk::No;
+use super::walk::Node;
 use super::codigos_g as c;
 use super::rules::LintReport;
 use super::CodigoLint;
@@ -245,7 +245,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             // nomeados até uma criação.
             let mut no = lit;
             let criacao = loop {
-                let Some(No::Expr(p)) = pais.expr.get(&no).copied() else { break None };
+                let Some(Node::Expr(p)) = pais.expr.get(&no).copied() else { break None };
                 if matches!(s.body.get_resolved(p), Some(Resolved::Constructor(_))) {
                     // Argumento da criação (a `ArgumentList` dela).
                     let e_argumento = match &a.expr(p).kind {

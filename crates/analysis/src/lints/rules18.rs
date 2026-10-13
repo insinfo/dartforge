@@ -33,7 +33,7 @@
 //!
 //! Escrito sem compilar nem executar (2026-10-05).
 
-use super::walk::{andar, No};
+use super::walk::{walk, Node};
 use super::codigos_g as c;
 use super::rules::LintReport;
 use super::CodigoLint;
@@ -175,10 +175,10 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 relatar(&c::UNNECESSARY_NULL_CHECKS, Span { start: p.span.end - 1, end: p.span.end }, &[]);
             }
         }
-        let mut pai: HashMap<ExprId, No> = HashMap::new();
-        let mut bangs: Vec<(ExprId, Vec<No>)> = Vec::new();
-        andar(u, &mut |no, ancestrais| {
-            if let No::Expr(e) = no {
+        let mut pai: HashMap<ExprId, Node> = HashMap::new();
+        let mut bangs: Vec<(ExprId, Vec<Node>)> = Vec::new();
+        walk(u, &mut |no, ancestrais| {
+            if let Node::Expr(e) = no {
                 if let Some(p) = ancestrais.last() {
                     pai.insert(e, *p);
                 }
@@ -224,7 +224,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             if !s.body.get_type(e).is_some_and(|t| super::flutter::e_widget_tipo(s, interner, t)) {
                 continue;
             }
-            let Some(No::Expr(p)) = pais.expr.get(&e).copied() else { continue };
+            let Some(Node::Expr(p)) = pais.expr.get(&e).copied() else { continue };
             let Some(args) = argumentos_de(p) else { continue };
             let Some(arg) = args.args.iter().find(|x| x.value == e) else { continue };
             if arg.name.is_none_or(|n| interner.resolve(n.sym) != "child") || args.args.len() != 1 {
@@ -236,7 +236,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             } else {
                 pais.ancestrais.get(&e).and_then(|anc| {
                     anc.iter().rev().find_map(|n| match n {
-                        No::Expr(x) if matches!(s.body.get_resolved(*x), Some(Resolved::Constructor(_))) => Some(*x),
+                        Node::Expr(x) if matches!(s.body.get_resolved(*x), Some(Resolved::Constructor(_))) => Some(*x),
                         _ => None,
                     })
                 })
