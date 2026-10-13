@@ -24,7 +24,7 @@ stdout and exit code are the program's, as in the AOT executable;
 * **Input:** textual LLVM IR from `emit_native`, with `@dartforge_entry`.
 * **Runtime:** the source of the AOT harness, the fragments of `crates/runtime/src` (listed in `crates/runtime/build.rs`),
   compiled as `dartforge_runtime::abi` (single source). The symbol table
-  is `dartforge_runtime::simbolos`, generated from the same files. No runtime
+  is `dartforge_runtime::symbols`, generated from the same files. No runtime
   function is rewritten here.
 * **Symbols:** the runtime goes in as absolute symbols. Every name the IR
   declares must be in the runtime table, in the CRT list
