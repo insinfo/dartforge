@@ -280,7 +280,7 @@ O que mudou no código gerado (todos no modo padrão, fora do ARC):
   dinâmica depois do `df.get_area` em linha).
 * Objeto recém-alocado sem ponto de coleta desde a alocação: corpo direto e
   gravação sem barreira; `this` com corpo direto no AOT (sem corpo de fora).
-* Literal de mapa `{k: v, …}` como na VM (`_dartforgePreencherMapa`), em vez
+* Literal de mapa `{k: v, …}` como na VM (`_dartforgeFillMap`), em vez
   de um `[]=` por seletor por entrada; o `hashCode` das chaves passa a rodar
   depois de todos os valores, como na VM.
 * Texto constante estático, vetores constantes e leitura do vetor de
@@ -355,7 +355,7 @@ usam uma área única; as asserções não mudaram. Também foi removido um
 ### Preparação conjunta com o SDK da fonte
 
 `arc_audit_pipeline --memory=arc --sdk-in-group --externs-inventory`
-em `bench/performance/numerico.dart` passou, em ordem, por:
+em `bench/performance/numeric.dart` passou, em ordem, por:
 * `Stopwatch.start` (`CallSeletor`): a mudança dos seletores preservada no
   fechamento foi validada, inclusive pela prova AOT ampliada.
 * `Uri.splitQueryString`: a tupla RTI vinda de getter `df.rti.*` é aceita
@@ -764,7 +764,7 @@ lista, dos elementos e das caixas. Controles negativos precisam dar trap;
 falha de compilação não é aprovação. São provas de HIR preparada com harness
 explícito, sem demonstrar funcionamento do SDK inteiro ou do corpus do CLI.
 
-O diagnóstico conjunto de `bench/performance/numerico.dart` e SDK da fonte
+O diagnóstico conjunto de `bench/performance/numeric.dart` e SDK da fonte
 passou da lista literal v11 e chegou a `df.comum$2edart..medir` v26:
 `CallSeletor` de `tc:start` (`Stopwatch.start`) sem classificação de ownership.
 Evidência: `target/arc-literal-sdk.log`.
@@ -797,7 +797,7 @@ medição posterior comprovando melhora; rodadas distintas não isolam mudanças
 Na retomada, concluir a bateria do emissor incluindo ignorados e executar
 `python scripts/prove-arc-aot.py arc_native_port_owned --debug`. Repetir
 `arc_audit_pipeline --memory=arc --sdk-in-group --externs-inventory` em
-`bench/performance/numerico.dart` e resolver o próximo erro observado, sem
+`bench/performance/numeric.dart` e resolver o próximo erro observado, sem
 afrouxar ownership, certificação ou guardas. Fechar preparação do SDK e
 publicação conjunta no CLI AOT/JIT; conferir portas, lifetimes, exceções,
 cancelamento, suspensão e recarga JIT. Faltam provas nativas específicas dos
@@ -2871,7 +2871,7 @@ está registrada abaixo.
 O índice dos metadados agora usa inverso modular por página, sem divisão na
 consulta, recalculado ao reformatar a página. Suíte: 112 testes passaram,
 três microbenchmarks ignorados; grafos aleatórios: 3.000 sementes por modo.
-O benchmark isolado do módulo ARC real (`bench/arc/metadados.rs`) reduziu
+O benchmark isolado do módulo ARC real (`bench/arc/metadata.rs`) reduziu
 o tempo de retain/release/consulta em cerca de 13%, confirmado numa segunda
 rodada. O ganho dirigido em árvores/lista ficou perto de 2%, com dispersão;
 a rodada completa ficou perto da média anterior, sem provar ganho relevante.
@@ -5920,7 +5920,7 @@ Alvos reais usados como critério:
 | Léxico + sintaxe de Dart 3.6 | **completo** | 426/426 arquivos do `lib/` do SDK 3.6.2, 1.969/1.969 do corpus pub (26 pacotes), 1.258/1.258 do `new_sali` — `cargo test -p dartforge-frontend --test corpus -- --ignored` |
 | Modelo de elementos, imports/exports, `part`, patches do SDK | **completo** | 36 bibliotecas do SDK carregadas com os patches do DDC fundidos, 269/269 supertipos resolvidos — `crates/elements/tests/sdk.rs` |
 | Tipos: representação, hierarquia, subtipagem | **completo** | 83/83 casos normativos de `subtyping.md`; 25.179 anotações do SDK em 10.396 `TypeId` (hash-consing) |
-| Inferência de corpos, fluxo, constantes | **funcional, com lacunas** (motor reescrito pela especificação, `crates/types/src/inferencia`) | 40/40 negativos do `analyzer`; medido contra o oráculo `package:analyzer` (`tools/oraculo_tipos`): `new_sali/core` 15 avisos e 31 de 634.368 expressões divergentes, `frontend` 28 avisos (17 deles em templates gerados, que o analyzer também acusa) e 56 de 1.259.011; SDK da fonte (nativo) 18 diagnósticos, os mesmos do analyzer; corpus de conformidade 83/95 programas iguais ao oráculo (ver §2.1) |
+| Inferência de corpos, fluxo, constantes | **funcional, com lacunas** (motor reescrito pela especificação, `crates/types/src/inferencia`) | 40/40 negativos do `analyzer`; medido contra o oráculo `package:analyzer` (`tools/type_oracle`): `new_sali/core` 15 avisos e 31 de 634.368 expressões divergentes, `frontend` 28 avisos (17 deles em templates gerados, que o analyzer também acusa) e 56 de 1.259.011; SDK da fonte (nativo) 18 diagnósticos, os mesmos do analyzer; corpus de conformidade 83/95 programas iguais ao oráculo (ver §2.1) |
 | Versão de linguagem por biblioteca e recursos 3.7–3.13 | **3.7–3.13 de sintaxe completos**; inferência e fluxo 3.7–3.13 (P6) pendentes | ver §1.1.1 |
 
 ### 1.1.1 Dart 3.7–3.13 — `docs/VERSOES-LINGUAGEM.md`
@@ -6638,7 +6638,7 @@ Edge headless com 0 erros no console e o CSS servido.
 
 1. **Lacunas de inferência de tipos** (o `dart analyze` oficial dá 0
    diagnósticos nos projetos: todo aviso nosso é falso positivo). Medido
-   em 2026-09-23 com o oráculo (`tools/oraculo_tipos`, método em
+   em 2026-09-23 com o oráculo (`tools/type_oracle`, método em
    `docs/FRONTEND-NEW-SALI.md`): `new_sali/core` 13.431 → **15** avisos,
    `frontend` 57.883 → **28** (17 em templates gerados, legítimos);
    divergências de tipo estático por expressão 137.428 → 31 (core) e
