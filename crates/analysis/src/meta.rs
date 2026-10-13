@@ -566,6 +566,28 @@ impl<'a> Ctx<'a> {
     /// `checkAnnotation`: an annotation, by the first role that matches, and
     /// then the target kinds (`_checkKinds`).
     fn annotation(&mut self, m: &ast::Annotation, target: Target<'a>, class: Option<ClassId>) {
+        // The annotation names one of these elements by their own name (Dart
+        // has no renaming imports): any other one skips the resolutions below,
+        // each of which looks up the name in the scopes (a file with thousands
+        // of `@override` spent a minute here).
+        const NAMES: [&str; 12] = [
+            "factory",
+            "internal",
+            "literal",
+            "nonVirtual",
+            "reopen",
+            "redeclare",
+            "UseResult",
+            "useResult",
+            "visibleForTemplate",
+            "visibleForTesting",
+            "visibleForOverriding",
+            "visibleOutsideTemplate",
+        ];
+        if !m.name.iter().any(|n| NAMES.contains(&self.interner.resolve(n.sym))) {
+            self.kinds(m, target);
+            return;
+        }
         if self.is_getter_of(m, "meta", "factory") {
             self.factory(target);
         } else if self.is_getter_of(m, "meta", "internal") {
