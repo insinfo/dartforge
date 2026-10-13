@@ -1,15 +1,15 @@
-//! Verificadores de aviso que o analyzer roda por arquivo e o DartForge não
-//! tinha (docs/ANALYZER-ESPECIFICACAO-INFRA.md, Parte II, lote II.8, e
-//! Parte III, etapa 6):
+//! Warning verifiers that the analyzer runs per file and DartForge did not
+//! have (docs/ANALYZER-ESPECIFICACAO-INFRA.md, Part II, batch II.8, and
+//! Part III, step 6):
 //!
-//! * do `ImportsVerifier` (`analyzer/lib/src/error/imports_verifier.dart`):
+//! * from the `ImportsVerifier` (`analyzer/lib/src/error/imports_verifier.dart`):
 //!   `duplicate_import`, `duplicate_export`, `duplicate_shown_name`,
-//!   `duplicate_hidden_name`; e, do `DeadCodeVerifier._checkCombinator`,
+//!   `duplicate_hidden_name`; and, from `DeadCodeVerifier._checkCombinator`,
 //!   `undefined_hidden_name`;
-//! * o `UnicodeTextVerifier` (`unicode_text_verifier.dart`):
-//!   `text_direction_code_point_in_comment` e `…_in_literal`.
+//! * the `UnicodeTextVerifier` (`unicode_text_verifier.dart`):
+//!   `text_direction_code_point_in_comment` and `…_in_literal`.
 //!
-//! Escrito sem compilar nem executar (2026-10-04).
+//! Written without compiling or running (2026-10-04).
 
 use crate::Unidade;
 use dartforge_diagnostics::codigos::warning as w;
@@ -18,22 +18,22 @@ use dartforge_elements::model::{LibraryId, Program, UnitId};
 use dartforge_frontend::ast::{self, Combinator, DirectiveKind, ExprKind};
 use dartforge_intern::{Interner, SymbolId};
 
-/// Uma diretiva de import ou export para a comparação de duplicatas.
-struct Diretiva<'a> {
-    indice: usize,
-    uri_da_biblioteca: &'a str,
-    prefixo: Option<SymbolId>,
-    combinadores: &'a [Combinator],
+/// An import or export directive for the duplicate comparison.
+struct Directive<'a> {
+    index: usize,
+    library_uri: &'a str,
+    prefix: Option<SymbolId>,
+    combinators: &'a [Combinator],
 }
 
-/// `areSyntacticallyIdenticalExceptUri` (`ast.dart:10005-10055`): mesmo
-/// prefixo e os mesmos combinadores, na mesma ordem, com os mesmos nomes na
-/// mesma ordem. `deferred` e as configurações não entram.
-fn identicas(a: &Diretiva<'_>, b: &Diretiva<'_>) -> bool {
-    if a.prefixo != b.prefixo || a.combinadores.len() != b.combinadores.len() {
+/// `areSyntacticallyIdenticalExceptUri` (`ast.dart:10005-10055`): the same
+/// prefix and the same combinators, in the same order, with the same names in
+/// the same order. `deferred` and the configurations do not count.
+fn identical(a: &Directive<'_>, b: &Directive<'_>) -> bool {
+    if a.prefix != b.prefix || a.combinators.len() != b.combinators.len() {
         return false;
     }
-    a.combinadores.iter().zip(b.combinadores.iter()).all(|(x, y)| match (x, y) {
+    a.combinators.iter().zip(b.combinators.iter()).all(|(x, y)| match (x, y) {
         (Combinator::Show(p), Combinator::Show(q)) | (Combinator::Hide(p), Combinator::Hide(q)) => {
             p.len() == q.len() && p.iter().zip(q.iter()).all(|(m, n)| m.sym == n.sym)
         }
@@ -41,102 +41,102 @@ fn identicas(a: &Diretiva<'_>, b: &Diretiva<'_>) -> bool {
     })
 }
 
-/// `_duplicates` (`imports_verifier.dart:368-397`): a lista ordenada pela
-/// URI absoluta da biblioteca; de cada par CONSECUTIVO igual, a diretiva de
-/// maior offset é a duplicata.
-fn duplicatas(mut lista: Vec<Diretiva<'_>>) -> Vec<usize> {
-    let mut saida = Vec::new();
-    if lista.len() <= 1 {
-        return saida;
+/// `_duplicates` (`imports_verifier.dart:368-397`): the list sorted by the
+/// library's absolute URI; of each equal CONSECUTIVE pair, the directive with
+/// the larger offset is the duplicate.
+fn duplicates(mut list: Vec<Directive<'_>>) -> Vec<usize> {
+    let mut out = Vec::new();
+    if list.len() <= 1 {
+        return out;
     }
-    lista.sort_by(|a, b| a.uri_da_biblioteca.cmp(b.uri_da_biblioteca).then(a.indice.cmp(&b.indice)));
-    for par in lista.windows(2) {
-        let (atual, prox) = (&par[0], &par[1]);
-        if atual.uri_da_biblioteca == prox.uri_da_biblioteca && identicas(atual, prox) {
-            saida.push(atual.indice.max(prox.indice));
+    list.sort_by(|a, b| a.library_uri.cmp(b.library_uri).then(a.index.cmp(&b.index)));
+    for pair in list.windows(2) {
+        let (current, next) = (&pair[0], &pair[1]);
+        if current.library_uri == next.library_uri && identical(current, next) {
+            out.push(current.index.max(next.index));
         }
     }
-    saida
+    out
 }
 
-/// Os avisos de diretivas repetidas e de nomes repetidos em combinadores da
-/// biblioteca `lib`, unidade por unidade.
-pub fn diretivas_repetidas(program: &Program, lib: LibraryId, interner: &Interner) -> Vec<(UnitId, Diagnostic)> {
+/// The warnings for repeated directives and for names repeated in the
+/// combinators of library `lib`, unit by unit.
+pub fn repeated_directives(program: &Program, lib: LibraryId, interner: &Interner) -> Vec<(UnitId, Diagnostic)> {
     let mut out = Vec::new();
-    let biblioteca = program.library(lib);
-    for &u in &biblioteca.units {
-        let diretivas = &program.unit(u).unit.directives;
-        let uri_de = |indice: usize| -> Option<Span> {
-            match &diretivas.get(indice)?.kind {
+    let library = program.library(lib);
+    for &u in &library.units {
+        let directives = &program.unit(u).unit.directives;
+        let uri_of = |index: usize| -> Option<Span> {
+            match &directives.get(index)?.kind {
                 DirectiveKind::Import { uri, .. } | DirectiveKind::Export { uri, .. } => Some(uri.span),
                 _ => None,
             }
         };
-        let imports: Vec<Diretiva<'_>> = biblioteca
+        let imports: Vec<Directive<'_>> = library
             .imports
             .iter()
             .filter(|i| i.unit == u)
-            .map(|i| Diretiva {
-                indice: i.directive,
-                uri_da_biblioteca: program.library(i.library).uri.as_str(),
-                prefixo: i.prefix,
-                combinadores: &i.combinators,
+            .map(|i| Directive {
+                index: i.directive,
+                library_uri: program.library(i.library).uri.as_str(),
+                prefix: i.prefix,
+                combinators: &i.combinators,
             })
             .collect();
-        let exports: Vec<Diretiva<'_>> = biblioteca
+        let exports: Vec<Directive<'_>> = library
             .exports
             .iter()
             .filter(|e| e.unit == u)
-            .map(|e| Diretiva {
-                indice: e.directive,
-                uri_da_biblioteca: program.library(e.library).uri.as_str(),
-                prefixo: None,
-                combinadores: &e.combinators,
+            .map(|e| Directive {
+                index: e.directive,
+                library_uri: program.library(e.library).uri.as_str(),
+                prefix: None,
+                combinators: &e.combinators,
             })
             .collect();
-        // A ordem fixa do oficial: exports, imports, nomes escondidos e
-        // mostrados.
-        for indice in duplicatas(exports) {
-            if let Some(sp) = uri_de(indice) {
+        // The official fixed order: exports, imports, hidden and shown
+        // names.
+        for index in duplicates(exports) {
+            if let Some(sp) = uri_of(index) {
                 out.push((u, Diagnostic::com_codigo(w::DUPLICATE_EXPORT, sp, std::iter::empty::<&str>())));
             }
         }
-        for indice in duplicatas(imports) {
-            if let Some(sp) = uri_de(indice) {
+        for index in duplicates(imports) {
+            if let Some(sp) = uri_of(index) {
                 out.push((u, Diagnostic::com_codigo(w::DUPLICATE_IMPORT, sp, std::iter::empty::<&str>())));
             }
         }
-        // Nomes dos combinadores: repetidos no MESMO combinador (só os que
-        // resolvem: o que a biblioteca alvo exporta), e os de `hide` que ela
-        // não exporta.
-        let alvos = biblioteca
+        // Combinator names: repeated in the SAME combinator (only those that
+        // resolve: what the target library exports), and the `hide` ones it
+        // does not export.
+        let targets = library
             .imports
             .iter()
             .filter(|i| i.unit == u)
             .map(|i| (i.library, &i.combinators))
-            .chain(biblioteca.exports.iter().filter(|e| e.unit == u).map(|e| (e.library, &e.combinators)));
-        for (alvo, combinadores) in alvos {
-            let exportado = &program.library(alvo).exported;
-            let uri = program.library(alvo).uri.as_str();
-            for k in combinadores.iter() {
-                let (nomes, mostra) = match k {
+            .chain(library.exports.iter().filter(|e| e.unit == u).map(|e| (e.library, &e.combinators)));
+        for (target, combinators) in targets {
+            let exported = &program.library(target).exported;
+            let uri = program.library(target).uri.as_str();
+            for k in combinators.iter() {
+                let (names, show) = match k {
                     Combinator::Show(n) => (n, true),
                     Combinator::Hide(n) => (n, false),
                 };
-                let mut vistos: Vec<SymbolId> = Vec::new();
-                for n in nomes.iter() {
-                    let resolve = exportado.contains_key(&n.sym);
-                    if !resolve {
-                        if !mostra {
+                let mut seen: Vec<SymbolId> = Vec::new();
+                for n in names.iter() {
+                    let resolves = exported.contains_key(&n.sym);
+                    if !resolves {
+                        if !show {
                             out.push((u, Diagnostic::com_codigo(w::UNDEFINED_HIDDEN_NAME, n.span, [uri, interner.resolve(n.sym)])));
                         }
                         continue;
                     }
-                    if vistos.contains(&n.sym) {
-                        let codigo = if mostra { w::DUPLICATE_SHOWN_NAME } else { w::DUPLICATE_HIDDEN_NAME };
-                        out.push((u, Diagnostic::com_codigo(codigo, n.span, [interner.resolve(n.sym)])));
+                    if seen.contains(&n.sym) {
+                        let code = if show { w::DUPLICATE_SHOWN_NAME } else { w::DUPLICATE_HIDDEN_NAME };
+                        out.push((u, Diagnostic::com_codigo(code, n.span, [interner.resolve(n.sym)])));
                     } else {
-                        vistos.push(n.sym);
+                        seen.push(n.sym);
                     }
                 }
             }
@@ -145,23 +145,24 @@ pub fn diretivas_repetidas(program: &Program, lib: LibraryId, interner: &Interne
     out
 }
 
-/// `built_in_identifier_as_type`: um tipo nomeado cujo nome é identificador
-/// embutido (`abstract`, `import`, `get`…), fora `dynamic` e `Function`,
-/// que são tipos. O parser do analyzer o relata ao ler o tipo
-/// (`TypeReferenceIdentifierContext`, `identifier_context_impl.dart`), e o
-/// `NamedTypeResolver` no nome depois de um prefixo (`p.import`). Aqui o
-/// relato sai da árvore: no nome sem prefixo, ou no nome depois do prefixo.
-/// Uma palavra embutida seguida de `.` é prefixo, não tipo. Num nome de
-/// duas partes, só depois de um prefixo de import (`A.factory` de
-/// `new A.factory()` é a classe e o construtor, cujo nome aceita embutidas).
-/// `augment` só é embutida com `augmentations` ligado (`augmentacoes`): sem
-/// ele o scanner a lê como identificador comum (`abstract_scanner.dart`).
-pub fn embutido_como_tipo(u: Unidade<'_>, interner: &Interner, augmentacoes: bool) -> Vec<Diagnostic> {
-    const EMBUTIDAS: [&str; 22] = [
+/// `built_in_identifier_as_type`: a named type whose name is a built-in
+/// identifier (`abstract`, `import`, `get`…), except `dynamic` and
+/// `Function`, which are types. The analyzer's parser reports it while
+/// reading the type (`TypeReferenceIdentifierContext`,
+/// `identifier_context_impl.dart`), and the `NamedTypeResolver` on the name
+/// after a prefix (`p.import`). Here the report comes from the tree: on the
+/// name without a prefix, or on the name after the prefix. A built-in word
+/// followed by `.` is a prefix, not a type. In a two-part name, only after an
+/// import prefix (`A.factory` of `new A.factory()` is the class and the
+/// constructor, whose name accepts built-ins). `augment` is only built-in
+/// with `augmentations` enabled: without it the scanner
+/// reads it as an ordinary identifier (`abstract_scanner.dart`).
+pub fn built_in_as_type(u: Unidade<'_>, interner: &Interner, augmentations: bool) -> Vec<Diagnostic> {
+    const BUILT_INS: [&str; 22] = [
         "abstract", "as", "augment", "covariant", "deferred", "export", "extension", "external", "factory", "get", "implements",
         "import", "interface", "late", "library", "mixin", "operator", "part", "required", "set", "static", "typedef",
     ];
-    let prefixos: Vec<dartforge_intern::SymbolId> = u
+    let prefixes: Vec<dartforge_intern::SymbolId> = u
         .unit
         .directives
         .iter()
@@ -173,19 +174,19 @@ pub fn embutido_como_tipo(u: Unidade<'_>, interner: &Interner, augmentacoes: boo
     let mut out = Vec::new();
     for t in u.ast.types.iter() {
         let ast::TypeKind::Named { name, .. } = &t.kind else { continue };
-        let Some(ultimo) = name.last() else { continue };
-        if name.len() >= 2 && !prefixos.contains(&name[0].sym) {
+        let Some(last) = name.last() else { continue };
+        if name.len() >= 2 && !prefixes.contains(&name[0].sym) {
             continue;
         }
-        let texto = interner.resolve(ultimo.sym);
-        if texto == "augment" && !augmentacoes {
+        let text = interner.resolve(last.sym);
+        if text == "augment" && !augmentations {
             continue;
         }
-        if EMBUTIDAS.contains(&texto) {
+        if BUILT_INS.contains(&text) {
             out.push(Diagnostic::com_codigo(
                 dartforge_diagnostics::codigos::compile_time_error::BUILT_IN_IDENTIFIER_AS_TYPE,
-                ultimo.span,
-                [texto],
+                last.span,
+                [text],
             ));
         }
     }
@@ -194,171 +195,170 @@ pub fn embutido_como_tipo(u: Unidade<'_>, interner: &Interner, augmentacoes: boo
 
 /// `obsolete_colon_for_default_value`
 /// (`BestPracticesVerifier.visitDefaultFormalParameter`,
-/// `best_practices_verifier.dart:288-306`): o parâmetro nomeado cujo valor
-/// padrão vem depois de `:` em vez de `=`; no `:`. Para a versão da
-/// linguagem anterior à 3.0 o original dá a dica
-/// `deprecated_colon_for_default_value`, que aqui não sai.
+/// `best_practices_verifier.dart:288-306`): the named parameter whose default
+/// value comes after `:` instead of `=`; on the `:`. For a language version
+/// before 3.0 the original gives the hint `deprecated_colon_for_default_value`,
+/// which does not come out here.
 ///
-/// `antes_da_3_0`: a versão de linguagem da biblioteca é anterior à 3.0; o
-/// separador `:` é então só `DEPRECATED_COLON_FOR_DEFAULT_VALUE` (dica), e
-/// não o erro (`best_practices_verifier.dart:288-306` do analyzer 3.6.2).
-pub fn dois_pontos_no_padrao(u: Unidade<'_>, antes_da_3_0: bool) -> Vec<Diagnostic> {
-    let codigo = if antes_da_3_0 {
+/// `before_3_0`: the library's language version is before 3.0; the `:`
+/// separator is then only `DEPRECATED_COLON_FOR_DEFAULT_VALUE` (a hint), and
+/// not the error (`best_practices_verifier.dart:288-306` of analyzer 3.6.2).
+pub fn colon_for_default_value(u: Unidade<'_>, before_3_0: bool) -> Vec<Diagnostic> {
+    let code = if before_3_0 {
         dartforge_diagnostics::codigos::hint::DEPRECATED_COLON_FOR_DEFAULT_VALUE
     } else {
         dartforge_diagnostics::codigos::compile_time_error::OBSOLETE_COLON_FOR_DEFAULT_VALUE
     };
-    fn visitar(u: Unidade<'_>, lista: &[ast::Parameter], codigo: dartforge_diagnostics::Codigo, out: &mut Vec<Diagnostic>) {
-        for p in lista {
-            if let Some(internos) = &p.function_parameters {
-                visitar(u, internos, codigo, out);
+    fn visit(u: Unidade<'_>, list: &[ast::Parameter], code: dartforge_diagnostics::Codigo, out: &mut Vec<Diagnostic>) {
+        for p in list {
+            if let Some(inner) = &p.function_parameters {
+                visit(u, inner, code, out);
             }
-            let (ast::ParameterKind::Named, Some(padrao)) = (p.kind, p.default_value) else { continue };
-            // O separador é o último `:` ou `=` antes do valor, depois do
-            // início do parâmetro.
-            let ate = u.ast.expr(padrao).span.start;
-            let Some(antes) = u.fonte.get(p.span.start..ate) else { continue };
-            let sem_brancos = antes.trim_end();
-            if sem_brancos.ends_with(':') {
-                let pos = p.span.start + sem_brancos.len() - 1;
-                out.push(Diagnostic::com_codigo(codigo, Span { start: pos, end: pos + 1 }, std::iter::empty::<&str>()));
+            let (ast::ParameterKind::Named, Some(default)) = (p.kind, p.default_value) else { continue };
+            // The separator is the last `:` or `=` before the value, after the
+            // start of the parameter.
+            let until = u.ast.expr(default).span.start;
+            let Some(before) = u.fonte.get(p.span.start..until) else { continue };
+            let trimmed = before.trim_end();
+            if trimmed.ends_with(':') {
+                let pos = p.span.start + trimmed.len() - 1;
+                out.push(Diagnostic::com_codigo(code, Span { start: pos, end: pos + 1 }, std::iter::empty::<&str>()));
             }
         }
     }
     let mut out = Vec::new();
     for f in u.ast.functions.iter() {
         if let Some(ps) = &f.parameters {
-            visitar(u, ps, codigo, &mut out);
+            visit(u, ps, code, &mut out);
         }
     }
     for m in u.ast.members.iter() {
         if let ast::MemberKind::Constructor(k) = &m.kind {
-            visitar(u, &k.parameters, codigo, &mut out);
+            visit(u, &k.parameters, code, &mut out);
         }
     }
     out
 }
 
-/// Um caractere de controle de direção de texto: U+202A..U+202E ou
-/// U+2066..U+2069.
-fn de_direcao(c: char) -> bool {
+/// A text-direction control character: U+202A..U+202E or U+2066..U+2069.
+fn is_direction_char(c: char) -> bool {
     matches!(c as u32, 0x202A..=0x202E | 0x2066..=0x2069)
 }
 
-/// Os intervalos de texto de literal de string de uma unidade: os trechos
-/// literais de cada string (as expressões interpoladas ficam de fora) e as
-/// URIs das diretivas.
-fn trechos_de_literal(u: Unidade<'_>) -> Vec<Span> {
-    let mut literais: Vec<Span> = Vec::new();
-    let mut interpoladas: Vec<Span> = Vec::new();
+/// The string-literal text ranges of a unit: the literal fragments of each
+/// string (the interpolated expressions are left out) and the directives'
+/// URIs.
+fn literal_fragments(u: Unidade<'_>) -> Vec<Span> {
+    let mut literals: Vec<Span> = Vec::new();
+    let mut interpolated: Vec<Span> = Vec::new();
     for e in u.ast.exprs.iter() {
         if let ExprKind::String(lit) = &e.kind {
-            literais.push(lit.span);
+            literals.push(lit.span);
             for p in lit.parts.iter() {
                 if let ast::StringPart::Interpolation(x) = p {
-                    interpoladas.push(u.ast.expr(*x).span);
+                    interpolated.push(u.ast.expr(*x).span);
                 }
             }
         }
     }
     for d in u.unit.directives.iter() {
         match &d.kind {
-            DirectiveKind::Import { uri, .. } | DirectiveKind::Export { uri, .. } | DirectiveKind::Part { uri } => literais.push(uri.span),
+            DirectiveKind::Import { uri, .. } | DirectiveKind::Export { uri, .. } | DirectiveKind::Part { uri } => literals.push(uri.span),
             _ => {}
         }
     }
-    // Um offset é de literal se está em alguma string e fora de toda
-    // expressão interpolada que não contenha, ela mesma, outra string ali.
-    literais.sort_by_key(|s| (s.start, s.end));
-    interpoladas.sort_by_key(|s| (s.start, s.end));
-    let mut saida = literais;
-    saida.extend(interpoladas.into_iter().map(|s| Span { start: s.end, end: s.start }));
-    saida
+    // An offset is a literal's if it is in some string and outside every
+    // interpolated expression that does not itself contain another string there.
+    literals.sort_by_key(|s| (s.start, s.end));
+    interpolated.sort_by_key(|s| (s.start, s.end));
+    let mut out = literals;
+    out.extend(interpolated.into_iter().map(|s| Span { start: s.end, end: s.start }));
+    out
 }
 
-/// `UnicodeTextVerifier.verify`: um relato por caractere de direção, de
-/// comprimento 1, com o código em hexadecimal maiúsculo; o código depende
-/// de o caractere estar no texto de um literal de string ou em qualquer
-/// outro lugar (comentário, código).
-pub fn texto_bidirecional(u: Unidade<'_>) -> Vec<Diagnostic> {
+/// `UnicodeTextVerifier.verify`: one report per direction character, of
+/// length 1, with the code in upper-case hexadecimal; the code depends on
+/// whether the character is in the text of a string literal or anywhere else
+/// (comment, code).
+pub fn bidi_text(u: Unidade<'_>) -> Vec<Diagnostic> {
     let mut out = Vec::new();
-    if !u.fonte.chars().any(de_direcao) {
+    if !u.fonte.chars().any(is_direction_char) {
         return out;
     }
-    // Os intervalos invertidos (`start > end`) marcam as expressões
-    // interpoladas; ver `trechos_de_literal`.
-    let trechos = trechos_de_literal(u);
+    // The inverted ranges (`start > end`) mark the interpolated expressions;
+    // see `literal_fragments`.
+    let fragments = literal_fragments(u);
     for (offset, c) in u.fonte.char_indices() {
-        if !de_direcao(c) {
+        if !is_direction_char(c) {
             continue;
         }
-        // O nó mais interno: a string ou a interpolação de intervalo menor
-        // que cobre o offset.
-        let mut melhor: Option<(usize, bool)> = None;
-        for t in &trechos {
-            let (ini, fim, literal) = if t.start <= t.end { (t.start, t.end, true) } else { (t.end, t.start, false) };
-            if ini <= offset && offset < fim {
-                let tamanho = fim - ini;
-                if melhor.is_none_or(|(m, _)| tamanho < m) {
-                    melhor = Some((tamanho, literal));
+        // The innermost node: the string or the interpolation with the
+        // smallest range covering the offset.
+        let mut best: Option<(usize, bool)> = None;
+        for t in &fragments {
+            let (start, end, literal) = if t.start <= t.end { (t.start, t.end, true) } else { (t.end, t.start, false) };
+            if start <= offset && offset < end {
+                let size = end - start;
+                if best.is_none_or(|(m, _)| size < m) {
+                    best = Some((size, literal));
                 }
             }
         }
-        let em_literal = melhor.is_some_and(|(_, literal)| literal);
-        let codigo = if em_literal { w::TEXT_DIRECTION_CODE_POINT_IN_LITERAL } else { w::TEXT_DIRECTION_CODE_POINT_IN_COMMENT };
+        let in_literal = best.is_some_and(|(_, literal)| literal);
+        let code = if in_literal { w::TEXT_DIRECTION_CODE_POINT_IN_LITERAL } else { w::TEXT_DIRECTION_CODE_POINT_IN_COMMENT };
         let hex = format!("{:04X}", c as u32);
-        out.push(Diagnostic::com_codigo(codigo, Span { start: offset, end: offset + c.len_utf8() }, [hex.as_str()]));
+        out.push(Diagnostic::com_codigo(code, Span { start: offset, end: offset + c.len_utf8() }, [hex.as_str()]));
     }
     out
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
-    fn bidirecionais(fonte: &str) -> Vec<&'static str> {
-        let mut nomes = Interner::new();
-        let p = dartforge_frontend::parser::parse(fonte, &mut nomes);
-        let u = Unidade { ast: &p.ast, unit: &p.unit, fonte };
-        texto_bidirecional(u).into_iter().map(|d| d.code.map_or("", |c| c.info().nome)).collect()
+    fn bidi(source: &str) -> Vec<&'static str> {
+        let mut names = Interner::new();
+        let p = dartforge_frontend::parser::parse(source, &mut names);
+        let u = Unidade { ast: &p.ast, unit: &p.unit, fonte: source };
+        bidi_text(u).into_iter().map(|d| d.code.map_or("", |c| c.info().nome)).collect()
     }
 
     #[test]
-    fn direcao_em_literal_e_em_comentario() {
-        assert_eq!(bidirecionais("var s = 'a\u{202E}b';\n"), vec!["text_direction_code_point_in_literal"]);
-        assert_eq!(bidirecionais("// a\u{2066}b\nvar s = 1;\n"), vec!["text_direction_code_point_in_comment"]);
-        assert!(bidirecionais("var s = 'ab';\n").is_empty());
+    fn direction_in_literal_and_in_comment() {
+        assert_eq!(bidi("var s = 'a\u{202E}b';\n"), vec!["text_direction_code_point_in_literal"]);
+        assert_eq!(bidi("// a\u{2066}b\nvar s = 1;\n"), vec!["text_direction_code_point_in_comment"]);
+        assert!(bidi("var s = 'ab';\n").is_empty());
     }
 
     #[test]
-    fn palavra_embutida_como_tipo() {
-        let fonte = "void f(List<int> a, dynamic b, Function c) {}
+    fn built_in_word_as_type() {
+        let source = "void f(List<int> a, dynamic b, Function c) {}
 ";
-        let mut nomes = Interner::new();
-        let p = dartforge_frontend::parser::parse(fonte, &mut nomes);
-        assert!(embutido_como_tipo(Unidade { ast: &p.ast, unit: &p.unit, fonte }, &nomes, false).is_empty());
+        let mut names = Interner::new();
+        let p = dartforge_frontend::parser::parse(source, &mut names);
+        assert!(built_in_as_type(Unidade { ast: &p.ast, unit: &p.unit, fonte: source }, &names, false).is_empty());
     }
 
     #[test]
-    fn dois_pontos_como_separador_do_padrao() {
-        let fonte = "void f({int a: 1, int b = 2}) {}
+    fn colon_as_default_separator() {
+        let source = "void f({int a: 1, int b = 2}) {}
 ";
-        let mut nomes = Interner::new();
-        let p = dartforge_frontend::parser::parse(fonte, &mut nomes);
-        let u = Unidade { ast: &p.ast, unit: &p.unit, fonte };
-        let achados = dois_pontos_no_padrao(u, false);
-        assert_eq!(achados.len(), 1);
-        assert_eq!(&fonte[achados[0].span.start..achados[0].span.end], ":");
-        assert_eq!(achados[0].code.unwrap().info().nome, "obsolete_colon_for_default_value");
-        let antigos = dois_pontos_no_padrao(u, true);
-        assert_eq!(antigos[0].code.unwrap().info().nome, "deprecated_colon_for_default_value");
+        let mut names = Interner::new();
+        let p = dartforge_frontend::parser::parse(source, &mut names);
+        let u = Unidade { ast: &p.ast, unit: &p.unit, fonte: source };
+        let found = colon_for_default_value(u, false);
+        assert_eq!(found.len(), 1);
+        assert_eq!(&source[found[0].span.start..found[0].span.end], ":");
+        assert_eq!(found[0].code.unwrap().info().nome, "obsolete_colon_for_default_value");
+        let old = colon_for_default_value(u, true);
+        assert_eq!(old[0].code.unwrap().info().nome, "deprecated_colon_for_default_value");
     }
 
     #[test]
-    fn par_consecutivo_identico_e_duplicata() {
+    fn identical_consecutive_pair_is_duplicate() {
         let uri = "package:a/a.dart";
-        let d = |indice: usize| Diretiva { indice, uri_da_biblioteca: uri, prefixo: None, combinadores: &[] };
-        assert_eq!(duplicatas(vec![d(0), d(2)]), vec![2]);
-        assert!(duplicatas(vec![d(0)]).is_empty());
+        let d = |index: usize| Directive { index, library_uri: uri, prefix: None, combinators: &[] };
+        assert_eq!(duplicates(vec![d(0), d(2)]), vec![2]);
+        assert!(duplicates(vec![d(0)]).is_empty());
     }
 }

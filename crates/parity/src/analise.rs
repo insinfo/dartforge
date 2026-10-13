@@ -660,15 +660,15 @@ impl Motor {
                 found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::a_context::verificar(*u).into_iter().map(|d| (i, d))));
                 found.extend(with_phase(phase::BEST_PRACTICES, dartforge_analysis::a_doc::verificar(*u).into_iter().map(|d| (i, d))));
                 found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::c2_syntactic::verificar(*u, &interner).into_iter().map(|d| (i, d))));
-                found.extend(with_phase(phase::UNICODE_TEXT, dartforge_analysis::phases::texto_bidirecional(*u).into_iter().map(|d| (i, d))));
+                found.extend(with_phase(phase::UNICODE_TEXT, dartforge_analysis::phases::bidi_text(*u).into_iter().map(|d| (i, d))));
                 found.extend(with_phase(phase::TODO_FINDER, dartforge_analysis::todos::check(u.fonte).into_iter().map(|d| (i, d))));
                 found.extend(with_phase(phase::LANGUAGE_VERSION, dartforge_analysis::language_version::check(*u).into_iter().map(|d| (i, d))));
                 found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::records::check(u, &interner, library.features).into_iter().map(|d| (i, d))));
                 found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::inicializacao::constantes_nao_inicializadas(u, &interner).into_iter().map(|d| (i, d))));
                 found.extend(with_phase(phase::PARSER,
-                    dartforge_analysis::phases::dois_pontos_no_padrao(*u, library.features.versao().major < 3).into_iter().map(|d| (i, d)),
+                    dartforge_analysis::phases::colon_for_default_value(*u, library.features.versao().major < 3).into_iter().map(|d| (i, d)),
                 ));
-                found.extend(with_phase(phase::RESOLUTION_VISITOR, dartforge_analysis::phases::embutido_como_tipo(
+                found.extend(with_phase(phase::RESOLUTION_VISITOR, dartforge_analysis::phases::built_in_as_type(
                     *u,
                     &interner,
                     library.features.tem(dartforge_frontend::features::Feature::Augmentations)
@@ -702,7 +702,7 @@ impl Motor {
                 .chain(with_phase(phase::DIRECTIVES, dartforge_analysis::importacoes::exports_ambiguos(&program, *lib, &interner)))
                 .chain(with_phase(phase::RESOLUTION_VISITOR, dartforge_analysis::importacoes::tipos_adiados(&program, *lib, &interner)))
                 // NEW PHASES (INFRA step 6): the per-library warning verifiers.
-                .chain(with_phase(phase::IMPORTS_VERIFIER, dartforge_analysis::phases::diretivas_repetidas(&program, *lib, &interner)))
+                .chain(with_phase(phase::IMPORTS_VERIFIER, dartforge_analysis::phases::repeated_directives(&program, *lib, &interner)))
                 // The `package:meta` annotations (batch II.7). Public API: the
                 // library in `lib/`, outside `lib/src/`.
                 .chain({
