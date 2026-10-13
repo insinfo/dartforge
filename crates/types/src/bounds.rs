@@ -528,7 +528,10 @@ fn interface_lub(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv) -> TypeId {
                 }
             }
         }
-        let has_class = out.iter().any(|x| matches!(env.table.get(*x), Type::Interface { .. }));
+        // An extension type that implements `Object` (directly, or through
+        // another extension type) has it among its superinterfaces too.
+        let object = env.core.object;
+        let has_class = out.iter().any(|x| matches!(env.table.get(*x), Type::Interface { .. })) || is_subtype(t, object, env);
         if has_class && !out.contains(&env.core.object) {
             out.push(env.core.object);
         }

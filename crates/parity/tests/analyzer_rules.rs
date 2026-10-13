@@ -367,6 +367,13 @@ const CASES: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
         "abstract class A {\n  late final String name;\n  late final int x = 1;\n  final int y = 2;\n}\nclass B extends A {\n  @override\n  set name(String v) {}\n  @override\n  set x(int v) {}\n  @override\n  set y(int v) {}\n}\nvoid f(A a) {\n  a.name = 's';\n}\nabstract class I { late final String q; }\nclass J implements I {\n  @override\n  String get q => '';\n  @override\n  set q(String v) {}\n}\nmixin M { late final int r; }\nclass K with M {\n  @override\n  set r(int v) {}\n}\n",
         &[("override_on_non_overriding_member", 10, 7, 1), ("override_on_non_overriding_member", 12, 7, 1)],
     ),
+    // UP of an extension type that implements `Object` and a class is `Object`
+    // (limitless_ui with package:web; 2026-10-13).
+    (
+        "up_tipo_de_extensao.dart",
+        "class A {}\nclass B {}\nextension type E(B b) implements Object {}\nextension type G(B b) {}\nvoid f(E? x, A a, G? z) {\n  int i = x ?? a;\n  int l = z ?? a;\n  print([i, l]);\n}\n",
+        &[("invalid_assignment", 6, 11, 6), ("invalid_assignment", 7, 11, 6)],
+    ),
     // A reserved word as a local variable's name (2026-10-13).
     (
         "palavra_reservada_local.dart",
