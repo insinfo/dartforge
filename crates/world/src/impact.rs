@@ -224,6 +224,31 @@ fn compared_class_refs(m: &mut Engine<'_>, ctx: &Context, arguments: &ast::Argum
     }
 }
 
+/// The enum constant argument that the emitter folds in an intrinsic of the
+/// SDK (`dartforge_emit_js::own_sdk`, `Intrinsic::GetName` and
+/// `Intrinsic::Builtin`): its index, when the member is one the emitter
+/// knows. Reading it would instantiate `JsGetName`/`JsBuiltin` with all their
+/// constants for nothing.
+fn folded_enum_argument(m: &Engine<'_>, ctx: &Context, target: ExprId, arguments: &ast::Arguments) -> Option<usize> {
+    if !m.include_sdk || !m.e.program.library(ctx.library).is_sdk {
+        return None;
+    }
+    let ast = &m.e.program.unit(ctx.unit).ast;
+    let ExprKind::Identifier(n) = &ast.expr(target).kind else { return None };
+    let (index, known): (usize, &[&str]) = match m.e.interner.resolve(n.sym) {
+        "JS_GET_NAME" => (0, &["OPERATOR_IS_PREFIX", "SIGNATURE_NAME", "RTI_NAME", "FUTURE_CLASS_TYPE_NAME", "LIST_CLASS_TYPE_NAME", "RTI_FIELD_AS", "RTI_FIELD_IS"]),
+        "JS_BUILTIN" => (1, &["dartClosureConstructor", "dartObjectConstructor"]),
+        _ => return None,
+    };
+    let arg = arguments.args.get(index)?;
+    let member = match &ast.expr(arg.value).kind {
+        ExprKind::Property { name, .. } => name.sym,
+        ExprKind::Identifier(i) => i.sym,
+        _ => return None,
+    };
+    known.contains(&m.e.interner.resolve(member)).then_some(index)
+}
+
 // ---------------------------------------------------------------- functions
 
 fn walk_function(m: &mut Engine<'_>, ctx: &Context, id: ast::FunctionId) {
@@ -1124,10 +1149,23 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
                     }
                 }
             }
-            m.call_target = Some(*target);
-            expr(m, ctx, *target);
-            m.call_target = None;
-            walk_arguments(m, ctx, arguments);
+            // `JS_GET_NAME(JsGetName.RTI_NAME)`: the emitter folds the enum
+            // constant into the name itself, so neither it nor the helper's
+            // type (`String Function(JsGetName)`) is read.
+            let folded = folded_enum_argument(m, ctx, *target, arguments);
+            if folded.is_none() {
+                m.call_target = Some(*target);
+                expr(m, ctx, *target);
+                m.call_target = None;
+            }
+            for t in arguments.type_args.iter() {
+                ast_type(m, ctx, *t);
+            }
+            for (i, arg) in arguments.args.iter().enumerate() {
+                if folded != Some(i) {
+                    expr(m, ctx, arg.value);
+                }
+            }
         }
         ExprKind::TypeArguments { target, type_args } => {
             expr(m, ctx, *target);
