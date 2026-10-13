@@ -1,14 +1,14 @@
-//! `sass_builder:sass_builder` pelo Sass do `ng_generator`
-//! (`sass::compilar_ativo`, API pública), que é o dart-sass 1.102.0 byte a
-//! byte (o crate `dartforge-sass`) ou, quando o `pubspec.lock` traz o `sass`
-//! 1.66.0, o modo de compatibilidade com ele (`VersaoDartSass::V1_66_0`).
+//! `sass_builder:sass_builder` through the Sass of `ng_generator`
+//! (`sass::compilar_ativo`, public API), which is dart-sass 1.102.0 byte for
+//! byte (the `dartforge-sass` crate) or, when `pubspec.lock` brings `sass`
+//! 1.66.0, the compatibility mode for it (`VersaoDartSass::V1_66_0`).
 //!
-//! Os dois estilos (`compressed` e `expanded`, o padrão do `sass_builder`)
-//! e o `.css.map` quando `sourceMaps` está ligado (o `dev` o liga por
-//! padrão), com o comentário `sourceMappingURL` no `.css`, como o
-//! `SassBuilder` os escreve. As folhas de `@use`/`@forward`/`@import`
-//! resolvem como no `BuildImporter` (relativas ao arquivo e `package:` pelas
-//! raízes dos pacotes); cada arquivo lido ou procurado é dependência da ação.
+//! Both styles (`compressed` and `expanded`, the `sass_builder` default) and
+//! the `.css.map` when `sourceMaps` is on (`dev` turns it on by default), with
+//! the `sourceMappingURL` comment in the `.css`, as `SassBuilder` writes them.
+//! The stylesheets of `@use`/`@forward`/`@import` resolve as in
+//! `BuildImporter` (relative to the file, and `package:` through the package
+//! roots); every file read or probed is a dependency of the action.
 use crate::consulta::Consulta;
 use crate::executor::{CtxGerador, GeradorNativo, PedidoNativo, SaidaNativa};
 use crate::valor::Valor;
@@ -16,34 +16,34 @@ use dartforge_ng_generator::sass::{Estilo, Leitor, VersaoDartSass, compilar_ativ
 use std::path::Path;
 use std::sync::Arc;
 
-/// O `BuildStep` para o Sass: o que o motor tem na memória (saídas de
-/// builders anteriores) ou o disco.
-struct LeitorDoPasso<'a> {
-    memoria: &'a dyn Fn(&Path) -> Option<Arc<[u8]>>,
+/// The `BuildStep` for Sass: what the engine has in memory (outputs of
+/// previous builders) or the disk.
+struct StepReader<'a> {
+    memory: &'a dyn Fn(&Path) -> Option<Arc<[u8]>>,
 }
 
-impl Leitor for LeitorDoPasso<'_> {
-    fn existe(&self, caminho: &Path) -> bool {
-        (self.memoria)(&dartforge_elements::gerado::chave(caminho)).is_some() || caminho.is_file()
+impl Leitor for StepReader<'_> {
+    fn existe(&self, path: &Path) -> bool {
+        (self.memory)(&dartforge_elements::gerado::chave(path)).is_some() || path.is_file()
     }
 
-    fn ler(&self, caminho: &Path) -> std::io::Result<String> {
-        match (self.memoria)(&dartforge_elements::gerado::chave(caminho)) {
+    fn ler(&self, path: &Path) -> std::io::Result<String> {
+        match (self.memory)(&dartforge_elements::gerado::chave(path)) {
             Some(b) => String::from_utf8(b.to_vec())
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e)),
-            None => std::fs::read_to_string(caminho),
+            None => std::fs::read_to_string(path),
         }
     }
 }
 
-pub struct SassNativo;
+pub struct SassNative;
 
-impl GeradorNativo for SassNativo {
+impl GeradorNativo for SassNative {
     fn chave(&self) -> &'static str {
         "sass_builder:sass_builder"
     }
 
-    fn cobre(&self, _fabrica: &str) -> bool {
+    fn cobre(&self, _factory: &str) -> bool {
         true
     }
 
@@ -58,75 +58,79 @@ impl GeradorNativo for SassNativo {
     fn gerar(
         &self,
         ctx: &mut CtxGerador<'_>,
-        pedido: &PedidoNativo,
+        request: &PedidoNativo,
     ) -> Result<SaidaNativa, String> {
         let mut s = SaidaNativa::default();
-        // O dart-sass do lock (o motor só chama com uma versão imitada).
-        let versao = pedido.versoes.get("sass").map(String::as_str);
-        let Some(versao) = versao.and_then(VersaoDartSass::do_lock) else {
+        // The dart-sass from the lock (the engine only calls with an imitated
+        // version).
+        let version = request.versoes.get("sass").map(String::as_str);
+        let Some(version) = version.and_then(VersaoDartSass::do_lock) else {
             return Err(format!(
-                "sass: versão do dart-sass no lock não imitada: {}",
-                versao.unwrap_or("ausente")
+                "sass: dart-sass version in the lock is not imitated: {}",
+                version.unwrap_or("missing")
             ));
         };
-        for a in &pedido.acoes {
-            let nome = a.entrada.caminho.rsplit('/').next().unwrap_or_default();
-            if nome.starts_with('_') {
-                continue; // parcial: o oficial não gera nada (`sass_builder.dart:43`)
+        for a in &request.acoes {
+            let name = a.entrada.caminho.rsplit('/').next().unwrap_or_default();
+            if name.starts_with('_') {
+                // Partial: the official builder generates nothing
+                // (`sass_builder.dart:43`).
+                continue;
             }
-            // `outputStyle` ausente é o `expanded` do `sass_builder`; valor
-            // desconhecido ele avisa e usa o `expanded` — o aviso não temos.
-            let estilo = match a.opcoes.obter("outputStyle") {
+            // A missing `outputStyle` is `sass_builder`'s `expanded`; for an
+            // unknown value it warns and uses `expanded` — we do not have the
+            // warning.
+            let style = match a.opcoes.obter("outputStyle") {
                 None | Some(Valor::Nulo) => Estilo::Expandido,
                 Some(Valor::Texto(v)) if v == "expanded" => Estilo::Expandido,
                 Some(Valor::Texto(v)) if v == "compressed" => Estilo::Comprimido,
                 Some(_) => {
                     s.recusas.insert(
                         a.entrada_natural.clone(),
-                        "sass: outputStyle desconhecido (o oficial avisa)".into(),
+                        "sass: unknown outputStyle (the official builder warns)".into(),
                     );
                     continue;
                 }
             };
-            let Some(fonte) = ctx.ler(&a.entrada_natural) else {
+            let Some(source) = ctx.ler(&a.entrada_natural) else {
                 s.recusas
-                    .insert(a.entrada_natural.clone(), "sass: entrada ilegível".into());
+                    .insert(a.entrada_natural.clone(), "sass: unreadable input".into());
                 continue;
             };
-            let texto = String::from_utf8_lossy(&fonte);
-            let mapa = a.opcoes.obter("sourceMaps") == Some(&Valor::Bool(true));
-            let leitor = LeitorDoPasso {
-                memoria: ctx.memoria,
+            let text = String::from_utf8_lossy(&source);
+            let source_map = a.opcoes.obter("sourceMaps") == Some(&Valor::Bool(true));
+            let reader = StepReader {
+                memory: ctx.memoria,
             };
-            let folha = match compilar_ativo(
-                &texto,
+            let sheet = match compilar_ativo(
+                &text,
                 &a.entrada.pacote,
                 &a.entrada.caminho,
-                &pedido.raizes,
-                &leitor,
-                estilo,
-                mapa,
-                versao,
+                &request.raizes,
+                &reader,
+                style,
+                source_map,
+                version,
             ) {
                 Ok(f) => f,
                 Err(m) => {
-                    let primeira = m.lines().next().unwrap_or_default().to_owned();
+                    let first = m.lines().next().unwrap_or_default().to_owned();
                     s.recusas.insert(
                         a.entrada_natural.clone(),
-                        format!("sass: o dart-sass recusa: {primeira}"),
+                        format!("sass: dart-sass rejects it: {first}"),
                     );
                     continue;
                 }
             };
-            for arquivo in folha.lidos.iter().chain(&folha.sondados) {
+            for file in sheet.lidos.iter().chain(&sheet.sondados) {
                 ctx.registrar(Consulta::Arquivo(dartforge_elements::gerado::chave(
-                    arquivo,
+                    file,
                 )));
             }
             if let Some((_, n)) = a.saidas.iter().find(|(id, _)| id.caminho.ends_with(".css")) {
-                s.saidas.insert(n.clone(), folha.css.into_bytes());
+                s.saidas.insert(n.clone(), sheet.css.into_bytes());
             }
-            if let Some(m) = folha.mapa
+            if let Some(m) = sheet.mapa
                 && let Some((_, n)) = a
                     .saidas
                     .iter()

@@ -1,61 +1,62 @@
-//! `i18n:yamlBasedBuilder` (`package:i18n` 4.2.1, `lib/builder.dart` e
-//! `lib/src/i18n_impl.dart`): cada `x.i18n.yaml` vira `x.i18n.dart` no
-//! próprio pacote (`build_to: source`) — uma classe por mapa do YAML, um
-//! getter por mensagem (com o texto num comentário de documentação) e o mapa
-//! `xMap` com as chaves achatadas —, formatado pelo `DartFormatter` de 80
-//! colunas (dart_style 2.3.8, o estilo curto).
+//! `i18n:yamlBasedBuilder` (`package:i18n` 4.2.1, `lib/builder.dart` and
+//! `lib/src/i18n_impl.dart`): each `x.i18n.yaml` becomes `x.i18n.dart` in its
+//! own package (`build_to: source`) — one class per YAML map, one getter per
+//! message (with the text in a documentation comment) and the `xMap` map with
+//! the flattened keys —, formatted by the 80-column `DartFormatter`
+//! (dart_style 2.3.8, the short style).
 //!
-//! O texto sai já formatado: o gerador só produz poucas formas (a classe, o
-//! construtor, os getters `=>`, o comentário, o mapa), e cada uma quebra num
-//! lugar só quando passa de 80 colunas — o getter depois do `=>`, com o
-//! corpo seis colunas para dentro; a entrada do mapa depois do `:`, com o
-//! valor dez colunas para dentro. O que o formatador faria de outro jeito (a
-//! declaração da classe ou o construtor longos demais, a primeira linha de
-//! um texto de várias linhas que não cabe) é recusado, como o que o builder
-//! oficial rejeita (chave repetida entre os idiomas fora de ordem, código de
-//! idioma inválido, valor que não é texto, número nem booleano).
+//! The text comes out already formatted: the generator only produces a few
+//! shapes (the class, the constructor, the `=>` getters, the comment, the
+//! map), and each one breaks in a single place only when it exceeds 80
+//! columns — the getter after the `=>`, with the body indented six columns;
+//! the map entry after the `:`, with the value indented ten columns. What the
+//! formatter would do differently (a class declaration or constructor that
+//! is too long, the first line of a multi-line text that does not fit) is
+//! refused, like what the official builder rejects (a key repeated across
+//! languages out of order, an invalid language code, a value that is not a
+//! string, number or boolean).
 use crate::consulta::Consulta;
 use crate::executor::{CtxGerador, GeradorNativo, PedidoNativo, SaidaNativa};
 use std::path::Path;
 use yaml_rust2::{Yaml, YamlLoader};
 
-pub struct I18nNativo;
+pub struct I18nNative;
 
-/// As pastas de fontes de um pacote no `build_runner` (os `sources` padrão
-/// do alvo `$default`), onde o `findAssets('**.i18n.yaml')` procura.
-const PASTAS_DE_FONTES: &[&str] = &["benchmark", "bin", "example", "lib", "test", "tool", "web"];
+/// The source folders of a package in `build_runner` (the default `sources`
+/// of the `$default` target), where `findAssets('**.i18n.yaml')` looks.
+const SOURCE_FOLDERS: &[&str] = &["benchmark", "bin", "example", "lib", "test", "tool", "web"];
 
-/// Largura de página do `DartFormatter()` padrão.
-const LARGURA: usize = 80;
+/// Page width of the default `DartFormatter()`.
+const WIDTH: usize = 80;
 
-/// `Metadata` do `i18n`.
+/// `i18n`'s `Metadata`.
 #[derive(Clone)]
-struct Metadados {
-    pai: Option<Box<Metadados>>,
-    padrao: bool,
-    nome_padrao: String,
-    arquivo_padrao: Option<String>,
-    nome: String,
-    localidade: String,
-    idioma: String,
+struct Metadata {
+    parent: Option<Box<Metadata>>,
+    is_default: bool,
+    default_name: String,
+    default_file: Option<String>,
+    name: String,
+    locale: String,
+    language: String,
 }
 
-impl Metadados {
-    fn aninhar(&self, prefixo: &str) -> Metadados {
-        Metadados {
-            pai: Some(Box::new(self.clone())),
-            padrao: self.padrao,
-            nome_padrao: format!("{prefixo}{}", self.nome_padrao),
-            arquivo_padrao: self.arquivo_padrao.clone(),
-            nome: format!("{prefixo}{}", self.nome),
-            localidade: self.localidade.clone(),
-            idioma: self.idioma.clone(),
+impl Metadata {
+    fn nest(&self, prefix: &str) -> Metadata {
+        Metadata {
+            parent: Some(Box::new(self.clone())),
+            is_default: self.is_default,
+            default_name: format!("{prefix}{}", self.default_name),
+            default_file: self.default_file.clone(),
+            name: format!("{prefix}{}", self.name),
+            locale: self.locale.clone(),
+            language: self.language.clone(),
         }
     }
 }
 
 /// `String.firstUpper`.
-fn primeira_maiuscula(s: &str) -> String {
+fn first_upper(s: &str) -> String {
     let mut c = s.chars();
     match c.next() {
         Some(p) => p.to_uppercase().collect::<String>() + c.as_str(),
@@ -64,7 +65,7 @@ fn primeira_maiuscula(s: &str) -> String {
 }
 
 /// `String.firstLower`.
-fn primeira_minuscula(s: &str) -> String {
+fn first_lower(s: &str) -> String {
     let mut c = s.chars();
     match c.next() {
         Some(p) => p.to_lowercase().collect::<String>() + c.as_str(),
@@ -72,311 +73,311 @@ fn primeira_minuscula(s: &str) -> String {
     }
 }
 
-/// `String.filterHyphen`: `a-b-c` vira `aBC`.
-fn sem_hifen(s: &str) -> String {
-    let mut partes = s.split('-');
-    let primeira = partes.next().unwrap_or_default().to_string();
-    partes.fold(primeira, |a, p| a + &primeira_maiuscula(p))
+/// `String.filterHyphen`: `a-b-c` becomes `aBC`.
+fn filter_hyphen(s: &str) -> String {
+    let mut parts = s.split('-');
+    let first = parts.next().unwrap_or_default().to_string();
+    parts.fold(first, |a, p| a + &first_upper(p))
 }
 
-/// `String.filterSpaces`: os espaços antes do primeiro `(` somem e cada
-/// palavra depois da primeira ganha maiúscula; o resto (sem os `(`) volta
-/// depois de um `(`.
-fn sem_espacos(s: &str) -> String {
+/// `String.filterSpaces`: the spaces before the first `(` disappear and each
+/// word after the first one is capitalized; the rest (without the `(`s) comes
+/// back after a `(`.
+fn filter_spaces(s: &str) -> String {
     let mut f: Vec<&str> = s.split('(').collect();
-    let primeira = f.remove(0);
-    let mut palavras = primeira.split(' ');
-    let inicio = palavras.next().unwrap_or_default().to_string();
-    let convertido = palavras.fold(inicio, |a, p| a + &primeira_maiuscula(p));
+    let first = f.remove(0);
+    let mut words = first.split(' ');
+    let start = words.next().unwrap_or_default().to_string();
+    let converted = words.fold(start, |a, p| a + &first_upper(p));
     if f.is_empty() {
-        return convertido;
+        return converted;
     }
-    format!("{convertido}({}", f.concat())
+    format!("{converted}({}", f.concat())
 }
 
-/// `String.convertName`: `AppMessages_en_US` vira `AppMessagesEnUS`; cada
-/// parte depois do primeiro `_` tem de ter duas letras.
-fn nome_convertido(s: &str) -> Result<String, String> {
-    let rep = sem_espacos(&sem_hifen(s));
-    let partes: Vec<&str> = rep.split('_').collect();
-    if partes.len() == 1 {
+/// `String.convertName`: `AppMessages_en_US` becomes `AppMessagesEnUS`; each
+/// part after the first `_` must have two letters.
+fn converted_name(s: &str) -> Result<String, String> {
+    let rep = filter_spaces(&filter_hyphen(s));
+    let parts: Vec<&str> = rep.split('_').collect();
+    if parts.len() == 1 {
         return Ok(rep);
     }
-    let mut saida = partes[0].to_string();
-    for p in &partes[1..] {
+    let mut out = parts[0].to_string();
+    for p in &parts[1..] {
         if p.chars().count() != 2 {
             return Err(format!(
-                "i18n: `{p}` não é código de idioma nem de país (o oficial lança)"
+                "i18n: `{p}` is neither a language nor a country code (the official builder throws)"
             ));
         }
-        saida += &primeira_maiuscula(p);
+        out += &first_upper(p);
     }
-    Ok(saida)
+    Ok(out)
 }
 
 /// `generateMessageObjectName`.
-fn metadados_do_arquivo(nome_do_arquivo: &str) -> Result<Metadados, String> {
-    let nome = nome_do_arquivo.replace(".i18n.yaml", "");
-    let partes: Vec<&str> = nome.split('_').collect();
-    let nome_padrao = primeira_maiuscula(partes[0]);
-    if partes.len() == 1 {
-        return Ok(Metadados {
-            pai: None,
-            padrao: true,
-            nome_padrao: nome_padrao.clone(),
-            arquivo_padrao: None,
-            nome: nome_padrao,
-            localidade: "en".into(),
-            idioma: "en".into(),
+fn file_metadata(file_name: &str) -> Result<Metadata, String> {
+    let name = file_name.replace(".i18n.yaml", "");
+    let parts: Vec<&str> = name.split('_').collect();
+    let default_name = first_upper(parts[0]);
+    if parts.len() == 1 {
+        return Ok(Metadata {
+            parent: None,
+            is_default: true,
+            default_name: default_name.clone(),
+            default_file: None,
+            name: default_name,
+            locale: "en".into(),
+            language: "en".into(),
         });
     }
-    if partes.len() > 3 {
-        return Err("i18n: nome de arquivo com mais de dois `_` (o oficial lança)".into());
+    if parts.len() > 3 {
+        return Err("i18n: file name with more than two `_` (the official builder throws)".into());
     }
-    let idioma = partes[1];
-    if !(idioma.len() == 2 && idioma.bytes().all(|b| b.is_ascii_lowercase())) {
+    let language = parts[1];
+    if !(language.len() == 2 && language.bytes().all(|b| b.is_ascii_lowercase())) {
         return Err(format!(
-            "i18n: código de idioma `{idioma}` inválido (o oficial lança)"
+            "i18n: invalid language code `{language}` (the official builder throws)"
         ));
     }
-    let mut localidade = idioma.to_string();
-    if partes.len() == 3 {
-        let pais = partes[2];
-        if !(pais.len() == 2 && pais.bytes().all(|b| b.is_ascii_uppercase())) {
+    let mut locale = language.to_string();
+    if parts.len() == 3 {
+        let country = parts[2];
+        if !(country.len() == 2 && country.bytes().all(|b| b.is_ascii_uppercase())) {
             return Err(format!(
-                "i18n: código de país `{pais}` inválido (o oficial lança)"
+                "i18n: invalid country code `{country}` (the official builder throws)"
             ));
         }
-        localidade = format!("{idioma}_{pais}");
+        locale = format!("{language}_{country}");
     }
-    Ok(Metadados {
-        pai: None,
-        padrao: false,
-        nome: format!("{nome_padrao}_{localidade}"),
-        nome_padrao,
-        arquivo_padrao: Some(format!("{}.i18n.dart", partes[0])),
-        localidade,
-        idioma: idioma.to_string(),
+    Ok(Metadata {
+        parent: None,
+        is_default: false,
+        name: format!("{default_name}_{locale}"),
+        default_name,
+        default_file: Some(format!("{}.i18n.dart", parts[0])),
+        locale,
+        language: language.to_string(),
     })
 }
 
-/// Um valor do YAML como o `"$v"` do Dart o escreve.
-fn texto_do_valor(v: &Yaml) -> Result<Option<String>, String> {
+/// A YAML value as Dart's `"$v"` writes it.
+fn value_text(v: &Yaml) -> Result<Option<String>, String> {
     Ok(match v {
         Yaml::String(s) => Some(s.clone()),
         Yaml::Integer(i) => Some(i.to_string()),
         Yaml::Boolean(b) => Some(b.to_string()),
         Yaml::Null => None,
-        _ => return Err("i18n: valor que não é texto, inteiro nem booleano".into()),
+        _ => return Err("i18n: value that is not a string, integer or boolean".into()),
     })
 }
 
-/// O mapa do YAML, com as chaves em texto e na ordem escrita.
-fn entradas(m: &yaml_rust2::yaml::Hash) -> Result<Vec<(String, &Yaml)>, String> {
+/// The YAML map, with the keys as strings and in written order.
+fn entries(m: &yaml_rust2::yaml::Hash) -> Result<Vec<(String, &Yaml)>, String> {
     m.iter()
         .map(|(k, v)| match k {
             Yaml::String(s) => Ok((s.clone(), v)),
-            _ => Err("i18n: chave que não é texto (o oficial lança)".to_string()),
+            _ => Err("i18n: key that is not a string (the official builder throws)".to_string()),
         })
         .collect()
 }
 
-/// `YamlMapX.allKeys`: as chaves em pré-ordem.
-fn todas_as_chaves(m: &yaml_rust2::yaml::Hash, saida: &mut Vec<String>) -> Result<(), String> {
-    for (k, v) in entradas(m)? {
-        saida.push(k);
+/// `YamlMapX.allKeys`: the keys in pre-order.
+fn all_keys(m: &yaml_rust2::yaml::Hash, out: &mut Vec<String>) -> Result<(), String> {
+    for (k, v) in entries(m)? {
+        out.push(k);
         if let Yaml::Hash(h) = v {
-            todas_as_chaves(h, saida)?;
+            all_keys(h, out)?;
         }
     }
     Ok(())
 }
 
-/// Largura de uma linha como o `DartFormatter` a mede (`String.length`,
-/// em unidades UTF-16).
-fn largura(s: &str) -> usize {
+/// Width of a line as `DartFormatter` measures it (`String.length`, in UTF-16
+/// code units).
+fn width(s: &str) -> usize {
     s.encode_utf16().count()
 }
 
-/// `_wrapWithComments`, já recuado.
-fn comentario(texto: &str, saida: &mut String) {
-    let linhas: Vec<&str> = texto.lines().collect();
+/// `_wrapWithComments`, already indented.
+fn comment(text: &str, out: &mut String) {
+    let lines: Vec<&str> = text.lines().collect();
     let mut s = vec!["```dart".to_string()];
-    if linhas.len() > 1 {
+    if lines.len() > 1 {
         s.push("\"\"\"".into());
-        s.extend(linhas.iter().map(|l| l.to_string()));
+        s.extend(lines.iter().map(|l| l.to_string()));
         s.push("\"\"\"".into());
     } else {
-        s.push(format!("\"{texto}\""));
+        s.push(format!("\"{text}\""));
     }
     s.push("```".into());
     for l in s {
-        // O formatador tira o espaço do fim da linha de comentário.
-        saida.push_str(format!("  /// {l}").trim_end());
-        saida.push('\n');
+        // The formatter removes the trailing space of the comment line.
+        out.push_str(format!("  /// {l}").trim_end());
+        out.push('\n');
     }
 }
 
-/// `recuo` + `cabeca => corpo;`, quebrando depois do `=>` quando a linha
-/// (até a primeira quebra do corpo) passa de 80 colunas.
-fn getter(cabeca: &str, corpo: &str, saida: &mut String) -> Result<(), String> {
-    let primeira = corpo.split('\n').next().unwrap_or_default();
-    let multilinha = corpo.contains('\n');
-    let fim = if multilinha { "" } else { ";" };
-    let numa_linha = format!("  {cabeca} => {primeira}{fim}");
-    if largura(&numa_linha) <= LARGURA {
-        saida.push_str(&format!("  {cabeca} => {corpo};\n"));
+/// Indentation + `head => body;`, breaking after the `=>` when the line (up
+/// to the body's first line break) exceeds 80 columns.
+fn getter(head: &str, body: &str, out: &mut String) -> Result<(), String> {
+    let first = body.split('\n').next().unwrap_or_default();
+    let multiline = body.contains('\n');
+    let end = if multiline { "" } else { ";" };
+    let one_line = format!("  {head} => {first}{end}");
+    if width(&one_line) <= WIDTH {
+        out.push_str(&format!("  {head} => {body};\n"));
         return Ok(());
     }
-    if multilinha {
+    if multiline {
         return Err(
-            "i18n: texto de várias linhas cuja primeira não cabe (forma do formatador sem caso)"
+            "i18n: multi-line text whose first line does not fit (formatter shape not handled)"
                 .into(),
         );
     }
-    if largura(&format!("  {cabeca} =>")) > LARGURA {
+    if width(&format!("  {head} =>")) > WIDTH {
         return Err(
-            "i18n: assinatura de getter longa demais (forma do formatador sem caso)".into(),
+            "i18n: getter signature too long (formatter shape not handled)".into(),
         );
     }
-    saida.push_str(&format!("  {cabeca} =>\n      {corpo};\n"));
+    out.push_str(&format!("  {head} =>\n      {body};\n"));
     Ok(())
 }
 
-/// Uma linha que o formatador deixaria como está, ou recusa.
-fn linha_curta(l: &str, saida: &mut String) -> Result<(), String> {
-    if largura(l) > LARGURA {
+/// A line the formatter would leave as it is, or a refusal.
+fn short_line(l: &str, out: &mut String) -> Result<(), String> {
+    if width(l) > WIDTH {
         return Err(format!(
-            "i18n: `{}` passa de 80 colunas (forma do formatador sem caso)",
+            "i18n: `{}` exceeds 80 columns (formatter shape not handled)",
             l.trim()
         ));
     }
-    saida.push_str(l);
-    saida.push('\n');
+    out.push_str(l);
+    out.push('\n');
     Ok(())
 }
 
 /// `renderTranslation`.
-fn classe(
-    meta: &Metadados,
-    conteudo: &yaml_rust2::yaml::Hash,
-    saida: &mut String,
+fn render_class(
+    meta: &Metadata,
+    content: &yaml_rust2::yaml::Hash,
+    out: &mut String,
 ) -> Result<(), String> {
-    let padrao = nome_convertido(&meta.nome_padrao)?;
-    let nome = nome_convertido(&meta.nome)?;
-    let pai = meta
-        .pai
+    let default = converted_name(&meta.default_name)?;
+    let name = converted_name(&meta.name)?;
+    let parent = meta
+        .parent
         .as_ref()
-        .map(|p| nome_convertido(&p.nome))
+        .map(|p| converted_name(&p.name))
         .transpose()?;
-    if meta.padrao {
-        linha_curta(&format!("class {nome} {{"), saida)?;
+    if meta.is_default {
+        short_line(&format!("class {name} {{"), out)?;
     } else {
-        linha_curta(&format!("class {nome} extends {padrao} {{"), saida)?;
+        short_line(&format!("class {name} extends {default} {{"), out)?;
     }
-    match &pai {
+    match &parent {
         None => {
-            linha_curta(&format!("  const {nome}();"), saida)?;
-            linha_curta(
-                &format!("  String get locale => \"{}\";", meta.localidade),
-                saida,
+            short_line(&format!("  const {name}();"), out)?;
+            short_line(
+                &format!("  String get locale => \"{}\";", meta.locale),
+                out,
             )?;
-            linha_curta(
-                &format!("  String get languageCode => \"{}\";", meta.idioma),
-                saida,
+            short_line(
+                &format!("  String get languageCode => \"{}\";", meta.language),
+                out,
             )?;
         }
         Some(p) => {
-            linha_curta(&format!("  final {p} _parent;"), saida)?;
-            if meta.padrao {
-                linha_curta(&format!("  const {nome}(this._parent);"), saida)?;
+            short_line(&format!("  final {p} _parent;"), out)?;
+            if meta.is_default {
+                short_line(&format!("  const {name}(this._parent);"), out)?;
             } else {
-                linha_curta(
-                    &format!("  const {nome}(this._parent) : super(_parent);"),
-                    saida,
+                short_line(
+                    &format!("  const {name}(this._parent) : super(_parent);"),
+                    out,
                 )?;
             }
         }
     }
-    for (k, v) in entradas(conteudo)? {
-        let chave = sem_hifen(&sem_espacos(&k));
+    for (k, v) in entries(content)? {
+        let key = filter_hyphen(&filter_spaces(&k));
         if let Yaml::Hash(_) = v {
-            let filho = nome_convertido(&meta.aninhar(&primeira_maiuscula(&chave)).nome)?;
+            let child = converted_name(&meta.nest(&first_upper(&key)).name)?;
             getter(
-                &format!("{filho} get {chave}"),
-                &format!("{filho}(this)"),
-                saida,
+                &format!("{child} get {key}"),
+                &format!("{child}(this)"),
+                out,
             )?;
             continue;
         }
-        let texto = texto_do_valor(v)?;
-        // O comentário (ou a linha vazia que o `writeln('')` deixa) abre o
-        // membro com uma linha em branco.
-        saida.push('\n');
-        if let Some(t) = texto.as_deref().filter(|t| !t.is_empty()) {
-            comentario(t, saida);
+        let text = value_text(v)?;
+        // The comment (or the empty line that `writeln('')` leaves) opens the
+        // member with a blank line.
+        out.push('\n');
+        if let Some(t) = text.as_deref().filter(|t| !t.is_empty()) {
+            comment(t, out);
         }
-        let valor = format!("\"\"\"{}\"\"\"", texto.as_deref().unwrap_or("null"));
+        let value = format!("\"\"\"{}\"\"\"", text.as_deref().unwrap_or("null"));
         if k.contains('(') {
-            getter(&format!("String {chave}"), &valor, saida)?;
+            getter(&format!("String {key}"), &value, out)?;
         } else {
-            getter(&format!("String get {chave}"), &valor, saida)?;
+            getter(&format!("String get {key}"), &value, out)?;
         }
     }
-    saida.push_str("}\n");
+    out.push_str("}\n");
     Ok(())
 }
 
-/// `prepareTranslationList` e o `renderTranslation` de cada classe, em
-/// pré-ordem. O nome da classe aninhada sai da chave sem filtrar
-/// (`k.firstUpper()`), como no oficial.
-fn classes(meta: &Metadados, m: &yaml_rust2::yaml::Hash, saida: &mut String) -> Result<(), String> {
-    classe(meta, m, saida)?;
-    saida.push('\n');
-    for (k, v) in entradas(m)? {
+/// `prepareTranslationList` and the `renderTranslation` of each class, in
+/// pre-order. The nested class's name comes from the unfiltered key
+/// (`k.firstUpper()`), as in the official builder.
+fn render_classes(meta: &Metadata, m: &yaml_rust2::yaml::Hash, out: &mut String) -> Result<(), String> {
+    render_class(meta, m, out)?;
+    out.push('\n');
+    for (k, v) in entries(m)? {
         if let Yaml::Hash(h) = v {
-            classes(&meta.aninhar(&primeira_maiuscula(&k)), h, saida)?;
+            render_classes(&meta.nest(&first_upper(&k)), h, out)?;
         }
     }
     Ok(())
 }
 
 /// `String.containsReference`.
-fn tem_referencia(s: &str) -> Result<bool, String> {
+fn has_reference(s: &str) -> Result<bool, String> {
     let mut refs: Vec<&str> = s.split('$').collect();
     refs.pop();
     if refs.is_empty() {
         return Ok(false);
     }
-    let escapadas = refs.iter().filter(|r| r.ends_with('\\')).count();
-    if escapadas == 0 {
+    let escaped = refs.iter().filter(|r| r.ends_with('\\')).count();
+    if escaped == 0 {
         return Ok(true);
     }
-    if escapadas == refs.len() {
+    if escaped == refs.len() {
         return Ok(false);
     }
-    Err("i18n: texto que mistura `$` escapado e não escapado (o oficial lança)".into())
+    Err("i18n: text mixing escaped and unescaped `$` (the official builder throws)".into())
 }
 
-/// `renderMapEntries`: só os valores de texto sem referência.
-fn entradas_do_mapa(
+/// `renderMapEntries`: only the string values without references.
+fn map_entries(
     m: &yaml_rust2::yaml::Hash,
-    prefixo: &str,
-    saida: &mut String,
+    prefix: &str,
+    out: &mut String,
 ) -> Result<(), String> {
-    for (k, v) in entradas(m)? {
+    for (k, v) in entries(m)? {
         match v {
-            Yaml::Hash(h) => entradas_do_mapa(h, &format!("{prefixo}{k}."), saida)?,
-            Yaml::String(s) if !tem_referencia(s)? => {
-                let chave = format!("\"\"\"{prefixo}{k}\"\"\":");
-                let valor = format!("\"\"\"{s}\"\"\",");
-                let primeira = valor.split('\n').next().unwrap_or_default();
-                if largura(&format!("      {chave} {primeira}")) <= LARGURA {
-                    saida.push_str(&format!("      {chave} {valor}\n"));
-                } else if valor.contains('\n') {
-                    return Err("i18n: texto de várias linhas cuja primeira não cabe no mapa (forma do formatador sem caso)".into());
+            Yaml::Hash(h) => map_entries(h, &format!("{prefix}{k}."), out)?,
+            Yaml::String(s) if !has_reference(s)? => {
+                let key = format!("\"\"\"{prefix}{k}\"\"\":");
+                let value = format!("\"\"\"{s}\"\"\",");
+                let first = value.split('\n').next().unwrap_or_default();
+                if width(&format!("      {key} {first}")) <= WIDTH {
+                    out.push_str(&format!("      {key} {value}\n"));
+                } else if value.contains('\n') {
+                    return Err("i18n: multi-line text whose first line does not fit in the map (formatter shape not handled)".into());
                 } else {
-                    saida.push_str(&format!("      {chave}\n          {valor}\n"));
+                    out.push_str(&format!("      {key}\n          {value}\n"));
                 }
             }
             _ => {}
@@ -385,77 +386,77 @@ fn entradas_do_mapa(
     Ok(())
 }
 
-/// As funções `_plural`, `_ordinal` e `_cardinal`, como o formatador as
-/// deixa.
-fn funcoes(saida: &mut String) {
+/// The `_plural`, `_ordinal` and `_cardinal` functions, as the formatter
+/// leaves them.
+fn functions(out: &mut String) {
     for f in ["plural", "ordinal", "cardinal"] {
-        saida.push_str(&format!("String _{f}(\n  int count, {{\n"));
+        out.push_str(&format!("String _{f}(\n  int count, {{\n"));
         for p in ["zero", "one", "two", "few", "many", "other"] {
-            saida.push_str(&format!("  String? {p},\n"));
+            out.push_str(&format!("  String? {p},\n"));
         }
-        saida.push_str(&format!(
+        out.push_str(&format!(
             "}}) =>\n    i18n.{f}(\n      count,\n      _languageCode,\n"
         ));
         for p in ["zero", "one", "two", "few", "many", "other"] {
-            saida.push_str(&format!("      {p}: {p},\n"));
+            out.push_str(&format!("      {p}: {p},\n"));
         }
-        saida.push_str("    );\n");
+        out.push_str("    );\n");
     }
 }
 
-/// `generateDartContentFromYaml`, formatado.
-fn gerar(nome_do_arquivo: &str, yaml: &str) -> Result<String, String> {
-    let meta = metadados_do_arquivo(nome_do_arquivo)?;
-    let docs = YamlLoader::load_from_str(yaml).map_err(|e| format!("i18n: YAML ilegível: {e}"))?;
+/// `generateDartContentFromYaml`, formatted.
+fn generate(file_name: &str, yaml: &str) -> Result<String, String> {
+    let meta = file_metadata(file_name)?;
+    let docs = YamlLoader::load_from_str(yaml).map_err(|e| format!("i18n: unreadable YAML: {e}"))?;
     let Some(Yaml::Hash(m)) = docs.first() else {
-        return Err("i18n: o YAML não é um mapa (o oficial lança)".into());
+        return Err("i18n: the YAML is not a map (the official builder throws)".into());
     };
     let mut s = String::new();
     s.push_str("// GENERATED FILE, do not edit!\n");
     s.push_str("// ignore_for_file: annotate_overrides, non_constant_identifier_names, prefer_single_quotes, unused_element, unused_field\n");
     s.push_str("import 'package:i18n/i18n.dart' as i18n;\n");
-    if let Some(a) = &meta.arquivo_padrao {
+    if let Some(a) = &meta.default_file {
         s.push_str(&format!("import '{a}';\n"));
     }
     s.push('\n');
-    s.push_str(&format!("String get _languageCode => '{}';\n", meta.idioma));
-    funcoes(&mut s);
+    s.push_str(&format!("String get _languageCode => '{}';\n", meta.language));
+    functions(&mut s);
     s.push('\n');
-    classes(&meta, m, &mut s)?;
-    let mapa = format!("{}Map", primeira_minuscula(&nome_convertido(&meta.nome)?));
-    let mut corpo = String::new();
-    entradas_do_mapa(m, "", &mut corpo)?;
-    if corpo.is_empty() {
-        linha_curta(&format!("Map<String, String> get {mapa} => {{}};"), &mut s)?;
+    render_classes(&meta, m, &mut s)?;
+    let map = format!("{}Map", first_lower(&converted_name(&meta.name)?));
+    let mut body = String::new();
+    map_entries(m, "", &mut body)?;
+    if body.is_empty() {
+        short_line(&format!("Map<String, String> get {map} => {{}};"), &mut s)?;
     } else {
-        linha_curta(&format!("Map<String, String> get {mapa} => {{"), &mut s)?;
-        s.push_str(&corpo);
+        short_line(&format!("Map<String, String> get {map} => {{"), &mut s)?;
+        s.push_str(&body);
         s.push_str("    };\n");
     }
     Ok(s)
 }
 
-/// O arquivo padrão de `atual` entre os `**.i18n.yaml` do pacote (em ordem
-/// de caminho): o primeiro sem `_` no nome cujo nome é prefixo do atual
-/// (`firstWhere`, que lança sem nenhum).
-fn arquivo_padrao<'a>(atual: &str, todos: &'a [String]) -> Option<&'a String> {
-    let nome_atual = atual
+/// The default file of `current` among the package's `**.i18n.yaml` (in path
+/// order): the first one without `_` in its name whose name is a prefix of
+/// the current one (`firstWhere`, which throws when there is none).
+fn default_file<'a>(current: &str, all: &'a [String]) -> Option<&'a String> {
+    let current_name = current
         .rsplit('/')
         .next()
-        .unwrap_or(atual)
+        .unwrap_or(current)
         .replace(".i18n.yaml", "");
-    todos.iter().find(|c| {
-        let nome = c.rsplit('/').next().unwrap_or(c).replace(".i18n.yaml", "");
-        !nome.contains('_') && nome_atual.starts_with(&nome)
+    all.iter().find(|c| {
+        let name = c.rsplit('/').next().unwrap_or(c).replace(".i18n.yaml", "");
+        !name.contains('_') && current_name.starts_with(&name)
     })
 }
 
-impl GeradorNativo for I18nNativo {
+impl GeradorNativo for I18nNative {
     fn chave(&self) -> &'static str {
         "i18n:yamlBasedBuilder"
     }
 
-    fn cobre(&self, _fabrica: &str) -> bool {
+    fn cobre(&self, _factory: &str) -> bool {
         true
     }
 
@@ -470,69 +471,70 @@ impl GeradorNativo for I18nNativo {
     fn gerar(
         &self,
         ctx: &mut CtxGerador<'_>,
-        pedido: &PedidoNativo,
+        request: &PedidoNativo,
     ) -> Result<SaidaNativa, String> {
         let mut s = SaidaNativa::default();
-        // `findAssets(Glob('**.i18n.yaml'))` nas pastas de fontes do pacote.
+        // `findAssets(Glob('**.i18n.yaml'))` in the package's source folders.
         let glob = crate::glob::Glob::novo("**.i18n.yaml").map_err(|e| e.to_string())?;
-        let mut todos: Vec<String> = Vec::new();
-        for pasta in PASTAS_DE_FONTES {
-            let dir = pedido.raiz_do_pacote.join(pasta);
+        let mut all: Vec<String> = Vec::new();
+        for folder in SOURCE_FOLDERS {
+            let dir = request.raiz_do_pacote.join(folder);
             ctx.registrar(Consulta::Glob {
                 dir: dartforge_elements::gerado::chave(&dir),
                 padrao: "**.i18n.yaml".into(),
             });
-            todos.extend(
+            all.extend(
                 crate::grafo::listar(&dir, std::slice::from_ref(&glob))
                     .into_iter()
-                    .map(|r| format!("{pasta}/{r}")),
+                    .map(|r| format!("{folder}/{r}")),
             );
         }
-        todos.sort();
-        for a in &pedido.acoes {
-            let nome = a
+        all.sort();
+        for a in &request.acoes {
+            let name = a
                 .entrada
                 .caminho
                 .rsplit('/')
                 .next()
                 .unwrap_or_default()
                 .to_string();
-            let Some(fonte) = ctx.ler(&a.entrada_natural) else {
+            let Some(source) = ctx.ler(&a.entrada_natural) else {
                 s.recusas
-                    .insert(a.entrada_natural.clone(), "i18n: entrada ilegível".into());
+                    .insert(a.entrada_natural.clone(), "i18n: unreadable input".into());
                 continue;
             };
-            let texto = String::from_utf8_lossy(&fonte).into_owned();
-            let resultado = (|| -> Result<String, String> {
-                let padrao = arquivo_padrao(&a.entrada.caminho, &todos)
-                    .ok_or("i18n: sem o arquivo padrão (o oficial lança)")?;
-                // Cada chave no mesmo lugar do arquivo padrão (o oficial
-                // acusa erro, `log.severe`, e a build falha).
-                if padrao.as_str() != &*a.entrada.caminho {
-                    let caminho = pedido.raiz_do_pacote.join(padrao);
+            let text = String::from_utf8_lossy(&source).into_owned();
+            let result = (|| -> Result<String, String> {
+                let default = default_file(&a.entrada.caminho, &all)
+                    .ok_or("i18n: no default file (the official builder throws)")?;
+                // Each key in the same place as in the default file (the
+                // official builder reports an error, `log.severe`, and the
+                // build fails).
+                if default.as_str() != &*a.entrada.caminho {
+                    let path = request.raiz_do_pacote.join(default);
                     let bytes = ctx
-                        .ler(Path::new(&caminho))
-                        .ok_or("i18n: arquivo padrão ilegível")?;
-                    let chaves = |t: &str| -> Result<Vec<String>, String> {
+                        .ler(Path::new(&path))
+                        .ok_or("i18n: unreadable default file")?;
+                    let keys = |t: &str| -> Result<Vec<String>, String> {
                         let docs = YamlLoader::load_from_str(t)
-                            .map_err(|e| format!("i18n: YAML ilegível: {e}"))?;
+                            .map_err(|e| format!("i18n: unreadable YAML: {e}"))?;
                         let Some(Yaml::Hash(m)) = docs.first() else {
-                            return Err("i18n: o YAML não é um mapa".into());
+                            return Err("i18n: the YAML is not a map".into());
                         };
                         let mut v = Vec::new();
-                        todas_as_chaves(m, &mut v)?;
+                        all_keys(m, &mut v)?;
                         Ok(v)
                     };
-                    if chaves(&texto)? != chaves(&String::from_utf8_lossy(&bytes))? {
+                    if keys(&text)? != keys(&String::from_utf8_lossy(&bytes))? {
                         return Err(
-                            "i18n: chaves diferentes das do arquivo padrão (o oficial acusa erro)"
+                            "i18n: keys different from those of the default file (the official builder reports an error)"
                                 .into(),
                         );
                     }
                 }
-                gerar(&nome, &texto)
+                generate(&name, &text)
             })();
-            match resultado {
+            match result {
                 Ok(dart) => {
                     if let Some((_, n)) = a.saidas.first() {
                         s.saidas.insert(n.clone(), dart.into_bytes());
@@ -548,25 +550,25 @@ impl GeradorNativo for I18nNativo {
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     #[test]
-    fn nomes_como_o_i18n() {
-        assert_eq!(sem_espacos("my key(int n)"), "myKey(int n)");
-        assert_eq!(sem_hifen("a-b-c"), "aBC");
-        assert_eq!(nome_convertido("AppMessages_en").unwrap(), "AppMessagesEn");
+    fn names_like_i18n() {
+        assert_eq!(filter_spaces("my key(int n)"), "myKey(int n)");
+        assert_eq!(filter_hyphen("a-b-c"), "aBC");
+        assert_eq!(converted_name("AppMessages_en").unwrap(), "AppMessagesEn");
         assert_eq!(
-            nome_convertido("AppMessages_pt_BR").unwrap(),
+            converted_name("AppMessages_pt_BR").unwrap(),
             "AppMessagesPtBR"
         );
-        assert!(nome_convertido("App_foo").is_err());
-        assert!(tem_referencia("a $b").unwrap());
-        assert!(!tem_referencia(r"a \$b").unwrap());
+        assert!(converted_name("App_foo").is_err());
+        assert!(has_reference("a $b").unwrap());
+        assert!(!has_reference(r"a \$b").unwrap());
     }
 
     #[test]
-    fn getter_longo_quebra_depois_da_seta() {
+    fn long_getter_breaks_after_the_arrow() {
         let mut s = String::new();
         getter(
             "String get x",

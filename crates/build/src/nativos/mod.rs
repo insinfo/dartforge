@@ -1,6 +1,6 @@
-//! Geradores nativos ligados ao motor pela API **pública** do `ng_generator`
-//! (o motor não toca os internos dele; o que falta está pedido em
-//! `docs/BUILD-PEDIDOS-GERADOR-NG.md`).
+//! Native generators hooked into the engine through the **public** API of
+//! `ng_generator` (the engine does not touch its internals; what is missing
+//! is requested in `docs/BUILD-PEDIDOS-GERADOR-NG.md`).
 pub mod i18n;
 pub mod ng;
 pub mod sass;
@@ -10,9 +10,9 @@ use std::sync::Arc;
 
 pub fn todos() -> Vec<Arc<dyn GeradorNativo>> {
     vec![
-        Arc::new(ng::NgEstagioA::default()),
-        Arc::new(ng::NgEstagioA::com_chave("ngx_dart:ngx_dart")),
-        Arc::new(sass::SassNativo),
-        Arc::new(i18n::I18nNativo),
+        Arc::new(ng::NgStageA::default()),
+        Arc::new(ng::NgStageA::with_key("ngx_dart:ngx_dart")),
+        Arc::new(sass::SassNative),
+        Arc::new(i18n::I18nNative),
     ]
 }

@@ -1,63 +1,63 @@
-//! `ngdart:ngdart` pelo `ng_generator`, estágio A (`docs/BUILD-MOTOR.md`;
-//! plano do motor §6.2): **uma ação de pacote**, sobre o `Program` da
-//! sessão (o `Resolvedor` é o `BuildStep.resolver` sem carga extra), com
-//! consultas conservadoras — qualquer `.dart`/`.html`/`.scss`/`.css` do
-//! pacote, a lista de arquivos de `lib/`, `web/` e `test/`, e o texto de toda
-//! biblioteca de fora do pacote que as dele alcançam. O motor faz o corte pela
-//! saída: só os `.template.dart`/`.css.shim.dart` com texto novo invalidam
-//! unidades. Vale para o pacote da entrada e para cada dependência a que o
-//! ngdart se aplica, cada um com a sua rodada.
+//! `ngdart:ngdart` through `ng_generator`, stage A (`docs/BUILD-MOTOR.md`;
+//! engine plan §6.2): **one package action**, over the session's `Program`
+//! (the `Resolvedor` is `BuildStep.resolver` without extra loading), with
+//! conservative queries — any `.dart`/`.html`/`.scss`/`.css` of the package,
+//! the file list of `lib/`, `web/` and `test/`, and the text of every library
+//! outside the package that the package's libraries reach. The engine cuts
+//! off by output: only the `.template.dart`/`.css.shim.dart` with new text
+//! invalidate units. It applies to the input's package and to every
+//! dependency ngdart applies to, each with its own round.
 //!
-//! Estágio B, por dentro da ação de pacote: uma edição de HTML ou folha de
-//! estilo já conhecida regenera apenas os componentes que a leram; uma edição
-//! de `.dart` do pacote regenera o arquivo e quem o alcança por
-//! `import`/`export` (`tentar_dart`). O resto (arquivo novo ou apagado,
-//! parte, recusa, outro pacote) segue o estágio A; o pacote ainda é a unidade
-//! de revalidação do motor.
+//! Stage B, inside the package action: an edit to an already known HTML file
+//! or stylesheet regenerates only the components that read it; an edit to a
+//! `.dart` of the package regenerates that file and whoever reaches it
+//! through `import`/`export` (`try_dart`). The rest (new or deleted file,
+//! part, refusal, another package) follows stage A; the package is still the
+//! engine's revalidation unit.
 use crate::consulta::Consulta;
 use crate::executor::{CtxGerador, GeradorNativo, PedidoNativo, SaidaNativa};
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-pub struct NgEstagioA {
-    /// A chave do builder: `ngdart:ngdart` (ngdart 8) ou `ngx_dart:ngx_dart`
-    /// (o fork 9 com `package:web`); o `ng_generator` escolhe o dialeto pelo
-    /// programa (`docs/NGDART-COMPILADOR-DE-VISOES.md` parte B).
-    chave: &'static str,
-    /// Por pacote: a entrada e cada dependência com componentes têm a sua
-    /// rodada.
-    cache: Mutex<HashMap<String, CacheNg>>,
+pub struct NgStageA {
+    /// The builder key: `ngdart:ngdart` (ngdart 8) or `ngx_dart:ngx_dart` (the
+    /// version 9 fork with `package:web`); `ng_generator` picks the dialect
+    /// from the program (`docs/NGDART-COMPILADOR-DE-VISOES.md` part B).
+    key: &'static str,
+    /// Per package: the input and each dependency with components have their
+    /// own round.
+    cache: Mutex<HashMap<String, NgCache>>,
 }
 
-impl Default for NgEstagioA {
+impl Default for NgStageA {
     fn default() -> Self {
-        Self::com_chave("ngdart:ngdart")
+        Self::with_key("ngdart:ngdart")
     }
 }
 
-impl NgEstagioA {
-    /// O gerador para o builder `chave` (`ngdart:ngdart` ou
+impl NgStageA {
+    /// The generator for the builder `key` (`ngdart:ngdart` or
     /// `ngx_dart:ngx_dart`).
-    pub fn com_chave(chave: &'static str) -> Self {
-        NgEstagioA {
-            chave,
+    pub fn with_key(key: &'static str) -> Self {
+        NgStageA {
+            key,
             cache: Mutex::new(HashMap::new()),
         }
     }
 }
 
-struct CacheNg {
-    saida: SaidaNativa,
-    /// HTML/CSS/SCSS -> fontes Dart que leram o recurso.
-    fontes_do_recurso: BTreeMap<PathBuf, Vec<PathBuf>>,
-    indice: Option<dartforge_ng_generator::Indice>,
+struct NgCache {
+    output: SaidaNativa,
+    /// HTML/CSS/SCSS -> Dart sources that read the resource.
+    resource_readers: BTreeMap<PathBuf, Vec<PathBuf>>,
+    index: Option<dartforge_ng_generator::Indice>,
 }
 
-/// Algo no texto que pode ser Angular (conservador: qualquer menção ao
-/// ngdart, às anotações ou a injetor).
-fn marca_angular(texto: &str) -> bool {
-    const MARCAS: &[&str] = &[
+/// Something in the text that may be Angular (conservative: any mention of
+/// ngdart, of the annotations or of an injector).
+fn looks_angular(text: &str) -> bool {
+    const MARKERS: &[&str] = &[
         "ngdart",
         "angular",
         "@Component",
@@ -75,45 +75,46 @@ fn marca_angular(texto: &str) -> bool {
         "OpaqueToken",
         "Provider",
     ];
-    MARCAS.iter().any(|m| texto.contains(m))
+    MARKERS.iter().any(|m| text.contains(m))
 }
 
-const EXTENSOES: &[&str] = &["dart", "html", "scss", "sass", "css"];
+const EXTENSIONS: &[&str] = &["dart", "html", "scss", "sass", "css"];
 
-/// As folhas `.css` que o `sass_builder` (ou outro `SassBuilder`) desta
-/// build gerou para os `.scss`/`.sass` do pacote (na memória do motor): o shim do ngdart parte delas, como no
-/// oficial, no `outputStyle` do projeto. Uma folha `.css` no disco fica com
-/// o disco.
-fn folhas_geradas(ctx: &mut CtxGerador<'_>, raiz: &Path) -> HashMap<PathBuf, String> {
-    let mut fontes = Vec::new();
+/// The `.css` stylesheets that `sass_builder` (or another `SassBuilder`) of
+/// this build generated for the package's `.scss`/`.sass` files (in the
+/// engine's memory): ngdart's shim starts from them, as in the official
+/// builder, with the project's `outputStyle`. A `.css` stylesheet on disk
+/// stays with the disk.
+fn generated_sheets(ctx: &mut CtxGerador<'_>, root: &Path) -> HashMap<PathBuf, String> {
+    let mut sources = Vec::new();
     for d in ["lib", "web", "test"] {
-        arquivos(&raiz.join(d), &mut fontes);
+        collect_files(&root.join(d), &mut sources);
     }
-    let mut folhas = HashMap::new();
-    for scss in fontes {
-        let parcial = scss
+    let mut sheets = HashMap::new();
+    for scss in sources {
+        let partial = scss
             .file_name()
             .is_some_and(|n| n.to_string_lossy().starts_with('_'));
-        if parcial || scss.extension().is_none_or(|e| e != "scss" && e != "sass") {
+        if partial || scss.extension().is_none_or(|e| e != "scss" && e != "sass") {
             continue;
         }
-        // `x.css` do `sass_builder`, ou `x.scss.css` de um `SassBuilder` com
-        // `outputExtension: '.scss.css'` (o `scss_builder` do ngcomponents).
-        let mut nome_scss_css = scss.clone().into_os_string();
-        nome_scss_css.push(".css");
-        for css in [scss.with_extension("css"), PathBuf::from(nome_scss_css)] {
+        // `x.css` from `sass_builder`, or `x.scss.css` from a `SassBuilder`
+        // with `outputExtension: '.scss.css'` (ngcomponents' `scss_builder`).
+        let mut scss_css_name = scss.clone().into_os_string();
+        scss_css_name.push(".css");
+        for css in [scss.with_extension("css"), PathBuf::from(scss_css_name)] {
             if css.is_file() {
                 continue;
             }
             if let Some(b) = ctx.ler(&css) {
-                folhas.insert(css, String::from_utf8_lossy(&b).into_owned());
+                sheets.insert(css, String::from_utf8_lossy(&b).into_owned());
             }
         }
     }
-    folhas
+    sheets
 }
 
-fn arquivos(dir: &std::path::Path, v: &mut Vec<PathBuf>) {
+fn collect_files(dir: &std::path::Path, v: &mut Vec<PathBuf>) {
     let Ok(ls) = std::fs::read_dir(dir) else {
         return;
     };
@@ -122,23 +123,23 @@ fn arquivos(dir: &std::path::Path, v: &mut Vec<PathBuf>) {
     for e in es {
         let p = e.path();
         if p.is_dir() {
-            arquivos(&p, v);
+            collect_files(&p, v);
         } else if p
             .extension()
-            .is_some_and(|x| EXTENSOES.iter().any(|e| x == *e))
+            .is_some_and(|x| EXTENSIONS.iter().any(|e| x == *e))
         {
             v.push(p);
         }
     }
 }
 
-impl GeradorNativo for NgEstagioA {
+impl GeradorNativo for NgStageA {
     fn chave(&self) -> &'static str {
-        self.chave
+        self.key
     }
 
-    fn cobre(&self, fabrica: &str) -> bool {
-        fabrica == "templateCompiler" || fabrica == "stylesheetCompiler"
+    fn cobre(&self, factory: &str) -> bool {
+        factory == "templateCompiler" || factory == "stylesheetCompiler"
     }
 
     fn por_pacote(&self) -> bool {
@@ -146,183 +147,187 @@ impl GeradorNativo for NgEstagioA {
     }
 
     fn verificado(&self) -> bool {
-        // Verificado byte a byte: 0 diferentes contra o oráculo do corpus
-        // ngdart e do new_sali (ESTADO §1.7); o que não sabe, recusa.
+        // Verified byte for byte: 0 differences against the oracle of the
+        // ngdart corpus and of new_sali (ESTADO §1.7); what it does not know,
+        // it refuses.
         true
     }
 
     fn gerar(
         &self,
         ctx: &mut CtxGerador<'_>,
-        pedido: &PedidoNativo,
+        request: &PedidoNativo,
     ) -> Result<SaidaNativa, String> {
-        let raiz = &pedido.raiz_do_pacote;
-        // Qualquer pacote a que o ngdart se aplica: o da entrada e as
-        // dependências com componentes (um `path` como o `limitless_ui` do
-        // `example`, e os `hosted` ngdart/ngcompiler, cujos `.template.dart`
-        // o DDC pede). Os arquivos que o programa da entrada não carrega o
-        // gerador recusa com motivo.
-        let Some((programa, nomes_programa)) = ctx.programa else {
-            return Err("ngdart (estágio A): sem programa carregado".into());
+        let root = &request.raiz_do_pacote;
+        // Any package ngdart applies to: the input's package and the
+        // dependencies with components (a `path` one like the `example`'s
+        // `limitless_ui`, and the `hosted` ngdart/ngcompiler, whose
+        // `.template.dart` files DDC asks for). The files that the input's
+        // program does not load are refused by the generator, with a reason.
+        let Some((program, program_names)) = ctx.programa else {
+            return Err("ngdart (stage A): no program loaded".into());
         };
-        // Num recurso existente, a lista de consultas conservadoras do pacote
-        // não ganha termos novos. O motor conserva as respostas anteriores e
-        // substitui apenas o digest deste arquivo.
-        if let Some(saida) = self.tentar_recurso(ctx, pedido) {
-            return Ok(saida);
+        // On an existing resource, the package's list of conservative queries
+        // gains no new terms. The engine keeps the previous answers and only
+        // replaces this file's digest.
+        if let Some(output) = self.try_resource(ctx, request) {
+            return Ok(output);
         }
-        if let Some(saida) = self.tentar_dart(ctx, pedido) {
-            return Ok(saida);
+        if let Some(output) = self.try_dart(ctx, request) {
+            return Ok(output);
         }
         let t = std::time::Instant::now();
         let mut v = Vec::new();
         for d in ["lib", "web", "test"] {
-            let dir = raiz.join(d);
+            let dir = root.join(d);
             ctx.registrar(Consulta::Glob {
                 dir: dartforge_elements::gerado::chave(&dir),
                 padrao: "**".into(),
             });
-            arquivos(&dir, &mut v);
+            collect_files(&dir, &mut v);
         }
-        // Um `.dart` sem nenhuma marca de Angular só entra na geração pela
-        // API (o `Resolvedor` pergunta onde um tipo é declarado e o tipo de
-        // um membro público; o template dele é o trivial, que só depende do
-        // nome). Para ele a consulta é a API da biblioteca: editar um corpo
-        // ali não reexecuta o ngdart. O resto — componente, diretiva, pipe,
-        // injetor, `.html`, `.scss`, `.css` — é o texto inteiro.
-        let biblioteca_de: std::collections::HashMap<std::path::PathBuf, &str> = programa
+        // A `.dart` without any Angular marker only enters the generation
+        // through its API (the `Resolvedor` asks where a type is declared and
+        // the type of a public member; its template is the trivial one, which
+        // only depends on the name). For it, the query is the library's API:
+        // editing a body there does not rerun ngdart. The rest — component,
+        // directive, pipe, injector, `.html`, `.scss`, `.css` — is the whole
+        // text.
+        let library_of: std::collections::HashMap<std::path::PathBuf, &str> = program
             .units
             .iter()
             .filter_map(|u| {
                 let p = u.path.as_ref()?;
                 Some((
                     dartforge_elements::gerado::chave(p),
-                    programa.library(u.library).uri.as_str(),
+                    program.library(u.library).uri.as_str(),
                 ))
             })
             .collect();
         for p in &v {
             let k = dartforge_elements::gerado::chave(p);
             let dart = p.extension().is_some_and(|x| x == "dart");
-            let uri = biblioteca_de.get(&k).copied();
+            let uri = library_of.get(&k).copied();
             match (dart, uri) {
                 (true, Some(uri))
-                    if !marca_angular(&std::fs::read_to_string(p).unwrap_or_default()) =>
+                    if !looks_angular(&std::fs::read_to_string(p).unwrap_or_default()) =>
                 {
                     ctx.registrar(Consulta::ApiBiblioteca(uri.to_string()));
-                    // O nome do arquivo decide o template trivial: a
-                    // existência dele também é consulta.
+                    // The file name decides the trivial template: its
+                    // existence is also a query.
                     ctx.registrar(Consulta::Existe(k));
                 }
                 _ => ctx.registrar(Consulta::Arquivo(k)),
             }
         }
-        // O que o `Resolvedor` pode perguntar de fora do pacote: as
-        // bibliotecas que as do pacote alcançam por `import`/`export` (a
-        // geração de um arquivo só enxerga o escopo dele). Numa dependência,
-        // editar a aplicação não acorda a rodada dela.
-        let do_pacote =
+        // What the `Resolvedor` may ask from outside the package: the
+        // libraries the package's libraries reach through `import`/`export`
+        // (generating a file only sees its own scope). In a dependency,
+        // editing the application does not wake up the dependency's round.
+        let in_package =
             |l: &dartforge_elements::model::Library| match l.uri.strip_prefix("package:") {
-                Some(r) => r.split('/').next() == Some(pedido.pacote.as_str()),
+                Some(r) => r.split('/').next() == Some(request.pacote.as_str()),
                 None => l
                     .units
                     .first()
-                    .and_then(|&u| programa.unit(u).path.as_ref())
-                    .is_some_and(|p| p.starts_with(raiz)),
+                    .and_then(|&u| program.unit(u).path.as_ref())
+                    .is_some_and(|p| p.starts_with(root)),
             };
-        let mut vistos = vec![false; programa.libraries.len()];
-        let mut fila: Vec<usize> = (0..programa.libraries.len())
-            .filter(|&i| !programa.libraries[i].is_sdk && do_pacote(&programa.libraries[i]))
+        let mut seen = vec![false; program.libraries.len()];
+        let mut queue: Vec<usize> = (0..program.libraries.len())
+            .filter(|&i| !program.libraries[i].is_sdk && in_package(&program.libraries[i]))
             .collect();
-        while let Some(i) = fila.pop() {
-            if std::mem::replace(&mut vistos[i], true) {
+        while let Some(i) = queue.pop() {
+            if std::mem::replace(&mut seen[i], true) {
                 continue;
             }
-            let l = &programa.libraries[i];
-            fila.extend(
+            let l = &program.libraries[i];
+            queue.extend(
                 l.imports
                     .iter()
                     .map(|x| x.library.0 as usize)
                     .chain(l.exports.iter().map(|x| x.library.0 as usize)),
             );
-            if !l.is_sdk && !do_pacote(l) {
+            if !l.is_sdk && !in_package(l) {
                 ctx.registrar(Consulta::FonteBiblioteca(l.uri.clone()));
             }
         }
-        let t_consultas = t.elapsed();
-        let pacote = dartforge_ng_generator::Pacote {
-            nome: pedido.pacote.clone(),
-            raiz: raiz.clone(),
-            folhas_geradas: folhas_geradas(ctx, &raiz),
+        let t_queries = t.elapsed();
+        let package = dartforge_ng_generator::Pacote {
+            nome: request.pacote.clone(),
+            raiz: root.clone(),
+            folhas_geradas: generated_sheets(ctx, root),
         };
-        let resolvedor =
-            dartforge_ng_generator::resolucao::Resolvedor::novo(programa, nomes_programa);
-        let mut nomes = dartforge_intern::Interner::new();
-        let (g, placar) =
-            dartforge_ng_generator::gerar_com_apoio(&pacote, &mut nomes, None, Some(&resolvedor));
+        let resolver =
+            dartforge_ng_generator::resolucao::Resolvedor::novo(program, program_names);
+        let mut names = dartforge_intern::Interner::new();
+        let (g, scoreboard) =
+            dartforge_ng_generator::gerar_com_apoio(&package, &mut names, None, Some(&resolver));
         if std::env::var_os("DARTFORGE_MOTOR_TEMPOS").is_some() {
             eprintln!(
-                "ngdart (estágio A): consultas {:.1} ms ({} arquivos), gerar_com_apoio {:.1} ms",
-                t_consultas.as_secs_f64() * 1000.0,
+                "ngdart (stage A): queries {:.1} ms ({} files), gerar_com_apoio {:.1} ms",
+                t_queries.as_secs_f64() * 1000.0,
                 v.len(),
-                (t.elapsed() - t_consultas).as_secs_f64() * 1000.0
+                (t.elapsed() - t_queries).as_secs_f64() * 1000.0
             );
         }
         let mut s = SaidaNativa::default();
-        let mut fontes_do_recurso: BTreeMap<PathBuf, Vec<PathBuf>> = BTreeMap::new();
-        // O gerador escreve para todo arquivo dos diretórios; o motor fica só
-        // com as saídas que o plano espera (o `generate_for` do `build.yaml`
-        // tira, por exemplo, as folhas de `web/assets/`).
-        let planejadas = planejadas(pedido);
+        let mut resource_readers: BTreeMap<PathBuf, Vec<PathBuf>> = BTreeMap::new();
+        // The generator writes for every file in the directories; the engine
+        // keeps only the outputs the plan expects (`build.yaml`'s
+        // `generate_for` removes, for example, the stylesheets of
+        // `web/assets/`).
+        let planned = planned_outputs(request);
         for (p, f) in g.iter() {
-            if f.gerador == "ngdart" && planejadas.contains(&dartforge_elements::gerado::chave(p)) {
+            if f.gerador == "ngdart" && planned.contains(&dartforge_elements::gerado::chave(p)) {
                 s.saidas.insert(p.clone(), f.conteudo.as_bytes().to_vec());
                 if p.to_string_lossy().ends_with(".template.dart") {
-                    if let Some(fonte) = f.entradas.first() {
-                        for recurso in f.entradas.iter().filter(|e| {
+                    if let Some(source) = f.entradas.first() {
+                        for resource in f.entradas.iter().filter(|e| {
                             e.extension().is_some_and(|x| {
                                 matches!(x.to_str(), Some("html" | "css" | "scss" | "sass"))
                             })
                         }) {
-                            fontes_do_recurso
-                                .entry(dartforge_elements::gerado::chave(recurso))
+                            resource_readers
+                                .entry(dartforge_elements::gerado::chave(resource))
                                 .or_default()
-                                .push(fonte.clone());
+                                .push(source.clone());
                         }
                     }
                 }
             }
         }
-        for (i, p) in placar.pendentes.iter().enumerate() {
-            // A folha recusada vem pelo destino: a recusa é da entrada.
-            let p = &folha_de_destino(p).unwrap_or_else(|| p.clone());
-            let m = placar
+        for (i, p) in scoreboard.pendentes.iter().enumerate() {
+            // A refused stylesheet comes through its output: the refusal
+            // belongs to the input.
+            let p = &sheet_of_output(p).unwrap_or_else(|| p.clone());
+            let m = scoreboard
                 .conjuntos
                 .get(i)
                 .and_then(|c| c.iter().next())
-                .map(|m| format!("ngdart (estágio A) recusa: {m:?}"))
-                .unwrap_or_else(|| "ngdart (estágio A) recusa".into());
+                .map(|m| format!("ngdart (stage A) refuses: {m:?}"))
+                .unwrap_or_else(|| "ngdart (stage A) refuses".into());
             s.recusas.insert(p.clone(), m);
         }
-        s.unidades_geradas = placar.gerados;
+        s.unidades_geradas = scoreboard.gerados;
         self.cache
             .lock()
-            .map_err(|_| "ngdart: cache envenenado")?
+            .map_err(|_| "ngdart: poisoned cache")?
             .insert(
-                pedido.pacote.clone(),
-                CacheNg {
-                    saida: clone_saida(&s),
-                    fontes_do_recurso,
-                    indice: None,
+                request.pacote.clone(),
+                NgCache {
+                    output: clone_output(&s),
+                    resource_readers,
+                    index: None,
                 },
             );
         Ok(s)
     }
 }
 
-/// As saídas que o plano espera das ações do pedido, pela chave.
-fn planejadas(pedido: &PedidoNativo) -> std::collections::HashSet<PathBuf> {
-    pedido
+/// The outputs the plan expects from the request's actions, by key.
+fn planned_outputs(request: &PedidoNativo) -> std::collections::HashSet<PathBuf> {
+    request
         .acoes
         .iter()
         .flat_map(|a| {
@@ -333,16 +338,16 @@ fn planejadas(pedido: &PedidoNativo) -> std::collections::HashSet<PathBuf> {
         .collect()
 }
 
-/// A folha `x.css` de uma saída `x.css.dart`/`x.css.shim.dart`.
-fn folha_de_destino(p: &Path) -> Option<PathBuf> {
-    let nome = p.file_name()?.to_string_lossy();
-    let base = nome
+/// The `x.css` stylesheet of an `x.css.dart`/`x.css.shim.dart` output.
+fn sheet_of_output(p: &Path) -> Option<PathBuf> {
+    let name = p.file_name()?.to_string_lossy();
+    let base = name
         .strip_suffix(".shim.dart")
-        .or_else(|| nome.strip_suffix(".dart"))?;
+        .or_else(|| name.strip_suffix(".dart"))?;
     base.ends_with(".css").then(|| p.with_file_name(base))
 }
 
-fn clone_saida(s: &SaidaNativa) -> SaidaNativa {
+fn clone_output(s: &SaidaNativa) -> SaidaNativa {
     SaidaNativa {
         saidas: s.saidas.clone(),
         recusas: s.recusas.clone(),
@@ -351,168 +356,171 @@ fn clone_saida(s: &SaidaNativa) -> SaidaNativa {
     }
 }
 
-impl NgEstagioA {
-    /// Edição de `.dart` do pacote (B03): regenera só os arquivos que podem
-    /// depender do que mudou — o próprio arquivo e quem o alcança por
-    /// `import`/`export`, transitivamente, no programa novo. Tudo o que a
-    /// geração de um arquivo lê de outra biblioteca (filho de `directives:`,
-    /// tipo resolvido, metadados herdados de uma superclasse, seletor) só
-    /// pode vir de biblioteca alcançável pelos imports dele: é o fecho que
-    /// cobre, com folga, as consultas que o `gerar_arquivo` anota. Os
-    /// arquivos do fecho são reindexados antes de gerar.
+impl NgStageA {
+    /// Edit to a `.dart` of the package (B03): regenerates only the files that
+    /// may depend on what changed — the file itself and whoever reaches it
+    /// through `import`/`export`, transitively, in the new program. Everything
+    /// the generation of a file reads from another library (a `directives:`
+    /// child, a resolved type, metadata inherited from a superclass, a
+    /// selector) can only come from a library reachable through its imports:
+    /// this closure covers, with room to spare, the queries that
+    /// `gerar_arquivo` records. The closure's files are reindexed before
+    /// generating.
     ///
-    /// Volta ao estágio A (devolve `None`) no que não sabe tratar assim:
-    /// arquivo fora do pacote, parte, arquivo sem template anterior, arquivo
-    /// recusado antes ou agora, saída que não existia.
-    fn tentar_dart(&self, ctx: &mut CtxGerador<'_>, pedido: &PedidoNativo) -> Option<SaidaNativa> {
-        let raiz = &pedido.raiz_do_pacote;
-        let canon_raiz = std::fs::canonicalize(raiz).ok()?;
-        // Os eventos vêm na forma lexical e na canônica: um conjunto só.
-        let mut mudados: Vec<PathBuf> = Vec::new();
+    /// Falls back to stage A (returns `None`) for what it cannot handle this
+    /// way: a file outside the package, a part, a file without a previous
+    /// template, a file refused before or now, an output that did not exist.
+    fn try_dart(&self, ctx: &mut CtxGerador<'_>, request: &PedidoNativo) -> Option<SaidaNativa> {
+        let root = &request.raiz_do_pacote;
+        let canon_root = std::fs::canonicalize(root).ok()?;
+        // The events come in lexical and in canonical form: a single set.
+        let mut changed: Vec<PathBuf> = Vec::new();
         for p in ctx.mudados.iter() {
             let c = std::fs::canonicalize(p).ok()?;
-            if !mudados.contains(&c) {
-                mudados.push(c);
+            if !changed.contains(&c) {
+                changed.push(c);
             }
         }
-        if mudados.is_empty()
-            || !mudados.iter().all(|p| {
-                p.starts_with(&canon_raiz)
+        if changed.is_empty()
+            || !changed.iter().all(|p| {
+                p.starts_with(&canon_root)
                     && p.extension().is_some_and(|e| e == "dart")
                     && !p.to_string_lossy().ends_with(".template.dart")
             })
         {
             return None;
         }
-        let (programa, nomes_programa) = ctx.programa?;
-        // Unidade (canônica) → biblioteca, e o grafo reverso de
-        // import/export de todas as bibliotecas carregadas.
-        let mut biblioteca_da_unidade: HashMap<PathBuf, usize> = HashMap::new();
-        for (i, l) in programa.libraries.iter().enumerate() {
+        let (program, program_names) = ctx.programa?;
+        // Unit (canonical) → library, and the reverse import/export graph of
+        // all the loaded libraries.
+        let mut library_of_unit: HashMap<PathBuf, usize> = HashMap::new();
+        for (i, l) in program.libraries.iter().enumerate() {
             for &u in &l.units {
-                if let Some(p) = programa
+                if let Some(p) = program
                     .unit(u)
                     .path
                     .as_ref()
                     .and_then(|p| std::fs::canonicalize(p).ok())
                 {
-                    biblioteca_da_unidade.insert(p, i);
+                    library_of_unit.insert(p, i);
                 }
             }
         }
-        let mut dependentes: Vec<Vec<usize>> = vec![Vec::new(); programa.libraries.len()];
-        for (i, l) in programa.libraries.iter().enumerate() {
-            let alvos = l
+        let mut dependents: Vec<Vec<usize>> = vec![Vec::new(); program.libraries.len()];
+        for (i, l) in program.libraries.iter().enumerate() {
+            let targets = l
                 .imports
                 .iter()
                 .map(|x| x.library)
                 .chain(l.exports.iter().map(|x| x.library));
-            for alvo in alvos {
-                if let Some(d) = dependentes.get_mut(alvo.0 as usize) {
+            for target in targets {
+                if let Some(d) = dependents.get_mut(target.0 as usize) {
                     d.push(i);
                 }
             }
         }
-        let mut fila: Vec<usize> = Vec::new();
-        for p in &mudados {
-            let &l = biblioteca_da_unidade.get(p)?;
-            // Só a unidade principal: uma parte muda a biblioteca inteira, e
-            // o estágio A cuida disso.
-            let principal = programa.libraries[l]
+        let mut queue: Vec<usize> = Vec::new();
+        for p in &changed {
+            let &l = library_of_unit.get(p)?;
+            // Only the defining unit: a part changes the whole library, and
+            // stage A takes care of that.
+            let main = program.libraries[l]
                 .units
                 .first()
-                .and_then(|&u| programa.unit(u).path.as_ref());
-            if principal
+                .and_then(|&u| program.unit(u).path.as_ref());
+            if main
                 .and_then(|x| std::fs::canonicalize(x).ok())
                 .as_ref()
                 != Some(p)
             {
                 return None;
             }
-            fila.push(l);
+            queue.push(l);
         }
-        let mut vistos = vec![false; programa.libraries.len()];
-        let mut fecho: Vec<PathBuf> = Vec::new();
-        while let Some(l) = fila.pop() {
-            if std::mem::replace(&mut vistos[l], true) {
+        let mut seen = vec![false; program.libraries.len()];
+        let mut closure: Vec<PathBuf> = Vec::new();
+        while let Some(l) = queue.pop() {
+            if std::mem::replace(&mut seen[l], true) {
                 continue;
             }
-            fila.extend(dependentes[l].iter().copied());
-            let lib = &programa.libraries[l];
+            queue.extend(dependents[l].iter().copied());
+            let lib = &program.libraries[l];
             if lib.is_sdk {
                 continue;
             }
             let Some(p) = lib
                 .units
                 .first()
-                .and_then(|&u| programa.unit(u).path.as_ref())
+                .and_then(|&u| program.unit(u).path.as_ref())
             else {
                 continue;
             };
             let Ok(c) = std::fs::canonicalize(p) else {
                 continue;
             };
-            let gerado = c.to_string_lossy().ends_with(".template.dart");
-            if c.starts_with(&canon_raiz) && !gerado {
-                fecho.push(dartforge_elements::gerado::chave(p));
+            let generated = c.to_string_lossy().ends_with(".template.dart");
+            if c.starts_with(&canon_root) && !generated {
+                closure.push(dartforge_elements::gerado::chave(p));
             }
         }
-        fecho.sort();
+        closure.sort();
         let mut cache = self.cache.lock().ok()?;
-        let cache = cache.get_mut(&pedido.pacote)?;
-        let pacote = dartforge_ng_generator::Pacote {
-            nome: pedido.pacote.clone(),
-            raiz: raiz.clone(),
-            folhas_geradas: folhas_geradas(ctx, &raiz),
+        let cache = cache.get_mut(&request.pacote)?;
+        let package = dartforge_ng_generator::Pacote {
+            nome: request.pacote.clone(),
+            raiz: root.clone(),
+            folhas_geradas: generated_sheets(ctx, root),
         };
-        let resolvedor =
-            dartforge_ng_generator::resolucao::Resolvedor::novo(programa, nomes_programa);
-        for fonte in &fecho {
-            let destino = dartforge_ng_generator::caminho_do_template(fonte);
-            if !cache.saida.saidas.contains_key(&destino) || cache.saida.recusas.contains_key(fonte)
+        let resolver =
+            dartforge_ng_generator::resolucao::Resolvedor::novo(program, program_names);
+        for source in &closure {
+            let target = dartforge_ng_generator::caminho_do_template(source);
+            if !cache.output.saidas.contains_key(&target)
+                || cache.output.recusas.contains_key(source)
             {
                 return None;
             }
         }
-        // O índice: do programa novo, se ainda não existe; senão, os arquivos
-        // do fecho são reindexados (os outros não alcançam o que mudou).
-        let mut textos = Vec::with_capacity(fecho.len());
-        let mut nomes = dartforge_intern::Interner::new();
-        for fonte in &fecho {
-            let texto = std::fs::read_to_string(fonte).ok()?;
-            let achados = dartforge_ng_generator::analisar_arquivo(fonte, &texto, &mut nomes);
-            textos.push(achados);
+        // The index: from the new program, if it does not exist yet;
+        // otherwise, the closure's files are reindexed (the others do not
+        // reach what changed).
+        let mut findings = Vec::with_capacity(closure.len());
+        let mut names = dartforge_intern::Interner::new();
+        for source in &closure {
+            let text = std::fs::read_to_string(source).ok()?;
+            let found = dartforge_ng_generator::analisar_arquivo(source, &text, &mut names);
+            findings.push(found);
         }
-        match cache.indice.as_mut() {
-            None => cache.indice = Some(indice_do_pacote(&pacote, &resolvedor)),
-            Some(indice) => {
-                for (fonte, achados) in fecho.iter().zip(&textos) {
-                    indice.atualizar(&pacote, fonte, achados, Some(&resolvedor));
+        match cache.index.as_mut() {
+            None => cache.index = Some(package_index(&package, &resolver)),
+            Some(index) => {
+                for (source, found) in closure.iter().zip(&findings) {
+                    index.atualizar(&package, source, found, Some(&resolver));
                 }
             }
         }
-        let indice = cache.indice.as_ref()?;
-        let mut novas = Vec::new();
-        let mut recursos: Vec<(PathBuf, Vec<PathBuf>)> = Vec::new();
-        for (fonte, achados) in fecho.iter().zip(&textos) {
-            let saida = dartforge_ng_generator::gerar_arquivo(
-                &pacote,
-                fonte,
-                achados,
-                Some(&resolvedor),
-                &mut nomes,
-                indice,
+        let index = cache.index.as_ref()?;
+        let mut new = Vec::new();
+        let mut resources: Vec<(PathBuf, Vec<PathBuf>)> = Vec::new();
+        for (source, found) in closure.iter().zip(&findings) {
+            let output = dartforge_ng_generator::gerar_arquivo(
+                &package,
+                source,
+                found,
+                Some(&resolver),
+                &mut names,
+                index,
             )
             .ok()?;
-            let destino = dartforge_ng_generator::caminho_do_template(fonte);
-            novas.push((destino, saida.template.into_bytes()));
-            for (destino, texto) in saida.extras {
-                if !cache.saida.saidas.contains_key(&destino) {
+            let target = dartforge_ng_generator::caminho_do_template(source);
+            new.push((target, output.template.into_bytes()));
+            for (target, text) in output.extras {
+                if !cache.output.saidas.contains_key(&target) {
                     return None;
                 }
-                novas.push((destino, texto.into_bytes()));
+                new.push((target, text.into_bytes()));
             }
-            let lidos = saida
+            let read = output
                 .entradas
                 .iter()
                 .filter(|e| {
@@ -522,44 +530,44 @@ impl NgEstagioA {
                 })
                 .map(|e| dartforge_elements::gerado::chave(e))
                 .collect();
-            recursos.push((fonte.clone(), lidos));
+            resources.push((source.clone(), read));
         }
-        for (destino, bytes) in novas {
-            cache.saida.saidas.insert(destino, bytes);
+        for (target, bytes) in new {
+            cache.output.saidas.insert(target, bytes);
         }
-        // Os recursos que cada arquivo do fecho lê agora.
-        for (fonte, lidos) in recursos {
-            for leitores in cache.fontes_do_recurso.values_mut() {
-                leitores.retain(|f| *f != fonte);
+        // The resources each file of the closure reads now.
+        for (source, read) in resources {
+            for readers in cache.resource_readers.values_mut() {
+                readers.retain(|f| *f != source);
             }
-            for r in lidos {
+            for r in read {
                 cache
-                    .fontes_do_recurso
+                    .resource_readers
                     .entry(r)
                     .or_default()
-                    .push(fonte.clone());
+                    .push(source.clone());
             }
         }
-        cache.fontes_do_recurso.retain(|_, v| !v.is_empty());
+        cache.resource_readers.retain(|_, v| !v.is_empty());
         if std::env::var_os("DARTFORGE_MOTOR_TEMPOS").is_some() {
             eprintln!(
-                "ngdart (estágio B): {} arquivo(s) no fecho de {} edição(ões) .dart",
-                fecho.len(),
-                mudados.len()
+                "ngdart (stage B): {} file(s) in the closure of {} .dart edit(s)",
+                closure.len(),
+                changed.len()
             );
         }
-        let mut saida = clone_saida(&cache.saida);
-        saida.unidades_geradas = fecho.len();
-        saida.reutilizar_consultas = true;
-        // As consultas do estágio A sobre os arquivos editados, com o
-        // digest novo: o texto (arquivo com Angular) e a API (sem Angular).
-        let biblioteca_de: HashMap<PathBuf, &str> = programa
+        let mut output = clone_output(&cache.output);
+        output.unidades_geradas = closure.len();
+        output.reutilizar_consultas = true;
+        // Stage A's queries over the edited files, with the new digest: the
+        // text (a file with Angular) and the API (without Angular).
+        let library_of: HashMap<PathBuf, &str> = program
             .units
             .iter()
             .filter_map(|u| {
                 Some((
                     dartforge_elements::gerado::chave(u.path.as_ref()?),
-                    programa.library(u.library).uri.as_str(),
+                    program.library(u.library).uri.as_str(),
                 ))
             })
             .collect();
@@ -567,146 +575,147 @@ impl NgEstagioA {
             let k = dartforge_elements::gerado::chave(p);
             ctx.registrar(Consulta::Arquivo(k.clone()));
             ctx.registrar(Consulta::Existe(k.clone()));
-            if let Some(uri) = biblioteca_de.get(&k) {
+            if let Some(uri) = library_of.get(&k) {
                 ctx.registrar(Consulta::ApiBiblioteca(uri.to_string()));
             }
         }
-        Some(saida)
+        Some(output)
     }
 
-    fn tentar_recurso(
+    fn try_resource(
         &self,
         ctx: &mut CtxGerador<'_>,
-        pedido: &PedidoNativo,
+        request: &PedidoNativo,
     ) -> Option<SaidaNativa> {
-        let recurso = ctx.mudados.iter().find(|p| {
-            p.starts_with(&pedido.raiz_do_pacote)
+        let resource = ctx.mudados.iter().find(|p| {
+            p.starts_with(&request.raiz_do_pacote)
                 && p.extension()
                     .is_some_and(|e| matches!(e.to_str(), Some("html" | "css" | "scss" | "sass")))
         })?;
-        // O motor inclui a forma lexical e a forma canônica do mesmo evento;
-        // no Windows elas podem ter raízes distintas (links/nomes curtos).
-        // Só permitimos o atalho quando *todos* os eventos são esse arquivo.
-        let canon_recurso = std::fs::canonicalize(recurso).ok()?;
+        // The engine includes the lexical and the canonical form of the same
+        // event; on Windows they may have different roots (links/short
+        // names). The shortcut is only allowed when *all* events are this
+        // file.
+        let canon_resource = std::fs::canonicalize(resource).ok()?;
         if ctx
             .mudados
             .iter()
-            .any(|p| std::fs::canonicalize(p).ok().as_ref() != Some(&canon_recurso))
+            .any(|p| std::fs::canonicalize(p).ok().as_ref() != Some(&canon_resource))
         {
             return None;
         }
         let mut cache = self.cache.lock().ok()?;
-        let cache = cache.get_mut(&pedido.pacote)?;
-        // Uma folha (o `.css`, ou o `.scss` que o `sass_builder` compila):
-        // só as saídas dela, que não dependem de nenhum componente.
-        if recurso
+        let cache = cache.get_mut(&request.pacote)?;
+        // A stylesheet (the `.css`, or the `.scss` that `sass_builder`
+        // compiles): only its outputs, which do not depend on any component.
+        if resource
             .extension()
             .is_some_and(|e| matches!(e.to_str(), Some("css" | "scss" | "sass")))
         {
-            let pacote = dartforge_ng_generator::Pacote {
-                nome: pedido.pacote.clone(),
-                raiz: pedido.raiz_do_pacote.clone(),
-                folhas_geradas: folhas_geradas(ctx, &pedido.raiz_do_pacote),
+            let package = dartforge_ng_generator::Pacote {
+                nome: request.pacote.clone(),
+                raiz: request.raiz_do_pacote.clone(),
+                folhas_geradas: generated_sheets(ctx, &request.raiz_do_pacote),
             };
-            let css = recurso.with_extension("css");
-            let mut novas = Vec::new();
-            for (destino, r) in dartforge_ng_generator::gerar_folha(&pacote, &css) {
-                // Saída que não era nossa, ou que deixa de ser: o caminho
-                // completo decide.
+            let css = resource.with_extension("css");
+            let mut new = Vec::new();
+            for (target, r) in dartforge_ng_generator::gerar_folha(&package, &css) {
+                // An output that was not ours, or that stops being ours: the
+                // full path decides.
                 let bytes = r.ok()?.into_bytes();
-                if !cache.saida.saidas.contains_key(&destino) {
+                if !cache.output.saidas.contains_key(&target) {
                     return None;
                 }
-                novas.push((destino, bytes));
+                new.push((target, bytes));
             }
-            for (destino, bytes) in novas {
-                cache.saida.saidas.insert(destino, bytes);
+            for (target, bytes) in new {
+                cache.output.saidas.insert(target, bytes);
             }
-            let mut saida = clone_saida(&cache.saida);
-            saida.unidades_geradas = 1;
-            saida.reutilizar_consultas = true;
-            ctx.registrar(Consulta::Arquivo(recurso.clone()));
-            return Some(saida);
+            let mut output = clone_output(&cache.output);
+            output.unidades_geradas = 1;
+            output.reutilizar_consultas = true;
+            ctx.registrar(Consulta::Arquivo(resource.clone()));
+            return Some(output);
         }
-        let fontes = cache.fontes_do_recurso.get(recurso)?.clone();
-        let (programa, nomes_programa) = ctx.programa?;
-        let pacote = dartforge_ng_generator::Pacote {
-            nome: pedido.pacote.clone(),
-            raiz: pedido.raiz_do_pacote.clone(),
-            folhas_geradas: folhas_geradas(ctx, &pedido.raiz_do_pacote),
+        let sources = cache.resource_readers.get(resource)?.clone();
+        let (program, program_names) = ctx.programa?;
+        let package = dartforge_ng_generator::Pacote {
+            nome: request.pacote.clone(),
+            raiz: request.raiz_do_pacote.clone(),
+            folhas_geradas: generated_sheets(ctx, &request.raiz_do_pacote),
         };
-        let resolvedor =
-            dartforge_ng_generator::resolucao::Resolvedor::novo(programa, nomes_programa);
-        if cache.indice.is_none() {
-            cache.indice = Some(indice_do_pacote(&pacote, &resolvedor));
+        let resolver =
+            dartforge_ng_generator::resolucao::Resolvedor::novo(program, program_names);
+        if cache.index.is_none() {
+            cache.index = Some(package_index(&package, &resolver));
         }
-        let indice = cache.indice.as_ref()?;
-        let mut novas = Vec::new();
-        let componentes = fontes.len();
-        for fonte in fontes {
-            let texto = std::fs::read_to_string(&fonte).ok()?;
-            let mut nomes = dartforge_intern::Interner::new();
-            let achados = dartforge_ng_generator::analisar_arquivo(&fonte, &texto, &mut nomes);
-            let saida = dartforge_ng_generator::gerar_arquivo(
-                &pacote,
-                &fonte,
-                &achados,
-                Some(&resolvedor),
-                &mut nomes,
-                indice,
+        let index = cache.index.as_ref()?;
+        let mut new = Vec::new();
+        let components = sources.len();
+        for source in sources {
+            let text = std::fs::read_to_string(&source).ok()?;
+            let mut names = dartforge_intern::Interner::new();
+            let found = dartforge_ng_generator::analisar_arquivo(&source, &text, &mut names);
+            let output = dartforge_ng_generator::gerar_arquivo(
+                &package,
+                &source,
+                &found,
+                Some(&resolver),
+                &mut names,
+                index,
             )
             .ok()?;
-            let destino = dartforge_ng_generator::caminho_do_template(&fonte);
-            if !cache.saida.saidas.contains_key(&destino) {
+            let target = dartforge_ng_generator::caminho_do_template(&source);
+            if !cache.output.saidas.contains_key(&target) {
                 return None;
             }
-            novas.push((destino, saida.template.into_bytes()));
-            for (destino, texto) in saida.extras {
-                if !cache.saida.saidas.contains_key(&destino) {
+            new.push((target, output.template.into_bytes()));
+            for (target, text) in output.extras {
+                if !cache.output.saidas.contains_key(&target) {
                     return None;
                 }
-                novas.push((destino, texto.into_bytes()));
+                new.push((target, text.into_bytes()));
             }
         }
-        for (destino, bytes) in novas {
-            cache.saida.saidas.insert(destino, bytes);
+        for (target, bytes) in new {
+            cache.output.saidas.insert(target, bytes);
         }
         if std::env::var_os("DARTFORGE_MOTOR_TEMPOS").is_some() {
             eprintln!(
-                "ngdart (estágio B): {} componente(s) para {}",
-                cache.fontes_do_recurso[recurso].len(),
-                recurso.display()
+                "ngdart (stage B): {} component(s) for {}",
+                cache.resource_readers[resource].len(),
+                resource.display()
             );
         }
-        let mut saida = clone_saida(&cache.saida);
-        saida.unidades_geradas = componentes;
-        saida.reutilizar_consultas = true;
-        ctx.registrar(Consulta::Arquivo(recurso.clone()));
-        Some(saida)
+        let mut output = clone_output(&cache.output);
+        output.unidades_geradas = components;
+        output.reutilizar_consultas = true;
+        ctx.registrar(Consulta::Arquivo(resource.clone()));
+        Some(output)
     }
 }
 
-fn indice_do_pacote(
-    pacote: &dartforge_ng_generator::Pacote,
-    resolvedor: &dartforge_ng_generator::resolucao::Resolvedor<'_>,
+fn package_index(
+    package: &dartforge_ng_generator::Pacote,
+    resolver: &dartforge_ng_generator::resolucao::Resolvedor<'_>,
 ) -> dartforge_ng_generator::Indice {
-    let mut indice = dartforge_ng_generator::Indice::do_programa(resolvedor);
-    let mut arquivos_dart = Vec::new();
+    let mut index = dartforge_ng_generator::Indice::do_programa(resolver);
+    let mut dart_files = Vec::new();
     for dir in ["lib", "web", "test"] {
-        arquivos(&pacote.raiz.join(dir), &mut arquivos_dart);
+        collect_files(&package.raiz.join(dir), &mut dart_files);
     }
-    let mut nomes = dartforge_intern::Interner::new();
-    for fonte in arquivos_dart {
-        if fonte.extension().is_none_or(|e| e != "dart")
-            || fonte.to_string_lossy().ends_with(".template.dart")
+    let mut names = dartforge_intern::Interner::new();
+    for source in dart_files {
+        if source.extension().is_none_or(|e| e != "dart")
+            || source.to_string_lossy().ends_with(".template.dart")
         {
             continue;
         }
-        if let Ok(texto) = std::fs::read_to_string(&fonte) {
-            let achados =
-                dartforge_ng_generator::analisar_arquivo(Path::new(&fonte), &texto, &mut nomes);
-            indice.atualizar(pacote, &fonte, &achados, Some(resolvedor));
+        if let Ok(text) = std::fs::read_to_string(&source) {
+            let found =
+                dartforge_ng_generator::analisar_arquivo(Path::new(&source), &text, &mut names);
+            index.atualizar(package, &source, &found, Some(resolver));
         }
     }
-    indice
+    index
 }
