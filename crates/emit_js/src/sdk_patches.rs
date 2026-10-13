@@ -29,19 +29,24 @@
 use dartforge_elements::sdk::SdkLayout;
 use std::path::{Path, PathBuf};
 
-/// (file under the SDK's `lib/`, original text, replacement).
-const PATCHES: &[(&str, &str, &str)] = &[
+/// (switch, file under the SDK's `lib/`, original text, replacement). The
+/// switch is an environment variable that, set to `0`, leaves the patch out
+/// (`DARTFORGE_JSPROD_SDK_PATCHES=0` leaves them all out).
+const PATCHES: &[(Option<&str>, &str, &str, &str)] = &[
     (
+        None,
         "_internal/js_dev_runtime/private/js_helper.dart",
         "Error diagnoseIndexError(indexable, int index) {\n  int length = indexable.length;",
         "Error diagnoseIndexError(indexable, int index) {\n  int length = JS('int', '#.length', indexable);",
     ),
     (
+        None,
         "_internal/js_dev_runtime/private/string_helper.dart",
         "    var substr = receiver.substring(startIndex);\n    return other.allMatches(substr).isNotEmpty;",
         "    var substr = receiver.substring(startIndex);\n    return (other as Pattern).allMatches(substr).isNotEmpty;",
     ),
     (
+        None,
         "_internal/js_dev_runtime/private/interceptors.dart",
         r##"  static final _nullError = RegExp(r"^Cannot read property '(.+)' of null$");
   static final _notAFunction = RegExp(r"^(.+) is not a function$");
@@ -88,13 +93,50 @@ const PATCHES: &[(&str, &str, &str)] = &[
     return stack;
   }"##,
     ),
+    // `getThrown` (live in every program with a `catch`) recognizes a stack
+    // overflow by `message.contains('call stack')`: `String.contains` takes a
+    // `Pattern`, and its generic path kept `allMatches` with the match
+    // iterables, `Iterable` and `StringBuffer`. The argument is a literal
+    // string: the JavaScript `includes` is the same test.
+    (
+        Some("DARTFORGE_JSPROD_FLOOR_PATCHES"),
+        "_internal/js_dev_runtime/private/ddc_runtime/errors.dart",
+        "          error) &&\n      message.contains('call stack')) {",
+        "          error) &&\n      JS<bool>('!', '#.includes(#)', message, 'call stack')) {",
+    ),
+    (
+        Some("DARTFORGE_JSPROD_FLOOR_PATCHES"),
+        "_internal/js_dev_runtime/private/ddc_runtime/errors.dart",
+        "          error) &&\n      message.contains('too much recursion')) {",
+        "          error) &&\n      JS<bool>('!', '#.includes(#)', message, 'too much recursion')) {",
+    ),
+    // `getReifiedType` (behind `Object.toString` and `runtimeType`) calls
+    // `getRtiForRecord` for a `RecordImpl`, which keeps `_Universe.bind`, the
+    // binding rtis and `StringBuffer` in programs without records. As a
+    // getter of `RecordImpl`, the computation lives only where a record is
+    // created.
+    (
+        Some("DARTFORGE_JSPROD_FLOOR_PATCHES"),
+        "_internal/js_dev_runtime/private/ddc_runtime/rtti.dart",
+        "      if (_jsInstanceOf(obj, RecordImpl)) return getRtiForRecord(obj);",
+        "      if (_jsInstanceOf(obj, RecordImpl)) {\n        return JS<RecordImpl>('!', '#', obj)._reifiedRti;\n      }",
+    ),
+    (
+        Some("DARTFORGE_JSPROD_FLOOR_PATCHES"),
+        "_internal/js_dev_runtime/private/ddc_runtime/records.dart",
+        "  @override\n  String toString() => _toString(false);\n",
+        "  @override\n  String toString() => _toString(false);\n\n  /// The rti of this record, for `getReifiedType`.\n  Object get _reifiedRti => getRtiForRecord(this);\n",
+    ),
 ];
 
 /// Applies [`PATCHES`] to `sdk` as overlay replacements. The patched files
 /// are written once, by content, under `dir`.
 pub fn apply(sdk: &mut SdkLayout, dir: &Path) {
     let mut by_file: Vec<(&str, Vec<(&str, &str)>)> = Vec::new();
-    for &(file, old, new) in PATCHES {
+    for &(switch, file, old, new) in PATCHES {
+        if switch.is_some_and(|v| std::env::var(v).is_ok_and(|v| v == "0")) {
+            continue;
+        }
         match by_file.iter_mut().find(|(f, _)| *f == file) {
             Some((_, v)) => v.push((old, new)),
             None => by_file.push((file, vec![(old, new)])),
@@ -167,7 +209,7 @@ mod tests {
 
     #[test]
     fn every_patch_changes_its_text() {
-        for (file, old, new) in PATCHES {
+        for (_, file, old, new) in PATCHES {
             assert_ne!(old, new, "{file}");
             assert!(!old.is_empty(), "{file}");
         }
