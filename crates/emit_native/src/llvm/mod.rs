@@ -1168,6 +1168,11 @@ impl<'a> LlvmEmitter<'a> {
                 {
                     self.store_check(&live_set);
                 }
+                // The shadow stack: the slots that may still hold a value that
+                // died are zeroed before the collection point (`roots::dead_slots`).
+                if let Some(dead) = self.function_roots.clear_at.get(vid) {
+                    self.clear_dead_slots(&dead.clone());
+                }
                 // A collection point may promote the freshly allocated object
                 // (old after the collection): it stops being fresh.
                 if self.may_collect(inst) {
@@ -1916,6 +1921,9 @@ impl<'a> LlvmEmitter<'a> {
                 let live_set = self.function_roots.live_at_end.get(&block.id).cloned().unwrap_or_default();
                 self.store_check(&live_set);
             }
+            if let Some(dead) = self.function_roots.clear_at_end.get(&block.id) {
+                self.clear_dead_slots(&dead.clone());
+            }
             let end_start = self.out.len();
             for (b, name_str, of, v, to_repr) in self.conv_phi.clone() {
                 if b == block.id.0 {
@@ -2103,6 +2111,18 @@ impl<'a> LlvmEmitter<'a> {
                 Some(x) => writeln!(self.out, "  store i64 %v{}, ptr %gcs{}", x.0, first_one + i).unwrap(),
                 None => writeln!(self.out, "  store i64 0, ptr %gcs{}", first_one + i).unwrap(),
             }
+        }
+    }
+
+    /// Zeroes the shadow-stack slots `dead` (values that died since they were
+    /// written, [`roots::Roots::clear_at`]). Not with roots by maps (the SSA
+    /// values are not in the frame) nor under ARC (whose slots own their values).
+    fn clear_dead_slots(&mut self, dead: &[usize]) {
+        if !self.rooted_set.is_empty() || self.module.arc_memory {
+            return;
+        }
+        for &slot in dead {
+            writeln!(self.out, "  store i64 0, ptr %gcs{slot}").unwrap();
         }
     }
 
@@ -4174,7 +4194,8 @@ const MAP_LEAVES: &[&str] = &[
 /// until it is reused or the frame closes, and with fewer rooted values the
 /// dead value stays longer — the `json` core of `bench/comparison`
 /// ended with 1.05 million live objects instead of 650 thousand (peak of
-/// 121 against 95 MB). Zeroing the slot of the value that dies before turning it on is still missing.
+/// 121 against 95 MB). Since then the slot of a dead value is zeroed before the next
+/// collection point (`roots::dead_slots`), which this measurement did not have yet.
 fn roots_in_callee() -> bool {
     static ENABLED_IN_CALLEE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ENABLED_IN_CALLEE.get_or_init(|| std::env::var("DARTFORGE_ROOTS_IN_CALLEE").is_ok_and(|v| v == "1"))

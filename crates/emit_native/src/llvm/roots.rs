@@ -19,9 +19,11 @@
 //! * The `alloca`s of type `Ref` (mutable locals, G2) keep their own
 //!   slot: the slot follows each write.
 //!
-//! A shared slot keeps, between uses, an already dead value — which the
-//! collector marks (it is still a valid handle, because it was rooted): it only
-//! delays its collection until the slot is reused or the frame closes.
+//! A slot keeps, between uses, a value that already died — still a valid handle,
+//! because it was rooted, and the collector would mark it (a loop variable kept the
+//! whole tree of the previous iteration alive while the next one was built). So the
+//! slot that may hold such a value and that no live value occupies is zeroed before
+//! the next collection point ([`Roots::clear_at`]).
 
 use crate::hir::*;
 use crate::lower::async_sm::{successors, uses_of, terminator_uses};
@@ -75,6 +77,14 @@ pub struct Roots {
     /// The rooted values live at the entry of each block (after its
     /// `phi`s); only the blocks that have any.
     pub live_at_entry_set: HashMap<BlockId, Vec<ValueId>>,
+    /// The shared slots to zero before each collection point: the slot may
+    /// still hold a value that died since it was written, and no value live at
+    /// the point is in it. Without the zeroing, the collector would mark the dead
+    /// value (a whole tree that a loop variable held the previous iteration)
+    /// until the slot was reused or the frame closed.
+    pub clear_at: HashMap<ValueId, Vec<usize>>,
+    /// The same for the collection point at the end of a block.
+    pub clear_at_end: HashMap<BlockId, Vec<usize>>,
 }
 
 /// The full analysis: the slots (the shadow stack) and the liveness at each
@@ -331,5 +341,102 @@ pub fn analyze_with(
             r.live_at_entry_set.insert(func.blocks[b].id, v);
         }
     }
+    dead_slots(func, &position, &mut r);
     r
+}
+
+/// The zeroing of dead slots ([`Roots::clear_at`]): a forward pass, per block
+/// to the fixpoint, of the shared slots that may hold a value (written by the
+/// definition of a rooted value, the `phi`s and the parameters included). At a
+/// collection point, each one of those slots that no live value occupies is zeroed
+/// (and holds nothing until written again). The frame is born zeroed.
+fn dead_slots(func: &Function, position: &HashMap<BlockId, usize>, r: &mut Roots) {
+    let Some(&first) = r.rooted_set.iter().filter_map(|v| r.slots.get(v)).min() else { return };
+    let n = r.rooted_set.iter().filter_map(|v| r.slots.get(v)).max().map_or(0, |m| m + 1);
+    let slot_of = |v: &ValueId| r.slots.get(v).copied().filter(|&s| s >= first);
+    let nb = func.blocks.len();
+    let mut preds: Vec<Vec<usize>> = vec![Vec::new(); nb];
+    for (b, block) in func.blocks.iter().enumerate() {
+        for succ in successors(&block.terminator) {
+            if let Some(&p) = position.get(&succ) {
+                preds[p].push(b);
+            }
+        }
+    }
+    let mut entry_state = Set::empty(n);
+    for (v, _, _) in &func.params {
+        if let Some(s) = slot_of(v) {
+            entry_state.by(s);
+        }
+    }
+    // What each live set occupies.
+    let occupied = |live: &[ValueId]| {
+        let mut o = Set::empty(n);
+        for v in live {
+            if let Some(s) = slot_of(v) {
+                o.by(s);
+            }
+        }
+        o
+    };
+    let live_at: HashMap<ValueId, Set> = r.live_at.iter().map(|(k, v)| (*k, occupied(v))).collect();
+    let live_at_end: HashMap<BlockId, Set> = r.live_at_end.iter().map(|(k, v)| (*k, occupied(v))).collect();
+    // The pass over a block: from the slots that may hold a value at its entry, those at its
+    // exit; `record` receives the zeroings.
+    let walk = |b: usize, mut state: Set, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| -> Set {
+        let block = &func.blocks[b];
+        let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+            let dead: Vec<usize> = state.elements().filter(|&s| !live.has(s)).collect();
+            for &s in &dead {
+                state.take_out(s);
+            }
+            if !dead.is_empty() {
+                record(who, dead);
+            }
+        };
+        for (vid, _, _) in &block.instructions {
+            if let Some(live) = live_at.get(vid) {
+                clear(&mut state, live, Some(*vid), record);
+            }
+            if let Some(s) = slot_of(vid) {
+                state.by(s);
+            }
+        }
+        if let Some(live) = live_at_end.get(&block.id) {
+            clear(&mut state, live, None, record);
+        }
+        state
+    };
+    let mut exit = vec![Set::empty(n); nb];
+    let entry_of = |b: usize, exit: &[Set]| {
+        let mut s = if b == 0 { entry_state.clone() } else { Set::empty(n) };
+        for &p in &preds[b] {
+            s.join_set(&exit[p]);
+        }
+        s
+    };
+    loop {
+        let mut changed = false;
+        for b in 0..nb {
+            let e = walk(b, entry_of(b, &exit), &mut |_, _| {});
+            if e != exit[b] {
+                exit[b] = e;
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    for b in 0..nb {
+        let id = func.blocks[b].id;
+        walk(b, entry_of(b, &exit), &mut |who, dead| match who {
+            Some(v) => {
+                r.clear_at.insert(v, dead);
+            }
+            None => {
+                r.clear_at_end.insert(id, dead);
+            }
+        });
+    }
 }
