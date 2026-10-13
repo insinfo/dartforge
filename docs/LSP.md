@@ -1099,6 +1099,11 @@ pico do DartForge é o do filho que analisa o maior pacote, e volta inteiro ao
 sistema quando ele termina; o que segue para baixar o pico está na lista
 acima (escopos materializados, tamanho dos nós de expressão).
 
+Custo do processo filho na latência da publicação tipada (binário release,
+`args/lib/src/arg_parser.dart` aberto sem pasta de workspace, 10 edições
+esperando cada publicação): mediana 40 ms com o filho, 35 ms na thread
+(mín. 29 ms nos dois).
+
 `scripts/measure-lsp.ps1` soma o RSS dos processos filhos.
 Teste: `tests/plateau_workspace.rs` — o mesmo pacote de workspace analisado
 na thread e em processos filhos (o pico do servidor com filhos é uma fração
