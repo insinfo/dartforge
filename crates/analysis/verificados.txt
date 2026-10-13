@@ -510,3 +510,16 @@ wrong_number_of_type_arguments_function
 wrong_number_of_type_arguments_method
 wrong_type_parameter_variance_in_superinterface
 yield_in_non_generator
+
+# 2026-10-13 (macOS): eight of the codes left out on 2026-10-12, after their
+# FP and wrong messages were fixed: no wrong output in the corpus (placar
+# 22.975/23.012, FP 0), and FP 0 and wrong message 0 in the 209 pub-cache
+# packages, the ten real projects and their 567 mutations (`dart analyze` 3.6.2).
+argument_type_not_assignable
+const_eval_throws_exception
+deprecated_new_in_comment_reference
+override_on_non_overriding_member
+return_of_invalid_type_from_closure
+unchecked_use_of_nullable_value
+unused_import
+variable_type_mismatch
