@@ -1,54 +1,54 @@
-//! Poda das tabelas de métodos na ligação do AOT de produção
+//! Pruning of the method tables at the link of the production AOT
 //! (docs/NATIVO-PODA-DE-TABELAS.md).
 //!
-//! No perfil de produção o SDK da fonte não define as tabelas de métodos das
-//! classes dele: cada biblioteca grava, junto do bitcode em cache, um
-//! **resumo** ([`summarize`]) com o que cada função e cada global cita, os
-//! seletores que cada função chama e o conteúdo das tabelas. Na ligação do
-//! programa, [`assemble`] lê o IR do programa com as mesmas regras, faz um
-//! ponto fixo por seletor (o RTA de Bacon: uma entrada da tabela de uma
-//! classe viva só entra se o seletor dela é chamado por alguma função viva) e
-//! devolve o IR do programa com todas as tabelas definidas, só com os pares
-//! vivos. O LTO e o `/OPT:REF` tiram o resto.
+//! In the production profile the source SDK does not define the method tables of
+//! its classes: each library writes, next to the cached bitcode, a
+//! **summary** ([`summarize`]) with what each function and each global cites, the
+//! selectors each function calls and the content of the tables. At the link of the
+//! program, [`assemble`] reads the IR of the program with the same rules, computes a
+//! fixpoint per selector (Bacon's RTA: an entry of the table of a
+//! live class only comes in if its selector is called by some live function) and
+//! returns the IR of the program with every table defined, with only the live
+//! pairs. LTO and `/OPT:REF` remove the rest.
 //!
-//! O JIT, a recarga e a DLL de desenvolvimento não passam por aqui: lá as
-//! tabelas continuam inteiras, nos módulos do SDK (§3.8 da especificação).
+//! The JIT, reload and the development DLL do not go through here: there the
+//! tables stay whole, in the SDK modules (§3.8 of the specification).
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-/// Primeira linha de um resumo; o número muda com o formato.
+/// First line of a summary; the number changes with the format.
 const HEADER: &str = "dartforge-poda\t2";
 
-/// Seletores que vivem em toda classe viva, sem chamada no IR (§3.6):
-/// `c:call` o runtime procura pelo texto (`dartforge_closure_entry`, a
-/// classe chamável e o `Function.apply`); os outros são o protocolo de
-/// `Object` que o runtime alcança por ajudantes do SDK — baratos, porque
-/// quase toda classe viva já os tem vivos.
+/// Selectors that live in every live class, without a call in the IR (§3.6):
+/// `c:call` the runtime looks up by text (`dartforge_closure_entry`, the
+/// callable class and `Function.apply`); the others are the protocol of
+/// `Object` that the runtime reaches through SDK helpers — cheap, because
+/// almost every live class already has them live.
 pub const ROOT_SELECTORS: &[&str] = &["c:call", "c:toString", "c:==", "g:hashCode", "c:noSuchMethod", "g:runtimeType"];
 
-/// Funções do runtime que procuram na tabela por um nome que só existe em
-/// tempo de execução (§3.7). Citada por função viva, toda entrada de tabela
-/// viva fica. Vazia: nenhum mecanismo de hoje faz isso (o `dart:mirrors`
-/// nativo não invoca por nome); o próximo entra aqui.
+/// Runtime functions that look up in the table by a name that only exists
+/// at run time (§3.7). Cited by a live function, every live table entry
+/// stays. Empty: no current mechanism does that (the native
+/// `dart:mirrors` does not invoke by name); the next one goes here.
 pub const CALL_BY_NAME: &[&str] = &[];
 
-/// Uma tabela de métodos como o lowering a monta (`Module::method_tables`):
-/// o cid, a função que devolve a tabela e os pares `(selector, entry)`.
+/// A method table as the lowering builds it (`Module::method_tables`):
+/// the cid, the function that returns the table and the `(selector, entry)` pairs.
 pub type ModuleTable = (u32, String, Vec<(String, String)>);
 
-/// O hash de um seletor (FNV-1a de 64 bits, `lower::closures::hash_name`).
+/// The hash of a selector (64-bit FNV-1a, `lower::closures::hash_name`).
 fn selector_hash(text: &str) -> i64 {
     crate::lower::closures::hash_name(text)
 }
 
-/// Os pares `(hash, selector, entry)` de uma tabela de métodos, ordenados
-/// pelo hash e sem hash repetido: a ordem da busca binária do runtime
+/// The `(hash, selector, entry)` pairs of a method table, sorted
+/// by hash and without a repeated hash: the order of the runtime's binary search
 /// (`dartforge_registrar_tabela`).
 ///
 /// # Panics
-/// Dois seletores diferentes com o mesmo hash na mesma classe.
+/// Two different selectors with the same hash in the same class.
 pub fn table_pairs(cid: u32, methods: &[(String, String)]) -> Vec<(i64, String, String)> {
     let mut pairs: Vec<(i64, String, String)> =
         methods.iter().map(|(s, f)| (selector_hash(s), s.clone(), f.clone())).collect();
@@ -65,13 +65,13 @@ pub fn table_pairs(cid: u32, methods: &[(String, String)]) -> Vec<(i64, String, 
     pairs
 }
 
-/// A linha de uma tabela de métodos: `prefix` (`@X$d = private unnamed_addr
-/// constant `), os types e `{ cid, n, (hash, entrada)… }`. `pares` já vem na
-/// ordem da tabela, com as entradas escritas como no IR (`@f`).
+/// The line of a method table: `prefix` (`@X$d = private unnamed_addr
+/// constant `), the types and `{ cid, n, (hash, entry)… }`. `pairs` already comes in
+/// table order, with the entries written as in the IR (`@f`).
 ///
 /// ```
-/// use dartforge_emit_native::poda::linha_de_tabela;
-/// let l = linha_de_tabela("@t$d = private unnamed_addr constant ", 7, &[(5, "@f".to_string())]);
+/// use dartforge_emit_native::pruning::table_line;
+/// let l = table_line("@t$d = private unnamed_addr constant ", 7, &[(5, "@f".to_string())]);
 /// assert_eq!(l, "@t$d = private unnamed_addr constant { i64, i64, i64, ptr } { i64 7, i64 1, i64 5, ptr @f }\n");
 /// ```
 pub fn table_line(prefix: &str, cid: i64, pairs: &[(i64, String)]) -> String {
@@ -84,12 +84,12 @@ pub fn table_line(prefix: &str, cid: i64, pairs: &[(i64, String)]) -> String {
     format!("{prefix}{{ {types} }} {{ {items} }}\n")
 }
 
-/// Um caractere de identificador LLVM sem aspas.
+/// A character of an unquoted LLVM identifier.
 fn name_char(c: u8) -> bool {
     c.is_ascii_alphanumeric() || matches!(c, b'-' | b'$' | b'.' | b'_')
 }
 
-/// Um nome escrito com `@`: sem aspas se ele permite.
+/// A name written with `@`: without quotes if it allows.
 fn llvm_name(name: &str) -> String {
     let simple = !name.is_empty()
         && !name.as_bytes()[0].is_ascii_digit()
@@ -97,9 +97,9 @@ fn llvm_name(name: &str) -> String {
     if simple { format!("@{name}") } else { format!("@\"{name}\"") }
 }
 
-/// Os símbolos citados (`@x` e `@"x"`) em `text`, sem o `@` e sem as aspas.
-/// Um `@` dentro de uma constante de texto dá um nome que nada define — é
-/// conservador, nunca tira nada.
+/// The cited symbols (`@x` and `@"x"`) in `text`, without the `@` and without the quotes.
+/// An `@` inside a string constant gives a name that nothing defines — it is
+/// conservative, it never removes anything.
 fn cited(text: &str) -> impl Iterator<Item = &str> {
     let b = text.as_bytes();
     let mut i = 0;
@@ -128,7 +128,7 @@ fn cited(text: &str) -> impl Iterator<Item = &str> {
     })
 }
 
-/// O nome definido por uma linha `define … @f(`, e se ele é local
+/// The name defined by a `define … @f(` line, and whether it is local
 /// (`internal`/`private`).
 fn define_name(line: &str) -> Option<(&str, bool)> {
     let rest = line.strip_prefix("define ")?;
@@ -138,8 +138,8 @@ fn define_name(line: &str) -> Option<(&str, bool)> {
     Some((name, local))
 }
 
-/// O nome de uma linha de global `@g = …`, se ele é local, e o resto depois
-/// do `=`.
+/// The name of a global line `@g = …`, whether it is local, and the rest after
+/// the `=`.
 fn global_name(line: &str) -> Option<(&str, bool, &str)> {
     if !line.starts_with('@') {
         return None;
@@ -151,7 +151,7 @@ fn global_name(line: &str) -> Option<(&str, bool, &str)> {
     Some((name, local, rest))
 }
 
-/// Decodifica o `c"…"` de uma constante de bytes (`\XX`).
+/// Decodes the `c"…"` of a byte constant (`\XX`).
 fn constant_text(line: &str) -> Option<String> {
     let ini = line.find("c\"")? + 2;
     let end = ini + line[ini..].find('"')?;
@@ -173,8 +173,8 @@ fn constant_text(line: &str) -> Option<String> {
     Some(String::from_utf8_lossy(&v).into_owned())
 }
 
-/// O hash e o índice do nome de uma chamada `@df.seletor(ptr …, i64 …, i64
-/// <hash>, ptr @df.seln.<k>, i64 …)`; `None` se o hash não é constante.
+/// The hash and the index of the name of a call `@df.seletor(ptr …, i64 …, i64
+/// <hash>, ptr @df.seln.<k>, i64 …)`; `None` if the hash is not constant.
 fn selector_call(line: &str) -> Option<(i64, &str)> {
     let i = line.find("@df.seletor(")? + "@df.seletor(".len();
     let mut args = line[i..].split(", ");
@@ -185,8 +185,8 @@ fn selector_call(line: &str) -> Option<(i64, &str)> {
     Some((h, name.trim_end_matches(')')))
 }
 
-/// O hash e o nome (`@df.seln.<k>`) do descritor `@df.seld.<k> = …
-/// { i64 <hash>, ptr @df.seln.<k>, i64 <len> }` (o despacho compacto,
+/// The hash and the name (`@df.seln.<k>`) of the descriptor `@df.seld.<k> = …
+/// { i64 <hash>, ptr @df.seln.<k>, i64 <len> }` (the compact dispatch,
 /// `llvm/selectors.rs`).
 fn selector_descriptor(rest: &str) -> Option<(i64, &str)> {
     let values = rest[rest.find("} {")? + 3..].trim_start();
@@ -196,7 +196,7 @@ fn selector_descriptor(rest: &str) -> Option<(i64, &str)> {
     Some((h, name))
 }
 
-/// O descritor da chamada `@df.seletor_d(ptr …, i64 …, ptr @df.seld.<k>)`.
+/// The descriptor of the call `@df.seletor_d(ptr …, i64 …, ptr @df.seld.<k>)`.
 fn compact_selector_call(line: &str) -> Option<&str> {
     let i = line.find("@df.seletor_d(")? + "@df.seletor_d(".len();
     let mut args = line[i..].split(", ");
@@ -206,8 +206,8 @@ fn compact_selector_call(line: &str) -> Option<&str> {
     Some(d.trim_end_matches(')'))
 }
 
-/// Uma tabela de métodos lida de uma linha `@X$d = … constant { … } { i64
-/// cid, i64 n, i64 h, ptr @f, … }`: `(cid, [(hash, entrada)])`.
+/// A method table read from a line `@X$d = … constant { … } { i64
+/// cid, i64 n, i64 h, ptr @f, … }`: `(cid, [(hash, entry)])`.
 fn line_table(rest: &str) -> Option<(i64, Vec<(i64, String)>)> {
     let values = &rest[rest.find("} {")? + 3..];
     let values = values.trim_end().strip_suffix('}')?.trim();
@@ -223,8 +223,8 @@ fn line_table(rest: &str) -> Option<(i64, Vec<(i64, String)>)> {
     Some((cid, pairs))
 }
 
-/// Uma definição do resumo: o nome (índice), o que ela cita e os seletores
-/// que ela chama.
+/// A definition of the summary: the name (index), what it cites and the selectors
+/// it calls.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Definition {
     pub name: u32,
@@ -232,8 +232,8 @@ pub struct Definition {
     pub calls: Vec<i64>,
 }
 
-/// Uma tabela de métodos do resumo: o nó-tabela (`X$d`, índice), o cid e os
-/// pares `(hash, entry)`.
+/// A method table of the summary: the table node (`X$d`, index), the cid and the
+/// `(hash, entry)` pairs.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SummarizedTable {
     pub node: u32,
@@ -241,25 +241,25 @@ pub struct SummarizedTable {
     pub pairs: Vec<(i64, u32)>,
 }
 
-/// O resumo de um módulo (uma biblioteca do SDK ou o programa): §3.3.
+/// The summary of a module (an SDK library or the program): §3.3.
 ///
-/// Os nomes locais (`private`/`internal`) levam o prefixo `<módulo>#`,
-/// porque se repetem em todo módulo (`@df.seln.0`, `@df.class`).
+/// Local names (`private`/`internal`) carry the `<module>#` prefix,
+/// because they repeat in every module (`@df.seln.0`, `@df.class`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Summary {
     pub module: String,
     pub names: Vec<String>,
     pub definitions: Vec<Definition>,
     pub tables: Vec<SummarizedTable>,
-    /// Os textos dos seletores (para o relatório).
+    /// The texts of the selectors (for the report).
     pub selectors: Vec<(i64, String)>,
-    /// As tabelas cuja função é deste resumo, mas que o módulo não define
-    /// (o SDK de produção): o programa as define (`assemble`). Índices do nó
-    /// da função.
+    /// The tables whose function belongs to this summary, but that the module does not define
+    /// (the production SDK): the program defines them (`assemble`). Indices of the node
+    /// of the function.
     pub externals: Vec<u32>,
-    /// As receitas RTI com um tipo de função (`F<…>`) e o nó que as tem (a
-    /// função, ou a constante do texto no IR): de onde saem as assinaturas
-    /// nativas que o programa pode pedir ao runtime (§3.14).
+    /// The RTI recipes with a function type (`F<…>`) and the node that has them (the
+    /// function, or the constant of the text in the IR): where the native signatures
+    /// that the program may ask of the runtime come from (§3.14).
     pub recipes: Vec<(u32, String)>,
     index: HashMap<String, u32>,
 }
@@ -279,7 +279,7 @@ impl Summary {
         i
     }
 
-    /// O texto do resumo (o formato de §3.3).
+    /// The text of the summary (the format of §3.3).
     pub fn to_text(&self) -> String {
         let mut s = format!("{HEADER}\t{}\n", self.module);
         for n in &self.names {
@@ -311,10 +311,10 @@ impl Summary {
         s
     }
 
-    /// Lê o texto de [`Summary::to_text`].
+    /// Reads the text of [`Summary::to_text`].
     ///
-    /// # Erros
-    /// Cabeçalho de outra versão ou linha malformada.
+    /// # Errors
+    /// A header of another version or a malformed line.
     pub fn from_string(text: &str) -> Result<Summary, String> {
         let mut lines = text.lines();
         let first = lines.next().unwrap_or_default();
@@ -381,20 +381,20 @@ impl Summary {
     }
 }
 
-/// O resumo de um módulo a partir do IR dele (§3.3). `module` é o prefixo
-/// dos nomes locais; `externals` são as tabelas que o módulo cita, mas não
-/// define (o SDK de produção, com `with_tables_at_link`): `(cid,
-/// função da tabela, métodos)`, as_type `Module::tabelas_de_metodos`.
+/// The summary of a module from its IR (§3.3). `module` is the prefix
+/// of the local names; `externals` are the tables that the module cites, but does not
+/// define (the production SDK, with `with_tables_at_link`): `(cid,
+/// table function, methods)`, like `Module::method_tables`.
 ///
 /// ```
-/// use dartforge_emit_native::poda::resumir;
+/// use dartforge_emit_native::pruning::summarize;
 /// let ir = "define i64 @f(i64 %x) {\n  %a = call i64 @g(i64 %x)\n  ret i64 %a\n}\n";
-/// let r = resumir(ir, "m", &[]);
-/// assert_eq!(r.nomes, vec!["f".to_string(), "g".to_string()]);
-/// assert_eq!(r.definicoes[0].refs, vec![1]);
+/// let r = summarize(ir, "m", &[]);
+/// assert_eq!(r.names, vec!["f".to_string(), "g".to_string()]);
+/// assert_eq!(r.definitions[0].refs, vec![1]);
 /// ```
 pub fn summarize(ir: &str, module: &str, externals: &[ModuleTable]) -> Summary {
-    // Passo 1: os nomes locais e os textos dos seletores.
+    // Step 1: the local names and the texts of the selectors.
     let mut locals: HashSet<&str> = HashSet::new();
     let mut seln_strings: HashMap<&str, String> = HashMap::new();
     let mut descriptors: HashMap<&str, (i64, &str)> = HashMap::new();
@@ -418,8 +418,8 @@ pub fn summarize(ir: &str, module: &str, externals: &[ModuleTable]) -> Summary {
                 && let Some(t) = constant_text(l)
                 && t.contains("F<")
             {
-                // `F<` no IR: `F\3C` nos textos privados
-                // (`emit_string_constants`), `F<` nos objetos estáticos.
+                // `F<` in the IR: `F\3C` in the private strings
+                // (`emit_string_constants`), `F<` in the static objects.
                 recipes.push((n, t.trim_end_matches('\0').to_string()));
             }
         }
@@ -427,7 +427,7 @@ pub fn summarize(ir: &str, module: &str, externals: &[ModuleTable]) -> Summary {
     let mut r = Summary::new(module);
     let key = |n: &str| if locals.contains(n) { format!("{module}#{n}") } else { n.to_string() };
     let mut seen_selectors: HashSet<i64> = HashSet::new();
-    // Passo 2: as definições.
+    // Step 2: the definitions.
     let mut current: Option<Definition> = None;
     for l in ir.lines() {
         if let Some(d) = current.as_mut() {
@@ -448,7 +448,7 @@ pub fn summarize(ir: &str, module: &str, externals: &[ModuleTable]) -> Summary {
                     if seen_selectors.insert(h) {
                         r.selectors.push((h, t.clone()));
                     }
-                    // A volta do seletor tipado (`dartforge_seletor`).
+                    // The fallback of the typed selector (`dartforge_seletor`).
                     if let Some(without_t) = t.strip_prefix('t') {
                         let h2 = selector_hash(without_t);
                         d.calls.push(h2);
@@ -474,7 +474,7 @@ pub fn summarize(ir: &str, module: &str, externals: &[ModuleTable]) -> Summary {
             let refs: Vec<String> = cited(after).map(key).collect();
             let refs = refs.iter().map(|x| r.id(x)).collect();
             if l.trim_end().ends_with('}') {
-                // Uma função numa linha só.
+                // A function on a single line.
                 r.definitions.push(Definition { name, refs, calls: Vec::new() });
             } else {
                 current = Some(Definition { name, refs, calls: Vec::new() });
@@ -520,7 +520,7 @@ pub fn summarize(ir: &str, module: &str, externals: &[ModuleTable]) -> Summary {
     r
 }
 
-/// O fim do termo de receita RTI que começa em `i` (letra, dígitos, `<…>`,
+/// The end of the RTI recipe term that starts at `i` (letter, digits, `<…>`,
 /// `?`; `lower/rti.rs`, `write_type`).
 fn term_end(b: &[u8], mut i: usize) -> Option<usize> {
     if !b.get(i)?.is_ascii_uppercase() {
@@ -553,8 +553,8 @@ fn term_end(b: &[u8], mut i: usize) -> Option<usize> {
     Some(i)
 }
 
-/// Os termos separados por vírgula a partir de `i`, até `end` (que fica na
-/// posição devolvida).
+/// The comma-separated terms starting at `i`, up to `end` (which stays at the
+/// returned position).
 fn terms_until(b: &[u8], mut i: usize, end: u8) -> Option<(Vec<(usize, usize)>, usize)> {
     let mut v = Vec::new();
     if b.get(i) == Some(&end) {
@@ -571,7 +571,7 @@ fn terms_until(b: &[u8], mut i: usize, end: u8) -> Option<(Vec<(usize, usize)>, 
     }
 }
 
-/// O número decimal em `i` e a posição depois dele.
+/// The decimal number at `i` and the position after it.
 fn number_in(b: &[u8], mut i: usize) -> Option<(i64, usize)> {
     let ini = i;
     while b.get(i).is_some_and(u8::is_ascii_digit) {
@@ -580,7 +580,7 @@ fn number_in(b: &[u8], mut i: usize) -> Option<(i64, usize)> {
     std::str::from_utf8(&b[ini..i]).ok()?.parse().ok().map(|n| (n, i))
 }
 
-/// A letra (ou `S<rti>.`) de um tipo nativo `C<id>` na chave da FFI.
+/// The letter (or `S<rti>.`) of a native type `C<id>` in the FFI key.
 fn ffi_letter(b: &[u8], i: usize, letters: &HashMap<i64, char>, composites: &HashSet<i64>, s: &mut String) -> Option<i64> {
     if b.get(i) != Some(&b'C') {
         return None;
@@ -594,27 +594,27 @@ fn ffi_letter(b: &[u8], i: usize, letters: &HashMap<i64, char>, composites: &Has
     Some(id)
 }
 
-/// As chaves da FFI (`lower/ffi.rs::signature_key`, a mesma do
-/// runtime, `crates/runtime/src/ffi.rs::signature_key`) das
-/// assinaturas nativas escritas na receita RTI `text`: cada termo
-/// `F<0;R;n;P1,…,Pn;>` sem parâmetros opcionais nem nomeados cujo retorno e
-/// parâmetros são classes de tipo nativo (`letters`, a tabela que o runtime
-/// recebe; `S<rti>.` para as structs e unions por valor, `composites`;
-/// `VarArgs`, a letra `*`, abre os tipos variádicos). O Dart exige o tipo
-/// nativo constante em `asFunction`, `lookupFunction`, `fromFunction` e
-/// `NativeCallable` (o transformador de FFI do front-end recusa um
-/// genérico), então toda assinatura que o programa pede ao runtime está
-/// escrita numa receita do sítio da chamada (§3.14).
+/// The FFI keys (`lower/ffi.rs::signature_key`, the same as the
+/// runtime's, `crates/runtime/src/ffi.rs::signature_key`) of the
+/// native signatures written in the RTI recipe `text`: each term
+/// `F<0;R;n;P1,…,Pn;>` without optional or named parameters whose return and
+/// parameters are native type classes (`letters`, the table the runtime
+/// receives; `S<rti>.` for structs and unions by value, `composites`;
+/// `VarArgs`, the letter `*`, opens the variadic types). Dart requires the
+/// constant native type in `asFunction`, `lookupFunction`, `fromFunction` and
+/// `NativeCallable` (the front end's FFI transformer rejects a
+/// generic one), so every signature the program asks of the runtime is
+/// written in a recipe of the call site (§3.14).
 pub fn recipe_ffi_keys(text: &str, letters: &HashMap<i64, char>, composites: &HashSet<i64>, exit: &mut HashSet<String>) {
     let b = text.as_bytes();
-    // A parte da chave do termo `b[i..f]`.
+    // The part of the key of the term `b[i..f]`.
     let part = |i: usize, f: usize, s: &mut String| -> Option<()> {
         let before = s.len();
         let id = ffi_letter(b, i, letters, composites, s)?;
         if !s[before..].ends_with('*') || composites.contains(&id) {
             return Some(());
         }
-        // `VarArgs<(T1, T2…)>` ou `VarArgs<T>`: os tipos depois da marca.
+        // `VarArgs<(T1, T2…)>` or `VarArgs<T>`: the types after the mark.
         let (_, j) = number_in(b, i + 1)?;
         if j >= f || b[j] != b'<' {
             return Some(());
@@ -655,7 +655,7 @@ pub fn recipe_ffi_keys(text: &str, letters: &HashMap<i64, char>, composites: &Ha
                 return None;
             }
             let (params, end) = terms_until(b, k + 1, b';')?;
-            // Sem opcionais nem nomeados.
+            // No optional nor named parameters.
             if params.len() as i64 != n || b.get(end + 1) != Some(&b'>') {
                 return None;
             }
@@ -674,25 +674,25 @@ pub fn recipe_ffi_keys(text: &str, letters: &HashMap<i64, char>, composites: &Ha
 }
 
 
-/// Por que um nó está vivo (a primeira vez que ele entrou).
+/// Why a node is live (the first time it came in).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Cause {
     Root,
-    /// Citado pelo nó.
+    /// Cited by the node.
     Ref(u32),
-    /// Par da tabela (nó) pelo seletor.
+    /// A table pair (node) through the selector.
     Tabela(u32, i64),
 }
 
-/// O resultado do ponto fixo sobre vários resumos (§3.5).
+/// The result of the fixpoint over several summaries (§3.5).
 pub struct Reach {
     pub names: Vec<String>,
-    /// A causa de cada nó vivo.
+    /// The cause of each live node.
     pub causes: HashMap<u32, Cause>,
-    /// Os seletores chamados e a primeira função viva que chamou cada um
-    /// (`None` nas raízes).
+    /// The called selectors and the first live function that called each one
+    /// (`None` for the roots).
     pub callees: HashMap<i64, Option<u32>>,
-    /// Alguma função de [`CALL_BY_NAME`] ficou viva.
+    /// Some function of [`CALL_BY_NAME`] stayed live.
     pub all_pairs: bool,
     pub strings: HashMap<i64, String>,
 }
@@ -707,17 +707,17 @@ impl Reach {
     }
 }
 
-/// Os nós, as arestas e as tabelas de todos os resumos, com os nomes
-/// unificados.
+/// The nodes, the edges and the tables of all the summaries, with the names
+/// unified.
 struct Graph {
     names: Vec<String>,
     index: HashMap<String, u32>,
     refs: Vec<Vec<u32>>,
     calls: Vec<Vec<i64>>,
-    /// Nó-tabela → (cid, pares).
+    /// Table node → (cid, pairs).
     tables: HashMap<u32, (i64, Vec<(i64, u32)>)>,
     strings: HashMap<i64, String>,
-    /// Os nós que algum módulo define (os outros são do runtime ou de fora).
+    /// The nodes some module defines (the others belong to the runtime or are external).
     defined: HashSet<u32>,
 }
 
@@ -764,15 +764,15 @@ impl Graph {
         g
     }
 
-    /// Uma raiz de nome (§3.6), se algum módulo a define: a entrada do
-    /// processo, o que o runtime pode citar por símbolo e os globais do
-    /// LLVM. (Uma função do runtime citada pelo código Dart não é raiz: o
-    /// relatório diz quem a cita.)
+    /// A name root (§3.6), if some module defines it: the entry of the
+    /// process, what the runtime may cite by symbol and the LLVM
+    /// globals. (A runtime function cited by Dart code is not a root: the
+    /// report says who cites it.)
     fn root(name: &str) -> bool {
         name == "main" || name.starts_with("dartforge_") || name.starts_with("llvm.")
     }
 
-    /// O ponto fixo (§3.5). `prune = false`: todo par de tabela viva vive.
+    /// The fixpoint (§3.5). `prune = false`: every pair of a live table lives.
     fn reachability(self, prune: bool) -> Reach {
         let mut causes: HashMap<u32, Cause> = HashMap::new();
         let mut callees: HashMap<i64, Option<u32>> = HashMap::new();
@@ -822,12 +822,12 @@ impl Graph {
     }
 }
 
-/// O ponto fixo sobre os resumos (§3.5), para quem quer só o alcance.
+/// The fixpoint over the summaries (§3.5), for those who only want the reach.
 pub fn reach(summaries: &[&Summary], prune: bool) -> Reach {
     Graph::de(summaries).reachability(prune)
 }
 
-/// Números da poda (`--timings`).
+/// Pruning numbers (`--timings`).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Statistics {
     pub tables: usize,
@@ -836,27 +836,27 @@ pub struct Statistics {
     pub live_pairs: usize,
     pub nodes: usize,
     pub live_nodes: usize,
-    /// Definições do programa tiradas antes da geração (§3.12).
+    /// Program definitions removed before generation (§3.12).
     pub pruned_functions: usize,
     pub pruned_globals: usize,
     pub pruned_bytes: usize,
     pub time: std::time::Duration,
 }
 
-/// O IR do programa com as tabelas montadas.
+/// The IR of the program with the tables assembled.
 pub struct Assembly {
     pub ir: String,
     pub statistics: Statistics,
     pub reachability: Reach,
 }
 
-/// Monta as tabelas de métodos no IR do programa (§3.8): as do programa
-/// reescritas só com os pares vivos, e as dos resumos do SDK definidas,
-/// podadas, com a função que devolve cada uma. `prune = false`: todos os
-/// pares (`DARTFORGE_SEM_PODA_DE_TABELAS`).
+/// Assembles the method tables in the IR of the program (§3.8): those of the program
+/// rewritten with only the live pairs, and those of the SDK summaries defined,
+/// pruned, with the function that returns each one. `prune = false`: all the
+/// pairs (`DARTFORGE_SEM_PODA_DE_TABELAS`).
 ///
-/// # Erros
-/// Uma linha de tabela do programa que não se lê (formato fora do de
+/// # Errors
+/// A table line of the program that cannot be read (format outside that of
 /// [`table_line`]).
 pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembly, String> {
     let t0 = std::time::Instant::now();
@@ -867,7 +867,7 @@ pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembl
     let reachability = reach(&all, prune);
     let index: HashMap<&str, u32> = reachability.names.iter().enumerate().map(|(i, n)| (n.as_str(), i as u32)).collect();
     let mut st = Statistics { nodes: reachability.names.len(), live_nodes: reachability.causes.len(), ..Default::default() };
-    // Os pares vivos de uma tabela, escritos como no IR.
+    // The live pairs of a table, written as in the IR.
     let live_pairs = |node: Option<u32>, pairs: &[(i64, String)], st: &mut Statistics| -> Vec<(i64, String)> {
         st.tables += 1;
         st.pairs += pairs.len();
@@ -879,15 +879,15 @@ pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembl
         st.live_pairs += v.len();
         v
     };
-    // As funções das tabelas que o programa define.
+    // The functions of the tables the program defines.
     let externals: HashSet<&str> =
         summaries.iter().flat_map(|r| r.externals.iter().map(move |&e| r.names[e as usize].as_str())).collect();
     let mut declared_set: HashSet<String> = HashSet::new();
     let mut exit = String::with_capacity(ir.len() + ir.len() / 4);
-    // Com a poda, as definições do programa que o ponto fixo não alcançou
-    // saem já aqui (§3.12): a LTO e o `/OPT:REF` as tirariam depois, mas só
-    // depois de otimizá-las e gerá-las — no new_sali/backend, a maior parte
-    // do IR.
+    // With pruning, the program definitions the fixpoint did not reach
+    // leave right here (§3.12): LTO and `/OPT:REF` would remove them later, but only
+    // after optimizing and generating them — in new_sali/backend, most
+    // of the IR.
     let dead = |n: &str, local: bool| -> bool {
         if !prune {
             return false;
@@ -941,7 +941,7 @@ pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembl
         }
         exit.push_str(l);
     }
-    // As tabelas dos resumos.
+    // The tables of the summaries.
     exit.push_str("\n; Tabelas de métodos do SDK montadas na ligação (docs/NATIVO-PODA-DE-TABELAS.md)\n");
     let mut declare: Vec<String> = Vec::new();
     for r in summaries {
@@ -972,7 +972,7 @@ pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembl
     Ok(Assembly { ir: exit, statistics: st, reachability })
 }
 
-/// O relatório "por que isto ficou" (§3.10): uma linha por nó vivo.
+/// The "why did this stay" report (§3.10): one line per live node.
 pub fn report(reachability: &Reach) -> String {
     let text = |h: i64| reachability.strings.get(&h).cloned().unwrap_or_else(|| h.to_string());
     let name = |i: u32| reachability.names[i as usize].as_str();
@@ -997,10 +997,10 @@ pub fn report(reachability: &Reach) -> String {
     s
 }
 
-/// Os resumos do SDK de produção em `files`, lidos uma vez por processo.
+/// The summaries of the production SDK in `files`, read once per process.
 ///
-/// # Erros
-/// Arquivo ausente (um SDK de produção sem resumo) ou ilegível.
+/// # Errors
+/// A missing file (a production SDK without a summary) or an unreadable one.
 pub fn read_summaries(files: &[PathBuf]) -> Result<Vec<std::sync::Arc<Summary>>, String> {
     use std::sync::{Arc, Mutex, OnceLock};
     static MEMO: OnceLock<Mutex<HashMap<PathBuf, Arc<Summary>>>> = OnceLock::new();
@@ -1021,11 +1021,11 @@ pub fn read_summaries(files: &[PathBuf]) -> Result<Vec<std::sync::Arc<Summary>>,
         .collect()
 }
 
-/// A montagem da ligação de produção: lê os resumos, monta, grava o
-/// relatório se `DARTFORGE_POR_QUE` pede e mostra os números com `timings`.
+/// The assembly of the production link: reads the summaries, assembles, writes the
+/// report if `DARTFORGE_POR_QUE` asks and shows the numbers with `timings`.
 ///
-/// # Erros
-/// Os de [`read_summaries`] e [`assemble`], ou o relatório que não se grava.
+/// # Errors
+/// Those of [`read_summaries`] and [`assemble`], or a report that cannot be written.
 pub fn assemble_production(ir: &str, files: &[PathBuf], timings: bool) -> Result<String, String> {
     let summaries = read_summaries(files)?;
     let refs: Vec<&Summary> = summaries.iter().map(|r| r.as_ref()).collect();
@@ -1055,19 +1055,19 @@ pub fn assemble_production(ir: &str, files: &[PathBuf], timings: bool) -> Result
     Ok(m.ir)
 }
 
-/// O resumo do módulo HIR do programa, antes da emissão (§3.13): o mesmo
-/// grafo que [`summarize`] leria do IR que a emissão escreveria, com as
-/// referências que o emissor acrescenta sozinho postas como raízes da
-/// entrada (`dartforge_entry`): o `main`, os registros das bibliotecas, as
-/// tabelas de métodos do programa (o registro as cita todas), o `toString`
-/// e as vtables das classes, os trampolins e callbacks da FFI, os
-/// ajudantes e as raízes da fonte.
+/// The summary of the HIR module of the program, before emission (§3.13): the same
+/// graph that [`summarize`] would read from the IR the emission would write, with the
+/// references the emitter adds by itself put as roots of the
+/// entry (`dartforge_entry`): `main`, the registrations of the libraries, the
+/// method tables of the program (the registration cites all of them), the `toString`
+/// and the vtables of the classes, the FFI trampolines and callbacks, the
+/// helpers and the source roots.
 pub fn hir_summary(m: &crate::hir::Module) -> Summary {
     hir_summary_with(m, None)
 }
 
-/// [`hir_summary`] com os trampolins e callbacks da FFI como raízes só
-/// para as chaves de `live_ffis` (`None`: todos, §3.14).
+/// [`hir_summary`] with the FFI trampolines and callbacks as roots only
+/// for the keys of `live_ffis` (`None`: all of them, §3.14).
 fn hir_summary_with(m: &crate::hir::Module, live_ffis: Option<&HashSet<String>>) -> Summary {
     use crate::hir::{Constant, Instruction, Operand};
     let mut r = Summary::new("programa");
@@ -1078,7 +1078,7 @@ fn hir_summary_with(m: &crate::hir::Module, live_ffis: Option<&HashSet<String>>)
         if seen_selectors.insert(h) {
             r.selectors.push((h, text.to_string()));
         }
-        // A volta do seletor tipado (`dartforge_seletor`), como no IR.
+        // The fallback of the typed selector (`dartforge_seletor`), as in the IR.
         if let Some(without_t) = text.strip_prefix('t') {
             let h2 = selector_hash(without_t);
             d.calls.push(h2);
@@ -1090,14 +1090,14 @@ fn hir_summary_with(m: &crate::hir::Module, live_ffis: Option<&HashSet<String>>)
     for f in &m.functions {
         let mut d = Definition { name: r.id(&f.symbol), ..Default::default() };
         let mut names: Vec<&str> = Vec::new();
-        // Os `Constant::Function` dos operandos (o visitante não empresta o
-        // operando além da chamada).
+        // The `Constant::Function`s of the operands (the visitor does not borrow the
+        // operand beyond the call).
         let mut functions: Vec<String> = Vec::new();
         let mut recipes: Vec<String> = Vec::new();
         for b in &f.blocks {
             for (_, inst, _) in &b.instructions {
                 match inst {
-                    // As receitas RTI com tipo de função (§3.14).
+                    // The RTI recipes with a function type (§3.14).
                     Instruction::Const(Constant::String(t)) if t.contains("F<") => recipes.push(t.clone()),
                     Instruction::CallStatic { symbol, .. } => names.push(symbol),
                     Instruction::AllocClosure { code_symbol, .. } | Instruction::TearOff { code_symbol } => names.push(code_symbol),
@@ -1107,7 +1107,7 @@ fn hir_summary_with(m: &crate::hir::Module, live_ffis: Option<&HashSet<String>>)
                     }
                     Instruction::CallRuntime { name, args, .. } => {
                         names.push(name);
-                        // A alocação cita a tabela de métodos da classe
+                        // The allocation cites the method table of the class
                         // (`dartforge_object_new_t`, `llvm/mod.rs`).
                         if name.starts_with("dartforge_object_new")
                             && let Some((Operand::Constant(Constant::Int(cid)), _)) = args.first()
@@ -1138,7 +1138,7 @@ fn hir_summary_with(m: &crate::hir::Module, live_ffis: Option<&HashSet<String>>)
         r.recipes.extend(recipes.into_iter().map(|t| (d.name, t)));
         r.definitions.push(d);
     }
-    // As tabelas de métodos do programa (`df.mt.X` devolve `df.mt.X$d`).
+    // The method tables of the program (`df.mt.X` returns `df.mt.X$d`).
     for (cid, sym_name, methods) in &m.method_tables {
         let function = r.id(sym_name);
         let node = r.id(&format!("{sym_name}$d"));
@@ -1154,7 +1154,7 @@ fn hir_summary_with(m: &crate::hir::Module, live_ffis: Option<&HashSet<String>>)
         r.definitions.push(Definition { name: function, refs: vec![node], calls: Vec::new() });
         r.tables.push(SummarizedTable { node, cid: i64::from(*cid), pairs });
     }
-    // A entrada: o que o emissor cita sem instrução da HIR.
+    // The entry: what the emitter cites without an HIR instruction.
     let mut roots: Vec<String> = Vec::new();
     roots.extend(m.entry_symbol.iter().cloned());
     roots.extend(m.sdk_records.iter().cloned());
@@ -1179,28 +1179,28 @@ fn hir_summary_with(m: &crate::hir::Module, live_ffis: Option<&HashSet<String>>)
     r
 }
 
-/// Números da poda da HIR (`--timings`).
+/// HIR pruning numbers (`--timings`).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct HirPruning {
     pub functions: usize,
     pub live_functions: usize,
     pub pairs: usize,
     pub live_pairs: usize,
-    /// As assinaturas da FFI que ficaram, e se a poda delas valeu (§3.14).
+    /// The FFI signatures that stayed, and whether their pruning was worth it (§3.14).
     pub ffi: (usize, bool),
 }
 
-/// A poda da HIR do programa antes da otimização e da emissão (§3.13): o
-/// ponto fixo de [`assemble`] sobre o resumo da HIR ([`hir_summary`]) e os
-/// resumos das bibliotecas do SDK, e o módulo sem as funções que ele não
-/// alcança e sem os pares de tabela de seletor que ninguém chama. É a
-/// decisão que a montagem da ligação tomaria depois (o mesmo grafo), sem
-/// otimizar nem emitir o que vai sair.
+/// The pruning of the HIR of the program before optimization and emission (§3.13): the
+/// fixpoint of [`assemble`] over the HIR summary ([`hir_summary`]) and the
+/// summaries of the SDK libraries, and the module without the functions it does not
+/// reach and without the selector table pairs nobody calls. It is the
+/// decision the link assembly would take later (the same graph), without
+/// optimizing nor emitting what is going to leave.
 pub fn prune_hir(m: &mut crate::hir::Module, sdk: &[&Summary]) -> HirPruning {
-    // Os trampolins e callbacks da FFI (um par por assinatura nativa da
-    // tabela de tipos inteira) só ficam pelas assinaturas escritas nas
-    // receitas vivas (§3.14). Um trampolim vivo pode alcançar receitas
-    // novas: o ponto fixo repete até as chaves pararem de crescer.
+    // The FFI trampolines and callbacks (one pair per native signature of the
+    // whole type table) only stay through the signatures written in the
+    // live recipes (§3.14). A live trampoline may reach new
+    // recipes: the fixpoint repeats until the keys stop growing.
     let letters: HashMap<i64, char> = m.ffi_types.iter().copied().collect();
     let composites: HashSet<i64> = m.ffi_composites.iter().map(|c| c.rti).collect();
     let prune_ffi = !m.ffi_trampolines.is_empty() && !std::env::var("DARTFORGE_SEM_PODA_FFI").is_ok_and(|v| v == "1");
@@ -1251,8 +1251,8 @@ pub fn prune_hir(m: &mut crate::hir::Module, sdk: &[&Summary]) -> HirPruning {
     m.arc_direct_local_functions.retain(|sym_name| !removed_set.contains(sym_name));
     m.arc_sites.retain(|sym_name, _| !removed_set.contains(sym_name));
     m.arc_shared_functions.retain(|sym_name| !removed_set.contains(sym_name));
-    // O par de tabela cujo seletor ninguém chama sai, e o da função que saiu
-    // também (a entrada de um par vivo é sempre alcançada).
+    // The table pair whose selector nobody calls goes away, and so does that of the function that left
+    // (the entry of a live pair is always reached).
     for (_, _, pairs) in &mut m.method_tables {
         e.pairs += pairs.len();
         pairs.retain(|(s, f)| reachability.live_pair(selector_hash(s)) && !removed_set.contains(f));
@@ -1269,8 +1269,8 @@ mod tests {
         selector_hash(s)
     }
 
-    /// Um SDK de brinquedo: a classe `C` tem `used` e `dead`; a tabela é
-    /// externa, e a função `allocates` cita a função da tabela.
+    /// A toy SDK: class `C` has `used` and `dead`; the table is
+    /// external, and function `allocates` cites the function of the table.
     fn sdk() -> Summary {
         let ir = String::from(
             "define i64 @C.usado$c(i64 %t, ptr %a, ptr %d) {\n  ret i64 0\n}\n\
@@ -1346,7 +1346,7 @@ mod tests {
         assert!(ir.contains("declare i64 @C.usado$c(i64, ptr, ptr)"));
         assert!(ir.contains("define ptr @df.mt.C()"));
         assert!(!ir.contains("declare ptr @df.mt.C()"), "a declaração da função da tabela sai: {ir}");
-        // Ninguém cita `df.mt.P`: a tabela do programa sai vazia.
+        // Nobody cites `df.mt.P`: the program table comes out empty.
         assert!(ir.contains("@df.mt.P$d = private unnamed_addr constant { i64, i64 } { i64 300, i64 0 }"), "{ir}");
         assert!(!m.reachability.live(m.reachability.names.iter().position(|n| n == "C.morto").unwrap() as u32));
         let e = m.statistics;
@@ -1364,14 +1364,14 @@ mod tests {
         let r = summarize(&ir, "programa", &[]);
         let main = r.definitions.iter().find(|d| r.names[d.name as usize] == "main").unwrap();
         assert!(main.calls.contains(&h("tc:usado")), "{:?}", main.calls);
-        // A volta do seletor tipado.
+        // The fallback of the typed selector.
         assert!(main.calls.contains(&h("c:usado")), "{:?}", main.calls);
-        // O descritor é citado (fica vivo com quem chama).
+        // The descriptor is cited (it stays live with its caller).
         assert!(main.refs.iter().any(|&i| r.names[i as usize] == "programa#df.seld.0"));
     }
 
-    /// Um módulo HIR: `main` chama `f` e o seletor `c:used`; `g` ninguém
-    /// cita; a classe 300 tem os pares `c:used` e `c:dead`.
+    /// An HIR module: `main` calls `f` and the selector `c:used`; nobody cites `g`;
+    /// class 300 has the pairs `c:used` and `c:dead`.
     fn hir_module() -> crate::hir::Module {
         use crate::hir::*;
         let function = |name: &str, instructions: Vec<(ValueId, Instruction, Type)>| Function {
@@ -1462,7 +1462,7 @@ mod tests {
 
     #[test]
     fn hir_pruning_sees_selector_called_by_sdk() {
-        // O SDK chama `c:dead` numa função que o registro dele alcança.
+        // The SDK calls `c:dead` in a function its registration reaches.
         let ir = "define void @df.registrar.core() {\n  call void @x()\n  ret void\n}\n\
                   define void @x() {\n  %f = call ptr @df.seletor(ptr %ic, i64 %o, i64 HASH, ptr @df.seln.0, i64 7)\n  ret void\n}\n\
                   @df.seln.0 = private unnamed_addr constant [7 x i8] c\"c:morto\"\n"
@@ -1480,8 +1480,8 @@ mod tests {
         let s = sdk();
         let m = assemble(&program("c:usado"), &[&s], true).unwrap();
         let ir = &m.ir;
-        // `df.mt.P` (ninguém cita) e o par dela saem; `main` e o `df.class`
-        // local não citado também: só o que o ponto fixo alcança fica.
+        // `df.mt.P` (nobody cites it) and its pair go away; `main` and the uncited local
+        // `df.class` too: only what the fixpoint reaches stays.
         assert!(!ir.contains("define ptr @df.mt.P()"), "{ir}");
         assert!(!ir.contains("define i64 @P.nunca$c"), "{ir}");
         assert!(!ir.contains("define internal i64 @df.classe"), "{ir}");
@@ -1489,7 +1489,7 @@ mod tests {
         assert!(ir.contains("@df.seln.0 = private"), "o texto do seletor que main cita fica: {ir}");
         let e = m.statistics;
         assert_eq!(e.pruned_functions, 3, "{ir}");
-        // Sem a poda, nada sai.
+        // Without pruning, nothing goes away.
         let m = assemble(&program("c:usado"), &[&s], false).unwrap();
         assert!(m.ir.contains("define i64 @P.nunca$c"));
         assert_eq!(m.statistics.pruned_functions, 0);
@@ -1560,13 +1560,13 @@ mod ffi_tests {
     #[test]
     fn signature_key_in_recipe() {
         assert_eq!(keys("F<0;C703;2;C703,C719<C900>;>"), vec!["i_ip"]);
-        // Dentro de outra receita (a tupla de `asFunction`, `NativeFunction<F>`).
+        // Inside another recipe (the tuple of `asFunction`, `NativeFunction<F>`).
         assert_eq!(keys("L<C597<F<0;C737;0;;>>,F<0;D;0;;>>"), vec!["v_"]);
-        // Struct por valor e variádicas.
+        // Struct by value and variadics.
         assert_eq!(keys("F<0;C900;1;C719?;>"), vec!["S900._p"]);
         assert_eq!(keys("F<0;C703;2;C719,C736<R<C703,C698;>>;>"), vec!["i_p*id"]);
         assert_eq!(keys("F<0;C703;2;C719,C736<C698>;>"), vec!["i_p*d"]);
-        // Não são assinaturas nativas: tipo Dart, genérica, opcional, nomeado.
+        // They are not native signatures: a Dart type, a generic one, optional, named.
         assert!(keys("F<0;D;1;C703;>").is_empty());
         assert!(keys("F<1;C703;1;B0;>").is_empty());
         assert!(keys("F<0;C703;0;C703;>").is_empty());

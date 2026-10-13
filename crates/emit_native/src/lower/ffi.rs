@@ -1,34 +1,34 @@
-//! `dart:ffi` (NATIVO-PLANO, FFI): o que o transformador de FFI do
-//! front-end da VM e o compilador dela fazem, aqui no lowering do programa.
+//! `dart:ffi` (NATIVO-PLANO, FFI): what the FFI transformer of the VM's
+//! front end and its compiler do, here in the lowering of the program.
 //!
-//! * **Tipos nativos.** Cada classe de tipo nativo que uma assinatura pode
-//!   usar tem um [`CType`]: os primitivos (`Int8`…`Double`, `Bool`), o
-//!   `Pointer` e os inteiros específicos da ABI (`Long`, `Size`, `WChar`…, do
-//!   SDK e do programa), resolvidos para o alvo pela anotação
-//!   `@AbiSpecificIntegerMapping`. A tabela vai ao runtime
-//!   (`dartforge_ffi_registrar_tipo`), que a usa em `sizeOf` e para achar o
-//!   trampolim de uma assinatura pela RTI.
-//! * **Trampolins.** Toda assinatura nativa `NativeFunction<F>` que aparece
-//!   no programa (a tabela de tipos inteira, depois da inferência) ganha um
-//!   trampolim: uma entrada da convenção uniforme das closures que confere a
-//!   aridade, converte os argumentos Dart para os tipos C, chama a função
-//!   nativa pelo endereço guardado na closure ([`Instruction::NativeCall`],
-//!   com a extensão dos inteiros estreitos que a ABI exige) e converte o
-//!   retorno. `asFunction`/`lookupFunction` (a sobreposição de `dart:ffi`)
-//!   pedem ao runtime a closure com o trampolim da assinatura (a chave é a
-//!   mesma dos dois lados: [`signature_key`]).
+//! * **Native types.** Each native type class that a signature can
+//!   use has a [`CType`]: the primitives (`Int8`…`Double`, `Bool`), the
+//!   `Pointer` and the ABI-specific integers (`Long`, `Size`, `WChar`…, of the
+//!   SDK and of the program), resolved for the target through the
+//!   `@AbiSpecificIntegerMapping` annotation. The table goes to the runtime
+//!   (`dartforge_ffi_registrar_tipo`), which uses it in `sizeOf` and to find the
+//!   trampoline of a signature through the RTI.
+//! * **Trampolines.** Every native signature `NativeFunction<F>` that appears
+//!   in the program (the whole type table, after inference) gets a
+//!   trampoline: an entry of the uniform closure convention that checks the
+//!   arity, converts the Dart arguments to the C types, calls the native
+//!   function through the address kept in the closure ([`Instruction::NativeCall`],
+//!   with the extension of the narrow integers that the ABI requires) and converts the
+//!   return. `asFunction`/`lookupFunction` (the `dart:ffi` overlay)
+//!   ask the runtime for the closure with the trampoline of the signature (the key is the
+//!   same on both sides: [`signature_key`]).
 //!
-//! * **Compostos, variádicas e `Handle`.** Structs e unions por valor
-//!   ([`NativeType::Composite`], com o layout C do alvo), a parte variádica de
-//!   `VarArgs` (inclusive com structs, pela regra variádica do alvo) e
-//!   `Handle` (o objeto Dart na fronteira) também baixam
+//! * **Compounds, variadics and `Handle`.** Structs and unions by value
+//!   ([`NativeType::Composite`], with the C layout of the target), the variadic part of
+//!   `VarArgs` (including with structs, by the variadic rule of the target) and
+//!   `Handle` (the Dart object at the boundary) are also lowered
 //!   (`corpus/native/16_ffi_structs_por_valor.dart`, `17_ffi_varargs.dart`,
 //!   `18_ffi_handle.dart`).
 //!
-//! O que continua recusado — inteiro específico da ABI sem mapeamento para o
-//! alvo, struct vazia por valor,
-//! assinatura com parâmetros opcionais, nomeados ou genéricos — vira erro do
-//! runtime com o motivo, nunca uma chamada com a ABI errada.
+//! What is still rejected — an ABI-specific integer without a mapping for the
+//! target, an empty struct by value,
+//! a signature with optional, named or generic parameters — becomes a
+//! runtime error with the reason, never a call with the wrong ABI.
 
 use super::closures::{DefaultValue, EntryParam};
 use super::fn_builder::FnBuilder;
@@ -39,8 +39,8 @@ use dartforge_frontend::ast::{self, ParameterKind};
 use dartforge_types::table::Type as T;
 use dartforge_types::TypeId;
 
-/// O nome da ABI do alvo no enum `Abi` do `dart:ffi` (a chave das
-/// anotações `@AbiSpecificIntegerMapping`).
+/// The name of the target ABI in the `Abi` enum of `dart:ffi` (the key of the
+/// `@AbiSpecificIntegerMapping` annotations).
 fn target_abi() -> &'static str {
     let arm = cfg!(target_arch = "aarch64");
     match crate::alvo::sistema() {
@@ -50,7 +50,7 @@ fn target_abi() -> &'static str {
     }
 }
 
-/// O tipo C de um primitivo de `dart:ffi` pelo nome da classe.
+/// The C type of a `dart:ffi` primitive by the class name.
 fn primitive(name_str: &str) -> Option<CType> {
     Some(match name_str {
         "Int8" => CType::I8,
@@ -70,17 +70,17 @@ fn primitive(name_str: &str) -> Option<CType> {
     })
 }
 
-/// As classes de tipo nativo do programa com o tipo C de cada uma.
+/// The native type classes of the program with the C type of each one.
 pub struct NativeTypes {
     classes: std::collections::HashMap<ClassId, CType>,
-    /// Classes que existem em `dart:ffi` mas ainda não baixam por valor
-    /// (`Handle`, `VarArgs`), com o motivo.
+    /// Classes that exist in `dart:ffi` but are not lowered by value yet
+    /// (`Handle`, `VarArgs`), with the reason.
     rejected: std::collections::HashMap<ClassId, &'static str>,
-    /// As subclasses de `Struct` e `Union`: por valor, com o layout C.
+    /// The subclasses of `Struct` and `Union`: by value, with the C layout.
     composites: std::collections::HashSet<ClassId>,
-    /// `VarArgs` (o último parâmetro de uma função variádica).
+    /// `VarArgs` (the last parameter of a variadic function).
     varargs: Option<ClassId>,
-    /// `Array` (vetor C de tamanho fixo: campo ou variável `@Array`).
+    /// `Array` (a fixed-size C vector: an `@Array` field or variable).
     array: Option<ClassId>,
 }
 
@@ -129,7 +129,7 @@ impl NativeTypes {
         Some(NativeTypes { classes, rejected, composites, varargs, array })
     }
 
-    /// O tipo C de um tipo nativo (argumento ou retorno de uma assinatura).
+    /// The C type of a native type (argument or return of a signature).
     fn c_type(&self, ctx: &Context, t: TypeId) -> Result<CType, String> {
         match ctx.table.get(t) {
             T::Interface { class, .. } => {
@@ -145,8 +145,8 @@ impl NativeTypes {
         }
     }
 
-    /// O tipo nativo de um argumento ou retorno: primitivo, ou struct/union
-    /// por valor (com a classe, para criar o valor devolvido).
+    /// The native type of an argument or return: a primitive, or a struct/union
+    /// by value (with the class, to create the returned value).
     fn native_type(&self, ctx: &Context, t: TypeId) -> Result<(NativeType, Option<ClassId>), String> {
         if let T::Interface { class, .. } = ctx.table.get(t)
             && self.composites.contains(class)
@@ -162,8 +162,8 @@ impl NativeTypes {
         Ok((NativeType::Prim(self.c_type(ctx, t)?), None))
     }
 
-    /// A assinatura de uma função nativa `F` (de `NativeFunction<F>`), com
-    /// structs e unions por valor.
+    /// The signature of a native function `F` (from `NativeFunction<F>`), with
+    /// structs and unions by value.
     pub fn native_signature(&self, ctx: &Context, f: TypeId) -> Result<NativeSignature, String> {
         match ctx.table.get(f) {
             T::Function { type_params, ret, positional, optional, named, .. } => {
@@ -175,8 +175,8 @@ impl NativeTypes {
                 let mut cs = Vec::with_capacity(positional.len());
                 let mut variadic_flag = None;
                 for (i, p) in positional.iter().enumerate() {
-                    // `VarArgs<(T1, T2…)>` ou `VarArgs<T>`, só no fim: os
-                    // tipos da parte variádica.
+                    // `VarArgs<(T1, T2…)>` or `VarArgs<T>`, only at the end: the
+                    // types of the variadic part.
                     let variadic_set = match ctx.table.get(*p) {
                         T::Interface { class, args, .. } if Some(*class) == self.varargs => {
                             if i + 1 != positional.len() {
@@ -207,15 +207,15 @@ impl NativeTypes {
         }
     }
 
-    /// As assinaturas `F` de todo `NativeFunction<F>` concreto do programa.
+    /// The signatures `F` of every concrete `NativeFunction<F>` of the program.
     fn program_signatures(&self, ctx: &Context) -> Vec<TypeId> {
-        // Não só os `NativeFunction<F>` concretos: `lookupFunction<NS, DS>`
-        // e `asFunction` instanciam `NativeFunction<NS>` dentro do corpo
-        // genérico, e a assinatura concreta aparece só como argumento de
-        // tipo da chamada. Todo tipo de função feito só de tipos nativos é
-        // uma assinatura candidata (os tipos Dart — `int`, `void` — nunca
-        // são classes nativas, então uma assinatura Dart não entra por
-        // engano, e uma entrada a mais só custa um trampolim).
+        // Not only the concrete `NativeFunction<F>`: `lookupFunction<NS, DS>`
+        // and `asFunction` instantiate `NativeFunction<NS>` inside the generic
+        // body, and the concrete signature only appears as a type
+        // argument of the call. Every function type made only of native types is
+        // a candidate signature (the Dart types — `int`, `void` — are never
+        // native classes, so a Dart signature does not get in by
+        // mistake, and an extra entry only costs a trampoline).
         let mut seen_set = std::collections::HashSet::new();
         let mut exit = Vec::new();
         for i in 0..ctx.table.len() {
@@ -231,17 +231,17 @@ impl NativeTypes {
         exit
     }
 
-    /// A tabela (id RTI da classe, letra do tipo C) que o runtime recebe.
+    /// The table (RTI id of the class, letter of the C type) that the runtime receives.
     pub fn rti_table(&self, ctx: &Context) -> Vec<(i64, char)> {
         let mut v: Vec<(i64, char)> = self.classes.iter().map(|(c, t)| (ctx.id_rti(*c), t.letter())).collect();
-        // `VarArgs`: a marca da parte variádica na chave.
+        // `VarArgs`: the mark of the variadic part in the key.
         v.extend(self.varargs.map(|c| (ctx.id_rti(c), '*')));
         v.sort_unstable();
         v
     }
 }
 
-/// Se o tipo menciona um parâmetro de tipo (não é uma assinatura concreta).
+/// Whether the type mentions a type parameter (it is not a concrete signature).
 fn contains_type_parameter(ctx: &Context, t: TypeId) -> bool {
     match ctx.table.get(t) {
         T::TypeParameter { .. } => true,
@@ -255,8 +255,8 @@ fn contains_type_parameter(ctx: &Context, t: TypeId) -> bool {
     }
 }
 
-/// O tipo C que `@AbiSpecificIntegerMapping({Abi.x: Int32(), …})` dá à
-/// classe no alvo.
+/// The C type that `@AbiSpecificIntegerMapping({Abi.x: Int32(), …})` gives the
+/// class on the target.
 fn abi_mapping(ctx: &Context, c: ClassId) -> Option<CType> {
     let decl = ctx.program.classes[c.0 as usize].decl?;
     let unit = ctx.program.unit(decl.unit);
@@ -296,26 +296,26 @@ fn abi_mapping(ctx: &Context, c: ClassId) -> Option<CType> {
     None
 }
 
-/// A chave num nome de símbolo, sem ambiguidade: `.` (fim de `S<rti>.`)
-/// vira `$p` e `*` (início dos variádicos) vira `$v`.
+/// The key in a symbol name, without ambiguity: `.` (end of `S<rti>.`)
+/// becomes `$p` and `*` (start of the variadics) becomes `$v`.
 fn escape_key(map_key: &str) -> String {
     map_key.replace('.', "$p").replace('*', "$v")
 }
 
-/// Uma assinatura nativa: retorno (com a classe de uma struct devolvida
-/// por valor) e parâmetros.
+/// A native signature: return (with the class of a struct returned
+/// by value) and parameters.
 pub struct NativeSignature {
     pub ret: NativeType,
     pub ret_class: Option<ClassId>,
     pub params: Vec<NativeType>,
     pub class_params: Vec<Option<ClassId>>,
-    /// Função variádica: quantos parâmetros são fixos.
+    /// Variadic function: how many parameters are fixed.
     pub variadic_flag: Option<usize>,
 }
 
-/// A chave de uma assinatura: a letra do retorno, `_` e as dos parâmetros
-/// (`i_ip` = `Int32 Function(Int32, Pointer)`); uma struct por valor é
-/// `S<id RTI da class>.`. O runtime calcula a mesma chave a partir da RTI.
+/// The key of a signature: the letter of the return, `_` and those of the parameters
+/// (`i_ip` = `Int32 Function(Int32, Pointer)`); a struct by value is
+/// `S<RTI id of the class>.`. The runtime computes the same key from the RTI.
 pub fn signature_key(ctx: &Context, a: &NativeSignature) -> String {
     let letter = |t: &NativeType, class: Option<ClassId>, s: &mut String| match (t, class) {
         (NativeType::Prim(tc), _) => s.push(tc.letter()),
@@ -337,8 +337,8 @@ pub fn signature_key(ctx: &Context, a: &NativeSignature) -> String {
     s
 }
 
-/// Gera os trampolins das assinaturas do programa e as tabelas que o
-/// runtime recebe na preparação do isolado.
+/// Generates the trampolines of the signatures of the program and the tables that the
+/// runtime receives when preparing the isolate.
 pub fn lower_ffi(ctx: &Context, module: &mut Module) {
     let Some(types) = NativeTypes::of_program(ctx) else { return };
     module.ffi_types = types.rti_table(ctx);
@@ -366,8 +366,8 @@ pub fn lower_ffi(ctx: &Context, module: &mut Module) {
     }
     let mut done = std::collections::HashSet::new();
     for f in types.program_signatures(ctx) {
-        // Uma assinatura que não baixa fica sem trampolim: o runtime recusa
-        // a chamada com a assinatura.
+        // A signature that is not lowered stays without a trampoline: the runtime rejects
+        // the call with the signature.
         let Ok(signature) = types.native_signature(ctx, f) else { continue };
         let map_key = signature_key(ctx, &signature);
         if !done.insert(map_key.clone()) {
@@ -389,9 +389,9 @@ pub fn lower_ffi(ctx: &Context, module: &mut Module) {
         module.arc_direct_local_functions.extend(b.arc_direct_local_functions);
         module.globals.extend(b.extra_globals);
         module.ffi_trampolines.push((map_key.clone(), symbol));
-        // O callback da mesma assinatura (`Pointer.fromFunction`,
-        // `NativeCallable`): o corpo HIR; a entrada C sai no emissor. Um
-        // callback nunca é variádico.
+        // The callback of the same signature (`Pointer.fromFunction`,
+        // `NativeCallable`): the HIR body; the C entry comes out in the emitter. A
+        // callback is never variadic.
         if signature.variadic_flag.is_some() {
             continue;
         }
@@ -414,11 +414,11 @@ pub fn lower_ffi(ctx: &Context, module: &mut Module) {
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// O que o front-end da VM reescreve nas chamadas estáticas de `dart:ffi`
-    /// (`Pointer.fromFunction`, as factories `NativeCallable.isolateLocal` e
-    /// `.listener`, `Struct.create`/`Union.create`): o ajudante da
-    /// sobreposição que as implementa, com os mesmos parâmetros, e como os
-    /// argumentos de tipo e o sítio chegam a ele.
+    /// What the VM's front end rewrites in the static calls of `dart:ffi`
+    /// (`Pointer.fromFunction`, the `NativeCallable.isolateLocal` and
+    /// `.listener` factories, `Struct.create`/`Union.create`): the helper of the
+    /// overlay that implements them, with the same parameters, and how the
+    /// type arguments and the site reach it.
     pub fn redirected_ffi_call(&self, fid: usize) -> Option<(usize, Redirection)> {
         let f = &self.ctx.program.functions[fid];
         let c = f.class?;
@@ -437,18 +437,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Some((self.top_level_function("dart:ffi", helper)?, shape))
     }
 
-    /// O corpo de um callback nativo: `(context, arguments)` na
-    /// representação Dart (um ponteiro chega como endereço) → a closure do
-    /// callback pela convenção uniforme → o retorno na representação Dart
-    /// (um `Pointer` volta como endereço). Uma exceção da closure fica
-    /// pendente: a entrada C devolve o retorno excepcional
+    /// The body of a native callback: `(context, arguments)` in the
+    /// Dart representation (a pointer arrives as an address) → the closure of the
+    /// callback through the uniform convention → the return in the Dart representation
+    /// (a `Pointer` comes back as an address). An exception of the closure stays
+    /// pending: the C entry returns the exceptional return
     /// (`ffi_callbacks.rs`).
     fn callback_body(&mut self, ctx: &Context, a: &NativeSignature) {
         let context = Operand::Val(self.add_param("ctx".to_string(), Type::I64));
         let values: Vec<Operand> =
             a.params.iter().enumerate().map(|(i, t)| Operand::Val(self.add_param(format!("a{i}"), t.hir_type()))).collect();
-        // Sob ARC, o contexto e os argumentos chegam da entrada C já em
-        // representação escalar (endereços, handles e números): Trivial.
+        // Under ARC, the context and the arguments arrive from the C entry already in
+        // scalar representation (addresses, handles and numbers): Trivial.
         if self.ctx.arc_memory {
             let scalars: std::collections::HashSet<ValueId> = self
                 .func
@@ -478,7 +478,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     },
                     Type::Ref,
                 ),
-                // O `Pointer` vem do ajudante Dart, que pode lançar.
+                // The `Pointer` comes from the Dart helper, which may throw.
                 (NativeType::Prim(CType::Ptr), _) => self.emit_call_with_check(
                     Instruction::CallRuntime {
                         name: "dartforge_ffi_callback_ponteiro".to_string(),
@@ -487,8 +487,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     },
                     Type::Ref,
                 ),
-                // Uma struct por valor: uma cópia sobre memória do heap Dart
-                // (a VM também a copia para um `TypedData`).
+                // A struct by value: a copy over Dart heap memory
+                // (the VM also copies it into a `TypedData`).
                 (NativeType::Composite(_), Some(c)) => self.emit_call_with_check(
                     Instruction::CallRuntime {
                         name: "dartforge_ffi_composto_copia".to_string(),
@@ -529,8 +529,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     Type::I64,
                 ))
             }
-            // O endereço dos bytes da struct devolvida: a entrada C os copia
-            // antes de qualquer outra alocação.
+            // The address of the bytes of the returned struct: the C entry copies them
+            // before any other allocation.
             NativeType::Composite(_) => {
                 let r = self.coerce(r, Type::Ref);
                 Some(self.emit_call_with_check(
@@ -549,11 +549,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// O corpo de um trampolim: `(closure, args, desc)` da convenção
-    /// uniforme → a chamada nativa → o retorno como `Ref`. Uma struct por
-    /// valor vai como o endereço dos bytes dela; uma devolvida por valor é
-    /// criada antes (sobre um `Uint8List` novo, como a VM) e a chamada grava
-    /// nela.
+    /// The body of a trampoline: `(closure, args, desc)` of the uniform
+    /// convention → the native call → the return as `Ref`. A struct by
+    /// value goes as the address of its bytes; one returned by value is
+    /// created before (over a new `Uint8List`, like the VM) and the call writes
+    /// into it.
     fn trampoline_body(&mut self, a: &NativeSignature) {
         let clo = Operand::Val(self.add_param("closure".to_string(), Type::Ref));
         let args = Operand::Val(self.add_param_vector(DartEntryVector::Argumentos));
@@ -580,7 +580,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 }
 
-/// O layout C achatado de uma struct ou union do programa.
+/// The flattened C layout of a struct or union of the program.
 pub fn layout_c(ctx: &Context, c: ClassId) -> Option<LayoutC> {
     let comp = composites(ctx)?;
     let l = comp.classes.get(&c)?;
@@ -592,7 +592,7 @@ pub fn layout_c(ctx: &Context, c: ClassId) -> Option<LayoutC> {
     Some(LayoutC { size: l.size, alignment: l.alignment, leaves })
 }
 
-/// As folhas primitivas de um campo em `base`.
+/// The primitive leaves of a field at `base`.
 fn flatten(ctx: &Context, t: &FieldType, base: usize, leaves: &mut Vec<(usize, CType)>) -> Option<()> {
     match t {
         FieldType::Prim(tc) => leaves.push((base, *tc)),
@@ -610,41 +610,41 @@ fn flatten(ctx: &Context, t: &FieldType, base: usize, leaves: &mut Vec<(usize, C
     Some(())
 }
 
-// ─── Structs e unions (`Struct`, `Union`, `@Array`, `@Packed`) ─────────────
+// ─── Structs and unions (`Struct`, `Union`, `@Array`, `@Packed`) ───────────
 //
-// O que o transformador de FFI do front-end da VM faz com uma subclasse de
-// `Struct`/`Union`: o layout dos campos `external` na ABI do alvo (C: cada
-// campo no próximo múltiplo do alinhamento dele; a struct com o tamanho
-// arredondado ao maior alinhamento; `@Packed(n)` limita os alinhamentos; na
-// union tudo começa em 0), e cada acesso a um desses campos vira uma carga ou
-// gravação em `_typedDataBase` + `_offsetInBytes` + deslocamento do campo
-// (`FnBuilder::read_ffi_field`). O runtime recebe o tamanho e o alinhamento
-// de cada composto (`sizeOf<S>()`, `Pointer<S>.ref`, `[i]`), por classe.
+// What the FFI transformer of the VM's front end does with a subclass of
+// `Struct`/`Union`: the layout of the `external` fields in the target ABI (C: each
+// field at the next multiple of its alignment; the struct with the size
+// rounded to the largest alignment; `@Packed(n)` limits the alignments; in the
+// union everything starts at 0), and each access to one of those fields becomes a load or
+// store at `_typedDataBase` + `_offsetInBytes` + the field offset
+// (`FnBuilder::read_ffi_field`). The runtime receives the size and the alignment
+// of each compound (`sizeOf<S>()`, `Pointer<S>.ref`, `[i]`), per class.
 
-/// Como uma chamada redirecionada ([`FnBuilder::redirected_ffi_call`])
-/// passa ao ajudante o que o front-end da VM resolveria em compilação.
+/// How a redirected call ([`FnBuilder::redirected_ffi_call`])
+/// passes to the helper what the VM's front end would resolve at compile time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Redirection {
-    /// Os mesmos argumentos e a mesma tupla de tipos.
+    /// The same arguments and the same type tuple.
     DirectOnly,
-    /// A tupla de uma factory de classe genérica (o último argumento) vira a
-    /// do ajudante genérico.
+    /// The tuple of a factory of a generic class (the last argument) becomes
+    /// that of the generic helper.
     ClassTuple,
-    /// Mais um argumento: o sítio da chamada (`fromFunction`, um trampolim
-    /// por sítio).
+    /// One more argument: the call site (`fromFunction`, one trampoline
+    /// per site).
     WithSite,
 }
 
-/// O tipo de um campo de composto.
+/// The type of a compound field.
 #[derive(Debug, Clone)]
 pub enum FieldType {
     Prim(CType),
     Composite(ClassId),
-    /// `@Array(d0, d1…)` de elementos `elem` (o tipo mais interno).
+    /// `@Array(d0, d1…)` of `elem` elements (the innermost type).
     Array { elem: Box<FieldType>, dims: Vec<usize> },
 }
 
-/// O layout de uma struct ou union.
+/// The layout of a struct or union.
 #[derive(Debug, Clone)]
 pub struct Composite {
     pub size: usize,
@@ -652,14 +652,14 @@ pub struct Composite {
     pub fields: std::collections::HashMap<dartforge_elements::model::VariableId, (usize, FieldType)>,
 }
 
-/// Os compostos do programa e os campos de `_Compound` que os acessos usam.
+/// The compounds of the program and the `_Compound` fields that the accesses use.
 pub struct Composites {
     pub classes: std::collections::HashMap<ClassId, Composite>,
     pub base: dartforge_elements::model::VariableId,
     pub offset: dartforge_elements::model::VariableId,
 }
 
-/// Os compostos do programa (calculados uma vez por contexto).
+/// The compounds of the program (computed once per context).
 pub fn composites<'c>(ctx: &'c Context) -> Option<&'c Composites> {
     ctx.ffi_composites.get_or_init(|| compute_composites(ctx)).as_ref()
 }
@@ -706,7 +706,7 @@ impl Computation<'_, '_> {
         self.union_.is_some() && self.ctx.program.classes[c.0 as usize].supertype_class == self.union_
     }
 
-    /// `(size, alignment)` de um tipo de campo.
+    /// `(size, alignment)` of a field type.
     fn measure(&mut self, t: &FieldType) -> Option<(usize, usize)> {
         match t {
             FieldType::Prim(tc) => Some((tc.c_size(), tc.c_size())),
@@ -723,7 +723,7 @@ impl Computation<'_, '_> {
             return l.clone();
         }
         if !self.ongoing.insert(c) {
-            // Composto que contém a si mesmo por valor: recusado.
+            // A compound that contains itself by value: rejected.
             return None;
         }
         let r = self.compute(c);
@@ -762,8 +762,8 @@ impl Computation<'_, '_> {
         Some(Composite { size, alignment: largest_alignment, fields })
     }
 
-    /// O tipo nativo de um campo: pela anotação (`@Int32()`, `@Long()`,
-    /// `@Array(…)`) ou pelo tipo declarado (`Pointer<…>`, outra struct).
+    /// The native type of a field: by the annotation (`@Int32()`, `@Long()`,
+    /// `@Array(…)`) or by the declared type (`Pointer<…>`, another struct).
     fn field_type(&mut self, vid: dartforge_elements::model::VariableId) -> Option<FieldType> {
         let ctx = self.ctx;
         let declared = super::members::variable_type(ctx, vid);
@@ -773,11 +773,11 @@ impl Computation<'_, '_> {
         let u = ctx.program.unit(unit);
         let ast = &u.ast;
         for an in ast.members[member.0 as usize].metadata.iter() {
-            // A classe que a anotação nomeia, pelo escopo da biblioteca: um
-            // alias (`typedef DWORD = Uint32;` e `@DWORD()`, as estruturas
-            // do Win32 do prometheus_client no new_sali/backend) e um prefixo
-            // (`@ffi.Int32()`) levam à classe do `dart:ffi`. Pelo texto, o
-            // campo ficava sem tipo, a struct sem layout e o `.ref` lançava
+            // The class that the annotation names, through the library scope: an
+            // alias (`typedef DWORD = Uint32;` and `@DWORD()`, the Win32
+            // structures of prometheus_client in new_sali/backend) and a prefix
+            // (`@ffi.Int32()`) lead to the `dart:ffi` class. By the text, the
+            // field had no type, the struct no layout and `.ref` threw
             // "struct or union not registered" (docs/NATIVO-PROJETOS-REAIS.md, C13).
             let name_str = match self.annotation_class(u.library, an) {
                 Some(c) => ctx.symbol_name(ctx.program.classes[c.0 as usize].name),
@@ -802,8 +802,8 @@ impl Computation<'_, '_> {
         }
     }
 
-    /// A classe nomeada por uma anotação `@Nome()`, `@p.Nome()` ou
-    /// `@Alias()` (alias de uma classe), pelo escopo da biblioteca.
+    /// The class named by an annotation `@Name()`, `@p.Name()` or
+    /// `@Alias()` (an alias of a class), through the library scope.
     fn annotation_class(&self, lib: dartforge_elements::model::LibraryId, an: &ast::Annotation) -> Option<ClassId> {
         use dartforge_elements::model::Element;
         let ctx = self.ctx;
@@ -815,7 +815,7 @@ impl Computation<'_, '_> {
             },
             _ => None,
         };
-        // `@Nome()`/`@Nome.ctor()`, senão `@p.Nome()`/`@p.Nome.ctor()`.
+        // `@Name()`/`@Name.ctor()`, otherwise `@p.Name()`/`@p.Name.ctor()`.
         let first_one = an.name.first()?;
         cls(ctx.program.lookup(lib, first_one.sym).and_then(|b| b.getter)).or_else(|| {
             let n = an.name.get(1)?;
@@ -823,7 +823,7 @@ impl Computation<'_, '_> {
         })
     }
 
-    /// O tipo mais interno de `Array<Array<…<E>>>`.
+    /// The innermost type of `Array<Array<…<E>>>`.
     fn array_element(&mut self, t: TypeId) -> Option<FieldType> {
         let T::Interface { class, args, .. } = self.ctx.table.get(t) else { return None };
         let name_str = self.ctx.symbol_name(self.ctx.program.classes[class.0 as usize].name);
@@ -840,8 +840,8 @@ impl Computation<'_, '_> {
     }
 }
 
-/// O elemento mais interno de `Array<Array<…<E>>>` com `n` níveis (as
-/// dimensões da anotação): um tipo nativo primitivo, ponteiro ou composto.
+/// The innermost element of `Array<Array<…<E>>>` with `n` levels (the
+/// dimensions of the annotation): a primitive native type, a pointer or a compound.
 fn native_array_element(ctx: &Context, types: &NativeTypes, t: TypeId, n: usize) -> Option<FieldType> {
     let T::Interface { class, args, .. } = ctx.table.get(t) else { return None };
     if n > 0 {
@@ -856,7 +856,7 @@ fn native_array_element(ctx: &Context, types: &NativeTypes, t: TypeId, n: usize)
     types.composites.contains(class).then_some(FieldType::Composite(*class))
 }
 
-/// As dimensões de `@Array(2, 3)` ou `@Array.multi([2, 3])`.
+/// The dimensions of `@Array(2, 3)` or `@Array.multi([2, 3])`.
 fn array_dimensions(source: &str, ast: &ast::Ast, an: &ast::Annotation) -> Option<Vec<usize>> {
     let args = &an.arguments.as_ref()?.args;
     let integer = |e: ast::ExprId| integer_literal(source, ast, e).and_then(|n| usize::try_from(n).ok());
@@ -874,7 +874,7 @@ fn array_dimensions(source: &str, ast: &ast::Ast, an: &ast::Annotation) -> Optio
     args.iter().map(|a| integer(a.value)).collect()
 }
 
-/// O argumento inteiro de uma anotação de classe (`@Packed(1)`).
+/// The integer argument of a class annotation (`@Packed(1)`).
 fn full_annotation(ctx: &Context, c: ClassId, name_str: &str) -> Option<i64> {
     let decl = ctx.program.classes[c.0 as usize].decl?;
     let u = ctx.program.unit(decl.unit);
@@ -888,7 +888,7 @@ fn full_annotation(ctx: &Context, c: ClassId, name_str: &str) -> Option<i64> {
     None
 }
 
-/// O valor de um literal inteiro (decimal ou hexadecimal).
+/// The value of an integer literal (decimal or hexadecimal).
 fn integer_literal(source: &str, ast: &ast::Ast, e: ast::ExprId) -> Option<i64> {
     let ast::ExprKind::Int(span) = &ast.expr(e).kind else { return None };
     let text = source.get(span.start as usize..span.end as usize)?.replace('_', "");
@@ -899,7 +899,7 @@ fn integer_literal(source: &str, ast: &ast::Ast, e: ast::ExprId) -> Option<i64> 
 }
 
 impl CType {
-    /// O sufixo dos natives de carga/gravação (`DartForge_ffi_carregar_i32`).
+    /// The suffix of the load/store natives (`DartForge_ffi_carregar_i32`).
     fn memory_suffix(self) -> &'static str {
         match self {
             CType::I8 => "i8",
@@ -918,9 +918,9 @@ impl CType {
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// O campo `external` de uma struct/union: `(base, offset, ty)`
-    /// do acesso — `_typedDataBase` do objeto e `_offsetInBytes` + o
-    /// deslocamento do campo no layout.
+    /// The `external` field of a struct/union: `(base, offset, ty)`
+    /// of the access — `_typedDataBase` of the object and `_offsetInBytes` + the
+    /// offset of the field in the layout.
     fn ffi_field_address(&mut self, obj: Operand, vid: dartforge_elements::model::VariableId) -> Option<(Operand, Operand, FieldType)> {
         let v = &self.ctx.program.variables[vid.0 as usize];
         if !v.external || v.static_ {
@@ -937,19 +937,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Some((base, d, typ))
     }
 
-    /// Leitura de um campo `external` de struct/union (`None`: não é um).
+    /// Read of an `external` field of a struct/union (`None`: it is not one).
     pub fn read_ffi_field(&mut self, obj: Operand, vid: dartforge_elements::model::VariableId) -> Option<Operand> {
         let (base, d, typ) = self.ffi_field_address(obj, vid)?;
         Some(self.read_ffi_memory(base, d, typ))
     }
 
-    /// O valor Dart do tipo `ty` em `base` + `d` (base `Pointer` ou
-    /// `TypedData`): um campo de struct ou uma variável `@Native`.
+    /// The Dart value of type `ty` at `base` + `d` (a `Pointer` or
+    /// `TypedData` base): a struct field or an `@Native` variable.
     fn read_ffi_memory(&mut self, base: Operand, d: Operand, typ: FieldType) -> Operand {
         match typ {
             FieldType::Prim(tc) => {
                 let ret = if matches!(tc, CType::F32 | CType::F64) { Type::F64 } else { Type::I64 };
-                // A carga confere a base (`RangeError`/`ArgumentError` pendente).
+                // The load checks the base (a pending `RangeError`/`ArgumentError`).
                 let v = self.emit_call_with_check(
                     Instruction::CallRuntime {
                         name: format!("dartforge_nativo_DartForge_ffi_carregar_{}", tc.memory_suffix()),
@@ -980,7 +980,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Type::Ref,
             ),
             FieldType::Array { dims, elem } => {
-                // `Array._(base, offset, first dimensão, as demais)`.
+                // `Array._(base, offset, first dimension, the rest)`.
                 let mut table = Vec::new();
                 for &n in &dims[1..] {
                     table.push(b'i');
@@ -1020,14 +1020,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Gravação de um campo `external` de struct/union (`false`: não é um).
+    /// Write of an `external` field of a struct/union (`false`: it is not one).
     pub fn store_ffi_field(&mut self, obj: Operand, vid: dartforge_elements::model::VariableId, val: Operand) -> bool {
         let Some((base, d, typ)) = self.ffi_field_address(obj, vid) else { return false };
         self.store_ffi_memory(base, d, typ, val);
         true
     }
 
-    /// Grava o valor Dart `val` do tipo `ty` em `base` + `d`.
+    /// Writes the Dart value `val` of type `ty` at `base` + `d`.
     fn store_ffi_memory(&mut self, base: Operand, d: Operand, typ: FieldType, val: Operand) {
         match typ {
             FieldType::Prim(tc) => {
@@ -1053,7 +1053,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                     _ => (self.coerce(val, Type::I64), Type::I64),
                 };
-                // A gravação confere a base, como a carga.
+                // The store checks the base, like the load.
                 self.emit_call_with_check(
                     Instruction::CallRuntime {
                         name: format!("dartforge_nativo_DartForge_ffi_gravar_{}", tc.memory_suffix()),
@@ -1064,7 +1064,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 );
             }
             FieldType::Composite(_) | FieldType::Array { .. } => {
-                // Por valor: copia os bytes do composto atribuído.
+                // By value: copies the bytes of the assigned compound.
                 let size = size_of(self.ctx, &typ);
                 let Some(comp) = composites(self.ctx) else { return };
                 let (vbase, vdesl) = (comp.base, comp.offset);
@@ -1091,7 +1091,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// O endereço (i64) do símbolo nativo `symbol` no processo.
+    /// The address (i64) of the native symbol `symbol` in the process.
     fn symbol_address(&mut self, symbol: &[u8]) -> Operand {
         let words: Vec<i64> = symbol
             .chunks(8)
@@ -1112,8 +1112,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         )
     }
 
-    /// Uma variável `external` com `@Native<T>()`: o símbolo e o tipo do
-    /// dado (`None`: não é uma).
+    /// An `external` variable with `@Native<T>()`: the symbol and the type of the
+    /// data (`None`: it is not one).
     fn native_variable(&self, vid: dartforge_elements::model::VariableId) -> Option<Result<(Vec<u8>, FieldType), String>> {
         use dartforge_elements::model::VariableRef;
         let v = &self.ctx.program.variables[vid.0 as usize];
@@ -1128,9 +1128,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             .find(|an| an.name.last().map(|n| self.ctx.interner.resolve(n.sym)) == Some("Native"))?;
         let Some(types) = NativeTypes::of_program(self.ctx) else { return Some(Err("@Native sem dart:ffi".to_string())) };
         let symbol = annotation_symbol(self.ctx, &u.ast, an).unwrap_or_else(|| self.ctx.symbol_name(v.name).as_bytes().to_vec());
-        // `@Array(d0, d1…)` na variável: o dado é o vetor C, com os
-        // elementos do tipo declarado (`Array<Array<…<E>>>`), como um campo
-        // `@Array` de struct.
+        // `@Array(d0, d1…)` on the variable: the data is the C vector, with the
+        // elements of the declared type (`Array<Array<…<E>>>`), like an `@Array`
+        // field of a struct.
         if let Some(arr) = u.ast.decls[decl.0 as usize]
             .metadata
             .iter()
@@ -1158,7 +1158,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Some(Ok((symbol, typ)))
     }
 
-    /// A base (`Pointer` para o símbolo) de uma variável `@Native`.
+    /// The base (a `Pointer` to the symbol) of an `@Native` variable.
     fn native_variable_base(&mut self, symbol: &[u8]) -> Operand {
         let e = self.symbol_address(symbol);
         self.emit_call_with_check(
@@ -1167,7 +1167,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         )
     }
 
-    /// Leitura de uma variável `@Native` (`None`: não é uma).
+    /// Read of an `@Native` variable (`None`: it is not one).
     pub fn read_native_variable(&mut self, vid: dartforge_elements::model::VariableId, span: dartforge_diagnostics::Span) -> Option<Operand> {
         let (symbol, typ) = match self.native_variable(vid)? {
             Ok(x) => x,
@@ -1177,7 +1177,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Some(self.read_ffi_memory(base, Operand::Constant(Constant::Int(0)), typ))
     }
 
-    /// Gravação de uma variável `@Native` (`false`: não é uma).
+    /// Write of an `@Native` variable (`false`: it is not one).
     pub fn store_native_variable(&mut self, vid: dartforge_elements::model::VariableId, val: Operand, span: dartforge_diagnostics::Span) -> bool {
         let Some(r) = self.native_variable(vid) else { return false };
         let (symbol, typ) = match r {
@@ -1192,8 +1192,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         true
     }
 
-    /// `Native.addressOf<T>(x)` (o que o front-end da VM reescreve): o
-    /// `Pointer` para o símbolo da função ou variável `@Native` citada.
+    /// `Native.addressOf<T>(x)` (what the VM's front end rewrites): the
+    /// `Pointer` to the symbol of the cited `@Native` function or variable.
     pub fn native_address(&mut self, ast: &ast::Ast, arg: ast::ExprId, span: dartforge_diagnostics::Span) -> Operand {
         use dartforge_elements::model::Element;
         let resolved = self.ctx.get_resolved(self.unit_id, arg).cloned();
@@ -1228,7 +1228,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 }
 
-/// O `symbol:` de uma anotação `@Native`.
+/// The `symbol:` of an `@Native` annotation.
 fn annotation_symbol(ctx: &Context, ast: &ast::Ast, an: &ast::Annotation) -> Option<Vec<u8>> {
     an.arguments
         .as_ref()?
@@ -1241,7 +1241,7 @@ fn annotation_symbol(ctx: &Context, ast: &ast::Ast, an: &ast::Annotation) -> Opt
         })
 }
 
-/// O tamanho em bytes de um tipo de campo (compostos já calculados).
+/// The size in bytes of a field type (compounds already computed).
 fn size_of(ctx: &Context, t: &FieldType) -> usize {
     match t {
         FieldType::Prim(tc) => tc.c_size(),
@@ -1250,17 +1250,17 @@ fn size_of(ctx: &Context, t: &FieldType) -> usize {
     }
 }
 
-// ─── `@Native` ─────────────────────────────────────────────────────────────
+// ─── `@Native` ───────────────────────────────────────────────────────────
 //
-// `@Native<NF>(symbol: 's', isLeaf: …) external R f(…)`: o corpo é a chamada
-// à função nativa `s` (o nome da função, sem `symbol:`), com a assinatura
-// `NF`. A VM resolve o símbolo no *asset* da biblioteca e, sem ele, no
-// processo e no executável; aqui a resolução é no processo
-// (`dartforge_ffi_simbolo_nativo`, com cache), onde estão a libc e o que o
-// programa carregou (`DynamicLibrary.open` com `RTLD_GLOBAL` não é
-// necessário: o processo inclui as bibliotecas ligadas ao executável).
+// `@Native<NF>(symbol: 's', isLeaf: …) external R f(…)`: the body is the call
+// to the native function `s` (the function name, without `symbol:`), with the signature
+// `NF`. The VM resolves the symbol in the *asset* of the library and, without it, in the
+// process and in the executable; here the resolution is in the process
+// (`dartforge_ffi_simbolo_nativo`, with a cache), where the libc and what the
+// program loaded are (`DynamicLibrary.open` with `RTLD_GLOBAL` is not
+// needed: the process includes the libraries linked to the executable).
 
-/// As anotações da declaração de uma função.
+/// The annotations of the declaration of a function.
 fn function_metadata<'p>(ctx: &'p Context, fid: usize) -> Option<(&'p str, &'p ast::Ast, &'p [ast::Annotation])> {
     use dartforge_elements::model::FunctionRef;
     let f = &ctx.program.functions[fid];
@@ -1276,13 +1276,13 @@ fn function_metadata<'p>(ctx: &'p Context, fid: usize) -> Option<(&'p str, &'p a
     Some((&u.source, a, meta))
 }
 
-/// Marca de [`NativeTypes::annotation_c_type`]: o nome é de uma
-/// struct/union (resolvida por [`NativeTypes::annotation_native_type`]).
+/// Mark of [`NativeTypes::annotation_c_type`]: the name is of a
+/// struct/union (resolved by [`NativeTypes::annotation_native_type`]).
 const COMPOSITE_IN_ANNOTATION: &str = "struct por valor";
 
 impl NativeTypes {
-    /// O tipo nativo escrito na anotação, com struct/union por valor (a
-    /// classe do mesmo nome, de preferência da biblioteca `lib`).
+    /// The native type written in the annotation, with a struct/union by value (the
+    /// class of the same name, preferably from library `lib`).
     fn annotation_native_type(
         &self,
         ctx: &Context,
@@ -1310,8 +1310,8 @@ impl NativeTypes {
         }
     }
 
-    /// O tipo C de um tipo nativo escrito na anotação (`Pointer<Utf8>`,
-    /// `Size`, `Int32`), pelo nome da classe.
+    /// The C type of a native type written in the annotation (`Pointer<Utf8>`,
+    /// `Size`, `Int32`), by the class name.
     fn annotation_c_type(&self, ctx: &Context, ast: &ast::Ast, t: ast::TypeId) -> Result<CType, String> {
         match &ast.ty(t).kind {
             ast::TypeKind::Void => Ok(CType::Void),
@@ -1336,8 +1336,8 @@ impl NativeTypes {
     }
 }
 
-/// A assinatura nativa do tipo de função `t` escrito numa anotação
-/// (seguindo `typedef`s, inclusive de outra unidade).
+/// The native signature of the function type `t` written in an annotation
+/// (following `typedef`s, including from another unit).
 fn annotation_signature(
     ctx: &Context,
     types: &NativeTypes,
@@ -1365,7 +1365,7 @@ fn annotation_signature(
         ast::TypeKind::Function { return_type, parameters, .. } => from_params(ast, lib, *return_type, parameters),
         ast::TypeKind::Named { name, .. } if depth < 8 => {
             let name_str = ctx.interner.resolve(name.last().ok_or("tipo sem nome")?.sym);
-            // O `typedef` com esse nome, de preferência da mesma biblioteca.
+            // The `typedef` with that name, preferably from the same library.
             let mut candidates: Vec<&dartforge_elements::model::TypedefElement> =
                 ctx.program.typedefs.iter().filter(|td| ctx.symbol_name(td.name) == name_str).collect();
             candidates.sort_by_key(|td| td.library != lib);
@@ -1386,14 +1386,14 @@ fn annotation_signature(
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// O corpo de um `external` com `@Native` (`None`: não tem a anotação).
+    /// The body of an `external` with `@Native` (`None`: it does not have the annotation).
     pub fn call_annotated_native(&mut self, fid: usize, args: &[Operand], span: dartforge_diagnostics::Span) -> Option<Operand> {
         let (source, ast, meta) = function_metadata(self.ctx, fid)?;
         let an = meta.iter().find(|an| an.name.last().map(|n| self.ctx.interner.resolve(n.sym)) == Some("Native"))?;
         let Some(types) = NativeTypes::of_program(self.ctx) else {
             return Some(self.unsupported("@Native sem dart:ffi", span));
         };
-        // A assinatura: `NF` da anotação.
+        // The signature: `NF` of the annotation.
         let Some(&nf) = an.type_args.first() else {
             return Some(self.unsupported("@Native sem o argumento de tipo da assinatura nativa", span));
         };
@@ -1403,7 +1403,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Ok(x) => x,
             Err(m) => return Some(self.unsupported(&m, span)),
         };
-        // O símbolo: `symbol: 'x'`, ou o nome da função.
+        // The symbol: `symbol: 'x'`, or the function name.
         let symbol = annotation_symbol(self.ctx, ast, an)
             .unwrap_or_else(|| self.ctx.symbol_name(self.ctx.program.functions[fid].name).as_bytes().to_vec());
         let _ = source;
@@ -1416,11 +1416,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Some(if dart_ret == Type::Void { Operand::Constant(Constant::Null) } else { self.coerce(r, dart_ret) })
     }
 
-    /// A chamada nativa de `alvo` com os valores Dart `args` pela
-    /// assinatura: ponteiros e structs pelos endereços, o retorno de volta
-    /// como valor Dart (`Pointer`, struct nova sobre `Uint8List`, primitivo)
-    /// — o que o trampolim de `asFunction` e o corpo de um `@Native` fazem.
-    /// `closure`: a do trampolim, para o tipo do `Pointer` devolvido.
+    /// The native call of `alvo` with the Dart values `args` through the
+    /// signature: pointers and structs by their addresses, the return back
+    /// as a Dart value (`Pointer`, a new struct over `Uint8List`, a primitive)
+    /// — what the `asFunction` trampoline and the body of an `@Native` do.
+    /// `closure`: the trampoline's, for the type of the returned `Pointer`.
     fn signature_native_call(
         &mut self,
         alvo: Operand,
@@ -1435,12 +1435,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Type::I64,
             )
         };
-        // `Handle`: as células dos objetos passados vivem num escopo aberto
-        // só em volta da chamada (os handles locais da VM). As conversões
-        // que podem lançar vêm antes de abri-lo, e o retorno é convertido
-        // depois de fechá-lo: nenhuma saída excepcional deixa células para
-        // trás. Criar uma célula não lança, logo a ordem observável das
-        // conversões dos outros argumentos se mantém.
+        // `Handle`: the cells of the passed objects live in a scope opened
+        // only around the call (the VM's local handles). The conversions
+        // that may throw come before opening it, and the return is converted
+        // after closing it: no exceptional exit leaves cells
+        // behind. Creating a cell does not throw, so the observable order of the
+        // conversions of the other arguments is kept.
         let with_handles = std::iter::once(&a.ret).chain(a.params.iter()).any(|t| matches!(t, NativeType::Prim(CType::Handle)));
         let mut natives = Vec::with_capacity(a.params.len());
         for (v, t) in args.iter().cloned().zip(a.params.iter()) {
@@ -1515,8 +1515,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 ret.hir_type(),
             )
         };
-        // O objeto de um `Handle` devolvido é lido antes de o escopo soltar
-        // as células, na mesma chamada que o fecha.
+        // The object of a returned `Handle` is read before the scope releases
+        // the cells, in the same call that closes it.
         if ret == CType::Handle {
             let e = scope.expect("retorno Handle abre o escopo");
             return self.emit_call_with_check(
@@ -1544,8 +1544,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Instruction::CallRuntime { name: "dartforge_ffi_ponteiro_novo".to_string(), args: vec![(r, Type::I64)], ret_ty: Type::Ref },
                 Type::Ref,
             ),
-            // O trampolim devolve `Ref`; um `@Native`, o valor cru
-            // (quem chama o coage ao retorno Dart, sem caixa).
+            // The trampoline returns `Ref`; an `@Native`, the raw value
+            // (the caller coerces it to the Dart return, without a box).
             _ if trampoline => self.coerce(r, Type::Ref),
             _ => r,
         }

@@ -1,77 +1,77 @@
-//! Preparação atômica de um conjunto fechado de funções com ABI Dart.
-//! Metadados e CFG excepcional devem corresponder aos corpos após otimização.
+//! Atomic preparation of a closed set of functions with the Dart ABI.
+//! Metadata and the exceptional CFG must match the bodies after optimization.
 
 use super::*;
 use std::collections::{HashMap, HashSet};
 
-/// Metadados de uma função antes da inserção ARC nas saídas Dart.
+/// Metadata of a function before the ARC insertion at the Dart exits.
 ///
-/// Contratos não cobertos pelos produtores e limites lexicais são premissas
-/// explícitas. O retorno Ref exige `tokens.ret = TokenReturn::Owned`.
-/// Tabelas descrevem o CFG preparado, antes de materializar a emissão LLVM.
+/// Contracts not covered by the producers and lexical limits are explicit
+/// premises. A Ref return requires `tokens.ret = TokenReturn::Owned`.
+/// Tables describe the prepared CFG, before the LLVM emission is materialized.
 ///
 /// ```
-/// use dartforge_emit_native::optimize::arc::{PlanoFuncaoDart, RetornoTokens};
-/// let mut plano = PlanoFuncaoDart::default();
-/// plano.tokens.retorno = RetornoTokens::Owned;
-/// assert!(plano.classes.is_empty());
+/// use dartforge_emit_native::optimize::arc::{DartFunctionPlan, TokenReturn};
+/// let mut plan = DartFunctionPlan::default();
+/// plan.tokens.ret = TokenReturn::Owned;
+/// assert!(plan.classes.is_empty());
 /// ```
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DartFunctionPlan {
-    /// Classificações semânticas fornecidas; os produtores completam cobertura.
+    /// Supplied semantic classifications; the producers complete the coverage.
     pub classes: HashMap<ValueId, Ownership>,
-    /// Consumos e convenção de retorno da mesma versão do CFG.
+    /// Consumptions and return convention of the same CFG version.
     pub tokens: TokenPlan,
-    /// Invokes/pousos excepcionais preparados para a função.
+    /// Exceptional invokes/landing pads prepared for the function.
     pub tables: FunctionTables,
-    /// Limites lexicais dos empréstimos, sem inferência por último uso.
+    /// Lexical limits of the borrows, without inference by last use.
     pub scopes: ScopePlan,
-    /// Inventário validado após inserção; inclui somente owners da aresta de erro.
-    /// Recalculado atomicamente e ligado ao certificado de cleanup estrangeiro.
+    /// Inventory validated after insertion; includes only the owners of the error edge.
+    /// Recomputed atomically and bound to the foreign-cleanup certificate.
     pub owners_at_landing_pad: HashMap<BlockId, Vec<ValueId>>,
 }
 
-/// Insere e verifica retornos/cleanup de um conjunto fechado de funções Dart.
+/// Inserts and verifies returns/cleanup of a closed set of Dart functions.
 ///
-/// Cria contratos provisórios das chamadas internas e confere todos os corpos
-/// antes de publicar qualquer função ou mapa. Usa o resumo de exceções do
-/// pipeline, incluindo ciclos de chamadas e conferência de pilha. A ordem
-/// das funções não define a disponibilidade dos contratos.
+/// Creates provisional contracts for the internal calls and checks every body
+/// before publishing any function or map. Uses the exception summary of the
+/// pipeline, including call cycles and the stack check. The order
+/// of the functions does not define the availability of the contracts.
 ///
-/// Exige um plano por símbolo e somente callees do conjunto. Argumentos
-/// passam pela classificação ARC após classificar resultados das chamadas:
-/// constantes/aritmética/Phis/runtime cobertos não exigem mapas manuais.
-/// Boxing escalar explícito vira fábrica Owned para int/double; bool usa caixas
-/// estáticas Trivial. SIMD e outras representações exigem produtores próprios.
-/// Unbox int/double vira chamada Borrow falível auditada; exige saída de erro.
-/// Unbox bool conserva o helper LLVM que converte u8/I1, com o mesmo contrato
-/// Borrow falível e sua checagem de pendência, sem mudar IDs do CFG.
-/// Parâmetros F64/I1/I8 são escalares Trivial. I64/Ptr e operações não
-/// cobertas exigem contratos prévios; largura não prova semântica gerenciada.
-/// Separa saídas Guarda em sucesso/erro e transporta os limites de saída.
-/// Demais CFG/escopos precisam estar preparados. Não divide arestas gerais,
-/// resolve finally/cancelamento/suspensão nem materializa tabelas.
-/// Descritores de slots e proveniência continuam premissas do lowering.
-/// Pousos catch ganham inventário certificado para cleanup estrangeiro Unix;
-/// quadros locais são fechados em LIFO nesse braço, segundo a pilha validada.
-/// Aliases e quadros importados permanecem fora desse protocolo.
+/// Requires one plan per symbol and only callees of the set. Arguments
+/// go through the ARC classification after the results of the calls are classified:
+/// covered constants/arithmetic/Phis/runtime do not require manual maps.
+/// Explicit scalar boxing becomes an Owned factory for int/double; bool uses static
+/// Trivial boxes. SIMD and other representations require their own producers.
+/// Unboxing int/double becomes an audited fallible Borrow call; it requires an error exit.
+/// Unboxing bool keeps the LLVM helper that converts u8/I1, with the same fallible
+/// Borrow contract and its pending check, without changing CFG IDs.
+/// F64/I1/I8 parameters are Trivial scalars. I64/Ptr and uncovered
+/// operations require prior contracts; width does not prove managed semantics.
+/// Splits Guard exits into success/error and carries the exit limits.
+/// The rest of the CFG/scopes must be prepared. Does not split general edges,
+/// resolve finally/cancellation/suspension nor materialize tables.
+/// Slot descriptors and provenance remain premises of the lowering.
+/// Catch landing pads get a certified inventory for Unix foreign cleanup;
+/// local frames are closed in LIFO order in that arm, following the validated stack.
+/// Aliases and imported frames stay outside that protocol.
 ///
-/// # Erros
-/// Símbolo repetido, plano ausente/obsoleto ou falha de produção/inserção/
-/// verificação de qualquer corpo. Todos os corpos e mapas ficam intactos.
-/// Retorna os totais de (retenções de retorno, liberações nas saídas).
+/// # Errors
+/// A repeated symbol, a missing/stale plan or a production/insertion/
+/// verification failure of any body. All bodies and maps stay intact.
+/// Returns the totals of (return retentions, releases at the exits).
 ///
 /// ```
 /// use dartforge_emit_native::{hir::*, optimize::arc::*};
 /// use std::collections::HashMap;
-/// let mut funcoes = vec![Function { symbol: "identidade".into(), name: "identidade".into(),
-///     depuracao: None, params: vec![(ValueId(0), "x".into(), Type::Ref)], return_ty: Type::Ref,
+/// let mut functions = vec![Function { symbol: "identity".into(), name: "identity".into(),
+///     debug_info: None, params: vec![(ValueId(0), "x".into(), Type::Ref)], return_ty: Type::Ref,
 ///     blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
 ///         terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) }] }];
-/// let mut plano = PlanoFuncaoDart::default();
-/// plano.tokens.retorno = RetornoTokens::Owned;
-/// let mut planos = HashMap::from([("identidade".into(), plano)]);
-/// assert_eq!(inserir_arc_funcoes_dart(&mut funcoes, &mut planos)?, (1, 0));
+/// let mut plan = DartFunctionPlan::default();
+/// plan.tokens.ret = TokenReturn::Owned;
+/// let mut plans = HashMap::from([("identity".into(), plan)]);
+/// assert_eq!(insert_arc_dart_functions(&mut functions, &mut plans)?, (1, 0));
 /// # Ok::<(), String>(())
 /// ```
 pub fn insert_arc_dart_functions(
@@ -81,54 +81,54 @@ pub fn insert_arc_dart_functions(
     insert(functions, plans, false, None, &HashMap::new(), &HashMap::new(), &HashSet::new(), true, false)
 }
 
-/// Prepara invokes ausentes e insere ARC num conjunto fechado de funções Dart.
+/// Prepares missing invokes and inserts ARC into a closed set of Dart functions.
 ///
-/// Chamadas diretas falíveis sem pouso fornecido ganham uma continuação
-/// normal e um pouso que libera owners. Em Unix, propaga por Retoma usando
-/// o objeto Itanium original; em Windows, usa Lanca até a integração SEH.
-/// Um sítio já preparado conserva seu tratador. Phis e limites lexicais
-/// seguem o terminador original; a saída excepcional fecha os escopos ativos.
-/// Conferência de pendência logo após chamada exige sítio preparado, pois
-/// seu desvio pode representar catch/finally que não pode ser omitido.
-/// Não cria catch/finally nem fecha quadros proprietários abertos: esses
-/// protocolos precisam de cleanup explícito. Também não cobre dispatch
-/// indireto, cancelamento, suspensão ou classificação semântica do lowering.
-/// Conferência de pilha por quadros de raízes calculados por vivacidade
-/// exige a marca `tables.checks_stack` enquanto não integrar esse inventário.
-/// Os demais contratos são os de [`insert_arc_dart_functions`].
-/// Protege resultados Ref borrowed de externs auditadas quando uma barreira
-/// exige Owned, preservando IDs dos usos. Em chamadas falíveis, retém somente
-/// na aresta de sucesso de uma guarda de pendência conferida. Phis protegem
-/// todas as origens emprestadas antes de reconstruir a transferência Owned.
-/// Divide arestas normais para liberar tokens mortos por vivacidade, inclusive
-/// nas voltas de laços, preservando transferências Phi e dependências de borrows.
-/// Release pode exigir outro keepalive; a preparação repete até estabilizar.
-/// Extensões de vida semânticas precisam estar materializadas como usos na HIR;
-/// não infere limites de Finalizable, capturas ou suspensão por ausência de uso.
-/// Origens não auditadas e cleanup em arestas excepcionais/pousos continuam
-/// exigindo preparação explícita; nenhum plano parcial é publicado.
-/// Retorna (retenções de retorno/keepalive, liberações em arestas/saídas).
+/// Fallible direct calls without a supplied landing pad get a normal
+/// continuation and a landing pad that releases owners. On Unix, propagates through Resume using
+/// the original Itanium object; on Windows, uses Throws until the SEH integration.
+/// An already prepared site keeps its handler. Phis and lexical limits
+/// follow the original terminator; the exceptional exit closes the active scopes.
+/// A pending check right after a call requires a prepared site, since
+/// its branch may represent a catch/finally that cannot be omitted.
+/// Does not create catch/finally nor close open owner frames: those
+/// protocols need explicit cleanup. Does not cover indirect dispatch,
+/// cancellation, suspension or the semantic classification of the lowering either.
+/// The stack check through roots frames computed by liveness
+/// requires the `tables.checks_stack` mark while that inventory is not integrated.
+/// The other contracts are those of [`insert_arc_dart_functions`].
+/// Protects borrowed Ref results of audited externs when a barrier
+/// requires Owned, preserving the IDs of the uses. In fallible calls, retains only
+/// on the success edge of a checked pending guard. Phis protect
+/// all borrowed origins before rebuilding the Owned transfer.
+/// Splits normal edges to release tokens dead by liveness, including
+/// on loop back edges, preserving Phi transfers and borrow dependencies.
+/// A release may require another keepalive; the preparation repeats until it stabilizes.
+/// Semantic lifetime extensions must be materialized as uses in the HIR;
+/// does not infer limits of Finalizable, captures or suspension from the absence of uses.
+/// Unaudited origins and cleanup on exceptional edges/landing pads still
+/// require explicit preparation; no partial plan is published.
+/// Returns (return/keepalive retentions, releases on edges/exits).
 ///
-/// # Erros
-/// CFG/SSA ou limites inválidos, IDs esgotados ou qualquer erro de produção
-/// e verificação ARC. Nenhum corpo ou plano é publicado em caso de erro.
+/// # Errors
+/// Invalid CFG/SSA or limits, exhausted IDs or any ARC production
+/// and verification error. No body or plan is published on error.
 ///
 /// ```
 /// use dartforge_emit_native::{hir::*, optimize::arc::*};
 /// use std::collections::HashMap;
-/// let folha = Function { symbol: "folha".into(), name: "folha".into(), depuracao: None,
+/// let leaf = Function { symbol: "leaf".into(), name: "leaf".into(), debug_info: None,
 ///     params: vec![], return_ty: Type::Void, blocks: vec![BasicBlock {
 ///     id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None) }] };
-/// let mut caller = folha.clone();
+/// let mut caller = leaf.clone();
 /// caller.symbol = "caller".into();
 /// caller.blocks[0].instructions.push((ValueId(0), Instruction::CallStatic {
-///     symbol: "folha".into(), args: vec![], ret_ty: Type::Void }, Type::Void));
-/// let mut p = PlanoFuncaoDart::default();
-/// p.tabelas.confere_pilha = true;
-/// let mut planos = HashMap::from([("folha".into(), p),
-///     ("caller".into(), PlanoFuncaoDart::default())]);
-/// preparar_arc_funcoes_dart(&mut [caller, folha], &mut planos)?;
-/// assert_eq!(planos["caller"].tabelas.invocacoes.len(), 1);
+///     symbol: "leaf".into(), args: vec![], ret_ty: Type::Void }, Type::Void));
+/// let mut p = DartFunctionPlan::default();
+/// p.tables.checks_stack = true;
+/// let mut plans = HashMap::from([("leaf".into(), p),
+///     ("caller".into(), DartFunctionPlan::default())]);
+/// prepare_arc_dart_functions(&mut [caller, leaf], &mut plans)?;
+/// assert_eq!(plans["caller"].tables.invocations.len(), 1);
 /// # Ok::<(), String>(())
 /// ```
 pub fn prepare_arc_dart_functions(
@@ -138,8 +138,8 @@ pub fn prepare_arc_dart_functions(
     prepare_functions(functions, plans, false)
 }
 
-/// [`prepare_arc_dart_functions`], aceitando callees de outra imagem
-/// preparada quando `externals` (`Module::arc_external_callees`).
+/// [`prepare_arc_dart_functions`], accepting callees from another prepared
+/// image when `externals` (`Module::arc_external_callees`).
 pub(super) fn prepare_functions(
     functions: &mut [Function],
     plans: &mut HashMap<String, DartFunctionPlan>,
@@ -148,52 +148,52 @@ pub(super) fn prepare_functions(
     insert(functions, plans, true, None, &HashMap::new(), &HashMap::new(), &HashSet::new(), true, externals)
 }
 
-/// Prepara atomicamente os fatos do lowering e o conjunto fechado de um módulo ARC.
+/// Atomically prepares the lowering facts and the closed set of an ARC module.
 ///
-/// Tracing devolve (0, 0) sem tocar corpos ou planos. Em ARC, produz parâmetros
-/// escalares/RTI nas cópias dos planos e prepara/verifica todas as funções antes
-/// de publicar. Os planos devem descrever o CFG final após as otimizações.
-/// Confere também os layouts de campos declarados fornecidos pelo lowering:
-/// classe única, quantidade coerente e representações válidas. Isso não prova
-/// o tipo/forma física dos receivers nem a versão/pins de recarga.
-/// AllocObject com layout completo vira fábrica Owned e setters auditados:
-/// Ref mantém uma aresta; escalares gravam bits, com bitcast de double e
-/// extensão sem sinal de bool/byte. Literais em argumentos precisam estar
-/// materializados na HIR. A fábrica zerada object_new, com classe/quantidade
-/// constantes e layout válido, também ganha token Owned. Inicializadores,
-/// RTI e construtor continuam nas operações seguintes. A emissão conserva
-/// o registro preguiçoso da tabela de métodos pela fábrica Owned específica.
-/// A alocação zerada não certifica os campos ainda em construção.
-/// GetField/SetField de alocações locais não publicadas escolhem as ABIs
-/// auditadas pela representação de todos os layouts candidatos. Cópias,
-/// moves e Phis conservam conjuntos de origens, inclusive entradas opacas;
-/// escalar estreito usa conversão de bits explícita e mantém o ID do uso.
-/// Publicação/contenção, chamada sem resumo fechado e layout ambíguo recusam
-/// a prova; não certifica receivers recebidos por parâmetro ou guardas late.
-/// Fatos nominais do lowering produzem a convenção Owned dos retornos Ref
-/// de corpos Dart. Outros produtores continuam exigindo essa convenção
-/// explícita; operações não cobertas exigem contratos próprios.
-/// Se `excecoes_por_tabelas` já estiver selecionado, publica também
-/// as tabelas verificadas, na ordem final das funções, na mesma transação.
-/// Não seleciona esse modo nem chama este passe no pipeline padrão.
-/// Demais limites são os de [`prepare_arc_dart_functions`].
+/// Tracing returns (0, 0) without touching bodies or plans. Under ARC, produces scalar/RTI
+/// parameters in the copies of the plans and prepares/verifies every function before
+/// publishing. The plans must describe the final CFG after the optimizations.
+/// Also checks the declared field layouts supplied by the lowering:
+/// a single class, a coherent count and valid representations. This does not prove
+/// the physical type/shape of the receivers nor the version/pins of reload.
+/// An AllocObject with a complete layout becomes an Owned factory and audited setters:
+/// a Ref keeps an edge; scalars write bits, with a bitcast of double and
+/// an unsigned extension of bool/byte. Literals in arguments must be
+/// materialized in the HIR. The zeroed factory object_new, with a constant class/count
+/// and a valid layout, also gets an Owned token. Initializers,
+/// RTI and the constructor follow in the next operations. The emission keeps
+/// the lazy registration of the method table through the specific Owned factory.
+/// The zeroed allocation does not certify the fields still under construction.
+/// GetField/SetField of unpublished local allocations choose the audited
+/// ABIs by the representation of all the candidate layouts. Copies,
+/// moves and Phis keep sets of origins, opaque entries included;
+/// a narrow scalar uses an explicit bit conversion and keeps the ID of the use.
+/// Publication/containment, a call without a closed summary and an ambiguous layout reject
+/// the proof; does not certify receivers received through parameters nor late guards.
+/// Nominal facts of the lowering produce the Owned convention of the Ref returns
+/// of Dart bodies. Other producers still require that convention
+/// explicitly; uncovered operations require their own contracts.
+/// If `excecoes_por_tabelas` is already selected, also publishes
+/// the verified tables, in the final order of the functions, in the same transaction.
+/// Does not select that mode nor call this pass in the default pipeline.
+/// The other limits are those of [`prepare_arc_dart_functions`].
 ///
-/// # Erros
-/// Fatos inválidos ou qualquer erro de preparação do conjunto. Nenhum corpo
-/// ou plano é publicado, incluindo fatos de parâmetros previamente válidos.
+/// # Errors
+/// Invalid facts or any preparation error of the set. No body
+/// or plan is published, including previously valid parameter facts.
 ///
 /// ```
 /// use dartforge_emit_native::{hir::*, optimize::arc::*};
 /// use std::collections::{HashMap, HashSet};
-/// let mut m = Module::new(); m.memoria_arc = true;
-/// m.functions.push(Function { symbol: "caixa".into(), name: "caixa".into(),
-///     depuracao: None, params: vec![(ValueId(0), "numero".into(), Type::I64)],
+/// let mut m = Module::new(); m.arc_memory = true;
+/// m.functions.push(Function { symbol: "box".into(), name: "box".into(),
+///     debug_info: None, params: vec![(ValueId(0), "number".into(), Type::I64)],
 ///     return_ty: Type::Void, blocks: vec![BasicBlock { id: BlockId(0),
 ///     instructions: vec![(ValueId(1), Instruction::Box { op: Operand::Val(ValueId(0)),
 ///     from: Type::I64 }, Type::Ref)], terminator: Terminator::Return(None) }] });
-/// m.parametros_escalares_dart.insert("caixa".into(), HashSet::from([ValueId(0)]));
-/// let mut planos = HashMap::from([("caixa".into(), PlanoFuncaoDart::default())]);
-/// assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos)?, (0, 1));
+/// m.dart_scalar_parameters.insert("box".into(), HashSet::from([ValueId(0)]));
+/// let mut plans = HashMap::from([("box".into(), DartFunctionPlan::default())]);
+/// assert_eq!(prepare_arc_dart_module(&mut m, &mut plans)?, (0, 1));
 /// # Ok::<(), String>(())
 /// ```
 pub fn prepare_arc_dart_module(
@@ -203,8 +203,8 @@ pub fn prepare_arc_dart_module(
     prepare_with_variants(module, plans, &HashMap::new())
 }
 
-// Cada alias é um corpo real de uma definição compartilhada. Chamadas ao
-// símbolo público precisam considerar falhas de qualquer variante verificada.
+// Each alias is a real body of a shared definition. Calls to the
+// public symbol must take into account failures of any verified variant.
 pub(super) fn prepare_with_variants(
     module: &mut Module,
     plans: &mut HashMap<String, DartFunctionPlan>,
@@ -214,7 +214,7 @@ pub(super) fn prepare_with_variants(
         return Ok((0, 0));
     }
     let mut origin = module.clone();
-    // Os acessos por endereço derivado de lista seguram a lista até ali.
+    // The accesses through an address derived from a list hold the list until there.
     for f in &mut origin.functions {
         super::derived_set::keep_live(f)?;
     }
@@ -238,7 +238,7 @@ pub(super) fn prepare_with_variants(
             return Err(format!("slots ARC: ABI incompatível em variantes de {s}"));
         }
     }
-    // Convenções novas só são publicadas junto à preparação completa.
+    // New conventions are only published together with the full preparation.
     let getters_rti = super::rti_caches::getters_rti(&work, &new_set);
     super::selectors::check(&work, &getters_rti)?;
     super::globals::prepare(&mut work)?;
@@ -253,12 +253,12 @@ pub(super) fn prepare_with_variants(
     super::globals::produce_scalars(&work, &mut new_set)?;
     produce_lowering_rti_parameters(&work, &mut new_set)?;
     produce_lowering_ref_returns(&work, &mut new_set)?;
-    // O conjunto já mantém os corpos privados até verificar todos eles.
-    // Após seu sucesso, a atribuição dos planos não introduz nova falha.
+    // The set already keeps the bodies private until it verifies all of them.
+    // After its success, assigning the plans introduces no new failure.
     let receivers = super::receivers::produce(&work);
     let preserve_fields = super::rti_caches::preserve_fields(&work, &new_set);
-    // Os layouts do SDK preparado valem para conferir os campos de objetos
-    // dele (os do módulo prevalecem).
+    // The layouts of the prepared SDK hold for checking the fields of its
+    // objects (those of the module prevail).
     let mut layouts = work.arc_external_layouts.clone();
     layouts.extend(module.arc_field_layouts.iter().map(|(c, l)| (*c, l.clone())));
     let total = insert(
@@ -275,8 +275,8 @@ pub(super) fn prepare_with_variants(
     slots.functions = prepared_set.clone();
     super::verify_cfg_ref_slot_lives(&origin, &slots)?;
     work.functions = prepared_set;
-    // Os IDs de invokes/pousos e os certificados pertencem aos corpos novos.
-    // Não deixar o emissor consultar um inventário da versão anterior do CFG.
+    // The IDs of invokes/landing pads and the certificates belong to the new bodies.
+    // Do not let the emitter consult an inventory of the previous CFG version.
     if module.excecoes_por_tabelas {
         work.tables = work
             .functions
@@ -319,9 +319,9 @@ fn insert(
     let signatures: HashMap<_, _> = functions.iter().map(|f| (f.symbol.clone(),
         (f.params.iter().map(|(_, _, ty)| *ty).collect::<Vec<_>>(), f.return_ty))).collect();
     for f in &mut module.functions {
-        // Um bloco sem retorno explícito (o fim do corpo, o placeholder do
-        // lowering) numa função não-void devolve o valor padrão, como o
-        // emissor LLVM já faz; aqui ele fica explícito para os tokens.
+        // A block without an explicit return (the end of the body, the placeholder of the
+        // lowering) in a non-void function returns the default value, as the
+        // LLVM emitter already does; here it becomes explicit for the tokens.
         if matches!(f.return_ty, Type::Ref | Type::I64 | Type::I8 | Type::I1 | Type::F64) {
             let pattern = super::super::operands::default_constant(f.return_ty);
             for b in &mut f.blocks {
@@ -344,9 +344,9 @@ fn insert(
         super::natives::scope(f);
     }
     let mut do_not_throw = super::super::effects::do_not_throw(&module);
-    // Contexto explícito implica conferência de pilha no LLVM. Inclui
-    // leituras/limpeza de pendência e pousos, além das marcas nas tabelas.
-    // Propaga esta falha do prólogo aos chamadores em O(V+E).
+    // An explicit context implies a stack check in LLVM. Includes
+    // pending reads/clears and landing pads, besides the marks in the tables.
+    // Propagates this prologue failure to the callers in O(V+E).
     let failure_in_prologue_or_exit = |f: &Function| {
         let t = &plans[&f.symbol].tables;
         crate::llvm::LlvmEmitter::requires_explicit_context(f, Some(t)) || !t.exits.is_empty()
@@ -379,8 +379,8 @@ fn insert(
     for f in &module.functions {
         let classes = &mut new_plans.get_mut(&f.symbol).unwrap().classes;
         for (v, _, ty) in &f.params {
-            // Essas representações não transportam handles nem slots fortes.
-            // I64 e Ptr continuam dependentes da proveniência do lowering.
+            // These representations carry neither handles nor strong slots.
+            // I64 and Ptr still depend on the provenance of the lowering.
             if matches!(ty, Type::F64 | Type::I1 | Type::I8) || ty.is_vector() {
                 if classes.get(v).is_some_and(|c| *c != Ownership::Trivial) {
                     return Err(format!(
@@ -402,7 +402,7 @@ fn insert(
         .iter()
         .map(|f| super::calls::provisional_summary(f, !do_not_throw.contains(&f.symbol)))
         .collect();
-    // Callees de outra imagem preparada (`Module::arc_external_callees`).
+    // Callees from another prepared image (`Module::arc_external_callees`).
     if externals {
         summaries.extend(super::calls::external_summaries(&module.functions, &symbols)?);
     }
@@ -446,8 +446,8 @@ fn insert(
         total.0 += copies;
         total.1 += drops;
     }
-    // A convenção foi comprovada conjuntamente; os resumos provisórios não
-    // escapam desta transação. Tabelas/limites incluem as saídas separadas.
+    // The convention was proven jointly; the provisional summaries do not
+    // escape this transaction. Tables/limits include the split exits.
     functions.clone_from_slice(&module.functions);
     *plans = new_plans;
     Ok(total)
@@ -466,13 +466,13 @@ mod tests {
             m.functions = functions;
             m.arc_memory = case != 2;
             m.excecoes_por_tabelas = case != 3;
-            // Inventário anterior incompleto: não pode sobreviver ao novo CFG.
+            // Incomplete previous inventory: it cannot survive the new CFG.
             m.tables.push(FunctionTables::default());
             if case == 1 {
                 plans.remove("folha");
             } else if case == 4 {
-                // Falha depois da preparação privada dos callers: não publicar
-                // nem seus CFGs novos nem as tabelas parcialmente recalculadas.
+                // A failure after the private preparation of the callers: publish
+                // neither their new CFGs nor the partially recomputed tables.
                 m.functions[2].blocks[0].instructions.push((
                     ValueId(2),
                     Instruction::ArcDrop {
@@ -680,8 +680,8 @@ mod tests {
             let mut plan = DartFunctionPlan::default();
             plan.tokens.ret = TokenReturn::Owned;
             if case == 6 {
-                // Proveniência explícita do alias; sem ABI que possa produzir
-                // keepalive na origem. Falha após a primeira promoção privada.
+                // Explicit provenance of the alias; no ABI that could produce
+                // a keepalive at the origin. Fails after the first private promotion.
                 plan.classes.insert(
                     ValueId(3),
                     Ownership::Borrowed {
@@ -726,8 +726,8 @@ mod tests {
                     else {
                         panic!("Phi ausente")
                     };
-                    // As entradas chegam pelos blocos novos das continuações
-                    // (a numeração depende de quantos blocos a preparação cria).
+                    // The entries arrive through the new blocks of the continuations
+                    // (the numbering depends on how many blocks the preparation creates).
                     let origins: Vec<_> = incoming.iter().map(|(b, _)| b.0).collect();
                     assert_eq!(origins.len(), 2);
                     assert!(origins.iter().all(|b| *b > 4) && origins[0] != origins[1], "{origins:?}");
@@ -1289,7 +1289,7 @@ mod tests {
             }
             let mut plans = HashMap::from([("leitura_ref".into(), p)]);
             let before = format!("{m:?}/{plans:?}");
-            // O acesso físico cru (caso 2) vira a mesma leitura auditada.
+            // The raw physical access (case 2) becomes the same audited read.
             if case == 1 || case == 3 {
                 assert!(prepare_arc_dart_module(&mut m, &mut plans).is_err());
                 assert_eq!(format!("{m:?}/{plans:?}"), before);
@@ -1508,8 +1508,8 @@ mod tests {
             });
             let mut plans = HashMap::from([("instancia".into(), DartFunctionPlan::default())]);
             if case == 3 {
-                // A ABI original não publica token. Somente a substituição
-                // pela fábrica Owned na transação do módulo muda o contrato.
+                // The original ABI publishes no token. Only the replacement
+                // by the Owned factory in the module transaction changes the contract.
                 let mut classes = HashMap::new();
                 let mut tokens = TokenPlan::default();
                 let before = format!("{classes:?}/{tokens:?}");
@@ -1698,7 +1698,7 @@ mod tests {
                 assert!(ir.contains("%x = icmp ne i8 %u, 0"));
             } else {
                 assert!(
-                    // O unboxing pode rodar Dart (TypeError): num escopo nativo.
+                    // Unboxing may run Dart (TypeError): in a native scope.
                     matches!(&fs[0].blocks[0].instructions[0].1, Instruction::CallRuntime { name, .. }
                         if name.strip_prefix(super::super::NATIVE_SCOPE_PREFIX)
                             == Some(if ty == Type::I64 { "dartforge_unbox_int" } else { "dartforge_unbox_double" }))
@@ -1780,7 +1780,7 @@ mod tests {
             );
             assert_eq!(format!("{fs:?}/{ps:?}"), before);
         }
-        // A mesma preparação não autoriza presumir o significado de I64.
+        // The same preparation does not authorize presuming the meaning of I64.
         let (mut fs, mut ps) = boxing(Operand::Val(ValueId(3)), Type::I64);
         fs[0].params.push((ValueId(3), "valor".into(), Type::I64));
         let before = format!("{fs:?}/{ps:?}");
@@ -1984,8 +1984,8 @@ mod tests {
             );
             assert_eq!(format!("{functions:?}"), before);
             assert_eq!(format!("{plans:?}"), plans_before);
-            // A folha isolada prepara seu retorno; o resumo deve continuar
-            // falível mesmo sem a marca confere_pilha ou saída Lanca.
+            // The isolated leaf prepares its return; the summary must stay
+            // fallible even without the checks_stack mark or a Throws exit.
             functions.drain(..2);
             plans.retain(|s, _| s == "folha");
             assert_eq!(
@@ -2007,7 +2007,7 @@ mod tests {
             let mut tokens = TokenPlan::default();
             produce_dart_calls(&caller, &[resumo], &mut classes, &mut tokens).unwrap();
             assert!(tokens.instructions[&ValueId(1)].may_fail);
-            // O emissor também materializa a conferência na folha.
+            // The emitter also materializes the check in the leaf.
             let mut module = Module::new();
             module.functions = functions;
             module.excecoes_por_tabelas = true;
@@ -2044,7 +2044,7 @@ mod tests {
         );
         assert_eq!(format!("{functions:?}"), before);
         assert_eq!(format!("{plans:?}"), plans_before);
-        // Com a saída preparada, o resultado só é transferido no sucesso.
+        // With the exit prepared, the result is only transferred on success.
         let (mut functions, mut plans) = set();
         functions.remove(1);
         plans.remove("intermediaria");
@@ -2188,8 +2188,8 @@ mod tests {
             .iter()
             .map(|f| (f.symbol.clone(), DartFunctionPlan::default()))
             .collect();
-        // O parâmetro escalar do callee tem contrato semântico explícito.
-        // Nenhuma classe/efeito é fornecido para o caller.
+        // The scalar parameter of the callee has an explicit semantic contract.
+        // No class/effect is supplied for the caller.
         plans
             .get_mut("identidade_escalar")
             .unwrap()
@@ -2343,7 +2343,7 @@ mod publication_tests {
         Operand::Val(ValueId(n))
     }
 
-    // `call` em b0, a guarda de pendência e as duas saídas.
+    // `call` in b0, the pending guard and the two exits.
     fn saved(symbol: &str, params: Vec<(ValueId, String, Type)>, call: Instruction, ty: Type) -> Function {
         Function {
             symbol: symbol.into(), name: symbol.into(), debug_info: None, params, return_ty: ty,
@@ -2378,7 +2378,7 @@ mod publication_tests {
         assert!(ir.contains(&format!("define internal i64 @{name_str}(ptr")) || ir.contains(&format!("define internal i64 @{name_str}(i64")), "{ir}");
         assert!(ir.contains("call i64 @dartforge_arc_escopo_nativo_abrir_v1()"));
         assert!(ir.contains("call void @dartforge_arc_escopo_nativo_fechar_v1(i64 %e)"));
-        // Idempotente: o thunk não ganha outro prefixo.
+        // Idempotent: the thunk gets no other prefix.
         let before = format!("{m:?}");
         assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
         assert_eq!(format!("{m:?}"), before);
@@ -2389,7 +2389,7 @@ mod publication_tests {
         for by_tables in [false, true] {
             let mut m = Module::new();
             m.arc_memory = true;
-            // Recursiva: a análise a vê como falível.
+            // Recursive: the analysis sees it as fallible.
             let mut fallible = Function {
                 symbol: "falivel".into(), name: "falivel".into(), debug_info: None, params: vec![],
                 return_ty: Type::Void, blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],

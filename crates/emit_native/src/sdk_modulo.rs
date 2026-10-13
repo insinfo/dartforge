@@ -1,27 +1,27 @@
-//! O SDK compilado da fonte, por biblioteca (P5, docs/NATIVO-PLANO.md §7).
+//! The SDK compiled from source, per library (P5, docs/NATIVO-PLANO.md §7).
 //!
-//! O `dart:core` do nativo vem da fonte do SDK 3.6.2 — a seção `vm` do
-//! `libraries.json` com os patches dela — e de uma sobreposição fina nossa,
-//! `native_sdk/` na raiz do repositório, que troca só os arquivos que dependem
-//! da máquina interna da VM (`_SuspendState`, `Timer`/microtarefas ligados ao
-//! `dart:isolate`, o `Finalizer` do GC fraco). A troca é feita no
-//! carregamento (`SdkLayout::load_with_overlay`, `crates/elements`).
+//! The native `dart:core` comes from the source of SDK 3.6.2 — the `vm` section of
+//! `libraries.json` with its patches — and from a thin overlay of ours,
+//! `native_sdk/` at the root of the repository, which replaces only the files that depend
+//! on the VM's internal machinery (`_SuspendState`, `Timer`/microtasks tied to
+//! `dart:isolate`, the `Finalizer` of the weak GC). The replacement is done at
+//! load time (`SdkLayout::load_com_sobreposicao`, `crates/elements`).
 //!
-//! Este módulo reúne o que é do SDK como unidade de compilação: onde está a
-//! sobreposição, quais bibliotecas vêm da fonte, e a medição de 5a — os
-//! diagnósticos de inferência nos corpos dessas bibliotecas, que precisam ser
-//! zero antes de o lowering compilá-los.
+//! This module gathers what belongs to the SDK as a compilation unit: where the
+//! overlay is, which libraries come from source, and the 5a measurement — the
+//! inference diagnostics in the bodies of those libraries, which must be
+//! zero before the lowering compiles them.
 
 use crate::gerador::{Format, Generation, Gerador};
 use dartforge_elements::sdk::SdkLayout;
 use std::path::{Path, PathBuf};
 
-/// O alvo da sobreposição em `native_sdk/libraries.json`.
+/// The overlay target in `native_sdk/libraries.json`.
 pub const OVERLAY_TARGET: &str = "dartforge_nativo";
 
-/// As bibliotecas que o nativo compila da fonte do SDK (decisão 1 de
-/// NATIVO-PLANO §7.1), na ordem de dependência aproximada. `typed_data`
-/// entra depois (P9).
+/// The libraries that the native backend compiles from the SDK source (decision 1 of
+/// NATIVO-PLANO §7.1), in approximate dependency order. `typed_data`
+/// comes later (P9).
 pub const SOURCE_LIBRARIES: &[&str] =
     &[
         "_internal",
@@ -41,8 +41,8 @@ pub const SOURCE_LIBRARIES: &[&str] =
         "mirrors",
     ];
 
-/// Diretório da sobreposição: `DARTFORGE_SDK_NATIVO`, senão o `native_sdk/`
-/// do repositório que compilou este binário.
+/// Overlay directory: `DARTFORGE_SDK_NATIVO`, otherwise the `native_sdk/`
+/// of the repository that compiled this binary.
 pub fn dir_sobreposicao() -> PathBuf {
     if let Some(d) = std::env::var_os("DARTFORGE_SDK_NATIVO") {
         return PathBuf::from(d);
@@ -53,28 +53,30 @@ pub fn dir_sobreposicao() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../native_sdk")
 }
 
-/// O SDK do nativo: a seção `vm` de `lib_dir` com a sobreposição.
+/// The native SDK: the `vm` section of `lib_dir` with the overlay.
 pub fn load_native_sdk(lib_dir: &Path) -> Result<SdkLayout, String> {
     SdkLayout::load_com_sobreposicao(lib_dir, &dir_sobreposicao(), OVERLAY_TARGET)
 }
 
-/// Diagnósticos de inferência nos corpos de uma biblioteca do SDK.
+/// Inference diagnostics in the bodies of an SDK library.
 #[derive(Debug, Clone)]
 pub struct LibraryInference {
     pub library: String,
-    /// Funções (e métodos, construtores, acessores) declaradas nela.
+    /// Functions (and methods, constructors, accessors) declared in it.
     pub functions: usize,
-    /// As mensagens, na ordem.
+    /// The messages, in order.
     pub diagnostics: Vec<String>,
 }
 
-/// A medição de 5a: carrega um programa que importa todas as
-/// [`SOURCE_LIBRARIES`] com a sobreposição, resolve o outline e infere
-/// os corpos de cada biblioteca **separadamente** (os diagnósticos não
-/// trazem o arquivo; uma inferência por biblioteca os atribui).
+/// The 5a measurement: loads a program that imports all the
+/// [`SOURCE_LIBRARIES`] with the overlay, resolves the outline and infers
+/// the bodies of each library **separately** (the diagnostics do not
+/// carry the file; one inference per library attributes them).
 ///
-/// Depende de `infer_library_bodies` inferir as bibliotecas do SDK
-/// pedidas (pedido em docs/NATIVO-PEDIDOS.md); sem isso, só os\n/// inicializadores sem tipo escrito são visitados e os diagnósticos ficam\n/// perto de zero sem dizer nada.
+/// Depends on the body inference (`crates/types`) inferring the requested SDK
+/// libraries (requested in docs/NATIVO-PEDIDOS.md); without that, only the
+/// initializers without a written type are visited and the diagnostics stay
+/// near zero without saying anything.
 pub fn measure_sdk_inference(lib_dir: &Path) -> Result<Vec<LibraryInference>, String> {
     use dartforge_intern::Interner;
     use dartforge_types::table::{CoreTypes, TypeTable};
@@ -120,20 +122,20 @@ pub fn measure_sdk_inference(lib_dir: &Path) -> Result<Vec<LibraryInference>, St
 }
 
 
-/// A função que registra no runtime as classes de uma biblioteca do SDK da
-/// fonte (nomes, subtipos, tabelas de métodos); a entrada do programa a
-/// chama.
+/// The function that registers in the runtime the classes of a source SDK
+/// library (names, subtypes, method tables); the program entry
+/// calls it.
 pub fn registration_symbol(uri: &str) -> String {
     format!("df.registrar.{}", crate::context::escape_str(uri))
 }
 
-/// As funções de registro das [`SOURCE_LIBRARIES`], na ordem.
+/// The registration functions of the [`SOURCE_LIBRARIES`], in order.
 pub fn sdk_records() -> Vec<String> {
     SOURCE_LIBRARIES.iter().map(|b| registration_symbol(&format!("dart:{b}"))).collect()
 }
 
-/// Os ids de classe (do SDK da fonte) dos valores que o runtime representa,
-/// na ordem de `runtime/src/selectors.rs` (`CID_*`).
+/// The class ids (of the source SDK) of the values that the runtime represents,
+/// in the order of `runtime/src/selectors.rs` (`CID_*`).
 pub fn runtime_cids(ctx: &crate::context::Context) -> Vec<i64> {
     const CLASSES: &[(&str, &str)] = &[
         ("core", "Null"),
@@ -175,8 +177,8 @@ pub fn runtime_cids(ctx: &crate::context::Context) -> Vec<i64> {
         .collect()
 }
 
-/// Um programa mínimo que importa as bibliotecas da fonte, carregado com a
-/// sobreposição.
+/// A minimal program that imports the source libraries, loaded with the
+/// overlay.
 fn load_source_libraries(
     lib_dir: &Path,
 ) -> Result<(dartforge_elements::Program, dartforge_intern::Interner), String> {
@@ -203,14 +205,14 @@ fn load_source_libraries(
     Ok((program, interner))
 }
 
-/// A tabela de ids das classes do SDK da fonte (`context::IdTable`),
-/// calculada uma vez por conteúdo do SDK, da sobreposição e do compilador,
-/// e guardada em `<cache native>/sdk_ids/<key>.tsv`. O programa a usa para
-/// numerar as classes do SDK como o módulo do SDK as numera, sem carregar
-/// as bibliotecas do SDK que não importa.
+/// The id table of the source SDK classes (`context::IdTable`),
+/// computed once per content of the SDK, of the overlay and of the compiler,
+/// and kept in `<cache native>/sdk_ids/<key>.tsv`. The program uses it to
+/// number the SDK classes as the SDK module numbers them, without loading
+/// the SDK libraries it does not import.
 ///
-/// # Erros
-/// Falha ao carregar o SDK com a sobreposição, ou ao gravar o cache.
+/// # Errors
+/// Failure to load the SDK with the overlay, or to write the cache.
 pub fn sdk_class_ids(lib_dir: &Path) -> Result<std::sync::Arc<crate::context::IdTable>, String> {
     use crate::context::IdTable;
     use std::sync::{Arc, Mutex, OnceLock};
@@ -241,8 +243,8 @@ pub fn sdk_class_ids(lib_dir: &Path) -> Result<std::sync::Arc<crate::context::Id
                 .join()
                 .map_err(|_| "pânico ao numerar as classes do SDK".to_string())??;
             std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-            // Publicação atômica: outro processo pode estar gravando a mesma
-            // chave (o conteúdo é o mesmo).
+            // Atomic publication: another process may be writing the same
+            // key (the content is the same).
             let tmp = dir.join(format!("{key}.{}.tmp", std::process::id()));
             std::fs::write(&tmp, t.to_text()).map_err(|e| format!("{}: {e}", tmp.display()))?;
             if std::fs::rename(&tmp, &file).is_err() {
@@ -256,28 +258,28 @@ pub fn sdk_class_ids(lib_dir: &Path) -> Result<std::sync::Arc<crate::context::Id
     Ok(t)
 }
 
-/// Uma biblioteca do SDK da fonte baixada e emitida.
+/// A source SDK library lowered and emitted.
 #[derive(Debug, Clone)]
 pub struct SdkLibrary {
     /// `dart:core`…
     pub uri: String,
-    /// O LLVM IR do módulo dela.
+    /// The LLVM IR of its module.
     pub ir: String,
-    /// Os membros recusados: (símbolo, motivo).
+    /// The rejected members: (symbol, reason).
     pub rejected: Vec<(String, String)>,
-    /// As tabelas de métodos que o módulo cita, mas não define (o perfil de
-    /// produção, docs/NATIVO-PODA-DE-TABELAS.md §3.2): vão para o resumo da
-    /// biblioteca. Vazio no desenvolvimento.
+    /// The method tables that the module cites but does not define (the
+    /// production profile, docs/NATIVO-PODA-DE-TABELAS.md §3.2): they go into the summary of the
+    /// library. Empty in development.
     pub tables: Vec<crate::pruning::ModuleTable>,
 }
 
-/// Baixa e emite cada uma das [`SOURCE_LIBRARIES`] no seu módulo (P5c):
-/// mundo aberto, símbolos estáveis, os membros que não baixam recusados um a
-/// um. É função só das fontes do SDK, da sobreposição e do compilador.
-/// `production`: o perfil de produção ([`SdkProfile::Production`]), que nunca
-/// recarrega. O descritor da área de globais vai sem os nomes dos slots
-/// (`LlvmEmitter::with_lean_area`), toda função leva `optsize`
-/// ([`with_optsize`]) e as tabelas de métodos ficam para a ligação
+/// Lowers and emits each of the [`SOURCE_LIBRARIES`] in its own module (P5c):
+/// open world, stable symbols, the members that do not lower rejected one
+/// by one. It is a function only of the SDK sources, the overlay and the compiler.
+/// `production`: the production profile ([`SdkProfile::Production`]), which never
+/// reloads. The global area descriptor goes without the slot names
+/// (`LlvmEmitter::with_lean_area`), every function gets `optsize`
+/// ([`with_optsize`]) and the method tables are left for the link
 /// (`LlvmEmitter::with_tables_at_link`, docs/NATIVO-PODA-DE-TABELAS.md).
 pub fn emit_sdk_libraries(lib_dir: &Path, production: bool) -> Result<Vec<SdkLibrary>, String> {
     use dartforge_types::table::{CoreTypes, TypeTable};
@@ -303,12 +305,12 @@ pub fn emit_sdk_libraries(lib_dir: &Path, production: bool) -> Result<Vec<SdkLib
         dartforge_types::infer_bodies_das_bibliotecas(&program, &interner, &mut table, &core, &mut outline, &libs);
     let base = crate::context::Context::new(&program, &interner, &table, &core, &outline, &bodies);
     let base = base.with_source_sdk();
-    // O SDK sai no modelo de exceções do programa (`alvo::excecoes_por_tabelas`).
+    // The SDK comes out in the exception model of the program (`alvo::excecoes_por_tabelas`).
     let excecoes_por_tabelas = crate::alvo::excecoes_por_tabelas()?;
     let raizes_por_mapas = crate::alvo::raizes_por_mapas()?;
-    // O SDK sai na memória do programa (`alvo::arc_memory`).
+    // The SDK comes out in the memory policy of the program (`alvo::arc_memory`).
     let arc_memory = crate::alvo::arc_memory()?;
-    // O rastro simbólico (§13.14): as posições das funções do SDK e a tabela.
+    // The symbolic stack trace (§13.14): the positions of the SDK functions and the table.
     let symbolic_stack_trace = crate::alvo::symbolic_stack_trace()?;
     let arc_prepared = crate::alvo::arc_prepared()?;
     let mut modules = Vec::new();
@@ -325,19 +327,19 @@ pub fn emit_sdk_libraries(lib_dir: &Path, production: bool) -> Result<Vec<SdkLib
         debug_assert_eq!(ctx.class_ids, base.class_ids);
         let mut module = crate::lower::lower_program(&ctx);
         module.sdk_library = true;
-        // As classes de `null` e do `Smi` em linha (`llvm/mod.rs`, `df.class`).
+        // The classes of `null` and of the `Smi` inline (`llvm/mod.rs`, `df.class`).
         module.runtime_cids = runtime_cids(&ctx);
         module.record = Some(registration_symbol(&uri));
         if let Some(e) = module.errors.first() {
             return Err(format!("{uri}: o módulo do SDK tem diagnóstico fora de membro: {e}"));
         }
-        // O otimizador da HIR (`optimize/`) também no SDK: é onde fica o
-        // código de `List`, `Map`, `String`… que os programas mais chamam.
+        // The HIR optimizer (`optimize/`) also in the SDK: that is where the
+        // code of `List`, `Map`, `String`… that programs call the most lives.
         crate::optimize::prepare_for_emission(&mut module, arc_memory, excecoes_por_tabelas);
         modules.push((uri, module));
     }
-    // A preparação ARC publicada: as bibliotecas juntas (o SDK não chama o
-    // programa diretamente), na ordem fixa de `SOURCE_LIBRARIES`.
+    // The published ARC preparation: the libraries together (the SDK does not call the
+    // program directly), in the fixed order of `SOURCE_LIBRARIES`.
     if arc_prepared {
         let mut hir: Vec<_> = modules.iter_mut().map(|(_, m)| std::mem::take(m)).collect();
         let mut plans: Vec<std::collections::HashMap<_, _>> = hir.iter().map(|m| {
@@ -353,13 +355,13 @@ pub fn emit_sdk_libraries(lib_dir: &Path, production: bool) -> Result<Vec<SdkLib
     }
     let mut exit = Vec::new();
     for (uri, mut module) in modules {
-        // A DLL do SDK fica carregada o processo inteiro: os literais são
-        // objetos estáticos também no JIT (docs/NATIVO-ESPACO-UNIFICADO.md §2.11).
+        // The SDK DLL stays loaded for the whole process: the literals are
+        // static objects in the JIT too (docs/NATIVO-ESPACO-UNIFICADO.md §2.11).
         let ir = crate::llvm::LlvmEmitter::new(&module)
             .with_lean_area(production)
             .with_static_objects(true)
-            // O SDK de produção só vai ao AOT; o de desenvolvimento (a DLL)
-            // também serve ao JIT, que migra objetos na recarga.
+            // The production SDK only goes to AOT; the development one (the DLL)
+            // also serves the JIT, which migrates objects on reload.
             .with_body_without_outside(production)
             .with_tables_at_link(production)
             .with_roots_by_maps(raizes_por_mapas)
@@ -371,11 +373,11 @@ pub fn emit_sdk_libraries(lib_dir: &Path, production: bool) -> Result<Vec<SdkLib
             crate::llvm::verify_shadow::verify(&ir).map_err(|e| format!("{uri}: {e}"))?;
         }
         let ir = if production { with_optsize(&ir) } else { ir };
-        // Tabela de desenrolamento nas exceções por tabelas e nas raízes por
-        // mapas (o percurso do coletor; ver `lib.rs`).
+        // Unwind table with exceptions by tables and with roots by
+        // maps (the collector's walk; see `lib.rs`).
         let ir = if (excecoes_por_tabelas || raizes_por_mapas) && cfg!(unix) { with_uwtable(&ir) } else { ir };
         let ir = if cfg!(unix) && !excecoes_por_tabelas && !raizes_por_mapas { with_nounwind(&ir) } else { ir };
-        // Só no Unix (macOS medido; o Windows não).
+        // Only on Unix (macOS measured; Windows not).
         let ir = if cfg!(unix) && production && !excecoes_por_tabelas && !raizes_por_mapas && !arc_memory {
             with_context_in_tls(&ir, ContextInTls::Free, "df.ctx.tls")
         } else {
@@ -387,32 +389,32 @@ pub fn emit_sdk_libraries(lib_dir: &Path, production: bool) -> Result<Vec<SdkLib
     Ok(exit)
 }
 
-/// O SDK da fonte compilado: uma DLL com o runtime e as bibliotecas da
-/// fonte, e a biblioteca de importação que o executável liga.
+/// The source SDK compiled: a DLL with the runtime and the source
+/// libraries, and the import library that the executable links.
 ///
-/// **Por que DLL.** Ligar os objetos do SDK (~12 MB) em cada executável
-/// custava ~450 ms de ligação por programa (medido; a ligação de antes leva
-/// ~60 ms), e as tabelas de métodos, registradas na partida, alcançam todo o
-/// código — o `/OPT:REF` não tem o que tirar. É o "grupo = código
-/// compartilhado" de docs/NATIVO-PLANO §4.4: o runtime e o SDK são ligados
-/// **uma vez por conteúdo**, e o executável liga só o objeto do programa e a
-/// biblioteca de importação. A DLL vai ao lado do executável (ligação
-/// física, sem cópia).
+/// **Why a DLL.** Linking the SDK objects (~12 MB) into each executable
+/// cost ~450 ms of linking per program (measured; the previous link takes
+/// ~60 ms), and the method tables, registered at startup, reach all the
+/// code — `/OPT:REF` has nothing to remove. It is the "group = shared
+/// code" of docs/NATIVO-PLANO §4.4: the runtime and the SDK are linked
+/// **once per content**, and the executable links only the program object and the
+/// import library. The DLL goes next to the executable (a hard
+/// link, without a copy).
 #[derive(Debug, Clone)]
 pub struct CompiledSdk {
     pub objects: Vec<PathBuf>,
     pub dll: PathBuf,
     pub import: PathBuf,
-    /// Os resumos da poda das tabelas de métodos, um por biblioteca
-    /// (`<library>.pruning`, docs/NATIVO-PODA-DE-TABELAS.md §3.3): só no
-    /// perfil de produção.
+    /// The pruning summaries of the method tables, one per library
+    /// (`<library>.pruning`, docs/NATIVO-PODA-DE-TABELAS.md §3.3): only in the
+    /// production profile.
     pub summaries: Vec<PathBuf>,
-    /// Quanto levou para compilar (o custo a frio); `None` quando veio do
+    /// How long it took to compile (the cold cost); `None` when it came from the
     /// cache.
     pub cold: Option<std::time::Duration>,
 }
 
-/// Os símbolos que um IR define com ligação externa (o que a DLL exporta).
+/// The symbols that an IR defines with external linkage (what the DLL exports).
 fn defined_symbols(ir: &str, exit: &mut Vec<String>) {
     for l in ir.lines() {
         let Some(r) = l.strip_prefix("define ") else { continue };
@@ -425,10 +427,10 @@ fn defined_symbols(ir: &str, exit: &mut Vec<String>) {
     }
 }
 
-/// A chave do SDK compilado: blake3 das fontes do SDK que entram (as
-/// bibliotecas da fonte, os patches `vm`, `libraries.json`), da
-/// sobreposição, do compilador (`DARTFORGE_EMISSOR_HASH`, `build.rs`), da
-/// identidade do Clang e das bandeiras.
+/// The key of the compiled SDK: blake3 of the SDK sources that enter (the
+/// source libraries, the `vm` patches, `libraries.json`), of the
+/// overlay, of the compiler (`DARTFORGE_EMISSOR_HASH`, `build.rs`), of the
+/// identity of Clang and of the flags.
 fn sdk_key(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
     fn join(dir: &Path, exit: &mut Vec<PathBuf>) {
         let Ok(entries) = std::fs::read_dir(dir) else { return };
@@ -471,39 +473,39 @@ fn sdk_key(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
     h.update(b"\0");
     h.update(env!("DARTFORGE_EMISSOR_HASH").as_bytes());
     h.update(b"\0");
-    // O rastro de depuração muda o código (`llvm/mod.rs`).
+    // The debug trace changes the code (`llvm/mod.rs`).
     h.update(std::env::var("DARTFORGE_RASTRO").unwrap_or_default().as_bytes());
     h.update(b"\0");
-    // O rastro simbólico acrescenta os rótulos e a tabela (`llvm/stack_trace.rs`);
-    // o padrão não entra.
+    // The symbolic stack trace adds the labels and the table (`llvm/stack_trace.rs`);
+    // the default does not enter.
     if std::env::var("DARTFORGE_RASTRO_VM").is_ok_and(|v| v == "simbolico") {
         h.update(b"rastro=simbolico\0");
     }
-    // O modelo de exceções muda o código (`optimize/tables.rs`). O padrão
-    // não entra na chave: o SDK de sempre continua com a chave de sempre.
+    // The exception model changes the code (`optimize/tables.rs`). The default
+    // does not enter the key: the usual SDK keeps the usual key.
     if std::env::var("DARTFORGE_EXCECOES").is_ok_and(|v| v == "tabelas") {
         h.update(b"excecoes=tabelas\0");
     }
-    // A memória ARC muda o código (as gravações pelo runtime, a ativação na
-    // entrada); o padrão não entra. A versão é a da ABI de memória.
+    // ARC memory changes the code (the stores through the runtime, the activation at the
+    // entry); the default does not enter. The version is that of the memory ABI.
     if std::env::var("DARTFORGE_MEMORIA").is_ok_and(|v| v == "arc") {
         h.update(b"memoria=arc_v1\0");
     }
-    // A preparação ARC publicada muda os corpos (tokens, cleanup); o
-    // programa preparado só liga com este SDK.
+    // The published ARC preparation changes the bodies (tokens, cleanup); the
+    // prepared program only links with this SDK.
     if crate::alvo::arc_prepared().unwrap_or(false) {
         h.update(b"arc=preparado_v1\0");
     }
-    // O modo de raízes muda o código (`llvm/mod.rs`); o padrão não entra.
+    // The roots mode changes the code (`llvm/mod.rs`); the default does not enter.
     if std::env::var("DARTFORGE_RAIZES").is_ok_and(|v| v == "mapas") {
-        // `_v2`: com a tabela de desenrolamento no Unix (`with_uwtable`).
+        // `_v2`: with the unwind table on Unix (`with_uwtable`).
         h.update(b"raizes=mapas_v2\0");
-        // O teto do orçamento decide que funções saem com mapa, e o build de
-        // conferência acrescenta slots ao quadro.
+        // The budget ceiling decides which functions come out with a map, and the
+        // checking build adds slots to the frame.
         h.update(crate::alvo::maps_budget().to_string().as_bytes());
         h.update(if crate::alvo::check_roots() { b"conferir\0" } else { b"\0\0\0\0\0\0\0\0\0" });
     }
-    // As sabotagens de teste mudam o código (`alvo::sabotage`).
+    // The test sabotages change the code (`alvo::sabotage`).
     if let Ok(s) = std::env::var("DARTFORGE_SABOTAGEM")
         && !s.is_empty()
     {
@@ -511,12 +513,12 @@ fn sdk_key(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
         h.update(s.as_bytes());
         h.update(b"\0");
     }
-    // A conferência da tabela de efeitos instrumenta as chamadas às externs.
+    // The check of the effects table instruments the calls to the externs.
     if crate::llvm::externs::check_effects() {
         h.update(b"efeitos=conferir\0");
     }
-    // As chaves de medida do emissor (`DARTFORGE_SEM_…`, que desligam uma
-    // otimização para comparar antes e depois) mudam o código.
+    // The measurement switches of the emitter (`DARTFORGE_SEM_…`, which turn off an
+    // optimization to compare before and after) change the code.
     let mut keys: Vec<(String, String)> = std::env::vars()
         .filter(|(k, _)| k.starts_with("DARTFORGE_SEM_"))
         .collect();
@@ -524,7 +526,7 @@ fn sdk_key(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
     for (k, v) in keys {
         h.update(format!("{k}={v}\0").as_bytes());
     }
-        // A ligação de comparação (`DARTFORGE_LIGAR_COM_CLANG`) dá outra DLL.
+        // The comparison link (`DARTFORGE_LIGAR_COM_CLANG`) gives another DLL.
     h.update(if crate::driver::link_with_clang() { b"clang" } else { b"lld" });
     h.update(b"\0");
     h.update(clang_id.as_bytes());
@@ -547,19 +549,19 @@ fn sdk_key(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
     h.finalize().to_hex()[..32].to_string()
 }
 
-/// A geração dos módulos do SDK no perfil pedido.
+/// The generation of the SDK modules in the requested profile.
 ///
-/// Desenvolvimento: objetos `-O0` para a biblioteca compartilhada (código
-/// independente de posição fora do Windows). Produção: bitcode `-O2` para a
-/// otimização entre módulos na ligação do executável
-/// (docs/PESQUISA-LLVM-DART-AOT.md §5: desenvolvimento em módulos separados,
-/// produção com LTO).
+/// Development: `-O0` objects for the shared library (position-independent
+/// code outside Windows). Production: `-O2` bitcode for the
+/// cross-module optimization in the link of the executable
+/// (docs/PESQUISA-LLVM-DART-AOT.md §5: development in separate modules,
+/// production with LTO).
 ///
 /// ```
-/// use dartforge_emit_native::gerador::Formato;
-/// use dartforge_emit_native::sdk_modulo::{PerfilDoSdk, geracao_do_sdk};
-/// assert_eq!(geracao_do_sdk(PerfilDoSdk::Producao).formato, Formato::Bitcode);
-/// assert!(!geracao_do_sdk(PerfilDoSdk::Desenvolvimento).otimizar);
+/// use dartforge_emit_native::gerador::Format;
+/// use dartforge_emit_native::sdk_modulo::{SdkProfile, sdk_generation};
+/// assert_eq!(sdk_generation(SdkProfile::Production).format, Format::Bitcode);
+/// assert!(!sdk_generation(SdkProfile::Development).optimize);
 /// ```
 pub fn sdk_generation(profile: SdkProfile) -> Generation {
     match profile {
@@ -568,39 +570,39 @@ pub fn sdk_generation(profile: SdkProfile) -> Generation {
     }
 }
 
-/// O perfil em que o SDK da fonte é compilado.
+/// The profile in which the source SDK is compiled.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SdkProfile {
-    /// Objetos `-O0` e a DLL (runtime + SDK) que o executável importa.
+    /// `-O0` objects and the DLL (runtime + SDK) that the executable imports.
     Development,
-    /// Bitcode ThinLTO `-O2`, ligado estaticamente no executável.
+    /// ThinLTO `-O2` bitcode, statically linked into the executable.
     Production,
 }
 
-/// A DLL do SDK da fonte (perfil de desenvolvimento) para o SDK instalado e
-/// o Clang de sempre: é o que o JIT carrega (`crates/jit`, `DARTFORGE_SDK_DLL`).
+/// The source SDK DLL (development profile) for the installed SDK and
+/// the usual Clang: it is what the JIT loads (`crates/jit`, `DARTFORGE_SDK_DLL`).
 pub fn dll_do_sdk_da_fonte() -> Result<PathBuf, String> {
     let dir = crate::sdk_do_dart()?;
     let clang = crate::driver::NativeDriverOptions::default().clang;
     Ok(compiled_sdk(&dir, &clang)?.dll)
 }
 
-/// Os objetos do SDK da fonte: do cache (`<cache native>/sdk/<key>/`), ou
-/// compilados agora — uma vez por conteúdo, as bibliotecas em paralelo.
+/// The source SDK objects: from the cache (`<cache native>/sdk/<key>/`), or
+/// compiled now — once per content, the libraries in parallel.
 pub fn compiled_sdk(lib_dir: &Path, clang: &Path) -> Result<CompiledSdk, String> {
     compiled_sdk_in_profile(lib_dir, clang, SdkProfile::Development)
 }
 
-/// [`compiled_sdk`] no perfil pedido.
+/// [`compiled_sdk`] in the requested profile.
 pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile) -> Result<CompiledSdk, String> {
     static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    // Na produção, o bitcode do SDK sai do Clang, com o resumo do ThinLTO
-    // (como as partes do programa, `driver.rs`): do gerador embutido ele
-    // não tem o resumo, e o `lld` fazia a LTO completa do SDK num módulo
-    // só, numa thread, antes das partes (docs/NATIVO-PRODUCAO-GRANDE.md).
-    // `DARTFORGE_GERADOR` escolhe à mão. Sem o Clang (a distribuição sem o
-    // toolchain do sistema), o gerador embutido.
+    // In production, the SDK bitcode comes out of Clang, with the ThinLTO summary
+    // (like the parts of the program, `driver.rs`): from the embedded generator it
+    // does not have the summary, and `lld` did the full LTO of the SDK in a single
+    // module, in one thread, before the parts (docs/NATIVO-PRODUCAO-GRANDE.md).
+    // `DARTFORGE_GERADOR` chooses by hand. Without Clang (the distribution without the
+    // system toolchain), the embedded generator.
     let gerador = if profile == SdkProfile::Production && std::env::var_os("DARTFORGE_GERADOR").is_none() {
         Gerador::clang_if_any(clang)
     } else {
@@ -615,12 +617,12 @@ pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile
     let ext_obj = crate::alvo::ext_object();
     let ready = |d: &Path, cold| CompiledSdk {
         objects: SOURCE_LIBRARIES.iter().map(|b| d.join(format!("{b}.{ext_obj}"))).collect(),
-        // Os dois perfis: a produção poda na ligação (`pruning::assemble`), e os
-        // dois podam a HIR do programa (`pruning::prune_hir`).
+        // Both profiles: production prunes at link time (`pruning::assemble`), and
+        // both prune the HIR of the program (`pruning::prune_hir`).
         summaries: SOURCE_LIBRARIES.iter().map(|b| d.join(format!("{b}.poda"))).collect(),
         dll: d.join(&dll_file),
-        // No Windows liga-se contra a biblioteca de importação; no ELF e no
-        // Mach-O, contra a própria biblioteca compartilhada.
+        // On Windows it links against the import library; on ELF and on
+        // Mach-O, against the shared library itself.
         import: if crate::alvo::sistema() == crate::alvo::Sistema::Windows {
             d.join(format!("{dll_name}.lib"))
         } else {
@@ -629,7 +631,7 @@ pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile
         cold,
     };
     if dir.join("pronto").is_file() {
-        // A marca registra o último uso (a poda do cache a respeita).
+        // The mark records the last use (the cache pruning respects it).
         if let Ok(f) = std::fs::File::options().write(true).open(dir.join("pronto")) {
             let _ = f.set_modified(std::time::SystemTime::now());
         }
@@ -670,20 +672,20 @@ pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile
         for (s, m) in &lib.rejected {
             resumo.push_str(&format!("{}\t{s}\t{m}\n", lib.uri));
         }
-        // O resumo da poda: do IR que vira o bitcode (produção) ou o objeto
-        // da DLL (desenvolvimento).
+        // The pruning summary: from the IR that becomes the bitcode (production) or the object
+        // of the DLL (development).
         let pruning = crate::pruning::summarize(&lib.ir, &lib.uri, &lib.tables);
         std::fs::write(tmp.join(format!("{b}.poda")), pruning.to_text()).map_err(|e| e.to_string())?;
     }
     std::fs::write(tmp.join("recusados.tsv"), resumo).map_err(|e| e.to_string())?;
-    // Cada biblioteca num gerador, no máximo 4 ao mesmo tempo (a memória de
-    // um módulo grande do LLVM é a medida, não os núcleos).
+    // Each library in a generator, at most 4 at the same time (the memory of
+    // a large LLVM module is the measure, not the cores).
     let queue = std::sync::Mutex::new(SOURCE_LIBRARIES.iter().zip(&libs).collect::<Vec<_>>());
     let errors = std::sync::Mutex::new(Vec::new());
     std::thread::scope(|s| {
         for _ in 0..4 {
-            // A pilha do Clang (8 MB): passes recursivos do LLVM num módulo
-            // grande passam da pilha padrão de uma thread do Rust.
+            // The stack of Clang (8 MB): recursive LLVM passes on a large
+            // module overflow the default stack of a Rust thread.
             let r = std::thread::Builder::new().stack_size(64 << 20).spawn_scoped(s, || loop {
                 let Some((b, lib)) = queue.lock().unwrap().pop() else { break };
                 if let Err(e) = gerador.gerar(&lib.ir, generation, &tmp.join(format!("{b}.{ext_obj}"))) {
@@ -698,13 +700,13 @@ pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile
     if let Some(e) = errors.into_inner().unwrap().into_iter().next() {
         return Err(e);
     }
-    // A DLL (desenvolvimento): os objetos do SDK e o runtime (variante sem
-    // `main`). Em produção, os objetos (bitcode) vão direto para o
-    // executável.
+    // The DLL (development): the SDK objects and the runtime (the variant without
+    // `main`). In production, the objects (bitcode) go directly into the
+    // executable.
     if profile == SdkProfile::Production {
-        // Nada a ligar: o bitcode entra na ligação de cada executável.
+        // Nothing to link: the bitcode enters the link of each executable.
     } else if crate::alvo::sistema() == crate::alvo::Sistema::Linux {
-        // O `ld.lld` direto com o sysroot de ligação (`ligador.rs`).
+        // `ld.lld` directly with the link sysroot (`ligador.rs`).
         let exported: Vec<String> =
             dartforge_runtime::simbolos::NOMES.iter().filter(|n| **n != "main").map(|n| n.to_string()).collect();
         let mut entries: Vec<PathBuf> = SOURCE_LIBRARIES.iter().map(|b| tmp.join(format!("{b}.{ext_obj}"))).collect();
@@ -725,8 +727,8 @@ pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile
         )
         .map_err(|e| format!("a ligação da DLL do SDK da fonte falhou: {e}"))?;
     } else if crate::alvo::sistema() == crate::alvo::Sistema::Windows && crate::driver::link_with_clang() {
-        // A ligação de antes do N15 (o driver do Clang, `link.exe` e a CRT do
-        // Visual C++), só para comparação (`DARTFORGE_LIGAR_COM_CLANG`).
+        // The link from before N15 (the Clang driver, `link.exe` and the
+        // Visual C++ CRT), only for comparison (`DARTFORGE_LIGAR_COM_CLANG`).
         let exit = std::process::Command::new(clang)
             .current_dir(&tmp)
             .arg("-shared")
@@ -744,9 +746,9 @@ pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile
             return Err(format!("a ligação da DLL do SDK da fonte falhou ({}):\n{}", exit.status, lines.join("\n")));
         }
     } else if crate::alvo::sistema() == crate::alvo::Sistema::Windows {
-        // O `lld-link` direto, com as bibliotecas de importação e a CRT
-        // mínima do dartforge (`ligador_windows.rs`); o `.def` exporta o
-        // runtime e o SDK, e a biblioteca de importação sai ao lado da DLL.
+        // `lld-link` directly, with the import libraries and dartforge's minimal
+        // CRT (`ligador_windows.rs`); the `.def` exports the
+        // runtime and the SDK, and the import library comes out next to the DLL.
         use crate::ligador_windows as lw;
         let mut entries: Vec<PathBuf> = SOURCE_LIBRARIES.iter().map(|b| tmp.join(format!("{b}.{ext_obj}"))).collect();
         entries.push(runtime_dll.lib_path.clone());
@@ -765,9 +767,9 @@ pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile
         )
         .map_err(|e| format!("a ligação da DLL do SDK da fonte falhou: {e}"))?;
     } else {
-        // O `ld64.lld` direto com os `.tbd` do sysroot (`ligador_macos.rs`):
-        // cada nome do runtime entra como não definido, para o ligador trazer
-        // da `staticlib` também o que o SDK não usa (o programa usa).
+        // `ld64.lld` directly with the `.tbd`s of the sysroot (`ligador_macos.rs`):
+        // each runtime name enters as undefined, so that the linker brings
+        // from the `staticlib` also what the SDK does not use (the program does).
         use crate::ligador_macos as lm;
         let exported: Vec<String> =
             dartforge_runtime::simbolos::NOMES.iter().filter(|n| **n != "main").map(|n| n.to_string()).collect();
@@ -792,7 +794,7 @@ pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile
     }
     std::fs::write(tmp.join("pronto"), b"").map_err(|e| e.to_string())?;
     if std::fs::rename(&tmp, &dir).is_err() {
-        // Outro processo terminou antes: fica o dele.
+        // Another process finished first: its result stays.
         let _ = std::fs::remove_dir_all(&tmp);
         if !dir.join("pronto").is_file() {
             return Err(format!("não foi possível instalar o SDK compilado em {}", dir.display()));
@@ -802,12 +804,12 @@ pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile
     Ok(ready(&dir, Some(t0.elapsed())))
 }
 
-/// Remove do cache os SDKs compilados de versões anteriores do dartforge
-/// (cada um passa de 1 GB): ficam os quatro mais recentes (os perfis de
-/// desenvolvimento e de produção desta versão e da anterior), e nenhum
-/// usado na última hora (a marca `ready` guarda o último uso) — outro
-/// processo pode estar ligando contra ele. Uma
-/// remoção que falha (a biblioteca aberta no Windows) fica para a próxima.
+/// Removes from the cache the compiled SDKs of previous dartforge versions
+/// (each one exceeds 1 GB): the four most recent ones stay (the development
+/// and production profiles of this version and of the previous one), and none
+/// used in the last hour (the `ready` mark keeps the last use) — another
+/// process may be linking against it. A
+/// removal that fails (the library open on Windows) is left for the next time.
 fn prune_old_sdks(root: &Path, current: &Path) {
     let Ok(entries) = std::fs::read_dir(root) else { return };
     let mut dirs: Vec<(std::time::SystemTime, PathBuf)> = entries
@@ -825,17 +827,17 @@ fn prune_old_sdks(root: &Path, current: &Path) {
     }
 }
 
-/// O resultado do lowering de um membro do SDK da fonte.
+/// The result of the lowering of a source SDK member.
 #[derive(Debug, Clone)]
 pub struct SdkMember {
     pub library: String,
     pub symbol: String,
-    /// Diagnósticos do lowering (vazio: baixou), ou o pânico.
+    /// Lowering diagnostics (empty: it lowered), or the panic.
     pub diagnostics: Vec<String>,
 }
 
-/// Medição de P5c: baixa cada função das [`SOURCE_LIBRARIES`] (mundo
-/// aberto) e devolve, por membro, os diagnósticos do lowering.
+/// P5c measurement: lowers each function of the [`SOURCE_LIBRARIES`] (open
+/// world) and returns, per member, the lowering diagnostics.
 pub fn measure_sdk_lowering(lib_dir: &Path) -> Result<Vec<SdkMember>, String> {
     use dartforge_intern::Interner;
     use dartforge_types::table::{CoreTypes, TypeTable};
@@ -900,19 +902,19 @@ pub fn measure_sdk_lowering(lib_dir: &Path) -> Result<Vec<SdkMember>, String> {
     Ok(exit)
 }
 
-/// O IR de uma biblioteca do SDK com `optsize` em toda função definida (o
-/// perfil de produção): o LLVM pesa tamanho nas decisões de inlining,
-/// desenrolamento e vetorização. Medido em 2026-09-29: −453 KB no olá
-/// mundo e −532 KB no servidor HTTP, sem diferença além do ruído em
-/// `bench/performance/json.dart` e `bench/simd/bin/blend.dart`
-/// (docs/PLANO-TAMANHO-DESEMPENHO.md §1). O código do SDK que a LTO
-/// embute no programa segue os atributos de quem chama.
+/// The IR of an SDK library with `optsize` on every defined function (the
+/// production profile): LLVM weighs size in the inlining,
+/// unrolling and vectorization decisions. Measured on 2026-09-29: −453 KB in hello
+/// world and −532 KB in the HTTP server, with no difference beyond noise in
+/// `bench/performance/json.dart` and `bench/simd/bin/blend.dart`
+/// (docs/PLANO-TAMANHO-DESEMPENHO.md §1). The SDK code that LTO
+/// inlines into the program follows the attributes of the caller.
 ///
 /// ```
-/// use dartforge_emit_native::sdk_modulo::com_optsize;
+/// use dartforge_emit_native::sdk_modulo::with_optsize;
 /// let ir = "define i64 @f(i64 %x) comdat {\n  ret i64 %x\n}\ndefine internal void @g() alwaysinline {\n";
 /// assert_eq!(
-///     com_optsize(ir),
+///     with_optsize(ir),
 ///     "define i64 @f(i64 %x) optsize comdat {\n  ret i64 %x\n}\ndefine internal void @g() alwaysinline optsize {\n"
 /// );
 /// ```
@@ -920,30 +922,30 @@ pub fn with_optsize(ir: &str) -> String {
     with_attribute(ir, " optsize")
 }
 
-/// O IR com `uwtable` em toda função definida: nas exceções por tabelas dos
-/// alvos Itanium (ELF, Mach-O) o desenrolador só atravessa um quadro que
-/// tem tabela de desenrolamento, e o LLVM só a emite para a função marcada
-/// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.11). No COFF x64 toda
-/// função já tem a sua.
+/// The IR with `uwtable` on every defined function: with exceptions by tables on
+/// Itanium targets (ELF, Mach-O) the unwinder only crosses a frame that
+/// has an unwind table, and LLVM only emits it for the marked function
+/// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.11). On x64 COFF every
+/// function already has its own.
 pub fn with_uwtable(ir: &str) -> String {
     with_attribute(ir, " uwtable")
 }
 
-/// O IR com `nounwind` em toda função definida que ainda não o tem: nas
-/// exceções por checagem com a pilha-sombra (o padrão), nada desenrola um
-/// quadro do código Dart — a exceção é uma bandeira no contexto, o rastro
-/// vem da pilha-sombra e o runtime de produção aborta no pânico. Sem o
-/// atributo, o LLVM emite o CFI de toda função que não é folha e, no
-/// Mach-O arm64 sem ponteiro de quadro, isso vira DWARF no `__eh_frame`
-/// (1,4 MB do `new_sali/backend`). As exceções por tabelas
-/// ([`with_uwtable`]) e as raízes por mapas (`_Unwind_Backtrace`)
-/// atravessam os quadros e não passam por aqui.
+/// The IR with `nounwind` on every defined function that does not have it yet: with
+/// exceptions by check with the shadow stack (the default), nothing unwinds a
+/// frame of Dart code — the exception is a flag in the context, the stack trace
+/// comes from the shadow stack and the production runtime aborts on panic. Without the
+/// attribute, LLVM emits the CFI of every non-leaf function and, on
+/// Mach-O arm64 without a frame pointer, that becomes DWARF in `__eh_frame`
+/// (1.4 MB of `new_sali/backend`). Exceptions by tables
+/// ([`with_uwtable`]) and roots by maps (`_Unwind_Backtrace`)
+/// cross the frames and do not go through here.
 ///
 /// ```
-/// use dartforge_emit_native::sdk_modulo::com_nounwind;
+/// use dartforge_emit_native::sdk_modulo::with_nounwind;
 /// let ir = "define i64 @f(i64 %x) {\n  ret i64 %x\n}\ndefine internal void @g() alwaysinline nounwind {\n";
 /// assert_eq!(
-///     com_nounwind(ir),
+///     with_nounwind(ir),
 ///     "define i64 @f(i64 %x) nounwind {\n  ret i64 %x\n}\ndefine internal void @g() alwaysinline nounwind {\n"
 /// );
 /// ```
@@ -951,38 +953,38 @@ pub fn with_nounwind(ir: &str) -> String {
     with_absent_attribute(ir, " nounwind")
 }
 
-/// Como o código Dart acha o contexto da thread em [`with_context_in_tls`].
+/// How Dart code finds the thread context in [`with_context_in_tls`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContextInTls {
-    /// O ajudante copiado em cada função (`alwaysinline`): o desempenho.
+    /// The helper copied into each function (`alwaysinline`): performance.
     Inline,
-    /// O LLVM decide.
+    /// LLVM decides.
     Free,
-    /// Uma chamada (`noinline`): o tamanho, no programa grande.
+    /// A call (`noinline`): size, in the large program.
     PerCall,
 }
 
-/// O IR com o contexto da thread (`dartforge_contexto`, uma função Rust com
-/// quadro, a variável `thread_local!` e a conferência do limite da pilha)
-/// guardado numa variável `thread_local` do próprio módulo: o prólogo de cada função lê a variável (no Mach-O, o
-/// `tlv_get_addr`, que não mexe nos outros registradores) e só chama o
-/// runtime na primeira vez em cada thread. O endereço do contexto de uma
-/// thread não muda enquanto ela vive (`runtime/src/gc_raizes.rs`). Só no
-/// AOT: o JIT não tem `thread_local` nos módulos dele. O `fib(32)` do
-/// `bench/comparison` passava 1/3 do tempo na função do runtime.
+/// The IR with the thread context (`dartforge_contexto`, a Rust function with a
+/// frame, the `thread_local!` variable and the stack limit check)
+/// kept in a `thread_local` variable of the module itself: the prologue of each function reads the variable (on Mach-O, the
+/// `tlv_get_addr`, which does not touch the other registers) and only calls the
+/// runtime the first time on each thread. The address of the context of a
+/// thread does not change while it lives (`runtime/src/gc_roots.rs`). Only in
+/// AOT: the JIT has no `thread_local` in its modules. The `fib(32)` of
+/// `bench/comparison` spent 1/3 of the time in the runtime function.
 ///
 /// ```
-/// use dartforge_emit_native::sdk_modulo::{com_contexto_em_tls, ContextoEmTls};
+/// use dartforge_emit_native::sdk_modulo::{with_context_in_tls, ContextInTls};
 /// let ir = "define i64 @f() {\n  %ctx = call ptr @dartforge_contexto()\n  ret i64 0\n}\n";
-/// let novo = com_contexto_em_tls(ir, ContextoEmTls::EmLinha, "df.ctx.tls");
-/// assert!(novo.contains("%ctx = call ptr @df.contexto()") && novo.contains("@df.ctx.tls = internal thread_local global ptr null"));
-/// let sem = "define void @g() {\n  ret void\n}\n";
-/// assert_eq!(com_contexto_em_tls(sem, ContextoEmTls::EmLinha, "df.ctx.tls"), sem);
+/// let new_ir = with_context_in_tls(ir, ContextInTls::Inline, "df.ctx.tls");
+/// assert!(new_ir.contains("%ctx = call ptr @df.contexto()") && new_ir.contains("@df.ctx.tls = internal thread_local global ptr null"));
+/// let without = "define void @g() {\n  ret void\n}\n";
+/// assert_eq!(with_context_in_tls(without, ContextInTls::Inline, "df.ctx.tls"), without);
 /// ```
 ///
-/// `variable` é o nome da variável: o programa em partes a promove a
-/// externa (`partition.rs`), e o nome dela não pode ser o da interna de um
-/// módulo do SDK (como o `@df.area_id.program`).
+/// `variable` is the name of the variable: the program in parts promotes it to
+/// external (`partition.rs`), and its name cannot be that of the internal one of an
+/// SDK module (like `@df.area_id.program`).
 pub fn with_context_in_tls(ir: &str, mode: ContextInTls, variable: &str) -> String {
     const CALL: &str = "call ptr @dartforge_contexto()";
     if !ir.contains(CALL) {
@@ -1015,13 +1017,13 @@ pub fn with_context_in_tls(ir: &str, mode: ContextInTls, variable: &str) -> Stri
     s
 }
 
-/// Acrescenta um atributo de função (com o espaço na frente) a cada linha
-/// `define`.
+/// Adds a function attribute (with the leading space) to each
+/// `define` line.
 fn with_attribute(ir: &str, attribute: &str) -> String {
     with_attribute_if(ir, attribute, false)
 }
 
-/// [`with_attribute`] só nas linhas `define` que ainda não têm o atributo.
+/// [`with_attribute`] only on the `define` lines that do not have the attribute yet.
 fn with_absent_attribute(ir: &str, attribute: &str) -> String {
     with_attribute_if(ir, attribute, true)
 }
@@ -1033,10 +1035,10 @@ fn with_attribute_if(ir: &str, attribute: &str, only_absent: bool) -> String {
             s.push_str(l);
             continue;
         }
-        // Os atributos vêm depois dos parâmetros e antes do `comdat` (ou da
-        // chave que abre o corpo).
-        // O `gc "…"` (raízes por mapas) e a personalidade (`personality ptr
-        // @…`, das exceções por tabelas) vêm depois dos atributos.
+        // The attributes come after the parameters and before the `comdat` (or the
+        // brace that opens the body).
+        // The `gc "…"` (roots by maps) and the personality (`personality ptr
+        // @…`, of exceptions by tables) come after the attributes.
         let point = l
             .starts_with("define ")
             .then(|| l.find(" comdat").or_else(|| l.find(" gc \"")).or_else(|| l.find(" personality ")).or_else(|| l.rfind(" {")))
@@ -1059,26 +1061,26 @@ mod tests {
 
 
 
-    /// A sobreposição existe, troca os quatro arquivos e aponta para arquivos
-    /// que existem.
+    /// The overlay exists, replaces the four files and points to files
+    /// that exist.
     #[test]
     fn overlay_loads() {
         crate::sdk_tests();
         let sdk = load_native_sdk(crate::sdk_tests()).unwrap();
-        // 26 com o `mirrors_patch.dart` (o `reflectClass` do executor de
-        // builders, corpus/native/45); 29 com `double.dart`, `integers.dart`
-        // e `convert_patch.dart` (o JSON, docs/NATIVO-PLANO.md); 30 com o
-        // `convert/json.dart` (a escrita em UTF-8, §13.2).
+        // 26 with `mirrors_patch.dart` (the `reflectClass` of the builders
+        // runner, corpus/native/45); 29 with `double.dart`, `integers.dart`
+        // and `convert_patch.dart` (JSON, docs/NATIVO-PLANO.md); 30 with
+        // `convert/json.dart` (writing in UTF-8, §13.2).
         assert_eq!(sdk.substituicoes.len(), 30);
         for b in SOURCE_LIBRARIES {
             assert!(sdk.library(b).is_some(), "dart:{b} fora do layout");
         }
     }
 
-    /// A medição de 5a (docs/NATIVO-PLANO.md §7.4): imprime, por biblioteca,
-    /// as funções e os diagnósticos de inferência dos corpos. Lenta (infere o
-    /// SDK inteiro); roda à parte:
-    /// `cargo test -p dartforge-emit-native medir_inferencia -- --ignored --nocapture`.
+    /// The 5a measurement (docs/NATIVO-PLANO.md §7.4): prints, per library,
+    /// the functions and the inference diagnostics of the bodies. Slow (infers the
+    /// whole SDK); runs separately:
+    /// `cargo test -p dartforge-emit-native measure_source_library_inference -- --ignored --nocapture`.
     #[test]
     #[ignore = "medição; roda à parte"]
     fn measure_source_library_inference() {
@@ -1107,9 +1109,9 @@ mod tests {
         println!("total de diagnósticos: {total}");
     }
 
-    /// P5c: emite os módulos do SDK da fonte e mostra, por biblioteca, o
-    /// tamanho do IR e os membros recusados (por motivo). Com
-    /// `DARTFORGE_SDK_COMPILAR=1`, compila e instala os objetos no cache.
+    /// P5c: emits the source SDK modules and shows, per library, the
+    /// IR size and the rejected members (by reason). With
+    /// `DARTFORGE_SDK_COMPILAR=1`, compiles and installs the objects in the cache.
     /// `cargo test -p dartforge-emit-native emit_the_sdk -- --ignored --nocapture`.
     #[test]
     #[ignore = "medição; roda à parte"]
@@ -1152,8 +1154,8 @@ mod tests {
         }
     }
 
-    /// Compila e executa `DARTFORGE_PROGRAMA` com o SDK da fonte (P5c):
-    /// `cargo test -p dartforge-emit-native compilar_com_o_sdk -- --ignored --nocapture`.
+    /// Compiles and runs `DARTFORGE_PROGRAMA` with the source SDK (P5c):
+    /// `cargo test -p dartforge-emit-native compile_with_source_sdk -- --ignored --nocapture`.
     #[test]
     #[ignore = "manual; roda à parte"]
     fn compile_with_source_sdk() {
@@ -1180,14 +1182,14 @@ mod tests {
         }
     }
 
-    /// Perfil de produção com o SDK da fonte: UM executável autocontido. O
-    /// `.exe` é copiado sozinho para uma pasta vazia e roda sem nenhuma DLL
-    /// do DartForge (docs/NATIVO-PLANO.md §7.9).
+    /// Production profile with the source SDK: ONE self-contained executable. The
+    /// `.exe` is copied alone into an empty folder and runs without any DartForge
+    /// DLL (docs/NATIVO-PLANO.md §7.9).
     #[test]
     #[ignore = "compila o SDK da fonte (lento a frio); roda no CI"]
     fn producao_e_um_executavel_autocontido() {
-        // O SDK instalado (no CI, o do `DART_HOME`); sem ele, o teste só é
-        // pulado fora do CI — no CI, ausência é falha, não sucesso vazio.
+        // The installed SDK (in CI, that of `DART_HOME`); without it, the test is only
+        // skipped outside CI — in CI, absence is a failure, not an empty success.
         let sdk_dir = crate::sdk_tests().to_path_buf();
         if !sdk_dir.join("libraries.json").is_file() {
             assert!(std::env::var_os("CI").is_none(), "SDK do Dart ausente no CI ({})", sdk_dir.display());
@@ -1219,12 +1221,12 @@ mod tests {
         assert_eq!(String::from_utf8_lossy(&o.stdout).replace("\r\n", "\n"), "oi\n[2, 4, 6]\n{a: 1}\n");
     }
 
-    /// O teste de ausência de código (docs/NATIVO-PODA-DE-TABELAS.md §4, o
-    /// `deadstrip.test.ts` do scriptc): `corpus/native/81_poda_de_tabelas.dart`
-    /// tem uma classe instanciada com membros que nada usa. No executável de
-    /// produção (o mapa da ligação) não fica símbolo nenhum deles — nem o
-    /// corpo nem as entradas `$c`/`$tc`/`$g`/`$s`/`$tearm` —, ficam as
-    /// entradas dos usados, e a saída é a da VM.
+    /// The code absence test (docs/NATIVO-PODA-DE-TABELAS.md §4, scriptc's
+    /// `deadstrip.test.ts`): `corpus/native/81_poda_de_tabelas.dart`
+    /// has an instantiated class with members that nothing uses. In the production
+    /// executable (the link map) no symbol of them remains — neither the
+    /// body nor the `$c`/`$tc`/`$g`/`$s`/`$tearm` entries —, the entries of the
+    /// used ones remain, and the output is the VM's.
     #[test]
     #[ignore = "compila o SDK da fonte (lento a frio); roda no CI"]
     fn pruning_removes_unused_members() {
@@ -1251,9 +1253,9 @@ mod tests {
         let map = std::fs::read_to_string(exe.with_extension("map")).expect("o mapa da ligação");
         let remained: Vec<&str> = map.lines().filter(|l| l.contains("naoUsadoPoda")).collect();
         assert!(remained.is_empty(), "membros não usados no executável:\n{}", remained.join("\n"));
-        // As entradas dos usados, uma de cada forma (o setter `x=` leva o
-        // `=` escapado; o tear-off estático é o `$tearm`, o dinâmico passa
-        // pelo `$g`).
+        // The entries of the used ones, one of each form (the setter `x=` has the
+        // `=` escaped; the static tear-off is `$tearm`, the dynamic one goes
+        // through `$g`).
         let used_set = [
             "Poda.usadoDinamicoPoda$c",
             "PodaFilha.usadoDinamicoPoda$c",
@@ -1274,17 +1276,17 @@ mod tests {
         );
     }
 
-    /// A medição de P5c: quantos membros do SDK da fonte o lowering baixa.
-    /// `cargo test -p dartforge-emit-native medir_lowering -- --ignored --nocapture`.
+    /// The P5c measurement: how many source SDK members the lowering lowers.
+    /// `cargo test -p dartforge-emit-native measure_source_library_lowering -- --ignored --nocapture`.
     #[test]
     #[ignore = "medição; roda à parte"]
     fn measure_source_library_lowering() {
         crate::sdk_tests();
-        // Sem trocar o gancho de pânico do processo: um gancho silencioso
-        // aqui (como era) calava o pânico de TODOS os testes que rodam junto
-        // — no job do macOS, `producao_e_um_executavel_autocontido` e
-        // `pruning_removes_unused_members` falhavam sem mensagem nenhuma. Os
-        // pânicos do lowering pegos por `catch_unwind` só fazem barulho.
+        // Without replacing the panic hook of the process: a silent hook
+        // here (as it was) silenced the panic of ALL the tests that run together
+        // — in the macOS job, `producao_e_um_executavel_autocontido` and
+        // `pruning_removes_unused_members` failed without any message. The
+        // lowering panics caught by `catch_unwind` only make noise.
         let members = std::thread::Builder::new()
             .stack_size(256 << 20)
             .spawn(|| measure_sdk_lowering(crate::sdk_tests()).unwrap())

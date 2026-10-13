@@ -1,44 +1,44 @@
-//! `async`/`await` (P6, docs/NATIVO-PLANO.md §7.7): o corpo como máquina de
-//! estados, no molde do dart2js (`pkg/compiler/lib/src/js/rewrite_async.dart`)
-//! e dos apoios de `native_sdk/async/async_patch.dart`.
+//! `async`/`await` (P6, docs/NATIVO-PLANO.md §7.7): the body as a state
+//! machine, modeled on dart2js (`pkg/compiler/lib/src/js/rewrite_async.dart`)
+//! and on the supports of `native_sdk/async/async_patch.dart`.
 //!
-//! Uma função `async f(p…) { … }` vira duas:
+//! A function `async f(p…) { … }` becomes two:
 //!
-//! * **o stub `f`** (o símbolo de sempre): cria o **quadro** — um objeto do
-//!   heap —, o `Completer` (`_makeAsyncAwaitCompleter`), a closure do corpo
-//!   (registrada na zona por `_envolverCorpo`) e começa o corpo de forma
-//!   síncrona (`_asyncStartSync`), devolvendo `completer.future`;
-//! * **o corpo `f$async(env, código, result)`**, uma closure com o
-//!   quadro no ambiente. O bloco de entrada lê o quadro e salta pelo
-//!   `state` guardado nele: 0 é o começo; cada `await` é um estado.
+//! * **the stub `f`** (the usual symbol): creates the **frame** — a heap
+//!   object —, the `Completer` (`_makeAsyncAwaitCompleter`), the closure of the body
+//!   (registered in the zone by `_envolverCorpo`) and starts the body
+//!   synchronously (`_asyncStartSync`), returning `completer.future`;
+//! * **the body `f$async(env, code, result)`**, a closure with the
+//!   frame in its environment. The entry block reads the frame and jumps on the
+//!   `state` kept in it: 0 is the start; each `await` is a state.
 //!
-//! **`await e`.** Grava o estado `k` no quadro, chama `_asyncAwait(e,
-//! corpo)` e **returns**; o block de resumption `R_k` só é alcançado pelo
-//! `switch` da entrada, quando o `Future` completa e chama o corpo de novo.
-//! Com `código == 1` (`_ERRO`) o `result` é um `_ErroAssincrono`: o erro é
-//! lançado ali, no ponto do `await`, com o rastro dele, e segue o caminho de
-//! exceção pendente de sempre — os `try`/`catch`/`finally` que envolvem o
-//! `await` são os do lowering (o mesmo `exception_target` de antes da
-//! suspensão). Exceção que chega ao topo do corpo vai a `_asyncRethrow`
-//! (`completer.completeError`); `return v` vai a `_asyncReturn`.
+//! **`await e`.** Writes state `k` into the frame, calls `_asyncAwait(e,
+//! body)` and **returns**; the resumption block `R_k` is only reached by the
+//! `switch` of the entry, when the `Future` completes and calls the body again.
+//! With `code == 1` (`_ERRO`) the `result` is an `_ErroAssincrono`: the error is
+//! thrown there, at the point of the `await`, with its stack trace, and follows the usual
+//! pending exception path — the `try`/`catch`/`finally` that surround the
+//! `await` are those of the lowering (the same `exception_target` as before the
+//! suspension). An exception that reaches the top of the body goes to `_asyncRethrow`
+//! (`completer.completeError`); `return v` goes to `_asyncReturn`.
 //!
-//! **O que atravessa um `await` mora no quadro** (o contrato G: o quadro é
-//! alcançado pelas arestas do heap — ambiente da closure do corpo, o
-//! `_FutureListener` que espera —, não pela pilha-sombra, que é desmontada a
-//! cada suspensão). Duas passadas sobre a HIR do corpo pronto, que não
-//! dependem de como cada construto foi baixado:
+//! **What crosses an `await` lives in the frame** (contract G: the frame is
+//! reached through heap edges — the environment of the body closure, the
+//! `_FutureListener` that waits —, not through the shadow stack, which is torn down at
+//! each suspension). Two passes over the HIR of the finished body, which do not
+//! depend on how each construct was lowered:
 //!
-//! 1. todo `alloca` (os locais, R6) vira uma posição do quadro, e o
-//!    `load`/`store` dele, leitura/gravação da posição;
-//! 2. todo valor SSA **vivo na entrada de uma retomada** (vivacidade com a
-//!    aresta virtual suspensão → retomada) é gravado numa posição do quadro
-//!    logo depois de definido e relido antes de cada uso — o que o LLVM
-//!    faz no *coroutine frame* (`CoroSplit`), sem precisar reconstruir o
-//!    SSA. Os valores do bloco de entrada (quadro, `this`, ambiente de fora)
-//!    são recalculados a cada entrada e ficam de fora.
+//! 1. every `alloca` (the locals, R6) becomes a position of the frame, and its
+//!    `load`/`store`, a read/write of the position;
+//! 2. every SSA value **live at the entry of a resumption** (liveness with the
+//!    virtual suspension → resumption edge) is written into a position of the frame
+//!    right after it is defined and reread before each use — what LLVM
+//!    does in the *coroutine frame* (`CoroSplit`), without needing to rebuild the
+//!    SSA. The values of the entry block (frame, `this`, outer environment)
+//!    are recomputed at each entry and stay out.
 //!
-//! Layout do quadro: `[estado, completer, corpo, this, ambiente de fora,
-//! tupla de tipos, parâmetros…, locais…, temporários…]`.
+//! Frame layout: `[state, completer, body, this, outer environment,
+//! type tuple, parameters…, locals…, temporaries…]`.
 
 use super::fn_builder::FnBuilder;
 use super::locals::{Local, Mode};
@@ -48,8 +48,8 @@ use dartforge_frontend::ast::{self, FunctionBody};
 use dartforge_intern::SymbolId;
 use std::collections::{HashMap, HashSet};
 
-/// Id de classe do quadro de uma função `async` (abaixo das formas de
-/// record, `context::SHAPE_BASE_ID`).
+/// Class id of the frame of an `async` function (below the record
+/// shapes, `context::SHAPE_BASE_ID`).
 pub const ID_QUADRO_ASYNC: u32 = 0x3FFF_FF00;
 
 const Q_STATE: usize = 0;
@@ -60,26 +60,26 @@ const Q_ENV: usize = 4;
 const Q_TUPLE: usize = 5;
 const Q_PARAMS: usize = 6;
 
-/// De onde sai o tipo de retorno de um corpo `async`/`sync*`/`async*`: o
-/// tipo (declarado, ou o estático de uma closure) ou a anotação de uma
-/// função local.
+/// Where the return type of an `async`/`sync*`/`async*` body comes from: the
+/// type (declared, or the static one of a closure) or the annotation of a
+/// local function.
 #[derive(Clone, Copy)]
 pub enum AsyncReturn {
     Tipo(dartforge_types::table::TypeId),
     Annotation(ast::TypeId),
 }
 
-/// O tipo de corpo suspenso: `async`, `sync*` ou `async*`.
+/// The kind of suspended body: `async`, `sync*` or `async*`.
 ///
-/// Os três usam a mesma máquina de estados (quadro no heap, `switch` pelo
-/// estado na entrada, as duas passadas sobre a HIR); mudam o stub, os pontos
-/// de suspensão e o que `return` e a exceção não capturada fazem:
+/// All three use the same state machine (frame in the heap, `switch` on the
+/// state at the entry, the two passes over the HIR); they change the stub, the
+/// suspension points and what `return` and the uncaught exception do:
 ///
-/// | | stub devolve | suspensão | `return` | exceção no topo |
+/// | | stub returns | suspension | `return` | exception at the top |
 /// | --- | --- | --- | --- | --- |
 /// | `async` | `completer.future` | `await` | `_asyncReturn` | `_asyncRethrow` |
-/// | `sync*` | `_SyncStarIterable` | `yield`, `yield*` (devolve `true`) | devolve `false` | sai do corpo |
-/// | `async*` | o stream do controlador | `await`, `yield`, `yield*` | `_asyncStarReturn` | `_asyncStarErro` |
+/// | `sync*` | `_SyncStarIterable` | `yield`, `yield*` (returns `true`) | returns `false` | leaves the body |
+/// | `async*` | the stream of the controller | `await`, `yield`, `yield*` | `_asyncStarReturn` | `_asyncStarErro` |
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BodyType {
     Async,
@@ -87,11 +87,11 @@ pub enum BodyType {
     AsyncStar,
 }
 
-/// O tipo de corpo de um modificador que suspende (`async`, `sync*`,
+/// The body kind of a suspending modifier (`async`, `sync*`,
 /// `async*`).
 ///
 /// # Panics
-/// Com `AsyncModifier::None`, que não é corpo suspenso.
+/// With `AsyncModifier::None`, which is not a suspended body.
 pub fn body_type(m: ast::AsyncModifier) -> BodyType {
     match m {
         ast::AsyncModifier::Async => BodyType::Async,
@@ -101,32 +101,32 @@ pub fn body_type(m: ast::AsyncModifier) -> BodyType {
     }
 }
 
-/// O estado do lowering do corpo de uma função `async`, `sync*` ou `async*`.
+/// The lowering state of the body of an `async`, `sync*` or `async*` function.
 #[derive(Debug, Clone)]
 pub struct AsyncState {
     pub ty: BodyType,
-    /// `sync*`: o iterador que chama o corpo (um parâmetro; nulo nos outros).
+    /// `sync*`: the iterator that calls the body (a parameter; null for the others).
     pub iterator: Operand,
     pub frame: Operand,
-    /// A closure do corpo registrada na zona (a que `_asyncAwait` recebe).
+    /// The body closure registered in the zone (the one `_asyncAwait` receives).
     pub body: Operand,
-    /// O `Completer` (`async`) ou o controlador do stream (`async*`).
+    /// The `Completer` (`async`) or the controller of the stream (`async*`).
     pub completer: Operand,
     pub code: Operand,
     pub result: Operand,
-    /// `(k, R_k)`: o bloco de retomada de cada estado.
+    /// `(k, R_k)`: the resumption block of each state.
     pub resumptions: Vec<(i64, BlockId)>,
-    /// `(A, R_k)`: o bloco que suspende e a retomada dele.
+    /// `(A, R_k)`: the block that suspends and its resumption.
     pub suspensions: Vec<(BlockId, BlockId)>,
-    /// O próximo `Return` é cru (suspensão ou o fim do tratador do topo):
-    /// não passa por `_asyncReturn`.
+    /// The next `Return` is raw (a suspension or the end of the top handler):
+    /// it does not go through `_asyncReturn`.
     pub raw_return: bool,
-    /// O rastro simbólico (§13.14): a posição de cada `await`, pelo estado.
+    /// The symbolic stack trace (§13.14): the position of each `await`, by state.
     pub waits: Vec<(i64, (u32, u32))>,
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// Função de topo `name` do `dart:async` (os apoios do `async_patch`).
+    /// Top-level function `name` of `dart:async` (the supports of `async_patch`).
     pub fn async_support(&self, name_str: &str) -> Option<usize> {
         let lib = self.ctx.program.libraries.iter().position(|l| l.uri == "dart:async")?;
         let sym = self.ctx.interner.lookup(name_str)?;
@@ -137,7 +137,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Chama o apoio `name` do `dart:async` com os argumentos já avaliados.
+    /// Calls the `dart:async` support `name` with the already evaluated arguments.
     pub(super) fn call_support(&mut self, name_str: &str, args: Vec<Operand>, span: Span) -> Operand {
         let Some(fid) = self.async_support(name_str) else {
             return self.unsupported(&format!("apoio `{name_str}` do dart:async ausente"), span);
@@ -147,9 +147,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.call_direct(fid, None, args)
     }
 
-    /// [`FnBuilder::call_support`] no caminho do `return`: o desvio de
-    /// exceção dele, sem tratador, é um retorno cru — senão voltaria a
-    /// `async_return`, que chamaria o apoio de novo.
+    /// [`FnBuilder::call_support`] on the `return` path: its exception
+    /// branch, without a handler, is a raw return — otherwise it would go back to
+    /// `async_return`, which would call the support again.
     fn call_support_raw(&mut self, name_str: &str, args: Vec<Operand>) -> Operand {
         let before = self.async_state.as_ref().is_some_and(|e| e.raw_return);
         if let Some(e) = self.async_state.as_mut() {
@@ -162,8 +162,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         r
     }
 
-    /// A referência fica explícita na HIR para a preparação de ownership.
-    /// Os bits escalares conservam a conversão da representação `ty`.
+    /// The reference stays explicit in the HIR for the ownership preparation.
+    /// Scalar bits keep the conversion of representation `ty`.
     fn read_position(&mut self, obj: Operand, idx: usize, ty: Type) -> Operand {
         if ty == Type::Ref {
             return self.emit(Instruction::GetField { object: obj, index: idx }, Type::Ref);
@@ -179,7 +179,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.bits_to(bits, ty)
     }
 
-    /// `dartforge_object_set` com a tag da representação do valor (E1).
+    /// `dartforge_object_set` with the tag of the representation of the value (E1).
     fn store_position(&mut self, obj: Operand, idx: usize, val: Operand) {
         let (bits, is_ref) = self.to_bits(val);
         self.emit(
@@ -197,9 +197,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         );
     }
 
-    /// Os locais visíveis no stub, em ordem determinística: os ligados ao
-    /// ambiente da closure (pela posição) e os demais — os parâmetros — pelo
-    /// offset da declaração.
+    /// The locals visible in the stub, in deterministic order: those bound to the
+    /// environment of the closure (by position) and the others — the parameters — by
+    /// the offset of the declaration.
     fn stub_locals(&self) -> (Vec<(SymbolId, Local)>, Vec<(SymbolId, Local)>) {
         let mut env = Vec::new();
         let mut others = Vec::new();
@@ -225,10 +225,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         (env, others)
     }
 
-    /// O corpo de uma função `async`, `sync*` ou `async*`: este builder é o
-    /// stub (parâmetros e capturas já declarados); o corpo vira
-    /// `<símbolo>$async` e a entrada uniforme dele. Termina o stub.
-    /// O tipo do valor/elemento pela anotação de retorno de uma função local
+    /// The body of an `async`, `sync*` or `async*` function: this builder is the
+    /// stub (parameters and captures already declared); the body becomes
+    /// `<symbol>$async` and its uniform entry. Finishes the stub.
+    /// The type of the value/element from the return annotation of a local function
     /// (`Future<T> f() async`, `Iterable<T> g() sync*`, `FutureOr<T>`).
     fn async_annotation_value(&self, ast: &ast::Ast, a: ast::TypeId, ty: BodyType) -> Option<super::rti::Recipe> {
         let ast::TypeKind::Named { name, args } = &ast.ty(a).kind else { return None };
@@ -286,7 +286,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
             }
         }
-        // RTI: as variáveis de tipo do stub (a tupla mora no quadro).
+        // RTI: the type variables of the stub (the tuple lives in the frame).
         b.function_type_params = self.function_type_params.clone();
         b.local_params = self.local_params.clone();
         b.this_extension = self.this_extension;
@@ -310,10 +310,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             raw_return: false,
             waits: Vec::new(),
         }));
-        // O rastro simbólico (§13.14): o stub fica fora do rastro (a VM tem
-        // um quadro só para a função), e o corpo `async` retomado começa a
-        // cadeia de quem espera pelo quadro, que ele empurra na pilha do
-        // rastro.
+        // The symbolic stack trace (§13.14): the stub stays out of the stack trace (the VM has
+        // a single frame for the function), and the resumed `async` body starts the
+        // chain of awaiters through the frame, which it pushes on the stack trace
+        // stack.
         if self.ctx.stack_trace {
             self.stack_trace.marks |= crate::hir::stack_trace_marks::HIDDEN;
             b.stack_trace.token = self.stack_trace.token;
@@ -328,8 +328,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let entry = b.current_block;
         let start = b.new_block();
         b.set_block(start);
-        // Os `alloca` do corpo viram posições do quadro: sem funções locais
-        // diretas (o endereço de um local não sobreviveria à troca).
+        // The `alloca`s of the body become positions of the frame: no direct local
+        // functions (the address of a local would not survive the swap).
         b.without_directs = true;
         b.prepare_captures(
             ast,
@@ -346,18 +346,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Some(off) => b.declare_variable(*sym, off, l.ty, v),
                 None => b.declare_local_with_value(*sym, l.ty, v),
             }
-            // A representação do quadro não substitui o tipo da declaração.
+            // The representation of the frame does not replace the type of the declaration.
             b.assign_semantic_type(*sym, l.static_type);
         }
-        // O tratador do topo: exceção que ninguém no corpo pegou completa o
-        // `Future` com erro (`async`) ou vai ao stream (`async*`). No
-        // `sync*` ela sai do corpo, e o `moveNext` a trata.
+        // The top handler: an exception nobody in the body caught completes the
+        // `Future` with an error (`async`) or goes to the stream (`async*`). In
+        // `sync*` it leaves the body, and `moveNext` handles it.
         let top = b.new_block();
         if ty != BodyType::SyncStar {
             b.exception_targets.push(top);
         }
-        // `async*`: o corpo só começa quando alguém escuta, e começa
-        // cancelado se a inscrição já foi cancelada (`asyncStarBody(true)`).
+        // `async*`: the body only starts when someone listens, and starts
+        // cancelled if the subscription was already cancelled (`asyncStarBody(true)`).
         if ty == BodyType::AsyncStar {
             b.exit_if_cancelled();
         }
@@ -375,8 +375,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if ty != BodyType::SyncStar {
             b.exception_targets.pop();
         }
-        // O tratador do topo não tem tratador: nada nele volta a
-        // `_asyncReturn` (um retorno de exceção aqui é cru).
+        // The top handler has no handler: nothing in it goes back to
+        // `_asyncReturn` (an exception return here is raw).
         if let Some(e) = b.async_state.as_mut() {
             e.raw_return = true;
         }
@@ -398,12 +398,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             BodyType::AsyncStar => {
                 b.call_support("_asyncStarErro", vec![completer, error, stack_trace], span);
             }
-            // Sem tratador do topo: o bloco não é alcançado.
+            // Without a top handler: the block is not reached.
             BodyType::SyncStar => {}
         }
         b.terminate_raw(Operand::Constant(Constant::Null));
 
-        // O salto pelo estado, no fim do bloco de entrada.
+        // The jump on the state, at the end of the entry block.
         let st = b.async_state.take().expect("estado async");
         let idx0 = b.func.blocks.iter().position(|x| x.id == entry).expect("entrada");
         b.func.blocks[idx0].terminator = Terminator::Switch {
@@ -413,19 +413,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         b.terminated_blocks.insert(entry);
 
-        // As duas passadas: locais e temporários que atravessam um `await`
-        // vão para o quadro.
+        // The two passes: locals and temporaries that cross an `await`
+        // go into the frame.
         let mut next = b.next_value;
         let locals_base = Q_PARAMS + parameters.len();
         let n_locals = convert_allocas(&mut b.func, &frame, locals_base, &mut next);
         let n_temp = save_live(&mut b.func, &frame, locals_base + n_locals, &st.suspensions, entry, &mut next);
         b.next_value = next;
         let size = locals_base + n_locals + n_temp;
-        // O nome do corpo leva a impressão digital dele: um quadro suspenso
-        // num `await` guarda o estado e as posições deste corpo, e numa
-        // recarga do JIT só pode retomar num corpo idêntico. Um corpo que
-        // mudou tem outro nome, e os quadros vivos seguem no código em que
-        // começaram (como os quadros ativos na VM).
+        // The name of the body carries its fingerprint: a frame suspended
+        // at an `await` keeps the state and the positions of this body, and on a
+        // JIT reload it can only resume in an identical body. A body that
+        // changed has another name, and the live frames continue in the code they
+        // started in (like the active frames in the VM).
         let body_symbol = format!(
             "{body_symbol}$q{:08x}",
             (super::closures::hash_name(&format!("{size}|{:?}", b.func.blocks)) as u64) as u32
@@ -442,12 +442,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             b.stack_trace.async_body = Some(crate::hir::TraceAsyncBody { entry: format!("{body_symbol}$ent"), waits });
         }
         if self.ctx.arc_memory {
-            // Corpo Dart chamado pela entrada: o retorno Ref é Owned.
+            // A Dart body called by the entry: the Ref return is Owned.
             b.dart_ref_returns.insert(body_symbol.clone());
         }
         self.absorb(b);
 
-        // --- entrada uniforme do corpo: ([iterador,] código, resultado) --
+        // --- uniform entry of the body: ([iterator,] code, result) --
         let mut infos = Vec::new();
         if ty == BodyType::SyncStar {
             infos.push(super::closures::EntryParam {
@@ -493,7 +493,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         self.absorb(e);
 
-        // --- o stub -----------------------------------------------------
+        // --- the stub ---------------------------------------------------
         let mut fields: Vec<Operand> = vec![Operand::Constant(Constant::Int(0)); size];
         fields[Q_COMPLETER] = Operand::Constant(Constant::Null);
         fields[Q_BODY] = Operand::Constant(Constant::Null);
@@ -519,10 +519,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             Type::Ref,
         );
-        // O `T` do `Completer<T>`, do `Iterable<T>` ou do `Stream<T>`: para
-        // `async`, o tipo do valor do `Future` declarado (especificação §9
-        // "future value type": `Future<T>`/`FutureOr<T>` dão `T`); para os
-        // geradores, o tipo do elemento (§9 "element type"). O resto,
+        // The `T` of the `Completer<T>`, of the `Iterable<T>` or of the `Stream<T>`: for
+        // `async`, the value type of the declared `Future` (specification §9
+        // "future value type": `Future<T>`/`FutureOr<T>` give `T`); for the
+        // generators, the element type (§9 "element type"). The rest,
         // `dynamic`.
         let expected_class = match ty {
             BodyType::Async => self.ctx.core.future_class,
@@ -572,8 +572,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.terminate(Terminator::Return(Some(r)));
             }
             BodyType::SyncStar => {
-                // O quadro do stub é o modelo: cada `iterator` começa o corpo
-                // num quadro novo, com os parâmetros dele (`$new`).
+                // The frame of the stub is the template: each `iterator` starts the body
+                // in a new frame, with its parameters (`$new`).
                 let new_symbol = format!("{symbol_ent}$novo");
                 self.new_frame_function(&new_symbol, &symbol_ent, &parameters, size);
                 let env_s = self.emit(Instruction::AllocEnv { values: vec![frame_s] }, Type::Ref);
@@ -592,8 +592,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// A closure do corpo sobre o quadro, registrada na zona
-    /// (`_envolverCorpo`) e guardada no quadro.
+    /// The body closure over the frame, registered in the zone
+    /// (`_envolverCorpo`) and kept in the frame.
     fn close_body(&mut self, frame: Operand, symbol_ent: String, span: Span) -> Operand {
         let env = self.emit(Instruction::AllocEnv { values: vec![frame.clone()] }, Type::Ref);
         let clo = self.emit(
@@ -609,11 +609,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         fn_body
     }
 
-    /// `sync*`: a closure sem argumentos `new_symbol` (a entrada uniforme
-    /// `<new_symbol>$ent`), que copia do quadro modelo (o ambiente dela)
-    /// `this`, as capturas, a tupla de tipos e os parâmetros para um quadro
-    /// novo e devolve a closure do corpo sobre ele — o `_stateAtStart._clone()`
-    /// da VM.
+    /// `sync*`: the argument-less closure `new_symbol` (the uniform entry
+    /// `<new_symbol>$ent`), which copies from the template frame (its environment)
+    /// `this`, the captures, the type tuple and the parameters into a new
+    /// frame and returns the body closure over it — the VM's
+    /// `_stateAtStart._clone()`.
     fn new_frame_function(
         &mut self,
         new_symbol: &str,
@@ -661,8 +661,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.absorb(e);
     }
 
-    /// `async*`: termina o corpo (pelos `finally`) se o valor da retomada diz
-    /// que a inscrição foi cancelada.
+    /// `async*`: ends the body (through the `finally`s) if the resumption value says
+    /// that the subscription was cancelled.
     fn exit_if_cancelled(&mut self) {
         let result = self.async_state.as_ref().expect("corpo async*").result.clone();
         let cancelled = self.coerce(result, Type::I1);
@@ -678,8 +678,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.set_block(follow);
     }
 
-    /// `yield e` e `yield* e` (especificação §18.16, §18.17) num corpo
-    /// `sync*` ou `async*`.
+    /// `yield e` and `yield* e` (specification §18.16, §18.17) in a
+    /// `sync*` or `async*` body.
     pub fn lower_yield(&mut self, ast: &ast::Ast, star: bool, e: ast::ExprId, span: Span) {
         let ty = self.async_state.as_ref().map(|e| e.ty);
         if !matches!(ty, Some(BodyType::SyncStar | BodyType::AsyncStar)) {
@@ -708,7 +708,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let suspends = self.current_block;
             self.terminate_raw(Operand::Constant(Constant::Bool(true)));
             let resumption = self.register_resumption(k, suspends);
-            // A exceção do iterador de um `yield*` volta lançada aqui.
+            // The exception of the iterator of a `yield*` comes back thrown here.
             let st = self.async_state.as_ref().expect("corpo sync*");
             let (code, result) = (st.code.clone(), st.result.clone());
             self.set_block(resumption);
@@ -730,8 +730,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.set_block(exit);
             self.route_return(None);
             self.set_block(suspend);
-            // A posição do `yield` (a do comando): a do quadro do gerador
-            // suspenso aqui, no rastro.
+            // The position of the `yield` (that of the statement): that of the frame of the generator
+            // suspended here, in the stack trace.
             let position = self.position.unwrap_or((0, 0));
             if let Some(e) = self.async_state.as_mut() {
                 e.waits.push((k, position));
@@ -745,11 +745,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// `await for (alvo in s) body` (especificação §18.6.3), baixado como o
-    /// kernel da VM o desaçucara (`native_sdk/async/async_patch.dart`):
-    /// `StreamIterator`, `while (await it.moveNext())`, e o `finally` que
-    /// cancela a inscrição se ela ainda existe — por `break`, `return` ou
-    /// exceção no corpo.
+    /// `await for (target in s) body` (specification §18.6.3), lowered the way the
+    /// VM kernel desugars it (`native_sdk/async/async_patch.dart`):
+    /// `StreamIterator`, `while (await it.moveNext())`, and the `finally` that
+    /// cancels the subscription if it still exists — through `break`, `return` or an
+    /// exception in the body.
     pub fn lower_await_for(
         &mut self,
         ast: &ast::Ast,
@@ -818,7 +818,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.lower_try_with(ast, &mut loop_fn, &[], Some(&mut cancel));
     }
 
-    /// Cria o bloco de retomada do estado `k`, suspenso em `suspends`.
+    /// Creates the resumption block of state `k`, suspended in `suspends`.
     fn register_resumption(&mut self, k: i64, suspends: BlockId) -> BlockId {
         let resumption = self.new_block();
         let st = self.async_state.as_mut().expect("corpo suspenso");
@@ -827,11 +827,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         resumption
     }
 
-    /// Na retomada: com `código == _ERRO`, lança o `_ErroAssincrono` do
-    /// `result` ali; senão segue. Devolve o bloco que desvia para o
-    /// caminho sem erro (o único predecessor dele).
+    /// On resumption: with `code == _ERRO`, throws the `_ErroAssincrono` of
+    /// `result` there; otherwise continues. Returns the block that branches to the
+    /// error-free path (its single predecessor).
     fn throw_if_error(&mut self, code: Operand, result: Operand, span: Span) -> BlockId {
-        // `código` chega como `int` numa posição `Ref` (Smi).
+        // `code` arrives as an `int` in a `Ref` position (Smi).
         let c = self.coerce(code, Type::I64);
         let is_error = self.emit(
             Instruction::ICmp(ICmpOp::Eq, c, Operand::Constant(Constant::Int(1))),
@@ -851,7 +851,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         origin
     }
 
-    /// `Return` que não passa por `_asyncReturn`.
+    /// A `Return` that does not go through `_asyncReturn`.
     fn terminate_raw(&mut self, v: Operand) {
         let before = self.async_state.as_ref().is_some_and(|e| e.raw_return);
         if let Some(e) = self.async_state.as_mut() {
@@ -863,9 +863,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// O `return` de um corpo `async` (chamado por `terminate`): `_asyncReturn(v,
-    /// completer)` e o ret cru. Uma exceção de `_asyncReturn` (o `as T`
-    /// do valor) vai ao tratador do topo.
+    /// The `return` of an `async` body (called by `terminate`): `_asyncReturn(v,
+    /// completer)` and the raw ret. An exception from `_asyncReturn` (the `as T`
+    /// of the value) goes to the top handler.
     pub fn async_return(&mut self, v: Option<Operand>) {
         let st = self.async_state.as_ref().expect("corpo async");
         let completer = st.completer.clone();
@@ -889,7 +889,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.terminate_raw(Operand::Constant(Constant::Null));
     }
 
-    /// `await e` (especificação §17.34): suspende até o `Future` completar.
+    /// `await e` (specification §17.34): suspends until the `Future` completes.
     pub fn lower_await(&mut self, ast: &ast::Ast, e: ast::ExprId, span: Span) -> Operand {
         if !self.async_state.as_ref().is_some_and(|e| e.ty != BodyType::SyncStar) {
             return self.unsupported("await fora de função async", span);
@@ -898,7 +898,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.await_value(v, span)
     }
 
-    /// `await` de um valor já avaliado (o de `lower_await`, e os do
+    /// `await` of an already evaluated value (that of `lower_await`, and those of
     /// `await for`).
     pub fn await_value(&mut self, v: Operand, span: Span) -> Operand {
         if !self.async_state.as_ref().is_some_and(|e| e.ty != BodyType::SyncStar) {
@@ -915,8 +915,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let st = self.async_state.as_ref().expect("corpo async");
         let (frame, fn_body) = (st.frame.clone(), st.body.clone());
         let k = st.resumptions.len() as i64 + 1;
-        // A posição do `await` (o `fileOffset` dele): a do quadro de quem
-        // espera aqui, no rastro.
+        // The position of the `await` (its `fileOffset`): that of the frame of whoever
+        // waits here, in the stack trace.
         let position = self.position.unwrap_or((0, 0));
         if let Some(e) = self.async_state.as_mut() {
             e.waits.push((k, position));
@@ -930,12 +930,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let (code, result) = (st.code.clone(), st.result.clone());
         self.set_block(resumption);
         let origin = self.throw_if_error(code, result.clone(), span);
-        // O valor retomado é o parâmetro `result`, que cada entrada do
-        // corpo troca: sai dele uma definição SSA própria, aqui, para que a
-        // passada 2 (`save_live`) o leve ao quadro quando ele atravessa
-        // outro ponto de suspensão (`[await a, await b]`, `f(await a, await
-        // b)`, `await a + await b`, `'${await a}${await b}'`…). Os
-        // parâmetros do corpo ficam de fora daquela passada.
+        // The resumed value is the `result` parameter, which each entry of the
+        // body replaces: an SSA definition of its own comes out of it, here, so that
+        // pass 2 (`save_live`) takes it into the frame when it crosses
+        // another suspension point (`[await a, await b]`, `f(await a, await
+        // b)`, `await a + await b`, `'${await a}${await b}'`…). The
+        // parameters of the body stay out of that pass.
         self.emit(
             Instruction::Phi {
                 incoming: vec![(origin, result)],
@@ -945,8 +945,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         )
     }
 
-    /// Lança, no ponto do `await`, o erro de um `_ErroAssincrono` com o
-    /// rastro dele.
+    /// Throws, at the point of the `await`, the error of an `_ErroAssincrono` with
+    /// its stack trace.
     fn throw_async_error(&mut self, val_ref: Operand, span: Span) {
         let fields = self.async_error_fields();
         let Some((ve, vr)) = fields else {
@@ -959,7 +959,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.branch_to_handler();
     }
 
-    /// Os campos `error` e `stack_trace` de `_ErroAssincrono`.
+    /// The `error` and `stack_trace` fields of `_ErroAssincrono`.
     fn async_error_fields(
         &self,
     ) -> Option<(dartforge_elements::model::VariableId, dartforge_elements::model::VariableId)> {
@@ -980,8 +980,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Some((field("erro")?, field("rastro")?))
     }
 
-    /// Depois de deixar uma exceção pendente: o desvio de `emit_throw_op`
-    /// (tratador corrente, `finally` ou saída).
+    /// After leaving a pending exception: the branch of `emit_throw_op`
+    /// (current handler, `finally` or exit).
     fn branch_to_handler(&mut self) {
         let curr_b = self.current_block;
         if let Some(&exc_target) = self.exception_targets.last() {
@@ -1001,9 +1001,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 }
 
 // ---------------------------------------------------------------------------
-// As passadas sobre a HIR do corpo.
+// The passes over the HIR of the body.
 
-/// O tipo que o emissor dá a cada valor (o de `LlvmEmitter`).
+/// The type the emitter gives each value (that of `LlvmEmitter`).
 fn function_types(func: &Function) -> HashMap<ValueId, Type> {
     let mut t = HashMap::new();
     for (v, _, ty) in &func.params {
@@ -1023,8 +1023,8 @@ fn new_value(next: &mut u32) -> ValueId {
     v
 }
 
-/// Instruções que leem a posição `slot` do quadro para o valor `dest`
-/// na representação `ty`.
+/// Instructions that read position `slot` of the frame into value `dest`
+/// in representation `ty`.
 fn read_from_frame(frame: &Operand, slot: usize, ty: Type, dest: ValueId, next: &mut u32) -> Vec<(ValueId, Instruction, Type)> {
     let get = |ret: Type| Instruction::CallRuntime {
         name: "dartforge_object_get".to_string(),
@@ -1032,9 +1032,9 @@ fn read_from_frame(frame: &Operand, slot: usize, ty: Type, dest: ValueId, next: 
         ret_ty: ret,
     };
     match ty {
-        // A restauração de locais e SSA usa a mesma representação explícita
-        // das leituras do cabeçalho. Só a preparação ARC escolhe o empréstimo
-        // auditado; tracing conserva seu acesso físico pelo emissor.
+        // Restoring locals and SSA values uses the same explicit representation
+        // as the header reads. Only the ARC preparation chooses the audited
+        // borrow; tracing keeps its physical access through the emitter.
         Type::Ref => vec![(dest, Instruction::GetField { object: frame.clone(), index: slot }, Type::Ref)],
         Type::I64 => vec![(dest, get(ty), ty)],
         Type::F64 => {
@@ -1059,8 +1059,8 @@ fn read_from_frame(frame: &Operand, slot: usize, ty: Type, dest: ValueId, next: 
             ]
         }
         Type::Void | Type::Ptr => Vec::new(),
-        // Vetores SIMD sem caixa só existem em funções síncronas
-        // (`lower/simd.rs` não os produz num corpo assíncrono).
+        // Unboxed SIMD vectors only exist in synchronous functions
+        // (`lower/simd.rs` does not produce them in an asynchronous body).
         Type::V4F32 | Type::V4I32 | Type::V2F64 => unreachable!("vetor SIMD sem caixa num quadro assíncrono"),
     }
 }
@@ -1102,8 +1102,8 @@ mod ref_restoration_tests {
         assert!(ir.find("call void @dartforge_arc_retain").unwrap()
             < ir.find("call void @dartforge_arc_gravar_campo_escalar_conferido_v1").unwrap());
         assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
-        // O mesmo acesso tipado é emitível em tracing; os tokens ARC surgem
-        // somente na preparação explicitamente selecionada acima.
+        // The same typed access can be emitted under tracing; the ARC tokens appear
+        // only in the explicitly selected preparation above.
         let mut tracing = Module::new();
         tracing.functions.push(f);
         let mut without_plans = HashMap::new();
@@ -1115,7 +1115,7 @@ mod ref_restoration_tests {
     }
 }
 
-/// Instruções que gravam `value` (na representação `ty`) na posição `slot`.
+/// Instructions that write `value` (in representation `ty`) into position `slot`.
 fn store_in_frame(frame: &Operand, slot: usize, val_ref: Operand, ty: Type, next: &mut u32) -> Vec<(ValueId, Instruction, Type)> {
     let mut exit = Vec::new();
     let (bits, is_ref) = match ty {
@@ -1151,8 +1151,8 @@ fn store_in_frame(frame: &Operand, slot: usize, val_ref: Operand, ty: Type, next
     exit
 }
 
-/// Passada 1: cada `alloca` vira uma posição do quadro a partir de `base`.
-/// Devolve quantas posições usou.
+/// Pass 1: each `alloca` becomes a position of the frame starting at `base`.
+/// Returns how many positions it used.
 fn convert_allocas(func: &mut Function, frame: &Operand, base: usize, next: &mut u32) -> usize {
     let mut position: HashMap<ValueId, (usize, Type)> = HashMap::new();
     for b in &func.blocks {
@@ -1185,8 +1185,8 @@ fn convert_allocas(func: &mut Function, frame: &Operand, base: usize, next: &mut
                 }
                 Instruction::Store { ptr: Operand::Val(p), val } if position.contains_key(p) => {
                     let (s, t) = position[p];
-                    // O valor chega na representação do local (R6, já
-                    // coagido pelo lowering); só a largura pode diferir.
+                    // The value arrives in the representation of the local (R6, already
+                    // coerced by the lowering); only the width may differ.
                     let ty_gravar = if t == Type::Ref { Type::Ref } else { type_of(val) };
                     b.instructions.extend(store_in_frame(frame, s, val.clone(), ty_gravar, next));
                 }
@@ -1197,7 +1197,7 @@ fn convert_allocas(func: &mut Function, frame: &Operand, base: usize, next: &mut
     position.len()
 }
 
-/// Os valores lidos por uma instrução.
+/// The values read by an instruction.
 pub(crate) fn uses_of(inst: &Instruction) -> Vec<ValueId> {
     let mut u = Vec::new();
     let mut op = |o: &Operand| {
@@ -1342,7 +1342,7 @@ pub(crate) fn uses_of(inst: &Instruction) -> Vec<ValueId> {
     u
 }
 
-/// Troca cada uso de `de` por `to` numa instrução (sem os `phi`).
+/// Replaces each use of `de` with `to` in an instruction (without the `phi`s).
 fn replace_uses(inst: &mut Instruction, swap: &dyn Fn(ValueId) -> Option<ValueId>) {
     let t = |o: &mut Operand| {
         if let Operand::Val(v) = o
@@ -1528,9 +1528,9 @@ pub(crate) fn successors(term: &Terminator) -> Vec<BlockId> {
     }
 }
 
-/// Passada 2: os valores SSA vivos na entrada de uma retomada vão para o
-/// quadro a partir de `base` (gravados depois da definição, relidos antes de
-/// cada uso). Devolve quantas posições usou.
+/// Pass 2: the SSA values live at the entry of a resumption go into the
+/// frame starting at `base` (written after the definition, reread before
+/// each use). Returns how many positions it used.
 fn save_live(
     func: &mut Function,
     frame: &Operand,
@@ -1546,7 +1546,7 @@ fn save_live(
     let n = func.blocks.len();
     let mut defs: Vec<HashSet<ValueId>> = vec![HashSet::new(); n];
     let mut uses: Vec<HashSet<ValueId>> = vec![HashSet::new(); n];
-    // Usos de `phi` atribuídos ao fim do bloco de origem.
+    // Uses in a `phi` are attributed to the end of the origin block.
     let mut end_uses: Vec<HashSet<ValueId>> = vec![HashSet::new(); n];
     for (i, b) in func.blocks.iter().enumerate() {
         for (v, inst, _) in &b.instructions {
@@ -1623,9 +1623,9 @@ fn save_live(
         .map(|(k, v)| (*v, (base + k, types[v])))
         .collect();
 
-    // A guarda de pendência no fim de um bloco (chamada, leitura da
-    // pendência, comparação e desvio): a forma que a preparação ARC
-    // reconhece. Nada entra entre a chamada e o desvio.
+    // The pending guard at the end of a block (call, read of the
+    // pending state, comparison and branch): the shape the ARC preparation
+    // recognizes. Nothing goes between the call and the branch.
     fn guard(b: &BasicBlock) -> Option<(usize, BlockId)> {
         let n = b.instructions.len();
         let Terminator::CondBranch { cond: Operand::Val(c), else_block, .. } = &b.terminator else { return None };
@@ -1633,20 +1633,20 @@ fn save_live(
             b.instructions.get(n.checked_sub(2)?..)? else { return None };
         (name == "dartforge_exception_pending" && pv == p && ic == c && n >= 3).then_some((n - 3, *else_block))
     }
-    // Gravações do resultado de uma chamada guardada: vão para a aresta de
-    // sucesso (bloco novo), depois da guarda.
+    // Writes of the result of a guarded call: they go to the success
+    // edge (a new block), after the guard.
     let mut on_edges: Vec<(BlockId, BlockId, Vec<(ValueId, Instruction, Type)>)> = Vec::new();
     for b in &mut func.blocks {
         let saved = guard(b);
-        // Releituras no fim do bloco para as entradas de `phi` dos sucessores
-        // são feitas numa segunda volta (abaixo).
+        // Rereads at the end of the block for the `phi` entries of the successors
+        // are done in a second round (below).
         let old_ones = std::mem::take(&mut b.instructions);
         let n_phis = old_ones.iter().take_while(|(_, i, _)| matches!(i, Instruction::Phi { .. })).count();
         let mut new_ones: Vec<(ValueId, Instruction, Type)> = Vec::with_capacity(old_ones.len());
         let mut after_phis: Vec<(ValueId, Instruction, Type)> = Vec::new();
         for (k, (v, mut inst, ty)) in old_ones.into_iter().enumerate() {
             if !matches!(inst, Instruction::Phi { .. }) {
-                // Releitura de cada valor guardado que a instrução usa.
+                // Reread of each saved value the instruction uses.
                 let mut swaps: HashMap<ValueId, ValueId> = HashMap::new();
                 for u in uses_of(&inst) {
                     if let Some(&(s, t)) = position.get(&u)
@@ -1680,7 +1680,7 @@ fn save_live(
             }
         }
         new_ones.append(&mut after_phis);
-        // O terminador.
+        // The terminator.
         let mut swaps: HashMap<ValueId, ValueId> = HashMap::new();
         for u in terminator_uses(&b.terminator) {
             if let Some(&(s, t)) = position.get(&u)
@@ -1718,9 +1718,9 @@ fn save_live(
         }
         func.blocks.push(BasicBlock { id: edge, instructions: writes, terminator: Terminator::Branch(success) });
     }
-    // Entradas de `phi` com valor guardado: releitura no fim do bloco de
-    // origem (antes do terminador dele; antes da chamada guardada, que não
-    // grava no quadro).
+    // `phi` entries with a saved value: reread at the end of the origin
+    // block (before its terminator; before the guarded call, which does not
+    // write into the frame).
     let mut rereads: Vec<(BlockId, ValueId, ValueId)> = Vec::new(); // (origem, antigo, novo)
     for b in &mut func.blocks {
         for (_, inst, _) in &mut b.instructions {

@@ -1,30 +1,30 @@
-//! Tipos em tempo de execução (RTI) no lowering: receitas, o tipo de cada
-//! objeto genérico e os testes `is`/`as` com argumentos de tipo.
+//! Runtime types (RTI) in the lowering: recipes, the type of each
+//! generic object and the `is`/`as` tests with type arguments.
 //!
-//! O desenho é o do dart2js (`sdk/lib/_internal/js_runtime/lib/rti.dart`) e
-//! está no runtime (`crates/runtime/src/types.rs`): um tipo é um id de um
-//! universo canônico; o compilador descreve cada tipo por uma **receita**
-//! (texto curto, gramática em `types.rs`), que o runtime lê uma vez — cada
-//! receita tem um global preguiçoso (`dfr.<hash>`) e o getter dele
-//! (`df.rti.<hash>`). Receita com variáveis (`P<i>`: parâmetro de tipo da
-//! classe do código corrente; `M<i>`: argumento de tipo da função corrente)
-//! é avaliada no ambiente (`dartforge_rti_avaliar`: o tipo de `this` visto
-//! como a classe, e a tupla da função).
+//! The design is dart2js's (`sdk/lib/_internal/js_runtime/lib/rti.dart`) and
+//! lives in the runtime (`crates/runtime/src/types.rs`): a type is an id of a
+//! canonical universe; the compiler describes each type by a **recipe**
+//! (a short text, grammar in `types.rs`), which the runtime reads once — each
+//! recipe has a lazy global (`dfr.<hash>`) and its getter
+//! (`df.rti.<hash>`). A recipe with variables (`P<i>`: type parameter of the
+//! class of the current code; `M<i>`: type argument of the current function)
+//! is evaluated in the environment (`dartforge_rti_avaliar`: the type of `this` seen
+//! as the class, and the tuple of the function).
 //!
-//! **Onde o tipo é gravado** (nos metadados do slot, `Heap::metadata`):
-//! na criação de uma instância de classe genérica (o tipo estático da
-//! criação, `C<T…>`), nos literais de coleção com tipo de elemento, e nas
-//! closures (a assinatura). Um objeto sem tipo gravado tem o tipo cru da
-//! classe (argumentos `dynamic`).
+//! **Where the type is stored** (in the slot metadata, `Heap::metadata`):
+//! at the creation of an instance of a generic class (the static type of the
+//! creation, `C<T…>`), in collection literals with an element type, and in
+//! closures (the signature). An object without a stored type has the raw type of the
+//! class (`dynamic` arguments).
 //!
-//! **Onde ele é lido:** `is`/`as`, `catch (e) on T`, padrões de tipo e de
-//! coleção com argumentos. O teste pela classe (`dartforge_is_subclass`)
-//! continua onde basta (classe sem argumentos de tipo): nele a resposta é a
-//! mesma e não há leitura de tipo.
+//! **Where it is read:** `is`/`as`, `catch (e) on T`, type and
+//! collection patterns with arguments. The test by class (`dartforge_is_subclass`)
+//! stays where it is enough (a class without type arguments): there the answer is the
+//! same and there is no type read.
 //!
-//! As classes que as receitas citam e os supertipos delas são registrados na
-//! entrada (`register_universe`), só quando o programa usa alguma receita:
-//! quem não usa RTI não paga nada.
+//! The classes that the recipes cite and their supertypes are registered at the
+//! entry (`register_universe`), only when the program uses some recipe:
+//! whoever does not use RTI pays nothing.
 
 use super::fn_builder::FnBuilder;
 use crate::context::Context;
@@ -35,10 +35,10 @@ use dartforge_intern::SymbolId;
 use dartforge_types::table::{Type as T, TypeId, TypeParamId, TypeParamOwner};
 use std::collections::{BTreeSet, HashMap};
 
-/// Id de classe do heap do objeto `Type` (`types.rs`, `CLASSE_TIPO`).
+/// Heap class id of the `Type` object (`types.rs`, the type class constant).
 pub const CLASSE_TIPO: i64 = 0x3FFF_FF01;
 
-/// A classe `name` do `dart:core`.
+/// The class `name` of `dart:core`.
 fn core_class(ctx: &Context, name_str: &str) -> Option<ClassId> {
     let core = ctx.program.core?;
     let sym = ctx.interner.lookup(name_str)?;
@@ -48,7 +48,7 @@ fn core_class(ctx: &Context, name_str: &str) -> Option<ClassId> {
     }
 }
 
-/// Hash estável (FNV-1a 64) de uma receita: o nome do global dela.
+/// Stable hash (FNV-1a 64) of a recipe: the name of its global.
 fn recipe_hash(r: &str) -> String {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in r.bytes() {
@@ -58,7 +58,7 @@ fn recipe_hash(r: &str) -> String {
     format!("{h:016x}")
 }
 
-/// Uma receita e se ela tem variáveis (`P<i>`/`M<i>`) a avaliar.
+/// A recipe and whether it has variables (`P<i>`/`M<i>`) to evaluate.
 #[derive(Debug, Clone)]
 pub struct Recipe {
     pub text: String,
@@ -66,9 +66,9 @@ pub struct Recipe {
 }
 
 impl Context<'_> {
-    /// O id RTI de uma classe: o id de classe do heap para as do programa
-    /// (e as da fonte); para as do SDK, a faixa `0x2000_0000 +` a ordem do
-    /// caminho estável; `Object` é 0 (o id de classe do heap dele).
+    /// The RTI id of a class: the heap class id for those of the program
+    /// (and those from source); for those of the SDK, the range `0x2000_0000 +` the order of the
+    /// stable path; `Object` is 0 (its heap class id).
     pub fn id_rti(&self, c: ClassId) -> i64 {
         if let Some(id) = self.class_id_of(c) {
             return i64::from(id);
@@ -79,7 +79,7 @@ impl Context<'_> {
         self.sdk_rti_ids.get(&c).map_or(0, |&k| 0x2000_0000 + i64::from(k))
     }
 
-    /// A classe de um id RTI (o inverso de `id_rti`).
+    /// The class of an RTI id (the inverse of `id_rti`).
     pub fn rti_id_class(&self, id: i64) -> Option<ClassId> {
         if id == 0 {
             return self.core.object_class;
@@ -93,23 +93,23 @@ impl Context<'_> {
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// Índice de `p` nos parâmetros de tipo do seu dono, com a letra da
-    /// variável: `P` (classe do código corrente) ou `M` (função corrente, ou
-    /// a classe numa fábrica, onde os argumentos vêm na tupla).
+    /// Index of `p` in the type parameters of its owner, with the letter of the
+    /// variable: `P` (class of the current code) or `M` (current function, or
+    /// the class in a factory, where the arguments come in the tuple).
     fn variable_of(&self, p: TypeParamId) -> Option<(char, usize)> {
-        // O de uma closure genérica em volta (ou a corrente).
+        // That of an enclosing generic closure (or the current one).
         if let Some(&(_, _, i)) = self.local_params.iter().rev().find(|(_, x, _)| *x == p) {
             return Some(('M', i));
         }
         match self.ctx.table.param(p).owner {
             TypeParamOwner::Class(c) => {
                 let i = self.ctx.outline.classes.get(c.0 as usize)?.type_params.iter().position(|&x| x == p)?;
-                // Os de um tipo de extensão vêm sempre na tupla (não há
-                // objeto que os guarde).
+                // Those of an extension type always come in the tuple (there is no
+                // object that keeps them).
                 Some((if self.class_by_tuple || self.ctx.is_extension_type(c) { 'M' } else { 'P' }, i))
             }
-            // Na tupla de um membro de extensão, os parâmetros da extensão
-            // vêm antes dos do membro (`type_params_of`).
+            // In the tuple of an extension member, the parameters of the extension
+            // come before those of the member (`type_params_of`).
             TypeParamOwner::Function(f) => {
                 let i = self.ctx.outline.functions.get(f.0 as usize)?.type_params.iter().position(|&x| x == p)?;
                 let base = self.receiver_pattern(f.0 as usize).map_or(0, |(n, _)| n);
@@ -123,15 +123,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Receita de um tipo do `crates/types`.
+    /// Recipe of a type from `crates/types`.
     pub fn type_recipe(&self, t: TypeId) -> Recipe {
         let mut r = Recipe { text: String::new(), variables: false };
         self.write_type(t, &mut Vec::new(), &HashMap::new(), &mut r);
         r
     }
 
-    /// A receita de `t` com os parâmetros de tipo de `subst` trocados pelos
-    /// tipos dados (o parâmetro de uma classe genérica visto pela criação
+    /// The recipe of `t` with the type parameters of `subst` replaced by the
+    /// given types (the parameter of a generic class seen by the creation
     /// `C<int>(…)`, `typed_entry.rs`).
     pub(super) fn substituted_type_recipe(&self, t: TypeId, subst: Option<&HashMap<TypeParamId, TypeId>>) -> Recipe {
         let empty = HashMap::new();
@@ -147,7 +147,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         subst: &HashMap<TypeParamId, TypeId>,
         r: &mut Recipe,
     ) {
-        // Um tipo de extensão é, em tempo de execução, o da representação.
+        // An extension type is, at runtime, that of the representation.
         if matches!(self.ctx.table.get(t), T::ExtensionType { .. }) {
             let erased = self.ctx.erase(t);
             if erased != t {
@@ -178,9 +178,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.write_type(*arg, linked_set, subst, r);
                 r.text.push('>');
             }
-            // `X & B` (variável de tipo promovida) só existe na análise
-            // estática; reificado, é a própria `X` (como no dart2js e na
-            // NORM da especificação da inferência).
+            // `X & B` (a promoted type variable) only exists in the static
+            // analysis; reified, it is `X` itself (as in dart2js and in the
+            // NORM of the inference specification).
             T::TypeParameter { param, .. } | T::Intersection { param, .. } => {
                 if let Some(&s) = subst.get(param) {
                     self.write_type(s, linked_set, subst, r);
@@ -246,15 +246,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// A posição na tupla (`M<i>`) do parâmetro de tipo `sym` de uma
-    /// closure genérica em escopo (o mais interno com esse nome).
+    /// The position in the tuple (`M<i>`) of the type parameter `sym` of a
+    /// generic closure in scope (the innermost with that name).
     pub(super) fn local_type_index(&self, sym: SymbolId) -> Option<usize> {
         self.local_params.iter().rev().find(|(s, _, _)| *s == sym).map(|&(_, _, i)| i)
     }
 
-    /// Quantos argumentos de tipo a tupla corrente carrega: os da função
-    /// (e da extensão), os da classe numa fábrica, os das closures genéricas
-    /// em volta. Zero sem tupla.
+    /// How many type arguments the current tuple carries: those of the function
+    /// (and of the extension), those of the class in a factory, those of the enclosing generic
+    /// closures. Zero without a tuple.
     pub(super) fn tuple_size(&self) -> usize {
         if self.type_tuple.is_none() {
             return 0;
@@ -264,7 +264,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.function_type_params.len().max(class).max(locals)
     }
 
-    /// Os nomes dos parâmetros de tipo da classe envolvente (na ordem).
+    /// The names of the type parameters of the enclosing class (in order).
     pub(super) fn class_params(&self) -> Vec<SymbolId> {
         let Some(c) = self.enclosing_class else { return Vec::new() };
         self.ctx
@@ -275,18 +275,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             .unwrap_or_default()
     }
 
-    /// Receita de uma anotação de tipo do código (`x is List<T>`), resolvida
-    /// pelo escopo: variáveis de tipo da função e da classe, o escopo da
-    /// biblioteca (com prefixo). `None` quando o nome não resolve.
+    /// Recipe of a type annotation of the code (`x is List<T>`), resolved
+    /// through the scope: type variables of the function and of the class, the scope of the
+    /// library (with a prefix). `None` when the name does not resolve.
     pub fn annotation_recipe(&self, a: &ast::TypeAnnotation) -> Option<Recipe> {
         let mut r = Recipe { text: String::new(), variables: false };
         self.write_annotation(a, &mut Vec::new(), &mut r)?;
         Some(r)
     }
 
-    /// Argumentos reificados de um tipo anotado, para a ABI de uma factory
-    /// redirecionadora. A receita usa o ambiente da factory de origem:
-    /// `Impl<T>` precisa ler `T` da tupla recebida por ela.
+    /// Reified arguments of an annotated type, for the ABI of a redirecting
+    /// factory. The recipe uses the environment of the source factory:
+    /// `Impl<T>` needs to read `T` from the tuple it received.
     pub fn annotation_tuple(&mut self, a: &ast::TypeAnnotation) -> Option<Operand> {
         let TypeKind::Named { args, .. } = &a.kind else { return None };
         if args.is_empty() { return None; }
@@ -303,8 +303,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Some(self.recipe_rti(&r))
     }
 
-    /// Receita de uma variável de tipo em escopo, pelo nome: da função (e da
-    /// extensão), depois da classe. `None` quando `sym` não é uma delas.
+    /// Recipe of a type variable in scope, by name: of the function (and of the
+    /// extension), then of the class. `None` when `sym` is none of them.
     pub fn type_variable_recipe(&self, sym: SymbolId) -> Option<Recipe> {
         let text = if let Some(i) = self.local_type_index(sym) {
             format!("M{i}")
@@ -356,8 +356,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         _ => self.ctx.program.lookup(lib, last_one.sym),
                     }?;
                     match b.getter? {
-                        // Tipo de extensão: a receita da representação, com
-                        // os argumentos escritos (como um typedef).
+                        // Extension type: the recipe of the representation, with
+                        // the written arguments (like a typedef).
                         Element::Class(c) if self.ctx.is_extension_type(c) => {
                             let this = *self.ctx.te.this.get(&c)?;
                             let params = self.ctx.outline.classes.get(c.0 as usize)?.type_params.clone();
@@ -399,8 +399,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         }
                         Element::Typedef(td) => {
                             let data = self.ctx.outline.typedefs.get(td.0 as usize)?;
-                            // Os argumentos do typedef entram pela receita de
-                            // cada um (sub-receitas escritas em texto).
+                            // The arguments of the typedef enter through the recipe of
+                            // each one (sub-recipes written as text).
                             let mut sub = Recipe { text: String::new(), variables: false };
                             let mut strings = Vec::new();
                             for x in args.iter() {
@@ -491,11 +491,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Some(())
     }
 
-    /// Receita de `t` com os parâmetros `params` trocados pelas receitas
-    /// `args` (os de um typedef).
+    /// Recipe of `t` with the parameters `params` replaced by the recipes
+    /// `args` (those of a typedef).
     pub(super) fn type_recipe_with(&self, t: TypeId, params: &[TypeParamId], args: &[String]) -> Recipe {
-        // Escreve com marcadores e troca: os parâmetros do typedef não são de
-        // classe nem de função, então `write_type` os escreveria como `D`.
+        // Writes with markers and replaces: the typedef parameters are neither of a
+        // class nor of a function, so `write_type` would write them as `D`.
         let mut r = Recipe { text: String::new(), variables: false };
         self.write_typedef_type(t, params, args, &mut Vec::new(), &mut r);
         r
@@ -518,8 +518,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             return;
         }
-        // Os demais casos: a receita normal, descendo pelos argumentos com a
-        // mesma troca (os tipos compostos são reescritos por partes).
+        // The other cases: the normal recipe, descending through the arguments with the
+        // same replacement (the compound types are rewritten piece by piece).
         match self.ctx.table.get(t) {
             T::Interface { class, args: a, nullable } => {
                 r.text.push_str(&format!("C{}", self.ctx.id_rti(*class)));
@@ -601,12 +601,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// O tipo da receita, como `I64`, no ambiente corrente.
+    /// The type of the recipe, as `I64`, in the current environment.
     pub fn recipe_rti(&mut self, r: &Recipe) -> Operand {
         let h = recipe_hash(&r.text);
-        // A mesma receita pode surgir no programa e em várias bibliotecas do
-        // SDK. Cada biblioteca possui seu próprio cache preguiçoso; nomes
-        // distintos evitam definições múltiplas na ligação ThinLTO.
+        // The same recipe may appear in the program and in several libraries of the
+        // SDK. Each library has its own lazy cache; distinct
+        // names avoid multiple definitions in the ThinLTO link.
         let lib = self.ctx.program.unit(self.unit_id).library;
         let owner = crate::context::escape_str(&self.ctx.library_name(lib));
         let getter = format!("df.rti.{h}.{owner}");
@@ -704,13 +704,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         )
     }
 
-    /// O tipo `t` do `crates/types`, como `I64`, no ambiente corrente.
+    /// The type `t` from `crates/types`, as `I64`, in the current environment.
     pub fn type_rti(&mut self, t: TypeId) -> Operand {
         let r = self.type_recipe(t);
         self.recipe_rti(&r)
     }
 
-    /// Grava o tipo em tempo de execução de um objeto (`Ref`).
+    /// Stores the runtime type of an object (`Ref`).
     pub fn define_rti(&mut self, obj: Operand, ty: Operand) {
         self.emit(
             Instruction::CallRuntime {
@@ -722,8 +722,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         );
     }
 
-    /// Grava em `obj` o tipo estático `t` quando ele diz algo que a classe
-    /// não diz (tem argumentos de tipo, ou é tipo de função).
+    /// Stores in `obj` the static type `t` when it says something that the class
+    /// does not say (it has type arguments, or it is a function type).
     pub fn define_rti_if_generic(&mut self, obj: Operand, t: TypeId) {
         let useful = match self.ctx.table.get(t) {
             T::Interface { args, .. } => args.iter().any(|a| *a != self.ctx.core.dynamic_),
@@ -736,8 +736,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// O literal de coleção `l` com o tipo estático da expressão (quando o
-    /// literal não terminou o bloco).
+    /// The collection literal `l` with the static type of the expression (when the
+    /// literal did not terminate the block).
     pub fn literal_rti(&mut self, l: Operand, expr: ast::ExprId) -> Operand {
         if !self.is_terminated()
             && self.operand_type(&l) == Type::Ref
@@ -762,20 +762,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.emit(Instruction::ICmp(ICmpOp::Ne, r, Operand::Constant(Constant::Int(0))), Type::I1)
     }
 
-    /// `op as <ty>` pelo RTI: `TypeError` pendente se falha.
+    /// `op as <ty>` through the RTI: a pending `TypeError` if it fails.
     pub fn cast_rti(&mut self, op: Operand, ty: Operand) {
         self.cast_rti_in(op, ty, CastContext::How);
     }
 
-    /// [`Self::cast_rti`] com o contexto que dá o fim da mensagem da VM.
+    /// [`Self::cast_rti`] with the context that gives the end of the VM's message.
     pub fn cast_rti_in(&mut self, op: Operand, ty: Operand, context: CastContext) {
         let v = self.coerce(op, Type::Ref);
-        // O nome do parâmetro só entra na mensagem do `TypeError`: a
-        // conferência vai antes pelo `is` (`dartforge_rti_e`, o mesmo teste
-        // do `como_em`), e o texto do nome só é montado no caminho da
-        // falha. Antes, toda entrada covariante ou dinâmica (o `[]=` de
-        // `_List`, os adaptadores da tabela de métodos) pagava um
-        // `dartforge_string_new` por parâmetro a cada chamada.
+        // The name of the parameter only enters the message of the `TypeError`: the
+        // check goes first through `is` (`dartforge_rti_e`, the same test
+        // as `cast_rti_in`), and the text of the name is only built on the
+        // failure path. Before, every covariant or dynamic entry (the `[]=` of
+        // `_List`, the adapters of the method table) paid a
+        // `dartforge_string_new` per parameter on each call.
         let (code, name_str, end) = match context {
             CastContext::How => (0, Operand::Constant(Constant::Null), None),
             CastContext::Implicit => (1, Operand::Constant(Constant::Null), None),
@@ -808,19 +808,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Na entrada de uma chamada dinâmica (tear-off, adaptador da tabela de
-    /// métodos), confere cada argumento contra o tipo do parâmetro antes de
-    /// convertê-lo, como a VM: "type 'S' is not a subtype of type 'T' of
-    /// 'nome'". Só os parâmetros de tipo nominal (classe) e os covariantes
-    /// de classe; os outros (`dynamic`, `Object?`, tipos de função e
-    /// parâmetros de tipo da função) ficam com a conversão de sempre.
+    /// At the entry of a dynamic call (tear-off, adapter of the method
+    /// table), checks each argument against the type of the parameter before
+    /// converting it, like the VM: "type 'S' is not a subtype of type 'T' of
+    /// 'name'". Only the parameters of nominal (class) type and the class
+    /// covariant ones; the others (`dynamic`, `Object?`, function types and
+    /// type parameters of the function) keep the usual conversion.
     pub fn check_entry_arguments(&mut self, fid: usize, vals: &[Operand]) {
         self.check_entry_arguments_with(fid, vals, false);
     }
 
-    /// [`Self::check_entry_arguments`]; na entrada tipada
-    /// (`only_covariants`, `typed_entry.rs`), só os parâmetros
-    /// covariantes: os outros o chamador estático já garantiu.
+    /// [`Self::check_entry_arguments`]; at the typed entry
+    /// (`only_covariants`, `typed_entry.rs`), only the covariant
+    /// parameters: the static caller already guaranteed the others.
     pub fn check_entry_arguments_with(&mut self, fid: usize, vals: &[Operand], only_covariants: bool) {
         for (i, (p, v)) in self.ctx.outline.functions[fid].parameters.clone().iter().zip(vals).enumerate() {
             if !super::typed_entry::checked_at_entry(self.ctx, fid, p.ty) {
@@ -835,18 +835,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Arma a tupla de argumentos de tipo da chamada `expr` à função `fid`
-    /// (se ela é genérica): os escritos (`f<int>(…)`), ou os inferidos,
-    /// casando o retorno declarado com o tipo estático da chamada e cada
-    /// parâmetro com o tipo do argumento. O que não se deduz fica `dynamic`.
+    /// Builds the type argument tuple of the call `expr` to the function `fid`
+    /// (if it is generic): the written ones (`f<int>(…)`), or the inferred ones,
+    /// matching the declared return with the static type of the call and each
+    /// parameter with the type of the argument. What cannot be deduced stays `dynamic`.
     pub fn arm_tuple(&mut self, fid: usize, expr: ast::ExprId, arguments: &ast::Arguments) {
         self.arm_tuple_with_receiver(fid, None, Some((expr, arguments)));
     }
 
-    /// `arm_tuple` de um membro de extensão: os argumentos de tipo da
-    /// extensão saem do tipo estático do receptor casado com o `on` (como
-    /// na inferência da aplicação de extensão), os do membro da chamada.
-    /// Sem `call` (getter, setter, operador), só a parte da extensão.
+    /// `arm_tuple` of an extension member: the type arguments of the
+    /// extension come from the static type of the receiver matched with the `on` (as
+    /// in the inference of the extension application), those of the member from the call.
+    /// Without `call` (getter, setter, operator), only the extension part.
     pub fn arm_tuple_with_receiver(
         &mut self,
         fid: usize,
@@ -908,11 +908,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.armed_tuple = Some(t);
     }
 
-    /// Casa o tipo declarado `decl` (com os parâmetros `params`) com o tipo
-    /// real `real`, gravando em `found_items` o que cada parâmetro vale.
-    /// Se `C<args>` é um `Future`, o argumento do supertipo `Future<X>`
-    /// (`Some(None)` quando `X` não se escreve só com os `args`); `None`
-    /// quando não é `Future`.
+    /// Matches the declared type `decl` (with the parameters `params`) with the
+    /// real type `real`, storing in `found_items` what each parameter is worth.
+    /// If `C<args>` is a `Future`, the argument of the supertype `Future<X>`
+    /// (`Some(None)` when `X` cannot be written with the `args` alone); `None`
+    /// when it is not a `Future`.
     fn future_argument(&self, class: dartforge_elements::model::ClassId, args: &[TypeId]) -> Option<Option<TypeId>> {
         let future = self.ctx.core.future_class?;
         if class == future {
@@ -929,7 +929,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         })
     }
 
-    /// O tipo menciona algum parâmetro de tipo.
+    /// The type mentions some type parameter.
     fn contains_variable(&self, t: TypeId) -> bool {
         match self.ctx.table.get(t) {
             T::TypeParameter { .. } | T::Intersection { .. } => true,
@@ -944,8 +944,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if real == self.ctx.core.dynamic_ {
             return;
         }
-        // Tipos de extensão: pelos argumentos quando os dois são do mesmo
-        // (ou o real implementa o do padrão); senão pelos apagados.
+        // Extension types: by the arguments when both are of the same one
+        // (or the real one implements that of the pattern); otherwise by the erased ones.
         match (self.ctx.table.get(decl), self.ctx.table.get(real)) {
             (T::ExtensionType { decl: d1, args: a1, .. }, T::ExtensionType { decl: d2, args: a2, .. }) => {
                 if d1 == d2 {
@@ -968,10 +968,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         match (self.ctx.table.get(decl), self.ctx.table.get(real)) {
             (T::TypeParameter { param, nullable }, _) => {
-                // `X?` casado com `T?` dá `X = T` (a inferência tira o `?`
-                // que o padrão já tem): o `nonNulls` de uma `List<T?>` é
-                // `Iterable<T>`. Sem a forma não anulável na tabela (só de
-                // leitura aqui), fica o `T?`.
+                // `X?` matched with `T?` gives `X = T` (inference removes the `?`
+                // that the pattern already has): the `nonNulls` of a `List<T?>` is
+                // `Iterable<T>`. Without the non-nullable form in the table (read
+                // only here), `T?` stays.
                 let real = if *nullable { self.without_question_mark(real).unwrap_or(real) } else { real };
                 if let Some(i) = params.iter().position(|p| p == param)
                     && found_items[i].is_none()
@@ -984,9 +984,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.unify(*x, *y, params, found_items);
                 }
             }
-            // Classes diferentes: o padrão casa com o supertipo do real
-            // (`Iterable<X>` contra `List<int>` é `Iterable<int>`), como a
-            // inferência faz pela interface do tipo real.
+            // Different classes: the pattern matches the supertype of the real one
+            // (`Iterable<X>` against `List<int>` is `Iterable<int>`), as
+            // inference does through the interface of the real type.
             (T::Interface { class: c1, args: a1, .. }, T::Interface { class: c2, args: a2, .. }) => {
                 let Some(data) = self.ctx.outline.hierarchy.get(*c2) else { return };
                 let Some(&model) = data.supertypes.get(c1) else { return };
@@ -996,13 +996,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
             }
             (T::FutureOr { arg, .. }, T::FutureOr { arg: b, .. }) => self.unify(*arg, *b, params, found_items),
-            // `FutureOr<X>` contra um `Future` casa `X` com o argumento do
-            // `Future` (a inferência tenta `Future<X>` primeiro): também
-            // para um subtipo (`_Future<T>` implementa `Future<T>`).
+            // `FutureOr<X>` against a `Future` matches `X` with the argument of the
+            // `Future` (inference tries `Future<X>` first): also
+            // for a subtype (`_Future<T>` implements `Future<T>`).
             (T::FutureOr { arg, .. }, T::Interface { class, args, .. }) => {
                 match self.future_argument(*class, args) {
                     Some(Some(x)) => self.unify(*arg, x, params, found_items),
-                    // É `Future`, mas o argumento não se deduz: fica livre.
+                    // It is a `Future`, but the argument cannot be deduced: it stays free.
                     Some(None) => {}
                     None => self.unify(*arg, real, params, found_items),
                 }
@@ -1016,9 +1016,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.unify(*x, *y, params, found_items);
                 }
             }
-            // Registros: campo a campo (`extension E<A, B> on (P<A>, P<B>)`
-            // contra `(P<String>, P<int>)`; o `toSequenceParser` do
-            // petitparser), posicionais pela posição e nomeados pelo nome.
+            // Records: field by field (`extension E<A, B> on (P<A>, P<B>)`
+            // against `(P<String>, P<int>)`; petitparser's
+            // `toSequenceParser`), positional by position and named by name.
             (
                 T::Record { positional: p1, named: n1, .. },
                 T::Record { positional: p2, named: n2, .. },
@@ -1036,10 +1036,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// [`Self::unify`] do padrão `decl` com o argumento `model` de um
-    /// supertipo, escrito nos parâmetros `formals` da classe real, cujos
-    /// argumentos são `real_set`: onde o modelo é um formal, o real é o
-    /// argumento correspondente; um modelo sem variáveis casa como está.
+    /// [`Self::unify`] of the pattern `decl` with the argument `model` of a
+    /// supertype, written in the parameters `formals` of the real class, whose
+    /// arguments are `real_set`: where the model is a formal, the real one is the
+    /// corresponding argument; a model without variables matches as it is.
     fn unify_by_model(
         &self,
         decl: TypeId,
@@ -1065,10 +1065,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// O tipo do objeto e a tupla da classe genérica `c` de um tear-off de
-    /// construtor cujo tipo estático (`ty`) já é instanciado pela
-    /// inferência (`C<int> Function()`, sem parâmetros de tipo próprios);
-    /// `None` para classe não genérica ou tear-off genérico.
+    /// The type of the object and the tuple of the generic class `c` of a
+    /// constructor tear-off whose static type (`ty`) is already instantiated by
+    /// inference (`C<int> Function()`, without type parameters of its own);
+    /// `None` for a non-generic class or a generic tear-off.
     pub fn tearoff_instantiation(&mut self, c: ClassId, ty: TypeId) -> Option<(Operand, Operand)> {
         let n = self.ctx.outline.classes.get(c.0 as usize)?.type_params.len();
         if n == 0 {
@@ -1095,8 +1095,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Some((object, tuple))
     }
 
-    /// A forma não anulável de `t` (`T?` → `T`, `C<A>?` → `C<A>`), se a
-    /// tabela a tem.
+    /// The non-nullable form of `t` (`T?` → `T`, `C<A>?` → `C<A>`), if the
+    /// table has it.
     fn without_question_mark(&self, t: TypeId) -> Option<TypeId> {
         let ty = match self.ctx.table.get(t).clone() {
             T::TypeParameter { param, nullable: true } => T::TypeParameter { param, nullable: false },
@@ -1112,15 +1112,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.ctx.table.intern_lookup(ty)
     }
 
-    /// Grava a assinatura de uma closure (`F<…>`): o tipo estático da
-    /// expressão de função, se a inferência o tem, senão o que a declaração
-    /// escreve (parâmetros sem tipo são `dynamic`). É o `$signature` do
-    /// dart2js: o que `f is void Function(Object, StackTrace)` pergunta.
-    /// O tipo de uma função literal (`expr`) ou local nomeada: o de execução
-    /// de um gerador sem retorno escrito (a regra do CFE,
-    /// `tipos_de_execucao_de_funcoes`), senão o inferido — o da expressão, ou
-    /// o do local, cujo retorno sem tipo escrito vem do corpo (`g() { return
-    /// 1; }` é `() => int`, não `() => dynamic`).
+    /// Stores the signature of a closure (`F<…>`): the static type of the
+    /// function expression, if inference has it, otherwise what the declaration
+    /// writes (parameters without a type are `dynamic`). It is dart2js's `$signature`:
+    /// what `f is void Function(Object, StackTrace)` asks.
+    /// The type of a function literal (`expr`) or a named local: the runtime one
+    /// of a generator without a written return (the CFE rule,
+    /// `tipos_de_execucao_de_funcoes`), otherwise the inferred one — that of the expression, or
+    /// that of the local, whose return without a written type comes from the body (`g() { return
+    /// 1; }` is `() => int`, not `() => dynamic`).
     pub fn literal_function_type(&self, ast: &ast::Ast, fid: ast::FunctionId, expr: Option<ast::ExprId>) -> Option<dartforge_types::table::TypeId> {
         let execution = self.ctx.bodies.units.get(self.unit_id.0 as usize).and_then(|u| u.tipo_de_execucao_de_funcao(fid));
         execution.or_else(|| match expr {
@@ -1130,9 +1130,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     pub fn define_closure_rti(&mut self, clo: Operand, ast: &ast::Ast, fid: ast::FunctionId, expr: Option<ast::ExprId>) {
-        // O tipo inferido: o da expressão (função literal) ou o do local
-        // (função local nomeada, cujo retorno sem tipo escrito é inferido do
-        // corpo — `g() { return 1; }` é `() => int`, não `() => dynamic`).
+        // The inferred type: that of the expression (function literal) or that of the local
+        // (named local function, whose return without a written type is inferred from the
+        // body — `g() { return 1; }` is `() => int`, not `() => dynamic`).
         if let Some(t) = self.literal_function_type(ast, fid, expr)
             && matches!(self.ctx.table.get(t), T::Function { .. })
         {
@@ -1188,15 +1188,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.define_rti(clo, ty);
     }
 
-    /// Grava a assinatura do tear-off da função `fid` (a do outline; num
-    /// método, avaliada no tipo do receptor `recv`).
+    /// Stores the signature of the tear-off of the function `fid` (that of the outline; in a
+    /// method, evaluated in the type of the receiver `recv`).
     pub fn define_tearoff_rti(&mut self, clo: Operand, fid: usize, recv: Option<Operand>) {
         self.define_tearoff_rti_with_tuple(clo, fid, recv, None);
     }
 
-    /// [`Self::define_tearoff_rti`] de um membro de extensão ou de tipo
-    /// de extensão genéricos: os parâmetros de tipo do dono vêm de `tuple`
-    /// (a de `arm_tuple_with_receiver`, calculada aqui), não de um objeto.
+    /// [`Self::define_tearoff_rti`] of a generic extension member or extension
+    /// type member: the type parameters of the owner come from `tuple`
+    /// (that of `arm_tuple_with_receiver`, computed here), not from an object.
     pub fn define_tearoff_rti_with_tuple(&mut self, clo: Operand, fid: usize, recv: Option<Operand>, tuple: Option<Operand>) {
         let Some(sig) = self.ctx.outline.functions.get(fid).map(|d| d.signature) else {
             return;
@@ -1205,7 +1205,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let Some(r) = recv {
             self.this_param = Some(r);
             self.finalizable_this = self.ctx.classify_this(fid);
-            // Um tipo de extensão não tem objeto com os argumentos de tipo.
+            // An extension type has no object with the type arguments.
             self.enclosing_class = self.ctx.program.functions[fid].class.filter(|&c| !self.ctx.is_extension_type(c));
             self.class_by_tuple = false;
         }
@@ -1216,9 +1216,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.define_rti(clo, ty);
     }
 
-    /// O teste de tipo da anotação precisa do RTI? (argumentos de tipo que
-    /// não são triviais, variável de tipo, `FutureOr`, tipo de função ou de
-    /// record, typedef.)
+    /// Does the type test of the annotation need the RTI? (type arguments that
+    /// are not trivial, a type variable, `FutureOr`, a function or
+    /// record type, a typedef.)
     pub fn annotation_needs_rti(&self, a: &ast::TypeAnnotation) -> bool {
         let unit_ast = &self.ctx.program.unit(self.unit_id).ast;
         match &a.kind {
@@ -1243,8 +1243,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if matches!(b.and_then(|b| b.getter), Some(Element::Typedef(_))) {
                     return true;
                 }
-                // Tipo de extensão: o teste é o da representação (sem classe
-                // própria no heap).
+                // Extension type: the test is that of the representation (without its own
+                // class in the heap).
                 if let Some(Element::Class(c)) = b.and_then(|b| b.getter)
                     && self.ctx.is_extension_type(c)
                 {
@@ -1263,13 +1263,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 }
 
-/// Registro do universo na entrada do programa: nome e número de parâmetros
-/// de cada classe citada pelas receitas (e pelas classes do programa), as
-/// regras de supertipo (o fecho: os supertipos das citadas também), as
-/// formas do runtime. Vazio quando o programa não usa receita nenhuma.
+/// Registration of the universe at the program entry: name and number of parameters
+/// of each class cited by the recipes (and by the classes of the program), the
+/// supertype rules (the closure: the supertypes of the cited ones too), the
+/// runtime shapes. Empty when the program uses no recipe at all.
 pub fn register_universe(ctx: &Context, module: &mut Module) {
-    // O universo é global ao executável; os objetos do SDK só fornecem as
-    // receitas que usam. A entrada do programa registra o universo completo.
+    // The universe is global to the executable; the SDK objects only supply the
+    // recipes they use. The program entry registers the complete universe.
     if module.sdk_library {
         return;
     }
@@ -1290,8 +1290,8 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
     if recipes.is_empty() && !uses_rti && !module.sdk_mode {
         return;
     }
-    // O objeto `Type` (`dartforge_rti_objeto_tipo`): a classe e os seletores
-    // usados pelo SDK da fonte. Cada tipo tem um único objeto canônico.
+    // The `Type` object (`dartforge_rti_objeto_tipo`): the class and the selectors
+    // used by the source SDK. Each type has a single canonical object.
     {
         let Some(u) = ctx.entry_lib.and_then(|l| ctx.program.library(l).units.first().copied()) else {
             return;
@@ -1299,9 +1299,9 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
         let symbol = "df.$tipo.toString".to_string();
         let mut t = FnBuilder::new(ctx, u, symbol.clone(), "toString".to_string(), Type::Ref);
         let obj = Operand::Val(t.add_param("this".to_string(), Type::Ref));
-        // O campo 0 do `_Type` é o ID RTI, escalar (`dartforge_rti_objeto_tipo`).
-        // Sob ARC, a leitura confere o mapa real do campo; o texto ganha owner
-        // na preparação ARC (`optimize/arc/natives.rs`), não aqui.
+        // Field 0 of `_Type` is the RTI ID, a scalar (`dartforge_rti_objeto_tipo`).
+        // Under ARC, the read checks the real map of the field; the text gets an owner
+        // in the ARC preparation (`optimize/arc/natives.rs`), not here.
         let read = if ctx.arc_memory { "dartforge_arc_ler_campo_escalar_v1" } else { "dartforge_object_get" };
         let id = t.emit(
             Instruction::CallRuntime {
@@ -1321,8 +1321,8 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
         );
         t.terminate(Terminator::Return(Some(s)));
         t.finish(module);
-        // Corpo sintetizado: a convenção Dart (retorno Ref Owned) não vem de
-        // `lower_function`; o chamador uniforme `toString$c` a exige.
+        // Synthesized body: the Dart convention (Ref Owned return) does not come from
+        // `lower_function`; the uniform caller `toString$c` requires it.
         if ctx.arc_memory {
             module.dart_ref_returns.insert(symbol.clone());
         }
@@ -1354,9 +1354,9 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
             ("c:==".to_string(), "df.$tipo.$3d$3d$c".to_string()),
             ("c:toString".to_string(), "df.$tipo.toString$c".to_string()),
         ];
-        // `_Type` é criado pelo runtime, fora da hierarquia de elementos do
-        // programa. Ele ainda herda os membros de `Object`, incluindo o
-        // getter privado usado por `identityHashCode(Object)` no hashSeed.
+        // `_Type` is created by the runtime, outside the element hierarchy of the
+        // program. It still inherits the members of `Object`, including the
+        // private getter used by `identityHashCode(Object)` in hashSeed.
         if let Some(object) = ctx.core.object_class {
             for (selector, symbol) in super::sdk_source::method_table(ctx, object) {
                 if !methods.iter().any(|(existing, _)| *existing == selector) {
@@ -1372,9 +1372,9 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
             vtable: Vec::new(),
             to_string_symbol: Some(symbol),
         });
-        // O objeto `Type` criado no runtime não tem um ClassElement do
-        // programa. A RTI conhece seu tipo, mas os testes nominais da fonte
-        // usam a tabela separada de `dartforge_is_subclass`.
+        // The `Type` object created in the runtime has no ClassElement of the
+        // program. The RTI knows its type, but the nominal tests of the source
+        // use the separate table of `dartforge_is_subclass`.
         if let Some(ty) = core_class(ctx, "Type").and_then(|c| ctx.class_id_of(c)) {
             module.subtyping_edges.push((CLASSE_TIPO as u32, ty));
         }
@@ -1398,7 +1398,7 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
             }
         }
     }
-    // As formas do runtime.
+    // The runtime shapes.
     let core = ctx.core;
     let shapes: Vec<(i64, Option<ClassId>)> = vec![
         (0, core.int_class),
@@ -1445,12 +1445,12 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
     let Some(u) = ctx.entry_lib.and_then(|l| ctx.program.library(l).units.first().copied()) else {
         return;
     };
-    // Os registros vão numa TABELA constante que o runtime lê de uma vez
-    // (`dartforge_rti_iniciar_tabela`), não em código: são milhares de
-    // classes do SDK, e uma chamada por registro dava uma função de dezenas
-    // de milhares de instruções que o LLVM compilava a cada `dartforge run`,
-    // a cada recarga do JIT e a cada ligação AOT. Uma linha por registro:
-    // `C<id> <parâmetros> <name>`, `R<id> <recipe>`, `F<shape> <id>`.
+    // The registrations go into a constant TABLE that the runtime reads at once
+    // (`dartforge_rti_iniciar_tabela`), not into code: there are thousands of
+    // SDK classes, and one call per registration gave a function of tens
+    // of thousands of instructions that LLVM compiled on every `dartforge run`,
+    // every JIT reload and every AOT link. One line per registration:
+    // `C<id> <parameters> <name>`, `R<id> <recipe>`, `F<shape> <id>`.
     let mut table = String::new();
     let mut b = FnBuilder::new(ctx, u, "dartforge_rti_iniciar".to_string(), "rti".to_string(), Type::Void);
     for &c in &classes {
@@ -1458,8 +1458,8 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
         let name_str = visible_name(ctx, c);
         let n = ctx.outline.classes.get(c.0 as usize).map_or(0, |d| d.type_params.len());
         table.push_str(&format!("C{id} {n} {name_str}\n"));
-        // A biblioteca que declara a classe e o nome declarado, para o
-        // `reflectClass` do `dart:mirrors` (`runtime/src/mirrors.rs`).
+        // The library that declares the class and the declared name, for the
+        // `reflectClass` of `dart:mirrors` (`runtime/src/mirrors.rs`).
         let class = &ctx.program.classes[c.0 as usize];
         let uri = ctx.program.library(class.library).uri.replace(' ', "%20");
         table.push_str(&format!("B{id} {uri} {}\n", ctx.symbol_name(class.name)));
@@ -1467,7 +1467,7 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
         let mut sups: Vec<(i64, TypeId)> = d.supertypes.iter().map(|(k, t)| (ctx.id_rti(*k), *t)).collect();
         sups.sort_by_key(|x| x.0);
         for (_, t) in sups {
-            // A regra é escrita nos parâmetros da própria classe (`P<i>`).
+            // The rule is written in the parameters of the class itself (`P<i>`).
             let saved = (b.enclosing_class, b.class_by_tuple);
             b.enclosing_class = Some(c);
             b.class_by_tuple = false;
@@ -1482,7 +1482,7 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
             table.push_str(&format!("F{shape} {}\n", ctx.id_rti(c)));
         }
     }
-    // As classes de erro que o runtime representa (ids 1000–1012).
+    // The error classes that the runtime represents (ids 1000–1012).
     for (heap_id, name_str) in [
         (1000, "Exception"),
         (1001, "FormatException"),
@@ -1504,11 +1504,11 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
         let Some(Element::Class(c)) = ctx.program.lookup(core_lib, sym).and_then(|b| b.getter) else { continue };
         table.push_str(&format!("F{heap_id} {}\n", ctx.id_rti(c)));
     }
-    // A tabela grande vai comprimida (`dartforge_runtime::rti_table`): 1,37
-    // MB de texto no new_sali/backend, ~260 KB comprimida.
+    // The large table goes compressed (`dartforge_runtime::rti_table`): 1.37
+    // MB of text in new_sali/backend, ~260 KB compressed.
     let bytes = table.into_bytes();
     let bytes = if bytes.len() >= dartforge_runtime::tabela_rti::LIMIAR { dartforge_runtime::tabela_rti::comprimir(&bytes) } else { bytes };
-    // Os bytes empacotados em palavras (little-endian, como todos os alvos).
+    // The bytes packed into words (little-endian, like all the targets).
     let words: Vec<i64> = bytes
         .chunks(8)
         .map(|c| {
@@ -1531,16 +1531,16 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
     module.start_rti = Some("dartforge_rti_iniciar".to_string());
 }
 
-/// O nome de uma classe em `Type.toString()`: o `Class::UserVisibleName` da
-/// VM troca as implementações internas do `dart:core` e do
-/// `dart:typed_data` pela interface pública (`_Smi` → `int`,
-/// `_GrowableList` → `List`, `_Uint8List` → `Uint8List`…); as demais —
-/// inclusive as visões (`_Uint8ArrayView`) e `_Map` — ficam com o nome
-/// declarado. Fora dos ids predefinidos, a VM só troca o `_Future` do
-/// `dart:async` por `Future` (o mesmo `Class::GenerateUserVisibleName`
-/// compara o nome com `Symbols::_Future()` e a biblioteca com
-/// `Library::AsyncLibrary()`); `_SyncCompleter`, `_ControllerStream`… ficam
-/// com o nome declarado.
+/// The name of a class in `Type.toString()`: the VM's `Class::UserVisibleName`
+/// replaces the internal implementations of `dart:core` and of
+/// `dart:typed_data` by the public interface (`_Smi` → `int`,
+/// `_GrowableList` → `List`, `_Uint8List` → `Uint8List`…); the others —
+/// including the views (`_Uint8ArrayView`) and `_Map` — keep the declared
+/// name. Outside the predefined ids, the VM only replaces the `_Future` of
+/// `dart:async` by `Future` (the same `Class::GenerateUserVisibleName`
+/// compares the name with `Symbols::_Future()` and the library with
+/// `Library::AsyncLibrary()`); `_SyncCompleter`, `_ControllerStream`… keep
+/// the declared name.
 pub fn visible_name(ctx: &Context, c: ClassId) -> String {
     let class = &ctx.program.classes[c.0 as usize];
     let name_str = ctx.symbol_name(class.name);
@@ -1578,13 +1578,13 @@ pub fn visible_name(ctx: &Context, c: ClassId) -> String {
     visible.unwrap_or(name_str).to_string()
 }
 
-/// Onde uma conferência de tipo acontece: muda o fim da mensagem da VM.
+/// Where a type check happens: it changes the end of the VM's message.
 #[derive(Debug, Clone)]
 pub enum CastContext {
     /// `v as T`: " in type cast".
     How,
-    /// Atribuição implícita de um `dynamic`: sem sufixo.
+    /// Implicit assignment of a `dynamic`: no suffix.
     Implicit,
-    /// O parâmetro de uma chamada dinâmica ou covariante: " of 'nome'".
+    /// The parameter of a dynamic or covariant call: " of 'name'".
     Parameter(String),
 }
