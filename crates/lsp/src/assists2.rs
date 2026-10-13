@@ -1,14 +1,14 @@
-//! Quatro assistências só sintáticas do servidor do Dart 3.6.2, pelas
-//! regras de docs/LSP-ESPECIFICACAO.md §13.8.2 e §13.10:
+//! Four purely syntactic assists of the Dart 3.6.2 server, following the
+//! rules of docs/LSP-ESPECIFICACAO.md §13.8.2 and §13.10:
 //!
-//! | Assistência | Espécie |
+//! | Assist | Kind |
 //! | --- | --- |
 //! | `Add digit separators` | `refactor.add.digitSeparators` |
 //! | `Remove digit separators` | `refactor.remove.digitSeparators` |
 //! | `Convert to is!` | `refactor.convert.isNot` |
 //! | `Exchange operands` | `refactor.exchangeOperands` |
 //!
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Written without compiling or running (2026-10-05).
 
 use crate::actions::CodeAction;
 use crate::project::Project;
@@ -27,8 +27,8 @@ fn action(uri: &str, title: &str, kind: &str, edits: Vec<(Span, String)>) -> Cod
     }
 }
 
-/// `addSep` (`add_digit_separators.dart:169-185`): os dígitos em grupos de
-/// `group`, alinhados à direita; `None` com menos de `min` dígitos.
+/// `addSep` (`add_digit_separators.dart:169-185`): the digits in groups of
+/// `group`, right-aligned; `None` with fewer than `min` digits.
 fn separate(digits: &str, group: usize, min: usize) -> Option<String> {
     let n = digits.len();
     if n < min || !digits.is_ascii() {
@@ -47,13 +47,13 @@ fn separate(digits: &str, group: usize, min: usize) -> Option<String> {
     Some(output)
 }
 
-/// O literal numérico `lexeme` com os separadores refeitos, ou `None` se a
-/// assistência não se aplica (poucos dígitos, ou o resultado é o próprio
-/// lexema).
+/// The numeric literal `lexeme` with the separators redone, or `None` if the
+/// assist does not apply (too few digits, or the result is the lexeme
+/// itself).
 fn with_separators(lexeme: &str, floating_point: bool) -> Option<String> {
     let source: String = lexeme.chars().filter(|c| *c != '_').collect();
     let result = if source.starts_with("0x") || source.starts_with("0X") {
-        // Hexadecimal: de dois em dois, com pelo menos quatro dígitos.
+        // Hexadecimal: in pairs, with at least four digits.
         format!("{}{}", &source[..2], separate(&source[2..], 2, 4)?)
     } else if !floating_point {
         separate(&source, 3, 5)?
@@ -67,7 +67,7 @@ fn with_separators(lexeme: &str, floating_point: bool) -> Option<String> {
         };
         let mut r = separate(integer, 3, 5).unwrap_or_else(|| integer.to_string());
         if let Some(f) = fracao {
-            // Na fração os grupos se alinham à esquerda.
+            // In the fraction the groups are left-aligned.
             let inverted: String = f.chars().rev().collect();
             let separate = separate(&inverted, 3, 5).map(|s| s.chars().rev().collect::<String>());
             r.push('.');
@@ -90,9 +90,9 @@ fn with_separators(lexeme: &str, floating_point: bool) -> Option<String> {
     (result != lexeme).then_some(result)
 }
 
-/// `getExpressionParentPrecedence(child) >= Precedence.relational`: o pai
-/// de `child` é uma expressão que liga pelo menos tão forte quanto um
-/// operador relacional.
+/// `getExpressionParentPrecedence(child) >= Precedence.relational`: the
+/// parent of `child` is an expression that binds at least as tightly as a
+/// relational operator.
 fn relational_parent_or_higher(a: &ast::Ast, child: ExprId) -> bool {
     a.exprs.iter().any(|e| match &e.kind {
         ExprKind::Binary { op, left, right } if *left == child || *right == child => {
@@ -102,14 +102,15 @@ fn relational_parent_or_higher(a: &ast::Ast, child: ExprId) -> bool {
         ExprKind::Unary { operand, .. } => *operand == child,
         ExprKind::Await(x) => *x == child,
         ExprKind::Property { target, .. } | ExprKind::Call { target, .. } | ExprKind::TypeArguments { target, .. } => *target == child,
-        // O alvo de um índice é pós-fixo; o índice em si conta como atribuição.
+        // The target of an index is postfix; the index itself counts as an
+        // assignment.
         ExprKind::Index { target, .. } => *target == child,
         _ => false,
     })
 }
 
 impl Project {
-    /// As assistências desta lista com o cursor em `offset` de `unit`.
+    /// The assists of this list with the cursor at `offset` of `unit`.
     pub(crate) fn syntactic_assists(&self, uri: &str, unit: UnitId, offset: usize) -> Vec<CodeAction> {
         let mut output = Vec::new();
         let u = self.program().unit(unit);
@@ -117,7 +118,7 @@ impl Project {
         let source = u.source.as_str();
         let contains = |s: Span| s.start <= offset && offset <= s.end;
 
-        // Os separadores de dígitos: o literal numérico sob o cursor.
+        // Digit separators: the numeric literal under the cursor.
         for e in a.exprs.iter() {
             let (span, floating) = match &e.kind {
                 ExprKind::Int(s) => (*s, false),
@@ -138,8 +139,8 @@ impl Project {
             break;
         }
 
-        // `Convert to is!`: `!(x is T)` com o cursor no `!`, num parêntese
-        // ou dentro do `is`.
+        // `Convert to is!`: `!(x is T)` with the cursor on the `!`, on a
+        // parenthesis or inside the `is`.
         for (i, e) in a.exprs.iter().enumerate() {
             let ExprKind::Unary { op: UnaryOp::Not, operand } = &e.kind else { continue };
             let between = a.expr(*operand);
@@ -151,16 +152,16 @@ impl Project {
             if !(test_node || prefix_node) {
                 continue;
             }
-            // O `is` fica depois do valor: a palavra, e o ponto logo depois dela.
+            // The `is` comes after the value: the keyword, and the point right after it.
             let after_value = a.expr(*value).span.end;
             let Some(k) = source.get(after_value..test_.span.end).and_then(|t| t.find("is")) else { continue };
             let is_end = after_value + k + 2;
             let mut edits: Vec<(Span, String)> = Vec::new();
             if relational_parent_or_higher(a, ExprId(i as u32)) {
-                // Os parênteses ficam: sai só o `!`.
+                // The parentheses stay: only the `!` goes.
                 edits.push((Span { start: e.span.start, end: e.span.start + 1 }, String::new()));
             } else {
-                // Saem o `!(` e o `)`.
+                // The `!(` and the `)` go.
                 edits.push((Span { start: e.span.start, end: between.span.start + 1 }, String::new()));
                 edits.push((Span { start: between.span.end.saturating_sub(1), end: e.span.end }, String::new()));
             }
@@ -169,7 +170,7 @@ impl Project {
             break;
         }
 
-        // `Exchange operands`: a expressão binária com o cursor no operador.
+        // `Exchange operands`: the binary expression with the cursor on the operator.
         let selected = a.exprs.iter().enumerate().find_map(|(i, e)| match &e.kind {
             ExprKind::Binary { op, left, right } => {
                 let (de, until) = (a.expr(*left).span.end, a.expr(*right).span.start);
@@ -181,7 +182,7 @@ impl Project {
             _ => None,
         });
         if let Some((id, op, left_, right_, operator)) = selected {
-            // Alarga pelos pais de mesmo operador.
+            // Widens through parents with the same operator.
             let mut wide = id;
             loop {
                 let parent = a.exprs.iter().position(|e| matches!(&e.kind, ExprKind::Binary { op: o, left, right } if *o == op && (*left == wide || *right == wide)));
@@ -197,7 +198,7 @@ impl Project {
                     (Span { start: wide.start, end: left_end }, right_text.to_string()),
                     (Span { start: right_start, end: wide.end }, left_text.to_string()),
                 ];
-                // Um operador relacional troca de lado.
+                // A relational operator flips direction.
                 let inverted = match op {
                     BinaryOp::Lt => Some(">"),
                     BinaryOp::LtEq => Some(">="),
@@ -220,7 +221,7 @@ impl Project {
 mod tests {
     use super::*;
 
-    /// Os exemplos da especificação (§13.8.2).
+    /// The examples from the spec (§13.8.2).
     #[test]
     fn digit_separators() {
         assert_eq!(with_separators("1234567", false).as_deref(), Some("1_234_567"));

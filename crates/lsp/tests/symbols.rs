@@ -30,7 +30,7 @@ fn symbols_update_with_text_and_utf16_columns() {
     assert_eq!(symbols[0]["children"][1]["name"], "dobro");
     assert_eq!(symbols[1]["name"], "main");
 
-    // Uma notificação atrasada não muda a revisão nem publica diagnósticos.
+    // A late notification changes neither the revision nor publishes diagnostics.
     server.receive(json!({"jsonrpc":"2.0","method":"textDocument/didChange","params":{
         "textDocument":{"uri":uri,"version":1},"contentChanges":[{"text":"void antigo() {}"}]
     }}));
@@ -126,8 +126,8 @@ fn workspace_search_uses_only_open_revisions_and_stable_order() {
     }
     let search = |id: i32| json!({"jsonrpc":"2.0","id":id,"method":"workspace/symbol",
         "params":{"query":"ZZZ"}});
-    // Consulta sem resultados e caixa indiferente.
-    // Só os dos documentos abertos (o SDK, quando encontrado, vem depois).
+    // Query without results and case-insensitive.
+    // Only those of the open documents (the SDK, when found, comes after).
     let open = |r: &serde_json::Value| -> Vec<serde_json::Value> {
         r["result"]
             .as_array()

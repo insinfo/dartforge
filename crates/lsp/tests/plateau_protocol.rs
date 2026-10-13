@@ -1,18 +1,20 @@
-//! Platô de memória do servidor inteiro, através de mensagens JSON de verdade.
+//! Memory plateau of the whole server, through real JSON messages.
 //!
-//! É o `plateau_documents.rs` elevado ao protocolo: abre K documentos reais,
-//! aplica K edições incrementais em cada um e fecha tudo, com cada mensagem
-//! serializada em quadro `Content-Length`, decodificada e despachada pelo
-//! [`dartforge_lsp::Server`] — nunca por chamada direta de API. O que esta
-//! medição prova é o que o PLANO.md exige: N edições sucessivas estabilizam
-//! `live_bytes` num platô em vez de crescer com N (o modo de falha do LSP do
-//! Dart, que só sobe até ser preciso matar o processo).
+//! It is `plateau_documents.rs` raised to the protocol: opens K real
+//! documents, applies K incremental edits to each and closes everything,
+//! with each message serialized into a `Content-Length` frame, decoded and
+//! dispatched by the [`dartforge_lsp::Server`] — never by a direct API call.
+//! What this measurement proves is what PLANO.md requires: N successive
+//! edits stabilize `live_bytes` on a plateau instead of growing with N (the
+//! failure mode of Dart's LSP, which only grows until the process has to be
+//! killed).
 //!
-//! Binário separado de propósito: o alocador contador é global ao processo e
-//! o harness roda os `#[test]` de um binário em threads paralelas, liberando
-//! estruturas de testes terminados em momento não determinístico. Qualquer
-//! outro teste neste binário mediria junto — por isso há um só `#[test]`
-//! aqui (a razão documentada em `plateau_documents.rs`).
+//! A separate binary on purpose: the counting allocator is global to the
+//! process and the harness runs a binary's `#[test]`s in parallel threads,
+//! freeing structures of finished tests at a nondeterministic time. Any
+//! other test in this binary would be measured along — hence there is a
+//! single `#[test]` here (the reason is documented in
+//! `plateau_documents.rs`).
 #[global_allocator]
 static ALLOCATOR: dartforge_instrument::CountingAllocator = dartforge_instrument::CountingAllocator;
 
@@ -21,15 +23,16 @@ use dartforge_lsp::transport::{frame, read_message};
 use serde_json::{Value, json};
 use std::io::BufReader;
 
-/// Documentos por rodada, como no teste do dono dos documentos.
+/// Documents per round, as in the document owner's test.
 const K: usize = 24;
 
-/// Corpus padrão: o projeto de referência do proprietário.
+/// Default corpus: the owner's reference project.
 const DEFAULT_CORPUS: &str = "C:/MyDartProjects/new_sali";
 
-/// Envia `message` pelo transporte de verdade: serializa em quadro, lê o
-/// quadro de volta e despacha; as saídas são descartadas como transitórias.
-fn swap(server: &mut Server, message: &Value) {
+/// Sends `message` through the real transport: serializes it into a frame,
+/// reads the frame back and dispatches it; the outputs are discarded as
+/// transient.
+fn round_trip(server: &mut Server, message: &Value) {
     let framed = frame(message);
     let mut reader = BufReader::new(&framed[..]);
     let read = read_message(&mut reader)
@@ -37,7 +40,7 @@ fn swap(server: &mut Server, message: &Value) {
         .expect("quadro não vazio");
     server.receive(read);
     let outputs = server.pump();
-    // Toca as saídas para que nada seja otimizado para fora da medição.
+    // Touches the outputs so nothing is optimized out of the measurement.
     let mut bytes = 0usize;
     for output in &outputs {
         bytes += frame(output).len();
@@ -45,7 +48,7 @@ fn swap(server: &mut Server, message: &Value) {
     std::hint::black_box(bytes);
 }
 
-/// Coleta até K arquivos `.dart` do corpus, ordenados para repetibilidade.
+/// Collects up to K `.dart` files from the corpus, sorted for repeatability.
 fn collect_corpus() -> Vec<(String, String)> {
     let root = std::env::var("DARTFORGE_CORPUS").unwrap_or_else(|_| DEFAULT_CORPUS.to_string());
     let mut files = Vec::new();
@@ -62,7 +65,7 @@ fn collect_corpus() -> Vec<(String, String)> {
     docs
 }
 
-/// Varre o diretório ignorando saídas de build, como o exemplo de medição.
+/// Walks the directory ignoring build outputs, like the measurement example.
 fn collect_dir(dir: &std::path::Path, output: &mut Vec<std::path::PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
@@ -83,8 +86,8 @@ fn collect_dir(dir: &std::path::Path, output: &mut Vec<std::path::PathBuf>) {
     }
 }
 
-/// Reserva quando o corpus não está ao alcance (CI sem o projeto de
-/// referência): textos sintéticos de tamanho fixo por documento e revisão.
+/// Fallback when the corpus is not reachable (CI without the reference
+/// project): synthetic texts of fixed size per document and revision.
 fn synthetic() -> Vec<(String, String)> {
     (0..K)
         .map(|d| {
@@ -98,24 +101,25 @@ fn synthetic() -> Vec<(String, String)> {
         .collect()
 }
 
-/// O `initialize`/`initialized`: o estado da sessão (capacidades,
-/// configuração) é do servidor, não dos documentos, e fica na base.
+/// `initialize`/`initialized`: the session state (capabilities,
+/// configuration) belongs to the server, not to the documents, and stays in
+/// the baseline.
 fn initialize(server: &mut Server) {
-    swap(
+    round_trip(
         server,
         &json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}),
     );
-    swap(
+    round_trip(
         server,
         &json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}),
     );
 }
 
-/// Abre os documentos pelo protocolo e aplica K rodadas de edição incremental
-/// em cada um, devolvendo os bytes vivos após cada rodada.
+/// Opens the documents through the protocol and applies K rounds of
+/// incremental edits to each one, returning the live bytes after each round.
 fn edit(server: &mut Server, docs: &[(String, String)]) -> Vec<usize> {
     for (uri, text) in docs {
-        swap(
+        round_trip(
             server,
             &json!({
                 "jsonrpc": "2.0", "method": "textDocument/didOpen",
@@ -127,9 +131,9 @@ fn edit(server: &mut Server, docs: &[(String, String)]) -> Vec<usize> {
     let mut live = Vec::with_capacity(K);
     for round in 1..=K {
         for (uri, _) in docs {
-            // Alterna inserir e remover um espaço no início da linha 0: o
-            // texto retido tem tamanho constante e a edição é incremental
-            // (intervalo UTF-16), como a tecla de um editor.
+            // Alternates inserting and removing a space at the start of line 0: the
+            // retained text has a constant size and the edit is incremental (UTF-16
+            // range), like an editor keystroke.
             let change = if round % 2 == 1 {
                 json!([{
                     "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}},
@@ -141,7 +145,7 @@ fn edit(server: &mut Server, docs: &[(String, String)]) -> Vec<usize> {
                     "text": "",
                 }])
             };
-            swap(
+            round_trip(
                 server,
                 &json!({
                     "jsonrpc": "2.0", "method": "textDocument/didChange",
@@ -154,10 +158,10 @@ fn edit(server: &mut Server, docs: &[(String, String)]) -> Vec<usize> {
     live
 }
 
-/// Fecha todos os documentos pelo protocolo.
+/// Closes every document through the protocol.
 fn close(server: &mut Server, docs: &[(String, String)]) {
     for (uri, _) in docs {
-        swap(
+        round_trip(
             server,
             &json!({
                 "jsonrpc": "2.0", "method": "textDocument/didClose",
@@ -168,21 +172,21 @@ fn close(server: &mut Server, docs: &[(String, String)]) {
     assert_eq!(server.open_documents(), 0);
 }
 
-/// `live_bytes` estabiliza ao longo das rodadas, e fechar tudo devolve ao
-/// nível de logo depois do `initialize`: nada das edições, versões ou
-/// diagnósticos sobrevive.
+/// `live_bytes` stabilizes over the rounds, and closing everything returns to
+/// the level right after `initialize`: nothing of the edits, versions or
+/// diagnostics survives.
 ///
-/// Num só `#[test]`: ver o comentário no topo do arquivo.
+/// In a single `#[test]`: see the comment at the top of the file.
 #[test]
 fn plateau_through_protocol() {
     let docs = collect_corpus();
     let real_docs = docs.len() == K;
     let docs = if real_docs { docs } else { synthetic() };
-    // Aquecimento: um servidor descartável faz o ciclo inteiro uma vez, para
-    // que alocações únicas do processo (estado preguiçoso da biblioteca
-    // padrão e do harness, como o buffer de captura da saída do teste)
-    // fiquem fora da base. O que se mede é retenção por documento e por
-    // edição, não inicialização do processo.
+    // Warm-up: a throwaway server runs the whole cycle once, so that one-time
+    // process allocations (lazy state of the standard library and of the
+    // harness, such as the test output capture buffer) stay out of the
+    // baseline. What is measured is retention per document and per edit, not
+    // process initialization.
     {
         let mut warmup = Server::new();
         initialize(&mut warmup);
@@ -209,8 +213,8 @@ fn plateau_through_protocol() {
         closed <= before.saturating_add(K * 192),
         "fechar não liberou os documentos: antes {before}, depois {closed}"
     );
-    // Os textos do harness também retêm memória: solta-os junto com o
-    // servidor antes de afirmar o retorno ao nível inicial.
+    // The harness texts also retain memory: drops them together with the
+    // server before asserting the return to the initial level.
     drop(docs);
     drop(server);
     assert!(dartforge_instrument::live_bytes() <= empty.saturating_add(64));

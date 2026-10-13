@@ -1,31 +1,31 @@
-//! Comentários de documentação (`///` e `/** … */`): o texto limpo para o
-//! hover e para o `completionItem/resolve`, e as referências `[name]`,
-//! `[Class.member]` e `[p.Name]` que o renomear altera junto com o elemento.
+//! Documentation comments (`///` and `/** … */`): the clean text for hover
+//! and for `completionItem/resolve`, and the `[name]`, `[Class.member]` and
+//! `[p.Name]` references that rename changes together with the element.
 //!
-//! Só a varredura léxica vive aqui; a resolução de cada referência (o que
-//! `[name]` denota no escopo da declaração documentada) é de
-//! [`crate::project`], com as tabelas do programa carregado.
+//! Only the lexical scan lives here; resolving each reference (what `[name]`
+//! denotes in the scope of the documented declaration) belongs to
+//! [`crate::project`], with the tables of the loaded program.
 
 use dartforge_diagnostics::Span;
 
-/// Um bloco de documentação: as linhas `///` consecutivas ou um `/** */`.
+/// A documentation block: consecutive `///` lines or one `/** */`.
 #[derive(Debug, Clone)]
 pub(crate) struct Comment {
-    /// Do primeiro `/` ao fim da última linha (ou do `*/`).
+    /// From the first `/` to the end of the last line (or of the `*/`).
     pub span: Span,
-    /// As referências entre colchetes, cada uma com as partes separadas por
-    /// ponto (`[A.b]` tem duas), com o intervalo de cada parte na fonte.
+    /// The bracketed references, each with its parts separated by dots (`[A.b]`
+    /// has two), with the source range of each part.
     pub references: Vec<Vec<(Span, String)>>,
 }
 
-/// Os blocos de documentação de `source`, na ordem. Strings e comentários
-/// comuns não são confundidos com documentação (a varredura usa o lexer).
+/// The documentation blocks of `source`, in order. Strings and ordinary
+/// comments are not mistaken for documentation (the scan uses the lexer).
 pub(crate) fn comments(source: &str) -> Vec<Comment> {
     let mut output: Vec<Comment> = Vec::new();
-    // Cada lacuna entre tokens é uma cadeia `precedingComments`; o
-    // `findDartDoc` acha o começo do comentário de documentação nela (o
-    // último `/**`, ou o primeiro `///` depois dele), e o comentário vai até
-    // o último `///` da cadeia (`DocCommentBuilder.build`).
+    // Each gap between tokens is a `precedingComments` chain; `findDartDoc`
+    // finds the start of the documentation comment in it (the last `/**`, or
+    // the first `///` after it), and the comment extends to the chain's last
+    // `///` (`DocCommentBuilder.build`).
     for chain in comment_chains(source) {
         let mut doc: Option<usize> = None;
         let mut multiline = false;
@@ -55,8 +55,8 @@ pub(crate) fn comments(source: &str) -> Vec<Comment> {
     output
 }
 
-/// Os comentários de `source` (fora de strings) agrupados por lacuna entre
-/// tokens, pelo que o lexer deixa entre eles.
+/// The comments of `source` (outside strings) grouped by the gap between
+/// tokens, from what the lexer leaves between them.
 fn comment_chains(source: &str) -> Vec<Vec<(usize, usize)>> {
     let Ok(tokens) = dartforge_frontend::lexer::lex(source) else {
         return Vec::new();
@@ -83,7 +83,7 @@ fn comment_chains(source: &str) -> Vec<Vec<(usize, usize)>> {
                 output.push((i, end));
                 i = end;
             } else if b[i] == b'/' && b[i + 1] == b'*' {
-                // Comentários de bloco aninham no Dart.
+                // Block comments nest in Dart.
                 let mut depth = 0usize;
                 let mut j = i;
                 while j + 1 < until {
@@ -113,13 +113,13 @@ fn comment_chains(source: &str) -> Vec<Vec<(usize, usize)>> {
     chains
 }
 
-/// O comentário de documentação imediatamente antes de `start` (o começo
-/// da declaração, com ou sem metadados), já limpo: sem `///`, `/**`, `*/` e
-/// os `*` de margem. `None` quando não há.
+/// The documentation comment right before `start` (the start of the
+/// declaration, with or without metadata), already cleaned: without `///`,
+/// `/**`, `*/` and the margin `*`s. `None` when there is none.
 pub(crate) fn documentation(source: &str, start: usize) -> Option<String> {
     let start = start.min(source.len());
-    // O comentário cujo fim só é seguido de espaço e de metadados até a
-    // declaração.
+    // The comment whose end is followed only by whitespace and metadata up to
+    // the declaration.
     let c = comments(&source[..start]).into_iter().last()?;
     let between = &source[c.span.end..start];
     let only_metadata = between
@@ -132,7 +132,7 @@ pub(crate) fn documentation(source: &str, start: usize) -> Option<String> {
     Some(clear(&source[c.span.start..c.span.end]))
 }
 
-/// Tira os marcadores do comentário e a indentação comum.
+/// Removes the comment markers and the common indentation.
 pub(crate) fn clear(raw: &str) -> String {
     let mut lines: Vec<String> = Vec::new();
     if raw.starts_with("/**") {
@@ -191,8 +191,8 @@ mod tests {
             Some("Primeira.\n\nSegunda [x].")
         );
         assert_eq!(documentation(source, source.find("class C").unwrap()), None);
-        // O texto do link Markdown não é referência; o rótulo de `[t][r]`
-        // é (`_parseReferences` lê o `[r]` à parte).
+        // The text of a Markdown link is not a reference; the label of `[t][r]` is
+        // (`_parseReferences` reads the `[r]` separately).
         let cs = comments("/// [texto](http://x) e [ref][r].\nvar x;\n");
         let refs: Vec<&str> = cs[0].references.iter().map(|r| r[0].1.as_str()).collect();
         assert_eq!(refs, vec!["r"]);
@@ -200,7 +200,7 @@ mod tests {
 
     #[test]
     fn text_with_multibyte_characters() {
-        // Bandeiras e acentos (vários bytes) antes e depois das referências.
+        // Flags and accents (several bytes) before and after the references.
         let source = "/// Região 🇵🇹 usa [ação] e `código 🇧🇷` [b].\nvar b;\n";
         let cs = comments(source);
         let refs: Vec<&str> = cs[0].references.iter().map(|r| r[0].1.as_str()).collect();

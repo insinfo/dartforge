@@ -1,29 +1,29 @@
-//! `workspace/willRenameFiles` (docs/LSP-ESPECIFICACAO.md §8.5): o
-//! `MoveFileRefactoringImpl.multi` do 3.6.2
-//! (`AS:src/services/refactoring/legacy/move_file.dart`). Renomear ou mover
-//! arquivos (ou pastas, resolvidas nos arquivos de dentro) só reescreve as
-//! URIs de diretivas:
+//! `workspace/willRenameFiles` (docs/LSP-ESPECIFICACAO.md §8.5): the 3.6.2
+//! `MoveFileRefactoringImpl.multi`
+//! (`AS:src/services/refactoring/legacy/move_file.dart`). Renaming or moving
+//! files (or folders, resolved into the files inside them) only rewrites
+//! directive URIs:
 //!
-//! * as que chegam ao arquivo movido (`import`, `export`, `part` e, para uma
-//!   biblioteca, o `part of` relativo das partes dela), de qualquer arquivo
-//!   da raiz de análise;
-//! * as relativas que saem dele, quando a pasta muda.
+//! * those that reach the moved file (`import`, `export`, `part` and, for a
+//!   library, the relative `part of` of its parts), from any file of the
+//!   analysis root;
+//! * the relative ones that leave it, when the folder changes.
 //!
-//! A URI nova mantém `package:` quando o alvo continua num `lib/` de pacote;
-//! senão é o caminho relativo de onde o arquivo de origem vai ficar até onde
-//! o alvo vai ficar, com `/`. As aspas do literal ficam. Uma condição fatal
-//! (renomear a raiz, arquivo fora de uma raiz ou de mais de uma, arquivo que
-//! não existe) não muda nada.
+//! The new URI keeps `package:` when the target stays in a package's `lib/`;
+//! otherwise it is the relative path from where the source file will be to
+//! where the target will be, with `/`. The literal's quotes stay. A fatal
+//! condition (renaming the root, a file outside a root or in more than one,
+//! a file that does not exist) changes nothing.
 //!
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Written without compiling or running (2026-10-05).
 
 use crate::DocumentStore;
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast;
 use std::path::{Component, Path, PathBuf};
 
-/// Uma referência a atualizar: o literal da URI, o arquivo em que está, o
-/// arquivo a que aponta e o lexema com as aspas.
+/// A reference to update: the URI literal, the file it is in, the file it
+/// points to and the lexeme with its quotes.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 struct Reference {
     span: (usize, usize),
@@ -32,7 +32,7 @@ struct Reference {
     lexeme: String,
 }
 
-/// O caminho normalizado (`.` e `..` resolvidos), sem tocar no disco.
+/// The normalized path (`.` and `..` resolved), without touching the disk.
 fn normalize(p: &Path) -> PathBuf {
     let mut output = PathBuf::new();
     for c in p.components() {
@@ -47,19 +47,20 @@ fn normalize(p: &Path) -> PathBuf {
     output
 }
 
-/// A chave de comparação de caminhos (a do carregamento).
+/// The path comparison key (the loader's).
 fn key(p: &Path) -> PathBuf {
     dartforge_elements::gerado::chave(&normalize(p))
 }
 
-/// `_isRelativeUri`: nem URI absoluta (com esquema) nem caminho absoluto.
+/// `_isRelativeUri`: neither an absolute URI (with a scheme) nor an absolute
+/// path.
 fn relative_uri(uri: &str) -> bool {
     let scheme = uri.find(':').is_some_and(|i| i > 1 && uri[..i].chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.')));
     !scheme && !Path::new(uri).is_absolute() && !uri.starts_with('/') && !uri.starts_with('\\')
 }
 
-/// A URI de cada diretiva com literal simples (sem interpolação nem
-/// adjacência): o literal, o valor e se é `part of`.
+/// The URI of each directive with a simple literal (no interpolation nor
+/// adjacency): the literal, the value and whether it is `part of`.
 fn directive_uris(unit: &ast::CompilationUnit) -> Vec<(&ast::StringLit, String, bool)> {
     let mut v = Vec::new();
     for d in &unit.directives {
@@ -78,8 +79,8 @@ fn directive_uris(unit: &ast::CompilationUnit) -> Vec<(&ast::StringLit, String, 
     v
 }
 
-/// O caminho de uma URI de diretiva escrita em `origin`: relativa, ou
-/// `package:` pelos pacotes da raiz.
+/// The path of a directive URI written in `origin`: relative, or `package:`
+/// through the root's packages.
 fn uri_path(uri: &str, origin: &Path, packages: &[(String, PathBuf)]) -> Option<PathBuf> {
     if let Some(rest) = uri.strip_prefix("package:") {
         let (name, rel) = rest.split_once('/')?;
@@ -93,7 +94,7 @@ fn uri_path(uri: &str, origin: &Path, packages: &[(String, PathBuf)]) -> Option<
     Some(normalize(&uri.split('/').fold(folder.to_path_buf(), |p, x| p.join(x))))
 }
 
-/// `pathToUri`: `package:` quando o arquivo está no `lib/` de um pacote.
+/// `pathToUri`: `package:` when the file is in a package's `lib/`.
 fn package_uri(target: &Path, packages: &[(String, PathBuf)]) -> Option<String> {
     let target = normalize(target);
     for (name, lib) in packages {
@@ -105,13 +106,13 @@ fn package_uri(target: &Path, packages: &[(String, PathBuf)]) -> Option<String> 
     None
 }
 
-/// O caminho relativo de `folder` até `target`, com `/` (o `pathContext.relative`
-/// e o `posix.joinAll` do Dart).
+/// The relative path from `folder` to `target`, with `/` (Dart's
+/// `pathContext.relative` and `posix.joinAll`).
 fn relative(target: &Path, folder: &Path) -> String {
     let (normal_target, normal_folder) = (normalize(target), normalize(folder));
     let a: Vec<Component> = normal_target.components().collect();
     let b: Vec<Component> = normal_folder.components().collect();
-    // O `pathContext` do Windows compara sem caixa.
+    // The Windows `pathContext` compares case-insensitively.
     let equal = |x: &Component, y: &Component| {
         if cfg!(windows) {
             x.as_os_str().to_string_lossy().to_lowercase() == y.as_os_str().to_string_lossy().to_lowercase()
@@ -125,7 +126,7 @@ fn relative(target: &Path, folder: &Path) -> String {
     parts.join("/")
 }
 
-/// As aspas do lexema (`analyzeQuote`): o começo (com o `r`) e o fim.
+/// The lexeme's quotes (`analyzeQuote`): the start (with the `r`) and the end.
 fn quotes(lexeme: &str) -> (usize, usize) {
     let raw = usize::from(lexeme.starts_with('r'));
     let rest = &lexeme[raw..];
@@ -133,7 +134,7 @@ fn quotes(lexeme: &str) -> (usize, usize) {
     (raw + n, n)
 }
 
-/// `_resolveMapping`: uma pasta vira os arquivos de dentro, recursivamente.
+/// `_resolveMapping`: a folder becomes the files inside it, recursively.
 fn resolve(old: &Path, new: &Path, output: &mut Vec<(PathBuf, PathBuf)>) {
     if old.is_dir() {
         let Ok(r) = std::fs::read_dir(old) else { return };
@@ -148,8 +149,8 @@ fn resolve(old: &Path, new: &Path, output: &mut Vec<(PathBuf, PathBuf)>) {
     }
 }
 
-/// As edições do `willRenameFiles` para `map` (antigo → novo), nas raízes
-/// de análise `roots`. `None`: condição fatal (o Dart responde `null`).
+/// The `willRenameFiles` edits for `map` (old → new), in the analysis roots
+/// `roots`. `None`: fatal condition (Dart answers `null`).
 pub(crate) fn edits(roots: &[PathBuf], documents: &DocumentStore, map: &[(PathBuf, PathBuf)]) -> Option<Vec<crate::Edit>> {
     // `checkFinalConditions`.
     let mut common_root: Option<PathBuf> = None;
@@ -173,7 +174,7 @@ pub(crate) fn edits(roots: &[PathBuf], documents: &DocumentStore, map: &[(PathBu
         resolve(old, new, &mut resolved);
     }
     let new_of = |p: &Path| resolved.iter().find(|(a, _)| key(a) == key(p)).map(|(_, n)| n.clone());
-    // Os textos: o aberto vale mais que o disco.
+    // The texts: the open one wins over the disk.
     let text_of = |p: &Path| -> Option<String> {
         if let Ok(u) = url::Url::from_file_path(p)
             && let Some(t) = documents.get(u.as_str())
@@ -182,7 +183,7 @@ pub(crate) fn edits(roots: &[PathBuf], documents: &DocumentStore, map: &[(PathBu
         }
         std::fs::read_to_string(p).ok()
     };
-    // Os arquivos da raiz de análise e os abertos sob ela.
+    // The files of the analysis root and the open ones under it.
     let mut files = crate::project::project_files(&root);
     for u in documents.uris() {
         if let Some(p) = url::Url::parse(u).ok().and_then(|x| x.to_file_path().ok())
@@ -205,11 +206,11 @@ pub(crate) fn edits(roots: &[PathBuf], documents: &DocumentStore, map: &[(PathBu
         for (lit, uri, part_of) in directive_uris(&p.unit) {
             let Some(target) = uri_path(&uri, file, &packages) else { continue };
             let lexeme = text.get(lit.span.start..lit.span.end).unwrap_or_default().to_string();
-            // O `part of` que chega só é achado relativo (a busca de
-            // referências da unidade não o inclui; o passo das partes da
-            // biblioteca só lê os relativos).
+            // An incoming `part of` is only found when relative (the unit's reference
+            // search does not include it; the library's parts step only reads relative
+            // ones).
             let entry = moved.contains(&key(&target)) && (!part_of || relative_uri(&uri));
-            // Que sai de um arquivo cuja pasta muda: só as relativas.
+            // Outgoing from a file whose folder changes: only the relative ones.
             let exiting = folder_changes && relative_uri(&uri);
             if entry || exiting {
                 references.insert(Reference { span: (lit.span.start, lit.span.end), origin: file.clone(), target, lexeme });

@@ -1,16 +1,16 @@
-//! Mede a latência dos recursos de edição pelo protocolo (`Server` em
-//! processo, SDK real): `hover`, `completion`, `signatureHelp`,
-//! `documentHighlight` e `foldingRange`, com o texto parado e logo depois de
-//! cada edição (o caso de quem digita: a sessão semântica é descartada).
+//! Measures the latency of editing features through the protocol (`Server`
+//! in process, real SDK): `hover`, `completion`, `signatureHelp`,
+//! `documentHighlight` and `foldingRange`, with the text idle and right after
+//! each edit (the typing case: the semantic session is discarded).
 //!
-//! `cargo run -q --release -p dartforge-lsp --example features_latency -- <file.dart> [posições]`
+//! `cargo run -q --release -p dartforge-lsp --example features_latency -- <file.dart> [positions]`
 //!
-//! Para cada uma das `posições` (padrão 20) primeiras posições de
-//! identificador: `hover`; `completion` com o prefixo de até dois
-//! caracteres do identificador; `signatureHelp` depois de cada `(` de
-//! chamada; `documentHighlight`. Depois, 10 vezes: uma edição incremental
-//! (um espaço no fim do arquivo) seguida de `hover` e de `completion` (a
-//! primeira consulta paga a carga da biblioteca). Imprime mediana e máximo.
+//! For each of the first `positions` (default 20) identifier positions:
+//! `hover`; `completion` with a prefix of up to two characters of the
+//! identifier; `signatureHelp` after each call `(`; `documentHighlight`.
+//! Then, 10 times: an incremental edit (a space at the end of the file)
+//! followed by `hover` and `completion` (the first query pays the library
+//! load). Prints median and maximum.
 use dartforge_elements::sdk::SdkLayout;
 use dartforge_lsp::{SemanticAnalyzer, Server};
 use serde_json::{Value, json};
@@ -100,9 +100,9 @@ fn main() {
         completion_ed.push(request(&mut server, "textDocument/completion", json!({"textDocument": doc, "position": pos(a + (b - a).min(2))})));
         folds.push(request(&mut server, "textDocument/foldingRange", json!({"textDocument": doc})));
     }
-    // Edições dentro de um corpo (um espaço antes do último `return`): o
-    // `didChange` troca a unidade retida e reinfere os corpos dela (§16.10
-    // I4); mede-se o `didChange` e o `hover` seguinte.
+    // Edits inside a body (a space before the last `return`): `didChange` swaps
+    // the retained unit and re-infers its bodies (§16.10 I4); `didChange` and
+    // the following `hover` are measured.
     let (mut swap, mut hover_body) = (Vec::new(), Vec::new());
     if let Some(r) = text.rfind("return ") {
         let (l, c) = table.offset_position(&text, r);

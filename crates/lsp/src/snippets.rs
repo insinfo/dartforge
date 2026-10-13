@@ -1,24 +1,24 @@
-//! `SnippetTextEdit` das ações de código (docs/LSP-ESPECIFICACAO.md
-//! §13.8.1-G): o texto de uma edição na sintaxe de snippet do LSP, com a
-//! seleção da mudança como `$0` e os grupos ligados como tab stops.
+//! `SnippetTextEdit` of code actions (docs/LSP-ESPECIFICACAO.md §13.8.1-G):
+//! the text of an edit in LSP snippet syntax, with the change's selection as
+//! `$0` and the linked groups as tab stops.
 //!
-//! É o porte de `_buildSnippetString` e do `SnippetBuilder`
-//! (`AS:src/lsp/snippets.dart:58-137`, `:139-381`) para o caso das ações
-//! (`buildSnippetStringForEditGroups`, chamado por `toSnippetTextEdits`,
-//! `AS:src/lsp/mapping.dart:1412-1444`): sem tab stops avulsos, só a seleção
-//! e os grupos. Os offsets aqui são bytes do texto (o Dart usa unidades
-//! UTF-16); o recorte é o mesmo porque todo marcador cai em fronteira de
-//! caractere.
+//! It is the port of `_buildSnippetString` and of `SnippetBuilder`
+//! (`AS:src/lsp/snippets.dart:58-137`, `:139-381`) for the actions case
+//! (`buildSnippetStringForEditGroups`, called by `toSnippetTextEdits`,
+//! `AS:src/lsp/mapping.dart:1412-1444`): no standalone tab stops, only the
+//! selection and the groups. Offsets here are text bytes (Dart uses UTF-16
+//! units); the slicing is the same because every placeholder falls on a
+//! character boundary.
 
 use crate::actions::{LinkedGroup, Linked};
 
-/// O texto de uma edição escrito com as marcas do `EditBuilder` do Dart:
-/// `addSimpleLinkedEdit` (grupos por nome, na ordem de criação) e
-/// `selectHere`/`selectAll`. As posições são relativas ao texto.
+/// The text of an edit written with the marks of Dart's `EditBuilder`:
+/// `addSimpleLinkedEdit` (groups by name, in creation order) and
+/// `selectHere`/`selectAll`. Positions are relative to the text.
 #[derive(Debug, Default)]
 pub(crate) struct Write {
     pub text: String,
-    /// (nome, posições, comprimento, sugestões) por grupo.
+    /// (name, positions, length, suggestions) per group.
     pub groups: Vec<(String, Vec<usize>, usize, Vec<String>)>,
     pub selection: Option<(usize, usize)>,
 }
@@ -30,8 +30,8 @@ impl Write {
         self
     }
 
-    /// `addSimpleLinkedEdit(name, t, suggestions)`: o grupo ganha a posição
-    /// (texto vazio não cria posição, como no Dart).
+    /// `addSimpleLinkedEdit(name, t, suggestions)`: the group gets the position
+    /// (empty text creates no position, as in Dart).
     pub fn linked(&mut self, name: &str, t: &str, suggestions: &[String]) -> &mut Self {
         let k = self.text.len();
         self.text.push_str(t);
@@ -55,8 +55,9 @@ impl Write {
     }
 }
 
-/// Um marcador (`SnippetPlaceholder`): posição relativa ao texto da edição,
-/// comprimento, sugestões (só nos grupos), o grupo e se é o tab stop final.
+/// A placeholder (`SnippetPlaceholder`): position relative to the edit's
+/// text, length, suggestions (groups only), the group and whether it is the
+/// final tab stop.
 struct Marker<'a> {
     offset: usize,
     length: usize,
@@ -65,22 +66,22 @@ struct Marker<'a> {
     final_: bool,
 }
 
-/// O `newText` do `SnippetTextEdit` de uma edição que substitui um trecho por
-/// `text`, que começa em `start` no documento final; `linked` traz a
-/// seleção e os grupos em offsets do documento final (como o `SourceChange`
-/// do Dart). Marcadores fora do texto são descartados.
+/// The `newText` of the `SnippetTextEdit` of an edit that replaces a span
+/// with `text`, which starts at `start` in the final document; `linked`
+/// carries the selection and the groups in final-document offsets (like
+/// Dart's `SourceChange`). Placeholders outside the text are discarded.
 pub(crate) fn snippet_text(text: &str, start: usize, linked: &Linked) -> String {
     let relative = |p: usize| p.checked_sub(start);
     let mut markers: Vec<Marker<'_>> = Vec::new();
-    // A seleção é sempre o número 0 (`isFinal`).
+    // The selection is always number 0 (`isFinal`).
     if let Some((s, n)) = linked.selection {
-        // Uma seleção antes da edição fica negativa no Dart e sai no filtro.
+        // A selection before the edit becomes negative in Dart and is filtered out.
         if let Some(offset) = relative(s) {
             markers.push(Marker { offset, length: n, suggestions: None, group: None, final_: true });
         }
     }
-    // Sem seleção, com um só grupo e no máximo uma sugestão, as posições do
-    // grupo usam o número 0 (`convertEditGroup`, `isFinal`).
+    // Without a selection, with a single group and at most one suggestion, the
+    // group's positions use number 0 (`convertEditGroup`, `isFinal`).
     let just_one = linked.selection.is_none() && linked.groups.len() == 1;
     for (index, g) in linked.groups.iter().enumerate() {
         let LinkedGroup { positions, length, suggestions } = g;
@@ -96,8 +97,8 @@ pub(crate) fn snippet_text(text: &str, start: usize, linked: &Linked) -> String 
         }
     }
     markers.retain(|m| m.offset + m.length <= text.len() && text.is_char_boundary(m.offset) && text.is_char_boundary(m.offset + m.length));
-    // Só os grupos precisam de ordenação (`isPreSorted`); a ordenação é
-    // estável, como a do Dart nas listas curtas.
+    // Only the groups need sorting (`isPreSorted`); the sort is stable, like
+    // Dart's on short lists.
     if !linked.groups.is_empty() {
         markers.sort_by_key(|m| m.offset);
     }
@@ -105,8 +106,8 @@ pub(crate) fn snippet_text(text: &str, start: usize, linked: &Linked) -> String 
     let mut group_number: Vec<(usize, usize)> = Vec::new();
     let mut offset = 0usize;
     for m in &markers {
-        // Marcadores sobrepostos: o Dart recortaria de trás para a frente
-        // (erro de intervalo); aqui o anterior prevalece.
+        // Overlapping placeholders: Dart would slice back to front (range error);
+        // here the earlier one wins.
         if m.offset < offset {
             continue;
         }
@@ -120,8 +121,8 @@ pub(crate) fn snippet_text(text: &str, start: usize, linked: &Linked) -> String 
         let used = match m.suggestions {
             None => output.marker(snippet, number),
             Some(suggestions) => {
-                // O conjunto (ordem de inserção, sem repetição): o texto
-                // atual, se não vazio, e as sugestões.
+                // The set (insertion order, no repetition): the current text, if not empty,
+                // and the suggestions.
                 let mut choices: Vec<&str> = Vec::new();
                 for s in std::iter::once(snippet).filter(|t| !t.is_empty()).chain(suggestions.iter().map(String::as_str)) {
                     if !choices.contains(&s) {
@@ -142,7 +143,7 @@ pub(crate) fn snippet_text(text: &str, start: usize, linked: &Linked) -> String 
     output.value
 }
 
-/// O `SnippetBuilder`: a numeração dos tab stops e os escapes.
+/// The `SnippetBuilder`: tab stop numbering and escapes.
 struct Constructor {
     value: String,
     next: usize,
@@ -155,20 +156,20 @@ impl Default for Constructor {
 }
 
 impl Constructor {
-    /// `_usePlaceholderNumber`: o número dado ou o próximo livre.
+    /// `_usePlaceholderNumber`: the given number or the next free one.
     fn use_(&mut self, number: Option<usize>) -> usize {
         let n = number.unwrap_or(self.next);
         self.next = self.next.max(n + 1);
         n
     }
 
-    /// `appendText`: fora dos marcadores escapam `$` e `\`.
+    /// `appendText`: outside placeholders, `$` and `\` are escaped.
     fn text(&mut self, t: &str) {
         escape(&mut self.value, t, &['$', '\\']);
     }
 
-    /// `appendPlaceholder`: `${n:text}` (escapando `$`, `}` e `\`), ou só
-    /// o tab stop `$n` com texto vazio.
+    /// `appendPlaceholder`: `${n:text}` (escaping `$`, `}` and `\`), or just the
+    /// tab stop `$n` for empty text.
     fn marker(&mut self, t: &str, number: Option<usize>) -> usize {
         let n = self.use_(number);
         if t.is_empty() {
@@ -181,8 +182,8 @@ impl Constructor {
         n
     }
 
-    /// `appendChoice`: com 0 ou 1 escolha, um marcador; senão
-    /// `${n|a,b|}` (escapando `\`, `|` e `,`), nunca com o número 0.
+    /// `appendChoice`: with 0 or 1 choice, a placeholder; otherwise `${n|a,b|}`
+    /// (escaping `\`, `|` and `,`), never with number 0.
     fn choice(&mut self, choices: &[&str], number: Option<usize>) -> usize {
         if choices.len() <= 1 {
             return self.marker(choices.first().copied().unwrap_or(""), number);
@@ -233,11 +234,11 @@ mod tests {
 
     #[test]
     fn groups_with_suggestions_become_choices() {
-        // Numerados pela ordem no texto, não pela de criação; a seleção no
-        // fim do texto ainda vale.
+        // Numbered by order in the text, not by creation order; a selection at the
+        // end of the text still counts.
         let l = Linked { selection: Some((12, 0)), groups: vec![group(&[4], 1, &["a", "b"]), group(&[0], 3, &[])] };
         assert_eq!(snippet_text("var x = f();", 0, &l), "${1:var} ${2|x,a,b|} = f();$0");
-        // Uma só sugestão igual ao texto: degrada para marcador.
+        // A single suggestion equal to the text: degrades to a placeholder.
         let l = Linked { selection: None, groups: vec![group(&[4], 1, &["x"]), group(&[8], 1, &[])] };
         assert_eq!(snippet_text("var x = y;", 0, &l), "var ${1:x} = ${2:y};");
     }

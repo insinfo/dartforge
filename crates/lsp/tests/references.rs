@@ -31,18 +31,17 @@ fn top_level_variable_lists_declaration_and_use() {
     open(&mut server, uri, text);
     let result = request(&mut server, 1, uri, 1, 22, true);
     let list = result.as_array().expect("lista de locais");
-    // Como o `dart language-server` 3.6.2: os usos e, por último, a
-    // declaração.
+    // Like `dart language-server` 3.6.2: the uses and, last, the declaration.
     assert_eq!(list.len(), 2, "{list:?}");
     assert_eq!(list[1]["uri"], uri);
     assert_eq!(list[1]["range"]["start"], json!({"line":0,"character":4}));
     assert_eq!(list[1]["range"]["end"], json!({"line":0,"character":12}));
     assert_eq!(list[0]["range"]["start"], json!({"line":1,"character":20}));
     assert_eq!(list[0]["range"]["end"], json!({"line":1,"character":28}));
-    // A partir da declaração também resolve.
+    // Resolving from the declaration works too.
     let of_decl = request(&mut server, 2, uri, 0, 5, true);
     assert_eq!(of_decl.as_array().expect("lista").len(), 2);
-    // Sem a declaração, só o uso.
+    // Without the declaration, only the use.
     let without_decl = request(&mut server, 3, uri, 1, 22, false);
     let list = without_decl.as_array().expect("lista");
     assert_eq!(list.len(), 1, "{list:?}");
@@ -109,8 +108,8 @@ fn variable_across_open_lists_declaration_and_uses() {
     let line_b = text_b.lines().nth(1).unwrap();
     let result = request(&mut server, 1, USES_B, 1, column_in(line_b, "resposta"), true);
     let list = result.as_array().expect("lista de locais");
-    // O uso no arquivo do pedido, o do dono e a declaração por último
-    // (`dart language-server` 3.6.2).
+    // The use in the request's file, the one in the owner and the declaration
+    // last (`dart language-server` 3.6.2).
     assert_eq!(list.len(), 3, "{list:?}");
     assert_eq!(list[2]["uri"], OWNER_A);
     assert_eq!(list[2]["range"]["start"], json!({"line":0,"character":4}));
@@ -120,10 +119,10 @@ fn variable_across_open_lists_declaration_and_uses() {
     assert_eq!(list[1]["range"]["start"], json!({"line":1,"character":column_in(line_a, "resposta")}));
     assert_eq!(list[0]["uri"], USES_B);
     assert_eq!(list[0]["range"]["start"], json!({"line":1,"character":column_in(line_b, "resposta")}));
-    // A partir da declaração no dono agrega os abertos.
+    // From the declaration in the owner, the open files are aggregated.
     let of_decl = request(&mut server, 2, OWNER_A, 0, 5, true);
     assert_eq!(of_decl.as_array().expect("lista").len(), 3);
-    // Sem a declaração, só os usos dos dois arquivos.
+    // Without the declaration, only the uses in both files.
     let without_decl = request(&mut server, 3, USES_B, 1, column_in(line_b, "resposta"), false);
     let uses = without_decl.as_array().expect("lista");
     assert_eq!(uses.len(), 2, "{uses:?}");

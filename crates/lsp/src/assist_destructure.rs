@@ -1,11 +1,11 @@
 //! `DestructureLocalVariableAssignment`
-//! (destructure_local_variable_assignment.dart) do `analysis_server` 3.6.2:
-//! o nome de uma variável local de tipo record vira um padrão de record; o de
-//! tipo de classe, cujas leituras são só de propriedades, vira um padrão de
-//! objeto, e cada leitura `v.p` passa a ser a variável do padrão. As posições
-//! ligadas do produtor saem como o texto delas.
+//! (destructure_local_variable_assignment.dart) from `analysis_server` 3.6.2:
+//! the name of a local variable of record type becomes a record pattern;
+//! one of class type, whose reads are only of properties, becomes an object
+//! pattern, and each read `v.p` becomes the pattern variable. The producer's
+//! linked positions come out as their text.
 //!
-//! | Título | Espécie |
+//! | Title | Kind |
 //! |---|---|
 //! | `Destructure variable assignment` | `refactor.destructureLocalVariableAssignment` |
 
@@ -19,7 +19,7 @@ use dartforge_types::{Resolved, Type};
 use std::collections::HashSet;
 
 impl Context<'_> {
-    /// O nome de um parâmetro formal (o último token dele, por dentro do
+    /// The name of a formal parameter (its last token, looking inside the
     /// `DefaultFormalParameter`).
     fn parameter_name(&self, p: usize) -> Option<Span> {
         let p = if self.kind(p) == "DefaultFormalParameter" { *self.children(p).first()? } else { p };
@@ -27,8 +27,8 @@ impl Context<'_> {
         self.previous_token(after)
     }
 
-    /// `ScopedNameFinder(position)` aplicado a `n`: os nomes de locais e
-    /// parâmetros visíveis em `n`, declarados antes da posição.
+    /// `ScopedNameFinder(position)` applied to `n`: the names of locals and
+    /// parameters visible at `n`, declared before the position.
     pub(crate) fn names_in_scope(&self, n: usize, position: usize) -> HashSet<String> {
         let mut names = HashSet::new();
         let mut add = |s: Option<Span>, names: &mut HashSet<String>| {
@@ -54,7 +54,7 @@ impl Context<'_> {
             };
             match self.kind(k) {
                 "Block" | "SwitchCase" | "SwitchPatternCase" | "SwitchDefault" => {
-                    // `_checkStatements`: os comandos antes do filho imediato.
+                    // `_checkStatements`: the statements before the immediate child.
                     for &c in self.children(k) {
                         if c == child {
                             break;
@@ -119,9 +119,9 @@ impl Context<'_> {
         names
     }
 
-    /// As leituras do local declarado em `name` dentro de `body`, na ordem
-    /// do texto: `(property, nó do access)` para `v.p`, e `None` para uma
-    /// leitura do objeto inteiro.
+    /// The reads of the local declared at `name` inside `body`, in text order:
+    /// `(property, access node)` for `v.p`, and `None` for a read of the whole
+    /// object.
     fn local_reads(&self, body: usize, name: usize) -> Vec<Option<(String, usize)>> {
         let mut v = Vec::new();
         let mut stack = vec![body];
@@ -153,7 +153,7 @@ impl Context<'_> {
             return None;
         }
         let name = self.next_token(self.tree.nos[no].inicio)?;
-        // `declaredElement2`: só um local.
+        // `declaredElement2`: only a local.
         let ty = *self.bodies.tipos_de_locais.get(&name.start)?;
         let table = &self.p.query.table;
         let action = |edits: Vec<(Span, String)>| CodeAction {
@@ -178,9 +178,8 @@ impl Context<'_> {
                     excluded.insert(name_v.clone());
                     variables.push(name_v);
                 }
-                // Cada variável é um grupo ligado `VAR_i` com as sugestões do
-                // `RecordField.write`: (prefixo escrito, texto do grupo,
-                // sugestões).
+                // Each variable is a linked group `VAR_i` with the suggestions of
+                // `RecordField.write`: (written prefix, group text, suggestions).
                 let mut groups: Vec<(String, String, Vec<String>)> =
                     variables.into_iter().map(|v| (String::new(), v.clone(), vec![v, "_".to_string()])).collect();
                 let mut named_: Vec<String> = named.iter().map(|(s, _)| self.p.name(*s).to_string()).collect();
@@ -217,7 +216,7 @@ impl Context<'_> {
                     return None;
                 }
                 let in_scope = self.names_in_scope(no, self.tree.nos[no].inicio);
-                // As propriedades, na ordem da primeira leitura.
+                // The properties, in the order of their first read.
                 let mut properties: Vec<(String, Vec<usize>)> = Vec::new();
                 for (p, access) in reads.into_iter().flatten() {
                     match properties.iter_mut().find(|(q, _)| *q == p) {
@@ -253,9 +252,9 @@ impl Context<'_> {
                     }
                 }
                 edits.sort_by_key(|(s, _)| s.start);
-                // Sem propriedades lidas, `selectHere` entre os parênteses;
-                // com elas, as leituras trocadas são outras edições (os
-                // grupos delas não chegam a um snippet).
+                // Without properties read, `selectHere` between the parentheses; with them,
+                // the replaced reads are separate edits (their groups do not reach a
+                // snippet).
                 let selection = fields.is_empty().then_some(class_.len() + 1);
                 let a = action(edits);
                 Some(match selection {

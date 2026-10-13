@@ -1,16 +1,17 @@
-//! Mede latência e memória das consultas semânticas com e sem a sessão
-//! limitada (`crates/lsp/src/session.rs`), juntas, pelo protocolo.
+//! Measures latency and memory of semantic queries with and without the
+//! bounded session (`crates/lsp/src/session.rs`), together, through the
+//! protocol.
 //!
-//! `cargo run -q --release -p dartforge-lsp --example semantic_session -- <file.dart> [consultas]`
+//! `cargo run -q --release -p dartforge-lsp --example semantic_session -- <file.dart> [queries]`
 //!
-//! Com o SDK de `SdkLayout::discover`, abre o arquivo (o projeto é o
-//! diretório com `pubspec.yaml`) e pede, nas primeiras `consultas` posições
-//! de identificador (padrão 20), `hover` e `definition` (escopo da
-//! biblioteca), e três `references` (projeto inteiro). Mede cada pedido,
-//! depois aplica uma edição e mede de novo a primeira consulta. Roda duas
-//! vezes: sessão desligada (orçamento 0) e ligada (padrão). Imprime, para
-//! cada modo, a mediana e o máximo das latências, o vivo retido durante as
-//! consultas (alocador contador) e o vivo depois da edição.
+//! With the SDK from `SdkLayout::discover`, opens the file (the project is the
+//! directory with `pubspec.yaml`) and requests, at the first `queries`
+//! identifier positions (default 20), `hover` and `definition` (library
+//! scope), and three `references` (whole project). Measures each request,
+//! then applies an edit and measures the first query again. Runs twice:
+//! session off (budget 0) and on (default). Prints, for each mode, the median
+//! and maximum latency, the live memory retained during the queries (counting
+//! allocator) and the live memory after the edit.
 #[global_allocator]
 static ALLOCATOR: dartforge_instrument::CountingAllocator = dartforge_instrument::CountingAllocator;
 
@@ -32,7 +33,7 @@ fn mib(b: usize) -> String {
     format!("{:.1} MiB", b as f64 / (1024.0 * 1024.0))
 }
 
-/// Posições (linha, coluna UTF-16) dos primeiros identificadores do texto.
+/// Positions (line, UTF-16 column) of the first identifiers in the text.
 fn positions(text: &str, n: usize) -> Vec<(u32, u32)> {
     let Ok(tokens) = dartforge_frontend::lexer::lex(text) else {
         return Vec::new();

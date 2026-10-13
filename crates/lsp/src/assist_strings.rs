@@ -1,7 +1,7 @@
-//! Assistências de literais de texto, portadas dos produtores do
-//! `analysis_server` 3.6.2 sobre a árvore no formato do analyzer.
+//! String literal assists, ported from the `analysis_server` 3.6.2
+//! producers over the analyzer-shaped tree.
 //!
-//! | Título | Espécie | Produtor |
+//! | Title | Kind | Producer |
 //! |---|---|---|
 //! | `Convert to single quoted string` | `refactor.convert.toSingleQuotedString` | `ConvertToSingleQuotes` |
 //! | `Convert to double quoted string` | `refactor.convert.toDoubleQuotedString` | `ConvertToDoubleQuotes` |
@@ -12,7 +12,7 @@ use crate::refactorings::Context;
 use crate::refactorings_exec::Change;
 use dartforge_diagnostics::Span;
 
-/// O texto de um literal: cru (`r`), de várias linhas e com aspas simples.
+/// The text of a literal: raw (`r`), multi-line and single-quoted.
 struct Quotes {
     raw: bool,
     multiline: bool,
@@ -26,12 +26,12 @@ fn quotes_of(text: &str) -> Quotes {
 }
 
 impl Context<'_> {
-    /// `_ConvertQuotes.compute`: `of_double` converte de aspas duplas para
-    /// simples (`ConvertToSingleQuotes`); senão, de simples para duplas.
+    /// `_ConvertQuotes.compute`: `of_double` converts from double to single
+    /// quotes (`ConvertToSingleQuotes`); otherwise from single to double.
     fn convert_quotes(&self, uri: &str, start: usize, end: usize, of_double: bool) -> Option<Change> {
         let no = self.tree.localizar(start, end)?;
         let mut m = Change::default();
-        // O `token` do produtor (`_tokenAt(node, selectionOffset)`).
+        // The producer's `token` (`_tokenAt(node, selectionOffset)`).
         let token: Option<Span>;
         match self.kind(no) {
             "SimpleStringLiteral" => {
@@ -47,8 +47,8 @@ impl Context<'_> {
                         (false, false) => "\"",
                     };
                     let size = if a.multiline { 3 } else { 1 };
-                    // `_addBackslash`: antes de cada aspa nova não escapada
-                    // (o laço começa no índice 1 do texto do token).
+                    // `_addBackslash`: before each unescaped new quote (the loop starts at
+                    // index 1 of the token text).
                     let quote = if of_double { b'\'' } else { b'"' };
                     let b = text.as_bytes();
                     let mut i = 1;
@@ -94,7 +94,7 @@ impl Context<'_> {
             }
             _ => return None,
         }
-        // `_removeBackslash(token)`: o `\` antes da aspa antiga.
+        // `_removeBackslash(token)`: the `\` before the old quote.
         if let Some(t) = token {
             let quote = if of_double { b'"' } else { b'\'' };
             let b = &self.source.as_bytes()[t.start..t.end];
@@ -110,7 +110,7 @@ impl Context<'_> {
         (m.conflict.is_none() && !m.files.is_empty()).then_some(m)
     }
 
-    /// `ConvertToSingleQuotes` e `ConvertToDoubleQuotes` (convert_quotes.dart).
+    /// `ConvertToSingleQuotes` and `ConvertToDoubleQuotes` (convert_quotes.dart).
     pub(crate) fn convert_text_quotes(&self, uri: &str, start: usize, end: usize) -> Vec<CodeAction> {
         let mut output = Vec::new();
         for (of_double, title, kind) in [
@@ -130,9 +130,9 @@ impl Context<'_> {
         output
     }
 
-    /// `ConvertToMultilineString` (convert_to_multiline_string.dart): o
-    /// literal de uma linha ganha as aspas triplas, com uma quebra de linha
-    /// depois das de abertura (`writeln`).
+    /// `ConvertToMultilineString` (convert_to_multiline_string.dart): the
+    /// single-line literal gets triple quotes, with a line break after the
+    /// opening ones (`writeln`).
     pub(crate) fn convert_to_multiline(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         let mut no = self.tree.localizar(start, end)?;
         if matches!(self.kind(no), "InterpolationString" | "InterpolationExpression") {

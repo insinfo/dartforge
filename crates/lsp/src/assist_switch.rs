@@ -1,7 +1,7 @@
-//! Assistências de `switch`, portadas dos produtores do `analysis_server`
-//! 3.6.2 sobre a árvore no formato do analyzer.
+//! `switch` assists, ported from the `analysis_server` 3.6.2 producers over
+//! the analyzer-shaped tree.
 //!
-//! | Título | Espécie | Produtor |
+//! | Title | Kind | Producer |
 //! |---|---|---|
 //! | `Convert to switch statement` | `refactor.convert.switchStatement` | `ConvertIfStatementToSwitchStatement`, `ConvertSwitchExpressionToSwitchStatement` |
 
@@ -12,7 +12,7 @@ use dartforge_diagnostics::Span;
 use dartforge_frontend::ast;
 use dartforge_types::{Type, TypeId};
 
-/// Um ramo do `if`: o padrão (`None` no `else`) e o comando.
+/// A branch of the `if`: the pattern (`None` for the `else`) and the statement.
 struct Case {
     pattern: Option<String>,
     expression: Option<String>,
@@ -34,7 +34,7 @@ const LITERALS: &[&str] = &[
 ];
 
 impl Context<'_> {
-    /// O `type` de uma anotação de tipo (`NamedType.type`).
+    /// The `type` of a type annotation (`NamedType.type`).
     pub(crate) fn annotation_type_at(&self, k: usize) -> Option<TypeId> {
         let s = self.tree.span(k);
         self.ast.types.iter().enumerate().filter(|(_, t)| t.span == s).find_map(|(i, _)| {
@@ -135,7 +135,7 @@ impl Context<'_> {
                 Some(p) => s.push_str(&format!("{case_indent}case {p}:{eol}")),
                 None => s.push_str(&format!("{case_indent}default:{eol}")),
             }
-            // `_writeStatement`: `getLinesRangeStatements` falha sem comandos.
+            // `_writeStatement`: `getLinesRangeStatements` fails without statements.
             let commands = self.commands_of(c.command);
             let (&first, &last) = (commands.first()?, commands.last()?);
             let _ = i;
@@ -178,8 +178,8 @@ impl Context<'_> {
         m.add(uri, semicolon, String::new());
     }
 
-    /// `ConvertSwitchExpressionToSwitchStatement`: a expressão `switch` de uma
-    /// declaração, de uma atribuição ou de um `return` vira um comando.
+    /// `ConvertSwitchExpressionToSwitchStatement`: the `switch` expression of a
+    /// declaration, an assignment or a `return` becomes a statement.
     pub(crate) fn switch_expression_to_statement(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         let switch = self.tree.localizar(start, end)?;
         if self.kind(switch) != "SwitchExpression" {

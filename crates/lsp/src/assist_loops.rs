@@ -1,7 +1,7 @@
-//! Assistências de laços, portadas dos produtores do `analysis_server`
-//! 3.6.2 sobre a árvore no formato do analyzer.
+//! Loop assists, ported from the `analysis_server` 3.6.2 producers over the
+//! analyzer-shaped tree.
 //!
-//! | Título | Espécie | Produtor |
+//! | Title | Kind | Producer |
 //! |---|---|---|
 //! | `Convert to for-index loop` | `refactor.convert.forEachToForIndex` | `ConvertIntoForIndex` |
 
@@ -13,10 +13,10 @@ use crate::Edit;
 use dartforge_diagnostics::Span;
 use dartforge_types::{Resolved, Type};
 
-/// O `toSource` de um `DeclaredIdentifier` (metadados, palavra-chave, tipo e
-/// nome separados por um espaço), a partir do texto: os brancos viram um
-/// espaço, e os de dentro dos argumentos de tipo somem como no
-/// `ToSourceVisitor` (`<`, `>` e `, `).
+/// The `toSource` of a `DeclaredIdentifier` (metadata, keyword, type and
+/// name separated by a space), from the text: whitespace runs become one
+/// space, and those inside type arguments disappear as in the
+/// `ToSourceVisitor` (`<`, `>` and `, `).
 pub(crate) fn as_source(text: &str) -> String {
     let mut s = text.split_whitespace().collect::<Vec<_>>().join(" ");
     for (de, para) in [("< ", "<"), (" <", "<"), (" >", ">"), (" ,", ","), (" ?", "?")] {
@@ -29,9 +29,9 @@ pub(crate) fn as_source(text: &str) -> String {
 
 impl Context<'_> {
     /// `ConvertIntoForIndex` (convert_into_for_index.dart): `for (final x in
-    /// lista) { … }` sobre uma variável local or pairâmetro de ty `List`
-    /// vira `for (int i = 0; i < list.length; i++)` com `final x =
-    /// lista[i];` no começo do bloco.
+    /// list) { … }` over a local variable or parameter of type `List` becomes
+    /// `for (int i = 0; i < list.length; i++)` with `final x = list[i];` at the
+    /// start of the block.
     pub(crate) fn convert_to_for_index(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         let no = self.tree.localizar(start, end)?;
         let loop_ = self.with_parents(no).find(|&k| self.kind(k) == "ForStatement")?;
@@ -51,8 +51,8 @@ impl Context<'_> {
         if self.kind(iterable) != "SimpleIdentifier" {
             return None;
         }
-        // `iterable.element is VariableElement2`: local ou parâmetro (o
-        // campo e a variável de topo resolvem para o getter).
+        // `iterable.element is VariableElement2`: a local or a parameter (a field
+        // and a top-level variable resolve to the getter).
         let Marca::Expr(x) = self.tree.nos[iterable].marca else { return None };
         if !matches!(self.bodies.get_resolved(x), Some(Resolved::Local(_) | Resolved::Parameter { .. })) {
             return None;

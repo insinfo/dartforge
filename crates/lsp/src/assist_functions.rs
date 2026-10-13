@@ -1,7 +1,7 @@
-//! Assistências sobre o corpo de funções, portadas dos produtores do
-//! `analysis_server` 3.6.2 sobre a árvore no formato do analyzer.
+//! Assists on function bodies, ported from the `analysis_server` 3.6.2
+//! producers over the analyzer-shaped tree.
 //!
-//! | Título | Espécie | Produtor |
+//! | Title | Kind | Producer |
 //! |---|---|---|
 //! | `Convert to async function body` | `refactor.convert.bodyToAsync` | `ConvertIntoAsyncBody` |
 
@@ -32,13 +32,13 @@ impl Context<'_> {
         body_of(m)
     }
 
-    /// A função do parser cujo corpo é `body` (a marca do pai).
+    /// The parser function whose body is `body` (the parent's mark).
     fn body_function(&self, body: usize) -> Option<ast::FunctionId> {
         match self.tree.nos[self.parent(body)?].marca {
             Marca::Funcao(fid) => Some(fid),
             _ => {
-                // A `FunctionExpression` de uma `FunctionDeclaration`: a marca
-                // está no avô.
+                // The `FunctionExpression` of a `FunctionDeclaration`: the mark is on the
+                // grandparent.
                 let grandparent = self.parent(self.parent(body)?)?;
                 match self.tree.nos[grandparent].marca {
                     Marca::Funcao(fid) => Some(fid),
@@ -48,7 +48,7 @@ impl Context<'_> {
         }
     }
 
-    /// `typeSystem.flatten`: `Future<S>` e `FutureOr<S>` dão `S`.
+    /// `typeSystem.flatten`: `Future<S>` and `FutureOr<S>` give `S`.
     fn flatten(&self, t: TypeId) -> TypeId {
         let table = &self.p.query.table;
         match table.get(t) {
@@ -58,8 +58,8 @@ impl Context<'_> {
         }
     }
 
-    /// `ConvertIntoAsyncBody` (convert_into_async_body.dart) com o
-    /// `convertFunctionFromSyncToAsync` do `DartFileEditBuilder`.
+    /// `ConvertIntoAsyncBody` (convert_into_async_body.dart) with the
+    /// `convertFunctionFromSyncToAsync` of `DartFileEditBuilder`.
     pub(crate) fn convert_to_async_body(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         let no = self.tree.localizar(start, end)?;
         let body = self.enclosing_body(no)?;
@@ -76,12 +76,12 @@ impl Context<'_> {
         if f.modifier != ast::AsyncModifier::None {
             return None;
         }
-        // Só no começo do corpo: até o fim do `{` ou do `=>`.
+        // Only at the start of the body: up to the end of the `{` or of the `=>`.
         let first = self.next_token(self.tree.nos[body].inicio)?;
         if start > first.end {
             return None;
         }
-        // A closure não tem tipo de retorno escrito, e o Dart não a converte.
+        // A closure has no written return type, and Dart does not convert it.
         let declaration = if self.kind(parent) == "FunctionExpression" {
             let d = self.parent(parent).filter(|&d| self.kind(d) == "FunctionDeclaration")?;
             Some(d)
@@ -91,8 +91,8 @@ impl Context<'_> {
             None
         };
         let mut edits = Vec::new();
-        // `async ` no começo do corpo, com um espaço antes se o corpo está
-        // colado ao token anterior.
+        // `async ` at the start of the body, with a space before it if the body is
+        // attached to the previous token.
         let attached = self.previous_token(first.start).is_some_and(|t| t.end == first.start);
         edits.push((Span { start: first.start, end: first.start }, if attached { " async ".to_string() } else { "async ".to_string() }));
         let mut import = std::collections::BTreeSet::new();
@@ -138,9 +138,9 @@ impl Context<'_> {
         })
     }
 
-    /// `_ReturnTypeComputer`: o `leastUpperBound` dos tipos dos `return` com
-    /// valor do corpo (sem os de funções aninhadas), sem os de tipo `Never`;
-    /// e se houve algum `return`.
+    /// `_ReturnTypeComputer`: the `leastUpperBound` of the types of the body's
+    /// `return`s with a value (without those of nested functions), excluding
+    /// those of type `Never`; and whether there was any `return`.
     fn return_types_type(&self, body: usize) -> (Option<TypeId>, bool) {
         let mut ty: Option<TypeId> = None;
         let mut happened = false;
@@ -168,13 +168,14 @@ impl Context<'_> {
             }
             stack.extend(self.children(k).iter().copied());
         }
-        // Só vale um tipo que a tabela da consulta já tem (o escritor lê esta).
+        // Only a type that the query's table already has is valid (the writer
+        // reads that table).
         (ty.filter(|t| (t.0 as usize) < query.table.len()), happened)
     }
 
-    /// `AddReturnType` (add_return_type.dart): no nome de um método ou função
-    /// sem tipo de retorno (nem setter), o tipo inferido do corpo antes do
-    /// `operator`/`get` ou do nome.
+    /// `AddReturnType` (add_return_type.dart): on the name of a method or
+    /// function without a return type (and not a setter), the type inferred from
+    /// the body before the `operator`/`get` or the name.
     pub(crate) fn add_return_type(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         let no = self.tree.localizar(start, end)?;
         let declaration = match self.kind(no) {
@@ -184,14 +185,14 @@ impl Context<'_> {
         let Marca::Funcao(fid) = self.tree.nos[declaration].marca else { return None };
         let function = self.ast.function(fid);
         let name = function.name?.span;
-        // `executable.name == token`: a seleção está no nome.
+        // `executable.name == token`: the selection is on the name.
         if !(name.start <= start && start <= name.end) {
             return None;
         }
         if function.return_type.is_some() {
             return None;
         }
-        // Setter e as palavras antes do nome.
+        // Setter and the keywords before the name.
         let previous = self.previous_token(name.start);
         let word = previous.map(|s| &self.source[s.start..s.end]);
         if word == Some("set") {
@@ -201,7 +202,7 @@ impl Context<'_> {
             Some("get" | "operator") => previous?.start,
             _ => name.start,
         };
-        // O corpo.
+        // The body.
         let body = if self.kind(declaration) == "FunctionDeclaration" {
             let expression = self.children(declaration).iter().copied().find(|&k| self.kind(k) == "FunctionExpression")?;
             *self.children(expression).last()?

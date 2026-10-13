@@ -1,20 +1,20 @@
-//! As cadeias de augmentation no LSP (docs/LSP-ESPECIFICACAO.md §8.3 e §8.6):
-//! o `AugmentationCodeLensProvider` ("Go to Augmented" e "Go to
-//! Augmentation") e os métodos `dart/textDocument/augmented` e
-//! `dart/textDocument/augmentation` do 3.6.2
+//! Augmentation chains in the LSP (docs/LSP-ESPECIFICACAO.md §8.3 and §8.6):
+//! the `AugmentationCodeLensProvider` ("Go to Augmented" and "Go to
+//! Augmentation") and the 3.6.2 `dart/textDocument/augmented` and
+//! `dart/textDocument/augmentation` methods
 //! (`AS:src/lsp/handlers/code_lens/augmentations.dart`,
 //! `custom/handler_augmented.dart`, `custom/handler_augmentation.dart`).
 //!
-//! A cadeia é a ordem de aplicação (docs/AUGMENTATIONS.md): as unidades da
-//! biblioteca na pré-ordem da árvore de partes, as declarações na ordem do
-//! texto, e, numa classe, os membros da declaração introdutória seguidos dos
-//! de cada `augment class`. Uma declaração `augment` liga-se à anterior de
-//! mesma chave (nome; setter à parte; estático à parte num membro; o nome do
-//! construtor): é o `augmentationTarget` dela, e ela é o `augmentation` da
-//! anterior. Uma declaração comum começa cadeia nova. Só nas bibliotecas com
-//! augmentations ligadas.
+//! The chain is the application order (docs/AUGMENTATIONS.md): the library's
+//! units in pre-order of the part tree, the declarations in text order, and,
+//! in a class, the members of the introductory declaration followed by those
+//! of each `augment class`. An `augment` declaration links to the previous
+//! one with the same key (name; setters apart; statics apart for a member;
+//! the constructor name): that one is its `augmentationTarget`, and it is the
+//! previous one's `augmentation`. An ordinary declaration starts a new
+//! chain. Only in libraries with augmentations enabled.
 //!
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Written without compiling or running (2026-10-05).
 
 use crate::project::Project;
 use dartforge_diagnostics::Span;
@@ -22,12 +22,12 @@ use dartforge_elements::model::{ClassId, UnitId};
 use dartforge_frontend::ast::{self, DeclKind, MemberKind};
 use std::collections::HashMap;
 
-/// Um elo da cadeia: o nome declarado e os vizinhos.
+/// A chain link: the declared name and the neighbors.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Link {
     pub unit: UnitId,
     pub name: Span,
-    /// O span da declaração inteira (o "subir pelos nós" do cursor).
+    /// The span of the whole declaration (the cursor's "walk up the nodes").
     pub declaration: Span,
     /// `augmentationTarget`.
     pub previous: Option<usize>,
@@ -36,7 +36,7 @@ pub(crate) struct Link {
 }
 
 impl Project {
-    /// Os elos de todas as cadeias das bibliotecas com augmentations.
+    /// The links of every chain of the libraries with augmentations.
     pub(crate) fn augmentation_links(&self) -> Vec<Link> {
         let p = self.program();
         let mut links: Vec<Link> = Vec::new();
@@ -55,7 +55,7 @@ impl Project {
             if !p.biblioteca_com_augmentations(dartforge_elements::model::LibraryId(li as u32)) {
                 continue;
             }
-            // O topo, na ordem de aplicação.
+            // The top level, in application order.
             let mut current: HashMap<String, usize> = HashMap::new();
             for &u in &lib.units {
                 let a = &p.unit(u).ast;
@@ -69,7 +69,7 @@ impl Project {
                 }
             }
         }
-        // Os membros, pela cadeia de cada classe.
+        // The members, along each class's chain.
         for ci in 0..p.classes.len() {
             let c = ClassId(ci as u32);
             if !p.biblioteca_com_augmentations(p.class(c).library) || p.class(c).decl.is_none() {
@@ -88,9 +88,9 @@ impl Project {
         links
     }
 
-    /// As lentes de `unit`: primeiro os "Go to Augmented" (o alvo é o
-    /// anterior), depois os "Go to Augmentation" (o próximo), na ordem do
-    /// texto. Cada uma: o nome, o título e o alvo.
+    /// The lenses of `unit`: first the "Go to Augmented" ones (the target is the
+    /// previous link), then the "Go to Augmentation" ones (the next), in text
+    /// order. Each one: the name, the title and the target.
     pub(crate) fn augmentation_lenses(&self, unit: UnitId, augmented: bool, augmentations: bool) -> Vec<(Span, &'static str, UnitId, Span)> {
         let links = self.augmentation_links();
         let mut from_here: Vec<&Link> = links.iter().filter(|e| e.unit == unit).collect();
@@ -113,9 +113,9 @@ impl Project {
         output
     }
 
-    /// `dart/textDocument/augmented` (`next` falso) e
-    /// `dart/textDocument/augmentation` (verdadeiro): o elo da declaração que
-    /// contém `offset` (a mais interna) e o vizinho dele.
+    /// `dart/textDocument/augmented` (`next` false) and
+    /// `dart/textDocument/augmentation` (true): the link of the declaration that
+    /// contains `offset` (the innermost) and its neighbor.
     pub(crate) fn augmentation_neighbor(&self, unit: UnitId, offset: usize, next: bool) -> Option<(UnitId, Span)> {
         let links = self.augmentation_links();
         let e = links
@@ -127,7 +127,7 @@ impl Project {
     }
 }
 
-/// Os nomes declarados por uma declaração de topo: `(name, é setter)`.
+/// The names declared by a top-level declaration: `(name, is setter)`.
 fn declaration_names(a: &ast::Ast, d: &ast::Decl) -> Vec<(ast::Name, bool)> {
     match &d.kind {
         DeclKind::Class(x) => vec![(x.name, false)],
@@ -144,8 +144,8 @@ fn declaration_names(a: &ast::Ast, d: &ast::Decl) -> Vec<(ast::Name, bool)> {
     }
 }
 
-/// Os nomes declarados por um membro, com a chave da cadeia (estático à
-/// parte; o construtor pelo nome).
+/// The names declared by a member, with the chain key (statics apart; the
+/// constructor by name).
 fn member_names(a: &ast::Ast, m: &ast::Member, name: impl Fn(dartforge_intern::SymbolId) -> String) -> Vec<(ast::Name, String)> {
     match &m.kind {
         MemberKind::Method(f) => {

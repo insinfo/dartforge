@@ -1,30 +1,30 @@
-//! Relevância dos itens do completar como o servidor do Dart 3.6.2 a calcula
-//! (`services/completion/dart/relevance_computer.dart` e
-//! `feature_computer.dart`): uma média ponderada de características,
-//! levada a `0..1000`, e `sortText = 9999 − relevância`.
+//! Relevance of completion items as the Dart 3.6.2 server computes it
+//! (`services/completion/dart/relevance_computer.dart` and
+//! `feature_computer.dart`): a weighted mean of features, scaled to
+//! `0..1000`, and `sortText = 9999 − relevance`.
 //!
-//! * **tipo de contexto** — o tipo que a posição espera (parâmetro do
-//!   argumento, alvo da atribuição, tipo escrito da variável, retorno da
-//!   função, condição `bool`) contra o tipo do item: igual 1,0; subtipo 0,40;
-//!   supertipo 0,02; sem relação 0,13; sem um dos dois, 0;
-//! * **espécie do elemento** — a faixa de probabilidade da espécie (classe,
-//!   local, parâmetro, campo, método, função…) no local do completar
+//! * **context type** — the type the position expects (the argument's
+//!   parameter, the assignment target, the variable's written type, the
+//!   function's return, a `bool` condition) against the item's type: equal
+//!   1.0; subtype 0.40; supertype 0.02; unrelated 0.13; missing either, 0;
+//! * **element kind** — the probability range of the kind (class, local,
+//!   parameter, field, method, function…) at the completion location
 //!   (`Block_statement`, `ArgumentList_method_unnamed`,
-//!   `PropertyAccess_propertyName`…), das tabelas geradas do Dart
-//!   (`relevance_tables.rs`); o meio da faixa, ou, com distância
-//!   (locais pela proximidade, membros pela herança), `meio + (alto −
-//!   baixo) × distância / 2`;
-//! * **palavra-chave** — o alto da faixa da palavra no local;
-//! * **não importado** −1, **começa com `$`** −1 (peso 0,5), **noSuchMethod**
-//!   −1, **distância do local** `0,9^d`.
+//!   `PropertyAccess_propertyName`…), from Dart's generated tables
+//!   (`relevance_tables.rs`); the middle of the range, or, with a distance
+//!   (locals by proximity, members by inheritance), `middle + (high − low) ×
+//!   distance / 2`;
+//! * **keyword** — the top of the keyword's range at the location;
+//! * **not imported** −1, **starts with `$`** −1 (weight 0.5),
+//!   **noSuchMethod** −1, **local distance** `0.9^d`.
 //!
-//! `relevância = ⌊((Σ vᵢ·pᵢ / Σ pᵢ) + 1) / 2 × 1000⌋`, com os pesos do Dart
-//! (todos 1, menos depreciado e `$`, 0,5). Argumentos nomeados têm valor
-//! fixo (900; 950 se obrigatório), como no Dart.
+//! `relevance = ⌊((Σ vᵢ·pᵢ / Σ pᵢ) + 1) / 2 × 1000⌋`, with Dart's weights
+//! (all 1, except deprecated and `$`, 0.5). Named arguments have a fixed
+//! value (900; 950 if required), as in Dart.
 
 use dartforge_frontend::ast::{self, ExprId};
 
-/// Espécie de elemento das tabelas do Dart (`computeElementKind`).
+/// Element kind of the Dart tables (`computeElementKind`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Kind {
     Class,
@@ -41,36 +41,36 @@ pub(crate) enum Kind {
     TopLevelVariable,
     TypeParameter,
     Unknown,
-    /// Espécies sem tabela (constante de enum, extensão, alias de tipo):
-    /// característica de espécie 0.
+    /// Kinds without a table (enum constant, extension, type alias): kind
+    /// feature 0.
     NoTable,
 }
 
-/// O que se sabe de um item para pontuá-lo.
+/// What is known about an item in order to score it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Rel {
-    /// Espécie, quando o item é um elemento.
+    /// Kind, when the item is an element.
     pub kind: Option<Kind>,
-    /// O tipo do item (variável, retorno, getter), para o tipo de contexto.
+    /// The item's type (variable, return, getter), for the context type.
     pub ty: Option<dartforge_types::TypeId>,
-    /// Distância (`d`, que vira `0,9^d`): local pela proximidade, membro
-    /// pela herança.
+    /// Distance (`d`, which becomes `0.9^d`): a local by proximity, a member by
+    /// inheritance.
     pub distance: Option<u32>,
-    /// Local ou parâmetro: a distância entra também como característica.
+    /// Local or parameter: the distance also enters as a feature.
     pub local: bool,
     pub not_imported: bool,
-    /// Palavra-chave (o texto).
+    /// Keyword (the text).
     pub word: Option<&'static str>,
-    /// Relevância fixa (argumentos nomeados).
+    /// Fixed relevance (named arguments).
     pub fixed: Option<i32>,
     pub starts_with_dollar: bool,
     pub no_such_method: bool,
-    /// `hasOrInheritsDeprecated` (`hasDeprecated`, peso 0,5).
+    /// `hasOrInheritsDeprecated` (`hasDeprecated`, weight 0.5).
     pub deprecated: bool,
-    /// `isConstantFeature`: construtor `const`, campo estático `const`,
-    /// variável de topo `const` (só vale com `preferConstants`).
+    /// `isConstantFeature`: `const` constructor, `static const` field, `const`
+    /// top-level variable (only counts with `preferConstants`).
     pub constant: bool,
-    /// `superMatches`: o nome é o do método que contém o `super.▮`.
+    /// `superMatches`: the name is that of the method containing the `super.▮`.
     pub super_matches: bool,
 }
 
@@ -79,7 +79,7 @@ pub(crate) fn percentage(distance: usize) -> f64 {
     0.9f64.powi(distance as i32)
 }
 
-/// A característica de espécie no `local`.
+/// The kind feature at `local`.
 fn kind_feature(kind: Kind, local: Option<&str>, distance: Option<f64>) -> f64 {
     let Some(local) = local else { return 0.0 };
     let Some((_, low, high)) = super::relevance_tables::kinds(local).iter().find(|(e, _, _)| *e == kind) else {
@@ -92,7 +92,7 @@ fn kind_feature(kind: Kind, local: Option<&str>, distance: Option<f64>) -> f64 {
     }
 }
 
-/// A característica de palavra-chave no `local` (o alto da faixa).
+/// The keyword feature at `local` (the top of the range).
 fn word_feature(word: &str, local: Option<&str>) -> f64 {
     let Some(local) = local else { return 0.0 };
     let table = super::relevance_tables::words(local);
@@ -102,14 +102,14 @@ fn word_feature(word: &str, local: Option<&str>) -> f64 {
         .unwrap_or(0.0)
 }
 
-/// A relevância (`0..1000`) de um item.
+/// The relevance (`0..1000`) of an item.
 pub(crate) fn relevance(rel: &Rel, local: Option<&str>, context_type: f64, prefer_constants: bool) -> i32 {
     if let Some(f) = rel.fixed {
         return f;
     }
     let distance = rel.distance.map(|d| percentage(d as usize));
-    // `_computeFormalParameterRelevance`: a espécie do parâmetro é sem a
-    // distância (só o local a usa, `_computeLocalVariableRelevance`).
+    // `_computeFormalParameterRelevance`: the parameter's kind is without the
+    // distance (only the local uses it, `_computeLocalVariableRelevance`).
     let kind = rel.kind.map_or(0.0, |e| kind_feature(e, local, if e == Kind::Parameter { None } else { distance }));
     let word = rel.word.map_or(0.0, |p| word_feature(p, local));
     let not_imported = if rel.not_imported { -1.0 } else { 0.0 };
@@ -119,9 +119,9 @@ pub(crate) fn relevance(rel: &Rel, local: Option<&str>, context_type: f64, prefe
     let deprecated = if rel.deprecated { -1.0 } else { 0.0 };
     let constant = if prefer_constants && rel.constant { 1.0 } else { 0.0 };
     let super_matches = if rel.super_matches { 1.0 } else { 0.0 };
-    // Pesos do Dart: contexto 1, espécie 1, depreciado 0,5, constante 1,
-    // noSuchMethod 1, não importado 1, palavra 1, `$` 0,5, super 1,
-    // distância do local 1 — total 9.
+    // Dart's weights: context 1, kind 1, deprecated 0.5, constant 1,
+    // noSuchMethod 1, not imported 1, keyword 1, `$` 0.5, super 1, local
+    // distance 1 — total 9.
     let sum = context_type + kind + 0.5 * deprecated + constant + nsm + not_imported + word + 0.5 * dollar + super_matches + local_distance;
     let media = sum / 9.0;
     (((media + 1.0) / 2.0) * 1000.0) as i32

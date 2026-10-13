@@ -1,13 +1,13 @@
-//! Mede memória e tempo do servidor LSP sobre um projeto inteiro, pelo protocolo.
+//! Measures memory and time of the LSP server over a whole project, through the protocol.
 //!
 //! `cargo run -q --release -p dartforge-lsp --example lsp_memory -- C:/MyDartProjects/new_sali`
 //!
-//! Abre todos os `.dart` do projeto com quadros `didOpen` de verdade,
-//! aplica uma edição incremental em cada um e fecha tudo, imprimindo bytes
-//! de fonte, bytes vivos com tudo retido, pico, alocações e tempo. É o par
-//! da medição do front-end (`dartforge-frontend --example memoria_frontend`), com a
-//! diferença de que aqui o custo inclui transporte, documentos e
-//! diagnósticos publicados — o que um editor faz com o projeto aberto.
+//! Opens every `.dart` of the project with real `didOpen` frames, applies one
+//! incremental edit to each and closes everything, printing source bytes,
+//! live bytes with everything retained, peak, allocations and time. It is the
+//! counterpart of the front-end measurement (`dartforge-frontend --example
+//! memoria_frontend`), except that here the cost includes transport, documents
+//! and published diagnostics — what an editor does with the project open.
 #[global_allocator]
 static ALLOCATOR: dartforge_instrument::CountingAllocator = dartforge_instrument::CountingAllocator;
 
@@ -38,8 +38,8 @@ fn collect(dir: &Path, output: &mut Vec<PathBuf>) {
     }
 }
 
-/// Uma ida pelo transporte: serializa, decodifica e despacha.
-fn swap(server: &mut Server, message: &Value) -> usize {
+/// One trip through the transport: serialize, decode and dispatch.
+fn round_trip(server: &mut Server, message: &Value) -> usize {
     let framed = frame(message);
     let mut reader = BufReader::new(&framed[..]);
     let read: Value = read_message(&mut reader)
@@ -65,7 +65,7 @@ fn main() {
     dartforge_instrument::reset_peak();
     let base_allocations = dartforge_instrument::allocation_count();
     let mut server = Server::new();
-    swap(
+    round_trip(
         &mut server,
         &json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}),
     );
@@ -78,7 +78,7 @@ fn main() {
         };
         source_bytes += source.len();
         let uri = format!("file:///memoria/{i}.dart");
-        output_bytes += swap(
+        output_bytes += round_trip(
             &mut server,
             &json!({
                 "jsonrpc": "2.0", "method": "textDocument/didOpen",
@@ -87,9 +87,9 @@ fn main() {
         );
         uris.push(uri);
     }
-    // Uma edição incremental por documento: insere um espaço na linha 0.
+    // One incremental edit per document: inserts a space on line 0.
     for uri in &uris {
-        output_bytes += swap(
+        output_bytes += round_trip(
             &mut server,
             &json!({
                 "jsonrpc": "2.0", "method": "textDocument/didChange",
@@ -123,7 +123,7 @@ fn main() {
         mib(source_bytes) / time.as_secs_f64().max(1e-9)
     );
     for uri in &uris {
-        swap(
+        round_trip(
             &mut server,
             &json!({
                 "jsonrpc": "2.0", "method": "textDocument/didClose",

@@ -1,9 +1,9 @@
-//! `SurroundWith` (surround_with.dart) do `analysis_server` 3.6.2: os
-//! comandos selecionados, todos dentro de um bloco, envolvidos por um bloco,
-//! um laço, um `if`, um `try` ou um `setState`. As posições ligadas do
-//! produtor (`condition`, `item`, `iterable`…) saem como o texto delas.
+//! `SurroundWith` (surround_with.dart) from `analysis_server` 3.6.2: the
+//! selected statements, all inside one block, wrapped by a block, a loop, an
+//! `if`, a `try` or a `setState`. The producer's linked positions
+//! (`condition`, `item`, `iterable`…) come out as their text.
 //!
-//! | Título | Espécie |
+//! | Title | Kind |
 //! |---|---|
 //! | `Surround with block` | `refactor.surround.block` |
 //! | `Surround with 'do-while'` | `refactor.surround.doWhile` |
@@ -22,8 +22,8 @@ use crate::refactorings_exec::{Text, ONE_INDENT};
 use crate::Edit;
 
 impl Context<'_> {
-    /// `ClassElement.isState`: a classe estende, direta ou indiretamente, o
-    /// `State` do Flutter (`package:flutter/src/widgets/framework.dart`).
+    /// `ClassElement.isState`: the class extends, directly or indirectly,
+    /// Flutter's `State` (`package:flutter/src/widgets/framework.dart`).
     fn class_and_state(&self, n: usize) -> bool {
         let Some(declaration) = self.with_parents(n).find(|&k| self.kind(k) == "ClassDeclaration") else { return false };
         let Marca::Decl(d) = self.tree.nos[declaration].marca else { return false };
@@ -44,15 +44,15 @@ impl Context<'_> {
         false
     }
 
-    /// As assistências de `SurroundWith` para a seleção `[start, end)`.
+    /// The `SurroundWith` assists for the selection `[start, end)`.
     pub(crate) fn wrap_commands(&self, uri: &str, start: usize, end: usize) -> Vec<CodeAction> {
         let mut output = Vec::new();
-        // O nó coberto não pode ser a unidade (declarações de topo).
+        // The covered node cannot be the unit (top-level declarations).
         let Some(no) = self.tree.localizar(start, end) else { return output };
         if self.kind(no) == "CompilationUnit" {
             return output;
         }
-        // `StatementAnalyzer`: os nós selecionados, todos comandos de bloco.
+        // `StatementAnalyzer`: the selected nodes, all block statements.
         let analysis = self.analyze(start, end);
         let selected = &analysis.selected;
         if selected.is_empty()
@@ -67,8 +67,8 @@ impl Context<'_> {
         let old = self.node_prefix(first);
         let new = format!("{old}{ONE_INDENT}");
         let indented = tx.swap_indent(&self.source[range.start..range.end], &old, &new, true, true);
-        // `_SurroundWithBlock`: três edições, como o Dart — `{` inserido
-        // antes, o código recuado no lugar e `}` inserido depois.
+        // `_SurroundWithBlock`: three edits, like Dart — `{` inserted before, the
+        // code re-indented in place and `}` inserted after.
         output.push(CodeAction {
             title: "Surround with block".into(),
             kind: "refactor.surround.block".into(),
@@ -92,8 +92,8 @@ impl Context<'_> {
             };
             output.push(a.with_write(0, e));
         };
-        // Os demais escrevem a substituição inteira com os grupos ligados e o
-        // `selectHere` de `surround_with.dart:135-424`.
+        // The others write the whole replacement with the linked groups and the
+        // `selectHere` of `surround_with.dart:135-424`.
         let mut e = crate::snippets::Write::default();
         e.write(&format!("{old}do {{{eol}{indented}{old}}} while ("))
             .linked("CONDITION", "condition", &[])

@@ -1,7 +1,7 @@
-//! Memória da sessão semântica pelo protocolo: o programa fica retido
-//! enquanto a versão vale e cai a cada edição, sem acumular. Binário à
-//! parte de propósito: o alocador contador é global, e testes do mesmo
-//! binário rodam em paralelo no mesmo processo.
+//! Semantic session memory through the protocol: the program stays retained
+//! while the version is valid and drops at each edit, without accumulating.
+//! A separate binary on purpose: the counting allocator is global, and tests
+//! of the same binary run in parallel in the same process.
 
 #[global_allocator]
 static ALLOCATOR: dartforge_instrument::CountingAllocator = dartforge_instrument::CountingAllocator;
@@ -17,8 +17,8 @@ fn memory_returns_to_baseline_after_each_edit() {
     let mut p = Project::new("sessao-memoria");
     let text = |n: usize| format!("int f() => {n};\nint g() => f();\n");
     p.open("lib/a.dart", &text(0));
-    // Base: a primeira consulta (índices e caches de tamanho fixo já
-    // montados) e a primeira edição (descarta a entrada).
+    // Baseline: the first query (indexes and fixed-size caches already built)
+    // and the first edit (discards the entry).
     p.in_position("textDocument/hover", "lib/a.dart", 1, 11, json!({}));
     p.change("lib/a.dart", 2, &text(1));
     p.server.await_diagnostics(Duration::from_secs(120));

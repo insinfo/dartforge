@@ -1,9 +1,9 @@
-//! `ConvertToSwitchExpression` (convert_to_switch_expression.dart) do
-//! `analysis_server` 3.6.2: o comando `switch` cujos casos só retornam, só
-//! atribuem à mesma variável local ou só passam um argumento à mesma função
-//! de topo vira uma expressão `switch`.
+//! `ConvertToSwitchExpression` (convert_to_switch_expression.dart) from
+//! `analysis_server` 3.6.2: a `switch` statement whose cases only return,
+//! only assign to the same local variable or only pass one argument to the
+//! same top-level function becomes a `switch` expression.
 //!
-//! | Título | Espécie |
+//! | Title | Kind |
 //! |---|---|
 //! | `Convert to switch expression` | `refactor.convert.switchExpression` |
 
@@ -14,7 +14,7 @@ use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassKind, FunctionKind};
 use dartforge_types::{Type, TypeId, TypeTable};
 
-/// `_Group`: o `default` sozinho ou os casos de padrão juntos.
+/// `_Group`: the lone `default` or the pattern cases together.
 enum Group {
     Pattern { member: usize, commands: Vec<usize> },
     Cases { cases: Vec<usize>, commands: Vec<usize> },
@@ -31,15 +31,15 @@ impl Group {
 /// `_SwitchType`.
 enum SwitchType {
     Return,
-    /// O nome da variável e o operador.
+    /// The variable name and the operator.
     Assignment(String, String),
-    /// O nome da função.
+    /// The function name.
     Argument(String),
 }
 
 impl Context<'_> {
-    /// `TypeSystemImpl.isAlwaysExhaustive` do analyzer 6.11 (sobre uma cópia
-    /// da tabela: a *erasure* de um tipo de extensão pode criar tipos).
+    /// `TypeSystemImpl.isAlwaysExhaustive` from analyzer 6.11 (over a copy of
+    /// the table: the *erasure* of an extension type may create types).
     fn always_exhaustive_in_lsp(&self, table: &mut TypeTable, t: TypeId, prof: u32) -> bool {
         if prof > 32 {
             return false;
@@ -78,7 +78,7 @@ impl Context<'_> {
         }
     }
 
-    /// O `:` de um membro de `switch`.
+    /// The `:` of a `switch` member.
     fn member_colon(&self, member: usize) -> Option<Span> {
         let after = match self.kind(member) {
             "SwitchDefault" => self.next_token(self.tree.nos[member].inicio)?.end,
@@ -90,7 +90,7 @@ impl Context<'_> {
         self.next_token(after).filter(|t| &self.source[t.start..t.end] == ":")
     }
 
-    /// O último token do nó (`endToken`).
+    /// The node's last token (`endToken`).
     fn last_token(&self, n: usize) -> Option<Span> {
         self.previous_token(self.tree.nos[n].fim)
     }
@@ -100,8 +100,8 @@ impl Context<'_> {
         !self.comments_before(Span { start: self.tree.nos[n].inicio, end: self.tree.nos[n].inicio }).is_empty()
     }
 
-    /// `_getBreakRange`: do fim do primeiro comentário antes do `break` (ou
-    /// do token anterior) ao fim do `break`.
+    /// `_getBreakRange`: from the end of the first comment before the `break`
+    /// (or of the previous token) to the end of the `break`.
     fn break_range(&self, b: usize) -> Option<Span> {
         let s = self.tree.nos[b].inicio;
         let before = match self.comments_before(Span { start: s, end: s }).first() {
@@ -111,7 +111,7 @@ impl Context<'_> {
         Some(Span { start: before, end: self.tree.nos[b].fim })
     }
 
-    /// O padrão (o texto) dos casos juntos.
+    /// The pattern (the text) of the joined cases.
     fn pattern_text(&self, cases: &[usize]) -> Option<String> {
         let mut parts = Vec::new();
         for &c in cases {
@@ -269,7 +269,7 @@ impl Context<'_> {
                 }
             }
         });
-        // `followingThrow`: o comando seguinte no bloco é `throw …;`.
+        // `followingThrow`: the next statement in the block is `throw …;`.
         let mut next_throw: Option<(usize, usize)> = None;
         if !exhaustive {
             let block = self.parent(switch).filter(|&b| self.kind(b) == "Block")?;

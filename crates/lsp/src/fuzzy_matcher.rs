@@ -1,8 +1,8 @@
-//! O `FuzzyMatcher` do analyzer (`AN:src/utilities/fuzzy_matcher.dart`;
-//! docs/LSP-ESPECIFICACAO.md §14.7.2): o score de um candidato contra o
-//! padrão digitado, em unidades UTF-16 como o Dart, com os três estilos
-//! (`TEXT` no completar, `SYMBOL` no `workspace/symbol`, `FILENAME`).
-//! Escrito sem compilar nem executar (2026-10-05).
+//! The analyzer's `FuzzyMatcher` (`AN:src/utilities/fuzzy_matcher.dart`;
+//! docs/LSP-ESPECIFICACAO.md §14.7.2): the score of a candidate against the
+//! typed pattern, in UTF-16 units like Dart, with the three styles (`TEXT`
+//! in completion, `SYMBOL` in `workspace/symbol`, `FILENAME`).
+//! Written without compiling or running (2026-10-05).
 
 /// `MatchStyle`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,7 +35,7 @@ const MAX_ENTRY: usize = 127;
 const MAX_PATTERN: usize = 63;
 const MIN_SCORE: i32 = -10000;
 
-/// A tabela `TYPES` (os códigos 0..127).
+/// The `TYPES` table (codes 0..127).
 const TYPES: &[u8; 128] = b"0000000000000000000000000000000010000000000000112222222222100000\
 0333333333333333333333333330000002222222222222222222222222200000";
 
@@ -51,9 +51,8 @@ fn ty(c: u16) -> Type {
     }
 }
 
-/// `toLowerCase` em UTF-16, mantendo o comprimento (o que o casamento por
-/// índice exige; um caractere cuja minúscula muda o comprimento fica como
-/// está).
+/// `toLowerCase` in UTF-16, keeping the length (which index-based matching
+/// requires; a character whose lowercase changes the length stays as is).
 fn lowercase(s: &[u16]) -> Vec<u16> {
     let text = String::from_utf16_lossy(s);
     let low: Vec<u16> = text.to_lowercase().encode_utf16().collect();
@@ -63,7 +62,7 @@ fn lowercase(s: &[u16]) -> Vec<u16> {
     s.iter().map(|&c| if (b'A' as u16..=b'Z' as u16).contains(&c) { c + 32 } else { c }).collect()
 }
 
-/// Um casador para um padrão.
+/// A matcher for one pattern.
 pub(crate) struct Matcher {
     pattern: Vec<u16>,
     pattern_min: Vec<u16>,
@@ -293,7 +292,7 @@ impl Matcher {
         true
     }
 
-    /// `score(candidate)`: −1 quando não casa; 1 no padrão vazio.
+    /// `score(candidate)`: −1 when it does not match; 1 for the empty pattern.
     pub(crate) fn score(&mut self, candidate: &str) -> f64 {
         let mut cand: Vec<u16> = candidate.encode_utf16().collect();
         if cand.len() > MAX_ENTRY {

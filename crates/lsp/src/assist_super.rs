@@ -1,8 +1,8 @@
-//! `ConvertToSuperParameters` (convert_to_super_parameters.dart) do
-//! `analysis_server` 3.6.2: os parâmetros do construtor só repassados ao
-//! `super(…)` viram parâmetros `super.`.
+//! `ConvertToSuperParameters` (convert_to_super_parameters.dart) from
+//! `analysis_server` 3.6.2: the constructor parameters that are only passed
+//! on to `super(…)` become `super.` parameters.
 //!
-//! | Título | Espécie |
+//! | Title | Kind |
 //! |---|---|
 //! | `Convert to using super parameters` | `refactor.convert.toSuperParameters` |
 
@@ -16,16 +16,16 @@ use dartforge_frontend::ast::{self, ExprId, MemberKind, ParameterKind};
 use dartforge_types::{Resolved, Type, TypeId};
 use std::collections::{HashMap, HashSet};
 
-/// Um parâmetro do construtor da superclasse.
+/// A parameter of the superclass constructor.
 struct SuperParameter {
     name: String,
     named: bool,
     ty: TypeId,
-    /// A expressão do valor padrão (unidade, biblioteca, expressão).
+    /// The default value expression (unit, library, expression).
     pattern: Option<(UnitId, LibraryId, ExprId)>,
 }
 
-/// Um parâmetro a converter (`_ParameterData`).
+/// A parameter to convert (`_ParameterData`).
 struct Data {
     final_: Option<Span>,
     type_to_remove: Option<(Option<Span>, Option<Span>)>,
@@ -53,16 +53,16 @@ impl Context<'_> {
         }
     }
 
-    /// Os parâmetros do construtor da superclasse, com os tipos vistos da
-    /// classe (`ConstructorMember`: os argumentos de tipo da superclasse
-    /// substituídos).
+    /// The parameters of the superclass constructor, with the types as seen from
+    /// the class (`ConstructorMember`: the superclass type arguments
+    /// substituted).
     fn super_parameters(&self, class: dartforge_elements::model::ClassId, sf: FunctionElementId, table: &mut dartforge_types::TypeTable) -> Option<Vec<SuperParameter>> {
         let prog = self.p.program();
         let query = &self.p.query;
         let data = query.outline.functions.get(sf.0 as usize)?;
         let sfe = prog.function(sf);
         let owner = sfe.class?;
-        // `C<…>` com os próprios parâmetros, visto como a classe do super.
+        // `C<…>` with its own parameters, seen as the class of the super.
         let parameters_c: Vec<TypeId> = query
             .outline
             .classes
@@ -79,7 +79,7 @@ impl Context<'_> {
                 map.insert(*p, *a);
             }
         }
-        // Os valores padrão, do AST do construtor da superclasse.
+        // The default values, from the AST of the superclass constructor.
         let patterns: Vec<Option<(UnitId, LibraryId, ExprId)>> = match sfe.node {
             FunctionRef::Constructor { unit, member } => match &prog.unit(unit).ast.member(member).kind {
                 MemberKind::Constructor(k) => k.parameters.iter().map(|p| p.default_value.map(|d| (unit, prog.unit(unit).library, d))).collect(),
@@ -110,7 +110,7 @@ impl Context<'_> {
         }
         let no = self.tree.localizar(start, end)?;
         let constructor = self.selection_constructor(no)?;
-        // `_superInvocation`: o último `super(…)` dos inicializadores.
+        // `_superInvocation`: the last `super(…)` among the initializers.
         let initializers: Vec<usize> = self
             .children(constructor)
             .iter()
@@ -130,7 +130,7 @@ impl Context<'_> {
         let types_of_this: Vec<TypeId> = query.outline.functions.get(f.0 as usize)?.parameters.iter().map(|p| p.ty).collect();
         let list = self.children(constructor).iter().copied().find(|&c| self.kind(c) == "FormalParameterList")?;
         let parameter_nodes = self.children(list).to_vec();
-        // `_parameterMap`: os simples e os de função, pelo offset do nome.
+        // `_parameterMap`: the simple and the function-typed ones, by name offset.
         let mut map: HashMap<usize, usize> = HashMap::new();
         for (i, &p) in parameter_nodes.iter().enumerate() {
             let internal = if self.kind(p) == "DefaultFormalParameter" { *self.children(p).first()? } else { p };
@@ -140,7 +140,7 @@ impl Context<'_> {
                 map.insert(n.span.start, i);
             }
         }
-        // O parâmetro (índice) que um identificador cita.
+        // The parameter (index) that an identifier refers to.
         let parameter_of = |e: usize| -> Option<usize> {
             if self.kind(e) != "SimpleIdentifier" {
                 return None;
@@ -153,7 +153,7 @@ impl Context<'_> {
             };
             map.get(&decl).copied()
         };
-        // `_referencedParameters`: os parâmetros citados no corpo.
+        // `_referencedParameters`: the parameters referenced in the body.
         let mut cited: HashSet<usize> = HashSet::new();
         if let Some(&body) = self.children(constructor).iter().find(|&&c| matches!(self.kind(c), "BlockFunctionBody" | "ExpressionFunctionBody")) {
             let mut stack = vec![body];
@@ -192,7 +192,7 @@ impl Context<'_> {
             let name_ = p.name?.span;
             let node_p = parameter_nodes[i];
             let internal = if self.kind(node_p) == "DefaultFormalParameter" { *self.children(node_p).first()? } else { node_p };
-            // `_defaultValueRange`: o padrão igual ao do super sai.
+            // `_defaultValueRange`: a default equal to the super's is dropped.
             let pattern_range = match (p.default_value, super_p.pattern) {
                 (Some(d), Some((su, sl, se))) => {
                     let m = engine.get_or_insert_with(|| table.clone());

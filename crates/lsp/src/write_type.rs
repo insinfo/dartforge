@@ -1,9 +1,9 @@
-//! O `DartEditBuilderImpl.writeType`/`_writeType` do `analyzer_plugin` do
-//! Dart 3.6.2 (`change_builder_dart.dart:986-1011`, `:1396-1503`,
-//! `:1553-1675`, `:1811-1850`; docs/LSP-ESPECIFICACAO.md §13.7.4.0, "Tipos"):
-//! o texto de um tipo no ponto de inserção, com o prefixo de import e as
-//! bibliotecas a importar.
-//! Escrito sem compilar nem executar (2026-10-05).
+//! `DartEditBuilderImpl.writeType`/`_writeType` from the Dart 3.6.2
+//! `analyzer_plugin` (`change_builder_dart.dart:986-1011`, `:1396-1503`,
+//! `:1553-1675`, `:1811-1850`; docs/LSP-ESPECIFICACAO.md §13.7.4.0,
+//! "Tipos"): the text of a type at the insertion point, with the import
+//! prefix and the libraries to import.
+//! Written without compiling or running (2026-10-05).
 
 use crate::refactorings::Context;
 use dartforge_elements::model::{ClassId, Element, FunctionElementId, LibraryId};
@@ -11,19 +11,19 @@ use dartforge_types::table::Exibicao;
 use dartforge_types::{Type, TypeId, TypeParamOwner};
 use std::collections::BTreeSet;
 
-/// O escritor de tipos de um ponto da unidade.
+/// The type writer for a point of the unit.
 pub(crate) struct Writer<'a, 'p> {
     query: &'a crate::query::Query,
     _p: std::marker::PhantomData<&'p ()>,
     library: LibraryId,
-    /// `_EnclosingElementFinder`: a `ClassDeclaration` e o executável mais
-    /// externos que contêm o ponto.
+    /// `_EnclosingElementFinder`: the outermost `ClassDeclaration` and
+    /// executable that contain the point.
     class: Option<ClassId>,
     executable: Option<FunctionElementId>,
-    /// `methodBeingCopied`: o executável cujos parâmetros de tipo são
-    /// copiados junto (a sobrescrita do completar).
+    /// `methodBeingCopied`: the executable whose type parameters are copied
+    /// along (completion's override).
     pub(crate) copied: Option<FunctionElementId>,
-    /// As bibliotecas que o `_writeLibraryReference` agendou para importar.
+    /// The libraries that `_writeLibraryReference` scheduled for import.
     pub(crate) import: BTreeSet<LibraryId>,
 }
 
@@ -59,8 +59,8 @@ impl<'a, 'p> Writer<'a, 'p> {
         Writer { query: &cx.p.query, _p: std::marker::PhantomData, library, class, executable, copied: None, import: BTreeSet::new() }
     }
 
-    /// O escritor sobre a consulta do completar: a biblioteca do pedido, a
-    /// classe e o executável que contêm o ponto (`_EnclosingElementFinder`).
+    /// The writer over the completion query: the request's library, and the
+    /// class and executable that contain the point (`_EnclosingElementFinder`).
     pub(crate) fn of_query(
         query: &'a crate::query::Query,
         library: LibraryId,
@@ -92,8 +92,8 @@ impl<'a, 'p> Writer<'a, 'p> {
         }
     }
 
-    /// `writeType(type, required: required)`: `None` quando nada é
-    /// escrito (com `required`, `var`).
+    /// `writeType(type, required: required)`: `None` when nothing is written
+    /// (with `required`, `var`).
     pub(crate) fn write_type(&mut self, t: Option<TypeId>, required: bool) -> Option<String> {
         let written = match t {
             Some(t) if !matches!(self.table().get(t), Type::Dynamic) => self.write(t, false),
@@ -152,8 +152,8 @@ impl<'a, 'p> Writer<'a, 'p> {
                     }
                     s.push('>');
                 }
-                // `writeParameters(includeDefaultValues: false,
-                // requiredTypes: true)`; os positional sem name viram `p1`…
+                // `writeParameters(includeDefaultValues: false, requiredTypes: true)`;
+                // unnamed positionals become `p1`…
                 let mut used: BTreeSet<String> = named.iter().map(|(n, _, _)| p.name(*n).to_string()).collect();
                 s.push('(');
                 let mut i = 0usize;
@@ -264,8 +264,8 @@ impl<'a, 'p> Writer<'a, 'p> {
         }
     }
 
-    /// `writeType(typeProvider.futureType(x))` com `x` já achatado
-    /// (`nullable`: o `flatten` de um `FutureOr<X>?`/`Future<X>?` é `X?`).
+    /// `writeType(typeProvider.futureType(x))` with `x` already flattened
+    /// (`nullable`: the `flatten` of a `FutureOr<X>?`/`Future<X>?` is `X?`).
     pub(crate) fn write_future(&mut self, x: TypeId, nullable: bool) -> Option<String> {
         let future = self.query.core.future_class?;
         let mut s = self.reference(Element::Class(future));
@@ -284,8 +284,8 @@ impl<'a, 'p> Writer<'a, 'p> {
         Some(s)
     }
 
-    /// `_writeTypeElementArguments`: o prefixo, o nome e os argumentos (só
-    /// se algum não é `dynamic` e todos são visíveis).
+    /// `_writeTypeElementArguments`: the prefix, the name and the arguments
+    /// (only if some is not `dynamic` and all are visible).
     fn element_with_arguments(&mut self, el: Element, args: &[TypeId]) -> String {
         let mut s = self.reference(el);
         let p = self.query;
@@ -312,9 +312,9 @@ impl<'a, 'p> Writer<'a, 'p> {
         s
     }
 
-    /// `_writeLibraryReference`: o prefixo do primeiro import (o implícito
-    /// de `dart:core` por último) cujo namespace tem o elemento; sem import,
-    /// a biblioteca do elemento é agendada (sem prefixo).
+    /// `_writeLibraryReference`: the prefix of the first import (the implicit
+    /// `dart:core` one last) whose namespace has the element; without an
+    /// import, the element's library is scheduled (without a prefix).
     fn reference(&mut self, el: Element) -> String {
         let p = self.query;
         let prog = &p.program;
@@ -358,12 +358,12 @@ impl<'a, 'p> Writer<'a, 'p> {
         String::new()
     }
 
-    /// `writeReference(element)`: o prefixo e o nome.
+    /// `writeReference(element)`: the prefix and the name.
     pub(crate) fn reference_of(&mut self, el: Element, name: &str) -> String {
         format!("{}{name}", self.reference(el))
     }
 
-    /// A classe `FutureOr` de `dart:async`.
+    /// The `FutureOr` class of `dart:async`.
     fn future_or_class(&self) -> Option<ClassId> {
         let p = self.query;
         let prog = &p.program;
@@ -375,7 +375,7 @@ impl<'a, 'p> Writer<'a, 'p> {
     }
 }
 
-/// `writeParameter(name, type, isRequiredType: true)` sem default.
+/// `writeParameter(name, type, isRequiredType: true)` without a default.
 fn parameter(ty: Option<String>, name: &str, required: bool) -> String {
     let mut s = String::new();
     if required {

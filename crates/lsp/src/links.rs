@@ -1,21 +1,21 @@
-//! `textDocument/documentLink` (docs/LSP-ESPECIFICACAO.md §8.4): o
-//! `DartDocumentLinkVisitor` do 3.6.2
-//! (`analyzer_plugin/lib/utilities/navigation/document_links.dart`). Em cada
-//! comentário de documentação da árvore (o `Comment` de uma declaração, de
-//! um membro, de uma constante de enum, de uma diretiva, de um parâmetro),
-//! cada bloco `{@tool …}` … `{@end-tool}` cujo conteúdo cita
-//! `** See code in examples/api/…dart` liga o trecho do caminho ao arquivo
-//! sob a pasta ancestral que tem `examples/api` (a convenção do Flutter).
-//! Sem essa pasta, nenhum link. O 3.6.2 não liga as URIs das diretivas.
+//! `textDocument/documentLink` (docs/LSP-ESPECIFICACAO.md §8.4): the 3.6.2
+//! `DartDocumentLinkVisitor`
+//! (`analyzer_plugin/lib/utilities/navigation/document_links.dart`). In each
+//! documentation comment of the tree (the `Comment` of a declaration, a
+//! member, an enum constant, a directive, a parameter), each `{@tool …}` …
+//! `{@end-tool}` block whose content cites `** See code in
+//! examples/api/…dart` links the path snippet to the file under the ancestor
+//! folder that has `examples/api` (the Flutter convention). Without that
+//! folder, no link. 3.6.2 does not link directive URIs.
 //!
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Written without compiling or running (2026-10-05).
 
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast;
 use dartforge_frontend::comentarios::Comentarios;
 use std::path::{Path, PathBuf};
 
-/// Os links de `text` (o arquivo `path`): o trecho e o arquivo alvo.
+/// The links of `text` (the file `path`): the snippet and the target file.
 pub(crate) fn links(text: &str, path: &Path) -> Vec<(Span, PathBuf)> {
     let mut names = dartforge_intern::Interner::new();
     let p = dartforge_frontend::parser::parse_com(text, &mut names, dartforge_frontend::LibraryFeatures::default());
@@ -62,14 +62,14 @@ pub(crate) fn links(text: &str, path: &Path) -> Vec<(Span, PathBuf)> {
         let mut search = 0;
         while let Some(k) = snippet[search..].find("{@tool") {
             let opens = search + k;
-            // `{@tool}` ou `{@tool arguments}` (não `{@toolbar}`).
+            // `{@tool}` or `{@tool arguments}` (not `{@toolbar}`).
             if !matches!(snippet.as_bytes().get(opens + 6), Some(b' ' | b'}' | b'\t' | b'\r' | b'\n')) {
                 search = opens + 6;
                 continue;
             }
             let Some(f) = snippet[opens..].find('}') else { break };
             let content = opens + f + 1;
-            // Sem `{@end-tool}`, o bloco não fecha e fica de fora.
+            // Without `{@end-tool}`, the block does not close and is left out.
             let Some(c) = snippet[content..].find("{@end-tool}") else {
                 search = content;
                 continue;
@@ -83,11 +83,11 @@ pub(crate) fn links(text: &str, path: &Path) -> Vec<(Span, PathBuf)> {
             const SEE: &str = "** See code in ";
             let Some(i) = value.find("** See code in examples/api/") else { continue };
             let root = folder.get_or_insert_with(|| examples_folder(path));
-            // Sem a pasta, o `return` do visitor: nada mais deste comentário.
+            // Without the folder, the visitor's `return`: nothing more from this comment.
             let Some(root) = root.clone() else { break };
             let start_ = i + SEE.len();
-            // O primeiro `.dart` do conteúdo (o `indexOf` do visitor). Antes
-            // do começo, o `substring` do Dart lançaria: o link fica de fora.
+            // The first `.dart` of the content (the visitor's `indexOf`). Before the
+            // start, Dart's `substring` would throw: the link is left out.
             let Some(end) = value.find(".dart").map(|e| e + 5) else { continue };
             if end < start_ {
                 continue;
@@ -100,9 +100,9 @@ pub(crate) fn links(text: &str, path: &Path) -> Vec<(Span, PathBuf)> {
     output
 }
 
-/// O `Comment` de documentação do nó que começa em `start`
-/// (`findDartDoc`): o último `/**`, ou da primeira à última linha da última
-/// sequência de `///`.
+/// The documentation `Comment` of the node that starts at `start`
+/// (`findDartDoc`): the last `/**`, or from the first to the last line of the
+/// last `///` sequence.
 fn documentation_comment(c: &Comentarios, text: &str, start: usize) -> Option<Span> {
     let doc = c.dart_doc(text, start)?;
     if !text[doc.start..doc.end].starts_with("///") {
@@ -118,7 +118,7 @@ fn documentation_comment(c: &Comentarios, text: &str, start: usize) -> Option<Sp
     Some(Span { start: doc.start, end: end })
 }
 
-/// A pasta, entre a do arquivo e as ancestrais, que tem `examples/api`.
+/// The folder, among the file's own and its ancestors, that has `examples/api`.
 fn examples_folder(path: &Path) -> Option<PathBuf> {
     let mut current = path.parent();
     while let Some(p) = current {
@@ -145,7 +145,7 @@ mod tests {
         let (s, target) = &ls[0];
         assert_eq!(&text[s.start..s.end], "examples/api/lib/a/b.0.dart");
         assert_eq!(target, &root.join("examples").join("api").join("lib").join("a").join("b.0.dart"));
-        // Sem a pasta `examples/api`, nenhum link.
+        // Without the `examples/api` folder, no link.
         let other = std::env::temp_dir().join(format!("dartforge-links-sem-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&other);
         assert!(links(text, &other.join("a.dart")).is_empty());

@@ -51,8 +51,8 @@ fn imported_uses_types_and_current_text_without_retaining_versions() {
     assert_eq!(definition["range"]["end"], json!({"line":1,"character":10}));
     let hover = request(&mut server, 3, "textDocument/hover", &uri, 10);
     assert_eq!(hover["contents"], "int answer\nType: int");
-    // Vários buffers abertos exercitam a geração conjunta sem arquivo em
-    // disco. O custo transitório pode subir, mas o estado vivo deve estabilizar.
+    // Several open buffers exercise the joint generation without a file on disk.
+    // The transient cost may rise, but the live state must stabilize.
     let body = format!("// {}\n", ".".repeat(16 * 1024));
     for n in 0..24 {
         let other = url::Url::from_file_path(root.join(format!("aberto_{n}.dart"))).unwrap().to_string();
@@ -64,9 +64,9 @@ fn imported_uses_types_and_current_text_without_retaining_versions() {
     for id in 10..20 {
         assert_ne!(request(&mut server, id, "textDocument/hover", &uri, 10), Value::Null);
     }
-    // A análise tipada dos 25 abertos roda em segundo plano: a medição
-    // começa e termina com ela ociosa, para contar só o que as consultas
-    // retêm (a sessão semântica já está montada pelas 10 anteriores).
+    // The typed analysis of the 25 open files runs in the background: the
+    // measurement starts and ends with it idle, to count only what the queries
+    // retain (the semantic session is already built by the previous 10).
     server.await_diagnostics(std::time::Duration::from_secs(120));
     let live_before = dartforge_instrument::live_bytes();
     let start = Instant::now();
@@ -79,8 +79,8 @@ fn imported_uses_types_and_current_text_without_retaining_versions() {
     println!("LSP semântico: 25 buffers (~384 KiB extra), 40 hovers, média {mean_latency:?}, crescimento vivo {growth} bytes");
     assert!(growth < 256 * 1024, "consultas retiveram {growth} bytes");
     assert!(mean_latency.as_millis() < 200, "hover médio em 25 buffers: {mean_latency:?}");
-    // O importado também está aberto e ainda não foi salvo. A posição e o
-    // tipo vêm da versão em memória, não da versão antiga no disco.
+    // The imported file is also open and not saved yet. The position and the
+    // type come from the in-memory version, not from the old version on disk.
     server.receive(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
         "textDocument":{"uri":target,"languageId":"dart","version":1,
             "text":"// 👭\n// nova linha\nString answer = 'x';\n"}
@@ -107,8 +107,8 @@ fn imported_uses_types_and_current_text_without_retaining_versions() {
         "textDocument":{"uri":uri,"version":3},"contentChanges":[{"text":"import 'lib.dart';\nvoid f(int answer) => answer;\n"}]
     }}));
     server.pump();
-    // O parâmetro homônimo sombreia o importado: hover e definição são dele
-    // (antes da resolução por escopo, a resposta era vazia).
+    // The homonymous parameter shadows the imported one: hover and definition
+    // are its own (before scope resolution, the answer was empty).
     assert_eq!(request(&mut server, 7, "textDocument/hover", &uri, 24)["contents"], "int answer\nType: int");
     assert_eq!(request(&mut server, 8, "textDocument/definition", &uri, 24)["range"]["start"], json!({"line":1,"character":11}));
 
@@ -164,7 +164,7 @@ fn imported_uses_types_and_current_text_without_retaining_versions() {
     }}));
     server.pump();
     assert_eq!(request(&mut server, 85, "textDocument/definition", &uri_fn, 9)["range"]["start"], json!({"line":0,"character":4}));
-    // Parâmetro opcional com valor padrão: a assinatura completa.
+    // Optional parameter with a default value: the full signature.
     assert_eq!(request(&mut server, 86, "textDocument/hover", &uri_fn, 9)["contents"], "int soma([int a = 0])\nType: int Function([int])");
 
     let library_getter = root.join("getter.dart");
@@ -212,7 +212,7 @@ fn imported_uses_types_and_current_text_without_retaining_versions() {
     server.pump();
     assert_eq!(request(&mut server, 94, "textDocument/definition", &prefixed_function_uri, 11)["range"]["start"], json!({"line":0,"character":4}));
     assert_eq!(request(&mut server, 95, "textDocument/hover", &prefixed_function_uri, 11)["contents"], "int soma(int a, int b)\nType: int Function(int, int)");
-    // A análise tipada em segundo plano gravou o cache deste SDK mínimo.
+    // The background typed analysis wrote the cache of this minimal SDK.
     server.await_diagnostics(std::time::Duration::from_secs(120));
     let layout = SdkLayout::load(&root.join("sdk/lib"), "dartdevc").unwrap();
     let _ = fs::remove_file(dartforge_elements::SdkCache::caminho(&layout, "dartdevc"));

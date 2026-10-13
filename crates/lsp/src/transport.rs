@@ -1,16 +1,16 @@
-//! Transporte JSON-RPC por stdio: enquadramento `Content-Length`.
+//! JSON-RPC transport over stdio: `Content-Length` framing.
 //!
-//! O desenho copia o do rust-analyzer (`main_loop.rs`): uma thread lê
-//! `stdin` quadro a quadro e enfileira valores JSON; a thread principal
-//! despacha; respostas e notificações saem por `stdout` sob um `Mutex`, uma
-//! mensagem inteira por vez. **`stdout` é só protocolo**: este módulo nunca
-//! escreve nada além de quadros, e nenhum log passa por aqui (logs vão para
-//! `stderr` no binário).
+//! The design copies rust-analyzer's (`main_loop.rs`): one thread reads
+//! `stdin` frame by frame and enqueues JSON values; the main thread
+//! dispatches; responses and notifications go out through `stdout` under a
+//! `Mutex`, one whole message at a time. **`stdout` is protocol only**: this
+//! module never writes anything but frames, and no logging goes through here
+//! (logs go to `stderr` in the binary).
 //!
-//! Um quadro é um cabeçalho ASCII (`Content-Length: N`, mais cabeçalhos
-//! ignorados como `Content-Type`), uma linha vazia e exatamente N bytes de
-//! JSON. Nada fora desse formato sai em `stdout` — o teste `clean_stdout`
-//! decodifica a sessão inteira quadro a quadro para provar.
+//! A frame is an ASCII header (`Content-Length: N`, plus ignored headers
+//! such as `Content-Type`), an empty line and exactly N bytes of JSON.
+//! Nothing outside this format goes out on `stdout` — the `clean_stdout`
+//! test decodes the whole session frame by frame to prove it.
 //!
 //! ```
 //! use serde_json::json;
@@ -23,11 +23,12 @@
 use serde_json::Value;
 use std::io::{self, BufRead, Write};
 
-/// Lê um quadro de `reader`; `None` no fim do fluxo (cliente foi embora).
+/// Reads one frame from `reader`; `None` at the end of the stream (the
+/// client went away).
 ///
-/// Erro de E/S ou cabeçalho malformado aborta a leitura com erro; JSON
-/// inválido após um `Content-Length` válido também é erro — nunca se tenta
-/// ressincronizar adivinhando fronteiras, porque isso corrompe a sessão.
+/// An I/O error or a malformed header aborts reading with an error; invalid
+/// JSON after a valid `Content-Length` is an error too — resynchronizing by
+/// guessing boundaries is never attempted, because it corrupts the session.
 pub fn read_message(reader: &mut impl BufRead) -> io::Result<Option<Value>> {
     let mut size: Option<usize> = None;
     loop {
@@ -55,10 +56,10 @@ pub fn read_message(reader: &mut impl BufRead) -> io::Result<Option<Value>> {
     Ok(Some(value))
 }
 
-/// Escreve `message` como um quadro: cabeçalho, linha vazia e corpo.
+/// Writes `message` as a frame: header, empty line and body.
 ///
-/// O chamador escreve o quadro inteiro sob um `Mutex`, para que duas
-/// respostas nunca se intercalem no `stdout`.
+/// The caller writes the whole frame under a `Mutex`, so that two responses
+/// never interleave on `stdout`.
 pub fn write_message(writer: &mut impl Write, message: &Value) -> io::Result<()> {
     let body =
         serde_json::to_vec(message).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
@@ -68,15 +69,16 @@ pub fn write_message(writer: &mut impl Write, message: &Value) -> io::Result<()>
     Ok(())
 }
 
-/// Serializa `message` num quadro em memória (testes e medição pelo protocolo).
+/// Serializes `message` into an in-memory frame (tests and protocol-level
+/// measurements).
 pub fn frame(message: &Value) -> Vec<u8> {
     let mut output = Vec::new();
     write_message(&mut output, message).expect("serializar para Vec não falha");
     output
 }
 
-/// Decodifica todos os quadros de `bytes`, recusando qualquer byte fora do
-/// enquadramento. É o que o teste `clean_stdout` afirma sobre a sessão.
+/// Decodes every frame in `bytes`, rejecting any byte outside the framing.
+/// This is what the `clean_stdout` test asserts about the session.
 pub fn decode_all(mut bytes: &[u8]) -> io::Result<Vec<Value>> {
     let mut messages = Vec::new();
     while !bytes.is_empty() {

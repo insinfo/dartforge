@@ -1,7 +1,7 @@
-//! Assistências de diretivas de import, portadas dos produtores do
-//! `analysis_server` 3.6.2 sobre a árvore no formato do analyzer.
+//! Import directive assists, ported from the `analysis_server` 3.6.2
+//! producers over the analyzer-shaped tree.
 //!
-//! | Título | Espécie | Produtor |
+//! | Title | Kind | Producer |
 //! |---|---|---|
 //! | `Add explicit 'show' combinator` | `refactor.add.showCombinator` | `ImportAddShow` |
 //! | `Convert to 'package:' import` | `refactor.convert.relativeToPackageImport` | `ConvertToPackageImport` |
@@ -17,9 +17,9 @@ use dartforge_frontend::ast::DirectiveKind;
 use dartforge_types::Resolved;
 
 impl Context<'_> {
-    /// `ImportAddShow` (import_add_show.dart): o import ancestral do nó da
-    /// seleção, sem combinadores, ganha `show` com os nomes que a unidade usa
-    /// dele (o `_ReferenceFinder`, em ordem de texto), antes do `;`.
+    /// `ImportAddShow` (import_add_show.dart): the import that encloses the
+    /// selection node, without combinators, gets a `show` with the names the
+    /// unit uses from it (the `_ReferenceFinder`, in text order), before the `;`.
     pub(crate) fn import_add_show(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         let no = self.tree.localizar(start, end)?;
         let directive = self.with_parents(no).find(|&k| self.kind(k) == "ImportDirective")?;
@@ -39,9 +39,9 @@ impl Context<'_> {
                 .collect(),
             Some(prefix) => self.used_names_by_prefix(imp.library, prefix),
         };
-        // `_addImplicitExtensionName`: a extensão do membro resolvido (método,
-        // propriedade, operador, índice, `call`), se o namespace do import a
-        // tem sob o nome dela; o import com prefixo indexa por `p.x`.
+        // `_addImplicitExtensionName`: the extension of the resolved member
+        // (method, property, operator, index, `call`), if the import's namespace
+        // has it under its name; a prefixed import indexes by `p.x`.
         if imp.prefix.is_none() {
             let exported_entry = &prog.library(imp.library).exported;
             for r in self.bodies.resolved.iter().flatten() {
@@ -52,14 +52,14 @@ impl Context<'_> {
                 }
             }
         }
-        // `SplayTreeSet<String>`: sem repetição, na ordem do `compareTo` do
-        // Dart (unidades UTF-16).
+        // `SplayTreeSet<String>`: no repetition, in the order of Dart's `compareTo`
+        // (UTF-16 units).
         names.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
         names.dedup();
         if names.is_empty() {
             return None;
         }
-        // `importDirective.end - 1`: antes do `;`.
+        // `importDirective.end - 1`: before the `;`.
         let em = span.end.checked_sub(1)?;
         Some(CodeAction {
             title: "Add explicit 'show' combinator".into(),
@@ -70,10 +70,10 @@ impl Context<'_> {
         })
     }
 
-    /// Os nomes que a unidade usa de um import com prefixo: o servidor do
-    /// Dart 3.6.2 (conferido no oráculo) compara cada nome com o namespace
-    /// do import sem o prefixo (`namespace[name] == element`), então entram
-    /// os `p.x` cujo elemento é o que a biblioteca exporta sob `x`.
+    /// The names the unit uses from a prefixed import: the Dart 3.6.2 server
+    /// (checked against the oracle) compares each name with the import's
+    /// namespace without the prefix (`namespace[name] == element`), so the
+    /// `p.x` whose element is what the library exports under `x` are included.
     fn used_names_by_prefix(&self, library: dartforge_elements::model::LibraryId, prefix: dartforge_intern::SymbolId) -> Vec<String> {
         use dartforge_frontend::ast::{ExprKind, TypeKind};
         let prog = self.p.program();
@@ -109,8 +109,8 @@ impl Context<'_> {
                 names.push(self.p.name(n.sym).to_string());
             }
         }
-        // O nome da classe num construtor (o `returnType`, que resolve para
-        // a classe).
+        // The class name in a constructor (the `returnType`, which resolves to the
+        // class).
         for m in &self.ast.members {
             if let dartforge_frontend::ast::MemberKind::Constructor(k) = &m.kind
                 && let Some(g) = prog.lookup(lib, k.class_name.sym).and_then(|b| b.getter)
@@ -119,8 +119,8 @@ impl Context<'_> {
                 names.push(self.p.name(k.class_name.sym).to_string());
             }
         }
-        // As referências `[x]`/`[p.x]` da documentação (o visitor desce nos
-        // `CommentReference`).
+        // The `[x]`/`[p.x]` references of the documentation (the visitor descends
+        // into `CommentReference`).
         for c in self.p.unit_comments(self.unit).iter() {
             for r in &c.references {
                 for i in 0..r.len() {
@@ -136,8 +136,8 @@ impl Context<'_> {
         names
     }
 
-    /// A diretiva de import do nó da seleção (o literal da URI sobe para ela)
-    /// e o índice dela na unidade.
+    /// The import directive of the selection node (the URI literal walks up to
+    /// it) and its index in the unit.
     fn selection_import(&self, start: usize, end: usize) -> Option<(usize, usize)> {
         let mut no = self.tree.localizar(start, end)?;
         if matches!(self.kind(no), "SimpleStringLiteral" | "StringInterpolation" | "AdjacentStrings") {
@@ -152,16 +152,16 @@ impl Context<'_> {
         Some((no, index))
     }
 
-    /// O literal da URI de uma diretiva (o texto e o intervalo dele).
+    /// The URI literal of a directive (its text and range).
     fn directive_uri(&self, index: usize) -> Option<(String, Span)> {
         let unit = self.p.program().unit(self.unit);
         let DirectiveKind::Import { uri, .. } = &unit.unit.directives.get(index)?.kind else { return None };
         Some((dartforge_elements::load::string_lit_value(uri)?, uri.span))
     }
 
-    /// `ConvertToPackageImport` (convert_to_package_import.dart): o import
-    /// escrito sem `package:` de uma biblioteca cuja URI é `package:` passa a
-    /// citá-la por ela.
+    /// `ConvertToPackageImport` (convert_to_package_import.dart): an import
+    /// written without `package:` of a library whose URI is `package:` starts
+    /// citing it by that URI.
     pub(crate) fn convert_to_package_import(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         let (_, index) = self.selection_import(start, end)?;
         let prog = self.p.program();
@@ -183,12 +183,12 @@ impl Context<'_> {
         })
     }
 
-    /// `ConvertToRelativeImport` (convert_to_relative_import.dart): o import
-    /// `package:` do mesmo pacote que a unidade vira caminho relativo.
+    /// `ConvertToRelativeImport` (convert_to_relative_import.dart): a `package:`
+    /// import of the same package as the unit becomes a relative path.
     pub(crate) fn convert_to_relative_import(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         let (_, index) = self.selection_import(start, end)?;
         let prog = self.p.program();
-        // `libraryImport?.uri is DirectiveUriWithSource`: o import tem alvo.
+        // `libraryImport?.uri is DirectiveUriWithSource`: the import has a target.
         prog.library(prog.unit(self.unit).library).imports.iter().find(|i| i.unit == self.unit && i.directive == index)?;
         let source_uri = prog.unit(self.unit).uri.strip_prefix("package:")?.to_string();
         let (write, range) = self.directive_uri(index)?;
@@ -214,7 +214,7 @@ impl Context<'_> {
     }
 
     /// `ConvertPartOfToUri` (convert_part_of_to_uri.dart): `part of name;`
-    /// passa a citar a biblioteca pelo caminho relativo do arquivo dela.
+    /// starts citing the library by the relative path of its file.
     pub(crate) fn convert_part_of_to_uri(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         let no = self.tree.localizar(start, end)?;
         let directive = self.with_parents(no).find(|&k| self.kind(k) == "PartOfDirective")?;
@@ -225,7 +225,7 @@ impl Context<'_> {
         let path_lib = defining.path.as_ref()?;
         let path_part = prog.unit(self.unit).path.as_ref()?;
         let dir = path_part.parent()?;
-        // `pathContext.relative` e `toUri` (barras normais, espaços escapados).
+        // `pathContext.relative` and `toUri` (forward slashes, escaped spaces).
         let a: Vec<String> = dir.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
         let b: Vec<String> = path_lib.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
         let common = a.iter().zip(&b).take_while(|(x, y)| x.eq_ignore_ascii_case(y)).count();

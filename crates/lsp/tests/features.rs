@@ -1,16 +1,15 @@
-//! Recursos além de definição/hover/referências, por JSON-RPC sobre um
-//! projeto temporário com SDK mínimo: ajuda de assinatura, destaques,
-//! implementações, definição do tipo, dobras, faixas de seleção e
-//! hierarquia de tipos (regras em `docs/LSP.md`, "Paridade com o servidor
-//! do Dart").
+//! Features beyond definition/hover/references, through JSON-RPC over a
+//! temporary project with a minimal SDK: signature help, highlights,
+//! implementations, type definition, folding, selection ranges and type
+//! hierarchy (rules in `docs/LSP.md`, "Paridade com o servidor do Dart").
 
 mod common;
 
 use common::Project;
 use serde_json::{Value, json};
 
-/// Linha e coluna UTF-16 do início da `n`-ésima ocorrência de `needle`,
-/// mais `shift` colunas.
+/// UTF-16 line and column of the start of the `n`-th occurrence of
+/// `needle`, plus `shift` columns.
 fn location(text: &str, needle: &str, n: usize, shift: u32) -> (u32, u32) {
     let i = text.match_indices(needle).nth(n).unwrap_or_else(|| panic!("sem {needle:?} #{n}")).0;
     let before = &text[..i];
@@ -75,31 +74,30 @@ fn signature(p: &mut Project, needle: &str, n: usize, shift: u32, context: Value
 fn signature_help_like_dart() {
     let mut p = project("assinatura", json!({"textDocument": {"signatureHelp": {"signatureInformation": {"documentationFormat": ["markdown"]}}}}));
     let invoked = json!({"triggerKind": 1});
-    // Membro de receptor genérico: o tipo já substituído.
+    // Member of a generic receiver: the type already substituted.
     let r = signature(&mut p, "add(", 0, 4, invoked.clone());
     assert_eq!(r["signatures"][0]["label"], "add(int value)", "{r}");
     assert_eq!(r["activeParameter"], 0);
-    // Função de topo com opcional e padrão; o segundo argumento ativo.
+    // Top-level function with an optional and a default; the second argument active.
     let r = signature(&mut p, "soma(1, 2)", 0, 8, invoked.clone());
     assert_eq!(r["signatures"][0]["label"], "soma(int a, [int b = 0])", "{r}");
     assert_eq!(r["signatures"][0]["parameters"][1]["label"], "int b = 0");
     assert_eq!(r["activeParameter"], 1);
     assert_eq!(r["signatures"][0]["documentation"]["value"], "Soma dois números.");
-    // Construtor com os argumentos de tipo da criação.
+    // Constructor with the creation's type arguments.
     let r = signature(&mut p, "Caixa<String>(", 0, 14, invoked.clone());
     assert_eq!(r["signatures"][0]["label"], "Caixa(String valor)", "{r}");
-    // Método genérico substituído, nomeado ativo pelo nome.
+    // Substituted generic method, the named one active by its name.
     let r = signature(&mut p, "avisar: true", 0, 2, invoked.clone());
     assert_eq!(r["signatures"][0]["label"], "trocar(String novo, {bool avisar = false})", "{r}");
     assert_eq!(r["activeParameter"], 1);
-    // Disparo automático só no `(` que abre a lista.
+    // Automatic trigger only on the `(` that opens the list.
     let auto = json!({"triggerKind": 2, "triggerCharacter": "(", "isRetrigger": false});
     let r = signature(&mut p, "soma(3)", 0, 5, auto.clone());
     assert_eq!(r["signatures"][0]["label"], "soma(int a, [int b = 0])", "{r}");
     let r = signature(&mut p, "soma(1, 2)", 0, 8, auto);
     assert!(r.is_null(), "{r}");
-    // Dentro de um closure passado como argumento: a chamada interna, nunca
-    // a de fora.
+    // Inside a closure passed as an argument: the inner call, never the outer one.
     let r = signature(&mut p, "soma(x)", 0, 5, invoked.clone());
     assert_eq!(r["signatures"][0]["label"], "soma(int a, [int b = 0])", "{r}");
     let r = signature(&mut p, "(x) =>", 0, 6, invoked);
@@ -109,12 +107,12 @@ fn signature_help_like_dart() {
 #[test]
 fn highlights_implementations_and_type() {
     let mut p = project("navegar_mais", json!({}));
-    // Destaques: declaração e usos do local no arquivo.
+    // Highlights: declaration and uses of the local in the file.
     let (l, c) = location(USE, "total", 1, 1);
     let r = p.in_position("textDocument/documentHighlight", "lib/uso.dart", l, c, json!({}))["result"].clone();
     let lines: Vec<u64> = r.as_array().unwrap().iter().map(|h| h["range"]["start"]["line"].as_u64().unwrap()).collect();
     assert_eq!(lines, vec![7, 8, 8, 9], "{r}");
-    // Implementações de uma classe abstrata e de um método dela.
+    // Implementations of an abstract class and of one of its methods.
     let (l, c) = location(MODEL, "Forma {", 0, 1);
     let r = p.in_position("textDocument/implementation", "lib/modelo.dart", l, c, json!({}))["result"].clone();
     let mut names: Vec<u64> = r.as_array().unwrap().iter().map(|x| x["range"]["start"]["line"].as_u64().unwrap()).collect();
@@ -125,7 +123,7 @@ fn highlights_implementations_and_type() {
     let mut lines: Vec<u64> = r.as_array().unwrap().iter().map(|x| x["range"]["start"]["line"].as_u64().unwrap()).collect();
     lines.sort();
     assert_eq!(lines, vec![14, 19], "{r}");
-    // Definição do tipo: a classe do tipo estático.
+    // Type definition: the class of the static type.
     let (l, c) = location(USE, "c.trocar", 0, 0);
     let r = p.in_position("textDocument/typeDefinition", "lib/uso.dart", l, c, json!({}))["result"].clone();
     assert!(r["uri"].as_str().unwrap().ends_with("modelo.dart"), "{r}");
@@ -142,17 +140,17 @@ fn type_definition_like_the_dart_handler() {
         p.in_position("textDocument/typeDefinition", "lib/td.dart", l, c, json!({}))["result"].clone()
     };
     let empty = |r: &Value| r.is_null() || r.as_array().is_some_and(|a| a.is_empty());
-    // O `returnType` da declaração de construtor: a classe.
+    // The `returnType` of the constructor declaration: the class.
     assert_eq!(td("A(int")["range"]["start"], json!({"line": 0, "character": 6}));
-    // O campo do inicializador e `@override`: nada.
+    // The initializer's field and `@override`: nothing.
     let r = td("x = v");
     assert!(empty(&r), "{r}");
     let r = td("override");
     assert!(empty(&r), "{r}");
-    // `@Deprecated(…)`: a classe.
+    // `@Deprecated(…)`: the class.
     let r = td("Deprecated");
     assert!(r["uri"].as_str().is_some_and(|u| u.contains("core")), "{r}");
-    // O alvo de uma escrita de campo: o tipo do campo.
+    // The target of a field write: the field's type.
     let r = td("x = 1");
     assert!(r["uri"].as_str().is_some_and(|u| u.contains("core")), "{r}");
 }
@@ -169,11 +167,11 @@ fn class_name_highlights_in_constructor() {
         v.sort();
         v
     };
-    // O `A` de `A();` e de `A.n();` é a classe: o grupo dela.
+    // The `A` of `A();` and of `A.n();` is the class: its group.
     let expected = vec![(0, 6), (1, 2), (2, 2), (4, 0), (4, 9)];
     assert_eq!(lines_and_columns("A();", 0), expected);
     assert_eq!(lines_and_columns("A.n();", 0), expected);
-    // O `n` declarado: o construtor e o uso.
+    // The declared `n`: the constructor and the use.
     assert_eq!(lines_and_columns("n();", 0), vec![(2, 4), (4, 11)]);
 }
 
@@ -189,8 +187,8 @@ fn operator_call_hierarchy() {
 
 #[test]
 fn implementation_by_member_kind() {
-    // O getter lido não é implementado por um setter homônimo; o campo
-    // declarado acha o getter ou, não final, o setter.
+    // A read getter is not implemented by a homonymous setter; the declared
+    // field finds the getter or, if not final, the setter.
     let mut p = Project::new("implementacao-especie");
     let text = "class A {\n  int get v => 0;\n  set v(int x) {}\n  int w = 0;\n}\nclass B extends A {\n  @override\n  set v(int x) {}\n  @override\n  set w(int x) {}\n}\nvoid f(A a) => print(a.v);\n";
     p.open("lib/i.dart", text);
@@ -232,7 +230,7 @@ fn folds_and_selection() {
         .iter()
         .map(|d| (d["startLine"].as_u64().unwrap(), d["endLine"].as_u64().unwrap()))
         .collect();
-    // Classe Caixa (1–6), Forma (8–10), Quadrado (12–15), Circulo (17–20).
+    // Class Caixa (1–6), Forma (8–10), Quadrado (12–15), Circulo (17–20).
     assert_eq!(regions, vec![(1, 6), (8, 10), (12, 15), (17, 20)], "{r}");
     let (l, c) = location(USE, "soma(1, 2)", 0, 1);
     let r = p.request(
@@ -240,7 +238,7 @@ fn folds_and_selection() {
         json!({"textDocument": {"uri": p.uri("lib/uso.dart")}, "positions": [{"line": l, "character": c}]}),
     )["result"]
         .clone();
-    // O identificador, a chamada, ... até a função inteira.
+    // The identifier, the call, ... up to the whole function.
     let first = &r[0]["range"];
     assert_eq!(first["start"], json!({"line": l, "character": c - 1}));
     assert_eq!(first["end"], json!({"line": l, "character": c + 3}));
@@ -257,7 +255,7 @@ fn folds_and_selection() {
 #[test]
 fn call_hierarchy() {
     let mut p = project("chamadas", json!({}));
-    // `sum` é chamada três vezes por `use_` (uma dentro de um closure).
+    // `soma` is called three times by `usar` (once inside a closure).
     let (l, c) = location(MODEL, "soma(int", 0, 1);
     let r = p.in_position("textDocument/prepareCallHierarchy", "lib/modelo.dart", l, c, json!({}))["result"].clone();
     let item = r[0].clone();
@@ -271,7 +269,7 @@ fn call_hierarchy() {
         .map(|c| (c["from"]["name"].as_str().unwrap(), c["fromRanges"].as_array().unwrap().len()))
         .collect();
     assert_eq!(callers, vec![("usar", 3)], "{received}");
-    // `use_` chama `add`, `sum`, o construtor de `Caixa`, `swap`, `print`, `map` e `area`.
+    // `usar` calls `somar`, `soma`, the constructor of `Caixa`, `trocar`, `print`, `map` and `area`.
     let (l, c) = location(USE, "usar", 0, 1);
     let r = p.in_position("textDocument/prepareCallHierarchy", "lib/uso.dart", l, c, json!({}))["result"].clone();
     let done = p.request("callHierarchy/outgoingCalls", json!({"item": r[0].clone()}))["result"].clone();

@@ -1,7 +1,7 @@
-//! Correções e criações com os títulos do Dart 3.6.2 (`docs/LSP.md`,
-//! "Paridade com o servidor do Dart"): sobrescritas ausentes, classe
-//! abstrata, `noSuchMethod`, variável final, e as criações para nomes
-//! indefinidos; dicas embutidas e tokens semânticos no mesmo projeto.
+//! Fixes and creations with the Dart 3.6.2 titles (`docs/LSP.md`, "Paridade
+//! com o servidor do Dart"): missing overrides, abstract class,
+//! `noSuchMethod`, final variable, and the creations for undefined names;
+//! inlay hints and semantic tokens in the same project.
 
 mod common;
 
@@ -38,9 +38,9 @@ fn action<'a>(r: &'a Value, title: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("sem {title:?} em {:?}", titles(r)))
 }
 
-/// Executa o comando de uma ação (as refatorações do Dart vêm como
-/// `dart.edit.refactor`) e devolve a edição do `workspace/applyEdit` que o
-/// servidor pede.
+/// Runs the command of an action (Dart refactorings come as
+/// `dart.edit.refactor`) and returns the `workspace/applyEdit` edit that the
+/// server requests.
 fn command_edit(p: &mut Project, action: &Value) -> Value {
     let command = &action["command"];
     p.server.receive(json!({"jsonrpc": "2.0", "id": 9000, "method": "workspace/executeCommand", "params": {
@@ -92,7 +92,7 @@ fn create_method_function_class_and_getter_for_undefined_names() {
     let r = actions(&mut p, "lib/a.dart", location(text, "Retangulo", 0));
     let t = titles(&r);
     assert!(t.contains(&"Create class 'Retangulo'".to_string()) && t.contains(&"Create function 'Retangulo'".to_string()), "{t:?}");
-    // `q.y` está a um passo de `x`: trocar.
+    // `q.y` is one step away from `x`: replace it.
     let (l, c) = location(text, "q.y", 0);
     let r = actions(&mut p, "lib/a.dart", (l, c + 2));
     let a = action(&r, "Change to 'x'");
@@ -147,8 +147,8 @@ fn annotation_initializer_setter_and_pattern_hints() {
     assert!(hints.contains(&(13, 19, "<int, String>".into())), "{hints:?}");
     assert!(hints.contains(&(17, 13, "List<int>".into())), "{hints:?}");
     assert!(hints.contains(&(18, 8, "int".into())), "{hints:?}");
-    // `late` com inicializador que chama método da própria classe: o tipo
-    // do método, sem falso ciclo de inferência.
+    // `late` with an initializer that calls a method of the same class: the
+    // method's type, without a false inference cycle.
     assert!(hints.contains(&(21, 13, "List<int>".into())), "{hints:?}");
     assert!(hints.contains(&(22, 11, "List<int>".into())), "{hints:?}");
 }
@@ -169,9 +169,9 @@ fn nested_type_and_collection_for_in_hints() {
         .iter()
         .map(|d| (d["position"]["line"].as_u64().unwrap(), d["position"]["character"].as_u64().unwrap(), d["label"].as_array().unwrap().iter().map(|x| x["value"].as_str().unwrap()).collect::<String>()))
         .collect();
-    // `C` cru dentro de `List<C>`: `<dynamic>` depois dele.
+    // Raw `C` inside `List<C>`: `<dynamic>` after it.
     assert!(hints.contains(&(2, 28, "<dynamic>".into())), "{hints:?}");
-    // A variável do `for-in` de coleção.
+    // The variable of a collection `for-in`.
     assert!(hints.contains(&(3, 20, "String".into())), "{hints:?}");
 }
 
@@ -212,8 +212,8 @@ fn basic_semantic_tokens() {
 
 #[test]
 fn rewrite_assists() {
-    // As refatorações (`Inline Local Variable`) exigem `workspace.applyEdit`
-    // no cliente, como no `dart language-server` 3.6.2.
+    // Refactorings (`Inline Local Variable`) require `workspace.applyEdit` in
+    // the client, as in `dart language-server` 3.6.2.
     let mut p = Project::with_capabilities(
         "correcoes-assistencias",
         json!({
@@ -224,13 +224,13 @@ fn rewrite_assists() {
     let text = "int dobro(int v) => v * 2;\nvoid f(int a) {\n  var x = dobro(a);\n  if (x > 1) print(x);\n  dobro(3);\n}\n";
     p.open("lib/a.dart", text);
     let uri = p.uri("lib/a.dart");
-    // No nome da função de corpo `=>`: bloco e async.
+    // On the name of an `=>`-bodied function: block and async.
     let r = actions(&mut p, "lib/a.dart", location(text, "dobro(int", 0));
     let a = action(&r, "Convert to block body");
     assert_eq!(apply(&a["edit"], &uri, text).lines().take(3).collect::<Vec<_>>(), vec!["int dobro(int v) {", "  return v * 2;", "}"]);
     let a = action(&r, "Convert to async function body");
     assert!(apply(&a["edit"], &uri, text).starts_with("Future<int> dobro(int v) async => v * 2;"));
-    // No `var x`: dividir; num uso, embutir.
+    // On `var x`: split; on a use, inline.
     let r = actions(&mut p, "lib/a.dart", location(text, "x = dobro", 0));
     let a = action(&r, "Split variable declaration");
     assert!(apply(&a["edit"], &uri, text).contains("  int x;\n  x = dobro(a);\n"));
@@ -240,10 +240,10 @@ fn rewrite_assists() {
     assert_eq!(a["kind"], "refactor.inline");
     let edit = command_edit(&mut p, a);
     assert!(apply(&edit, &uri, text).contains("  if (dobro(a) > 1) print(dobro(a));\n"));
-    // `if` sem chaves.
+    // `if` without braces.
     let a = action(&r, "Use curly braces");
     assert!(apply(&a["edit"], &uri, text).contains("  if (x > 1) {\n    print(x);\n  }\n"));
-    // Comando de expressão com valor: guardar num local.
+    // Expression statement with a value: store it in a local.
     let r = actions(&mut p, "lib/a.dart", location(text, "dobro(3)", 0));
     let a = action(&r, "Assign value to new local variable");
     assert!(apply(&a["edit"], &uri, text).contains("  var dobro2 = dobro(3);\n") || apply(&a["edit"], &uri, text).contains("  var dobro = dobro(3);\n"));

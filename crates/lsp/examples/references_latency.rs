@@ -1,13 +1,12 @@
-//! Mede a latência de `references` e `implementation` pelo protocolo
-//! (`Server` em processo, SDK real), como o oráculo pede: todos os
-//! arquivos `lib/` e `bin/` do projeto abertos, pedidos em identificadores
-//! espalhados de um arquivo, com o texto parado e logo depois de uma edição
-//! de corpo em outro arquivo.
+//! Measures the latency of `references` and `implementation` through the
+//! protocol (`Server` in process, real SDK), as the oracle asks: all `lib/`
+//! and `bin/` files of the project open, requests on identifiers spread over
+//! one file, with the text idle and right after a body edit in another file.
 //!
-//! `cargo run -q --release -p dartforge-lsp --example references_latency -- <project> <file.dart> [posições]`
+//! `cargo run -q --release -p dartforge-lsp --example references_latency -- <project> <file.dart> [positions]`
 //!
-//! Imprime a primeira requisição (que paga a carga ampla), a mediana e o
-//! máximo das demais.
+//! Prints the first request (which pays the wide load), and the median and
+//! maximum of the others.
 use dartforge_elements::sdk::SdkLayout;
 use dartforge_lsp::{SemanticAnalyzer, Server};
 use serde_json::{Value, json};
@@ -95,8 +94,8 @@ fn main() {
         ));
         imps.push(request(&mut server, "textDocument/implementation", json!({"textDocument": doc, "position": pos(a + 1)})));
     }
-    // Uma edição de corpo (um espaço no fim) em outro arquivo, seguida de
-    // `references`: o que sobrevive à edição.
+    // A body edit (a space at the end) in another file, followed by
+    // `references`: what survives the edit.
     let other = files.iter().find(|a| **a != path).cloned().unwrap_or(path.clone());
     let other_text = std::fs::read_to_string(&other).expect("leitura");
     let last = other_text.lines().count() as u32;

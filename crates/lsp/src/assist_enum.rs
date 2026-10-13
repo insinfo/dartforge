@@ -1,8 +1,8 @@
-//! `ConvertClassToEnum` (convert_class_to_enum.dart) do `analysis_server`
-//! 3.6.2: a classe privada (ou de construtores privados) cujos campos
-//! estáticos constantes são as instâncias dela vira um `enum`.
+//! `ConvertClassToEnum` (convert_class_to_enum.dart) from `analysis_server`
+//! 3.6.2: a private class (or one with private constructors) whose static
+//! constant fields are its instances becomes an `enum`.
 //!
-//! | Título | Espécie |
+//! | Title | Kind |
 //! |---|---|
 //! | `Convert class to an enum` | `refactor.convert.classToEnum` |
 
@@ -18,8 +18,8 @@ use dartforge_types::constantes::valor::{Campo, Estado, Valor};
 use dartforge_types::{Resolved, Type};
 use std::collections::HashSet;
 
-/// `_Field`: o membro (a posição em `members`), o nó da
-/// `VariableDeclaration` e os nós das variáveis da lista.
+/// `_Field`: the member (its position in `members`), the
+/// `VariableDeclaration` node and the nodes of the list's variables.
 struct ClassField {
     member: usize,
     variable: usize,
@@ -35,8 +35,8 @@ struct ConstantField {
     index: i64,
 }
 
-/// `_Parameter` de um construtor usado: o construtor, o membro e a posição
-/// do parâmetro `this.index` na lista.
+/// `_Parameter` of a used constructor: the constructor, the member and the
+/// position of the `this.index` parameter in the list.
 struct IndexParameter {
     constructor: FunctionElementId,
     member: usize,
@@ -44,7 +44,7 @@ struct IndexParameter {
 }
 
 impl Context<'_> {
-    /// O valor de `IntegerLiteral.value` (decimal ou `0x`, até 64 bits no
+    /// The value of `IntegerLiteral.value` (decimal or `0x`, up to 64 bits in
     /// hexadecimal).
     fn literal_integer_value(&self, n: usize) -> Option<i64> {
         let text: String = self.node_text(n).chars().filter(|c| *c != '_').collect();
@@ -62,7 +62,7 @@ impl Context<'_> {
         if prog.library(lib).features.versao() < dartforge_frontend::features::LanguageVersion::new(2, 17) {
             return None;
         }
-        // Com partes não dá para ver as criações e as subclasses nelas.
+        // With parts, the creations and subclasses in them cannot be seen.
         if prog.library(lib).units.len() > 1 {
             return None;
         }
@@ -217,8 +217,8 @@ impl Context<'_> {
             return None;
         }
 
-        // `_EnumVisitor` e `_NonEnumVisitor`: nenhuma criação por construtor
-        // gerador da classe fora do inicializador de um campo a converter.
+        // `_EnumVisitor` and `_NonEnumVisitor`: no creation through a generative
+        // constructor of the class outside the initializer of a field to convert.
         let (ci, cf) = (self.tree.nos[declaration].inicio, self.tree.nos[declaration].fim);
         let allowed: HashSet<usize> = fields.iter().map(|c| c.creation).collect();
         for n in 0..self.tree.nos.len() {
@@ -273,8 +273,8 @@ impl Context<'_> {
                 for c in fields.iter() {
                     let pair = map.iter().find(|p| p.constructor == c.constructor)?;
                     let MemberKind::Constructor(kc) = &self.ast.member(k.members[pair.member]).kind else { return None };
-                    // `getArgument`: o argumento do parâmetro; o de um
-                    // nomeado é a `NamedExpression`, que não é literal.
+                    // `getArgument`: the parameter's argument; that of a named one is the
+                    // `NamedExpression`, which is not a literal.
                     if kc.parameters[pair.position].kind == ParameterKind::Named {
                         return None;
                     }

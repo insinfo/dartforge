@@ -1,13 +1,13 @@
-//! Índices de nomes públicos de topo, para o completar com importação
-//! automática e para a ação "importar biblioteca".
+//! Indexes of public top-level names, for completion with auto-import and
+//! for the "import library" action.
 //!
-//! * [`SdkIndex`]: as bibliotecas públicas do SDK (sem `_`) com as suas
-//!   partes, montado uma vez por SDK; o tamanho é o do SDK.
-//! * [`ProjectIndex`]: os arquivos `.dart` de **um** projeto (o último
-//!   consultado), por arquivo, com a impressão de cada um (versão do texto
-//!   aberto ou data e tamanho no disco). Só o arquivo que mudou é analisado
-//!   de novo; arquivo que sumiu sai do índice; trocar de projeto descarta o
-//!   anterior. Guarda só nomes, espécies e offsets, nunca árvores.
+//! * [`SdkIndex`]: the public SDK libraries (without `_`) with their parts,
+//!   built once per SDK; its size is the SDK's.
+//! * [`ProjectIndex`]: the `.dart` files of **one** project (the last one
+//!   queried), per file, with each one's fingerprint (open text version, or
+//!   date and size on disk). Only the file that changed is analyzed again; a
+//!   file that disappeared leaves the index; switching projects discards the
+//!   previous one. Stores only names, kinds and offsets, never trees.
 
 use crate::DocumentStore;
 use crate::completion::kind;
@@ -19,22 +19,22 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use url::Url;
 
-/// Um nome público de topo declarado num arquivo.
+/// A public top-level name declared in a file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Declared {
     pub name: String,
     /// `CompletionItemKind`.
     pub kind: u32,
-    /// Nomeia um tipo (classe, mixin, enum, extension type, typedef).
+    /// Names a type (class, mixin, enum, extension type, typedef).
     pub ty: bool,
-    /// Função sem parâmetros (o rótulo é `f()`, não `f(…)`).
+    /// Function without parameters (the label is `f()`, not `f(…)`).
     pub without_parameters: bool,
-    /// Arquivo e início da declaração (com metadados), para a documentação.
+    /// File and start of the declaration (with metadata), for the documentation.
     pub file: PathBuf,
     pub start: usize,
 }
 
-/// Os nomes públicos de topo de uma unidade analisada.
+/// The public top-level names of an analyzed unit.
 pub(crate) fn declared(
     ast: &ast::Ast,
     unit: &ast::CompilationUnit,
@@ -90,14 +90,13 @@ pub(crate) fn declared(
     output
 }
 
-/// Nomes públicos de topo do SDK: nome → (URI `dart:` → declaração).
+/// Public top-level names of the SDK: name → (`dart:` URI → declaration).
 #[derive(Debug, Default)]
 pub(crate) struct SdkIndex {
     pub by_name: HashMap<String, BTreeMap<String, Declared>>,
 }
 
-/// Monta o índice do SDK: cada biblioteca pública (sem `_`) com as suas
-/// partes.
+/// Builds the SDK index: each public library (without `_`) with its parts.
 pub(crate) fn index_sdk(sdk: &SdkLayout) -> SdkIndex {
     let mut index = SdkIndex::default();
     let mut libraries: Vec<_> = sdk
@@ -140,8 +139,8 @@ pub(crate) fn index_sdk(sdk: &SdkLayout) -> SdkIndex {
     index
 }
 
-/// Impressão de um arquivo: versão e tamanho do texto aberto, ou data e
-/// tamanho no disco.
+/// Fingerprint of a file: version and size of the open text, or date and
+/// size on disk.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Fingerprint {
     Open(i32, usize),
@@ -151,24 +150,24 @@ enum Fingerprint {
 #[derive(Debug)]
 struct FileEntry {
     fingerprint: Fingerprint,
-    /// O arquivo é uma parte (os nomes dele são da biblioteca dona e não se
-    /// importam por ele).
+    /// The file is a part (its names belong to the owning library and are not
+    /// imported through it).
     part: bool,
     names: Vec<Declared>,
 }
 
-/// Índice incremental dos nomes públicos de topo de um projeto.
+/// Incremental index of the public top-level names of a project.
 #[derive(Debug, Default)]
 pub(crate) struct ProjectIndex {
     root: Option<PathBuf>,
     files: HashMap<PathBuf, FileEntry>,
-    /// Arquivos analisados na última atualização (medição e testes).
+    /// Files analyzed in the last update (measurement and tests).
     pub(crate) reanalyzed: usize,
 }
 
 impl ProjectIndex {
-    /// Atualiza o índice do projeto `root` com os textos vigentes e devolve
-    /// as bibliotecas (arquivos que não são partes) com os nomes delas.
+    /// Updates the index of project `root` with the current texts and returns
+    /// the libraries (files that are not parts) with their names.
     pub(crate) fn update(
         &mut self,
         root: &Path,
@@ -235,7 +234,7 @@ impl ProjectIndex {
     }
 }
 
-/// Caminho de `target` relativo ao diretório `base`, com `/`.
+/// Path of `target` relative to directory `base`, with `/`.
 pub(crate) fn relative(target: &Path, base: &Path) -> Option<String> {
     use std::path::Component;
     let d: Vec<Component> = target.components().collect();
@@ -253,7 +252,7 @@ pub(crate) fn relative(target: &Path, base: &Path) -> Option<String> {
     Some(parts.join("/"))
 }
 
-/// Nome do pacote no `pubspec.yaml` da raiz.
+/// Package name in the root `pubspec.yaml`.
 pub(crate) fn package_name(root: &Path) -> Option<String> {
     let text = std::fs::read_to_string(root.join("pubspec.yaml")).ok()?;
     text.lines().find_map(|l| {
@@ -262,8 +261,9 @@ pub(crate) fn package_name(root: &Path) -> Option<String> {
     })
 }
 
-/// A URI com que `file` importa `target` do mesmo projeto: `package:`
-/// quando `file` está fora de `lib/` e `target` dentro; senão relativa.
+/// The URI with which `file` imports `target` from the same project:
+/// `package:` when `file` is outside `lib/` and `target` is inside; relative
+/// otherwise.
 pub(crate) fn import_uri(
     file: &Path,
     target: &Path,

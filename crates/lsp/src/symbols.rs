@@ -1,5 +1,5 @@
-//! Símbolos de documento vindos da mesma AST usada pelos diagnósticos.
-//! A árvore é temporária: nenhuma revisão anterior permanece no servidor.
+//! Document symbols from the same AST used by the diagnostics. The tree is
+//! temporary: no previous revision stays in the server.
 
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{Ast, DeclKind, DirectiveKind, ExprKind, MemberKind, Name, StmtKind, TypeKind, TypedefKind};
@@ -14,8 +14,8 @@ pub(super) fn of_document(text: &str, features: LibraryFeatures) -> Vec<Value> {
     let parsed = dartforge_frontend::parser::parse_com(text, &mut names, features);
     let lines = LineTable::build(text);
     let mut output = Vec::new();
-    // Os símbolos de `group`/`test`: só na unidade que importa um arquivo
-    // `…test.dart` e não declara função de topo com um desses nomes.
+    // The `group`/`test` symbols: only in a unit that imports a `…test.dart`
+    // file and declares no top-level function with one of those names.
     let imports_tests = parsed.unit.directives.iter().any(|d| match &d.kind {
         DirectiveKind::Import { uri, .. } => dartforge_elements::load::string_lit_value(uri).is_some_and(|u| u.ends_with("test.dart")),
         _ => false,
@@ -40,12 +40,12 @@ pub(super) fn of_document(text: &str, features: LibraryFeatures) -> Vec<Value> {
                 output.push(symbol(text, &lines, &names, e.name, decl.span, 10, children));
                 continue;
             }
-            // Extensões e extension types são `Namespace` no servidor do Dart.
+            // Extensions and extension types are `Namespace` in the Dart server.
             DeclKind::Extension(e) => (e.name, 3, Some(e.members.as_slice())),
             DeclKind::ExtensionType(e) => (Some(e.name), 3, Some(e.members.as_slice())),
-            // `typedef F = void Function();` e a forma antiga são
-            // FUNCTION_TYPE_ALIAS (5); `typedef A = int;` é TYPE_ALIAS, que
-            // o `elementKindToSymbolKind` do Dart não trata e sai 19.
+            // `typedef F = void Function();` and the old form are FUNCTION_TYPE_ALIAS
+            // (5); `typedef A = int;` is TYPE_ALIAS, which Dart's
+            // `elementKindToSymbolKind` does not handle and comes out as 19.
             DeclKind::Typedef(t) => {
                 let of_function = match &t.kind {
                     TypedefKind::Legacy { .. } => true,
@@ -74,7 +74,7 @@ pub(super) fn of_document(text: &str, features: LibraryFeatures) -> Vec<Value> {
         let Some(name) = name else { continue };
         let children = match members {
             Some(ids) => member_symbols(text, &lines, &names, &parsed.ast, ids, tests),
-            // Função de topo: as funções locais do corpo, recursivamente.
+            // Top-level function: the local functions of the body, recursively.
             None if matches!(decl.kind, DeclKind::Function(_)) => local_functions(text, &lines, &names, &parsed.ast, decl.span, tests),
             None => Vec::new(),
         };
@@ -108,7 +108,7 @@ fn member_symbols(
                 }
             }
             MemberKind::Constructor(c) => {
-                // Como o outline do Dart: `Class.name` (ou `Class`).
+                // Like the Dart outline: `Class.name` (or `Class`).
                 let name = c.name.unwrap_or(c.class_name);
                 let locals = local_functions(text, lines, names, ast, member.span, tests);
                 let mut s = symbol(text, lines, names, name, member.span, 9, locals);
@@ -130,27 +130,27 @@ fn member_symbols(
     output
 }
 
-/// As funções locais e os testes declarados dentro de `inside` (o corpo de
-/// uma função, método ou construtor), como filhos: o outline do Dart os
-/// lista recursivamente, inclusive os de dentro de closures
-/// (`computer_outline.dart:450-548`). A árvore sai da contenção dos
-/// intervalos: um item é filho do menor que o contém.
+/// The local functions and the tests declared inside `inside` (the body of a
+/// function, method or constructor), as children: the Dart outline lists
+/// them recursively, including those inside closures
+/// (`computer_outline.dart:450-548`). The tree comes from range containment:
+/// an item is a child of the smallest one that contains it.
 ///
-/// Com `tests`, uma chamada `group(...)` ou `test(...)` vira o símbolo
-/// `group("descrição")` (espécie 6), com o intervalo da chamada e a seleção
-/// no nome; o que está dentro de um `group` é filho dele, e nada de dentro de
-/// um `test` é listado. O original decide pelo elemento resolvido (a função
-/// de topo de um arquivo `…test.dart`, ou uma função com `@isTest` ou
-/// `@isTestGroup`); aqui vale a chamada sem prefixo numa unidade que importa
-/// um `…test.dart` e não declara função de topo com esse nome.
+/// With `tests`, a `group(...)` or `test(...)` call becomes the symbol
+/// `group("description")` (kind 6), with the call's range and the selection
+/// on the name; what is inside a `group` is its child, and nothing inside a
+/// `test` is listed. The original decides by the resolved element (the
+/// top-level function of a `…test.dart` file, or a function with `@isTest`
+/// or `@isTestGroup`); here the unprefixed call counts in a unit that
+/// imports a `…test.dart` and declares no top-level function with that name.
 fn local_functions(text: &str, lines: &LineTable, names: &Interner, ast: &Ast, inside: Span, tests: bool) -> Vec<Value> {
-    /// Um item do outline de um corpo.
+    /// An outline item of a body.
     struct Item {
         span: Span,
         name: Name,
-        /// O nome mostrado de um teste (`group("x")`); `None` numa função.
+        /// The displayed name of a test (`group("x")`); `None` for a function.
         test_only: Option<String>,
-        /// Um `test`: nada de dentro dele entra.
+        /// A `test`: nothing inside it is included.
         leaf: bool,
     }
     let mut found: Vec<Item> = Vec::new();
@@ -174,8 +174,8 @@ fn local_functions(text: &str, lines: &LineTable, names: &Interner, ast: &Ast, i
             if call != "group" && call != "test" {
                 continue;
             }
-            // `extractString`: o valor do literal de string, senão o texto do
-            // primeiro argumento, senão `unnamed`.
+            // `extractString`: the value of the string literal, else the text of the
+            // first argument, else `unnamed`.
             let description = match arguments.args.first() {
                 None => "unnamed".to_string(),
                 Some(first) => {
@@ -190,7 +190,7 @@ fn local_functions(text: &str, lines: &LineTable, names: &Interner, ast: &Ast, i
             found.push(Item { span: e.span, name: *name, test_only: Some(format!("{call}(\"{description}\")")), leaf: call == "test" });
         }
     }
-    // Pré-ordem: pelo começo e, no empate, a maior primeiro.
+    // Pre-order: by start and, on a tie, the larger first.
     found.sort_by(|a, b| a.span.start.cmp(&b.span.start).then(b.span.end.cmp(&a.span.end)));
     fn build(text: &str, lines: &LineTable, names: &Interner, found: &[Item], i: &mut usize, limit: usize) -> Vec<Value> {
         let mut output = Vec::new();
@@ -198,7 +198,7 @@ fn local_functions(text: &str, lines: &LineTable, names: &Interner, ast: &Ast, i
             let item = &found[*i];
             *i += 1;
             let children = if item.leaf {
-                // Pula tudo o que está dentro do teste.
+                // Skips everything inside the test.
                 while *i < found.len() && found[*i].span.start < item.span.end {
                     *i += 1;
                 }

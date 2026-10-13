@@ -1,7 +1,7 @@
-//! Sessão semântica limitada (`crates/lsp/src/session.rs`) pelo protocolo:
-//! consultas sobre a mesma versão reaproveitam o programa carregado; uma
-//! edição, um arquivo do disco alterado ou criado o descartam; o orçamento
-//! zero nunca retém. A memória é medida à parte, em `session_memory.rs`.
+//! Bounded semantic session (`crates/lsp/src/session.rs`) through the
+//! protocol: queries on the same version reuse the loaded program; an edit,
+//! or a file changed or created on disk, discards it; a zero budget never
+//! retains. Memory is measured separately, in `session_memory.rs`.
 
 mod common;
 
@@ -49,7 +49,7 @@ fn reused_across_queries_and_dropped_on_edit() {
     p.write("lib/b.dart", "import 'a.dart';\nint h() => f();\n");
     p.open("lib/a.dart", a);
     assert_eq!(est(&p), SessionStats::default());
-    // Biblioteca: carrega uma vez, reaproveita na definição.
+    // Library: loads once, reuses it for the definition.
     assert_eq!(
         hover(&mut p, "lib/a.dart", 1, 11),
         json!({"contents": "int f()\nType: int Function()", "range": {"start": {"line": 1, "character": 11}, "end": {"line": 1, "character": 12}}})
@@ -57,8 +57,8 @@ fn reused_across_queries_and_dropped_on_edit() {
     p.in_position("textDocument/definition", "lib/a.dart", 1, 11, json!({}));
     let e = est(&p);
     assert_eq!((e.loaded, e.reused), (1, 1), "{e:?}");
-    // Projeto inteiro (outro escopo): carrega; prepareRename, rename, hover
-    // e codeAction na mesma versão reaproveitam.
+    // Whole project (another scope): loads; prepareRename, rename, hover and
+    // codeAction on the same version reuse it.
     assert_eq!(references(&mut p, "lib/a.dart", 1, 11).len(), 4);
     p.in_position("textDocument/prepareRename", "lib/a.dart", 1, 11, json!({}));
     p.in_position(
@@ -76,7 +76,7 @@ fn reused_across_queries_and_dropped_on_edit() {
     let e = est(&p);
     assert_eq!((e.loaded, e.reused), (2, 5), "{e:?}");
     assert!(e.retained_source > 0);
-    // A edição descarta na hora; a consulta seguinte vê o texto novo.
+    // The edit discards right away; the next query sees the new text.
     let before = est(&p).invalidated;
     p.change("lib/a.dart", 2, "double f() => 1;\nint g() => 2;\n");
     let e = est(&p);
@@ -91,22 +91,22 @@ fn changed_disk_or_new_file_reloads() {
     let a = "int f() => 1;\n";
     p.write("lib/b.dart", "import 'a.dart';\nint h() => f();\n");
     p.open("lib/a.dart", a);
-    // A ordem do servidor do Dart: os outros arquivos, e o da declaração
-    // (com ela por último) no fim.
+    // The Dart server's order: the other files, and the declaration's file
+    // (with the declaration last) at the end.
     assert_eq!(
         references(&mut p, "lib/a.dart", 0, 4),
         vec!["lib/b.dart:1:11", "lib/a.dart:0:4"]
     );
-    // O mesmo pedido reaproveita.
+    // The same request reuses it.
     references(&mut p, "lib/a.dart", 0, 4);
     assert_eq!(est(&p).reused, 1);
-    // Arquivo fechado alterado no disco (outra ferramenta, `git checkout`).
+    // Closed file changed on disk (another tool, `git checkout`).
     p.write("lib/b.dart", "import 'a.dart';\nint h() => f() + f();\n");
     assert_eq!(
         references(&mut p, "lib/a.dart", 0, 4),
         vec!["lib/b.dart:1:11", "lib/b.dart:1:17", "lib/a.dart:0:4"]
     );
-    // Arquivo novo no projeto.
+    // New file in the project.
     p.write("lib/c.dart", "import 'a.dart';\nvar x = f();\n");
     assert_eq!(
         references(&mut p, "lib/a.dart", 0, 4),
@@ -145,9 +145,9 @@ fn zero_budget_never_retains() {
     );
 }
 
-/// Abrir no editor um arquivo com o mesmo texto do disco não derruba o
-/// programa retido; fechar um arquivo cujo texto aberto é o do disco
-/// também não. Abrir com outro texto derruba.
+/// Opening in the editor a file with the same text as on disk does not drop
+/// the retained program; closing a file whose open text is the disk's does
+/// not either. Opening with a different text drops it.
 #[test]
 fn open_and_close_with_disk_text_keeps_session() {
     let mut p = Project::new("sessao-abrir");
@@ -156,19 +156,19 @@ fn open_and_close_with_disk_text_keeps_session() {
     p.open("lib/a.dart", "int f() => 1;\n");
     assert_eq!(references(&mut p, "lib/a.dart", 0, 4), vec!["lib/b.dart:1:11", "lib/a.dart:0:4"]);
     let loaded = est(&p).loaded;
-    // `b.dart` aberto com o texto do disco (sem regravar): a entrada fica.
+    // `b.dart` opened with the disk text (without rewriting it): the entry stays.
     let uri_b = p.uri("lib/b.dart");
     p.server.receive(json!({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": uri_b, "languageId": "dart", "version": 1, "text": b}}}));
     p.server.pump();
     assert_eq!(references(&mut p, "lib/a.dart", 0, 4), vec!["lib/b.dart:1:11", "lib/a.dart:0:4"]);
     assert_eq!(est(&p).loaded, loaded, "{:?}", est(&p));
-    // Fechado sem mudança: continua.
+    // Closed without changes: still there.
     let uri = p.uri("lib/b.dart");
     p.server.receive(json!({"jsonrpc": "2.0", "method": "textDocument/didClose", "params": {"textDocument": {"uri": uri}}}));
     p.server.pump();
     assert_eq!(references(&mut p, "lib/a.dart", 0, 4), vec!["lib/b.dart:1:11", "lib/a.dart:0:4"]);
     assert_eq!(est(&p).loaded, loaded, "{:?}", est(&p));
-    // Aberto com outro texto (um uso a mais): recarrega e vê o uso.
+    // Opened with a different text (one more use): reloads and sees the use.
     p.server.receive(json!({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": uri_b, "languageId": "dart", "version": 1, "text": "import 'a.dart';\nint h() => f() + f();\n"}}}));
     p.server.pump();
     assert_eq!(references(&mut p, "lib/a.dart", 0, 4), vec!["lib/b.dart:1:11", "lib/b.dart:1:17", "lib/a.dart:0:4"]);

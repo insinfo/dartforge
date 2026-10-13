@@ -1,9 +1,9 @@
-//! "Incremental = do zero" (docs/LSP-ESPECIFICACAO.md §16.8), no modo curto:
-//! uma sequência de edições aplicada a um servidor com o caminho incremental
-//! (a troca de unidade no `didChange` e o completar especulativo, §16.10 I1
-//! a I4) e a outro sem ele; depois de cada passo, as respostas nas posições
-//! amostradas são iguais. As edições de corpo não derrubam a sessão; as de
-//! assinatura e de diretivas derrubam.
+//! "Incremental = from scratch" (docs/LSP-ESPECIFICACAO.md §16.8), in short
+//! mode: a sequence of edits applied to a server with the incremental path
+//! (the unit swap in `didChange` and speculative completion, §16.10 I1 to
+//! I4) and to another without it; after each step, the responses at the
+//! sampled positions are equal. Body edits do not drop the session;
+//! signature and directive edits do.
 
 mod common;
 
@@ -12,7 +12,7 @@ use dartforge_elements::sdk::SdkLayout;
 use dartforge_lsp::{SemanticAnalyzer, Server};
 use serde_json::{Value, json};
 
-/// Um projeto cujo servidor não usa o caminho incremental.
+/// A project whose server does not use the incremental path.
 fn without_incremental(name: &str) -> Project {
     let mut p = Project::new(name);
     let sdk = SdkLayout::load(&p.root.join("sdk/lib"), "dartdevc").unwrap();
@@ -22,8 +22,8 @@ fn without_incremental(name: &str) -> Project {
     p
 }
 
-/// (linha, coluna) da `n`-ésima ocorrência (0: a primeira) de `needle` em
-/// `text`, mais `delta` colunas (ASCII).
+/// (line, column) of the `n`-th occurrence (0: the first) of `needle` in
+/// `text`, plus `delta` columns (ASCII).
 fn position(text: &str, needle: &str, n: usize, delta: u32) -> (u32, u32) {
     let i = text.match_indices(needle).nth(n).unwrap_or_else(|| panic!("sem {needle}")).0;
     let before = &text[..i];
@@ -32,9 +32,9 @@ fn position(text: &str, needle: &str, n: usize, delta: u32) -> (u32, u32) {
     (line, column + delta)
 }
 
-/// As respostas comparadas numa posição, com a raiz do projeto (que
-/// muda de um projeto temporário para o outro, com o SDK ao lado) trocada
-/// por `RAIZ/`.
+/// The responses compared at one position, with the project root (which
+/// changes from one temporary project to the other, with the SDK beside it)
+/// replaced by `RAIZ/`.
 fn responses(p: &mut Project, l: u32, c: u32) -> Vec<Value> {
     let project = p.uri("");
     let root = project.trim_end_matches('/').trim_end_matches("projeto");
@@ -71,8 +71,8 @@ void main() {
 }
 ";
 
-/// Corpo de `contar` com tipos novos antes de `B` (desloca os `TypeId`
-/// das cláusulas de `B`).
+/// Body of `contar` with new types before `B` (shifts the `TypeId`s of the
+/// clauses of `B`).
 const V1: &str = "class A<T> {
   T valor;
   A(this.valor);
@@ -100,7 +100,7 @@ void main() {
 }
 ";
 
-/// Corpo de `main`.
+/// Body of `main`.
 const V2: &str = "class A<T> {
   T valor;
   A(this.valor);
@@ -129,7 +129,7 @@ void main() {
 }
 ";
 
-/// Assinatura de `contar`.
+/// Signature of `contar`.
 const V3: &str = "class A<T> {
   T valor;
   A(this.valor);
@@ -156,7 +156,7 @@ void main() {
 }
 ";
 
-/// As posições amostradas de um texto.
+/// The sampled positions of a text.
 fn samples(text: &str) -> Vec<(u32, u32)> {
     let mut v = vec![position(text, "b.valor", 0, 2), position(text, "B()", 1, 0), position(text, "total", 1, 0), position(text, "xs", 1, 1)];
     if text.contains("  b.\n") {
@@ -194,12 +194,12 @@ fn body_and_signature_edits_match_from_scratch() {
         for (l, c) in samples(text) {
             let r = responses(&mut hot, l, c);
             assert_eq!(r, responses(&mut cold, l, c), "versão {version} em {l}:{c}");
-            // O completar especulativo desfaz a troca: o estado retido
-            // responde igual depois dele.
+            // Speculative completion undoes the swap: the retained state answers the
+            // same after it.
             assert_eq!(responses(&mut hot, l, c), r, "repetido, versão {version} em {l}:{c}");
         }
     }
-    // Edições de corpo sem recarga: a sessão quente carregou menos.
+    // Body edits without reloading: the warm session loaded less.
     let q = hot.server.analyzer().session_stats();
     let f = cold.server.analyzer().session_stats();
     assert!(q.loaded < f.loaded, "{q:?} {f:?}");
@@ -211,17 +211,17 @@ fn directives_and_shape_drop_session() {
     p.open("lib/a.dart", V0);
     responses(&mut p, 1, 4);
     let e = p.server.analyzer().session_stats();
-    // Uma diretiva nova.
+    // A new directive.
     p.change("lib/a.dart", 2, &format!("import 'dart:math';\n{V0}"));
     let d = p.server.analyzer().session_stats();
     assert_eq!((d.invalidated, d.body_swaps), (e.invalidated + 1, 0), "{d:?}");
     responses(&mut p, 2, 4);
-    // Uma declaração nova (forma).
+    // A new declaration (shape).
     p.change("lib/a.dart", 3, &format!("import 'dart:math';\n{V0}int z() => 0;\n"));
     let f = p.server.analyzer().session_stats();
     assert_eq!((f.invalidated, f.body_swaps), (d.invalidated + 1, 0), "{f:?}");
-    // Um corpo que vaza (chave aberta): recusa ou troca, nunca resposta
-    // diferente da do zero.
+    // A body that leaks (open brace): refuses or swaps, never a response
+    // different from the one from scratch.
     responses(&mut p, 2, 4);
     let leaks = format!("import 'dart:math';\n{}int z() => 0;\n", V0.replace("return total;", "return total; {"));
     p.change("lib/a.dart", 4, &leaks);

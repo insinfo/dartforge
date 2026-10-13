@@ -1,13 +1,12 @@
-//! As operações do `NotImportedCompletionPass` do analysis server 3.6.2
+//! The operations of the analysis server 3.6.2 `NotImportedCompletionPass`
 //! (`AS:src/services/completion/dart/not_imported_completion_pass.dart`):
 //! `StaticMembersOperation` (`addNotImportedTopLevelDeclarations`),
-//! `ConstructorsOperation` (`addNotImportedConstructors`) e
+//! `ConstructorsOperation` (`addNotImportedConstructors`) and
 //! `InstanceExtensionMembersOperation` (`addNotImportedExtensionMethods`),
-//! pelo mesmo `DeclarationHelper` do passe (as opções e o
-//! `VisibilityTracker` dele), sobre uma biblioteca ainda não importada que
-//! a consulta já carregou. Cada item novo leva o `import` que o torna
-//! visível.
-//! Escrito sem compilar nem executar (2026-10-05).
+//! through the pass's own `DeclarationHelper` (its options and its
+//! `VisibilityTracker`), over a library not imported yet that the query has
+//! already loaded. Each new item carries the `import` that makes it visible.
+//! Written without compiling or running (2026-10-05).
 
 use super::isp::{Isp, Operation};
 use super::isp_declarations::Import;
@@ -15,8 +14,8 @@ use super::*;
 use dartforge_elements::model::ExtensionId;
 
 impl<'a, 'c> Isp<'a, 'c> {
-    /// Roda as operações registradas para a biblioteca `lib`, importada
-    /// pela URI `uri`.
+    /// Runs the operations registered for library `lib`, imported through the
+    /// URI `uri`.
     pub(super) fn operations_not_imported(&mut self, lib: LibraryId, uri: &str) {
         use dartforge_elements::model::ClassKind as K;
         let imp = Import { prefix: None, not_imported: true };
@@ -82,19 +81,19 @@ impl<'a, 'c> Isp<'a, 'c> {
                 }
             }
         }
-        // O `import` que torna o item visível (`requiredImports`).
+        // The `import` that makes the item visible (`requiredImports`).
         let (span, text) = crate::actions::insert_import(self.source, self.cu, uri);
         for i in &mut self.collector.items[before..] {
             i.import = Some(AutoImport { uri: uri.to_string(), span, text: text.clone() });
-            // O `detail` da lista é o do elemento; o `Auto import from` vem
-            // no `completionItem/resolve` (`resolveDartCompletion`).
+            // The list `detail` is the element's; the `Auto import from` comes in
+            // `completionItem/resolve` (`resolveDartCompletion`).
             i.rel.not_imported = true;
         }
     }
 
-    /// `addMembersFromExtensionElement`: os métodos e os acessores de
-    /// instância, com a interface do tipo estendido como referência da
-    /// distância de herança.
+    /// `addMembersFromExtensionElement`: the instance methods and accessors,
+    /// with the interface of the extended type as the reference for the
+    /// inheritance distance.
     fn not_imported_extension_members(&mut self, x: ExtensionId, imp: &Import, methods: bool, setters: bool) {
         let on = self.query.outline.extensions[x.0 as usize].on;
         let reference = match self.query.table.get(on) {

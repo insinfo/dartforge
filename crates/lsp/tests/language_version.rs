@@ -1,7 +1,7 @@
-//! O analisador do LSP usa a versão de linguagem do arquivo
-//! (`docs/VERSOES-LINGUAGEM.md` §2): marcador, senão o pacote, senão a
-//! corrente. Um projeto 3.6 não pode ver erro em `final` de parâmetro, que
-//! só é proibido na 3.13.
+//! The LSP analyzer uses the file's language version
+//! (`docs/VERSOES-LINGUAGEM.md` §2): the marker, else the package, else the
+//! current one. A 3.6 project must not see an error on a `final` parameter,
+//! which is only forbidden in 3.13.
 use dartforge_lsp::{Analyzer, SyntacticAnalyzer, Server};
 use serde_json::json;
 
@@ -55,7 +55,7 @@ fn package_and_marker_version() {
         1,
         "o marcador vale mais"
     );
-    // Fora de pacote: a versão corrente (3.13).
+    // Outside a package: the current version (3.13).
     assert_eq!(a.diagnose("file:///nao/existe/b.dart", source).len(), 1);
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -84,7 +84,7 @@ fn close_and_reopen_rereads_package_config() {
         }}));
         server.pump()
     };
-    // Sem erros, nada é publicado (como no servidor do Dart).
+    // Without errors, nothing is published (as in the Dart server).
     assert!(open(&mut server, 1).iter().all(|m| m["method"] != "textDocument/publishDiagnostics"));
     server.receive(json!({"jsonrpc":"2.0","method":"textDocument/didClose","params":{
         "textDocument":{"uri":uri.clone()}

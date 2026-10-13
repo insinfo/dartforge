@@ -1,5 +1,6 @@
-//! Apoio dos testes semânticos do LSP (completar, renomear, ações): um SDK
-//! mínimo em disco, um projeto temporário e o servidor falando JSON-RPC.
+//! Support for the LSP semantic tests (completion, rename, actions): a
+//! minimal SDK on disk, a temporary project and the server speaking
+//! JSON-RPC.
 #![allow(dead_code)]
 
 use dartforge_elements::sdk::SdkLayout;
@@ -8,8 +9,8 @@ use serde_json::{Value, json};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// `dart:core` reduzido: o bastante para membros herdados, genéricos,
-/// enums e extensões, sem depender de um SDK instalado.
+/// A reduced `dart:core`: enough for inherited members, generics, enums and
+/// extensions, without depending on an installed SDK.
 const CORE: &str = r#"library dart.core;
 class Object {
   const Object();
@@ -73,27 +74,27 @@ class _Override { const _Override(); }
 void print(Object? object) {}
 "#;
 
-/// Projeto temporário com SDK mínimo e servidor semântico.
+/// Temporary project with a minimal SDK and a semantic server.
 pub struct Project {
     pub root: PathBuf,
     pub server: Server<SemanticAnalyzer>,
     next_id: i64,
-    /// A resposta do `initialize` do servidor (o servidor recusa um segundo
-    /// `initialize`, como o do Dart: `serverAlreadyInitialized`).
+    /// The server's `initialize` response (the server rejects a second
+    /// `initialize`, like Dart's: `serverAlreadyInitialized`).
     #[allow(dead_code)]
     pub initialization: Value,
-    /// Os documentos abertos, para [`Project::restart`].
+    /// The open documents, for [`Project::restart`].
     open: Vec<(String, String)>,
 }
 
 impl Project {
-    /// Cria `target/tmp-agent/<name>-<pid>` com `pubspec.yaml` e SDK.
+    /// Creates `target/tmp-agent/<name>-<pid>` with `pubspec.yaml` and an SDK.
     pub fn new(name: &str) -> Self {
         Self::with_capabilities(name, json!({}))
     }
 
-    /// [`Project::new`] com `CodeAction` literal (sem ela, o servidor do
-    /// Dart não oferece correções nem assistências).
+    /// [`Project::new`] with literal `CodeAction` support (without it, the Dart
+    /// server offers neither fixes nor assists).
     #[allow(dead_code)]
     pub fn with_literals(name: &str) -> Self {
         Self::with_capabilities(
@@ -102,7 +103,7 @@ impl Project {
         )
     }
 
-    /// [`Project::new`] com as capacidades de cliente dadas no `initialize`.
+    /// [`Project::new`] with the client capabilities given in `initialize`.
     #[allow(dead_code)]
     pub fn with_capabilities(name: &str, capabilities: Value) -> Self {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
@@ -161,9 +162,8 @@ impl Project {
         p
     }
 
-    /// Um pacote `flutter` reduzido ao lado do projeto (as classes que as
-    /// assistências do Flutter reconhecem pela URI do arquivo), no
-    /// `package_config.json`.
+    /// A reduced `flutter` package next to the project (the classes the Flutter
+    /// assists recognize by file URI), in `package_config.json`.
     pub fn install_flutter(&self) {
         let lib = self.root.join("flutter/lib");
         let files: &[(&str, &str)] = &[
@@ -213,15 +213,15 @@ impl Project {
         .unwrap();
     }
 
-    /// O `initialize` (com o `rootUri` do projeto acrescentado aos `params`).
+    /// `initialize` (with the project's `rootUri` added to `params`).
     fn initialize(&mut self, mut params: Value) -> Value {
         params["rootUri"] = json!(url::Url::from_file_path(self.root.join("projeto")).unwrap().to_string());
         self.server.receive(json!({"jsonrpc":"2.0","id":0,"method":"initialize","params":params}));
         self.server.pump().into_iter().find(|m| m["id"] == json!(0)).unwrap_or(Value::Null)
     }
 
-    /// Um servidor novo, inicializado com `params`, com os documentos que
-    /// estavam abertos reabertos; devolve a resposta do `initialize`.
+    /// A new server, initialized with `params`, with the documents that were
+    /// open reopened; returns the `initialize` response.
     #[allow(dead_code)]
     pub fn restart(&mut self, params: Value) -> Value {
         let sdk = SdkLayout::load(&self.root.join("sdk/lib"), "dartdevc").unwrap();
@@ -233,28 +233,28 @@ impl Project {
         self.initialization.clone()
     }
 
-    /// Caminho de um arquivo do projeto.
+    /// Path of a project file.
     pub fn path(&self, relative: &str) -> PathBuf {
         self.root.join("projeto").join(relative)
     }
 
-    /// URI `file:` de um arquivo do projeto.
+    /// `file:` URI of a project file.
     pub fn uri(&self, relative: &str) -> String {
         url::Url::from_file_path(self.path(relative))
             .unwrap()
             .to_string()
     }
 
-    /// Grava no disco (sem abrir no editor).
+    /// Writes to disk (without opening in the editor).
     pub fn write(&self, relative: &str, text: &str) {
         let path = self.path(relative);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, text).unwrap();
     }
 
-    /// Grava no disco e abre no editor; devolve os diagnósticos publicados.
-    /// Sem publicação (como o servidor do Dart, nenhuma lista vazia sai
-    /// para um arquivo que não tinha erros publicados), a lista vazia.
+    /// Writes to disk and opens in the editor; returns the published
+    /// diagnostics. Without a publication (like the Dart server, no empty list
+    /// goes out for a file that had no published errors), the empty list.
     pub fn open(&mut self, relative: &str, text: &str) -> Value {
         self.write(relative, text);
         self.open.retain(|(r, _)| r != relative);
@@ -271,7 +271,7 @@ impl Project {
             .unwrap_or_else(|| json!({"jsonrpc": "2.0", "method": "textDocument/publishDiagnostics", "params": {"uri": uri, "diagnostics": []}}))
     }
 
-    /// Substitui o texto do documento aberto (versão nova), sem gravar.
+    /// Replaces the text of the open document (new version), without writing.
     pub fn change(&mut self, relative: &str, version: i64, text: &str) {
         self.server.receive(
             json!({"jsonrpc":"2.0","method":"textDocument/didChange","params":{
@@ -282,7 +282,7 @@ impl Project {
         self.server.pump();
     }
 
-    /// Envia uma requisição e devolve a resposta inteira.
+    /// Sends a request and returns the whole response.
     pub fn request(&mut self, method: &str, params: Value) -> Value {
         let id = self.next_id;
         self.next_id += 1;
@@ -295,9 +295,9 @@ impl Project {
             .expect("resposta")
     }
 
-    /// Responde aos `workspace/configuration` do servidor com a seção `dart`
-    /// dada (o servidor os pede no `initialized` e a cada
-    /// `workspace/didChangeConfiguration`; o cliente precisa ter anunciado
+    /// Answers the server's `workspace/configuration` requests with the given
+    /// `dart` section (the server asks for them on `initialized` and on each
+    /// `workspace/didChangeConfiguration`; the client must have announced
     /// `workspace.configuration`).
     #[allow(dead_code)]
     pub fn configure(&mut self, dart: Value) {
@@ -313,8 +313,8 @@ impl Project {
         }
     }
 
-    /// Requisição com `textDocument` + `position` na posição do marcador
-    /// `▮` em `text` (o marcador não faz parte do arquivo).
+    /// Request with `textDocument` + `position` at the position of the `▮`
+    /// marker in `text` (the marker is not part of the file).
     pub fn in_position(
         &mut self,
         method: &str,
@@ -338,8 +338,8 @@ impl Project {
 
 impl Drop for Project {
     fn drop(&mut self) {
-        // A análise tipada grava o cache do SDK mínimo (um por projeto, pelo
-        // caminho): some com ele, para não acumular entre execuções.
+        // The typed analysis writes the cache of the minimal SDK (one per project,
+        // by path): removes it, so it does not accumulate across runs.
         if let Ok(sdk) = SdkLayout::load(&self.root.join("sdk/lib"), "dartdevc") {
             let _ = fs::remove_file(dartforge_elements::SdkCache::caminho(&sdk, "dartdevc"));
         }
@@ -347,8 +347,8 @@ impl Drop for Project {
     }
 }
 
-/// Separa o marcador `▮` do texto: devolve o texto sem ele e a posição
-/// LSP (linha, coluna UTF-16) onde estava.
+/// Separates the `▮` marker from the text: returns the text without it and
+/// the LSP position (line, UTF-16 column) where it was.
 pub fn mark(text: &str) -> (String, u32, u32) {
     let i = text.find('▮').expect("marcador");
     let before = &text[..i];
@@ -357,7 +357,7 @@ pub fn mark(text: &str) -> (String, u32, u32) {
     (text.replacen('▮', "", 1), line, column)
 }
 
-/// Rótulos dos itens de uma resposta de completar, na ordem.
+/// Labels of the items of a completion response, in order.
 pub fn labels(response: &Value) -> Vec<String> {
     response["result"]["items"]
         .as_array()
@@ -367,7 +367,7 @@ pub fn labels(response: &Value) -> Vec<String> {
         .collect()
 }
 
-/// O item de rótulo `label`.
+/// The item labeled `label`.
 pub fn item<'a>(response: &'a Value, label: &str) -> &'a Value {
     response["result"]["items"]
         .as_array()
@@ -377,7 +377,7 @@ pub fn item<'a>(response: &'a Value, label: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("sem {label} em {:?}", labels(response)))
 }
 
-/// Offset em bytes de uma posição LSP (linha, coluna UTF-16).
+/// Byte offset of an LSP position (line, UTF-16 column).
 pub fn offset_of(text: &str, position: &Value) -> usize {
     let line = position["line"].as_u64().unwrap() as usize;
     let column = position["character"].as_u64().unwrap() as usize;
@@ -392,7 +392,7 @@ pub fn offset_of(text: &str, position: &Value) -> usize {
     text.len()
 }
 
-/// Aplica as edições (`TextEdit[]`) de `uri` de um `WorkspaceEdit` a `text`.
+/// Applies the edits (`TextEdit[]`) for `uri` of a `WorkspaceEdit` to `text`.
 pub fn apply(edit: &Value, uri: &str, text: &str) -> String {
     let Some(list) = edit["changes"][uri].as_array() else {
         return text.to_string();

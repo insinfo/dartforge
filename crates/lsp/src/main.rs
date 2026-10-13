@@ -1,17 +1,17 @@
-//! Binário `dartforge-lsp`: servidor LSP do DartForge por stdio.
+//! The `dartforge-lsp` binary: DartForge's LSP server over stdio.
 //!
-//! Uso: `dartforge-lsp [--stdio]` fala JSON-RPC no `stdin`/`stdout`;
-//! `dartforge-lsp --version` imprime a versão. Todo log vai para `stderr`:
-//! `stdout` é só protocolo, e um byte fora do enquadramento corrompe a
-//! sessão do editor.
+//! Usage: `dartforge-lsp [--stdio]` speaks JSON-RPC on `stdin`/`stdout`;
+//! `dartforge-lsp --version` prints the version. All logging goes to
+//! `stderr`: `stdout` is protocol only, and one byte outside the framing
+//! corrupts the editor session.
 //!
-//! Fios: uma thread lê `stdin` quadro a quadro ([`transport::read_message`])
-//! e enfileira valores no [`Server`]; a thread principal despacha com
-//! [`Server::pump`] e escreve cada mensagem de saída por inteiro sob um
-//! `Mutex`. O servidor nunca envia requisições, então não há resposta a
-//! tratar nem correlação de ids no caminho de volta. A análise tipada
-//! (`docs/LSP.md`, "Diagnósticos tipados") roda numa terceira thread e
-//! acorda o despacho com [`Entry::Wake`] quando termina.
+//! Threads: one thread reads `stdin` frame by frame
+//! ([`transport::read_message`]) and enqueues values in the [`Server`]; the
+//! main thread dispatches with [`Server::pump`] and writes each outgoing
+//! message whole under a `Mutex`. The server never sends requests, so there
+//! is no response to handle nor id correlation on the way back. The typed
+//! analysis (`docs/LSP.md`, "Diagnósticos tipados") runs in a third thread
+//! and wakes the dispatcher with [`Entry::Wake`] when it finishes.
 
 use dartforge_lsp::{SemanticAnalyzer, Server};
 use dartforge_lsp::transport::{write_message, read_message};
@@ -19,13 +19,13 @@ use serde_json::Value;
 use std::io::{self, BufReader};
 use std::sync::{Arc, Mutex, mpsc};
 
-/// Mensagem da thread leitora para o despacho: quadro ou fim do fluxo.
+/// Message from the reader thread to the dispatcher: a frame or end of stream.
 enum Entry {
-    /// Quadro JSON decodificado.
+    /// Decoded JSON frame.
     Message(Value),
-    /// `stdin` fechou ou falhou de forma irrecuperável.
+    /// `stdin` closed or failed unrecoverably.
     End,
-    /// A análise tipada terminou: há diagnósticos a publicar.
+    /// The typed analysis finished: there are diagnostics to publish.
     Wake,
 }
 
@@ -34,7 +34,7 @@ fn main() {
     std::process::exit(code);
 }
 
-/// Ponto de entrada testável: devolve o código de saída em vez de sair.
+/// Testable entry point: returns the exit code instead of exiting.
 fn run(arguments: Vec<String>) -> i32 {
     if arguments.iter().any(|a| a == "--version" || a == "-V") {
         println!("dartforge-lsp {}", env!("CARGO_PKG_VERSION"));
@@ -50,7 +50,7 @@ fn run(arguments: Vec<String>) -> i32 {
     serve_stdio()
 }
 
-/// Laço principal: enfileira pela leitora, despacha na principal, sai no `exit`.
+/// Main loop: enqueues from the reader, dispatches on the main thread, exits on `exit`.
 fn serve_stdio() -> i32 {
     if std::env::var("RUST_LOG").is_ok() || std::env::var("DARTFORGE_LSP_DEBUG").is_ok() {
         eprintln!("[dartforge-lsp] log em stderr; stdout é só protocolo");
@@ -61,7 +61,7 @@ fn serve_stdio() -> i32 {
 
     let output = Arc::new(Mutex::new(io::stdout()));
     let mut server = Server::with_analyzer(SemanticAnalyzer::discover());
-    // A análise tipada roda noutra thread e acorda o laço ao terminar.
+    // The typed analysis runs in another thread and wakes the loop when it finishes.
     server.on_diagnostics(move || {
         let _ = wake.send(Entry::Wake);
     });
@@ -107,11 +107,11 @@ fn serve_stdio() -> i32 {
     server.exit_code()
 }
 
-/// Thread leitora: decodifica quadros até o fim do fluxo e os enfileira.
+/// Reader thread: decodes frames until the end of the stream and enqueues them.
 ///
-/// JSON inválido após `Content-Length` válido é registrado em `stderr` e a
-/// leitura continua no próximo quadro: a fronteira seguinte é conhecida (o
-/// corpo tem tamanho exato), então a sessão não corrompe.
+/// Invalid JSON after a valid `Content-Length` is logged to `stderr` and
+/// reading continues with the next frame: the next boundary is known (the
+/// body has an exact size), so the session is not corrupted.
 fn read_all(tx: mpsc::Sender<Entry>) {
     let stdin = io::stdin();
     let mut reader = BufReader::new(stdin.lock());

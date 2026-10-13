@@ -1,20 +1,21 @@
-//! Mede a latência dos diagnósticos do LSP (imediatos e tipados) por arquivo.
+//! Measures the latency of LSP diagnostics (immediate and typed) per file.
 //!
 //! `cargo run -q --release -p dartforge-lsp --example diagnostics_latency -- <file.dart>...`
 //!
-//! Para cada arquivo, pelo protocolo (`didOpen`/`didChange` em JSON, como
-//! um editor): abre, espera a publicação tipada, aplica 10 edições
-//! incrementais esperando cada uma, e uma rajada de 20 edições sem esperar.
-//! O SDK é o de `SdkLayout::discover` (`DARTFORGE_SDK_LIB`, `DART_SDK`,
-//! `PATH`). Imprime:
+//! For each file, through the protocol (`didOpen`/`didChange` in JSON, like
+//! an editor): opens it, waits for the typed publication, applies 10
+//! incremental edits waiting for each one, and a burst of 20 edits without
+//! waiting. The SDK is the one from `SdkLayout::discover`
+//! (`DARTFORGE_SDK_LIB`, `DART_SDK`, `PATH`). Prints:
 //!
-//! * `immediate`: tempo do `pump` do `didChange` (parser + verificadores
-//!   locais), a publicação que sai na hora;
-//! * `typed`: do `didChange` até a publicação tipada (análise do
-//!   `dartforge analyze` em segundo plano), mediana e máximo;
-//! * a rajada: quantas publicações tipadas saíram (a coalescência quer 1) e
-//!   quanto tempo até a última;
-//! * memória viva acima da base depois de fechar tudo (nada retido).
+//! * `immediate`: time of the `didChange` `pump` (parser + local checkers),
+//!   the publication that goes out right away;
+//! * `typed`: from `didChange` to the typed publication (the `dartforge
+//!   analyze` analysis in the background), median and maximum;
+//! * the burst: how many typed publications went out (coalescing wants 1)
+//!   and how long until the last one;
+//! * live memory above the baseline after closing everything (nothing
+//!   retained).
 #[global_allocator]
 static ALLOCATOR: dartforge_instrument::CountingAllocator = dartforge_instrument::CountingAllocator;
 
@@ -37,7 +38,7 @@ fn edit(uri: &str, version: i64) -> Value {
     })
 }
 
-/// Espera a publicação tipada de `uri` (as imediatas saem no `pump`).
+/// Waits for the typed publication of `uri` (the immediate ones go out in `pump`).
 fn wait_typed(server: &mut Server<SemanticAnalyzer>, uri: &str) -> Option<Value> {
     server
         .await_diagnostics(LIMIT)
@@ -46,9 +47,9 @@ fn wait_typed(server: &mut Server<SemanticAnalyzer>, uri: &str) -> Option<Value>
         .find(|m| m["params"]["uri"] == uri)
 }
 
-/// Compara a publicação tipada com o que o `dartforge analyze` publica para
-/// o mesmo arquivo (mesmo caminho de código: `Engine` + `diagnosticos_json`),
-/// por (código, linha, coluna).
+/// Compares the typed publication with what `dartforge analyze` publishes
+/// for the same file (same code path: `Engine` + `diagnosticos_json`), by
+/// (code, line, column).
 fn check_with_analyze(file: &std::path::Path, publication: &Value) -> String {
     let mut root = file.parent().unwrap().to_path_buf();
     while !root.join("pubspec.yaml").is_file() {
@@ -146,16 +147,16 @@ fn main() {
             server.receive(edit(&uri, v));
             server.pump();
             immediate.push(t.elapsed());
-            // Sem mudança nos diagnósticos, a lista repetida não é publicada
-            // (`_filesWithClientDiagnostics`): mede-se até o trabalhador
-            // ficar ocioso, com ou sem publicação.
+            // With no change in the diagnostics, the repeated list is not published
+            // (`_filesWithClientDiagnostics`): the time is measured until the worker
+            // goes idle, with or without a publication.
             let _ = wait_typed(&mut server, &uri);
             typed.push(t.elapsed());
         }
         immediate.sort();
         typed.sort();
 
-        // Rajada: 20 edições seguidas, sem esperar a análise.
+        // Burst: 20 consecutive edits, without waiting for the analysis.
         let t = Instant::now();
         let mut published = 0;
         for v in 12..32 {

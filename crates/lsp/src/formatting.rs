@@ -1,13 +1,13 @@
-//! Formatação de documentos: `textDocument/formatting`,
-//! `textDocument/rangeFormatting` e `textDocument/onTypeFormatting`, como os
-//! `FormattingHandler`, `FormatRangeHandler` e `FormatOnTypeHandler` do
-//! servidor do Dart 3.6.2 (`generateEditsForFormatting`,
+//! Document formatting: `textDocument/formatting`,
+//! `textDocument/rangeFormatting` and `textDocument/onTypeFormatting`, like
+//! the Dart 3.6.2 server's `FormattingHandler`, `FormatRangeHandler` and
+//! `FormatOnTypeHandler` (`generateEditsForFormatting`,
 //! `lsp/source_edits.dart`).
 //!
-//! O texto é formatado pelo porte do `dart_style` ([`dartforge_formatter`]); a
-//! resposta são as edições mínimas de brancos entre os tokens
-//! ([`dartforge_formatter::edits::edicoes_minimas`]). Sem mudança, ou com
-//! erro de sintaxe, a resposta é `null`.
+//! The text is formatted by the `dart_style` port ([`dartforge_formatter`]);
+//! the response is the minimal whitespace edits between tokens
+//! ([`dartforge_formatter::edicoes::edicoes_minimas`]). Without changes, or
+//! with a syntax error, the response is `null`.
 
 use dartforge_formatter::edicoes::edicoes_minimas;
 use dartforge_formatter::{Opcoes, formatar};
@@ -15,14 +15,14 @@ use serde_json::{Value, json};
 
 use crate::utf16::LineTable;
 
-/// O primeiro caractere que dispara a formatação ao digitar e os demais
+/// The first character that triggers formatting while typing, and the others
 /// (`dartTypeFormattingCharacters`, `constants.dart:46`).
 pub const TRIGGER_CHARACTERS: [&str; 2] = ["}", ";"];
 
-/// As edições de formatação de `text`, em JSON (`List<TextEdit>?`).
+/// The formatting edits of `text`, as JSON (`List<TextEdit>?`).
 ///
-/// `width` é o `dart.lineLength` do cliente (80 sem ele). `range`, em
-/// bytes, restringe às edições inteiramente dentro dela
+/// `width` is the client's `dart.lineLength` (80 without it). `range`, in
+/// bytes, restricts the result to the edits entirely inside it
 /// (`rangeFormatting`).
 ///
 /// ```
@@ -53,9 +53,9 @@ pub fn edits(text: &str, width: Option<u64>, range: Option<(usize, usize)>) -> V
     json!(list)
 }
 
-/// `toOffset(lineInfo, position)` do servidor do Dart, em bytes: `None` para
-/// linha além da última; a coluna (UTF-16) soma ao início da linha sem
-/// parar na quebra, saturando no fim do texto.
+/// The Dart server's `toOffset(lineInfo, position)`, in bytes: `None` for a
+/// line past the last one; the column (UTF-16) is added to the line start
+/// without stopping at the line break, saturating at the end of the text.
 ///
 /// ```
 /// use dartforge_lsp::formatting::offset_without_limit;
