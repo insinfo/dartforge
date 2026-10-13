@@ -242,7 +242,7 @@ impl Context<'_> {
             if ko.mixin_application || other == d {
                 continue;
             }
-            let Some(c) = self.declaration_class(self.unit, other) else { return None };
+            let c = self.declaration_class(self.unit, other)?;
             let ce = prog.class(c);
             if ce.supertype_class == Some(class_) || ce.interface_classes.contains(&class_) || ce.mixin_classes.contains(&class_) {
                 return None;

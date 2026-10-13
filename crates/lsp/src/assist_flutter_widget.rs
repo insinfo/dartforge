@@ -431,11 +431,10 @@ impl Context<'_> {
                     }
                     assigned.extend(self.field_writes(state_nodes[i]));
                 }
-                MemberKind::Method(_) => {
-                    if !self.can_be_stateless(state_nodes[i]) {
+                MemberKind::Method(_)
+                    if !self.can_be_stateless(state_nodes[i]) => {
                         return None;
                     }
-                }
                 _ => {}
             }
         }

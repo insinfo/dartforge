@@ -205,7 +205,7 @@ impl Context<'_> {
                     };
                     match &write {
                         None => {
-                            let Some(d) = declaration else { return None };
+                            let d = declaration?;
                             if !matches!(self.local_element(d), Elem::LocalVariable) {
                                 return None;
                             }

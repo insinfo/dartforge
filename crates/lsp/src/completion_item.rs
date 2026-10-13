@@ -210,7 +210,7 @@ pub(crate) fn item(cap: &Capabilities, p: &Request<'_>, i: &CompletionItem, docu
     let filter = if starts_with_pattern {
         label.clone()
     } else {
-        label.split(|c| c == '(').next().unwrap_or("").split("=>").next().unwrap_or("").trim().to_string()
+        label.split('(').next().unwrap_or("").split("=>").next().unwrap_or("").trim().to_string()
     };
     if cap.label_details {
         label = filter.clone();

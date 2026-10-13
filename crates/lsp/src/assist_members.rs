@@ -596,10 +596,10 @@ impl Context<'_> {
         if count != 1 {
             return None;
         }
-        let initializer = initializers.iter().copied().filter(|&i| {
+        let initializer = initializers.iter().copied().rev().find(|&i| {
             self.kind(i) == "ConstructorFieldInitializer"
                 && self.children(i).get(1).is_some_and(|&e| self.kind(e) == "SimpleIdentifier" && self.node_text(e) == parameter_name)
-        }).last()?;
+        })?;
         let field = self.node_text(*self.children(initializer).first()?).to_string();
         let mut edits = vec![(self.tree.span(parameter), format!("this.{field}"))];
         let index = initializers.iter().position(|&i| i == initializer)?;

@@ -18,6 +18,7 @@
 //! * incoming: the element's references grouped by container;
 //! * outgoing: the `_OutboundCallVisitor` on the target's body, grouped by
 //!   the called element.
+//!
 //! Written without compiling or running (2026-10-05).
 
 use crate::analyzer_tree::Mark;
@@ -223,10 +224,10 @@ impl Project {
         {
             return Some(CallElem::Local(cx.unit, i as u32));
         }
-        self.from_resolution(cx.bodies.get_resolved(x)?)
+        self.resolution_element(cx.bodies.get_resolved(x)?)
     }
 
-    fn from_resolution(&self, r: &Resolved) -> Option<CallElem> {
+    fn resolution_element(&self, r: &Resolved) -> Option<CallElem> {
         Some(match r {
             Resolved::Element(Element::Function(f)) | Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::ExtensionMember { member: f, .. } | Resolved::Constructor(f) => {
                 CallElem::Function(*f)
@@ -309,7 +310,7 @@ impl Project {
                     Mark::Operator(x) => x,
                     _ => cx.node_expr(n)?,
                 };
-                let e = self.from_resolution(cx.bodies.get_resolved(x)?)?;
+                let e = self.resolution_element(cx.bodies.get_resolved(x)?)?;
                 Some(self.specific_equality(cx, x, e))
             }
             _ => None,

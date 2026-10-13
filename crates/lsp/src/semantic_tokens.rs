@@ -600,7 +600,7 @@ impl Project {
             for (start, end) in comments(source, previous, t.span.start) {
                 let text = &source[start..end];
                 let doc = text.starts_with("///") || text.starts_with("/**");
-                regions.push(Highlight { start: start, end, ty: "comment", modifiers: if doc { vec!["documentation"] } else { Vec::new() } });
+                regions.push(Highlight { start, end, ty: "comment", modifiers: if doc { vec!["documentation"] } else { Vec::new() } });
             }
             previous = t.span.end;
             let text = &source[t.span.start..t.span.end];
@@ -676,7 +676,7 @@ impl Project {
                         dartforge_frontend::token::Interp::Brace => t.span.end - 2,
                         dartforge_frontend::token::Interp::Ident => t.span.end - 1,
                     };
-                    regions.push(Highlight { start: start, end: cut, ty: "string", modifiers: Vec::new() });
+                    regions.push(Highlight { start, end: cut, ty: "string", modifiers: Vec::new() });
                     match interp {
                         dartforge_frontend::token::Interp::Brace => interpolations.push(cut),
                         dartforge_frontend::token::Interp::Ident => last_interp_ident = Some(k + 1),
@@ -690,7 +690,7 @@ impl Project {
                         }
                         start += 1;
                     }
-                    regions.push(Highlight { start: start, end: t.span.end, ty: "string", modifiers: Vec::new() });
+                    regions.push(Highlight { start, end: t.span.end, ty: "string", modifiers: Vec::new() });
                 }
                 _ => {}
             }
@@ -787,7 +787,7 @@ fn escapes(source: &str, s: Span, output: &mut Vec<Highlight>) {
         };
         match end {
             Some(f) if f <= s.end => {
-                output.push(Highlight { start: start, end: f, ty: "string", modifiers: vec!["escape"] });
+                output.push(Highlight { start, end: f, ty: "string", modifiers: vec!["escape"] });
                 i = f;
             }
             _ => i += 1,

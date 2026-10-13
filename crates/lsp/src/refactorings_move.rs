@@ -462,7 +462,7 @@ impl Constructor {
                     t.push_str(eol);
                     t.push_str(&write(i));
                     let end = imports[u].end;
-                    m.add(&self.uri, Span { start: end, end: end }, t);
+                    m.add(&self.uri, Span { start: end, end }, t);
                 }
             }
             return;
@@ -475,7 +475,7 @@ impl Constructor {
                     t.push_str(eol);
                 }
             }
-            m.add(&self.uri, Span { start: end, end: end }, t);
+            m.add(&self.uri, Span { start: end, end }, t);
             return;
         }
         if let Some(o) = first_export.or(first_part) {
@@ -589,7 +589,7 @@ fn combinator_span(source: &str, names: &[ast::Name], word: &str) -> Span {
     let last = names.last().map_or(first, |n| n.span.end);
     let before = source[..first].trim_end();
     let start = if before.ends_with(word) { before.len() - word.len() } else { first };
-    Span { start: start, end: last }
+    Span { start, end: last }
 }
 
 /// `fileHeader`: the first comment before the first token (after the `#!`):

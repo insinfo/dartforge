@@ -286,7 +286,7 @@ impl<'a, 'c> Isp<'a, 'c> {
     fn ctx_variable(&mut self, v: usize, o: usize) -> Option<TypeId> {
         let var = self.real_variable(v)?;
         let equal = var.initializer.map(|_| self.pos_op(Op::Assign, var.name.span.end, self.end(v).max(var.name.span.end + 1)));
-        let Some((_, end_equal)) = equal else { return None };
+        let (_, end_equal) = equal?;
         if end_equal > o {
             return None;
         }

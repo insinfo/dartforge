@@ -2898,7 +2898,7 @@ impl<A: Analyzer> Server<A> {
             for ((offset, length, new), description) in edits_.iter().rev() {
                 let Some(range) = self.range(u, dartforge_diagnostics::Span { start: *offset, end: offset + length }) else { continue };
                 // Without a description, the last segment of the URI.
-                let edit_label: &str = if description.is_empty() { u.rsplit('/').next().unwrap_or(u.as_str()) } else { *description };
+                let edit_label: &str = if description.is_empty() { u.rsplit('/').next().unwrap_or(u.as_str()) } else { description };
                 annotations
                     .entry(edit_label.to_string())
                     .or_insert_with(|| json!({"label": edit_label, "needsConfirmation": confirm}));

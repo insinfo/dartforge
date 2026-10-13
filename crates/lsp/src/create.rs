@@ -475,7 +475,7 @@ impl Context<'_> {
                 let ast::DeclKind::Typedef(x) = &prog.unit(decl.unit).ast.decl(decl.decl).kind else { return None };
                 match &x.kind {
                     ast::TypedefKind::Legacy { parameters, .. } => Some(names(&parameters[..])),
-                    ast::TypedefKind::Alias(t2) => self.function_type_names(decl.unit, t2.clone(), depth + 1),
+                    ast::TypedefKind::Alias(t2) => self.function_type_names(decl.unit, *t2, depth + 1),
                 }
             }
             _ => None,

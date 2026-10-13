@@ -440,7 +440,7 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `elementBefore(offset)`: the last one with `end <= offset`.
     pub(super) fn element_before(&self, nodes: &[usize]) -> Option<usize> {
-        nodes.iter().copied().filter(|&k| self.end(k) <= self.offset).last()
+        nodes.iter().copied().rev().find(|&k| self.end(k) <= self.offset)
     }
 
     // -- Tokens ------------------------------------------------------------------
@@ -897,7 +897,7 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// The `ast::CollectionElement`.
     pub(super) fn real_element(&self, n: usize) -> Option<&'a ast::CollectionElement> {
         let Binding::Element(end) = self.link(n) else { return None };
-        fn at<'x>(els: &'x [ast::CollectionElement], end: usize) -> Option<&'x ast::CollectionElement> {
+        fn at(els: &[ast::CollectionElement], end: usize) -> Option<&ast::CollectionElement> {
             for el in els {
                 if crate::analyzer_tree::address(el) == end {
                     return Some(el);

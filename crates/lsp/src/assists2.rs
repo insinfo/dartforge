@@ -177,7 +177,7 @@ impl Project {
                 let text = source.get(from..until)?;
                 let start = from + (text.len() - text.trim_start().len());
                 let end = from + text.trim_end().len();
-                (start <= offset && offset <= end).then_some((ExprId(i as u32), *op, *left, *right, Span { start: start, end: end }))
+                (start <= offset && offset <= end).then_some((ExprId(i as u32), *op, *left, *right, Span { start, end }))
             }
             _ => None,
         });

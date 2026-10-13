@@ -162,11 +162,11 @@ impl Context<'_> {
         }
         if let Some(n) = &name {
             for p in KNOWN_PREFIXES {
-                if n.starts_with(p) {
-                    if n == p {
+                if let Some(rest) = n.strip_prefix(p) {
+                    if rest.is_empty() {
                         return None;
-                    } else if n.as_bytes().get(p.len()).is_some_and(|c| c.is_ascii_uppercase()) {
-                        return Some(n[p.len()..].to_string());
+                    } else if rest.as_bytes().first().is_some_and(|c| c.is_ascii_uppercase()) {
+                        return Some(rest.to_string());
                     }
                 }
             }

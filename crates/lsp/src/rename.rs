@@ -645,7 +645,7 @@ impl Project {
                 v.push(("field".to_string(), format!("{class}.{name}")));
             }
         }
-        for (s, _) in cl.constructors.iter() {
+        for s in cl.constructors.keys() {
             if self.name(*s) == name {
                 v.push(("constructor".to_string(), format!("{class}.{name}")));
             }
@@ -1125,7 +1125,7 @@ impl Project {
                     let un = p.unit(*unit);
                     let named = crate::project::parameter_in(&un.ast, *declaration).is_some_and(|(q, _)| q.kind == ast::ParameterKind::Named);
                     let end = word(&un.source, *declaration).map_or(*declaration, |s| s.end);
-                    by(*unit, Span { start: *declaration, end: end }, new, &mut edits);
+                    by(*unit, Span { start: *declaration, end }, new, &mut edits);
                     // `RenameParameterRefactoringImpl._getElements`: the named one of the
                     // overrides is renamed with the declaration (the occurrence rename mode,
                     // which includes the homonyms).
@@ -1167,7 +1167,7 @@ impl Project {
                 let un = p.unit(*unit);
                 let cx = Context::new(self, *unit);
                 let end = word(&un.source, *declaration).map_or(*declaration, |s| s.end);
-                by(*unit, Span { start: *declaration, end: end }, new, &mut edits);
+                by(*unit, Span { start: *declaration, end }, new, &mut edits);
                 let name_ = &un.source[*declaration..end];
                 for (k, node) in cx.tree.nodes.iter().enumerate() {
                     if node.kind == "SimpleIdentifier"
@@ -1425,22 +1425,19 @@ impl Project {
             let source = unit.source.as_str();
             let ast = &unit.ast;
             // The declaration.
-            if declaration == Some((u, Span { start: start, end: end })) {
+            if declaration == Some((u, Span { start, end })) {
                 let unnamed = self.name(p.function(f).name).is_empty();
                 let span = if unnamed {
-                    Span { start: end, end: end }
+                    Span { start: end, end }
                 } else {
                     let before = source[..start].trim_end();
-                    Span { start: if before.ends_with('.') { before.len() - 1 } else { start }, end: end }
+                    Span { start: if before.ends_with('.') { before.len() - 1 } else { start }, end }
                 };
                 edits.push(Edit { uri, span, text: new_dot.clone() });
                 continue;
             }
             // A subclass without a declared constructor: the class name.
-            let class_without_constructor = ast.decls.iter().find_map(|d| match &d.kind {
-                DeclKind::Class(c) if c.name.span.start == start && c.name.span.end == end => Some(d),
-                _ => None,
-            });
+            let class_without_constructor = ast.decls.iter().find(|d| matches!(&d.kind, DeclKind::Class(c) if c.name.span.start == start && c.name.span.end == end));
             if let Some(d) = class_without_constructor {
                 let DeclKind::Class(c) = &d.kind else { continue };
                 let key = source[c.name.span.end..d.span.end].find('{').map(|k| c.name.span.end + k + 1);
@@ -1492,7 +1489,7 @@ impl Project {
             if constant_without_arguments {
                 text.push_str("()");
             }
-            edits.push(Edit { uri, span: Span { start: start, end: end }, text });
+            edits.push(Edit { uri, span: Span { start, end }, text });
         }
         Ok(edits)
     }

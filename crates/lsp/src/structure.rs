@@ -608,7 +608,7 @@ impl Collector<'_> {
                 Kind::StrBegin(..) => stack.push(tok.span.start),
                 Kind::StrEnd(_) => {
                     if let Some(start) = stack.pop() {
-                        self.region(Span { start: start, end: tok.span.end }, start, tok.span.end, None);
+                        self.region(Span { start, end: tok.span.end }, start, tok.span.end, None);
                     }
                 }
                 _ => {}

@@ -69,7 +69,7 @@ impl Context<'_> {
             .get(class.0 as usize)
             .map(|c| c.type_params.iter().map(|&p| table.intern(Type::TypeParameter { param: p, nullable: false })).collect())
             .unwrap_or_default();
-        let this = table.intern(Type::Interface { class: class, args: parameters_c.into_boxed_slice(), nullable: false });
+        let this = table.intern(Type::Interface { class, args: parameters_c.into_boxed_slice(), nullable: false });
         let mut map: HashMap<dartforge_types::TypeParamId, TypeId> = HashMap::new();
         if let Some(seen) = query.outline.hierarchy.supertype_of(this, owner, table, &query.core)
             && let Type::Interface { args, .. } = table.get(seen).clone()

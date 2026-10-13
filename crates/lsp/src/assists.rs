@@ -204,7 +204,7 @@ impl Project {
                     let ts = ast.ty(t).span;
                     let rest = &source[ts.end..];
                     let type_end = ts.end + (rest.len() - rest.trim_start().len());
-                    let replacement = if p.final_ || p.var_ { String::new() } else { String::new() };
+                    let replacement = String::new();
                     output.push(action(uri, "Remove type annotation", "refactor.remove.typeAnnotation", vec![(Span { start: ts.start, end: type_end }, replacement)]));
                 }
             }
@@ -316,7 +316,7 @@ impl Project {
                     left(&mut edits, *then, &indent);
                     let end = end_with_comment(ast.stmt(*then).span.end);
                     match else_word {
-                        None => edits.push((Span { start: end, end: end }, format!("{eol}{prefix}}}"))),
+                        None => edits.push((Span { start: end, end }, format!("{eol}{prefix}}}"))),
                         Some(k) => edits.push((Span { start: end, end: k.start }, format!("{eol}{prefix}}} "))),
                     }
                 }
@@ -327,7 +327,7 @@ impl Project {
                 {
                     left(&mut edits, *e, &indent);
                     let end = end_with_comment(ast.stmt(*e).span.end);
-                    edits.push((Span { start: end, end: end }, format!("{eol}{prefix}}}")));
+                    edits.push((Span { start: end, end }, format!("{eol}{prefix}}}")));
                 }
             }
             StmtKind::DoWhile { body, .. } => {
@@ -346,7 +346,7 @@ impl Project {
                 }
                 left(&mut edits, b, &indent);
                 let end = end_with_comment(ast.stmt(b).span.end);
-                edits.push((Span { start: end, end: end }, format!("{eol}{prefix}}}")));
+                edits.push((Span { start: end, end }, format!("{eol}{prefix}}}")));
             }
         }
         if edits.is_empty() {
@@ -362,11 +362,8 @@ impl Project {
         let source = u.source.as_str();
         let text = |s: Span| source[s.start..s.end].to_string();
         let mut e = expr;
-        loop {
-            match &ast.expr(e).kind {
-                ExprKind::Parenthesized(x) | ExprKind::As { value: x, .. } => e = *x,
-                _ => break,
-            }
+        while let ExprKind::Parenthesized(x) | ExprKind::As { value: x, .. } = &ast.expr(e).kind {
+            e = *x;
         }
         let base: Option<String> = match &ast.expr(e).kind {
             ExprKind::Identifier(n) => Some(text(n.span)),

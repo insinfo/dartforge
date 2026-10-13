@@ -108,7 +108,7 @@ fn whole_lines(text: &str, span: Span) -> Span {
     let start = text[..span.start].rfind('\n').map_or(0, |i| i + 1);
     let end = text[span.end..].find('\n').map_or(text.len(), |i| span.end + i);
     if text[start..span.start].trim().is_empty() && text[span.end..end].trim().is_empty() {
-        Span { start: start, end: (end + 1).min(text.len()) }
+        Span { start, end: (end + 1).min(text.len()) }
     } else {
         span
     }
@@ -207,7 +207,7 @@ pub(crate) fn fix(project: &mut Project, uri: &str, diagnostics: &[Diagnostic], 
                             let rest = &text[a.span.end..];
                             a.span.end + (rest.len() - rest.trim_start().len())
                         });
-                        output.push(action(uri, "Add 'required' keyword".into(), "quickfix.add.required", vec![(Span { start: start, end: start }, "required ".into())], d));
+                        output.push(action(uri, "Add 'required' keyword".into(), "quickfix.add.required", vec![(Span { start, end: start }, "required ".into())], d));
                     }
                     if let Some(t) = p.ty {
                         let ts = ast.ty(t).span;
@@ -251,7 +251,7 @@ pub(crate) fn fix(project: &mut Project, uri: &str, diagnostics: &[Diagnostic], 
                         let rest = &text[a.span.end..];
                         a.span.end + (rest.len() - rest.trim_start().len())
                     });
-                    output.push(action(uri, "Add 'static' modifier".into(), "quickfix.add.static", vec![(Span { start: start, end: start }, "static ".into())], d));
+                    output.push(action(uri, "Add 'static' modifier".into(), "quickfix.add.static", vec![(Span { start, end: start }, "static ".into())], d));
                 }
             }
             "non_final_field_in_enum" => {
@@ -428,7 +428,7 @@ fn with_documentation(text: &str, span: Span) -> Span {
             break;
         }
     }
-    Span { start: start, end: span.end }
+    Span { start, end: span.end }
 }
 
 /// The parameter (of a function, method or constructor) whose name is at `name`.
@@ -476,7 +476,7 @@ fn abstract_class(project: &Project, unit: UnitId, decl: ast::DeclId) -> Option<
     let start = d.metadata.last().map_or(d.span.start, |a| a.span.end);
     let rest = &u.source[start..];
     let start = start + (rest.len() - rest.trim_start().len());
-    Some((u.source[k.name.span.start..k.name.span.end].to_string(), (Span { start: start, end: start }, "abstract ".into())))
+    Some((u.source[k.name.span.start..k.name.span.end].to_string(), (Span { start, end: start }, "abstract ".into())))
 }
 
 /// `noSuchMethod` before the class's `}`.

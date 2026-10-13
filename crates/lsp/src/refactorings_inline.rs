@@ -252,7 +252,7 @@ pub(crate) fn run(cx: &Context<'_>, uri: &str, request: &RefactoringRequest) -> 
             if tx.line_start(start) == start {
                 end = tx.content_end(b);
             }
-            Span { start: start, end: end }
+            Span { start, end }
         };
         change.add(&uri_m, s, "");
     }
@@ -706,7 +706,7 @@ impl<'c, 'p> Method<'c, 'p> {
                 }
             }
         }
-        edits.sort_by(|a, b| b.0.cmp(&a.0));
+        edits.sort_by_key(|e| std::cmp::Reverse(e.0));
         let mut source = part.source.clone();
         for (a, b, t) in edits {
             if a <= b && b <= source.len() {
@@ -787,7 +787,7 @@ fn names_in_conflict(cx: &Context<'_>, n: usize) -> Vec<String> {
             for f in ce.fields.iter() {
                 names.push(p.name(prog.variable(*f).name).to_string());
             }
-            for (s, _) in ce.constructors.iter() {
+            for s in ce.constructors.keys() {
                 names.push(p.name(*s).to_string());
             }
             for tp in ce.type_params.iter() {

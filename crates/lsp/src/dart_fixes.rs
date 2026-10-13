@@ -566,9 +566,7 @@ impl Context<'_> {
             return None;
         }
         let Declared::Variable(field) = self.declared(node)? else { return None };
-        if self.p.program().variable(field).class.is_none() {
-            return None;
-        }
+        self.p.program().variable(field).class?;
         let mut references = vec![node];
         for s in self.declared_references(Declared::Variable(field)) {
             references.push(self.tree.locate(s.start, s.end)?);
@@ -644,7 +642,7 @@ impl Context<'_> {
         let start = self.tree.nodes[body].start;
         if self.kind(body) != "EmptyFunctionBody" {
             let attached = self.previous_token(start).is_some_and(|t| t.end == start);
-            edits.push((Span { start: start, end: start }, format!("{}async ", if attached { " " } else { "" })));
+            edits.push((Span { start, end: start }, format!("{}async ", if attached { " " } else { "" })));
         }
         let mut writer = crate::write_type::Writer::new(self, start);
         // `_replaceReturnTypeWithFuture`.
@@ -769,11 +767,10 @@ impl Context<'_> {
         let (name, reference) = if let Some(c) = fe.class {
             let name = self.p.name(prog.class(c).name).to_string();
             (name.clone(), writer.reference_of(Element::Class(c), &name))
-        } else if let Some(x) = fe.extension {
+        } else {
+            let x = fe.extension?;
             let name = self.p.name(prog.extension(x).name?).to_string();
             (name.clone(), writer.reference_of(Element::Extension(x), &name))
-        } else {
-            return None;
         };
         Some((name, self.tree.span(target), reference, writer.import))
     }
@@ -1764,7 +1761,7 @@ impl Context<'_> {
                         }
                     }
                 }
-                let annotation = declared.iter().find(|p| p.name.is_some_and(|n| self.p.name(n.sym) == name)).and_then(|p| p.ty).and_then(|t| ast_decl.map(|a| (a, t)));
+                let annotation = ast_decl.zip(declared.iter().find(|p| p.name.is_some_and(|n| self.p.name(n.sym) == name)).and_then(|p| p.ty));
                 let pattern = self.argument_default_value(q.ty, quotes, annotation);
                 let mut text = String::new();
                 if !arguments.is_empty() && !between {

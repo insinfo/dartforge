@@ -172,7 +172,7 @@ impl Project {
                 let d = self.identify(unit, name_span.start).ok()??;
                 let documentation = self.hover(unit, &d).and_then(|h| h.documentation);
                 match d.concrete {
-                    Some(Concrete::Function(f)) => match { self.program().function(f).kind } {
+                    Some(Concrete::Function(f)) => match self.program().function(f).kind {
                         FunctionKind::Constructor | FunctionKind::SyntheticConstructor => {
                             let parameters = self.constructor_parameters(unit, call, f);
                             Some((text(target_span), parameters, documentation))

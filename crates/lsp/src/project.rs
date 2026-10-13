@@ -475,8 +475,8 @@ pub(crate) fn word(source: &str, offset: usize) -> Option<Span> {
         end += 1;
     }
     (start < end && !b[start].is_ascii_digit()).then_some(Span {
-        start: start,
-        end: end,
+        start,
+        end,
     })
 }
 
@@ -1062,7 +1062,7 @@ impl Project {
                     DeclKind::Variables(vl) => {
                         let i = vl.variables.iter().position(|v| v.name.span == name)?;
                         self.node_variable(VariableRef::TopLevel {
-                            unit: unit,
+                            unit,
                             decl: d,
                             index: i,
                         })
@@ -1080,7 +1080,7 @@ impl Project {
                 for (i, c) in e.constants.iter().enumerate() {
                     if c.name.span == name
                         && let Some(v) = self.node_variable(VariableRef::EnumConstant {
-                            unit: unit,
+                            unit,
                             decl: d,
                             index: i,
                         })
@@ -1104,7 +1104,7 @@ impl Project {
                     for (i, v) in vl.variables.iter().enumerate() {
                         if v.name.span == name
                             && let Some(vid) = self.node_variable(VariableRef::Field {
-                                unit: unit,
+                                unit,
                                 member: mid,
                                 index: i,
                             })
@@ -1488,7 +1488,7 @@ impl Project {
             .position(|f| {
                 f.node
                     == FunctionRef::Function {
-                        unit: unit,
+                        unit,
                         function: fid,
                     }
             })
@@ -1507,7 +1507,7 @@ impl Project {
             .position(|f| {
                 f.node
                     == FunctionRef::Constructor {
-                        unit: unit,
+                        unit,
                         member: mid,
                     }
             })
@@ -2046,7 +2046,7 @@ impl Project {
                     unit_,
                     Span {
                         start: declaration,
-                        end: end,
+                        end,
                     },
                 ));
             }
@@ -2135,7 +2135,7 @@ impl Project {
                         uses_of(unit, n.span.start, &mut output, refuse_external);
                         // The `[name]` of the homonymous member's doc (the local search has the
                         // whole member as its root), in references and in rename.
-                        output.extend(self.docs_that_refer(&Target::Local { unit: unit, declaration: n.span.start }));
+                        output.extend(self.docs_that_refer(&Target::Local { unit, declaration: n.span.start }));
                     }
                 }
             }
@@ -2657,7 +2657,7 @@ impl Project {
                     && p.class(d).supertype_class == Some(class)
                 {
                     let end = k.name.map_or(k.class_name.span.end, |n| n.span.end);
-                    by(u, Span { start: k.class_name.span.start, end: end });
+                    by(u, Span { start: k.class_name.span.start, end });
                 }
             }
             // A class that only has the synthetic constructor calls the superclass's

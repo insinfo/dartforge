@@ -484,7 +484,7 @@ impl Analyzer for SemanticAnalyzer {
                     output.extend(cx.convert_to_async_body(uri, start, end));
                     // `ConvertIntoBlockBody.missingBody` as an assist: the selection node
                     // (`NodeLocator`).
-                    if let Some((span, text)) = cx.convert_to_block_body(dartforge_diagnostics::Span { start: start, end: end }) {
+                    if let Some((span, text)) = cx.convert_to_block_body(dartforge_diagnostics::Span { start, end }) {
                         output.push(crate::fixes::block_body(crate::actions::CodeAction {
                             title: "Convert to block body".into(),
                             kind: "refactor.convert.bodyToBlock".into(),

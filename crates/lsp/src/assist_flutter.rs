@@ -94,7 +94,7 @@ impl Context<'_> {
             if self.kind(k) == "AssignmentExpression" {
                 return None;
             }
-            let Some(parent) = self.parent(k) else { return None };
+            let parent = self.parent(k)?;
             let children = self.children(parent);
             let last = children.last() == Some(&k);
             match self.kind(parent) {

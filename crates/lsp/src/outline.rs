@@ -50,7 +50,7 @@ fn balanced(text: &str, from: usize, opens: u8, closes: u8) -> Option<Span> {
         } else if b[i] == closes {
             level -= 1;
             if level == 0 {
-                return Some(Span { start: start, end: i + 1 });
+                return Some(Span { start, end: i + 1 });
             }
         }
         i += 1;
@@ -75,8 +75,8 @@ impl Ctx<'_> {
         let mut current = start;
         loop {
             let before = self.text[..current].trim_end();
-            if before.ends_with("*/") {
-                return match before[..before.len() - 2].rfind("/**") {
+            if let Some(inside) = before.strip_suffix("*/") {
+                return match inside.rfind("/**") {
                     Some(k) => k,
                     None => current,
                 };
@@ -105,7 +105,7 @@ impl Ctx<'_> {
         let code = self.after_annotations(span.start, metadata);
         let mut v = json!({
             "element": element,
-            "range": self.range(Span { start: start, end: span.end }),
+            "range": self.range(Span { start, end: span.end }),
             "codeRange": self.range(Span { start: code.min(span.end), end: span.end }),
         });
         if !children.is_empty() {
@@ -257,7 +257,7 @@ impl Ctx<'_> {
             let element = self.element(kind, self.names.resolve(v.name.sym), Some(v.name.span), None, None, Some(self.ty(list.ty)));
             output.push(json!({
                 "element": element,
-                "range": self.range(Span { start: start, end: end }),
+                "range": self.range(Span { start, end }),
                 "codeRange": self.range(Span { start: v.name.span.start, end: variable_end }),
             }));
         }
@@ -403,7 +403,7 @@ pub(crate) fn for_document(text: &str) -> Value {
         .chain(parsed.unit.declarations.last().map(|d| a.decl(*d).span.end))
         .max()
         .unwrap_or(0);
-    let unit = Span { start: start, end: end.max(start) };
+    let unit = Span { start, end: end.max(start) };
     let mut root = json!({
         "element": ctx.element("COMPILATION_UNIT", "<unit>", Some(unit), None, None, None),
         "range": ctx.range(unit),

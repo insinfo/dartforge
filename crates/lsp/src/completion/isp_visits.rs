@@ -52,24 +52,24 @@ impl<'a, 'c> Isp<'a, 'c> {
             "AssertStatement" => self.v_assert(n),
             "AssignmentExpression" => {
                 self.local("AssignmentExpression_rightHandSide");
-                self.to_expression(n, false, true);
+                self.for_expression(n, false, true);
             }
             "AwaitExpression" => {
                 self.local("AwaitExpression_expression");
-                self.to_expression(n, false, true);
+                self.for_expression(n, false, true);
             }
             "BinaryExpression" => self.v_binary(n),
             "Block" => self.v_block(n),
             "BooleanLiteral" | "NullLiteral" | "ConstructorReference" | "ExtensionOverride" | "FunctionExpressionInvocation" | "FunctionReference"
-            | "SymbolLiteral" | "ThisExpression" | "TypeLiteral" => self.to_expression(n, false, false),
+            | "SymbolLiteral" | "ThisExpression" | "TypeLiteral" => self.for_expression(n, false, false),
             "BreakStatement" | "ContinueStatement" => self.v_break_continue(n),
             "CascadeExpression" => {
                 self.local("CascadeExpression_cascadeSection");
-                self.to_expression(n, false, false);
+                self.for_expression(n, false, false);
             }
             "CaseClause" => {
                 self.local("CaseClause_pattern");
-                self.to_pattern(n, true);
+                self.for_pattern(n, true);
             }
             "CastPattern" => self.v_cast_pattern(n),
             "CatchClause" => self.v_catch(n),
@@ -106,7 +106,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                 if let Some(i) = self.word_in("export", self.start(n), self.end(n))
                     && self.offset <= self.span_tok(i).end
                 {
-                    self.to_unit_member_before(n);
+                    self.for_unit_member_before(n);
                 }
             }
             "ExpressionFunctionBody" => self.v_expression_body(n),
@@ -129,7 +129,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                 self.local("ForElement_body");
                 if let Some(lit) = self.ancestor(n, &["ListLiteral", "SetOrMapLiteral"]) {
                     let elements = self.literal_elements(lit);
-                    self.to_collection_element(lit, &elements);
+                    self.for_collection_element(lit, &elements);
                 }
             }
             "FormalParameterList" => self.v_parameter_list(n),
@@ -149,11 +149,11 @@ impl<'a, 'c> Isp<'a, 'c> {
             "GenericTypeAlias" => self.v_typedef(n),
             "HideCombinator" => {
                 self.local("HideCombinator_hiddenName");
-                self.to_combinator(n);
+                self.for_combinator(n);
             }
             "ShowCombinator" => {
                 self.local("ShowCombinator_shownName");
-                self.to_combinator(n);
+                self.for_combinator(n);
             }
             "IfElement" => self.v_if_element(n),
             "IfStatement" => self.v_if(n),
@@ -174,20 +174,20 @@ impl<'a, 'c> Isp<'a, 'c> {
             "ListLiteral" | "SetOrMapLiteral" => self.v_collection_literal(n),
             "ListPattern" => {
                 self.local("ListPattern_element");
-                self.to_pattern(n, true);
+                self.for_pattern(n, true);
             }
             "LogicalAndPattern" => {
                 self.local("LogicalAndPattern_rightOperand");
-                self.to_pattern(n, true);
+                self.for_pattern(n, true);
             }
             "LogicalOrPattern" => {
                 self.local("LogicalOrPattern_rightOperand");
-                self.to_pattern(n, true);
+                self.for_pattern(n, true);
             }
             "MapLiteralEntry" => self.v_map_entry(n),
             "MapPattern" => {
                 self.local("MapPatternEntry_key");
-                self.to_expression_constant(n);
+                self.for_expression_constant(n);
             }
             "MapPatternEntry" => self.v_map_pattern_entry(n),
             "MethodDeclaration" => self.v_method(n),
@@ -200,25 +200,25 @@ impl<'a, 'c> Isp<'a, 'c> {
             "ParenthesizedExpression" => self.v_parens(n),
             "ParenthesizedPattern" => {
                 self.local("ParenthesizedPattern_expression");
-                self.to_pattern(n, true);
+                self.for_pattern(n, true);
             }
             "PartDirective" | "PartOfDirective" => {
                 if let Some(i) = self.word_in("part", self.start(n), self.end(n))
                     && self.offset <= self.span_tok(i).end
                 {
                     self.local("CompilationUnit_directive");
-                    self.to_unit_member_before(n);
+                    self.for_unit_member_before(n);
                 }
             }
             "PatternAssignment" => {
                 self.local("PatternAssignment_expression");
-                self.to_expression(n, false, false);
+                self.for_expression(n, false, false);
             }
             "PatternField" => self.v_pattern_field(n),
             "PatternFieldName" => self.v_pattern_field_name(n),
             "PatternVariableDeclaration" => {
                 self.local("PatternVariableDeclaration_expression");
-                self.to_expression(n, false, false);
+                self.for_expression(n, false, false);
             }
             "PostfixExpression" => self.v_postfix(n),
             "PrefixedIdentifier" => self.v_prefixed_identifier(n),
@@ -227,21 +227,21 @@ impl<'a, 'c> Isp<'a, 'c> {
             "RecordLiteral" => {
                 self.local("RecordLiteral_fields");
                 self.suggest_record_named_fields(n, Some(n), true);
-                self.to_expression(n, false, false);
+                self.for_expression(n, false, false);
             }
             "RecordPattern" => self.v_record_pattern(n),
             "RecordTypeAnnotation" => self.v_record_type(n),
             "RecordTypeAnnotationNamedField" => self.v_record_type_named_field(n),
             "RecordTypeAnnotationNamedFields" => {
                 self.local("RecordTypeAnnotationNamedFields_fields");
-                self.to_type(n, TypeOptions::default());
+                self.for_type(n, TypeOptions::default());
             }
             "RecordTypeAnnotationPositionalField" => {
                 if let Some(t) = self.children(n).first().copied()
                     && self.covers_node(t)
                 {
                     self.local("RecordTypeAnnotation_positionalFields");
-                    self.to_type(n, TypeOptions::default());
+                    self.for_type(n, TypeOptions::default());
                 }
             }
             "RedirectingConstructorInvocation" => self.v_redirecting_invocation(n),
@@ -249,20 +249,20 @@ impl<'a, 'c> Isp<'a, 'c> {
             "RepresentationDeclaration" => self.v_representation(n),
             "RestPatternElement" => {
                 self.local("RestPatternElement_pattern");
-                self.to_pattern(n, true);
+                self.for_pattern(n, true);
             }
             "ReturnStatement" => self.v_return(n),
             "SimpleFormalParameter" => self.v_simple_parameter(n),
             "SimpleStringLiteral" => self.v_simple_string(n),
             "SpreadElement" => {
                 self.local("SpreadElement_expression");
-                self.to_expression(n, false, false);
+                self.for_expression(n, false, false);
             }
             "SuperConstructorInvocation" => self.v_super_invocation(n),
             "SuperFormalParameter" => self.dh_super_parameters(n),
             "SwitchCase" => {
                 self.local("SwitchMember_statement");
-                self.to_command(n);
+                self.for_command(n);
             }
             "SwitchDefault" => self.v_default(n),
             "SwitchExpression" => self.v_switch_expression(n),
@@ -271,11 +271,11 @@ impl<'a, 'c> Isp<'a, 'c> {
             "SwitchStatement" => self.v_switch(n),
             "ThrowExpression" => {
                 self.local("ThrowExpression_expression");
-                self.to_expression(n, false, false);
+                self.for_expression(n, false, false);
             }
             "TopLevelVariableDeclaration" => self.v_top_variable(n),
             "TryStatement" => self.v_try(n),
-            "TypeArgumentList" => self.to_type(n, TypeOptions::default()),
+            "TypeArgumentList" => self.for_type(n, TypeOptions::default()),
             "TypeParameter" => self.v_type_parameter(n),
             "VariableDeclaration" => self.v_variable_declaration(n),
             "VariableDeclarationList" => self.v_variable_list(n),
@@ -285,7 +285,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                     && self.offset > self.span_tok(i).end
                 {
                     self.local("WhenClause_expression");
-                    self.to_expression(n, false, false);
+                    self.for_expression(n, false, false);
                 }
             }
             "WhileStatement" => self.v_while(n),
@@ -315,7 +315,7 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// `_forExpression`.
-    pub(super) fn to_expression(&mut self, n: usize, assignable: bool, non_void: bool) {
+    pub(super) fn for_expression(&mut self, n: usize, assignable: bool, non_void: bool) {
         let is_expr = super::isp::EXPRESSION_KINDS.contains(&self.kind(n));
         let constant = is_expr && (self.constant_context(n) || self.parent(n).is_some_and(|p| self.kind(p) == "DefaultFormalParameter"));
         let is_static = self.static_context(n);
@@ -325,13 +325,13 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// `_forStatement`.
-    pub(super) fn to_command(&mut self, n: usize) {
-        self.to_expression(n, false, false);
+    pub(super) fn for_command(&mut self, n: usize) {
+        self.for_expression(n, false, false);
         self.kw_command(n);
     }
 
     /// `_forTypeAnnotation`.
-    pub(super) fn to_type(&mut self, n: usize, o: TypeOptions) {
+    pub(super) fn for_type(&mut self, n: usize, o: TypeOptions) {
         if !(o.extensible || o.implementable || o.mixable) {
             self.kw("dynamic");
             if !o.non_void {
@@ -377,7 +377,7 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// `_forPattern`.
-    pub(super) fn to_pattern(&mut self, n: usize, constant: bool) {
+    pub(super) fn for_pattern(&mut self, n: usize, constant: bool) {
         let covered = self.covered_node();
         if self.kind(n) == "CaseClause"
             && let Some(gp) = self.child(n, "GuardedPattern")
@@ -440,25 +440,25 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// `_forAnnotation`.
-    pub(super) fn to_annotation(&mut self, n: usize) {
+    pub(super) fn for_annotation(&mut self, n: usize) {
         self.dh(Flags { constant: true, ..Flags::default() });
         self.lexical_dh(n);
     }
 
     /// `_forClassLikeMember`.
-    pub(super) fn to_container_member(&mut self, c: usize) {
+    pub(super) fn for_container_member(&mut self, c: usize) {
         match self.kind(c) {
-            "ClassDeclaration" => self.to_class_member(c),
-            "EnumDeclaration" => self.to_enum_member(c),
-            "ExtensionDeclaration" => self.to_extension_member(c),
-            "ExtensionTypeDeclaration" => self.to_extension_type_member(c),
-            "MixinDeclaration" => self.to_mixin_member(c),
+            "ClassDeclaration" => self.for_class_member(c),
+            "EnumDeclaration" => self.for_enum_member(c),
+            "ExtensionDeclaration" => self.for_extension_member(c),
+            "ExtensionTypeDeclaration" => self.for_extension_type_member(c),
+            "MixinDeclaration" => self.for_mixin_member(c),
             _ => {}
         }
     }
 
     /// `_forClassMember`.
-    pub(super) fn to_class_member(&mut self, c: usize) {
+    pub(super) fn for_class_member(&mut self, c: usize) {
         self.class_member_kw();
         self.dh(Flags { ty: true, ..Flags::default() });
         self.lexical_dh(c);
@@ -467,28 +467,28 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// `_forEnumMember`.
-    pub(super) fn to_enum_member(&mut self, c: usize) {
+    pub(super) fn for_enum_member(&mut self, c: usize) {
         self.enum_member_kw();
         self.dh(Flags { ty: true, ..Flags::default() });
         self.lexical_dh(c);
     }
 
     /// `_forExtensionMember`.
-    pub(super) fn to_extension_member(&mut self, c: usize) {
+    pub(super) fn for_extension_member(&mut self, c: usize) {
         self.extension_member_kw(false);
         self.dh(Flags { ty: true, ..Flags::default() });
         self.lexical_dh(c);
     }
 
     /// `_forExtensionTypeMember`.
-    pub(super) fn to_extension_type_member(&mut self, c: usize) {
+    pub(super) fn for_extension_type_member(&mut self, c: usize) {
         self.extension_type_member_kw(false);
         self.dh(Flags { ty: true, ..Flags::default() });
         self.lexical_dh(c);
     }
 
     /// `_forMixinMember`.
-    pub(super) fn to_mixin_member(&mut self, c: usize) {
+    pub(super) fn for_mixin_member(&mut self, c: usize) {
         self.mixin_member_kw();
         self.dh(Flags { ty: true, ..Flags::default() });
         self.lexical_dh(c);
@@ -502,7 +502,7 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// `_forCollectionElement`.
-    pub(super) fn to_collection_element(&mut self, literal: usize, elements: &[usize]) {
+    pub(super) fn for_collection_element(&mut self, literal: usize, elements: &[usize]) {
         let is_static = self.static_context(literal);
         let constant = self.constant_context(literal) || self.starts_with_const(literal);
         self.collection_element_kw(literal, elements, constant, is_static);
@@ -513,7 +513,7 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `_forCombinator`: the names exported by the directive's library, minus
     /// those already listed (except the one under the cursor).
-    pub(super) fn to_combinator(&mut self, n: usize) {
+    pub(super) fn for_combinator(&mut self, n: usize) {
         let Some(directive) = self.parent(n) else { return };
         if !matches!(self.kind(directive), "ImportDirective" | "ExportDirective") {
             return;
@@ -548,34 +548,34 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// `_forCompilationUnitDeclaration`.
-    pub(super) fn to_unit_declaration(&mut self) {
+    pub(super) fn for_unit_declaration(&mut self) {
         self.unit_declaration_kw();
         self.dh(Flags { ty: true, ..Flags::default() });
         self.lexical_dh(0);
     }
 
     /// `_forCompilationUnitMember(unit, (before, after))`.
-    pub(super) fn to_unit_member(&mut self, before: Option<usize>, after: Option<usize>) {
+    pub(super) fn for_unit_member(&mut self, before: Option<usize>, after: Option<usize>) {
         if before.is_none_or(|a| self.is_directive(a)) {
             self.local("CompilationUnit_directive");
             self.kw_directive(before);
         }
         if after.is_none_or(|d| !self.is_directive(d)) {
             self.local_if_empty("CompilationUnit_declaration");
-            self.to_unit_declaration();
+            self.for_unit_declaration();
         }
     }
 
     /// `_forCompilationUnitMemberBefore`.
-    pub(super) fn to_unit_member_before(&mut self, m: usize) {
+    pub(super) fn for_unit_member_before(&mut self, m: usize) {
         if self.parent(m) == Some(0) {
             let (a, d) = self.member_neighbors(m);
-            self.to_unit_member(a, d);
+            self.for_unit_member(a, d);
         }
     }
 
     /// `_forConstantExpression`.
-    pub(super) fn to_expression_constant(&mut self, n: usize) {
+    pub(super) fn for_expression_constant(&mut self, n: usize) {
         let in_const = super::isp::EXPRESSION_KINDS.contains(&self.kind(n)) && self.constant_context(n);
         self.constant_expression_kw(in_const);
         let is_static = self.static_context(n);
@@ -584,7 +584,7 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// `_forConstructorInitializer`.
-    pub(super) fn to_constructor_initializer(&mut self, ctor: usize, init: Option<usize>) {
+    pub(super) fn for_constructor_initializer(&mut self, ctor: usize, init: Option<usize>) {
         let field = init.and_then(|i| self.initializer_field(ctor, i));
         self.constructor_initializer_kw(ctor, init);
         self.dh(Flags::default());
@@ -601,7 +601,7 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// `_forMemberAccess`.
-    pub(super) fn to_member_access(&mut self, n: usize, ty: TypeId, only_super: bool) {
+    pub(super) fn for_member_access(&mut self, n: usize, ty: TypeId, only_super: bool) {
         if only_super {
             // `request.target.dotTarget is SuperExpression`: the containing method
             // gives `superMatches` and `isNoSuchMethod`.
@@ -627,7 +627,7 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// `_forNameInDeclaredVariablePattern`.
-    pub(super) fn to_name_in_variable_pattern(&mut self, n: usize) {
+    pub(super) fn for_name_in_variable_pattern(&mut self, n: usize) {
         let Some(p) = self.parent(n) else { return };
         match self.kind(p) {
             "GuardedPattern" => {
@@ -645,7 +645,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                     && super::isp::is_pattern(self.kind(external))
                 {
                     self.local("PatternField_pattern");
-                    self.to_field_name_in_pattern(external);
+                    self.for_field_name_in_pattern(external);
                 }
             }
             _ => {}
@@ -669,7 +669,7 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// `_forPatternFieldNameInPattern`.
-    pub(super) fn to_field_name_in_pattern(&mut self, pattern: usize) {
+    pub(super) fn for_field_name_in_pattern(&mut self, pattern: usize) {
         let excluded = self.field_names(pattern);
         match self.kind(pattern) {
             "ObjectPattern" => {
@@ -745,7 +745,7 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// `_forRedirectingConstructorInvocation`.
-    pub(super) fn to_redirecting_invocation(&mut self, ctor: usize) {
+    pub(super) fn for_redirecting_invocation(&mut self, ctor: usize) {
         let Some(container) = self.parent(ctor) else { return };
         if !matches!(self.kind(container), "ClassDeclaration" | "EnumDeclaration" | "ExtensionTypeDeclaration") {
             return;
@@ -764,7 +764,7 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// `_forVariablePattern`.
-    pub(super) fn to_variable_pattern(&mut self) {
+    pub(super) fn for_variable_pattern(&mut self) {
         self.variable_pattern_kw();
     }
 
@@ -801,12 +801,11 @@ impl<'a, 'c> Isp<'a, 'c> {
                     return false;
                 }
             }
-            "TryStatement" => {
-                if self.word_in("finally", self.start(previous), self.end(previous)).is_none() {
+            "TryStatement"
+                if self.word_in("finally", self.start(previous), self.end(previous)).is_none() => {
                     self.v_try(previous);
                     return self.children_of(previous, &["CatchClause"]).is_empty();
                 }
-            }
             _ => {}
         }
         false
@@ -892,12 +891,11 @@ impl<'a, 'c> Isp<'a, 'c> {
                     return true;
                 }
             }
-            "RecordLiteral" => {
-                if self.children(e).iter().all(|&f| self.kind(f) == "SimpleIdentifier") {
+            "RecordLiteral"
+                if self.children(e).iter().all(|&f| self.kind(f) == "SimpleIdentifier") => {
                     self.body_modifiers_kw(None);
                     return true;
                 }
-            }
             _ => {}
         }
         false
@@ -920,7 +918,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
         if self.loose_top_declaration(decl) && first_node {
             let (a, d) = self.member_neighbors(decl);
-            self.to_unit_member(a, d);
+            self.for_unit_member(a, d);
             return true;
         }
         false
@@ -955,7 +953,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             return false;
         }
         self.local("Annotation_name");
-        self.to_annotation(decl);
+        self.for_annotation(decl);
         self.try_annotation_override(id, decl);
         true
     }
@@ -1224,7 +1222,7 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     pub(super) fn v_annotation(&mut self, n: usize) {
         self.local("Annotation_name");
-        self.to_annotation(n);
+        self.for_annotation(n);
         // `@over^` followed by a blank line: an override request.
         let Some(m) = self.real_annotation(n) else { return };
         let without_constructor = m.name.len() == 1 && m.arguments.is_none();
@@ -1299,7 +1297,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         let mut index = 0usize;
         if let Some(b) = before {
             if self.handled_possible_closure(b) {
-                self.to_expression(b, false, true);
+                self.for_expression(b, false, true);
                 return;
             }
             index = arguments.iter().position(|&k| k == b).unwrap_or(0);
@@ -1333,7 +1331,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                     }
                 }
                 if positional < positional_count {
-                    self.to_expression(parent, false, true);
+                    self.for_expression(parent, false, true);
                     let p = parameters[positional].clone();
                     if matches!(self.query.table.get(p.ty), Type::Function { .. }) {
                         let argument = arguments.get(index).copied();
@@ -1377,7 +1375,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             }
             None => {
                 if super::isp::EXPRESSION_KINDS.contains(&self.kind(parent)) {
-                    self.to_expression(parent, false, true);
+                    self.for_expression(parent, false, true);
                 }
             }
         }
@@ -1411,7 +1409,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         let covers_start = ty.is_some_and(|t| self.tok_after(self.start(t)).is_some_and(|i| self.covers(self.span_tok(i).start, self.span_tok(i).end)));
         if ty.is_none() || covers_start {
             self.local("AsExpression_type");
-            self.to_type(n, TypeOptions { non_void: true, ..TypeOptions::default() });
+            self.for_type(n, TypeOptions { non_void: true, ..TypeOptions::default() });
         }
     }
 
@@ -1427,7 +1425,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             } else {
                 self.local("AssertInitializer_message");
             }
-            self.to_expression(condition, false, false);
+            self.for_expression(condition, false, false);
             return;
         }
         self.local("ConstructorDeclaration_initializer");
@@ -1447,14 +1445,14 @@ impl<'a, 'c> Isp<'a, 'c> {
             } else {
                 self.local("AssertStatement_message");
             }
-            self.to_expression(condition, false, false);
+            self.for_expression(condition, false, false);
             return;
         }
         if let Some(i) = self.tok_after(self.start(n))
             && self.offset <= self.span_tok(i).end
         {
             self.local("Block_statement");
-            self.to_command(n);
+            self.for_command(n);
         }
     }
 
@@ -1462,16 +1460,15 @@ impl<'a, 'c> Isp<'a, 'c> {
         let (Some(&l), Some(&r)) = (self.children(n).first(), self.children(n).get(1)) else { return };
         let op = self.source[self.end(l)..self.start(r)].trim().to_string();
         self.local(&format!("BinaryExpression_{op}_rightOperand"));
-        self.to_expression(n, false, true);
+        self.for_expression(n, false, true);
     }
 
     pub(super) fn v_block(&mut self, n: usize) {
         let left = self.tok_at(self.start(n)).filter(|&i| self.is_op(i, Op::LBrace));
-        if left.is_none() {
-            if let Some(p) = self.parent(n) {
+        if left.is_none()
+            && let Some(p) = self.parent(n) {
                 self.visit(p);
             }
-        }
         if self.offset <= self.start(n) {
             if let Some(p) = self.parent(n)
                 && self.kind(p) == "BlockFunctionBody"
@@ -1495,15 +1492,14 @@ impl<'a, 'c> Isp<'a, 'c> {
                         }
                     }
                 }
-                "IfStatement" => {
-                    if self.word_in("else", self.start(previous), self.end(previous)).is_none() {
+                "IfStatement"
+                    if self.word_in("else", self.start(previous), self.end(previous)).is_none() => {
                         self.kw("else");
                     }
-                }
                 _ => {}
             }
         }
-        self.to_command(n);
+        self.for_command(n);
         if self.in_catch(n) {
             self.kw("rethrow");
         }
@@ -1531,7 +1527,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             self.kw("as");
         } else {
             self.local("CastPattern_type");
-            self.to_type(n, TypeOptions { non_void: true, ..TypeOptions::default() });
+            self.for_type(n, TypeOptions { non_void: true, ..TypeOptions::default() });
         }
     }
 
@@ -1544,12 +1540,12 @@ impl<'a, 'c> Isp<'a, 'c> {
                 self.kw("on");
             } else if catch.is_none() && self.offset <= body {
                 self.local("CatchClause_exceptionType");
-                self.to_type(n, TypeOptions::default());
+                self.for_type(n, TypeOptions::default());
             } else if let Some(c) = catch
                 && self.offset < self.span_tok(c).start
             {
                 self.local("CatchClause_exceptionType");
-                self.to_type(n, TypeOptions::default());
+                self.for_type(n, TypeOptions::default());
             }
         }
         if let Some(c) = catch
@@ -1562,7 +1558,7 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     pub(super) fn v_class(&mut self, n: usize) {
         if self.offset == self.start(n) {
-            self.to_unit_member_before(n);
+            self.for_unit_member_before(n);
             return;
         }
         let Some(d) = self.real_decl(n) else { return };
@@ -1596,10 +1592,10 @@ impl<'a, 'c> Isp<'a, 'c> {
                 None => self.tok_after(left.end),
             };
             if tok.is_some_and(|i| self.text_tok(i) == "final") {
-                self.to_type(n, TypeOptions::default());
+                self.for_type(n, TypeOptions::default());
                 return;
             }
-            self.to_class_member(n);
+            self.for_class_member(n);
             if let Some(m) = previous
                 && self.kind(m) == "MethodDeclaration"
                 && self.function_body(m).is_none_or(|c| self.kind(c) == "EmptyFunctionBody")
@@ -1619,12 +1615,12 @@ impl<'a, 'c> Isp<'a, 'c> {
         {
             return;
         }
-        self.to_unit_member(before, after);
+        self.for_unit_member(before, after);
     }
 
     pub(super) fn v_conditional(&mut self, n: usize) {
         let (Some(&c), Some(&t)) = (self.children(n).first(), self.children(n).get(1)) else {
-            self.to_expression(n, false, false);
+            self.for_expression(n, false, false);
             return;
         };
         let question = self.op_in(Op::Question, self.end(c), self.start(t));
@@ -1636,7 +1632,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                 self.local("ConditionalExpression_elseExpression");
             }
         }
-        self.to_expression(n, false, false);
+        self.for_expression(n, false, false);
     }
 
     pub(super) fn v_constructor(&mut self, n: usize) {
@@ -1644,7 +1640,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         if self.offset <= k.class_name.span.end {
             self.local("ClassDeclaration_member");
             if let Some(p) = self.parent(n) {
-                self.to_container_member(p);
+                self.for_container_member(p);
             }
             return;
         }
@@ -1655,7 +1651,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             let body = self.function_body(n).map_or(self.end(n), |c| self.start(c));
             if self.offset >= self.span_tok(sep).end && self.offset <= body {
                 self.local("ConstructorDeclaration_initializer");
-                self.to_constructor_initializer(n, None);
+                self.for_constructor_initializer(n, None);
             }
         } else {
             let Some(f) = self.declared_constructor(n) else { return };
@@ -1674,10 +1670,10 @@ impl<'a, 'c> Isp<'a, 'c> {
         let after_equal = equal.map_or(self.synthetic(self.start(n)).start, |i| self.span_tok(i).start);
         if self.offset <= after_equal {
             self.local("ConstructorDeclaration_initializer");
-            self.to_constructor_initializer(ctor, Some(n));
+            self.for_constructor_initializer(ctor, Some(n));
         } else {
             self.local("ConstructorFieldInitializer_expression");
-            self.to_expression(n, false, true);
+            self.for_expression(n, false, true);
         }
     }
 
@@ -1739,24 +1735,23 @@ impl<'a, 'c> Isp<'a, 'c> {
         let word = self.tok_after(self.start(n)).filter(|&i| matches!(self.text_tok(i), "var" | "final"));
         let Some(name) = name else {
             if ty.is_none() && word.is_none() {
-                self.to_type(n, TypeOptions { non_void: true, ..TypeOptions::default() });
+                self.for_type(n, TypeOptions { non_void: true, ..TypeOptions::default() });
                 return;
             }
-            self.to_name_in_variable_pattern(n);
+            self.for_name_in_variable_pattern(n);
             return;
         };
         let s = self.span_tok(name);
         if self.covers(s.start, s.end) {
-            self.to_name_in_variable_pattern(n);
+            self.for_name_in_variable_pattern(n);
             return;
         }
-        if word.is_some() {
-            if ty.is_none() && self.offset < s.start {
+        if word.is_some()
+            && ty.is_none() && self.offset < s.start {
                 self.dh(Flags { ty: true, ..Flags::default() });
                 self.lexical_dh(n);
                 return;
             }
-        }
         let parent = self.parent(n);
         let has_when = parent.is_some_and(|p| self.kind(p) == "GuardedPattern" && self.child(p, "WhenClause").is_some());
         if !has_when {
@@ -1770,7 +1765,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             && self.covers_node(v)
         {
             self.local("DefaultFormalParameter_defaultValue");
-            self.to_expression(v, false, true);
+            self.for_expression(v, false, true);
         } else if let Some(&p) = self.children(n).first() {
             self.visit(p);
         }
@@ -1780,7 +1775,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         let Some(word) = self.tok_after(self.start(n)) else { return };
         if self.offset <= self.span_tok(word).end {
             self.local("Block_statement");
-            self.to_command(n);
+            self.for_command(n);
             return;
         }
         let body = self.children(n).first().copied();
@@ -1795,7 +1790,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             };
             if ok {
                 self.local("DoStatement_condition");
-                self.to_expression(n, false, true);
+                self.for_expression(n, false, true);
             }
         }
     }
@@ -1819,7 +1814,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                     }
                 }
                 "IfStatement" => {
-                    let then = self.children(p).iter().copied().filter(|&k| super::isp::is_command(self.kind(k))).next();
+                    let then = self.children(p).iter().copied().find(|&k| super::isp::is_command(self.kind(k)));
                     if then == Some(n) {
                         self.local("IfStatement_thenStatement");
                     } else {
@@ -1830,7 +1825,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             }
         }
         if self.offset <= self.start(n) {
-            self.to_command(n);
+            self.for_command(n);
         }
     }
 
@@ -1868,7 +1863,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             && self.offset >= self.span_tok(p).end
         {
             self.local("EnumDeclaration_member");
-            self.to_enum_member(n);
+            self.for_enum_member(n);
         }
     }
 
@@ -1880,7 +1875,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             && self.offset <= self.end(expr)
         {
             self.local("ExpressionFunctionBody_expression");
-            self.to_expression(expr, false, false);
+            self.for_expression(expr, false, false);
         }
     }
 
@@ -1891,22 +1886,21 @@ impl<'a, 'c> Isp<'a, 'c> {
         } else {
             self.local("Block_statement");
         }
-        if self.previous_incomplete_command(n) && self.loose_command(n) {
-            if let Some(a) = self.previous_command(n)
+        if self.previous_incomplete_command(n) && self.loose_command(n)
+            && let Some(a) = self.previous_command(n)
                 && self.kind(a) == "TryStatement"
             {
                 return;
             }
-        }
         let pv = self.tok_before(self.end(n)).filter(|&i| self.is_op(i, Op::Semicolon));
         if let Some(p) = pv
             && self.offset >= self.span_tok(p).end
         {
-            self.to_command(n);
+            self.for_command(n);
             return;
         }
         let Some(&expr) = self.children(n).first() else {
-            self.to_expression(n, false, false);
+            self.for_expression(n, false, false);
             return;
         };
         match self.kind(expr) {
@@ -1917,7 +1911,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                 {
                     match self.kind(side) {
                         "PrefixedIdentifier" => self.visit(side),
-                        "SimpleIdentifier" => self.to_command(n),
+                        "SimpleIdentifier" => self.for_command(n),
                         _ => {}
                     }
                 }
@@ -1935,7 +1929,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                 if let Some(i) = self.tok_after(self.start(expr))
                     && self.offset <= self.span_tok(i).end
                 {
-                    self.to_command(n);
+                    self.for_command(n);
                 }
             }
             "FunctionReference" => {
@@ -1963,14 +1957,14 @@ impl<'a, 'c> Isp<'a, 'c> {
             }
             "SimpleIdentifier" => {
                 if self.offset <= self.end(expr) {
-                    self.to_command(n);
+                    self.for_command(n);
                 } else {
                     let name = self.source[self.start(expr)..self.end(expr)].to_string();
                     self.ih(false);
                     self.type_name_ih(&name);
                 }
             }
-            _ => self.to_expression(n, false, false),
+            _ => self.for_expression(n, false, false),
         }
     }
 
@@ -1988,20 +1982,20 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
         let Some(t) = self.child(n, "NamedType") else {
             self.local("ExtendsClause_superclass");
-            self.to_type(n, TypeOptions { extensible: true, ..TypeOptions::default() });
+            self.for_type(n, TypeOptions { extensible: true, ..TypeOptions::default() });
             return;
         };
         let name_start = self.child(t, "ImportPrefixReference").map_or(self.start(t), |p| self.end(p));
         let name = self.tok_after(name_start);
         if name.is_some_and(|i| self.covers(self.span_tok(i).start, self.span_tok(i).end)) {
             self.local("ExtendsClause_superclass");
-            self.to_type(n, TypeOptions { extensible: true, ..TypeOptions::default() });
+            self.for_type(n, TypeOptions { extensible: true, ..TypeOptions::default() });
         }
     }
 
     pub(super) fn v_extension(&mut self, n: usize) {
         if self.offset == self.start(n) {
-            self.to_unit_member_before(n);
+            self.for_unit_member_before(n);
             return;
         }
         let Some(d) = self.real_decl(n) else { return };
@@ -2041,7 +2035,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
         if self.offset >= left.end && self.offset <= dir.start {
             self.local("ExtensionDeclaration_member");
-            self.to_extension_member(n);
+            self.for_extension_member(n);
         }
     }
 
@@ -2053,12 +2047,12 @@ impl<'a, 'c> Isp<'a, 'c> {
             return;
         }
         self.local("ExtensionOnClause_extendedType");
-        self.to_type(n, TypeOptions::default());
+        self.for_type(n, TypeOptions::default());
     }
 
     pub(super) fn v_extension_type(&mut self, n: usize) {
         if self.offset == self.start(n) {
-            self.to_unit_member_before(n);
+            self.for_unit_member_before(n);
             return;
         }
         let Some(d) = self.real_decl(n) else { return };
@@ -2071,7 +2065,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             self.kw("implements");
         } else if self.offset >= left.end && self.offset <= dir.start {
             self.local("ExtensionTypeDeclaration_member");
-            self.to_extension_type_member(n);
+            self.for_extension_type_member(n);
         }
     }
 
@@ -2097,7 +2091,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                     self.lexical_dh(n);
                 } else if self.offset < name.span.start {
                     self.field_declaration_kw(n, None);
-                    self.to_type(n, TypeOptions { non_void: first.initializer.is_some(), ..TypeOptions::default() });
+                    self.for_type(n, TypeOptions { non_void: first.initializer.is_some(), ..TypeOptions::default() });
                 } else if self.offset <= name.span.end {
                     self.field_declaration_kw(n, None);
                 }
@@ -2107,12 +2101,12 @@ impl<'a, 'c> Isp<'a, 'c> {
                 let previous = self.previous_member(n);
                 if self.offset <= ts.start && previous.is_none_or(|a| self.offset >= self.end(a)) {
                     if let Some(p) = self.parent(n) {
-                        self.to_container_member(p);
+                        self.for_container_member(p);
                     }
                 } else if self.offset <= ts.end {
                     if self.loose_field(n) {
                         if let Some(p) = self.parent(n) {
-                            self.to_container_member(p);
+                            self.for_container_member(p);
                         }
                     } else {
                         self.field_declaration_kw(n, None);
@@ -2176,7 +2170,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             }
         }
         self.formal_parameter_kw(n);
-        self.to_type(n, TypeOptions::default());
+        self.for_type(n, TypeOptions::default());
     }
 
     /// `FormalParameter.isIncomplete`.
@@ -2217,10 +2211,10 @@ impl<'a, 'c> Isp<'a, 'c> {
                 self.kw("in");
                 return;
             }
-            self.to_expression(n, false, false);
+            self.for_expression(n, false, false);
         } else if p2.is_some_and(|i| self.offset >= self.span_tok(i).end) {
             self.local("ForParts_updater");
-            self.to_expression(n, false, false);
+            self.for_expression(n, false, false);
         }
     }
 
@@ -2228,7 +2222,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         let Some(word) = self.word_in("for", self.start(n), self.end(n)) else { return };
         if self.offset <= self.span_tok(word).end {
             self.local("Block_statement");
-            self.to_command(n);
+            self.for_command(n);
             return;
         }
         let opens = self.op_in(Op::LParen, self.span_tok(word).end, self.end(n));
@@ -2256,7 +2250,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                                 _ => false,
                             };
                             if ok {
-                                self.to_type(n, TypeOptions::default());
+                                self.for_type(n, TypeOptions::default());
                             }
                         }
                     }
@@ -2265,7 +2259,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                     if let Some(&id) = self.children(parts).first()
                         && self.offset < self.start(id)
                     {
-                        self.to_type(n, TypeOptions::default());
+                        self.for_type(n, TypeOptions::default());
                     }
                 }
                 "ForEachPartsWithPattern" | "ForPartsWithPattern" => {}
@@ -2301,20 +2295,20 @@ impl<'a, 'c> Isp<'a, 'c> {
                     if p1.is_none() && initialization.is_some_and(|i| self.kind(i) == "SimpleIdentifier") {
                         self.kw("final");
                         self.kw("var");
-                        self.to_type(n, TypeOptions::default());
+                        self.for_type(n, TypeOptions::default());
                     }
                 }
                 _ => {}
             }
         } else {
             self.local("ForStatement_body");
-            self.to_command(n);
+            self.for_command(n);
         }
     }
 
     pub(super) fn v_function_declaration(&mut self, n: usize) {
         if self.offset == self.start(n) {
-            self.to_unit_member_before(n);
+            self.for_unit_member_before(n);
         }
         let Some(f) = self.real_function(n) else { return };
         let Some(name) = f.name else { return };
@@ -2327,7 +2321,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         };
         if one_token && self.offset <= name.span.start {
             self.local("FunctionDeclaration_returnType");
-            self.to_type(n, TypeOptions::default());
+            self.for_type(n, TypeOptions::default());
         }
     }
 
@@ -2345,14 +2339,14 @@ impl<'a, 'c> Isp<'a, 'c> {
                 && declaration.is_some_and(|d| self.kind(d) == "FunctionDeclaration")
                 && unit == Some(0)
             {
-                self.to_unit_declaration();
+                self.for_unit_declaration();
             }
         }
     }
 
     pub(super) fn v_old_typedef(&mut self, n: usize) {
         if self.offset == self.start(n) {
-            self.to_unit_member_before(n);
+            self.for_unit_member_before(n);
             return;
         }
         let Some(td) = self.word_in("typedef", self.start(n), self.end(n)) else { return };
@@ -2373,9 +2367,9 @@ impl<'a, 'c> Isp<'a, 'c> {
                 if let Some(list) = self.parameter_list_of(n) {
                     self.formal_parameter_kw(list);
                 }
-                self.to_type(n, TypeOptions::default());
+                self.for_type(n, TypeOptions::default());
             }
-            None if p.name.is_some_and(|nm| self.offset < nm.span.start) => self.to_type(n, TypeOptions::default()),
+            None if p.name.is_some_and(|nm| self.offset < nm.span.start) => self.for_type(n, TypeOptions::default()),
             _ => {}
         }
     }
@@ -2391,7 +2385,7 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     pub(super) fn v_typedef(&mut self, n: usize) {
         if self.offset == self.start(n) {
-            self.to_unit_member_before(n);
+            self.for_unit_member_before(n);
             return;
         }
         if let Some(td) = self.word_in("typedef", self.start(n), self.end(n))
@@ -2407,7 +2401,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             && self.offset <= pv
         {
             self.local("GenericTypeAlias_type");
-            self.to_type(n, TypeOptions::default());
+            self.for_type(n, TypeOptions::default());
         }
     }
 
@@ -2438,7 +2432,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             }
         } else if opens.is_some_and(|a| self.offset >= self.span_tok(a).end) && self.offset <= fe {
             self.local("IfElement_condition");
-            self.to_expression(n, false, true);
+            self.for_expression(n, false, true);
         } else if closes.is_some_and(|f| self.offset >= self.span_tok(f).end) {
             let else_ = self.word_in("else", self.span_tok(closes.unwrap_or(0)).end, self.end(n));
             if else_.is_none_or(|e| self.offset <= self.span_tok(e).start) {
@@ -2448,7 +2442,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             }
             if let Some(lit) = self.ancestor(n, &["ListLiteral", "SetOrMapLiteral"]) {
                 let elements = self.literal_elements(lit);
-                self.to_collection_element(lit, &elements);
+                self.for_collection_element(lit, &elements);
             }
         }
     }
@@ -2481,7 +2475,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         let fe = closes.map_or(self.synthetic(self.end(expr)).start, |i| self.span_tok(i).start);
         if self.offset <= self.span_tok(word).end {
             self.local("Block_statement");
-            self.to_command(n);
+            self.for_command(n);
         } else if self.offset > self.end(expr) && self.offset <= fe {
             self.local("IfStatement_condition");
             match self.child(n, "CaseClause") {
@@ -2494,7 +2488,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                     if gp.is_some_and(|g| self.has_when(g)) {
                         let without_expression = gp.and_then(|g| self.child(g, "WhenClause")).is_none_or(|w| self.children(w).is_empty());
                         if without_expression {
-                            self.to_expression(n, false, false);
+                            self.for_expression(n, false, false);
                         }
                     } else {
                         self.kw("when");
@@ -2515,7 +2509,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             }
         } else if opens.is_some_and(|a| self.offset >= self.span_tok(a).end) && self.offset <= fe {
             self.local("IfStatement_condition");
-            self.to_expression(n, false, true);
+            self.for_expression(n, false, true);
         } else if closes.is_some_and(|f| self.offset >= self.span_tok(f).end) {
             let else_ = closes.and_then(|f| self.word_in("else", self.span_tok(f).end, self.end(n)));
             if else_.is_none_or(|e| self.offset <= self.span_tok(e).start) {
@@ -2523,7 +2517,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             } else {
                 self.local("IfStatement_elseStatement");
             }
-            self.to_command(n);
+            self.for_command(n);
         }
     }
 
@@ -2540,7 +2534,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             self.kw("implements");
         } else {
             self.local("ImplementsClause_interface");
-            self.to_type(n, TypeOptions { implementable: true, ..TypeOptions::default() });
+            self.for_type(n, TypeOptions { implementable: true, ..TypeOptions::default() });
         }
     }
 
@@ -2548,7 +2542,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         let Some(word) = self.word_in("import", self.start(n), self.end(n)) else { return };
         if self.offset <= self.span_tok(word).end {
             self.local("CompilationUnit_directive");
-            self.to_unit_member_before(n);
+            self.for_unit_member_before(n);
             return;
         }
         let Some(uri) = self.children_of(n, &["SimpleStringLiteral", "StringInterpolation", "AdjacentStrings"]).first().copied() else { return };
@@ -2626,7 +2620,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         let closes = self.pair(a).map_or(self.synthetic(self.end(n)).start, |i| self.span_tok(i).start);
         if self.offset >= self.span_tok(a).end && self.offset <= closes {
             self.local("IndexExpression_index");
-            self.to_expression(n, false, true);
+            self.for_expression(n, false, true);
         }
     }
 
@@ -2646,7 +2640,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                     self.dh_import_prefixes();
                 }
             }
-            _ => self.to_expression(n, false, false),
+            _ => self.for_expression(n, false, false),
         }
     }
 
@@ -2657,7 +2651,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         if self.covers(s.start, s.end) {
             self.kw("is");
         } else if self.offset < s.start {
-            self.to_expression(n, false, false);
+            self.for_expression(n, false, false);
         } else if self.offset > s.end {
             self.local("IsExpression_type");
             self.dh(Flags { ty: true, ..Flags::default() });
@@ -2680,7 +2674,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             self.kw_directive(Some(n));
             let (_, after) = self.member_neighbors(n);
             if after.is_none_or(|d| !self.is_directive(d)) {
-                self.to_unit_declaration();
+                self.for_unit_declaration();
             }
         }
     }
@@ -2692,7 +2686,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         if self.offset >= self.span_tok(a).end && self.offset <= closes {
             self.local(if self.kind(n) == "ListLiteral" { "ListLiteral_element" } else { "SetOrMapLiteral_element" });
             let elements = self.literal_elements(n);
-            self.to_collection_element(n, &elements);
+            self.for_collection_element(n, &elements);
         }
     }
 
@@ -2724,7 +2718,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             return;
         }
         self.local("MapPatternEntry_value");
-        self.to_pattern(n, false);
+        self.for_pattern(n, false);
     }
 
     pub(super) fn v_method(&mut self, n: usize) {
@@ -2737,7 +2731,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             && self.offset >= start
             && self.offset <= name.span.end
         {
-            self.to_type(n, TypeOptions::default());
+            self.for_type(n, TypeOptions::default());
             self.class_member_kw();
         }
         let body = self.function_body(n);
@@ -2795,7 +2789,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                         _ => {}
                     }
                 }
-                self.to_expression(n, false, non_void);
+                self.for_expression(n, false, non_void);
             }
             return;
         };
@@ -2821,7 +2815,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             }
             let ty = target.and_then(|a| self.real_expr(a)).and_then(|e| self.static_type(e)).filter(|_| !type_or_prefix);
             if let Some(t) = ty {
-                self.to_member_access(n, t, false);
+                self.for_member_access(n, t, false);
             }
             let without_type = ty.is_none_or(|t| self.query.table.is_invalid(t) || self.is_type_type(t));
             if without_type
@@ -2863,7 +2857,7 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     pub(super) fn v_mixin(&mut self, n: usize) {
         if self.offset == self.start(n) {
-            self.to_unit_member_before(n);
+            self.for_unit_member_before(n);
             return;
         }
         let Some(d) = self.real_decl(n) else { return };
@@ -2892,7 +2886,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             if self.annotation_at_body_end(n) {
                 return;
             }
-            self.to_mixin_member(n);
+            self.for_mixin_member(n);
             let members = self.children_of(n, &["FieldDeclaration", "MethodDeclaration", "ConstructorDeclaration"]);
             if let Some(m) = self.element_before(&members)
                 && self.kind(m) == "MethodDeclaration"
@@ -2910,7 +2904,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         {
             self.kw("on");
         } else {
-            self.to_type(n, TypeOptions::default());
+            self.for_type(n, TypeOptions::default());
         }
     }
 
@@ -2951,7 +2945,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             if in_arguments {
                 self.local("ArgumentList_method_named");
             }
-            self.to_expression(n, false, in_arguments);
+            self.for_expression(n, false, in_arguments);
             // `staticParameterElement`: the type of the named parameter.
             if let Some(list) = self.parent(n).filter(|&p| self.kind(p) == "ArgumentList")
                 && let Some(ps) = self.invoked_parameters(list)
@@ -2985,7 +2979,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             }
         }
         let creation = self.parent(n).and_then(|p| self.parent(p)).is_some_and(|x| self.kind(x) == "InstanceCreationExpression");
-        self.to_type(n, TypeOptions { exclude_type_names: creation, ..TypeOptions::default() });
+        self.for_type(n, TypeOptions { exclude_type_names: creation, ..TypeOptions::default() });
     }
 
     pub(super) fn v_object_pattern(&mut self, n: usize) {
@@ -3016,7 +3010,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         if self.kind(expr) == "SimpleIdentifier" {
             self.suggest_record_named_fields(n, None, true);
         }
-        self.to_expression(n, false, false);
+        self.for_expression(n, false, false);
     }
 
     pub(super) fn v_pattern_field(&mut self, n: usize) {
@@ -3031,7 +3025,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                     self.local("PatternField_pattern");
                 }
                 if let Some(p) = parent {
-                    self.to_field_name_in_pattern(p);
+                    self.for_field_name_in_pattern(p);
                 }
                 return;
             }
@@ -3049,7 +3043,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                 }
                 Some("RecordPattern") => {
                     self.local("PatternField_pattern");
-                    self.to_pattern(n, true);
+                    self.for_pattern(n, true);
                 }
                 _ => {}
             },
@@ -3057,12 +3051,12 @@ impl<'a, 'c> Isp<'a, 'c> {
                 let has_name = self.tok_after(self.start(nm)).is_some_and(|i| self.word(i) && self.span_tok(i).end <= self.end(nm));
                 self.local("PatternField_pattern");
                 if !has_name {
-                    self.to_variable_pattern();
+                    self.for_variable_pattern();
                     if let Some(p) = parent {
-                        self.to_field_name_in_pattern(p);
+                        self.for_field_name_in_pattern(p);
                     }
                 } else {
-                    self.to_pattern(n, false);
+                    self.for_pattern(n, false);
                 }
             }
         }
@@ -3080,7 +3074,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             if let Some(x) = external
                 && super::isp::is_pattern(self.kind(x))
             {
-                self.to_field_name_in_pattern(x);
+                self.for_field_name_in_pattern(x);
             }
         }
     }
@@ -3090,14 +3084,14 @@ impl<'a, 'c> Isp<'a, 'c> {
         let op = self.source[self.end(operand)..self.end(n)].trim().to_string();
         self.local(&format!("PrefixExpression_{op}_operand"));
         let assignable = op == "++" || op == "--";
-        self.to_expression(n, assignable, false);
+        self.for_expression(n, assignable, false);
     }
 
     pub(super) fn v_prefixed_identifier(&mut self, n: usize) {
         let (Some(&prefix), Some(&id)) = (self.children(n).first(), self.children(n).get(1)) else { return };
         let dot = self.end(prefix);
         if self.offset <= dot {
-            self.to_expression(n, false, false);
+            self.for_expression(n, false, false);
             return;
         }
         let _ = id;
@@ -3109,7 +3103,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         match ty {
             Some(t) if !is_type_or_prefix => {
                 let only_super = self.kind(prefix) == "SuperExpression";
-                self.to_member_access(n, t, only_super);
+                self.for_member_access(n, t, only_super);
             }
             _ => {
                 let assignable = self.parent(n).is_some_and(|p| self.kind(p) == "AssignmentExpression" && self.children(p).first() == Some(&n));
@@ -3141,7 +3135,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.local("PropertyAccess_propertyName");
         let op = self.tok_after(self.start(n)).map(|i| self.text_tok(i)).unwrap_or("");
         let assignable = op == "++" || op == "--";
-        self.to_expression(n, assignable, false);
+        self.for_expression(n, assignable, false);
     }
 
     pub(super) fn v_property_access(&mut self, n: usize) {
@@ -3149,7 +3143,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         let operator = name.and_then(|m| self.tok_before(self.start(m))).or_else(|| self.tok_after(self.end(target)));
         let Some(op) = operator else { return };
         if self.offset <= self.span_tok(op).start {
-            self.to_expression(n, false, false);
+            self.for_expression(n, false, false);
             return;
         }
         self.local("PropertyAccess_propertyName");
@@ -3163,7 +3157,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         let ty = self.real_expr(target).and_then(|e| self.static_type(e));
         if let Some(t) = ty {
             let only_super = self.kind(target) == "SuperExpression";
-            self.to_member_access(n, t, only_super);
+            self.for_member_access(n, t, only_super);
         }
         let cascade = self.is_op(op, Op::DotDot) || self.is_op(op, Op::QuestionDotDot);
         let without_type = ty.is_none_or(|t| self.query.table.is_invalid(t) || self.is_type_type(t));
@@ -3185,7 +3179,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         if self.span_tok(a).end <= self.offset && self.offset <= closes {
             self.local("PatternField_pattern");
             self.kw("dynamic");
-            self.to_expression(n, false, false);
+            self.for_expression(n, false, false);
             let fields = self.children_of(n, &["PatternField"]);
             let target = fields.iter().copied().find(|&c| self.end(c) >= self.offset);
             if let Some(c) = target
@@ -3211,14 +3205,14 @@ impl<'a, 'c> Isp<'a, 'c> {
                 && self.offset <= self.start(p)
             {
                 self.local("FormalParameterList_parameter");
-                self.to_type(n, TypeOptions::default());
+                self.for_type(n, TypeOptions::default());
             }
             return;
         }
         let closes = self.tok_before(self.end(n)).filter(|&i| self.is_op(i, Op::RParen)).map_or(self.end(n), |i| self.span_tok(i).start);
         if self.offset <= closes {
             self.local("RecordTypeAnnotation_positionalFields");
-            self.to_type(n, TypeOptions::default());
+            self.for_type(n, TypeOptions::default());
         }
     }
 
@@ -3228,7 +3222,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             && self.covers_node(t)
         {
             self.local("RecordTypeAnnotationNamedFields_fields");
-            self.to_type(n, TypeOptions::default());
+            self.for_type(n, TypeOptions::default());
             return;
         }
         let name = self.tok_before(self.end(n));
@@ -3255,7 +3249,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             && self.offset >= self.span_tok(p).end
             && self.offset <= list.map_or(self.synthetic(self.end(n)).start, |l| self.start(l))
         {
-            self.to_redirecting_invocation(ctor);
+            self.for_redirecting_invocation(ctor);
         }
     }
 
@@ -3265,14 +3259,14 @@ impl<'a, 'c> Isp<'a, 'c> {
         let next = op + 1;
         if self.is_op(op, Op::Lt) && operand.is_none() && self.is_op(next, Op::Gt) {
             self.local("TypeArgumentList_argument");
-            self.to_type(n, TypeOptions::default());
+            self.for_type(n, TypeOptions::default());
         } else if let Some(o) = operand
             && self.kind(o) == "SimpleIdentifier"
             && self.offset >= self.span_tok(op).end
             && self.offset <= self.end(o)
         {
             self.local("RelationalPattern_operand");
-            self.to_expression(n, false, false);
+            self.for_expression(n, false, false);
         }
     }
 
@@ -3288,7 +3282,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                     let annotation = opens.is_some_and(|a| self.is_op(a + 1, Op::At));
                     if annotation {
                         self.local("Annotation_name");
-                        self.to_annotation(n);
+                        self.for_annotation(n);
                     } else {
                         self.local("RepresentationDeclaration_fieldType");
                         self.dh(Flags { ty: true, ..Flags::default() });
@@ -3313,11 +3307,11 @@ impl<'a, 'c> Isp<'a, 'c> {
         let Some(word) = self.tok_after(self.start(n)) else { return };
         if self.offset <= self.span_tok(word).end {
             self.local("Block_statement");
-            self.to_command(n);
+            self.for_command(n);
         } else {
             self.local("ReturnStatement_expression");
             let target = self.children(n).first().copied().unwrap_or(n);
-            self.to_expression(target, false, false);
+            self.for_expression(target, false, false);
         }
     }
 
@@ -3333,13 +3327,13 @@ impl<'a, 'c> Isp<'a, 'c> {
                 if text == "required" && !p.covariant {
                     self.kw("covariant");
                 }
-                self.to_type(n, TypeOptions::default());
+                self.for_type(n, TypeOptions::default());
                 return;
             }
             if let Some(l) = list {
                 self.formal_parameter_kw(l);
             }
-            self.to_type(n, TypeOptions::default());
+            self.for_type(n, TypeOptions::default());
         }
         match p.ty {
             Some(t) => {
@@ -3362,12 +3356,12 @@ impl<'a, 'c> Isp<'a, 'c> {
                     if let Some(l) = list {
                         self.formal_parameter_kw(l);
                     }
-                    self.to_type(n, TypeOptions::default());
+                    self.for_type(n, TypeOptions::default());
                 } else if let ast::TypeKind::Function { return_type: None, .. } = &self.a.ty(t).kind
                     && let Some(f) = self.word_in("Function", ts.start, ts.end)
                     && self.offset < self.span_tok(f).start
                 {
-                    self.to_type(n, TypeOptions::default());
+                    self.for_type(n, TypeOptions::default());
                 }
             }
             None => {
@@ -3381,7 +3375,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                     {
                         self.formal_parameter_kw(parent);
                     }
-                    self.to_type(n, TypeOptions::default());
+                    self.for_type(n, TypeOptions::default());
                 }
             }
         }
@@ -3455,7 +3449,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             && self.offset <= self.span_tok(f).start
         {
             self.local("SwitchExpression_expression");
-            self.to_expression(n, false, false);
+            self.for_expression(n, false, false);
             return;
         }
         let after = closes.map_or(self.start(n), |f| self.span_tok(f).end);
@@ -3464,7 +3458,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             let end = self.pair(c).map_or(self.synthetic(self.end(n)).start, |i| self.span_tok(i).start);
             if self.offset >= self.span_tok(c).end && self.offset <= end {
                 self.local("SwitchExpression_body");
-                self.to_pattern(n, true);
+                self.for_pattern(n, true);
             }
         }
     }
@@ -3474,14 +3468,14 @@ impl<'a, 'c> Isp<'a, 'c> {
         let arrow = self.op_in(Op::Arrow, gp.map_or(self.start(n), |g| self.end(g)), self.end(n).max(self.offset + 1));
         if arrow.is_none() {
             self.local("SwitchExpression_body");
-            self.to_pattern(n, true);
+            self.for_pattern(n, true);
             return;
         }
         let Some(expr) = self.children(n).iter().copied().find(|&k| Some(k) != gp) else { return };
         let one_token = self.tok_after(self.start(expr)).is_some_and(|i| self.span_tok(i).end == self.end(expr));
         if one_token {
             self.local("SwitchExpressionCase_expression");
-            self.to_expression(expr, false, false);
+            self.for_expression(expr, false, false);
         }
     }
 
@@ -3563,10 +3557,10 @@ impl<'a, 'c> Isp<'a, 'c> {
                         match pattern {
                             Some(p) if self.kind(p) == "ConstantPattern" => {
                                 let e = self.children(p).first().copied().unwrap_or(p);
-                                self.to_expression(e, false, true);
+                                self.for_expression(e, false, true);
                             }
-                            Some(p) => self.to_expression(p, false, true),
-                            None => self.to_expression(n, false, true),
+                            Some(p) => self.for_expression(p, false, true),
+                            None => self.for_expression(n, false, true),
                         }
                     } else {
                         self.kw("as");
@@ -3587,7 +3581,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                 self.kw("case");
                 self.kw_and_text("default", ":");
             }
-            self.to_command(n);
+            self.for_command(n);
         }
     }
 
@@ -3595,7 +3589,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         let Some(word) = self.tok_after(self.start(n)) else { return };
         if self.offset <= self.span_tok(word).end {
             self.local("Block_statement");
-            self.to_command(n);
+            self.for_command(n);
             return;
         }
         let opens = self.op_in(Op::LParen, self.span_tok(word).end, self.end(n));
@@ -3605,7 +3599,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             && self.offset <= self.span_tok(f).start
         {
             self.local("SwitchStatement_expression");
-            self.to_expression(n, false, true);
+            self.for_expression(n, false, true);
             return;
         }
         let after = closes.map_or(self.span_tok(word).end, |f| self.span_tok(f).end);
@@ -3621,7 +3615,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                     self.kw_and_text("default", ":");
                 }
                 if let Some(m) = self.element_before(&members) {
-                    self.to_command(m);
+                    self.for_command(m);
                 }
             }
         }
@@ -3632,7 +3626,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             return;
         }
         if self.offset == self.start(n) {
-            self.to_unit_member_before(n);
+            self.for_unit_member_before(n);
             return;
         }
         let Some(list_node) = self.child(n, "VariableDeclarationList") else { return };
@@ -3675,7 +3669,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         let Some(word) = self.tok_after(self.start(n)) else { return };
         if self.offset <= self.span_tok(word).end {
             self.local("Block_statement");
-            self.to_command(n);
+            self.for_command(n);
             return;
         }
         let body = self.child(n, "Block");
@@ -3706,7 +3700,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             let ghost_method = self.parent(list).is_some_and(|m| self.kind(m) == "MethodDeclaration" && self.child(m, "FormalParameterList").is_none());
             if without_parens && ghost_method {
                 self.local("TypeParameter_bound");
-                self.to_type(n, TypeOptions { excluded: vec![list], ..TypeOptions::default() });
+                self.for_type(n, TypeOptions { excluded: vec![list], ..TypeOptions::default() });
                 return;
             }
         }
@@ -3725,7 +3719,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             Some(e) if self.offset <= self.span_tok(e).end => self.kw("extends"),
             Some(_) => {
                 self.local("TypeParameter_bound");
-                self.to_type(n, TypeOptions { non_void: true, ..TypeOptions::default() });
+                self.for_type(n, TypeOptions { non_void: true, ..TypeOptions::default() });
             }
         }
     }
@@ -3751,11 +3745,10 @@ impl<'a, 'c> Isp<'a, 'c> {
                     self.kw("in");
                 }
             }
-            Some("TopLevelVariableDeclaration") => {
-                if self.handled_recovery(grandparent.unwrap_or(n)) {
+            Some("TopLevelVariableDeclaration")
+                if self.handled_recovery(grandparent.unwrap_or(n)) => {
                     return;
                 }
-            }
             _ => {}
         }
         let Some(v) = self.real_variable(n) else { return };
@@ -3772,7 +3765,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                         self.kw("var");
                     }
                     if !list.var_ {
-                        self.to_type(n, TypeOptions::default());
+                        self.for_type(n, TypeOptions::default());
                     }
                 }
                 Some(t) => {
@@ -3840,7 +3833,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             let equal = self.op_in(Op::Assign, v.name.span.end, start.max(v.name.span.end + 1));
             if equal.is_some_and(|i| self.offset >= self.span_tok(i).end) {
                 self.local("VariableDeclaration_initializer");
-                self.to_expression(n, false, true);
+                self.for_expression(n, false, true);
                 if let Some(t) = self.local_type(v.name.span.start).or_else(|| list.ty.and_then(|t| {
                     let node = self.children(list_node).iter().copied().find(|&k| self.link(k) == Binding::Type(t))?;
                     self.type_node_type(node)
@@ -3862,7 +3855,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             && self.offset >= self.span_tok(i).end
         {
             self.local("VariableDeclaration_initializer");
-            self.to_expression(n, false, true);
+            self.for_expression(n, false, true);
         }
     }
 
@@ -3876,7 +3869,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             });
             if (l.ty.is_none() || type_covers) && !l.var_ {
                 self.local("VariableDeclarationList_type");
-                self.to_type(n, TypeOptions::default());
+                self.for_type(n, TypeOptions::default());
             } else if l.ty.is_some_and(|t| matches!(self.a.ty(t).kind, ast::TypeKind::Record { .. })) {
                 self.kw("in");
             }
@@ -3891,11 +3884,11 @@ impl<'a, 'c> Isp<'a, 'c> {
         if let Initial::Tok(i) = self.initial(n)
             && self.offset <= self.span_tok(i).end
         {
-            self.to_command(n);
+            self.for_command(n);
         } else if self.offset >= self.end(n)
             && let Some(p) = self.parent(n)
         {
-            self.to_command(p);
+            self.for_command(p);
         }
     }
 
@@ -3903,7 +3896,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         let Some(word) = self.tok_after(self.start(n)) else { return };
         if self.offset <= self.span_tok(word).end {
             self.local("Block_statement");
-            self.to_command(n);
+            self.for_command(n);
             return;
         }
         let Some(a) = self.op_in(Op::LParen, self.span_tok(word).end, self.end(n)) else { return };
@@ -3916,7 +3909,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             };
             if ok {
                 self.local("WhileStatement_condition");
-                self.to_expression(n, false, true);
+                self.for_expression(n, false, true);
             }
         }
     }
@@ -3932,7 +3925,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             self.kw("with");
         } else {
             self.local("WithClause_mixinType");
-            self.to_type(n, TypeOptions { mixable: true, ..TypeOptions::default() });
+            self.for_type(n, TypeOptions { mixable: true, ..TypeOptions::default() });
         }
     }
 
@@ -3946,7 +3939,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         let pv = self.tok_before(self.end(n)).filter(|&i| self.is_op(i, Op::Semicolon));
         if pv.is_none_or(|p| self.offset <= self.span_tok(p).end) {
             self.local("YieldStatement_expression");
-            self.to_expression(n, false, false);
+            self.for_expression(n, false, false);
         }
     }
 }

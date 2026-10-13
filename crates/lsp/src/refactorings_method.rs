@@ -588,7 +588,7 @@ impl<'c, 'p> Extract<'c, 'p> {
             }
         }
         let mut text = cx.source[start..end].to_string();
-        swaps.sort_by(|a, b| b.0.cmp(&a.0));
+        swaps.sort_by_key(|s| std::cmp::Reverse(s.0));
         for (a, b, x) in swaps {
             text.replace_range(a..b, &x);
         }
@@ -1135,7 +1135,7 @@ impl<'c, 'p> Extract<'c, 'p> {
                 children.push("field");
             }
         }
-        for (s, _) in class.constructors.iter() {
+        for s in class.constructors.keys() {
             if p.name(*s) == self.name {
                 children.push("constructor");
             }
@@ -1213,7 +1213,7 @@ impl<'c, 'p> Extract<'c, 'p> {
                 swaps.push((a - start, b - start, p.name.clone()));
             }
         }
-        swaps.sort_by(|a, b| b.0.cmp(&a.0));
+        swaps.sort_by_key(|s| std::cmp::Reverse(s.0));
         for (a, b, t) in swaps {
             source.replace_range(a..b, &t);
         }
@@ -1373,7 +1373,7 @@ impl<'c, 'p> Extract<'c, 'p> {
             }
             if let Some(d) = declaration {
                 let end = cx.tree.nodes[member].end;
-                m.add(uri, Span { start: end, end: end }, format!("{eol}{eol}{prefix}{d}"));
+                m.add(uri, Span { start: end, end }, format!("{eol}{eol}{prefix}{d}"));
             }
         }
         add_imports(cx, &mut m, &self.import);
@@ -1472,7 +1472,7 @@ pub(crate) fn add_imports(cx: &Context<'_>, m: &mut Change, libraries: &BTreeSet
                     code = format!("{eol}{code}");
                 }
                 let end = imports.last().unwrap().2;
-                m.add(&uri_lib, Span { start: end, end: end }, code);
+                m.add(&uri_lib, Span { start: end, end }, code);
             }
             if package {
                 first_package = false;
@@ -1669,7 +1669,7 @@ impl<'c, 'p> Output<'c, 'p> {
     pub(crate) fn exits(&mut self, n: usize) -> Result<bool, String> {
         let cx = self.cx;
         let element = |m: usize| element_exits(cx, m);
-        dartforge_analysis::exit_detector::ExitDetector::new(&cx.tree, &cx.source, &element).exits(n)
+        dartforge_analysis::exit_detector::ExitDetector::new(&cx.tree, cx.source, &element).exits(n)
     }
 }
 

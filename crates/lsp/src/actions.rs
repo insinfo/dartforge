@@ -318,11 +318,11 @@ pub(crate) fn insert_import(
             {
                 end += spaces + f + 2;
             }
-            (Span { start: end, end: end }, format!("\n{line}"))
+            (Span { start: end, end }, format!("\n{line}"))
         };
         let before = |d: &ast::Directive, empty_line: bool| -> (Span, String) {
             let start = d.span.start;
-            (Span { start: start, end: start }, format!("{line}\n{}", if empty_line { "\n" } else { "" }))
+            (Span { start, end: start }, format!("{line}\n{}", if empty_line { "\n" } else { "" }))
         };
         let mut last: Option<&ast::Directive> = None;
         let mut last_dart: Option<&ast::Directive> = None;
@@ -387,7 +387,7 @@ pub(crate) fn insert_import(
     });
     (
         Span {
-            start: start,
+            start,
             end: start,
         },
         format!("import '{new_uri}';\n\n"),
@@ -1014,7 +1014,7 @@ fn initialized_abstract_field(project: &Project, unit: UnitId, uri: &str, ast: &
             uri,
             "Remove initializer".into(),
             "quickfix.remove.initializer",
-            vec![(Span { start: var.name.span.end, end: end }, String::new())],
+            vec![(Span { start: var.name.span.end, end }, String::new())],
             d,
         ));
     }

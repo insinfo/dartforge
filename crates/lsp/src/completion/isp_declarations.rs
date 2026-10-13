@@ -1289,13 +1289,12 @@ impl<'a, 'c> Isp<'a, 'c> {
                         self.suggest_method(best, None, false, None, reference);
                     }
                 }
-                FunctionKind::Getter | FunctionKind::ImplicitAccessor | FunctionKind::Setter => {
-                    if (!is_setter && !excluded.contains(&name)) || (setters && is_setter) {
+                FunctionKind::Getter | FunctionKind::ImplicitAccessor | FunctionKind::Setter
+                    if ((!is_setter && !excluded.contains(&name)) || (setters && is_setter)) => {
                         let search = if is_setter { self.query.names.lookup(&name) } else { Some(symbol) };
                         let t = search.and_then(|s| self.query.resolver().lookup_member(ty, s, is_setter, lib)).map(|(_, t)| t);
                         self.suggest_property(best, t, false, None, reference);
                     }
-                }
                 _ => {}
             }
         }

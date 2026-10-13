@@ -115,7 +115,7 @@ impl Context<'_> {
         let value: f64 = lexeme.replace('_', "").parse().ok()?;
         // `value.truncate()` throws on infinity and NaN; outside the `int` range
         // the result is not equal to the value.
-        if !value.is_finite() || value.trunc() != value || value.abs() >= 9.223_372_036_854_775_808e18 {
+        if !value.is_finite() || value.trunc() != value || value.abs() >= 9.223_372_036_854_776e18 {
             return None;
         }
         let integer = value as i64;

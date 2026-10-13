@@ -94,7 +94,7 @@ pub(crate) fn links(text: &str, path: &Path) -> Vec<(Span, PathBuf)> {
             }
             let target = value[start_..end].split('/').fold(root, |p, part| p.join(part));
             let start = d.start + content + start_;
-            output.push((Span { start: start, end: start + (end - start_) }, target));
+            output.push((Span { start, end: start + (end - start_) }, target));
         }
     }
     output
@@ -115,7 +115,7 @@ fn documentation_comment(c: &Comments, text: &str, start: usize) -> Option<Span>
         .map(|s| s.end)
         .max()
         .unwrap_or(doc.end);
-    Some(Span { start: doc.start, end: end })
+    Some(Span { start: doc.start, end })
 }
 
 /// The folder, among the file's own and its ancestors, that has `examples/api`.

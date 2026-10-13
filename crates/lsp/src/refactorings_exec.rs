@@ -261,7 +261,7 @@ impl<'a> Text<'a> {
         if self.line_start(start) == start {
             after = self.content_end(end);
         }
-        Span { start: start, end: after }
+        Span { start, end: after }
     }
 
     /// `indentSourceLeftRight(indentLeft: true)`.
@@ -917,7 +917,7 @@ impl Context<'_> {
             None => {}
         }
         let swap = if s.string_part.is_some() { format!("${{{name}}}") } else { name.to_string() };
-        m.add(uri, Span { start: start, end: end }, swap);
+        m.add(uri, Span { start, end }, swap);
         m
     }
 
@@ -1163,9 +1163,9 @@ impl Context<'_> {
         let between = &self.source[self.tree.nodes[a].end..self.tree.nodes[b].start];
         let operator = dartforge_frontend::lexer::lex(between)
             .ok()
-            .and_then(|v| {
+            .map(|v| {
                 let ops: Vec<String> = v.iter().filter(|t| t.kind != Kind::Eof).map(|t| between[t.span.start..t.span.end].to_string()).collect();
-                Some(ops.concat())
+                ops.concat()
             })
             .unwrap_or_default();
         match operator.as_str() {
@@ -1255,7 +1255,7 @@ pub(crate) fn function_references(p: &Project, f: FunctionElementId, getter: boo
         {
             continue;
         }
-        v.push((u, Span { start: start, end: end }));
+        v.push((u, Span { start, end }));
     }
     v
 }
@@ -1409,7 +1409,7 @@ fn method_to_getter(cx: &Context<'_>, request: &RefactoringRequest, command: &st
                 let Some(n) = cxu.tree.locate(s.start, s.start) else { continue };
                 if let Some(inv) = cxu.with_parents(n).find(|&k| cxu.kind(k) == "MethodInvocation") {
                     let end = cxu.tree.nodes[inv].end;
-                    m.add(&uri, Span { start: s.end, end: end }, "");
+                    m.add(&uri, Span { start: s.end, end }, "");
                 }
             }
         }

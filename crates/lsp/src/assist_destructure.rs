@@ -171,7 +171,7 @@ impl Context<'_> {
                     let mut name_v = format!("${i}");
                     if excluded.contains(&name_v) {
                         // `getIndexedVariableName`.
-                        if let Some(n) = (b'a'..b'z').map(|c| format!("${i}{}", c as char)).find(|n| !excluded.contains(n)) {
+                        if let Some(n) = (b'a'..=b'y').map(|c| format!("${i}{}", c as char)).find(|n| !excluded.contains(n)) {
                             name_v = n;
                         }
                     }

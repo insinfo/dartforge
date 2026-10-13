@@ -243,8 +243,7 @@ mod tests {
         // Pass 2, over `aXXc`: inserts `!` at the end and replaces the `a` with `A`.
         let original = "abc";
         let merged = merge(vec![ed(1, 1, "XX"), ed(4, 0, "!"), ed(0, 1, "A")]);
-        let mut c = Constructor::default();
-        c.edits = merged;
+        let c = Constructor { edits: merged };
         assert_eq!(c.apply(original), "AXXc!");
         // Descending offset order.
         assert!(c.edits.windows(2).all(|p| p[0].0 >= p[1].0));
