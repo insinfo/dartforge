@@ -547,6 +547,15 @@ impl<'a> Ctx<'a> {
     }
 
     /// State of the function; without a filter, `Live`.
+    /// The name a `LateError` message shows for the `late` variable `name`:
+    /// in the production profile none, as `dart2js -O2` (`omitLateNames`)
+    /// prints `Field '' has not been initialized.`
+    /// (`docs/JS-PRODUCAO-TAMANHO.md` §13.5). `DARTFORGE_JSPROD_LATE_NAMES=0`
+    /// keeps them; the development profile always keeps them.
+    pub fn late_name<'n>(&self, name: &'n str) -> &'n str {
+        if self.production() && std::env::var("DARTFORGE_JSPROD_LATE_NAMES").map_or(true, |v| v != "0") { "" } else { name }
+    }
+
     /// The production profile's emission choices that are not pruning
     /// ([`crate::filter::Liveness::production`]).
     pub fn production(&self) -> bool {

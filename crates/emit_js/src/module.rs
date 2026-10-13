@@ -1063,7 +1063,7 @@ pub(crate) fn emit_top_variables(ctx: &Ctx, m: &ModState, lib: LibraryId, vars: 
                     "get {}() {{\n  let t = {lvar}[{}];\n  return t == null ? dart.throw(new _internal.LateError.fieldNI({})) : t;\n}}",
                     js::prop_key(name),
                     js::string_literal(&storage),
-                    js::string_literal(name)
+                    js::string_literal(ctx.late_name(name))
                 )
             };
             props.push(getter);
@@ -1074,7 +1074,7 @@ pub(crate) fn emit_top_variables(ctx: &Ctx, m: &ModState, lib: LibraryId, vars: 
                     "set {}(v) {{\n  if ({lvar}[{}] != null) dart.throw(new _internal.LateError.fieldAI({}));\n  {lvar}[{}] = v;\n}}",
                     js::prop_key(name),
                     js::string_literal(&storage),
-                    js::string_literal(name),
+                    js::string_literal(ctx.late_name(name)),
                     js::string_literal(&storage)
                 ));
             }
@@ -1302,13 +1302,13 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                     None => {
                         crate::emit_line!(cw, "get {key}() {{");
                         crate::emit_line!(cw, "  let t = this[{sym}];");
-                        cw.line(&format!("  return t == null ? dart.throw(new _internal.LateError.fieldNI({})) : t;", js::string_literal(&f.name)));
+                        cw.line(&format!("  return t == null ? dart.throw(new _internal.LateError.fieldNI({})) : t;", js::string_literal(ctx.late_name(&f.name))));
                         cw.line("}");
                     }
                 }
                 if f.final_ {
                     crate::emit_line!(cw, "set {key}(v) {{");
-                    cw.line(&format!("  if (this[{sym}] != null) dart.throw(new _internal.LateError.fieldAI({}));", js::string_literal(&f.name)));
+                    cw.line(&format!("  if (this[{sym}] != null) dart.throw(new _internal.LateError.fieldAI({}));", js::string_literal(ctx.late_name(&f.name))));
                     crate::emit_line!(cw, "  this[{sym}] = v;");
                     cw.line("}");
                 } else {
@@ -1653,7 +1653,10 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                         Some(x) if js::is_js_ident(x) => x.to_string(),
                         _ => format!("[{k}]"),
                     };
-                    format!("{key}: {}", js::string_literal(n))
+                    // Without the names (`Ctx::late_name`) the value is `0`,
+                    // which `dart.lateFields` reads as `""`.
+                    let n = ctx.late_name(n);
+                    if n.is_empty() { format!("{key}: 0") } else { format!("{key}: {}", js::string_literal(n)) }
                 })
                 .collect();
             format!("{{{}}}", items.join(", "))
@@ -2023,7 +2026,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                     "get {}() {{\n  let t = {cref}[{}];\n  return t == null ? dart.throw(new _internal.LateError.fieldNI({})) : t;\n}}",
                     js::prop_key(&name),
                     js::string_literal(&storage),
-                    js::string_literal(&name)
+                    js::string_literal(ctx.late_name(&name))
                 )
             };
             let setter = format!("set {}(v) {{\n  {cref}[{}] = v;\n}}", js::prop_key(&name), js::string_literal(&storage));

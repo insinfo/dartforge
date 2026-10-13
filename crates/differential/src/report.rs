@@ -170,9 +170,26 @@ impl ProgramResult {
         self.forge.as_ref().and_then(|f| compare(self.reference(), f))
     }
 
+    /// The production profile's reference: the reference with the one
+    /// difference the profile declares, the names of `late` variables left
+    /// out of the `LateInitializationError` messages, as `dart2js -O2`
+    /// (`omitLateNames`; `docs/JS-PRODUCAO-TAMANHO.md` §13.5). Off when the
+    /// compiler keeps them (`DARTFORGE_JSPROD_LATE_NAMES=0`). The report names
+    /// every program where it applied.
+    pub fn production_reference(&self) -> std::borrow::Cow<'_, Output> {
+        let r = self.reference();
+        if std::env::var("DARTFORGE_JSPROD_LATE_NAMES").is_ok_and(|v| v == "0") {
+            return std::borrow::Cow::Borrowed(r);
+        }
+        match omit_late_names(&r.stdout) {
+            Some(stdout) => std::borrow::Cow::Owned(Output { stdout, stderr: r.stderr.clone(), code: r.code }),
+            None => std::borrow::Cow::Borrowed(r),
+        }
+    }
+
     /// Production × reference divergence.
     pub fn production_vs_reference(&self) -> Option<Divergence> {
-        self.production.as_ref().and_then(|f| compare(self.reference(), f))
+        self.production.as_ref().and_then(|f| compare(&self.production_reference(), f))
     }
 
     /// Production × development divergence. This is the one the production
@@ -192,6 +209,38 @@ impl ProgramResult {
             && self.forge_vs_reference().is_none()
             && self.production.as_ref().is_none_or(|_| self.production_vs_reference().is_none())
     }
+}
+
+/// `LateInitializationError: Field 'x' has …` → `Field '' has …` (and
+/// `Local`), the messages of `dart2js -O2` without the `late` names. `None`
+/// when the text has no such message.
+pub fn omit_late_names(text: &str) -> Option<String> {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    let mut changed = false;
+    while let Some(i) = rest.find("LateInitializationError: ") {
+        let after = &rest[i + "LateInitializationError: ".len()..];
+        let Some(kind) = ["Field '", "Local '"].into_iter().find(|k| after.starts_with(k)) else {
+            out.push_str(&rest[..i + 1]);
+            rest = &rest[i + 1..];
+            continue;
+        };
+        let name_start = i + "LateInitializationError: ".len() + kind.len();
+        let line_end = rest[name_start..].find('\n').map_or(rest.len(), |e| name_start + e);
+        match rest[name_start..line_end].find("' has ") {
+            Some(q) => {
+                out.push_str(&rest[..name_start]);
+                changed |= q > 0;
+                rest = &rest[name_start + q..];
+            }
+            None => {
+                out.push_str(&rest[..name_start]);
+                rest = &rest[name_start..];
+            }
+        }
+    }
+    out.push_str(rest);
+    changed.then_some(out)
 }
 
 const COLUMN_WIDTH: usize = 38;
@@ -317,7 +366,11 @@ pub fn format_report(results: &[ProgramResult]) -> String {
         match r.production_vs_reference() {
             None => {
                 ok_prod += 1;
-                let _ = writeln!(out, "ok     {name}");
+                if !std::ptr::eq(&*r.production_reference(), r.reference()) {
+                    let _ = writeln!(out, "ok     {name}  (late names omitted in production, as dart2js -O2)");
+                } else {
+                    let _ = writeln!(out, "ok     {name}");
+                }
             }
             Some(d) => {
                 // Tells apart the defect that matters: production differing
@@ -670,6 +723,17 @@ fn focus(d: Divergence) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn late_names_are_omitted_only_in_late_messages() {
+        let vm = "a\nLateInitializationError: Field 'x' has not been initialized.\nLateInitializationError: Local 'it's' has already been initialized.\nField 'y' has\n";
+        assert_eq!(
+            omit_late_names(vm).as_deref(),
+            Some("a\nLateInitializationError: Field '' has not been initialized.\nLateInitializationError: Local '' has already been initialized.\nField 'y' has\n")
+        );
+        assert_eq!(omit_late_names("LateInitializationError: Field '' has not been initialized.\n"), None);
+        assert_eq!(omit_late_names("nothing\n"), None);
+    }
 
     fn s(stdout: &str, code: i32) -> Output {
         Output { stdout: stdout.into(), stderr: String::new(), code }

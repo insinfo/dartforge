@@ -1259,7 +1259,7 @@ pub fn bootstrap(ctx: &Ctx, dartx: &BTreeSet<String>, late_fields: bool) -> Stri
         out.push_str("dart.lateFields = function(p, fin, outros) {
   for (const [o, f] of [[fin, true], [outros, false]]) {
     for (const k of Reflect.ownKeys(o)) {
-      const n = o[k], s = Symbol(n);
+      const n = o[k] || '', s = Symbol(n);
       Object.defineProperty(p, k, {
         get() { let t = this[s]; return t == null ? dart.throw(new _internal.LateError.fieldNI(n)) : t; },
         set: f ? function(v) { if (this[s] != null) dart.throw(new _internal.LateError.fieldAI(n)); this[s] = v; } : function(v) { this[s] = v; },

@@ -477,7 +477,7 @@ pub(crate) fn emit_static_fields(ctx: &Ctx, m: &ModState, c: ClassId, cref: &str
             }
             None if v.late => {
                 m.use_sdk("_internal");
-                format!("dart.throw(new _internal.LateError.fieldNI({}));", js::string_literal(&name))
+                format!("dart.throw(new _internal.LateError.fieldNI({}));", js::string_literal(ctx.late_name(&name)))
             }
             None => "return null;".to_string(),
         };

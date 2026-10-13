@@ -1659,7 +1659,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     }
                     if l.late_check {
                         self.m.use_sdk("_internal");
-                        return (Js::new(format!("{js} === void 0 ? dart.throw(new _internal.LateError.localNI({})) : {js}", js::string_literal(&n)), P_COND).paren(), ty);
+                        return (Js::new(format!("{js} === void 0 ? dart.throw(new _internal.LateError.localNI({})) : {js}", js::string_literal(self.ctx.late_name(&n))), P_COND).paren(), ty);
                     }
                 }
                 (Js::prim(js), ty)
@@ -2975,7 +2975,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         if let Some(l) = self.lookup_local(n.sym).cloned() {
                             if l.late_final {
                                 self.m.use_sdk("_internal");
-                                return (Js::new(format!("{js} === void 0 ? {js} = {} : dart.throw(new _internal.LateError.localAI({}))", v.at(P_ASSIGN), js::string_literal(&name)), P_COND).paren(), lty);
+                                return (Js::new(format!("{js} === void 0 ? {js} = {} : dart.throw(new _internal.LateError.localAI({}))", v.at(P_ASSIGN), js::string_literal(self.ctx.late_name(&name))), P_COND).paren(), lty);
                             }
                         }
                         // Promotion by assignment: a `dynamic`/nullable local takes the value's type when compatible.
