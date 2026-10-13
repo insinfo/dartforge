@@ -618,9 +618,16 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// (`identifier_context_impl.dart:868`): a reserved word that does not
     /// start a statement becomes the variable's name, with
     /// `EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD` at it (`var enum;` declares
-    /// `enum`); anything else that is not an identifier is the usual error.
+    /// `enum`); one that starts a statement gets `MISSING_IDENTIFIER` and an
+    /// empty synthetic name before it (`var if;` is `var <synthetic>` and an
+    /// `if`); anything else that is not an identifier is the usual error.
     fn local_variable_name(&mut self) -> PResult<crate::ast::Name> {
-        if !self.at_identifier() && matches!(self.kind(), Kind::Keyword(_)) && !self.looks_like_statement_start(self.pos) {
+        if !self.at_identifier() && matches!(self.kind(), Kind::Keyword(_)) {
+            if self.looks_like_statement_start(self.pos) {
+                self.error(codes::parser::MISSING_IDENTIFIER, &[]);
+                let here = self.span().start;
+                return Ok(self.name_from("", Span { start: here, end: here }));
+            }
             let text = self.text().to_string();
             let token = self.advance();
             self.error_at(codes::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, token.span, &[&text]);
@@ -1534,6 +1541,29 @@ mod tests {
 
         let out = ok("late var x;");
         assert!(matches!(out.kind(), StmtKind::Variables(l) if l.late && l.var_));
+    }
+
+    /// `LocalVariableDeclarationIdentifierContext`: a reserved word as the name
+    /// of a local variable is the name (the analyzer then reports it unused);
+    /// one that starts a statement leaves a synthetic name and is not consumed.
+    #[test]
+    fn reserved_word_as_local_variable_name() {
+        let out = stmt("var enum;");
+        let StmtKind::Variables(list) = out.kind() else {
+            panic!()
+        };
+        assert_eq!(out.name(&list.variables[0].name), "enum");
+        assert_eq!(out.diagnostics.len(), 1);
+        assert!(out.diagnostics[0].message.contains("'enum' can't be used as an identifier"));
+        assert!(out.at_eof);
+
+        let out = stmt("var if;");
+        let StmtKind::Variables(list) = out.kind() else {
+            panic!()
+        };
+        assert_eq!(out.name(&list.variables[0].name), "");
+        assert!(out.diagnostics[0].message.contains("Expected an identifier"));
+        assert!(!out.at_eof, "the `if` is left for the next statement");
     }
 
     #[test]
