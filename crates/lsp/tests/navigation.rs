@@ -38,7 +38,7 @@ fn existing_relative_part_definition_uses_utf16_position() {
 #[test]
 fn package_uri_does_not_invent_target() {
     let mut server = Server::new();
-    let uri = "file:///sem-projeto/origem.dart";
+    let uri = "file:///no-project/origin.dart";
     server.receive(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
         "textDocument":{"uri":uri,"languageId":"dart","version":1,
             "text":"import 'package:nao_existe/a.dart';"}

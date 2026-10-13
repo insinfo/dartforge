@@ -44,7 +44,7 @@ fn run(arguments: Vec<String>) -> i32 {
         .iter()
         .any(|a| a == "--help" || a == "-h" || (!a.starts_with('-') && a != "--stdio"))
     {
-        println!("Uso: dartforge-lsp [--stdio] [--version]");
+        println!("Usage: dartforge-lsp [--stdio] [--version]");
         return 0;
     }
     serve_stdio()
@@ -53,7 +53,7 @@ fn run(arguments: Vec<String>) -> i32 {
 /// Main loop: enqueues from the reader, dispatches on the main thread, exits on `exit`.
 fn serve_stdio() -> i32 {
     if std::env::var("RUST_LOG").is_ok() || std::env::var("DARTFORGE_LSP_DEBUG").is_ok() {
-        eprintln!("[dartforge-lsp] log em stderr; stdout é só protocolo");
+        eprintln!("[dartforge-lsp] logging to stderr; stdout is protocol only");
     }
     let (tx, rx) = mpsc::channel::<Entry>();
     let wake = tx.clone();
@@ -92,7 +92,7 @@ fn serve_stdio() -> i32 {
             }
         }
         for response in server.pump() {
-            let mut stdout = output.lock().expect("stdout não envenenado");
+            let mut stdout = output.lock().expect("stdout not poisoned");
             if write_message(&mut *stdout, &response).is_err() {
                 return 1;
             }
@@ -124,7 +124,7 @@ fn read_all(tx: mpsc::Sender<Entry>) {
             }
             Ok(None) => break,
             Err(e) => {
-                eprintln!("[dartforge-lsp] quadro ignorado: {e}");
+                eprintln!("[dartforge-lsp] frame ignored: {e}");
             }
         }
     }

@@ -285,7 +285,7 @@ fn enum_extension_getter_and_setter() {
 
 /// UTF-16 line and column of the start of the `n`-th occurrence of `needle`.
 fn location(text: &str, needle: &str, n: usize) -> (u32, u32) {
-    let i = text.match_indices(needle).nth(n).unwrap_or_else(|| panic!("sem {needle:?}")).0;
+    let i = text.match_indices(needle).nth(n).unwrap_or_else(|| panic!("no {needle:?}")).0;
     let before = &text[..i];
     (
         before.matches('\n').count() as u32,
@@ -486,7 +486,7 @@ fn named_in_overrides_and_documentation() {
 
 #[test]
 fn class_file_with_versioned_document_changes() {
-    let mut p = Project::new("renomear-arquivo");
+    let mut p = Project::new("rename-file");
     let class = "class MinhaClasse {}\n";
     let uses = "import 'minha_classe.dart';\nMinhaClasse? x;\n";
     let main = "import 'package:projeto/minha_classe.dart';\nvoid main() { MinhaClasse(); }\n";
@@ -506,7 +506,7 @@ fn class_file_with_versioned_document_changes() {
     assert_eq!(last["oldUri"], p.uri("lib/minha_classe.dart"));
     assert_eq!(last["newUri"], p.uri("lib/outra_classe.dart"));
     let edits = |uri: &str| -> (Value, Value) {
-        let d = changes.iter().find(|d| d["textDocument"]["uri"] == uri).unwrap_or_else(|| panic!("sem {uri}"));
+        let d = changes.iter().find(|d| d["textDocument"]["uri"] == uri).unwrap_or_else(|| panic!("no {uri}"));
         (d["textDocument"]["version"].clone(), d["edits"].clone())
     };
     // An open file carries the current version; a closed one, `null`.

@@ -262,7 +262,7 @@ mod tests {
         let mut names = dartforge_intern::Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut names);
         // Each removable one is given by the literal's text; the 1st occurrence counts.
-        let offsets: Vec<usize> = removable.iter().map(|r| source.find(r).expect("literal presente")).collect();
+        let offsets: Vec<usize> = removable.iter().map(|r| source.find(r).expect("literal present")).collect();
         organize(source, &p.unit, &offsets, false, true).unwrap_or_else(|| source.to_string())
     }
 
@@ -279,7 +279,7 @@ mod tests {
         let before = "import 'b.dart';\nimport 'a.dart';\n\nvoid main() {}\n";
         let after = organized(before, &[]);
         assert_eq!(after, "import 'a.dart';\nimport 'b.dart';\n\nvoid main() {}\n");
-        let (offset, length, text) = edit(before, &after).expect("mudou");
+        let (offset, length, text) = edit(before, &after).expect("changed");
         assert_eq!(offset, 0);
         assert_eq!(format!("{}{}", text, &before[length..]), after);
     }

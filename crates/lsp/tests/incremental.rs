@@ -25,7 +25,7 @@ fn without_incremental(name: &str) -> Project {
 /// (line, column) of the `n`-th occurrence (0: the first) of `needle` in
 /// `text`, plus `delta` columns (ASCII).
 fn position(text: &str, needle: &str, n: usize, delta: u32) -> (u32, u32) {
-    let i = text.match_indices(needle).nth(n).unwrap_or_else(|| panic!("sem {needle}")).0;
+    let i = text.match_indices(needle).nth(n).unwrap_or_else(|| panic!("no {needle}")).0;
     let before = &text[..i];
     let line = before.matches('\n').count() as u32;
     let column = before.rsplit('\n').next().unwrap().len() as u32;
@@ -175,7 +175,7 @@ fn body_and_signature_edits_match_from_scratch() {
     hot.open("lib/a.dart", V0);
     cold.open("lib/a.dart", V0);
     for (l, c) in samples(V0) {
-        assert_eq!(responses(&mut hot, l, c), responses(&mut cold, l, c), "V0 em {l}:{c}");
+        assert_eq!(responses(&mut hot, l, c), responses(&mut cold, l, c), "V0 at {l}:{c}");
     }
     let mut version = 1;
     let mut swaps = 0;
@@ -193,10 +193,10 @@ fn body_and_signature_edits_match_from_scratch() {
         }
         for (l, c) in samples(text) {
             let r = responses(&mut hot, l, c);
-            assert_eq!(r, responses(&mut cold, l, c), "versão {version} em {l}:{c}");
+            assert_eq!(r, responses(&mut cold, l, c), "version {version} at {l}:{c}");
             // Speculative completion undoes the swap: the retained state answers the
             // same after it.
-            assert_eq!(responses(&mut hot, l, c), r, "repetido, versão {version} em {l}:{c}");
+            assert_eq!(responses(&mut hot, l, c), r, "repeated, version {version} at {l}:{c}");
         }
     }
     // Body edits without reloading: the warm session loaded less.

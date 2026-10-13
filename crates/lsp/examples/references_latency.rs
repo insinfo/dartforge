@@ -40,17 +40,17 @@ fn uri_of(p: &Path) -> String {
 fn main() {
     let mut args = std::env::args().skip(1);
     let (Some(project), Some(file)) = (args.next(), args.next()) else {
-        eprintln!("uso: latencia_referencias <projeto> <arquivo.dart> [posições]");
+        eprintln!("usage: references_latency <project> <file.dart> [positions]");
         std::process::exit(2);
     };
     let n: usize = args.next().and_then(|v| v.parse().ok()).unwrap_or(20);
-    let root = std::fs::canonicalize(&project).expect("projeto");
-    let path = std::fs::canonicalize(root.join(&file)).expect("arquivo");
+    let root = std::fs::canonicalize(&project).expect("project");
+    let path = std::fs::canonicalize(root.join(&file)).expect("file");
     let mut files = Vec::new();
     dart_in(&root.join("lib"), &mut files);
     dart_in(&root.join("bin"), &mut files);
     files.sort();
-    let lib = SdkLayout::discover().expect("SDK do Dart não encontrado");
+    let lib = SdkLayout::discover().expect("Dart SDK not found");
     let sdk = SdkLayout::load_como_analyzer(&lib).expect("SDK");
     let mut server = Server::with_analyzer(SemanticAnalyzer::new(Some(sdk)));
     let mut id = 0;
@@ -65,14 +65,14 @@ fn main() {
         "rootUri": uri_of(&root), "capabilities": {}}}));
     server.pump();
     for a in &files {
-        let t = std::fs::read_to_string(a).expect("leitura");
+        let t = std::fs::read_to_string(a).expect("read");
         server.receive(json!({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {
             "textDocument": {"uri": uri_of(a), "languageId": "dart", "version": 1, "text": t}}}));
     }
     server.pump();
     server.await_diagnostics(Duration::from_secs(600));
 
-    let text = std::fs::read_to_string(&path).expect("leitura");
+    let text = std::fs::read_to_string(&path).expect("read");
     let uri = uri_of(&path);
     let table = dartforge_lsp::utf16::LineTable::build(&text);
     let tokens = dartforge_frontend::lexer::lex(&text).unwrap_or_default();
@@ -97,7 +97,7 @@ fn main() {
     // A body edit (a space at the end) in another file, followed by
     // `references`: what survives the edit.
     let other = files.iter().find(|a| **a != path).cloned().unwrap_or(path.clone());
-    let other_text = std::fs::read_to_string(&other).expect("leitura");
+    let other_text = std::fs::read_to_string(&other).expect("read");
     let last = other_text.lines().count() as u32;
     let mut after_edit = Vec::new();
     for v in 0..5u32 {
@@ -113,10 +113,10 @@ fn main() {
         ));
     }
     server.await_diagnostics(Duration::from_secs(600));
-    println!("projeto: {} ({} arquivos); arquivo: {}", root.display(), files.len(), path.display());
-    println!("| pedido | primeira | mediana; máximo das demais |");
+    println!("project: {} ({} files); file: {}", root.display(), files.len(), path.display());
+    println!("| request | first | median; maximum of the others |");
     println!("|---|---|---|");
     println!("| references | {:.1} ms | {} |", refs[0].as_secs_f64() * 1000.0, summary(&refs[1..]));
     println!("| implementation | {:.1} ms | {} |", imps[0].as_secs_f64() * 1000.0, summary(&imps[1..]));
-    println!("| references depois de editar outro arquivo | {:.1} ms | {} |", after_edit[0].as_secs_f64() * 1000.0, summary(&after_edit[1..]));
+    println!("| references after editing another file | {:.1} ms | {} |", after_edit[0].as_secs_f64() * 1000.0, summary(&after_edit[1..]));
 }

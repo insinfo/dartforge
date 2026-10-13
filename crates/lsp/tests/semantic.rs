@@ -76,9 +76,9 @@ fn imported_uses_types_and_current_text_without_retaining_versions() {
     let mean_latency = start.elapsed() / 40;
     server.await_diagnostics(std::time::Duration::from_secs(120));
     let growth = dartforge_instrument::live_bytes().saturating_sub(live_before);
-    println!("LSP semântico: 25 buffers (~384 KiB extra), 40 hovers, média {mean_latency:?}, crescimento vivo {growth} bytes");
+    println!("semantic LSP: 25 buffers (~384 KiB extra), 40 hovers, mean {mean_latency:?}, live growth {growth} bytes");
     assert!(growth < 256 * 1024, "consultas retiveram {growth} bytes");
-    assert!(mean_latency.as_millis() < 200, "hover médio em 25 buffers: {mean_latency:?}");
+    assert!(mean_latency.as_millis() < 200, "mean hover over 25 buffers: {mean_latency:?}");
     // The imported file is also open and not saved yet. The position and the
     // type come from the in-memory version, not from the old version on disk.
     server.receive(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{

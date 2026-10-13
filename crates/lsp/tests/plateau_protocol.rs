@@ -36,8 +36,8 @@ fn round_trip(server: &mut Server, message: &Value) {
     let framed = frame(message);
     let mut reader = BufReader::new(&framed[..]);
     let read = read_message(&mut reader)
-        .expect("quadro gerado aqui mesmo decodifica")
-        .expect("quadro não vazio");
+        .expect("a frame generated right here decodes")
+        .expect("non-empty frame");
     server.receive(read);
     let outputs = server.pump();
     // Touches the outputs so nothing is optimized out of the measurement.
@@ -204,14 +204,14 @@ fn plateau_through_protocol() {
     let after = live[8..].iter().max().copied().unwrap();
     assert!(
         after <= reference.saturating_add(8 * 1024),
-        "memória cresceu com as edições: platô {reference} bytes, cauda {after} bytes"
+        "memory grew with the edits: plateau {reference} bytes, tail {after} bytes"
     );
 
     close(&mut server, &docs);
     let closed = dartforge_instrument::live_bytes();
     assert!(
         closed <= before.saturating_add(K * 192),
-        "fechar não liberou os documentos: antes {before}, depois {closed}"
+        "closing did not release the documents: before {before}, after {closed}"
     );
     // The harness texts also retain memory: drops them together with the
     // server before asserting the return to the initial level.
@@ -220,6 +220,6 @@ fn plateau_through_protocol() {
     assert!(dartforge_instrument::live_bytes() <= empty.saturating_add(64));
 
     if !real_docs {
-        eprintln!("aviso: corpus indisponível, platô medido com documentos sintéticos");
+        eprintln!("warning: corpus unavailable, plateau measured with synthetic documents");
     }
 }

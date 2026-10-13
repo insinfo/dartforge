@@ -292,7 +292,7 @@ impl Project {
         outputs
             .into_iter()
             .find(|m| m["id"] == json!(id))
-            .expect("resposta")
+            .expect("response")
     }
 
     /// Answers the server's `workspace/configuration` requests with the given
@@ -350,7 +350,7 @@ impl Drop for Project {
 /// Separates the `▮` marker from the text: returns the text without it and
 /// the LSP position (line, UTF-16 column) where it was.
 pub fn mark(text: &str) -> (String, u32, u32) {
-    let i = text.find('▮').expect("marcador");
+    let i = text.find('▮').expect("marker");
     let before = &text[..i];
     let line = before.matches('\n').count() as u32;
     let column = before.rsplit('\n').next().unwrap().encode_utf16().count() as u32;
@@ -361,7 +361,7 @@ pub fn mark(text: &str) -> (String, u32, u32) {
 pub fn labels(response: &Value) -> Vec<String> {
     response["result"]["items"]
         .as_array()
-        .unwrap_or_else(|| panic!("sem itens: {response}"))
+        .unwrap_or_else(|| panic!("no items: {response}"))
         .iter()
         .map(|i| i["label"].as_str().unwrap().to_string())
         .collect()
@@ -374,7 +374,7 @@ pub fn item<'a>(response: &'a Value, label: &str) -> &'a Value {
         .unwrap()
         .iter()
         .find(|i| i["label"] == label)
-        .unwrap_or_else(|| panic!("sem {label} em {:?}", labels(response)))
+        .unwrap_or_else(|| panic!("no {label} in {:?}", labels(response)))
 }
 
 /// Byte offset of an LSP position (line, UTF-16 column).

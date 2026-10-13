@@ -68,9 +68,9 @@ fn k_documents_edited_k_times_settle_on_plateau() {
     let after = live[8..].iter().max().copied().unwrap();
     assert!(
         after <= reference.saturating_add(8 * 1024),
-        "memória cresceu com as edições: platô {reference} bytes, cauda {after} bytes"
+        "memory grew with the edits: plateau {reference} bytes, tail {after} bytes"
     );
-    assert_eq!(docs.len(), K, "cada documento custa exatamente uma entrada");
+    assert_eq!(docs.len(), K, "each document costs exactly one entry");
 }
 
 /// Closing every document returns memory to the level before opening:
@@ -83,7 +83,7 @@ fn closing_all_returns_to_initial_level() {
     let open = dartforge_instrument::live_bytes();
     assert!(
         open > before + K * 100,
-        "K documentos abertos devem custar ao menos o texto deles: {before} → {open}"
+        "K open documents must cost at least their text: {before} → {open}"
     );
     for document in 0..K {
         assert!(docs.close(&uri(document)));
@@ -99,7 +99,7 @@ fn closing_all_returns_to_initial_level() {
     // cost and is measured by the final assertion after the `drop`.
     assert!(
         after <= before.saturating_add(K * 192),
-        "fechar não liberou os documentos: antes {before}, depois {after}"
+        "closing did not release the documents: before {before}, after {after}"
     );
     drop(docs);
     assert!(dartforge_instrument::live_bytes() <= before.saturating_add(64));

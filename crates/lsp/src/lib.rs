@@ -440,7 +440,7 @@ pub trait Analyzer {
     /// Invalid name, element that cannot be renamed, or a conflict, with the
     /// message for the user.
     fn rename(&mut self, _documents: &DocumentStore, _uri: &str, _offset: usize, _new: &str) -> Result<Rename, String> {
-        Err("Renomear exige a análise semântica (SDK do Dart).".into())
+        Err("Rename requires the semantic analysis (Dart SDK).".into())
     }
 
     /// `codeAction`: fixes and assists for the range `start..end` (bytes) of the

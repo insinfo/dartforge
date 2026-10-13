@@ -30,7 +30,7 @@ fn top_level_variable_lists_declaration_and_use() {
     let text = "int resposta = 42;\nvoid main() { print(resposta); }";
     open(&mut server, uri, text);
     let result = request(&mut server, 1, uri, 1, 22, true);
-    let list = result.as_array().expect("lista de locais");
+    let list = result.as_array().expect("list of locations");
     // Like `dart language-server` 3.6.2: the uses and, last, the declaration.
     assert_eq!(list.len(), 2, "{list:?}");
     assert_eq!(list[1]["uri"], uri);
@@ -40,10 +40,10 @@ fn top_level_variable_lists_declaration_and_use() {
     assert_eq!(list[0]["range"]["end"], json!({"line":1,"character":28}));
     // Resolving from the declaration works too.
     let of_decl = request(&mut server, 2, uri, 0, 5, true);
-    assert_eq!(of_decl.as_array().expect("lista").len(), 2);
+    assert_eq!(of_decl.as_array().expect("list").len(), 2);
     // Without the declaration, only the use.
     let without_decl = request(&mut server, 3, uri, 1, 22, false);
-    let list = without_decl.as_array().expect("lista");
+    let list = without_decl.as_array().expect("list");
     assert_eq!(list.len(), 1, "{list:?}");
     assert_eq!(list[0]["range"]["start"], json!({"line":1,"character":20}));
 }
@@ -54,7 +54,7 @@ fn top_level_function_lists_declaration_and_call() {
     let uri = "file:///refs-func.dart";
     open(&mut server, uri, "int resposta() => 42;\nvoid main() { print(resposta()); }");
     let result = request(&mut server, 1, uri, 1, 22, true);
-    let list = result.as_array().expect("lista");
+    let list = result.as_array().expect("list");
     assert_eq!(list.len(), 2, "{list:?}");
     assert_eq!(list[1]["range"]["start"], json!({"line":0,"character":4}));
 }
@@ -65,7 +65,7 @@ fn single_local_type_lists_declaration_and_uses() {
     let uri = "file:///refs-tipo.dart";
     open(&mut server, uri, "class Caixa {}\nCaixa a;\nCaixa b;");
     let result = request(&mut server, 1, uri, 1, 2, true);
-    let list = result.as_array().expect("lista");
+    let list = result.as_array().expect("list");
     assert_eq!(list.len(), 3, "{list:?}");
     assert_eq!(list[2]["range"]["start"], json!({"line":0,"character":6}));
     assert_eq!(list[2]["range"]["end"], json!({"line":0,"character":11}));
@@ -95,7 +95,7 @@ const OWNER_A: &str = "file:///cross-a.dart";
 const USES_B: &str = "file:///cross-b.dart";
 
 fn column_in(line: &str, target: &str) -> u32 {
-    line.find(target).expect("alvo na linha") as u32
+    line.find(target).expect("target on the line") as u32
 }
 
 #[test]
@@ -107,7 +107,7 @@ fn variable_across_open_lists_declaration_and_uses() {
     open(&mut server, USES_B, text_b);
     let line_b = text_b.lines().nth(1).unwrap();
     let result = request(&mut server, 1, USES_B, 1, column_in(line_b, "resposta"), true);
-    let list = result.as_array().expect("lista de locais");
+    let list = result.as_array().expect("list of locations");
     // The use in the request's file, the one in the owner and the declaration
     // last (`dart language-server` 3.6.2).
     assert_eq!(list.len(), 3, "{list:?}");
@@ -121,10 +121,10 @@ fn variable_across_open_lists_declaration_and_uses() {
     assert_eq!(list[0]["range"]["start"], json!({"line":1,"character":column_in(line_b, "resposta")}));
     // From the declaration in the owner, the open files are aggregated.
     let of_decl = request(&mut server, 2, OWNER_A, 0, 5, true);
-    assert_eq!(of_decl.as_array().expect("lista").len(), 3);
+    assert_eq!(of_decl.as_array().expect("list").len(), 3);
     // Without the declaration, only the uses in both files.
     let without_decl = request(&mut server, 3, USES_B, 1, column_in(line_b, "resposta"), false);
-    let uses = without_decl.as_array().expect("lista");
+    let uses = without_decl.as_array().expect("list");
     assert_eq!(uses.len(), 2, "{uses:?}");
     assert_eq!(uses[0]["uri"], USES_B);
     assert_eq!(uses[1]["uri"], OWNER_A);
@@ -136,7 +136,7 @@ fn type_across_open_lists_declaration_and_uses() {
     open(&mut server, OWNER_A, "class Caixa {}\nCaixa a;");
     open(&mut server, USES_B, "import 'cross-a.dart';\nCaixa b;");
     let result = request(&mut server, 1, USES_B, 1, 2, true);
-    let list = result.as_array().expect("lista");
+    let list = result.as_array().expect("list");
     assert_eq!(list.len(), 3, "{list:?}");
     assert_eq!(list[2]["uri"], OWNER_A);
     assert_eq!(list[2]["range"]["start"], json!({"line":0,"character":6}));
@@ -152,7 +152,7 @@ fn function_across_open_lists_declaration_and_calls() {
     open(&mut server, USES_B, "import 'cross-a.dart';\nvoid f() { print(somar()); }");
     let line_b = "void f() { print(somar()); }";
     let result = request(&mut server, 1, USES_B, 1, column_in(line_b, "somar"), true);
-    let list = result.as_array().expect("lista");
+    let list = result.as_array().expect("list");
     assert_eq!(list.len(), 3, "{list:?}");
     assert_eq!(list[2]["uri"], OWNER_A);
     assert_eq!(list[2]["range"]["start"], json!({"line":0,"character":4}));
@@ -199,7 +199,7 @@ fn shadow_in_importer_skips_file() {
         "import 'cross-a.dart';\nint resposta = 1;\nvoid f() { print(resposta); }",
     );
     let result = request(&mut server, 1, OWNER_A, 0, 5, true);
-    let list = result.as_array().expect("lista");
+    let list = result.as_array().expect("list");
     assert_eq!(list.len(), 2, "{list:?}");
     assert!(list.iter().all(|l| l["uri"] == OWNER_A), "{list:?}");
 }

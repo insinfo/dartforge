@@ -56,9 +56,9 @@ impl Session {
         for (key, value) in variables {
             command.env(key, value);
         }
-        let mut child = command.spawn().expect("gerar dartforge-lsp");
-        let entry = child.stdin.take().expect("stdin do filho");
-        let output = child.stdout.take().expect("stdout do filho");
+        let mut child = command.spawn().expect("spawn dartforge-lsp");
+        let entry = child.stdin.take().expect("child stdin");
+        let output = child.stdout.take().expect("child stdout");
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
             let mut reader = BufReader::new(output);
@@ -94,8 +94,8 @@ impl Session {
         let framed = frame(message);
         self.entry
             .write_all(&framed)
-            .expect("escrever no stdin do filho");
-        self.entry.flush().expect("descarregar stdin do filho");
+            .expect("write to the child's stdin");
+        self.entry.flush().expect("flush the child's stdin");
     }
 
     /// Pumps reads until `condition` finds the message, or the limit expires.
@@ -108,7 +108,7 @@ impl Session {
             let remaining = TIME_LIMIT.saturating_sub(start.elapsed());
             assert!(
                 !remaining.is_zero(),
-                "tempo esgotado esperando {what}; pendentes: {:?}",
+                "timed out waiting for {what}; pending: {:?}",
                 self.pending
             );
             match self.reads.recv_timeout(remaining) {
@@ -116,12 +116,12 @@ impl Session {
                 Ok(Read::Error(e)) => self.errors.push(e),
                 Ok(Read::End) => {
                     panic!(
-                        "stdout fechou esperando {what}; pendentes: {:?}",
+                        "stdout closed while waiting for {what}; pending: {:?}",
                         self.pending
                     )
                 }
                 Err(_) => panic!(
-                    "tempo esgotado esperando {what}; pendentes: {:?}",
+                    "timed out waiting for {what}; pending: {:?}",
                     self.pending
                 ),
             }
@@ -130,7 +130,7 @@ impl Session {
 
     /// Response with the given `id`.
     fn response(&mut self, id: i64) -> Value {
-        self.wait_for(&format!("resposta {id}"), |m| {
+        self.wait_for(&format!("response {id}"), |m| {
             m.get("id").is_some_and(|v| v.as_i64() == Some(id))
                 && (m.get("result").is_some() || m.get("error").is_some())
         })
@@ -140,7 +140,7 @@ impl Session {
     fn diagnostics(&mut self, uri: &str) -> Value {
         // Gives the server a chance to publish after the edit: waits until there is
         // at least one new publication for the uri.
-        self.wait_for(&format!("diagnósticos de {uri}"), |m| {
+        self.wait_for(&format!("diagnostics of {uri}"), |m| {
             m.get("method")
                 .is_some_and(|v| v.as_str() == Some("textDocument/publishDiagnostics"))
                 && m.get("params")
@@ -154,10 +154,10 @@ impl Session {
     fn shutdown(mut self, id: i64) -> i32 {
         self.send(&json!({"jsonrpc": "2.0", "id": id, "method": "shutdown"}));
         let response = self.response(id);
-        assert_eq!(response["result"], Value::Null, "shutdown responde nulo");
+        assert_eq!(response["result"], Value::Null, "shutdown answers null");
         self.send(&json!({"jsonrpc": "2.0", "method": "exit"}));
         drop(self.entry);
-        let output = self.child.wait().expect("esperar o filho");
+        let output = self.child.wait().expect("wait for the child");
         // Drains what is left so as not to mask a framing error.
         while let Ok(read) = self.reads.try_recv() {
             match read {
@@ -168,10 +168,10 @@ impl Session {
         }
         assert!(
             self.errors.is_empty(),
-            "stdout com bytes fora do enquadramento: {:?}",
+            "stdout with bytes outside the framing: {:?}",
             self.errors
         );
-        output.code().expect("código de saída")
+        output.code().expect("exit code")
     }
 }
 
@@ -184,7 +184,7 @@ fn start(session: &mut Session) {
     let response = session.response(1);
     assert_eq!(
         response["result"]["capabilities"]["textDocumentSync"], 2,
-        "capacidade anunciada é sincronização incremental"
+        "the announced capability is incremental sync"
     );
     session.send(&json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}));
 }
@@ -214,7 +214,7 @@ fn close(uri: &str) -> Value {
 fn items(publication: &Value) -> &Vec<Value> {
     publication["params"]["diagnostics"]
         .as_array()
-        .expect("publishDiagnostics traz lista")
+        .expect("publishDiagnostics carries a list")
 }
 
 /// Full transcript over the wire: two errors, incremental fix of one,
@@ -236,17 +236,17 @@ fn complete_session() {
     assert_eq!(
         items(&first).len(),
         2,
-        "dois erros de sintaxe: {first}"
+        "two syntax errors: {first}"
     );
     assert_eq!(first["params"]["diagnostics"][0]["source"], "dartforge");
     assert_eq!(
         first["params"]["diagnostics"][0]["range"]["start"],
         json!({"line": 0, "character": 22}),
-        "span de bytes vira posição UTF-16: {first}"
+        "a byte span becomes a UTF-16 position: {first}"
     );
     assert_eq!(
         first["params"]["diagnostics"][0]["severity"], 1,
-        "sintaxe quebrada é erro: {first}"
+        "broken syntax is an error: {first}"
     );
 
     // Incremental fix: replaces the `;` on line 0 with `1;` (UTF-16 range).
@@ -259,21 +259,21 @@ fn complete_session() {
         }]),
     ));
     let second = session.diagnostics(uri);
-    assert_eq!(items(&second).len(), 1, "um erro restante: {second}");
+    assert_eq!(items(&second).len(), 1, "one remaining error: {second}");
     assert_eq!(
         second["params"]["diagnostics"][0]["range"]["start"],
         json!({"line": 1, "character": 23}),
-        "o erro que sobrou é o da segunda declaração: {second}"
+        "the remaining error is the second declaration's: {second}"
     );
 
     session.send(&close(uri));
     let third = session.diagnostics(uri);
     assert!(
         items(&third).is_empty(),
-        "documento fechado publica lista vazia: {third}"
+        "a closed document publishes an empty list: {third}"
     );
 
-    assert_eq!(session.shutdown(10), 0, "exit após shutdown sai com 0");
+    assert_eq!(session.shutdown(10), 0, "exit after shutdown exits with 0");
 }
 
 /// Columns count UTF-16 units in both directions, with CRLF and a lone
@@ -293,16 +293,16 @@ fn correct_utf16() {
         "var s = '👭'; void main() { int x = ; x; }\r\nvar e = '\\uD800';\r\n",
     ));
     let first = session.diagnostics(uri);
-    assert_eq!(items(&first).len(), 1, "só o `;`: {first}");
+    assert_eq!(items(&first).len(), 1, "only the `;`: {first}");
     assert_eq!(
         first["params"]["diagnostics"][0]["range"]["start"],
         json!({"line": 0, "character": 36}),
-        "coluna publicada é UTF-16, não byte: {first}"
+        "the published column is UTF-16, not a byte: {first}"
     );
     assert_eq!(
         first["params"]["diagnostics"][0]["range"]["end"],
         json!({"line": 0, "character": 37}),
-        "fim do span também é UTF-16: {first}"
+        "the end of the span is UTF-16 too: {first}"
     );
 
     // Incremental edit addressed in UTF-16 after the emoji: replacing the `;`
@@ -319,7 +319,7 @@ fn correct_utf16() {
     let second = session.diagnostics(uri);
     assert!(
         items(&second).is_empty(),
-        "edição UTF-16 acertou o byte: {second}"
+        "the UTF-16 edit hit the right byte: {second}"
     );
 
     assert_eq!(session.shutdown(10), 0);
@@ -380,7 +380,7 @@ fn cancellation() {
     let cancelled = session.response(3);
     assert_eq!(
         cancelled["error"]["code"], -32800,
-        "a segunda foi cancelada na fila: {cancelled}"
+        "the second one was cancelled in the queue: {cancelled}"
     );
 
     assert_eq!(session.shutdown(4), 0);

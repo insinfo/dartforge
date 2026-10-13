@@ -9,7 +9,7 @@ use common::{Project, apply};
 use serde_json::{Value, json};
 
 fn location(text: &str, needle: &str, n: usize) -> (u32, u32) {
-    let i = text.match_indices(needle).nth(n).unwrap_or_else(|| panic!("sem {needle:?}")).0;
+    let i = text.match_indices(needle).nth(n).unwrap_or_else(|| panic!("no {needle:?}")).0;
     let before = &text[..i];
     (before.matches('\n').count() as u32, before.rsplit('\n').next().unwrap().encode_utf16().count() as u32)
 }
@@ -35,7 +35,7 @@ fn action<'a>(r: &'a Value, title: &str) -> &'a Value {
         .unwrap()
         .iter()
         .find(|a| a["title"] == title)
-        .unwrap_or_else(|| panic!("sem {title:?} em {:?}", titles(r)))
+        .unwrap_or_else(|| panic!("no {title:?} in {:?}", titles(r)))
 }
 
 /// Runs the command of an action (Dart refactorings come as
@@ -50,7 +50,7 @@ fn command_edit(p: &mut Project, action: &Value) -> Value {
     outputs
         .into_iter()
         .find(|m| m["method"] == "workspace/applyEdit")
-        .unwrap_or_else(|| panic!("sem workspace/applyEdit para {action}"))["params"]["edit"]
+        .unwrap_or_else(|| panic!("no workspace/applyEdit for {action}"))["params"]["edit"]
         .clone()
 }
 

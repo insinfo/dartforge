@@ -14,7 +14,7 @@ fn location(text: &str, needle: &str, n: usize) -> (u32, u32) {
     let i = text
         .match_indices(needle)
         .nth(n)
-        .unwrap_or_else(|| panic!("sem {needle:?} #{n}"))
+        .unwrap_or_else(|| panic!("no {needle:?} #{n}"))
         .0;
     let before = &text[..i];
     (
@@ -51,7 +51,7 @@ fn definition(p: &mut Project, rel: &str, text: &str, needle: &str, n: usize) ->
         n,
         json!({}),
     );
-    assert!(r.is_object(), "sem definição em {needle:?}: {r}");
+    assert!(r.is_object(), "no definition at {needle:?}: {r}");
     (
         r["uri"].as_str().unwrap().to_string(),
         r["range"]["start"].clone(),
@@ -62,7 +62,7 @@ fn hover(p: &mut Project, rel: &str, text: &str, needle: &str, n: usize) -> Stri
     let r = request(p, "textDocument/hover", rel, text, needle, n, json!({}));
     r["contents"]
         .as_str()
-        .unwrap_or_else(|| panic!("sem hover em {needle:?}: {r}"))
+        .unwrap_or_else(|| panic!("no hover at {needle:?}: {r}"))
         .to_string()
 }
 
@@ -86,7 +86,7 @@ fn references(
     );
     let base = format!("{}/", p.uri(""));
     r.as_array()
-        .unwrap_or_else(|| panic!("sem referências: {r}"))
+        .unwrap_or_else(|| panic!("no references: {r}"))
         .iter()
         .map(|l| {
             (

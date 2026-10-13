@@ -43,8 +43,8 @@ fn round_trip(server: &mut Server, message: &Value) -> usize {
     let framed = frame(message);
     let mut reader = BufReader::new(&framed[..]);
     let read: Value = read_message(&mut reader)
-        .expect("quadro válido")
-        .expect("quadro não vazio");
+        .expect("valid frame")
+        .expect("non-empty frame");
     server.receive(read);
     server
         .pump()
@@ -108,17 +108,17 @@ fn main() {
     let peak = dartforge_instrument::peak_bytes() - base;
     let allocations = dartforge_instrument::allocation_count() - base_allocations;
     let mib = |b: usize| b as f64 / (1024.0 * 1024.0);
-    println!("arquivos abertos: {}", uris.len());
-    println!("fonte: {:.2} MiB", mib(source_bytes));
+    println!("open files: {}", uris.len());
+    println!("source: {:.2} MiB", mib(source_bytes));
     println!(
-        "vivo com tudo retido: {:.2} MiB ({:.2}x a fonte)",
+        "live with everything retained: {:.2} MiB ({:.2}x the source)",
         mib(live),
         live as f64 / source_bytes.max(1) as f64
     );
-    println!("pico: {:.2} MiB", mib(peak));
-    println!("bytes publicados em diagnósticos: {output_bytes}");
+    println!("peak: {:.2} MiB", mib(peak));
+    println!("bytes published in diagnostics: {output_bytes}");
     println!(
-        "alocações: {allocations}; tempo: {:.0} ms ({:.1} MiB/s)",
+        "allocations: {allocations}; time: {:.0} ms ({:.1} MiB/s)",
         time.as_secs_f64() * 1e3,
         mib(source_bytes) / time.as_secs_f64().max(1e-9)
     );
@@ -134,7 +134,7 @@ fn main() {
     drop(uris);
     drop(server);
     println!(
-        "após fechar tudo: {} bytes acima da base",
+        "after closing everything: {} bytes above the baseline",
         dartforge_instrument::live_bytes().saturating_sub(base)
     );
 }

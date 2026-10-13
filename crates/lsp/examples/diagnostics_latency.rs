@@ -85,7 +85,7 @@ fn check_with_analyze(file: &std::path::Path, publication: &Value) -> String {
             (
                 d["code"]
                     .as_str()
-                    .unwrap_or("dartforge_sem_codigo")
+                    .unwrap_or("dartforge_no_code")
                     .to_string(),
                 d["range"]["start"]["line"].as_u64().unwrap(),
                 d["range"]["start"]["character"].as_u64().unwrap(),
@@ -101,7 +101,7 @@ fn check_with_analyze(file: &std::path::Path, publication: &Value) -> String {
     let cli_only: Vec<_> = cli.iter().filter(|x| !lsp.contains(x)).take(5).collect();
     let so_lsp: Vec<_> = lsp.iter().filter(|x| !cli.contains(x)).take(5).collect();
     format!(
-        "paridade com `dartforge analyze`: analyze {} / LSP {} ({} semânticos publicados); só no analyze {:?}; só no LSP {:?}",
+        "parity with `dartforge analyze`: analyze {} / LSP {} ({} semantic ones published); only in analyze {:?}; only in the LSP {:?}",
         cli.len(),
         lsp.len(),
         semantic,
@@ -121,8 +121,8 @@ fn main() {
     server.receive(json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}));
     server.pump();
     for file in &files {
-        let file = std::fs::canonicalize(file).expect("arquivo existe");
-        let text = std::fs::read_to_string(&file).expect("texto");
+        let file = std::fs::canonicalize(file).expect("file exists");
+        let text = std::fs::read_to_string(&file).expect("text");
         let uri = url::Url::from_file_path(&file).unwrap().to_string();
         let lines = text.lines().count();
 
@@ -182,7 +182,7 @@ fn main() {
             text.len()
         );
         println!(
-            "  abrir: imediato {:.1} ms; tipado {:.1} ms ({} diagnósticos publicados)",
+            "  open: immediate {:.1} ms; typed {:.1} ms ({} diagnostics published)",
             ms(open_immediate),
             ms(open_typed),
             n.map_or("?".to_string(), |n| n.to_string())
@@ -191,7 +191,7 @@ fn main() {
             println!("  {p}");
         }
         println!(
-            "  10 edições: imediato mediana {:.1} ms (máx {:.1}); tipado mediana {:.1} ms (mín {:.1}, máx {:.1})",
+            "  10 edits: immediate median {:.1} ms (max {:.1}); typed median {:.1} ms (min {:.1}, max {:.1})",
             ms(immediate[immediate.len() / 2]),
             ms(immediate[immediate.len() - 1]),
             ms(typed[typed.len() / 2]),
@@ -199,7 +199,7 @@ fn main() {
             ms(typed[typed.len() - 1])
         );
         println!(
-            "  rajada de 20 edições: {published} publicação(ões) tipada(s), última da versão {last_version}, {:.1} ms até ela; {} resultados velhos descartados até aqui",
+            "  burst of 20 edits: {published} typed publication(s), the last one of version {last_version}, {:.1} ms until it; {} stale results discarded so far",
             ms(burst),
             server.typed_discarded()
         );
@@ -211,7 +211,7 @@ fn main() {
         server.await_diagnostics(LIMIT);
     }
     println!(
-        "vivo acima da base com o servidor ainda aberto e os documentos fechados: {:.2} MiB",
+        "live above the baseline with the server still open and the documents closed: {:.2} MiB",
         dartforge_instrument::live_bytes().saturating_sub(base) as f64 / (1024.0 * 1024.0)
     );
 }

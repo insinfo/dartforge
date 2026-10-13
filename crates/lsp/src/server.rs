@@ -787,7 +787,7 @@ impl<A: Analyzer> Server<A> {
             if is_request(next) {
                 break;
             }
-            let message = self.queue.pop_front().expect("fila não vazia");
+            let message = self.queue.pop_front().expect("non-empty queue");
             // A panic in a notification: the Dart server's `showMessage` and
             // `logMessage` (`lsp_analysis_server.dart`, `sendErrorResponse` and
             // `logException`), and the semantic session drops.
@@ -798,7 +798,7 @@ impl<A: Analyzer> Server<A> {
                     self.analyzer.changed_document("");
                     let method = message.get("method").and_then(Value::as_str).unwrap_or("?").to_string();
                     let text = format!("An error occurred while handling {method} notification");
-                    register(format!("pânico ao tratar {method}"));
+                    register(format!("panic while handling {method}"));
                     outputs.push(message_notification("window/showMessage", 1, &text));
                     outputs.push(message_notification("window/logMessage", 1, &format!("{text}: {}", panic_text(&*panic))));
                 }
@@ -821,7 +821,7 @@ impl<A: Analyzer> Server<A> {
                     self.analyzer.changed_document("");
                     let id = request.get("id").cloned().unwrap_or(Value::Null);
                     let method = request.get("method").and_then(Value::as_str).unwrap_or("?").to_string();
-                    register(format!("pânico ao tratar {method}"));
+                    register(format!("panic while handling {method}"));
                     let text = format!("An error occurred while handling {method} request");
                     outputs.push(error(&id, ERROR_NOT_HANDLED, text.clone()));
                     outputs.push(message_notification("window/logMessage", 1, &format!("{text}: {}", panic_text(&*panic))));
@@ -857,7 +857,7 @@ impl<A: Analyzer> Server<A> {
                 scan += 1;
                 continue;
             }
-            let cancelled = self.queue.remove(scan).expect("índice varrido");
+            let cancelled = self.queue.remove(scan).expect("scanned index");
             let target = cancelled.get("params").and_then(|p| p.get("id")).cloned();
             if let Some(id) = target {
                 let key = key_id(&id);
@@ -1023,7 +1023,7 @@ impl<A: Analyzer> Server<A> {
                 None
             }
             _ => {
-                register(format!("notificação desconhecida ignorada: {method}"));
+                register(format!("unknown notification ignored: {method}"));
                 // §2.3: `$/…` is ignored; any other becomes the `Unknown method` error,
                 // which for a notification is an error `window/showMessage`. After
                 // `shutdown`, it is discarded.
@@ -1046,7 +1046,7 @@ impl<A: Analyzer> Server<A> {
         let id = message.get("id").cloned().unwrap_or(Value::Null);
         let key = key_id(&id);
         if self.cancelled.remove(&key) {
-            return error(&id, REQUEST_CANCELLED, "requisição cancelada");
+            return error(&id, REQUEST_CANCELLED, "request cancelled");
         }
         let method = message.get("method").and_then(Value::as_str).unwrap_or("");
         // The Dart server's states (§2.3) that do not depend on the `initialized`
@@ -1798,7 +1798,7 @@ impl<A: Analyzer> Server<A> {
                 for f in message.pointer("/params/files").and_then(Value::as_array).cloned().unwrap_or_default() {
                     let path = |k: &str| f.get(k).and_then(Value::as_str).and_then(|u| url::Url::parse(u).ok()).and_then(|u| u.to_file_path().ok());
                     let (Some(old), Some(new)) = (path("oldUri"), path("newUri")) else {
-                        return error(&id, -32602, "URI de arquivo inválida no willRenameFiles");
+                        return error(&id, -32602, "invalid file URI in willRenameFiles");
                     };
                     map.push((old, new));
                 }
@@ -2156,13 +2156,13 @@ impl<A: Analyzer> Server<A> {
                     .unwrap_or(0);
                 if sleep_cancellable(ms, &self.cancelled, &key) {
                     self.cancelled.remove(&key);
-                    error(&id, REQUEST_CANCELLED, "requisição cancelada")
+                    error(&id, REQUEST_CANCELLED, "request cancelled")
                 } else {
                     response(&id, Value::Null)
                 }
             }
             _ => {
-                register(format!("requisição desconhecida: {method}"));
+                register(format!("unknown request: {method}"));
                 error(
                     &id,
                     METHOD_NOT_FOUND,
@@ -2542,7 +2542,7 @@ impl<A: Analyzer> Server<A> {
             // throws (`log_action.dart:23`).
             "dart.logAction" => match parameters.get("action").and_then(Value::as_str) {
                 Some(_) => response(id, Value::Null),
-                None => error(id, ERROR_NOT_HANDLED, "dart.logAction sem o campo action"),
+                None => error(id, ERROR_NOT_HANDLED, "dart.logAction without the action field"),
             },
             "dart.edit.fixAllInWorkspace" | "dart.edit.fixAllInWorkspace.preview" => {
                 self.fix_workspace(id, label, command.ends_with(".preview"))
@@ -3014,7 +3014,7 @@ impl<A: Analyzer> Server<A> {
             ));
         }
         let Some(result) = message.get("result").filter(|r| r.is_object()) else {
-            return Some(error(&id, ERROR_NOT_HANDLED, "resposta do workspace/applyEdit sem resultado"));
+            return Some(error(&id, ERROR_NOT_HANDLED, "workspace/applyEdit response without a result"));
         };
         if result.get("applied").and_then(Value::as_bool) == Some(true) {
             return Some(response(&id, Value::Null));
@@ -3389,7 +3389,7 @@ fn panic_text(panic: &(dyn std::any::Any + Send)) -> String {
         .downcast_ref::<&str>()
         .map(|s| (*s).to_string())
         .or_else(|| panic.downcast_ref::<String>().cloned())
-        .unwrap_or_else(|| "pânico sem mensagem".to_string())
+        .unwrap_or_else(|| "panic without a message".to_string())
 }
 
 /// The priority of a fix or assist by kind (docs/LSP-ESPECIFICACAO.md
@@ -3601,8 +3601,8 @@ impl<A: Analyzer> Server<A> {
             let method = message
                 .get("method")
                 .and_then(Value::as_str)
-                .unwrap_or("<resposta>");
-            register(format!("recebida: {method}"));
+                .unwrap_or("<response>");
+            register(format!("received: {method}"));
         }
     }
 }
@@ -3612,60 +3612,60 @@ pub fn supported_methods() -> HashMap<&'static str, &'static str> {
     HashMap::from([
         (
             "initialize",
-            "requisição: aperta mãos e anuncia capacidades",
+            "request: handshake and capability announcement",
         ),
         (
             "shutdown",
-            "requisição: prepara o encerramento com código 0",
+            "request: prepares the shutdown with code 0",
         ),
         (
             "initialized",
-            "notificação: confirmação do cliente, sem efeito",
+            "notification: the client's acknowledgement, no effect",
         ),
-        ("exit", "notificação: encerra (0 após shutdown, 1 sem)"),
+        ("exit", "notification: exits (0 after shutdown, 1 without it)"),
         (
             "$/cancelRequest",
-            "notificação: cancela requisição na fila ou em execução",
+            "notification: cancels a queued or running request",
         ),
         (
             "textDocument/didOpen",
-            "notificação: abre e publica diagnósticos",
+            "notification: opens and publishes diagnostics",
         ),
         (
             "textDocument/didChange",
-            "notificação: aplica edição incremental e republica",
+            "notification: applies an incremental edit and republishes",
         ),
         (
             "textDocument/didClose",
-            "notificação: fecha e publica lista vazia",
+            "notification: closes and publishes an empty list",
         ),
         (
             "textDocument/documentLink",
-            "requisição: lista vazia (no 3.6.2 só há links de exemplos do Flutter)",
+            "request: empty list (in 3.6.2 there are only Flutter example links)",
         ),
         (
             "textDocument/codeLens",
-            "requisição: lista vazia (só há lentes de augmentations)",
+            "request: empty list (there are only augmentation lenses)",
         ),
         (
             "textDocument/completion",
-            "requisição: membros pelo tipo do receptor, escopo, palavras-chave, nomeados",
+            "request: members by the receiver's type, scope, keywords, named arguments",
         ),
         (
             "textDocument/prepareRename",
-            "requisição: intervalo e nome renomeáveis sob o cursor",
+            "request: renameable range and name under the cursor",
         ),
         (
             "textDocument/rename",
-            "requisição: edições em todos os arquivos do projeto",
+            "request: edits in all of the project's files",
         ),
         (
             "textDocument/codeAction",
-            "requisição: inserir ';' e importar biblioteca de nome indefinido",
+            "request: insert ';' and import the library of an undefined name",
         ),
         (
             SLEEP_METHOD,
-            "requisição: gancho de teste do cancelamento em execução",
+            "request: test hook for cancellation while running",
         ),
     ])
 }

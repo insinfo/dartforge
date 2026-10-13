@@ -152,27 +152,27 @@ fn measure(sdk: SdkLayout, uri: &str, text: &str, n: usize, budget: Option<usize
 fn main() {
     let mut args = std::env::args().skip(1);
     let Some(file) = args.next() else {
-        eprintln!("uso: sessao_semantica <arquivo.dart> [consultas]");
+        eprintln!("usage: semantic_session <file.dart> [queries]");
         std::process::exit(2);
     };
     let n: usize = args.next().and_then(|v| v.parse().ok()).unwrap_or(20);
-    let path = std::fs::canonicalize(&file).expect("arquivo");
-    let text = std::fs::read_to_string(&path).expect("leitura");
+    let path = std::fs::canonicalize(&file).expect("file");
+    let text = std::fs::read_to_string(&path).expect("read");
     let uri = url::Url::from_file_path(&path).unwrap().to_string();
-    let lib = SdkLayout::discover().expect("SDK do Dart não encontrado");
+    let lib = SdkLayout::discover().expect("Dart SDK not found");
     let load = || SdkLayout::load(&lib, "dartdevc").expect("SDK");
     println!(
-        "arquivo: {} ({} bytes), {n} posições",
+        "file: {} ({} bytes), {n} positions",
         path.display(),
         text.len()
     );
     println!(
-        "| modo | hover (mediana; máx) | definition (mediana; máx) | references (mediana; máx) | 1ª consulta após edição | fonte retida | vivo retido nas consultas | vivo após a edição | cargas / reaproveitadas |"
+        "| mode | hover (median; max) | definition (median; max) | references (median; max) | 1st query after an edit | retained source | live retained during queries | live after the edit | loads / reuses |"
     );
     println!("|---|---|---|---|---|---|---|---|---|");
     for (name, budget) in [
-        ("sem sessão (orçamento 0)", Some(0)),
-        ("com sessão (padrão)", None),
+        ("no session (budget 0)", Some(0)),
+        ("with session (default)", None),
     ] {
         let mut m = measure(load(), &uri, &text, n, budget);
         let (hm, hx) = (

@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 /// UTF-16 line and column of the start of the `n`-th occurrence of
 /// `needle`, plus `shift` columns.
 fn location(text: &str, needle: &str, n: usize, shift: u32) -> (u32, u32) {
-    let i = text.match_indices(needle).nth(n).unwrap_or_else(|| panic!("sem {needle:?} #{n}")).0;
+    let i = text.match_indices(needle).nth(n).unwrap_or_else(|| panic!("no {needle:?} #{n}")).0;
     let before = &text[..i];
     (before.matches('\n').count() as u32, before.rsplit('\n').next().unwrap().encode_utf16().count() as u32 + shift)
 }

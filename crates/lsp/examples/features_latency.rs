@@ -26,14 +26,14 @@ fn summary(v: &mut [Duration]) -> String {
 fn main() {
     let mut args = std::env::args().skip(1);
     let Some(file) = args.next() else {
-        eprintln!("uso: latencia_recursos <arquivo.dart> [posições]");
+        eprintln!("usage: features_latency <file.dart> [positions]");
         std::process::exit(2);
     };
     let n: usize = args.next().and_then(|v| v.parse().ok()).unwrap_or(20);
-    let path = std::fs::canonicalize(&file).expect("arquivo");
-    let text = std::fs::read_to_string(&path).expect("leitura");
+    let path = std::fs::canonicalize(&file).expect("file");
+    let text = std::fs::read_to_string(&path).expect("read");
     let uri = url::Url::from_file_path(dartforge_elements::config::sem_verbatim(path.clone())).unwrap().to_string();
-    let lib = SdkLayout::discover().expect("SDK do Dart não encontrado");
+    let lib = SdkLayout::discover().expect("Dart SDK not found");
     let sdk = SdkLayout::load(&lib, "dartdevc").expect("SDK");
     let mut server = Server::with_analyzer(SemanticAnalyzer::new(Some(sdk)));
     let mut id = 0;
@@ -118,16 +118,16 @@ fn main() {
         }
     }
     server.await_diagnostics(Duration::from_secs(600));
-    println!("arquivo: {} ({} bytes)", path.display(), text.len());
-    println!("| recurso | mediana; máximo |");
+    println!("file: {} ({} bytes)", path.display(), text.len());
+    println!("| feature | median; maximum |");
     println!("|---|---|");
-    println!("| hover (texto parado) | {} |", summary(&mut hover));
-    println!("| completion (texto parado) | {} |", summary(&mut completion));
-    println!("| signatureHelp no `(` | {} |", summary(&mut signature));
+    println!("| hover (idle text) | {} |", summary(&mut hover));
+    println!("| completion (idle text) | {} |", summary(&mut completion));
+    println!("| signatureHelp at `(` | {} |", summary(&mut signature));
     println!("| documentHighlight | {} |", summary(&mut highlight));
     println!("| foldingRange | {} |", summary(&mut folds));
-    println!("| hover logo após edição | {} |", summary(&mut hover_ed));
-    println!("| completion logo após edição | {} |", summary(&mut completion_ed));
-    println!("| didChange dentro de um corpo | {} |", summary(&mut swap));
-    println!("| hover depois da edição de corpo | {} |", summary(&mut hover_body));
+    println!("| hover right after an edit | {} |", summary(&mut hover_ed));
+    println!("| completion right after an edit | {} |", summary(&mut completion_ed));
+    println!("| didChange inside a body | {} |", summary(&mut swap));
+    println!("| hover after the body edit | {} |", summary(&mut hover_body));
 }

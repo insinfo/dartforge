@@ -621,7 +621,7 @@ impl Project {
                 && self.program().library(u.library).declared.contains_key(&p)
             {
                 return Err(format!(
-                    "O prefixo '{}' colide com uma declaração de topo.",
+                    "The prefix '{}' collides with a top-level declaration.",
                     self.name(p)
                 ));
             }
@@ -715,7 +715,7 @@ impl Project {
                         None => Ok(None),
                     }
                 }
-                _ => Err(format!("'{text}' não está resolvido.")),
+                _ => Err(format!("'{text}' is not resolved.")),
             };
         }
         // Declaration of a local or parameter.
@@ -747,7 +747,7 @@ impl Project {
                 }
                 return match self.program().class(c).constructors.get(&constructor.sym) {
                     Some(f) => denoted(Target::Constructor(*f), None, Some(Concrete::Function(*f))),
-                    None => Err(format!("O construtor '{text}' não está resolvido.")),
+                    None => Err(format!("The constructor '{text}' is not resolved.")),
                 };
             }
             if pos + 1 < name.len() {
@@ -783,7 +783,7 @@ impl Project {
                     let (target_, concrete) = self.top(el);
                     denoted(target_, None, concrete)
                 }
-                None => Err(format!("O tipo '{text}' não está resolvido.")),
+                None => Err(format!("The type '{text}' is not resolved.")),
             };
         }
         // Prefix in the directive `import … as p`.
@@ -3071,7 +3071,7 @@ impl Project {
         }
         let uri = &self.program().library(lib).uri;
         Err(format!(
-            "'{name}' é declarado em {uri}, fora do projeto; só declarações do projeto podem ser renomeadas."
+            "'{name}' is declared in {uri}, outside the project; only project declarations can be renamed."
         ))
     }
 

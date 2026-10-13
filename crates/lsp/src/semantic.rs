@@ -408,7 +408,7 @@ impl Analyzer for SemanticAnalyzer {
 
     fn rename(&mut self, documents: &DocumentStore, uri: &str, offset: usize, new: &str) -> Result<crate::Rename, String> {
         let project = self.project(documents, uri)
-            .ok_or_else(|| "O projeto do arquivo não pôde ser carregado (SDK ausente ou URI que não é de arquivo).".to_string())?;
+            .ok_or_else(|| "The file's project could not be loaded (missing SDK or a URI that is not a file).".to_string())?;
         crate::rename::rename(&project, uri, offset, new)
     }
 

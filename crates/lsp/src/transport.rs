@@ -43,12 +43,12 @@ pub fn read_message(reader: &mut impl BufRead) -> io::Result<Option<Value>> {
         }
         if let Some(value) = line.strip_prefix("Content-Length:") {
             size = Some(value.trim().parse::<usize>().map_err(|_| {
-                io::Error::new(io::ErrorKind::InvalidData, "Content-Length inválido")
+                io::Error::new(io::ErrorKind::InvalidData, "invalid Content-Length")
             })?);
         }
     }
     let size = size
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "quadro sem Content-Length"))?;
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "frame without Content-Length"))?;
     let mut body = vec![0u8; size];
     reader.read_exact(&mut body)?;
     let value: Value = serde_json::from_slice(&body)
@@ -73,7 +73,7 @@ pub fn write_message(writer: &mut impl Write, message: &Value) -> io::Result<()>
 /// measurements).
 pub fn frame(message: &Value) -> Vec<u8> {
     let mut output = Vec::new();
-    write_message(&mut output, message).expect("serializar para Vec não falha");
+    write_message(&mut output, message).expect("serializing to a Vec does not fail");
     output
 }
 
@@ -84,7 +84,7 @@ pub fn decode_all(mut bytes: &[u8]) -> io::Result<Vec<Value>> {
     while !bytes.is_empty() {
         let mut reader = bytes;
         let message = read_message(&mut reader)?.ok_or_else(|| {
-            io::Error::new(io::ErrorKind::UnexpectedEof, "bytes restantes sem quadro")
+            io::Error::new(io::ErrorKind::UnexpectedEof, "remaining bytes without a frame")
         })?;
         let consumed = bytes.len() - reader.len();
         messages.push(message);

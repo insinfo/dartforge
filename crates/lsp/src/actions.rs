@@ -360,7 +360,7 @@ pub(crate) fn insert_import(
             last_is_dart = existing_dart;
             last_is_package = existing_package;
         }
-        let d = last.expect("há imports");
+        let d = last.expect("there are imports");
         let empty_line = if is_package { last_is_dart } else { !is_dart && (last_is_dart || last_is_package) };
         return (
             Span { start: d.span.end, end: d.span.end },

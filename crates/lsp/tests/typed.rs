@@ -13,7 +13,7 @@ const LIMIT: Duration = Duration::from_secs(120);
 fn codes(publication: &Value) -> Vec<String> {
     publication["params"]["diagnostics"]
         .as_array()
-        .unwrap_or_else(|| panic!("sem diagnósticos: {publication}"))
+        .unwrap_or_else(|| panic!("no diagnostics: {publication}"))
         .iter()
         .map(|d| d["code"].as_str().unwrap_or("").to_string())
         .collect()
@@ -69,7 +69,7 @@ fn published_typed_code_reaches_editor() {
     let outputs = p.server.await_diagnostics(LIMIT);
     let uri = p.uri("lib/a.dart");
     let typed =
-        last(&outputs, &uri).unwrap_or_else(|| panic!("sem publicação tipada: {outputs:?}"));
+        last(&outputs, &uri).unwrap_or_else(|| panic!("no typed publication: {outputs:?}"));
     assert_eq!(typed["params"]["version"], 1);
     assert_eq!(codes(typed), vec!["non_bool_condition"], "{typed}");
     let d = &typed["params"]["diagnostics"][0];
@@ -96,7 +96,7 @@ fn only_published_codes_and_ignore_respected() {
     p.server.pause_typed_analysis(false);
     let outputs = p.server.await_diagnostics(LIMIT);
     let typed = last(&outputs, &p.uri("lib/a.dart"))
-        .expect("publicação tipada")
+        .expect("typed publication")
         .clone();
     // The order of `dart language-server` 3.6.2: errors before warnings.
     assert_eq!(
@@ -114,7 +114,7 @@ fn only_published_codes_and_ignore_respected() {
     );
     let published = dartforge_analysis::publicacao::verificados();
     for c in codes(&typed) {
-        assert!(published.contains(&c.as_str()), "{c} não é publicado");
+        assert!(published.contains(&c.as_str()), "{c} is not published");
     }
 }
 
@@ -139,7 +139,7 @@ fn stale_version_result_is_discarded() {
     let outputs = p.server.pump();
     assert!(
         outputs.iter().filter(|m| m["method"] == "textDocument/publishDiagnostics").all(|m| m["params"]["version"] == 2),
-        "publicou versão velha: {outputs:?}"
+        "published a stale version: {outputs:?}"
     );
     assert_eq!(p.server.typed_discarded(), 1);
     // Version 2 has no errors, and those of version 1 never reached the client:
@@ -189,25 +189,25 @@ fn editing_imported_updates_importer() {
         "lib/a.dart",
         "import 'b.dart';\nvoid f() {\n  if (x) {}\n}\n",
     );
-    let a = last(&outputs, &uri_a).expect("a.dart analisado");
+    let a = last(&outputs, &uri_a).expect("a.dart analyzed");
     assert_eq!(codes(a), vec!["non_bool_condition"], "{a}");
     // Only `b.dart` changes (without saving): `a.dart` is republished without the error.
     let outputs = change_and_wait(&mut p, "lib/b.dart", 2, "bool x = true;\n");
     let a =
-        last(&outputs, &uri_a).unwrap_or_else(|| panic!("a.dart não foi republicado: {outputs:?}"));
+        last(&outputs, &uri_a).unwrap_or_else(|| panic!("a.dart was not republished: {outputs:?}"));
     assert_eq!(a["params"]["version"], 1);
     assert!(codes(a).is_empty(), "{a}");
     // `b.dart` stays without errors: nothing to publish for it.
     assert!(last(&outputs, &uri_b).is_none());
     // And the error comes back when `b.dart` goes back to `int`.
     let outputs = change_and_wait(&mut p, "lib/b.dart", 3, "int x = 0;\n");
-    let a = last(&outputs, &uri_a).expect("a.dart republicado");
+    let a = last(&outputs, &uri_a).expect("a.dart republished");
     assert_eq!(codes(a), vec!["non_bool_condition"], "{a}");
 }
 
 #[test]
 fn close_discards_pending_result() {
-    let mut p = Project::new("tipado-fechar");
+    let mut p = Project::new("typed-close");
     let uri = p.uri("lib/a.dart");
     p.server.pause_typed_analysis(true);
     p.open("lib/a.dart", "void f() {\n  if (1) {}\n}\n");
@@ -229,7 +229,7 @@ fn close_discards_pending_result() {
 fn pulled_codes(report: &Value) -> Vec<String> {
     report["result"]["items"]
         .as_array()
-        .unwrap_or_else(|| panic!("sem itens: {report}"))
+        .unwrap_or_else(|| panic!("no items: {report}"))
         .iter()
         .map(|d| d["code"].as_str().unwrap_or("").to_string())
         .collect()
@@ -281,7 +281,7 @@ fn pulled_diagnostics_instead_of_pushed() {
     let refresh = outputs
         .iter()
         .find(|m| m["method"] == "workspace/diagnostic/refresh")
-        .unwrap_or_else(|| panic!("sem refresh: {outputs:?}"));
+        .unwrap_or_else(|| panic!("no refresh: {outputs:?}"));
     assert!(refresh["id"].is_string(), "{refresh}");
     // The client's response to the `refresh` is accepted silently.
     p.server.receive(json!({"jsonrpc":"2.0","id":refresh["id"].clone(),"result":null}));

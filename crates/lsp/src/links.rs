@@ -141,12 +141,12 @@ mod tests {
         let _ = std::fs::create_dir_all(root.join("lib"));
         let text = "/// Um widget.\n///\n/// {@tool dartpad}\n/// ** See code in examples/api/lib/a/b.0.dart **\n/// {@end-tool}\nclass A {}\n\n/// {@tool snippet}\n/// ** See code in examples/api/lib/c.dart **\nclass B {}\n";
         let ls = links(text, &root.join("lib/a.dart"));
-        assert_eq!(ls.len(), 1, "o bloco sem {{@end-tool}} fica de fora: {ls:?}");
+        assert_eq!(ls.len(), 1, "a block without {{@end-tool}} is left out: {ls:?}");
         let (s, target) = &ls[0];
         assert_eq!(&text[s.start..s.end], "examples/api/lib/a/b.0.dart");
         assert_eq!(target, &root.join("examples").join("api").join("lib").join("a").join("b.0.dart"));
         // Without the `examples/api` folder, no link.
-        let other = std::env::temp_dir().join(format!("dartforge-links-sem-{}", std::process::id()));
+        let other = std::env::temp_dir().join(format!("dartforge-links-without-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&other);
         assert!(links(text, &other.join("a.dart")).is_empty());
         let _ = std::fs::remove_dir_all(&root);

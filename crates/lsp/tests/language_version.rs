@@ -47,13 +47,13 @@ fn package_and_marker_version() {
     let mut a = SyntacticAnalyzer::new();
     assert!(
         a.diagnose(&uri(&file), source).is_empty(),
-        "o pacote está na 3.6"
+        "the package is on 3.6"
     );
     let with_marker = format!("// @dart=3.13\n{source}");
     assert_eq!(
         a.diagnose(&uri(&file), &with_marker).len(),
         1,
-        "o marcador vale mais"
+        "the marker wins"
     );
     // Outside a package: the current version (3.13).
     assert_eq!(a.diagnose("file:///nao/existe/b.dart", source).len(), 1);
@@ -92,7 +92,7 @@ fn close_and_reopen_rereads_package_config() {
     server.pump();
     write("3.13");
     let outputs = open(&mut server, 2);
-    let publication = outputs.iter().find(|m| m["method"] == "textDocument/publishDiagnostics").expect("publicação");
+    let publication = outputs.iter().find(|m| m["method"] == "textDocument/publishDiagnostics").expect("publication");
     assert_eq!(publication["params"]["diagnostics"].as_array().unwrap().len(), 1);
     let _ = std::fs::remove_dir_all(&root);
 }

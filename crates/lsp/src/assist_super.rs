@@ -252,7 +252,7 @@ impl Context<'_> {
                     match parameter_of(arg) {
                         Some(i) if k.parameters[i].kind != ParameterKind::Named && !cited.contains(&i) => {
                             match super_p.and_then(|sp| data_of(i, ia, sp, &mut table)) {
-                                Some(d) => positional.as_mut().expect("posicionais").push(d),
+                                Some(d) => positional.as_mut().expect("positionals").push(d),
                                 None => positional = None,
                             }
                         }

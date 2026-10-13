@@ -333,7 +333,7 @@ fn work(
             if e.shutdown {
                 return;
             }
-            let root = e.dirty.pop_first().expect("não vazio");
+            let root = e.dirty.pop_first().expect("non-empty");
             let open: Vec<(String, i32, PathBuf, String)> = e
                 .documents
                 .iter()
@@ -359,7 +359,7 @@ fn work(
             match Motor::novo(sdk_lib) {
                 Ok(m) => engine = Some(m),
                 Err(error) => {
-                    eprintln!("[dartforge-lsp] diagnósticos tipados desligados: {error}");
+                    eprintln!("[dartforge-lsp] typed diagnostics disabled: {error}");
                     let mut e = block();
                     e.running = None;
                     e.dirty.clear();
@@ -369,7 +369,7 @@ fn work(
                 }
             }
         }
-        let engine_ref = engine.as_ref().expect("motor pronto");
+        let engine_ref = engine.as_ref().expect("engine ready");
         let cancelled = || {
             let e = block();
             e.shutdown || e.dirty.contains(&root)
@@ -381,7 +381,7 @@ fn work(
             Ok(r) => r,
             Err(_) => {
                 eprintln!(
-                    "[dartforge-lsp] a análise tipada de {} entrou em pânico; ficam os diagnósticos sintáticos",
+                    "[dartforge-lsp] the typed analysis of {} panicked; the syntactic diagnostics remain",
                     root.display()
                 );
                 Vec::new()

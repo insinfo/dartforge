@@ -190,7 +190,7 @@ fn incomplete_code_still_imports() {
 
 /// UTF-16 line and column of the start of the `n`-th occurrence of `needle`.
 fn location(text: &str, needle: &str, n: usize) -> (u32, u32) {
-    let i = text.match_indices(needle).nth(n).unwrap_or_else(|| panic!("sem {needle:?}")).0;
+    let i = text.match_indices(needle).nth(n).unwrap_or_else(|| panic!("no {needle:?}")).0;
     let before = &text[..i];
     (
         before.matches('\n').count() as u32,
@@ -212,7 +212,7 @@ fn action<'a>(r: &'a Value, title: &str) -> &'a Value {
         .unwrap()
         .iter()
         .find(|a| a["title"] == title)
-        .unwrap_or_else(|| panic!("sem {title:?} em {:?}", titles(r)))
+        .unwrap_or_else(|| panic!("no {title:?} in {:?}", titles(r)))
 }
 
 #[test]
@@ -484,7 +484,7 @@ fn create_file_for_missing_uri() {
     assert_eq!(changes[1]["edits"][0]["newText"], "part of 'a.dart';\n\n");
 
     // Without the `create` operation in the client, the fix is not offered.
-    let mut p = Project::with_literals("acoes-criar-sem");
+    let mut p = Project::with_literals("actions-create-without");
     let r = actions_in(&mut p, "lib/a.dart", text, "'novo.dart'");
     assert!(!titles(&r).iter().any(|t| t.starts_with("Create file")), "{r}");
 }
@@ -2009,7 +2009,7 @@ class MyWidget<T> extends StatelessWidget {
                     failures.push(format!("{name}: obtido\n{obtained}\nesperado\n{d}"));
                 }
             }
-            (d, a) => failures.push(format!("{name}: esperado {} e obtido {}", d.is_some(), a.is_some())),
+            (d, a) => failures.push(format!("{name}: expected {} and got {}", d.is_some(), a.is_some())),
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n----\n"));
@@ -2454,7 +2454,7 @@ class _MyWidgetState extends State<MyWidget> {
                     failures.push(format!("{name}: obtido\n{obtained}\nesperado\n{d}"));
                 }
             }
-            (d, a) => failures.push(format!("{name}: esperado {} e obtido {}", d.is_some(), a.is_some())),
+            (d, a) => failures.push(format!("{name}: expected {} and got {}", d.is_some(), a.is_some())),
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n----\n"));
@@ -2938,7 +2938,7 @@ class C extends Widget with Diagnosticable {
                     failures.push(format!("{name}: obtido\n{obtained}\nesperado\n{d}"));
                 }
             }
-            (d, a) => failures.push(format!("{name}: esperado {} e obtido {}", d.is_some(), a.is_some())),
+            (d, a) => failures.push(format!("{name}: expected {} and got {}", d.is_some(), a.is_some())),
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n----\n"));
@@ -2994,7 +2994,7 @@ fn snippets_in_assists() {
 #[test]
 fn without_the_capability_the_edit_is_plain() {
     let mut p = Project::with_capabilities(
-        "acoes-sem-snippets",
+        "actions-without-snippets",
         json!({
             "workspace": {"workspaceEdit": {"documentChanges": true}},
             "textDocument": {"codeAction": {"codeActionLiteralSupport": {"codeActionKind": {"valueSet": ["quickfix", "refactor", "source"]}}}},

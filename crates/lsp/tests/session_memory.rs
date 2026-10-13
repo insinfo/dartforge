@@ -35,14 +35,14 @@ fn memory_returns_to_baseline_after_each_edit() {
     }
     let after = dartforge_instrument::live_bytes().saturating_sub(base);
     println!(
-        "sessão: retido enquanto válido até {retained} bytes; depois de 20 edições, {after} bytes acima da base"
+        "session: retained while valid up to {retained} bytes; after 20 edits, {after} bytes above the baseline"
     );
     assert!(
         retained > 0,
-        "a sessão devia reter o programa entre consultas"
+        "the session should retain the program between queries"
     );
     assert!(
         after < 64 * 1024,
-        "{after} bytes presos depois das edições"
+        "{after} bytes stuck after the edits"
     );
 }

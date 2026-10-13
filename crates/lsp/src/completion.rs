@@ -686,7 +686,7 @@ impl Collector {
             match_: None,
             replace_empty: false,
         });
-        self.items.last_mut().expect("item recém-empurrado")
+        self.items.last_mut().expect("item just pushed")
     }
 
     /// Fills the relevance of the last item from function `f` (with type `ty`

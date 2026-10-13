@@ -62,7 +62,7 @@ fn members_by_receiver_type_with_dangling_dot() {
     ] {
         assert!(
             r_labels.contains(&expected.to_string()),
-            "{expected} em {r_labels:?}"
+            "{expected} in {r_labels:?}"
         );
     }
     // Static members and constructors do not appear on an instance.
@@ -190,14 +190,14 @@ fn scope_locals_parameters_members_top_level_and_keywords() {
     ] {
         assert!(
             r_labels.contains(&expected.to_string()),
-            "{expected} em {r_labels:?}"
+            "{expected} in {r_labels:?}"
         );
     }
     // Out of scope, declared later, private to another library.
     for missing in ["interno", "depois", "_escondido"] {
         assert!(
             !r_labels.contains(&missing.to_string()),
-            "{missing} em {r_labels:?}"
+            "{missing} in {r_labels:?}"
         );
     }
     assert_eq!(item(&r, "local")["detail"], "String");
@@ -223,12 +223,12 @@ fn scope_locals_parameters_members_top_level_and_keywords() {
     ]
     .iter()
     .filter(|(label, order)| item(&r, label)["sortText"] != *order)
-    .map(|(label, order)| format!("{label}: {} (esperado {order})", item(&r, label)["sortText"]))
+    .map(|(label, order)| format!("{label}: {} (expected {order})", item(&r, label)["sortText"]))
     .collect::<Vec<_>>()
     .into_iter()
     .reduce(|a, b| format!("{a}; {b}"))
     {
-        panic!("sortText divergente: {label}");
+        panic!("diverging sortText: {label}");
     }
 
     // With a prefix, first what starts with it (case-insensitively); then what
@@ -371,7 +371,7 @@ fn item_with<'a>(r: &'a serde_json::Value, label: &str, detail: &str) -> &'a ser
         .unwrap()
         .iter()
         .find(|i| i["label"] == label && i["detail"] == detail)
-        .unwrap_or_else(|| panic!("sem {label} ({detail}) em {:?}", labels(r)))
+        .unwrap_or_else(|| panic!("no {label} ({detail}) in {:?}", labels(r)))
 }
 
 #[test]
@@ -496,10 +496,10 @@ fn type_position_offers_only_types() {
     let r = completion(&mut p, "lib/a.dart", base);
     let r_labels = labels(&r);
     for expected in ["T", "Caixa", "int", "String", "m", "dynamic"] {
-        assert!(r_labels.contains(&expected.to_string()), "{expected} em {r_labels:?}");
+        assert!(r_labels.contains(&expected.to_string()), "{expected} in {r_labels:?}");
     }
     for forbidden in ["valor", "dobro(…)", "print(…)", "itens", "true", "null"] {
-        assert!(!r_labels.contains(&forbidden.to_string()), "{forbidden} em {r_labels:?}");
+        assert!(!r_labels.contains(&forbidden.to_string()), "{forbidden} in {r_labels:?}");
     }
     // Function parameter: the class's `T` is not in scope.
     let r = completion(&mut p, "lib/b.dart", "int valor = 0;\nvoid f(▮ x) {}\n");
